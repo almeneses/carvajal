@@ -69,7 +69,19 @@ make eval
 
 ## Configuración del LLM
 
-El asistente RAG usa un LLM configurable mediante variables de entorno:
+Copia el archivo de ejemplo y completa tu clave (`.env` está en `.gitignore`):
+
+```bash
+cp .env.example .env
+```
+
+```ini
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+También puedes configurar las variables en la terminal:
 
 | Variable | Descripción | Default |
 |----------|-------------|---------|

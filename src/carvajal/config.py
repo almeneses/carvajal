@@ -3,6 +3,10 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 BASE_URL: str = "https://www.carvajal.com"
 USER_AGENT: str = "carvajal-corpus/0.1 (+https://github.com/markodavid/carvajal)"
 TIMEOUT_SECONDS: int = 30

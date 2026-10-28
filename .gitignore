@@ -19,6 +19,7 @@ htmlcov/
 # Environment
 .env
 .env.*
+!.env.example
 
 # Datos del corpus: capas crudas (bronze) y procesadas (silver) se ignoran;
 # el entregable versionado es data/gold/ (capa gold).

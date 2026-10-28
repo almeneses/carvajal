@@ -24,6 +24,7 @@ dependencies = [
     "langchain-ollama>=1.1.0",
     "langchain-openai>=1.7.3",
     "lxml>=5.1",
+    "python-dotenv>=1.2.4",
     "requests>=2.32",
     "streamlit>=1.66.1",
 ]
