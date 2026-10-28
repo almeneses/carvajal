@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/inversionistas/inicio/
 title: Inicio
-captured_at: 2026-10-28T15:09:20.698423+00:00
+captured_at: 2026-10-28T15:32:30.142149+00:00
 ---
 
 Únete a
@@ -67,25 +67,3 @@ que contribuyeron a la educación y el bienestar de la sociedad.
 Desde 2011 hemos generado
 
 nuevos empleos en Colombia, Perú, México, Ecuador, El Salvador y Argentina.
-
-- Quiénes somos
-
-- Nuestro propósito
-
-- Nuestra historia
-
-- Sostenibilidad
-
-- Proveedores
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Superintendencia Financiera de Colombia
-
-- Bolsa de Valores de Colombia
-
-## Carvajal © 2022

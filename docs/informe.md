@@ -73,9 +73,9 @@ espacios y se eliminan bloques duplicados.
 
 **Corrección clave:** la primera versión del extractor emitía el texto de cada
 elemento padre *y* de sus hijos, duplicando el menú decenas de veces: el corpus pesaba
-**2.45 MB** y contaminaba la recuperación. Tras corregirlo, el corpus quedó en
-**72.9 KB de texto editorial limpio** (≈ 18 000 tokens), apto para consolidarse en el
-prompt de sistema.
+**2.45 MB** y contaminaba la recuperación. Tras corregirlo (y excluir las plantillas
+`header`/`footer` de Elementor), el corpus quedó en **64.5 KB de texto editorial
+limpio** (≈ 15 000 tokens), apto para consolidarse en el prompt de sistema.
 
 ### 3.3 Chunking
 
@@ -102,7 +102,7 @@ requiere claves ni cuotas de API.
 ### 4.3 Base de datos vectorial
 
 **FAISS** en memoria. El índice se reconstruye al iniciar la aplicación; es adecuado
-para el tamaño actual del corpus (15 documentos, ~73 KB). Para producción se
+para el tamaño actual del corpus (15 documentos, ~64.5 KB). Para producción se
 recomendaría una base vectorial persistente (Chroma, pgvector o Qdrant).
 
 ### 4.4 Diseño del prompt

@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/compromiso-etico/
 title: Compromiso Etico
-captured_at: 2026-10-28T15:09:39.767545+00:00
+captured_at: 2026-10-28T15:32:49.298211+00:00
 ---
 
 ## Compromiso
@@ -233,45 +233,3 @@ Uno de los compromisos que tiene la Organización con la sociedad es contribuir 
 ## Medio ambiente
 
 La Organización propiciará, a través de su gestión y de sus procesos industriales, la protección del medio ambiente, procurando implementar mejores prácticas ambientales, alineadas con los estándares internacionales que buscan hacer un uso eficiente de la energía y del agua, y llevando a cabo un adecuado sistema de control de emisiones y de gestión de los residuos.
-
-## SUPERFINANCIERA BVC
-
-#### Mapa del sitio:
-
-- Nosotros
-
-- Inversionistas
-
-- Sostenibilidad
-
-- Soluciones de comunicación
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Aviso de Privacidad
-
-- Trabaja con nosotros
-
-- Aceptación Términos y Condiciones
-
-#### Contáctanos:
-
-- Carvajal Empaques
-
-- Carvajal Educación
-
-- Carvajal Soluciones de Comunicación
-
-- Carvajal Tecnología y Servicios
-
-- Carvajal Espacios
-
-- Fundación Carvajal
-
-- Fundación Propal
-
-## Carvajal © 2026 +120 años transformando vidas

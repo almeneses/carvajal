@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/gobierno-corporativo/
 title: Gobierno Corporativo
-captured_at: 2026-10-28T15:09:28.852271+00:00
+captured_at: 2026-10-28T15:32:38.758240+00:00
 ---
 
 ## Gobierno corporativo
@@ -91,45 +91,3 @@ Vicepresidente de Experiencia de Personas.
 Vicepresidente Digital y Analítica
 
 Economista, MBA en Dirección de Empresas Tecnológicas y MS en Innovación. Con 15 años de experiencia en transformación de procesos y negocios mediante la tecnología en sectores financiero, BPO y tecnología. Ha liderado procesos de transformación, fusiones tecnológicas en mercados B2B. Cuenta con cerca de 5 años en la Organización Carvajal, liderando áreas de Producto, Innovación y el proceso de transformación de Carvajal Tecnología y Servicios como Director General
-
-## SUPERFINANCIERA BVC
-
-#### Mapa del sitio:
-
-- Nosotros
-
-- Inversionistas
-
-- Sostenibilidad
-
-- Soluciones de comunicación
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Aviso de Privacidad
-
-- Trabaja con nosotros
-
-- Aceptación Términos y Condiciones
-
-#### Contáctanos:
-
-- Carvajal Empaques
-
-- Carvajal Educación
-
-- Carvajal Soluciones de Comunicación
-
-- Carvajal Tecnología y Servicios
-
-- Carvajal Espacios
-
-- Fundación Carvajal
-
-- Fundación Propal
-
-## Carvajal © 2026 +120 años transformando vidas

@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/
 title: Www.Carvajal.Com
-captured_at: 2026-10-28T15:08:18.290449+00:00
+captured_at: 2026-10-28T15:31:06.074407+00:00
 ---
 
 ## Hacer las cosas bien es crear valor
@@ -111,45 +111,3 @@ Inauguración de la Escuela Jorge Eliecer Gaitán – Guachené , Cauca con Fund
 El Salvador
 
 Talento Carvajal – Carvajal empaques, El Salvador
-
-## SUPERFINANCIERA BVC
-
-#### Mapa del sitio:
-
-- Nosotros
-
-- Inversionistas
-
-- Sostenibilidad
-
-- Soluciones de comunicación
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Aviso de Privacidad
-
-- Trabaja con nosotros
-
-- Aceptación Términos y Condiciones
-
-#### Contáctanos:
-
-- Carvajal Empaques
-
-- Carvajal Educación
-
-- Carvajal Soluciones de Comunicación
-
-- Carvajal Tecnología y Servicios
-
-- Carvajal Espacios
-
-- Fundación Carvajal
-
-- Fundación Propal
-
-## Carvajal © 2026 +120 años transformando vidas

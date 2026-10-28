@@ -49,3 +49,20 @@ def test_html_a_markdown_no_duplica_contenedores() -> None:
     markdown = html_to_markdown(html)
 
     assert markdown.count("Párrafo único") == 1
+
+
+def test_html_a_markdown_ignora_regiones_elementor() -> None:
+    """Descarta las plantillas de header/footer de Elementor."""
+
+    html = (
+        "<html><body>"
+        "<div data-elementor-type='header'>Menú superior</div>"
+        "<div data-elementor-type='wp-page'><p>Contenido editorial</p></div>"
+        "<div data-elementor-type='footer'>Pie con enlaces</div>"
+        "</body></html>"
+    )
+    markdown = html_to_markdown(html)
+
+    assert "Contenido editorial" in markdown
+    assert "Menú superior" not in markdown
+    assert "Pie con enlaces" not in markdown

@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/proposito-superior/
 title: Proposito Superior
-captured_at: 2026-10-28T15:08:28.635893+00:00
+captured_at: 2026-10-28T15:31:18.633993+00:00
 ---
 
 ## Nuestro
@@ -33,45 +33,3 @@ Nuestro talento, liderazgo y cultura organizacional nos diferencian.
 ## Innovación
 
 Somos una organización dinámica, apasionada por la innovación y el cambio.
-
-## SUPERFINANCIERA BVC
-
-#### Mapa del sitio:
-
-- Nosotros
-
-- Inversionistas
-
-- Sostenibilidad
-
-- Soluciones de comunicación
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Aviso de Privacidad
-
-- Trabaja con nosotros
-
-- Aceptación Términos y Condiciones
-
-#### Contáctanos:
-
-- Carvajal Empaques
-
-- Carvajal Educación
-
-- Carvajal Soluciones de Comunicación
-
-- Carvajal Tecnología y Servicios
-
-- Carvajal Espacios
-
-- Fundación Carvajal
-
-- Fundación Propal
-
-## Carvajal © 2026 +120 años transformando vidas

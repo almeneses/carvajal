@@ -27,6 +27,8 @@ NOISE_CLASS_HINTS = (
     "modal",
 )
 
+NOISE_ELEMENTOR_TYPES = {"header", "footer"}
+
 CONTENT_TAGS = (
     "h1",
     "h2",
@@ -94,6 +96,8 @@ def _remove_noise(soup: BeautifulSoup) -> None:
 def _is_noise(element: Tag) -> bool:
     """Indica si un elemento pertenece a *chrome* del sitio (menús, banners)."""
 
+    if element.get("data-elementor-type") in NOISE_ELEMENTOR_TYPES:
+        return True
     classes = element.get("class")
     identifier = element.get("id")
     haystack = f"{classes} {identifier}".lower()

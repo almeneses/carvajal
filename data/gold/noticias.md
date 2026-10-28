@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/noticias/
 title: Noticias
-captured_at: 2026-10-28T15:08:32.722297+00:00
+captured_at: 2026-10-28T15:31:23.580620+00:00
 ---
 
 ## UNIDOS PARA RECUPERAR Y REVITALIZAR A FICO
@@ -43,45 +43,3 @@ captured_at: 2026-10-28T15:08:32.722297+00:00
 ## ‘Hay que ser una organización ambidiestra’: Pedro Carvajal
 
 ## noviembre, 25 lunes, 2024
-
-## SUPERFINANCIERA BVC
-
-#### Mapa del sitio:
-
-- Nosotros
-
-- Inversionistas
-
-- Sostenibilidad
-
-- Soluciones de comunicación
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Aviso de Privacidad
-
-- Trabaja con nosotros
-
-- Aceptación Términos y Condiciones
-
-#### Contáctanos:
-
-- Carvajal Empaques
-
-- Carvajal Educación
-
-- Carvajal Soluciones de Comunicación
-
-- Carvajal Tecnología y Servicios
-
-- Carvajal Espacios
-
-- Fundación Carvajal
-
-- Fundación Propal
-
-## Carvajal © 2026 +120 años transformando vidas

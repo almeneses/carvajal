@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/historia/
 title: Historia
-captured_at: 2026-10-28T15:08:26.543318+00:00
+captured_at: 2026-10-28T15:31:15.700943+00:00
 ---
 
 ## 1904
@@ -315,45 +315,3 @@ Capitulo 3
 Innovador que genera valor
 
 Capitulo 4
-
-## SUPERFINANCIERA BVC
-
-#### Mapa del sitio:
-
-- Nosotros
-
-- Inversionistas
-
-- Sostenibilidad
-
-- Soluciones de comunicación
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Aviso de Privacidad
-
-- Trabaja con nosotros
-
-- Aceptación Términos y Condiciones
-
-#### Contáctanos:
-
-- Carvajal Empaques
-
-- Carvajal Educación
-
-- Carvajal Soluciones de Comunicación
-
-- Carvajal Tecnología y Servicios
-
-- Carvajal Espacios
-
-- Fundación Carvajal
-
-- Fundación Propal
-
-## Carvajal © 2026 +120 años transformando vidas

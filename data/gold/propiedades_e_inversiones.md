@@ -1,7 +1,7 @@
 ---
 url: https://www.carvajal.com/propiedades-e-inversiones/
 title: Propiedades E Inversiones
-captured_at: 2026-10-28T15:09:10.715338+00:00
+captured_at: 2026-10-28T15:32:16.564908+00:00
 ---
 
 ## Generamos experiencias confortables, con la administración de
@@ -55,45 +55,3 @@ Proyecto: Vivienda Ciudad Guabinas Ubicación: Yumbo – Colombia Proyecto de vi
 ## Zonamerica
 
 Proyecto: Zonamerica Ubicación: Cali – Colombia Desarrollado en conjunto con la firma uruguaya Zonamerica, es una zona franca multiempresarial destinada a servicios.
-
-## SUPERFINANCIERA BVC
-
-#### Mapa del sitio:
-
-- Nosotros
-
-- Inversionistas
-
-- Sostenibilidad
-
-- Soluciones de comunicación
-
-- Línea Ética
-
-- Términos y condiciones
-
-- Politica y tratamiento de datos
-
-- Aviso de Privacidad
-
-- Trabaja con nosotros
-
-- Aceptación Términos y Condiciones
-
-#### Contáctanos:
-
-- Carvajal Empaques
-
-- Carvajal Educación
-
-- Carvajal Soluciones de Comunicación
-
-- Carvajal Tecnología y Servicios
-
-- Carvajal Espacios
-
-- Fundación Carvajal
-
-- Fundación Propal
-
-## Carvajal © 2026 +120 años transformando vidas

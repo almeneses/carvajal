@@ -75,7 +75,11 @@ def build_retriever(documents: list[Document]) -> BaseRetriever:
     chunks: list[Document] = []
     for document in documents:
         metadata = dict(document.metadata)
-        for chunk in splitter.split_documents([document]):
+        body = Document(
+            page_content=_strip_front_matter(document.page_content),
+            metadata=metadata,
+        )
+        for chunk in splitter.split_documents([body]):
             chunk.metadata = {**metadata, "source": metadata.get("source", "")}
             chunks.append(chunk)
     vectorstore = FAISS.from_texts(
