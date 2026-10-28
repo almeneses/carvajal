@@ -10,11 +10,15 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import Runnable
 from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from carvajal.config import (
     ANTHROPIC_API_KEY,
     CLAUDE_MODEL,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    DEEPSEEK_MODEL,
     GOLD_DIR,
     LLM_PROVIDER,
     QUESTIONS_FILE,
@@ -119,10 +123,18 @@ def build_llm() -> Runnable:
     """Construye el LLM configurado mediante variables de entorno.
 
     Returns:
-        ``ChatOllama`` cuando ``LLM_PROVIDER`` es ``ollama`` (por defecto) o
-        ``ChatAnthropic`` cuando ``LLM_PROVIDER`` es ``claude``.
+        ``ChatOllama`` con ``LLM_PROVIDER=ollama`` (por defecto),
+        ``ChatOpenAI`` apuntando a DeepSeek con ``LLM_PROVIDER=deepseek`` o
+        ``ChatAnthropic`` con ``LLM_PROVIDER=claude``.
     """
 
+    if LLM_PROVIDER == "deepseek":
+        return ChatOpenAI(
+            model=DEEPSEEK_MODEL,
+            api_key=DEEPSEEK_API_KEY,
+            base_url=DEEPSEEK_BASE_URL,
+            temperature=0,
+        )
     if LLM_PROVIDER == "claude":
         return ChatAnthropic(model=CLAUDE_MODEL, api_key=ANTHROPIC_API_KEY, temperature=0)
     return ChatOllama(model=LLM_MODEL, temperature=0)

@@ -15,10 +15,10 @@ uv sync
 ollama serve
 ollama pull nomic-embed-text
 
-# 3. LLM vía Claude (PowerShell)
-$env:LLM_PROVIDER = "claude"
-$env:ANTHROPIC_API_KEY = "<clave>"
-$env:CLAUDE_MODEL = "claude-sonnet-4-5"
+# 3. LLM vía DeepSeek (PowerShell)
+$env:LLM_PROVIDER = "deepseek"
+$env:DEEPSEEK_API_KEY = "<clave>"
+$env:DEEPSEEK_MODEL = "deepseek-chat"
 
 # 4. Verificar el corpus y lanzar la interfaz
 uv run carvajal status
@@ -38,7 +38,7 @@ Checklist:
 |---|---|---|
 | 0:00–2:00 | **Problema y solución** | La información de Carvajal está dispersa en su sitio; se necesita un canal automatizado y preciso. Solución: Q&A con RAG como núcleo de un futuro chatbot. |
 | 2:00–5:00 | **Datos** | Scraping respetuoso (15 semillas, `robots.txt`), capas bronze/silver/gold, extractor DOM propio y la corrección clave: de 2.45 MB a 73 KB de texto limpio. *Chunking* 1000/200 y FAISS k=5. |
-| 5:00–8:00 | **Modelado** | Embeddings `nomic-embed-text` (Ollama), LLM Claude vía API (configurable a `llama3.2`), FAISS en memoria y diseño del prompt: corpus consolidado + reglas anti-alucinación + temperatura 0. |
+| 5:00–8:00 | **Modelado** | Embeddings `nomic-embed-text` (Ollama), LLM DeepSeek vía API (configurable a Ollama/Claude), FAISS en memoria y diseño del prompt: corpus consolidado + reglas anti-alucinación + temperatura 0. |
 | 8:00–13:00 | **Demo en vivo** | Streamlit: 4–5 preguntas (ver abajo). Mostrar también el comando `uv run carvajal ask "..."` como respaldo. |
 | 13:00–15:00 | **Resultados y cierre** | Tabla de `docs/resultados.md`, calidad de respuestas, limitaciones (corpus acotado, sin memoria conversacional, FAISS en memoria) y siguientes pasos (más semillas, base vectorial persistente, evaluación automática). |
 

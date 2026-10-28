@@ -81,7 +81,7 @@ con asistente RAG.
 | **HTTP** | `requests` (sesión única, `User-Agent` identificable, `timeout`) |
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
 | **RAG** | LangChain + FAISS + embeddings |
-| **LLM** | Ollama (`llama3.2`) o Anthropic Claude (vía API) |
+| **LLM** | DeepSeek (`deepseek-chat`), Anthropic Claude u Ollama (`llama3.2`) |
 | **Interfaz de pruebas** | Streamlit |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
@@ -207,6 +207,7 @@ git push
 | 2026-10-28 | Añadir asistente RAG con LLM configurable (Ollama / Claude API) | El curso define dos opciones de modelo; se soportan ambas vía `LLM_PROVIDER` |
 | 2026-10-28 | Corregir el extractor: eliminar duplicación de contenedores y *chrome* | El corpus pasó de 2.45 MB a 73 KB de texto editorial; mejora la recuperación y permite consolidarlo en el prompt |
 | 2026-10-28 | Consolidar el corpus limpio en el prompt de sistema | El prompt es la "memoria" completa del asistente en esta fase |
+| 2026-10-28 | Añadir DeepSeek como proveedor principal vía API compatible con OpenAI | El curso usa la API de DeepSeek; Ollama y Claude quedan como alternativas vía `LLM_PROVIDER` |
 
 ## 10. Notas y tareas pendientes
 

@@ -8,6 +8,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 
 from carvajal.rag import (
     DEFAULT_SYSTEM_PROMPT,
@@ -76,6 +77,17 @@ def test_build_llm_devuelve_claude_cuando_se_configura(monkeypatch: pytest.Monke
     monkeypatch.setattr("carvajal.rag.CLAUDE_MODEL", "claude-sonnet-4-5")
 
     assert isinstance(build_llm(), ChatAnthropic)
+
+
+def test_build_llm_devuelve_deepseek_cuando_se_configura(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El proveedor DeepSeek (API compatible con OpenAI) se selecciona con ``LLM_PROVIDER``."""
+
+    monkeypatch.setattr("carvajal.rag.LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr("carvajal.rag.DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setattr("carvajal.rag.DEEPSEEK_MODEL", "deepseek-chat")
+    monkeypatch.setattr("carvajal.rag.DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+
+    assert isinstance(build_llm(), ChatOpenAI)
 
 
 def test_build_system_prompt_consolida_corpus() -> None:

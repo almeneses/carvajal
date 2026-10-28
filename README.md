@@ -25,7 +25,7 @@ sin depender de una API del sitio.
 | **HTTP** | `requests` (sesión única, `User-Agent` identificable, `timeout`) |
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
 | **RAG** | LangChain + FAISS + embeddings |
-| **LLM** | Ollama (`llama3.2`) o Anthropic Claude (vía API) |
+| **LLM** | DeepSeek (`deepseek-chat`), Anthropic Claude u Ollama (`llama3.2`) |
 | **Interfaz de pruebas** | Streamlit |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
@@ -73,16 +73,22 @@ El asistente RAG usa un LLM configurable mediante variables de entorno:
 
 | Variable | Descripción | Default |
 |----------|-------------|---------|
-| `LLM_PROVIDER` | Proveedor LLM: `ollama` (local) o `claude` (API). | `ollama` |
+| `LLM_PROVIDER` | Proveedor LLM: `ollama`, `deepseek` o `claude`. | `ollama` |
+| `DEEPSEEK_API_KEY` | Clave API de DeepSeek (solo si `LLM_PROVIDER=deepseek`). | `""` |
+| `DEEPSEEK_MODEL` | Modelo DeepSeek a utilizar. | `deepseek-chat` |
+| `DEEPSEEK_BASE_URL` | Endpoint compatible con OpenAI. | `https://api.deepseek.com/v1` |
 | `ANTHROPIC_API_KEY` | Clave API de Anthropic (solo si `LLM_PROVIDER=claude`). | `""` |
 | `CLAUDE_MODEL` | Modelo Claude a utilizar (p. ej. `claude-sonnet-4-5`). | `claude-sonnet-4-5` |
 
-Ejemplo con Claude vía API:
+> Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
+> independientemente del proveedor del LLM.
+
+Ejemplo con DeepSeek vía API:
 
 ```bash
-$env:LLM_PROVIDER = "claude"
-$env:ANTHROPIC_API_KEY = "<tu-clave-de-anthropic>"
-$env:CLAUDE_MODEL = "claude-sonnet-4-5"
+$env:LLM_PROVIDER = "deepseek"
+$env:DEEPSEEK_API_KEY = "<tu-clave-de-deepseek>"
+$env:DEEPSEEK_MODEL = "deepseek-chat"
 uv run carvajal ask "¿Cuál es la misión de Carvajal?"
 ```
 

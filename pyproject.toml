@@ -22,6 +22,7 @@ dependencies = [
     "langchain-anthropic>=1.7.7",
     "langchain-community>=0.4.2",
     "langchain-ollama>=1.1.0",
+    "langchain-openai>=1.7.3",
     "lxml>=5.1",
     "requests>=2.32",
     "streamlit>=1.66.1",

@@ -45,7 +45,7 @@ Decisiones técnicas:
 | Componente | Elección | Motivo |
 |---|---|---|
 | Framework de LLM | **LangChain** | Recomendado por el curso; integra Ollama y Anthropic |
-| Modelo (módulo 2) | **Claude vía API** (`claude-sonnet-4-5`, configurable) | Calidad de razonamiento y bajo costo por consulta |
+| Modelo (módulo 2) | **DeepSeek vía API** (`deepseek-chat`, configurable) | API compatible con OpenAI, bajo costo y buen rendimiento en español |
 | Alternativa local | **Ollama** (`llama3.2`) | Permite demo sin API mediante `LLM_PROVIDER=ollama` |
 | Embeddings | **Ollama `nomic-embed-text`** | Open source, local y sin costo |
 | Base vectorial | **FAISS** (en memoria) | Suficiente para 15 documentos; cero infraestructura |
@@ -92,9 +92,11 @@ requiere claves ni cuotas de API.
 
 ### 4.2 LLM
 
-- **Claude vía API** (`ChatAnthropic`) como opción principal del módulo 2.
-- Configurable por entorno: `LLM_PROVIDER=claude|ollama`, `ANTHROPIC_API_KEY`,
-  `CLAUDE_MODEL`.
+- **DeepSeek vía API** (`ChatOpenAI` apuntando a `https://api.deepseek.com/v1`) como
+  opción principal del módulo 2, con modelo `deepseek-chat`.
+- Alternativas configurables: Ollama (`llama3.2`) y Anthropic Claude.
+- Configuración por entorno: `LLM_PROVIDER=deepseek|ollama|claude`, `DEEPSEEK_API_KEY`,
+  `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL` (y `ANTHROPIC_API_KEY` / `CLAUDE_MODEL`).
 - Temperatura `0` para respuestas deterministas y fieles al corpus.
 
 ### 4.3 Base de datos vectorial
@@ -177,6 +179,9 @@ make check                 # lint + formato + tipos + pruebas
 
 | Variable | Descripción | Default |
 |---|---|---|
-| `LLM_PROVIDER` | `ollama` o `claude` | `ollama` |
+| `LLM_PROVIDER` | `ollama`, `deepseek` o `claude` | `ollama` |
+| `DEEPSEEK_API_KEY` | Clave API de DeepSeek | `""` |
+| `DEEPSEEK_MODEL` | Modelo DeepSeek | `deepseek-chat` |
+| `DEEPSEEK_BASE_URL` | Endpoint compatible con OpenAI | `https://api.deepseek.com/v1` |
 | `ANTHROPIC_API_KEY` | Clave API de Anthropic | `""` |
 | `CLAUDE_MODEL` | Modelo Claude | `claude-sonnet-4-5` |
