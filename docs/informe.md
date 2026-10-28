@@ -48,7 +48,7 @@ Decisiones técnicas:
 | Modelo (módulo 2) | **DeepSeek vía API** (`deepseek-chat`, configurable) | API compatible con OpenAI, bajo costo y buen rendimiento en español |
 | Alternativa local | **Ollama** (`llama3.2`) | Permite demo sin API mediante `LLM_PROVIDER=ollama` |
 | Embeddings | **Ollama `nomic-embed-text`** | Open source, local y sin costo |
-| Base vectorial | **FAISS** (en memoria) | Suficiente para 15 documentos; cero infraestructura |
+| Base vectorial | **FAISS** (índice en disco) | Suficiente para 15 documentos; cero infraestructura |
 | Interfaz | **Streamlit** | Campo de pregunta y área de respuesta en minutos |
 
 ## 3. Preparación de los datos
@@ -101,9 +101,12 @@ requiere claves ni cuotas de API.
 
 ### 4.3 Base de datos vectorial
 
-**FAISS** en memoria. El índice se reconstruye al iniciar la aplicación; es adecuado
-para el tamaño actual del corpus (15 documentos, ~64.5 KB). Para producción se
-recomendaría una base vectorial persistente (Chroma, pgvector o Qdrant).
+**FAISS** con índice persistido en `data/index/`. El índice se construye una vez y se
+reutiliza mientras el corpus no cambie (huella SHA-256 de los chunks), de modo que la
+aplicación arranca en segundos; la primera construcción tarda varios minutos porque los
+embeddings se calculan en CPU con Ollama. Es adecuado para el tamaño actual del corpus
+(15 documentos, ~64.5 KB). Para producción se recomendaría una base vectorial dedicada
+(Chroma, pgvector o Qdrant).
 
 ### 4.4 Diseño del prompt
 
@@ -169,8 +172,8 @@ temperatura 0.
   basado en imágenes); la respuesta se construyó con menciones de otras fuentes
   y se señaló la ausencia.
 - **Noticias:** solo se capturan titulares y fechas, no el cuerpo de cada noticia.
-- **Recuperación:** `k=5` sobre chunks de 1000/200; FAISS se reconstruye en memoria
-  en cada ejecución.
+- **Recuperación:** `k=5` sobre chunks de 1000/200; el índice FAISS se cachea en
+  `data/index/` y solo se reconstruye si cambia el corpus.
 - **Sin memoria conversacional:** una pregunta por turno.
 - **Evaluación cualitativa y manual:** no se implementó un *benchmark* automático.
 

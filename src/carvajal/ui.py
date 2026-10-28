@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+from carvajal.config import LLM_PROVIDER
 from carvajal.rag import ask, build_retriever, build_system_prompt, load_gold_documents
 
 
@@ -38,7 +39,7 @@ def main() -> None:
 
     st.set_page_config(page_title="Carvajal — Asistente", page_icon="🤖")
     st.title("Carvajal — Asistente Q&A (prueba)")
-    st.caption("Arquitectura RAG sobre el corpus web de Carvajal.")
+    st.caption(f"Arquitectura RAG sobre el corpus web de Carvajal · modelo: `{LLM_PROVIDER}`")
 
     question = st.text_area(
         "Pregunta",

@@ -26,6 +26,9 @@ htmlcov/
 data/raw/
 data/processed/
 
+# Índice vectorial FAISS (se regenera desde data/gold/ con `make app` o `carvajal ask`)
+data/index/
+
 # Arteefactos
 *.log
 

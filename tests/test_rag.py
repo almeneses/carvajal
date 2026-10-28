@@ -14,6 +14,7 @@ from carvajal.rag import (
     DEFAULT_SYSTEM_PROMPT,
     ask,
     build_llm,
+    build_retriever,
     build_system_prompt,
     evaluate,
     load_gold_documents,
@@ -146,3 +147,69 @@ def test_render_results_markdown_incluye_preguntas_y_respuestas() -> None:
     assert "# Resultados de la evaluación" in markdown
     assert "## 1. ¿Pregunta uno?" in markdown
     assert "Respuesta uno" in markdown
+
+
+class _FakeVectorStore:
+    """Vector store mínimo para probar la persistencia del índice."""
+
+    def __init__(self, texts: list[str] | None = None) -> None:
+        self.texts = texts or []
+
+    def as_retriever(self, search_kwargs: dict | None = None) -> str:
+        return "retriever"
+
+    def save_local(self, folder_path: str) -> None:
+        (Path(folder_path) / "index.faiss").write_text("indice", encoding="utf-8")
+
+
+def _fake_faiss(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Sustituye FAISS y los embeddings por dobles que registran su uso."""
+
+    calls: list[str] = []
+
+    def fake_from_texts(texts: list[str], embedding: object, metadatas: list) -> _FakeVectorStore:
+        calls.append("from_texts")
+        return _FakeVectorStore(texts)
+
+    def fake_load_local(
+        folder_path: str, embeddings: object, allow_dangerous_deserialization: bool = False
+    ) -> _FakeVectorStore:
+        calls.append("load_local")
+        return _FakeVectorStore()
+
+    monkeypatch.setattr("carvajal.rag.FAISS.from_texts", fake_from_texts)
+    monkeypatch.setattr("carvajal.rag.FAISS.load_local", fake_load_local)
+    monkeypatch.setattr("carvajal.rag.OllamaEmbeddings", lambda model: "embeddings")
+    return calls
+
+
+def test_build_retriever_reutiliza_el_indice_en_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El índice FAISS se guarda en disco y se reutiliza si el corpus no cambia."""
+
+    calls = _fake_faiss(monkeypatch)
+    index_dir = tmp_path / "index"
+    documents = [Document(page_content="Contenido del corpus.", metadata={"source": "x.md"})]
+
+    first = build_retriever(documents, index_dir)
+    second = build_retriever(documents, index_dir)
+
+    assert first == "retriever"
+    assert second == "retriever"
+    assert calls == ["from_texts", "load_local"]
+    assert (index_dir / "fingerprint.txt").exists()
+
+
+def test_build_retriever_reconstruye_cuando_cambia_el_corpus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si el corpus cambia, el índice en caché se descarta y se recalcula."""
+
+    calls = _fake_faiss(monkeypatch)
+    index_dir = tmp_path / "index"
+
+    build_retriever([Document(page_content="Versión uno.", metadata={"source": "x.md"})], index_dir)
+    build_retriever([Document(page_content="Versión dos.", metadata={"source": "x.md"})], index_dir)
+
+    assert calls == ["from_texts", "from_texts"]

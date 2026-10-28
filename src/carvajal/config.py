@@ -12,6 +12,7 @@ USER_AGENT: str = "carvajal-corpus/0.1 (+https://github.com/markodavid/carvajal)
 TIMEOUT_SECONDS: int = 30
 
 GOLD_DIR: Path = Path("data") / "gold"
+INDEX_DIR: Path = Path("data") / "index"
 
 SEEDS: tuple[str, ...] = (
     "https://www.carvajal.com/",

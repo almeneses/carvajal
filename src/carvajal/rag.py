@@ -1,5 +1,6 @@
 """RAG del corpus: recuperación, prompt del sistema y generación de respuesta."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from carvajal.config import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
     GOLD_DIR,
+    INDEX_DIR,
     LLM_PROVIDER,
     QUESTIONS_FILE,
 )
@@ -62,18 +64,54 @@ def load_gold_documents(gold_dir: Path = GOLD_DIR) -> list[Document]:
     return documents
 
 
-def build_retriever(documents: list[Document]) -> BaseRetriever:
-    """Construye un retriever FAISS sobre los documentos del corpus.
+def build_retriever(documents: list[Document], index_dir: Path = INDEX_DIR) -> BaseRetriever:
+    """Construye o reutiliza un retriever FAISS sobre los documentos del corpus.
 
     Los documentos se dividen en chunks (``RecursiveCharacterTextSplitter``) antes de
-    embedirse para recuperar fragmentos acotados al contexto de la pregunta.
+    embedirse. El índice se persiste en ``index_dir`` y se reutiliza mientras el corpus
+    no cambie: los embeddings se calculan en CPU y tardan minutos, por lo que
+    recalcularlos en cada arranque haría inutilizable la interfaz. Para forzar la
+    reconstrucción basta con borrar ese directorio.
 
     Args:
         documents: Documentos cargados desde ``data/gold/``.
+        index_dir: Directorio donde se guarda el índice FAISS (por defecto ``data/index``).
 
     Returns:
         Retriever con similitud (embeddings de Ollama, modelo ``nomic-embed-text``).
     """
+
+    chunks = _split_documents(documents)
+    fingerprint = _fingerprint(chunks)
+    embeddings = OllamaEmbeddings(model=EMBEDDINGS_MODEL)
+    index_path = index_dir / "faiss"
+    fingerprint_file = index_dir / "fingerprint.txt"
+
+    if (
+        index_path.exists()
+        and fingerprint_file.exists()
+        and fingerprint_file.read_text(encoding="utf-8").strip() == fingerprint
+    ):
+        vectorstore = FAISS.load_local(
+            str(index_path),
+            embeddings,
+            allow_dangerous_deserialization=True,
+        )
+    else:
+        vectorstore = FAISS.from_texts(
+            texts=[chunk.page_content for chunk in chunks],
+            embedding=embeddings,
+            metadatas=[chunk.metadata for chunk in chunks],
+        )
+        index_path.mkdir(parents=True, exist_ok=True)
+        vectorstore.save_local(str(index_path))
+        fingerprint_file.write_text(fingerprint, encoding="utf-8")
+
+    return vectorstore.as_retriever(search_kwargs={"k": 5})
+
+
+def _split_documents(documents: list[Document]) -> list[Document]:
+    """Divide los documentos del corpus en chunks con metadatos heredados."""
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     chunks: list[Document] = []
@@ -86,12 +124,16 @@ def build_retriever(documents: list[Document]) -> BaseRetriever:
         for chunk in splitter.split_documents([body]):
             chunk.metadata = {**metadata, "source": metadata.get("source", "")}
             chunks.append(chunk)
-    vectorstore = FAISS.from_texts(
-        texts=[chunk.page_content for chunk in chunks],
-        embedding=OllamaEmbeddings(model=EMBEDDINGS_MODEL),
-        metadatas=[chunk.metadata for chunk in chunks],
-    )
-    return vectorstore.as_retriever(search_kwargs={"k": 5})
+    return chunks
+
+
+def _fingerprint(chunks: list[Document]) -> str:
+    """Calcula la huella del corpus para invalidar el índice cuando cambie."""
+
+    digest = hashlib.sha256()
+    for chunk in chunks:
+        digest.update(chunk.page_content.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def build_system_prompt(documents: list[Document]) -> str:

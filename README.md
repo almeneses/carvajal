@@ -95,6 +95,11 @@ También puedes configurar las variables en la terminal:
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
 > independientemente del proveedor del LLM.
 
+El índice vectorial FAISS se guarda en `data/index/` (ignorado por Git) y se reutiliza
+mientras el corpus no cambie, de modo que la app arranca en segundos. La primera
+ejecución calcula los embeddings desde cero (varios minutos en CPU). Para forzar el
+recálculo, borra `data/index/`.
+
 Ejemplo con DeepSeek vía API:
 
 ```bash
@@ -127,6 +132,7 @@ carvajal/
 ├── tests/
 ├── data/
 │   └── gold/       # entregable versionado (capa gold)
+│                   # data/index/ se genera en local (caché FAISS, ignorada)
 ├── docs/
 ├── .github/
 ├── .opencode/

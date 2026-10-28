@@ -115,7 +115,8 @@ carvajal/
 ├── data/                    # capas Medallion (raw y processed ignoradas)
 │   ├── raw/                 # bronze — HTML crudo
 │   ├── processed/           # silver — Markdown limpio
-│   └── gold/                # gold — entregable versionado
+│   ├── gold/                # gold — entregable versionado
+│   └── index/               # índice FAISS en caché (regenerable, ignorado por Git)
 ├── tests/                   # pruebas (pytest, patrón AAA)
 ├── docs/                    # documentación, ADRs e investigación
 ├── .github/                 # gobernanza (PR/issue templates, CI, Dependabot, labels)
@@ -208,6 +209,7 @@ git push
 | 2026-10-28 | Corregir el extractor: eliminar duplicación de contenedores y *chrome* | El corpus pasó de 2.45 MB a 64.5 KB de texto editorial; mejora la recuperación y permite consolidarlo en el prompt |
 | 2026-10-28 | Consolidar el corpus limpio en el prompt de sistema | El prompt es la "memoria" completa del asistente en esta fase |
 | 2026-10-28 | Añadir DeepSeek como proveedor principal vía API compatible con OpenAI | El curso usa la API de DeepSeek; Ollama y Claude quedan como alternativas vía `LLM_PROVIDER` |
+| 2026-10-28 | Persistir el índice FAISS en `data/index/` con huella del corpus | Los embeddings en CPU tardan minutos por arranque; con caché la app abre en segundos y se invalida sola al cambiar `data/gold/` |
 
 ## 10. Notas y tareas pendientes
 
