@@ -1,5 +1,6 @@
 """RAG del corpus: recuperación, prompt del sistema y generación de respuesta."""
 
+import json
 from pathlib import Path
 
 from langchain_anthropic import ChatAnthropic
@@ -11,12 +12,19 @@ from langchain_core.runnables import Runnable
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from carvajal.config import ANTHROPIC_API_KEY, CLAUDE_MODEL, GOLD_DIR, LLM_PROVIDER
+from carvajal.config import (
+    ANTHROPIC_API_KEY,
+    CLAUDE_MODEL,
+    GOLD_DIR,
+    LLM_PROVIDER,
+    QUESTIONS_FILE,
+)
 
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 EMBEDDINGS_MODEL = "nomic-embed-text"
 LLM_MODEL = "llama3.2"
+MAX_SYSTEM_PROMPT_CHARS = 100_000
 
 DEFAULT_SYSTEM_PROMPT = (
     "Eres el asistente del corpus Carvajal. Responde ÚNICAMENTE a partir del contexto "
@@ -75,16 +83,36 @@ def build_retriever(documents: list[Document]) -> BaseRetriever:
 
 
 def build_system_prompt(documents: list[Document]) -> str:
-    """Construye el prompt de sistema (el 'cerebro') a partir del corpus.
+    """Consolida el corpus limpio en el prompt de sistema (la 'memoria' del asistente).
 
     Args:
         documents: Documentos cargados desde ``data/gold/``.
 
     Returns:
-        Instrucciones de sistema para el asistente.
+        Instrucciones de sistema con el corpus consolidado como contexto permanente.
     """
 
-    return DEFAULT_SYSTEM_PROMPT
+    sections: list[str] = []
+    for document in documents:
+        slug = str(document.metadata.get("slug", "documento"))
+        body = _strip_front_matter(document.page_content)
+        sections.append(f"### Fuente: {slug}\n\n{body}")
+
+    corpus = "\n\n".join(sections)
+    if len(corpus) > MAX_SYSTEM_PROMPT_CHARS:
+        corpus = f"{corpus[:MAX_SYSTEM_PROMPT_CHARS]}\n\n[corpus truncado por longitud]"
+
+    return f"{DEFAULT_SYSTEM_PROMPT}\n\n=== CORPUS CARVAJAL ===\n\n{corpus}"
+
+
+def _strip_front_matter(content: str) -> str:
+    """Quita el *front matter* YAML del Markdown Gold."""
+
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) == 3:
+            return parts[2].strip()
+    return content.strip()
 
 
 def build_llm() -> Runnable:
@@ -129,3 +157,61 @@ def ask(
     messages = prompt.format_messages(context=context, question=question)
     response = (llm if llm is not None else build_llm()).invoke(messages)
     return str(response.content)
+
+
+def load_questions(path: Path = QUESTIONS_FILE) -> list[str]:
+    """Carga las preguntas de prueba desde un archivo JSON.
+
+    Args:
+        path: Archivo JSON con una lista de preguntas.
+
+    Returns:
+        Lista de preguntas de evaluación.
+    """
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return [str(question) for question in data]
+
+
+def evaluate(
+    questions: list[str],
+    retriever: Runnable,
+    system_prompt: str | None = None,
+    llm: Runnable | None = None,
+) -> list[dict[str, str]]:
+    """Ejecuta el pipeline RAG sobre cada pregunta de prueba.
+
+    Args:
+        questions: Preguntas de evaluación.
+        retriever: Retriever sobre el corpus.
+        system_prompt: Instrucciones de sistema con el corpus consolidado.
+        llm: LLM invocable (por defecto: el configurado por ``LLM_PROVIDER``).
+
+    Returns:
+        Resultados con la pregunta y la respuesta generada.
+    """
+
+    results: list[dict[str, str]] = []
+    for question in questions:
+        answer = ask(question, retriever, system_prompt=system_prompt, llm=llm)
+        results.append({"question": question, "answer": answer})
+    return results
+
+
+def render_results_markdown(results: list[dict[str, str]]) -> str:
+    """Renderiza los resultados de la evaluación como Markdown.
+
+    Args:
+        results: Preguntas y respuestas generadas.
+
+    Returns:
+        Documento Markdown con la tabla de resultados.
+    """
+
+    lines = ["# Resultados de la evaluación", ""]
+    for index, result in enumerate(results, start=1):
+        lines.append(f"## {index}. {result['question']}")
+        lines.append("")
+        lines.append(result["answer"])
+        lines.append("")
+    return "\n".join(lines)

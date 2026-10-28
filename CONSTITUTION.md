@@ -64,7 +64,7 @@ con asistente RAG.
 
 | Fase | Estado | Entregable |
 |------|--------|------------|
-| 1. Captura inicial (landing + secciones) | ✅ Hecha | 15 documentos en `data/gold/` |
+| 1. Captura inicial (landing + secciones) | ✅ Hecha | 15 documentos limpios en `data/gold/` (~73 KB) |
 | 2. Ampliación de semillas | ⬜ Pendiente | Más URLs del sitemap |
 | 3. Enriquecimiento (PDFs, vídeo) | ⬜ Pendiente | Nuevas semillas y extractores |
 | 4. Chunking y embeddings | 🚧 En curso | Chunking + FAISS + embeddings Ollama/anthropic |
@@ -205,6 +205,8 @@ git push
 | 2026-10-27 | Capturar las landing y secciones públicas de Carvajal (`config.SEEDS`) | Punto de partida verificable y reproducible del corpus |
 | 2026-10-28 | Incorporar RAG con LangChain + FAISS y chunking | Recuperación de contexto sobre `data/gold/` antes de generar respuestas |
 | 2026-10-28 | Añadir asistente RAG con LLM configurable (Ollama / Claude API) | El curso define dos opciones de modelo; se soportan ambas vía `LLM_PROVIDER` |
+| 2026-10-28 | Corregir el extractor: eliminar duplicación de contenedores y *chrome* | El corpus pasó de 2.45 MB a 73 KB de texto editorial; mejora la recuperación y permite consolidarlo en el prompt |
+| 2026-10-28 | Consolidar el corpus limpio en el prompt de sistema | El prompt es la "memoria" completa del asistente en esta fase |
 
 ## 10. Notas y tareas pendientes
 
@@ -213,6 +215,7 @@ git push
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.
 - [ ] Definir el contrato de *chunking* con el proyecto consumidor.
+- [ ] Ejecutar `make eval` con credenciales y anexar los resultados al informe.
 - [ ] Registrar decisiones de arquitectura (ADRs) en `docs/decisions/`.
 
 ## 11. Configuración local (no trackear)

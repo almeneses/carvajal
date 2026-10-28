@@ -62,6 +62,9 @@ uv run carvajal ask "¿En qué consiste el fondo de inversión de Carvajal?"
 
 # Interfaz web de pruebas (Streamlit)
 make app
+
+# Evaluación: 25 preguntas de prueba -> docs/resultados.md
+make eval
 ```
 
 ## Configuración del LLM
@@ -120,6 +123,12 @@ carvajal/
 ├── .python-version
 └── .pre-commit-config.yaml
 ```
+
+## Documentación
+
+- [`docs/informe.md`](docs/informe.md) — informe del proyecto (problema, solución, datos, modelado, resultados).
+- [`docs/presentacion.md`](docs/presentacion.md) — guion de la sustentación (15 min, sin PowerPoint).
+- [`CONSTITUTION.md`](CONSTITUTION.md) — verdad central del proyecto.
 
 ## Contribución
 

@@ -30,3 +30,6 @@ SEEDS: tuple[str, ...] = (
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
+
+QUESTIONS_FILE: Path = Path("data") / "questions.json"
+RESULTS_FILE: Path = Path("docs") / "resultados.md"

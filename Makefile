@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test check build app clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test check build app eval clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -43,6 +43,9 @@ build: ## Construye el paquete (sdist + wheel)
 
 app: ## Lanza la interfaz web de prueba (Streamlit)
 	uv run streamlit run src/carvajal/ui.py
+
+eval: ## Ejecuta las preguntas de prueba y genera docs/resultados.md
+	uv run carvajal eval
 
 clean: ## Limpia cachés y artefactos
 	rm -rf .pytest_cache .ruff_cache .mypy_cache dist build htmlcov .coverage

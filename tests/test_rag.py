@@ -1,5 +1,7 @@
 """Pruebas del módulo RAG del corpus."""
 
+from pathlib import Path
+
 import pytest
 from langchain_anthropic import ChatAnthropic
 from langchain_core.documents import Document
@@ -12,7 +14,10 @@ from carvajal.rag import (
     ask,
     build_llm,
     build_system_prompt,
+    evaluate,
     load_gold_documents,
+    load_questions,
+    render_results_markdown,
 )
 
 
@@ -71,3 +76,58 @@ def test_build_llm_devuelve_claude_cuando_se_configura(monkeypatch: pytest.Monke
     monkeypatch.setattr("carvajal.rag.CLAUDE_MODEL", "claude-sonnet-4-5")
 
     assert isinstance(build_llm(), ChatAnthropic)
+
+
+def test_build_system_prompt_consolida_corpus() -> None:
+    """El prompt de sistema incluye el texto limpio del corpus consolidado."""
+
+    documents = load_gold_documents()
+    prompt = build_system_prompt(documents)
+
+    assert DEFAULT_SYSTEM_PROMPT in prompt
+    assert "=== CORPUS CARVAJAL ===" in prompt
+    assert "### Fuente:" in prompt
+    assert "Carvajal" in prompt
+    assert "captured_at:" not in prompt
+
+
+def test_load_questions_carga_preguntas(tmp_path: Path) -> None:
+    """Carga las preguntas de prueba desde un archivo JSON."""
+
+    questions_file = tmp_path / "questions.json"
+    questions_file.write_text('["¿Pregunta uno?", "¿Pregunta dos?"]', encoding="utf-8")
+
+    questions = load_questions(questions_file)
+
+    assert questions == ["¿Pregunta uno?", "¿Pregunta dos?"]
+
+
+def test_evaluate_genera_resultados_por_pregunta() -> None:
+    """Ejecuta cada pregunta y conserva pregunta y respuesta."""
+
+    def fake_retriever(query: str) -> list[Document]:
+        return [Document(page_content="Contexto de prueba.", metadata={"source": "test.md"})]
+
+    def fake_llm(messages: list) -> AIMessage:
+        return AIMessage(content="Respuesta de prueba")
+
+    results = evaluate(
+        ["¿Pregunta uno?", "¿Pregunta dos?"],
+        RunnableLambda(fake_retriever),
+        system_prompt="Sos el asistente.",
+        llm=RunnableLambda(fake_llm),
+    )
+
+    assert len(results) == 2
+    assert results[0]["question"] == "¿Pregunta uno?"
+    assert results[0]["answer"] == "Respuesta de prueba"
+
+
+def test_render_results_markdown_incluye_preguntas_y_respuestas() -> None:
+    """Renderiza los resultados como secciones Markdown numeradas."""
+
+    markdown = render_results_markdown([{"question": "¿Pregunta uno?", "answer": "Respuesta uno"}])
+
+    assert "# Resultados de la evaluación" in markdown
+    assert "## 1. ¿Pregunta uno?" in markdown
+    assert "Respuesta uno" in markdown

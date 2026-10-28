@@ -2,11 +2,11 @@
 
 import streamlit as st
 
-from carvajal.rag import ask, build_retriever, load_gold_documents
+from carvajal.rag import ask, build_retriever, build_system_prompt, load_gold_documents
 
 
 def render_answer(question: str) -> str:
-    """Genera y muestra la respuesta RAG para una pregunta.
+    """Genera la respuesta RAG para una pregunta.
 
     Args:
         question: Pregunta del usuario.
@@ -15,12 +15,22 @@ def render_answer(question: str) -> str:
         Respuesta generada por el LLM.
     """
 
+    documents = st.session_state.get("documents")
+    if documents is None:
+        documents = load_gold_documents()
+        st.session_state["documents"] = documents
+
     retriever = st.session_state.get("retriever")
     if retriever is None:
-        retriever = build_retriever(load_gold_documents())
+        retriever = build_retriever(documents)
         st.session_state["retriever"] = retriever
-    answer = ask(question, retriever)
-    return answer
+
+    system_prompt = st.session_state.get("system_prompt")
+    if system_prompt is None:
+        system_prompt = build_system_prompt(documents)
+        st.session_state["system_prompt"] = system_prompt
+
+    return ask(question, retriever, system_prompt=system_prompt)
 
 
 def main() -> None:

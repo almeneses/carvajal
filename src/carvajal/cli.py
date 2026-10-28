@@ -1,18 +1,28 @@
-"""Interfaz de línea de comandos: capture / ask / status / list."""
+"""Interfaz de línea de comandos: capture / ask / eval / status / list."""
 
 import argparse
+from pathlib import Path
 
-from carvajal.config import SEEDS
+from carvajal.config import QUESTIONS_FILE, RESULTS_FILE, SEEDS
 from carvajal.pipeline import capture as run_capture
-from carvajal.rag import ask as run_ask
-from carvajal.rag import build_retriever, load_gold_documents
+from carvajal.rag import (
+    ask as run_ask,
+)
+from carvajal.rag import (
+    build_retriever,
+    build_system_prompt,
+    evaluate,
+    load_gold_documents,
+    load_questions,
+    render_results_markdown,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Construye el parser de argumentos de la CLI.
 
     Returns:
-        Parser con los subcomandos ``capture``, ``status`` y ``list``.
+        Parser con los subcomandos ``capture``, ``ask``, ``eval``, ``status`` y ``list``.
     """
 
     parser = argparse.ArgumentParser(
@@ -44,6 +54,23 @@ def build_parser() -> argparse.ArgumentParser:
     ask_parser.add_argument(
         "question",
         help="Pregunta del usuario.",
+    )
+
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Ejecuta las preguntas de prueba y genera el informe de resultados.",
+    )
+    eval_parser.add_argument(
+        "--questions",
+        type=Path,
+        default=QUESTIONS_FILE,
+        help="Archivo JSON con las preguntas de prueba.",
+    )
+    eval_parser.add_argument(
+        "--output",
+        type=Path,
+        default=RESULTS_FILE,
+        help="Archivo Markdown donde se escriben los resultados.",
     )
 
     subparsers.add_parser(
@@ -80,9 +107,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "ask":
-        retriever = build_retriever(load_gold_documents())
-        answer = run_ask(args.question, retriever)
+        documents = load_gold_documents()
+        retriever = build_retriever(documents)
+        answer = run_ask(args.question, retriever, system_prompt=build_system_prompt(documents))
         print(answer)
+        return 0
+
+    if args.command == "eval":
+        documents = load_gold_documents()
+        retriever = build_retriever(documents)
+        questions = load_questions(args.questions)
+        results = evaluate(questions, retriever, system_prompt=build_system_prompt(documents))
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(render_results_markdown(results), encoding="utf-8")
+        print(f"Evaluación completada: {len(results)} preguntas -> {args.output}")
         return 0
 
     if args.command == "list":
