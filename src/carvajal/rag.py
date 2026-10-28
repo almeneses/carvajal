@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from langchain_anthropic import ChatAnthropic
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
@@ -10,7 +11,7 @@ from langchain_core.runnables import Runnable
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from carvajal.config import GOLD_DIR
+from carvajal.config import ANTHROPIC_API_KEY, CLAUDE_MODEL, GOLD_DIR, LLM_PROVIDER
 
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
@@ -86,6 +87,19 @@ def build_system_prompt(documents: list[Document]) -> str:
     return DEFAULT_SYSTEM_PROMPT
 
 
+def build_llm() -> Runnable:
+    """Construye el LLM configurado mediante variables de entorno.
+
+    Returns:
+        ``ChatOllama`` cuando ``LLM_PROVIDER`` es ``ollama`` (por defecto) o
+        ``ChatAnthropic`` cuando ``LLM_PROVIDER`` es ``claude``.
+    """
+
+    if LLM_PROVIDER == "claude":
+        return ChatAnthropic(model=CLAUDE_MODEL, api_key=ANTHROPIC_API_KEY, temperature=0)
+    return ChatOllama(model=LLM_MODEL, temperature=0)
+
+
 def ask(
     question: str,
     retriever: Runnable,
@@ -98,7 +112,7 @@ def ask(
         question: Pregunta del usuario.
         retriever: Retriever sobre el corpus.
         system_prompt: Instrucciones de sistema (por defecto: ``DEFAULT_SYSTEM_PROMPT``).
-        llm: LLM invocable (por defecto: ``ChatOllama`` con modelo ``llama3.2``).
+        llm: LLM invocable (por defecto: el LLM configurado por ``LLM_PROVIDER``).
 
     Returns:
         Respuesta generada por el LLM.
@@ -113,7 +127,5 @@ def ask(
         ]
     )
     messages = prompt.format_messages(context=context, question=question)
-    response = (llm if llm is not None else ChatOllama(model=LLM_MODEL, temperature=0)).invoke(
-        messages
-    )
+    response = (llm if llm is not None else build_llm()).invoke(messages)
     return str(response.content)

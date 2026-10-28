@@ -1,4 +1,4 @@
-"""Interfaz de línea de comandos: capture / status / list."""
+"""Interfaz de línea de comandos: capture / ask / status / list."""
 
 import argparse
 

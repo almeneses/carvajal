@@ -1,5 +1,6 @@
-"""Configuración del pipeline: semillas, capas y política HTTP."""
+"""Configuración del pipeline: semillas, capas, política HTTP y LLM."""
 
+import os
 from pathlib import Path
 
 BASE_URL: str = "https://www.carvajal.com"
@@ -25,3 +26,7 @@ SEEDS: tuple[str, ...] = (
     "https://www.carvajal.com/gobierno-corporativo/",
     "https://www.carvajal.com/compromiso-etico/",
 )
+
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
+ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")

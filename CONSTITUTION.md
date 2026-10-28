@@ -36,7 +36,8 @@ sin depender de una API del sitio.
 No es un *crawler* masivo del dominio completo, ni un motor de búsqueda, ni un
 sistema que atraviese formularios, sesiones autenticadas o datos personales. Tampoco
 es un generador de respuestas: el consumo del corpus (embeddings, recuperación,
-agente) pertenece al proyecto del curso, no a este repositorio.
+agente) forma parte del proyecto del curso y se incorpora aquí en su fase de pruebas
+con asistente RAG.
 
 ## 2. Alcance
 
@@ -56,8 +57,8 @@ agente) pertenece al proyecto del curso, no a este repositorio.
 
 - Rastrear el `sitemap.xml` completo del dominio (podcast, noticias, especialistas).
 - Vídeos, PDFs y transcripciones.
-- *Chunking*, embeddings e indexación vectorial.
 - Páginas tras autenticación o cualquier contenido no público.
+- Evaluación automatizada y benchmarking del asistente (fuera de la interfaz de pruebas).
 
 ### Fases
 
@@ -66,7 +67,8 @@ agente) pertenece al proyecto del curso, no a este repositorio.
 | 1. Captura inicial (landing + secciones) | ✅ Hecha | 15 documentos en `data/gold/` |
 | 2. Ampliación de semillas | ⬜ Pendiente | Más URLs del sitemap |
 | 3. Enriquecimiento (PDFs, vídeo) | ⬜ Pendiente | Nuevas semillas y extractores |
-| 4. Chunking y embeddings | ⬜ Pendiente | Fuera de este repositorio |
+| 4. Chunking y embeddings | 🚧 En curso | Chunking + FAISS + embeddings Ollama/anthropic |
+| 5. Asistente RAG (LLM + prompt + UI) | 🚧 En curso | LangChain + FAISS + Ollama/Claude + Streamlit |
 
 ## 3. Stack técnico
 
@@ -78,6 +80,9 @@ agente) pertenece al proyecto del curso, no a este repositorio.
 | **Paquete Python** | `carvajal` |
 | **HTTP** | `requests` (sesión única, `User-Agent` identificable, `timeout`) |
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
+| **RAG** | LangChain + FAISS + embeddings |
+| **LLM** | Ollama (`llama3.2`) o Anthropic Claude (vía API) |
+| **Interfaz de pruebas** | Streamlit |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
 | **Linting / Formato** | [Ruff](https://docs.astral.sh/ruff/) |
@@ -104,7 +109,9 @@ carvajal/
 │   ├── gold.py              # front matter + índice JSONL
 │   ├── pipeline.py          # orquestación de las tres capas
 │   ├── models.py            # modelos del dominio
-│   └── cli.py               # capture / status / list
+│   ├── rag.py               # recuperación, prompt y generación (RAG)
+│   ├── ui.py                # interfaz web de pruebas (Streamlit)
+│   └── cli.py               # capture / ask / status / list
 ├── data/                    # capas Medallion (raw y processed ignoradas)
 │   ├── raw/                 # bronze — HTML crudo
 │   ├── processed/           # silver — Markdown limpio
@@ -196,6 +203,8 @@ git push
 | 2026-10-21 | Eliminar el pie de página institucional del corpus | Repite el mismo bloque en todas las páginas y contamina la recuperación |
 | 2026-10-21 | Semillas explícitas en `config.SEEDS` en lugar de rastrear el sitemap | Alcance acotado al dominio Carvajal; el sitemap queda fuera |
 | 2026-10-27 | Capturar las landing y secciones públicas de Carvajal (`config.SEEDS`) | Punto de partida verificable y reproducible del corpus |
+| 2026-10-28 | Incorporar RAG con LangChain + FAISS y chunking | Recuperación de contexto sobre `data/gold/` antes de generar respuestas |
+| 2026-10-28 | Añadir asistente RAG con LLM configurable (Ollama / Claude API) | El curso define dos opciones de modelo; se soportan ambas vía `LLM_PROVIDER` |
 
 ## 10. Notas y tareas pendientes
 

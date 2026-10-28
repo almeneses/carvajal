@@ -24,6 +24,9 @@ sin depender de una API del sitio.
 | **Paquete Python** | `carvajal` |
 | **HTTP** | `requests` (sesión única, `User-Agent` identificable, `timeout`) |
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
+| **RAG** | LangChain + FAISS + embeddings |
+| **LLM** | Ollama (`llama3.2`) o Anthropic Claude (vía API) |
+| **Interfaz de pruebas** | Streamlit |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
 | **Linting / Formato** | [Ruff](https://docs.astral.sh/ruff/) |
@@ -53,6 +56,31 @@ uv run carvajal status
 
 # Listar semillas
 uv run carvajal list
+
+# Preguntar al corpus (RAG)
+uv run carvajal ask "¿En qué consiste el fondo de inversión de Carvajal?"
+
+# Interfaz web de pruebas (Streamlit)
+make app
+```
+
+## Configuración del LLM
+
+El asistente RAG usa un LLM configurable mediante variables de entorno:
+
+| Variable | Descripción | Default |
+|----------|-------------|---------|
+| `LLM_PROVIDER` | Proveedor LLM: `ollama` (local) o `claude` (API). | `ollama` |
+| `ANTHROPIC_API_KEY` | Clave API de Anthropic (solo si `LLM_PROVIDER=claude`). | `""` |
+| `CLAUDE_MODEL` | Modelo Claude a utilizar (p. ej. `claude-sonnet-4-5`). | `claude-sonnet-4-5` |
+
+Ejemplo con Claude vía API:
+
+```bash
+$env:LLM_PROVIDER = "claude"
+$env:ANTHROPIC_API_KEY = "<tu-clave-de-anthropic>"
+$env:CLAUDE_MODEL = "claude-sonnet-4-5"
+uv run carvajal ask "¿Cuál es la misión de Carvajal?"
 ```
 
 ## Calidad
