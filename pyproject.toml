@@ -1,0 +1,60 @@
+[project]
+name = "carvajal"
+version = "0.1.0"
+description = "Pipeline de captura y curaduría del corpus web de Carvajal para RAG."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
+authors = [
+    { name = "Marko David Garcia", email = "markodavidgm@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "lxml>=5.1",
+    "requests>=2.32",
+]
+
+[project.urls]
+Homepage = "https://github.com/markodavid/carvajal"
+Repository = "https://github.com/markodavid/carvajal"
+Issues = "https://github.com/markodavid/carvajal/issues"
+
+[project.scripts]
+carvajal = "carvajal.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.0.1",
+    "pytest>=8.3",
+    "ruff>=0.8.0",
+    "ty>=0.0.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["carvajal"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
