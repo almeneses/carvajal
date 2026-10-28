@@ -128,32 +128,51 @@ temperatura 0.
   historia, propósito, sostenibilidad, gobierno corporativo, inversionistas y
   contacto, más preguntas fuera del alcance para verificar la abstención.
 - Ejecución reproducible: `make eval` (o `uv run carvajal eval`), que genera
-  `docs/resultados.md` con pregunta + respuesta.
+  [`docs/resultados.md`](resultados.md) con pregunta + respuesta.
+- Configuración de la corrida: `LLM_PROVIDER=deepseek` (`deepseek-chat`), embeddings
+  `nomic-embed-text` (Ollama), `k=5` y temperatura 0.
 - Criterios de evaluación: **exactitud** (¿la respuesta coincide con el corpus?),
   **coherencia** (¿es clara y completa?), **fidelidad** (¿cita fuentes y evita
   alucinaciones?) y **abstención** (¿reconoce lo que no sabe?).
 
-### 5.2 Ejemplos
+### 5.2 Resumen de la evaluación
 
-> Completar tras ejecutar `make eval` con las credenciales configuradas.
+| Resultado | Preguntas |
+|---|---|
+| Respuestas completas y correctas | **21 / 25** |
+| Respuestas parciales (señalan información faltante) | **3 / 25** (Bioform, LiquidezYa, sostenibilidad) |
+| Abstención correcta | **1 / 25** (datos de contacto) |
 
-| # | Pregunta | Respuesta generada | Evaluación |
+> Evaluación cualitativa del equipo sobre las respuestas generadas con DeepSeek
+> (`deepseek-chat`) el 2026-10-28. El detalle completo está en `docs/resultados.md`.
+
+### 5.3 Ejemplos representativos
+
+| # | Pregunta | Respuesta (resumen) | Evaluación |
 |---|---|---|---|
-| 1 | ¿En qué año y ciudad fue fundada Carvajal? | _(ejecutar `make eval`)_ | |
-| 2 | ¿Cuáles son los cuatro sectores en los que opera? | | |
-| 3 | ¿Qué es Bioform? | | |
-| 4 | ¿Cuál es la capital de Francia? (fuera de alcance) | | |
+| 2 | ¿En qué año y ciudad fue fundada Carvajal? | 1904 en Cali, Colombia, con la impresión del semanario *El Día*; cita `historia` y `quienes_somos`. | Correcta |
+| 4 | ¿Cuáles son los cuatro sectores? | Impresión y Escritura; Papel y Empaques; Tecnología y Servicios; Inmobiliario. | Correcta |
+| 17 | ¿Qué noticias recientes publica? | Lista 12 titulares con sus fechas a partir de `noticias`. | Correcta |
+| 18 | ¿Cuál es la historia desde su fundación? | Cronología completa 1904–2024 organizada por etapas, citando `historia`. | Correcta |
+| 21 | ¿Cómo contactar a Carvajal? | "No dispongo de esa información": el corpus no incluye datos de contacto generales. | Abstención correcta |
 
-### 5.3 Limitaciones
+### 5.4 Análisis y limitaciones
 
-- El corpus cubre 15 páginas; el `sitemap.xml` completo (noticias, podcast,
-  especialistas) queda fuera.
-- La recuperación depende de la calidad del *chunking* y de los embeddings locales;
-  FAISS se reconstruye en memoria en cada ejecución.
-- El asistente no tiene memoria conversacional (una pregunta por turno).
-- Las respuestas no verifican automáticamente que cada afirmación exista en el
-  corpus; la abstención depende del cumplimiento del prompt por parte del LLM.
-- La evaluación es cualitativa y manual; no se implementó un *benchmark* automático.
+- **Fidelidad:** las respuestas citan las fuentes del corpus y no se detectaron
+  datos inventados; cuando falta información, el modelo lo declara.
+- **Cobertura:** preguntas de síntesis (historia completa, noticias, valores)
+  se responden con listas y cronologías completas gracias al corpus consolidado
+  en el prompt.
+- **Abstención:** la pregunta de contacto se rechaza correctamente porque el pie
+  de página (con enlaces de contacto) se excluye a propósito del corpus.
+- **Página vacía:** `sostenibilidad.md` quedó sin texto (contenido dinámico o
+  basado en imágenes); la respuesta se construyó con menciones de otras fuentes
+  y se señaló la ausencia.
+- **Noticias:** solo se capturan titulares y fechas, no el cuerpo de cada noticia.
+- **Recuperación:** `k=5` sobre chunks de 1000/200; FAISS se reconstruye en memoria
+  en cada ejecución.
+- **Sin memoria conversacional:** una pregunta por turno.
+- **Evaluación cualitativa y manual:** no se implementó un *benchmark* automático.
 
 ## 6. Presentación
 

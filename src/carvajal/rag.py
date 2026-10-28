@@ -31,9 +31,13 @@ LLM_MODEL = "llama3.2"
 MAX_SYSTEM_PROMPT_CHARS = 100_000
 
 DEFAULT_SYSTEM_PROMPT = (
-    "Eres el asistente del corpus Carvajal. Responde ÚNICAMENTE a partir del contexto "
-    "proporcionado. Si la respuesta no está en el contexto, di que no lo sabe. No inventes "
-    "información y no uses datos externos al corpus. Indica las fuentes consultadas."
+    "Eres el asistente del corpus Carvajal. Tu fuente es el CORPUS CARVAJAL incluido en "
+    "este mensaje de sistema, complementado con los fragmentos recuperados que se "
+    "adjuntan. Responde únicamente con esa información. Sé completo: si la pregunta pide "
+    "una lista, cronología o explicación, incluye todos los elementos relevantes del "
+    "corpus. Si la respuesta no está en el corpus, di claramente que no lo sabes; si solo "
+    "hay información parcial, responde con lo disponible e indica qué falta. No inventes "
+    "datos ni uses conocimiento externo. Cita las fuentes consultadas."
 )
 
 

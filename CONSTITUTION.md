@@ -216,7 +216,7 @@ git push
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.
 - [ ] Definir el contrato de *chunking* con el proyecto consumidor.
-- [ ] Ejecutar `make eval` con credenciales y anexar los resultados al informe.
+- [x] Ejecutar `make eval` con credenciales y anexar los resultados al informe.
 - [ ] Registrar decisiones de arquitectura (ADRs) en `docs/decisions/`.
 
 ## 11. Configuración local (no trackear)

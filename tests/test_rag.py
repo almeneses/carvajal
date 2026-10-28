@@ -32,12 +32,13 @@ def test_load_gold_documents_devuelve_corpus() -> None:
 
 
 def test_build_system_prompt_restringe_respuesta() -> None:
-    """El prompt del sistema define restricciones de respuesta sobre el contexto."""
+    """El prompt del sistema define restricciones de respuesta sobre el corpus."""
 
     prompt = build_system_prompt([])
 
     assert DEFAULT_SYSTEM_PROMPT in prompt
-    assert "contexto" in prompt.lower()
+    assert "CORPUS CARVAJAL" in prompt
+    assert "no lo sabes" in prompt.lower()
 
 
 def test_ask_genera_respuesta_con_contexto() -> None:
@@ -63,8 +64,10 @@ def test_ask_genera_respuesta_con_contexto() -> None:
     assert "Contexto:" in first_message.content
 
 
-def test_build_llm_devuelve_ollama_por_defecto() -> None:
-    """Sin configuración explícita el LLM por defecto es Ollama."""
+def test_build_llm_devuelve_ollama_cuando_se_configura(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Con ``LLM_PROVIDER=ollama`` el LLM es Ollama."""
+
+    monkeypatch.setattr("carvajal.rag.LLM_PROVIDER", "ollama")
 
     assert isinstance(build_llm(), ChatOllama)
 
