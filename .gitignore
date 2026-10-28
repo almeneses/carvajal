@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+
+# Testing / lint / type caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.*
+
+# Datos del corpus: capas crudas (bronze) y procesadas (silver) se ignoran;
+# el entregable versionado es data/gold/ (capa gold).
+data/raw/
+data/processed/
+
+# Arteefactos
+*.log
+
+# IDE
+.vscode/
+.idea/

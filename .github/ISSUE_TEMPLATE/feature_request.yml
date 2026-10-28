@@ -1,0 +1,47 @@
+name: "🚀 Feature request"
+description: "Propone una nueva funcionalidad o mejora del corpus."
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ¡Gracias por proponer una mejora! 🙌
+
+        Antes de abrir este issue, revisa [`CONSTITUTION.md`](https://github.com/markodavid/carvajal/blob/main/CONSTITUTION.md)
+        y los issues abiertos para evitar duplicados.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: "Problema / necesidad"
+      description: "Describe la necesidad que motiva la propuesta."
+      placeholder: "Necesito capturar las FAQ de ... para el RAG."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solucion
+    attributes:
+      label: "Solución propuesta"
+      description: "Describe la funcionalidad o mejora esperada."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alcance
+    attributes:
+      label: "Alcance"
+      description: "Qué entra y qué queda fuera de esta propuesta."
+      placeholder: |
+        - Entra: ...
+        - Fuera: ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: "Alternativas consideradas"
+    validations:
+      required: false

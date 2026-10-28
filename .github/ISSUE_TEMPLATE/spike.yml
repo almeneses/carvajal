@@ -1,0 +1,35 @@
+name: "🔬 Spike"
+description: "Investigación técnica acotada en el tiempo (timebox)."
+title: "[Spike]: "
+labels: ["spike"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Un *spike* es una exploración técnica de tiempo acotado. No debe quedar como
+        deuda técnica: al final se documenta la decisión (ADR ligero) en `docs/`.
+
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: "Objetivo del spike"
+      description: "¿Qué se quiere investigar?"
+      placeholder: "Evaluar extracción de PDFs con ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: restricciones
+    attributes:
+      label: "Restricciones / tiempo"
+      description: "Timebox estimado y límites de alcance."
+    validations:
+      required: true
+
+  - type: textarea
+    id: criterios-de-exito
+    attributes:
+      label: "Criterios de éxito"
+      description: "Qué evidencia debe producir el spike para cerrarlo."
+    validations:
+      required: true
