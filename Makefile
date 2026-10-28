@@ -2,12 +2,13 @@
 # Carvajal — automatización de tareas
 # =============================================================================
 
-SHELL = /bin/bash
+SHELL := /bin/bash
 
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test check build clean
+.DEFAULT_GOAL := help
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test check build app clean
 
 help: ## Muestra esta ayuda
-	@grep -E "^[a-zA-Z_-]+:" Makefile
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 install: ## Sincroniza el entorno virtual e instala dependencias
 	uv sync
@@ -39,6 +40,9 @@ check: lint format-check typecheck test ## Verificación completa (lint + format
 
 build: ## Construye el paquete (sdist + wheel)
 	uv build
+
+app: ## Lanza la interfaz web de prueba (Streamlit)
+	uv run streamlit run src/carvajal/ui.py
 
 clean: ## Limpia cachés y artefactos
 	rm -rf .pytest_cache .ruff_cache .mypy_cache dist build htmlcov .coverage

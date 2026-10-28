@@ -17,8 +17,13 @@ classifiers = [
 ]
 dependencies = [
     "beautifulsoup4>=4.12",
+    "faiss-cpu>=1.15.1",
+    "langchain>=1.4.7",
+    "langchain-community>=0.4.2",
+    "langchain-ollama>=1.1.0",
     "lxml>=5.1",
     "requests>=2.32",
+    "streamlit>=1.66.1",
 ]
 
 [project.urls]

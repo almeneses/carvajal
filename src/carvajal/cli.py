@@ -4,6 +4,8 @@ import argparse
 
 from carvajal.config import SEEDS
 from carvajal.pipeline import capture as run_capture
+from carvajal.rag import ask as run_ask
+from carvajal.rag import build_retriever, load_gold_documents
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +35,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--list-seeds",
         action="store_true",
         help="Lista las semillas configuradas y termina.",
+    )
+
+    ask_parser = subparsers.add_parser(
+        "ask",
+        help="Genera una respuesta RAG para una pregunta del corpus.",
+    )
+    ask_parser.add_argument(
+        "question",
+        help="Pregunta del usuario.",
     )
 
     subparsers.add_parser(
@@ -66,6 +77,12 @@ def main(argv: list[str] | None = None) -> int:
         pages = run_capture(seeds)
         for page in pages:
             print(f"Capturada: {page.url} -> data/gold/{page.slug}.md")
+        return 0
+
+    if args.command == "ask":
+        retriever = build_retriever(load_gold_documents())
+        answer = run_ask(args.question, retriever)
+        print(answer)
         return 0
 
     if args.command == "list":
