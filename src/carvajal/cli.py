@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from carvajal.config import QUESTIONS_FILE, RESULTS_FILE, SEEDS
+from carvajal.config import EXTERNAL_SEEDS, QUESTIONS_FILE, RESULTS_FILE, SEEDS
 from carvajal.pipeline import capture as run_capture
 from carvajal.rag import (
     ask as run_ask,
@@ -40,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=None,
         help="Semilla adicional a capturar (puede repetirse).",
+    )
+    capture_parser.add_argument(
+        "--scope",
+        choices=("all", "oficial", "terceros"),
+        default="all",
+        help="Qué semillas capturar: todo, solo el sitio oficial o solo fuentes de terceros.",
     )
     capture_parser.add_argument(
         "--list-seeds",
@@ -100,7 +106,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "capture":
-        seeds = (*SEEDS, *(args.seed or []))
+        seeds = (*_seeds_for(args.scope), *(args.seed or []))
+        if args.list_seeds:
+            for seed in seeds:
+                print(seed)
+            return 0
         pages = run_capture(seeds)
         for page in pages:
             print(f"Capturada: {page.url} -> data/gold/{page.slug}.md")
@@ -124,13 +134,24 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "list":
-        for seed in SEEDS:
+        for seed in (*SEEDS, *EXTERNAL_SEEDS):
             print(seed)
         return 0
 
     if args.command == "status":
-        print(f"Semillas configuradas: {len(SEEDS)}")
+        print(f"Semillas oficiales: {len(SEEDS)}")
+        print(f"Semillas de terceros: {len(EXTERNAL_SEEDS)}")
         return 0
 
     parser.print_help()
     return 0
+
+
+def _seeds_for(scope: str) -> tuple[str, ...]:
+    """Selecciona las semillas según el alcance solicitado."""
+
+    if scope == "oficial":
+        return SEEDS
+    if scope == "terceros":
+        return EXTERNAL_SEEDS
+    return (*SEEDS, *EXTERNAL_SEEDS)

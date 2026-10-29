@@ -47,6 +47,11 @@ con asistente RAG.
   historia, sostenibilidad, especialidades (empaques, educación, tecnología,
   comunicación, espacios), propiedades e inversiones, inversores, equipo y notas
   institucionales.
+- Capturar **fuentes de terceros** (prensa económica y análisis) para cubrir los
+  indicadores financieros que el sitio oficial solo publica dentro de PDFs. Cada
+  documento de terceros se marca en el *front matter* con `domain` y
+  `source_type: tercero`, y el asistente está obligado a distinguirlos de las fuentes
+  oficiales.
 - Mantener tres capas: **bronze** (HTML crudo), **silver** (Markdown limpio) y
   **gold** (Markdown + *front matter* + índice JSONL).
 - Extraer el cuerpo editorial descartando menús, formularios, modales y pie de página.
@@ -65,7 +70,7 @@ con asistente RAG.
 | Fase | Estado | Entregable |
 |------|--------|------------|
 | 1. Captura inicial (landing + secciones) | ✅ Hecha | 15 documentos limpios en `data/gold/` (~64.5 KB) |
-| 2. Ampliación de semillas | ⬜ Pendiente | Más URLs del sitemap |
+| 2. Ampliación de semillas | ✅ Hecha | 6 fuentes de terceros con indicadores financieros |
 | 3. Enriquecimiento (PDFs, vídeo) | ⬜ Pendiente | Nuevas semillas y extractores |
 | 4. Chunking y embeddings | 🚧 En curso | Chunking + FAISS + embeddings Ollama/anthropic |
 | 5. Asistente RAG (LLM + prompt + UI) | 🚧 En curso | LangChain + FAISS + Ollama/Claude + Streamlit |
@@ -202,7 +207,7 @@ git push
 | 2026-10-21 | Descartar `trafilatura` como extractor principal | Pierde tarjetas y acordeones de las *landings* institucionales |
 | 2026-10-21 | Extractor propio basado en DOM | Control explícito de qué es contenido y qué es *chrome* |
 | 2026-10-21 | Eliminar el pie de página institucional del corpus | Repite el mismo bloque en todas las páginas y contamina la recuperación |
-| 2026-10-21 | Semillas explícitas en `config.SEEDS` en lugar de rastrear el sitemap | Alcance acotado al dominio Carvajal; el sitemap queda fuera |
+| 2026-10-21 | Semillas explícitas en `config.SEEDS` en lugar de rastrear el sitemap | Alcance acotado y reproducible (ampliado el 2026-10-29 con `EXTERNAL_SEEDS`) |
 | 2026-10-27 | Capturar las landing y secciones públicas de Carvajal (`config.SEEDS`) | Punto de partida verificable y reproducible del corpus |
 | 2026-10-28 | Incorporar RAG con LangChain + FAISS y chunking | Recuperación de contexto sobre `data/gold/` antes de generar respuestas |
 | 2026-10-28 | Añadir asistente RAG con LLM configurable (Ollama / Claude API) | El curso define dos opciones de modelo; se soportan ambas vía `LLM_PROVIDER` |
@@ -210,6 +215,7 @@ git push
 | 2026-10-28 | Consolidar el corpus limpio en el prompt de sistema | El prompt es la "memoria" completa del asistente en esta fase |
 | 2026-10-28 | Añadir DeepSeek como proveedor principal vía API compatible con OpenAI | El curso usa la API de DeepSeek; Ollama y Claude quedan como alternativas vía `LLM_PROVIDER` |
 | 2026-10-28 | Persistir el índice FAISS en `data/index/` con huella del corpus | Los embeddings en CPU tardan minutos por arranque; con caché la app abre en segundos y se invalida sola al cambiar `data/gold/` |
+| 2026-10-29 | Incorporar fuentes de terceros (`EXTERNAL_SEEDS`) al corpus | Los indicadores financieros no están en el HTML oficial (contadores JS y PDFs); la prensa económica los publica en texto y cada documento se marca con `source_type: tercero` |
 
 ## 10. Notas y tareas pendientes
 

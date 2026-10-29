@@ -34,6 +34,16 @@ sin depender de una API del sitio.
 | **CI/CD** | [GitHub Actions](.github/workflows/ci.yml) |
 | **Dependencias automáticas** | [Dependabot](.github/dependabot.yml) |
 
+## Fuentes del corpus
+
+| Origen | Dominio | Aporte |
+|---|---|---|
+| Sitio oficial | `carvajal.com` | Misión, historia, sectores, gobierno corporativo, sostenibilidad |
+| Prensa económica | `larepublica.co`, `elpais.com.co`, `caliescribe.com` | Ingresos, EBITDA, márgenes, utilidad neta, activos, pasivos, patrimonio, empleo |
+
+Los documentos de terceros se marcan en el *front matter* con `source_type: tercero`, y
+el asistente está instruido para atribuir cada cifra a su medio y fecha.
+
 ## Instalación
 
 ```bash
@@ -48,8 +58,12 @@ uv sync
 ## Uso
 
 ```bash
-# Capturar las semillas del corpus
+# Capturar el sitio oficial y las fuentes de terceros
 uv run carvajal capture
+
+# Solo el sitio oficial / solo fuentes de terceros
+uv run carvajal capture --scope oficial
+uv run carvajal capture --scope terceros
 
 # Ver el estado del corpus
 uv run carvajal status

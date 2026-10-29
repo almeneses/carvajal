@@ -32,6 +32,17 @@ SEEDS: tuple[str, ...] = (
     "https://www.carvajal.com/compromiso-etico/",
 )
 
+# Fuentes de terceros: publican los indicadores financieros que el sitio oficial
+# solo entrega dentro de PDFs (estados financieros, informe de gestión).
+EXTERNAL_SEEDS: tuple[str, ...] = (
+    "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+    "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+    "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
+    "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-1-9-billones-a-junio-un-decrecimiento-de-14-anual-3928992",
+    "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+    "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+)
+
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")

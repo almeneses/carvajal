@@ -33,9 +33,21 @@ def capture(
         html = web_client.fetch(url)
         markdown = html_to_markdown(html)
         pages.append(CapturedPage(url=url, html=html, markdown=markdown))
-        write_gold(pages[-1], title=_title_from_url(url), gold_dir=target_dir)
+        title = _title_from_markdown(markdown) or _title_from_url(url)
+        write_gold(pages[-1], title=title, gold_dir=target_dir)
 
     return pages
+
+
+def _title_from_markdown(markdown: str) -> str:
+    """Toma el primer encabezado del Markdown como título editorial."""
+
+    for level in ("# ", "## "):
+        for line in markdown.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(level):
+                return stripped[len(level) :].strip()
+    return ""
 
 
 def _title_from_url(url: str) -> str:

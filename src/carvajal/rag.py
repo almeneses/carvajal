@@ -39,7 +39,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "una lista, cronología o explicación, incluye todos los elementos relevantes del "
     "corpus. Si la respuesta no está en el corpus, di claramente que no lo sabes; si solo "
     "hay información parcial, responde con lo disponible e indica qué falta. No inventes "
-    "datos ni uses conocimiento externo. Cita las fuentes consultadas."
+    "datos ni uses conocimiento externo. Cita las fuentes consultadas. Distingue siempre "
+    "entre fuentes oficiales (carvajal.com) y de terceros (prensa, analistas): si una cifra "
+    "proviene de un tercero, dilo y menciona el medio y la fecha."
 )
 
 
@@ -58,10 +60,32 @@ def load_gold_documents(gold_dir: Path = GOLD_DIR) -> list[Document]:
         return documents
     for path in sorted(gold_dir.glob("*.md")):
         content = path.read_text(encoding="utf-8")
-        documents.append(
-            Document(page_content=content, metadata={"source": str(path), "slug": path.stem})
-        )
+        front_matter = _parse_front_matter(content)
+        metadata = {
+            "source": str(path),
+            "slug": path.stem,
+            "title": front_matter.get("title", path.stem),
+            "domain": front_matter.get("domain", "carvajal.com"),
+            "source_type": front_matter.get("source_type", "oficial"),
+        }
+        documents.append(Document(page_content=content, metadata=metadata))
     return documents
+
+
+def _parse_front_matter(content: str) -> dict[str, str]:
+    """Lee el *front matter* YAML simple del Markdown Gold (clave: valor)."""
+
+    if not content.startswith("---"):
+        return {}
+    parts = content.split("---", 2)
+    if len(parts) != 3:
+        return {}
+    metadata: dict[str, str] = {}
+    for line in parts[1].splitlines():
+        key, separator, value = line.partition(":")
+        if separator and key.strip():
+            metadata[key.strip()] = value.strip()
+    return metadata
 
 
 def build_retriever(documents: list[Document], index_dir: Path = INDEX_DIR) -> BaseRetriever:
@@ -149,8 +173,10 @@ def build_system_prompt(documents: list[Document]) -> str:
     sections: list[str] = []
     for document in documents:
         slug = str(document.metadata.get("slug", "documento"))
+        domain = document.metadata.get("domain", "carvajal.com")
+        kind = document.metadata.get("source_type", "oficial")
         body = _strip_front_matter(document.page_content)
-        sections.append(f"### Fuente: {slug}\n\n{body}")
+        sections.append(f"### Fuente: {slug} · {domain} ({kind})\n\n{body}")
 
     corpus = "\n\n".join(sections)
     if len(corpus) > MAX_SYSTEM_PROMPT_CHARS:
