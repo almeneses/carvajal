@@ -164,6 +164,7 @@ carvajal/
 
 ## Documentación
 
+- [`docs/arquitectura.md`](docs/arquitectura.md) — diagramas del pipeline y del stack.
 - [`docs/informe.md`](docs/informe.md) — informe del proyecto (problema, solución, datos, modelado, resultados).
 - [`docs/presentacion.md`](docs/presentacion.md) — guion de la sustentación (15 min, sin PowerPoint).
 - [`CONSTITUTION.md`](CONSTITUTION.md) — verdad central del proyecto.
