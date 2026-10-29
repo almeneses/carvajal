@@ -44,6 +44,16 @@ sin depender de una API del sitio.
 Los documentos de terceros se marcan en el *front matter* con `source_type: tercero`, y
 el asistente está instruido para atribuir cada cifra a su medio y fecha.
 
+## 🗺️ Arquitectura
+
+Diagrama interactivo autocontenido (generado con [Archify](https://github.com/tt-a1i/archify)):
+pan/zoom, búsqueda de componentes, tema claro/oscuro y exportación. Ábrelo en el
+navegador: [`docs/arquitectura.html`](docs/arquitectura.html). La fuente tipada y
+versionada es [`docs/arquitectura.json`](docs/arquitectura.json), y la versión Mermaid
+está en [`docs/arquitectura.md`](docs/arquitectura.md).
+
+[![Arquitectura del proyecto (tema oscuro)](docs/arquitectura.visual-check.2048x1320.dark.png)](docs/arquitectura.html)
+
 ## Instalación
 
 ```bash
@@ -164,7 +174,8 @@ carvajal/
 
 ## Documentación
 
-- [`docs/arquitectura.md`](docs/arquitectura.md) — diagramas del pipeline y del stack.
+- [`docs/arquitectura.md`](docs/arquitectura.md) — diagramas Mermaid del pipeline y del stack.
+- [`docs/arquitectura.html`](docs/arquitectura.html) — diagrama interactivo (Archify), fuente en `docs/arquitectura.json`.
 - [`docs/informe.md`](docs/informe.md) — informe del proyecto (problema, solución, datos, modelado, resultados).
 - [`docs/presentacion.md`](docs/presentacion.md) — guion de la sustentación (15 min, sin PowerPoint).
 - [`CONSTITUTION.md`](CONSTITUTION.md) — verdad central del proyecto.

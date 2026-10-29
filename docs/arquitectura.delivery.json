@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "cb92d335-a99f-40f9-a4bc-3c45277912ca",
+  "status": "current",
+  "command": "deliver",
+  "type": "dataflow",
+  "input": "C:\\Users\\marko\\OneDrive\\Documentos\\Marko\\UAO\\Semestre 3\\TAIAML\\carvajal\\docs\\arquitectura.json",
+  "output": "C:\\Users\\marko\\OneDrive\\Documentos\\Marko\\UAO\\Semestre 3\\TAIAML\\carvajal\\docs\\arquitectura.html",
+  "specification": {
+    "sha256": "2a7977392e0e8ef9b8fbe7eff40de15bd0a010a884fa6e78b705fca4d5968dd7",
+    "bytes": 5174
+  },
+  "artifact": {
+    "sha256": "3e2cc241993151f31c42a8d00fbbeff42dfa83e049f3c72ecf6e226adde58eca",
+    "bytes": 845065
+  }
+}

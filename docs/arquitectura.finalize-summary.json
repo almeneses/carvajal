@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "dataflow",
+  "quality": "showcase",
+  "specification": {
+    "path": "C:\\Users\\marko\\OneDrive\\Documentos\\Marko\\UAO\\Semestre 3\\TAIAML\\carvajal\\docs\\arquitectura.json",
+    "sha256": "2a7977392e0e8ef9b8fbe7eff40de15bd0a010a884fa6e78b705fca4d5968dd7",
+    "bytes": 5174
+  },
+  "artifact": {
+    "path": "C:\\Users\\marko\\OneDrive\\Documentos\\Marko\\UAO\\Semestre 3\\TAIAML\\carvajal\\docs\\arquitectura.html",
+    "sha256": "3e2cc241993151f31c42a8d00fbbeff42dfa83e049f3c72ecf6e226adde58eca",
+    "bytes": 845065
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "C:\\Users\\marko\\OneDrive\\Documentos\\Marko\\UAO\\Semestre 3\\TAIAML\\carvajal\\docs\\arquitectura.finalize.json",
+    "summaryReceipt": "C:\\Users\\marko\\OneDrive\\Documentos\\Marko\\UAO\\Semestre 3\\TAIAML\\carvajal\\docs\\arquitectura.finalize-summary.json",
+    "browserCheckReceipt": "C:\\Users\\marko\\OneDrive\\Documentos\\Marko\\UAO\\Semestre 3\\TAIAML\\carvajal\\docs\\arquitectura.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-29T15:28:50.468Z",
+    "source": "network",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 16378,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  }
+}

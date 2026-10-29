@@ -124,6 +124,9 @@ carvajal/
 │   └── index/               # índice FAISS en caché (regenerable, ignorado por Git)
 ├── tests/                   # pruebas (pytest, patrón AAA)
 ├── docs/                    # documentación, ADRs e investigación
+│   ├── arquitectura.json    # fuente tipada del diagrama (Archify)
+│   ├── arquitectura.html    # diagrama interactivo autocontenido
+│   └── arquitectura.md      # versión Mermaid del mismo pipeline
 ├── .github/                 # gobernanza (PR/issue templates, CI, Dependabot, labels)
 ├── .opencode/rules/         # reglas para agentes (tgrep)
 ├── AGENTS.md                # contexto para agentes LLM
@@ -216,6 +219,7 @@ git push
 | 2026-10-28 | Añadir DeepSeek como proveedor principal vía API compatible con OpenAI | El curso usa la API de DeepSeek; Ollama y Claude quedan como alternativas vía `LLM_PROVIDER` |
 | 2026-10-28 | Persistir el índice FAISS en `data/index/` con huella del corpus | Los embeddings en CPU tardan minutos por arranque; con caché la app abre en segundos y se invalida sola al cambiar `data/gold/` |
 | 2026-10-29 | Incorporar fuentes de terceros (`EXTERNAL_SEEDS`) al corpus | Los indicadores financieros no están en el HTML oficial (contadores JS y PDFs); la prensa económica los publica en texto y cada documento se marca con `source_type: tercero` |
+| 2026-10-29 | Adoptar Archify para el diagrama de arquitectura (`docs/arquitectura.json` → `.html`) | Documentación viva validada: el JSON tipado es la fuente, el HTML autocontenido es el artefacto que se comparte y se enlaza desde el README |
 
 ## 10. Notas y tareas pendientes
 
