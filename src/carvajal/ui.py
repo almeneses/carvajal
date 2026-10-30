@@ -32,9 +32,9 @@ BRAND = {
 }
 
 SCOPE_OPTIONS = {
-    "Todo el corpus (21 URLs)": "todo",
-    "Solo sitio oficial (15 URLs)": "oficial",
-    "Solo fuentes de terceros (6 URLs)": "terceros",
+    f"Todo el corpus ({len(SEEDS) + len(EXTERNAL_SEEDS)} URLs)": "todo",
+    f"Solo sitio oficial ({len(SEEDS)} URLs)": "oficial",
+    f"Solo fuentes de terceros ({len(EXTERNAL_SEEDS)} URLs)": "terceros",
 }
 
 STAGE_LABELS = {

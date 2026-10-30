@@ -112,3 +112,16 @@ def test_capture_respeta_robots_y_registra_errores(tmp_path: Path) -> None:
     assert report.robots_denied == [EMPAQUES]
     assert len(report.errors) == 1
     assert report.discarded == 2
+
+
+def test_captura_parcial_conserva_el_indice(tmp_path: Path) -> None:
+    """Una segunda captura con menos semillas no trunca el índice JSONL."""
+
+    client = FakeClient({HISTORIA: HTML_HISTORIA, EMPAQUES: HTML_EMPAQUES})
+    _capture(tmp_path, client, [HISTORIA])
+    _capture(tmp_path, client, [EMPAQUES])
+
+    lineas = (tmp_path / "gold" / "index.jsonl").read_text(encoding="utf-8").splitlines()
+
+    assert len(lineas) == 2
+    assert {json.loads(linea)["slug"] for linea in lineas} == {"historia", "empaques"}
