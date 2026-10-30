@@ -29,7 +29,7 @@ CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 EMBEDDINGS_MODEL = "nomic-embed-text"
 LLM_MODEL = "llama3.2"
-MAX_SYSTEM_PROMPT_CHARS = 100_000
+MAX_SYSTEM_PROMPT_CHARS = 120_000
 
 DEFAULT_SYSTEM_PROMPT = (
     "Eres el asistente del corpus Carvajal. Tu fuente es el CORPUS CARVAJAL incluido en "

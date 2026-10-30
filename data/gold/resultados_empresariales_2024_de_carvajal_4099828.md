@@ -4,9 +4,9 @@ title: Carvajal presentó resultados financieros y reportó ingresos por $3,9 bi
 section: prensa
 domain: larepublica.co
 source_type: tercero
-captured_at: 2026-10-29T16:31:15.931173+00:00
-hash: c8e2dfda9c231c01391da50ca43d073f31c7d82001a2587934fbe8f016644657
-chars: 4342
+captured_at: 2026-10-30T00:34:14.877125+00:00
+hash: 122efc81d17f376ed95bdd001efd68a8822d13f8d119854d2812f2a76908830b
+chars: 4292
 ---
 
 ## Carvajal presentó resultados financieros y reportó ingresos por $3,9 billones en 2024
@@ -47,13 +47,13 @@ Además, aprobaron la elección de la Junta Directiva que quedó así: Jaime Ber
 
 ## MÁS DE EMPRESAS
 
-## Estos son los dirigentes gremiales que han salido de su cargo en los últimos dos años
+## Metropolitan Printer y Legis Editores piden entrar en proceso de reorganización
 
-Desde presiones estatales, cuestionamientos por malos manejos y salidas por jubilación, las cúpulas gremiales han tenido dos años muy movidos en materia de su dirigencia
+Las compañías hicieron esta petición a la Superintendencia de Sociedades debido a la cesación de pagos y su situación de sus pasivos
 
-## Sector privado pide reglas estables e inversión para potenciar crecimiento
+## El dueño de Trululú vive temporada de Halloween con ventas en más de 30 países
 
-Representantes de la banca, la industria farmacéutica, la generación eléctrica y la tecnología expusieron sus prioridades para elevar la productividad
+Con corte a julio, Colombina, Super y Nacional de Chocolates lideraron exportaciones de golosinas, por un valor de US$195,3 millones. Así está el ranking
 
 ## La Andi comunicó que aún no hay humo blanco en búsqueda de su próximo presidente
 
@@ -61,14 +61,14 @@ La Asociación aseguró que hasta que se concrete la elección de un nuevo presi
 
 ### MÁS DE LA REPÚBLICA
 
-## Gobierno anunció más de 2.700 casas para damnificados del terremoto en Panamá
+## Apple lanza su primer MacBook táctil y deja atrás la visión de Steve Jobs
 
-## Bancada del Centro Democrático radicó su 'contrarreforma' pensional
+## Estas son todas las etapas del calvario que marcó el trámite de la reforma pensional
 
-## Megaland Bacano cambia de escenario y se traslada al Vive Claro por la gramilla de El Campín
+## KOA entró a la Bolsa de Colombia como emisor de CDT con más de 18.000 clientes
 
-## Las tasas de compra de la cartera de las tarjeta de crédito inician en 12% y van a 28,59%
+## ¿Cuánto cuesta viajar a Barranquilla para presenciar la final de la Copa Sudamericana?
 
-## Migración Colombia expulsó a 98 venezolanos de Medellín por riesgos a la seguridad
+## Abelardo de la Espriella dirigió un nuevo operativo de seguridad en barrio San Bernardo
 
-## Team-Up Sports, la apuesta de T-Mapp para conectar a las marcas junto con los clubes deportivos
+## Cómo distribuir la prima de fin de año para comenzar 2027 con mayor tranquilidad

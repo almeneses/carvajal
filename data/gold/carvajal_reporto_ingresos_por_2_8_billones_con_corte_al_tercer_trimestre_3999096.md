@@ -4,7 +4,7 @@ title: Carvajal reportó ingresos consolidados por $2,8 billones con corte al te
 section: prensa
 domain: larepublica.co
 source_type: tercero
-captured_at: 2026-10-29T16:31:17.178482+00:00
+captured_at: 2026-10-30T00:34:16.368257+00:00
 hash: 533671bbc104c722e6eadacd288ccd1942b44f0ec9e8cfa21c4fc3ef1541b08d
 chars: 4229
 ---

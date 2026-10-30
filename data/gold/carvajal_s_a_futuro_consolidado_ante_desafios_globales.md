@@ -4,9 +4,9 @@ title: Carvajal S.A.: Futuro consolidado ante desafíos globales | Noticias de C
 section: prensa
 domain: caliescribe.com
 source_type: tercero
-captured_at: 2026-10-29T16:31:25.120651+00:00
-hash: a70a830617f99d9b3463ac7046ffbdccf45c6c3aedeaeb6c7b7d9aefac1ff431
-chars: 5612
+captured_at: 2026-10-30T00:34:27.640361+00:00
+hash: 9c7636d5b3c2539219654f9e0ffaffc34e9327bec0b721f3d42e4fe92489d496
+chars: 5618
 ---
 
 # Carvajal S.A.: Futuro consolidado ante desafíos globales
@@ -67,21 +67,21 @@ Compartir:
 
 ### Artículos Relacionados
 
-#### Ataque Petro, oportunidad para la industria del azúcar
+#### Fallo tribunal sobre POT, Cali busca modulación
 
-28 octubre 2024
+20 mayo 2024
 
-#### Caliescribe saluda a sus lectores en Navidad
+#### La semana de pasión del alcalde I
 
-22 diciembre 2025
+11 abril 2025
 
-#### Tolerancia Cero
+#### Pronóstico – Se cae re perfilamiento Cali I
 
-2 octubre 2026
+20 julio 2024
 
-#### Ruta crítica de Eder en enero-2024/Seguridad
+#### Alcalde, equilibre lo conveniente, lo legal y real
 
-12 diciembre 2023
+17 febrero 2024
 
 ## Recent Posts
 
