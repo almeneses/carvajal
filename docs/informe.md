@@ -48,7 +48,7 @@ Decisiones técnicas:
 | Modelo (módulo 2) | **DeepSeek vía API** (`deepseek-chat`, configurable) | API compatible con OpenAI, bajo costo y buen rendimiento en español |
 | Alternativa local | **Ollama** (`llama3.2`) | Permite demo sin API mediante `LLM_PROVIDER=ollama` |
 | Embeddings | **Ollama `nomic-embed-text`** | Open source, local y sin costo |
-| Base vectorial | **FAISS** (índice en disco) | Suficiente para 21 documentos; cero infraestructura |
+| Base vectorial | **FAISS** (índice en disco) | Suficiente para 24 documentos; cero infraestructura |
 | Interfaz | **Streamlit** | Campo de pregunta y área de respuesta en minutos |
 
 ## 3. Preparación de los datos
@@ -95,8 +95,10 @@ elemento padre *y* de sus hijos, duplicando el menú decenas de veces: el corpus
 `header`/`footer` de Elementor), el corpus quedó en **64.5 KB de texto editorial
 limpio** (≈ 15 000 tokens), apto para consolidarse en el prompt de sistema.
 
-Con las seis fuentes de terceros el corpus pasó a **21 documentos (~89 KB, ≈ 22 000
-tokens)**, todavía por debajo del límite de 100 000 caracteres del prompt de sistema.
+Con las seis fuentes de terceros y tres páginas oficiales más (pulpa y papel, política de
+innovación y relacionamiento con grupos de interés), el corpus pasó a **24 documentos
+(~93 KB, ≈ 23 000 tokens)**, por debajo del límite de 120 000 caracteres del prompt de
+sistema.
 
 ### 3.3 Chunking
 
@@ -126,7 +128,7 @@ requiere claves ni cuotas de API.
 reutiliza mientras el corpus no cambie (huella SHA-256 de los chunks), de modo que la
 aplicación arranca en segundos; la primera construcción tarda varios minutos porque los
 embeddings se calculan en CPU con Ollama. Es adecuado para el tamaño actual del corpus
-(21 documentos, ~89 KB). Para producción se recomendaría una base vectorial dedicada
+(24 documentos, ~93 KB). Para producción se recomendaría una base vectorial dedicada
 (Chroma, pgvector o Qdrant).
 
 ### 4.4 Diseño del prompt

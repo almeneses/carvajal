@@ -4,7 +4,7 @@ title: Carvajal reportó ingresos por $1,9 billones a junio, un decrecimiento de
 section: prensa
 domain: larepublica.co
 source_type: tercero
-captured_at: 2026-10-29T16:31:18.227854+00:00
+captured_at: 2026-10-30T00:34:17.351565+00:00
 hash: 563ecd3f6f5f2f53e4af2495a7e951de8766369a5f8d2dc030745cb6095cbc5a
 chars: 3835
 ---

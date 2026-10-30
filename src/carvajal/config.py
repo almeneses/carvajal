@@ -36,6 +36,9 @@ SEEDS: tuple[str, ...] = (
     "https://www.carvajal.com/inversionistas/inicio/",
     "https://www.carvajal.com/gobierno-corporativo/",
     "https://www.carvajal.com/compromiso-etico/",
+    "https://www.carvajal.com/pulpa-y-papel/",
+    "https://www.carvajal.com/politica-de-innovacion/",
+    "https://www.carvajal.com/compromiso-etico/relacionamiento-con-grupos-de-interes/",
 )
 
 # Fuentes de terceros: publican los indicadores financieros que el sitio oficial

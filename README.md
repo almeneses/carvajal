@@ -28,7 +28,7 @@ terceros. Todo se demuestra en una interfaz con el scraping visible etapa por et
 | Antes | Después |
 |---|---|
 | Corpus de 2.45 MB con menús duplicados | **64.5 KB** de texto editorial tras corregir el extractor |
-| Sin indicadores financieros (solo PDFs/JS) | **21 documentos** con ingresos, EBITDA, márgenes y empleo |
+| Sin indicadores financieros (solo PDFs/JS) | **24 documentos** con ingresos, EBITDA, márgenes y empleo |
 | Respuestas sin trazabilidad | Cada respuesta **cita medio, fecha y tipo de fuente** |
 | Arranque de la app en ~5 min (embeddings) | **Segundos**, con índice persistido e invalidación por hash |
 
@@ -65,7 +65,7 @@ el asistente está instruido para atribuir cada cifra a su medio y fecha.
 ## Pipeline de captura
 
 ```text
-semillas (21 URLs)
+semillas (24 URLs)
    │  robots.txt + rate limit (1 s/host) + User-Agent propio + timeout 30 s
    ▼
 Bronze  data/raw/*.html          HTML crudo, tal como llegó
@@ -260,6 +260,7 @@ carvajal/
 
 ## Documentación
 
+- [`docs/alcance.md`](docs/alcance.md) — alcance del Q&A: tipos de pregunta y cobertura real del corpus.
 - [`docs/arquitectura.md`](docs/arquitectura.md) — diagramas Mermaid del pipeline y del stack.
 - [`docs/arquitectura.html`](docs/arquitectura.html) — diagrama interactivo (Archify), fuente en `docs/arquitectura.json`.
 - [`docs/informe.md`](docs/informe.md) — informe del proyecto (problema, solución, datos, modelado, resultados).
