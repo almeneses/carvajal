@@ -29,7 +29,7 @@ def test_load_gold_documents_expone_metadatos(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    documents = load_gold_documents(tmp_path, include_extended=False)
+    documents = load_gold_documents(tmp_path, tmp_path / "external")
 
     assert len(documents) == 1
     assert documents[0].metadata["title"] == "Nota"
@@ -57,7 +57,7 @@ def test_load_gold_documents_mezcla_nucleo_y_capa_extendida(tmp_path: Path) -> N
         encoding="utf-8",
     )
 
-    documents = load_gold_documents(core_dir, external_dir, include_extended=True)
+    documents = load_gold_documents(core_dir, external_dir)
     by_layer = {document.metadata["layer"]: document for document in documents}
 
     assert len(documents) == 2
@@ -66,7 +66,6 @@ def test_load_gold_documents_mezcla_nucleo_y_capa_extendida(tmp_path: Path) -> N
     assert extended.metadata["origin"] == "alejandro"
     assert extended.metadata["category"] == "business"
     assert extended.metadata["entity"] == "Carvajal Empaques"
-    assert extended.metadata["page"] == "3"
 
 
 def test_load_core_documents_omite_la_capa_extendida(tmp_path: Path) -> None:
@@ -85,20 +84,3 @@ def test_load_core_documents_omite_la_capa_extendida(tmp_path: Path) -> None:
 
     assert len(documents) == 1
     assert documents[0].metadata["slug"] == "historia"
-
-
-def test_capa_extendida_desactivada_por_defecto(tmp_path: Path) -> None:
-    """Sin activarla, `load_gold_documents` devuelve solo el núcleo."""
-
-    (tmp_path / "gold").mkdir()
-    (tmp_path / "external" / "alejandro" / "gold").mkdir(parents=True)
-    (tmp_path / "gold" / "historia.md").write_text(
-        "---\ntitle: Historia\n---\n\nNúcleo.", encoding="utf-8"
-    )
-    (tmp_path / "external" / "alejandro" / "gold" / "ext_abc.md").write_text(
-        "---\ntitle: Externo\n---\n\nExtendido.", encoding="utf-8"
-    )
-
-    documents = load_gold_documents(tmp_path / "gold", tmp_path / "external")
-
-    assert [document.metadata["slug"] for document in documents] == ["historia"]

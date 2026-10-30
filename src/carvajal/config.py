@@ -17,13 +17,13 @@ RAW_DIR: Path = Path("data") / "raw"  # bronze: HTML crudo
 PROCESSED_DIR: Path = Path("data") / "processed"  # silver: Markdown limpio
 INDEX_FILE: Path = GOLD_DIR / "index.jsonl"  # índice del corpus (JSONL)
 
-# Capa extendida: corpus de terceros importado, solo para recuperación.
+# Capa extendida: corpus externo importado, solo para recuperación.
 # El núcleo (data/gold) sigue siendo el único que se consolida en el prompt.
 EXTERNAL_DIR: Path = Path("data") / "external"
-EXTERNAL_CORPUS_DIR: Path = Path("..") / "proyecto-carvajal"
-LAYER_CORE: str = "core"
-LAYER_EXTENDED: str = "extended"
-IMPORT_CATEGORIES: tuple[str, ...] = (
+EXTERNAL_CORPUS_DIR: Path = Path(os.getenv("EXTERNAL_CORPUS_DIR", "../proyecto-carvajal"))
+EXTERNAL_SOURCE: str = "alejandro"
+EXTERNAL_RELEASE: str = "corpus-2026-10-23"
+EXTERNAL_CATEGORIES: tuple[str, ...] = (
     "identity",
     "governance",
     "business",
@@ -31,16 +31,9 @@ IMPORT_CATEGORIES: tuple[str, ...] = (
     "technology",
     "news",
 )
-IMPORT_MAX_DOCS: int = 600
-IMPORT_MAX_CHARS: int = 1_500_000
-IMPORT_MAX_DOC_CHARS: int = 120_000
-IMPORT_MAX_PAGES: int = 0  # 0 = no importar PDFs; >0 = páginas máximas por PDF
-# La capa extendida está desactivada por defecto: la demo usa solo el núcleo y su índice.
-ENABLE_EXTENDED_LAYER: bool = os.getenv("ENABLE_EXTENDED_LAYER", "false").lower() in {
-    "1",
-    "true",
-    "yes",
-}
+EXTERNAL_MAX_CHARS: int = 1_500_000
+LAYER_CORE: str = "core"
+LAYER_EXTENDED: str = "extended"
 REQUEST_DELAY_SECONDS: float = 1.0  # rate limit entre peticiones por host
 RESPECT_ROBOTS: bool = True
 MIN_DEDUPE_CHARS: int = 200  # no deduplicar páginas casi vacías

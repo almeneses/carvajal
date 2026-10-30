@@ -120,11 +120,11 @@ def test_source_label_describe_procedencia_y_capa() -> None:
     """La fuente citada muestra dominio, tipo, capa y página."""
 
     document = _document("https://carvajalempaques.com/", "colaborador", layer="extended")
-    document.metadata.update({"category": "business", "page": "7"})
+    document.metadata.update({"category": "business"})
 
     label = source_label(document)
 
-    assert label == "carvajalempaques.com · colaborador · extendido · business · p. 7"
+    assert label == "carvajalempaques.com · colaborador · extendido · business"
 
 
 def _document(url: str, source_type: str, layer: str = "core"):

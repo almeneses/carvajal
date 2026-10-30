@@ -145,7 +145,6 @@ def test_ask_etiqueta_los_fragmentos_con_su_fuente() -> None:
                     "slug": "ext_abc",
                     "domain": "carvajalempaques.com",
                     "source_type": "colaborador",
-                    "page": "4",
                 },
             )
         ]
@@ -162,7 +161,7 @@ def test_ask_etiqueta_los_fragmentos_con_su_fuente() -> None:
     )
 
     human = captured_messages[0][1].content
-    assert "[Fuente: ext_abc · carvajalempaques.com · colaborador · página 4]" in human
+    assert "[Fuente: ext_abc · carvajalempaques.com · colaborador]" in human
     assert "Contenido externo." in human
 
 

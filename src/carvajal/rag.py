@@ -350,9 +350,7 @@ def _format_context(documents: list[Document]) -> str:
         source = str(metadata.get("slug", "documento"))
         domain = str(metadata.get("domain", "carvajal.com"))
         kind = str(metadata.get("source_type", "oficial"))
-        page = metadata.get("page")
-        suffix = f" · página {page}" if page else ""
-        blocks.append(f"[Fuente: {source} · {domain} · {kind}{suffix}]\n{document.page_content}")
+        blocks.append(f"[Fuente: {source} · {domain} · {kind}]\n{document.page_content}")
     return "\n\n".join(blocks)
 
 
