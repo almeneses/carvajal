@@ -7,6 +7,7 @@ from pathlib import Path
 from langchain_anthropic import ChatAnthropic
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import Runnable
@@ -29,6 +30,7 @@ from carvajal.config import (
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 EMBEDDINGS_MODEL = "nomic-embed-text"
+EMBEDDING_BATCH_SIZE = 32
 LLM_MODEL = "llama3.2"
 MAX_SYSTEM_PROMPT_CHARS = 120_000
 
@@ -103,8 +105,10 @@ def build_retriever(documents: list[Document], index_dir: Path = INDEX_DIR) -> B
             allow_dangerous_deserialization=True,
         )
     else:
-        vectorstore = FAISS.from_texts(
-            texts=[chunk.page_content for chunk in chunks],
+        texts = [chunk.page_content for chunk in chunks]
+        vectors = _embed_in_batches(embeddings, texts)
+        vectorstore = FAISS.from_embeddings(
+            text_embeddings=list(zip(texts, vectors, strict=True)),
             embedding=embeddings,
             metadatas=[chunk.metadata for chunk in chunks],
         )
@@ -113,6 +117,15 @@ def build_retriever(documents: list[Document], index_dir: Path = INDEX_DIR) -> B
         fingerprint_file.write_text(fingerprint, encoding="utf-8")
 
     return vectorstore.as_retriever(search_kwargs={"k": 5})
+
+
+def _embed_in_batches(embeddings: Embeddings, texts: list[str]) -> list[list[float]]:
+    """Calcula embeddings por lotes para no desbordar el servidor de Ollama."""
+
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+        vectors.extend(embeddings.embed_documents(texts[start : start + EMBEDDING_BATCH_SIZE]))
+    return vectors
 
 
 def _split_documents(documents: list[Document]) -> list[Document]:
@@ -350,9 +363,7 @@ def _format_context(documents: list[Document]) -> str:
         source = str(metadata.get("slug", "documento"))
         domain = str(metadata.get("domain", "carvajal.com"))
         kind = str(metadata.get("source_type", "oficial"))
-        page = metadata.get("page")
-        suffix = f" · página {page}" if page else ""
-        blocks.append(f"[Fuente: {source} · {domain} · {kind}{suffix}]\n{document.page_content}")
+        blocks.append(f"[Fuente: {source} · {domain} · {kind}]\n{document.page_content}")
     return "\n\n".join(blocks)
 
 

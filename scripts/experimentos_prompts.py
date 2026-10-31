@@ -14,7 +14,7 @@ import time
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from carvajal.corpus import load_gold_documents
+from carvajal.corpus import load_core_documents
 from carvajal.rag import (
     FAQ_INSTRUCTIONS,
     SUMMARY_INSTRUCTIONS,
@@ -62,7 +62,7 @@ def main() -> None:
     parser.add_argument("--solo", choices=("resumen", "faq", "qa"))
     args = parser.parse_args()
 
-    documentos = load_gold_documents()
+    documentos = load_core_documents()
     slugs = {str(documento.metadata["slug"]) for documento in documentos}
 
     if args.solo in (None, "resumen"):

@@ -61,9 +61,9 @@ con asistente RAG.
 - Deduplicar por huella SHA-256 y enriquecer cada documento con sección, hash y tamaño.
 - Versionar `data/gold/` como entregable del corpus (bronze y silver se regeneran).
 - Importar corpus externos de terceros a una **capa extendida** (`data/external/`),
-  solo para recuperación y citación, con manifiesto, deduplicación por URL/hash y
-  procedencia explícita (`origin`, `category`, `entity`, `page`). Esa capa nunca se
-  consolida en el prompt de sistema.
+  solo para recuperación y citación, con manifiesto, deduplicación por URL/hash
+  (incluidas las URLs del núcleo) y procedencia explícita (`origin`, `category`,
+  `entity`). Se importa solo HTML y esa capa nunca se consolida en el prompt.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
 ### Fuera del alcance (por ahora)
@@ -243,7 +243,7 @@ git push
 | 2026-10-29 | Tres tareas de LLM sobre el mismo corpus: Resumen, FAQ y Q&A | La rúbrica del Módulo 1 exige las tres tareas; comparten el bloque de corpus consolidado y cada una tiene su propio prompt, con citas de fuente y reglas anti-alucinación |
 | 2026-10-30 | Alcance documentado en `docs/alcance.md`; el sitio no publica contacto ni sedes | Se verificaron 404 en `/contacto/`, `/sedes/`, `/oficinas/`, barrido de 26 sub-sitemaps y portada sin teléfonos ni direcciones. No se inventan datos: el asistente declara la ausencia y remite a los canales oficiales |
 | 2026-10-30 | Experimentación de prompts documentada en `docs/prompts.md` | Cada tarea se probó con 3-4 variantes sobre el corpus real; las métricas (fuentes citadas, cifras, declaración de ausencia) justifican las reglas actuales y quedan reproducibles con `scripts/experimentos_prompts.py` |
-| 2026-10-30 | Importar el corpus de un compañero como **capa extendida** (`data/external/`), desactivada por defecto | Su corpus aporta cientos de fuentes que el núcleo de 24 documentos no cubre. No se consolida en el prompt (1,4 M de caracteres) y solo participa en recuperación cuando se activa con `ENABLE_EXTENDED_LAYER`; así la demo sigue con el núcleo y el índice ya construido |
+| 2026-10-30 | Importar el corpus de un compañero como **capa extendida** (`data/external/`) | Su corpus aporta cientos de fuentes que el núcleo no cubre. Se importa solo HTML, se re-extrae con el extractor propio, se deduplica contra el núcleo y se carga siempre si existe; no se consolida en el prompt porque 1,4 M de caracteres desbordarían el contexto |
 
 ## 10. Notas y tareas pendientes
 

@@ -1,5 +1,8 @@
 # Resultados de la evaluación
 
+> Nota: esta corrida se generó con el núcleo. Con la capa extendida activa, el índice
+> incluye ~2.100 fragmentos; regenera con `make eval` para evaluar el corpus completo.
+
 ## 1. ¿Qué es Carvajal y a qué sectores se dedica?
 
 # ¿Qué es Carvajal y a qué sectores se dedica?

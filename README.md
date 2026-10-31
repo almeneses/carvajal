@@ -92,35 +92,30 @@ Gold    data/gold/*.md           Markdown + front matter (url, title, section,
 ## Corpus extendido (capa de recuperación)
 
 El núcleo (`data/gold/`) es el corpus curado que se consolida en el prompt. Encima se
-puede importar un **corpus externo** que solo participa en la recuperación: no se copia
-al prompt, se cita por fragmento con su URL y su categoría.
+importa un **corpus externo** que solo participa en la recuperación: no se copia al
+prompt, se cita por fragmento con su URL y su categoría.
 
 ```bash
-# Importar el corpus de un compañero (solo lectura) a data/external/<fuente>/
-uv run carvajal import --from ../proyecto-carvajal --source alejandro \
-  --release corpus-2026-10-23
-
-# Solo algunas categorías, con presupuesto acotado
-uv run carvajal import --from ../proyecto-carvajal --source alejandro \
-  --categories identity,governance --max-chars 500000
-
-# Incluir PDF de hasta 60 páginas (por defecto se excluyen)
-uv run carvajal import --from ../proyecto-carvajal --source alejandro \
-  --categories financials --max-pages 60
+make import
+# o: uv run carvajal import
 ```
+
+La ruta del donante se configura con `EXTERNAL_CORPUS_DIR` (por defecto
+`../proyecto-carvajal`). La importación usa categorías y presupuesto fijos de
+`config.py`, re-extrae el HTML Bronze con el extractor propio y **no importa PDF**;
+si el HTML no deja texto suficiente, usa el Silver del donante como respaldo.
 
 | Aspecto | Núcleo | Capa extendida |
 |---|---|---|
 | Ruta | `data/gold/*.md` | `data/external/<fuente>/gold/*.md` |
 | Prompt | Sí, completo | No, solo fragmentos recuperados |
-| Procedencia | `source_type: oficial\|tercero` | `source_type: colaborador`, `origin`, `category`, `page` |
+| Procedencia | `source_type: oficial\|tercero` | `source_type: colaborador`, `origin`, `category`, `entity` |
 | Versionado en Git | Sí | No: se regenera con `carvajal import` (solo se versiona el manifiesto) |
-| Selección | Semillas de `config.py` | Categorías, presupuesto de caracteres y límite de páginas |
+| Selección | Semillas de `config.py` | Categorías fijas de `EXTERNAL_CATEGORIES` |
 
-La importación es idempotente: reconstruye la salida desde cero, deduplica por hash del
-texto y URL normalizada, y escribe `manifest.json` con la fuente, la captura donante y los
-conteos por categoría y dominio. El texto HTML se vuelve a extraer del Bronze donante con
-el extractor propio; los PDF se toman página por página de su texto Silver.
+La importación es idempotente: reconstruye la salida desde cero, descarta las URLs que
+ya están en el núcleo y deduplica por URL normalizada y hash del texto. Escribe
+`manifest.json` con la fuente, la captura donante y los conteos por categoría.
 
 > La capa extendida es material de terceros: conserva la atribución y no se presenta como
 > comunicación oficial de Carvajal.

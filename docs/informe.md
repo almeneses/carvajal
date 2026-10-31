@@ -108,19 +108,20 @@ sistema.
 
 ### 3.4 Corpus extendido (capa de recuperación)
 
-El núcleo de 21 documentos cubre el sitio matriz, pero deja fuera productos, filiales y
+El núcleo de 24 documentos cubre el sitio matriz, pero deja fuera productos, filiales y
 fundaciones. Para cerrar esa brecha se importó el corpus de un compañero (rama
 `modulo_1`, captura `corpus-2026-10-23`) como **capa extendida**:
 
-- `carvajal import` lee su catálogo (`scraping_todos.jsonl`), filtra por categoría,
-  presupuesto de caracteres y páginas, y **vuelve a extraer el HTML con el extractor
-  propio**; los PDF se toman página por página de su texto Silver.
-- Deduplica por URL normalizada y hash del texto, y escribe
-  `data/external/<fuente>/{silver,gold,manifest.json}`.
-- La importación por defecto trae 485 documentos (≈1,45 M caracteres) de
-  identidad, gobierno, negocio, sostenibilidad, tecnología y noticias.
-- La capa extendida **no entra al prompt**: se recupera con FAISS y se cita con URL,
-  categoría y página. Así el prompt conserva su límite de 100 000 caracteres.
+- `carvajal import` lee su catálogo (`scraping_todos.jsonl`), filtra las categorías
+  fijas de `EXTERNAL_CATEGORIES` y **vuelve a extraer el HTML con el extractor propio**.
+  Los PDF quedan fuera; si el HTML no deja texto suficiente, se usa el Silver del
+  donante como respaldo.
+- Descarta las URLs que ya están en el núcleo y deduplica por URL normalizada y hash.
+- Escribe `data/external/<fuente>/gold/`, su `index.jsonl` y `manifest.json`; la
+  importación por defecto deja **479 documentos (~1,40 M caracteres)**.
+- La capa extendida se carga siempre que exista, pero **no entra al prompt**: se
+  recupera con FAISS y se cita con URL y categoría. Así el prompt conserva su límite
+  de 100 000 caracteres.
 
 ## 4. Modelado
 
@@ -264,9 +265,9 @@ de atención, canales de venta, vacantes y tratamiento de datos).
   `data/index/` y solo se reconstruye si cambia el corpus.
 - **Sin memoria conversacional:** una pregunta por turno.
 - **Evaluación cualitativa y manual:** no se implementó un *benchmark* automático.
-- **Capa extendida:** sus fechas son heterogéneas (`date_status`) y muchas fuentes no
-  tienen fecha de publicación; las respuestas deben atribuir la captura y no tratarla
-  como histórico. Los PDF quedan fuera por defecto para no desbordar el presupuesto.
+- **Capa extendida:** sus fechas son heterogéneas y muchas fuentes no tienen fecha de
+  publicación; las respuestas deben atribuir la captura y no tratarla como histórico.
+  Los PDF del corpus externo no se importan y el HTML sin texto usa el Silver donante.
 
 ## 6. Presentación
 

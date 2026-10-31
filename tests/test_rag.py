@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from langchain_anthropic import ChatAnthropic
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 from langchain_ollama import ChatOllama
@@ -15,6 +16,7 @@ from carvajal.rag import (
     DEFAULT_SYSTEM_PROMPT,
     FAQ_INSTRUCTIONS,
     SUMMARY_INSTRUCTIONS,
+    _embed_in_batches,
     ask,
     build_llm,
     build_retriever,
@@ -145,7 +147,6 @@ def test_ask_etiqueta_los_fragmentos_con_su_fuente() -> None:
                     "slug": "ext_abc",
                     "domain": "carvajalempaques.com",
                     "source_type": "colaborador",
-                    "page": "4",
                 },
             )
         ]
@@ -162,7 +163,7 @@ def test_ask_etiqueta_los_fragmentos_con_su_fuente() -> None:
     )
 
     human = captured_messages[0][1].content
-    assert "[Fuente: ext_abc · carvajalempaques.com · colaborador · página 4]" in human
+    assert "[Fuente: ext_abc · carvajalempaques.com · colaborador]" in human
     assert "Contenido externo." in human
 
 
@@ -226,9 +227,15 @@ def _fake_faiss(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     calls: list[str] = []
 
-    def fake_from_texts(texts: list[str], embedding: object, metadatas: list) -> _FakeVectorStore:
-        calls.append("from_texts")
-        return _FakeVectorStore(texts)
+    class FakeEmbeddings:
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[0.0] for _ in texts]
+
+    def fake_from_embeddings(
+        text_embeddings: list[tuple[str, list[float]]], embedding: object, metadatas: list
+    ) -> _FakeVectorStore:
+        calls.append("from_embeddings")
+        return _FakeVectorStore([text for text, _ in text_embeddings])
 
     def fake_load_local(
         folder_path: str, embeddings: object, allow_dangerous_deserialization: bool = False
@@ -236,10 +243,32 @@ def _fake_faiss(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append("load_local")
         return _FakeVectorStore()
 
-    monkeypatch.setattr("carvajal.rag.FAISS.from_texts", fake_from_texts)
+    monkeypatch.setattr("carvajal.rag.FAISS.from_embeddings", fake_from_embeddings)
     monkeypatch.setattr("carvajal.rag.FAISS.load_local", fake_load_local)
-    monkeypatch.setattr("carvajal.rag.OllamaEmbeddings", lambda model: "embeddings")
+    monkeypatch.setattr("carvajal.rag.OllamaEmbeddings", lambda model: FakeEmbeddings())
     return calls
+
+
+def test_embed_in_batches_respeta_el_lote() -> None:
+    """Los embeddings se piden en lotes pequeños para no desbordar Ollama."""
+
+    class FakeEmbeddings(Embeddings):
+        def __init__(self) -> None:
+            self.sizes: list[int] = []
+
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            self.sizes.append(len(texts))
+            return [[0.0] for _ in texts]
+
+        def embed_query(self, text: str) -> list[float]:
+            return [0.0]
+
+    embeddings = FakeEmbeddings()
+
+    vectors = _embed_in_batches(embeddings, ["texto"] * 70)
+
+    assert len(vectors) == 70
+    assert embeddings.sizes == [32, 32, 6]
 
 
 def test_build_retriever_reutiliza_el_indice_en_cache(
@@ -256,7 +285,7 @@ def test_build_retriever_reutiliza_el_indice_en_cache(
 
     assert first == "retriever"
     assert second == "retriever"
-    assert calls == ["from_texts", "load_local"]
+    assert calls == ["from_embeddings", "load_local"]
     assert (index_dir / "fingerprint.txt").exists()
 
 
@@ -271,7 +300,7 @@ def test_build_retriever_reconstruye_cuando_cambia_el_corpus(
     build_retriever([Document(page_content="Versión uno.", metadata={"source": "x.md"})], index_dir)
     build_retriever([Document(page_content="Versión dos.", metadata={"source": "x.md"})], index_dir)
 
-    assert calls == ["from_texts", "from_texts"]
+    assert calls == ["from_embeddings", "from_embeddings"]
 
 
 def test_build_task_prompt_incluye_corpus_y_procedencia() -> None:

@@ -1,20 +1,13 @@
 """Interfaz de línea de comandos: capture / ask / summarize / faq / import / eval / status."""
 
 import argparse
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from carvajal.config import (
-    EXTERNAL_CORPUS_DIR,
     EXTERNAL_DIR,
     EXTERNAL_SEEDS,
     GOLD_DIR,
-    IMPORT_CATEGORIES,
-    IMPORT_MAX_CHARS,
-    IMPORT_MAX_DOC_CHARS,
-    IMPORT_MAX_DOCS,
-    IMPORT_MAX_PAGES,
     INDEX_FILE,
     QUESTIONS_FILE,
     REQUEST_DELAY_SECONDS,
@@ -139,67 +132,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archivo Markdown donde se escribe la FAQ.",
     )
 
-    import_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "import",
-        help="Importa un corpus externo a la capa extendida (solo recuperación).",
-    )
-    import_parser.add_argument(
-        "--from",
-        dest="corpus_root",
-        type=Path,
-        default=EXTERNAL_CORPUS_DIR,
-        help="Raíz del repositorio del corpus donante (solo lectura).",
-    )
-    import_parser.add_argument(
-        "--source",
-        default="alejandro",
-        help="Nombre corto de la fuente; se usa en el manifiesto y en ``origin``.",
-    )
-    import_parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Destino de la capa extendida (por defecto data/external/<fuente>).",
-    )
-    import_parser.add_argument(
-        "--release",
-        default="",
-        help="Etiqueta de la captura donante (por ejemplo, corpus-2026-10-23).",
-    )
-    import_parser.add_argument(
-        "--categories",
-        default=",".join(IMPORT_CATEGORIES),
-        help="Categorías del catálogo donante, separadas por comas.",
-    )
-    import_parser.add_argument(
-        "--max-docs",
-        type=int,
-        default=IMPORT_MAX_DOCS,
-        help="Máximo de documentos a importar.",
-    )
-    import_parser.add_argument(
-        "--max-chars",
-        type=int,
-        default=IMPORT_MAX_CHARS,
-        help="Presupuesto de caracteres del cuerpo importado.",
-    )
-    import_parser.add_argument(
-        "--max-doc-chars",
-        type=int,
-        default=IMPORT_MAX_DOC_CHARS,
-        help="Tamaño máximo estimado por documento.",
-    )
-    import_parser.add_argument(
-        "--max-pages",
-        type=int,
-        default=IMPORT_MAX_PAGES,
-        help="Páginas máximas por PDF (0 desactiva los PDF).",
-    )
-    import_parser.add_argument(
-        "--min-chars",
-        type=int,
-        default=200,
-        help="Longitud mínima de un documento para conservarlo.",
+        help="Importa el corpus externo a la capa extendida (solo recuperación).",
     )
 
     subparsers.add_parser(
@@ -275,26 +210,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "import":
-        output_dir = _import_output_dir(args)
-        if output_dir is None:
-            return 1
         try:
-            report = import_external(
-                corpus_root=args.corpus_root,
-                output_dir=output_dir,
-                source=args.source,
-                categories=_parse_categories(args.categories),
-                max_docs=args.max_docs,
-                max_chars=args.max_chars,
-                max_doc_chars=args.max_doc_chars,
-                max_pages=args.max_pages,
-                min_chars=args.min_chars,
-                release=args.release,
-            )
-        except (FileNotFoundError, ValueError) as error:
+            report = import_external()
+        except FileNotFoundError as error:
             print(error)
             return 1
-        print_import_report(report, output_dir)
+        print_import_report(report)
         return 0
 
     if args.command == "list":
@@ -310,27 +231,6 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 0
-
-
-SOURCE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-
-def _import_output_dir(args: argparse.Namespace) -> Path | None:
-    """Valida la fuente y confina el destino de la importación a ``data/external``.
-
-    Sin esta validación, ``--source ../..`` haría que el importador borrase el
-    repositorio con ``shutil.rmtree``.
-    """
-
-    if not SOURCE_PATTERN.match(args.source):
-        print(f"Fuente inválida: {args.source!r}. Usa minúsculas, números, guion o guion bajo.")
-        return None
-    root = EXTERNAL_DIR.resolve()
-    target = (args.output or EXTERNAL_DIR / args.source).resolve()
-    if target == root or not target.is_relative_to(root):
-        print(f"El destino debe quedar dentro de {root} (recibido: {target}).")
-        return None
-    return target
 
 
 def _build_client(args: argparse.Namespace) -> WebClient:
@@ -366,28 +266,15 @@ def print_report(report: CaptureReport) -> None:
         print(f"  ! {error}")
 
 
-def print_import_report(report: ImportReport, output_dir: Path) -> None:
+def print_import_report(report: ImportReport) -> None:
     """Imprime las métricas de la importación del corpus externo."""
 
     print()
     print("Resumen de la importación")
-    print(f"  Fuente:                    {report.source}")
-    print(f"  Registros en el catálogo:  {report.catalog_records}")
-    print(f"  Seleccionados:             {report.selected}")
-    print(f"  Importados:                {report.imported}")
-    print(f"  Duplicados:                {report.duplicates}")
-    print(f"  Sin texto suficiente:      {report.empty}")
-    print(f"  Fuera del presupuesto:     {report.over_budget}")
-    print(f"  Caracteres:                {report.chars:,}")
-    print(f"  Tokens (estimados):        {report.tokens_estimate:,}")
-    print(f"  Duración:                  {report.duration_seconds} s")
-    print(f"  Destino:                   {output_dir}")
-
-
-def _parse_categories(value: str) -> tuple[str, ...]:
-    """Convierte una lista separada por comas en categorías normalizadas."""
-
-    return tuple(category.strip().lower() for category in value.split(",") if category.strip())
+    print(f"  Importados:      {report.imported}")
+    print(f"  Caracteres:      {report.chars:,}")
+    print(f"  Duplicados:      {report.duplicates}")
+    print(f"  Descartados:     {report.skipped}")
 
 
 def _print_corpus_status() -> None:

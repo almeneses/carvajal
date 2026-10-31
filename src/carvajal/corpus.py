@@ -4,45 +4,32 @@ from pathlib import Path
 
 from langchain_core.documents import Document
 
-from carvajal.config import (
-    ENABLE_EXTENDED_LAYER,
-    EXTERNAL_DIR,
-    GOLD_DIR,
-    LAYER_CORE,
-    LAYER_EXTENDED,
-)
+from carvajal.config import EXTERNAL_DIR, GOLD_DIR, LAYER_CORE, LAYER_EXTENDED
 
 
 def load_gold_documents(
     gold_dir: Path = GOLD_DIR,
-    external_dir: Path | None = None,
-    include_extended: bool | None = None,
+    external_dir: Path = EXTERNAL_DIR,
 ) -> list[Document]:
-    """Carga el núcleo y, si está activada, la capa extendida importada.
+    """Carga el núcleo y, si existe, la capa extendida importada.
 
     El núcleo es el corpus curado que se consolida en el prompt. La capa extendida
-    solo participa en la recuperación y está **desactivada por defecto**: se activa con
-    ``include_extended=True`` o con la variable de entorno ``ENABLE_EXTENDED_LAYER``.
+    solo participa en la recuperación: cada documento conserva su procedencia
+    (``origin``, ``category`` y ``entity``) para citarlo.
 
     Args:
         gold_dir: Directorio del núcleo (Markdown con *front matter*).
-        external_dir: Raíz de la capa extendida (por defecto ``data/external``).
-        include_extended: Fuerza la carga o la omisión de la capa extendida.
+        external_dir: Raíz de la capa extendida.
 
     Returns:
         Lista de documentos listos para embeddear y recuperar.
     """
 
     documents = _load_markdown_dir(gold_dir, layer=LAYER_CORE)
-    enabled = ENABLE_EXTENDED_LAYER if include_extended is None else include_extended
-    if not enabled:
+    if not external_dir.exists():
         return documents
 
-    root = external_dir or EXTERNAL_DIR
-    if not root.exists():
-        return documents
-
-    for source_dir in _external_sources(root):
+    for source_dir in _external_sources(external_dir):
         documents.extend(
             _load_markdown_dir(
                 source_dir / "gold",
@@ -85,9 +72,6 @@ def _load_markdown_dir(directory: Path, layer: str, origin: str = "") -> list[Do
                     "category": front_matter.get("category", ""),
                     "entity": front_matter.get("entity", ""),
                     "origin": front_matter.get("origin", origin),
-                    "page": front_matter.get("page", ""),
-                    "published_at": front_matter.get("published_at", ""),
-                    "date_status": front_matter.get("date_status", ""),
                     "layer": layer,
                 },
             )

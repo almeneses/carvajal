@@ -435,9 +435,6 @@ def source_label(document: Document) -> str:
     category = str(metadata.get("category", ""))
     if category:
         parts.append(category)
-    page = metadata.get("page")
-    if page:
-        parts.append(f"p. {page}")
     return " · ".join(parts)
 
 

@@ -34,9 +34,9 @@ Checklist antes de exponer:
 - [ ] `docs/resumen.md`, `docs/faq.md` y `docs/resultados.md` están generados (plan B).
 - [ ] Una pregunta de prueba respondió en menos de ~10 s.
 
-> La **capa extendida** del corpus de un compañero está integrada pero **desactivada por
-> defecto** (`ENABLE_EXTENDED_LAYER`). Si preguntan: está disponible, requiere precalcular
-> el índice y no se usa en la demo para no arriesgar tiempos.
+> La **capa extendida** del corpus de un compañero está integrada y se carga siempre que
+> existan los datos. Si preguntan: se importa solo HTML, se deduplica contra el núcleo y
+> requiere precalcular el índice antes de la demo.
 
 ## Guion minuto a minuto
 
@@ -74,7 +74,7 @@ Checklist antes de exponer:
 | ¿Por qué hay fuentes de prensa? | El sitio oficial publica los indicadores solo en PDFs o con contadores JS. Cada documento lleva `source_type` y el asistente distingue oficial de tercero al citar. |
 | ¿Cómo evitas alucinaciones? | Tres capas: corpus consolidado en el prompt, instrucción explícita de decir «no lo sé», y temperatura 0. Se verificó con variantes (`docs/prompts.md`). |
 | ¿Por qué no hay datos de contacto? | Carvajal no los publica en HTML (404 en `/contacto`, `/sedes`; solo formularios). Está documentado en `docs/alcance.md` y la FAQ lo declara. |
-| ¿Escala? | 24 documentos y ~135 chunks: el índice se cachea y el arranque es de segundos. La capa extendida existe para crecer, con índice precalculado. |
+| ¿Escala? | 24 documentos de núcleo (~126 chunks) y 479 externos (~2.100 chunks). El prompt solo lleva el núcleo; el índice se cachea y la capa extendida se recupera con FAISS. |
 | ¿Qué no hace? | No tiene memoria conversacional, no responde precios ni disponibilidad, y no cubre contenido autenticado ni PDFs completos. |
 
 ## Cierre (30 segundos)
