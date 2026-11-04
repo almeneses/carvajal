@@ -29,6 +29,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any, cast
 
 API_URL = "https://api.deepseek.com/chat/completions"
 GITHUB_API = "https://api.github.com"
@@ -125,7 +126,10 @@ def github_request(method: str, path: str, token: str, payload: dict | None = No
 
 def upsert_comment(body: str, token: str, repo: str, number: str) -> None:
     """Crea el comentario de revisión o actualiza el que ya exista."""
-    comments = github_request("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100", token)
+    comments = cast(
+        "list[dict[str, Any]]",
+        github_request("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100", token),
+    )
     existing = next((c for c in comments if c["body"].startswith(MARKER)), None)
     if existing:
         path = f"/repos/{repo}/issues/comments/{existing['id']}"
