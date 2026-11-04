@@ -1,0 +1,61 @@
+# Configuración de CodeRabbit para la revisión automática de PRs.
+# Requiere instalar la app: https://github.com/apps/coderabbitai
+# Documentación: https://docs.coderabbit.ai/reference/configuration
+language: es
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  sequence_diagrams: true
+  assess_linked_issues: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - WIP
+      - draft
+
+  # No gastar revisión en artefactos generados.
+  path_filters:
+    - "!uv.lock"
+    - "!**/*.lock"
+    - "!data/**"
+    - "!**/*.csv"
+    - "!**/*.jsonl"
+
+  path_instructions:
+    - path: "src/**/*.py"
+      instructions: |
+        Proyecto Python con src-layout, gestionado con uv y formateado con Ruff
+        (line-length 100, comillas dobles). Comenta solo problemas reales:
+        correctitud, tipado, manejo de errores, seguridad y rendimiento.
+        Señala incumplimientos de las convenciones del proyecto: identificadores
+        en inglés, comentarios y docstrings en español. No propongas cambios de
+        estilo que Ruff ya resuelve automáticamente.
+    - path: "tests/**/*.py"
+      instructions: |
+        Pruebas con pytest siguiendo el patrón Arrange-Act-Assert. Verifica que
+        cada prueba valide comportamiento observable y que no dependa de red ni
+        de estado global compartido.
+    - path: "**/*.md"
+      instructions: |
+        La documentación se escribe en español. Revisa ortografía, enlaces rotos
+        y coherencia con CONSTITUTION.md, que es la fuente única de verdad.
+    - path: ".github/workflows/**"
+      instructions: |
+        Workflows de GitHub Actions: revisa permisos mínimos, fijado de versiones
+        de acciones, uso de secretos y condiciones de ejecución en forks.
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
