@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Revisión automática de pull requests con DeepSeek.
 
-Toma el diff de un PR, pide una revisión a la API de DeepSeek (compatible con la
-de OpenAI) y publica el resultado como comentario en el PR. Si ya existe un
-comentario previo de este script, lo actualiza en lugar de duplicarlo.
+Pide al modelo hallazgos estructurados, los ancla a las líneas del diff (cuando
+la línea existe en el lado nuevo del parche) y publica:
+
+* un comentario resumen "pegajoso" en el PR, que se actualiza en cada push;
+* comentarios en línea sobre el código, con bloque ```suggestion``` cuando hay
+  un reemplazo exacto, que GitHub ofrece aplicar con un clic.
+
+Los comentarios en línea de la ejecución anterior se borran antes de publicar
+los nuevos, para no acumular ruido en cada push.
 
 Uso:
     python .github/scripts/ai_review.py --diff pr.diff
@@ -14,6 +20,7 @@ Variables de entorno:
     GITHUB_TOKEN       Token con permiso pull-requests: write.
     GITHUB_REPOSITORY  owner/repo (lo inyecta Actions).
     PR_NUMBER          Número del PR (lo inyecta el workflow).
+    PR_HEAD_SHA        SHA de la cabeza del PR (ancla los comentarios).
     PR_TITLE           Título del PR.
     PR_BODY            Descripción del PR (opcional).
     DEEPSEEK_MODEL     Modelo a usar (por defecto deepseek-flash).
@@ -22,6 +29,7 @@ Variables de entorno:
     DEEPSEEK_EFFORT    Esfuerzo de razonamiento si THINKING está activo:
                        low, high o max (por defecto high).
     MAX_DIFF_CHARS     Recorte máximo del diff (por defecto 100000).
+    MAX_INLINE         Máximo de comentarios en línea (por defecto 10).
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -38,6 +47,8 @@ from typing import Any, cast
 API_URL = "https://api.deepseek.com/chat/completions"
 GITHUB_API = "https://api.github.com"
 MARKER = "<!-- deepseek-review -->"
+SEVERITIES = ("bloqueante", "importante", "menor")
+EFFORTS = ("low", "high", "max")
 
 SYSTEM_PROMPT = """\
 Eres un revisor de código senior. Revisas pull requests del proyecto Carvajal, \
@@ -48,20 +59,28 @@ Reglas:
 - Comenta solo problemas reales: correctitud, seguridad, manejo de errores, \
 rendimiento, tipado y pruebas faltantes.
 - No comentes estilo ni formato: Ruff ya lo resuelve automáticamente.
-- Cita el archivo y la línea del diff cuando puedas.
-- Si el diff está recortado, dilo explícitamente y limita tus conclusiones a \
-lo que sí ves.
-- No inventes código que no aparezca en el diff.
-- Sé conciso: como máximo 12 hallazgos, ordenados por severidad.
+- "line" debe ser una línea del archivo NUEVO (lado derecho del diff), la que \
+aparece en el hunk con '+' o como contexto. Si el hallazgo abarca varias \
+líneas, usa la primera.
+- No inventes rutas ni líneas que no estén en el diff.
+- Usa "suggestion" solo cuando el reemplazo exacto de esa línea resuelva el \
+problema; si el arreglo necesita contexto, deja null y explica en "comment".
+- Sé conciso: máximo 12 hallazgos, ordenados por severidad.
 
-Responde en español y en Markdown con esta estructura:
-## Resumen
-(2 o 3 frases sobre qué hace el PR y su riesgo general)
-## Hallazgos
-(lista agrupada por severidad: Bloqueante, Importante, Menor; si no hay \
-hallazgos, escribe "Sin hallazgos bloqueantes")
-## Sugerencias
-(ideas opcionales, sin bloquear el merge)"""
+Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, con esta forma:
+{
+  "summary": "2 o 3 frases sobre qué hace el PR y su riesgo general",
+  "findings": [
+    {
+      "path": "ruta/relativa/al/archivo.py",
+      "line": 42,
+      "severity": "bloqueante",
+      "comment": "qué está mal y por qué, en 1 a 3 frases",
+      "suggestion": "código de reemplazo para esa línea, o null"
+    }
+  ]
+}
+"severity" debe ser una de: "bloqueante", "importante", "menor"."""
 
 
 def read_diff(path: str, limit: int) -> tuple[str, bool]:
@@ -84,25 +103,85 @@ def build_prompt(diff: str, truncated: bool) -> str:
     return "\n\n".join(parts)
 
 
-def ask_deepseek(prompt: str, model: str, api_key: str) -> str:
-    """Envía el prompt a DeepSeek y devuelve el texto de la revisión."""
+def parse_anchor_lines(diff_text: str) -> dict[str, set[int]]:
+    """Devuelve, por archivo, las líneas del lado nuevo que admiten comentario."""
+    anchors: dict[str, set[int]] = {}
+    path: str | None = None
+    new_line = 0
+    for raw in diff_text.splitlines():
+        if raw.startswith("+++ b/"):
+            path = raw[6:].strip()
+            anchors.setdefault(path, set())
+            continue
+        if raw.startswith("+++ ") or raw.startswith("--- ") or raw.startswith("diff --git"):
+            if raw.startswith("+++ /dev/null"):
+                path = None
+            continue
+        if raw.startswith("@@"):
+            match = re.search(r"\+(\d+)", raw)
+            if match and path:
+                new_line = int(match.group(1))
+            continue
+        if path is None:
+            continue
+        if raw.startswith("+"):
+            anchors[path].add(new_line)
+            new_line += 1
+        elif raw.startswith("-") or raw.startswith("\\"):
+            continue
+        elif raw.startswith(" ") or raw == "":
+            anchors[path].add(new_line)
+            new_line += 1
+    return anchors
+
+
+def extract_json(text: str) -> dict[str, Any] | None:
+    """Extrae el objeto JSON de la respuesta, tolerando cercas de Markdown."""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    candidates = [cleaned]
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(cleaned[start : end + 1])
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+def ask_deepseek(prompt: str, model: str, api_key: str) -> tuple[str, str]:
+    """Envía el prompt a DeepSeek y devuelve (contenido, finish_reason)."""
     thinking = os.environ.get("DEEPSEEK_THINKING", "disabled").strip().lower() == "enabled"
+    effort = os.environ.get("DEEPSEEK_EFFORT", "high").strip().lower()
+    if effort not in EFFORTS:
+        print(f"DEEPSEEK_EFFORT={effort!r} no es válido; se usa 'high'.", file=sys.stderr)
+        effort = "high"
+
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
+        "response_format": {"type": "json_object"},
+        # Los tokens de razonamiento cuentan como salida: si se activa, tope mayor.
         "max_tokens": 8000 if thinking else 4000,
         "stream": False,
     }
     if thinking:
-        # Los tokens de razonamiento cuentan como salida, por eso el tope más alto.
         payload["thinking"] = {"type": "enabled"}
-        payload["reasoning_effort"] = os.environ.get("DEEPSEEK_EFFORT", "high")
+        payload["reasoning_effort"] = effort
     else:
+        # En thinking mode la API ignora temperature; solo se envía si está apagado.
         payload["thinking"] = {"type": "disabled"}
         payload["temperature"] = 0.2
+
     request = urllib.request.Request(
         API_URL,
         data=json.dumps(payload).encode("utf-8"),
@@ -114,7 +193,8 @@ def ask_deepseek(prompt: str, model: str, api_key: str) -> str:
     )
     with urllib.request.urlopen(request, timeout=180) as response:
         data = json.loads(response.read())
-    return data["choices"][0]["message"]["content"].strip()
+    choice = data["choices"][0]
+    return choice["message"]["content"].strip(), choice.get("finish_reason", "")
 
 
 def github_request(method: str, path: str, token: str, payload: dict | None = None) -> object:
@@ -135,18 +215,145 @@ def github_request(method: str, path: str, token: str, payload: dict | None = No
     return json.loads(raw) if raw else {}
 
 
-def upsert_comment(body: str, token: str, repo: str, number: str) -> None:
-    """Crea el comentario de revisión o actualiza el que ya exista."""
+def list_pull_comments(repo: str, number: str, token: str) -> list[dict[str, Any]]:
+    """Lista los comentarios en línea de un PR."""
+    return cast(
+        "list[dict[str, Any]]",
+        github_request("GET", f"/repos/{repo}/pulls/{number}/comments?per_page=100", token),
+    )
+
+
+def is_bot_comment(comment: dict[str, Any]) -> bool:
+    """Indica si el comentario lo escribió este mismo bot."""
+    user = comment.get("user") or {}
+    return user.get("type") == "Bot" and str(comment.get("body", "")).startswith(MARKER)
+
+
+def clear_previous_inline(repo: str, number: str, token: str) -> int:
+    """Borra los comentarios en línea de ejecuciones anteriores."""
+    deleted = 0
+    for comment in list_pull_comments(repo, number, token):
+        if not is_bot_comment(comment):
+            continue
+        github_request("DELETE", f"/repos/{repo}/pulls/comments/{comment['id']}", token)
+        deleted += 1
+    return deleted
+
+
+def render_finding(finding: dict[str, Any]) -> str:
+    """Da formato al cuerpo de un comentario en línea."""
+    severity = str(finding.get("severity", "menor")).lower()
+    comment = str(finding.get("comment", "")).strip()
+    body = f"{MARKER}\n**{severity}**: {comment}"
+    suggestion = finding.get("suggestion")
+    if isinstance(suggestion, str) and suggestion.strip():
+        body += f"\n\n```suggestion\n{suggestion.rstrip()}\n```"
+    return body
+
+
+def post_inline(
+    repo: str,
+    number: str,
+    head_sha: str,
+    token: str,
+    finding: dict[str, Any],
+) -> bool:
+    """Publica un comentario anclado a una línea del diff."""
+    payload = {
+        "body": render_finding(finding),
+        "commit_id": head_sha,
+        "path": finding["path"],
+        "line": int(finding["line"]),
+        "side": "RIGHT",
+    }
+    try:
+        github_request("POST", f"/repos/{repo}/pulls/{number}/comments", token, payload)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")
+        print(f"No se pudo anclar {finding['path']}:{finding['line']} ({exc.code}): {detail}")
+        return False
+    return True
+
+
+def render_summary(
+    summary: str,
+    anchored: list[dict[str, Any]],
+    unanchored: list[dict[str, Any]],
+    truncated_output: bool,
+) -> str:
+    """Compone el comentario resumen del PR."""
+    lines = [
+        MARKER,
+        "### Revisión automática (DeepSeek)",
+        "",
+        summary.strip() or "Sin resumen.",
+        "",
+    ]
+
+    if anchored:
+        lines.append(f"**{len(anchored)} hallazgo(s) comentados en línea** sobre el código.")
+    if unanchored:
+        lines.append("")
+        lines.append("#### No anclados a una línea del diff")
+        for finding in unanchored:
+            line_no = finding.get("line")
+            where = f"{finding['path']}:{line_no}" if line_no else str(finding["path"])
+            severity = finding.get("severity", "menor")
+            lines.append(f"- **{severity}** — `{where}`: {finding['comment']}")
+
+    if truncated_output:
+        lines.append("")
+        lines.append(
+            "> La respuesta del modelo se cortó por límite de tokens; puede faltar código revisado."
+        )
+
+    lines.append("")
+    lines.append(
+        "<sub>Comentario generado por IA: es una ayuda, no reemplaza la revisión humana.</sub>"
+    )
+    return "\n".join(lines)
+
+
+def upsert_summary(body: str, token: str, repo: str, number: str) -> None:
+    """Crea el comentario resumen o actualiza el de la ejecución anterior."""
     comments = cast(
         "list[dict[str, Any]]",
         github_request("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100", token),
     )
-    existing = next((c for c in comments if c["body"].startswith(MARKER)), None)
-    if existing:
-        path = f"/repos/{repo}/issues/comments/{existing['id']}"
+    previous = next((c for c in comments if is_bot_comment(c)), None)
+    if previous:
+        path = f"/repos/{repo}/issues/comments/{previous['id']}"
         github_request("PATCH", path, token, {"body": body})
         return
     github_request("POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": body})
+
+
+def split_findings(
+    data: dict[str, Any], anchors: dict[str, set[int]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Separa los hallazgos anclables de los que solo caben en el resumen."""
+    raw_findings = data.get("findings")
+    if not isinstance(raw_findings, list):
+        return [], []
+
+    known = {"bloqueante": 0, "importante": 1, "menor": 2}
+    findings = [f for f in raw_findings if isinstance(f, dict) and f.get("path")]
+    findings.sort(key=lambda f: known.get(str(f.get("severity", "menor")).lower(), 3))
+
+    limit = int(os.environ.get("MAX_INLINE", "10"))
+    anchored: list[dict[str, Any]] = []
+    unanchored: list[dict[str, Any]] = []
+    for finding in findings:
+        path = str(finding["path"])
+        try:
+            line = int(finding.get("line") or 0)
+        except (TypeError, ValueError):
+            line = 0
+        if len(anchored) < limit and line in anchors.get(path, set()):
+            anchored.append(finding)
+        else:
+            unanchored.append(finding)
+    return anchored, unanchored
 
 
 def main() -> int:
@@ -171,6 +378,8 @@ def main() -> int:
     if args.dry_run:
         print(prompt[:1500])
         print(f"\n[prompt completo: {len(prompt)} caracteres, recortado: {truncated}]")
+        anchors = parse_anchor_lines(diff)
+        print(f"[anclas detectadas: {sum(len(v) for v in anchors.values())} líneas]")
         return 0
 
     api_key = os.environ.get("DEEPSEEK_API_KEY", "")
@@ -180,7 +389,7 @@ def main() -> int:
 
     model = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
     try:
-        review = ask_deepseek(prompt, model, api_key)
+        answer, finish_reason = ask_deepseek(prompt, model, api_key)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")
         print(f"DeepSeek respondió {exc.code}: {detail}", file=sys.stderr)
@@ -189,22 +398,41 @@ def main() -> int:
         print(f"No se pudo contactar a DeepSeek: {exc.reason}", file=sys.stderr)
         return 1
 
-    comment = (
-        f"{MARKER}\n"
-        "### Revisión automática (DeepSeek)\n\n"
-        f"{review}\n\n"
-        "<sub>Comentario generado por IA: es una ayuda, no reemplaza la revisión humana.</sub>\n"
-    )
+    data = extract_json(answer)
+    if data is None:
+        print("La respuesta no era JSON válido; se publica como texto plano.")
+        data = {"summary": answer, "findings": []}
 
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     number = os.environ.get("PR_NUMBER", "")
     token = os.environ.get("GITHUB_TOKEN", "")
+    head_sha = os.environ.get("PR_HEAD_SHA", "")
     if not repo or not number or not token:
         print("Faltan GITHUB_REPOSITORY, PR_NUMBER o GITHUB_TOKEN.", file=sys.stderr)
         return 1
 
-    upsert_comment(comment, token, repo, number)
-    print("Revisión publicada en el PR.")
+    anchors = parse_anchor_lines(diff)
+    anchored, unanchored = split_findings(data, anchors)
+
+    if head_sha:
+        deleted = clear_previous_inline(repo, number, token)
+        if deleted:
+            print(f"Se borraron {deleted} comentario(s) en línea previos.")
+        for finding in anchored:
+            if not post_inline(repo, number, head_sha, token, finding):
+                unanchored.append(finding)
+    else:
+        unanchored = anchored + unanchored
+        anchored = []
+
+    body = render_summary(
+        str(data.get("summary", "")),
+        anchored,
+        unanchored,
+        finish_reason == "length",
+    )
+    upsert_summary(body, token, repo, number)
+    print(f"Revisión publicada: {len(anchored)} en línea, {len(unanchored)} en el resumen.")
     return 0
 
 
