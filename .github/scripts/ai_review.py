@@ -16,7 +16,11 @@ Variables de entorno:
     PR_NUMBER          Número del PR (lo inyecta el workflow).
     PR_TITLE           Título del PR.
     PR_BODY            Descripción del PR (opcional).
-    DEEPSEEK_MODEL     Modelo a usar (por defecto deepseek-chat).
+    DEEPSEEK_MODEL     Modelo a usar (por defecto deepseek-flash).
+    DEEPSEEK_THINKING  "enabled" activa el modo de razonamiento (por defecto
+                       "disabled", que es más rápido y barato para una revisión).
+    DEEPSEEK_EFFORT    Esfuerzo de razonamiento si THINKING está activo:
+                       low, high o max (por defecto high).
     MAX_DIFF_CHARS     Recorte máximo del diff (por defecto 100000).
 """
 
@@ -82,16 +86,23 @@ def build_prompt(diff: str, truncated: bool) -> str:
 
 def ask_deepseek(prompt: str, model: str, api_key: str) -> str:
     """Envía el prompt a DeepSeek y devuelve el texto de la revisión."""
-    payload = {
+    thinking = os.environ.get("DEEPSEEK_THINKING", "disabled").strip().lower() == "enabled"
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.2,
-        "max_tokens": 4000,
+        "max_tokens": 8000 if thinking else 4000,
         "stream": False,
     }
+    if thinking:
+        # Los tokens de razonamiento cuentan como salida, por eso el tope más alto.
+        payload["thinking"] = {"type": "enabled"}
+        payload["reasoning_effort"] = os.environ.get("DEEPSEEK_EFFORT", "high")
+    else:
+        payload["thinking"] = {"type": "disabled"}
+        payload["temperature"] = 0.2
     request = urllib.request.Request(
         API_URL,
         data=json.dumps(payload).encode("utf-8"),
@@ -167,8 +178,9 @@ def main() -> int:
         print("DEEPSEEK_API_KEY no está definida.", file=sys.stderr)
         return 1
 
+    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
     try:
-        review = ask_deepseek(prompt, os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"), api_key)
+        review = ask_deepseek(prompt, model, api_key)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")
         print(f"DeepSeek respondió {exc.code}: {detail}", file=sys.stderr)
