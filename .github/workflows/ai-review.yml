@@ -8,6 +8,11 @@
 #   DEEPSEEK_EFFORT    low | high | max, solo si THINKING=enabled
 #
 # Es una ayuda, no un gate: no bloquea el merge ni sustituye la revisión humana.
+#
+# Identidad de los comentarios:
+#   Sin configurar  → aparecen como "github-actions[bot]".
+#   Con la GitHub App de Dippy → aparecen con su nombre y avatar.
+#   Para activarla: variable DIPPY_APP_ID y secreto DIPPY_PRIVATE_KEY.
 
 name: AI Review (DeepSeek)
 
@@ -61,6 +66,16 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Token de Dippy (GitHub App, opcional)
+        # Si aún no existe la app, se sigue usando github.token y los
+        # comentarios aparecen como "github-actions[bot]".
+        id: dippy
+        if: vars.DIPPY_APP_ID != ''
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.DIPPY_APP_ID }}
+          private-key: ${{ secrets.DIPPY_PRIVATE_KEY }}
+
       - name: Revisar con DeepSeek
         if: steps.config.outputs.enabled == 'true'
         env:
@@ -68,7 +83,7 @@ jobs:
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-flash' }}
           DEEPSEEK_THINKING: ${{ vars.DEEPSEEK_THINKING || 'disabled' }}
           DEEPSEEK_EFFORT: ${{ vars.DEEPSEEK_EFFORT || 'high' }}
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.dippy.outputs.token || github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}

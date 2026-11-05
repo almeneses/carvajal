@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16294a"/>
+      <stop offset="1" stop-color="#0b1729"/>
+    </linearGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4d86e8"/>
+      <stop offset="1" stop-color="#3463c4"/>
+    </linearGradient>
+    <linearGradient id="jacket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d6a41"/>
+      <stop offset="1" stop-color="#3f4a2b"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- cola -->
+  <path d="M96 300 C56 268 44 232 52 206 C78 224 104 244 118 262 Z" fill="#2f5fb3"/>
+  <path d="M104 356 C66 372 44 366 28 350 C58 344 82 340 100 336 Z" fill="#2f5fb3"/>
+
+  <!-- cuerpo -->
+  <ellipse cx="262" cy="300" rx="158" ry="118" fill="url(#skin)"/>
+  <!-- panza -->
+  <ellipse cx="262" cy="330" rx="126" ry="76" fill="#d7e4ff"/>
+
+  <!-- chaqueta militar -->
+  <path d="M110 318 C150 372 200 400 262 402 C324 400 374 372 414 318
+           C412 372 372 428 262 430 C152 428 112 372 110 318 Z" fill="url(#jacket)"/>
+  <path d="M196 336 L262 404 L328 336 L304 316 L262 352 L220 316 Z" fill="#e9e4cf"/>
+  <path d="M232 344 L262 384 L292 344 L262 366 Z" fill="#a8262b"/>
+
+  <!-- charreteras -->
+  <g fill="#d4af37">
+    <rect x="108" y="300" width="52" height="20" rx="9"/>
+    <rect x="364" y="300" width="52" height="20" rx="9"/>
+    <rect x="104" y="316" width="8" height="18" rx="3"/>
+    <rect x="118" y="316" width="8" height="18" rx="3"/>
+    <rect x="132" y="316" width="8" height="18" rx="3"/>
+    <rect x="146" y="316" width="8" height="18" rx="3"/>
+    <rect x="370" y="316" width="8" height="18" rx="3"/>
+    <rect x="384" y="316" width="8" height="18" rx="3"/>
+    <rect x="398" y="316" width="8" height="18" rx="3"/>
+    <rect x="412" y="316" width="8" height="18" rx="3"/>
+  </g>
+
+  <!-- botones -->
+  <g fill="#d4af37" stroke="#8a6f1f" stroke-width="2">
+    <circle cx="262" cy="366" r="7"/>
+    <circle cx="262" cy="392" r="7"/>
+    <circle cx="262" cy="418" r="7"/>
+  </g>
+
+  <!-- aleta derecha sosteniendo el látigo -->
+  <path d="M392 344 C428 330 452 336 462 352 C444 372 416 380 392 374 Z" fill="#2f5fb3"/>
+
+  <!-- látigo -->
+  <g stroke-linecap="round" fill="none">
+    <path d="M446 344 L474 300 C486 276 486 240 470 214 C456 192 458 168 476 150"
+          stroke="#6b3f1d" stroke-width="10"/>
+    <path d="M446 344 L474 300" stroke="#8a5426" stroke-width="14"/>
+    <path d="M462 352 L452 330" stroke="#3b2410" stroke-width="16"/>
+  </g>
+
+  <!-- aleta izquierda -->
+  <path d="M132 344 C100 336 82 344 76 358 C92 374 116 378 134 372 Z" fill="#2f5fb3"/>
+
+  <!-- ojos -->
+  <g>
+    <ellipse cx="214" cy="284" rx="30" ry="34" fill="#ffffff"/>
+    <ellipse cx="310" cy="284" rx="30" ry="34" fill="#ffffff"/>
+    <circle cx="222" cy="292" r="12" fill="#14181f"/>
+    <circle cx="302" cy="292" r="12" fill="#14181f"/>
+    <circle cx="226" cy="287" r="4" fill="#ffffff"/>
+    <circle cx="306" cy="287" r="4" fill="#ffffff"/>
+  </g>
+
+  <!-- cejas enojadas -->
+  <g fill="#14181f">
+    <path d="M178 246 L246 266 L244 280 L176 262 Z"/>
+    <path d="M346 246 L278 266 L280 280 L348 262 Z"/>
+  </g>
+
+  <!-- boca enfadada -->
+  <path d="M212 344 C236 326 288 326 312 344" stroke="#1b2638" stroke-width="9"
+        fill="none" stroke-linecap="round"/>
+
+  <!-- gorra militar -->
+  <g>
+    <path d="M158 210 C158 158 196 132 262 132 C328 132 366 158 366 210 Z" fill="#5d6a41"/>
+    <path d="M158 210 C158 196 196 186 262 186 C328 186 366 196 366 210 Z" fill="#4a5233"/>
+    <rect x="152" y="200" width="220" height="20" rx="6" fill="#2b301d"/>
+    <rect x="152" y="200" width="220" height="7" rx="3" fill="#d4af37"/>
+    <path d="M150 218 C190 240 334 240 374 218 C378 232 372 244 356 250
+             C320 262 204 262 168 250 C152 244 146 232 150 218 Z" fill="#14181f"/>
+    <!-- estrella -->
+    <path d="M262 160 l9 19 21 3 -15 15 4 21 -19 -10 -19 10 4 -21 -15 -15 21 -3 Z"
+          fill="#d4af37"/>
+  </g>
+
+  <!-- chorro -->
+  <g fill="#9fc2ff" opacity="0.55">
+    <circle cx="132" cy="150" r="9"/>
+    <circle cx="112" cy="170" r="6"/>
+    <circle cx="150" cy="130" r="5"/>
+  </g>
+</svg>
