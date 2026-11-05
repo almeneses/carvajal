@@ -70,6 +70,7 @@ jobs:
           DEEPSEEK_EFFORT: ${{ vars.DEEPSEEK_EFFORT || 'high' }}
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: python3 .github/scripts/ai_review.py --diff "$RUNNER_TEMP/pr.diff"
