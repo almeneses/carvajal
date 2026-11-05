@@ -2,7 +2,10 @@
 #
 # Requiere el secreto DEEPSEEK_API_KEY (Settings → Secrets and variables →
 # Actions). Sin ese secreto el job no falla: se omite con un aviso.
-# Opcional: la variable DEEPSEEK_MODEL ajusta el modelo (por defecto deepseek-chat).
+# Opcionales (variables, no secretos):
+#   DEEPSEEK_MODEL     por defecto deepseek-flash (DeepSeek-V4.1-Flash-1017)
+#   DEEPSEEK_THINKING  enabled para activar el razonamiento (más caro y lento)
+#   DEEPSEEK_EFFORT    low | high | max, solo si THINKING=enabled
 #
 # Es una ayuda, no un gate: no bloquea el merge ni sustituye la revisión humana.
 
@@ -62,7 +65,9 @@ jobs:
         if: steps.config.outputs.enabled == 'true'
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-chat' }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-flash' }}
+          DEEPSEEK_THINKING: ${{ vars.DEEPSEEK_THINKING || 'disabled' }}
+          DEEPSEEK_EFFORT: ${{ vars.DEEPSEEK_EFFORT || 'high' }}
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
