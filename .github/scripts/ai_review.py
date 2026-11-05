@@ -11,6 +11,9 @@ la línea existe en el lado nuevo del parche) y publica:
 Los comentarios en línea de la ejecución anterior se borran antes de publicar
 los nuevos, para no acumular ruido en cada push.
 
+El tono y las convenciones de revisión se editan en `.github/review/style.md`
+(si ese archivo existe, se añade al prompt del sistema).
+
 Uso:
     python .github/scripts/ai_review.py --diff pr.diff
     python .github/scripts/ai_review.py --diff pr.diff --dry-run
@@ -50,6 +53,10 @@ MARKER = "<!-- deepseek-review -->"
 SEVERITIES = ("bloqueante", "importante", "menor")
 EFFORTS = ("low", "high", "max")
 
+ROOT = Path(__file__).resolve().parents[2]
+STYLE_PATH = ROOT / ".github" / "review" / "style.md"
+MAX_STYLE_CHARS = 2000
+
 SYSTEM_PROMPT = """\
 Eres un revisor de código senior. Revisas pull requests del proyecto Carvajal, \
 un pipeline en Python 3.13 (uv, Ruff, pytest) para capturar y curar un corpus \
@@ -81,6 +88,23 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, con esta f
   ]
 }
 "severity" debe ser una de: "bloqueante", "importante", "menor"."""
+
+
+def load_style() -> str:
+    """Lee las reglas de estilo editables de .github/review/style.md."""
+    try:
+        text = STYLE_PATH.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return text[:MAX_STYLE_CHARS]
+
+
+def build_system_prompt() -> str:
+    """Combina el prompt base con el estilo definido en el repositorio."""
+    style = load_style()
+    if not style:
+        return SYSTEM_PROMPT
+    return f"{SYSTEM_PROMPT}\n\n{style}"
 
 
 def read_diff(path: str, limit: int) -> tuple[str, bool]:
@@ -166,7 +190,7 @@ def ask_deepseek(prompt: str, model: str, api_key: str) -> tuple[str, str]:
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": build_system_prompt()},
             {"role": "user", "content": prompt},
         ],
         "response_format": {"type": "json_object"},
@@ -378,6 +402,7 @@ def main() -> int:
     if args.dry_run:
         print(prompt[:1500])
         print(f"\n[prompt completo: {len(prompt)} caracteres, recortado: {truncated}]")
+        print(f"[system prompt: {len(build_system_prompt())} caracteres]")
         anchors = parse_anchor_lines(diff)
         print(f"[anclas detectadas: {sum(len(v) for v in anchors.values())} líneas]")
         return 0
