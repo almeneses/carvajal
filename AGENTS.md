@@ -40,6 +40,22 @@ git push
 - `test:` — pruebas
 - `chore:` — mantenimiento o configuración
 
+### Regla de merge (obligatoria para agentes)
+
+`main` está protegida con un ruleset: exige **1 aprobación de otra persona**, el
+check `Calidad` en verde y la rama al día.
+
+- Un agente **abre la PR y se detiene ahí**. No mergea, no aprueba y **no usa
+  `--admin`** para saltarse la regla, ni siquiera cuando el autor es el propio
+  agente.
+- La aprobación y el merge los hace el owner. Si el cambio es urgente, la
+  urgencia la decide el owner, no el agente.
+- Un agente tampoco aprueba PRs ajenas: la aprobación es una decisión humana.
+
+El bypass del ruleset está reservado a la cuenta `almeneses`. Que el agente
+corra con ese token no lo autoriza a usarlo: la restricción es de proceso, no
+solo de permisos.
+
 ---
 
 ## Comandos del proyecto (`make`)
