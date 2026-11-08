@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -19,6 +19,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Presupuesto de cambios
+        # Falla si el PR supera el límite duro; advierte desde el blando.
+        # Sin dependencias: corre antes de instalar el entorno.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOFT_LIMIT: "300"
+          HARD_LIMIT: "700"
+        run: python3 .github/scripts/pr_size.py
 
       - name: Instalar uv
         # v8+ ya no publica tags de version mayor: se fija la version completa.
