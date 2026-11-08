@@ -137,17 +137,19 @@ se propone un stack distinto, documentado en
 
 ```text
 carvajal/
-├── src/carvajal/          # código del paquete (src-layout)
-│   ├── config.py            # semillas, capas, política HTTP
-│   ├── fetching.py          # cliente HTTP educado
-│   ├── extracting.py        # HTML → Markdown
-│   ├── gold.py              # front matter + índice JSONL
-│   ├── pipeline.py          # orquestación de las tres capas
-│   ├── models.py            # modelos del dominio
-│   ├── importer.py          # importación del corpus externo (capa extendida)
-│   ├── rag.py               # recuperación, prompt y generación (RAG)
-│   ├── ui.py                # interfaz web de pruebas (Streamlit)
-│   └── cli.py               # capture / import / ask / status / list
+├── packages/
+│   └── core/
+│       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
+│           ├── config.py      # semillas, capas, política HTTP
+│           ├── fetching.py    # cliente HTTP educado
+│           ├── extracting.py  # HTML → Markdown
+│           ├── gold.py        # front matter + índice JSONL
+│           ├── pipeline.py    # orquestación de las tres capas
+│           ├── models.py      # modelos del dominio
+│           ├── importer.py    # importación del corpus externo (capa extendida)
+│           ├── rag.py         # recuperación, prompt y generación (RAG)
+│           ├── ui.py          # interfaz web de pruebas (Streamlit)
+│           └── cli.py         # capture / import / ask / status / list
 ├── data/                    # capas Medallion (raw y processed ignoradas)
 │   ├── raw/                 # bronze — HTML crudo
 │   ├── processed/           # silver — Markdown limpio

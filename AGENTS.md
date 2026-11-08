@@ -97,7 +97,7 @@ En OpenCode la preferencia se aplica automáticamente mediante la regla
 
 ## Estructura y convenciones
 
-- `src/carvajal/` — código del paquete (src-layout).
+- `packages/core/src/carvajal/` — código del paquete (src-layout, módulo `uv_build`).
 - `tests/` — pruebas con `pytest` (patrón AAA).
 - `docs/` — documentación, ADRs y notas de investigación.
 - `CONSTITUTION.md` — fuente única de verdad.
