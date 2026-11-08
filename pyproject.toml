@@ -41,6 +41,12 @@ carvajal = "carvajal.cli:main"
 requires = ["uv_build>=0.13.6,<0.14.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+# Monorepo: el paquete vive en packages/core para dejar sitio a apps/ y otros
+# paquetes sin mover el código otra vez.
+module-name = "carvajal"
+module-root = "packages/core/src"
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.0.1",
@@ -52,7 +58,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["src", "tests"]
+src = ["packages/core/src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4"]
