@@ -1,81 +1,45 @@
 """Configuración del pipeline: semillas, capas, política HTTP y LLM."""
 
-import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+from carvajal.infrastructure.settings import load_settings
 
-load_dotenv()
+# Los valores viven en ``infrastructure/settings.py`` (pydantic-settings). Aquí solo
+# se exponen como constantes en mayúsculas para no romper a los consumidores.
+settings = load_settings()
 
-BASE_URL: str = "https://www.carvajal.com"
-USER_AGENT: str = "carvajal-corpus/0.1 (+https://github.com/markodavid/carvajal)"
-TIMEOUT_SECONDS: int = 30
+BASE_URL: str = settings.base_url
+USER_AGENT: str = settings.user_agent
+TIMEOUT_SECONDS: int = settings.timeout_seconds
 
-GOLD_DIR: Path = Path("data") / "gold"
-INDEX_DIR: Path = Path("data") / "index"
-RAW_DIR: Path = Path("data") / "raw"  # bronze: HTML crudo
-PROCESSED_DIR: Path = Path("data") / "processed"  # silver: Markdown limpio
-INDEX_FILE: Path = GOLD_DIR / "index.jsonl"  # índice del corpus (JSONL)
+GOLD_DIR: Path = settings.gold_dir
+INDEX_DIR: Path = settings.index_dir
+RAW_DIR: Path = settings.raw_dir
+PROCESSED_DIR: Path = settings.processed_dir
+INDEX_FILE: Path = settings.index_file
 
 # Capa extendida: corpus externo importado, solo para recuperación.
-# El núcleo (data/gold) sigue siendo el único que se consolida en el prompt.
-EXTERNAL_DIR: Path = Path("data") / "external"
-EXTERNAL_CORPUS_DIR: Path = Path(os.getenv("EXTERNAL_CORPUS_DIR", "../proyecto-carvajal"))
-EXTERNAL_SOURCE: str = "alejandro"
-EXTERNAL_RELEASE: str = "corpus-2026-10-23"
-EXTERNAL_CATEGORIES: tuple[str, ...] = (
-    "identity",
-    "governance",
-    "business",
-    "sustainability",
-    "technology",
-    "news",
-)
-EXTERNAL_MAX_CHARS: int = 1_500_000
-LAYER_CORE: str = "core"
-LAYER_EXTENDED: str = "extended"
-REQUEST_DELAY_SECONDS: float = 1.0  # rate limit entre peticiones por host
-RESPECT_ROBOTS: bool = True
-MIN_DEDUPE_CHARS: int = 200  # no deduplicar páginas casi vacías
+EXTERNAL_DIR: Path = settings.external_dir
+EXTERNAL_CORPUS_DIR: Path = settings.external_corpus_dir
+EXTERNAL_SOURCE: str = settings.external_source
+EXTERNAL_RELEASE: str = settings.external_release
+EXTERNAL_CATEGORIES: tuple[str, ...] = settings.external_categories
+EXTERNAL_MAX_CHARS: int = settings.external_max_chars
+LAYER_CORE: str = settings.layer_core
+LAYER_EXTENDED: str = settings.layer_extended
+REQUEST_DELAY_SECONDS: float = settings.request_delay_seconds
+RESPECT_ROBOTS: bool = settings.respect_robots
+MIN_DEDUPE_CHARS: int = settings.min_dedupe_chars
 
-SEEDS: tuple[str, ...] = (
-    "https://www.carvajal.com/",
-    "https://www.carvajal.com/quienes-somos/",
-    "https://www.carvajal.com/historia/",
-    "https://www.carvajal.com/proposito-superior/",
-    "https://www.carvajal.com/sostenibilidad/",
-    "https://www.carvajal.com/noticias/",
-    "https://www.carvajal.com/empaques/",
-    "https://www.carvajal.com/tecnologia/",
-    "https://www.carvajal.com/educacion/",
-    "https://www.carvajal.com/comunicacion/",
-    "https://www.carvajal.com/espacios/",
-    "https://www.carvajal.com/propiedades-e-inversiones/",
-    "https://www.carvajal.com/inversionistas/inicio/",
-    "https://www.carvajal.com/gobierno-corporativo/",
-    "https://www.carvajal.com/compromiso-etico/",
-    "https://www.carvajal.com/pulpa-y-papel/",
-    "https://www.carvajal.com/politica-de-innovacion/",
-    "https://www.carvajal.com/compromiso-etico/relacionamiento-con-grupos-de-interes/",
-)
+SEEDS: tuple[str, ...] = settings.seeds
+EXTERNAL_SEEDS: tuple[str, ...] = settings.external_seeds
 
-# Fuentes de terceros: publican los indicadores financieros que el sitio oficial
-# solo entrega dentro de PDFs (estados financieros, informe de gestión).
-EXTERNAL_SEEDS: tuple[str, ...] = (
-    "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
-    "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
-    "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
-    "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-1-9-billones-a-junio-un-decrecimiento-de-14-anual-3928992",
-    "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
-    "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
-)
+LLM_PROVIDER: str = settings.llm_provider
+ANTHROPIC_API_KEY: str = settings.anthropic_api_key
+CLAUDE_MODEL: str = settings.claude_model
+DEEPSEEK_API_KEY: str = settings.deepseek_api_key
+DEEPSEEK_MODEL: str = settings.deepseek_model
+DEEPSEEK_BASE_URL: str = settings.deepseek_base_url
 
-LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")
-ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
-DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-
-QUESTIONS_FILE: Path = Path("data") / "questions.json"
-RESULTS_FILE: Path = Path("docs") / "resultados.md"
+QUESTIONS_FILE: Path = settings.questions_file
+RESULTS_FILE: Path = settings.results_file
