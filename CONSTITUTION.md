@@ -112,6 +112,27 @@ con asistente RAG.
 > y acordeones de las *landings* institucionales —justo el contenido que el RAG necesita—.
 > El extractor propio recorre el DOM y conserva encabezados, listas, tablas y enlaces.
 
+### 3.1 Stack objetivo de la app web (propuesto)
+
+El stack anterior describe el prototipo actual. Para la app de chat en producción
+se propone un stack distinto, documentado en
+[`docs/decisions/0001-stack-app-chat.md`](docs/decisions/0001-stack-app-chat.md)
+(estado: **propuesto**). Resumen:
+
+| Capa | Elección |
+|------|----------|
+| Web | Next.js (App Router) + TypeScript |
+| API | FastAPI + Pydantic v2 |
+| Persistencia | Postgres 16 + SQLAlchemy 2.0 + Alembic |
+| Vectores | pgvector (HNSW) |
+| Caché, cuotas y cola | Redis |
+| Ingesta | Worker `arq` (la captura sigue siendo CLI/cron) |
+| LLM | Adaptador propio; gateway cuando haya varios proveedores |
+
+> ⚠️ **Nada de esto está implementado.** El stack vigente —y el que gobierna el
+> código— sigue siendo el de la tabla anterior hasta que el ADR pase a `aceptado`
+> y la migración avance fase por fase.
+
 ## 4. Estructura del repositorio
 
 ```text
@@ -136,6 +157,7 @@ carvajal/
 ├── tests/                   # pruebas (pytest, patrón AAA)
 ├── app.py                   # entrada de la interfaz: streamlit run app.py
 ├── docs/                    # documentación, ADRs e investigación
+│   ├── decisions/           # ADRs: contexto, opciones y consecuencias
 │   ├── arquitectura.json    # fuente tipada del diagrama (Archify)
 │   ├── arquitectura.html    # diagrama interactivo autocontenido
 │   └── arquitectura.md      # versión Mermaid del mismo pipeline
@@ -243,7 +265,9 @@ git push
 | 2026-10-29 | Tres tareas de LLM sobre el mismo corpus: Resumen, FAQ y Q&A | La rúbrica del Módulo 1 exige las tres tareas; comparten el bloque de corpus consolidado y cada una tiene su propio prompt, con citas de fuente y reglas anti-alucinación |
 | 2026-10-30 | Alcance documentado en `docs/alcance.md`; el sitio no publica contacto ni sedes | Se verificaron 404 en `/contacto/`, `/sedes/`, `/oficinas/`, barrido de 26 sub-sitemaps y portada sin teléfonos ni direcciones. No se inventan datos: el asistente declara la ausencia y remite a los canales oficiales |
 | 2026-10-30 | Experimentación de prompts documentada en `docs/prompts.md` | Cada tarea se probó con 3-4 variantes sobre el corpus real; las métricas (fuentes citadas, cifras, declaración de ausencia) justifican las reglas actuales y quedan reproducibles con `scripts/experimentos_prompts.py` |
-| 2026-10-30 | Importar el corpus de un compañero como **capa extendida** (`data/external/`) | Su corpus aporta cientos de fuentes que el núcleo no cubre. Se importa solo HTML, se re-extrae con el extractor propio, se deduplica contra el núcleo y se carga siempre si existe; no se consolida en el prompt porque 1,4 M de caracteres desbordarían el contexto |
+| 2026-10-30 | Importar el corpus de un compañero como **capa extendida** (`data/external/`) | Su corpus aporta cientos de fuentes que el núcleo no cubre. Se importa solo HTML, se re-extrae con el extractor propio, se deduplica contra el núcleo y se carga siempre si existe; no se consolidan en el prompt porque 1,4 M de caracteres desbordarían el contexto |
+| 2026-11-08 | Registrar las decisiones en `docs/decisions/` (formato ADR) | `CONSTITUTION.md` dice *qué* es el proyecto; los ADR dicen *por qué* y qué se descartó, para no re-litigar decisiones ni perder el contexto ante agentes nuevos |
+| 2026-11-08 | ADR-0001 (**propuesto**): app web con Next.js + FastAPI + Postgres/pgvector + Redis, captura por CLI/cron | Streamlit no da sesiones, concurrencia ni trabajos en segundo plano. Las 100 K cuentas proyectadas no exigen Kafka ni Kubernetes: el costo dominante son los tokens, no los servidores |
 
 ## 10. Notas y tareas pendientes
 
@@ -255,7 +279,8 @@ git push
 - [x] Ejecutar `make eval` con credenciales y anexar los resultados al informe.
 - [x] Importar el corpus externo como capa extendida con manifiesto y deduplicación.
 - [ ] Incorporar PDF prioritarios del corpus externo (estados financieros, informes anuales).
-- [ ] Registrar decisiones de arquitectura (ADRs) en `docs/decisions/`.
+- [ ] Registrar decisiones de arquitectura (ADRs) en `docs/decisions/`. <!-- 2026-11-08: creado el índice y el ADR-0001 (propuesto) -->
+- [ ] Aceptar o rechazar el ADR-0001 y, si se acepta, ejecutar la fase 0 (extraer dominio y casos de uso).
 
 ## 11. Configuración local (no trackear)
 
