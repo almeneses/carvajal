@@ -140,12 +140,19 @@ carvajal/
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
-│           ├── config.py      # semillas, capas, política HTTP
-│           ├── fetching.py    # cliente HTTP educado
+│           ├── domain/        # entidades y reglas puras (sin IO)
+│           │   ├── entities.py  # CapturedPage, Document, Chunk
+│           │   └── rules.py     # slug, sección, dominio, hash, dedupe
+│           ├── application/   # casos de uso y puertos (Protocol)
+│           │   └── ports.py     # repositorios, vector store, LLM, fetcher, extractor
+│           ├── infrastructure/ # adaptadores y configuración tipada
+│           │   └── settings.py  # pydantic-settings (.env + entorno)
+│           ├── config.py      # fachada de compatibilidad de settings
+│           ├── fetching.py    # cliente HTTP educado (implementa Fetcher)
 │           ├── extracting.py  # HTML → Markdown
 │           ├── gold.py        # front matter + índice JSONL
 │           ├── pipeline.py    # orquestación de las tres capas
-│           ├── models.py      # modelos del dominio
+│           ├── models.py      # reexporta el dominio (compatibilidad)
 │           ├── importer.py    # importación del corpus externo (capa extendida)
 │           ├── rag.py         # recuperación, prompt y generación (RAG)
 │           ├── ui.py          # interfaz web de pruebas (Streamlit)
