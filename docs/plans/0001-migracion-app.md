@@ -148,10 +148,14 @@ flowchart LR
 
 | ID | Objetivo | Alcance | LOC | Aceptación |
 |---|---|---|---|---|
-| W0.1 | Esqueleto de workspace y CI | `apps/`, `packages/`, `Makefile`, workflow con jobs `unit`/`integration` | 250 | `make check` sigue verde; el paquete actual no cambia de comportamiento |
-| W0.2 | Configuración tipada | `packages/core/src/carvajal/infrastructure/settings.py` (pydantic-settings) reemplaza los globales de `config.py` | 280 | Mismos valores por defecto; test de carga por entorno |
-| W0.3 | Dominio puro | `domain/entities.py`, `domain/rules.py` (slug, sección, dedupe, hash) | 300 | Tests de reglas sin IO; `models.py` pasa a reexportar |
-| W0.4 | Puertos | `application/ports.py`: `DocumentRepository`, `ChunkRepository`, `VectorStore`, `LLMProvider`, `Fetcher`, `Extractor` | 240 | Tests de contrato (fakes) que cualquier adaptador debe pasar |
+| W0.1 | Gate de presupuesto y CI en `dev` | `.github/scripts/pr_size.py`, tests, workflow | 170 | Falla >700 líneas, advierte >300; CI también en `push` a `dev` |
+| W0.1b | Estructura `packages/core` | `git mv src`, `[tool.uv.build-backend]`, rutas de docs | 40 | `import carvajal`, `uv build` y `make check` verdes |
+| W0.1c | Tags por merge | `.github/workflows/auto-tag.yml`, `.github/scripts/plan_tag.py`, tests | 245 | Merge a `dev` crea `w0-1c`; `ola-N` vía `workflow_dispatch` |
+| W0.2 | Configuración tipada | `packages/core/src/carvajal/infrastructure/settings.py` (pydantic-settings) reemplaza los globales de `config.py` | 295 | Mismos valores por defecto; test de carga por entorno |
+| W0.3 | Dominio puro | `domain/entities.py`, `domain/rules.py` (slug, sección, dedupe, hash) | 410 | Tests de reglas sin IO; `models.py` pasa a reexportar |
+| W0.4 | Puertos | `application/ports.py`: `DocumentRepository`, `ChunkRepository`, `VectorStore`, `LLMProvider`, `Fetcher`, `Extractor` | 490 | Tests de contrato (fakes) que cualquier adaptador debe pasar |
+
+**Estado:** ola cerrada el 2026-11-08. Snapshot recuperable con `git checkout ola-0`.
 
 ### Ola 1 — Persistencia (2 agentes)
 
@@ -219,7 +223,7 @@ flowchart LR
 | W8.3 | Release de la ola 5 | PR `dev → main` | 0 | E2E-3 y E2E-4 en verde |
 | W8.4 | Release final | PR `dev → main` | 0 | Streamlit retirado; runbook del VPS probado |
 
-**Total: 27 PRs de código + 4 releases, ~8 300 líneas.** Ninguna ola supera las 3
+**Total: 29 PRs de código + 4 releases, ~8 900 líneas.** Ninguna ola supera las 3
 semanas de un agente.
 
 ## 5. Definition of Done (por PR)
@@ -240,7 +244,7 @@ semanas de un agente.
 | `Calidad` | Siempre | Ruff, `ty`, tests unitarios |
 | `integration` | Olas 1–3 | Postgres real vía testcontainers |
 | `e2e` | Olas 3, 5, 6 | Playwright sobre `compose.test.yml` |
-| `size` | Siempre | Comenta y etiqueta si el diff >700 líneas |
+| `size` | Siempre | Corre dentro de `Calidad`: falla >700 líneas, advierte >300 |
 
 ## 7. Escenarios E2E
 
