@@ -10,6 +10,7 @@
 | Presupuesto por PR | **≤ 300 líneas cambiadas** (add + del) |
 | Excepción | **≤ 700** solo para dependencias, migraciones o scaffolding |
 | Un PR | Un objetivo del plan, un ID, un dueño |
+| **Base de los PRs** | **`dev`** (no `main`) |
 | Merge | Lo hace **el owner**; ningún agente mergea (`AGENTS.md`) |
 | Verde para pedir aprobación | CI `Calidad` + tests de la ola + E2E aplicable |
 | Rama | `tipo/id-corto`, p. ej. `feat/w2-3-ask-question` |
@@ -17,6 +18,27 @@
 
 Si un PR necesita más presupuesto, **se parte**, no se justifica. La única
 excepción legítima es "esto es una migración de base de datos".
+
+### 1.1 Estrategia de ramas
+
+```mermaid
+flowchart LR
+  F["feat/w2-3-ask-question"] -->|PR| DEV["dev<br/>integración"]
+  G["feat/w3-1-corpus"] -->|PR| DEV
+  H["fix/w1-3-idempotencia"] -->|PR| DEV
+  DEV -->|"PR de release<br/>al cerrar la ola"| MAIN["main<br/>producción"]
+  MAIN -.->|"sync al inicio de ola"| DEV
+```
+
+- **`dev`** es la rama de integración: recibe todas las PRs de la migración.
+- **`main`** solo recibe releases: un PR `dev → main` al cerrar cada ola
+  verificable (olas 1, 3, 5 y 7).
+- **Sincronización**: al inicio de cada ola, `main` se mergea hacia `dev` para no
+  arrastrar divergencia.
+- **Docs y decisiones** (este plan, el ADR) van directo a `main`: no son código
+  de la app.
+- Ambas ramas tienen ruleset: `main` exige rama al día, `dev` no (para evitar
+  rebases constantes con 3 agentes). En las dos, el merge lo hace el owner.
 
 ## 2. Roles
 
@@ -188,7 +210,17 @@ flowchart LR
 |---|---|---|---|---|
 | W7.1 | Borrar Streamlit | `app.py`, `ui.py`, dependencia, Makefile | ~100 (−600) | `grep -r streamlit` vacío; CI verde |
 
-**Total: 27 PRs, ~8 300 líneas.** Ninguna ola supera las 3 semanas de un agente.
+### Ola 8 — Releases a `main`
+
+| ID | Objetivo | Alcance | LOC | Aceptación |
+|---|---|---|---|---|
+| W8.1 | Release de la ola 1 | PR `dev → main` | 0 | Importador idempotente sobre el corpus real |
+| W8.2 | Release de la ola 3 | PR `dev → main` | 0 | E2E-1 y E2E-2 en verde |
+| W8.3 | Release de la ola 5 | PR `dev → main` | 0 | E2E-3 y E2E-4 en verde |
+| W8.4 | Release final | PR `dev → main` | 0 | Streamlit retirado; runbook del VPS probado |
+
+**Total: 27 PRs de código + 4 releases, ~8 300 líneas.** Ninguna ola supera las 3
+semanas de un agente.
 
 ## 5. Definition of Done (por PR)
 
