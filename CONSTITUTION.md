@@ -211,9 +211,14 @@ carvajal/
 
 ## 7. Repositorio y Git
 
-- **Remoto (SSH):** `git@github.com:markodavid/carvajal.git`
-- **Rama principal:** `main`
-- **Estrategia de ramas:** `feat/...`, `fix/...`, `docs/...`, `refactor/...`, `test/...`, `chore/...`; integración vía Pull Request.
+- **Remoto (SSH):** `git@github.com:almeneses/carvajal.git`
+- **Rama principal:** `main` — solo recibe releases aprobados.
+- **Rama de integración:** `dev` — recibe todo el trabajo de la app web
+  (ver [`docs/plans/0001-migracion-app.md`](docs/plans/0001-migracion-app.md)).
+- **Estrategia de ramas:** `feat/...`, `fix/...`, `docs/...`, `refactor/...`,
+  `test/...`, `chore/...`; integración vía Pull Request a `dev`, y de `dev` a
+  `main` en un PR de release. Los cambios de documentación y decisiones pueden ir
+  directo a `main`.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) —
   `feat:`, `fix:`, `docs:`, `refactor:`, `style:`, `test:`, `chore:`.
 - **Identidad git:** Marko David Garcia <markodavidgm@gmail.com> (ver §11).
