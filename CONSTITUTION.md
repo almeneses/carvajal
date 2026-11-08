@@ -121,13 +121,13 @@ se propone un stack distinto, documentado en
 
 | Capa | Elección |
 |------|----------|
-| Web | Next.js (App Router) + TypeScript |
-| API | FastAPI + Pydantic v2 |
+| Web + API | FastAPI + Jinja2 + HTMX + Tailwind (un solo runtime) |
 | Persistencia | Postgres 16 + SQLAlchemy 2.0 + Alembic |
 | Vectores | pgvector (HNSW) |
-| Caché, cuotas y cola | Redis |
-| Ingesta | Worker `arq` (la captura sigue siendo CLI/cron) |
-| LLM | Adaptador propio; gateway cuando haya varios proveedores |
+| Autenticación | Authlib (OIDC) + sesiones de servidor en Postgres |
+| Streaming | SSE (`hx-ext="sse"`) |
+| LLM | Puerto `LLMProvider`; LangChain como adaptador |
+| Ingesta | CLI/cron (la web no captura) |
 
 > ⚠️ **Nada de esto está implementado.** El stack vigente —y el que gobierna el
 > código— sigue siendo el de la tabla anterior hasta que el ADR pase a `aceptado`
@@ -267,7 +267,7 @@ git push
 | 2026-10-30 | Experimentación de prompts documentada en `docs/prompts.md` | Cada tarea se probó con 3-4 variantes sobre el corpus real; las métricas (fuentes citadas, cifras, declaración de ausencia) justifican las reglas actuales y quedan reproducibles con `scripts/experimentos_prompts.py` |
 | 2026-10-30 | Importar el corpus de un compañero como **capa extendida** (`data/external/`) | Su corpus aporta cientos de fuentes que el núcleo no cubre. Se importa solo HTML, se re-extrae con el extractor propio, se deduplica contra el núcleo y se carga siempre si existe; no se consolidan en el prompt porque 1,4 M de caracteres desbordarían el contexto |
 | 2026-11-08 | Registrar las decisiones en `docs/decisions/` (formato ADR) | `CONSTITUTION.md` dice *qué* es el proyecto; los ADR dicen *por qué* y qué se descartó, para no re-litigar decisiones ni perder el contexto ante agentes nuevos |
-| 2026-11-08 | ADR-0001 (**propuesto**): app web con Next.js + FastAPI + Postgres/pgvector + Redis, captura por CLI/cron | Streamlit no da sesiones, concurrencia ni trabajos en segundo plano. Las 100 K cuentas proyectadas no exigen Kafka ni Kubernetes: el costo dominante son los tokens, no los servidores |
+| 2026-11-08 | ADR-0001 (**propuesto**): app web en un solo runtime Python (FastAPI + Jinja2 + HTMX) con Postgres/pgvector; captura por CLI/cron | Streamlit no da sesiones, concurrencia ni trabajos en segundo plano. Las 100 K cuentas proyectadas no exigen Kafka ni Kubernetes: el costo dominante son los tokens, no los servidores |
 
 ## 10. Notas y tareas pendientes
 
