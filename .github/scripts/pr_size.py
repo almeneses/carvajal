@@ -17,6 +17,7 @@ Variables de entorno:
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import subprocess
 import sys
@@ -24,12 +25,22 @@ import sys
 IGNORED = {"uv.lock"}
 
 # Herramientas de terceros que se instalan tal cual: no se revisan por línea, así
-# que no consumen el presupuesto de revisión del PR.
-GENERATED_PREFIXES = (".specify/", ".opencode/commands/speckit.")
-
-# Dentro de lo generado hay archivos que sí escribe el equipo y por tanto cuentan:
-# la proyección de la constitución y las especificaciones de ``specs/``.
-REVIEWED = {".specify/memory/constitution.md"}
+# que no consumen el presupuesto de revisión del PR. La lista es explícita a
+# propósito: lo que no aparezca aquí cuenta, incluidos los archivos del equipo
+# dentro de ``.specify/`` (por ejemplo, la proyección de la constitución).
+GENERATED_PREFIXES = (
+    ".specify/scripts/",
+    ".specify/templates/",
+    ".specify/integrations/",
+    ".specify/workflows/",
+)
+GENERATED_FILES = {
+    ".specify/.gitignore",
+    ".specify/init-options.json",
+    ".specify/integration.json",
+    ".specify/memory/.constitution-template.json",
+}
+GENERATED_GLOBS = (".opencode/commands/speckit.*.md",)
 
 
 def is_ignored(path: str, extra: set[str] | None = None) -> bool:
@@ -38,22 +49,26 @@ def is_ignored(path: str, extra: set[str] | None = None) -> bool:
     ``extra`` añade exclusiones puntuales sin desactivar las globales.
     """
 
-    if path in REVIEWED:
-        return False
-    if path in IGNORED or path in (extra or set()):
+    normalized = path.replace("\\", "/")
+    if normalized in IGNORED or normalized in (extra or set()):
         return True
-    return path.startswith(GENERATED_PREFIXES)
+    if normalized in GENERATED_FILES or normalized.startswith(GENERATED_PREFIXES):
+        return True
+    return any(fnmatch.fnmatch(normalized, pattern) for pattern in GENERATED_GLOBS)
 
 
-def parse_numstat(text: str, ignored: set[str] | None = None) -> tuple[int, int, int]:
-    """Suma archivos, adiciones y borrados, ignorando los artefactos generados."""
+def parse_numstat(text: str, extra_ignored: set[str] | None = None) -> tuple[int, int, int]:
+    """Suma archivos, adiciones y borrados, ignorando los artefactos generados.
+
+    ``extra_ignored`` se suma a las exclusiones globales; no las reemplaza.
+    """
     files = added = deleted = 0
     for line in text.splitlines():
         parts = line.split("\t")
         if len(parts) != 3:
             continue
         raw_added, raw_deleted, path = parts
-        if is_ignored(path, ignored):
+        if is_ignored(path, extra_ignored):
             continue
         files += 1
         # Los binarios aparecen como "-" en --numstat.

@@ -75,10 +75,32 @@ def test_exclusiones_extra_no_desactivan_las_globales() -> None:
     numstat = "900\t0\t.specify/templates/plan-template.md\n7\t0\tassets/logo.svg\n"
 
     # Act
-    files, added, deleted = pr_size.parse_numstat(numstat, ignored={"assets/logo.svg"})
+    files, added, deleted = pr_size.parse_numstat(numstat, extra_ignored={"assets/logo.svg"})
 
     # Assert
     assert (files, added, deleted) == (0, 0, 0)
+
+
+def test_normaliza_separadores_de_windows() -> None:
+    # Arrange
+    numstat = "900\t0\t.specify\\scripts\\powershell\\common.ps1\n5\t0\tsrc\\a.py\n"
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (1, 5, 0)
+
+
+def test_comando_fuera_del_patron_de_spec_kit_cuenta() -> None:
+    # Arrange
+    numstat = "40\t0\t.opencode/commands/speckit.propio.md.bak\n"
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (1, 40, 0)
 
 
 def test_binarios_cuentan_archivo_sin_lineas() -> None:
