@@ -20,7 +20,8 @@ El entregable versionado es `data/gold/` (24 documentos con *front matter*: `url
 Bronze (`data/raw/`) y silver (`data/processed/`) se regeneran y no se versionan.
 
 - Nada del RAG toca la web: se deriva siempre de `data/gold/`.
-- Cambiar el corpus invalida el índice FAISS por huella; reconstruirlo es parte del flujo.
+- Cambiar el corpus invalida el índice vectorial por huella (FAISS hoy, pgvector desde la ola 2
+  del plan de migración); reconstruirlo es parte del flujo.
 - La capa extendida (`data/external/`) es opcional y solo participa en recuperación.
 
 ### III. Sin fuentes no hay respuesta (NO NEGOCIABLE)
@@ -48,13 +49,25 @@ red se registran como descartes, no como excepciones.
 ### VI. Cambios por Pull Request
 
 Los cambios grandes van en rama (`feat/…`, `fix/…`, `docs/…`, `chore/…`), con Conventional
-Commits, y entran a `main` mediante Pull Request con descripción, revisión y checks verdes.
+Commits, y entran por Pull Request con descripción y checks verdes. Las ramas se integran a
+`dev`; `main` solo recibe releases al cierre de las olas 1, 3, 5 y 7 del plan de migración.
+Los agentes abren el PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
+
+## Estado técnico
+
+- Migración de Streamlit a una app web con backend y frontend separados, decidida en
+  [`docs/decisions/0001-stack-app-chat.md`](../../docs/decisions/0001-stack-app-chat.md)
+  (FastAPI + Jinja2 + HTMX, Postgres 16 con pgvector, Docker en VPS) y planificada por olas en
+  [`docs/plans/0001-migracion-app.md`](../../docs/plans/0001-migracion-app.md).
+- Streamlit sigue siendo la interfaz desplegada hasta la ola 7, cuando se retira.
 
 ## Restricciones técnicas
 
-- Python 3.13+, src-layout, paquete `carvajal`.
+- Python 3.13+, monorepo `uv` con el paquete en `packages/core/src/carvajal` (src-layout).
 - LLM configurable: DeepSeek (por defecto), Claude u Ollama.
-- Embeddings locales con Ollama (`nomic-embed-text`) o por API según el entorno de despliegue.
+- Embeddings locales con Ollama (`nomic-embed-text`, 768 dimensiones) o por API según el
+  entorno de despliegue.
+- Persistencia en Postgres 16 con la extensión `pgvector`; migraciones con Alembic.
 - Sin secretos en el repositorio: `.env` está en `.gitignore`.
 
 ## Flujo de desarrollo
@@ -69,4 +82,4 @@ Commits, y entran a `main` mediante Pull Request con descripción, revisión y c
 - Enmiendas: PR que modifique `CONSTITUTION.md` y, si aplica, esta proyección.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 1.0.0 — 2026-11-03, alineada con `CONSTITUTION.md` del repositorio.
+- Versión: 1.1.0 - 2026-11-08, alineada con `CONSTITUTION.md` del repositorio.
