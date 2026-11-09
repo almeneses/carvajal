@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     postgres_user: str = "carvajal"
     postgres_password: str = "carvajal"
     postgres_db: str = "carvajal"
-    postgres_port: int = 5432
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
     database_url: str = ""
 
     @model_validator(mode="after")
