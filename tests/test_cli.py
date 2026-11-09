@@ -1,5 +1,7 @@
 """Pruebas de la interfaz de línea de comandos."""
 
+from pathlib import Path
+
 from carvajal.cli import build_parser
 
 
@@ -35,3 +37,16 @@ def test_parser_reconoce_las_tareas_de_llm() -> None:
     assert resumen.focus == "empaques"
     assert faq.command == "faq"
     assert faq.output.name == "faq.md"
+
+
+def test_parser_reconoce_migrate_gold() -> None:
+    """``migrate-gold`` acepta el directorio por defecto y uno explícito."""
+
+    parser = build_parser()
+
+    por_defecto = parser.parse_args(["migrate-gold"])
+    explicito = parser.parse_args(["migrate-gold", "--gold", "/tmp/corpus"])
+
+    assert por_defecto.command == "migrate-gold"
+    assert por_defecto.gold.name == "gold"
+    assert explicito.gold == Path("/tmp/corpus")
