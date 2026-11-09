@@ -59,6 +59,7 @@ jobs:
       POSTGRES_USER: carvajal
       POSTGRES_PASSWORD: carvajal
       POSTGRES_DB: carvajal
+      POSTGRES_PORT: 5432
     steps:
       - name: Checkout
         uses: actions/checkout@v7

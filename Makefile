@@ -66,7 +66,7 @@ app: ## Lanza la interfaz web de prueba (Streamlit)
 # Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias
 # POSTGRES_PORT, ambos lo ven.
 db: ## Levanta Postgres 16 con pgvector y espera al healthcheck
-	docker compose up -d --wait db
+	docker compose up -d --wait --wait-timeout 120 db
 
 db-down: ## Detiene la base de datos local (conserva el volumen)
 	docker compose down

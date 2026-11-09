@@ -10,9 +10,10 @@ from carvajal.infrastructure.settings import Settings
 
 
 @pytest.fixture(autouse=True)
-def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Aísla las pruebas de las variables de Postgres del desarrollador."""
+def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Aísla las pruebas de las variables de Postgres y del ``.env`` del repo."""
 
+    monkeypatch.chdir(tmp_path)
     for nombre in (
         "DATABASE_URL",
         "POSTGRES_USER",
