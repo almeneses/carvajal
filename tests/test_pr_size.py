@@ -41,6 +41,21 @@ def test_ignora_uv_lock() -> None:
     assert (files, added, deleted) == (1, 5, 1)
 
 
+def test_ignora_andamiaje_generado_por_spec_kit() -> None:
+    # Arrange
+    numstat = (
+        "800\t0\t.specify/scripts/powershell/common.ps1\n"
+        "300\t0\t.opencode/commands/speckit.plan.md\n"
+        "20\t0\tspecs/002-api-backend-frontend/spec.md\n"
+    )
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (1, 20, 0)
+
+
 def test_binarios_cuentan_archivo_sin_lineas() -> None:
     # Arrange
     numstat = "-\t-\tassets/logo.png\n"
