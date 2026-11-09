@@ -70,7 +70,7 @@ jobs:
         run: docker compose config -q
 
       - name: Levantar la base
-        run: docker compose up -d --wait db
+        run: docker compose up -d --wait --wait-timeout 60 db
 
       - name: Verificar Postgres y pgvector
         env:

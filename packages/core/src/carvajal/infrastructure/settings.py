@@ -111,8 +111,9 @@ class Settings(BaseSettings):
         if not self.database_url:
             usuario = quote(self.postgres_user, safe="")
             clave = quote(self.postgres_password, safe="")
+            base = quote(self.postgres_db, safe="")
             self.database_url = (
-                f"postgresql://{usuario}:{clave}@127.0.0.1:{self.postgres_port}/{self.postgres_db}"
+                f"postgresql://{usuario}:{clave}@127.0.0.1:{self.postgres_port}/{base}"
             )
         return self
 

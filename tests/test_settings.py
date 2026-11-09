@@ -3,9 +3,24 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from carvajal import config
 from carvajal.infrastructure.settings import Settings
+
+
+@pytest.fixture(autouse=True)
+def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aísla las pruebas de las variables de Postgres del desarrollador."""
+
+    for nombre in (
+        "DATABASE_URL",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "POSTGRES_PORT",
+    ):
+        monkeypatch.delenv(nombre, raising=False)
 
 
 def test_valores_por_defecto() -> None:
@@ -147,3 +162,26 @@ def test_database_url_usa_usuario_y_base_del_entorno(monkeypatch: pytest.MonkeyP
     settings = Settings(_env_file=None)
 
     assert settings.database_url == "postgresql://otro:carvajal@127.0.0.1:5432/otradb"
+
+
+def test_database_url_se_lee_del_archivo_env(tmp_path: Path) -> None:
+    """``DATABASE_URL`` del archivo ``.env`` también gana a la derivada."""
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "DATABASE_URL=postgresql://archivo:clave@127.0.0.1:5432/archivo\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.database_url == "postgresql://archivo:clave@127.0.0.1:5432/archivo"
+
+
+def test_postgres_port_invalido_falla(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un ``POSTGRES_PORT`` no numérico falla al construir la configuración."""
+
+    monkeypatch.setenv("POSTGRES_PORT", "no-es-un-numero")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
