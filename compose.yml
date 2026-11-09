@@ -20,17 +20,18 @@ services:
     ports:
       # Puerto del host (configurable) → 5432 fijo dentro del contenedor.
       # Solo en loopback: la base es local y sus credenciales son de desarrollo.
+      # En CI el runner también la alcanza por loopback.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # Se ejecuta dentro del contenedor, donde Postgres escucha en 5432. Usa
-      # las mismas variables que el arranque, interpoladas por Compose desde el
-      # entorno del host.
+      # Se ejecuta dentro del contenedor, donde Postgres escucha en 5432. El
+      # doble $ deja que el shell del contenedor expanda sus propias variables,
+      # que son las del bloque environment de arriba.
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-carvajal} -d ${POSTGRES_DB:-carvajal}",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB",
         ]
       interval: 3s
       timeout: 3s
