@@ -92,6 +92,17 @@ def test_normaliza_separadores_de_windows() -> None:
     assert (files, added, deleted) == (1, 5, 0)
 
 
+def test_normaliza_prefijo_punto_barra() -> None:
+    # Arrange
+    numstat = "900\t0\t./.specify/scripts/powershell/common.ps1\n5\t0\t./src/a.py\n"
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (1, 5, 0)
+
+
 def test_comando_fuera_del_patron_de_spec_kit_cuenta() -> None:
     # Arrange
     numstat = "40\t0\t.opencode/commands/speckit.propio.md.bak\n"
