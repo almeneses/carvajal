@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test check build app eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test check build app db db-down eval import clean
 
 help: ## Muestra esta ayuda
 	@echo Uso: make [objetivo]
@@ -23,6 +23,8 @@ help: ## Muestra esta ayuda
 	@echo   check              Verificación completa (lint + formato + tipos + pruebas)
 	@echo   build              Construye el paquete (sdist + wheel)
 	@echo   app                Lanza la interfaz web de prueba (Streamlit)
+	@echo   db                 Levanta Postgres 16 con pgvector (docker compose)
+	@echo   db-down            Detiene la base de datos local
 	@echo   eval               Ejecuta las preguntas de prueba (genera docs/resultados.md)
 	@echo   import             Importa el corpus externo a la capa extendida
 	@echo   clean              Limpia cachés y artefactos
@@ -60,6 +62,14 @@ build: ## Construye el paquete (sdist + wheel)
 
 app: ## Lanza la interfaz web de prueba (Streamlit)
 	uv run streamlit run app.py
+
+# Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias
+# POSTGRES_PORT, ambos lo ven.
+db: ## Levanta Postgres 16 con pgvector y espera al healthcheck
+	docker compose up -d --wait --wait-timeout 120 db
+
+db-down: ## Detiene la base de datos local (conserva el volumen)
+	docker compose down
 
 eval: ## Ejecuta las preguntas de prueba y genera docs/resultados.md
 	uv run carvajal eval

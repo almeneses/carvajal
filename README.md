@@ -273,6 +273,8 @@ make format     # Ruff (formato)
 make typecheck  # ty
 make test       # pytest
 make build      # uv build
+make db         # Postgres 16 con pgvector (docker compose)
+make db-down    # detiene la base local
 make clean      # limpiar cachés y artefactos
 ```
 

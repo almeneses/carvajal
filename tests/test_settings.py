@@ -3,9 +3,25 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from carvajal import config
 from carvajal.infrastructure.settings import Settings
+
+
+@pytest.fixture(autouse=True)
+def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Aísla las pruebas de las variables de Postgres y del ``.env`` del repo."""
+
+    monkeypatch.chdir(tmp_path)
+    for nombre in (
+        "DATABASE_URL",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+        "POSTGRES_PORT",
+    ):
+        monkeypatch.delenv(nombre, raising=False)
 
 
 def test_valores_por_defecto() -> None:
@@ -81,3 +97,102 @@ def test_fachada_coincide_con_settings() -> None:
 
     assert settings.seeds == config.SEEDS
     assert config.INDEX_FILE == config.GOLD_DIR / "index.jsonl"
+
+
+def test_database_url_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La URL por defecto apunta al contenedor de ``compose.yml``."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://carvajal:carvajal@127.0.0.1:5432/carvajal"
+
+
+def test_database_url_se_sobrescribe_por_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``DATABASE_URL`` del entorno gana al valor por defecto."""
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://otro:clave@db:5432/otra")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://otro:clave@db:5432/otra"
+
+
+def test_database_url_deriva_del_puerto(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cambiar ``POSTGRES_PORT`` mueve la URL derivada con él."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_PORT", "5544")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://carvajal:carvajal@127.0.0.1:5544/carvajal"
+
+
+def test_database_url_codifica_las_credenciales(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Una clave con caracteres reservados no malforma la URL."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_PASSWORD", "p@ss:word/1")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == (
+        "postgresql://carvajal:p%40ss%3Aword%2F1@127.0.0.1:5432/carvajal"
+    )
+
+
+def test_database_url_vacia_deriva(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``DATABASE_URL`` vacío equivale a no definirlo."""
+
+    monkeypatch.setenv("DATABASE_URL", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://carvajal:carvajal@127.0.0.1:5432/carvajal"
+
+
+def test_database_url_usa_usuario_y_base_del_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La URL derivada refleja ``POSTGRES_USER`` y ``POSTGRES_DB``."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_USER", "otro")
+    monkeypatch.setenv("POSTGRES_DB", "otradb")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://otro:carvajal@127.0.0.1:5432/otradb"
+
+
+def test_database_url_se_lee_del_archivo_env(tmp_path: Path) -> None:
+    """``DATABASE_URL`` del archivo ``.env`` también gana a la derivada."""
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "DATABASE_URL=postgresql://archivo:clave@127.0.0.1:5432/archivo\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.database_url == "postgresql://archivo:clave@127.0.0.1:5432/archivo"
+
+
+def test_postgres_port_invalido_falla(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un ``POSTGRES_PORT`` no numérico falla al construir la configuración."""
+
+    monkeypatch.setenv("POSTGRES_PORT", "no-es-un-numero")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("puerto", ["0", "70000"])
+def test_postgres_port_fuera_de_rango_falla(monkeypatch: pytest.MonkeyPatch, puerto: str) -> None:
+    """Un puerto fuera de 1..65535 se rechaza al construir la configuración."""
+
+    monkeypatch.setenv("POSTGRES_PORT", puerto)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

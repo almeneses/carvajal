@@ -51,3 +51,37 @@ jobs:
 
       - name: Pruebas
         run: uv run pytest
+
+  db:
+    name: Base de datos
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_USER: carvajal
+      POSTGRES_PASSWORD: carvajal
+      POSTGRES_DB: carvajal
+      POSTGRES_PORT: 5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Cliente de Postgres
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Validar compose.yml
+        run: docker compose config -q
+
+      - name: Levantar la base
+        run: docker compose up -d --wait --wait-timeout 60 db
+
+      - name: Verificar Postgres y pgvector
+        env:
+          DATABASE_URL: postgresql://carvajal:carvajal@127.0.0.1:5432/carvajal
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          version=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector';")
+          echo "pgvector $version"
+          test -n "$version" || { echo "::error::La extensión vector no está disponible"; exit 1; }
+
+      - name: Bajar la base
+        if: always()
+        run: docker compose down -v

@@ -2,7 +2,9 @@
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -87,6 +89,33 @@ class Settings(BaseSettings):
 
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
+
+    # Base de datos de la app web (W1.1). Los valores por defecto son los del
+    # servicio db de compose.yml; las credenciales son solo para desarrollo
+    # local. Si no se define DATABASE_URL, se deriva de POSTGRES_*, así que
+    # cambiar el puerto del contenedor no deja la URL apuntando a otro sitio.
+    postgres_user: str = "carvajal"
+    postgres_password: str = "carvajal"
+    postgres_db: str = "carvajal"
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
+    database_url: str = ""
+
+    @model_validator(mode="after")
+    def _completar_database_url(self) -> "Settings":
+        """Deriva la URL del contenedor local si no se dio una explícita.
+
+        Un ``DATABASE_URL`` vacío equivale a no definirlo. Usuario y contraseña
+        se codifican para que caracteres como ``@`` o ``:`` no rompan la URL.
+        """
+
+        if not self.database_url:
+            usuario = quote(self.postgres_user, safe="")
+            clave = quote(self.postgres_password, safe="")
+            base = quote(self.postgres_db, safe="")
+            self.database_url = (
+                f"postgresql://{usuario}:{clave}@127.0.0.1:{self.postgres_port}/{base}"
+            )
+        return self
 
     @property
     def index_file(self) -> Path:
