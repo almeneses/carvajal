@@ -123,6 +123,27 @@ def test_replace_reemplaza_y_valida_pertenencia_y_posicion(session: Session) -> 
     assert [chunk.id for chunk in chunks.list_by_document("con-chunks")] == ["c3"]
 
 
+def test_upsert_en_carrera_no_pisa_un_id_ajeno(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si el SELECT no ve la fila y otra transacción la insertó, no se pisa."""
+
+    repository = SqlDocumentRepository(session)
+    repository.upsert(_document("ajeno", slug="carrera", content_hash="h1"))
+
+    original = repository._select_for_update
+    calls = {"n": 0}
+
+    def select_sin_ver_la_fila(slug: str):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else original(slug)
+
+    monkeypatch.setattr(repository, "_select_for_update", select_sin_ver_la_fila)
+
+    with pytest.raises(ValueError, match="slug"):
+        repository.upsert(_document("nuevo", slug="carrera", content_hash="h2"))
+
+
 def test_la_sesion_solo_publica_con_commit_externo(engine: Engine, session: Session) -> None:
     """Un ``commit()`` de la sesión no publica la transacción externa del fixture."""
 

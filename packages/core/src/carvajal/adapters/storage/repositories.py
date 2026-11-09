@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from sqlalchemy import CursorResult, delete, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage import tables
@@ -75,56 +76,67 @@ class SqlDocumentRepository:
         ``ValueError``. Solo se crea una versión cuando cambia ``content_hash``.
         """
 
-        row = (
+        row = self._select_for_update(document.slug)
+        if row is None:
+            if self._insert_if_absent(document):
+                self._session.flush()
+                return document
+            row = self._select_for_update(document.slug)  # lo insertó otra transacción
+            if row is None:
+                raise RuntimeError(
+                    f"No se pudo leer el documento recién insertado: {document.slug!r}."
+                )
+
+        if row["id"] != document.id:
+            raise ValueError(
+                f"El slug {document.slug!r} ya pertenece al documento {row['id']!r}; "
+                "el id no se puede cambiar."
+            )
+        if row["content_hash"] != document.content_hash:
+            self._archive_previous(row)
+        self._session.execute(
+            update(tables.documents)
+            .where(tables.documents.c.id == document.id)
+            .values(**asdict(document))
+        )
+        self._session.flush()
+        return document
+
+    def _select_for_update(self, slug: str) -> RowMapping | None:
+        """Lee la fila del slug y la bloquea para el resto de la transacción."""
+
+        return (
             self._session.execute(
-                select(tables.documents)
-                .where(tables.documents.c.slug == document.slug)
-                .with_for_update()
+                select(tables.documents).where(tables.documents.c.slug == slug).with_for_update()
             )
             .mappings()
             .one_or_none()
         )
 
-        if row is None:
-            values = asdict(document)
-            statement = postgresql_insert(tables.documents).values(**values)
-            # Carrera entre SELECT e INSERT: ON CONFLICT evita el IntegrityError.
-            # En ese caso no se archiva versión previa porque no existía al leer.
-            self._session.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[tables.documents.c.slug],
-                    set_={
-                        name: statement.excluded[name]
-                        for name in values
-                        if name not in ("id", "slug")
-                    },
-                )
-            )
-        else:
-            if row["id"] != document.id:
-                raise ValueError(
-                    f"El slug {document.slug!r} ya pertenece al documento {row['id']!r}; "
-                    "el id no se puede cambiar."
-                )
-            if row["content_hash"] != document.content_hash:
-                self._session.execute(
-                    insert(tables.document_versions).values(
-                        id=uuid4().hex,
-                        document_id=row["id"],
-                        markdown=row["markdown"],
-                        content_hash=row["content_hash"],
-                        captured_at=row["captured_at"],
-                        created_at=datetime.now(UTC),
-                    )
-                )
-            self._session.execute(
-                update(tables.documents)
-                .where(tables.documents.c.id == document.id)
-                .values(**asdict(document))
-            )
+    def _insert_if_absent(self, document: Document) -> bool:
+        """Inserta sin pisar una fila concurrente; devuelve si insertó."""
 
-        self._session.flush()
-        return document
+        inserted_id = self._session.execute(
+            postgresql_insert(tables.documents)
+            .values(**asdict(document))
+            .on_conflict_do_nothing(index_elements=[tables.documents.c.slug])
+            .returning(tables.documents.c.id)
+        ).scalar_one_or_none()
+        return inserted_id is not None
+
+    def _archive_previous(self, row: RowMapping) -> None:
+        """Archiva la versión anterior de una fila que está a punto de cambiar."""
+
+        self._session.execute(
+            insert(tables.document_versions).values(
+                id=uuid4().hex,
+                document_id=row["id"],
+                markdown=row["markdown"],
+                content_hash=row["content_hash"],
+                captured_at=row["captured_at"],
+                created_at=datetime.now(UTC),
+            )
+        )
 
     def list_versions(self, document_id: str) -> Sequence[DocumentVersion]:
         """Devuelve las versiones archivadas, de la más reciente a la más antigua."""
