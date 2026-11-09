@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -88,9 +89,26 @@ class Settings(BaseSettings):
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
 
-    # Base de datos de la app web (W1.1). El contenedor de compose.yml usa los
-    # mismos valores por defecto, así que `make db` y este campo coinciden.
-    database_url: str = "postgresql://carvajal:carvajal@localhost:5432/carvajal"
+    # Base de datos de la app web (W1.1). Los valores por defecto son los del
+    # servicio db de compose.yml; las credenciales son solo para desarrollo
+    # local. Si no se define DATABASE_URL, se deriva de POSTGRES_*, así que
+    # cambiar el puerto del contenedor no deja la URL apuntando a otro sitio.
+    postgres_user: str = "carvajal"
+    postgres_password: str = "carvajal"
+    postgres_db: str = "carvajal"
+    postgres_port: int = 5432
+    database_url: str = ""
+
+    @model_validator(mode="after")
+    def _completar_database_url(self) -> "Settings":
+        """Deriva la URL del contenedor local si no se dio una explícita."""
+
+        if not self.database_url:
+            self.database_url = (
+                f"postgresql://{self.postgres_user}:{self.postgres_password}"
+                f"@localhost:{self.postgres_port}/{self.postgres_db}"
+            )
+        return self
 
     @property
     def index_file(self) -> Path:

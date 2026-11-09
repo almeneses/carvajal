@@ -73,6 +73,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Cliente de Postgres
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
       - name: Verificar Postgres y pgvector
         env:
           DATABASE_URL: postgresql://carvajal:carvajal@localhost:5432/carvajal

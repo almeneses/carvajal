@@ -101,3 +101,14 @@ def test_database_url_se_sobrescribe_por_entorno(monkeypatch: pytest.MonkeyPatch
     settings = Settings(_env_file=None)
 
     assert settings.database_url == "postgresql://otro:clave@db:5432/otra"
+
+
+def test_database_url_deriva_del_puerto(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cambiar ``POSTGRES_PORT`` mueve la URL derivada con él."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_PORT", "5544")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5544/carvajal"

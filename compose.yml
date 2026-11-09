@@ -3,7 +3,9 @@
 #   make db        levanta la base y espera al healthcheck
 #   make db-down   la detiene (los datos quedan en el volumen pgdata)
 #
-# La cadena de conexión resultante es la de DATABASE_URL en .env.example.
+# La cadena de conexión se deriva de las variables POSTGRES_* (ver
+# .env.example): el puerto del host es POSTGRES_PORT y dentro del contenedor
+# Postgres siempre escucha en 5432.
 
 name: carvajal
 
@@ -17,10 +19,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carvajal}
       POSTGRES_DB: ${POSTGRES_DB:-carvajal}
     ports:
+      # Puerto del host (configurable) → 5432 fijo dentro del contenedor.
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
+      # Se ejecuta dentro del contenedor, donde Postgres escucha en 5432.
       test:
         [
           "CMD-SHELL",
