@@ -57,7 +57,11 @@ test: ## Ejecuta las pruebas (sin integración)
 	uv run pytest -m "not integration"
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
-	uv run pytest -m integration
+	@if grep -rq "pytest.mark.integration" tests; then \
+		uv run pytest -m integration; \
+	else \
+		echo "Sin pruebas de integración todavía."; \
+	fi
 
 check: lint format-check typecheck test ## Verificación completa (lint + formato + tipos + pruebas)
 
