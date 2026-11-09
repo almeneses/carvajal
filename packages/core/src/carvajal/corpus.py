@@ -5,6 +5,14 @@ from pathlib import Path
 from langchain_core.documents import Document
 
 from carvajal.config import EXTERNAL_DIR, GOLD_DIR, LAYER_CORE, LAYER_EXTENDED
+from carvajal.domain.frontmatter import parse_front_matter, strip_front_matter
+
+__all__ = [
+    "load_core_documents",
+    "load_gold_documents",
+    "parse_front_matter",
+    "strip_front_matter",
+]
 
 
 def load_gold_documents(
@@ -83,19 +91,3 @@ def load_core_documents(gold_dir: Path = GOLD_DIR) -> list[Document]:
     """Devuelve solo el núcleo, que es lo que entra al prompt de sistema."""
 
     return _load_markdown_dir(gold_dir, layer=LAYER_CORE)
-
-
-def parse_front_matter(content: str) -> dict[str, str]:
-    """Lee el *front matter* YAML simple del Markdown Gold (clave: valor)."""
-
-    if not content.startswith("---"):
-        return {}
-    parts = content.split("---", 2)
-    if len(parts) != 3:
-        return {}
-    metadata: dict[str, str] = {}
-    for line in parts[1].splitlines():
-        key, separator, value = line.partition(":")
-        if separator and key.strip():
-            metadata[key.strip()] = value.strip()
-    return metadata
