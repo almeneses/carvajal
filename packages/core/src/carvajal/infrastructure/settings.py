@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -101,12 +102,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
-        """Deriva la URL del contenedor local si no se dio una explícita."""
+        """Deriva la URL del contenedor local si no se dio una explícita.
+
+        Un ``DATABASE_URL`` vacío equivale a no definirlo. Usuario y contraseña
+        se codifican para que caracteres como ``@`` o ``:`` no rompan la URL.
+        """
 
         if not self.database_url:
+            usuario = quote(self.postgres_user, safe="")
+            clave = quote(self.postgres_password, safe="")
             self.database_url = (
-                f"postgresql://{self.postgres_user}:{self.postgres_password}"
-                f"@localhost:{self.postgres_port}/{self.postgres_db}"
+                f"postgresql://{usuario}:{clave}@localhost:{self.postgres_port}/{self.postgres_db}"
             )
         return self
 

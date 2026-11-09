@@ -63,6 +63,8 @@ build: ## Construye el paquete (sdist + wheel)
 app: ## Lanza la interfaz web de prueba (Streamlit)
 	uv run streamlit run app.py
 
+# Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias
+# POSTGRES_PORT, ambos lo ven.
 db: ## Levanta Postgres 16 con pgvector y espera al healthcheck
 	docker compose up -d --wait db
 

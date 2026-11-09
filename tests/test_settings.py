@@ -112,3 +112,26 @@ def test_database_url_deriva_del_puerto(monkeypatch: pytest.MonkeyPatch) -> None
     settings = Settings(_env_file=None)
 
     assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5544/carvajal"
+
+
+def test_database_url_codifica_las_credenciales(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Una clave con caracteres reservados no malforma la URL."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_PASSWORD", "p@ss:word/1")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == (
+        "postgresql://carvajal:p%40ss%3Aword%2F1@localhost:5432/carvajal"
+    )
+
+
+def test_database_url_vacia_deriva(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``DATABASE_URL`` vacío equivale a no definirlo."""
+
+    monkeypatch.setenv("DATABASE_URL", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5432/carvajal"

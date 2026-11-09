@@ -12,7 +12,6 @@ name: carvajal
 services:
   db:
     image: pgvector/pgvector:pg16
-    container_name: carvajal-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-carvajal}
@@ -20,7 +19,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-carvajal}
     ports:
       # Puerto del host (configurable) → 5432 fijo dentro del contenedor.
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Solo en loopback: la base es local y sus credenciales son de desarrollo.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
