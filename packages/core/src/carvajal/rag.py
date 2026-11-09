@@ -26,9 +26,9 @@ from carvajal.config import (
     LLM_PROVIDER,
     QUESTIONS_FILE,
 )
+from carvajal.domain.chunking import CHUNK_OVERLAP, CHUNK_SIZE
+from carvajal.domain.frontmatter import strip_front_matter
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
 EMBEDDINGS_MODEL = "nomic-embed-text"
 EMBEDDING_BATCH_SIZE = 32
 LLM_MODEL = "llama3.2"
@@ -136,7 +136,7 @@ def _split_documents(documents: list[Document]) -> list[Document]:
     for document in documents:
         metadata = dict(document.metadata)
         body = Document(
-            page_content=_strip_front_matter(document.page_content),
+            page_content=strip_front_matter(document.page_content),
             metadata=metadata,
         )
         for chunk in splitter.split_documents([body]):
@@ -212,23 +212,13 @@ def _corpus_block(documents: list[Document]) -> str:
         slug = str(document.metadata.get("slug", "documento"))
         domain = document.metadata.get("domain", "carvajal.com")
         kind = document.metadata.get("source_type", "oficial")
-        body = _strip_front_matter(document.page_content)
+        body = strip_front_matter(document.page_content)
         sections.append(f"### Fuente: {slug} · {domain} ({kind})\n\n{body}")
 
     corpus = "\n\n".join(sections)
     if len(corpus) > MAX_SYSTEM_PROMPT_CHARS:
         corpus = f"{corpus[:MAX_SYSTEM_PROMPT_CHARS]}\n\n[corpus truncado por longitud]"
     return corpus
-
-
-def _strip_front_matter(content: str) -> str:
-    """Quita el *front matter* YAML del Markdown Gold."""
-
-    if content.startswith("---"):
-        parts = content.split("---", 2)
-        if len(parts) == 3:
-            return parts[2].strip()
-    return content.strip()
 
 
 def build_llm() -> Runnable:

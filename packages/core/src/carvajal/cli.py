@@ -1,9 +1,13 @@
-"""Interfaz de línea de comandos: capture / ask / summarize / faq / import / eval / status."""
+"""Interfaz de línea de comandos: capture / ask / summarize / faq / import / migrate-gold."""
 
 import argparse
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy.exc import OperationalError
+
+from carvajal.adapters.storage.database import build_engine, build_session_factory
+from carvajal.adapters.storage.import_corpus import migrate_gold
 from carvajal.config import (
     EXTERNAL_DIR,
     EXTERNAL_SEEDS,
@@ -137,6 +141,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Importa el corpus externo a la capa extendida (solo recuperación).",
     )
 
+    migrate_parser = subparsers.add_parser(
+        "migrate-gold",
+        help="Migra el corpus Gold (data/gold) a la base de datos relacional.",
+    )
+    migrate_parser.add_argument(
+        "--gold", type=Path, default=GOLD_DIR, help="Directorio Gold a importar."
+    )
+
     subparsers.add_parser(
         "status",
         help="Muestra el estado del corpus (semillas y entregables Gold).",
@@ -216,6 +228,20 @@ def main(argv: list[str] | None = None) -> int:
             print(error)
             return 1
         print_import_report(report)
+        return 0
+
+    if args.command == "migrate-gold":
+        engine = build_engine()
+        try:
+            with build_session_factory(engine).begin() as session:
+                report = migrate_gold(session, gold_dir=args.gold)
+        except OperationalError as error:
+            print(f"No se pudo conectar a la base de datos: {error}")
+            return 1
+        finally:
+            engine.dispose()
+        print(f"Documentos importados: {report.documents}")
+        print(f"Fragmentos importados: {report.chunks}")
         return 0
 
     if args.command == "list":
