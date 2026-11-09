@@ -81,3 +81,13 @@ def test_fachada_coincide_con_settings() -> None:
 
     assert settings.seeds == config.SEEDS
     assert config.INDEX_FILE == config.GOLD_DIR / "index.jsonl"
+
+
+def test_database_url_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La URL por defecto apunta al contenedor de ``compose.yml``."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5432/carvajal"

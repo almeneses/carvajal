@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
 
+    # Base de datos de la app web (W1.1). El contenedor de compose.yml usa los
+    # mismos valores por defecto, así que `make db` y este campo coinciden.
+    database_url: str = "postgresql://carvajal:carvajal@localhost:5432/carvajal"
+
     @property
     def index_file(self) -> Path:
         """Ruta del índice JSONL del corpus, derivada del directorio Gold."""

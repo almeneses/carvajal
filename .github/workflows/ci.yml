@@ -51,3 +51,31 @@ jobs:
 
       - name: Pruebas
         run: uv run pytest
+
+  db:
+    name: Base de datos
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: carvajal
+          POSTGRES_PASSWORD: carvajal
+          POSTGRES_DB: carvajal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U carvajal -d carvajal"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verificar Postgres y pgvector
+        env:
+          DATABASE_URL: postgresql://carvajal:carvajal@localhost:5432/carvajal
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector';"

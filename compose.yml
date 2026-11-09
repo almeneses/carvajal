@@ -1,0 +1,35 @@
+# Postgres 16 con pgvector para el desarrollo local de la app web.
+#
+#   make db        levanta la base y espera al healthcheck
+#   make db-down   la detiene (los datos quedan en el volumen pgdata)
+#
+# La cadena de conexión resultante es la de DATABASE_URL en .env.example.
+
+name: carvajal
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: carvajal-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-carvajal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carvajal}
+      POSTGRES_DB: ${POSTGRES_DB:-carvajal}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-carvajal} -d ${POSTGRES_DB:-carvajal}",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  pgdata:
