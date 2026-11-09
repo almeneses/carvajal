@@ -91,3 +91,13 @@ def test_database_url_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(_env_file=None)
 
     assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5432/carvajal"
+
+
+def test_database_url_se_sobrescribe_por_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``DATABASE_URL`` del entorno gana al valor por defecto."""
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://otro:clave@db:5432/otra")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://otro:clave@db:5432/otra"
