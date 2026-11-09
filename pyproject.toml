@@ -16,6 +16,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "alembic>=1.14",
     "beautifulsoup4>=4.12",
     "faiss-cpu>=1.15.1",
     "langchain>=1.4.7",
@@ -23,10 +24,13 @@ dependencies = [
     "langchain-community>=0.4.2",
     "langchain-ollama>=1.1.0",
     "langchain-openai>=1.7.3",
+    "langchain-text-splitters>=0.3",
     "lxml>=5.1",
+    "psycopg[binary]>=3.2",
     "pydantic-settings>=2.7",
     "python-dotenv>=1.2.4",
     "requests>=2.32",
+    "sqlalchemy>=2.0.36",
     "streamlit>=1.66.1",
 ]
 
@@ -53,6 +57,7 @@ dev = [
     "pre-commit>=4.0.1",
     "pytest>=8.3",
     "ruff>=0.8.0",
+    "testcontainers[postgres]>=4.9",
     "ty>=0.0.95",
 ]
 
@@ -73,3 +78,6 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "integration: requiere Postgres real vía testcontainers",
+]

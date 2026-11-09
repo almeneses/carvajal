@@ -50,7 +50,32 @@ jobs:
         run: uv run ty check
 
       - name: Pruebas
-        run: uv run pytest
+        run: uv run pytest -m "not integration"
+
+  integration:
+    name: Integración
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sincronizar entorno
+        run: uv sync --all-groups
+
+      - name: Pruebas de integración
+        # testcontainers usa el Docker del runner; sin pruebas marcadas aún, no falla.
+        run: |
+          if grep -rq "pytest.mark.integration" tests; then
+            uv run pytest -m integration
+          else
+            echo "Sin pruebas de integración todavía."
+          fi
 
   db:
     name: Base de datos
