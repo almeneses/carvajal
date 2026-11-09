@@ -1,1 +1,5 @@
-"""Almacén relacional del corpus: motor, tablas y (en W1.3) repositorios."""
+"""Almacén relacional del corpus: motor, tablas y repositorios SQL."""
+
+from carvajal.adapters.storage.repositories import SqlChunkRepository, SqlDocumentRepository
+
+__all__ = ["SqlChunkRepository", "SqlDocumentRepository"]

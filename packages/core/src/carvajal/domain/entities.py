@@ -1,8 +1,8 @@
 """Entidades del dominio del corpus web, sin dependencias de IO.
 
-``CapturedPage`` es la página capturada por el pipeline. ``Document`` y
-``Chunk`` son el modelo mínimo que consumirán los contratos de persistencia y
-recuperación de W0.4.
+``CapturedPage`` es la página capturada por el pipeline. ``Document``, ``Chunk``
+y ``DocumentVersion`` son el modelo mínimo que consumen los contratos de
+persistencia y recuperación de W0.4 y W1.3.
 """
 
 from dataclasses import dataclass, field
@@ -18,7 +18,7 @@ from carvajal.domain.rules import (
     slug_from_url,
 )
 
-__all__ = ["OFFICIAL_DOMAIN", "CapturedPage", "Chunk", "Document"]
+__all__ = ["OFFICIAL_DOMAIN", "CapturedPage", "Chunk", "Document", "DocumentVersion"]
 
 
 @dataclass(frozen=True)
@@ -101,3 +101,19 @@ class Chunk:
     position: int
     section: str
     layer: str
+
+
+@dataclass(frozen=True)
+class DocumentVersion:
+    """Copia inmutable del contenido anterior de un documento.
+
+    Se archiva cuando un ``upsert`` cambia el ``content_hash``; conserva el
+    Markdown, la huella y la fecha de captura que tenía el documento entonces.
+    """
+
+    id: str
+    document_id: str
+    markdown: str
+    content_hash: str
+    captured_at: datetime
+    created_at: datetime

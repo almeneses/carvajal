@@ -9,7 +9,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from carvajal.domain.entities import Chunk, Document
+from carvajal.domain.entities import Chunk, Document, DocumentVersion
 
 __all__ = [
     "ChunkRepository",
@@ -58,6 +58,11 @@ class DocumentRepository(Protocol):
 
     def upsert(self, document: Document) -> Document:
         """Inserta o actualiza el documento y lo devuelve."""
+
+        ...
+
+    def list_versions(self, document_id: str) -> Sequence[DocumentVersion]:
+        """Devuelve las versiones archivadas, de la más reciente a la más antigua."""
 
         ...
 
