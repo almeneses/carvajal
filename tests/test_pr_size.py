@@ -56,6 +56,31 @@ def test_ignora_andamiaje_generado_por_spec_kit() -> None:
     assert (files, added, deleted) == (1, 20, 0)
 
 
+def test_lo_escrito_por_el_equipo_siempre_cuenta() -> None:
+    # Arrange
+    numstat = (
+        "85\t0\t.specify/memory/constitution.md\n"
+        "3\t0\t.specify/memory/.constitution-template.json\n"
+    )
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (1, 85, 0)
+
+
+def test_exclusiones_extra_no_desactivan_las_globales() -> None:
+    # Arrange
+    numstat = "900\t0\t.specify/templates/plan-template.md\n7\t0\tassets/logo.svg\n"
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat, ignored={"assets/logo.svg"})
+
+    # Assert
+    assert (files, added, deleted) == (0, 0, 0)
+
+
 def test_binarios_cuentan_archivo_sin_lineas() -> None:
     # Arrange
     numstat = "-\t-\tassets/logo.png\n"

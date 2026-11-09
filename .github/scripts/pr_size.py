@@ -24,27 +24,36 @@ import sys
 IGNORED = {"uv.lock"}
 
 # Herramientas de terceros que se instalan tal cual: no se revisan por línea, así
-# que no consumen el presupuesto de revisión del PR. Las specs y la proyección de
-# la constitución (``specs/`` y ``.specify/memory/``) sí cuentan.
+# que no consumen el presupuesto de revisión del PR.
 GENERATED_PREFIXES = (".specify/", ".opencode/commands/speckit.")
 
+# Dentro de lo generado hay archivos que sí escribe el equipo y por tanto cuentan:
+# la proyección de la constitución y las especificaciones de ``specs/``.
+REVIEWED = {".specify/memory/constitution.md"}
 
-def is_ignored(path: str) -> bool:
-    """Indica si el archivo es un artefacto generado o de terceros."""
 
-    return path in IGNORED or path.startswith(GENERATED_PREFIXES)
+def is_ignored(path: str, extra: set[str] | None = None) -> bool:
+    """Indica si el archivo es un artefacto generado o de terceros.
+
+    ``extra`` añade exclusiones puntuales sin desactivar las globales.
+    """
+
+    if path in REVIEWED:
+        return False
+    if path in IGNORED or path in (extra or set()):
+        return True
+    return path.startswith(GENERATED_PREFIXES)
 
 
 def parse_numstat(text: str, ignored: set[str] | None = None) -> tuple[int, int, int]:
     """Suma archivos, adiciones y borrados, ignorando los artefactos generados."""
-    skip = IGNORED if ignored is None else ignored
     files = added = deleted = 0
     for line in text.splitlines():
         parts = line.split("\t")
         if len(parts) != 3:
             continue
         raw_added, raw_deleted, path = parts
-        if path in skip or (ignored is None and is_ignored(path)):
+        if is_ignored(path, ignored):
             continue
         files += 1
         # Los binarios aparecen como "-" en --numstat.
