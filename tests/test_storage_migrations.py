@@ -72,6 +72,21 @@ def _assert_initial_schema(engine: Engine) -> None:
     }
     assert ("document_id", "position") in chunk_uniques
 
+    document_uniques = {
+        tuple(unique["column_names"]) for unique in inspector.get_unique_constraints("documents")
+    }
+    assert ("slug",) in document_uniques
+
+    for table in ("chunks", "document_versions"):
+        references = inspector.get_foreign_keys(table)
+        assert any(
+            fk["referred_table"] == "documents" and fk["options"].get("ondelete") == "CASCADE"
+            for fk in references
+        )
+
+    defaults = {column["name"]: column["default"] for column in inspector.get_columns("documents")}
+    assert "oficial" in (defaults["source_type"] or "")
+
 
 def test_upgrade_y_downgrade_son_reversibles(
     migration_database_url: str,
