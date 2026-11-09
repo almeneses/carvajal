@@ -2,9 +2,9 @@
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
+
 from pydantic import Field, model_validator
-from pydantic import Field, model_validator
-from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -93,7 +93,7 @@ class Settings(BaseSettings):
     # Base de datos de la app web (W1.1). Los valores por defecto son los del
     # servicio db de compose.yml; las credenciales son solo para desarrollo
     # local. Si no se define DATABASE_URL, se deriva de POSTGRES_*, así que
-from pydantic import Field, model_validator
+    # cambiar el puerto del contenedor no deja la URL apuntando a otro sitio.
     postgres_user: str = "carvajal"
     postgres_password: str = "carvajal"
     postgres_db: str = "carvajal"

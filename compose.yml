@@ -24,14 +24,14 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-"pg_isready -h 127.0.0.1 -p 5432 -U $$POSTGRES_USER -d $$POSTGRES_DB",
+    healthcheck:
       # Se ejecuta dentro del contenedor, donde Postgres escucha en 5432. El
       # doble $ deja que el shell del contenedor expanda sus propias variables,
       # que son las del bloque environment de arriba.
       test:
         [
           "CMD-SHELL",
-          "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB",
+          "pg_isready -h 127.0.0.1 -p 5432 -U $$POSTGRES_USER -d $$POSTGRES_DB",
         ]
       interval: 3s
       timeout: 3s

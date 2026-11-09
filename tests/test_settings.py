@@ -186,3 +186,13 @@ def test_postgres_port_invalido_falla(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("puerto", ["0", "70000"])
+def test_postgres_port_fuera_de_rango_falla(monkeypatch: pytest.MonkeyPatch, puerto: str) -> None:
+    """Un puerto fuera de 1..65535 se rechaza al construir la configuración."""
+
+    monkeypatch.setenv("POSTGRES_PORT", puerto)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
