@@ -24,7 +24,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # Se ejecuta dentro del contenedor, donde Postgres escucha en 5432.
+      # Se ejecuta dentro del contenedor, donde Postgres escucha en 5432. Usa
+      # las mismas variables que el arranque, interpoladas por Compose desde el
+      # entorno del host.
       test:
         [
           "CMD-SHELL",

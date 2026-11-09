@@ -90,7 +90,7 @@ def test_database_url_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings(_env_file=None)
 
-    assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5432/carvajal"
+    assert settings.database_url == "postgresql://carvajal:carvajal@127.0.0.1:5432/carvajal"
 
 
 def test_database_url_se_sobrescribe_por_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,7 +111,7 @@ def test_database_url_deriva_del_puerto(monkeypatch: pytest.MonkeyPatch) -> None
 
     settings = Settings(_env_file=None)
 
-    assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5544/carvajal"
+    assert settings.database_url == "postgresql://carvajal:carvajal@127.0.0.1:5544/carvajal"
 
 
 def test_database_url_codifica_las_credenciales(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -123,7 +123,7 @@ def test_database_url_codifica_las_credenciales(monkeypatch: pytest.MonkeyPatch)
     settings = Settings(_env_file=None)
 
     assert settings.database_url == (
-        "postgresql://carvajal:p%40ss%3Aword%2F1@localhost:5432/carvajal"
+        "postgresql://carvajal:p%40ss%3Aword%2F1@127.0.0.1:5432/carvajal"
     )
 
 
@@ -134,4 +134,16 @@ def test_database_url_vacia_deriva(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings(_env_file=None)
 
-    assert settings.database_url == "postgresql://carvajal:carvajal@localhost:5432/carvajal"
+    assert settings.database_url == "postgresql://carvajal:carvajal@127.0.0.1:5432/carvajal"
+
+
+def test_database_url_usa_usuario_y_base_del_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La URL derivada refleja ``POSTGRES_USER`` y ``POSTGRES_DB``."""
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_USER", "otro")
+    monkeypatch.setenv("POSTGRES_DB", "otradb")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.database_url == "postgresql://otro:carvajal@127.0.0.1:5432/otradb"

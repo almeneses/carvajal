@@ -55,20 +55,6 @@ jobs:
   db:
     name: Base de datos
     runs-on: ubuntu-latest
-    services:
-      db:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: carvajal
-          POSTGRES_PASSWORD: carvajal
-          POSTGRES_DB: carvajal
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U carvajal -d carvajal"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -79,11 +65,18 @@ jobs:
       - name: Validar compose.yml
         run: docker compose config -q
 
+      - name: Levantar la base
+        run: docker compose up -d --wait db
+
       - name: Verificar Postgres y pgvector
         env:
-          DATABASE_URL: postgresql://carvajal:carvajal@localhost:5432/carvajal
+          DATABASE_URL: postgresql://carvajal:carvajal@127.0.0.1:5432/carvajal
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
           version=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector';")
           echo "pgvector $version"
           test -n "$version" || { echo "::error::La extensión vector no está disponible"; exit 1; }
+
+      - name: Bajar la base
+        if: always()
+        run: docker compose down -v
