@@ -244,7 +244,7 @@ def assert_document_repository(repository: DocumentRepository) -> None:
     assert [doc.id for doc in repository.list(layer="core")] == ["a"]
     assert [doc.id for doc in repository.list(section="prensa")] == ["b"]
     assert [doc.id for doc in repository.list(limit=1, offset=1)] == ["a"]
-    assert repository.list(limit=0) == []
+    assert list(repository.list(limit=0)) == []
     with pytest.raises(ValueError):
         repository.list(limit=-1)
     with pytest.raises(ValueError):
