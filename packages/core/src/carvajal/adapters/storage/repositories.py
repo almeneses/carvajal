@@ -59,7 +59,17 @@ class SqlDocumentRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[Document]:
-        """Lista documentos por slug, filtrando por capa y sección."""
+        """Lista documentos por slug, filtrando por capa y sección.
+
+        Lanza ``ValueError`` si ``limit`` u ``offset`` son negativos. ``limit=0``
+        es válido y devuelve una secuencia vacía, igual que en SQL.
+        """
+
+        if limit < 0 or offset < 0:
+            raise ValueError(
+                f"limit y offset deben ser no negativos; recibidos limit={limit!r} "
+                f"y offset={offset!r}."
+            )
 
         query = select(tables.documents)
         if layer is not None:

@@ -63,6 +63,21 @@ def test_contrato_de_fragmentos(session: Session) -> None:
     assert_chunk_repository(repository)
 
 
+def test_list_rechaza_limites_negativos(session: Session) -> None:
+    """``limit`` y ``offset`` negativos fallan; ``limit=0`` devuelve vacío."""
+
+    repository = SqlDocumentRepository(session)
+    repository.upsert(_document("limites", slug="limites"))
+
+    with pytest.raises(ValueError, match="limit"):
+        repository.list(limit=-1)
+    with pytest.raises(ValueError, match="offset"):
+        repository.list(offset=-1)
+
+    assert repository.list(limit=0) == []
+    assert [document.id for document in repository.list(limit=1)] == ["limites"]
+
+
 def test_versionado_y_slug_inmutable(session: Session) -> None:
     """v1→v2→v2→v3 deja dos versiones y un slug no puede cambiar de id."""
 
