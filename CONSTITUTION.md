@@ -143,7 +143,7 @@ carvajal/
 │           ├── domain/        # entidades y reglas puras (sin IO)
 │           │   ├── entities.py  # CapturedPage, Document, Chunk
 │           │   ├── rules.py     # slug, sección, dominio, hash, dedupe
-│           │   ├── frontmatter.py # parseo y serialización del front matter
+│           │   ├── frontmatter.py # lectura y parseo del front matter
 │           │   └── chunking.py  # división de documentos en chunks
 │           ├── application/   # casos de uso y puertos (Protocol)
 │           │   └── ports.py     # repositorios, vector store, LLM, fetcher, extractor
@@ -308,7 +308,7 @@ git push
 | 2026-11-03 | Adoptar **Spec Kit** para el desarrollo guiado por especificaciones | `specs/` pasa a ser el registro de qué se construye y cómo (`spec` → `plan` → `tasks`); `.specify/memory/constitution.md` es una proyección de esta constitución, que sigue siendo la fuente única de verdad |
 | 2026-11-08 | Registrar las decisiones en `docs/decisions/` (formato ADR) | `CONSTITUTION.md` dice *qué* es el proyecto; los ADR dicen *por qué* y qué se descartó, para no re-litigar decisiones ni perder el contexto ante agentes nuevos |
 | 2026-11-08 | ADR-0001 (**propuesto**): app web en un solo runtime Python (FastAPI + Jinja2 + HTMX) con Postgres/pgvector; captura por CLI/cron | Streamlit no da sesiones, concurrencia ni trabajos en segundo plano. Las 100 K cuentas proyectadas no exigen Kafka ni Kubernetes: el costo dominante son los tokens, no los servidores |
-| 2026-11-10 | Persistencia relacional de la Ola 1: Postgres 16 + pgvector, Alembic, repositorios SQLAlchemy Core e importador Gold idempotente con poda autoritativa | El corpus necesita historial de versiones y recargas seguras; el importador recalcula el estado desde `index.jsonl` y elimina lo que ya no existe, sin duplicar en ejecuciones repetidas |
+| 2026-11-10 | Persistencia relacional de la Ola 1: Postgres 16 + pgvector, Alembic, repositorios SQLAlchemy Core e importador Gold idempotente con poda autoritativa | El corpus necesita historial de versiones y recargas seguras; el importador recalcula el estado desde `data/gold/` y elimina lo que ya no existe, sin duplicar en ejecuciones repetidas |
 
 ## 10. Notas y tareas pendientes
 
