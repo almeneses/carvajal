@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test check build app db db-down eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build app db db-down eval import clean
 
 help: ## Muestra esta ayuda
 	@echo Uso: make [objetivo]
@@ -19,7 +19,8 @@ help: ## Muestra esta ayuda
 	@echo   format             Formatea el código con Ruff
 	@echo   format-check       Verifica el formato sin modificarlo
 	@echo   typecheck          Verifica los tipos con ty (Astral)
-	@echo   test               Ejecuta las pruebas
+	@echo   test               Ejecuta las pruebas (sin integración)
+	@echo   test-integration   Ejecuta las pruebas de integración (requiere Docker)
 	@echo   check              Verificación completa (lint + formato + tipos + pruebas)
 	@echo   build              Construye el paquete (sdist + wheel)
 	@echo   app                Lanza la interfaz web de prueba (Streamlit)
@@ -52,8 +53,15 @@ format-check: ## Verifica el formato sin modificarlo
 typecheck: ## Verifica los tipos con ty (Astral)
 	uv run ty check
 
-test: ## Ejecuta las pruebas
-	uv run pytest
+test: ## Ejecuta las pruebas (sin integración)
+	uv run pytest -m "not integration"
+
+test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
+	@if grep -rq "pytest.mark.integration" tests; then \
+		uv run pytest -m integration; \
+	else \
+		echo "Sin pruebas de integración todavía."; \
+	fi
 
 check: lint format-check typecheck test ## Verificación completa (lint + formato + tipos + pruebas)
 

@@ -19,15 +19,18 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import posixpath
 import subprocess
 import sys
 
 IGNORED = {"uv.lock"}
 
 # Herramientas de terceros que se instalan tal cual: no se revisan por línea, así
-# que no consumen el presupuesto de revisión del PR. La lista es explícita a
-# propósito: lo que no aparezca aquí cuenta, incluidos los archivos del equipo
-# dentro de ``.specify/`` (por ejemplo, la proyección de la constitución).
+# que no consumen el presupuesto de revisión del PR. Las cuatro carpetas de
+# ``GENERATED_PREFIXES`` las instala ``speckit init`` y no se editan a mano. La
+# lista es explícita a propósito: lo que no aparezca aquí cuenta, incluidos los
+# archivos del equipo dentro de ``.specify/memory/`` (por ejemplo, la proyección
+# de la constitución) y las especificaciones de ``specs/``.
 GENERATED_PREFIXES = (
     ".specify/scripts/",
     ".specify/templates/",
@@ -47,9 +50,13 @@ def is_ignored(path: str, extra: set[str] | None = None) -> bool:
     """Indica si el archivo es un artefacto generado o de terceros.
 
     ``extra`` añade exclusiones puntuales sin desactivar las globales.
+
+    La ruta se normaliza con separadores POSIX y ``normpath``, que descarta un
+    prefijo ``./`` y colapsa ``..``. No se cambian las mayúsculas: Git distingue
+    dos archivos que solo difieren en el caso.
     """
 
-    normalized = path.replace("\\", "/")
+    normalized = posixpath.normpath(path.replace("\\", "/"))
     if normalized in IGNORED or normalized in (extra or set()):
         return True
     if normalized in GENERATED_FILES or normalized.startswith(GENERATED_PREFIXES):
