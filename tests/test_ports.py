@@ -260,9 +260,26 @@ def assert_document_versions(repository: DocumentRepository) -> None:
     assert versions[0].document_id == first.id
     assert versions[0].markdown == first.markdown
     assert versions[0].content_hash == first.content_hash
+    assert versions[0].captured_at == first.captured_at
+
+    before = list(repository.list_versions(first.id))
+    with pytest.raises(ValueError):
+        repository.upsert(_document("intruso", slug="historial"))
+    assert repository.list_versions(first.id) == before
+    assert repository.get(first.id) == second
 
     repository.upsert(second)
     assert len(repository.list_versions(first.id)) == 1
+
+    third = replace(first, markdown="# Versión tres", content_hash="hash-historial-tres")
+    repository.upsert(third)
+    versions = repository.list_versions(first.id)
+    assert len(versions) == 2
+    assert {version.content_hash for version in versions} == {
+        first.content_hash,
+        second.content_hash,
+    }
+    assert versions[0].created_at >= versions[1].created_at
 
     assert repository.delete(first.id) is True
     assert repository.list_versions(first.id) == []
