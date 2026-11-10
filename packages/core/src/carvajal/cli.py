@@ -255,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             # La URL se valida al construir el motor (ArgumentError), antes de conectar.
             try:
                 engine = build_engine()
-            except SQLAlchemyError as error:
+            except (SQLAlchemyError, ValueError) as error:
                 print(f"Configuración de base de datos inválida: {_redact_credentials(str(error))}")
                 return 1
             try:

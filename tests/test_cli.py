@@ -107,6 +107,21 @@ def test_migrate_gold_devuelve_1_con_url_mal_formada(
     assert "Configuración de base de datos inválida" in capsys.readouterr().out
 
 
+def test_migrate_gold_devuelve_1_con_puerto_invalido(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Un puerto no numérico en la URL es configuración inválida, no un traceback."""
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://usuario:clave@host:no-es-puerto/db")
+
+    code = main(["migrate-gold", "--gold", str(tmp_path)])
+
+    salida = capsys.readouterr().out
+    assert code == 1
+    assert "Configuración de base de datos inválida" in salida
+    assert "Traceback" not in salida
+
+
 def test_migrate_gold_no_propaga_operational_error(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
