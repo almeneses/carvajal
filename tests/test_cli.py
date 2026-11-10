@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
 
 from carvajal import cli
 from carvajal.adapters.storage.import_corpus import GoldImportReport
@@ -124,6 +124,47 @@ def test_migrate_gold_no_propaga_operational_error(
     assert code == 1
     assert "No se pudo conectar a la base de datos" in capsys.readouterr().out
     assert engine.disposed is True
+
+
+def test_migrate_gold_no_propaga_interface_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """``InterfaceError`` también se trata como fallo de conexión y libera el motor."""
+
+    engine = _FakeEngine()
+    fallo = InterfaceError("SELECT 1", {}, Exception("conexión interrumpida"))
+    monkeypatch.setattr(cli, "build_engine", lambda: engine)
+    monkeypatch.setattr(
+        cli, "build_session_factory", lambda _engine: _FakeSessionFactory(error=fallo)
+    )
+
+    code = main(["migrate-gold", "--gold", str(tmp_path)])
+
+    assert code == 1
+    assert "No se pudo conectar a la base de datos" in capsys.readouterr().out
+    assert engine.disposed is True
+
+
+def test_migrate_gold_redacta_la_contrasena_de_la_url(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """El mensaje de conexión oculta la contraseña y conserva usuario y host."""
+
+    engine = _FakeEngine()
+    original = Exception("fallo en postgresql://usuario:s3cr3t@db:5432/carvajal")
+    fallo = OperationalError("SELECT 1", {}, original)
+    monkeypatch.setattr(cli, "build_engine", lambda: engine)
+    monkeypatch.setattr(
+        cli, "build_session_factory", lambda _engine: _FakeSessionFactory(error=fallo)
+    )
+
+    code = main(["migrate-gold", "--gold", str(tmp_path)])
+
+    salida = capsys.readouterr().out
+    assert code == 1
+    assert "s3cr3t" not in salida
+    assert "usuario" in salida
+    assert "db:5432" in salida
 
 
 def test_migrate_gold_deja_pasar_los_errores_inesperados(

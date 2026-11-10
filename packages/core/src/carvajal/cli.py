@@ -1,11 +1,12 @@
 """Interfaz de línea de comandos: capture / ask / summarize / faq / import / migrate-gold."""
 
 import argparse
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import Engine
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 
 from carvajal.adapters.storage.database import build_engine, build_session_factory
 from carvajal.adapters.storage.import_corpus import GoldImportError, migrate_gold
@@ -36,6 +37,14 @@ from carvajal.rag import (
     render_results_markdown,
     summarize,
 )
+
+_CREDENTIALS_IN_URL = re.compile(r"(?P<scheme>://[^:/@\s]+:)[^@\s]+@")
+
+
+def _redact_credentials(message: str) -> str:
+    """Oculta la contraseña de una URL sin perder usuario, host ni diagnóstico."""
+
+    return _CREDENTIALS_IN_URL.sub(r"\g<scheme>***@", message)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -247,13 +256,13 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 engine = build_engine()
             except SQLAlchemyError as error:
-                print(f"Configuración de base de datos inválida: {error}")
+                print(f"Configuración de base de datos inválida: {_redact_credentials(str(error))}")
                 return 1
             try:
                 with build_session_factory(engine).begin() as session:
                     report = migrate_gold(session, gold_dir=args.gold, allow_empty=args.allow_empty)
-            except OperationalError as error:
-                print(f"No se pudo conectar a la base de datos: {error}")
+            except (OperationalError, InterfaceError) as error:
+                print(f"No se pudo conectar a la base de datos: {_redact_credentials(str(error))}")
                 return 1
             except GoldImportError as error:
                 print(f"Corpus Gold no importable: {error}")

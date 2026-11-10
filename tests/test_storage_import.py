@@ -1,15 +1,18 @@
 """Pruebas de integración del importador Gold contra un Postgres real."""
 
 import json
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage.import_corpus import GoldImportReport, migrate_gold
 from carvajal.adapters.storage.repositories import SqlChunkRepository, SqlDocumentRepository
 from carvajal.config import GOLD_DIR, LAYER_CORE
+from carvajal.domain.entities import Chunk
 
 pytestmark = pytest.mark.integration
 
@@ -107,6 +110,39 @@ def test_directorio_vacio_con_allow_empty_poda_la_capa(tmp_path: Path, session: 
 
     assert podado == GoldImportReport(documents=0, chunks=0, removed=2)
     assert SqlDocumentRepository(session).count(layer=LAYER_CORE) == 0
+
+
+def test_fallo_a_mitad_de_la_importacion_revierte_todo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, engine: Engine
+) -> None:
+    """Si falla el reemplazo de chunks, la transacción revierte documentos y fragmentos."""
+
+    _write(tmp_path / "uno.md", slug="uno", body="Cuerpo uno.")
+    _write(tmp_path / "dos.md", slug="dos", body="Cuerpo dos.")
+    original = SqlChunkRepository.replace
+    llamadas = 0
+
+    def replace_que_falla(
+        self: SqlChunkRepository, document_id: str, chunks: Iterable[Chunk]
+    ) -> None:
+        nonlocal llamadas
+        llamadas += 1
+        if llamadas == 2:
+            raise RuntimeError("fallo simulado")
+        original(self, document_id, chunks)
+
+    monkeypatch.setattr(SqlChunkRepository, "replace", replace_que_falla)
+
+    with (
+        Session(engine) as session,
+        pytest.raises(RuntimeError, match="fallo simulado"),
+        session.begin(),
+    ):
+        migrate_gold(session, gold_dir=tmp_path)
+
+    with Session(engine) as session:
+        assert SqlDocumentRepository(session).count(layer=LAYER_CORE) == 0
+        assert SqlChunkRepository(session).list_by_document("uno") == []
 
 
 def test_corpus_real_coincide_con_el_indice(session: Session) -> None:
