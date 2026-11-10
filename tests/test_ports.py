@@ -10,6 +10,8 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
+
 from carvajal.application.ports import (
     ChunkRepository,
     DocumentRepository,
@@ -215,6 +217,8 @@ def assert_document_repository(repository: DocumentRepository) -> None:
     assert repository.upsert(first) == first
     assert repository.get("a") == first
     assert repository.get_by_slug("uno") == first
+    with pytest.raises(ValueError):
+        repository.upsert(_document("otro", slug="uno"))
 
     updated = Document(
         id=first.id,
@@ -247,6 +251,7 @@ def assert_document_versions(repository: DocumentRepository) -> None:
     first = _document("historial", slug="historial", title="Versión uno")
     repository.upsert(first)
     assert repository.list_versions(first.id) == []
+    assert repository.list_versions("inexistente") == []
 
     second = replace(first, markdown="# Versión dos", content_hash="hash-historial-dos")
     repository.upsert(second)
@@ -258,6 +263,9 @@ def assert_document_versions(repository: DocumentRepository) -> None:
 
     repository.upsert(second)
     assert len(repository.list_versions(first.id)) == 1
+
+    assert repository.delete(first.id) is True
+    assert repository.list_versions(first.id) == []
 
 
 def assert_chunk_repository(repository: ChunkRepository) -> None:

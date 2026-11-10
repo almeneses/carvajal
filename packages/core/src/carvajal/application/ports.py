@@ -57,17 +57,28 @@ class DocumentRepository(Protocol):
         ...
 
     def upsert(self, document: Document) -> Document:
-        """Inserta o actualiza el documento y lo devuelve."""
+        """Inserta o actualiza el documento y lo devuelve.
+
+        El ``id`` es inmutable. Lanza ``ValueError`` si el ``slug`` ya pertenece
+        a otro ``id``.
+        """
 
         ...
 
     def list_versions(self, document_id: str) -> Sequence[DocumentVersion]:
-        """Devuelve las versiones archivadas, de la más reciente a la más antigua."""
+        """Devuelve las versiones archivadas, de la más reciente a la más antigua.
+
+        Devuelve una secuencia vacía si el documento no existe o no tiene
+        versiones.
+        """
 
         ...
 
     def delete(self, document_id: str) -> bool:
-        """Borra el documento; devuelve si existía."""
+        """Borra el documento y su historial de versiones; devuelve si existía.
+
+        Los fragmentos se eliminan aparte con ``ChunkRepository.delete_by_document``.
+        """
 
         ...
 
