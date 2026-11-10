@@ -5,13 +5,8 @@ considerarse entregada. En particular, todo agente debe aplicarlas sin esperar
 a que el owner las pida. El mínimo es una; si el cambio abarca varias áreas,
 combina las etiquetas que correspondan.
 
-1. Consulta el catálogo vigente con `gh label list` y elige la etiqueta más
-   específica. Combina varias si el cambio cubre áreas distintas:
-   - API o lógica de servidor → `enhancement` + `backend`
-   - corrección de datos o curaduría → `bug` + `data`
-   - CI, entorno o despliegue → `chore` + `infra`
-   - sólo pruebas → `test`
-   - sólo documentación → `documentation`
+1. Consulta el catálogo vigente con `gh label list`: la fuente de verdad son las
+   etiquetas existentes.
 2. Aplica las etiquetas justo después de crear o actualizar la PR:
    `gh pr edit <número> --add-label "enhancement,backend"`
 3. **No inventes etiquetas** si existe una razonablemente equivalente. Crear
@@ -20,4 +15,5 @@ combina las etiquetas que correspondan.
 4. Revisa las etiquetas antes de dar la PR por terminada: una PR sin etiquetas,
    o con etiquetas obsoletas, está incompleta.
 
-La regla completa vive en [`AGENTS.md`](../../AGENTS.md#etiquetas-de-pr-obligatorio-para-agentes).
+Los ejemplos por área de cambio y el procedimiento completo viven en
+[`AGENTS.md` § Etiquetas de PR](../../AGENTS.md#etiquetas-de-pr-obligatorio-para-agentes).

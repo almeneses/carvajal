@@ -64,7 +64,9 @@ a que el owner las pida. El mínimo es una; si el cambio abarca varias áreas,
 combina las etiquetas que correspondan.
 
 1. Consulta el catálogo vigente con `gh label list` y elige la etiqueta más
-   específica. Combina varias si el cambio cubre áreas distintas:
+   específica. La fuente de verdad son las etiquetas existentes; los siguientes
+   son solo ejemplos, no una lista cerrada. Combina varias si el cambio cubre
+   áreas distintas:
    - API o lógica de servidor → `enhancement` + `backend`
    - corrección de datos o curaduría → `bug` + `data`
    - CI, entorno o despliegue → `chore` + `infra`

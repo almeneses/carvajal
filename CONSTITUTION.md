@@ -237,7 +237,9 @@ carvajal/
   `gh pr edit <número> --add-label`. En particular, ningún agente da una PR por
   terminada sin etiquetas; si el cambio abarca varias áreas, combina las
   etiquetas que correspondan. Solo se crea una etiqueta nueva si ninguna
-  existente encaja y el hueco es estructural, justificándolo en la PR.
+  existente encaja y el hueco es estructural, justificándolo en la PR. El
+  procedimiento y los ejemplos están en
+  [`AGENTS.md` § Etiquetas de PR](AGENTS.md#etiquetas-de-pr-obligatorio-para-agentes).
 - **Identidad git:** Marko David Garcia <markodavidgm@gmail.com> (ver §11).
 
 ## 8. Flujo diario (commit + push)
