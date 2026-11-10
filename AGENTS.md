@@ -66,7 +66,8 @@ combina las etiquetas que correspondan.
 1. Consulta el catálogo vigente con `gh label list` y elige la etiqueta más
    específica. La fuente de verdad son las etiquetas existentes; los siguientes
    son solo ejemplos, no una lista cerrada. Combina varias si el cambio cubre
-   áreas distintas:
+   áreas distintas. Si `gh label list` falla (sin red o permisos), no inventes
+   etiquetas: deja constancia en la PR y avisa al owner.
    - API o lógica de servidor → `enhancement` + `backend`
    - corrección de datos o curaduría → `bug` + `data`
    - CI, entorno o despliegue → `chore` + `infra`

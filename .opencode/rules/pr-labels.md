@@ -6,7 +6,8 @@ a que el owner las pida. El mínimo es una; si el cambio abarca varias áreas,
 combina las etiquetas que correspondan.
 
 1. Consulta el catálogo vigente con `gh label list`: la fuente de verdad son las
-   etiquetas existentes.
+   etiquetas existentes. Si el comando falla (sin red o permisos), no inventes
+   etiquetas: deja constancia en la PR y avisa al owner.
 2. Aplica las etiquetas justo después de crear o actualizar la PR:
    `gh pr edit <número> --add-label "enhancement,backend"`
 3. **No inventes etiquetas** si existe una razonablemente equivalente. Crear
