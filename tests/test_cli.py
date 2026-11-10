@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from carvajal import cli
+from carvajal.adapters.storage.import_corpus import GoldImportReport
 from carvajal.cli import build_parser, main
 
 
@@ -86,7 +87,11 @@ def test_parser_reconoce_migrate_gold() -> None:
 
     assert por_defecto.command == "migrate-gold"
     assert por_defecto.gold.name == "gold"
+    assert por_defecto.allow_empty is False
     assert explicito.gold == Path("/tmp/corpus")
+
+    con_flag = parser.parse_args(["migrate-gold", "--allow-empty"])
+    assert con_flag.allow_empty is True
 
 
 def test_migrate_gold_devuelve_1_con_url_mal_formada(
@@ -99,7 +104,7 @@ def test_migrate_gold_devuelve_1_con_url_mal_formada(
     code = main(["migrate-gold", "--gold", str(tmp_path)])
 
     assert code == 1
-    assert "No se pudo conectar a la base de datos" in capsys.readouterr().out
+    assert "Configuración de base de datos inválida" in capsys.readouterr().out
 
 
 def test_migrate_gold_no_propaga_operational_error(
@@ -169,3 +174,39 @@ def test_migrate_gold_rechaza_un_directorio_inexistente(
     assert code == 1
     assert "no existe" in salida
     assert "Traceback" not in salida
+
+
+def test_migrate_gold_rechaza_un_directorio_vacio_sin_flag(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Un Gold vacío exige ``--allow-empty`` para podar toda la capa."""
+
+    _fake_storage(monkeypatch, _FakeEngine())
+
+    code = main(["migrate-gold", "--gold", str(tmp_path)])
+
+    salida = capsys.readouterr().out
+    assert code == 1
+    assert "no hay documentos Gold" in salida
+    assert "Traceback" not in salida
+
+
+def test_migrate_gold_reenvia_allow_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """``--allow-empty`` llega a ``migrate_gold`` y se reporta la poda."""
+
+    _fake_storage(monkeypatch, _FakeEngine())
+    recibido: dict[str, bool] = {}
+
+    def fake_migrate(session: object, *, gold_dir: Path, allow_empty: bool) -> GoldImportReport:
+        recibido["allow_empty"] = allow_empty
+        return GoldImportReport(documents=0, chunks=0, removed=2)
+
+    monkeypatch.setattr(cli, "migrate_gold", fake_migrate)
+
+    code = main(["migrate-gold", "--gold", str(tmp_path), "--allow-empty"])
+
+    assert code == 0
+    assert recibido["allow_empty"] is True
+    assert "Documentos podados: 2" in capsys.readouterr().out

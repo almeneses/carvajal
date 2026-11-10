@@ -94,6 +94,21 @@ def test_podar_huerfanos_elimina_el_documento_y_su_cascada(
     assert repository.count(layer=LAYER_CORE) == 1
 
 
+def test_directorio_vacio_con_allow_empty_poda_la_capa(tmp_path: Path, session: Session) -> None:
+    """Un directorio sin Markdown y ``allow_empty`` poda todos los documentos de la capa."""
+
+    _write(tmp_path / "uno.md", slug="uno", body="Cuerpo uno.")
+    _write(tmp_path / "dos.md", slug="dos", body="Cuerpo dos.")
+    migrate_gold(session, gold_dir=tmp_path)
+
+    vacio = tmp_path / "vacio"
+    vacio.mkdir()
+    podado = migrate_gold(session, gold_dir=vacio, allow_empty=True)
+
+    assert podado == GoldImportReport(documents=0, chunks=0, removed=2)
+    assert SqlDocumentRepository(session).count(layer=LAYER_CORE) == 0
+
+
 def test_corpus_real_coincide_con_el_indice(session: Session) -> None:
     """Cada entrada de ``index.jsonl`` tiene su documento con los mismos metadatos."""
 

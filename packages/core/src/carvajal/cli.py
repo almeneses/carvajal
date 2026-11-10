@@ -153,6 +153,11 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_parser.add_argument(
         "--gold", type=Path, default=GOLD_DIR, help="Directorio Gold a importar."
     )
+    migrate_parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Permite importar un directorio Gold vacío y podar toda la capa.",
+    )
 
     subparsers.add_parser(
         "status",
@@ -242,11 +247,11 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 engine = build_engine()
             except SQLAlchemyError as error:
-                print(f"No se pudo conectar a la base de datos: {error}")
+                print(f"Configuración de base de datos inválida: {error}")
                 return 1
             try:
                 with build_session_factory(engine).begin() as session:
-                    report = migrate_gold(session, gold_dir=args.gold)
+                    report = migrate_gold(session, gold_dir=args.gold, allow_empty=args.allow_empty)
             except OperationalError as error:
                 print(f"No se pudo conectar a la base de datos: {error}")
                 return 1
