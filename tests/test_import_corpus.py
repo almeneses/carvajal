@@ -142,6 +142,13 @@ def test_slugs_duplicados_abortan_antes_de_importar(tmp_path: Path) -> None:
         _load_documents(tmp_path, layer="core")
 
 
+def test_gold_dir_inexistente_falla(tmp_path: Path) -> None:
+    """Una ruta Gold errónea no puede devolver un reporte vacío ni podar la capa."""
+
+    with pytest.raises(GoldImportError, match="no existe o no es un directorio"):
+        _load_documents(tmp_path / "ausente", layer="core")
+
+
 def test_split_document_chunks_contiguos_estables_y_cuerpo_vacio(tmp_path: Path) -> None:
     """Un cuerpo de ~2700 caracteres da varios fragmentos; el vacío no da ninguno."""
 

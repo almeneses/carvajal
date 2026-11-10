@@ -115,6 +115,8 @@ def migrate_gold(session: Session, *, gold_dir: Path, layer: str = "core") -> Go
 def _load_documents(gold_dir: Path, *, layer: str) -> list[Document]:
     """Carga y valida todos los Markdown antes de tocar la base."""
 
+    if not gold_dir.is_dir():
+        raise GoldImportError(f"{gold_dir}: el directorio Gold no existe o no es un directorio.")
     loaded: list[Document] = []
     sources: dict[str, Path] = {}
     for path in sorted(gold_dir.glob("*.md")):
