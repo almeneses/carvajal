@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASH_SCRIPTS = REPO_ROOT / ".specify" / "scripts" / "bash"
 COMMANDS_DIR = REPO_ROOT / ".opencode" / "commands"
-FEATURE_DIR = "specs/002-api-backend-frontend"
+BASH_SCRIPT_REF = re.compile(r"\.specify/scripts/bash/([A-Za-z0-9_.-]+\.sh)")
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="requiere bash y utilidades POSIX")
 
@@ -25,14 +26,17 @@ def _run(script: Path, *args: str, feature_dir: str | None = None) -> dict[str, 
     if feature_dir is not None:
         env["SPECIFY_FEATURE_DIRECTORY"] = feature_dir
 
-    result = subprocess.run(
-        ["bash", str(script), *args],
-        cwd=REPO_ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["bash", str(script), *args],
+            cwd=REPO_ROOT,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        pytest.fail(f"{script.name} falló ({exc.returncode})\nstderr:\n{exc.stderr}")
     return json.loads(result.stdout)
 
 
@@ -53,18 +57,20 @@ def test_resolve_template_devuelve_contenido() -> None:
     assert data["TEMPLATE_CONTENT"].strip()
 
 
-def test_check_prerequisites_devuelve_rutas() -> None:
+def test_check_prerequisites_devuelve_rutas(tmp_path: Path) -> None:
     """``check-prerequisites.sh --paths-only`` resuelve las rutas de la feature."""
+    feature_dir = _crear_feature_temporal(tmp_path)
+
     data = _run(
         BASH_SCRIPTS / "check-prerequisites.sh",
         "--json",
         "--paths-only",
-        feature_dir=FEATURE_DIR,
+        feature_dir=str(feature_dir),
     )
 
     for key in ("FEATURE_DIR", "FEATURE_SPEC", "IMPL_PLAN", "TASKS"):
         assert Path(data[key]).is_absolute()
-    assert Path(data["FEATURE_DIR"]).name == "002-api-backend-frontend"
+    assert Path(data["FEATURE_DIR"]) == feature_dir.resolve()
 
 
 def test_setup_plan_devuelve_claves(tmp_path: Path) -> None:
@@ -100,3 +106,7 @@ def test_comandos_mencionan_ambas_variantes() -> None:
         text = command.read_text(encoding="utf-8")
         assert ".specify/scripts/bash/" in text, command.name
         assert ".specify/scripts/powershell/" in text, command.name
+        scripts = set(BASH_SCRIPT_REF.findall(text))
+        assert scripts, command.name
+        for name in scripts:
+            assert (BASH_SCRIPTS / name).is_file(), f"{command.name} referencia {name}"
