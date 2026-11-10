@@ -2,13 +2,16 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
+from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage.import_corpus import (
     GoldImportError,
     _load_documents,
     load_document,
+    migrate_gold,
     split_document,
 )
 from carvajal.domain.chunking import CHUNK_SIZE
@@ -147,6 +150,20 @@ def test_gold_dir_inexistente_falla(tmp_path: Path) -> None:
 
     with pytest.raises(GoldImportError, match="no existe o no es un directorio"):
         _load_documents(tmp_path / "ausente", layer="core")
+
+
+def test_directorio_vacio_sin_allow_empty_falla(tmp_path: Path) -> None:
+    """Un directorio existente sin Markdown no vacía la capa sin permiso explícito."""
+
+    with pytest.raises(GoldImportError, match="no hay documentos Gold"):
+        migrate_gold(cast(Session, None), gold_dir=tmp_path)
+
+
+def test_directorio_inexistente_falla_aunque_allow_empty(tmp_path: Path) -> None:
+    """``allow_empty`` solo cubre el directorio vacío, nunca una ruta inexistente."""
+
+    with pytest.raises(GoldImportError, match="no existe"):
+        migrate_gold(cast(Session, None), gold_dir=tmp_path / "ausente", allow_empty=True)
 
 
 def test_split_document_chunks_contiguos_estables_y_cuerpo_vacio(tmp_path: Path) -> None:

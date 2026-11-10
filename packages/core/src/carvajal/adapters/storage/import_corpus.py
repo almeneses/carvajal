@@ -86,7 +86,13 @@ def split_document(document: Document) -> list[Chunk]:
     ]
 
 
-def migrate_gold(session: Session, *, gold_dir: Path, layer: str = "core") -> GoldImportReport:
+def migrate_gold(
+    session: Session,
+    *,
+    gold_dir: Path,
+    layer: str = "core",
+    allow_empty: bool = False,
+) -> GoldImportReport:
     """Importa los ``*.md`` de ``gold_dir`` y devuelve los totales.
 
     El directorio es autoritativo para la capa: tras importar se podan los
@@ -95,11 +101,20 @@ def migrate_gold(session: Session, *, gold_dir: Path, layer: str = "core") -> Go
     fragmentos y versiones. Reimportar no duplica documentos ni fragmentos; solo
     el cambio de cuerpo archiva una versión. Un slug repetido aborta la corrida
     antes de escribir para no sobrescribir en silencio.
+
+    Un directorio existente sin Markdown se rechaza con ``GoldImportError``
+    salvo ``allow_empty=True``, que interpreta el vacío como una poda total de
+    la capa. Un directorio inexistente se rechaza siempre.
     """
+
+    loaded = _load_documents(gold_dir, layer=layer)
+    if not loaded and not allow_empty:
+        raise GoldImportError(
+            f"{gold_dir}: no hay documentos Gold; usa --allow-empty para vaciar la capa."
+        )
 
     documents = SqlDocumentRepository(session)
     chunks = SqlChunkRepository(session)
-    loaded = _load_documents(gold_dir, layer=layer)
 
     total_chunks = 0
     for document in loaded:
