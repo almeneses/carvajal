@@ -15,6 +15,7 @@
 | Verde para pedir aprobación | CI `Calidad` + tests de la ola + E2E aplicable |
 | Rama | `tipo/id-corto`, p. ej. `feat/w2-3-ask-question` |
 | Commit | Conventional Commits, referenciando el ID del plan |
+| Release | Un PR dev → main no se presupuesta por línea: integra una ola ya revisada por PR |
 
 Si un PR necesita más presupuesto, **se parte**, no se justifica. La única
 excepción legítima es "esto es una migración de base de datos".
@@ -166,6 +167,8 @@ flowchart LR
 | W1.3 | Repositorios | `adapters/storage/repositories.py` | 350 | Integración con testcontainers: CRUD de documentos, chunks y versiones |
 | W1.4 | Importador | `cli.py: migrate-gold` | 300 | Cargar `data/gold/**` dos veces no duplica; conteos coinciden con `index.jsonl` |
 
+**Estado:** ola cerrada en dev el 2026-11-10 (W1.3a/b y W1.4a/b mergeados). Release W8.1 y snapshot ola-1 al publicar.
+
 ### Ola 2 — RAG y shell web (3 agentes en paralelo)
 
 | ID | Objetivo | Alcance | LOC | Aceptación |
@@ -244,7 +247,7 @@ semanas de un agente.
 | `Calidad` | Siempre | Ruff, `ty`, tests unitarios |
 | `integration` | Olas 1–3 | Postgres real vía testcontainers |
 | `e2e` | Olas 3, 5, 6 | Playwright sobre `compose.test.yml` |
-| `size` | Siempre | Corre dentro de `Calidad`: falla >700 líneas, advierte >300 |
+| `size` | Siempre, salvo release dev → main | Corre dentro de `Calidad`: falla >700 líneas, advierte >300 |
 
 ## 7. Escenarios E2E
 
