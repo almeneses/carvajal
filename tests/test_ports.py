@@ -79,6 +79,11 @@ class InMemoryDocumentRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[Document]:
+        if limit < 0 or offset < 0:
+            raise ValueError(
+                f"limit y offset deben ser no negativos; recibidos limit={limit!r} "
+                f"y offset={offset!r}."
+            )
         documents = [
             doc
             for doc in self._documents.values()
@@ -239,6 +244,11 @@ def assert_document_repository(repository: DocumentRepository) -> None:
     assert [doc.id for doc in repository.list(layer="core")] == ["a"]
     assert [doc.id for doc in repository.list(section="prensa")] == ["b"]
     assert [doc.id for doc in repository.list(limit=1, offset=1)] == ["a"]
+    assert list(repository.list(limit=0)) == []
+    with pytest.raises(ValueError):
+        repository.list(limit=-1)
+    with pytest.raises(ValueError):
+        repository.list(offset=-1)
     assert repository.count() == 2
     assert repository.count(layer="extended") == 1
     assert repository.delete("a") is True
