@@ -40,7 +40,7 @@ def test_migrar_dos_veces_no_duplica_y_archiva_la_version_anterior(
     second = migrate_gold(session, gold_dir=tmp_path)
 
     repository = SqlDocumentRepository(session)
-    assert first == second == GoldImportReport(documents=2, chunks=2)
+    assert first == second == GoldImportReport(documents=2, chunks=2, removed=0)
     assert repository.count(layer=LAYER_CORE) == 2
     assert before
     assert [chunk.id for chunk in chunks.list_by_document("uno")] == before
@@ -57,8 +57,41 @@ def test_migrar_dos_veces_no_duplica_y_archiva_la_version_anterior(
 
     _write(tmp_path / "vacio.md", slug="vacio", body="")
     tercera = migrate_gold(session, gold_dir=tmp_path)
-    assert tercera == GoldImportReport(documents=3, chunks=first.chunks)
+    assert tercera == GoldImportReport(documents=3, chunks=2, removed=0)
     assert SqlChunkRepository(session).list_by_document("vacio") == []
+
+
+def test_podar_huerfanos_elimina_el_documento_y_su_cascada(
+    tmp_path: Path, session: Session
+) -> None:
+    """Borrar un Markdown y reimportar poda el documento, sus chunks y sus versiones."""
+
+    _write(tmp_path / "uno.md", slug="uno", body="Cuerpo uno.")
+    _write(tmp_path / "dos.md", slug="dos", body="Cuerpo dos.")
+    migrate_gold(session, gold_dir=tmp_path)
+
+    # Antes de borrarlo, deja una versión archivada de ``uno``.
+    _write(tmp_path / "uno.md", slug="uno", body="Cuerpo uno corregido.")
+    migrate_gold(session, gold_dir=tmp_path)
+
+    repository = SqlDocumentRepository(session)
+    chunks = SqlChunkRepository(session)
+    assert repository.list_versions("uno")
+    assert chunks.list_by_document("uno")
+
+    (tmp_path / "uno.md").unlink()
+    podado = migrate_gold(session, gold_dir=tmp_path)
+
+    assert podado == GoldImportReport(documents=1, chunks=1, removed=1)
+    assert repository.count(layer=LAYER_CORE) == 1
+    assert repository.get("uno") is None
+    assert chunks.list_by_document("uno") == []
+    assert repository.list_versions("uno") == []
+
+    # Idempotencia: reimportar sin cambios no duplica ni poda nada.
+    again = migrate_gold(session, gold_dir=tmp_path)
+    assert again == GoldImportReport(documents=1, chunks=1, removed=0)
+    assert repository.count(layer=LAYER_CORE) == 1
 
 
 def test_corpus_real_coincide_con_el_indice(session: Session) -> None:
