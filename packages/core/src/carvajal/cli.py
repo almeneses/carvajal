@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import Engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from carvajal.adapters.storage.database import build_engine, build_session_factory
 from carvajal.adapters.storage.import_corpus import GoldImportError, migrate_gold
@@ -238,15 +238,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "migrate-gold":
         engine: Engine | None = None
         try:
-            engine = build_engine()
-            with build_session_factory(engine).begin() as session:
-                report = migrate_gold(session, gold_dir=args.gold)
-        except SQLAlchemyError as error:
-            print(f"No se pudo conectar a la base de datos: {error}")
-            return 1
-        except GoldImportError as error:
-            print(f"Corpus Gold no importable: {error}")
-            return 1
+            # La URL se valida al construir el motor (ArgumentError), antes de conectar.
+            try:
+                engine = build_engine()
+            except SQLAlchemyError as error:
+                print(f"No se pudo conectar a la base de datos: {error}")
+                return 1
+            try:
+                with build_session_factory(engine).begin() as session:
+                    report = migrate_gold(session, gold_dir=args.gold)
+            except OperationalError as error:
+                print(f"No se pudo conectar a la base de datos: {error}")
+                return 1
+            except GoldImportError as error:
+                print(f"Corpus Gold no importable: {error}")
+                return 1
         finally:
             if engine is not None:
                 engine.dispose()

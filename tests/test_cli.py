@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from carvajal import cli
 from carvajal.cli import build_parser, main
@@ -118,6 +118,23 @@ def test_migrate_gold_no_propaga_operational_error(
 
     assert code == 1
     assert "No se pudo conectar a la base de datos" in capsys.readouterr().out
+    assert engine.disposed is True
+
+
+def test_migrate_gold_deja_pasar_los_errores_inesperados(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Un fallo de escritura no se disfraza de error de conexión: se propaga."""
+
+    engine = _FakeEngine()
+    fallo = IntegrityError("INSERT", {}, Exception("constraint"))
+    monkeypatch.setattr(cli, "build_engine", lambda: engine)
+    monkeypatch.setattr(
+        cli, "build_session_factory", lambda _engine: _FakeSessionFactory(error=fallo)
+    )
+
+    with pytest.raises(IntegrityError):
+        main(["migrate-gold", "--gold", str(tmp_path)])
     assert engine.disposed is True
 
 
