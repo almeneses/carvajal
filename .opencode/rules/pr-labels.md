@@ -1,7 +1,9 @@
 # Etiquetas de PR (obligatorio)
 
-Toda PR abierta por un agente debe llevar al menos una etiqueta adecuada antes
-de considerarse entregada. No esperes a que el owner la pida.
+Toda Pull Request debe llevar al menos una etiqueta adecuada antes de
+considerarse entregada. En particular, todo agente debe aplicarlas sin esperar
+a que el owner las pida. El mínimo es una; si el cambio abarca varias áreas,
+combina las etiquetas que correspondan.
 
 1. Consulta el catálogo vigente con `gh label list` y elige la etiqueta más
    específica. Combina varias si el cambio cubre áreas distintas:

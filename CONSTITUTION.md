@@ -234,9 +234,10 @@ carvajal/
   `feat:`, `fix:`, `docs:`, `refactor:`, `style:`, `test:`, `chore:`.
 - **Etiquetas de PR:** toda Pull Request debe llevar al menos una etiqueta del
   catálogo existente (`gh label list`), aplicada con
-  `gh pr edit <número> --add-label`. Un agente no da una PR por terminada sin
-  etiquetas. Solo se crea una etiqueta nueva si ninguna existente encaja y el
-  hueco es estructural, justificándolo en la PR.
+  `gh pr edit <número> --add-label`. En particular, ningún agente da una PR por
+  terminada sin etiquetas; si el cambio abarca varias áreas, combina las
+  etiquetas que correspondan. Solo se crea una etiqueta nueva si ninguna
+  existente encaja y el hueco es estructural, justificándolo en la PR.
 - **Identidad git:** Marko David Garcia <markodavidgm@gmail.com> (ver §11).
 
 ## 8. Flujo diario (commit + push)
