@@ -4,10 +4,11 @@ import argparse
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from carvajal.adapters.storage.database import build_engine, build_session_factory
-from carvajal.adapters.storage.import_corpus import migrate_gold
+from carvajal.adapters.storage.import_corpus import GoldImportError, migrate_gold
 from carvajal.config import (
     EXTERNAL_DIR,
     EXTERNAL_SEEDS,
@@ -143,7 +144,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     migrate_parser = subparsers.add_parser(
         "migrate-gold",
-        help="Migra el corpus Gold (data/gold) a la base de datos relacional.",
+        help=(
+            "Migra el corpus Gold (data/gold) a la base de datos relacional. "
+            "El directorio es autoritativo para su capa: los documentos que ya no "
+            "existan en disco se podan de la base."
+        ),
     )
     migrate_parser.add_argument(
         "--gold", type=Path, default=GOLD_DIR, help="Directorio Gold a importar."
@@ -231,17 +236,24 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "migrate-gold":
-        engine = build_engine()
+        engine: Engine | None = None
         try:
+            engine = build_engine()
             with build_session_factory(engine).begin() as session:
                 report = migrate_gold(session, gold_dir=args.gold)
-        except OperationalError as error:
+        except SQLAlchemyError as error:
             print(f"No se pudo conectar a la base de datos: {error}")
             return 1
+        except GoldImportError as error:
+            print(f"Corpus Gold no importable: {error}")
+            return 1
         finally:
-            engine.dispose()
+            if engine is not None:
+                engine.dispose()
         print(f"Documentos importados: {report.documents}")
         print(f"Fragmentos importados: {report.chunks}")
+        if report.removed:
+            print(f"Documentos podados: {report.removed}")
         return 0
 
     if args.command == "list":
