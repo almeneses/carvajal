@@ -56,6 +56,49 @@ El bypass del ruleset está reservado a la cuenta `almeneses`. Que el agente
 corra con ese token no lo autoriza a usarlo: la restricción es de proceso, no
 solo de permisos.
 
+### Etiquetas de PR (obligatorio para agentes)
+
+Toda Pull Request debe llevar al menos una etiqueta adecuada antes de
+considerarse entregada. En particular, todo agente debe aplicarlas sin esperar
+a que el owner las pida. El mínimo es una; si el cambio abarca varias áreas,
+combina las etiquetas que correspondan.
+
+1. Consulta el catálogo vigente con `gh label list` y elige la etiqueta más
+   específica. La fuente de verdad son las etiquetas existentes; los siguientes
+   son solo ejemplos, no una lista cerrada. Combina varias si el cambio cubre
+   áreas distintas. Si `gh label list` falla (sin red o permisos), no inventes
+   etiquetas: deja constancia en la PR y avisa al owner.
+   - API o lógica de servidor → `enhancement` + `backend`
+   - corrección de datos o curaduría → `bug` + `data`
+   - CI, entorno o despliegue → `chore` + `infra`
+   - sólo pruebas → `test`
+   - sólo documentación → `documentation`
+2. Aplica las etiquetas justo después de crear o actualizar la PR:
+   `gh pr edit <número> --add-label "enhancement,backend"`
+3. **No inventes etiquetas** si existe una razonablemente equivalente. Crear una
+   nueva sólo si ninguna encaja y el hueco es estructural; justifícalo en la PR.
+4. Revisa las etiquetas antes de dar la PR por terminada: una PR sin etiquetas,
+   o con etiquetas obsoletas, está incompleta.
+
+En OpenCode esta regla también se aplica automáticamente mediante
+[`.opencode/rules/pr-labels.md`](./.opencode/rules/pr-labels.md).
+
+### Assignee de PR (obligatorio para agentes)
+
+Toda PR abierta por un agente debe incluir como assignee a quien la abre. Por
+defecto, el autor se asigna a sí mismo:
+
+```bash
+gh pr edit <número> --add-assignee @me
+```
+
+- No asignes a otras personas sin pedirlo; el assignee por defecto es el autor.
+- Si la PR ya tiene assignee, no lo reemplaces: añade al autor solo si falta.
+- Si el agente corre con un token de otra cuenta, `@me` asignaría a esa cuenta:
+  usa el login del autor real (`--add-assignee <login>`) o pide al owner que lo
+  asigne.
+- Revisa el assignee junto con las etiquetas antes de dar la PR por terminada.
+
 ---
 
 ## Comandos del proyecto (`make`)

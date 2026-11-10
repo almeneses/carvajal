@@ -232,6 +232,19 @@ carvajal/
   directo a `main`.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) —
   `feat:`, `fix:`, `docs:`, `refactor:`, `style:`, `test:`, `chore:`.
+- **Etiquetas de PR:** toda Pull Request debe llevar al menos una etiqueta del
+  catálogo existente (`gh label list`), aplicada con
+  `gh pr edit <número> --add-label`. En particular, ningún agente da una PR por
+  terminada sin etiquetas; si el cambio abarca varias áreas, combina las
+  etiquetas que correspondan. Solo se crea una etiqueta nueva si ninguna
+  existente encaja y el hueco es estructural, justificándolo en la PR. El
+  procedimiento y los ejemplos están en
+  [`AGENTS.md` § Etiquetas de PR](AGENTS.md#etiquetas-de-pr-obligatorio-para-agentes).
+- **Assignee de PR:** toda Pull Request debe incluir como assignee a quien la
+  abre. Por defecto el autor se asigna a sí mismo
+  (`gh pr edit <número> --add-assignee @me`); no se asigna a otras personas sin
+  pedirlo. Ver
+  [`AGENTS.md` § Assignee de PR](AGENTS.md#assignee-de-pr-obligatorio-para-agentes).
 - **Identidad git:** Marko David Garcia <markodavidgm@gmail.com> (ver §11).
 
 ## 8. Flujo diario (commit + push)
