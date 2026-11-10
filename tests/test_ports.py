@@ -271,6 +271,10 @@ def assert_document_versions(repository: DocumentRepository) -> None:
     repository.upsert(second)
     assert len(repository.list_versions(first.id)) == 1
 
+    same_hash = replace(second, markdown="# Versión dos (mismo hash)")
+    repository.upsert(same_hash)
+    assert len(repository.list_versions(first.id)) == 1
+
     third = replace(first, markdown="# Versión tres", content_hash="hash-historial-tres")
     repository.upsert(third)
     versions = repository.list_versions(first.id)
