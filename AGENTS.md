@@ -94,6 +94,9 @@ gh pr edit <número> --add-assignee @me
 
 - No asignes a otras personas sin pedirlo; el assignee por defecto es el autor.
 - Si la PR ya tiene assignee, no lo reemplaces: añade al autor solo si falta.
+- Si el agente corre con un token de otra cuenta, `@me` asignaría a esa cuenta:
+  usa el login del autor real (`--add-assignee <login>`) o pide al owner que lo
+  asigne.
 - Revisa el assignee junto con las etiquetas antes de dar la PR por terminada.
 
 ---
