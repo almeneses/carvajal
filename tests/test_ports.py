@@ -6,7 +6,11 @@ archivo son la referencia de comportamiento.
 """
 
 from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
+from uuid import uuid4
+
+import pytest
 
 from carvajal.application.ports import (
     ChunkRepository,
@@ -17,7 +21,7 @@ from carvajal.application.ports import (
     ScoredChunk,
     VectorStore,
 )
-from carvajal.domain.entities import Chunk, Document
+from carvajal.domain.entities import Chunk, Document, DocumentVersion
 
 CAPTURED_AT = datetime(2026, 11, 8, tzinfo=UTC)
 
@@ -59,6 +63,7 @@ class InMemoryDocumentRepository:
 
     def __init__(self) -> None:
         self._documents: dict[str, Document] = {}
+        self._versions: dict[str, list[DocumentVersion]] = {}
 
     def get(self, document_id: str) -> Document | None:
         return self._documents.get(document_id)
@@ -83,10 +88,30 @@ class InMemoryDocumentRepository:
         return documents[offset : offset + limit]
 
     def upsert(self, document: Document) -> Document:
+        existing = self.get_by_slug(document.slug)
+        if existing is not None:
+            if existing.id != document.id:
+                raise ValueError(f"El slug {document.slug!r} ya pertenece a {existing.id!r}.")
+            if existing.content_hash != document.content_hash:
+                self._versions.setdefault(document.id, []).append(
+                    DocumentVersion(
+                        uuid4().hex,
+                        document.id,
+                        existing.markdown,
+                        existing.content_hash,
+                        existing.captured_at,
+                        datetime.now(UTC),
+                    )
+                )
         self._documents[document.id] = document
         return document
 
+    def list_versions(self, document_id: str) -> Sequence[DocumentVersion]:
+        versions = self._versions.get(document_id, [])
+        return sorted(versions, key=lambda v: (v.created_at, v.id), reverse=True)
+
     def delete(self, document_id: str) -> bool:
+        self._versions.pop(document_id, None)
         return self._documents.pop(document_id, None) is not None
 
     def count(self, *, layer: str | None = None) -> int:
@@ -192,6 +217,8 @@ def assert_document_repository(repository: DocumentRepository) -> None:
     assert repository.upsert(first) == first
     assert repository.get("a") == first
     assert repository.get_by_slug("uno") == first
+    with pytest.raises(ValueError):
+        repository.upsert(_document("otro", slug="uno"))
 
     updated = Document(
         id=first.id,
@@ -216,6 +243,50 @@ def assert_document_repository(repository: DocumentRepository) -> None:
     assert repository.count(layer="extended") == 1
     assert repository.delete("a") is True
     assert repository.delete("a") is False
+
+
+def assert_document_versions(repository: DocumentRepository) -> None:
+    """Contrato del historial: solo un cambio de hash archiva la versión anterior."""
+
+    first = _document("historial", slug="historial", title="Versión uno")
+    repository.upsert(first)
+    assert repository.list_versions(first.id) == []
+    assert repository.list_versions("inexistente") == []
+
+    second = replace(first, markdown="# Versión dos", content_hash="hash-historial-dos")
+    repository.upsert(second)
+    versions = repository.list_versions(first.id)
+    assert len(versions) == 1
+    assert versions[0].document_id == first.id
+    assert versions[0].markdown == first.markdown
+    assert versions[0].content_hash == first.content_hash
+    assert versions[0].captured_at == first.captured_at
+
+    before = list(repository.list_versions(first.id))
+    with pytest.raises(ValueError):
+        repository.upsert(_document("intruso", slug="historial"))
+    assert repository.list_versions(first.id) == before
+    assert repository.get(first.id) == second
+
+    repository.upsert(second)
+    assert len(repository.list_versions(first.id)) == 1
+
+    same_hash = replace(second, markdown="# Versión dos (mismo hash)")
+    repository.upsert(same_hash)
+    assert len(repository.list_versions(first.id)) == 1
+
+    third = replace(first, markdown="# Versión tres", content_hash="hash-historial-tres")
+    repository.upsert(third)
+    versions = repository.list_versions(first.id)
+    assert len(versions) == 2
+    assert {version.content_hash for version in versions} == {
+        first.content_hash,
+        second.content_hash,
+    }
+    assert versions[0].created_at >= versions[1].created_at
+
+    assert repository.delete(first.id) is True
+    assert repository.list_versions(first.id) == []
 
 
 def assert_chunk_repository(repository: ChunkRepository) -> None:
@@ -261,6 +332,7 @@ def test_repositorio_de_documentos_en_memoria() -> None:
 
     assert isinstance(repository, DocumentRepository)
     assert_document_repository(repository)
+    assert_document_versions(repository)
 
 
 def test_repositorio_de_fragmentos_en_memoria() -> None:
