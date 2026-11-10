@@ -24,8 +24,8 @@ jobs:
 
       - name: Presupuesto de cambios
         # Falla si el PR supera el límite duro; advierte desde el blando.
-        # Sin dependencias: corre antes de instalar el entorno.
-        if: github.event_name == 'pull_request'
+        # Los releases dev → main integran una ola ya revisada por PR: no se presupuestan por línea.
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'main'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
