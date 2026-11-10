@@ -18,3 +18,10 @@ combina las etiquetas que correspondan.
 
 Los ejemplos por área de cambio y el procedimiento completo viven en
 [`AGENTS.md` § Etiquetas de PR](../../AGENTS.md#etiquetas-de-pr-obligatorio-para-agentes).
+
+## Assignee
+
+Toda PR abierta por un agente debe incluir como assignee a quien la abre:
+`gh pr edit <número> --add-assignee @me`. No asignes a otras personas sin
+pedirlo. Detalle en
+[`AGENTS.md` § Assignee de PR](../../AGENTS.md#assignee-de-pr-obligatorio-para-agentes).

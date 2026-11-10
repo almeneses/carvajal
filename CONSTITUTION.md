@@ -240,6 +240,11 @@ carvajal/
   existente encaja y el hueco es estructural, justificándolo en la PR. El
   procedimiento y los ejemplos están en
   [`AGENTS.md` § Etiquetas de PR](AGENTS.md#etiquetas-de-pr-obligatorio-para-agentes).
+- **Assignee de PR:** toda Pull Request debe incluir como assignee a quien la
+  abre. Por defecto el autor se asigna a sí mismo
+  (`gh pr edit <número> --add-assignee @me`); no se asigna a otras personas sin
+  pedirlo. Ver
+  [`AGENTS.md` § Assignee de PR](AGENTS.md#assignee-de-pr-obligatorio-para-agentes).
 - **Identidad git:** Marko David Garcia <markodavidgm@gmail.com> (ver §11).
 
 ## 8. Flujo diario (commit + push)

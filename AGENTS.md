@@ -83,6 +83,19 @@ combina las etiquetas que correspondan.
 En OpenCode esta regla también se aplica automáticamente mediante
 [`.opencode/rules/pr-labels.md`](./.opencode/rules/pr-labels.md).
 
+### Assignee de PR (obligatorio para agentes)
+
+Toda PR abierta por un agente debe incluir como assignee a quien la abre. Por
+defecto, el autor se asigna a sí mismo:
+
+```bash
+gh pr edit <número> --add-assignee @me
+```
+
+- No asignes a otras personas sin pedirlo; el assignee por defecto es el autor.
+- Si la PR ya tiene assignee, no lo reemplaces: añade al autor solo si falta.
+- Revisa el assignee junto con las etiquetas antes de dar la PR por terminada.
+
 ---
 
 ## Comandos del proyecto (`make`)
