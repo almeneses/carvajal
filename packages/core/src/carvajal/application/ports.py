@@ -52,7 +52,11 @@ class DocumentRepository(Protocol):
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[Document]:
-        """Lista documentos, opcionalmente filtrados por capa y sección."""
+        """Lista documentos, opcionalmente filtrados por capa y sección.
+
+        ``limit=0`` es válido y devuelve una secuencia vacía. Lanza ``ValueError``
+        si ``limit`` u ``offset`` son negativos.
+        """
 
         ...
 
