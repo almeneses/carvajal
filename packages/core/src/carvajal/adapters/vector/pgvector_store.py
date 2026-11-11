@@ -5,6 +5,7 @@
 """
 
 from collections.abc import Sequence
+from math import isfinite
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -33,8 +34,10 @@ class PgVectorStore:
 
         Si el fragmento no existe se inserta completo; si existe con el mismo
         ``document_id`` solo se reescribe su ``embedding``. El ``id`` es inmutable:
-        reutilizarlo desde otro documento lanza ``ValueError`` y no deja cambios.
-        Hace ``flush()``, nunca ``commit()``.
+        reutilizarlo desde otro documento lanza ``ValueError`` **antes de
+        escribir**, así que en el caso normal no queda nada pendiente; el
+        llamador sigue siendo dueño de la transacción. Hace ``flush()``, nunca
+        ``commit()``.
         """
 
         if len(chunks) != len(embeddings):
@@ -56,6 +59,7 @@ class PgVectorStore:
         ]
         if not rows:
             return
+        self._reject_foreign_ids(chunks)
         statement = postgresql_insert(tables.chunks).values(rows)
         result = self._session.execute(
             statement.on_conflict_do_update(
@@ -69,6 +73,29 @@ class PgVectorStore:
                 "Algún fragmento ya existe con otro documento; el id del fragmento es inmutable."
             )
         self._session.flush()
+
+    def _reject_foreign_ids(self, chunks: Sequence[Chunk]) -> None:
+        """Rechaza, antes de escribir, ids que ya pertenecen a otro documento."""
+
+        expected = {chunk.id: chunk.document_id for chunk in chunks}
+        existing = dict(
+            self._session.execute(
+                select(tables.chunks.c.id, tables.chunks.c.document_id).where(
+                    tables.chunks.c.id.in_(list(expected))
+                )
+            ).all()
+        )
+        ajenos = [
+            chunk_id
+            for chunk_id, document_id in existing.items()
+            if expected[chunk_id] != document_id
+        ]
+        if ajenos:
+            chunk_id = sorted(ajenos)[0]
+            raise ValueError(
+                f"El id de fragmento es inmutable: {chunk_id!r} ya pertenece a "
+                f"{existing[chunk_id]!r}, no a {expected[chunk_id]!r}."
+            )
 
     def search(
         self,
@@ -123,11 +150,13 @@ class PgVectorStore:
 
 
 def _validated(embedding: Sequence[float]) -> list[float]:
-    """Convierte el vector a ``list[float]`` y exige dimensión 768 y no vacío."""
+    """Convierte el vector a ``list[float]`` y exige dimensión 768, finito y no vacío."""
 
     vector = [float(value) for value in embedding]
     if not vector:
         raise ValueError("El vector no puede estar vacío.")
+    if not all(isfinite(value) for value in vector):
+        raise ValueError("El vector solo admite valores finitos: sin NaN ni infinito.")
     if len(vector) != DIMENSIONS:
         raise ValueError(f"El vector debe tener {DIMENSIONS} dimensiones; recibidas {len(vector)}.")
     return vector

@@ -105,11 +105,21 @@ def test_upsert_rechaza_reutilizar_un_id_desde_otro_documento(session: Session) 
 
     store, chunks = _seeded(session)
     before = [(result.chunk.id, result.score) for result in store.search(_vector(1.0))]
+    intruso = replace(chunks[0], document_id="d2", position=5)
+    nuevo = Chunk("c9", "d1", "fragmento c9", 2, "home", "core")
 
+    # El lote mezcla una fila válida y otra ajena: no debe escribir ninguna.
     with pytest.raises(ValueError, match="inmutable"):
-        store.upsert([replace(chunks[0], document_id="d2", position=5)], [_vector(0.0, 1.0)])
+        store.upsert([nuevo, intruso], [_vector(0.0, 1.0), _vector(0.0, 1.0)])
 
+    # La validación corre antes de escribir: no hay cambios pendientes en la sesión.
+    assert not session.new and not session.dirty
+    session.commit()
     assert [(result.chunk.id, result.score) for result in store.search(_vector(1.0))] == before
+    assert [chunk.id for chunk in SqlChunkRepository(session).list_by_document("d1")] == [
+        "c1",
+        "c2",
+    ]
     assert [chunk.id for chunk in SqlChunkRepository(session).list_by_document("d2")] == ["c3"]
 
 
@@ -153,6 +163,10 @@ def test_valida_dimensiones_y_cantidades(session: Session) -> None:
 
     with pytest.raises(ValueError, match="vacío"):
         store.upsert([chunk], [[]])
+    with pytest.raises(ValueError, match="finitos"):
+        store.upsert([chunk], [[float("nan")] * DIMENSIONS])
+    with pytest.raises(ValueError, match="finitos"):
+        store.search([float("inf")] * DIMENSIONS)
     with pytest.raises(ValueError, match=str(DIMENSIONS)):
         store.upsert([chunk], [[0.1] * (DIMENSIONS - 1)])
     with pytest.raises(ValueError, match="exactamente un vector"):
