@@ -31,8 +31,10 @@ class PgVectorStore:
     def upsert(self, chunks: Sequence[Chunk], embeddings: Sequence[Sequence[float]]) -> None:
         """Inserta o actualiza los fragmentos con sus vectores.
 
-        Si el fragmento no existe se inserta completo; si existe solo se
-        reescribe su ``embedding``. Hace ``flush()``, nunca ``commit()``.
+        Si el fragmento no existe se inserta completo; si existe con el mismo
+        ``document_id`` solo se reescribe su ``embedding``. El ``id`` es inmutable:
+        reutilizarlo desde otro documento lanza ``ValueError`` y no deja cambios.
+        Hace ``flush()``, nunca ``commit()``.
         """
 
         if len(chunks) != len(embeddings):
@@ -55,12 +57,17 @@ class PgVectorStore:
         if not rows:
             return
         statement = postgresql_insert(tables.chunks).values(rows)
-        self._session.execute(
+        result = self._session.execute(
             statement.on_conflict_do_update(
                 index_elements=[tables.chunks.c.id],
                 set_={"embedding": statement.excluded.embedding},
-            )
+                where=tables.chunks.c.document_id == statement.excluded.document_id,
+            ).returning(tables.chunks.c.id)
         )
+        if len(result.all()) != len(rows):
+            raise ValueError(
+                "Algún fragmento ya existe con otro documento; el id del fragmento es inmutable."
+            )
         self._session.flush()
 
     def search(
@@ -79,9 +86,9 @@ class PgVectorStore:
 
         if limit < 0:
             raise ValueError(f"limit debe ser no negativo; recibido {limit!r}.")
-        vector = _validated(embedding)
         if limit == 0:
             return []
+        vector = _validated(embedding)
         distance = tables.chunks.c.embedding.cosine_distance(vector)
         query = select(*_CHUNK_COLUMNS, distance.label("distance")).where(
             tables.chunks.c.embedding.is_not(None)

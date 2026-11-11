@@ -1,5 +1,6 @@
 """Pruebas de integración del índice vectorial pgvector sobre Postgres real."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -99,6 +100,19 @@ def test_search_no_trae_el_vector_en_la_proyeccion(
     assert columns == {"id", "document_id", "text", "position", "section", "layer", "distance"}
 
 
+def test_upsert_rechaza_reutilizar_un_id_desde_otro_documento(session: Session) -> None:
+    """Un id ya usado por otro documento no cambia de dueño ni de vector."""
+
+    store, chunks = _seeded(session)
+    before = [(result.chunk.id, result.score) for result in store.search(_vector(1.0))]
+
+    with pytest.raises(ValueError, match="inmutable"):
+        store.upsert([replace(chunks[0], document_id="d2", position=5)], [_vector(0.0, 1.0)])
+
+    assert [(result.chunk.id, result.score) for result in store.search(_vector(1.0))] == before
+    assert [chunk.id for chunk in SqlChunkRepository(session).list_by_document("d2")] == ["c3"]
+
+
 def test_filtros_y_limites(session: Session) -> None:
     """Los filtros acotan por capa y sección; ``limit=0`` vale y el negativo falla."""
 
@@ -112,6 +126,7 @@ def test_filtros_y_limites(session: Session) -> None:
     assert store.search(_vector(1.0), layer="core", section="prensa") == []
     assert len(store.search(_vector(1.0), limit=2)) == 2
     assert store.search(_vector(1.0), limit=0) == []
+    assert store.search([0.1] * 10, limit=0) == []
     with pytest.raises(ValueError, match="limit"):
         store.search(_vector(1.0), limit=-1)
 

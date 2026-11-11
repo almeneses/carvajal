@@ -19,7 +19,11 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Crea la extensión, la columna de 768 dimensiones y su índice HNSW."""
+    """Crea la extensión, la columna de 768 dimensiones y su índice HNSW.
+
+    Crear la extensión exige un rol con privilegios (superusuario o ``CREATE``
+    en la base); en un Postgres gestionado se provisiona antes del ``upgrade``.
+    """
 
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
     op.add_column("chunks", sa.Column("embedding", Vector(768), nullable=True))
