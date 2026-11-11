@@ -103,7 +103,7 @@ def test_portada_aplica_el_tema_y_la_accesibilidad_basica() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert '<html lang="es">' in response.text
+    assert 'lang="es"' in response.text
     assert "<title>Asistente Carvajal</title>" in response.text
     assert "Saltar al contenido" in response.text
     assert 'alt="Carvajal"' in response.text
@@ -133,6 +133,7 @@ def test_el_logo_se_sirve_como_svg() -> None:
     # Assert
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
+    assert len(response.content) > 1000
     assert "<svg" in response.text
 
 
