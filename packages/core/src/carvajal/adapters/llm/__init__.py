@@ -30,7 +30,8 @@ def build_llm_provider(settings: Settings | None = None) -> LLMProvider:
         return DeepSeekProvider(settings)
     if provider == "ollama":
         return OllamaProvider(settings)
-    raise ValueError(
-        f"Proveedor de LLM no soportado: {provider!r}. "
-        "Usa 'deepseek' u 'ollama'; 'claude' solo está disponible en la interfaz Streamlit."
-    )
+    if provider == "claude":
+        raise ValueError(
+            "El proveedor 'claude' solo está disponible en la interfaz Streamlit (rag.build_llm)."
+        )
+    raise ValueError(f"Proveedor de LLM no soportado: {provider!r}. Usa 'deepseek' u 'ollama'.")

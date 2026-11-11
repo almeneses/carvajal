@@ -17,13 +17,19 @@ class DeepSeekProvider(_LangChainChat):
         if settings is None:
             settings = Settings()
         api_key = settings.deepseek_api_key.strip()
+        model = settings.deepseek_model.strip()
+        base_url = settings.deepseek_base_url.strip()
         if not api_key:
             raise ValueError("Falta DEEPSEEK_API_KEY: define la clave para usar DeepSeekProvider.")
+        if not model:
+            raise ValueError("DEEPSEEK_MODEL está vacío: define un modelo para DeepSeek.")
+        if not base_url:
+            raise ValueError("DEEPSEEK_BASE_URL está vacía: define la URL de la API de DeepSeek.")
         super().__init__(
             ChatOpenAI(
-                model=settings.deepseek_model,
+                model=model,
                 api_key=api_key,
-                base_url=settings.deepseek_base_url,
+                base_url=base_url,
                 temperature=0,
             )
         )
