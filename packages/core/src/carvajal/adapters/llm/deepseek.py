@@ -13,9 +13,7 @@ class DeepSeekProvider(_LangChainChat):
         if settings is None:
             settings = Settings()
         if not settings.deepseek_api_key:
-            raise ValueError(
-                "Falta DEEPSEEK_API_KEY: define la clave para usar LLM_PROVIDER=deepseek."
-            )
+            raise ValueError("Falta DEEPSEEK_API_KEY: define la clave para usar DeepSeekProvider.")
         super().__init__(
             ChatOpenAI(
                 model=settings.deepseek_model,

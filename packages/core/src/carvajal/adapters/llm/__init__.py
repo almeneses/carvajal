@@ -25,11 +25,12 @@ def build_llm_provider(settings: Settings | None = None) -> LLMProvider:
 
     if settings is None:
         settings = Settings()
-    if settings.llm_provider == "deepseek":
+    provider = settings.llm_provider.strip().lower()
+    if provider == "deepseek":
         return DeepSeekProvider(settings)
-    if settings.llm_provider == "ollama":
+    if provider == "ollama":
         return OllamaProvider(settings)
     raise ValueError(
-        f"Proveedor de LLM no soportado: {settings.llm_provider!r}. "
+        f"Proveedor de LLM no soportado: {provider!r}. "
         "Usa 'deepseek' u 'ollama'; 'claude' solo está disponible en la interfaz Streamlit."
     )

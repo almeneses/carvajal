@@ -7,7 +7,11 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 
 class ChatLike(Protocol):
-    """Contrato mínimo del chat inyectado: ``invoke`` y ``stream`` sobre mensajes."""
+    """Contrato mínimo del chat inyectado: ``invoke`` y ``stream`` sobre mensajes.
+
+    Solo se invoca con el mensaje como argumento posicional: otros *kwargs* del
+    cliente (``config``, ``stop``…) no forman parte de este contrato.
+    """
 
     def invoke(self, input: Sequence[BaseMessage]) -> BaseMessage:
         """Devuelve la respuesta completa a los mensajes."""

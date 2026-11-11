@@ -38,6 +38,13 @@ class BlockChat:
         yield AIMessage(content=[{"type": "text", "text": "hola"}])
 
 
+def _limpia_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deja fuera del entorno las variables del LLM para no depender del host."""
+
+    for name in ("LLM_PROVIDER", "DEEPSEEK_API_KEY", "OLLAMA_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def test_complete_devuelve_texto_y_envia_sistema_y_prompt() -> None:
     # Arrange
     chat = FakeChat(("Carvajal es un grupo empresarial.",))
@@ -144,6 +151,7 @@ def test_fabrica_sin_argumentos_lee_el_entorno(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
+    _limpia_entorno(monkeypatch)
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
 
     # Act
@@ -157,6 +165,7 @@ def test_fabrica_sin_argumentos_usa_deepseek_con_clave(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
+    _limpia_entorno(monkeypatch)
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test")
 
@@ -167,12 +176,37 @@ def test_fabrica_sin_argumentos_usa_deepseek_con_clave(
     assert isinstance(provider, DeepSeekProvider)
 
 
-def test_fabrica_rechaza_un_proveedor_desconocido() -> None:
+def test_fabrica_normaliza_el_nombre_del_proveedor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Arrange
-    settings = Settings(_env_file=None, llm_provider="claude")
+    _limpia_entorno(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "DeepSeek ")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test")
+
+    # Act
+    provider = build_llm_provider()
+
+    # Assert
+    assert isinstance(provider, DeepSeekProvider)
+
+
+def test_fabrica_rechaza_un_proveedor_desconocido(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    _limpia_entorno(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "claude")
 
     # Act / Assert
     with pytest.raises(ValueError, match="claude"):
+        build_llm_provider()
+
+
+def test_ollama_con_modelo_vacio_falla() -> None:
+    # Arrange
+    settings = Settings(_env_file=None, llm_provider="ollama", ollama_model="  ")
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="OLLAMA_MODEL"):
         build_llm_provider(settings)
 
 
@@ -181,5 +215,6 @@ def test_deepseek_sin_clave_falla_al_construir() -> None:
     settings = Settings(_env_file=None, llm_provider="deepseek", deepseek_api_key="")
 
     # Act / Assert
-    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY") as error:
         build_llm_provider(settings)
+    assert "LLM_PROVIDER" not in str(error.value)
