@@ -1,0 +1,25 @@
+:root {
+  --primario: #00b5e5;
+  --texto: #003a5d;
+  --secundario: #f4f7fa;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background-color: var(--secundario);
+  color: var(--texto);
+}
+
+.boton-primario {
+  background-color: var(--primario);
+  color: #ffffff;
+}
+
+.boton-primario:hover {
+  background-color: #0096bf;
+}
+
+.boton-primario:focus-visible {
+  outline: 2px solid var(--texto);
+  outline-offset: 2px;
+}

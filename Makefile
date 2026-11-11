@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build app db db-down eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build app api db db-down eval import clean
 
 help: ## Muestra esta ayuda
 	@echo Uso: make [objetivo]
@@ -24,6 +24,7 @@ help: ## Muestra esta ayuda
 	@echo   check              Verificación completa (lint + formato + tipos + pruebas)
 	@echo   build              Construye el paquete (sdist + wheel)
 	@echo   app                Lanza la interfaz web de prueba (Streamlit)
+	@echo   api                Lanza el shell web (FastAPI + uvicorn)
 	@echo   db                 Levanta Postgres 16 con pgvector (docker compose)
 	@echo   db-down            Detiene la base de datos local
 	@echo   eval               Ejecuta las preguntas de prueba (genera docs/resultados.md)
@@ -70,6 +71,9 @@ build: ## Construye el paquete (sdist + wheel)
 
 app: ## Lanza la interfaz web de prueba (Streamlit)
 	uv run streamlit run app.py
+
+api: ## Lanza el shell web (FastAPI + uvicorn)
+	uv run uvicorn apps.api.main:app --reload --port 8000
 
 # Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias
 # POSTGRES_PORT, ambos lo ven.

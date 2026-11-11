@@ -1,0 +1,17 @@
+{% extends "base.html" %} {% block content %}
+<h1 class="text-2xl font-semibold">Pregunta al corpus Carvajal</h1>
+<p class="mt-2 text-sm text-[#003A5D]/80">
+  Respuestas con citas a partir de los documentos capturados del corpus.
+</p>
+
+<form class="mt-6 flex flex-col gap-3 sm:flex-row" method="post" action="/ask"
+  hx-post="/ask" hx-target="#respuesta" hx-swap="innerHTML">
+  <label class="sr-only" for="pregunta">Pregunta</label>
+  <input id="pregunta" name="question" type="text" required autocomplete="off"
+    placeholder="¿Cuándo nació la empresa?"
+    class="w-full rounded-md border border-[#003A5D]/20 bg-white px-4 py-2 focus:border-[#00B5E5]" />
+  <button type="submit" class="boton-primario rounded-md px-5 py-2 font-medium">Preguntar</button>
+</form>
+
+<div id="respuesta" aria-live="polite" class="mt-8"></div>
+{% endblock %}
