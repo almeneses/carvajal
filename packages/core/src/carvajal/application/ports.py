@@ -14,6 +14,7 @@ from carvajal.domain.entities import Chunk, Document, DocumentVersion
 __all__ = [
     "ChunkRepository",
     "DocumentRepository",
+    "Embedder",
     "Extractor",
     "Fetcher",
     "LLMProvider",
@@ -135,6 +136,16 @@ class VectorStore(Protocol):
 
     def delete_by_document(self, document_id: str) -> None:
         """Elimina del índice todos los fragmentos del documento."""
+
+        ...
+
+
+@runtime_checkable
+class Embedder(Protocol):
+    """Generador de vectores para la recuperación semántica."""
+
+    def embed(self, text: str) -> Sequence[float]:
+        """Devuelve el vector del texto."""
 
         ...
 
