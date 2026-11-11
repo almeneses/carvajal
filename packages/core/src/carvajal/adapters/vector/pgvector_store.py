@@ -35,9 +35,12 @@ class PgVectorStore:
         Si el fragmento no existe se inserta completo; si existe con el mismo
         ``document_id`` solo se reescribe su ``embedding``. El ``id`` es inmutable:
         reutilizarlo desde otro documento lanza ``ValueError`` **antes de
-        escribir**, así que en el caso normal no queda nada pendiente; el
-        llamador sigue siendo dueño de la transacción. Hace ``flush()``, nunca
-        ``commit()``.
+        escribir**, así que la pre-validación no deja cambios pendientes.
+
+        La única vía que puede lanzar ``ValueError`` después de ejecutar la
+        sentencia es el guardia de carrera (dos transacciones simultáneas sobre
+        el mismo id): el llamador es dueño de la transacción y debe revertirla.
+        Hace ``flush()``, nunca ``commit()``.
         """
 
         if len(chunks) != len(embeddings):
