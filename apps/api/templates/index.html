@@ -1,14 +1,33 @@
-{% extends "base.html" %} {% block content %}
-<h1>Pregunta al corpus Carvajal</h1>
-<p class="entradilla">Respuestas con citas a partir de los documentos capturados del corpus.</p>
+{% extends "base.html" %}
+{% block content %}
+<section class="seccion" id="preguntar" aria-labelledby="titulo-preguntar">
+  <h1 id="titulo-preguntar">Pregunta al corpus Carvajal</h1>
+  <p class="entradilla">
+    Respuestas con citas a partir de los documentos públicos capturados del corpus.
+  </p>
 
-<form class="formulario" method="post" action="/ask" hx-post="/ask"
-  hx-target="#respuesta" hx-swap="innerHTML">
-  <label class="sr-only" for="pregunta">Pregunta</label>
-  <input id="pregunta" name="question" type="text" required autocomplete="off"
-    placeholder="¿Cuándo nació la empresa?" />
-  <button type="submit">Preguntar</button>
-</form>
+  <form class="formulario" method="post" action="/ask" data-preguntar>
+    <div class="campo">
+      <label for="pregunta">Tu pregunta</label>
+      <input
+        id="pregunta"
+        name="question"
+        type="text"
+        required
+        autocomplete="off"
+        placeholder="¿Cuándo nació la empresa?"
+        aria-describedby="ayuda-pregunta"
+      />
+      <p id="ayuda-pregunta" class="ayuda">
+        Formula una pregunta concreta: el asistente responde solo con el corpus y cita el
+        fragmento del que toma cada dato.
+      </p>
+    </div>
+    <button type="submit">Preguntar</button>
+  </form>
+</section>
 
-<div id="respuesta" aria-live="polite" class="respuesta"></div>
+<section class="seccion" aria-label="Respuesta">
+  <div id="respuesta" class="respuesta" aria-live="polite"></div>
+</section>
 {% endblock %}
