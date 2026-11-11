@@ -190,3 +190,24 @@ def test_limit_se_respeta() -> None:
     # Assert
     assert store.limits == [2]
     assert [source.chunk_id for source in answer.sources] == ["historia:0", "historia:1"]
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_limit_no_positivo_lanza_value_error(limit: int) -> None:
+    # Arrange
+    embedder, store, llm = StubEmbedder(), StubVectorStore(), StubLLM()
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="limit"):
+        AskQuestion(store, embedder, llm, limit=limit)
+    assert store.limits == []
+
+
+def test_respuesta_vacia_del_llm_lanza_value_error() -> None:
+    # Arrange
+    results = [_scored("historia:0", "historia", 0)]
+    use_case = AskQuestion(StubVectorStore(results), StubEmbedder(), StubLLM(reply="   "))
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="respuesta vacía"):
+        use_case.answer(QUESTION)

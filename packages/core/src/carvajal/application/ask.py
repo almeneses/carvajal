@@ -63,6 +63,8 @@ class AskQuestion:
         limit: int = 8,
         system_prompt: str | None = None,
     ) -> None:
+        if limit <= 0:
+            raise ValueError("limit debe ser mayor que cero.")
         self._vector_store = vector_store
         self._embedder = embedder
         self._llm = llm
@@ -73,7 +75,8 @@ class AskQuestion:
         """Devuelve la respuesta a ``question`` junto con sus fuentes.
 
         Raises:
-            ValueError: si la pregunta está vacía o solo tiene espacios.
+            ValueError: si la pregunta está vacía o solo tiene espacios, o si el
+                proveedor de LLM devuelve una respuesta vacía.
         """
 
         normalized = question.strip()
@@ -87,6 +90,8 @@ class AskQuestion:
 
         prompt = _build_prompt(normalized, results)
         text = self._llm.complete(system=self._system_prompt, prompt=prompt)
+        if not text.strip():
+            raise ValueError("El proveedor de LLM devolvió una respuesta vacía.")
         return Answer(text=text, sources=tuple(_source(result) for result in results))
 
 
