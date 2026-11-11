@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Sequence
 
+import httpx
 import pytest
 
 from carvajal.adapters.embeddings import ollama
@@ -65,6 +66,7 @@ def test_ollama_embedder_usa_el_timeout_por_defecto(monkeypatch: pytest.MonkeyPa
 
     # Assert
     assert captured["client_kwargs"] == {"timeout": ollama.DEFAULT_TIMEOUT}
+    assert captured["base_url"] == ollama.DEFAULT_BASE_URL
 
 
 class _FailingOllamaEmbeddings:
@@ -91,7 +93,7 @@ def test_ollama_embedder_envuelve_el_fallo_de_conexion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
-    failure = ConnectionError("conexión rechazada")
+    failure = httpx.ConnectError("conexión rechazada")
     fake = _FailingOllamaEmbeddings(failure)
     monkeypatch.setattr(ollama, "OllamaEmbeddings", lambda **_: fake)
     embedder = ollama.OllamaEmbedder(base_url="http://ollama.test:11434")
@@ -101,3 +103,17 @@ def test_ollama_embedder_envuelve_el_fallo_de_conexion(
         embedder.embed("hola")
     assert isinstance(captured.value, RuntimeError)
     assert captured.value.__cause__ is failure
+
+
+def test_ollama_embedder_deja_pasar_los_errores_de_programacion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    failure = TypeError("argumento inválido")
+    fake = _FailingOllamaEmbeddings(failure)
+    monkeypatch.setattr(ollama, "OllamaEmbeddings", lambda **_: fake)
+    embedder = ollama.OllamaEmbedder()
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="argumento inválido"):
+        embedder.embed("hola")

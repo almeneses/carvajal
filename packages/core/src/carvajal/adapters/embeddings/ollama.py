@@ -1,5 +1,6 @@
 """Embeddings servidos por Ollama a través de LangChain."""
 
+import httpx
 from langchain_ollama import OllamaEmbeddings
 
 __all__ = ["EmbeddingError", "OllamaEmbedder"]
@@ -37,7 +38,7 @@ class OllamaEmbedder:
         self._base_url = base_url or DEFAULT_BASE_URL
         self._embeddings = OllamaEmbeddings(
             model=model,
-            base_url=base_url,
+            base_url=self._base_url,
             client_kwargs={"timeout": timeout},
         )
 
@@ -55,7 +56,7 @@ class OllamaEmbedder:
 
         try:
             embedding = self._embeddings.embed_query(text)
-        except Exception as error:
+        except (httpx.HTTPError, OSError) as error:
             raise EmbeddingError(
                 f"No se pudo contactar con Ollama en {self._base_url}. Verifica que el "
                 "servidor esté en marcha y que el modelo esté descargado."

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from carvajal.application.ports import Embedder, LLMProvider, ScoredChunk, VectorStore
 
-__all__ = ["Answer", "AskQuestion", "Source"]
+__all__ = ["Answer", "AskQuestion", "LLMError", "Source"]
 
 DEFAULT_SYSTEM_PROMPT = (
     "Eres el asistente del corpus Carvajal. Responde únicamente con el CONTEXTO "
@@ -22,6 +22,11 @@ DEFAULT_SYSTEM_PROMPT = (
 NO_CONTEXT_ANSWER = (
     "No dispongo de información suficiente en el corpus para responder esa pregunta."
 )
+
+
+class LLMError(RuntimeError):
+    """El proveedor de LLM no devolvió una respuesta utilizable."""
+
 
 EXCERPT_CHARS = 280  # longitud máxima del extracto de cada fuente
 
@@ -75,8 +80,8 @@ class AskQuestion:
         """Devuelve la respuesta a ``question`` junto con sus fuentes.
 
         Raises:
-            ValueError: si la pregunta está vacía o solo tiene espacios, o si el
-                proveedor de LLM devuelve una respuesta vacía.
+            ValueError: si la pregunta está vacía o solo tiene espacios.
+            LLMError: si el proveedor de LLM devuelve una respuesta vacía.
         """
 
         normalized = question.strip()
@@ -91,7 +96,7 @@ class AskQuestion:
         prompt = _build_prompt(normalized, results)
         text = self._llm.complete(system=self._system_prompt, prompt=prompt)
         if not text.strip():
-            raise ValueError("El proveedor de LLM devolvió una respuesta vacía.")
+            raise LLMError("El proveedor de LLM devolvió una respuesta vacía.")
         return Answer(text=text.strip(), sources=tuple(_source(result) for result in results))
 
 

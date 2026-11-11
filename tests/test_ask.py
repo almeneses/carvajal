@@ -4,7 +4,8 @@ from collections.abc import Iterator, Sequence
 
 import pytest
 
-from carvajal.application.ask import EXCERPT_CHARS, Answer, AskQuestion, Source
+from carvajal.adapters.embeddings import EmbeddingError
+from carvajal.application.ask import EXCERPT_CHARS, Answer, AskQuestion, LLMError, Source
 from carvajal.application.ports import Embedder, LLMProvider, ScoredChunk, VectorStore
 from carvajal.domain.entities import Chunk
 
@@ -20,6 +21,16 @@ class StubEmbedder:
     def embed(self, text: str) -> list[float]:
         self.texts.append(text)
         return [1.0, 0.0]
+
+
+class FailingEmbedder:
+    """Embedder que simula un fallo del proveedor."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def embed(self, text: str) -> list[float]:
+        raise self.error
 
 
 class StubVectorStore:
@@ -203,14 +214,25 @@ def test_limit_no_positivo_lanza_value_error(limit: int) -> None:
     assert store.limits == []
 
 
-def test_respuesta_vacia_del_llm_lanza_value_error() -> None:
+def test_respuesta_vacia_del_llm_lanza_llm_error() -> None:
     # Arrange
     results = [_scored("historia:0", "historia", 0)]
     use_case = AskQuestion(StubVectorStore(results), StubEmbedder(), StubLLM(reply="   "))
 
     # Act / Assert
-    with pytest.raises(ValueError, match="respuesta vacía"):
+    with pytest.raises(LLMError, match="respuesta vacía"):
         use_case.answer(QUESTION)
+
+
+def test_error_del_embedder_se_propaga_sin_llamar_al_llm() -> None:
+    # Arrange
+    llm = StubLLM()
+    use_case = AskQuestion(StubVectorStore(), FailingEmbedder(EmbeddingError("sin Ollama")), llm)
+
+    # Act / Assert
+    with pytest.raises(EmbeddingError, match="sin Ollama"):
+        use_case.answer(QUESTION)
+    assert llm.calls == []
 
 
 def test_respuesta_del_llm_se_recorta() -> None:
