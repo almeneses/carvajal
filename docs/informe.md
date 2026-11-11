@@ -55,7 +55,7 @@ Decisiones técnicas:
 
 ### 3.1 Scraping
 
-- Semillas explícitas en `src/carvajal/config.py`: **15 URLs** del sitio oficial
+- Semillas explícitas en `packages/core/src/carvajal/config.py`: **15 URLs** del sitio oficial
   (`config.SEEDS`) y **6 fuentes de terceros** (`config.EXTERNAL_SEEDS`).
 - Cliente HTTP `requests` con sesión única, `User-Agent` identificable y `timeout`
   de 30 s; **se consulta `robots.txt`** por host (incluido `Crawl-delay`, si existe) y
@@ -84,7 +84,7 @@ host, `User-Agent` propio y timeout de 30 s; después extrae el Markdown, dedupl
 huella SHA-256 del contenido, y enriquece cada documento con `section`, `domain`,
 `source_type`, `hash` y `chars`.
 
-El extractor (`src/carvajal/extracting.py`) recorre el DOM y conserva encabezados,
+El extractor (`packages/core/src/carvajal/extracting.py`) recorre el DOM y conserva encabezados,
 párrafos, listas y tablas, descartando subárboles de navegación (`nav`, `header`,
 `footer`, formularios, modales y contenedores con clases de menú). Se colapsan
 espacios y se eliminan bloques duplicados.

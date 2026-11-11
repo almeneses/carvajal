@@ -13,6 +13,7 @@ from carvajal.config import (
     PROCESSED_DIR,
     RAW_DIR,
 )
+from carvajal.domain.rules import is_duplicate
 from carvajal.extracting import html_title, html_to_markdown
 from carvajal.fetching import Fetcher, FetchError, RobotsDenied, WebClient
 from carvajal.gold import index_entry, write_bronze, write_gold, write_index, write_silver
@@ -115,7 +116,7 @@ def capture(
         page = CapturedPage(url=url, html=html, markdown=html_to_markdown(html))
         _emit(on_event, "extraer", url, f"{len(page.markdown):,} caracteres")
 
-        if len(page.markdown) >= MIN_DEDUPE_CHARS and page.content_hash in seen_hashes:
+        if is_duplicate(page.markdown, seen_hashes, min_chars=MIN_DEDUPE_CHARS):
             report.duplicates.append(url)
             _emit(on_event, "deduplicar", url, "duplicada por hash")
             continue

@@ -273,6 +273,8 @@ make format     # Ruff (formato)
 make typecheck  # ty
 make test       # pytest
 make build      # uv build
+make db         # Postgres 16 con pgvector (docker compose)
+make db-down    # detiene la base local
 make clean      # limpiar cachés y artefactos
 ```
 
@@ -304,7 +306,8 @@ carvajal/
 
 ## Documentación
 
-- [`docs/prompts.md`](docs/prompts.md) — los tres prompts, las variantes probadas y qué se decidió.
+- [`specs/`](specs/) — especificaciones versionadas con Spec Kit: `spec`, `plan` y `tasks` por funcionalidad.
+- [`docs/prompts.md`](docs/prompts.md) - los tres prompts, las variantes probadas y qué se decidió.
 - [`docs/alcance.md`](docs/alcance.md) — alcance del Q&A: tipos de pregunta y cobertura real del corpus.
 - [`docs/arquitectura.md`](docs/arquitectura.md) — diagramas Mermaid del pipeline y del stack.
 - [`docs/arquitectura.html`](docs/arquitectura.html) — diagrama interactivo (Archify), fuente en `docs/arquitectura.json`.

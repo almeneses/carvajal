@@ -137,23 +137,44 @@ se propone un stack distinto, documentado en
 
 ```text
 carvajal/
-├── src/carvajal/          # código del paquete (src-layout)
-│   ├── config.py            # semillas, capas, política HTTP
-│   ├── fetching.py          # cliente HTTP educado
-│   ├── extracting.py        # HTML → Markdown
-│   ├── gold.py              # front matter + índice JSONL
-│   ├── pipeline.py          # orquestación de las tres capas
-│   ├── models.py            # modelos del dominio
-│   ├── importer.py          # importación del corpus externo (capa extendida)
-│   ├── rag.py               # recuperación, prompt y generación (RAG)
-│   ├── ui.py                # interfaz web de pruebas (Streamlit)
-│   └── cli.py               # capture / import / ask / status / list
+├── packages/
+│   └── core/
+│       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
+│           ├── domain/        # entidades y reglas puras (sin IO)
+│           │   ├── entities.py  # CapturedPage, Document, Chunk
+│           │   ├── rules.py     # slug, sección, dominio, hash, dedupe
+│           │   ├── frontmatter.py # lectura y parseo del front matter
+│           │   └── chunking.py  # división de documentos en chunks
+│           ├── application/   # casos de uso y puertos (Protocol)
+│           │   └── ports.py     # repositorios, vector store, LLM, fetcher, extractor
+│           ├── adapters/      # adaptadores de infraestructura
+│           │   └── storage/     # SQLAlchemy Core
+│           │       ├── database.py      # motor y sesiones
+│           │       ├── tables.py        # esquema declarativo
+│           │       ├── repositories.py  # repositorios SQL
+│           │       └── import_corpus.py # importador Gold idempotente
+│           ├── infrastructure/ # adaptadores y configuración tipada
+│           │   └── settings.py  # pydantic-settings (.env + entorno)
+│           ├── config.py      # fachada de compatibilidad de settings
+│           ├── fetching.py    # cliente HTTP educado (implementa Fetcher)
+│           ├── extracting.py  # HTML → Markdown
+│           ├── gold.py        # front matter + índice JSONL
+│           ├── pipeline.py    # orquestación de las tres capas
+│           ├── models.py      # reexporta el dominio (compatibilidad)
+│           ├── importer.py    # importación del corpus externo (capa extendida)
+│           ├── rag.py         # recuperación, prompt y generación (RAG)
+│           ├── ui.py          # interfaz web de pruebas (Streamlit)
+│           └── cli.py         # capture / import / ask / status / list
 ├── data/                    # capas Medallion (raw y processed ignoradas)
 │   ├── raw/                 # bronze — HTML crudo
 │   ├── processed/           # silver — Markdown limpio
 │   ├── gold/                # gold — entregable versionado (núcleo)
 │   ├── external/            # capa extendida importada (solo manifiesto en Git)
 │   └── index/               # índice FAISS en caché (regenerable, ignorado por Git)
+├── migrations/              # migraciones Alembic (esquema relacional)
+├── alembic.ini              # configuración de Alembic
+├── specs/                   # especificaciones (Spec Kit: spec / plan / tasks)
+├── .specify/                # plantillas y constitución del flujo (Spec Kit)
 ├── tests/                   # pruebas (pytest, patrón AAA)
 ├── app.py                   # entrada de la interfaz: streamlit run app.py
 ├── docs/                    # documentación, ADRs e investigación
@@ -221,6 +242,19 @@ carvajal/
   directo a `main`.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) —
   `feat:`, `fix:`, `docs:`, `refactor:`, `style:`, `test:`, `chore:`.
+- **Etiquetas de PR:** toda Pull Request debe llevar al menos una etiqueta del
+  catálogo existente (`gh label list`), aplicada con
+  `gh pr edit <número> --add-label`. En particular, ningún agente da una PR por
+  terminada sin etiquetas; si el cambio abarca varias áreas, combina las
+  etiquetas que correspondan. Solo se crea una etiqueta nueva si ninguna
+  existente encaja y el hueco es estructural, justificándolo en la PR. El
+  procedimiento y los ejemplos están en
+  [`AGENTS.md` § Etiquetas de PR](AGENTS.md#etiquetas-de-pr-obligatorio-para-agentes).
+- **Assignee de PR:** toda Pull Request debe incluir como assignee a quien la
+  abre. Por defecto el autor se asigna a sí mismo
+  (`gh pr edit <número> --add-assignee @me`); no se asigna a otras personas sin
+  pedirlo. Ver
+  [`AGENTS.md` § Assignee de PR](AGENTS.md#assignee-de-pr-obligatorio-para-agentes).
 - **Identidad git:** Marko David Garcia <markodavidgm@gmail.com> (ver §11).
 
 ## 8. Flujo diario (commit + push)
@@ -271,8 +305,10 @@ git push
 | 2026-10-30 | Alcance documentado en `docs/alcance.md`; el sitio no publica contacto ni sedes | Se verificaron 404 en `/contacto/`, `/sedes/`, `/oficinas/`, barrido de 26 sub-sitemaps y portada sin teléfonos ni direcciones. No se inventan datos: el asistente declara la ausencia y remite a los canales oficiales |
 | 2026-10-30 | Experimentación de prompts documentada en `docs/prompts.md` | Cada tarea se probó con 3-4 variantes sobre el corpus real; las métricas (fuentes citadas, cifras, declaración de ausencia) justifican las reglas actuales y quedan reproducibles con `scripts/experimentos_prompts.py` |
 | 2026-10-30 | Importar el corpus de un compañero como **capa extendida** (`data/external/`) | Su corpus aporta cientos de fuentes que el núcleo no cubre. Se importa solo HTML, se re-extrae con el extractor propio, se deduplica contra el núcleo y se carga siempre si existe; no se consolidan en el prompt porque 1,4 M de caracteres desbordarían el contexto |
+| 2026-11-03 | Adoptar **Spec Kit** para el desarrollo guiado por especificaciones | `specs/` pasa a ser el registro de qué se construye y cómo (`spec` → `plan` → `tasks`); `.specify/memory/constitution.md` es una proyección de esta constitución, que sigue siendo la fuente única de verdad |
 | 2026-11-08 | Registrar las decisiones en `docs/decisions/` (formato ADR) | `CONSTITUTION.md` dice *qué* es el proyecto; los ADR dicen *por qué* y qué se descartó, para no re-litigar decisiones ni perder el contexto ante agentes nuevos |
 | 2026-11-08 | ADR-0001 (**propuesto**): app web en un solo runtime Python (FastAPI + Jinja2 + HTMX) con Postgres/pgvector; captura por CLI/cron | Streamlit no da sesiones, concurrencia ni trabajos en segundo plano. Las 100 K cuentas proyectadas no exigen Kafka ni Kubernetes: el costo dominante son los tokens, no los servidores |
+| 2026-11-10 | Persistencia relacional de la Ola 1: Postgres 16 + pgvector, Alembic, repositorios SQLAlchemy Core e importador Gold idempotente con poda autoritativa | El corpus necesita historial de versiones y recargas seguras; el importador recalcula el estado desde `data/gold/` y elimina lo que ya no existe, sin duplicar en ejecuciones repetidas |
 
 ## 10. Notas y tareas pendientes
 

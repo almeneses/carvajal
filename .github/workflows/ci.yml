@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -19,6 +19,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Presupuesto de cambios
+        # Falla si el PR supera el límite duro; advierte desde el blando.
+        # Los releases dev → main integran una ola ya revisada por PR: no se presupuestan por línea.
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'main'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOFT_LIMIT: "300"
+          HARD_LIMIT: "700"
+        run: python3 .github/scripts/pr_size.py
 
       - name: Instalar uv
         # v8+ ya no publica tags de version mayor: se fija la version completa.
@@ -37,4 +50,63 @@ jobs:
         run: uv run ty check
 
       - name: Pruebas
-        run: uv run pytest
+        run: uv run pytest -m "not integration"
+
+  integration:
+    name: Integración
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sincronizar entorno
+        run: uv sync --all-groups
+
+      - name: Pruebas de integración
+        # testcontainers usa el Docker del runner; sin pruebas marcadas aún, no falla.
+        run: |
+          if grep -rq "pytest.mark.integration" tests; then
+            uv run pytest -m integration
+          else
+            echo "Sin pruebas de integración todavía."
+          fi
+
+  db:
+    name: Base de datos
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_USER: carvajal
+      POSTGRES_PASSWORD: carvajal
+      POSTGRES_DB: carvajal
+      POSTGRES_PORT: 5432
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Cliente de Postgres
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Validar compose.yml
+        run: docker compose config -q
+
+      - name: Levantar la base
+        run: docker compose up -d --wait --wait-timeout 60 db
+
+      - name: Verificar Postgres y pgvector
+        env:
+          DATABASE_URL: postgresql://carvajal:carvajal@127.0.0.1:5432/carvajal
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
+          version=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector';")
+          echo "pgvector $version"
+          test -n "$version" || { echo "::error::La extensión vector no está disponible"; exit 1; }
+
+      - name: Bajar la base
+        if: always()
+        run: docker compose down -v

@@ -1,9 +1,15 @@
-"""Interfaz de línea de comandos: capture / ask / summarize / faq / import / eval / status."""
+"""Interfaz de línea de comandos: capture / ask / summarize / faq / import / migrate-gold."""
 
 import argparse
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import Engine
+from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
+
+from carvajal.adapters.storage.database import build_engine, build_session_factory
+from carvajal.adapters.storage.import_corpus import GoldImportError, migrate_gold
 from carvajal.config import (
     EXTERNAL_DIR,
     EXTERNAL_SEEDS,
@@ -31,6 +37,14 @@ from carvajal.rag import (
     render_results_markdown,
     summarize,
 )
+
+_CREDENTIALS_IN_URL = re.compile(r"(?P<scheme>://[^:/@\s]+:)[^@\s]+@")
+
+
+def _redact_credentials(message: str) -> str:
+    """Oculta la contraseña de una URL sin perder usuario, host ni diagnóstico."""
+
+    return _CREDENTIALS_IN_URL.sub(r"\g<scheme>***@", message)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -137,6 +151,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Importa el corpus externo a la capa extendida (solo recuperación).",
     )
 
+    migrate_parser = subparsers.add_parser(
+        "migrate-gold",
+        help=(
+            "Migra el corpus Gold (data/gold) a la base de datos relacional. "
+            "El directorio es autoritativo para su capa: los documentos que ya no "
+            "existan en disco se podan de la base."
+        ),
+    )
+    migrate_parser.add_argument(
+        "--gold", type=Path, default=GOLD_DIR, help="Directorio Gold a importar."
+    )
+    migrate_parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Permite importar un directorio Gold vacío y podar toda la capa.",
+    )
+
     subparsers.add_parser(
         "status",
         help="Muestra el estado del corpus (semillas y entregables Gold).",
@@ -216,6 +247,33 @@ def main(argv: list[str] | None = None) -> int:
             print(error)
             return 1
         print_import_report(report)
+        return 0
+
+    if args.command == "migrate-gold":
+        engine: Engine | None = None
+        try:
+            # La URL se valida al construir el motor (ArgumentError), antes de conectar.
+            try:
+                engine = build_engine()
+            except (SQLAlchemyError, ValueError) as error:
+                print(f"Configuración de base de datos inválida: {_redact_credentials(str(error))}")
+                return 1
+            try:
+                with build_session_factory(engine).begin() as session:
+                    report = migrate_gold(session, gold_dir=args.gold, allow_empty=args.allow_empty)
+            except (OperationalError, InterfaceError) as error:
+                print(f"No se pudo conectar a la base de datos: {_redact_credentials(str(error))}")
+                return 1
+            except GoldImportError as error:
+                print(f"Corpus Gold no importable: {error}")
+                return 1
+        finally:
+            if engine is not None:
+                engine.dispose()
+        print(f"Documentos importados: {report.documents}")
+        print(f"Fragmentos importados: {report.chunks}")
+        if report.removed:
+            print(f"Documentos podados: {report.removed}")
         return 0
 
     if args.command == "list":

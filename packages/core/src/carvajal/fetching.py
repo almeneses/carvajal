@@ -1,12 +1,12 @@
 """Cliente HTTP educado para el sitio del corpus."""
 
 import time
-from typing import Protocol
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import requests
 
+from carvajal.application.ports import Fetcher
 from carvajal.config import (
     BASE_URL,
     REQUEST_DELAY_SECONDS,
@@ -15,19 +15,7 @@ from carvajal.config import (
     USER_AGENT,
 )
 
-
-class Fetcher(Protocol):
-    """Contrato mínimo del cliente HTTP que consume el pipeline."""
-
-    def can_fetch(self, url: str) -> bool:
-        """Indica si la URL se puede descargar."""
-
-        ...
-
-    def fetch(self, url: str) -> str:
-        """Devuelve el HTML de la URL."""
-
-        ...
+__all__ = ["FetchError", "Fetcher", "RobotsDenied", "WebClient", "normalize_robots"]
 
 
 class FetchError(RuntimeError):

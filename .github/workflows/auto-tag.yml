@@ -1,0 +1,57 @@
+# Crea un tag con el ID del plan (W0.1b → w0-1b) al mergear un PR en dev y
+# permite tags de hito (ola-0, ola-1…) de forma manual.
+name: Etiquetar versiones
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a crear sobre dev (por ejemplo ola-0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  tag:
+    name: Crear tag
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 1
+
+      - name: Calcular el tag
+        id: plan
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          MANUAL_TAG: ${{ inputs.tag }}
+        run: python3 .github/scripts/plan_tag.py
+
+      - name: Crear el tag
+        if: steps.plan.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          PR_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "El tag $TAG ya existe; no se recrea."
+            exit 0
+          fi
+          SHA="${PR_SHA:-$(git rev-parse HEAD)}"
+          gh api --method POST "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/tags/$TAG" \
+            -f sha="$SHA"
+          echo "Tag $TAG creado sobre $SHA."
