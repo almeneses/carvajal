@@ -1,11 +1,18 @@
 """Pruebas del shell web con handlers falsos: sin red ni base de datos."""
 
+import logging
 from collections.abc import Callable
 
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.api.main import Handlers, HealthStatus, create_app
+from apps.api.main import (
+    DB_UNAVAILABLE,
+    SERVICE_UNAVAILABLE,
+    Handlers,
+    HealthStatus,
+    create_app,
+)
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.application.ask import Answer, LLMError, Source
 
@@ -40,7 +47,7 @@ def failing(error: Exception) -> Callable[[str], Answer]:
 
 def unhealthy() -> Callable[[], HealthStatus]:
     def health() -> HealthStatus:
-        raise RuntimeError("conexión rechazada")
+        raise RuntimeError("connection to 127.0.0.1:5432 as user carvajal failed")
 
     return health
 
@@ -57,7 +64,7 @@ def test_health_devuelve_estado_y_conteos() -> None:
     assert response.json() == {"status": "ok", "documents": 12, "chunks": 34}
 
 
-def test_health_degradado_devuelve_503() -> None:
+def test_health_degradado_no_filtra_detalles() -> None:
     # Arrange
     client = make_client(health=unhealthy())
 
@@ -66,8 +73,8 @@ def test_health_degradado_devuelve_503() -> None:
 
     # Assert
     assert response.status_code == 503
-    assert response.json()["status"] == "degraded"
-    assert "conexión rechazada" in response.text
+    assert response.json() == {"status": "degraded", "detail": DB_UNAVAILABLE}
+    assert "127.0.0.1" not in response.text and "carvajal" not in response.text
 
 
 def test_portada_renderiza_el_formulario() -> None:
@@ -136,5 +143,23 @@ def test_fallos_de_proveedor_devuelven_503(error: Exception) -> None:
 
     # Assert
     assert response.status_code == 503
-    assert str(error) in response.text
+    assert SERVICE_UNAVAILABLE in response.text
+    assert str(error) not in response.text
     assert "Traceback" not in response.text
+
+
+def test_fallo_inesperado_no_filtra_y_queda_en_el_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    caplog.set_level(logging.WARNING, logger="apps.api.main")
+    client = make_client(ask=failing(RuntimeError("detalle interno 127.0.0.1")))
+
+    # Act
+    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 503
+    assert SERVICE_UNAVAILABLE in response.text
+    assert "detalle interno" not in response.text
+    assert "RuntimeError" in caplog.text

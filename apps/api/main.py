@@ -7,6 +7,7 @@ y ``llm`` son singletons y cada petición abre su propia sesión.
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
+from logging import getLogger
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request, Response
@@ -25,6 +26,10 @@ from carvajal.infrastructure.settings import Settings
 
 APP_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=APP_DIR / "templates")
+logger = getLogger(__name__)
+
+DB_UNAVAILABLE = "La base de datos no responde."
+SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este momento."
 
 
 @dataclass(frozen=True)
@@ -75,15 +80,15 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
     app = FastAPI(title="Corpus Carvajal")
-    app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+    app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
 
     @app.get("/health")
     def health() -> JSONResponse:
         try:
             status = (handlers or _default_handlers()).health()
         except Exception as error:  # la base puede fallar de muchas formas
-            detail = f"No se pudo consultar la base de datos: {error}"
-            return JSONResponse({"status": "degraded", "detail": detail}, status_code=503)
+            logger.warning("Health check falló: %s", error)
+            return JSONResponse({"status": "degraded", "detail": DB_UNAVAILABLE}, status_code=503)
         return JSONResponse(
             {"status": "ok", "documents": status.documents, "chunks": status.chunks}
         )
@@ -102,10 +107,11 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         except ValueError as error:
             return _message(request, 422, str(error))
         except (EmbeddingError, LLMError) as error:
-            return _message(request, 503, str(error))
+            logger.warning("Falló el servicio de respuestas: %s", error)
+            return _message(request, 503, SERVICE_UNAVAILABLE)
         except Exception as error:  # el cliente nunca ve un traceback
-            message = f"Fallo inesperado ({type(error).__name__}); revisa la base y los servicios."
-            return _message(request, 503, message)
+            logger.exception("Fallo inesperado al responder: %s", error)
+            return _message(request, 503, SERVICE_UNAVAILABLE)
         return templates.TemplateResponse(request, "_answer.html", {"answer": answer})
 
     return app
