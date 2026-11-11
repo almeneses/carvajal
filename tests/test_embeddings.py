@@ -117,3 +117,16 @@ def test_ollama_embedder_deja_pasar_los_errores_de_programacion(
     # Act / Assert
     with pytest.raises(TypeError, match="argumento inválido"):
         embedder.embed("hola")
+
+
+def test_ollama_embedder_envuelve_el_error_de_parseo(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    failure = ValueError("json inválido")
+    fake = _FailingOllamaEmbeddings(failure)
+    monkeypatch.setattr(ollama, "OllamaEmbeddings", lambda **_: fake)
+    embedder = ollama.OllamaEmbedder()
+
+    # Act / Assert
+    with pytest.raises(ollama.EmbeddingError, match="localhost") as captured:
+        embedder.embed("hola")
+    assert captured.value.__cause__ is failure

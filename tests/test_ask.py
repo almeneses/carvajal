@@ -58,6 +58,24 @@ class StubVectorStore:
         raise NotImplementedError
 
 
+class FailingVectorStore(StubVectorStore):
+    """Índice que simula un fallo del almacén vectorial."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+    def search(
+        self,
+        embedding: Sequence[float],
+        *,
+        limit: int = 8,
+        layer: str | None = None,
+        section: str | None = None,
+    ) -> Sequence[ScoredChunk]:
+        raise self.error
+
+
 class StubLLM:
     """LLM determinista que registra los mensajes recibidos."""
 
@@ -156,6 +174,8 @@ def test_prompt_incluye_contexto_numerado_y_reglas() -> None:
     assert "[1] (historia · historia)" in prompt
     assert "[2] (home · home)" in prompt
     assert "texto de historia:0" in prompt
+    assert "<contexto>" in prompt
+    assert "</contexto>" in prompt
     assert f"Pregunta: {QUESTION}" in prompt
     assert "únicamente con el CONTEXTO" in system
     assert "[n]" in system
@@ -231,6 +251,18 @@ def test_error_del_embedder_se_propaga_sin_llamar_al_llm() -> None:
 
     # Act / Assert
     with pytest.raises(EmbeddingError, match="sin Ollama"):
+        use_case.answer(QUESTION)
+    assert llm.calls == []
+
+
+def test_error_del_vector_store_se_propaga_sin_llamar_al_llm() -> None:
+    # Arrange
+    llm = StubLLM()
+    store = FailingVectorStore(RuntimeError("índice caído"))
+    use_case = AskQuestion(store, StubEmbedder(), llm)
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="índice caído"):
         use_case.answer(QUESTION)
     assert llm.calls == []
 

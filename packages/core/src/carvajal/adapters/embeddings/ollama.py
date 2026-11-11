@@ -56,7 +56,7 @@ class OllamaEmbedder:
 
         try:
             embedding = self._embeddings.embed_query(text)
-        except (httpx.HTTPError, OSError) as error:
+        except (httpx.HTTPError, OSError, ValueError) as error:
             raise EmbeddingError(
                 f"No se pudo contactar con Ollama en {self._base_url}. Verifica que el "
                 "servidor esté en marcha y que el modelo esté descargado."
