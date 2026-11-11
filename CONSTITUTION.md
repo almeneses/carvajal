@@ -148,12 +148,12 @@ carvajal/
 │           ├── application/   # casos de uso y puertos (Protocol)
 │           │   └── ports.py     # repositorios, vector store, LLM, fetcher, extractor
 │           ├── adapters/      # adaptadores de infraestructura
-│           │   └── storage/     # SQLAlchemy Core
-│           │       ├── database.py      # motor y sesiones
-│           │       ├── tables.py        # esquema declarativo
-│           │       ├── repositories.py  # repositorios SQL
-│           │       └── import_corpus.py # importador Gold idempotente
-│           │   ├── vector/      # pgvector: PgVectorStore (HNSW, coseno)
+│           │   ├── storage/     # SQLAlchemy Core
+│           │   │   ├── database.py      # motor y sesiones
+│           │   │   ├── tables.py        # esquema declarativo
+│           │   │   ├── repositories.py  # repositorios SQL
+│           │   │   └── import_corpus.py # importador Gold idempotente
+│           │   └── vector/      # pgvector: PgVectorStore (HNSW, coseno)
 │           ├── infrastructure/ # adaptadores y configuración tipada
 │           │   └── settings.py  # pydantic-settings (.env + entorno)
 │           ├── config.py      # fachada de compatibilidad de settings
