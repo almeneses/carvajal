@@ -67,6 +67,16 @@ def test_ollama_embedder_usa_el_timeout_por_defecto(monkeypatch: pytest.MonkeyPa
     assert captured["client_kwargs"] == {"timeout": ollama.DEFAULT_TIMEOUT}
 
 
+class _FailingOllamaEmbeddings:
+    """Doble que simula un fallo de conexión con Ollama."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def embed_query(self, text: str) -> list[float]:
+        raise self.error
+
+
 def test_ollama_embedder_rechaza_un_vector_vacio(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
     _install(monkeypatch, vector=())
@@ -75,3 +85,19 @@ def test_ollama_embedder_rechaza_un_vector_vacio(monkeypatch: pytest.MonkeyPatch
     # Act / Assert
     with pytest.raises(ValueError, match="vector vacío"):
         embedder.embed("hola")
+
+
+def test_ollama_embedder_envuelve_el_fallo_de_conexion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    failure = ConnectionError("conexión rechazada")
+    fake = _FailingOllamaEmbeddings(failure)
+    monkeypatch.setattr(ollama, "OllamaEmbeddings", lambda **_: fake)
+    embedder = ollama.OllamaEmbedder(base_url="http://ollama.test:11434")
+
+    # Act / Assert
+    with pytest.raises(ollama.EmbeddingError, match=r"ollama\.test") as captured:
+        embedder.embed("hola")
+    assert isinstance(captured.value, RuntimeError)
+    assert captured.value.__cause__ is failure

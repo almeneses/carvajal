@@ -92,7 +92,7 @@ class AskQuestion:
         text = self._llm.complete(system=self._system_prompt, prompt=prompt)
         if not text.strip():
             raise ValueError("El proveedor de LLM devolvió una respuesta vacía.")
-        return Answer(text=text, sources=tuple(_source(result) for result in results))
+        return Answer(text=text.strip(), sources=tuple(_source(result) for result in results))
 
 
 def _build_prompt(question: str, results: Sequence[ScoredChunk]) -> str:
@@ -112,7 +112,10 @@ def _source(result: ScoredChunk) -> Source:
     chunk = result.chunk
     excerpt = " ".join(chunk.text.split())
     if len(excerpt) > EXCERPT_CHARS:
-        excerpt = f"{excerpt[:EXCERPT_CHARS].rstrip()}…"
+        cut = excerpt[:EXCERPT_CHARS]
+        if " " in cut:
+            cut = cut[: cut.rindex(" ")]
+        excerpt = f"{cut.rstrip()}…"
     return Source(
         chunk_id=chunk.id,
         slug=chunk.document_id,

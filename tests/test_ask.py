@@ -4,7 +4,7 @@ from collections.abc import Iterator, Sequence
 
 import pytest
 
-from carvajal.application.ask import Answer, AskQuestion, Source
+from carvajal.application.ask import EXCERPT_CHARS, Answer, AskQuestion, Source
 from carvajal.application.ports import Embedder, LLMProvider, ScoredChunk, VectorStore
 from carvajal.domain.entities import Chunk
 
@@ -211,3 +211,32 @@ def test_respuesta_vacia_del_llm_lanza_value_error() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="respuesta vacía"):
         use_case.answer(QUESTION)
+
+
+def test_respuesta_del_llm_se_recorta() -> None:
+    # Arrange
+    results = [_scored("historia:0", "historia", 0)]
+    llm = StubLLM(reply="  respuesta  ")
+    use_case = AskQuestion(StubVectorStore(results), StubEmbedder(), llm)
+
+    # Act
+    answer = use_case.answer(QUESTION)
+
+    # Assert
+    assert answer.text == "respuesta"
+
+
+def test_extracto_corta_en_palabra_completa() -> None:
+    # Arrange
+    text = " ".join(["palabra"] * 100)
+    results = [_scored("historia:0", "historia", 0, text=text)]
+    use_case, _, _, _ = _use_case(results)
+
+    # Act
+    excerpt = use_case.answer(QUESTION).sources[0].excerpt
+
+    # Assert
+    assert excerpt.endswith("…")
+    assert len(excerpt) <= EXCERPT_CHARS + 1
+    assert text.startswith(excerpt[:-1])
+    assert text[len(excerpt) - 1] == " "
