@@ -22,8 +22,8 @@ def _alembic_config(migration_url: str) -> Config:
     return config
 
 
-def _assert_initial_schema(engine: Engine) -> None:
-    """Comprueba tablas, columnas e índices que debe dejar la revisión 0001."""
+def _assert_head_schema(engine: Engine) -> None:
+    """Comprueba tablas, columnas e índices que debe dejar la migración vigente."""
 
     inspector = inspect(engine)
     assert set(inspector.get_table_names()) >= _SCHEMA_TABLES
@@ -51,6 +51,7 @@ def _assert_initial_schema(engine: Engine) -> None:
         "position",
         "section",
         "layer",
+        "embedding",
     }
     assert columns["document_versions"] == {
         "id",
@@ -60,12 +61,16 @@ def _assert_initial_schema(engine: Engine) -> None:
         "captured_at",
         "created_at",
     }
-    assert "embedding" not in columns["chunks"]
 
     document_indexes = {index["name"] for index in inspector.get_indexes("documents")}
     version_indexes = {index["name"] for index in inspector.get_indexes("document_versions")}
     assert "ix_documents_layer_section" in document_indexes
     assert "ix_document_versions_document_created" in version_indexes
+
+    chunk_indexes = {index["name"]: index for index in inspector.get_indexes("chunks")}
+    hnsw = chunk_indexes["ix_chunks_embedding_hnsw"]["dialect_options"]
+    assert hnsw["postgresql_using"] == "hnsw"
+    assert hnsw["postgresql_ops"] == {"embedding": "vector_cosine_ops"}
 
     chunk_uniques = {
         tuple(unique["column_names"]) for unique in inspector.get_unique_constraints("chunks")
@@ -100,9 +105,9 @@ def test_upgrade_y_downgrade_son_reversibles(
     engine = create_engine(migration_database_url)
 
     try:
-        # Act / Assert: esquema inicial
+        # Act / Assert: esquema vigente
         command.upgrade(config, "head")
-        _assert_initial_schema(engine)
+        _assert_head_schema(engine)
 
         # Act / Assert: downgrade total
         command.downgrade(config, "base")
@@ -111,6 +116,6 @@ def test_upgrade_y_downgrade_son_reversibles(
 
         # Act / Assert: se puede volver a aplicar
         command.upgrade(config, "head")
-        _assert_initial_schema(engine)
+        _assert_head_schema(engine)
     finally:
         engine.dispose()
