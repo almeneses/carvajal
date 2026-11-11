@@ -28,6 +28,16 @@ class FakeChat:
             yield AIMessage(content=chunk)
 
 
+class BlockChat:
+    """Chat que devuelve bloques estructurados en lugar de texto."""
+
+    def invoke(self, input: Sequence[BaseMessage]) -> AIMessage:
+        return AIMessage(content=[{"type": "text", "text": "hola"}])
+
+    def stream(self, input: Sequence[BaseMessage]) -> Iterator[AIMessage]:
+        yield AIMessage(content=[{"type": "text", "text": "hola"}])
+
+
 def test_complete_devuelve_texto_y_envia_sistema_y_prompt() -> None:
     # Arrange
     chat = FakeChat(("Carvajal es un grupo empresarial.",))
@@ -58,6 +68,36 @@ def test_stream_emite_los_fragmentos_en_orden() -> None:
     assert fragments == ["Car", "vajal", " 1958"]
     assert "".join(fragments) == "Carvajal 1958"
     assert [message.type for message in chat.calls[0]] == ["system", "human"]
+
+
+def test_stream_omite_los_fragmentos_vacios() -> None:
+    # Arrange
+    chat = FakeChat(("", "Car", "", "vajal", ""))
+    provider = _LangChainChat(chat)
+
+    # Act
+    fragments = list(provider.stream(system="Responde en español.", prompt="Historia"))
+
+    # Assert
+    assert fragments == ["Car", "vajal"]
+
+
+def test_complete_rechaza_el_contenido_no_textual() -> None:
+    # Arrange
+    provider = _LangChainChat(BlockChat())
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="contenido no textual"):
+        provider.complete(system="Responde en español.", prompt="¿Qué es Carvajal?")
+
+
+def test_stream_rechaza_el_contenido_no_textual() -> None:
+    # Arrange
+    provider = _LangChainChat(BlockChat())
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="contenido no textual"):
+        list(provider.stream(system="Responde en español.", prompt="¿Qué es Carvajal?"))
 
 
 def test_la_base_implementa_el_puerto() -> None:
@@ -98,6 +138,33 @@ def test_fabrica_elige_ollama() -> None:
     # Assert
     assert isinstance(provider, OllamaProvider)
     assert isinstance(provider, LLMProvider)
+
+
+def test_fabrica_sin_argumentos_lee_el_entorno(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+
+    # Act
+    provider = build_llm_provider()
+
+    # Assert
+    assert isinstance(provider, OllamaProvider)
+
+
+def test_fabrica_sin_argumentos_usa_deepseek_con_clave(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test")
+
+    # Act
+    provider = build_llm_provider()
+
+    # Assert
+    assert isinstance(provider, DeepSeekProvider)
 
 
 def test_fabrica_rechaza_un_proveedor_desconocido() -> None:

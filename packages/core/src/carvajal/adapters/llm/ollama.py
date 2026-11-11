@@ -10,5 +10,6 @@ class OllamaProvider(_LangChainChat):
     """Generación de texto con el modelo local servido por Ollama."""
 
     def __init__(self, settings: Settings | None = None) -> None:
-        settings = settings or Settings()
+        if settings is None:
+            settings = Settings()
         super().__init__(ChatOllama(model=settings.ollama_model, temperature=0))

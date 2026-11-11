@@ -3,21 +3,32 @@
 from collections.abc import Iterator, Sequence
 from typing import Protocol
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 
 class ChatLike(Protocol):
     """Contrato mínimo del chat inyectado: ``invoke`` y ``stream`` sobre mensajes."""
 
-    def invoke(self, input: Sequence[BaseMessage]) -> AIMessage:
+    def invoke(self, input: Sequence[BaseMessage]) -> BaseMessage:
         """Devuelve la respuesta completa a los mensajes."""
 
         ...
 
-    def stream(self, input: Sequence[BaseMessage]) -> Iterator[AIMessage]:
+    def stream(self, input: Sequence[BaseMessage]) -> Iterator[BaseMessage]:
         """Emite la respuesta por fragmentos."""
 
         ...
+
+
+def _text(message: BaseMessage) -> str:
+    """Devuelve el contenido textual; falla si el modelo devuelve bloques."""
+
+    content = message.content
+    if not isinstance(content, str):
+        raise ValueError(
+            "El modelo devolvió contenido no textual; este adaptador solo admite texto."
+        )
+    return content
 
 
 class _LangChainChat:
@@ -33,14 +44,18 @@ class _LangChainChat:
     def complete(self, *, system: str, prompt: str) -> str:
         """Devuelve la respuesta completa del modelo como texto."""
 
-        response = self._chat.invoke(self._messages(system, prompt))
-        return str(response.content)
+        return _text(self._chat.invoke(self._messages(system, prompt)))
 
     def stream(self, *, system: str, prompt: str) -> Iterator[str]:
-        """Emite los fragmentos del modelo en el orden en que llegan."""
+        """Emite los fragmentos del modelo en el orden en que llegan.
+
+        Los fragmentos vacíos se omiten para que el consumidor no reciba ruido.
+        """
 
         for chunk in self._chat.stream(self._messages(system, prompt)):
-            yield str(chunk.content)
+            fragment = _text(chunk)
+            if fragment:
+                yield fragment
 
     @staticmethod
     def _messages(system: str, prompt: str) -> list[BaseMessage]:

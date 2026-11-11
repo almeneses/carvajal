@@ -23,7 +23,8 @@ def build_llm_provider(settings: Settings | None = None) -> LLMProvider:
             sigue disponible solo en la interfaz Streamlit (``rag.build_llm``).
     """
 
-    settings = settings or Settings()
+    if settings is None:
+        settings = Settings()
     if settings.llm_provider == "deepseek":
         return DeepSeekProvider(settings)
     if settings.llm_provider == "ollama":
