@@ -127,6 +127,6 @@ def test_ollama_embedder_envuelve_el_error_de_parseo(monkeypatch: pytest.MonkeyP
     embedder = ollama.OllamaEmbedder()
 
     # Act / Assert
-    with pytest.raises(ollama.EmbeddingError, match="localhost") as captured:
+    with pytest.raises(ollama.EmbeddingError, match="no se pudo interpretar") as captured:
         embedder.embed("hola")
     assert captured.value.__cause__ is failure

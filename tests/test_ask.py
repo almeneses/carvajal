@@ -176,7 +176,8 @@ def test_prompt_incluye_contexto_numerado_y_reglas() -> None:
     assert "texto de historia:0" in prompt
     assert "<contexto>" in prompt
     assert "</contexto>" in prompt
-    assert f"Pregunta: {QUESTION}" in prompt
+    assert "<pregunta>" in prompt
+    assert f"{QUESTION}\n</pregunta>" in prompt
     assert "únicamente con el CONTEXTO" in system
     assert "[n]" in system
     assert "español" in system

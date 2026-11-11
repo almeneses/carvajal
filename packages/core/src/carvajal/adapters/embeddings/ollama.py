@@ -56,10 +56,14 @@ class OllamaEmbedder:
 
         try:
             embedding = self._embeddings.embed_query(text)
-        except (httpx.HTTPError, OSError, ValueError) as error:
+        except (httpx.HTTPError, OSError) as error:
             raise EmbeddingError(
-                f"No se pudo contactar con Ollama en {self._base_url}. Verifica que el "
-                "servidor esté en marcha y que el modelo esté descargado."
+                f"No se pudo contactar con Ollama en {self._base_url}. Verifica que el servidor "
+                "esté en marcha y que el modelo esté descargado."
+            ) from error
+        except ValueError as error:
+            raise EmbeddingError(
+                "Ollama devolvió una respuesta que no se pudo interpretar."
             ) from error
         vector = [float(value) for value in embedding]
         if not vector:
