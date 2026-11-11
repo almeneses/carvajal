@@ -7,7 +7,11 @@ from carvajal.infrastructure.settings import Settings
 
 
 class OllamaProvider(_LangChainChat):
-    """Generación de texto con el modelo local servido por Ollama."""
+    """Generación de texto con el modelo local servido por Ollama.
+
+    Construir el adaptador no comprueba que el servicio esté accesible ni que el
+    modelo exista: eso se descubre en la primera llamada.
+    """
 
     def __init__(self, settings: Settings | None = None) -> None:
         if settings is None:

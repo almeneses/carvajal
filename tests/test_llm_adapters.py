@@ -1,6 +1,7 @@
 """Pruebas de los adaptadores de LLM con un chat doble, sin red."""
 
 from collections.abc import Iterator, Sequence
+from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage
@@ -43,6 +44,29 @@ def _limpia_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
 
     for name in ("LLM_PROVIDER", "DEEPSEEK_API_KEY", "OLLAMA_MODEL"):
         monkeypatch.delenv(name, raising=False)
+
+
+class ChatSpy:
+    """Cliente espía: registra los *kwargs* de construcción y responde texto fijo."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+
+    def invoke(self, input: Sequence[BaseMessage]) -> AIMessage:
+        return AIMessage(content="respuesta")
+
+    def stream(self, input: Sequence[BaseMessage]) -> Iterator[AIMessage]:
+        yield AIMessage(content="respuesta")
+
+
+def _espia(creados: list[ChatSpy]) -> Any:
+    """Devuelve una fábrica de ``ChatSpy`` que acumula los clientes construidos."""
+
+    def fabrica(**kwargs: Any) -> ChatSpy:
+        creados.append(ChatSpy(**kwargs))
+        return creados[-1]
+
+    return fabrica
 
 
 def test_complete_devuelve_texto_y_envia_sistema_y_prompt() -> None:
@@ -199,6 +223,52 @@ def test_fabrica_rechaza_un_proveedor_desconocido(monkeypatch: pytest.MonkeyPatc
     # Act / Assert
     with pytest.raises(ValueError, match="claude"):
         build_llm_provider()
+
+
+def test_deepseek_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    creados: list[ChatSpy] = []
+    monkeypatch.setattr("carvajal.adapters.llm.deepseek.ChatOpenAI", _espia(creados))
+    settings = Settings(
+        _env_file=None, llm_provider="deepseek", deepseek_api_key="  clave-de-prueba  "
+    )
+
+    # Act
+    provider = DeepSeekProvider(settings)
+    answer = provider.complete(system="sistema", prompt="pregunta")
+
+    # Assert
+    assert creados[0].kwargs == {
+        "model": settings.deepseek_model,
+        "api_key": "clave-de-prueba",
+        "base_url": settings.deepseek_base_url,
+        "temperature": 0,
+    }
+    assert answer == "respuesta"
+
+
+def test_ollama_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    creados: list[ChatSpy] = []
+    monkeypatch.setattr("carvajal.adapters.llm.ollama.ChatOllama", _espia(creados))
+    settings = Settings(_env_file=None, llm_provider="ollama", ollama_model="llama3.2")
+
+    # Act
+    provider = OllamaProvider(settings)
+    fragments = list(provider.stream(system="sistema", prompt="pregunta"))
+
+    # Assert
+    assert creados[0].kwargs == {"model": "llama3.2", "temperature": 0}
+    assert fragments == ["respuesta"]
+
+
+def test_deepseek_con_clave_en_blanco_falla() -> None:
+    # Arrange
+    settings = Settings(_env_file=None, llm_provider="deepseek", deepseek_api_key="   ")
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+        build_llm_provider(settings)
 
 
 def test_ollama_con_modelo_vacio_falla() -> None:
