@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from carvajal.adapters.embeddings import EmbeddingError, OllamaEmbedder
 from carvajal.adapters.llm import build_llm_provider
@@ -86,7 +87,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     def health() -> JSONResponse:
         try:
             status = (handlers or _default_handlers()).health()
-        except Exception as error:  # la base puede fallar de muchas formas
+        except (SQLAlchemyError, OSError) as error:  # la base no responde
             logger.warning("Health check falló: %s", error)
             return JSONResponse({"status": "degraded", "detail": DB_UNAVAILABLE}, status_code=503)
         return JSONResponse(
@@ -106,11 +107,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
             answer = (handlers or _default_handlers()).ask(text)
         except ValueError as error:
             return _message(request, 422, str(error))
-        except (EmbeddingError, LLMError) as error:
-            logger.warning("Falló el servicio de respuestas: %s", error)
-            return _message(request, 503, SERVICE_UNAVAILABLE)
-        except Exception as error:  # el cliente nunca ve un traceback
-            logger.exception("Fallo inesperado al responder: %s", error)
+        except (EmbeddingError, LLMError, SQLAlchemyError) as error:
+            logger.warning("Fallo al responder: %s", error)
             return _message(request, 503, SERVICE_UNAVAILABLE)
         return templates.TemplateResponse(request, "_answer.html", {"answer": answer})
 

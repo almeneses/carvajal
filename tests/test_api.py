@@ -1,11 +1,12 @@
 """Pruebas del shell web con handlers falsos: sin red ni base de datos."""
 
-import logging
 from collections.abc import Callable
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
+from apps.api import main
 from apps.api.main import (
     DB_UNAVAILABLE,
     SERVICE_UNAVAILABLE,
@@ -23,6 +24,8 @@ ANSWER = Answer(text="Carvajal nació en 1904 [1].", sources=(SOURCE,))
 def make_client(
     ask: Callable[[str], Answer] | None = None,
     health: Callable[[], HealthStatus] | None = None,
+    *,
+    raise_server_exceptions: bool = True,
 ) -> TestClient:
     """Cliente con handlers falsos; por defecto responden bien."""
 
@@ -32,7 +35,8 @@ def make_client(
                 ask=ask or (lambda question: ANSWER),
                 health=health or (lambda: HealthStatus(documents=12, chunks=34)),
             )
-        )
+        ),
+        raise_server_exceptions=raise_server_exceptions,
     )
 
 
@@ -47,7 +51,7 @@ def failing(error: Exception) -> Callable[[str], Answer]:
 
 def unhealthy() -> Callable[[], HealthStatus]:
     def health() -> HealthStatus:
-        raise RuntimeError("connection to 127.0.0.1:5432 as user carvajal failed")
+        raise SQLAlchemyError("connection to 127.0.0.1:5432 as user carvajal failed")
 
     return health
 
@@ -148,18 +152,53 @@ def test_fallos_de_proveedor_devuelven_503(error: Exception) -> None:
     assert "Traceback" not in response.text
 
 
-def test_fallo_inesperado_no_filtra_y_queda_en_el_log(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_fallo_inesperado_no_se_convierte_en_503() -> None:
     # Arrange
-    caplog.set_level(logging.WARNING, logger="apps.api.main")
-    client = make_client(ask=failing(RuntimeError("detalle interno 127.0.0.1")))
+    client = make_client(
+        ask=failing(RuntimeError("detalle interno")), raise_server_exceptions=False
+    )
 
     # Act
     response = client.post("/ask", data={"question": "¿Cuándo nació?"})
 
     # Assert
-    assert response.status_code == 503
-    assert SERVICE_UNAVAILABLE in response.text
-    assert "detalle interno" not in response.text
-    assert "RuntimeError" in caplog.text
+    assert response.status_code == 500
+    assert SERVICE_UNAVAILABLE not in response.text
+
+
+def test_la_salida_escapa_html() -> None:
+    # Arrange
+    peligro = "<script>alert(1)</script>"
+    source = Source("x-1", "doc", "seccion", "core", 0.5, peligro)
+    client = make_client(ask=lambda question: Answer(text=peligro, sources=(source,)))
+
+    # Act
+    response = client.post("/ask", data={"question": "¿?"})
+
+    # Assert
+    assert response.status_code == 200
+    assert peligro not in response.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
+
+
+def test_create_app_difiere_los_handlers_a_la_primera_peticion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    calls: list[int] = []
+
+    def fake_handlers() -> Handlers:
+        calls.append(1)
+        return Handlers(ask=lambda question: ANSWER, health=lambda: HealthStatus(1, 2))
+
+    monkeypatch.setattr(main, "_default_handlers", fake_handlers)
+    app = create_app()
+    assert calls == []
+
+    # Act
+    response = TestClient(app).get("/health")
+
+    # Assert
+    assert response.status_code == 200
+    assert calls == [1]
+    assert response.json() == {"status": "ok", "documents": 1, "chunks": 2}
