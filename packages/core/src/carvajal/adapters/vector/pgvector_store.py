@@ -19,6 +19,7 @@ __all__ = ["DIMENSIONS", "PgVectorStore"]
 DIMENSIONS = 768
 
 _CHUNK_FIELDS = ("id", "document_id", "text", "position", "section", "layer")
+_CHUNK_COLUMNS = tuple(tables.chunks.c[field] for field in _CHUNK_FIELDS)
 
 
 class PgVectorStore:
@@ -82,7 +83,7 @@ class PgVectorStore:
         if limit == 0:
             return []
         distance = tables.chunks.c.embedding.cosine_distance(vector)
-        query = select(tables.chunks, distance.label("distance")).where(
+        query = select(*_CHUNK_COLUMNS, distance.label("distance")).where(
             tables.chunks.c.embedding.is_not(None)
         )
         if layer is not None:

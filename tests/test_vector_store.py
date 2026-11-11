@@ -1,6 +1,7 @@
 """Pruebas de integración del índice vectorial pgvector sobre Postgres real."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from sqlalchemy.orm import Session
@@ -76,6 +77,26 @@ def test_upsert_y_orden_por_similitud(session: Session) -> None:
     store.upsert([chunks[0]], [_vector(-1.0)])
     assert [result.chunk.id for result in store.search(_vector(1.0))] == ["c2", "c3", "c1"]
     assert len(SqlChunkRepository(session).list_by_document("d1")) == 2
+
+
+def test_search_no_trae_el_vector_en_la_proyeccion(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La consulta pide la entidad y la distancia, nunca el vector de 768."""
+
+    store, _ = _seeded(session)
+    statements: list[Any] = []
+    original = session.execute
+
+    def capture(statement: Any, *args: Any, **kwargs: Any) -> Any:
+        statements.append(statement)
+        return original(statement, *args, **kwargs)
+
+    monkeypatch.setattr(session, "execute", capture)
+    store.search(_vector(1.0), limit=1)
+
+    columns = set(statements[-1].selected_columns.keys())
+    assert columns == {"id", "document_id", "text", "position", "section", "layer", "distance"}
 
 
 def test_filtros_y_limites(session: Session) -> None:
