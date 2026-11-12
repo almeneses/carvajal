@@ -22,11 +22,11 @@ if TYPE_CHECKING:
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Iterator["PostgresContainer"]:
-    """Levanta un Postgres 16 desechable; la imagen es configurable por entorno."""
+    """Levanta un Postgres 16 con pgvector; la imagen es configurable por entorno."""
 
     from testcontainers.community.postgres import PostgresContainer
 
-    image = os.environ.get("TESTCONTAINERS_POSTGRES_IMAGE", "postgres:16-alpine")
+    image = os.environ.get("TESTCONTAINERS_POSTGRES_IMAGE", "pgvector/pgvector:pg16")
     with PostgresContainer(image, driver="psycopg") as container:
         yield container
 
@@ -37,6 +37,8 @@ def engine(postgres_container: "PostgresContainer") -> Iterator[Engine]:
 
     url = normalize_database_url(postgres_container.get_connection_url())
     engine = create_engine(url, pool_pre_ping=True)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     tables.metadata.create_all(engine)
     try:
         yield engine
