@@ -119,16 +119,21 @@ def test_pregunta_vacia_devuelve_422() -> None:
     assert "La pregunta no puede estar vacía." in response.text
 
 
-def test_value_error_devuelve_422() -> None:
-    # Arrange
-    client = make_client(ask=failing(ValueError("La pregunta no puede estar vacía.")))
+def test_error_interno_no_filtra_detalles() -> None:
+    # Arrange: un ValueError interno (p. ej. dimensión del vector) no es Culpa
+    # del cliente y su mensaje no debe llegar al HTML.
+    client = make_client(
+        ask=failing(ValueError("El vector debe tener 768 dimensiones; recibidas 1024.")),
+        raise_server_exceptions=False,
+    )
 
     # Act
     response = client.post("/ask", data={"question": "¿?"})
 
     # Assert
-    assert response.status_code == 422
-    assert "La pregunta no puede estar vacía." in response.text
+    assert response.status_code == 500
+    assert "1024" not in response.text
+    assert "dimensiones" not in response.text
 
 
 @pytest.mark.parametrize(
@@ -164,6 +169,19 @@ def test_fallo_inesperado_no_se_convierte_en_503() -> None:
     # Assert
     assert response.status_code == 500
     assert SERVICE_UNAVAILABLE not in response.text
+
+
+def test_portada_carga_htmx_local() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/")
+
+    # Assert
+    assert response.status_code == 200
+    assert "/static/htmx.min.js" in response.text
+    assert (main.APP_DIR / "static" / "htmx.min.js").is_file()
 
 
 def test_la_salida_escapa_html() -> None:

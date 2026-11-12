@@ -105,8 +105,6 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
             return _message(request, 422, "La pregunta no puede estar vacía.")
         try:
             answer = (handlers or _default_handlers()).ask(text)
-        except ValueError as error:
-            return _message(request, 422, str(error))
         except (EmbeddingError, LLMError, SQLAlchemyError) as error:
             logger.warning("Fallo al responder: %s", error)
             return _message(request, 503, SERVICE_UNAVAILABLE)

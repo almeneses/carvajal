@@ -3,11 +3,14 @@
 from collections.abc import Iterator, Sequence
 from typing import Any
 
+import httpx
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage
+from ollama import ResponseError
 
 from carvajal.adapters.llm import DeepSeekProvider, OllamaProvider, build_llm_provider
 from carvajal.adapters.llm._chat import _LangChainChat
+from carvajal.application.errors import LLMError
 from carvajal.application.ports import LLMProvider
 from carvajal.infrastructure.settings import Settings
 
@@ -37,6 +40,19 @@ class BlockChat:
 
     def stream(self, input: Sequence[BaseMessage]) -> Iterator[AIMessage]:
         yield AIMessage(content=[{"type": "text", "text": "hola"}])
+
+
+class FailingChat:
+    """Chat que simula un fallo del proveedor (red caída, modelo ausente...)."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def invoke(self, input: Sequence[BaseMessage]) -> AIMessage:
+        raise self._error
+
+    def stream(self, input: Sequence[BaseMessage]) -> Iterator[AIMessage]:
+        raise self._error
 
 
 def _limpia_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,8 +134,9 @@ def test_complete_rechaza_el_contenido_no_textual() -> None:
     provider = _LangChainChat(BlockChat())
 
     # Act / Assert
-    with pytest.raises(ValueError, match="contenido no textual"):
+    with pytest.raises(LLMError) as captured:
         provider.complete(system="Responde en español.", prompt="¿Qué es Carvajal?")
+    assert "contenido no textual" in str(captured.value.__cause__)
 
 
 def test_stream_rechaza_el_contenido_no_textual() -> None:
@@ -127,8 +144,38 @@ def test_stream_rechaza_el_contenido_no_textual() -> None:
     provider = _LangChainChat(BlockChat())
 
     # Act / Assert
-    with pytest.raises(ValueError, match="contenido no textual"):
+    with pytest.raises(LLMError) as captured:
         list(provider.stream(system="Responde en español.", prompt="¿Qué es Carvajal?"))
+    assert "contenido no textual" in str(captured.value.__cause__)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.ConnectError("Ollama caído"),
+        ResponseError("model 'llama3.2' not found", 404),
+        RuntimeError("fallo inesperado del SDK"),
+    ],
+)
+def test_complete_traduce_los_fallos_del_proveedor(error: Exception) -> None:
+    # Arrange
+    provider = _LangChainChat(FailingChat(error))
+
+    # Act / Assert
+    with pytest.raises(LLMError) as captured:
+        provider.complete(system="Responde en español.", prompt="¿Qué es Carvajal?")
+    assert captured.value.__cause__ is error
+
+
+def test_stream_traduce_los_fallos_del_proveedor() -> None:
+    # Arrange
+    failure = httpx.ConnectError("Ollama caído")
+    provider = _LangChainChat(FailingChat(failure))
+
+    # Act / Assert
+    with pytest.raises(LLMError) as captured:
+        list(provider.stream(system="Responde en español.", prompt="¿Qué es Carvajal?"))
+    assert captured.value.__cause__ is failure
 
 
 def test_la_base_implementa_el_puerto() -> None:

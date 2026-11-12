@@ -5,6 +5,8 @@ from typing import Protocol
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+from carvajal.application.errors import LLMError
+
 
 class ChatLike(Protocol):
     """Contrato mínimo del chat inyectado: ``invoke`` y ``stream`` sobre mensajes.
@@ -46,20 +48,37 @@ class _LangChainChat:
         self._chat = chat
 
     def complete(self, *, system: str, prompt: str) -> str:
-        """Devuelve la respuesta completa del modelo como texto."""
+        """Devuelve la respuesta completa del modelo como texto.
 
-        return _text(self._chat.invoke(self._messages(system, prompt)))
+        Raises:
+            LLMError: si el proveedor falla o devuelve contenido no textual.
+        """
+
+        try:
+            return _text(self._chat.invoke(self._messages(system, prompt)))
+        except LLMError:
+            raise
+        except Exception as error:
+            raise LLMError("El proveedor de LLM no devolvió una respuesta utilizable.") from error
 
     def stream(self, *, system: str, prompt: str) -> Iterator[str]:
         """Emite los fragmentos del modelo en el orden en que llegan.
 
         Los fragmentos vacíos se omiten para que el consumidor no reciba ruido.
+
+        Raises:
+            LLMError: si el proveedor falla o devuelve contenido no textual.
         """
 
-        for chunk in self._chat.stream(self._messages(system, prompt)):
-            fragment = _text(chunk)
-            if fragment:
-                yield fragment
+        try:
+            for chunk in self._chat.stream(self._messages(system, prompt)):
+                fragment = _text(chunk)
+                if fragment:
+                    yield fragment
+        except LLMError:
+            raise
+        except Exception as error:
+            raise LLMError("El proveedor de LLM no devolvió una respuesta utilizable.") from error
 
     @staticmethod
     def _messages(system: str, prompt: str) -> list[BaseMessage]:
