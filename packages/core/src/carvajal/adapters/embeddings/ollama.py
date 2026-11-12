@@ -2,6 +2,7 @@
 
 import httpx
 from langchain_ollama import OllamaEmbeddings
+from ollama import ResponseError
 
 __all__ = ["EmbeddingError", "OllamaEmbedder"]
 
@@ -56,7 +57,7 @@ class OllamaEmbedder:
 
         try:
             embedding = self._embeddings.embed_query(text)
-        except (httpx.HTTPError, OSError) as error:
+        except (httpx.HTTPError, OSError, ResponseError) as error:
             raise EmbeddingError(
                 f"No se pudo contactar con Ollama en {self._base_url}. Verifica que el servidor "
                 "esté en marcha y que el modelo esté descargado."
