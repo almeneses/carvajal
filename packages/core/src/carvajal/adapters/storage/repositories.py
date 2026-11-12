@@ -22,6 +22,17 @@ from carvajal.domain.entities import Chunk, Document, DocumentVersion
 
 __all__ = ["SqlChunkRepository", "SqlDocumentRepository"]
 
+# Columnas de ``chunks`` que forman la entidad; ``embedding`` queda fuera porque
+# la administra ``PgVectorStore`` y no es parte del dominio.
+_CHUNK_COLUMNS = (
+    tables.chunks.c.id,
+    tables.chunks.c.document_id,
+    tables.chunks.c.text,
+    tables.chunks.c.position,
+    tables.chunks.c.section,
+    tables.chunks.c.layer,
+)
+
 
 class SqlDocumentRepository:
     """Implementación PostgreSQL de ``DocumentRepository``."""
@@ -192,7 +203,7 @@ class SqlChunkRepository:
         """Devuelve los fragmentos del documento ordenados por posición."""
 
         query = (
-            select(tables.chunks)
+            select(*_CHUNK_COLUMNS)
             .where(tables.chunks.c.document_id == document_id)
             .order_by(tables.chunks.c.position)
         )
