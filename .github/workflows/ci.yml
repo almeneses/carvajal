@@ -30,7 +30,6 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SOFT_LIMIT: "300"
-          HARD_LIMIT: "700"
         run: python3 .github/scripts/pr_size.py
 
       - name: Instalar uv
