@@ -196,3 +196,31 @@ def test_postgres_port_fuera_de_rango_falla(monkeypatch: pytest.MonkeyPatch, pue
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_cuota_diaria_por_defecto() -> None:
+    """La política de cupo tiene un límite razonable y una zona explícita."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.daily_requests_limit == 20
+    assert settings.quota_timezone == "America/Bogota"
+
+
+@pytest.mark.parametrize("valor", ["-1", "no-es-un-numero"])
+def test_daily_requests_limit_invalido_falla(monkeypatch: pytest.MonkeyPatch, valor: str) -> None:
+    """Un límite negativo o no numérico se rechaza al construir la configuración."""
+
+    monkeypatch.setenv("DAILY_REQUESTS_LIMIT", valor)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_quota_timezone_desconocida_falla(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Una zona horaria inexistente se detecta al arrancar, no en la petición."""
+
+    monkeypatch.setenv("QUOTA_TIMEZONE", "No/Existe")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

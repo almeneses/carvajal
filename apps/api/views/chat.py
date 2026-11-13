@@ -18,8 +18,16 @@ from apps.api.runtime import templates
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.application.ask import LLMError
+from carvajal.application.quota import QuotaResult
 
-__all__ = ["chat_provider", "request_identity", "router", "set_identity_cookie"]
+__all__ = [
+    "LIMITE_ALCANZADO",
+    "chat_provider",
+    "consume_quota",
+    "request_identity",
+    "router",
+    "set_identity_cookie",
+]
 
 logger = getLogger(__name__)
 
@@ -28,6 +36,7 @@ router = APIRouter()
 MAX_QUESTION_CHARS = 500
 EMPTY_QUESTION = "La pregunta no puede estar vacía."
 TOO_LONG_QUESTION = f"La pregunta no puede superar los {MAX_QUESTION_CHARS} caracteres."
+LIMITE_ALCANZADO = "Has alcanzado el límite diario de preguntas. Vuelve a intentarlo mañana."
 
 
 @router.get("/chat", response_class=HTMLResponse)
@@ -85,6 +94,31 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
         )
 
     try:
+        quota = consume_quota(request, owner_key)
+    except SQLAlchemyError as error:
+        logger.warning("Fallo al consultar la cuota del chat: %s", error)
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question=question,
+            message=SERVICE_UNAVAILABLE,
+            status_code=503,
+        )
+    if not quota.allowed:
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question=question,
+            message=LIMITE_ALCANZADO,
+            status_code=429,
+            headers={"Retry-After": str(quota.retry_after)},
+        )
+
+    try:
         chat_provider(request).ask(owner_key, text)
     except (EmbeddingError, LLMError, SQLAlchemyError) as error:
         logger.warning("Fallo al responder en el chat: %s", error)
@@ -117,6 +151,15 @@ def request_identity(request: Request) -> ChatIdentity:
     return injected if injected is not None else default_identity()
 
 
+def consume_quota(request: Request, owner_key: str) -> QuotaResult:
+    """Cobra una petición de la cuota inyectada o de la real; nunca la duplica."""
+
+    quota = getattr(request.app.state, "quota", None)
+    if quota is None:
+        return QuotaResult(allowed=True)
+    return quota(owner_key)
+
+
 def set_identity_cookie(
     response: Response,
     request: Request,
@@ -143,6 +186,7 @@ def _page(
     question: str = "",
     error: str | None = None,
     status_code: int = 200,
+    headers: dict[str, str] | None = None,
 ) -> Response:
     """Página completa del chat con su hilo de mensajes."""
 
@@ -151,6 +195,7 @@ def _page(
         "chat.html",
         {"messages": messages, "question": question, "error": error},
         status_code=status_code,
+        headers=headers,
     )
 
 
@@ -163,6 +208,7 @@ def _error_page(
     question: str,
     message: str,
     status_code: int,
+    headers: dict[str, str] | None = None,
 ) -> Response:
     """Página completa de error, con formulario e historial si se puede leer."""
 
@@ -172,6 +218,7 @@ def _error_page(
         question=question,
         error=message,
         status_code=status_code,
+        headers=headers,
     )
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
