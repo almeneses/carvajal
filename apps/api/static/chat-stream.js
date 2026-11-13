@@ -76,9 +76,13 @@
         signal: control.signal,
       });
       const tipo = response.headers.get("content-type") ?? "";
-      if (!response.ok || !response.body || !tipo.includes("text/event-stream")) {
+      // Los errores SSE de la API traen su propio mensaje. Un reenvío
+      // automático puede volver a consumir cuota para el mismo turno.
+      if (!response.body || !tipo.includes("text/event-stream")) {
+        if (!response.ok) cerrado = true;
         throw new Error(`respuesta ${response.status}`);
       }
+      if (!response.ok) cerrado = true;
 
       await leerEventos(response, (evento) => {
         switch (evento.nombre) {
@@ -117,7 +121,10 @@
         }
       });
 
-      if (!cerrado) {
+      if (!response.ok && !texto.textContent) {
+        texto.textContent = AVISO;
+        avisar(AVISO, true);
+      } else if (!cerrado) {
         avisar(INCOMPLETA, true);
         if (!texto.textContent) texto.textContent = INCOMPLETA;
       }
