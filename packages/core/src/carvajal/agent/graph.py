@@ -165,7 +165,9 @@ def build_agent(
 
     def recall(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         owner_key = state["owner_key"]
-        turns = state.get("turns") or state.get("seed_turns", [])  # type: ignore[typeddict-item]
+        # El historial de Postgres es la fuente de verdad de la UI; el
+        # checkpointer cubre el caso sin semilla (pruebas o primer turno).
+        turns = state.get("seed_turns") or state.get("turns", [])
         return {
             "turns": list(turns)[-deps.settings.agent_history_turns :],
             "preferences": _preferences(store, owner_key),
@@ -236,9 +238,19 @@ def build_agent(
         }
 
     def tool(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        result = find_indicator(
-            state.get("tool_name", ""), state.get("tool_period", "")
-        ).model_dump()
+        try:
+            result = find_indicator(
+                state.get("tool_name", ""), state.get("tool_period", "")
+            ).model_dump()
+        except Exception:
+            # Un alias o período que no pase la validación Pydantic se trata
+            # como ausencia de registro, no como un 503 del turno.
+            result = {
+                "found": False,
+                "name": state.get("tool_name", ""),
+                "period": state.get("tool_period", ""),
+                "message": "La consulta estructurada no es válida; no se estima el dato.",
+            }
         if result["found"]:
             instructions = (
                 "Responde usando exclusivamente el resultado de la herramienta. "

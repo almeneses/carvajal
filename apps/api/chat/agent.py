@@ -132,7 +132,11 @@ class GraphAgentRunner:
     ) -> None:
         """Añade el turno al checkpoint; un fallo aquí no rompe la respuesta."""
 
-        updated = [*turns, {"question": question, "answer": answer, "incomplete": incomplete}]
+        updated = [*turns]
+        if not (
+            updated and updated[-1]["question"] == question and updated[-1]["answer"] == answer
+        ):
+            updated.append({"question": question, "answer": answer, "incomplete": incomplete})
         try:
             self._graph.update_state(
                 {"configurable": {"thread_id": thread_id}},
