@@ -130,3 +130,59 @@ def test_clean_review_is_only_published_on_request(
     assert len(published) == int(manual)
     if published:
         assert "no encontró hallazgos" in published[0]["body"]
+
+
+def test_payload_con_razonamiento_reserva_salida_suficiente() -> None:
+    # Act
+    payload = ai_review.build_payload("prompt", "deepseek-flash", thinking=True, effort="high")
+
+    # Assert
+    assert payload["max_tokens"] == ai_review.THINKING_MAX_TOKENS
+    assert payload["thinking"] == {"type": "enabled"}
+    assert payload["reasoning_effort"] == "high"
+    assert "temperature" not in payload
+
+
+def test_payload_sin_razonamiento_usa_menos_tokens_y_temperature() -> None:
+    # Act
+    payload = ai_review.build_payload("prompt", "deepseek-flash", thinking=False, effort="high")
+
+    # Assert
+    assert payload["max_tokens"] == ai_review.PLAIN_MAX_TOKENS
+    assert payload["thinking"] == {"type": "disabled"}
+    assert payload["temperature"] == 0.2
+
+
+def test_main_reintenta_sin_razonamiento_si_el_pensamiento_agota_los_tokens(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Arrange
+    diff = tmp_path / "pr.diff"
+    diff.write_text(DIFF)
+    monkeypatch.setattr(sys, "argv", ["ai_review.py", "--diff", str(diff), "--manual"])
+    for name, value in {
+        "GITHUB_REPOSITORY": "owner/repo",
+        "PR_NUMBER": "42",
+        "PR_HEAD_SHA": "abc",
+        "GITHUB_TOKEN": "token",
+        "DEEPSEEK_API_KEY": "test",
+        "DEEPSEEK_THINKING": "enabled",
+    }.items():
+        monkeypatch.setenv(name, value)
+    calls: list[bool | None] = []
+
+    def fake_ask(
+        prompt: str, model: str, api_key: str, *, thinking: bool | None = None
+    ) -> tuple[str, str]:
+        calls.append(thinking)
+        return ("", "length") if thinking is None else ('{"findings": []}', "stop")
+
+    monkeypatch.setattr(ai_review, "ask_deepseek", fake_ask)
+    monkeypatch.setattr(ai_review, "publish_review", lambda *args, **kwargs: None)
+
+    # Act
+    result = ai_review.main()
+
+    # Assert
+    assert result == 0
+    assert calls == [None, False]

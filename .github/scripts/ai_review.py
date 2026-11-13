@@ -22,6 +22,8 @@ Variables de entorno:
     DEEPSEEK_MODEL     Modelo a usar (por defecto deepseek-flash).
     DEEPSEEK_THINKING  "enabled" activa el modo de razonamiento (por defecto
                        "disabled", que es más rápido y barato para una revisión).
+                       Con razonamiento se reservan 32k tokens de salida y, si
+                       el pensamiento los agota sin responder, se reintenta sin él.
     DEEPSEEK_EFFORT    Esfuerzo de razonamiento si THINKING está activo:
                        low, high o max (por defecto high).
     MAX_DIFF_CHARS     Recorte máximo del diff (por defecto 100000).
@@ -44,6 +46,10 @@ API_URL = "https://api.deepseek.com/chat/completions"
 GITHUB_API = "https://api.github.com"
 PRIORITIES = ("P0", "P1")
 EFFORTS = ("low", "high", "max")
+# En modo razonamiento los tokens de pensamiento cuentan como salida: con 8k
+# el modelo puede gastarlos todos razonando y no emitir la revisión.
+THINKING_MAX_TOKENS = 32000
+PLAIN_MAX_TOKENS = 4000
 
 ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = ROOT / ".github" / "review" / "style.md"
@@ -161,14 +167,13 @@ def extract_json(text: str) -> dict[str, Any] | None:
     return None
 
 
-def ask_deepseek(prompt: str, model: str, api_key: str) -> tuple[str, str]:
-    """Envía el prompt a DeepSeek y devuelve (contenido, finish_reason)."""
-    thinking = os.environ.get("DEEPSEEK_THINKING", "disabled").strip().lower() == "enabled"
-    effort = os.environ.get("DEEPSEEK_EFFORT", "high").strip().lower()
-    if effort not in EFFORTS:
-        print(f"DEEPSEEK_EFFORT={effort!r} no es válido; se usa 'high'.", file=sys.stderr)
-        effort = "high"
+def thinking_enabled() -> bool:
+    """Indica si la revisión debe usar el modo de razonamiento."""
+    return os.environ.get("DEEPSEEK_THINKING", "disabled").strip().lower() == "enabled"
 
+
+def build_payload(prompt: str, model: str, *, thinking: bool, effort: str) -> dict[str, Any]:
+    """Compone el cuerpo de la petición a DeepSeek."""
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -176,8 +181,7 @@ def ask_deepseek(prompt: str, model: str, api_key: str) -> tuple[str, str]:
             {"role": "user", "content": prompt},
         ],
         "response_format": {"type": "json_object"},
-        # Los tokens de razonamiento cuentan como salida: si se activa, tope mayor.
-        "max_tokens": 8000 if thinking else 4000,
+        "max_tokens": THINKING_MAX_TOKENS if thinking else PLAIN_MAX_TOKENS,
         "stream": False,
     }
     if thinking:
@@ -187,6 +191,25 @@ def ask_deepseek(prompt: str, model: str, api_key: str) -> tuple[str, str]:
         # En thinking mode la API ignora temperature; solo se envía si está apagado.
         payload["thinking"] = {"type": "disabled"}
         payload["temperature"] = 0.2
+    return payload
+
+
+def ask_deepseek(
+    prompt: str, model: str, api_key: str, *, thinking: bool | None = None
+) -> tuple[str, str]:
+    """Envía el prompt a DeepSeek y devuelve (contenido, finish_reason).
+
+    ``thinking=None`` respeta ``DEEPSEEK_THINKING``; ``False`` fuerza una
+    petición sin razonamiento, para reintentar cuando el pensamiento agotó el
+    presupuesto de salida.
+    """
+    effort = os.environ.get("DEEPSEEK_EFFORT", "high").strip().lower()
+    if effort not in EFFORTS:
+        print(f"DEEPSEEK_EFFORT={effort!r} no es válido; se usa 'high'.", file=sys.stderr)
+        effort = "high"
+    use_thinking = thinking_enabled() if thinking is None else thinking
+
+    payload = build_payload(prompt, model, thinking=use_thinking, effort=effort)
 
     request = urllib.request.Request(
         API_URL,
@@ -357,9 +380,28 @@ def main() -> int:
         print(f"No se pudo contactar a DeepSeek: {exc.reason}", file=sys.stderr)
         return 1
 
+    if not answer.strip() and thinking_enabled():
+        print(
+            "El razonamiento agotó el presupuesto de salida sin emitir la revisión; "
+            "se reintenta sin razonamiento.",
+            file=sys.stderr,
+        )
+        try:
+            answer, finish_reason = ask_deepseek(prompt, model, api_key, thinking=False)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            print(f"DeepSeek respondió {exc.code}: {detail}", file=sys.stderr)
+            return 1
+        except urllib.error.URLError as exc:
+            print(f"No se pudo contactar a DeepSeek: {exc.reason}", file=sys.stderr)
+            return 1
+
     data = extract_json(answer)
     if data is None or not isinstance(data.get("findings"), list):
-        print("DeepSeek devolvió una revisión inválida.", file=sys.stderr)
+        print(
+            f"DeepSeek devolvió una revisión inválida (finish_reason={finish_reason!r}).",
+            file=sys.stderr,
+        )
         return 1
 
     anchors = parse_anchor_lines(diff)
