@@ -130,9 +130,9 @@ se propone un stack distinto, documentado en
 | Ingesta | CLI/cron (la web no captura) |
 
 > ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector), W2.2
-> (adaptadores de LLM), W2.3 (caso de uso `AskQuestion`) y W2.4 (shell FastAPI)
-> están en revisión. El resto del stack sigue vigente hasta que el ADR pase a
-> `aceptado` y la migración avance fase por fase.
+> (adaptadores de LLM), W2.3 (caso de uso `AskQuestion`), W2.4 (shell FastAPI) y
+> W2.5 (layout y tema) están en revisión. El resto del stack sigue vigente hasta
+> que el ADR pase a `aceptado` y la migración avance fase por fase.
 
 ## 4. Estructura del repositorio
 
@@ -161,9 +161,9 @@ carvajal/
 │           │   │   ├── tables.py        # esquema declarativo
 │           │   │   ├── repositories.py  # repositorios SQL
 │           │   │   └── import_corpus.py # importador Gold idempotente
-│           │   ├── vector/      # pgvector: PgVectorStore (HNSW, coseno)
 │           │   ├── embeddings/  # Embedder: Ollama (nomic-embed-text)
-│           │   └── llm/         # LLMProvider: DeepSeek y Ollama sobre LangChain
+│           │   ├── llm/         # LLMProvider: DeepSeek y Ollama sobre LangChain
+│           │   └── vector/      # pgvector: PgVectorStore (HNSW, coseno)
 │           ├── infrastructure/ # adaptadores y configuración tipada
 │           │   └── settings.py  # pydantic-settings (.env + entorno)
 │           ├── config.py      # fachada de compatibilidad de settings

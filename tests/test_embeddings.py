@@ -105,6 +105,22 @@ def test_ollama_embedder_envuelve_el_fallo_de_conexion(
     assert captured.value.__cause__ is failure
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [ollama.ResponseError("model not found", 404), httpx.TimeoutException("tiempo agotado")],
+)
+def test_ollama_embedder_envuelve_los_fallos_del_servidor(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    fake = _FailingOllamaEmbeddings(failure)
+    monkeypatch.setattr(ollama, "OllamaEmbeddings", lambda **_: fake)
+    embedder = ollama.OllamaEmbedder(base_url="http://ollama.test:11434")
+
+    with pytest.raises(ollama.EmbeddingError, match=r"ollama\.test") as captured:
+        embedder.embed("hola")
+    assert captured.value.__cause__ is failure
+
+
 def test_ollama_embedder_deja_pasar_los_errores_de_programacion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
