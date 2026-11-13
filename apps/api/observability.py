@@ -193,11 +193,22 @@ class UnhandledErrorMiddleware:
             await self.app(scope, receive, send)
             return
 
+        iniciada = False
+
+        async def enviar(message: Message) -> None:
+            nonlocal iniciada
+            if message["type"] == "http.response.start":
+                iniciada = True
+            await send(message)
+
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, receive, enviar)
         except Exception as error:
+            if iniciada:
+                # La respuesta ya empezó (SSE): no se puede enviar otro 500.
+                raise
             capture_exception(error)
             logger.exception("request.unhandled", error=str(error))
             request = Request(scope, receive)
             response = self.handler(request, error)
-            await response(scope, receive, send)
+            await response(scope, receive, enviar)
