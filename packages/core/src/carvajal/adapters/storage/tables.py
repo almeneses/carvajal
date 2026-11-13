@@ -138,6 +138,8 @@ messages = Table(
     Column("role", String(16), nullable=False),
     Column("content", Text, nullable=False),
     Column("sources", JSONB, nullable=True),
+    Column("status", String(16), nullable=False, server_default=text("'complete'")),
+    Column("client_turn_id", String(64), nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -145,6 +147,28 @@ messages = Table(
         server_default=func.now(),
     ),
     CheckConstraint("role IN ('user', 'assistant')", name="ck_messages_role"),
+    CheckConstraint(
+        "status IN ('complete', 'incomplete')",
+        name="ck_messages_status",
+    ),
+)
+
+# Un turno tiene dos mensajes (usuario y asistente) con el mismo
+# ``client_turn_id``; la unicidad se aplica solo al asistente, que es la fila
+# que identifica el turno persistido.
+Index(
+    "uq_messages_turn",
+    messages.c.conversation_id,
+    messages.c.client_turn_id,
+    unique=True,
+    postgresql_where=text("client_turn_id IS NOT NULL AND role = 'assistant'"),
+)
+Index(
+    "uq_messages_turn_user",
+    messages.c.conversation_id,
+    messages.c.client_turn_id,
+    unique=True,
+    postgresql_where=text("client_turn_id IS NOT NULL AND role = 'user'"),
 )
 
 Index(
