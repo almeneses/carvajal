@@ -11,6 +11,11 @@ la línea existe en el lado nuevo del parche) y publica:
 Los comentarios en línea de la ejecución anterior se borran antes de publicar
 los nuevos, para no acumular ruido en cada push.
 
+El revisor es deliberadamente conservador: los hallazgos "menor" no se
+comentan en línea; como máximo dos aparecen agregados en el resumen. El resto
+se descarta, para que el bot no se comporte como un linter ni llene el PR de
+comentarios de estilo.
+
 El tono y las convenciones de revisión se editan en `.github/review/style.md`
 (si ese archivo existe, se añade al prompt del sistema).
 
@@ -32,7 +37,9 @@ Variables de entorno:
     DEEPSEEK_EFFORT    Esfuerzo de razonamiento si THINKING está activo:
                        low, high o max (por defecto high).
     MAX_DIFF_CHARS     Recorte máximo del diff (por defecto 100000).
-    MAX_INLINE         Máximo de comentarios en línea (por defecto 10).
+    MAX_INLINE         Máximo de comentarios en línea (por defecto 4).
+    MAX_MINOR          Máximo de hallazgos "menor" listados en el resumen
+                       (por defecto 2).
 """
 
 from __future__ import annotations
@@ -51,6 +58,9 @@ API_URL = "https://api.deepseek.com/chat/completions"
 GITHUB_API = "https://api.github.com"
 MARKER = "<!-- deepseek-review -->"
 SEVERITIES = ("bloqueante", "importante", "menor")
+# Solo estas severidades llegan como comentario en línea; los "menor" se
+# agregan al resumen con un tope propio (MAX_MINOR).
+INLINE_SEVERITIES = ("bloqueante", "importante")
 EFFORTS = ("low", "high", "max")
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,17 +72,33 @@ Eres un revisor de código senior. Revisas pull requests del proyecto Carvajal, 
 un pipeline en Python 3.13 (uv, Ruff, pytest) para capturar y curar un corpus \
 web destinado a RAG.
 
+Criterio antes de escribir un hallazgo: ¿esta línea hace que algo falle, pierda \
+datos, quede inseguro o rinda peor? Si la respuesta no es un "sí" claro y \
+demostrable leyendo el diff, no lo reportes. Un PR sin comentarios es un \
+resultado correcto y frecuente.
+
+No reportes:
+- estilo, formato, nombres, orden de imports ni longitud de líneas: Ruff lo resuelve.
+- redacción de documentación, comentarios o mensajes de error.
+- refactors, abstracciones faltantes o "quedaría más limpio".
+- mejoras opcionales o hipotéticas ("si mañana se llama con..."), salvo que el
+  PR ya rompa algo hoy.
+- el mismo problema dos veces: un hallazgo por causa, no por línea afectada.
+
 Reglas:
-- Comenta solo problemas reales: correctitud, seguridad, manejo de errores, \
-rendimiento, tipado y pruebas faltantes.
-- No comentes estilo ni formato: Ruff ya lo resuelve automáticamente.
 - "line" debe ser una línea del archivo NUEVO (lado derecho del diff), la que \
 aparece en el hunk con '+' o como contexto. Si el hallazgo abarca varias \
 líneas, usa la primera.
 - No inventes rutas ni líneas que no estén en el diff.
+- "bloqueante" solo si el merge debe detenerse: el código está roto o es \
+inseguro. "importante" si debe arreglarse pronto pero no impide el merge. \
+"menor" solo para un bug real de bajo impacto: se listan como máximo dos, así \
+que no lo uses para nimiedades ni preferencias.
 - Usa "suggestion" solo cuando el reemplazo exacto de esa línea resuelva el \
 problema; si el arreglo necesita contexto, deja null y explica en "comment".
-- Sé conciso: máximo 12 hallazgos, ordenados por severidad.
+- Máximo 3 hallazgos entre "bloqueante" e "importante", más los "menor" que \
+de verdad importen. Si hay más candidatos, conserva solo los que rompen algo.
+- Si no hay hallazgos, devuelve "findings": [] y dilo en el resumen.
 
 Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, con esta forma:
 {
@@ -82,7 +108,7 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, con esta f
       "path": "ruta/relativa/al/archivo.py",
       "line": 42,
       "severity": "bloqueante",
-      "comment": "qué está mal y por qué, en 1 a 3 frases",
+      "comment": "qué está mal y por qué, en 1 a 2 frases",
       "suggestion": "código de reemplazo para esa línea, o null"
     }
   ]
@@ -303,6 +329,7 @@ def render_summary(
     summary: str,
     anchored: list[dict[str, Any]],
     unanchored: list[dict[str, Any]],
+    minors: list[dict[str, Any]],
     truncated_output: bool,
 ) -> str:
     """Compone el comentario resumen del PR."""
@@ -324,6 +351,14 @@ def render_summary(
             where = f"{finding['path']}:{line_no}" if line_no else str(finding["path"])
             severity = finding.get("severity", "menor")
             lines.append(f"- **{severity}** — `{where}`: {finding['comment']}")
+
+    if minors:
+        lines.append("")
+        lines.append("#### Menores (opcionales)")
+        for finding in minors:
+            line_no = finding.get("line")
+            where = f"{finding['path']}:{line_no}" if line_no else str(finding["path"])
+            lines.append(f"- `{where}`: {finding['comment']}")
 
     if truncated_output:
         lines.append("")
@@ -354,30 +389,42 @@ def upsert_summary(body: str, token: str, repo: str, number: str) -> None:
 
 def split_findings(
     data: dict[str, Any], anchors: dict[str, set[int]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Separa los hallazgos anclables de los que solo caben en el resumen."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Separa los hallazgos en anclables, no anclables y "menor".
+
+    Solo "bloqueante" e "importante" se comentan en línea. Los "menor" se
+    agrupan en el resumen, con un tope de MAX_MINOR, para que la revisión no se
+    convierta en una lista de nimiedades.
+    """
     raw_findings = data.get("findings")
     if not isinstance(raw_findings, list):
-        return [], []
+        return [], [], []
 
     known = {"bloqueante": 0, "importante": 1, "menor": 2}
     findings = [f for f in raw_findings if isinstance(f, dict) and f.get("path")]
     findings.sort(key=lambda f: known.get(str(f.get("severity", "menor")).lower(), 3))
 
-    limit = int(os.environ.get("MAX_INLINE", "10"))
+    limit = int(os.environ.get("MAX_INLINE", "4"))
+    max_minor = int(os.environ.get("MAX_MINOR", "2"))
     anchored: list[dict[str, Any]] = []
     unanchored: list[dict[str, Any]] = []
+    minors: list[dict[str, Any]] = []
     for finding in findings:
         path = str(finding["path"])
         try:
             line = int(finding.get("line") or 0)
         except (TypeError, ValueError):
             line = 0
+        severity = str(finding.get("severity", "menor")).lower()
+        if severity not in INLINE_SEVERITIES:
+            if len(minors) < max_minor:
+                minors.append(finding)
+            continue
         if len(anchored) < limit and line in anchors.get(path, set()):
             anchored.append(finding)
         else:
             unanchored.append(finding)
-    return anchored, unanchored
+    return anchored, unanchored, minors
 
 
 def main() -> int:
@@ -437,7 +484,7 @@ def main() -> int:
         return 1
 
     anchors = parse_anchor_lines(diff)
-    anchored, unanchored = split_findings(data, anchors)
+    anchored, unanchored, minors = split_findings(data, anchors)
 
     if head_sha:
         deleted = clear_previous_inline(repo, number, token)
@@ -454,10 +501,14 @@ def main() -> int:
         str(data.get("summary", "")),
         anchored,
         unanchored,
+        minors,
         finish_reason == "length",
     )
     upsert_summary(body, token, repo, number)
-    print(f"Revisión publicada: {len(anchored)} en línea, {len(unanchored)} en el resumen.")
+    print(
+        f"Revisión publicada: {len(anchored)} en línea, "
+        f"{len(unanchored)} en el resumen, {len(minors)} menor(es)."
+    )
     return 0
 
 
