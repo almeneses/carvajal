@@ -7,6 +7,7 @@ la base de datos. Devuelve las fuentes que sustentan la respuesta.
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from carvajal.application.errors import LLMError
 from carvajal.application.ports import Embedder, LLMProvider, ScoredChunk, VectorStore
 
 __all__ = ["Answer", "AskQuestion", "LLMError", "Source"]
@@ -24,10 +25,6 @@ DEFAULT_SYSTEM_PROMPT = (
 NO_CONTEXT_ANSWER = (
     "No dispongo de información suficiente en el corpus para responder esa pregunta."
 )
-
-
-class LLMError(RuntimeError):
-    """El proveedor de LLM no devolvió una respuesta utilizable."""
 
 
 EXCERPT_CHARS = 280  # longitud máxima del extracto de cada fuente
