@@ -1,0 +1,29 @@
+{
+  "description": "Fichas breves de recuperación, derivadas del texto de data/gold. No son una fuente de respuesta: se anteponen al texto solo para vectorizar y ayudar a encontrar el documento. La cita sigue saliendo del fragmento original.",
+  "cards": {
+    "quienes_somos": "Carvajal fue fundada en la ciudad de Cali, Colombia, en 1904. Empresa multilatina con presencia en 10 países y cuatro sectores: Impresión y Escritura, Papel y Empaques, Tecnología y Servicios e Inmobiliario. Marcas Norma, Bioform, Mepal y LiquidezYa.",
+    "historia": "Cronología de Carvajal desde su fundación en 1904: sedes en Cali, hitos, expansión internacional, fundaciones y marcas.",
+    "home": "Portada de Carvajal: propósito, negocios, sostenibilidad, empaques, educación, espacios y enlaces institucionales.",
+    "proposito_superior": "Propósito superior de Carvajal y sus cuatro capacidades: creación de valor, talento con compromiso, desarrollo sostenible y transformación e innovación.",
+    "propiedades_e_inversiones": "Negocio inmobiliario de Carvajal: administración y renta de inmuebles, activos Santa Mónica, Candelaria, Yumbo, Ciudad Guabinas y Zonamerica, y proyectos de vivienda.",
+    "gobierno_corporativo": "Gobierno corporativo de Carvajal: junta directiva, comités, presidentes y prácticas de gobierno.",
+    "compromiso_etico": "Compromiso ético de Carvajal: código de ética, línea ética, valores y relación con grupos de interés.",
+    "relacionamiento_con_grupos_de_interes": "Relacionamiento de Carvajal con grupos de interés y compromisos éticos.",
+    "sostenibilidad": "Sostenibilidad y desarrollo sostenible en Carvajal.",
+    "noticias": "Archivo de noticias de Carvajal: reconocimientos, alianzas, campañas y hechos recientes.",
+    "inicio": "Portal de inversionistas de Carvajal: información relevante, bonos, calificaciones de riesgo y estados financieros.",
+    "empaques": "Carvajal Empaques: soluciones de empaque, Bioform y materiales para alimentos y consumo.",
+    "educacion": "Carvajal Educación: marca Norma, textos y soluciones educativas para América Latina.",
+    "tecnologia": "Carvajal Tecnología y Servicios: soluciones digitales, datos, software y servicios empresariales.",
+    "espacios": "Carvajal Espacios y Mepal: mobiliario, archivadores y soluciones integrales de amueblamiento para oficinas.",
+    "comunicacion": "Carvajal Comunicación: directorios telefónicos, guías y soluciones de información.",
+    "pulpa_y_papel": "Carvajal Pulpa y Papel: producción de papel, cartulina y empaques; resultados y operación industrial.",
+    "politica_de_innovacion": "Política de innovación de Carvajal: enfoque, procesos y gobierno de la innovación.",
+    "carvajal_s_a_futuro_consolidado_ante_desafios_globales": "Resultados 2024 de Carvajal S.A.: ingresos por $3.96 billones, utilidad bruta de $1.07 billones, pérdida neta de $83.076 millones, activos, pasivos, patrimonio y más de 13.000 empleados.",
+    "carvajal_y_sus_empresas_reportan_resultados_0239html": "Resultados 2024 de Carvajal: ingresos por $3,9 billones, utilidad bruta de $1,07 billones y pérdida neta de $83.076 millones atribuida a Carvajal Pulpa y Papel.",
+    "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762": "Resultados a septiembre de 2025: ingresos por $2,58 billones, EBITDA de $351.631 millones con margen de 14% y ganancias netas de $26.602 millones.",
+    "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096": "Resultados a septiembre de 2024: ingresos por $2,8 billones, EBITDA de $332.277 millones, activos, pasivos y pérdida neta.",
+    "carvajal_reporto_ingresos_por_1_9_billones_a_junio_un_decrecimiento_de_14_anual_3928992": "Resultados a junio de 2024: ingresos por $1,9 billones, EBITDA de $200.914 millones y activos por $4.2 billones.",
+    "resultados_empresariales_2024_de_carvajal_4099828": "Resultados empresariales de Carvajal en 2024: ingresos, utilidad, EBITDA y cifras del grupo."
+  }
+}

@@ -114,6 +114,30 @@ class Settings(BaseSettings):
     daily_requests_limit: int = Field(default=20, ge=0)
     quota_timezone: str = "America/Bogota"
 
+    # RAG del M2: Qdrant es el índice evaluado. Postgres conserva documentos,
+    # fragmentos (sin depender de su columna vectorial), chat y memoria. El
+    # índice se prepara aparte con `carvajal index-qdrant`; la web arranca sin
+    # reconstruirlo y `/health` informa si está disponible.
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "carvajal_chunks"
+    qdrant_dimensions: int = Field(default=768, ge=1)
+    qdrant_distance: str = "Cosine"
+    rag_top_k: int = Field(default=6, ge=1, le=50)
+    rag_min_score: float = Field(default=0.30, ge=-1.0, le=1.0)
+
+    # Agente del M2: checkpointer y Store sobre el Postgres existente. La
+    # alternativa SQLite sirve para una demo local con archivo persistente.
+    agent_checkpointer: str = "postgres"
+    agent_sqlite_path: Path = Path("data") / "agent" / "checkpoints.sqlite"
+    agent_history_turns: int = Field(default=8, ge=1, le=50)
+
+    # Frontend propio (proceso separado) y orígenes permitidos por CORS.
+    frontend_origins: tuple[str, ...] = (
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
+    )
+
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
     # trazas es explícito y por defecto queda apagado.
@@ -121,6 +145,15 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     sentry_environment: str = "local"
     sentry_traces_sample_rate: float = Field(default=0.0, ge=0, le=1)
+
+    @field_validator("frontend_origins", mode="before")
+    @classmethod
+    def _origenes_separados_por_coma(cls, value: Any) -> Any:
+        """Acepta ``a,b`` en el entorno además de una lista JSON."""
+
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
 
     @field_validator("log_level")
     @classmethod
