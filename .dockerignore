@@ -1,0 +1,19 @@
+# Contexto mínimo de la imagen: solo lo que el build y el runtime necesitan.
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.ty_cache
+.mypy_cache
+data
+docs
+specs
+tests
+assets
+.opencode
+.specify
+.env
+*.log

@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # Carvajal — automatización de tareas
 # =============================================================================
 
@@ -32,7 +32,7 @@ help: ## Muestra esta ayuda
 	@echo   clean              Limpia cachés y artefactos
 
 install: ## Sincroniza el entorno virtual e instala dependencias
-	uv sync
+	uv sync --all-extras
 
 dev: install pre-commit-install ## Prepara el entorno de desarrollo (sync + hooks)
 
@@ -74,6 +74,15 @@ app: ## Lanza la interfaz web de prueba (Streamlit)
 
 api: ## Lanza el shell web (FastAPI + uvicorn)
 	uv run uvicorn apps.api.main:app --reload --port 8000
+
+image: ## Construye la imagen de la app web
+	docker build -t carvajal-api:local .
+
+prod-up: ## Levanta la app y la base con compose.prod.yml
+	docker compose -f compose.prod.yml up -d --build
+
+prod-down: ## Detiene app y base de compose.prod.yml (conserva el volumen)
+	docker compose -f compose.prod.yml down
 
 # Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias
 # POSTGRES_PORT, ambos lo ven.

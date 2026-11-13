@@ -111,7 +111,12 @@ make lint      # Ruff (lint)
 make format    # Ruff (formato)
 make test      # pytest
 make import    # importa el corpus externo a la capa extendida
+make image     # construye la imagen Docker de la app web
 ```
+
+> 📦 `uv sync --all-extras` instala también los extras `capture` (CLI de
+> captura) y `legacy` (Streamlit y FAISS). La imagen Docker instala solo el
+> runtime web.
 
 > ⚠️ **Regla dura:** toda gestión de dependencias y entornos pasa por `uv`. Está
 > **prohibido** `pip` y `requirements.txt`.

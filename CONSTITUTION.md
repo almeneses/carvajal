@@ -324,6 +324,7 @@ git push
 | 2026-11-11 | Puerto `LLMProvider` con adaptadores de DeepSeek y Ollama y fábrica `build_llm_provider` | La app web nueva depende del puerto, no de LangChain; `claude` queda solo en Streamlit, que conserva `rag.build_llm` intacto |
 | 2026-11-11 | Caso de uso `AskQuestion` con puerto `Embedder`, contexto numerado, citas y neutralización de delimitadores | Une recuperación y generación sin acoplar capas; sin contexto no se llama al LLM y el texto del corpus no puede inyectar instrucciones |
 | 2026-11-11 | Shell web FastAPI con handlers diferidos, `/health`, portada HTMX y `/ask` con citas | Importar el módulo no abre conexiones; los fallos de proveedor se traducen a 503 sin filtrar detalles internos |
+| 2026-11-12 | Imagen Docker multi-etapa; captura y prototipo Streamlit pasan a extras (`capture`, `legacy`) | El contenedor instala solo el runtime web (259 MB) y el arranque no importa LangChain; desarrollo y CI siguen instalando todo con `--all-extras` |
 
 ## 10. Notas y tareas pendientes
 

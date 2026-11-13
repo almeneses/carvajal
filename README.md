@@ -1,4 +1,4 @@
-# Carvajal — Corpus Web
+﻿# Carvajal — Corpus Web
 
 [![CI](https://github.com/markodavid/carvajal/actions/workflows/ci.yml/badge.svg)](https://github.com/markodavid/carvajal/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -138,7 +138,7 @@ git clone git@github.com:markodavid/carvajal.git
 cd carvajal
 
 # Sincronizar el entorno (crea .venv e instala dependencias)
-uv sync
+uv sync --all-extras
 ```
 
 ## Uso
@@ -265,7 +265,7 @@ uv run carvajal ask "¿Cuál es la misión de Carvajal?"
 ## Calidad
 
 ```bash
-make install    # uv sync
+make install    # uv sync --all-extras
 make dev        # install + pre-commit install
 make check      # lint + formato + tipos + pruebas
 make lint       # Ruff (lint)
@@ -275,8 +275,23 @@ make test       # pytest
 make build      # uv build
 make db         # Postgres 16 con pgvector (docker compose)
 make db-down    # detiene la base local
+make image      # imagen Docker de la app web
+make prod-up    # app + base con compose.prod.yml (sin proxy)
+make prod-down  # detiene app y base (conserva el volumen)
 make clean      # limpiar cachés y artefactos
 ```
+
+## Imagen Docker
+
+```bash
+make image                  # docker build -t carvajal-api:local .
+make prod-up                # app + Postgres con compose.prod.yml
+docker compose -f compose.prod.yml run --rm app alembic upgrade head
+```
+
+La imagen instala solo las dependencias del runtime web; los extras `capture`
+(CLI de captura) y `legacy` (Streamlit y FAISS) se quedan fuera y se instalan en
+desarrollo con `uv sync --all-extras`. El proxy con TLS queda para W6.2.
 
 ## Estructura
 

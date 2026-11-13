@@ -81,6 +81,20 @@ def test_health_degradado_no_filtra_detalles() -> None:
     assert "127.0.0.1" not in response.text and "carvajal" not in response.text
 
 
+def test_live_responde_aunque_la_base_no_este() -> None:
+    """La vitalidad del contenedor no depende de Postgres."""
+
+    # Arrange
+    client = make_client(health=unhealthy())
+
+    # Act
+    response = client.get("/live")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_portada_renderiza_el_formulario() -> None:
     # Arrange
     client = make_client()
@@ -264,3 +278,29 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     assert response.status_code == 200
     assert calls == [1]
     assert response.json() == {"status": "ok", "documents": 1, "chunks": 2}
+
+
+def test_los_handlers_reales_no_construyen_el_llm_al_arrancar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Construir handlers no importa LangChain ni crea clientes de proveedor."""
+
+    # Arrange
+    llamadas: list[int] = []
+
+    def fake_components() -> tuple[object, object]:
+        llamadas.append(1)
+        return object(), object()
+
+    monkeypatch.setattr(deps, "_ask_components", fake_components)
+    deps.default_handlers.cache_clear()
+
+    try:
+        # Act
+        handlers = deps.default_handlers()
+    finally:
+        deps.default_handlers.cache_clear()
+
+    # Assert
+    assert isinstance(handlers, Handlers)
+    assert llamadas == []

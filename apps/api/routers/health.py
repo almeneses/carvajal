@@ -16,6 +16,13 @@ logger = getLogger(__name__)
 router = APIRouter(tags=["salud"])
 
 
+@router.get("/live")
+def live() -> dict[str, str]:
+    """Vitalidad del proceso: no toca la base, para el healthcheck del contenedor."""
+
+    return {"status": "ok"}
+
+
 @router.get("/health")
 def health(handlers: Annotated[Handlers, Depends(get_handlers)]) -> JSONResponse:
     """Publica los conteos del corpus o el estado degradado sin filtrar detalles."""
