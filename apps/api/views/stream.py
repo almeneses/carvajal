@@ -8,25 +8,31 @@ de 500 caracteres) responde **422** con el mismo formato SSE y un evento
 
 import json
 from collections.abc import Iterator
-from logging import getLogger
 
+import structlog
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider
 from apps.api.chat.streaming import ChatEvent
+from apps.api.observability import capture_exception
+from apps.api.security import verify_csrf
 from apps.api.views.chat import (
+    CSRF_INVALIDO,
     EMPTY_QUESTION,
+    LIMITE_ALCANZADO,
     MAX_QUESTION_CHARS,
     TOO_LONG_QUESTION,
     chat_provider,
+    consume_quota,
     request_identity,
     set_identity_cookie,
 )
 
 __all__ = ["router"]
 
-logger = getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -38,8 +44,19 @@ SSE_HEADERS = {
 
 
 @router.post("/chat/stream")
-def chat_stream(request: Request, question: str = Form(default="")) -> Response:
+def chat_stream(
+    request: Request,
+    question: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+    client_turn_id: str = Form(default=""),
+    thread_id: str = Form(default=""),
+) -> Response:
     """Responde la pregunta como eventos SSE y persiste el turno al cerrar."""
+
+    # CSRF antes de la cuota y del caso de uso: sin token no se abre el stream.
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _invalid(CSRF_INVALIDO, status_code=403)
 
     text = question.strip()
     if not text:
@@ -52,9 +69,35 @@ def chat_stream(request: Request, question: str = Form(default="")) -> Response:
     new_owner = owner_key is None
     if owner_key is None:
         owner_key = identity.new_owner_key()
+    # Los tokens que genere el LLM quedan asociados a este visitante.
+    structlog.contextvars.bind_contextvars(owner_key=owner_key)
+
+    try:
+        quota = consume_quota(request, owner_key)
+    except SQLAlchemyError as error:
+        logger.warning("chat.quota_failed", error=str(error), stream=True)
+        response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
+    if not quota.allowed:
+        response = _invalid(
+            LIMITE_ALCANZADO,
+            status_code=429,
+            headers={"Retry-After": str(quota.retry_after)},
+        )
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
 
     response = StreamingResponse(
-        _sse(chat_provider(request), owner_key, text),
+        _sse(
+            chat_provider(request),
+            owner_key,
+            text,
+            client_turn_id=client_turn_id.strip() or None,
+            thread_id=thread_id.strip() or None,
+        ),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
     )
@@ -63,22 +106,38 @@ def chat_stream(request: Request, question: str = Form(default="")) -> Response:
     return response
 
 
-def _sse(provider: ChatProvider, owner_key: str, question: str) -> Iterator[str]:
+def _sse(
+    provider: ChatProvider,
+    owner_key: str,
+    question: str,
+    *,
+    client_turn_id: str | None = None,
+    thread_id: str | None = None,
+) -> Iterator[str]:
     """Traduce los eventos del servicio a bloques SSE.
 
     La red de seguridad evita que un fallo inesperado del proveedor deje la
     conexión sin cierre ni mensaje: siempre se emite un ``error`` genérico.
     """
 
+    # El generador puede ejecutarse en otra tarea: se reafirma el contexto para
+    # que los tokens del adaptador no pierdan el visitante.
+    structlog.contextvars.bind_contextvars(owner_key=owner_key)
     saw_token = False
     cerrado = False
     try:
-        for event in provider.stream(owner_key, question):
+        for event in provider.stream(
+            owner_key,
+            question,
+            client_turn_id=client_turn_id,
+            thread_id=thread_id,
+        ):
             saw_token = saw_token or event.name == "token"
             cerrado = event.name in {"done", "error"}
             yield _encode(event)
     except Exception as error:
-        logger.warning("El stream del chat se cortó de forma inesperada: %s", error)
+        logger.warning("chat.stream_failed", error=str(error))
+        capture_exception(error)
         if not cerrado:
             yield _encode(
                 ChatEvent(
@@ -95,12 +154,17 @@ def _encode(event: ChatEvent) -> str:
     return f"event: {event.name}\ndata: {payload}\n\n"
 
 
-def _invalid(message: str) -> Response:
-    """Respuesta 422 controlada para una pregunta que no se puede procesar."""
+def _invalid(
+    message: str,
+    *,
+    status_code: int = 422,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    """Respuesta SSE controlada para una pregunta o un cupo que no se puede procesar."""
 
     return Response(
         content=_encode(ChatEvent("error", {"message": message, "incomplete": False})),
-        status_code=422,
+        status_code=status_code,
         media_type=SSE_MEDIA_TYPE,
-        headers=SSE_HEADERS,
+        headers={"X-Carvajal-Error": "1", **SSE_HEADERS, **(headers or {})},
     )

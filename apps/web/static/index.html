@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Carvajal · Asistente M2</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/config.js"></script>
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="saltar" href="#contenido">Saltar al contenido</a>
+    <header class="cabecera">
+      <div class="marca">
+        <span class="logo" aria-hidden="true">C</span>
+        <span>
+          <strong>Asistente Carvajal</strong>
+          <small>Módulo 2 · agente con Qdrant y memoria</small>
+        </span>
+      </div>
+      <div class="acciones">
+        <span id="salud" class="salud" role="status">Comprobando índice…</span>
+        <button id="nuevo-hilo" type="button" class="secundario">Nuevo hilo</button>
+      </div>
+    </header>
+
+    <main id="contenido">
+      <section class="panel" aria-labelledby="titulo-chat">
+        <div class="encabezado">
+          <h1 id="titulo-chat">Conversación con el corpus</h1>
+          <p>
+            Respuestas con recuperación en Qdrant, herramienta de indicadores y memoria
+            persistente por visitante. Las citas abren la fuente original.
+          </p>
+        </div>
+
+        <div id="traza" class="traza" hidden aria-live="polite">
+          <span>Ruta: <strong id="traza-ruta"></strong></span>
+          <span id="traza-tool-wrap" hidden>Herramienta: <strong id="traza-tool"></strong></span>
+          <span id="traza-memoria-wrap" hidden>Memoria: <strong id="traza-memoria"></strong></span>
+          <span id="traza-fuentes-wrap" hidden>Fuentes: <strong id="traza-fuentes"></strong></span>
+          <span>Hilo: <code id="traza-hilo"></code></span>
+        </div>
+
+        <ol id="hilo" class="hilo" aria-live="polite"></ol>
+
+        <form id="formulario" class="formulario" autocomplete="off">
+          <label for="pregunta">Tu pregunta</label>
+          <div class="fila">
+            <input
+              id="pregunta"
+              name="question"
+              type="text"
+              maxlength="500"
+              required
+              placeholder="¿En qué ciudad y año fue fundada Carvajal?"
+            />
+            <button id="enviar" type="submit">Enviar</button>
+          </div>
+          <p class="ayuda">
+            Prueba: «¿Cuáles fueron los ingresos consolidados de 2024?», «¿Y en qué año
+            ocurrió eso?» o «Recuerda que prefiero respuestas breves».
+          </p>
+        </form>
+
+        <p id="estado" class="estado" role="status" aria-live="polite"></p>
+        <div id="reintento" class="reintento" hidden>
+          <p>La conexión se interrumpió antes de recibir tokens.</p>
+          <button id="boton-reintento" type="button">Reintentar la misma pregunta</button>
+        </div>
+      </section>
+    </main>
+
+    <template id="plantilla-turno">
+      <li class="turno">
+        <p class="rol"></p>
+        <div class="burbuja"><p class="texto"></p></div>
+        <section class="citas" hidden>
+          <h2>Fuentes citadas</h2>
+          <ol class="fuentes"></ol>
+        </section>
+      </li>
+    </template>
+
+    <template id="plantilla-fuente">
+      <li class="fuente">
+        <p class="fuente-meta">
+          <a data-campo="url" target="_blank" rel="noopener noreferrer"><strong data-campo="title"></strong></a>
+          <span data-campo="section"></span>
+          <span data-campo="layer"></span>
+          <span data-campo="source_type"></span>
+          <span data-campo="score"></span>
+        </p>
+        <p class="extracto" data-campo="excerpt"></p>
+      </li>
+    </template>
+
+    <footer class="pie">
+      <p>Corpus público de Carvajal · Qdrant + LangGraph + Postgres · licencia MIT</p>
+    </footer>
+  </body>
+</html>

@@ -32,6 +32,108 @@ terceros. Todo se demuestra en una interfaz con el scraping visible etapa por et
 | Respuestas sin trazabilidad | Cada respuesta **cita medio, fecha y tipo de fuente** |
 | Arranque de la app en ~5 min (embeddings) | **Segundos**, con índice persistido e invalidación por hash |
 
+## Entrega M2 — agente con Qdrant, memoria y herramienta
+
+La entrada oficial del Módulo 2 es el **frontend propio** en
+<http://localhost:8001>; la API vive en <http://localhost:8000>. Son dos
+procesos: el navegador habla HTTP/SSE con la API y esta concentra credenciales,
+modelo, ruta, memoria y herramientas.
+
+```mermaid
+flowchart LR
+  U[Navegador / móvil] -->|HTML + JS| FE["Frontend :8001<br/>apps/web"]
+  FE -->|"JSON + SSE<br/>cookie firmada + CSRF"| API["API :8000<br/>FastAPI"]
+  API --> ROUTER["Router LangGraph<br/>direct | tool | rag"]
+  ROUTER -->|direct| PROMPT[Prompt con historial y preferencias]
+  ROUTER -->|rag| Q[("Qdrant<br/>125 fragmentos · 768 dims · coseno")]
+  ROUTER -->|tool| T["indicator_lookup<br/>data/indicators.json"]
+  PROMPT --> LLM[DeepSeek u Ollama]
+  Q --> LLM
+  T --> LLM
+  API <--> PG[("Postgres<br/>chat · checkpoints · Store")]
+  API --> LOGS["structlog JSON<br/>request_id · thread_id · route · tool · sources"]
+```
+
+### Arranque reproducible (dos terminales)
+
+```bash
+# Preparación única
+uv sync --all-extras
+cp .env.example .env                 # completa DEEPSEEK_API_KEY y SESSION_SECRET
+make db                              # Postgres 16 + pgvector
+make qdrant                          # Qdrant con volumen persistente
+uv run alembic upgrade head          # migraciones, incluida 0005
+ollama pull nomic-embed-text         # embeddings locales de 768 dimensiones
+make index                           # indexa data/gold en Qdrant (idempotente)
+
+# Terminal 1: API
+make api                             # http://localhost:8000
+
+# Terminal 2: frontend propio
+make web                             # http://localhost:8001  ← entrada del M2
+```
+
+`make index` reejecuta la indexación con IDs UUID5 estables y poda los puntos
+obsoletos; `uv run carvajal index-qdrant --recreate` reconstruye la colección
+desde cero. El arranque web no indexa: funciona con un índice ya preparado.
+`/live` comprueba el proceso y `/health` publica documentos, fragmentos y estado
+de Qdrant por separado.
+
+### Contrato del turno
+
+`POST /api/chat/stream` acepta `question`, `csrf_token`, `client_turn_id` y
+`thread_id` opcional. Emite SSE con estos eventos:
+
+| Evento | Contenido |
+|---|---|
+| `open` | Apertura del stream. |
+| `trace` | `thread_id`, `route` (`direct`/`tool`/`rag`), `intent`, `tool`, `memory`, `retrieved`. |
+| `meta` | `sources[]` con `chunk_id`, `slug`, `title`, `url`, `source_type`, `score` y extracto. |
+| `token` | Fragmento incremental de la respuesta. |
+| `fallback` | Respuesta completa si el stream falla antes del primer token. |
+| `done` | `conversation_id`, `message_id`, `thread_id`, `route`, `elapsed_ms`. |
+| `error` | Mensaje accionable e `incomplete`; un 4xx/5xx SSE no se reintenta solo. |
+
+El mismo contrato existe en el shell Jinja2 (`/chat/stream`) para compatibilidad,
+y `GET /api/chat/history` devuelve el hilo activo al recargar.
+
+### Memoria, herramienta y router
+
+- **Corto plazo:** `PostgresSaver` con `thread_id = conversations.id`, verificado
+  contra el dueño de la cookie. El historial de Postgres siembra el estado si el
+  checkpoint no existe; un reinicio del backend recupera el mismo hilo.
+- **Largo plazo:** `PostgresStore` en el namespace `("carvajal", "preferences",
+  owner_key)`. Una preferencia declarada se recupera en otro hilo del mismo
+  dueño y no cruza a otro visitante.
+- **Herramienta:** `@tool` con `args_schema` Pydantic sobre
+  `data/indicators.json`; devuelve valor, unidad, cita y URL, o ausencia estable.
+- **Router:** orden documentado en `carvajal/agent/router.py`: preferencia →
+  herramienta con período explícito → saludo/capacidad → RAG (seguimiento
+  elíptico reescrito con la pregunta anterior) → abstención si falta evidencia.
+  Los saludos no tocan Qdrant ni la herramienta.
+
+La expansión de consulta usa fechas y entidades que el corpus ya declara
+(`1904 Cali Colombia`, `10 países`, `13.000 empleados`) y las fichas de
+`data/retrieval_cards.json` solo ayudan a recuperar; la cita siempre sale del
+fragmento original.
+
+### Evaluación
+
+`data/eval/retrieval_questions.json` contiene 31 consultas etiquetadas a mano
+(30 con evidencia y una sin evidencia). El reporte reproducible está en
+[`docs/eval/retrieval-report.md`](docs/eval/retrieval-report.md). El JSON
+completo con los 10 resultados por consulta se regenera con el mismo comando y
+no se versiona para no inflar el PR.
+
+```bash
+make index-eval     # indexa y ejecuta scripts/eval_retrieval.py
+```
+
+Resultado de la última corrida (Qdrant, k=10): **Recall@10 = 0.8000**,
+**nDCG@10 = 0.7791**; la consulta sin evidencia (`q31`, teléfono en Tokio) se
+abstiene sin fuentes. La evaluación separa retrieval de calidad de respuesta:
+no llama al LLM.
+
 ## Stack
 
 | Categoría | Tecnología |
@@ -42,7 +144,8 @@ terceros. Todo se demuestra en una interfaz con el scraping visible etapa por et
 | **Paquete Python** | `carvajal` |
 | **HTTP** | `requests` (sesión única, `User-Agent` identificable, `timeout`) |
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
-| **RAG** | LangChain + FAISS + embeddings |
+| **RAG web (M2)** | Qdrant + LangGraph + Postgres (checkpointer y Store) |
+| **RAG legado** | LangChain + FAISS + Streamlit (prototipo, no es la entrada del M2) |
 | **LLM** | DeepSeek (`deepseek-chat`), Anthropic Claude u Ollama (`llama3.2`) |
 | **Interfaz de pruebas** | Streamlit |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
@@ -138,10 +241,20 @@ git clone git@github.com:markodavid/carvajal.git
 cd carvajal
 
 # Sincronizar el entorno (crea .venv e instala dependencias)
-uv sync
+uv sync --all-extras
 ```
 
+> `--all-extras` instala también los extras `capture` (HTTP y extracción HTML
+> para la CLI) y `legacy` (Streamlit y FAISS). La app web y su imagen Docker
+> solo necesitan las dependencias base.
+
 ## Uso
+
+> El CLI (`carvajal capture`, `status`, `ask`, `eval`, `summarize`, `faq`,
+> `import`, `migrate-gold`) requiere los extras de captura y prototipo:
+> `uv sync --all-extras` en el repositorio, o
+> `uv tool install "carvajal[capture,legacy]"` fuera de él. La imagen Docker
+> solo instala el runtime web y no incluye el CLI.
 
 ```bash
 # Capturar el sitio oficial y las fuentes de terceros
@@ -177,7 +290,16 @@ uv run streamlit run app.py     # o: make app
 make eval
 ```
 
-### Interfaz web
+### Interfaz web del M2
+
+La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
+API en <http://localhost:8000> (`make api`). El shell Jinja2 sigue disponible en
+<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE.
+
+### Interfaz legada (Streamlit)
+
+> El prototipo Streamlit conserva las tareas del Módulo 1 y no es la entrada del
+> M2. Se retira en la ola 7 del plan de migración.
 
 `uv run streamlit run app.py` abre cuatro pestañas:
 
@@ -244,9 +366,23 @@ También puedes configurar las variables en la terminal:
 | `DEEPSEEK_BASE_URL` | Endpoint compatible con OpenAI. | `https://api.deepseek.com/v1` |
 | `ANTHROPIC_API_KEY` | Clave API de Anthropic (solo si `LLM_PROVIDER=claude`). | `""` |
 | `CLAUDE_MODEL` | Modelo Claude a utilizar (p. ej. `claude-sonnet-4-5`). | `claude-sonnet-4-5` |
+| `QDRANT_URL` | Endpoint de Qdrant. | `http://127.0.0.1:6333` |
+| `QDRANT_COLLECTION` | Colección del índice M2. | `carvajal_chunks` |
+| `QDRANT_DIMENSIONS` | Dimensión de los embeddings. | `768` |
+| `RAG_TOP_K` | Fragmentos que recibe el prompt. | `6` |
+| `RAG_MIN_SCORE` | Umbral mínimo de similitud. | `0.30` |
+| `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
+| `FRONTEND_ORIGINS` | Orígenes CORS del frontend separado. | `http://localhost:8001,...` |
 
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
-> independientemente del proveedor del LLM.
+> independientemente del proveedor del LLM. `make index` requiere ese modelo.
+
+Para la app web, `SESSION_SECRET` firma la cookie anónima. En producción es
+obligatorio (`compose.prod.yml` falla si falta). En desarrollo, fíjalo también
+si vas a reiniciar el backend durante la demo: con un secreto aleatorio por
+proceso, la cookie deja de validar y el hilo no se recupera. `DAILY_REQUESTS_LIMIT`
+y `QUOTA_TIMEZONE` configuran la cuota diaria; `POSTGRES_*`/`DATABASE_URL`
+configuran la base.
 
 El índice vectorial FAISS se guarda en `data/index/` (ignorado por Git) y se reutiliza
 mientras el corpus no cambie, de modo que la app arranca en segundos. La primera
@@ -265,7 +401,7 @@ uv run carvajal ask "¿Cuál es la misión de Carvajal?"
 ## Calidad
 
 ```bash
-make install    # uv sync
+make install    # uv sync --all-extras
 make dev        # install + pre-commit install
 make check      # lint + formato + tipos + pruebas
 make lint       # Ruff (lint)
@@ -273,22 +409,62 @@ make format     # Ruff (formato)
 make typecheck  # ty
 make test       # pytest
 make build      # uv build
+make image      # imagen Docker de la app web
+make prod-up    # app + base con compose.prod.yml (requiere SESSION_SECRET)
+make prod-down  # detiene app y base (conserva el volumen)
 make db         # Postgres 16 con pgvector (docker compose)
 make db-down    # detiene la base local
 make clean      # limpiar cachés y artefactos
 ```
 
+## Imagen Docker
+
+```bash
+make image                  # docker build -t carvajal-api:local .
+export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+make prod-up                # app + Postgres con compose.prod.yml
+docker compose -f compose.prod.yml run --rm app alembic upgrade head
+```
+
+La imagen es multi-etapa, corre con un usuario sin privilegios y solo instala
+las dependencias del runtime web; los extras `capture` y `legacy` se quedan
+fuera. El build fija las imágenes base por digest y omite `zstandard`
+(compresión opcional de trazas de LangSmith) y las herramientas de build (`uv`,
+`pip`) para mantenerse por debajo de 300 MB. `compose.prod.yml` exige
+`SESSION_SECRET` (falla si falta) y endurece el contenedor con `read_only`,
+`cap_drop: ALL` y `no-new-privileges`.
+
+| Ruta | Qué comprueba | Depende de Postgres |
+|---|---|---|
+| `GET /live` | Que el proceso responde (liveness del contenedor). | No |
+| `GET /health` | Conteos de documentos/fragmentos y estado de Qdrant (readiness). | Sí |
+| `GET /api/health` | El mismo readiness para el frontend propio. | Sí |
+
+El proxy con TLS queda para W6.2. Uvicorn arranca con `--proxy-headers` para
+respetar `X-Forwarded-Proto`; solo confía en las IPs de `FORWARDED_ALLOW_IPS`
+(por defecto `127.0.0.1`). Si el proxy es otro contenedor de la red de compose,
+añade su dirección o subred a esa variable para que `request.url.scheme` sea
+`https`: de ello dependen las cookies `Secure`, HSTS y la cabecera CSRF.
+
 ## Estructura
 
 ```text
 carvajal/
-├── src/
-│   └── carvajal/
+├── apps/
+│   ├── api/        # FastAPI, contrato HTTP/SSE y shell Jinja2
+│   └── web/        # frontend propio del M2 (:8001)
+├── packages/core/src/carvajal/
+│   ├── agent/      # router, herramienta, memoria y grafo LangGraph
+│   ├── indexing/   # Gold → Qdrant
+│   └── adapters/   # storage, embeddings, LLM y vector (pgvector/Qdrant)
 ├── tests/
 ├── data/
-│   └── gold/       # entregable versionado (capa gold)
+│   ├── gold/       # entregable versionado (capa gold)
+│   ├── eval/       # consultas etiquetadas del retrieval
+│   ├── indicators.json      # herramienta del M2
+│   └── retrieval_cards.json # fichas de recuperación
 │                   # data/external/ se genera con `carvajal import` (ignorado)
-│                   # data/index/ se genera en local (caché FAISS, ignorada)
+│                   # data/index/ es la caché FAISS legada (ignorada)
 ├── docs/
 ├── .github/
 ├── .opencode/
@@ -298,6 +474,9 @@ carvajal/
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
 ├── Makefile
+├── Dockerfile          # imagen multi-etapa de la app web (W6.1)
+├── compose.yml         # Postgres local de desarrollo
+├── compose.prod.yml    # app + Postgres para una sola máquina
 ├── pyproject.toml
 ├── uv.lock
 ├── .python-version

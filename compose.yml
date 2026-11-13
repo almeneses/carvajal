@@ -38,5 +38,15 @@ services:
       retries: 20
       start_period: 5s
 
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrantdata:/qdrant/storage
+
 volumes:
   pgdata:
+  qdrantdata:

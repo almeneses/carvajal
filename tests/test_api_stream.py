@@ -1,19 +1,22 @@
 """Pruebas HTTP del stream SSE con un proveedor falso: sin red ni base de datos."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field
 from http.cookies import SimpleCookie
 from time import perf_counter, sleep
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import create_app
+from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from apps.api.views.chat import EMPTY_QUESTION, TOO_LONG_QUESTION
 from carvajal.application.ask import Source
+from carvajal.application.quota import QuotaResult
 
 SOURCE = Source("historia-1", "historia", "historia", "core", 0.912, "Inició en 1904.")
 IDENTITY = SignedCookieIdentity(b"secreto-de-prueba")
@@ -28,7 +31,7 @@ class FakeChat:
     calls: list[tuple[str, str]] = field(default_factory=list)
     persisted: int = 0
 
-    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+    def stream(self, owner_key: str, question: str, **kwargs: object) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
         for event in self.events:
             if event.name == "done":
@@ -39,7 +42,7 @@ class FakeChat:
 class SlowTokenChat(FakeChat):
     """Retrasa el primer token para comprobar que se mide el token, no ``open``."""
 
-    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+    def stream(self, owner_key: str, question: str, **kwargs: object) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
         yield ChatEvent("open", {"stream": "chat"})
         yield ChatEvent("meta", {"sources": []})
@@ -61,14 +64,26 @@ def ok_events() -> list[ChatEvent]:
     ]
 
 
-def make_client(chat: FakeChat | None = None) -> tuple[TestClient, FakeChat]:
-    """Cliente con proveedor e identidad inyectados, sin tocar la base."""
+def make_client(
+    chat: FakeChat | None = None,
+    quota: Callable[[str], QuotaResult] | None = None,
+) -> tuple[TestClient, FakeChat]:
+    """Cliente con proveedor, identidad y cuota inyectados, sin tocar la base."""
 
     provider = chat or FakeChat(events=ok_events())
     app = create_app()
     app.state.chat = provider
     app.state.chat_identity = IDENTITY
+    app.state.quota = quota or (lambda owner: QuotaResult(allowed=True))
     return TestClient(app), provider
+
+
+def _data(client: TestClient, question: str) -> dict[str, str]:
+    """Datos del POST con el token CSRF emitido por una página."""
+
+    if CSRF_COOKIE not in client.cookies:
+        client.get("/")
+    return {"question": question, CSRF_FIELD: client.cookies[CSRF_COOKIE]}
 
 
 def parse_sse(body: str) -> list[tuple[str, dict[str, object]]]:
@@ -94,12 +109,12 @@ def test_stream_emite_open_meta_tokens_y_done_en_orden() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data=_data(client, "¿Cuándo nació?"))
 
     # Assert
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
-    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-accel-buffering"] == "no"
     events = parse_sse(response.text)
     assert [name for name, _ in events] == ["open", "meta", "token", "token", "done"]
@@ -120,7 +135,7 @@ def test_stream_emite_cookie_si_el_visitante_no_tenia_identidad() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data=_data(client, "¿Cuándo nació?"))
 
     # Assert
     assert response.status_code == 200
@@ -143,7 +158,7 @@ def test_fallback_antes_del_primer_token_se_emite_y_cierra() -> None:
     client, chat = make_client(FakeChat(events=events))
 
     # Act
-    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data=_data(client, "¿Cuándo nació?"))
 
     # Assert
     assert response.status_code == 200
@@ -174,7 +189,7 @@ def test_error_tras_un_token_marca_incompleto_y_no_emite_done() -> None:
     client, chat = make_client(FakeChat(events=events))
 
     # Act
-    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data=_data(client, "¿Cuándo nació?"))
 
     # Assert
     assert response.status_code == 200
@@ -199,7 +214,7 @@ def test_pregunta_invalida_devuelve_422_sse_sin_llamar_al_proveedor(
     client, chat = make_client()
 
     # Act
-    response = client.post("/chat/stream", data={"question": question})
+    response = client.post("/chat/stream", data=_data(client, question))
 
     # Assert
     assert response.status_code == 422
@@ -216,7 +231,7 @@ def test_open_es_el_primer_evento_y_llega_en_menos_de_dos_segundos() -> None:
     # Act
     inicio = perf_counter()
     primer_evento: tuple[str, float] | None = None
-    with client.stream("POST", "/chat/stream", data={"question": "¿Cuándo nació?"}) as response:
+    with client.stream("POST", "/chat/stream", data=_data(client, "¿Cuándo nació?")) as response:
         assert response.status_code == 200
         for line in response.iter_lines():
             if line.startswith("event:"):
@@ -238,7 +253,7 @@ def test_el_primer_token_llega_en_menos_de_dos_segundos() -> None:
     # Act
     inicio = perf_counter()
     primer_token: float | None = None
-    with client.stream("POST", "/chat/stream", data={"question": "¿Cuándo nació?"}) as response:
+    with client.stream("POST", "/chat/stream", data=_data(client, "¿Cuándo nació?")) as response:
         assert response.status_code == 200
         for line in response.iter_lines():
             if line.strip() == "event: token":
@@ -259,4 +274,42 @@ def test_get_no_puede_disparar_el_stream() -> None:
 
     # Assert
     assert response.status_code == 405
+    assert chat.calls == []
+
+
+def test_el_stream_agota_la_cuota_antes_de_llamar_al_proveedor() -> None:
+    """El cupo también cubre la ruta SSE; sin cupo no se abre el stream."""
+
+    # Arrange
+    client, chat = make_client(quota=lambda owner: QuotaResult(False, 120))
+
+    # Act
+    response = client.post("/chat/stream", data=_data(client, "¿Cuándo nació?"))
+
+    # Assert
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "120"
+    eventos = parse_sse(response.text)
+    assert eventos[-1][0] == "error"
+    assert "límite diario" in str(eventos[-1][1]["message"])
+    assert COOKIE_NAME in response.headers["set-cookie"]
+    assert chat.calls == []
+
+
+def test_fallo_de_bd_en_la_cuota_del_stream_devuelve_503() -> None:
+    """Un fallo de BD al consultar el cupo no abre el stream ni llama al proveedor."""
+
+    # Arrange
+    def quota(owner: str) -> QuotaResult:
+        raise SQLAlchemyError("base caída")
+
+    client, chat = make_client(quota=quota)
+
+    # Act
+    response = client.post("/chat/stream", data=_data(client, "¿Cuándo nació?"))
+
+    # Assert
+    assert response.status_code == 503
+    eventos = parse_sse(response.text)
+    assert eventos[-1][0] == "error"
     assert chat.calls == []

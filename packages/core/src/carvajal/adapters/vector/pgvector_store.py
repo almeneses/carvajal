@@ -100,6 +100,23 @@ class PgVectorStore:
                 f"{existing[chunk_id]!r}, no a {expected[chunk_id]!r}."
             )
 
+    def search_text(
+        self,
+        query: str,
+        embedding: Sequence[float],
+        *,
+        limit: int = 8,
+        layer: str | None = None,
+        section: str | None = None,
+        min_score: float | None = None,
+    ) -> Sequence[ScoredChunk]:
+        """Compatibilidad con la interfaz híbrida: pgvector no usa el texto."""
+
+        results = self.search(embedding, limit=limit, layer=layer, section=section)
+        if min_score is None:
+            return results
+        return [result for result in results if result.score >= min_score]
+
     def search(
         self,
         embedding: Sequence[float],

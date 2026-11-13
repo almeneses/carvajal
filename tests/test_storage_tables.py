@@ -17,8 +17,8 @@ def _unique_column_sets(table: Table) -> set[tuple[str, ...]]:
     }
 
 
-def test_exporta_las_cinco_tablas_del_esquema() -> None:
-    """El metadata contiene el corpus de W1.2 y el chat de W3.3."""
+def test_exporta_las_seis_tablas_del_esquema() -> None:
+    """El metadata contiene el corpus, el chat de W3.3 y el cupo de W4.2."""
 
     assert set(tables.metadata.tables) == {
         "documents",
@@ -26,6 +26,7 @@ def test_exporta_las_cinco_tablas_del_esquema() -> None:
         "document_versions",
         "conversations",
         "messages",
+        "usage_day",
     }
 
 
@@ -89,3 +90,11 @@ def test_el_esquema_del_chat_tiene_cascada_rol_e_indices() -> None:
         index.name for index in tables.conversations.indexes
     }
     assert "ix_messages_conversation_created" in {index.name for index in tables.messages.indexes}
+
+
+def test_el_cupo_se_identifica_por_visitante_y_dia() -> None:
+    """``usage_day`` usa (``owner_key``, ``day``) como clave primaria."""
+
+    assert [column.name for column in tables.usage_day.primary_key] == ["owner_key", "day"]
+    assert tables.usage_day.c.requests.nullable is False
+    assert tables.usage_day.c.tokens.nullable is False

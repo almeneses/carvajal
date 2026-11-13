@@ -10,7 +10,14 @@ from sqlalchemy import Engine, create_engine, inspect
 pytestmark = pytest.mark.integration
 
 _ROOT = Path(__file__).resolve().parents[1]
-_SCHEMA_TABLES = {"documents", "chunks", "document_versions"}
+_SCHEMA_TABLES = {
+    "documents",
+    "chunks",
+    "document_versions",
+    "conversations",
+    "messages",
+    "usage_day",
+}
 
 
 def _alembic_config(migration_url: str) -> Config:
@@ -61,6 +68,21 @@ def _assert_head_schema(engine: Engine) -> None:
         "captured_at",
         "created_at",
     }
+    assert columns["conversations"] == {"id", "owner_key", "created_at", "updated_at"}
+    assert columns["messages"] == {
+        "id",
+        "conversation_id",
+        "role",
+        "content",
+        "sources",
+        "status",
+        "client_turn_id",
+        "created_at",
+    }
+    assert columns["usage_day"] == {"owner_key", "day", "requests", "tokens"}
+
+    usage_pk = inspector.get_pk_constraint("usage_day")["constrained_columns"]
+    assert usage_pk == ["owner_key", "day"]
 
     document_indexes = {index["name"] for index in inspector.get_indexes("documents")}
     version_indexes = {index["name"] for index in inspector.get_indexes("document_versions")}

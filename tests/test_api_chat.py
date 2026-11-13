@@ -1,8 +1,9 @@
 """Pruebas HTTP del chat con un proveedor falso: sin red ni base de datos."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.identity import COOKIE_MAX_AGE, COOKIE_NAME, SignedCookieIdentity
 from apps.api.main import create_app
+from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from apps.api.views.chat import (
     EMPTY_QUESTION,
     SERVICE_UNAVAILABLE,
@@ -18,6 +20,7 @@ from apps.api.views.chat import (
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.application.ask import Answer, LLMError, Source
+from carvajal.application.quota import QuotaResult
 
 SOURCE = Source("historia-1", "historia", "historia", "core", 0.912, "Inició en 1904.")
 IDENTITY = SignedCookieIdentity(b"secreto-de-prueba")
@@ -84,20 +87,34 @@ def _message(role: str, content: str, *, sources: list[dict[str, object]] | None
 def make_client(
     chat: FakeChat | None = None,
     identity: SignedCookieIdentity | FakeIdentity | None = None,
+    quota: Callable[[str], QuotaResult] | None = None,
     *,
     base_url: str = "http://testserver",
 ) -> tuple[TestClient, FakeChat]:
-    """Cliente con proveedor e identidad inyectados; por defecto responden bien."""
+    """Cliente con proveedor, identidad y cuota inyectados; por defecto responden bien."""
 
     provider = chat or FakeChat()
     app = create_app()
     app.state.chat = provider
     app.state.chat_identity = identity or IDENTITY
+    app.state.quota = quota or (lambda owner: QuotaResult(allowed=True))
     return TestClient(app, base_url=base_url), provider
 
 
 def _cookie(owner_key: str) -> str:
     return IDENTITY.issue(owner_key)
+
+
+def _post(client: TestClient, path: str, data: dict[str, str], **kwargs: Any) -> Any:
+    """Envía un POST con el token CSRF emitido por una página."""
+
+    if CSRF_COOKIE not in client.cookies:
+        client.get("/")
+    return client.post(
+        path,
+        data={**data, CSRF_FIELD: client.cookies[CSRF_COOKIE]},
+        **kwargs,
+    )
 
 
 def test_get_sin_cookie_muestra_el_estado_vacio_y_emite_cookie() -> None:
@@ -188,7 +205,7 @@ def test_post_vacio_devuelve_422_sin_persistir() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post("/chat", data={"question": "   "})
+    response = _post(client, "/chat", {"question": "   "})
 
     # Assert
     assert response.status_code == 422
@@ -207,7 +224,7 @@ def test_post_demasiado_largo_devuelve_422_sin_persistir() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post("/chat", data={"question": "x" * 501})
+    response = _post(client, "/chat", {"question": "x" * 501})
 
     # Assert
     assert response.status_code == 422
@@ -226,9 +243,10 @@ def test_post_ok_redirige_emite_cookie_y_conserva_el_historial() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Cuándo nació?"},
+        {"question": "¿Cuándo nació?"},
         follow_redirects=False,
     )
 
@@ -255,9 +273,10 @@ def test_post_usa_el_dueno_de_la_cookie_valida() -> None:
     client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Qué es Carvajal?"},
+        {"question": "¿Qué es Carvajal?"},
         follow_redirects=False,
     )
 
@@ -272,9 +291,10 @@ def test_post_con_cookie_invalida_regenera_la_identidad() -> None:
     client.cookies.set(COOKIE_NAME, "dueno-manipulado.firma-falsa")
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Qué es Carvajal?"},
+        {"question": "¿Qué es Carvajal?"},
         follow_redirects=False,
     )
 
@@ -298,7 +318,7 @@ def test_fallos_del_proveedor_devuelven_503_sin_filtrar_ni_persistir(error: Exce
     client, chat = make_client(chat=FakeChat(error=error))
 
     # Act
-    response = client.post("/chat", data={"question": "¿Cuándo nació?"})
+    response = _post(client, "/chat", {"question": "¿Cuándo nació?"})
 
     # Assert
     assert response.status_code == 503
@@ -319,7 +339,7 @@ def test_el_error_503_conserva_el_historial_previo() -> None:
     chat.by_owner["dueno-a"] = [_message("user", "pregunta previa", sources=None)]
 
     # Act
-    response = client.post("/chat", data={"question": "pregunta nueva"})
+    response = _post(client, "/chat", {"question": "pregunta nueva"})
 
     # Assert
     assert response.status_code == 503
@@ -367,9 +387,10 @@ def test_la_identidad_se_puede_inyectar_sin_cookies_reales() -> None:
     client, chat = make_client(identity=FakeIdentity(owner_key="dueno-fijo"))
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Qué es Carvajal?"},
+        {"question": "¿Qué es Carvajal?"},
         follow_redirects=False,
     )
 
@@ -377,3 +398,38 @@ def test_la_identidad_se_puede_inyectar_sin_cookies_reales() -> None:
     assert response.status_code == 303
     assert "firma::dueno-fijo" in response.headers["set-cookie"]
     assert chat.calls == [("dueno-fijo", "¿Qué es Carvajal?")]
+
+
+def test_post_chat_agota_la_cuota_antes_de_llamar_al_proveedor() -> None:
+    """El cupo también frena el chat normal, no solo /ask."""
+
+    # Arrange
+    client, chat = make_client(quota=lambda owner: QuotaResult(False, 120))
+
+    # Act
+    response = _post(client, "/chat", {"question": "¿Qué es Carvajal?"})
+
+    # Assert
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "120"
+    assert "límite diario" in response.text
+    assert COOKIE_NAME in response.headers["set-cookie"]
+    assert chat.calls == []
+
+
+def test_fallo_de_bd_en_la_cuota_del_chat_devuelve_503() -> None:
+    """Un fallo al consultar la cuota no se convierte en 500 ni llama al proveedor."""
+
+    # Arrange
+    def quota(owner: str) -> QuotaResult:
+        raise SQLAlchemyError("base caída")
+
+    client, chat = make_client(quota=quota)
+
+    # Act
+    response = _post(client, "/chat", {"question": "¿Qué es Carvajal?"})
+
+    # Assert
+    assert response.status_code == 503
+    assert SERVICE_UNAVAILABLE in response.text
+    assert chat.calls == []

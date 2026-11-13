@@ -5,7 +5,12 @@
 <ol class="hilo">
   {% for message in messages %}
   <li class="turno turno-{{ message.role }}">
-    <p class="turno-rol">{{ "Tú" if message.role == "user" else "Asistente" }}</p>
+    <p class="turno-rol">
+      {{ "Tú" if message.role == "user" else "Asistente" }}
+      {% if message.status == "incomplete" %}
+      <span class="estado-incompleto" role="status">respuesta incompleta</span>
+      {% endif %}
+    </p>
     <div class="burbuja">
       <p class="texto">{{ message.content }}</p>
     </div>
@@ -16,9 +21,16 @@
         {% for source in message.sources %}
         <li class="fuente">
           <p class="fuente-meta">
-            <span>Documento: <strong>{{ source.slug }}</strong></span>
+            <span>Documento:
+              {% if source.url %}
+              <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer"><strong>{{ source.title or source.slug }}</strong></a>
+              {% else %}
+              <strong>{{ source.slug }}</strong>
+              {% endif %}
+            </span>
             <span>Sección: {{ source.section }}</span>
             <span>Capa: {{ source.layer }}</span>
+            <span>Tipo: {{ source.source_type }}</span>
             <span class="puntuacion">Puntuación: {{ "%.3f"|format(source.score) }}</span>
           </p>
           <p class="extracto">{{ source.excerpt }}</p>

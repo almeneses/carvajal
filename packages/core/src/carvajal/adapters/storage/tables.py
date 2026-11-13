@@ -7,8 +7,10 @@ sobre estas ``Table`` con una ``Session`` síncrona. La columna ``embedding`` de
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -30,6 +32,7 @@ __all__ = [
     "documents",
     "messages",
     "metadata",
+    "usage_day",
 ]
 
 metadata = MetaData()
@@ -135,6 +138,8 @@ messages = Table(
     Column("role", String(16), nullable=False),
     Column("content", Text, nullable=False),
     Column("sources", JSONB, nullable=True),
+    Column("status", String(16), nullable=False, server_default=text("'complete'")),
+    Column("client_turn_id", String(64), nullable=True),
     Column(
         "created_at",
         DateTime(timezone=True),
@@ -142,6 +147,28 @@ messages = Table(
         server_default=func.now(),
     ),
     CheckConstraint("role IN ('user', 'assistant')", name="ck_messages_role"),
+    CheckConstraint(
+        "status IN ('complete', 'incomplete')",
+        name="ck_messages_status",
+    ),
+)
+
+# Un turno tiene dos mensajes (usuario y asistente) con el mismo
+# ``client_turn_id``; la unicidad se aplica solo al asistente, que es la fila
+# que identifica el turno persistido.
+Index(
+    "uq_messages_turn",
+    messages.c.conversation_id,
+    messages.c.client_turn_id,
+    unique=True,
+    postgresql_where=text("client_turn_id IS NOT NULL AND role = 'assistant'"),
+)
+Index(
+    "uq_messages_turn_user",
+    messages.c.conversation_id,
+    messages.c.client_turn_id,
+    unique=True,
+    postgresql_where=text("client_turn_id IS NOT NULL AND role = 'user'"),
 )
 
 Index(
@@ -149,4 +176,15 @@ Index(
     messages.c.conversation_id,
     messages.c.created_at,
     messages.c.id,
+)
+
+# Cupo diario por visitante anónimo (W4.2). La clave es el identificador de la
+# cookie firmada, no un usuario: W4.1 añadirá `user_id` cuando exista OIDC.
+usage_day = Table(
+    "usage_day",
+    metadata,
+    Column("owner_key", Text, primary_key=True),
+    Column("day", Date, primary_key=True),
+    Column("requests", Integer, nullable=False, server_default="0"),
+    Column("tokens", BigInteger, nullable=False, server_default="0"),
 )

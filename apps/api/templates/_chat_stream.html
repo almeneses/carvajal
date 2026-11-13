@@ -1,3 +1,9 @@
+<div class="traza" id="chat-traza" aria-live="polite" hidden>
+  <span class="traza-item">Ruta: <strong data-campo="route"></strong></span>
+  <span class="traza-item" data-campo="tool-wrap" hidden>Herramienta: <strong data-campo="tool"></strong></span>
+  <span class="traza-item" data-campo="memory-wrap" hidden>Memoria: <strong data-campo="memory"></strong> preferencia(s)</span>
+  <span class="traza-item">Hilo: <code data-campo="thread"></code></span>
+</div>
 <p id="chat-stream-estado" class="ayuda" role="status" aria-live="polite"></p>
 
 <template id="plantilla-turno">
@@ -16,9 +22,10 @@
 <template id="plantilla-fuente">
   <li class="fuente">
     <p class="fuente-meta">
-      <span>Documento: <strong data-campo="slug"></strong></span>
+      <span>Documento: <a data-campo="url" target="_blank" rel="noopener noreferrer"><strong data-campo="title"></strong></a></span>
       <span>Sección: <span data-campo="section"></span></span>
       <span>Capa: <span data-campo="layer"></span></span>
+      <span>Tipo: <span data-campo="source_type"></span></span>
       <span class="puntuacion">Puntuación: <span data-campo="score"></span></span>
     </p>
     <p class="extracto" data-campo="excerpt"></p>

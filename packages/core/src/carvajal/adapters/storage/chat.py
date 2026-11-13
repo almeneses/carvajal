@@ -34,7 +34,11 @@ class Conversation:
 
 @dataclass(frozen=True)
 class ChatMessage:
-    """Mensaje de una conversación; ``sources`` solo existe en respuestas."""
+    """Mensaje de una conversación; ``sources`` solo existe en respuestas.
+
+    ``status`` distingue una respuesta completa de una interrumpida y
+    ``client_turn_id`` permite reconocer un reintento del mismo turno.
+    """
 
     id: str
     conversation_id: str
@@ -42,6 +46,8 @@ class ChatMessage:
     content: str
     sources: list[dict[str, Any]] | None
     created_at: datetime
+    status: str = "complete"
+    client_turn_id: str | None = None
 
 
 class SqlChatRepository:
@@ -87,6 +93,51 @@ class SqlChatRepository:
 
         return self.active(owner_key) or self.create(owner_key)
 
+    def get_owned(self, conversation_id: str, owner_key: str) -> Conversation | None:
+        """Devuelve el hilo solo si pertenece al dueño; nunca cruza identidades."""
+
+        row = (
+            self._session.execute(
+                select(tables.conversations)
+                .where(
+                    tables.conversations.c.id == conversation_id,
+                    tables.conversations.c.owner_key == owner_key,
+                )
+                .limit(1)
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return None if row is None else Conversation(**row)
+
+    def find_turn(
+        self,
+        conversation_id: str,
+        client_turn_id: str,
+    ) -> tuple[ChatMessage, ChatMessage | None] | None:
+        """Recupera un turno ya persistido, incluso si quedó a medias."""
+
+        if not client_turn_id:
+            return None
+        rows = (
+            self._session.execute(
+                select(tables.messages)
+                .where(
+                    tables.messages.c.conversation_id == conversation_id,
+                    tables.messages.c.client_turn_id == client_turn_id,
+                )
+                .order_by(tables.messages.c.created_at)
+            )
+            .mappings()
+            .all()
+        )
+        if not rows:
+            return None
+        first = ChatMessage(**rows[0])
+        if len(rows) == 1:
+            return first, None
+        return first, ChatMessage(**rows[1])
+
     def history(
         self,
         conversation_id: str,
@@ -121,6 +172,8 @@ class SqlChatRepository:
         question: str,
         answer: str,
         sources: Sequence[Mapping[str, Any]] | None = None,
+        status: str = "complete",
+        client_turn_id: str | None = None,
     ) -> tuple[ChatMessage, ChatMessage]:
         """Inserta el turno usuario→asistente y toca ``updated_at``.
 
@@ -139,6 +192,8 @@ class SqlChatRepository:
 
         now = datetime.now(UTC)
         user_id, assistant_id = _message_ids()
+        if status not in {"complete", "incomplete"}:
+            raise ValueError(f"estado de mensaje inválido: {status!r}")
         user = ChatMessage(
             id=user_id,
             conversation_id=conversation_id,
@@ -146,6 +201,8 @@ class SqlChatRepository:
             content=question,
             sources=None,
             created_at=now,
+            status="complete",
+            client_turn_id=client_turn_id,
         )
         assistant = ChatMessage(
             id=assistant_id,
@@ -154,6 +211,8 @@ class SqlChatRepository:
             content=answer,
             sources=None if sources is None else [dict(source) for source in sources],
             created_at=now + timedelta(microseconds=1),
+            status=status,
+            client_turn_id=client_turn_id,
         )
         self._session.execute(insert(tables.messages).values([asdict(user), asdict(assistant)]))
         self.touch(conversation_id, when=assistant.created_at)

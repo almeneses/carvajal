@@ -42,3 +42,7 @@ data/index/
 # IDE
 .vscode/
 .idea/
+
+# Artefactos generados de evaluación/evidencia (se regeneran con make index-eval / smoke_m2)
+docs/eval/retrieval-results.json
+docs/evidence/m2/tests-*.txt

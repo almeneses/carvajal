@@ -1,10 +1,12 @@
 """Configuración tipada del pipeline, leída del entorno y de ``.env``."""
 
+from logging import getLevelNamesMapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -105,6 +107,74 @@ class Settings(BaseSettings):
     # se usa un secreto aleatorio por proceso; en producción debe fijarse para
     # que las cookies sobrevivan reinicios y compartan valor entre workers.
     session_secret: str = ""
+
+    # Cupo diario de preguntas por visitante anónimo (W4.2). El límite es una
+    # política de producto y la medianoche se calcula en la zona indicada, no
+    # en el TZ del contenedor.
+    daily_requests_limit: int = Field(default=20, ge=0)
+    quota_timezone: str = "America/Bogota"
+
+    # RAG del M2: Qdrant es el índice evaluado. Postgres conserva documentos,
+    # fragmentos (sin depender de su columna vectorial), chat y memoria. El
+    # índice se prepara aparte con `carvajal index-qdrant`; la web arranca sin
+    # reconstruirlo y `/health` informa si está disponible.
+    qdrant_url: str = "http://127.0.0.1:6333"
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "carvajal_chunks"
+    qdrant_dimensions: int = Field(default=768, ge=1)
+    qdrant_distance: str = "Cosine"
+    rag_top_k: int = Field(default=6, ge=1, le=50)
+    rag_min_score: float = Field(default=0.30, ge=-1.0, le=1.0)
+
+    # Agente del M2: checkpointer y Store sobre el Postgres existente. La
+    # alternativa SQLite sirve para una demo local con archivo persistente.
+    agent_checkpointer: str = "postgres"
+    agent_sqlite_path: Path = Path("data") / "agent" / "checkpoints.sqlite"
+    agent_history_turns: int = Field(default=8, ge=1, le=50)
+
+    # Frontend propio (proceso separado) y orígenes permitidos por CORS.
+    frontend_origins: tuple[str, ...] = (
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
+    )
+
+    # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
+    # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
+    # trazas es explícito y por defecto queda apagado.
+    log_level: str = "INFO"
+    sentry_dsn: str = ""
+    sentry_environment: str = "local"
+    sentry_traces_sample_rate: float = Field(default=0.0, ge=0, le=1)
+
+    @field_validator("frontend_origins", mode="before")
+    @classmethod
+    def _origenes_separados_por_coma(cls, value: Any) -> Any:
+        """Acepta ``a,b`` en el entorno además de una lista JSON."""
+
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("log_level")
+    @classmethod
+    def _nivel_de_log_valido(cls, value: str) -> str:
+        """Normaliza el nivel y rechaza nombres que ``logging`` no conoce."""
+
+        level = value.strip().upper()
+        if level not in getLevelNamesMapping():
+            raise ValueError(f"nivel de log desconocido: {value}")
+        return level
+
+    @field_validator("quota_timezone")
+    @classmethod
+    def _zona_horaria_valida(cls, value: str) -> str:
+        """Rechaza una zona desconocida al construir la configuración."""
+
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError(f"zona horaria desconocida: {value}") from error
+        return value
 
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":

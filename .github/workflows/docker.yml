@@ -1,0 +1,93 @@
+name: Imagen
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - ".dockerignore"
+      - "Dockerfile"
+      - "compose.prod.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "alembic.ini"
+      - "migrations/**"
+      - "apps/**"
+      - "packages/**"
+      - ".github/workflows/docker.yml"
+  pull_request:
+    paths:
+      - ".dockerignore"
+      - "Dockerfile"
+      - "compose.prod.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "alembic.ini"
+      - "migrations/**"
+      - "apps/**"
+      - "packages/**"
+      - ".github/workflows/docker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: imagen-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Imagen
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Preparar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validar compose.prod.yml
+        env:
+          SESSION_SECRET: secreto-de-ci
+        run: docker compose -f compose.prod.yml config -q
+
+      - name: Construir imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: carvajal-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Tamaño de la imagen (<300 MB)
+        # La imagen instala solo las dependencias del runtime web: los extras
+        # `capture` y `legacy` se quedan fuera. Si crece, algo volvió a entrar.
+        run: |
+          bytes=$(docker image inspect carvajal-api:ci --format '{{.Size}}')
+          mb=$((bytes / 1024 / 1024))
+          echo "### Imagen: ${mb} MB" >> "$GITHUB_STEP_SUMMARY"
+          test "$mb" -lt 300
+
+      - name: Arranque y vitalidad (<20 s)
+        run: |
+          inicio=$(date +%s)
+          docker run -d --name api -p 8000:8000 carvajal-api:ci
+          listo=0
+          for intento in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8000/live >/dev/null; then
+              listo=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$listo" -ne 1 ]; then
+            docker logs api
+            exit 1
+          fi
+          echo "### Arranque: $(( $(date +%s) - inicio )) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Limpiar contenedor
+        if: always()
+        run: docker rm -f api 2>/dev/null || true
