@@ -1,0 +1,24 @@
+uv run ruff check .
+All checks passed!
+uv run ruff format --check .
+198 files already formatted
+uv run ty check
+All checks passed!
+uv run pytest -m "not integration"
+........................................................................ [ 16%]
+........................................................................ [ 33%]
+........................................................................ [ 50%]
+........................................................................ [ 66%]
+........................................................................ [ 83%]
+......................................................................   [100%]
+=============================== warnings summary ===============================
+packages/core/src/carvajal/rag.py:8
+  /tmp/opencode/wt-m2/packages/core/src/carvajal/rag.py:8: DeprecationWarning: `langchain-community` is being sunset and is no longer actively maintained. See https://github.com/langchain-ai/langchain-community/issues/674 for details and migration guidance toward standalone integration packages.
+    from langchain_community.vectorstores import FAISS
+
+tests/test_api_m2.py::test_historial_con_identidad_devuelve_mensajes_y_estado
+  /tmp/opencode/wt-m2/.venv/lib/python3.13/site-packages/starlette/testclient.py:518: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+430 passed, 41 deselected, 2 warnings in 5.55s

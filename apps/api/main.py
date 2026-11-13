@@ -12,6 +12,7 @@ from functools import cache
 
 import structlog
 from fastapi import FastAPI, Form, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
@@ -26,7 +27,7 @@ from apps.api.observability import (
 )
 from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
 from apps.api.security import SecurityMiddleware, verify_csrf
-from apps.api.views import chat, corpus, documents, stream
+from apps.api.views import api, chat, corpus, documents, stream
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
@@ -43,10 +44,11 @@ SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este mom
 
 @dataclass(frozen=True)
 class HealthStatus:
-    """Conteos del corpus que publica ``GET /health``."""
+    """Conteos del corpus y estado del índice que publica ``GET /health``."""
 
     documents: int
     chunks: int
+    index: dict[str, object] | None = None
 
 
 def _sin_limite(owner_key: str) -> QuotaResult:
@@ -80,7 +82,9 @@ def _default_handlers() -> Handlers:
         with factory.begin() as session:
             documents = session.scalar(select(func.count()).select_from(tables.documents))
             chunks = session.scalar(select(func.count()).select_from(tables.chunks))
-        return HealthStatus(documents or 0, chunks or 0)
+        from apps.api.runtime import qdrant_store
+
+        return HealthStatus(documents or 0, chunks or 0, qdrant_store().health())
 
     def ask(question: str) -> Answer:
         embed, llm = ask_components()
@@ -161,8 +165,16 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityMiddleware)
+    settings = Settings()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.frontend_origins),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
-    for module in (corpus, documents, chat, stream):
+    for module in (corpus, documents, chat, stream, api):
         app.include_router(module.router)
 
     @app.get("/live")
@@ -173,13 +185,26 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
 
     @app.get("/health")
     def health() -> JSONResponse:
+        """Readiness: base e índice; ``/live`` sigue siendo solo el proceso."""
+
         try:
             status = (handlers or _default_handlers()).health()
         except (SQLAlchemyError, OSError) as error:  # la base no responde
             logger.warning("health.failed", error=str(error))
-            return JSONResponse({"status": "degraded", "detail": DB_UNAVAILABLE}, status_code=503)
+            return JSONResponse(
+                {"status": "degraded", "detail": DB_UNAVAILABLE, "index": {"status": "unknown"}},
+                status_code=503,
+            )
+        index = status.index or {"status": "not_configured"}
+        healthy = index.get("status") in {"ok", "not_configured"}
         return JSONResponse(
-            {"status": "ok", "documents": status.documents, "chunks": status.chunks}
+            {
+                "status": "ok" if healthy else "degraded",
+                "documents": status.documents,
+                "chunks": status.chunks,
+                "index": index,
+            },
+            status_code=200 if healthy else 503,
         )
 
     @app.get("/", response_class=HTMLResponse)

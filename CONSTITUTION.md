@@ -123,7 +123,7 @@ se propone un stack distinto, documentado en
 |------|----------|
 | Web + API | FastAPI + Jinja2 + HTMX + Tailwind (un solo runtime) |
 | Persistencia | Postgres 16 + SQLAlchemy 2.0 + Alembic |
-| Vectores | pgvector (HNSW) |
+| Vectores | Qdrant (M2, índice evaluado); pgvector queda para el prototipo |
 | Autenticación | Authlib (OIDC) + sesiones de servidor en Postgres |
 | Streaming | SSE (`hx-ext="sse"`) |
 | LLM | Puerto `LLMProvider`; LangChain como adaptador |
@@ -139,13 +139,15 @@ se propone un stack distinto, documentado en
 ```text
 carvajal/
 ├── apps/
-│   └── api/                   # shell web FastAPI: /live, /health, portada, /ask y pantallas
-│       ├── main.py            # create_app, /live y /health con handlers diferidos
-│       ├── runtime.py         # templates, sesiones y clientes creados en la primera pregunta
-│       ├── views/             # un APIRouter por pantalla: corpus, documentos, chat, stream
-│       ├── chat/              # identidad, servicio y streaming del chat
-│       ├── static/            # CSS y HTMX vendorizado
-│       └── templates/         # Jinja2: base, portada, pantallas y parciales
+│   ├── api/                   # API FastAPI: /live, /health, /api, portada y pantallas
+│   │   ├── main.py            # create_app, CORS, /live y /health
+│   │   ├── agent_runtime.py   # checkpointer, Store, Qdrant y grafo compilado
+│   │   ├── runtime.py         # templates, sesiones y clientes diferidos
+│   │   ├── views/             # routers: corpus, documentos, chat, stream y api
+│   │   ├── chat/              # identidad, servicio, adaptador del agente y streaming
+│   │   ├── static/            # CSS y JS del chat
+│   │   └── templates/         # Jinja2: base, portada, pantallas y parciales
+│   └── web/                   # frontend propio del M2 (:8001), sin lógica de RAG
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
@@ -158,6 +160,8 @@ carvajal/
 │           │   ├── ask.py       # caso de uso AskQuestion con citas y stream
 │           │   ├── errors.py    # errores de aplicación (LLMError)
 │           │   └── ports.py     # repositorios, vector store, LLM, embedder, fetcher
+│           ├── agent/         # router, herramienta, memoria y grafo LangGraph
+│           ├── indexing/      # indexación Gold → Qdrant
 │           ├── adapters/      # adaptadores de infraestructura
 │           │   ├── storage/     # SQLAlchemy Core
 │           │   │   ├── database.py      # motor y sesiones
@@ -167,7 +171,7 @@ carvajal/
 │           │   │   └── import_corpus.py # importador Gold idempotente
 │           │   ├── embeddings/  # Embedder: Ollama (nomic-embed-text)
 │           │   ├── llm/         # LLMProvider: DeepSeek y Ollama sobre LangChain
-│           │   └── vector/      # pgvector: PgVectorStore (HNSW, coseno)
+│           │   └── vector/      # pgvector legado + QdrantVectorStore (M2)
 │           ├── infrastructure/ # adaptadores y configuración tipada
 │           │   └── settings.py  # pydantic-settings (.env + entorno)
 │           ├── config.py      # fachada de compatibilidad de settings
@@ -185,7 +189,10 @@ carvajal/
 │   ├── processed/           # silver — Markdown limpio
 │   ├── gold/                # gold — entregable versionado (núcleo)
 │   ├── external/            # capa extendida importada (solo manifiesto en Git)
-│   └── index/               # índice FAISS en caché (regenerable, ignorado por Git)
+│   ├── eval/                # consultas etiquetadas para Recall@10 / nDCG@10
+│   ├── indicators.json      # herramienta estructurada del M2
+│   ├── retrieval_cards.json # fichas de recuperación (no son fuente de respuesta)
+│   └── index/               # índice FAISS legado (regenerable, ignorado por Git)
 ├── migrations/              # migraciones Alembic (esquema relacional)
 ├── alembic.ini              # configuración de Alembic
 ├── specs/                   # especificaciones (Spec Kit: spec / plan / tasks)
@@ -358,6 +365,13 @@ git push
 | 2026-11-13 | Stream SSE del chat con degradación: `open/meta/token/done/fallback/error` y persistencia exacta una vez | El primer token no debe esperar al LLM completo; si el stream falla antes de emitir, se completa por la vía normal y se persiste una sola vez |
 | 2026-11-13 | Imagen Docker multi-etapa; `capture` y `legacy` pasan a extras y `/live` se separa de `/health` | El contenedor instala solo el runtime web, arranca sin credenciales del LLM y usa `/live` para no marcar enfermo al proceso cuando Postgres está caído |
 | 2026-11-13 | Logs JSON con `request_id` por petición, consumo de tokens por visitante y Sentry opcional por `SENTRY_DSN` | Una petición se sigue de punta a punta sin abrir el código; sin DSN no sale nada del proceso, `send_default_pii` queda en `False` y el muestreo de trazas es explícito |
+| 2026-11-13 | M2: Qdrant como índice vectorial evaluado; Postgres conserva documentos, chat, checkpoints y Store | El índice se prepara con `carvajal index-qdrant` (UUID5 estable, upsert idempotente y poda); la web arranca con el índice ya construido y `/live` no depende de Qdrant |
+| 2026-11-13 | Agente LangGraph con router `direct`/`tool`/`rag`, `PostgresSaver` y `PostgresStore` | El seguimiento elíptico necesita estado por hilo; las preferencias sobreviven a un hilo nuevo y se aíslan por dueño. El checkpointer se inicializa fuera de la transacción de la petición |
+| 2026-11-13 | Herramienta `indicator_lookup` con `args_schema` Pydantic sobre `data/indicators.json` | Un indicador por nombre y período devuelve valor, cita y URL o ausencia estable; no hay estimaciones |
+| 2026-11-13 | RAG híbrido ligero: ANN + reordenamiento léxico, fichas de recuperación y expansión de consulta | `nomic-embed-text` confunde preguntas de fundación con la portada; las fichas y la expansión usan datos ya declarados en el corpus y la cita sigue saliendo del fragmento original |
+| 2026-11-13 | Frontend propio en `apps/web` (:8001) y API (:8000) con CORS explícito y cookie/CSRF compartidos | Cubre la lectura estricta de backend/frontend desacoplados sin duplicar el RAG; el shell Jinja2 se conserva como compatibilidad |
+| 2026-11-13 | Migración 0005: `status` de mensaje e idempotencia `client_turn_id` (índice parcial por asistente) | Un reintento del navegador no duplica el turno y una respuesta cortada queda `incomplete`; el usuario puede distinguirla |
+| 2026-11-13 | Evaluación de retrieval separada de la respuesta: 31 consultas, Recall@10=0.8444, nDCG@10=0.8002 | Permite inspeccionar el top-k y documentar una consulta sin evidencia sin depender del LLM |
 | 2026-11-13 | CSRF por doble cookie, cabeceras de seguridad con CSP sin `unsafe-inline`, HSTS solo sobre TLS y Swagger fuera | El POST sin token se rechaza con 403 antes de la cuota y del caso de uso; el script del formulario pasa a `/static/app.js` para que la CSP sea estricta; las cookies son `HttpOnly` y `SameSite=Lax` y el token se compara en bytes |
 
 ## 10. Notas y tareas pendientes

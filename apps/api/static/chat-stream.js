@@ -15,7 +15,9 @@
 
   const input = form.querySelector('input[name="question"]');
   const csrf = form.querySelector('input[name="csrf_token"]');
+  const turnIdInput = form.querySelector("[data-client-turn-id]");
   const boton = form.querySelector('button[type="submit"]');
+  const traza = document.getElementById("chat-traza");
   const hilo = document.getElementById("hilo");
   const estado = document.getElementById("chat-stream-estado");
   const plantillaTurno = document.getElementById("plantilla-turno");
@@ -44,10 +46,19 @@
       return;
     }
     enCurso = true;
-    void responder(pregunta);
+    const turnId = nuevoTurnoId();
+    if (turnIdInput) turnIdInput.value = turnId;
+    void responder(pregunta, turnId);
   });
 
-  async function responder(pregunta) {
+  function nuevoTurnoId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+    return `turno-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  async function responder(pregunta, turnId) {
     quitarVacio();
     const turnoUsuario = crearTurno("user", pregunta);
     const turnoAsistente = crearTurno("assistant", "");
@@ -72,6 +83,7 @@
         body: new URLSearchParams({
           question: pregunta,
           csrf_token: csrf ? csrf.value : "",
+          client_turn_id: turnId,
         }),
         signal: control.signal,
       });
@@ -88,6 +100,16 @@
         switch (evento.nombre) {
           case "open":
             avisar("Recuperando fuentes…");
+            break;
+          case "trace":
+            pintarTraza(evento.datos);
+            avisar(
+              evento.datos.route === "tool"
+                ? "Consultando la herramienta…"
+                : evento.datos.route === "direct"
+                  ? "Respondiendo sin búsqueda…"
+                  : "Buscando en el corpus…",
+            );
             break;
           case "meta":
             pintarFuentes(turnoAsistente, evento.datos.sources);
@@ -159,6 +181,30 @@
     return turno;
   }
 
+  function pintarTraza(datos) {
+    if (!traza) return;
+    const campo = (nombre) => traza.querySelector(`[data-campo="${nombre}"]`);
+    const route = campo("route");
+    if (route) route.textContent = String(datos.route || "");
+    const toolWrap = campo("tool-wrap");
+    const tool = campo("tool");
+    if (tool && toolWrap) {
+      const nombre = String(datos.tool || "");
+      toolWrap.hidden = !nombre;
+      tool.textContent = nombre;
+    }
+    const memoryWrap = campo("memory-wrap");
+    const memory = campo("memory");
+    if (memory && memoryWrap) {
+      const cantidad = Number(datos.memory || 0);
+      memoryWrap.hidden = !Number.isFinite(cantidad) || cantidad <= 0;
+      memory.textContent = String(cantidad || 0);
+    }
+    const thread = campo("thread");
+    if (thread) thread.textContent = String(datos.thread_id || "");
+    traza.hidden = false;
+  }
+
   function quitarVacio() {
     const vacio = hilo.querySelector(".vacio");
     if (vacio) vacio.remove();
@@ -178,15 +224,27 @@
     for (const fuente of fuentes) {
       const item = plantillaFuente.content.firstElementChild.cloneNode(true);
       const campos = {
-        slug: fuente && fuente.slug,
+        title: (fuente && (fuente.title || fuente.slug)) || "",
         section: fuente && fuente.section,
         layer: fuente && fuente.layer,
+        source_type: fuente && fuente.source_type,
         excerpt: fuente && fuente.excerpt,
         chunk_id: fuente && fuente.chunk_id,
       };
       for (const [campo, valor] of Object.entries(campos)) {
         const nodo = item.querySelector(`[data-campo="${campo}"]`);
         if (nodo) nodo.textContent = valor == null ? "" : String(valor);
+      }
+      const enlace = item.querySelector('[data-campo="url"]');
+      const url = String((fuente && fuente.url) || "");
+      if (enlace) {
+        if (/^https?:\/\//.test(url)) {
+          enlace.href = url;
+          enlace.title = "Abrir la fuente original";
+        } else {
+          enlace.removeAttribute("href");
+          enlace.removeAttribute("target");
+        }
       }
       const puntuacion = Number(fuente && fuente.score);
       const nodoScore = item.querySelector('[data-campo="score"]');

@@ -48,6 +48,8 @@ def chat_stream(
     request: Request,
     question: str = Form(default=""),
     csrf_token: str = Form(default=""),
+    client_turn_id: str = Form(default=""),
+    thread_id: str = Form(default=""),
 ) -> Response:
     """Responde la pregunta como eventos SSE y persiste el turno al cerrar."""
 
@@ -89,7 +91,13 @@ def chat_stream(
         return response
 
     response = StreamingResponse(
-        _sse(chat_provider(request), owner_key, text),
+        _sse(
+            chat_provider(request),
+            owner_key,
+            text,
+            client_turn_id=client_turn_id.strip() or None,
+            thread_id=thread_id.strip() or None,
+        ),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
     )
@@ -98,7 +106,14 @@ def chat_stream(
     return response
 
 
-def _sse(provider: ChatProvider, owner_key: str, question: str) -> Iterator[str]:
+def _sse(
+    provider: ChatProvider,
+    owner_key: str,
+    question: str,
+    *,
+    client_turn_id: str | None = None,
+    thread_id: str | None = None,
+) -> Iterator[str]:
     """Traduce los eventos del servicio a bloques SSE.
 
     La red de seguridad evita que un fallo inesperado del proveedor deje la
@@ -111,7 +126,12 @@ def _sse(provider: ChatProvider, owner_key: str, question: str) -> Iterator[str]
     saw_token = False
     cerrado = False
     try:
-        for event in provider.stream(owner_key, question):
+        for event in provider.stream(
+            owner_key,
+            question,
+            client_turn_id=client_turn_id,
+            thread_id=thread_id,
+        ):
             saw_token = saw_token or event.name == "token"
             cerrado = event.name in {"done", "error"}
             yield _encode(event)

@@ -1,0 +1,3422 @@
+{
+  "generated_at": "2026-11-13T21:20:27.858902+00:00",
+  "collection": "carvajal_chunks",
+  "index": {
+    "status": "ok",
+    "collection": "carvajal_chunks",
+    "points": 125,
+    "dimensions": 768
+  },
+  "k": 10,
+  "queries": 31,
+  "labeled_queries": 30,
+  "recall_at_k": 0.8444,
+  "ndcg_at_k": 0.8002,
+  "abstention_queries": [
+    {
+      "id": "q31",
+      "query": "¿Cuál es el número de teléfono de la sede de Carvajal en Tokio?",
+      "relevant": [],
+      "retrieved": [
+        "comunicacion",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "tecnologia",
+        "historia",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "historia",
+        "comunicacion",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762"
+      ],
+      "scores": [
+        0.6855,
+        0.6851,
+        0.6808,
+        0.6788,
+        0.676,
+        0.674,
+        0.6711,
+        0.6703,
+        0.6687,
+        0.6685
+      ],
+      "top_score": 0.6855,
+      "excerpts": [
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:0",
+          "score": 0.6855,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "Carvajal Soluciones de Comunicación ## Impulsamos tecnologías renovables para la solución de servicios de ## Comunicación ## impresa y digital. ## Somos una empresa ecológica Carvajal Soluciones de Comunicación es una em"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.6851,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:0",
+          "score": 0.6808,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "Carvajal Tecnología y Servicios ## Entendemos la ## TECNOLOGÍA ## y la transformamos en soluciones digitales para ti. ## Somos una compañía que crea sistemas de intercambio de información para lograr conectar a los ciuda"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:15",
+          "score": 0.6788,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1999 Alberto José Carvajal Lourido es nombrado presidente de Organización Carvajal. Venta de Carvajal Financiera al Banco Intercontinental. Venta de Chimolsa. ## 2000 Venta de DIRECTV a Hughes Electronics Corporation."
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:3",
+          "score": 0.676,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "### Conozca los beneficios exclusivos para nuestros suscriptores ## MÁS DE EMPRESAS ## Satena obtiene certificación de EE.UU. y participará en negocio de reparación aeronáutica La aerolínea estatal podrá diversificarse y"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:4",
+          "score": 0.674,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## EE.UU. propone elecciones presidenciales en Venezuela en 2027, dice opositora Machado ## Utilidades del Emisor a septiembre fueron de $5,97 billones, registran caída de 45% ## Martín Pescador abre su primera tienda in"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:5",
+          "score": 0.6711,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Inicia operaciones la División Muebles, hoy Carvajal Espacios ## 1959 Antes de consultar por internet nuestra ubicación y el destino al cual deseamos llegar, el directorio telefónico era nuestra única oportunidad de busc"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.6703,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.6687,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:1",
+          "score": 0.6685,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## Carvajal cerró planta de Propal en Yumbo por aumento de la competencia con China El Ebitda consolidado ascendió a $351.631 millones, mejorando el margen Ebitda de 12% a 14% en el último año. ## Carvajal presentó resul"
+        }
+      ],
+      "abstained": true
+    }
+  ],
+  "rows": [
+    {
+      "id": "q01",
+      "query": "¿Qué es Carvajal y a qué sectores se dedica?",
+      "relevant": [
+        "home",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "quienes_somos",
+        "home",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "historia",
+        "empaques",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "home",
+        "historia",
+        "empaques"
+      ],
+      "scores": [
+        0.7702,
+        0.7369,
+        0.7248,
+        0.7236,
+        0.7166,
+        0.7159,
+        0.7137,
+        0.7125,
+        0.7121,
+        0.7114
+      ],
+      "top_score": 0.7702,
+      "excerpts": [
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7702,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.7369,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.7248,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:21",
+          "score": 0.7236,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Venta de Ofixpress y Comolsa Lanzamiento de Earth Pact. Una nueva línea de papeles elaborados 100% a base de bagazo de caña y libre de químicos blanqueadores. El sector Empaques inaugura la primera etapa de la planta de "
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:1",
+          "score": 0.7166,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestros empaques están pensados para el cuidado de medio ambiente, novedoso en su usabilidad y diseño, Carvajal Empaques hace uso del residuo agroindustrial de la caña, el bagazo de caña y resinas posconsumo para el des"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.7159,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.7137,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7125,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:5",
+          "score": 0.7121,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Inicia operaciones la División Muebles, hoy Carvajal Espacios ## 1959 Antes de consultar por internet nuestra ubicación y el destino al cual deseamos llegar, el directorio telefónico era nuestra única oportunidad de busc"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:0",
+          "score": 0.7114,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Carvajal Empaques ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ ## Sostenibilidad e innovación en cada empaque: Nuestro enfoque por más de 40 años ha sido escuchar a las personas y sus n"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q02",
+      "query": "¿En qué año y ciudad fue fundada Carvajal?",
+      "relevant": [
+        "historia",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "home",
+        "home",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "quienes_somos",
+        "historia",
+        "historia",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales"
+      ],
+      "scores": [
+        0.7521,
+        0.7221,
+        0.7135,
+        0.7109,
+        0.7089,
+        0.7087,
+        0.7054,
+        0.7009,
+        0.6996,
+        0.6983
+      ],
+      "top_score": 0.7521,
+      "excerpts": [
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.7521,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:2",
+          "score": 0.7221,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "### Carvajal Beca Jóvenes con buen empaque ## Mayra Cintura ### Carvajal Empaques Colaboradora de Carvajal Empaques – Tocancipá ## Ulder Fabio Valencia ### Fundación Propal Beneficiario de Fundacion propal – Campaña El B"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:23",
+          "score": 0.7135,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2014 Ampliación de la planta de Carvajal Empaques en Tocancipá para la manufactura de empaques plásticos. Su ubicación estratégica y capacidad de producción la consolida como una de las plantas más modernas en Latinoa"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:28",
+          "score": 0.7109,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2023 Carvajal Pulpa y Papel desarrolla una nueva cartulina bajo las marcas Earth pact natural Grease proof K12 y Propal Grease proof K12 con barrera a la humedad y la grasa sin laminación plástica enfocada en el segme"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:26",
+          "score": 0.7089,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2021 Declaramos nuestro propósito, fruto de una convicción colectiva y construido gracias a la participa de más de 1.500 personas entre colaboradores, clientes y proveedores. El propósito hace parte del legado que dej"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:7",
+          "score": 0.7087,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1974 Publicar inicia operaciones en Chile y Nicaragua ## 1975 Se crea la división de empaques flexibles, en su momento Flexa ## 1976 Carvajal se convierte en sociedad anónima. Se funda Musicar S. A. en asocio con Cara"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7054,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:11",
+          "score": 0.7009,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1994 Carvajal adquiere a Pamolsa en el Perú. Nace Carvajal Financiera, Compañía de Financiamiento Comercial. El Grupo Editorial Norma adquiere la Editorial Kapelusz de Argentina. Se inicia la distribución de muebles e"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:5",
+          "score": 0.6996,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Inicia operaciones la División Muebles, hoy Carvajal Espacios ## 1959 Antes de consultar por internet nuestra ubicación y el destino al cual deseamos llegar, el directorio telefónico era nuestra única oportunidad de busc"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:4",
+          "score": 0.6983,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Muebles y Soluciones Empresariales: Mepal, enfocada en mobiliario y gestión de espacios empresariales. Organización Carvajal: Innovación, internacionalización y sostenibilidad. Su estrategia se centra en fortalecer la "
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.6934264036172708
+    },
+    {
+      "id": "q03",
+      "query": "¿En cuántos países tiene presencia Carvajal?",
+      "relevant": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "home",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "quienes_somos",
+        "empaques",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales"
+      ],
+      "scores": [
+        0.7223,
+        0.7206,
+        0.7201,
+        0.7161,
+        0.7157,
+        0.7153,
+        0.7151,
+        0.7138,
+        0.7137,
+        0.7123
+      ],
+      "top_score": 0.7223,
+      "excerpts": [
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:4",
+          "score": 0.7223,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Adicional, la compañía reportó que no habrá distribución de utilidades y eligió nuevos miembros en su junta directiva. El Grupo Carvajal celebra 120 años de operaciones. Foto: suministrado por la empresa. | Foto: El país"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.7206,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.7201,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.7161,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7157,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:1",
+          "score": 0.7153,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestros empaques están pensados para el cuidado de medio ambiente, novedoso en su usabilidad y diseño, Carvajal Empaques hace uso del residuo agroindustrial de la caña, el bagazo de caña y resinas posconsumo para el des"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.7151,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:1",
+          "score": 0.7138,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Federación de Cafeteros y Consejo Gremial, preocupados por impacto de la Ley de Rescate Fiscal Jóvenes aprenden a ahorrar creando y usando videojuegos; esta es la experiencia surgida desde Cali Carvajal S.A. informó sobr"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:1",
+          "score": 0.7137,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- 11 de abril de 2025: La Asamblea Extraordinaria decidió el cierre indefinido de la planta de producción de papel y cartulinas en Yumbo, Valle del Cauca, tras más de 60 años de operación. Esta medida responde a la impos"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:6",
+          "score": 0.7123,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- marzo 2026 - febrero 2026 - enero 2026 - diciembre 2025 - noviembre 2025 - octubre 2025 - septiembre 2025 - agosto 2025 - julio 2025 - junio 2025 - mayo 2025 - abril 2025 - marzo 2025 - febrero 2025 - enero 2025 - dici"
+        }
+      ],
+      "recall_at_k": 0.6666666666666666,
+      "ndcg_at_k": 0.5307212739772434
+    },
+    {
+      "id": "q04",
+      "query": "¿Cuáles son los cuatro sectores en los que opera Carvajal?",
+      "relevant": [
+        "home",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "quienes_somos",
+        "espacios",
+        "espacios",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "historia",
+        "gobierno_corporativo",
+        "quienes_somos"
+      ],
+      "scores": [
+        0.7325,
+        0.6895,
+        0.686,
+        0.6859,
+        0.684,
+        0.6822,
+        0.6817,
+        0.6807,
+        0.676,
+        0.6731
+      ],
+      "top_score": 0.7325,
+      "excerpts": [
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7325,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:0",
+          "score": 0.6895,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Creamos ## ESPACIOS ## de bienestar integral que impulsan la productividad y fomentan la colaboración al interior de las organizaciones. ## Creamos espacios pensando en ti Con más de 65 años de trayectoria atendemos l"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:3",
+          "score": 0.686,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Sillas de Oficina Las sillas son el elemento esencial de un espacio porque más que ergonomía, las sillas son innovación,calidad y bienestar. Encuentra Sillas Ergonómicas, Sillas Gerenciales, Sillas Interlocutoras, Sil"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:10",
+          "score": 0.6859,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Catalina Giraldo Valencia Vicepresidente de Asuntos Corporativos Es abogada de la Universidad EAFIT, con especialización en Derecho Comercial de la Pontificia Universidad Javeriana y especialización en Derecho Informá"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:7",
+          "score": 0.684,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "Ingeniero Civil de la Escuela de Ingeniería de Antioquia con formación de Alto Gobierno de la Universidad de los Andes y programas de especialización en Management y Supply Chain Strategies de las universidades de Kellog"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:11",
+          "score": 0.6822,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## German Castellanos Valero Vicepresidente de Experiencia de Personas. ## Camilo Neira Mendieta Vicepresidente Digital y Analítica Economista, MBA en Dirección de Empresas Tecnológicas y MS en Innovación. Con 15 años de"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:1",
+          "score": 0.6817,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "La composición actual de la junta directiva es la siguiente: *Miembros independientes ## Juan Guillermo Castañeda* Ingeniero Industrial de la Pontificia Universidad Javeriana, con un Máster en Ciencias en Administración "
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:21",
+          "score": 0.6807,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Venta de Ofixpress y Comolsa Lanzamiento de Earth Pact. Una nueva línea de papeles elaborados 100% a base de bagazo de caña y libre de químicos blanqueadores. El sector Empaques inaugura la primera etapa de la planta de "
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:8",
+          "score": 0.676,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "La composición de los comités de la Junta Directiva de Carvajal S.A. es la siguiente Comité de Auditoría y Riesgos: 1. Juan Guillermo Castañeda (Presidente) 2. Santiago Delgado 3. Ramiro Guerrero Comité de Nombramientos,"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:0",
+          "score": 0.6731,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Juntos ## HACIENDO LAS ## COSAS BIEN ## por más de un siglo. Hemos aportado al desarrollo de múltiples mercados gracias al trabajo de equipos altamente capacitados y comprometidos. ¿Qué nos ha movilizado? El interés p"
+        }
+      ],
+      "recall_at_k": 0.5,
+      "ndcg_at_k": 0.6131471927654584
+    },
+    {
+      "id": "q05",
+      "query": "¿Cuál es el propósito superior de Carvajal?",
+      "relevant": [
+        "proposito_superior"
+      ],
+      "retrieved": [
+        "proposito_superior",
+        "home",
+        "home",
+        "home",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia"
+      ],
+      "scores": [
+        0.794,
+        0.7448,
+        0.7422,
+        0.7373,
+        0.722,
+        0.7178,
+        0.7068,
+        0.7044,
+        0.7036,
+        0.7024
+      ],
+      "top_score": 0.794,
+      "excerpts": [
+        {
+          "document": "proposito_superior",
+          "chunk_id": "proposito_superior:0",
+          "score": 0.794,
+          "url": "https://www.carvajal.com/proposito-superior/",
+          "excerpt": "## Nuestro ## PROPÓSITO SUPERIOR Nuestro propósito superior es fruto de una convicción colectiva que hoy, se transforma en nuestro propósito el cual fue construido con la participación de más de 1.500 personas entre cola"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:2",
+          "score": 0.7448,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "### Carvajal Beca Jóvenes con buen empaque ## Mayra Cintura ### Carvajal Empaques Colaboradora de Carvajal Empaques – Tocancipá ## Ulder Fabio Valencia ### Fundación Propal Beneficiario de Fundacion propal – Campaña El B"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.7422,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7373,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:28",
+          "score": 0.722,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2023 Carvajal Pulpa y Papel desarrolla una nueva cartulina bajo las marcas Earth pact natural Grease proof K12 y Propal Grease proof K12 con barrera a la humedad y la grasa sin laminación plástica enfocada en el segme"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:26",
+          "score": 0.7178,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2021 Declaramos nuestro propósito, fruto de una convicción colectiva y construido gracias a la participa de más de 1.500 personas entre colaboradores, clientes y proveedores. El propósito hace parte del legado que dej"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:5",
+          "score": 0.7068,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Inicia operaciones la División Muebles, hoy Carvajal Espacios ## 1959 Antes de consultar por internet nuestra ubicación y el destino al cual deseamos llegar, el directorio telefónico era nuestra única oportunidad de busc"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:21",
+          "score": 0.7044,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Venta de Ofixpress y Comolsa Lanzamiento de Earth Pact. Una nueva línea de papeles elaborados 100% a base de bagazo de caña y libre de químicos blanqueadores. El sector Empaques inaugura la primera etapa de la planta de "
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:19",
+          "score": 0.7036,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Unificación de nombres y marcas a. Carvajal Educación (Norma, Kiut, Jean Book, colores, marcadores, entre otros) b. Carvajal Tecnología y Servicios (assendared, Cen, Servinte) Crea sistemas de intercambio de información,"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:23",
+          "score": 0.7024,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2014 Ampliación de la planta de Carvajal Empaques en Tocancipá para la manufactura de empaques plásticos. Su ubicación estratégica y capacidad de producción la consolida como una de las plantas más modernas en Latinoa"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q06",
+      "query": "¿Qué empresas conforman el sector de Papel y Empaques?",
+      "relevant": [
+        "empaques",
+        "pulpa_y_papel"
+      ],
+      "retrieved": [
+        "quienes_somos",
+        "empaques",
+        "empaques",
+        "pulpa_y_papel",
+        "empaques",
+        "quienes_somos",
+        "empaques",
+        "espacios",
+        "espacios",
+        "pulpa_y_papel"
+      ],
+      "scores": [
+        0.7237,
+        0.7125,
+        0.6904,
+        0.6895,
+        0.6848,
+        0.6813,
+        0.6797,
+        0.6771,
+        0.6762,
+        0.6686
+      ],
+      "top_score": 0.7237,
+      "excerpts": [
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7237,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:2",
+          "score": 0.7125,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestro portafolio ofrece soluciones de empaques para consumir en sitio, exhibir o para llevar, así como la oportunidad de adaptar el diseño de los productos acorde a las necesidades del cliente y la personalización del "
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:3",
+          "score": 0.6904,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "## HOGAR Extendemos nuestras capacidades para poder atender la necesidad de los consumidores por empaques atractivos listos para los eventos más importantes con la calidad y garantía que las familias requieren. ## Agroin"
+        },
+        {
+          "document": "pulpa_y_papel",
+          "chunk_id": "pulpa_y_papel:1",
+          "score": 0.6895,
+          "url": "https://www.carvajal.com/pulpa-y-papel/",
+          "excerpt": "Después del segundo párrafo poner: Descubre nuestro compromiso el desarrollo sostenible, en nuestro informe de sostenibilidad. ## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Consumo - Artes gráficas - Otros convertidor"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:1",
+          "score": 0.6848,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestros empaques están pensados para el cuidado de medio ambiente, novedoso en su usabilidad y diseño, Carvajal Empaques hace uso del residuo agroindustrial de la caña, el bagazo de caña y resinas posconsumo para el des"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:0",
+          "score": 0.6813,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Juntos ## HACIENDO LAS ## COSAS BIEN ## por más de un siglo. Hemos aportado al desarrollo de múltiples mercados gracias al trabajo de equipos altamente capacitados y comprometidos. ¿Qué nos ha movilizado? El interés p"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:0",
+          "score": 0.6797,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Carvajal Empaques ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ ## Sostenibilidad e innovación en cada empaque: Nuestro enfoque por más de 40 años ha sido escuchar a las personas y sus n"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:3",
+          "score": 0.6771,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Sillas de Oficina Las sillas son el elemento esencial de un espacio porque más que ergonomía, las sillas son innovación,calidad y bienestar. Encuentra Sillas Ergonómicas, Sillas Gerenciales, Sillas Interlocutoras, Sil"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:1",
+          "score": 0.6762,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "Al ser una empresa BIC mantenemos un compromiso constante con el desarrollo sostenible. ## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Puestos de trabajo - Zona individual - Zona social - Zona de colaboración - Almacen"
+        },
+        {
+          "document": "pulpa_y_papel",
+          "chunk_id": "pulpa_y_papel:0",
+          "score": 0.6686,
+          "url": "https://www.carvajal.com/pulpa-y-papel/",
+          "excerpt": "Carvajal Pulpa y Papel ## Proponemos alternativas sostenibles para la producción y consumo de ## Papel ## Utilizando el bagazo de la caña como materia prima desarrollamos papeles y cartulinas para impresión, escritura y "
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.6934264036172708
+    },
+    {
+      "id": "q07",
+      "query": "¿Qué es Bioform y a qué industria está dirigido?",
+      "relevant": [
+        "empaques"
+      ],
+      "retrieved": [
+        "empaques",
+        "quienes_somos",
+        "empaques",
+        "quienes_somos",
+        "compromiso_etico",
+        "gobierno_corporativo",
+        "pulpa_y_papel",
+        "gobierno_corporativo",
+        "empaques",
+        "espacios"
+      ],
+      "scores": [
+        0.6555,
+        0.6539,
+        0.6449,
+        0.6434,
+        0.6387,
+        0.6282,
+        0.6216,
+        0.6174,
+        0.615,
+        0.6149
+      ],
+      "top_score": 0.6555,
+      "excerpts": [
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:2",
+          "score": 0.6555,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestro portafolio ofrece soluciones de empaques para consumir en sitio, exhibir o para llevar, así como la oportunidad de adaptar el diseño de los productos acorde a las necesidades del cliente y la personalización del "
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.6539,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:0",
+          "score": 0.6449,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Carvajal Empaques ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ ## Sostenibilidad e innovación en cada empaque: Nuestro enfoque por más de 40 años ha sido escuchar a las personas y sus n"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:0",
+          "score": 0.6434,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Juntos ## HACIENDO LAS ## COSAS BIEN ## por más de un siglo. Hemos aportado al desarrollo de múltiples mercados gracias al trabajo de equipos altamente capacitados y comprometidos. ¿Qué nos ha movilizado? El interés p"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:13",
+          "score": 0.6387,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Medio ambiente La Organización propiciará, a través de su gestión y de sus procesos industriales, la protección del medio ambiente, procurando implementar mejores prácticas ambientales, alineadas con los estándares in"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:11",
+          "score": 0.6282,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## German Castellanos Valero Vicepresidente de Experiencia de Personas. ## Camilo Neira Mendieta Vicepresidente Digital y Analítica Economista, MBA en Dirección de Empresas Tecnológicas y MS en Innovación. Con 15 años de"
+        },
+        {
+          "document": "pulpa_y_papel",
+          "chunk_id": "pulpa_y_papel:1",
+          "score": 0.6216,
+          "url": "https://www.carvajal.com/pulpa-y-papel/",
+          "excerpt": "Después del segundo párrafo poner: Descubre nuestro compromiso el desarrollo sostenible, en nuestro informe de sostenibilidad. ## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Consumo - Artes gráficas - Otros convertidor"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:0",
+          "score": 0.6174,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Gobierno corporativo ## jUNTA ## directiva De conformidad con el Artículo 29 de los estatutos de la sociedad la Junta Directiva está compuesta por 9 miembros principales en los siguientes términos: Nueve (9) miembros "
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:3",
+          "score": 0.615,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "## HOGAR Extendemos nuestras capacidades para poder atender la necesidad de los consumidores por empaques atractivos listos para los eventos más importantes con la calidad y garantía que las familias requieren. ## Agroin"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:1",
+          "score": 0.6149,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "Al ser una empresa BIC mantenemos un compromiso constante con el desarrollo sostenible. ## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Puestos de trabajo - Zona individual - Zona social - Zona de colaboración - Almacen"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q08",
+      "query": "¿Qué marca de educación tiene Carvajal y a quién se dirige?",
+      "relevant": [
+        "educacion"
+      ],
+      "retrieved": [
+        "educacion",
+        "educacion",
+        "home",
+        "historia",
+        "historia",
+        "quienes_somos",
+        "historia",
+        "historia",
+        "home",
+        "home"
+      ],
+      "scores": [
+        0.7959,
+        0.7878,
+        0.6963,
+        0.6946,
+        0.686,
+        0.6829,
+        0.6829,
+        0.6794,
+        0.6784,
+        0.6748
+      ],
+      "top_score": 0.7959,
+      "excerpts": [
+        {
+          "document": "educacion",
+          "chunk_id": "educacion:1",
+          "score": 0.7959,
+          "url": "https://www.carvajal.com/educacion/",
+          "excerpt": "## Maletería Nos inspiramos en el diseño y la funcionalidad, creando productos con compartimientos pensados para cada usuario. Ofrecemos una amplia gama de cartucheras, loncheras y morrales que permiten distribuir y orga"
+        },
+        {
+          "document": "educacion",
+          "chunk_id": "educacion:0",
+          "score": 0.7878,
+          "url": "https://www.carvajal.com/educacion/",
+          "excerpt": "Carvajal Educación. ## Facilitamos el aprendizaje y la ## educación ## en todas las etapas de la vida. ## Con marcas emblemáticas ## Nuestra ## Presencia: ## Panamá ## Puerto Rico ## NUESTROS MERCADOS: - Cuadernos - Arte"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.6963,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:11",
+          "score": 0.6946,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1994 Carvajal adquiere a Pamolsa en el Perú. Nace Carvajal Financiera, Compañía de Financiamiento Comercial. El Grupo Editorial Norma adquiere la Editorial Kapelusz de Argentina. Se inicia la distribución de muebles e"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:19",
+          "score": 0.686,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Unificación de nombres y marcas a. Carvajal Educación (Norma, Kiut, Jean Book, colores, marcadores, entre otros) b. Carvajal Tecnología y Servicios (assendared, Cen, Servinte) Crea sistemas de intercambio de información,"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.6829,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:10",
+          "score": 0.6829,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1990 El Grupo Editorial Norma inicia la distribución de sus productos en Chile y adquiere la editorial Parramón Ediciones S. A., de España. Publicar S. A. inicia operaciones en Panamá. ## 1991 El Grupo Editorial Norma"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:23",
+          "score": 0.6794,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2014 Ampliación de la planta de Carvajal Empaques en Tocancipá para la manufactura de empaques plásticos. Su ubicación estratégica y capacidad de producción la consolida como una de las plantas más modernas en Latinoa"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:2",
+          "score": 0.6784,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "### Carvajal Beca Jóvenes con buen empaque ## Mayra Cintura ### Carvajal Empaques Colaboradora de Carvajal Empaques – Tocancipá ## Ulder Fabio Valencia ### Fundación Propal Beneficiario de Fundacion propal – Campaña El B"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.6748,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q09",
+      "query": "¿Qué soluciones ofrece Carvajal Tecnología y Servicios?",
+      "relevant": [
+        "tecnologia"
+      ],
+      "retrieved": [
+        "tecnologia",
+        "tecnologia",
+        "comunicacion",
+        "home",
+        "quienes_somos",
+        "comunicacion",
+        "comunicacion",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "espacios",
+        "empaques"
+      ],
+      "scores": [
+        0.8314,
+        0.7626,
+        0.7587,
+        0.7413,
+        0.7309,
+        0.7299,
+        0.7261,
+        0.7224,
+        0.7039,
+        0.6994
+      ],
+      "top_score": 0.8314,
+      "excerpts": [
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:0",
+          "score": 0.8314,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "Carvajal Tecnología y Servicios ## Entendemos la ## TECNOLOGÍA ## y la transformamos en soluciones digitales para ti. ## Somos una compañía que crea sistemas de intercambio de información para lograr conectar a los ciuda"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:1",
+          "score": 0.7626,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "## Nuestra ## Presencia: ## NUESTROS MERCADOS: - E-Business - PliP ## E-Business Las plataformas digitales CEN Transaccional, CEN Analíticos y CEN Financiero son líderes en los procesos EDI (Electronic Document Interchan"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:0",
+          "score": 0.7587,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "Carvajal Soluciones de Comunicación ## Impulsamos tecnologías renovables para la solución de servicios de ## Comunicación ## impresa y digital. ## Somos una empresa ecológica Carvajal Soluciones de Comunicación es una em"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7413,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7309,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:2",
+          "score": 0.7299,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Servicio de impresión administrada (MPS) Ayudamos a nuestros clientes a optimizar sus procesos de impresión a través de equipos con tecnología de última generación, soluciones de seguridad y herramientas de monitoreo "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.7261,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.7224,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:3",
+          "score": 0.7039,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Sillas de Oficina Las sillas son el elemento esencial de un espacio porque más que ergonomía, las sillas son innovación,calidad y bienestar. Encuentra Sillas Ergonómicas, Sillas Gerenciales, Sillas Interlocutoras, Sil"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:1",
+          "score": 0.6994,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestros empaques están pensados para el cuidado de medio ambiente, novedoso en su usabilidad y diseño, Carvajal Empaques hace uso del residuo agroindustrial de la caña, el bagazo de caña y resinas posconsumo para el des"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q10",
+      "query": "¿Qué es Mepal y a qué sector pertenece?",
+      "relevant": [
+        "empaques",
+        "espacios",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "quienes_somos",
+        "espacios",
+        "espacios",
+        "espacios",
+        "comunicacion",
+        "quienes_somos",
+        "pulpa_y_papel",
+        "inicio",
+        "empaques",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html"
+      ],
+      "scores": [
+        0.708,
+        0.693,
+        0.6866,
+        0.6827,
+        0.6675,
+        0.666,
+        0.6639,
+        0.6619,
+        0.6543,
+        0.6539
+      ],
+      "top_score": 0.708,
+      "excerpts": [
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.708,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:3",
+          "score": 0.693,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Sillas de Oficina Las sillas son el elemento esencial de un espacio porque más que ergonomía, las sillas son innovación,calidad y bienestar. Encuentra Sillas Ergonómicas, Sillas Gerenciales, Sillas Interlocutoras, Sil"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:1",
+          "score": 0.6866,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "Al ser una empresa BIC mantenemos un compromiso constante con el desarrollo sostenible. ## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Puestos de trabajo - Zona individual - Zona social - Zona de colaboración - Almacen"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:0",
+          "score": 0.6827,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Creamos ## ESPACIOS ## de bienestar integral que impulsan la productividad y fomentan la colaboración al interior de las organizaciones. ## Creamos espacios pensando en ti Con más de 65 años de trayectoria atendemos l"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.6675,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:0",
+          "score": 0.666,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Juntos ## HACIENDO LAS ## COSAS BIEN ## por más de un siglo. Hemos aportado al desarrollo de múltiples mercados gracias al trabajo de equipos altamente capacitados y comprometidos. ¿Qué nos ha movilizado? El interés p"
+        },
+        {
+          "document": "pulpa_y_papel",
+          "chunk_id": "pulpa_y_papel:1",
+          "score": 0.6639,
+          "url": "https://www.carvajal.com/pulpa-y-papel/",
+          "excerpt": "Después del segundo párrafo poner: Descubre nuestro compromiso el desarrollo sostenible, en nuestro informe de sostenibilidad. ## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Consumo - Artes gráficas - Otros convertidor"
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:2",
+          "score": 0.6619,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "## Tipos de ## acciones y derechos ## Capital y ## tipos de acciones ## Cifras ## Relevantes Somos aliados de más de empresas de diversos sectores en América Latina. En los últimos 10 años nuestro monto de inversión soci"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:3",
+          "score": 0.6543,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "## HOGAR Extendemos nuestras capacidades para poder atender la necesidad de los consumidores por empaques atractivos listos para los eventos más importantes con la calidad y garantía que las familias requieren. ## Agroin"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.6539,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.9325210919548239
+    },
+    {
+      "id": "q11",
+      "query": "¿Qué hace Carvajal Espacios?",
+      "relevant": [
+        "espacios"
+      ],
+      "retrieved": [
+        "espacios",
+        "home",
+        "home",
+        "home",
+        "espacios",
+        "espacios",
+        "espacios",
+        "quienes_somos",
+        "historia",
+        "empaques"
+      ],
+      "scores": [
+        0.7958,
+        0.7654,
+        0.7631,
+        0.7503,
+        0.7483,
+        0.7469,
+        0.7375,
+        0.7202,
+        0.7197,
+        0.7088
+      ],
+      "top_score": 0.7958,
+      "excerpts": [
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:0",
+          "score": 0.7958,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Creamos ## ESPACIOS ## de bienestar integral que impulsan la productividad y fomentan la colaboración al interior de las organizaciones. ## Creamos espacios pensando en ti Con más de 65 años de trayectoria atendemos l"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7654,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.7631,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:2",
+          "score": 0.7503,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "### Carvajal Beca Jóvenes con buen empaque ## Mayra Cintura ### Carvajal Empaques Colaboradora de Carvajal Empaques – Tocancipá ## Ulder Fabio Valencia ### Fundación Propal Beneficiario de Fundacion propal – Campaña El B"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:2",
+          "score": 0.7483,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "La socialización hace parte de la naturaleza humana, por eso la facilitación del intercambio casual de ideas e información en los espacios de trabajo es fundamental. ## Zona de colaboración Extracto:Las zonas de colabora"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:3",
+          "score": 0.7469,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Sillas de Oficina Las sillas son el elemento esencial de un espacio porque más que ergonomía, las sillas son innovación,calidad y bienestar. Encuentra Sillas Ergonómicas, Sillas Gerenciales, Sillas Interlocutoras, Sil"
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:1",
+          "score": 0.7375,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "Al ser una empresa BIC mantenemos un compromiso constante con el desarrollo sostenible. ## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Puestos de trabajo - Zona individual - Zona social - Zona de colaboración - Almacen"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7202,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:23",
+          "score": 0.7197,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2014 Ampliación de la planta de Carvajal Empaques en Tocancipá para la manufactura de empaques plásticos. Su ubicación estratégica y capacidad de producción la consolida como una de las plantas más modernas en Latinoa"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:1",
+          "score": 0.7088,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestros empaques están pensados para el cuidado de medio ambiente, novedoso en su usabilidad y diseño, Carvajal Empaques hace uso del residuo agroindustrial de la caña, el bagazo de caña y resinas posconsumo para el des"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q12",
+      "query": "¿Qué es LiquidezYa?",
+      "relevant": [
+        "propiedades_e_inversiones",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "quienes_somos",
+        "tecnologia",
+        "empaques",
+        "empaques",
+        "empaques",
+        "quienes_somos",
+        "comunicacion",
+        "comunicacion",
+        "tecnologia",
+        "empaques"
+      ],
+      "scores": [
+        0.6037,
+        0.5906,
+        0.5769,
+        0.5731,
+        0.5728,
+        0.572,
+        0.5704,
+        0.5692,
+        0.5627,
+        0.5615
+      ],
+      "top_score": 0.6037,
+      "excerpts": [
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.6037,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:1",
+          "score": 0.5906,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "## Nuestra ## Presencia: ## NUESTROS MERCADOS: - E-Business - PliP ## E-Business Las plataformas digitales CEN Transaccional, CEN Analíticos y CEN Financiero son líderes en los procesos EDI (Electronic Document Interchan"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:3",
+          "score": 0.5769,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "## HOGAR Extendemos nuestras capacidades para poder atender la necesidad de los consumidores por empaques atractivos listos para los eventos más importantes con la calidad y garantía que las familias requieren. ## Agroin"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:2",
+          "score": 0.5731,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestro portafolio ofrece soluciones de empaques para consumir en sitio, exhibir o para llevar, así como la oportunidad de adaptar el diseño de los productos acorde a las necesidades del cliente y la personalización del "
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:1",
+          "score": 0.5728,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestros empaques están pensados para el cuidado de medio ambiente, novedoso en su usabilidad y diseño, Carvajal Empaques hace uso del residuo agroindustrial de la caña, el bagazo de caña y resinas posconsumo para el des"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:0",
+          "score": 0.572,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Juntos ## HACIENDO LAS ## COSAS BIEN ## por más de un siglo. Hemos aportado al desarrollo de múltiples mercados gracias al trabajo de equipos altamente capacitados y comprometidos. ¿Qué nos ha movilizado? El interés p"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:2",
+          "score": 0.5704,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Servicio de impresión administrada (MPS) Ayudamos a nuestros clientes a optimizar sus procesos de impresión a través de equipos con tecnología de última generación, soluciones de seguridad y herramientas de monitoreo "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.5692,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:0",
+          "score": 0.5627,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "Carvajal Tecnología y Servicios ## Entendemos la ## TECNOLOGÍA ## y la transformamos en soluciones digitales para ti. ## Somos una compañía que crea sistemas de intercambio de información para lograr conectar a los ciuda"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:0",
+          "score": 0.5615,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Carvajal Empaques ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ ## Sostenibilidad e innovación en cada empaque: Nuestro enfoque por más de 40 años ha sido escuchar a las personas y sus n"
+        }
+      ],
+      "recall_at_k": 0.5,
+      "ndcg_at_k": 0.6131471927654584
+    },
+    {
+      "id": "q13",
+      "query": "¿En qué consiste el negocio de Propiedades e Inversiones?",
+      "relevant": [
+        "propiedades_e_inversiones"
+      ],
+      "retrieved": [
+        "propiedades_e_inversiones",
+        "propiedades_e_inversiones",
+        "inicio",
+        "inicio",
+        "inicio",
+        "compromiso_etico",
+        "relacionamiento_con_grupos_de_interes",
+        "comunicacion",
+        "comunicacion",
+        "resultados_empresariales_2024_de_carvajal_4099828"
+      ],
+      "scores": [
+        0.7336,
+        0.7207,
+        0.7036,
+        0.7028,
+        0.7001,
+        0.6737,
+        0.6647,
+        0.6558,
+        0.648,
+        0.6421
+      ],
+      "top_score": 0.7336,
+      "excerpts": [
+        {
+          "document": "propiedades_e_inversiones",
+          "chunk_id": "propiedades_e_inversiones:0",
+          "score": 0.7336,
+          "url": "https://www.carvajal.com/propiedades-e-inversiones/",
+          "excerpt": "## Generamos experiencias confortables, con la administración de ## inmuebles ## a la medida para múltiples espacios productivos y de vivienda. ## Transformamos algunos de nuestros inmuebles que prestan servicios inmobil"
+        },
+        {
+          "document": "propiedades_e_inversiones",
+          "chunk_id": "propiedades_e_inversiones:1",
+          "score": 0.7207,
+          "url": "https://www.carvajal.com/propiedades-e-inversiones/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## Activos en renta: - Santa Mónica - Candelaria - Yumbo - Ciudad Guabinas - Zonamerica ## Santa Mónica Proyecto: Oficinas Santa Mónica Ubicación: Calle 29 norte #6a – 40 en Cali, Colombia Renta "
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:2",
+          "score": 0.7036,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "## Tipos de ## acciones y derechos ## Capital y ## tipos de acciones ## Cifras ## Relevantes Somos aliados de más de empresas de diversos sectores en América Latina. En los últimos 10 años nuestro monto de inversión soci"
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:0",
+          "score": 0.7028,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "Únete a Hacer las cosas bien ## Información ## relevante ## Otros eventos. Carvajal S.A. informa sobre modificación al prospecto de información de la emisión de bonos ordinarios en el Segundo Mercado No. 202312 de diciem"
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:1",
+          "score": 0.7001,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "Carvajal S.A. informa sobre convocatoria a la primera Asamblea General de Tenedores de Bonos en el segundo mercado (ver documento adjunto). ## Calificaciones de riesgo. S&P National Ratings S. A. SCV divulga el documento"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:10",
+          "score": 0.6737,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "y se da cierre formal al reporte, del cual recibirás respuesta con el número de caso. ## descripciones de las relaciones con grupos de interés externos ## Clientes y Usuarios La satisfacción de las necesidades de nuestro"
+        },
+        {
+          "document": "relacionamiento_con_grupos_de_interes",
+          "chunk_id": "relacionamiento_con_grupos_de_interes:0",
+          "score": 0.6647,
+          "url": "https://www.carvajal.com/compromiso-etico/relacionamiento-con-grupos-de-interes/",
+          "excerpt": "## Compromiso ## ÉTICO ## Descripciones de las relaciones con grupos de interés externos Clientes y usuarios Accionistas e inversionistas Proveedores y acreedores Los proveedores y acreedores son nuestros socios en la sa"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:2",
+          "score": 0.6558,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Servicio de impresión administrada (MPS) Ayudamos a nuestros clientes a optimizar sus procesos de impresión a través de equipos con tecnología de última generación, soluciones de seguridad y herramientas de monitoreo "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.648,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:1",
+          "score": 0.6421,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "De otro lado, se destacó la inversión en el proceso de transformación tecnológica, los planes de mejora de la competitividad y la implementación de eficiencias en costos y gastos , que si bien requirieron de la ejecución"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q14",
+      "query": "¿Cómo está conformado el gobierno corporativo de Carvajal?",
+      "relevant": [
+        "gobierno_corporativo"
+      ],
+      "retrieved": [
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo",
+        "gobierno_corporativo"
+      ],
+      "scores": [
+        0.7911,
+        0.7896,
+        0.7798,
+        0.7776,
+        0.7745,
+        0.7722,
+        0.7627,
+        0.7577,
+        0.7566,
+        0.7564
+      ],
+      "top_score": 0.7911,
+      "excerpts": [
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:0",
+          "score": 0.7911,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Gobierno corporativo ## jUNTA ## directiva De conformidad con el Artículo 29 de los estatutos de la sociedad la Junta Directiva está compuesta por 9 miembros principales en los siguientes términos: Nueve (9) miembros "
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:7",
+          "score": 0.7896,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "Ingeniero Civil de la Escuela de Ingeniería de Antioquia con formación de Alto Gobierno de la Universidad de los Andes y programas de especialización en Management y Supply Chain Strategies de las universidades de Kellog"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:8",
+          "score": 0.7798,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "La composición de los comités de la Junta Directiva de Carvajal S.A. es la siguiente Comité de Auditoría y Riesgos: 1. Juan Guillermo Castañeda (Presidente) 2. Santiago Delgado 3. Ramiro Guerrero Comité de Nombramientos,"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:11",
+          "score": 0.7776,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## German Castellanos Valero Vicepresidente de Experiencia de Personas. ## Camilo Neira Mendieta Vicepresidente Digital y Analítica Economista, MBA en Dirección de Empresas Tecnológicas y MS en Innovación. Con 15 años de"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:10",
+          "score": 0.7745,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Catalina Giraldo Valencia Vicepresidente de Asuntos Corporativos Es abogada de la Universidad EAFIT, con especialización en Derecho Comercial de la Pontificia Universidad Javeriana y especialización en Derecho Informá"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:1",
+          "score": 0.7722,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "La composición actual de la junta directiva es la siguiente: *Miembros independientes ## Juan Guillermo Castañeda* Ingeniero Industrial de la Pontificia Universidad Javeriana, con un Máster en Ciencias en Administración "
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:5",
+          "score": 0.7627,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Santiago Delgado Castro* Licenciado en Administración de Empresas y Sistemas de Información Gerencial de la Universidad de Nebraska. Cuenta con un master de The University of Chicago Booth School of Business. Se desem"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:9",
+          "score": 0.7577,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Juan Pablo Molina Vicepresidente Financiero y de Estrategia Ingeniero Industrial con MBA de la Universidad Icesi y Maestría en Economía de la Universidad de Girona con más de 25 años en posiciones de alta dirección en"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:2",
+          "score": 0.7566,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Ramiro Guerrero Carvajal* Economista y PhD en economía del King’s College London, con experiencia en investigación, consultoría, formulación de políticas, salud, educación y periodismo. Ha sido viceministro de Protecc"
+        },
+        {
+          "document": "gobierno_corporativo",
+          "chunk_id": "gobierno_corporativo:6",
+          "score": 0.7564,
+          "url": "https://www.carvajal.com/gobierno-corporativo/",
+          "excerpt": "## Andrés Crump Gómez* Abogado y Máster en Finanzas de la Universidad de los Andes y en Derecho (LLM) de la Universidad de Columbia. Ha sido vicepresidente senior de Brookfield Asset Management, socio de Baker Mackenzie "
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q15",
+      "query": "¿Qué compromisos éticos declara la empresa?",
+      "relevant": [
+        "compromiso_etico",
+        "relacionamiento_con_grupos_de_interes"
+      ],
+      "retrieved": [
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico"
+      ],
+      "scores": [
+        0.7884,
+        0.7864,
+        0.7815,
+        0.7811,
+        0.779,
+        0.7778,
+        0.7752,
+        0.7683,
+        0.7676,
+        0.7629
+      ],
+      "top_score": 0.7884,
+      "excerpts": [
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:9",
+          "score": 0.7884,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Para reportar un caso en la Línea Ética puede hacerlo aqui ## ¿Cómo opera la Línea ética Carvajal? ## Asi opera nuestra Línea ética ## Contácte con la línea Ética Via web o telefónica ## Tu reporte será recibido por la e"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:10",
+          "score": 0.7864,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "y se da cierre formal al reporte, del cual recibirás respuesta con el número de caso. ## descripciones de las relaciones con grupos de interés externos ## Clientes y Usuarios La satisfacción de las necesidades de nuestro"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:5",
+          "score": 0.7815,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Para reportar un caso en la Línea Ética puede hacerlo aquí . Clientes y usuarios Con el medio ambiente Con los accionistas e inversionistas Con proveedores y acreedores con el estado con las autoridades Con la competenci"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:4",
+          "score": 0.7811,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Compromiso Ético La Organización Carvajal asume la responsabilidad de ser parte integrante de la sociedad en cualquier país donde se encuentre, por lo cual sin excepción tiene como premisa que su actuar estará regido "
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:8",
+          "score": 0.779,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Conoce cómo esta fundamentando Nuestro Actuar Ético aquí. ## pautas de nuestro actuar ético ## 1 Cumplimiento de la ley ## 2 Conflicto de intereses ## 3 Relaciones con grupos de interés ## 4 Manejo de la información ## 5"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:6",
+          "score": 0.7778,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Respeto Reconocer, aceptar y comprender a todas las personas que interactúan con la Organización. ## orientación al cliente Conocer las necesidades de los consumidores, usuarios y clientes para satisfacerlas adecuadam"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:3",
+          "score": 0.7752,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## 08. Garantizar la privacidad de los datos personales de todos los grupos de interes con quienes nos relacionamos. ## 09. Rechazar y combatir cualquier comportamiento antietico o corrupto. ## 10. Generar y mantener can"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:13",
+          "score": 0.7683,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Medio ambiente La Organización propiciará, a través de su gestión y de sus procesos industriales, la protección del medio ambiente, procurando implementar mejores prácticas ambientales, alineadas con los estándares in"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:7",
+          "score": 0.7676,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## PROTECCIÓN Y CUIDADO DE LA VIDA Velar por el cuidado integral de la propia vida y la de quienes están alrededor en cualquier momento y lugar. ## Principios y Políticas Uno de los aspectos en los cuales se fundamenta l"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:11",
+          "score": 0.7629,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Proveedores y Acreedores Los proveedores y acreedores son nuestros socios en la satisfacción de las necesidades de los clientes. Nuestras decisiones de compra han de basarse en criterios de confiabilidad, eficiencia, "
+        }
+      ],
+      "recall_at_k": 0.5,
+      "ndcg_at_k": 0.6131471927654584
+    },
+    {
+      "id": "q16",
+      "query": "¿Qué iniciativas de sostenibilidad adelanta Carvajal?",
+      "relevant": [
+        "home"
+      ],
+      "retrieved": [
+        "home",
+        "home",
+        "empaques",
+        "home",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "comunicacion",
+        "historia",
+        "historia",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales"
+      ],
+      "scores": [
+        0.7821,
+        0.7775,
+        0.7721,
+        0.7375,
+        0.7361,
+        0.7318,
+        0.731,
+        0.7248,
+        0.7246,
+        0.7245
+      ],
+      "top_score": 0.7821,
+      "excerpts": [
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.7821,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7775,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:0",
+          "score": 0.7721,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Carvajal Empaques ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ ## Sostenibilidad e innovación en cada empaque: Nuestro enfoque por más de 40 años ha sido escuchar a las personas y sus n"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:2",
+          "score": 0.7375,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "### Carvajal Beca Jóvenes con buen empaque ## Mayra Cintura ### Carvajal Empaques Colaboradora de Carvajal Empaques – Tocancipá ## Ulder Fabio Valencia ### Fundación Propal Beneficiario de Fundacion propal – Campaña El B"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:4",
+          "score": 0.7361,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Muebles y Soluciones Empresariales: Mepal, enfocada en mobiliario y gestión de espacios empresariales. Organización Carvajal: Innovación, internacionalización y sostenibilidad. Su estrategia se centra en fortalecer la "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:0",
+          "score": 0.7318,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "Carvajal Soluciones de Comunicación ## Impulsamos tecnologías renovables para la solución de servicios de ## Comunicación ## impresa y digital. ## Somos una empresa ecológica Carvajal Soluciones de Comunicación es una em"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:26",
+          "score": 0.731,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2021 Declaramos nuestro propósito, fruto de una convicción colectiva y construido gracias a la participa de más de 1.500 personas entre colaboradores, clientes y proveedores. El propósito hace parte del legado que dej"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:24",
+          "score": 0.7248,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Se retoma el eslogan “Carvajal hace las cosas bien”, haciendo énfasis en los valores que han caracterizado la Organización y se define los elementos integrados de la cultura Carvajal. ## 2018 Carvajal Empaques inauguro G"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.7246,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.7245,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q17",
+      "query": "¿Qué noticias recientes publica Carvajal en su sitio web?",
+      "relevant": [
+        "noticias"
+      ],
+      "retrieved": [
+        "noticias",
+        "noticias",
+        "inicio",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "comunicacion",
+        "tecnologia",
+        "home",
+        "comunicacion",
+        "comunicacion",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html"
+      ],
+      "scores": [
+        0.7483,
+        0.746,
+        0.7106,
+        0.7098,
+        0.7002,
+        0.6947,
+        0.6927,
+        0.6913,
+        0.6909,
+        0.6904
+      ],
+      "top_score": 0.7483,
+      "excerpts": [
+        {
+          "document": "noticias",
+          "chunk_id": "noticias:0",
+          "score": 0.7483,
+          "url": "https://www.carvajal.com/noticias/",
+          "excerpt": "## UNIDOS PARA RECUPERAR Y REVITALIZAR A FICO ## julio, 2 jueves, 2026 ## Pedro Felipe Carvajal: “Continuaremos con nuestra apuesta decidida por Colombia” ## mayo, 28 miércoles, 2025 ## Carvajal Empaques, reconocida como"
+        },
+        {
+          "document": "noticias",
+          "chunk_id": "noticias:1",
+          "score": 0.746,
+          "url": "https://www.carvajal.com/noticias/",
+          "excerpt": "## Cali Recicla con tu Reciclador: fortaleciendo la economía circular y la inclusión social ## diciembre, 2 lunes, 2024 ## Fundación Propal en su Programa de Primera Infancia con énfasis en Nutrición clausura con éxito s"
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:0",
+          "score": 0.7106,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "Únete a Hacer las cosas bien ## Información ## relevante ## Otros eventos. Carvajal S.A. informa sobre modificación al prospecto de información de la emisión de bonos ordinarios en el Segundo Mercado No. 202312 de diciem"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:4",
+          "score": 0.7098,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Adicional, la compañía reportó que no habrá distribución de utilidades y eligió nuevos miembros en su junta directiva. El Grupo Carvajal celebra 120 años de operaciones. Foto: suministrado por la empresa. | Foto: El país"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.7002,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:0",
+          "score": 0.6947,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "Carvajal Tecnología y Servicios ## Entendemos la ## TECNOLOGÍA ## y la transformamos en soluciones digitales para ti. ## Somos una compañía que crea sistemas de intercambio de información para lograr conectar a los ciuda"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.6927,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:2",
+          "score": 0.6913,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Servicio de impresión administrada (MPS) Ayudamos a nuestros clientes a optimizar sus procesos de impresión a través de equipos con tecnología de última generación, soluciones de seguridad y herramientas de monitoreo "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:0",
+          "score": 0.6909,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "Carvajal Soluciones de Comunicación ## Impulsamos tecnologías renovables para la solución de servicios de ## Comunicación ## impresa y digital. ## Somos una empresa ecológica Carvajal Soluciones de Comunicación es una em"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.6904,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q18",
+      "query": "¿Cuál es la historia de Carvajal desde su fundación?",
+      "relevant": [
+        "historia"
+      ],
+      "retrieved": [
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "historia"
+      ],
+      "scores": [
+        0.8324,
+        0.8306,
+        0.8188,
+        0.8165,
+        0.8141,
+        0.8085,
+        0.8052,
+        0.805,
+        0.8041,
+        0.8029
+      ],
+      "top_score": 0.8324,
+      "excerpts": [
+        {
+          "document": "historia",
+          "chunk_id": "historia:7",
+          "score": 0.8324,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1974 Publicar inicia operaciones en Chile y Nicaragua ## 1975 Se crea la división de empaques flexibles, en su momento Flexa ## 1976 Carvajal se convierte en sociedad anónima. Se funda Musicar S. A. en asocio con Cara"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:26",
+          "score": 0.8306,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2021 Declaramos nuestro propósito, fruto de una convicción colectiva y construido gracias a la participa de más de 1.500 personas entre colaboradores, clientes y proveedores. El propósito hace parte del legado que dej"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:28",
+          "score": 0.8188,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2023 Carvajal Pulpa y Papel desarrolla una nueva cartulina bajo las marcas Earth pact natural Grease proof K12 y Propal Grease proof K12 con barrera a la humedad y la grasa sin laminación plástica enfocada en el segme"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:0",
+          "score": 0.8165,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1904 ## Nuestra ## Historia El sábado 29 de octubre de 1904, nace el sueño de la Familia Carvajal con la impresión del semanario El Día. Todos participaban: Manuel Carvajal Valencia, su esposa Micaela Borrero, los hij"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:5",
+          "score": 0.8141,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Inicia operaciones la División Muebles, hoy Carvajal Espacios ## 1959 Antes de consultar por internet nuestra ubicación y el destino al cual deseamos llegar, el directorio telefónico era nuestra única oportunidad de busc"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:19",
+          "score": 0.8085,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Unificación de nombres y marcas a. Carvajal Educación (Norma, Kiut, Jean Book, colores, marcadores, entre otros) b. Carvajal Tecnología y Servicios (assendared, Cen, Servinte) Crea sistemas de intercambio de información,"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:18",
+          "score": 0.8052,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2004 Carvajal adquiere una proporción mayoritaria de acciones de Productora de Papeles S. A. (Propal S. A) y primer centenario de Carvajal. ## 2007 Adquisición Termoformados Modernos en El Salvador ## 2008 Ricardo Obr"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:27",
+          "score": 0.805,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2022 a. Como compañía familiar, Carvajal recibe el primer reconocimiento empresarial en Colombia y a nivel latinoamericano de IMD Global Family Business Award. El premio IMD ha sido el reconocimiento para vivir nuestr"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:11",
+          "score": 0.8041,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1994 Carvajal adquiere a Pamolsa en el Perú. Nace Carvajal Financiera, Compañía de Financiamiento Comercial. El Grupo Editorial Norma adquiere la Editorial Kapelusz de Argentina. Se inicia la distribución de muebles e"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:1",
+          "score": 0.8029,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1912 La llegada de una maquina rayadora de papel desde Alemania hizo posible que los cuadernos tuvieran línea corriente, algo provechoso para las primeras letras en escuelas y colegios. De igual manera para los libros"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q19",
+      "query": "¿Qué información ofrece el portal de inversionistas?",
+      "relevant": [
+        "inicio"
+      ],
+      "retrieved": [
+        "inicio",
+        "inicio",
+        "inicio",
+        "comunicacion",
+        "comunicacion",
+        "propiedades_e_inversiones",
+        "propiedades_e_inversiones",
+        "espacios",
+        "compromiso_etico",
+        "tecnologia"
+      ],
+      "scores": [
+        0.75,
+        0.7382,
+        0.704,
+        0.6446,
+        0.6181,
+        0.615,
+        0.6149,
+        0.6015,
+        0.5969,
+        0.5924
+      ],
+      "top_score": 0.75,
+      "excerpts": [
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:0",
+          "score": 0.75,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "Únete a Hacer las cosas bien ## Información ## relevante ## Otros eventos. Carvajal S.A. informa sobre modificación al prospecto de información de la emisión de bonos ordinarios en el Segundo Mercado No. 202312 de diciem"
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:2",
+          "score": 0.7382,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "## Tipos de ## acciones y derechos ## Capital y ## tipos de acciones ## Cifras ## Relevantes Somos aliados de más de empresas de diversos sectores en América Latina. En los últimos 10 años nuestro monto de inversión soci"
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:1",
+          "score": 0.704,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "Carvajal S.A. informa sobre convocatoria a la primera Asamblea General de Tenedores de Bonos en el segundo mercado (ver documento adjunto). ## Calificaciones de riesgo. S&P National Ratings S. A. SCV divulga el documento"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:2",
+          "score": 0.6446,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Servicio de impresión administrada (MPS) Ayudamos a nuestros clientes a optimizar sus procesos de impresión a través de equipos con tecnología de última generación, soluciones de seguridad y herramientas de monitoreo "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.6181,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "propiedades_e_inversiones",
+          "chunk_id": "propiedades_e_inversiones:0",
+          "score": 0.615,
+          "url": "https://www.carvajal.com/propiedades-e-inversiones/",
+          "excerpt": "## Generamos experiencias confortables, con la administración de ## inmuebles ## a la medida para múltiples espacios productivos y de vivienda. ## Transformamos algunos de nuestros inmuebles que prestan servicios inmobil"
+        },
+        {
+          "document": "propiedades_e_inversiones",
+          "chunk_id": "propiedades_e_inversiones:1",
+          "score": 0.6149,
+          "url": "https://www.carvajal.com/propiedades-e-inversiones/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## Activos en renta: - Santa Mónica - Candelaria - Yumbo - Ciudad Guabinas - Zonamerica ## Santa Mónica Proyecto: Oficinas Santa Mónica Ubicación: Calle 29 norte #6a – 40 en Cali, Colombia Renta "
+        },
+        {
+          "document": "espacios",
+          "chunk_id": "espacios:3",
+          "score": 0.6015,
+          "url": "https://www.carvajal.com/espacios/",
+          "excerpt": "## Sillas de Oficina Las sillas son el elemento esencial de un espacio porque más que ergonomía, las sillas son innovación,calidad y bienestar. Encuentra Sillas Ergonómicas, Sillas Gerenciales, Sillas Interlocutoras, Sil"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:10",
+          "score": 0.5969,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "y se da cierre formal al reporte, del cual recibirás respuesta con el número de caso. ## descripciones de las relaciones con grupos de interés externos ## Clientes y Usuarios La satisfacción de las necesidades de nuestro"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:0",
+          "score": 0.5924,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "Carvajal Tecnología y Servicios ## Entendemos la ## TECNOLOGÍA ## y la transformamos en soluciones digitales para ti. ## Somos una compañía que crea sistemas de intercambio de información para lograr conectar a los ciuda"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q20",
+      "query": "¿Qué fundaciones están vinculadas a Carvajal?",
+      "relevant": [
+        "home",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "home",
+        "home",
+        "historia",
+        "home",
+        "historia",
+        "historia",
+        "historia",
+        "historia",
+        "quienes_somos",
+        "historia"
+      ],
+      "scores": [
+        0.7945,
+        0.7722,
+        0.7364,
+        0.7351,
+        0.7307,
+        0.7295,
+        0.7261,
+        0.7202,
+        0.7196,
+        0.719
+      ],
+      "top_score": 0.7945,
+      "excerpts": [
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.7945,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:2",
+          "score": 0.7722,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "### Carvajal Beca Jóvenes con buen empaque ## Mayra Cintura ### Carvajal Empaques Colaboradora de Carvajal Empaques – Tocancipá ## Ulder Fabio Valencia ### Fundación Propal Beneficiario de Fundacion propal – Campaña El B"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:7",
+          "score": 0.7364,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1974 Publicar inicia operaciones en Chile y Nicaragua ## 1975 Se crea la división de empaques flexibles, en su momento Flexa ## 1976 Carvajal se convierte en sociedad anónima. Se funda Musicar S. A. en asocio con Cara"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7351,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:23",
+          "score": 0.7307,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2014 Ampliación de la planta de Carvajal Empaques en Tocancipá para la manufactura de empaques plásticos. Su ubicación estratégica y capacidad de producción la consolida como una de las plantas más modernas en Latinoa"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:28",
+          "score": 0.7295,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2023 Carvajal Pulpa y Papel desarrolla una nueva cartulina bajo las marcas Earth pact natural Grease proof K12 y Propal Grease proof K12 con barrera a la humedad y la grasa sin laminación plástica enfocada en el segme"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:26",
+          "score": 0.7261,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2021 Declaramos nuestro propósito, fruto de una convicción colectiva y construido gracias a la participa de más de 1.500 personas entre colaboradores, clientes y proveedores. El propósito hace parte del legado que dej"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:20",
+          "score": 0.7202,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "a nivel global, fundamentada en una renovada arquitectura de marca que agrupa las empresas de la Organización. h. Se establece la promesa de valor y tres atributos de marca: Compromiso con los resultados, cercanía a los "
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7196,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:11",
+          "score": 0.719,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1994 Carvajal adquiere a Pamolsa en el Perú. Nace Carvajal Financiera, Compañía de Financiamiento Comercial. El Grupo Editorial Norma adquiere la Editorial Kapelusz de Argentina. Se inicia la distribución de muebles e"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.9197207891481876
+    },
+    {
+      "id": "q21",
+      "query": "¿Cómo puedo contactar a Carvajal o solicitar información?",
+      "relevant": [
+        "home",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "comunicacion",
+        "comunicacion",
+        "comunicacion",
+        "home",
+        "noticias",
+        "noticias",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "inicio",
+        "home",
+        "historia"
+      ],
+      "scores": [
+        0.7655,
+        0.7365,
+        0.7359,
+        0.7111,
+        0.7007,
+        0.7,
+        0.6944,
+        0.6923,
+        0.6921,
+        0.691
+      ],
+      "top_score": 0.7655,
+      "excerpts": [
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:0",
+          "score": 0.7655,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "Carvajal Soluciones de Comunicación ## Impulsamos tecnologías renovables para la solución de servicios de ## Comunicación ## impresa y digital. ## Somos una empresa ecológica Carvajal Soluciones de Comunicación es una em"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:2",
+          "score": 0.7365,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Servicio de impresión administrada (MPS) Ayudamos a nuestros clientes a optimizar sus procesos de impresión a través de equipos con tecnología de última generación, soluciones de seguridad y herramientas de monitoreo "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.7359,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7111,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "noticias",
+          "chunk_id": "noticias:0",
+          "score": 0.7007,
+          "url": "https://www.carvajal.com/noticias/",
+          "excerpt": "## UNIDOS PARA RECUPERAR Y REVITALIZAR A FICO ## julio, 2 jueves, 2026 ## Pedro Felipe Carvajal: “Continuaremos con nuestra apuesta decidida por Colombia” ## mayo, 28 miércoles, 2025 ## Carvajal Empaques, reconocida como"
+        },
+        {
+          "document": "noticias",
+          "chunk_id": "noticias:1",
+          "score": 0.7,
+          "url": "https://www.carvajal.com/noticias/",
+          "excerpt": "## Cali Recicla con tu Reciclador: fortaleciendo la economía circular y la inclusión social ## diciembre, 2 lunes, 2024 ## Fundación Propal en su Programa de Primera Infancia con énfasis en Nutrición clausura con éxito s"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.6944,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "inicio",
+          "chunk_id": "inicio:0",
+          "score": 0.6923,
+          "url": "https://www.carvajal.com/inversionistas/inicio/",
+          "excerpt": "Únete a Hacer las cosas bien ## Información ## relevante ## Otros eventos. Carvajal S.A. informa sobre modificación al prospecto de información de la emisión de bonos ordinarios en el Segundo Mercado No. 202312 de diciem"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.6921,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:15",
+          "score": 0.691,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1999 Alberto José Carvajal Lourido es nombrado presidente de Organización Carvajal. Venta de Carvajal Financiera al Banco Intercontinental. Venta de Chimolsa. ## 2000 Venta de DIRECTV a Hughes Electronics Corporation."
+        }
+      ],
+      "recall_at_k": 0.5,
+      "ndcg_at_k": 0.38685280723454163
+    },
+    {
+      "id": "q22",
+      "query": "¿Qué es la línea ética de Carvajal?",
+      "relevant": [
+        "compromiso_etico"
+      ],
+      "retrieved": [
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico",
+        "compromiso_etico"
+      ],
+      "scores": [
+        0.8171,
+        0.8031,
+        0.7954,
+        0.7948,
+        0.7832,
+        0.7824,
+        0.7703,
+        0.7692,
+        0.7585,
+        0.7552
+      ],
+      "top_score": 0.8171,
+      "excerpts": [
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:8",
+          "score": 0.8171,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Conoce cómo esta fundamentando Nuestro Actuar Ético aquí. ## pautas de nuestro actuar ético ## 1 Cumplimiento de la ley ## 2 Conflicto de intereses ## 3 Relaciones con grupos de interés ## 4 Manejo de la información ## 5"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:4",
+          "score": 0.8031,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Compromiso Ético La Organización Carvajal asume la responsabilidad de ser parte integrante de la sociedad en cualquier país donde se encuentre, por lo cual sin excepción tiene como premisa que su actuar estará regido "
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:7",
+          "score": 0.7954,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## PROTECCIÓN Y CUIDADO DE LA VIDA Velar por el cuidado integral de la propia vida y la de quienes están alrededor en cualquier momento y lugar. ## Principios y Políticas Uno de los aspectos en los cuales se fundamenta l"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:5",
+          "score": 0.7948,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Para reportar un caso en la Línea Ética puede hacerlo aquí . Clientes y usuarios Con el medio ambiente Con los accionistas e inversionistas Con proveedores y acreedores con el estado con las autoridades Con la competenci"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:9",
+          "score": 0.7832,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Para reportar un caso en la Línea Ética puede hacerlo aqui ## ¿Cómo opera la Línea ética Carvajal? ## Asi opera nuestra Línea ética ## Contácte con la línea Ética Via web o telefónica ## Tu reporte será recibido por la e"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:0",
+          "score": 0.7824,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Compromiso ## ÉTICO ## Política de Derechos Humanos La Organización Carvajal comprometida en la construcción de relaciones sostenibles con los diferentes grupos de interés y basado en su adhesión y cumplimiento al Pac"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:1",
+          "score": 0.7703,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## 03. Rechazar el trabajo infantil y el trabajo forzoso u obligatorio. ## 04. Respetar la libertad de asociación y negociación colectiva. ## 05. Garantizar que todos los colaboradores cuentan con un regimen laboral que "
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:2",
+          "score": 0.7692,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## 06. Ofrecer y garantizar un empleo digno y justo basado en instalaciones confortables y seguras, propiciar espacios de bienestar y recreación para el colaborador y su familia, estableciendo un modelo de desarrollo que"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:11",
+          "score": 0.7585,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Proveedores y Acreedores Los proveedores y acreedores son nuestros socios en la satisfacción de las necesidades de los clientes. Nuestras decisiones de compra han de basarse en criterios de confiabilidad, eficiencia, "
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:12",
+          "score": 0.7552,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Estado La Organización respeta las instituciones y autoridades reconocidas en los países donde tiene actividades y aplicará correctamente sus leyes y normas. ## Autoridades Es deber de la Organización prestar oportuna"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q23",
+      "query": "¿Qué productos o servicios ofrece Carvajal en comunicación?",
+      "relevant": [
+        "comunicacion"
+      ],
+      "retrieved": [
+        "comunicacion",
+        "comunicacion",
+        "comunicacion",
+        "tecnologia",
+        "home",
+        "compromiso_etico",
+        "quienes_somos",
+        "empaques",
+        "relacionamiento_con_grupos_de_interes",
+        "compromiso_etico"
+      ],
+      "scores": [
+        0.8134,
+        0.7952,
+        0.7902,
+        0.7682,
+        0.7524,
+        0.729,
+        0.7274,
+        0.726,
+        0.7198,
+        0.7195
+      ],
+      "top_score": 0.8134,
+      "excerpts": [
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:0",
+          "score": 0.8134,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "Carvajal Soluciones de Comunicación ## Impulsamos tecnologías renovables para la solución de servicios de ## Comunicación ## impresa y digital. ## Somos una empresa ecológica Carvajal Soluciones de Comunicación es una em"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:2",
+          "score": 0.7952,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Servicio de impresión administrada (MPS) Ayudamos a nuestros clientes a optimizar sus procesos de impresión a través de equipos con tecnología de última generación, soluciones de seguridad y herramientas de monitoreo "
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.7902,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:0",
+          "score": 0.7682,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "Carvajal Tecnología y Servicios ## Entendemos la ## TECNOLOGÍA ## y la transformamos en soluciones digitales para ti. ## Somos una compañía que crea sistemas de intercambio de información para lograr conectar a los ciuda"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7524,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:6",
+          "score": 0.729,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "## Respeto Reconocer, aceptar y comprender a todas las personas que interactúan con la Organización. ## orientación al cliente Conocer las necesidades de los consumidores, usuarios y clientes para satisfacerlas adecuadam"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7274,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "empaques",
+          "chunk_id": "empaques:2",
+          "score": 0.726,
+          "url": "https://www.carvajal.com/empaques/",
+          "excerpt": "Nuestro portafolio ofrece soluciones de empaques para consumir en sitio, exhibir o para llevar, así como la oportunidad de adaptar el diseño de los productos acorde a las necesidades del cliente y la personalización del "
+        },
+        {
+          "document": "relacionamiento_con_grupos_de_interes",
+          "chunk_id": "relacionamiento_con_grupos_de_interes:0",
+          "score": 0.7198,
+          "url": "https://www.carvajal.com/compromiso-etico/relacionamiento-con-grupos-de-interes/",
+          "excerpt": "## Compromiso ## ÉTICO ## Descripciones de las relaciones con grupos de interés externos Clientes y usuarios Accionistas e inversionistas Proveedores y acreedores Los proveedores y acreedores son nuestros socios en la sa"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:5",
+          "score": 0.7195,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Para reportar un caso en la Línea Ética puede hacerlo aquí . Clientes y usuarios Con el medio ambiente Con los accionistas e inversionistas Con proveedores y acreedores con el estado con las autoridades Con la competenci"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q24",
+      "query": "¿Qué presencia tiene Carvajal en Colombia?",
+      "relevant": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "home",
+        "quienes_somos"
+      ],
+      "retrieved": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "quienes_somos",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "historia",
+        "historia"
+      ],
+      "scores": [
+        0.7443,
+        0.7426,
+        0.7312,
+        0.7308,
+        0.7289,
+        0.7285,
+        0.7275,
+        0.7229,
+        0.7193,
+        0.7179
+      ],
+      "top_score": 0.7443,
+      "excerpts": [
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:1",
+          "score": 0.7443,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- 11 de abril de 2025: La Asamblea Extraordinaria decidió el cierre indefinido de la planta de producción de papel y cartulinas en Yumbo, Valle del Cauca, tras más de 60 años de operación. Esta medida responde a la impos"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.7426,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "quienes_somos",
+          "chunk_id": "quienes_somos:1",
+          "score": 0.7312,
+          "url": "https://www.carvajal.com/quienes-somos/",
+          "excerpt": "## Hemos estado presente en las generaciones de muchas familias Impulsado el crecimiento de la industria de alimentos a través de nuestros empaques Bioform, la educación de América Latina con la entrañable marca Norma, l"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.7308,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:4",
+          "score": 0.7289,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Muebles y Soluciones Empresariales: Mepal, enfocada en mobiliario y gestión de espacios empresariales. Organización Carvajal: Innovación, internacionalización y sostenibilidad. Su estrategia se centra en fortalecer la "
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.7285,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.7275,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:6",
+          "score": 0.7229,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- marzo 2026 - febrero 2026 - enero 2026 - diciembre 2025 - noviembre 2025 - octubre 2025 - septiembre 2025 - agosto 2025 - julio 2025 - junio 2025 - mayo 2025 - abril 2025 - marzo 2025 - febrero 2025 - enero 2025 - dici"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:13",
+          "score": 0.7193,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1997 Mepal inaugura plantas de muebles en Venezuela y Argentina. Visipak instala su segunda planta de producción de láminas plásticas y termoformados Carvajal, en asocio con el grupo empresarial Bavaria, la Organizaci"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:5",
+          "score": 0.7179,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Inicia operaciones la División Muebles, hoy Carvajal Espacios ## 1959 Antes de consultar por internet nuestra ubicación y el destino al cual deseamos llegar, el directorio telefónico era nuestra única oportunidad de busc"
+        }
+      ],
+      "recall_at_k": 0.6666666666666666,
+      "ndcg_at_k": 0.7653606369886217
+    },
+    {
+      "id": "q25",
+      "query": "¿Cuáles son los valores o principios que guían a Carvajal?",
+      "relevant": [
+        "gobierno_corporativo",
+        "proposito_superior"
+      ],
+      "retrieved": [
+        "home",
+        "home",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "home",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "compromiso_etico",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "historia",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales"
+      ],
+      "scores": [
+        0.7631,
+        0.7357,
+        0.7279,
+        0.7212,
+        0.7186,
+        0.718,
+        0.718,
+        0.7178,
+        0.7162,
+        0.7162
+      ],
+      "top_score": 0.7631,
+      "excerpts": [
+        {
+          "document": "home",
+          "chunk_id": "home:0",
+          "score": 0.7631,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## Hacer las cosas bien es crear valor ## para cada generación ## Contribuimos a mejorar el mundo con nuestros ## EMPAQUES ## para alimentos.​ Carvajal Empaques ## Proponemos alternativas sostenibles para la producción y"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:1",
+          "score": 0.7357,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "## INMUEBLES ## a la medida para múltiples espacios productivos y de vivienda. Carvajal Propiedades e Inversiones ## NUESTRO ## CAMINO HACIA LA SOSTENIBILIDAD Todos somos parte de la solución, si te interesa el desarroll"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.7279,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "home",
+          "chunk_id": "home:2",
+          "score": 0.7212,
+          "url": "https://www.carvajal.com/",
+          "excerpt": "### Carvajal Beca Jóvenes con buen empaque ## Mayra Cintura ### Carvajal Empaques Colaboradora de Carvajal Empaques – Tocancipá ## Ulder Fabio Valencia ### Fundación Propal Beneficiario de Fundacion propal – Campaña El B"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:4",
+          "score": 0.7186,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Muebles y Soluciones Empresariales: Mepal, enfocada en mobiliario y gestión de espacios empresariales. Organización Carvajal: Innovación, internacionalización y sostenibilidad. Su estrategia se centra en fortalecer la "
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.718,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "compromiso_etico",
+          "chunk_id": "compromiso_etico:5",
+          "score": 0.718,
+          "url": "https://www.carvajal.com/compromiso-etico/",
+          "excerpt": "Para reportar un caso en la Línea Ética puede hacerlo aquí . Clientes y usuarios Con el medio ambiente Con los accionistas e inversionistas Con proveedores y acreedores con el estado con las autoridades Con la competenci"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:6",
+          "score": 0.7178,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- marzo 2026 - febrero 2026 - enero 2026 - diciembre 2025 - noviembre 2025 - octubre 2025 - septiembre 2025 - agosto 2025 - julio 2025 - junio 2025 - mayo 2025 - abril 2025 - marzo 2025 - febrero 2025 - enero 2025 - dici"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:19",
+          "score": 0.7162,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Unificación de nombres y marcas a. Carvajal Educación (Norma, Kiut, Jean Book, colores, marcadores, entre otros) b. Carvajal Tecnología y Servicios (assendared, Cen, Servinte) Crea sistemas de intercambio de información,"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.7162,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        }
+      ],
+      "recall_at_k": 0.0,
+      "ndcg_at_k": 0.0
+    },
+    {
+      "id": "q26",
+      "query": "¿Cuáles fueron los ingresos consolidados de Carvajal en 2024?",
+      "relevant": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html"
+      ],
+      "retrieved": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "resultados_empresariales_2024_de_carvajal_4099828",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "resultados_empresariales_2024_de_carvajal_4099828",
+        "resultados_empresariales_2024_de_carvajal_4099828"
+      ],
+      "scores": [
+        0.8226,
+        0.8186,
+        0.8157,
+        0.8102,
+        0.8045,
+        0.7914,
+        0.7904,
+        0.7881,
+        0.78,
+        0.779
+      ],
+      "top_score": 0.8226,
+      "excerpts": [
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:6",
+          "score": 0.8226,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- marzo 2026 - febrero 2026 - enero 2026 - diciembre 2025 - noviembre 2025 - octubre 2025 - septiembre 2025 - agosto 2025 - julio 2025 - junio 2025 - mayo 2025 - abril 2025 - marzo 2025 - febrero 2025 - enero 2025 - dici"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.8186,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.8157,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:4",
+          "score": 0.8102,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Muebles y Soluciones Empresariales: Mepal, enfocada en mobiliario y gestión de espacios empresariales. Organización Carvajal: Innovación, internacionalización y sostenibilidad. Su estrategia se centra en fortalecer la "
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.8045,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:1",
+          "score": 0.7914,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "De otro lado, se destacó la inversión en el proceso de transformación tecnológica, los planes de mejora de la competitividad y la implementación de eficiencias en costos y gastos , que si bien requirieron de la ejecución"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:2",
+          "score": 0.7904,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Pedro Carvajal es presidente de la Organización Carvajal desde el año 2020. Foto suministrada por la empresa. | Foto: El país De otro lado, destacaron la inversión en el proceso de transformación tecnológica, los planes "
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:1",
+          "score": 0.7881,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- 11 de abril de 2025: La Asamblea Extraordinaria decidió el cierre indefinido de la planta de producción de papel y cartulinas en Yumbo, Valle del Cauca, tras más de 60 años de operación. Esta medida responde a la impos"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:4",
+          "score": 0.78,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "### Conozca los beneficios exclusivos para nuestros suscriptores ## MÁS DE EMPRESAS ## Mercado Libre registró más de 3,3 millones de búsquedas asociadas con Halloween Al desagregar el flujo de búsquedas por categoría, Me"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:0",
+          "score": 0.779,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "## Carvajal presentó resultados financieros y reportó ingresos por $3,9 billones en 2024 Carvajal presentó resultados financieros y reportó ingresos por $3,9 billones en 2024 - Agregue a sus temas de interés - Carvajal -"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.9197207891481876
+    },
+    {
+      "id": "q27",
+      "query": "¿Cuál fue el EBITDA consolidado de Carvajal a septiembre de 2025 y qué margen reportó?",
+      "relevant": [
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762"
+      ],
+      "retrieved": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales"
+      ],
+      "scores": [
+        0.7956,
+        0.7939,
+        0.7901,
+        0.7888,
+        0.7819,
+        0.7814,
+        0.7803,
+        0.7802,
+        0.7785,
+        0.7783
+      ],
+      "top_score": 0.7956,
+      "excerpts": [
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.7956,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:1",
+          "score": 0.7939,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## Carvajal cerró planta de Propal en Yumbo por aumento de la competencia con China El Ebitda consolidado ascendió a $351.631 millones, mejorando el margen Ebitda de 12% a 14% en el último año. ## Carvajal presentó resul"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:6",
+          "score": 0.7901,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- marzo 2026 - febrero 2026 - enero 2026 - diciembre 2025 - noviembre 2025 - octubre 2025 - septiembre 2025 - agosto 2025 - julio 2025 - junio 2025 - mayo 2025 - abril 2025 - marzo 2025 - febrero 2025 - enero 2025 - dici"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:0",
+          "score": 0.7888,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## La Organización Carvajal reportó ingresos por $2,58 billones a septiembre de 2025 Pedro Felipe Carvajal, presidente de Carvajal. - Agregue a sus temas de interés - Carvajal - Propal - Resultados financieros El sector "
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:1",
+          "score": 0.7819,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Federación de Cafeteros y Consejo Gremial, preocupados por impacto de la Ley de Rescate Fiscal Jóvenes aprenden a ahorrar creando y usando videojuegos; esta es la experiencia surgida desde Cali Carvajal S.A. informó sobr"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:2",
+          "score": 0.7814,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "A nivel operativo, la compañía informó que, si bien el trimestre presenta un resultado positivo, aún persisten desafíos. En el sector de empaques, la organización ha enfrentado un incremento en los precios de materias pr"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096:2",
+          "score": 0.7803,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
+          "excerpt": "Los pasivos de Carvajal ascienden a $953.564 millones, que representó un endeudamiento total de 46% de los activos. Con corte a septiembre de este año, la compañía asegura que no tuvo cambios materiales en su situación d"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.7802,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096:0",
+          "score": 0.7785,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
+          "excerpt": "## Carvajal reportó ingresos consolidados por $2,8 billones con corte al tercer trimestre Resultados de Carvajal para el tercer trimestre. - Agregue a sus temas de interés - Carvajal - Empresas - Resultados empresariales"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.7783,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.6309297535714575
+    },
+    {
+      "id": "q28",
+      "query": "¿Qué utilidad o pérdida neta reportó Carvajal en 2024 y a qué filial se atribuye?",
+      "relevant": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html"
+      ],
+      "retrieved": [
+        "resultados_empresariales_2024_de_carvajal_4099828",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "resultados_empresariales_2024_de_carvajal_4099828",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "resultados_empresariales_2024_de_carvajal_4099828",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_reporto_ingresos_por_1_9_billones_a_junio_un_decrecimiento_de_14_anual_3928992",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html"
+      ],
+      "scores": [
+        0.7914,
+        0.7898,
+        0.7897,
+        0.7792,
+        0.7787,
+        0.7705,
+        0.7678,
+        0.7665,
+        0.765,
+        0.764
+      ],
+      "top_score": 0.7914,
+      "excerpts": [
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:2",
+          "score": 0.7914,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "Además, durante la Asamblea General de Accionistas de Carvajal se informó que aprobaron los estados financieros separados y consolidados con corte al 31 de diciembre de 2024, del informe anual 2024 y en general, las cuen"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:1",
+          "score": 0.7898,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Federación de Cafeteros y Consejo Gremial, preocupados por impacto de la Ley de Rescate Fiscal Jóvenes aprenden a ahorrar creando y usando videojuegos; esta es la experiencia surgida desde Cali Carvajal S.A. informó sobr"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:0",
+          "score": 0.7897,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "## Carvajal presentó resultados financieros y reportó ingresos por $3,9 billones en 2024 Carvajal presentó resultados financieros y reportó ingresos por $3,9 billones en 2024 - Agregue a sus temas de interés - Carvajal -"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:6",
+          "score": 0.7792,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- marzo 2026 - febrero 2026 - enero 2026 - diciembre 2025 - noviembre 2025 - octubre 2025 - septiembre 2025 - agosto 2025 - julio 2025 - junio 2025 - mayo 2025 - abril 2025 - marzo 2025 - febrero 2025 - enero 2025 - dici"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.7787,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.7705,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:4",
+          "score": 0.7678,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "### Conozca los beneficios exclusivos para nuestros suscriptores ## MÁS DE EMPRESAS ## Mercado Libre registró más de 3,3 millones de búsquedas asociadas con Halloween Al desagregar el flujo de búsquedas por categoría, Me"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:2",
+          "score": 0.7665,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Pedro Carvajal es presidente de la Organización Carvajal desde el año 2020. Foto suministrada por la empresa. | Foto: El país De otro lado, destacaron la inversión en el proceso de transformación tecnológica, los planes "
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_1_9_billones_a_junio_un_decrecimiento_de_14_anual_3928992",
+          "chunk_id": "carvajal_reporto_ingresos_por_1_9_billones_a_junio_un_decrecimiento_de_14_anual_3928992:0",
+          "score": 0.765,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-1-9-billones-a-junio-un-decrecimiento-de-14-anual-3928992",
+          "excerpt": "## Carvajal reportó ingresos por $1,9 billones a junio, un decrecimiento de 14% anual Resultados primer semestre de 2024 Grupo Carvajal - Agregue a sus temas de interés - Carvajal - Resultados financieros - Industria - R"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:4",
+          "score": 0.764,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Adicional, la compañía reportó que no habrá distribución de utilidades y eligió nuevos miembros en su junta directiva. El Grupo Carvajal celebra 120 años de operaciones. Foto: suministrado por la empresa. | Foto: El país"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.6934264036172708
+    },
+    {
+      "id": "q29",
+      "query": "¿Cuáles son los activos, pasivos y patrimonio consolidados de Carvajal al cierre de 2024?",
+      "relevant": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales"
+      ],
+      "retrieved": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "resultados_empresariales_2024_de_carvajal_4099828",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "noticias",
+        "noticias",
+        "historia"
+      ],
+      "scores": [
+        0.8202,
+        0.8164,
+        0.8146,
+        0.8059,
+        0.7881,
+        0.7867,
+        0.783,
+        0.7814,
+        0.7814,
+        0.7787
+      ],
+      "top_score": 0.8202,
+      "excerpts": [
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.8202,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:6",
+          "score": 0.8164,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- marzo 2026 - febrero 2026 - enero 2026 - diciembre 2025 - noviembre 2025 - octubre 2025 - septiembre 2025 - agosto 2025 - julio 2025 - junio 2025 - mayo 2025 - abril 2025 - marzo 2025 - febrero 2025 - enero 2025 - dici"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:0",
+          "score": 0.8146,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "# Carvajal S.A.: Futuro consolidado ante desafíos globales Publicado por Redacción | 16 Abr 2025 | Portada 2 Las recientes asambleas de Accionistas de Carvajal S.A., celebradas el 31 de marzo y el 11 de abril de 2025, ma"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:4",
+          "score": 0.8059,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Muebles y Soluciones Empresariales: Mepal, enfocada en mobiliario y gestión de espacios empresariales. Organización Carvajal: Innovación, internacionalización y sostenibilidad. Su estrategia se centra en fortalecer la "
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:1",
+          "score": 0.7881,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- 11 de abril de 2025: La Asamblea Extraordinaria decidió el cierre indefinido de la planta de producción de papel y cartulinas en Yumbo, Valle del Cauca, tras más de 60 años de operación. Esta medida responde a la impos"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:4",
+          "score": 0.7867,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "### Conozca los beneficios exclusivos para nuestros suscriptores ## MÁS DE EMPRESAS ## Mercado Libre registró más de 3,3 millones de búsquedas asociadas con Halloween Al desagregar el flujo de búsquedas por categoría, Me"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:3",
+          "score": 0.783,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "- Reducción de colaboradores, por cierre de campañas y proyectos en tecnología, call center, etc. Sectores y Subordinadas Carvajal S.A. es la matriz de la Organización Carvajal, un grupo empresarial diversificado con pre"
+        },
+        {
+          "document": "noticias",
+          "chunk_id": "noticias:1",
+          "score": 0.7814,
+          "url": "https://www.carvajal.com/noticias/",
+          "excerpt": "## Cali Recicla con tu Reciclador: fortaleciendo la economía circular y la inclusión social ## diciembre, 2 lunes, 2024 ## Fundación Propal en su Programa de Primera Infancia con énfasis en Nutrición clausura con éxito s"
+        },
+        {
+          "document": "noticias",
+          "chunk_id": "noticias:0",
+          "score": 0.7814,
+          "url": "https://www.carvajal.com/noticias/",
+          "excerpt": "## UNIDOS PARA RECUPERAR Y REVITALIZAR A FICO ## julio, 2 jueves, 2026 ## Pedro Felipe Carvajal: “Continuaremos con nuestra apuesta decidida por Colombia” ## mayo, 28 miércoles, 2025 ## Carvajal Empaques, reconocida como"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:26",
+          "score": 0.7787,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 2021 Declaramos nuestro propósito, fruto de una convicción colectiva y construido gracias a la participa de más de 1.500 personas entre colaboradores, clientes y proveedores. El propósito hace parte del legado que dej"
+        }
+      ],
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 1.0
+    },
+    {
+      "id": "q30",
+      "query": "¿Cuántos empleados tiene Carvajal y qué fuente lo reporta?",
+      "relevant": [
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales"
+      ],
+      "retrieved": [
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "resultados_empresariales_2024_de_carvajal_4099828",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html"
+      ],
+      "scores": [
+        0.758,
+        0.7472,
+        0.7464,
+        0.7457,
+        0.7391,
+        0.7305,
+        0.729,
+        0.7269,
+        0.7257,
+        0.7244
+      ],
+      "top_score": 0.758,
+      "excerpts": [
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:3",
+          "score": 0.758,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "“De cara a 2025, mantenemos nuestro compromiso con la creación de valor sostenible, enfocando esfuerzos en la ejecución de la estrategia, garantizando operaciones eficientes y manteniendo costos competitivos para protege"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:1",
+          "score": 0.7472,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Federación de Cafeteros y Consejo Gremial, preocupados por impacto de la Ley de Rescate Fiscal Jóvenes aprenden a ahorrar creando y usando videojuegos; esta es la experiencia surgida desde Cali Carvajal S.A. informó sobr"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.7464,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        },
+        {
+          "document": "resultados_empresariales_2024_de_carvajal_4099828",
+          "chunk_id": "resultados_empresariales_2024_de_carvajal_4099828:5",
+          "score": 0.7457,
+          "url": "https://www.larepublica.co/empresas/resultados-empresariales-2024-de-carvajal-4099828",
+          "excerpt": "### MÁS DE LA REPÚBLICA ## Crecimiento de EE.UU. repuntó en tercer trimestre, mientras inflación sigue alta ## Gremios piden modernizar el transporte de carga para mejorar la competitividad ## Los clientes de Banco Conta"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:4",
+          "score": 0.7391,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Adicional, la compañía reportó que no habrá distribución de utilidades y eligió nuevos miembros en su junta directiva. El Grupo Carvajal celebra 120 años de operaciones. Foto: suministrado por la empresa. | Foto: El país"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096:2",
+          "score": 0.7305,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
+          "excerpt": "Los pasivos de Carvajal ascienden a $953.564 millones, que representó un endeudamiento total de 46% de los activos. Con corte a septiembre de este año, la compañía asegura que no tuvo cambios materiales en su situación d"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:1",
+          "score": 0.729,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## Carvajal cerró planta de Propal en Yumbo por aumento de la competencia con China El Ebitda consolidado ascendió a $351.631 millones, mejorando el margen Ebitda de 12% a 14% en el último año. ## Carvajal presentó resul"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096:0",
+          "score": 0.7269,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
+          "excerpt": "## Carvajal reportó ingresos consolidados por $2,8 billones con corte al tercer trimestre Resultados de Carvajal para el tercer trimestre. - Agregue a sus temas de interés - Carvajal - Empresas - Resultados empresariales"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:0",
+          "score": 0.7257,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## La Organización Carvajal reportó ingresos por $2,58 billones a septiembre de 2025 Pedro Felipe Carvajal, presidente de Carvajal. - Agregue a sus temas de interés - Carvajal - Propal - Resultados financieros El sector "
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:5",
+          "score": 0.7244,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Cali ## Así concluyó el Encuentro Regional del Plan Nacional de Desarrollo 2026-2030 realizado en Cali ## Cali tendrá una oficina bancaria móvil: dónde estará y qué trámites se podrán realizar ## Banco de la República ma"
+        }
+      ],
+      "recall_at_k": 0.0,
+      "ndcg_at_k": 0.0
+    },
+    {
+      "id": "q31",
+      "query": "¿Cuál es el número de teléfono de la sede de Carvajal en Tokio?",
+      "relevant": [],
+      "retrieved": [
+        "comunicacion",
+        "carvajal_y_sus_empresas_reportan_resultados_0239html",
+        "tecnologia",
+        "historia",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+        "historia",
+        "comunicacion",
+        "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+        "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762"
+      ],
+      "scores": [
+        0.6855,
+        0.6851,
+        0.6808,
+        0.6788,
+        0.676,
+        0.674,
+        0.6711,
+        0.6703,
+        0.6687,
+        0.6685
+      ],
+      "top_score": 0.6855,
+      "excerpts": [
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:0",
+          "score": 0.6855,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "Carvajal Soluciones de Comunicación ## Impulsamos tecnologías renovables para la solución de servicios de ## Comunicación ## impresa y digital. ## Somos una empresa ecológica Carvajal Soluciones de Comunicación es una em"
+        },
+        {
+          "document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+          "chunk_id": "carvajal_y_sus_empresas_reportan_resultados_0239html:0",
+          "score": 0.6851,
+          "url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+          "excerpt": "Economía # Carvajal y sus empresas reportan resultados Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones Siga a EL PAÍS en Google Discover y no se pierda las últimas noticias El negocio de empaq"
+        },
+        {
+          "document": "tecnologia",
+          "chunk_id": "tecnologia:0",
+          "score": 0.6808,
+          "url": "https://www.carvajal.com/tecnologia/",
+          "excerpt": "Carvajal Tecnología y Servicios ## Entendemos la ## TECNOLOGÍA ## y la transformamos en soluciones digitales para ti. ## Somos una compañía que crea sistemas de intercambio de información para lograr conectar a los ciuda"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:15",
+          "score": 0.6788,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "## 1999 Alberto José Carvajal Lourido es nombrado presidente de Organización Carvajal. Venta de Carvajal Financiera al Banco Intercontinental. Venta de Chimolsa. ## 2000 Venta de DIRECTV a Hughes Electronics Corporation."
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:3",
+          "score": 0.676,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "### Conozca los beneficios exclusivos para nuestros suscriptores ## MÁS DE EMPRESAS ## Satena obtiene certificación de EE.UU. y participará en negocio de reparación aeronáutica La aerolínea estatal podrá diversificarse y"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:4",
+          "score": 0.674,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## EE.UU. propone elecciones presidenciales en Venezuela en 2027, dice opositora Machado ## Utilidades del Emisor a septiembre fueron de $5,97 billones, registran caída de 45% ## Martín Pescador abre su primera tienda in"
+        },
+        {
+          "document": "historia",
+          "chunk_id": "historia:5",
+          "score": 0.6711,
+          "url": "https://www.carvajal.com/historia/",
+          "excerpt": "Inicia operaciones la División Muebles, hoy Carvajal Espacios ## 1959 Antes de consultar por internet nuestra ubicación y el destino al cual deseamos llegar, el directorio telefónico era nuestra única oportunidad de busc"
+        },
+        {
+          "document": "comunicacion",
+          "chunk_id": "comunicacion:1",
+          "score": 0.6703,
+          "url": "https://www.carvajal.com/comunicacion/",
+          "excerpt": "## Nuestra ## PRESENCIA: ## NUESTROS MERCADOS: - Impresión digital transaccional - Impresión digital editorial - Servicio de impresión administrada (MPS) ## Impresión digital transaccional Prestamos servicios para compañ"
+        },
+        {
+          "document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+          "chunk_id": "carvajal_s_a_futuro_consolidado_ante_desafios_globales:2",
+          "score": 0.6687,
+          "url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+          "excerpt": "El cierre de la planta de Yumbo Ha sido interpretado por algunos sectores como una señal de debilidad, pero en realidad responde a una estrategia de concentración y eficiencia, trasladando la producción a la planta de Gu"
+        },
+        {
+          "document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+          "chunk_id": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762:1",
+          "score": 0.6685,
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+          "excerpt": "## Carvajal cerró planta de Propal en Yumbo por aumento de la competencia con China El Ebitda consolidado ascendió a $351.631 millones, mejorando el margen Ebitda de 12% a 14% en el último año. ## Carvajal presentó resul"
+        }
+      ],
+      "abstained": true
+    }
+  ]
+}

@@ -44,6 +44,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     environment:
       # Dentro de la red de compose el host de la base es el servicio `db`,
       # no loopback: por eso la URL se compone aquí a partir de POSTGRES_*.
@@ -53,6 +55,11 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      # El RAG evaluado del M2 consulta Qdrant; Postgres sigue siendo la
+      # fuente de verdad relacional y el backend de memoria del agente.
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-carvajal_chunks}
+      AGENT_CHECKPOINTER: ${AGENT_CHECKPOINTER:-postgres}
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
@@ -99,5 +106,12 @@ services:
       retries: 3
       start_period: 15s
 
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    restart: unless-stopped
+    volumes:
+      - qdrantdata:/qdrant/storage
+
 volumes:
   pgdata:
+  qdrantdata:
