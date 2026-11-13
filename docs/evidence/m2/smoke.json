@@ -1,0 +1,151 @@
+{
+  "generated_at": "2026-11-13T21:58:52Z",
+  "base_url": "http://localhost:8000",
+  "checks": {
+    "directa_sin_busqueda": true,
+    "rag_con_fuente_url": true,
+    "seguimiento_mismo_hilo": true,
+    "seguimiento_responde_1904": true,
+    "herramienta_ebitda": true,
+    "memoria_entre_hilos": true,
+    "aislamiento": true,
+    "abstencion_sin_fuentes": true
+  },
+  "cases": [
+    {
+      "case": "directa",
+      "route": "direct",
+      "intent": "greeting",
+      "tool": "",
+      "memory": 0,
+      "retrieved": 0,
+      "thread_id": "4f221eb03ba94fb0a7e67214d70b1899",
+      "first_token_ms": 3430,
+      "total_ms": 4055,
+      "sources": [],
+      "answer": "Puedo ayudarte a responder consultas **únicamente con el contexto del corpus Carvajal que se me suministre**. Puedo:\n\n- Resumir y responder de forma clara y breve.\n- Citar el fragmento que sustenta cada afirmación con el formato [n].\n- Indicar cuándo una cita proviene de la capa extendida o de fuentes de terceros.\n- Avisar si el corpus no contiene el dato, sin suponerlo.\n- Si uso una herramienta estructurada, citar el documento y la URL devueltos."
+    },
+    {
+      "case": "rag_ciudad",
+      "route": "rag",
+      "intent": "documental",
+      "tool": "",
+      "memory": 0,
+      "retrieved": 6,
+      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
+      "first_token_ms": 5510,
+      "total_ms": 5663,
+      "sources": [
+        {
+          "chunk_id": "historia:2",
+          "url": "https://www.carvajal.com/historia/"
+        },
+        {
+          "chunk_id": "quienes_somos:1",
+          "url": "https://www.carvajal.com/quienes-somos/"
+        },
+        {
+          "chunk_id": "historia:14",
+          "url": "https://www.carvajal.com/historia/"
+        }
+      ],
+      "answer": "Carvajal fue fundada en **Cali, Colombia**, en **1904**, según el contexto: “En 1904 en Cali, Colombia. Inicia un sueño familiar…” [5]."
+    },
+    {
+      "case": "rag_seguimiento",
+      "route": "rag",
+      "intent": "follow_up",
+      "tool": "",
+      "memory": 0,
+      "retrieved": 6,
+      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
+      "first_token_ms": 3493,
+      "total_ms": 3512,
+      "sources": [
+        {
+          "chunk_id": "historia:2",
+          "url": "https://www.carvajal.com/historia/"
+        },
+        {
+          "chunk_id": "quienes_somos:1",
+          "url": "https://www.carvajal.com/quienes-somos/"
+        },
+        {
+          "chunk_id": "historia:14",
+          "url": "https://www.carvajal.com/historia/"
+        }
+      ],
+      "answer": "Carvajal fue fundada en **Cali, Colombia**, en el año **1904**, cuando inició como un sueño familiar [4]."
+    },
+    {
+      "case": "herramienta",
+      "route": "tool",
+      "intent": "indicator",
+      "tool": "ebitda",
+      "memory": 0,
+      "retrieved": 1,
+      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
+      "first_token_ms": 1569,
+      "total_ms": 2037,
+      "sources": [
+        {
+          "chunk_id": "tool:ebitda:2025-09",
+          "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762"
+        }
+      ],
+      "answer": "El EBITDA consolidado de Carvajal a septiembre de 2025 fue de **$351.631 millones**, con un **margen EBITDA del 14%** (frente al 12% del año anterior) [documento: carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762 — https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762]."
+    },
+    {
+      "case": "memoria_guardar",
+      "route": "direct",
+      "intent": "memory_write",
+      "tool": "",
+      "memory": 1,
+      "retrieved": 0,
+      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
+      "first_token_ms": 3080,
+      "total_ms": 3094,
+      "sources": [],
+      "answer": "Entendido, de ahora en adelante te responderé de forma breve."
+    },
+    {
+      "case": "memoria_recuperar_otro_hilo",
+      "route": "direct",
+      "intent": "greeting",
+      "tool": "",
+      "memory": 1,
+      "retrieved": 0,
+      "thread_id": "c82477ab22e248c99b93f63ce7ecf1dc",
+      "first_token_ms": 1701,
+      "total_ms": 1730,
+      "sources": [],
+      "answer": "Hola. Anotado: respuestas breves. ¿Qué quieres consultar del corpus?"
+    },
+    {
+      "case": "aislamiento_otro_visitante",
+      "route": "direct",
+      "intent": "greeting",
+      "tool": "",
+      "memory": 0,
+      "retrieved": 0,
+      "thread_id": "e7812da2be284094a62d0da773f72886",
+      "first_token_ms": 2297,
+      "total_ms": 2311,
+      "sources": [],
+      "answer": "Hola. ¿En qué puedo ayudarte con el corpus Carvajal?"
+    },
+    {
+      "case": "sin_evidencia",
+      "route": "rag",
+      "intent": "documental",
+      "tool": "",
+      "memory": 1,
+      "retrieved": 0,
+      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
+      "first_token_ms": 80,
+      "total_ms": 87,
+      "sources": [],
+      "answer": "No dispongo de información suficiente en el corpus para responder esa pregunta."
+    }
+  ]
+}

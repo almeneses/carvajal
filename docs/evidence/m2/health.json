@@ -1,0 +1,11 @@
+{
+    "status": "ok",
+    "documents": 24,
+    "chunks": 125,
+    "index": {
+        "status": "ok",
+        "collection": "carvajal_chunks",
+        "points": 125,
+        "dimensions": 768
+    }
+}
