@@ -90,6 +90,9 @@ def extract_period(question: str) -> str:
     """Extrae un período explícito ``YYYY`` o ``YYYY-MM``; vacío si no hay."""
 
     text = _plain(question)
+    iso = re.search(r"\b(20\d{2}-(?:0[1-9]|1[0-2]))\b", text)
+    if iso:
+        return iso.group(1)
     year_match = _YEAR.search(text)
     if year_match is None:
         return ""
@@ -110,9 +113,9 @@ def looks_elliptical(question: str, turns: list[Turn]) -> bool:
     if not turns:
         return False
     normalized = _plain(question)
-    words = normalized.replace("¿", "").replace("?", "").split()
-    if len(words) <= 5:
-        return True
+    # Solo los marcadores anafóricos convierten una pregunta en seguimiento:
+    # una pregunta corta e independiente («¿Qué es LiquidezYa?») no debe
+    # reescribirse con el turno anterior.
     return any(marker in normalized for marker in _ELLIPTICAL)
 
 
@@ -208,9 +211,11 @@ def decide_route(question: str, turns: list[Turn] | None = None) -> RouteDecisio
         )
 
     greeting = normalized.replace("¿", "").replace("?", "").replace("!", "").strip()
-    if greeting in _GREETINGS or greeting.startswith(
-        ("hola", "buenos dias", "buenas tardes", "buenas noches", "gracias")
-    ):
+    greeting_pattern = re.compile(
+        r"^(hola|buenos dias|buenas tardes|buenas noches|gracias|muchas gracias)"
+        r"([, ]+(que puedes hacer|que sabes|ayuda))?$"
+    )
+    if greeting in _GREETINGS or greeting_pattern.fullmatch(greeting):
         return RouteDecision(
             route="direct",
             intent="greeting",

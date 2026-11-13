@@ -45,6 +45,23 @@ def test_indicador_sin_periodo_pide_aclaracion_en_direct() -> None:
     assert decision.intent == "missing_period"
 
 
+def test_un_saludo_con_pregunta_documental_no_es_directo() -> None:
+    # Act
+    decision = decide_route("Hola, ¿cuál es la misión de Carvajal?")
+
+    # Assert
+    assert decision.route == "rag"
+
+
+def test_una_pregunta_corta_sin_marca_anafórica_no_es_seguimiento() -> None:
+    # Act
+    decision = decide_route("¿Qué es LiquidezYa?", TURNS)
+
+    # Assert
+    assert decision.route == "rag"
+    assert decision.intent == "documental"
+
+
 def test_un_seguimiento_eliptico_reescribe_con_el_turno_anterior() -> None:
     # Act
     decision = decide_route("¿Y en qué año ocurrió eso?", TURNS)
@@ -90,6 +107,7 @@ def test_una_preferencia_se_marca_para_guardar() -> None:
         ("en 2024", "2024"),
         ("a septiembre de 2025", "2025-09"),
         ("tercer trimestre de 2024", "2024-09"),
+        ("2025-09", "2025-09"),
         ("sin año", ""),
     ],
 )
