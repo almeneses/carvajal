@@ -16,6 +16,7 @@ from apps.api.security import csrf_context
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.llm import build_llm_provider
 from carvajal.adapters.storage.database import build_engine, build_session_factory
+from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.application.ports import Embedder, LLMProvider
 from carvajal.infrastructure.settings import Settings
 
@@ -30,6 +31,7 @@ __all__ = [
     "ask_components",
     "embedder",
     "llm_provider",
+    "qdrant_store",
     "session_factory",
     "templates",
 ]
@@ -66,3 +68,17 @@ def llm_provider() -> LLMProvider:
     """Proveedor de LLM configurado; se crea una sola vez por proceso."""
 
     return build_llm_provider(Settings())
+
+
+@cache
+def qdrant_store() -> QdrantVectorStore:
+    """Cliente de Qdrant para readiness; no abre colección ni indexa."""
+
+    settings = Settings()
+    return QdrantVectorStore(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        collection=settings.qdrant_collection,
+        dimensions=settings.qdrant_dimensions,
+        distance=settings.qdrant_distance,
+    )

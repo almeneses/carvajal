@@ -13,7 +13,12 @@ from apps.api.chat.identity import (
     ChatIdentity,
     default_identity,
 )
-from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider, default_chat_service
+from apps.api.chat.service import (
+    SERVICE_UNAVAILABLE,
+    ChatFailure,
+    ChatProvider,
+    default_chat_service,
+)
 from apps.api.observability import capture_exception
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
@@ -62,6 +67,52 @@ def chat(request: Request) -> Response:
             return _page(request, [], error=SERVICE_UNAVAILABLE, status_code=503)
 
     response = _page(request, messages)
+    if new_owner:
+        set_identity_cookie(response, request, identity, owner_key)
+    return response
+
+
+@router.post("/chat/new")
+def new_chat(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Crea un hilo nuevo del mismo dueño y vuelve al chat.
+
+    La memoria de largo plazo vive en el Store por dueño, no por hilo: abrir un
+    hilo nuevo demuestra que la preferencia se recupera entre hilos.
+    """
+
+    identity = request_identity(request)
+    stored_owner = identity.read(request)
+    new_owner = stored_owner is None
+    owner_key = stored_owner or identity.new_owner_key()
+    structlog.contextvars.bind_contextvars(owner_key=owner_key)
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question="",
+            message=CSRF_INVALIDO,
+            status_code=403,
+        )
+    try:
+        chat_provider(request).new_conversation(owner_key)
+    except SQLAlchemyError as error:
+        logger.warning("chat.new_thread_failed", error=str(error))
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question="",
+            message=SERVICE_UNAVAILABLE,
+            status_code=503,
+        )
+    response = RedirectResponse(url="/chat", status_code=303)
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
     return response
@@ -144,7 +195,7 @@ def chat_turn(
 
     try:
         chat_provider(request).ask(owner_key, text)
-    except (EmbeddingError, LLMError, SQLAlchemyError) as error:
+    except (ChatFailure, EmbeddingError, LLMError, SQLAlchemyError) as error:
         logger.warning("chat.ask_failed", error=str(error))
         if isinstance(error, LLMError):
             capture_exception(error)

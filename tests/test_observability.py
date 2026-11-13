@@ -297,7 +297,7 @@ class _ChatDoble:
         self.contextos.append(dict(structlog.contextvars.get_contextvars()))
         return RESPUESTA
 
-    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+    def stream(self, owner_key: str, question: str, **kwargs: object) -> Iterator[ChatEvent]:
         self.contextos.append(dict(structlog.contextvars.get_contextvars()))
         yield ChatEvent("done", {})
 

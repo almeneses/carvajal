@@ -31,7 +31,7 @@ class FakeChat:
     calls: list[tuple[str, str]] = field(default_factory=list)
     persisted: int = 0
 
-    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+    def stream(self, owner_key: str, question: str, **kwargs: object) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
         for event in self.events:
             if event.name == "done":
@@ -42,7 +42,7 @@ class FakeChat:
 class SlowTokenChat(FakeChat):
     """Retrasa el primer token para comprobar que se mide el token, no ``open``."""
 
-    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+    def stream(self, owner_key: str, question: str, **kwargs: object) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
         yield ChatEvent("open", {"stream": "chat"})
         yield ChatEvent("meta", {"sources": []})
