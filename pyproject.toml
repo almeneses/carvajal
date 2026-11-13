@@ -31,6 +31,7 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "python-multipart>=0.0.32",
     "sqlalchemy>=2.0.36",
+    "tzdata>=2025.2",
     "uvicorn>=0.54.0",
 ]
 

@@ -12,14 +12,17 @@ from logging import getLogger
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider
 from apps.api.chat.streaming import ChatEvent
 from apps.api.views.chat import (
     EMPTY_QUESTION,
+    LIMITE_ALCANZADO,
     MAX_QUESTION_CHARS,
     TOO_LONG_QUESTION,
     chat_provider,
+    consume_quota,
     request_identity,
     set_identity_cookie,
 )
@@ -52,6 +55,24 @@ def chat_stream(request: Request, question: str = Form(default="")) -> Response:
     new_owner = owner_key is None
     if owner_key is None:
         owner_key = identity.new_owner_key()
+
+    try:
+        quota = consume_quota(request, owner_key)
+    except SQLAlchemyError as error:
+        logger.warning("Fallo al consultar la cuota del stream: %s", error)
+        response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
+    if not quota.allowed:
+        response = _invalid(
+            LIMITE_ALCANZADO,
+            status_code=429,
+            headers={"Retry-After": str(quota.retry_after)},
+        )
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
 
     response = StreamingResponse(
         _sse(chat_provider(request), owner_key, text),
@@ -95,12 +116,17 @@ def _encode(event: ChatEvent) -> str:
     return f"event: {event.name}\ndata: {payload}\n\n"
 
 
-def _invalid(message: str) -> Response:
-    """Respuesta 422 controlada para una pregunta que no se puede procesar."""
+def _invalid(
+    message: str,
+    *,
+    status_code: int = 422,
+    headers: dict[str, str] | None = None,
+) -> Response:
+    """Respuesta SSE controlada para una pregunta o un cupo que no se puede procesar."""
 
     return Response(
         content=_encode(ChatEvent("error", {"message": message, "incomplete": False})),
-        status_code=422,
+        status_code=status_code,
         media_type=SSE_MEDIA_TYPE,
-        headers=SSE_HEADERS,
+        headers={**SSE_HEADERS, **(headers or {})},
     )

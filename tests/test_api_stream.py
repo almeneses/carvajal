@@ -1,19 +1,21 @@
 """Pruebas HTTP del stream SSE con un proveedor falso: sin red ni base de datos."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field
 from http.cookies import SimpleCookie
 from time import perf_counter, sleep
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import create_app
 from apps.api.views.chat import EMPTY_QUESTION, TOO_LONG_QUESTION
 from carvajal.application.ask import Source
+from carvajal.application.quota import QuotaResult
 
 SOURCE = Source("historia-1", "historia", "historia", "core", 0.912, "Inició en 1904.")
 IDENTITY = SignedCookieIdentity(b"secreto-de-prueba")
@@ -61,13 +63,17 @@ def ok_events() -> list[ChatEvent]:
     ]
 
 
-def make_client(chat: FakeChat | None = None) -> tuple[TestClient, FakeChat]:
-    """Cliente con proveedor e identidad inyectados, sin tocar la base."""
+def make_client(
+    chat: FakeChat | None = None,
+    quota: Callable[[str], QuotaResult] | None = None,
+) -> tuple[TestClient, FakeChat]:
+    """Cliente con proveedor, identidad y cuota inyectados, sin tocar la base."""
 
     provider = chat or FakeChat(events=ok_events())
     app = create_app()
     app.state.chat = provider
     app.state.chat_identity = IDENTITY
+    app.state.quota = quota or (lambda owner: QuotaResult(allowed=True))
     return TestClient(app), provider
 
 
@@ -259,4 +265,42 @@ def test_get_no_puede_disparar_el_stream() -> None:
 
     # Assert
     assert response.status_code == 405
+    assert chat.calls == []
+
+
+def test_el_stream_agota_la_cuota_antes_de_llamar_al_proveedor() -> None:
+    """El cupo también cubre la ruta SSE; sin cupo no se abre el stream."""
+
+    # Arrange
+    client, chat = make_client(quota=lambda owner: QuotaResult(False, 120))
+
+    # Act
+    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "120"
+    eventos = parse_sse(response.text)
+    assert eventos[-1][0] == "error"
+    assert "límite diario" in str(eventos[-1][1]["message"])
+    assert COOKIE_NAME in response.headers["set-cookie"]
+    assert chat.calls == []
+
+
+def test_fallo_de_bd_en_la_cuota_del_stream_devuelve_503() -> None:
+    """Un fallo de BD al consultar el cupo no abre el stream ni llama al proveedor."""
+
+    # Arrange
+    def quota(owner: str) -> QuotaResult:
+        raise SQLAlchemyError("base caída")
+
+    client, chat = make_client(quota=quota)
+
+    # Act
+    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 503
+    eventos = parse_sse(response.text)
+    assert eventos[-1][0] == "error"
     assert chat.calls == []

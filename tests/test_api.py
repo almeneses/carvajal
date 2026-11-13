@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api import main, runtime
 from apps.api.chat import service as chat_service
+from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
 from apps.api.main import (
     DB_UNAVAILABLE,
     SERVICE_UNAVAILABLE,
@@ -17,28 +18,32 @@ from apps.api.main import (
 )
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.application.ask import Answer, LLMError, Source
+from carvajal.application.quota import QuotaResult
 
 SOURCE = Source("historia-1", "historia", "historia", "core", 0.912, "Inició operaciones en 1904.")
 ANSWER = Answer(text="Carvajal nació en 1904 [1].", sources=(SOURCE,))
+IDENTITY = SignedCookieIdentity(b"secreto-de-prueba")
 
 
 def make_client(
     ask: Callable[[str], Answer] | None = None,
     health: Callable[[], HealthStatus] | None = None,
+    quota: Callable[[str], QuotaResult] | None = None,
     *,
+    identity: SignedCookieIdentity | None = None,
     raise_server_exceptions: bool = True,
 ) -> TestClient:
     """Cliente con handlers falsos; por defecto responden bien."""
 
-    return TestClient(
-        create_app(
-            Handlers(
-                ask=ask or (lambda question: ANSWER),
-                health=health or (lambda: HealthStatus(documents=12, chunks=34)),
-            )
-        ),
-        raise_server_exceptions=raise_server_exceptions,
+    app = create_app(
+        Handlers(
+            ask=ask or (lambda question: ANSWER),
+            health=health or (lambda: HealthStatus(documents=12, chunks=34)),
+            quota=quota or (lambda owner: QuotaResult(allowed=True)),
+        )
     )
+    app.state.chat_identity = identity or IDENTITY
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def failing(error: Exception) -> Callable[[str], Answer]:
@@ -180,6 +185,133 @@ def test_pregunta_vacia_devuelve_422() -> None:
     assert "La pregunta no puede estar vacía." in response.text
 
 
+def test_pregunta_vacia_no_consume_cuota() -> None:
+    """La cuota se consulta solo cuando hay una pregunta que responder."""
+
+    # Arrange
+    consultas: list[str] = []
+
+    def quota(owner_key: str) -> QuotaResult:
+        consultas.append(owner_key)
+        return QuotaResult(allowed=True)
+
+    client = make_client(quota=quota)
+
+    # Act
+    client.post("/ask", data={"question": "   "})
+
+    # Assert
+    assert consultas == []
+
+
+def test_ask_agota_la_cuota_diaria() -> None:
+    """Al agotar el cupo, 429 con la hora de reinicio y un aviso legible."""
+
+    # Arrange
+    client = make_client(quota=lambda owner: QuotaResult(allowed=False, retry_after=120))
+
+    # Act
+    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "120"
+    assert "límite diario" in response.text
+    assert COOKIE_NAME in response.headers["set-cookie"]
+
+
+def test_la_cuota_bloquea_antes_de_llamar_al_modelo() -> None:
+    """Sin cupo no se gasta una llamada al LLM."""
+
+    # Arrange
+    preguntas: list[str] = []
+
+    def ask(question: str) -> Answer:
+        preguntas.append(question)
+        return ANSWER
+
+    client = make_client(ask=ask, quota=lambda owner: QuotaResult(allowed=False))
+
+    # Act
+    client.post("/ask", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert preguntas == []
+
+
+def test_ask_usa_el_dueno_de_la_cookie_valida() -> None:
+    """El cupo se cobra al visitante que ya traía una cookie firmada."""
+
+    # Arrange
+    consultas: list[str] = []
+
+    def quota(owner_key: str) -> QuotaResult:
+        consultas.append(owner_key)
+        return QuotaResult(allowed=True)
+
+    client = make_client(quota=quota)
+    client.cookies.set(COOKIE_NAME, IDENTITY.issue("dueno-a"))
+
+    # Act
+    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 200
+    assert consultas == ["dueno-a"]
+    assert "set-cookie" not in response.headers
+
+
+def test_ask_emite_identidad_y_la_reutiliza_en_la_siguiente_pregunta() -> None:
+    """Sin cookie, /ask genera el dueño, lo firma y lo conserva entre turnos."""
+
+    # Arrange
+    consultas: list[str] = []
+
+    def quota(owner_key: str) -> QuotaResult:
+        consultas.append(owner_key)
+        return QuotaResult(allowed=True)
+
+    client = make_client(quota=quota)
+
+    # Act
+    primera = client.post("/ask", data={"question": "¿Cuándo nació?"})
+    segunda = client.post("/ask", data={"question": "¿Dónde nació?"})
+
+    # Assert
+    assert primera.status_code == 200 and segunda.status_code == 200
+    assert COOKIE_NAME in primera.headers["set-cookie"]
+    assert "set-cookie" not in segunda.headers
+    assert len(consultas) == 2
+    assert consultas[0] == consultas[1]
+    assert len(consultas[0]) == 32
+
+
+def test_fallo_de_base_al_consultar_la_cuota_devuelve_503() -> None:
+    """Un fallo de BD en la cuota es 503, no 500, y no llega al LLM."""
+
+    # Arrange
+    preguntas: list[str] = []
+
+    def ask(question: str) -> Answer:
+        preguntas.append(question)
+        return ANSWER
+
+    def quota(owner_key: str) -> QuotaResult:
+        raise SQLAlchemyError("connection to 127.0.0.1:5432 as user carvajal failed")
+
+    client = make_client(ask=ask, quota=quota)
+
+    # Act
+    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 503
+    assert SERVICE_UNAVAILABLE in response.text
+    assert "127.0.0.1" not in response.text and "carvajal" not in response.text
+    assert COOKIE_NAME in response.headers["set-cookie"]
+    assert preguntas == []
+
+
 def test_error_interno_no_filtra_detalles() -> None:
     # Arrange: un ValueError interno (p. ej. dimensión del vector) no es Culpa
     # del cliente y su mensaje no debe llegar al HTML.
@@ -216,6 +348,7 @@ def test_fallos_de_proveedor_devuelven_503(error: Exception) -> None:
     assert SERVICE_UNAVAILABLE in response.text
     assert str(error) not in response.text
     assert "Traceback" not in response.text
+    assert COOKIE_NAME in response.headers["set-cookie"]
 
 
 def test_fallo_inesperado_no_se_convierte_en_503() -> None:
