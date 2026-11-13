@@ -207,11 +207,13 @@ class UnhandledErrorMiddleware:
         try:
             await self.app(scope, receive, enviar)
         except Exception as error:
+            # Se registra siempre, incluso si la respuesta ya empezó y no se
+            # puede sustituir por un 500 (SSE).
+            capture_exception(error)
+            logger.exception("request.unhandled", error=str(error))
             if iniciada:
                 # La respuesta ya empezó (SSE): no se puede enviar otro 500.
                 raise
-            capture_exception(error)
-            logger.exception("request.unhandled", error=str(error))
             request = Request(scope, receive)
             response = self.handler(request, error)
             await response(scope, receive, enviar)

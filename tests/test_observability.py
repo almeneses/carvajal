@@ -1,9 +1,9 @@
 """Pruebas de observabilidad: request_id, logs JSON, tokens y Sentry."""
 
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import sentry_sdk
@@ -235,6 +235,29 @@ def test_el_stream_mergea_el_uso_de_varios_chunks(monkeypatch: pytest.MonkeyPatc
     assert texto == "hola"
     assert registro.eventos == [
         ("llm.completed", {"model": "deepseek-chat", "tokens_in": 12, "tokens_out": 3})
+    ]
+
+
+def test_el_stream_registra_el_uso_si_el_cliente_corta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cerrar el generador antes de tiempo no pierde los tokens ya consumidos."""
+
+    # Arrange
+    registro = FakeLogger()
+    monkeypatch.setattr("carvajal.adapters.llm._chat.logger", registro)
+    chunks = [
+        FakeMessage(content="", usage_metadata={"input_tokens": 7}),
+        FakeMessage(content="hola"),
+    ]
+    adaptador = _LangChainChat(FakeChat(FakeMessage(content=""), chunks=chunks))
+    generador = cast(Generator[str], adaptador.stream(system="sistema", prompt="pregunta"))
+
+    # Act
+    assert next(generador) == "hola"
+    generador.close()
+
+    # Assert
+    assert registro.eventos == [
+        ("llm.completed", {"model": "deepseek-chat", "tokens_in": 7, "tokens_out": None})
     ]
 
 

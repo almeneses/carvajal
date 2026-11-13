@@ -128,7 +128,10 @@ class _LangChainChat:
             raise
         except Exception as error:
             raise LLMError("El proveedor de LLM no devolvió una respuesta utilizable.") from error
-        _log_usage(self._chat, acumulado)
+        finally:
+            # También se registra si el cliente corta el stream: el consumo
+            # acumulado hasta ese punto no debe perderse.
+            _log_usage(self._chat, acumulado)
 
     @staticmethod
     def _messages(system: str, prompt: str) -> list[BaseMessage]:
