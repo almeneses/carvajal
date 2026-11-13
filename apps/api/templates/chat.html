@@ -2,6 +2,7 @@
 {% block title %}Chat · Asistente Carvajal{% endblock %}
 {% block head_extra %}
 <link rel="stylesheet" href="/static/chat.css" />
+<script src="/static/chat-stream.js" defer></script>
 {% endblock %}
 {% block content %}
 <section class="seccion" aria-labelledby="titulo-chat">
@@ -11,7 +12,7 @@
     queda asociado a esta cookie anónima: recargar la página conserva la conversación.
   </p>
 
-  <form class="formulario" method="post" action="/chat">
+  <form class="formulario" method="post" action="/chat" data-chat-stream>
     <div class="campo">
       <label for="pregunta">Tu pregunta</label>
       <input
@@ -31,6 +32,8 @@
     </div>
     <button type="submit">Enviar</button>
   </form>
+
+  {% include "_chat_stream.html" %}
 </section>
 
 <section class="seccion" aria-labelledby="titulo-historial">

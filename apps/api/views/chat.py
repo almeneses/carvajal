@@ -19,7 +19,7 @@ from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.application.ask import LLMError
 
-__all__ = ["router"]
+__all__ = ["chat_provider", "request_identity", "router", "set_identity_cookie"]
 
 logger = getLogger(__name__)
 
@@ -35,7 +35,7 @@ SERVICE_UNAVAILABLE = "El servicio de chat no está disponible en este momento."
 def chat(request: Request) -> Response:
     """Muestra el historial de la conversación activa del visitante."""
 
-    identity = _identity(request)
+    identity = request_identity(request)
     owner_key = identity.read(request)
     new_owner = owner_key is None
     if owner_key is None:
@@ -43,14 +43,14 @@ def chat(request: Request) -> Response:
         messages: Sequence[ChatMessage] = []
     else:
         try:
-            messages = _provider(request).history(owner_key)
+            messages = chat_provider(request).history(owner_key)
         except SQLAlchemyError as error:
             logger.warning("Fallo al leer el historial del chat: %s", error)
             return _page(request, [], error=SERVICE_UNAVAILABLE, status_code=503)
 
     response = _page(request, messages)
     if new_owner:
-        _set_cookie(response, request, identity, owner_key)
+        set_identity_cookie(response, request, identity, owner_key)
     return response
 
 
@@ -59,7 +59,7 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
     """Responde un turno y redirige a ``/chat`` solo si la respuesta se guardó."""
 
     text = question.strip()
-    identity = _identity(request)
+    identity = request_identity(request)
     owner_key = identity.read(request)
     if owner_key is None:
         owner_key = identity.new_owner_key()
@@ -70,31 +70,31 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
         return _error(request, TOO_LONG_QUESTION, 422)
 
     try:
-        _provider(request).ask(owner_key, text)
+        chat_provider(request).ask(owner_key, text)
     except (EmbeddingError, LLMError, SQLAlchemyError) as error:
         logger.warning("Fallo al responder en el chat: %s", error)
         return _error(request, SERVICE_UNAVAILABLE, 503)
 
     response = RedirectResponse(url="/chat", status_code=303)
-    _set_cookie(response, request, identity, owner_key)
+    set_identity_cookie(response, request, identity, owner_key)
     return response
 
 
-def _provider(request: Request) -> ChatProvider:
-    """Doble inyectado en ``app.state.chat`` o servicio real perezoso."""
+def chat_provider(request: Request) -> ChatProvider:
+    """Devuelve el doble inyectado en ``app.state.chat`` o el servicio real."""
 
     injected = getattr(request.app.state, "chat", None)
     return injected if injected is not None else default_chat_service()
 
 
-def _identity(request: Request) -> ChatIdentity:
-    """Identidad inyectada en ``app.state.chat_identity`` o la del proceso."""
+def request_identity(request: Request) -> ChatIdentity:
+    """Devuelve la identidad inyectada en ``app.state.chat_identity`` o la del proceso."""
 
     injected = getattr(request.app.state, "chat_identity", None)
     return injected if injected is not None else default_identity()
 
 
-def _set_cookie(
+def set_identity_cookie(
     response: Response,
     request: Request,
     identity: ChatIdentity,
