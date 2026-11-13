@@ -10,7 +10,7 @@ from sqlalchemy import Engine, create_engine, inspect
 pytestmark = pytest.mark.integration
 
 _ROOT = Path(__file__).resolve().parents[1]
-_SCHEMA_TABLES = {"documents", "chunks", "document_versions"}
+_SCHEMA_TABLES = {"documents", "chunks", "document_versions", "users", "sessions"}
 
 
 def _alembic_config(migration_url: str) -> Config:
@@ -61,6 +61,33 @@ def _assert_head_schema(engine: Engine) -> None:
         "captured_at",
         "created_at",
     }
+    assert columns["users"] == {
+        "id",
+        "provider",
+        "subject",
+        "email",
+        "name",
+        "created_at",
+        "last_login_at",
+    }
+    assert columns["sessions"] == {
+        "id",
+        "user_id",
+        "created_at",
+        "expires_at",
+        "revoked_at",
+    }
+
+    user_uniques = {
+        tuple(unique["column_names"]) for unique in inspector.get_unique_constraints("users")
+    }
+    assert ("provider", "subject") in user_uniques
+
+    session_references = inspector.get_foreign_keys("sessions")
+    assert any(
+        fk["referred_table"] == "users" and fk["options"].get("ondelete") == "CASCADE"
+        for fk in session_references
+    )
 
     document_indexes = {index["name"] for index in inspector.get_indexes("documents")}
     version_indexes = {index["name"] for index in inspector.get_indexes("document_versions")}

@@ -21,7 +21,7 @@ from sqlalchemy import (
     text,
 )
 
-__all__ = ["chunks", "document_versions", "documents", "metadata"]
+__all__ = ["chunks", "document_versions", "documents", "metadata", "sessions", "users"]
 
 metadata = MetaData()
 
@@ -87,3 +87,36 @@ Index(
     document_versions.c.document_id,
     document_versions.c.created_at,
 )
+
+# Identidad y sesiones de la app web (W4.1). El `subject` es el `sub` del
+# proveedor OIDC; el email es un dato, no la clave. Las sesiones se revocan con
+# `revoked_at` y caducan con `expires_at`.
+users = Table(
+    "users",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("provider", Text, nullable=False),
+    Column("subject", Text, nullable=False),
+    Column("email", Text, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("last_login_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("provider", "subject", name="uq_users_provider_subject"),
+)
+
+sessions = Table(
+    "sessions",
+    metadata,
+    Column("id", Text, primary_key=True),  # sha256 del token; nunca el token
+    Column(
+        "user_id",
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+)
+
+Index("ix_sessions_user_id", sessions.c.user_id)

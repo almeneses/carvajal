@@ -5,17 +5,14 @@ conversación y contra qué cubo se cuentan las cuotas. La cookie se firma con
 ``SESSION_SECRET`` y se renueva si falta o si la firma no cuadra.
 """
 
-import hmac
 import secrets
-from functools import cache
-from hashlib import sha256
 
 from fastapi import Request
 from starlette.datastructures import MutableHeaders
 from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from carvajal.infrastructure.settings import Settings
+from apps.api.signing import sign, verify
 
 __all__ = ["COOKIE_NAME", "OwnerSessionMiddleware", "owner_key"]
 
@@ -24,35 +21,13 @@ COOKIE_MAX_AGE = 60 * 60 * 24 * 180  # seis meses
 _STATIC_PREFIX = "/static"
 
 
-@cache
-def _secret() -> str:
-    """Clave de firma; en producción debe venir de ``SESSION_SECRET``."""
-
-    return Settings().session_secret
-
-
-def _signature(value: str) -> str:
-    """Firma HMAC-SHA256 del identificador."""
-
-    return hmac.new(_secret().encode(), value.encode(), sha256).hexdigest()
-
-
-def _verified(raw: str) -> str | None:
-    """Devuelve el valor si la firma cuadra; ``None`` si falta o está manipulado."""
-
-    value, _, signature = raw.partition(".")
-    if value and hmac.compare_digest(_signature(value), signature):
-        return value
-    return None
-
-
 def _cookie(value: str, *, secure: bool) -> str:
     """Construye la cabecera ``Set-Cookie`` firmada."""
 
     response = Response()
     response.set_cookie(
         COOKIE_NAME,
-        f"{value}.{_signature(value)}",
+        sign(value),
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
@@ -78,7 +53,7 @@ class OwnerSessionMiddleware:
 
         request = Request(scope, receive)
         raw = request.cookies.get(COOKIE_NAME, "")
-        value = _verified(raw)
+        value = verify(raw)
         scope.setdefault("state", {})["owner_key"] = value or secrets.token_urlsafe(16)
         nueva = value is None and not scope["path"].startswith(_STATIC_PREFIX)
         secure = request.url.scheme == "https"

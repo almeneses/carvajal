@@ -16,10 +16,16 @@ def _unique_column_sets(table: Table) -> set[tuple[str, ...]]:
     }
 
 
-def test_exporta_las_tres_tablas_del_esquema() -> None:
-    """El metadata contiene exactamente las tablas de W1.2."""
+def test_exporta_las_cuatro_tablas_del_esquema() -> None:
+    """El metadata contiene exactamente las tablas del esquema vigente."""
 
-    assert set(tables.metadata.tables) == {"documents", "chunks", "document_versions"}
+    assert set(tables.metadata.tables) == {
+        "documents",
+        "chunks",
+        "document_versions",
+        "users",
+        "sessions",
+    }
 
 
 def test_claves_foraneas_borran_en_cascada() -> None:
@@ -60,3 +66,15 @@ def test_el_vector_vive_solo_en_los_fragmentos() -> None:
     assert tables.chunks.c.embedding.nullable is True
     assert "embedding" not in tables.documents.c
     assert "embedding" not in tables.document_versions.c
+
+
+def test_usuarios_y_sesiones_se_relacionan() -> None:
+    """El usuario se identifica por (proveedor, subject) y la sesión cae con él."""
+
+    assert ("provider", "subject") in _unique_column_sets(tables.users)
+    assert [column.name for column in tables.sessions.primary_key] == ["id"]
+
+    foreign_key = next(iter(tables.sessions.c.user_id.foreign_keys))
+    assert foreign_key.target_fullname == "users.id"
+    assert foreign_key.ondelete == "CASCADE"
+    assert "ix_sessions_user_id" in {index.name for index in tables.sessions.indexes}
