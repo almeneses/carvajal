@@ -1,0 +1,116 @@
+{
+  "version": "2026-11-13",
+  "description": "Indicadores de Carvajal verificables en documentos de data/gold. Cada valor conserva su cita textual y la URL del documento del que se extrajo.",
+  "indicators": [
+    {
+      "name": "ingresos_consolidados",
+      "aliases": ["ingresos", "ventas", "facturacion"],
+      "period": "2024",
+      "value": 3.96,
+      "unit": "billones COP",
+      "display": "$3,96 billones",
+      "source_document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+      "source_url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+      "quote": "los ingresos consolidados de las operaciones de Carvajal S.A. y sus subordinadas en Colombia y en otros países, ascendieron a $3.96 billones"
+    },
+    {
+      "name": "ingresos_consolidados",
+      "aliases": ["ingresos", "ventas", "facturacion"],
+      "period": "2024-09",
+      "value": 2.8,
+      "unit": "billones COP",
+      "display": "$2,8 billones",
+      "source_document": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+      "source_url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
+      "quote": "Con corte a septiembre de 2024, Carvajal reportó ingresos consolidados por $2,8 billones"
+    },
+    {
+      "name": "ingresos_consolidados",
+      "aliases": ["ingresos", "ventas", "facturacion"],
+      "period": "2025-09",
+      "value": 2.58,
+      "unit": "billones COP",
+      "display": "$2,58 billones",
+      "source_document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+      "source_url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+      "quote": "La Organización Carvajal reportó ingresos por $2,58 billones a septiembre de este año"
+    },
+    {
+      "name": "ebitda",
+      "aliases": ["ebitda", "margen ebitda"],
+      "period": "2025-09",
+      "value": 351.631,
+      "unit": "millones COP",
+      "display": "$351.631 millones (margen 14%)",
+      "source_document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+      "source_url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+      "quote": "El Ebitda consolidado ascendió a $351.631 millones, mejorando el margen Ebitda de 12% a 14% en el último año."
+    },
+    {
+      "name": "ebitda",
+      "aliases": ["ebitda", "margen ebitda"],
+      "period": "2024-09",
+      "value": 332.277,
+      "unit": "millones COP",
+      "display": "$332.277 millones (margen 12%)",
+      "source_document": "carvajal_reporto_ingresos_por_2_8_billones_con_corte_al_tercer_trimestre_3999096",
+      "source_url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-8-billones-con-corte-al-tercer-trimestre-3999096",
+      "quote": "El ebitda, por otro lado, ascendió a $332.277 millones, lo que pesó alrededor de 12% de los ingresos operacionales."
+    },
+    {
+      "name": "utilidad_neta",
+      "aliases": ["utilidad", "ganancia neta", "perdida neta", "resultado neto"],
+      "period": "2024",
+      "value": -83.076,
+      "unit": "millones COP",
+      "display": "Pérdida neta de $83.076 millones",
+      "source_document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+      "source_url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+      "quote": "una pérdida neta después de impuestos de $83.076 millones"
+    },
+    {
+      "name": "utilidad_neta",
+      "aliases": ["utilidad", "ganancia neta", "perdida neta", "resultado neto"],
+      "period": "2025-09",
+      "value": 26.602,
+      "unit": "millones COP",
+      "display": "Ganancia neta de $26.602 millones",
+      "source_document": "carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762",
+      "source_url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762",
+      "quote": "Las ganancias netas de la organización llegaron a $26.602 millones"
+    },
+    {
+      "name": "utilidad_bruta",
+      "aliases": ["utilidad bruta", "ganancia bruta"],
+      "period": "2024",
+      "value": 1.07,
+      "unit": "billones COP",
+      "display": "$1,07 billones",
+      "source_document": "carvajal_y_sus_empresas_reportan_resultados_0239html",
+      "source_url": "https://www.elpais.com.co/economia/carvajal-y-sus-empresas-reportan-resultados-0239.html",
+      "quote": "Los ingresos alcanzaron $3,9 billones, una utilidad bruta de $1,07 billones"
+    },
+    {
+      "name": "activos",
+      "aliases": ["activos totales", "activo"],
+      "period": "2024",
+      "value": 1.95,
+      "unit": "billones COP",
+      "display": "$1,95 billones",
+      "source_document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+      "source_url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+      "quote": "Crecimiento en activos del 2% ( 2024: $1.95 billones)"
+    },
+    {
+      "name": "empleados",
+      "aliases": ["empleados", "nomina", "colaboradores", "trabajadores"],
+      "period": "2025",
+      "value": 13000,
+      "unit": "empleados",
+      "display": "más de 13.000 empleados",
+      "source_document": "carvajal_s_a_futuro_consolidado_ante_desafios_globales",
+      "source_url": "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
+      "quote": "La nómina total supera los 13.000 empleados"
+    }
+  ]
+}

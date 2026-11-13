@@ -168,6 +168,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Permite importar un directorio Gold vacío y podar toda la capa.",
     )
 
+    index_parser = subparsers.add_parser(
+        "index-qdrant",
+        help="Indexa data/gold en Qdrant con IDs estables y poda lo obsoleto.",
+    )
+    index_parser.add_argument(
+        "--gold", type=Path, default=GOLD_DIR, help="Directorio Gold a indexar."
+    )
+    index_parser.add_argument(
+        "--recreate",
+        action="store_true",
+        help="Borra la colección y la reconstruye desde cero.",
+    )
+    index_parser.add_argument(
+        "--no-prune",
+        action="store_true",
+        help="No elimina puntos que ya no pertenecen al corpus (no recomendado).",
+    )
+    index_parser.add_argument(
+        "--batch-size", type=int, default=32, help="Fragmentos por lote de embeddings."
+    )
+
     subparsers.add_parser(
         "status",
         help="Muestra el estado del corpus (semillas y entregables Gold).",
@@ -274,6 +295,47 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Fragmentos importados: {report.chunks}")
         if report.removed:
             print(f"Documentos podados: {report.removed}")
+        return 0
+
+    if args.command == "index-qdrant":
+        from carvajal.adapters.embeddings import EmbeddingError, OllamaEmbedder
+        from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
+        from carvajal.indexing.qdrant import index_gold
+        from carvajal.infrastructure.settings import Settings
+
+        settings = Settings()
+        store = QdrantVectorStore(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+            collection=settings.qdrant_collection,
+            dimensions=settings.qdrant_dimensions,
+            distance=settings.qdrant_distance,
+        )
+        try:
+            report = index_gold(
+                gold_dir=args.gold,
+                store=store,
+                embedder=OllamaEmbedder(),
+                recreate=args.recreate,
+                prune=not args.no_prune,
+                batch_size=max(1, args.batch_size),
+            )
+        except (FileNotFoundError, ValueError, EmbeddingError) as error:
+            print(f"No se pudo indexar: {error}")
+            return 1
+        except Exception as error:  # Qdrant inaccesible
+            print(f"No se pudo contactar con Qdrant en {settings.qdrant_url}: {error}")
+            return 1
+        finally:
+            store.close()
+        print(f"Colección: {report.collection}")
+        print(f"Documentos: {report.documents}")
+        print(f"Fragmentos: {report.chunks}")
+        print(f"Puntos indexados: {report.indexed}")
+        print(f"Puntos obsoletos eliminados: {report.deleted}")
+        print(f"Puntos finales: {report.points}")
+        print(f"Dimensión: {report.dimensions}")
+        print(f"Duración: {report.elapsed_ms} ms")
         return 0
 
     if args.command == "list":

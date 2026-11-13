@@ -5,8 +5,8 @@ Los casos de uso (``application``) dependen de estos ``Protocol`` y nunca de
 pasar las pruebas de contrato de ``tests/test_ports.py``.
 """
 
-from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Protocol, runtime_checkable
 
@@ -27,10 +27,16 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ScoredChunk:
-    """Resultado de una búsqueda vectorial: fragmento y puntuación de similitud."""
+    """Resultado de una búsqueda vectorial: fragmento, puntuación y metadatos.
+
+    ``metadata`` lo rellena el adaptador cuando el índice guarda la procedencia
+    (Qdrant): título, URL, tipo de fuente y hash. Los adaptadores que no la
+    conservan pueden dejarlo vacío; la cita sigue siendo válida con el chunk.
+    """
 
     chunk: Chunk
     score: float
+    metadata: Mapping[str, str] = field(default_factory=dict)
 
 
 @runtime_checkable
