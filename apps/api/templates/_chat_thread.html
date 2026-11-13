@@ -1,6 +1,7 @@
 {% if error %}
 <p class="aviso" role="alert">{{ error }}</p>
-{% elif messages %}
+{% endif %}
+{% if messages %}
 <ol class="hilo">
   {% for message in messages %}
   <li class="turno turno-{{ message.role }}">
@@ -30,7 +31,7 @@
   </li>
   {% endfor %}
 </ol>
-{% else %}
+{% elif not error %}
 <p class="vacio">
   Todavía no hay mensajes en esta conversación. Escribe tu primera pregunta para empezar.
 </p>

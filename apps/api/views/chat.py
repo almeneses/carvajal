@@ -60,20 +60,44 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
 
     text = question.strip()
     identity = _identity(request)
-    owner_key = identity.read(request)
-    if owner_key is None:
-        owner_key = identity.new_owner_key()
+    stored_owner = identity.read(request)
+    new_owner = stored_owner is None
+    owner_key = stored_owner or identity.new_owner_key()
 
     if not text:
-        return _error(request, EMPTY_QUESTION, 422)
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question=question,
+            message=EMPTY_QUESTION,
+            status_code=422,
+        )
     if len(text) > MAX_QUESTION_CHARS:
-        return _error(request, TOO_LONG_QUESTION, 422)
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question=question,
+            message=TOO_LONG_QUESTION,
+            status_code=422,
+        )
 
     try:
         _provider(request).ask(owner_key, text)
     except (EmbeddingError, LLMError, SQLAlchemyError) as error:
         logger.warning("Fallo al responder en el chat: %s", error)
-        return _error(request, SERVICE_UNAVAILABLE, 503)
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question=question,
+            message=SERVICE_UNAVAILABLE,
+            status_code=503,
+        )
 
     response = RedirectResponse(url="/chat", status_code=303)
     _set_cookie(response, request, identity, owner_key)
@@ -117,6 +141,7 @@ def _page(
     request: Request,
     messages: Sequence[ChatMessage],
     *,
+    question: str = "",
     error: str | None = None,
     status_code: int = 200,
 ) -> Response:
@@ -125,17 +150,42 @@ def _page(
     return templates.TemplateResponse(
         request,
         "chat.html",
-        {"messages": messages, "error": error},
+        {"messages": messages, "question": question, "error": error},
         status_code=status_code,
     )
 
 
-def _error(request: Request, message: str, status_code: int) -> Response:
-    """Parcial de error para un POST que no llegó a persistir."""
+def _error_page(
+    request: Request,
+    identity: ChatIdentity,
+    owner_key: str,
+    *,
+    new_owner: bool,
+    question: str,
+    message: str,
+    status_code: int,
+) -> Response:
+    """Página completa de error, con formulario e historial si se puede leer."""
 
-    return templates.TemplateResponse(
+    response = _page(
         request,
-        "_chat_thread.html",
-        {"messages": [], "error": message},
+        _history(request, None if new_owner else owner_key),
+        question=question,
+        error=message,
         status_code=status_code,
     )
+    if new_owner:
+        _set_cookie(response, request, identity, owner_key)
+    return response
+
+
+def _history(request: Request, owner_key: str | None) -> Sequence[ChatMessage]:
+    """Historial previo para una página de error; vacío si no hay dueño o BD."""
+
+    if owner_key is None:
+        return []
+    try:
+        return _provider(request).history(owner_key)
+    except SQLAlchemyError as error:
+        logger.warning("Fallo al leer el historial durante un error del chat: %s", error)
+        return []
