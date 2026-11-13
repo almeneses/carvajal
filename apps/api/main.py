@@ -25,6 +25,7 @@ from apps.api.observability import (
     configure_observability,
 )
 from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
+from apps.api.security import SecurityMiddleware, verify_csrf
 from apps.api.views import chat, corpus, documents, stream
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
@@ -111,10 +112,18 @@ def _message(
     *,
     headers: dict[str, str] | None = None,
 ) -> Response:
-    """Devuelve el parcial de error para HTMX, sin exponer trazas."""
+    """Devuelve el parcial de error para HTMX, sin exponer trazas.
+
+    ``X-Carvajal-Error`` permite al JS distinguir un error propio (que puede
+    pintar) de una página ajena de un proxy (que debe sustituir por un aviso).
+    """
 
     return templates.TemplateResponse(
-        request, "_answer.html", {"error": message}, status_code, headers=headers
+        request,
+        "_answer.html",
+        {"error": message},
+        status_code,
+        headers={"X-Carvajal-Error": "1", **(headers or {})},
     )
 
 
@@ -143,12 +152,15 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
     configure_observability()
-    app = FastAPI(title="Corpus Carvajal")
+    # Sin Swagger público: la interfaz de la app es el formulario HTML y el
+    # esquema no aporta a un visitante anónimo.
+    app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.quota = handlers.quota if handlers is not None else _default_quota
     # El error no controlado se maneja dentro de la pila para que la respuesta
-    # 500 también pase por el request_id (y por las cabeceras de seguridad).
+    # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
     app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(SecurityMiddleware)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     for module in (corpus, documents, chat, stream):
         app.include_router(module.router)
@@ -175,7 +187,16 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         return templates.TemplateResponse(request, "index.html", {})
 
     @app.post("/ask", response_class=HTMLResponse)
-    def ask(request: Request, question: str = Form(default="")) -> Response:
+    def ask(
+        request: Request,
+        question: str = Form(default=""),
+        csrf_token: str = Form(default=""),
+    ) -> Response:
+        # CSRF antes de cualquier efecto: sin token no se toca cuota ni LLM.
+        if not verify_csrf(request, csrf_token):
+            logger.warning("csrf.rejected", path=request.url.path)
+            return _message(request, 403, chat.CSRF_INVALIDO)
+
         text = question.strip()
         if not text:
             return _message(request, 422, "La pregunta no puede estar vacía.")

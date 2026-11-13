@@ -3,6 +3,7 @@
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.identity import COOKIE_MAX_AGE, COOKIE_NAME, SignedCookieIdentity
 from apps.api.main import create_app
+from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from apps.api.views.chat import (
     EMPTY_QUESTION,
     SERVICE_UNAVAILABLE,
@@ -103,6 +105,18 @@ def _cookie(owner_key: str) -> str:
     return IDENTITY.issue(owner_key)
 
 
+def _post(client: TestClient, path: str, data: dict[str, str], **kwargs: Any) -> Any:
+    """Envía un POST con el token CSRF emitido por una página."""
+
+    if CSRF_COOKIE not in client.cookies:
+        client.get("/")
+    return client.post(
+        path,
+        data={**data, CSRF_FIELD: client.cookies[CSRF_COOKIE]},
+        **kwargs,
+    )
+
+
 def test_get_sin_cookie_muestra_el_estado_vacio_y_emite_cookie() -> None:
     # Arrange
     client, chat = make_client()
@@ -191,7 +205,7 @@ def test_post_vacio_devuelve_422_sin_persistir() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post("/chat", data={"question": "   "})
+    response = _post(client, "/chat", {"question": "   "})
 
     # Assert
     assert response.status_code == 422
@@ -210,7 +224,7 @@ def test_post_demasiado_largo_devuelve_422_sin_persistir() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post("/chat", data={"question": "x" * 501})
+    response = _post(client, "/chat", {"question": "x" * 501})
 
     # Assert
     assert response.status_code == 422
@@ -229,9 +243,10 @@ def test_post_ok_redirige_emite_cookie_y_conserva_el_historial() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Cuándo nació?"},
+        {"question": "¿Cuándo nació?"},
         follow_redirects=False,
     )
 
@@ -258,9 +273,10 @@ def test_post_usa_el_dueno_de_la_cookie_valida() -> None:
     client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Qué es Carvajal?"},
+        {"question": "¿Qué es Carvajal?"},
         follow_redirects=False,
     )
 
@@ -275,9 +291,10 @@ def test_post_con_cookie_invalida_regenera_la_identidad() -> None:
     client.cookies.set(COOKIE_NAME, "dueno-manipulado.firma-falsa")
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Qué es Carvajal?"},
+        {"question": "¿Qué es Carvajal?"},
         follow_redirects=False,
     )
 
@@ -301,7 +318,7 @@ def test_fallos_del_proveedor_devuelven_503_sin_filtrar_ni_persistir(error: Exce
     client, chat = make_client(chat=FakeChat(error=error))
 
     # Act
-    response = client.post("/chat", data={"question": "¿Cuándo nació?"})
+    response = _post(client, "/chat", {"question": "¿Cuándo nació?"})
 
     # Assert
     assert response.status_code == 503
@@ -322,7 +339,7 @@ def test_el_error_503_conserva_el_historial_previo() -> None:
     chat.by_owner["dueno-a"] = [_message("user", "pregunta previa", sources=None)]
 
     # Act
-    response = client.post("/chat", data={"question": "pregunta nueva"})
+    response = _post(client, "/chat", {"question": "pregunta nueva"})
 
     # Assert
     assert response.status_code == 503
@@ -370,9 +387,10 @@ def test_la_identidad_se_puede_inyectar_sin_cookies_reales() -> None:
     client, chat = make_client(identity=FakeIdentity(owner_key="dueno-fijo"))
 
     # Act
-    response = client.post(
+    response = _post(
+        client,
         "/chat",
-        data={"question": "¿Qué es Carvajal?"},
+        {"question": "¿Qué es Carvajal?"},
         follow_redirects=False,
     )
 
@@ -389,7 +407,7 @@ def test_post_chat_agota_la_cuota_antes_de_llamar_al_proveedor() -> None:
     client, chat = make_client(quota=lambda owner: QuotaResult(False, 120))
 
     # Act
-    response = client.post("/chat", data={"question": "¿Qué es Carvajal?"})
+    response = _post(client, "/chat", {"question": "¿Qué es Carvajal?"})
 
     # Assert
     assert response.status_code == 429
@@ -409,7 +427,7 @@ def test_fallo_de_bd_en_la_cuota_del_chat_devuelve_503() -> None:
     client, chat = make_client(quota=quota)
 
     # Act
-    response = client.post("/chat", data={"question": "¿Qué es Carvajal?"})
+    response = _post(client, "/chat", {"question": "¿Qué es Carvajal?"})
 
     # Assert
     assert response.status_code == 503

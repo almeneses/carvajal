@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.security import csrf_context
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.llm import build_llm_provider
 from carvajal.adapters.storage.database import build_engine, build_session_factory
@@ -19,7 +20,10 @@ from carvajal.application.ports import Embedder, LLMProvider
 from carvajal.infrastructure.settings import Settings
 
 APP_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=APP_DIR / "templates")
+templates = Jinja2Templates(
+    directory=APP_DIR / "templates",
+    context_processors=[csrf_context],
+)
 
 __all__ = [
     "APP_DIR",
