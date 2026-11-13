@@ -76,7 +76,7 @@
 | Enlace al reporte de retrieval | ✅ | README § Evaluación y `docs/demo-m2.md`. |
 | Evidencia de PR fusionadas y revisión | ✅ | #98 merge `f82e48e`; 74 PR fusionadas; 39 con revisión automática publicada; 3 con aviso de revisión parcial/truncada. No hay revisión del rol formal del curso registrada en GitHub: se distingue de la revisión automática de Dippy/DeepSeek. |
 | PR existentes | ✅ | #98 integrada con `--admin` autorizado; #72/#83/#86/#43 cerradas conservando ramas; #99/#100 conservadas para OIDC (colisión de `0004`); #40–#45 en mantenimiento de `main`. |
-| Pila M2 | ✅ | #102 → #103 → #104 → #105 → #106; cada PR <2.000 líneas y con `make check` verde. |
+| Pila M2 | ✅ | #102 → #103 → #104 → #105 → #106; cada PR ≤2.000 líneas (el #102 queda exactamente en el límite) y con `make check` verde. |
 | Demo 12 min + 3 de preguntas | ✅ | `docs/demo-m2.md`. |
 | `make check` e integración | ✅ | 437 unitarias + 41 de integración; salida reproducible con `make check` y `pytest -m integration`. |
 | Ensayo desde clon limpio | ✅ | `git clone -b feat/w7-m2-d …` + `uv sync --all-extras` + `make check`: 437 passed, 41 deselected. |
