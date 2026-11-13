@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api import main
+from apps.api import deps, main
 from apps.api.main import (
     DB_UNAVAILABLE,
     SERVICE_UNAVAILABLE,
@@ -253,7 +253,7 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
         calls.append(1)
         return Handlers(ask=lambda question: ANSWER, health=lambda: HealthStatus(1, 2))
 
-    monkeypatch.setattr(main, "_default_handlers", fake_handlers)
+    monkeypatch.setattr(deps, "default_handlers", fake_handlers)
     app = create_app()
     assert calls == []
 

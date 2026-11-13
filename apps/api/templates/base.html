@@ -10,6 +10,7 @@
     />
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/static/htmx.min.js" defer></script>
+    {% block head_extra %}{% endblock %}
   </head>
   <body>
     <a class="saltar" href="#contenido">Saltar al contenido</a>
@@ -26,6 +27,7 @@
             <li><a href="#respuesta">Respuesta</a></li>
             {% endif %}
           </ul>
+          {% include "_nav_extra.html" ignore missing %}
         </nav>
       </div>
     </header>
