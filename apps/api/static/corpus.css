@@ -1,0 +1,127 @@
+/* Pantalla del corpus: formulario, tabla y paginación. */
+
+.formulario select {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #9fb2c6;
+  border-radius: 0.4rem;
+  background: var(--fondo);
+  color: inherit;
+  font: inherit;
+}
+
+.formulario .limpiar {
+  padding-bottom: 0.7rem;
+  font-weight: 600;
+}
+
+.tabla-envoltura {
+  margin-top: 1.5rem;
+  overflow-x: auto;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+.tabla-corpus {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--fondo);
+}
+
+.tabla-corpus caption {
+  padding: 0.75rem 1rem;
+  background: var(--fondo-suave);
+  border-bottom: 1px solid var(--borde);
+  text-align: left;
+}
+
+.tabla-corpus th,
+.tabla-corpus td {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--borde);
+  text-align: left;
+  vertical-align: top;
+}
+
+.tabla-corpus thead th {
+  background: var(--fondo-suave);
+  color: var(--secundario);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tabla-corpus tbody tr:last-child th,
+.tabla-corpus tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.tabla-corpus tbody tr:hover {
+  background: #f9fbfd;
+}
+
+.tabla-corpus tbody th {
+  font-weight: 600;
+}
+
+.etiqueta {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--fondo-suave);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.etiqueta-core {
+  color: var(--enlace);
+}
+
+.etiqueta-extended {
+  border-color: #cfdca3;
+  background: #f6f9ea;
+  color: var(--oliva);
+}
+
+.vacio {
+  margin: 1.5rem 0 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--borde);
+  border-radius: var(--radio);
+  background: var(--fondo-suave);
+  color: var(--secundario);
+}
+
+.paginacion {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.pagina {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--borde);
+  border-radius: 0.4rem;
+  background: var(--fondo);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pagina:hover {
+  border-color: var(--primario);
+}
+
+.pagina-actual {
+  color: var(--secundario);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 40rem) {
+  .tabla-corpus th,
+  .tabla-corpus td {
+    padding: 0.55rem 0.65rem;
+  }
+}
