@@ -2,9 +2,11 @@
 
 from collections.abc import Iterator, Sequence
 from dataclasses import asdict
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import Engine, delete, func, select
+from sqlalchemy.orm import Session
 
 from apps.api.chat import service as chat_service
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatService
@@ -308,3 +310,70 @@ def test_servicio_revierte_la_conversacion_si_falla_el_embedder(engine: Engine) 
             .where(tables.conversations.c.owner_key == owner_key)
         ).scalar_one()
     assert count == 0
+
+
+class SessionCheckingVectorStore:
+    """Ejecuta una consulta para que la sesión retenga una conexión real."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def search(
+        self,
+        embedding: Sequence[float],
+        *,
+        limit: int = 8,
+        layer: str | None = None,
+        section: str | None = None,
+    ) -> Sequence[ScoredChunk]:
+        self._session.execute(select(1))
+        chunk = Chunk(
+            id=SOURCE.chunk_id,
+            document_id=SOURCE.slug,
+            text=SOURCE.excerpt,
+            position=0,
+            section=SOURCE.section,
+            layer=SOURCE.layer,
+        )
+        return [ScoredChunk(chunk=chunk, score=SOURCE.score)]
+
+
+class ConnectionCheckingLLM:
+    """Falla si el pool sigue ocupado cuando el LLM responde."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+        self.calls = 0
+
+    def complete(self, *, system: str, prompt: str) -> str:
+        self.calls += 1
+        assert cast(Any, self._engine.pool).checkedout() == 0
+        return "Carvajal nació en 1904 [1]."
+
+    def stream(self, *, system: str, prompt: str) -> Iterator[str]:
+        raise AssertionError("El stream no se usa en este caso.")
+
+
+def test_ask_libera_la_conexion_antes_de_llamar_al_llm(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: el vector store usa la sesión y el LLM comprueba el pool.
+    monkeypatch.setattr(chat_service, "PgVectorStore", SessionCheckingVectorStore)
+    llm = ConnectionCheckingLLM(engine)
+    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm)
+    owner_key = "ask-sin-transaccion"
+
+    try:
+        # Act
+        answer = service.ask(owner_key, "¿Cuándo nació?")
+        history = list(service.history(owner_key))
+
+        # Assert
+        assert llm.calls == 1
+        assert answer.text == "Carvajal nació en 1904 [1]."
+        assert [message.role for message in history] == ["user", "assistant"]
+        assert history[1].content == answer.text
+        assert history[1].sources == [asdict(SOURCE)]
+    finally:
+        _delete_owner(engine, owner_key)

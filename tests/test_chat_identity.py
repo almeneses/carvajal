@@ -120,3 +120,14 @@ def test_un_valor_random_no_es_una_identidad_valida() -> None:
 
     # Act / Assert
     assert all(identity.verify(value) is None for value in values)
+
+
+def test_una_firma_no_ascii_no_lanza_y_no_verifica() -> None:
+    # Arrange
+    identity = _identity()
+
+    # Act
+    owner_key = identity.verify("dueno.ñ")
+
+    # Assert
+    assert owner_key is None

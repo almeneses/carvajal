@@ -82,7 +82,7 @@ class SignedCookieIdentity:
         owner_key, separator, signature = value.partition(".")
         if not separator or not owner_key:
             return None
-        if not hmac.compare_digest(signature, self._signature(owner_key)):
+        if not hmac.compare_digest(signature.encode(), self._signature(owner_key).encode()):
             return None
         return owner_key
 

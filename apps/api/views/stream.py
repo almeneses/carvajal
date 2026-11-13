@@ -10,7 +10,7 @@ import json
 from collections.abc import Iterator
 from logging import getLogger
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import Response, StreamingResponse
 
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider
@@ -37,8 +37,8 @@ SSE_HEADERS = {
 }
 
 
-@router.get("/chat/stream")
-def chat_stream(request: Request, question: str = "") -> Response:
+@router.post("/chat/stream")
+def chat_stream(request: Request, question: str = Form(default="")) -> Response:
     """Responde la pregunta como eventos SSE y persiste el turno al cerrar."""
 
     text = question.strip()
