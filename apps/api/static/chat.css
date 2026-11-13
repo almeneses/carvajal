@@ -35,3 +35,19 @@
   color: var(--secundario);
   background: var(--fondo-suave);
 }
+
+.traza {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0 0;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--fondo-suave);
+  font-size: 0.85rem;
+}
+
+.traza code { font-size: 0.8rem; word-break: break-all; }
+.estado-incompleto { margin-left: 0.5rem; color: #a33; font-weight: 600; }
+.fuente a { color: var(--primario); }

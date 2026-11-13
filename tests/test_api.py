@@ -81,7 +81,12 @@ def test_health_devuelve_estado_y_conteos() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "documents": 12, "chunks": 34}
+    assert response.json() == {
+        "status": "ok",
+        "documents": 12,
+        "chunks": 34,
+        "index": {"status": "not_configured"},
+    }
 
 
 def test_health_degradado_no_filtra_detalles() -> None:
@@ -93,7 +98,11 @@ def test_health_degradado_no_filtra_detalles() -> None:
 
     # Assert
     assert response.status_code == 503
-    assert response.json() == {"status": "degraded", "detail": DB_UNAVAILABLE}
+    assert response.json() == {
+        "status": "degraded",
+        "detail": DB_UNAVAILABLE,
+        "index": {"status": "unknown"},
+    }
     assert "127.0.0.1" not in response.text and "carvajal" not in response.text
 
 
@@ -424,7 +433,12 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     # Assert
     assert response.status_code == 200
     assert calls == [1]
-    assert response.json() == {"status": "ok", "documents": 1, "chunks": 2}
+    assert response.json() == {
+        "status": "ok",
+        "documents": 1,
+        "chunks": 2,
+        "index": {"status": "not_configured"},
+    }
 
 
 def test_los_handlers_reales_no_construyen_el_llm_al_arrancar(
