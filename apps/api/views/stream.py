@@ -8,14 +8,15 @@ de 500 caracteres) responde **422** con el mismo formato SSE y un evento
 
 import json
 from collections.abc import Iterator
-from logging import getLogger
 
+import structlog
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider
 from apps.api.chat.streaming import ChatEvent
+from apps.api.observability import capture_exception
 from apps.api.views.chat import (
     EMPTY_QUESTION,
     LIMITE_ALCANZADO,
@@ -29,7 +30,7 @@ from apps.api.views.chat import (
 
 __all__ = ["router"]
 
-logger = getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -55,11 +56,13 @@ def chat_stream(request: Request, question: str = Form(default="")) -> Response:
     new_owner = owner_key is None
     if owner_key is None:
         owner_key = identity.new_owner_key()
+    # Los tokens que genere el LLM quedan asociados a este visitante.
+    structlog.contextvars.bind_contextvars(owner_key=owner_key)
 
     try:
         quota = consume_quota(request, owner_key)
     except SQLAlchemyError as error:
-        logger.warning("Fallo al consultar la cuota del stream: %s", error)
+        logger.warning("chat.quota_failed", error=str(error), stream=True)
         response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
         if new_owner:
             set_identity_cookie(response, request, identity, owner_key)
@@ -91,6 +94,9 @@ def _sse(provider: ChatProvider, owner_key: str, question: str) -> Iterator[str]
     conexión sin cierre ni mensaje: siempre se emite un ``error`` genérico.
     """
 
+    # El generador puede ejecutarse en otra tarea: se reafirma el contexto para
+    # que los tokens del adaptador no pierdan el visitante.
+    structlog.contextvars.bind_contextvars(owner_key=owner_key)
     saw_token = False
     cerrado = False
     try:
@@ -99,7 +105,8 @@ def _sse(provider: ChatProvider, owner_key: str, question: str) -> Iterator[str]
             cerrado = event.name in {"done", "error"}
             yield _encode(event)
     except Exception as error:
-        logger.warning("El stream del chat se cortó de forma inesperada: %s", error)
+        logger.warning("chat.stream_failed", error=str(error))
+        capture_exception(error)
         if not cerrado:
             yield _encode(
                 ChatEvent(

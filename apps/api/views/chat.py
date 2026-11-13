@@ -1,8 +1,8 @@
 """Vista del chat (W3.3): formulario, turnos e historial con cookie firmada."""
 
 from collections.abc import Sequence
-from logging import getLogger
 
+import structlog
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,6 +14,7 @@ from apps.api.chat.identity import (
     default_identity,
 )
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider, default_chat_service
+from apps.api.observability import capture_exception
 from apps.api.runtime import templates
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage
@@ -29,7 +30,7 @@ __all__ = [
     "set_identity_cookie",
 ]
 
-logger = getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -50,10 +51,11 @@ def chat(request: Request) -> Response:
         owner_key = identity.new_owner_key()
         messages: Sequence[ChatMessage] = []
     else:
+        structlog.contextvars.bind_contextvars(owner_key=owner_key)
         try:
             messages = chat_provider(request).history(owner_key)
         except SQLAlchemyError as error:
-            logger.warning("Fallo al leer el historial del chat: %s", error)
+            logger.warning("chat.history_failed", error=str(error))
             return _page(request, [], error=SERVICE_UNAVAILABLE, status_code=503)
 
     response = _page(request, messages)
@@ -71,6 +73,8 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
     stored_owner = identity.read(request)
     new_owner = stored_owner is None
     owner_key = stored_owner or identity.new_owner_key()
+    # Los tokens que genere el LLM quedan asociados a este visitante.
+    structlog.contextvars.bind_contextvars(owner_key=owner_key)
 
     if not text:
         return _error_page(
@@ -96,7 +100,7 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
     try:
         quota = consume_quota(request, owner_key)
     except SQLAlchemyError as error:
-        logger.warning("Fallo al consultar la cuota del chat: %s", error)
+        logger.warning("chat.quota_failed", error=str(error))
         return _error_page(
             request,
             identity,
@@ -121,7 +125,9 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
     try:
         chat_provider(request).ask(owner_key, text)
     except (EmbeddingError, LLMError, SQLAlchemyError) as error:
-        logger.warning("Fallo al responder en el chat: %s", error)
+        logger.warning("chat.ask_failed", error=str(error))
+        if isinstance(error, LLMError):
+            capture_exception(error)
         return _error_page(
             request,
             identity,
@@ -233,5 +239,5 @@ def _history(request: Request, owner_key: str | None) -> Sequence[ChatMessage]:
     try:
         return chat_provider(request).history(owner_key)
     except SQLAlchemyError as error:
-        logger.warning("Fallo al leer el historial durante un error del chat: %s", error)
+        logger.warning("chat.history_failed", error=str(error))
         return []

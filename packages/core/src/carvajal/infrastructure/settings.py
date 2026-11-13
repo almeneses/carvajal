@@ -1,5 +1,6 @@
 """Configuración tipada del pipeline, leída del entorno y de ``.env``."""
 
+from logging import getLevelNamesMapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -112,6 +113,24 @@ class Settings(BaseSettings):
     # en el TZ del contenedor.
     daily_requests_limit: int = Field(default=20, ge=0)
     quota_timezone: str = "America/Bogota"
+
+    # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
+    # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
+    # trazas es explícito y por defecto queda apagado.
+    log_level: str = "INFO"
+    sentry_dsn: str = ""
+    sentry_environment: str = "local"
+    sentry_traces_sample_rate: float = Field(default=0.0, ge=0, le=1)
+
+    @field_validator("log_level")
+    @classmethod
+    def _nivel_de_log_valido(cls, value: str) -> str:
+        """Normaliza el nivel y rechaza nombres que ``logging`` no conoce."""
+
+        level = value.strip().upper()
+        if level not in getLevelNamesMapping():
+            raise ValueError(f"nivel de log desconocido: {value}")
+        return level
 
     @field_validator("quota_timezone")
     @classmethod

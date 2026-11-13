@@ -224,3 +224,34 @@ def test_quota_timezone_desconocida_falla(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_log_level_por_defecto_y_normalizado(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El nivel de log se normaliza a mayúsculas al construirlo."""
+
+    monkeypatch.setenv("LOG_LEVEL", "debug")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.log_level == "DEBUG"
+
+
+def test_log_level_desconocido_falla(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un nivel que ``logging`` no conoce se rechaza al arrancar."""
+
+    monkeypatch.setenv("LOG_LEVEL", "VERBOSO")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("valor", ["-0.1", "1.1", "no-es-un-numero"])
+def test_sentry_traces_sample_rate_invalido_falla(
+    monkeypatch: pytest.MonkeyPatch, valor: str
+) -> None:
+    """El muestreo de Sentry debe quedar entre 0 y 1."""
+
+    monkeypatch.setenv("SENTRY_TRACES_SAMPLE_RATE", valor)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

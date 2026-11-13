@@ -60,6 +60,16 @@ services:
       # indicada, no en el TZ del contenedor.
       DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}
       QUOTA_TIMEZONE: ${QUOTA_TIMEZONE:-America/Bogota}
+      # Observabilidad (W6.3): logs JSON en stdout y Sentry solo si hay DSN.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-produccion}
+      # Muestreo de trazas de Sentry entre 0 y 1; por defecto apagado.
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+      # W6.2 termina TLS en el proxy y reenvía X-Forwarded-Proto. Uvicorn solo
+      # confía en estas IPs (por defecto 127.0.0.1); si el proxy es otro
+      # contenedor de la red de compose, añade su dirección o la subred.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
       # Solo loopback: el proxy de W6.2 es el que expone el puerto público.
       - "127.0.0.1:${APP_PORT:-8000}:8000"

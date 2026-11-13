@@ -360,9 +360,10 @@ def test_fallo_inesperado_no_se_convierte_en_503() -> None:
     # Act
     response = client.post("/ask", data={"question": "¿Cuándo nació?"})
 
-    # Assert
+    # Assert: el 500 es genérico y no filtra el mensaje interno.
     assert response.status_code == 500
-    assert SERVICE_UNAVAILABLE not in response.text
+    assert SERVICE_UNAVAILABLE in response.text
+    assert "detalle interno" not in response.text
 
 
 def test_portada_carga_htmx_local() -> None:
