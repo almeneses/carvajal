@@ -1,25 +1,16 @@
 /* Hilo de conversación y citas; reutiliza las variables del tema de app.css. */
 
-.hilo {
-  display: grid;
-  gap: 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+.hilo { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
 
-.turno {
-  display: grid;
-  gap: 0.4rem;
-}
+.turno { display: grid; gap: 0.4rem; }
 
 .turno-rol {
   margin: 0;
   color: var(--secundario);
   font-size: 0.8rem;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .burbuja {
@@ -30,24 +21,11 @@
   box-shadow: var(--sombra);
 }
 
-.turno-user .burbuja {
-  border-left: 4px solid var(--primario);
-  background: var(--fondo-suave);
-}
+.turno-user .burbuja { border-left: 4px solid var(--primario); background: var(--fondo-suave); }
+.turno-assistant .burbuja { border-left: 4px solid var(--naranja); }
 
-.turno-assistant .burbuja {
-  border-left: 4px solid var(--naranja);
-}
-
-.citas {
-  margin-top: 0.25rem;
-}
-
-.citas h3 {
-  margin: 0.75rem 0 0.5rem;
-  color: var(--secundario);
-  font-size: 0.95rem;
-}
+.citas { margin-top: 0.25rem; }
+.citas h3 { margin: 0.75rem 0 0.5rem; color: var(--secundario); font-size: 0.95rem; }
 
 .vacio {
   margin: 0;
