@@ -1,0 +1,37 @@
+/* Hilo de conversación y citas; reutiliza las variables del tema de app.css. */
+
+.hilo { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
+
+.turno { display: grid; gap: 0.4rem; }
+
+.turno-rol {
+  margin: 0;
+  color: var(--secundario);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.burbuja {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--fondo);
+  box-shadow: var(--sombra);
+}
+
+.turno-user .burbuja { border-left: 4px solid var(--primario); background: var(--fondo-suave); }
+.turno-assistant .burbuja { border-left: 4px solid var(--naranja); }
+
+.citas { margin-top: 0.25rem; }
+.citas h3 { margin: 0.75rem 0 0.5rem; color: var(--secundario); font-size: 0.95rem; }
+
+.vacio {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--borde);
+  border-radius: var(--radio);
+  color: var(--secundario);
+  background: var(--fondo-suave);
+}

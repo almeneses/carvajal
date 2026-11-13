@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Corpus — Asistente Carvajal{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/corpus.css" />
+{% endblock %}
+{% block content %}
+<section class="seccion" aria-labelledby="titulo-corpus">
+  <h1 id="titulo-corpus">Corpus</h1>
+  <p class="entradilla">
+    Documentos capturados del sitio de Carvajal y de fuentes externas. Filtra por sección o capa
+    para revisar su procedencia y abre cualquiera para leer su contenido.
+  </p>
+
+  <form class="formulario" method="get" action="/corpus" role="search">
+    <div class="campo">
+      <label for="seccion">Sección</label>
+      <select id="seccion" name="section">
+        <option value="">Todas las secciones</option>
+        {% for option in sections %}
+        <option value="{{ option }}"{% if option == section %} selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="campo">
+      <label for="capa">Capa</label>
+      <select id="capa" name="layer">
+        <option value="">Todas las capas</option>
+        <option value="core"{% if layer == "core" %} selected{% endif %}>Núcleo (core)</option>
+        <option value="extended"{% if layer == "extended" %} selected{% endif %}>Extendida</option>
+      </select>
+    </div>
+    <button type="submit">Filtrar</button>
+    <a class="limpiar" href="/corpus">Limpiar</a>
+  </form>
+
+  {% if documents %}
+  <div class="tabla-envoltura">
+    <table class="tabla-corpus">
+      <caption class="ayuda">
+        Documentos ordenados por slug; se muestran {{ documents | length }} de esta página.
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">Título</th>
+          <th scope="col">Sección</th>
+          <th scope="col">Capa</th>
+          <th scope="col">Fecha</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for document in documents %}
+        <tr>
+          <th scope="row"><a href="/documents/{{ document.id }}">{{ document.title }}</a></th>
+          <td>{{ document.section }}</td>
+          <td><span class="etiqueta etiqueta-{{ document.layer }}">{{ document.layer }}</span></td>
+          <td>
+            <time datetime="{{ document.captured_at.strftime('%Y-%m-%d') }}">
+              {{ document.captured_at.strftime("%Y-%m-%d") }}
+            </time>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="vacio" role="status">
+    No hay documentos que coincidan con los filtros. Prueba con otra sección o capa.
+  </p>
+  {% endif %}
+
+  {% if prev_url or next_url %}
+  <nav class="paginacion" aria-label="Paginación del corpus">
+    {% if prev_url %}
+    <a class="pagina" rel="prev" href="{{ prev_url }}">Anterior</a>
+    {% endif %}
+    <span class="pagina-actual" aria-current="page">Página {{ page }}</span>
+    {% if next_url %}
+    <a class="pagina" rel="next" href="{{ next_url }}">Siguiente</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</section>
+{% endblock %}

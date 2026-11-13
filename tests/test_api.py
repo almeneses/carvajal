@@ -111,7 +111,7 @@ def test_portada_aplica_el_tema_y_la_accesibilidad_basica() -> None:
     assert "corpus público de Carvajal" in response.text
 
 
-def test_la_navegacion_solo_enlaza_secciones_de_la_pagina() -> None:
+def test_la_navegacion_enlaza_la_portada_y_las_pantallas() -> None:
     # Arrange
     client = make_client()
 
@@ -119,7 +119,9 @@ def test_la_navegacion_solo_enlaza_secciones_de_la_pagina() -> None:
     response = client.get("/")
 
     # Assert
-    assert 'href="#preguntar"' in response.text and 'id="preguntar"' in response.text
+    assert 'href="/#preguntar"' in response.text and 'id="preguntar"' in response.text
+    assert 'href="/corpus"' in response.text
+    assert 'href="/chat"' in response.text
     assert 'href="#respuesta"' not in response.text
 
 
