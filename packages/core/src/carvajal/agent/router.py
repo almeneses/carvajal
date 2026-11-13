@@ -113,10 +113,9 @@ def looks_elliptical(question: str, turns: list[Turn]) -> bool:
     if not turns:
         return False
     normalized = _plain(question)
-    # Solo los marcadores anafóricos convierten una pregunta en seguimiento:
-    # una pregunta corta e independiente («¿Qué es LiquidezYa?») no debe
-    # reescribirse con el turno anterior.
-    return any(marker in normalized for marker in _ELLIPTICAL)
+    # Solo los marcadores anafóricos convierten una pregunta en seguimiento.
+    # Se comparan como palabras completas: «proceso» no contiene «eso».
+    return any(re.search(rf"\b{re.escape(marker)}\b", normalized) for marker in _ELLIPTICAL)
 
 
 def _expand(question: str) -> str:
@@ -130,11 +129,13 @@ def _expand(question: str) -> str:
 
     normalized = _plain(question)
     extras: list[str] = []
-    if ("fundad" in normalized or "fundacion" in normalized or "nacio" in normalized) and (
-        "carvajal" in normalized
-    ):
+    if (
+        "fundad" in normalized or "fundacion" in normalized or re.search(r"\bnacio\b", normalized)
+    ) and "carvajal" in normalized:
         extras.append("1904 Cali Colombia")
-    if "presencia" in normalized and ("pais" in normalized or "paises" in normalized):
+    if "presencia" in normalized and (
+        re.search(r"\bpais\b", normalized) or re.search(r"\bpaises\b", normalized)
+    ):
         extras.append("10 países")
     if "empleado" in normalized or "nomina" in normalized:
         extras.append("13.000 empleados")

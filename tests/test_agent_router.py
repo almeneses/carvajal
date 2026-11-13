@@ -53,6 +53,16 @@ def test_un_saludo_con_pregunta_documental_no_es_directo() -> None:
     assert decision.route == "rag"
 
 
+def test_la_palabra_proceso_no_activa_el_marcador_eso() -> None:
+    decision = decide_route("¿Cuál es el proceso de innovación?", TURNS)
+    assert decision.intent == "documental"
+
+
+def test_nacional_no_activa_la_expansion_de_nacimiento() -> None:
+    decision = decide_route("¿Cuál es la presencia nacional de Carvajal?")
+    assert "1904 Cali Colombia" not in decision.query
+
+
 def test_una_pregunta_corta_sin_marca_anafórica_no_es_seguimiento() -> None:
     # Act
     decision = decide_route("¿Qué es LiquidezYa?", TURNS)
