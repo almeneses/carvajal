@@ -17,12 +17,14 @@ __all__ = [
     "CABECERAS",
     "CSRF_COOKIE",
     "CSRF_FIELD",
+    "CSRF_INVALIDO",
     "SecurityMiddleware",
     "verify_csrf",
 ]
 
 CSRF_COOKIE = "carvajal_csrf"
 CSRF_FIELD = "csrf_token"
+CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
 CSRF_MAX_AGE = 60 * 60 * 12  # doce horas
 _STATIC_PREFIX = "/static"
 

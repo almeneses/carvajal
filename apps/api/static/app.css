@@ -123,6 +123,30 @@ a {
   border-bottom-color: var(--primario);
 }
 
+.navegacion-usuario {
+  color: var(--fondo);
+  opacity: 0.85;
+}
+
+.form-salir {
+  display: inline;
+  margin: 0;
+}
+
+.form-salir button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--fondo);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 0 2px;
+}
+
+.form-salir button:hover {
+  border-bottom-color: var(--primario);
+}
+
 /* Contenido. */
 
 main {

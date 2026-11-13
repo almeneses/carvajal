@@ -11,6 +11,7 @@ y ``llm`` son singletons y cada petición abre su propia sesión.
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from apps.api.auth.router import router as auth_router
 from apps.api.deps import (
     APP_DIR,
     DB_UNAVAILABLE,
@@ -46,6 +47,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     app.include_router(health.router)
     app.include_router(chat.router)
+    app.include_router(auth_router)
     return app
 
 

@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     sentry_environment: str = "local"
     sentry_traces_sample_rate: float = 0.0
 
+    # Acceso con Google (W4.1). Los valores reales viven en .env; sin client_id
+    # el login responde 503 y la app sigue funcionando en modo anónimo.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    auth_redirect_uri: str = "http://localhost:8000/auth/callback"
+    auth_session_days: int = 14
+
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
         """Deriva la URL del contenedor local si no se dio una explícita.

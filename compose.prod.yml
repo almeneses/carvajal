@@ -53,6 +53,11 @@ services:
       # Sin DSN no se envía nada a Sentry.
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-produccion}
+      # Acceso con Google (W4.1). AUTH_REDIRECT_URI debe ser la URL pública.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      AUTH_REDIRECT_URI: ${AUTH_REDIRECT_URI:-http://localhost:8000/auth/callback}
+      AUTH_SESSION_DAYS: ${AUTH_SESSION_DAYS:-14}
     ports:
       # Solo loopback: el proxy de W6.2 es el que expone el puerto público.
       - "127.0.0.1:${APP_PORT:-8000}:8000"

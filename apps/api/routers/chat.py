@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.deps import SERVICE_UNAVAILABLE, Handlers, get_handlers, message, templates
-from apps.api.security import verify_csrf
+from apps.api.security import CSRF_INVALIDO, verify_csrf
 from apps.api.session import owner_key
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.application.ask import LLMError
@@ -18,8 +18,6 @@ __all__ = ["router"]
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["chat"])
-
-CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
 
 
 @router.get("/", response_class=HTMLResponse)

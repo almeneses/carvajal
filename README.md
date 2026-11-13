@@ -293,6 +293,13 @@ La imagen instala solo las dependencias del runtime web; los extras `capture`
 (CLI de captura) y `legacy` (Streamlit y FAISS) se quedan fuera y se instalan en
 desarrollo con `uv sync --all-extras`. El proxy con TLS queda para W6.2.
 
+## Acceso con Google
+
+La app funciona sin login (modo anónimo). Para habilitar el acceso define
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y `AUTH_REDIRECT_URI` en `.env`, y
+registra ese mismo redirect en Google Cloud. El esquema se crea con
+`alembic upgrade head`; sin credenciales, `/auth/login` responde 503.
+
 ## Estructura
 
 ```text

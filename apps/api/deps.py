@@ -13,6 +13,7 @@ from fastapi import Request, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 
+from apps.api.auth.deps import current_user_from_request
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_engine, build_session_factory
 from carvajal.adapters.vector.pgvector_store import PgVectorStore
@@ -35,15 +36,18 @@ __all__ = [
 APP_DIR = Path(__file__).resolve().parent
 
 
-def _contexto_csrf(request: Request) -> dict[str, str]:
-    """Expone el token CSRF del middleware a todas las plantillas."""
+def _contexto(request: Request) -> dict[str, object]:
+    """Expone a las plantillas el token CSRF y el usuario de la sesión."""
 
-    return {"csrf_token": getattr(request.state, "csrf_token", "")}
+    return {
+        "csrf_token": getattr(request.state, "csrf_token", ""),
+        "current_user": current_user_from_request(request),
+    }
 
 
 templates = Jinja2Templates(
     directory=APP_DIR / "templates",
-    context_processors=[_contexto_csrf],
+    context_processors=[_contexto],
 )
 
 DB_UNAVAILABLE = "La base de datos no responde."
