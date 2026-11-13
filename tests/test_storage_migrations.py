@@ -75,6 +75,8 @@ def _assert_head_schema(engine: Engine) -> None:
         "role",
         "content",
         "sources",
+        "status",
+        "client_turn_id",
         "created_at",
     }
     assert columns["usage_day"] == {"owner_key", "day", "requests", "tokens"}

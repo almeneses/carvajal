@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 __all__ = ["ChatEvent", "EventName"]
 
-EventName = Literal["open", "meta", "token", "fallback", "done", "error"]
+EventName = Literal["open", "trace", "meta", "token", "fallback", "done", "error"]
 
 
 @dataclass(frozen=True)
