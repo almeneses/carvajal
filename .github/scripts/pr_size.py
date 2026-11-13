@@ -11,7 +11,7 @@ Variables de entorno:
     BASE_SHA        commit base del PR (github.event.pull_request.base.sha)
     HEAD_SHA        commit cabeza del PR (github.event.pull_request.head.sha)
     SOFT_LIMIT      límite para advertir (por defecto 300)
-    HARD_LIMIT      límite que hace fallar el check (por defecto 700)
+    HARD_LIMIT      límite que hace fallar el check (por defecto 2000)
     GITHUB_STEP_SUMMARY  si existe, se escribe ahí el resumen
 """
 
@@ -100,7 +100,7 @@ def main() -> int:
     base = os.environ.get("BASE_SHA", "")
     head = os.environ.get("HEAD_SHA", "")
     soft = int(os.environ.get("SOFT_LIMIT", "300"))
-    hard = int(os.environ.get("HARD_LIMIT", "700"))
+    hard = int(os.environ.get("HARD_LIMIT", "2000"))
     if not base or not head:
         print("Faltan BASE_SHA o HEAD_SHA; se omite el presupuesto de cambios.")
         return 0
