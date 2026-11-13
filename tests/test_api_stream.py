@@ -114,7 +114,7 @@ def test_stream_emite_open_meta_tokens_y_done_en_orden() -> None:
     # Assert
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
-    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-accel-buffering"] == "no"
     events = parse_sse(response.text)
     assert [name for name, _ in events] == ["open", "meta", "token", "token", "done"]

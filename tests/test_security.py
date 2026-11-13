@@ -11,7 +11,15 @@ from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import SERVICE_UNAVAILABLE, Handlers, HealthStatus, create_app
 from apps.api.runtime import APP_DIR
-from apps.api.security import CABECERAS, CSRF_COOKIE, CSRF_FIELD, HSTS
+from apps.api.security import (
+    CABECERAS,
+    CSRF_COOKIE,
+    CSRF_FIELD,
+    HSTS,
+    SecurityMiddleware,
+    build_csrf_secret,
+    valid_token,
+)
 from carvajal.application.ask import Answer
 from carvajal.application.quota import QuotaResult
 
@@ -212,6 +220,56 @@ def test_no_hay_swagger_publico() -> None:
 
     assert client.get("/docs").status_code == 404
     assert client.get("/openapi.json").status_code == 404
+
+
+def test_una_cookie_csrf_fijada_por_tercero_se_reemplaza() -> None:
+    """El token emitido va firmado: una cookie impuesta no sirve."""
+
+    # Arrange
+    client = _client()
+    client.cookies.set(CSRF_COOKIE, "token-elegido-por-el-atacante")
+
+    # Act
+    response = client.get("/")
+
+    # Assert
+    token = response.cookies[CSRF_COOKIE]
+    assert token != "token-elegido-por-el-atacante"
+    assert valid_token(build_csrf_secret(), token)
+
+
+def test_el_token_csrf_tiene_firma_y_no_es_el_valor_del_formulario_ajeno() -> None:
+    """La firma impide que un token arbitrario pase la comparación."""
+
+    # Arrange
+    secret = build_csrf_secret()
+
+    # Act / Assert
+    assert not valid_token(secret, "sin-firma")
+    assert not valid_token(secret, "nonce.firma-inventada")
+    assert not valid_token(secret, "")
+
+
+def test_no_store_sobrescribe_una_cache_publica_previa() -> None:
+    """Una respuesta con token nunca conserva un Cache-Control público."""
+
+    # Arrange
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+
+    async def publica(request: Any) -> PlainTextResponse:
+        return PlainTextResponse("ok", headers={"Cache-Control": "public, max-age=60"})
+
+    app = Starlette(routes=[Route("/", publica)])
+    app.add_middleware(SecurityMiddleware, secret=build_csrf_secret())
+    client = TestClient(app)
+
+    # Act
+    response = client.get("/")
+
+    # Assert
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_las_paginas_con_token_no_se_cachean() -> None:
