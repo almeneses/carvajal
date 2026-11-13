@@ -13,10 +13,10 @@ sesión sin publicar el turno.
 from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 from functools import cache
-from logging import getLogger
 from time import perf_counter
 from typing import Any, Protocol, runtime_checkable
 
+import structlog
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api import runtime
@@ -28,7 +28,7 @@ from carvajal.application.ports import Embedder, LLMProvider
 
 __all__ = ["ChatProvider", "ChatService", "default_chat_service"]
 
-logger = getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 SERVICE_UNAVAILABLE = "El servicio de chat no está disponible en este momento."
 
@@ -138,7 +138,7 @@ class ChatService:
                 except Exception as error:
                     if "".join(fragments).strip():
                         raise
-                    logger.warning("Fallo del stream antes del primer token: %s", error)
+                    logger.warning("chat.stream_fallback", error=str(error))
                 if not "".join(fragments).strip():
                     answer = ask.answer_prepared(prepared)
                     fragments = [answer.text]
@@ -163,7 +163,7 @@ class ChatService:
                 },
             )
         except Exception as error:
-            logger.warning("Fallo en el stream del chat: %s", error)
+            logger.warning("chat.stream_failed", error=str(error))
             _safe_rollback(session)
             yield ChatEvent(
                 "error",
@@ -218,7 +218,7 @@ def _safe_rollback(session: Session | None) -> None:
     try:
         session.rollback()
     except Exception:
-        logger.debug("No se pudo revertir la sesión del stream.", exc_info=True)
+        logger.debug("chat.rollback_failed", exc_info=True)
 
 
 class _DeferredEmbedder:

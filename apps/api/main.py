@@ -9,8 +9,8 @@ petición abre su propia sesión.
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
-from logging import getLogger
 
+import structlog
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +18,12 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.identity import ChatIdentity
+from apps.api.observability import (
+    RequestContextMiddleware,
+    UnhandledErrorMiddleware,
+    capture_exception,
+    configure_observability,
+)
 from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
 from apps.api.views import chat, corpus, documents, stream
 from carvajal.adapters.embeddings import EmbeddingError
@@ -28,7 +34,7 @@ from carvajal.application.ask import Answer, AskQuestion, LLMError
 from carvajal.application.quota import DailyQuota, QuotaResult
 from carvajal.infrastructure.settings import Settings
 
-logger = getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 DB_UNAVAILABLE = "La base de datos no responde."
 SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este momento."
@@ -112,6 +118,12 @@ def _message(
     )
 
 
+def _unhandled(request: Request, error: Exception) -> Response:
+    """Respuesta genérica para un 500: sin trazas ni detalles internos."""
+
+    return _message(request, 500, SERVICE_UNAVAILABLE)
+
+
 def _emit_identity(
     response: Response,
     request: Request,
@@ -130,8 +142,13 @@ def _emit_identity(
 def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
+    configure_observability()
     app = FastAPI(title="Corpus Carvajal")
     app.state.quota = handlers.quota if handlers is not None else _default_quota
+    # El error no controlado se maneja dentro de la pila para que la respuesta
+    # 500 también pase por el request_id (y por las cabeceras de seguridad).
+    app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
+    app.add_middleware(RequestContextMiddleware)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     for module in (corpus, documents, chat, stream):
         app.include_router(module.router)
@@ -147,7 +164,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         try:
             status = (handlers or _default_handlers()).health()
         except (SQLAlchemyError, OSError) as error:  # la base no responde
-            logger.warning("Health check falló: %s", error)
+            logger.warning("health.failed", error=str(error))
             return JSONResponse({"status": "degraded", "detail": DB_UNAVAILABLE}, status_code=503)
         return JSONResponse(
             {"status": "ok", "documents": status.documents, "chunks": status.chunks}
@@ -167,12 +184,15 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         stored_owner = identity.read(request)
         new_owner = stored_owner is None
         owner_key = stored_owner or identity.new_owner_key()
+        # A partir de aquí, todo log de la petición (incluido el consumo de
+        # tokens del adaptador) queda asociado al visitante anónimo.
+        structlog.contextvars.bind_contextvars(owner_key=owner_key)
         current = handlers or _default_handlers()
 
         try:
             quota = current.quota(owner_key)
         except SQLAlchemyError as error:
-            logger.warning("No se pudo consultar la cuota diaria: %s", error)
+            logger.warning("quota.failed", error=str(error))
             unavailable = _message(request, 503, SERVICE_UNAVAILABLE)
             return _emit_identity(unavailable, request, identity, owner_key, new_owner=new_owner)
 
@@ -188,7 +208,9 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         try:
             answer = current.ask(text)
         except (EmbeddingError, LLMError, SQLAlchemyError) as error:
-            logger.warning("Fallo al responder: %s", error)
+            logger.warning("ask.failed", error=str(error))
+            if isinstance(error, LLMError):
+                capture_exception(error)
             unavailable = _message(request, 503, SERVICE_UNAVAILABLE)
             return _emit_identity(unavailable, request, identity, owner_key, new_owner=new_owner)
 
