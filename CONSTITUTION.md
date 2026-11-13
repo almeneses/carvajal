@@ -326,6 +326,7 @@ git push
 | 2026-11-11 | Shell web FastAPI con handlers diferidos, `/health`, portada HTMX y `/ask` con citas | Importar el módulo no abre conexiones; los fallos de proveedor se traducen a 503 sin filtrar detalles internos |
 | 2026-11-12 | Imagen Docker multi-etapa; captura y prototipo Streamlit pasan a extras (`capture`, `legacy`) | El contenedor instala solo el runtime web (259 MB) y el arranque no importa LangChain; desarrollo y CI siguen instalando todo con `--all-extras` |
 | 2026-11-12 | Logs JSON con `request_id` por petición, consumo de tokens por visitante y Sentry opcional por `SENTRY_DSN` | Una petición se sigue de punta a punta sin abrir el código; sin DSN no sale nada del proceso y `send_default_pii` queda en `False` |
+| 2026-11-12 | CSRF por doble cookie, cabeceras de seguridad con CSP sin `unsafe-inline`, HSTS solo sobre TLS y Swagger fuera | El POST sin token se rechaza con 403; el script del formulario pasa a `/static/app.js` para que la CSP sea estricta; las cookies son `HttpOnly` y `SameSite=Lax` |
 
 ## 10. Notas y tareas pendientes
 

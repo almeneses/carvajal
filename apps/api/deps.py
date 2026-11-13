@@ -33,7 +33,18 @@ __all__ = [
 ]
 
 APP_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=APP_DIR / "templates")
+
+
+def _contexto_csrf(request: Request) -> dict[str, str]:
+    """Expone el token CSRF del middleware a todas las plantillas."""
+
+    return {"csrf_token": getattr(request.state, "csrf_token", "")}
+
+
+templates = Jinja2Templates(
+    directory=APP_DIR / "templates",
+    context_processors=[_contexto_csrf],
+)
 
 DB_UNAVAILABLE = "La base de datos no responde."
 SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este momento."

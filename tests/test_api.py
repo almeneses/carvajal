@@ -14,6 +14,7 @@ from apps.api.main import (
     HealthStatus,
     create_app,
 )
+from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.application.ask import Answer, LLMError, Source
 
@@ -38,6 +39,14 @@ def make_client(
         ),
         raise_server_exceptions=raise_server_exceptions,
     )
+
+
+def _ask(client: TestClient, question: str):
+    """Envía una pregunta con el token CSRF que emite la portada."""
+
+    client.get("/")
+    token = client.cookies[CSRF_COOKIE]
+    return client.post("/ask", data={"question": question, CSRF_FIELD: token})
 
 
 def failing(error: Exception) -> Callable[[str], Answer]:
@@ -156,7 +165,7 @@ def test_ask_devuelve_respuesta_y_fuentes() -> None:
     client = make_client()
 
     # Act
-    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+    response = _ask(client, "¿Cuándo nació?")
 
     # Assert
     assert response.status_code == 200
@@ -170,7 +179,7 @@ def test_pregunta_vacia_devuelve_422() -> None:
     client = make_client()
 
     # Act
-    response = client.post("/ask", data={"question": "   "})
+    response = _ask(client, "   ")
 
     # Assert
     assert response.status_code == 422
@@ -186,7 +195,7 @@ def test_error_interno_no_filtra_detalles() -> None:
     )
 
     # Act
-    response = client.post("/ask", data={"question": "¿?"})
+    response = _ask(client, "¿?")
 
     # Assert
     assert response.status_code == 500
@@ -206,7 +215,7 @@ def test_fallos_de_proveedor_devuelven_503(error: Exception) -> None:
     client = make_client(ask=failing(error))
 
     # Act
-    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+    response = _ask(client, "¿Cuándo nació?")
 
     # Assert
     assert response.status_code == 503
@@ -222,7 +231,7 @@ def test_fallo_inesperado_no_se_convierte_en_503() -> None:
     )
 
     # Act
-    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+    response = _ask(client, "¿Cuándo nació?")
 
     # Assert
     assert response.status_code == 500
@@ -249,7 +258,7 @@ def test_la_salida_escapa_html() -> None:
     client = make_client(ask=lambda question: Answer(text=peligro, sources=(source,)))
 
     # Act
-    response = client.post("/ask", data={"question": "¿?"})
+    response = _ask(client, "¿?")
 
     # Assert
     assert response.status_code == 200
