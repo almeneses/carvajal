@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     database_url: str = ""
 
+    # Firma de la cookie anónima del chat. No es autenticación. Si está vacío
+    # se usa un secreto aleatorio por proceso; en producción debe fijarse para
+    # que las cookies sobrevivan reinicios y compartan valor entre workers.
+    session_secret: str = ""
+
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
         """Deriva la URL del contenedor local si no se dio una explícita.
