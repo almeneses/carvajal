@@ -8,25 +8,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
 from logging import getLogger
-from pathlib import Path
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from carvajal.adapters.embeddings import EmbeddingError, OllamaEmbedder
-from carvajal.adapters.llm import build_llm_provider
+from apps.api.runtime import APP_DIR, embedder, llm_provider, session_factory, templates
+from apps.api.views import chat, corpus, documents, stream
+from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
-from carvajal.adapters.storage.database import build_engine, build_session_factory
 from carvajal.adapters.vector.pgvector_store import PgVectorStore
 from carvajal.application.ask import Answer, AskQuestion, LLMError
-from carvajal.infrastructure.settings import Settings
 
-APP_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=APP_DIR / "templates")
 logger = getLogger(__name__)
 
 DB_UNAVAILABLE = "La base de datos no responde."
@@ -53,20 +48,19 @@ class Handlers:
 def _default_handlers() -> Handlers:
     """Construye los handlers reales una sola vez, al primer uso."""
 
-    settings = Settings()
-    session_factory = build_session_factory(build_engine(settings.database_url))
-    embedder = OllamaEmbedder()
-    llm = build_llm_provider(settings)
+    factory = session_factory()
+    embed = embedder()
+    llm = llm_provider()
 
     def health() -> HealthStatus:
-        with session_factory.begin() as session:
+        with factory.begin() as session:
             documents = session.scalar(select(func.count()).select_from(tables.documents))
             chunks = session.scalar(select(func.count()).select_from(tables.chunks))
         return HealthStatus(documents or 0, chunks or 0)
 
     def ask(question: str) -> Answer:
-        with session_factory.begin() as session:
-            return AskQuestion(PgVectorStore(session), embedder, llm).answer(question)
+        with factory.begin() as session:
+            return AskQuestion(PgVectorStore(session), embed, llm).answer(question)
 
     return Handlers(ask=ask, health=health)
 
@@ -82,6 +76,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
 
     app = FastAPI(title="Corpus Carvajal")
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
+    for module in (corpus, documents, chat, stream):
+        app.include_router(module.router)
 
     @app.get("/health")
     def health() -> JSONResponse:
