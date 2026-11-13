@@ -1,5 +1,6 @@
 // Stream SSE del chat (W3.4).
-// Degrada al POST normal del formulario si el navegador no soporta streaming.
+// Degrada al POST normal si falta soporte de streaming o la conexión falla
+// antes del primer token; el servidor solo persiste el turno al recibir done.
 (() => {
   "use strict";
 
@@ -32,6 +33,12 @@
 
     const pregunta = input.value.trim();
     if (!pregunta) {
+      avisar("Escribe una pregunta antes de enviar.", true);
+      input.focus();
+      return;
+    }
+    if (pregunta.length > 500) {
+      avisar("La pregunta no puede superar los 500 caracteres.", true);
       input.focus();
       return;
     }
@@ -53,6 +60,7 @@
     const control = new AbortController();
     const temporizador = setTimeout(() => control.abort(), 120000);
     let cerrado = false;
+    let recibioContenido = false;
     try {
       const response = await fetch(`/chat/stream?question=${encodeURIComponent(pregunta)}`, {
         headers: { Accept: "text/event-stream" },
@@ -72,12 +80,16 @@
             pintarFuentes(turnoAsistente, evento.datos.sources);
             avisar("Redactando…");
             break;
-          case "token":
-            texto.textContent += String(evento.datos.text ?? "");
+          case "token": {
+            const fragmento = String(evento.datos.text ?? "");
+            texto.textContent += fragmento;
+            if (fragmento) recibioContenido = true;
             break;
+          }
           case "fallback":
             texto.textContent = String(evento.datos.text ?? "");
             pintarFuentes(turnoAsistente, evento.datos.sources);
+            recibioContenido = true;
             avisar("Respuesta completa sin streaming.");
             break;
           case "done":
@@ -101,6 +113,16 @@
         if (!texto.textContent) texto.textContent = INCOMPLETA;
       }
     } catch (error) {
+      if (!recibioContenido && !cerrado) {
+        // Falló antes del primer token y el servidor no persistió el turno:
+        // restaura la pregunta y reintenta por el POST normal del formulario.
+        input.value = pregunta;
+        turnoUsuario.remove();
+        turnoAsistente.remove();
+        avisar("La conexión falló; enviando la pregunta sin streaming…");
+        form.submit(); // HTMLFormElement.submit() no dispara el listener de submit
+        return;
+      }
       avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
       if (!texto.textContent) turnoAsistente.remove();
     } finally {

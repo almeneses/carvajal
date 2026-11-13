@@ -4,7 +4,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from http.cookies import SimpleCookie
-from time import perf_counter
+from time import perf_counter, sleep
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,6 +34,19 @@ class FakeChat:
             if event.name == "done":
                 self.persisted += 1
             yield event
+
+
+class SlowTokenChat(FakeChat):
+    """Retrasa el primer token para comprobar que se mide el token, no ``open``."""
+
+    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+        self.calls.append((owner_key, question))
+        yield ChatEvent("open", {"stream": "chat"})
+        yield ChatEvent("meta", {"sources": []})
+        sleep(0.1)
+        yield ChatEvent("token", {"text": "Carvajal"})
+        yield ChatEvent("done", DONE)
+        self.persisted += 1
 
 
 def ok_events() -> list[ChatEvent]:
@@ -196,20 +209,42 @@ def test_pregunta_invalida_devuelve_422_sse_sin_llamar_al_proveedor(
     assert chat.calls == []
 
 
-def test_el_primer_evento_llega_en_menos_de_dos_segundos() -> None:
+def test_open_es_el_primer_evento_y_llega_en_menos_de_dos_segundos() -> None:
     # Arrange: el doble responde de inmediato; la medición es una cota superior.
     client, _ = make_client()
 
     # Act
     inicio = perf_counter()
-    primer_evento: float | None = None
+    primer_evento: tuple[str, float] | None = None
     with client.stream("GET", "/chat/stream", params={"question": "¿Cuándo nació?"}) as response:
         assert response.status_code == 200
         for line in response.iter_lines():
             if line.startswith("event:"):
-                primer_evento = perf_counter() - inicio
+                nombre = line.removeprefix("event:").strip()
+                primer_evento = (nombre, perf_counter() - inicio)
                 break
 
     # Assert
     assert primer_evento is not None, "el stream no emitió ningún evento"
-    assert primer_evento < 2.0, f"el primer evento tardó {primer_evento:.3f} s"
+    assert primer_evento[0] == "open"
+    assert primer_evento[1] < 2.0, f"open tardó {primer_evento[1]:.3f} s"
+
+
+def test_el_primer_token_llega_en_menos_de_dos_segundos() -> None:
+    # Arrange: open/meta salen de inmediato y el token se retrasa 100 ms; medir
+    # open por error daría una latencia menor y rompería la cota inferior.
+    client, _ = make_client(SlowTokenChat())
+
+    # Act
+    inicio = perf_counter()
+    primer_token: float | None = None
+    with client.stream("GET", "/chat/stream", params={"question": "¿Cuándo nació?"}) as response:
+        assert response.status_code == 200
+        for line in response.iter_lines():
+            if line.strip() == "event: token":
+                primer_token = perf_counter() - inicio
+                break
+
+    # Assert
+    assert primer_token is not None, "el stream no emitió ningún token"
+    assert 0.05 <= primer_token < 2.0, f"el primer token tardó {primer_token:.3f} s"
