@@ -16,6 +16,7 @@ from apps.api.chat.identity import SignedCookieIdentity
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import SERVICE_UNAVAILABLE, Handlers, HealthStatus, create_app
 from apps.api.observability import REQUEST_ID_HEADER, init_sentry
+from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from carvajal.adapters.llm._chat import _LangChainChat
 from carvajal.application.ask import Answer
 from carvajal.application.quota import QuotaResult
@@ -79,6 +80,13 @@ def _client() -> TestClient:
     )
 
 
+def _data(client: TestClient, **campos: str) -> dict[str, str]:
+    """Datos de formulario con el token CSRF emitido por una página."""
+
+    client.get("/")
+    return {**campos, CSRF_FIELD: client.cookies[CSRF_COOKIE]}
+
+
 def test_la_respuesta_devuelve_un_request_id() -> None:
     """Toda respuesta lleva un identificador de petición generado si no viene."""
 
@@ -135,7 +143,7 @@ def test_un_500_lleva_request_id_y_no_filtra_detalles() -> None:
     client = TestClient(app, raise_server_exceptions=False)
 
     # Act
-    response = client.post("/ask", data={"question": "¿?"})
+    response = client.post("/ask", data=_data(client, question="¿?"))
 
     # Assert
     assert response.status_code == 500
@@ -285,7 +293,8 @@ def test_ask_vincula_owner_key_al_contexto() -> None:
     app.state.chat_identity = IDENTITY
 
     # Act
-    response = TestClient(app).post("/ask", data={"question": "¿Cuándo nació?"})
+    client = TestClient(app)
+    response = client.post("/ask", data=_data(client, question="¿Cuándo nació?"))
 
     # Assert
     assert response.status_code == 200
@@ -304,8 +313,11 @@ def test_chat_vincula_owner_key_al_contexto() -> None:
     app.state.quota = lambda owner: QuotaResult(allowed=True)
 
     # Act
-    response = TestClient(app).post(
-        "/chat", data={"question": "¿Cuándo nació?"}, follow_redirects=False
+    client = TestClient(app)
+    response = client.post(
+        "/chat",
+        data=_data(client, question="¿Cuándo nació?"),
+        follow_redirects=False,
     )
 
     # Assert
@@ -325,7 +337,8 @@ def test_chat_stream_vincula_owner_key_al_contexto() -> None:
     app.state.quota = lambda owner: QuotaResult(allowed=True)
 
     # Act
-    response = TestClient(app).post("/chat/stream", data={"question": "¿Cuándo nació?"})
+    client = TestClient(app)
+    response = client.post("/chat/stream", data=_data(client, question="¿Cuándo nació?"))
 
     # Assert
     assert response.status_code == 200

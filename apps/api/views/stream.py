@@ -17,7 +17,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider
 from apps.api.chat.streaming import ChatEvent
 from apps.api.observability import capture_exception
+from apps.api.security import verify_csrf
 from apps.api.views.chat import (
+    CSRF_INVALIDO,
     EMPTY_QUESTION,
     LIMITE_ALCANZADO,
     MAX_QUESTION_CHARS,
@@ -42,8 +44,17 @@ SSE_HEADERS = {
 
 
 @router.post("/chat/stream")
-def chat_stream(request: Request, question: str = Form(default="")) -> Response:
+def chat_stream(
+    request: Request,
+    question: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+) -> Response:
     """Responde la pregunta como eventos SSE y persiste el turno al cerrar."""
+
+    # CSRF antes de la cuota y del caso de uso: sin token no se abre el stream.
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _invalid(CSRF_INVALIDO, status_code=403)
 
     text = question.strip()
     if not text:
@@ -135,5 +146,5 @@ def _invalid(
         content=_encode(ChatEvent("error", {"message": message, "incomplete": False})),
         status_code=status_code,
         media_type=SSE_MEDIA_TYPE,
-        headers={**SSE_HEADERS, **(headers or {})},
+        headers={"X-Carvajal-Error": "1", **SSE_HEADERS, **(headers or {})},
     )

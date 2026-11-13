@@ -13,6 +13,7 @@
   </p>
 
   <form class="formulario" method="post" action="/chat" data-chat-stream>
+    {% include "_csrf.html" %}
     <div class="campo">
       <label for="pregunta">Tu pregunta</label>
       <input

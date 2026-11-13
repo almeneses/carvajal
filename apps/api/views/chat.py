@@ -16,12 +16,14 @@ from apps.api.chat.identity import (
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider, default_chat_service
 from apps.api.observability import capture_exception
 from apps.api.runtime import templates
+from apps.api.security import verify_csrf
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.application.ask import LLMError
 from carvajal.application.quota import QuotaResult
 
 __all__ = [
+    "CSRF_INVALIDO",
     "LIMITE_ALCANZADO",
     "chat_provider",
     "consume_quota",
@@ -38,6 +40,7 @@ MAX_QUESTION_CHARS = 500
 EMPTY_QUESTION = "La pregunta no puede estar vacía."
 TOO_LONG_QUESTION = f"La pregunta no puede superar los {MAX_QUESTION_CHARS} caracteres."
 LIMITE_ALCANZADO = "Has alcanzado el límite diario de preguntas. Vuelve a intentarlo mañana."
+CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
 
 
 @router.get("/chat", response_class=HTMLResponse)
@@ -65,7 +68,11 @@ def chat(request: Request) -> Response:
 
 
 @router.post("/chat")
-def chat_turn(request: Request, question: str = Form(default="")) -> Response:
+def chat_turn(
+    request: Request,
+    question: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+) -> Response:
     """Responde un turno y redirige a ``/chat`` solo si la respuesta se guardó."""
 
     text = question.strip()
@@ -75,6 +82,19 @@ def chat_turn(request: Request, question: str = Form(default="")) -> Response:
     owner_key = stored_owner or identity.new_owner_key()
     # Los tokens que genere el LLM quedan asociados a este visitante.
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
+
+    # CSRF antes de la cuota y del caso de uso: un token ajeno no cobra cupo.
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _error_page(
+            request,
+            identity,
+            owner_key,
+            new_owner=new_owner,
+            question=question,
+            message=CSRF_INVALIDO,
+            status_code=403,
+        )
 
     if not text:
         return _error_page(
@@ -196,6 +216,8 @@ def _page(
 ) -> Response:
     """Página completa del chat con su hilo de mensajes."""
 
+    if error is not None:
+        headers = {"X-Carvajal-Error": "1", **(headers or {})}
     return templates.TemplateResponse(
         request,
         "chat.html",

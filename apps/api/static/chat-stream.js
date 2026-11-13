@@ -14,6 +14,7 @@
   if (!soportaStreaming) return;
 
   const input = form.querySelector('input[name="question"]');
+  const csrf = form.querySelector('input[name="csrf_token"]');
   const boton = form.querySelector('button[type="submit"]');
   const hilo = document.getElementById("hilo");
   const estado = document.getElementById("chat-stream-estado");
@@ -68,7 +69,10 @@
           Accept: "text/event-stream",
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: new URLSearchParams({ question: pregunta }),
+        body: new URLSearchParams({
+          question: pregunta,
+          csrf_token: csrf ? csrf.value : "",
+        }),
         signal: control.signal,
       });
       const tipo = response.headers.get("content-type") ?? "";

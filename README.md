@@ -319,7 +319,11 @@ fuera. El build fija las imágenes base por digest y omite `zstandard`
 | `GET /live` | Que el proceso responde (liveness del contenedor). | No |
 | `GET /health` | Conteos de documentos y fragmentos (readiness). | Sí |
 
-El proxy con TLS queda para W6.2.
+El proxy con TLS queda para W6.2. Uvicorn arranca con `--proxy-headers` para
+respetar `X-Forwarded-Proto`; solo confía en las IPs de `FORWARDED_ALLOW_IPS`
+(por defecto `127.0.0.1`). Si el proxy es otro contenedor de la red de compose,
+añade su dirección o subred a esa variable para que `request.url.scheme` sea
+`https`: de ello dependen las cookies `Secure`, HSTS y la cabecera CSRF.
 
 ## Estructura
 
