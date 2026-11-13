@@ -138,10 +138,20 @@ git clone git@github.com:markodavid/carvajal.git
 cd carvajal
 
 # Sincronizar el entorno (crea .venv e instala dependencias)
-uv sync
+uv sync --all-extras
 ```
 
+> `--all-extras` instala también los extras `capture` (HTTP y extracción HTML
+> para la CLI) y `legacy` (Streamlit y FAISS). La app web y su imagen Docker
+> solo necesitan las dependencias base.
+
 ## Uso
+
+> El CLI (`carvajal capture`, `status`, `ask`, `eval`, `summarize`, `faq`,
+> `import`, `migrate-gold`) requiere los extras de captura y prototipo:
+> `uv sync --all-extras` en el repositorio, o
+> `uv tool install "carvajal[capture,legacy]"` fuera de él. La imagen Docker
+> solo instala el runtime web y no incluye el CLI.
 
 ```bash
 # Capturar el sitio oficial y las fuentes de terceros
@@ -248,6 +258,11 @@ También puedes configurar las variables en la terminal:
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
 > independientemente del proveedor del LLM.
 
+Para la app web, `SESSION_SECRET` firma la cookie anónima y es obligatorio en
+producción (`compose.prod.yml` falla si falta); en desarrollo puede quedar vacío
+y se usa un secreto aleatorio por proceso. `DAILY_REQUESTS_LIMIT` queda definido
+para la cuota de W4.2 y `POSTGRES_*`/`DATABASE_URL` configuran la base.
+
 El índice vectorial FAISS se guarda en `data/index/` (ignorado por Git) y se reutiliza
 mientras el corpus no cambie, de modo que la app arranca en segundos. La primera
 ejecución calcula los embeddings desde cero (varios minutos en CPU). Para forzar el
@@ -265,7 +280,7 @@ uv run carvajal ask "¿Cuál es la misión de Carvajal?"
 ## Calidad
 
 ```bash
-make install    # uv sync
+make install    # uv sync --all-extras
 make dev        # install + pre-commit install
 make check      # lint + formato + tipos + pruebas
 make lint       # Ruff (lint)
@@ -273,10 +288,37 @@ make format     # Ruff (formato)
 make typecheck  # ty
 make test       # pytest
 make build      # uv build
+make image      # imagen Docker de la app web
+make prod-up    # app + base con compose.prod.yml (requiere SESSION_SECRET)
+make prod-down  # detiene app y base (conserva el volumen)
 make db         # Postgres 16 con pgvector (docker compose)
 make db-down    # detiene la base local
 make clean      # limpiar cachés y artefactos
 ```
+
+## Imagen Docker
+
+```bash
+make image                  # docker build -t carvajal-api:local .
+export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+make prod-up                # app + Postgres con compose.prod.yml
+docker compose -f compose.prod.yml run --rm app alembic upgrade head
+```
+
+La imagen es multi-etapa, corre con un usuario sin privilegios y solo instala
+las dependencias del runtime web; los extras `capture` y `legacy` se quedan
+fuera. El build fija las imágenes base por digest y omite `zstandard`
+(compresión opcional de trazas de LangSmith) y las herramientas de build (`uv`,
+`pip`) para mantenerse por debajo de 300 MB. `compose.prod.yml` exige
+`SESSION_SECRET` (falla si falta) y endurece el contenedor con `read_only`,
+`cap_drop: ALL` y `no-new-privileges`.
+
+| Ruta | Qué comprueba | Depende de Postgres |
+|---|---|---|
+| `GET /live` | Que el proceso responde (liveness del contenedor). | No |
+| `GET /health` | Conteos de documentos y fragmentos (readiness). | Sí |
+
+El proxy con TLS queda para W6.2.
 
 ## Estructura
 
@@ -298,6 +340,9 @@ carvajal/
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
 ├── Makefile
+├── Dockerfile          # imagen multi-etapa de la app web (W6.1)
+├── compose.yml         # Postgres local de desarrollo
+├── compose.prod.yml    # app + Postgres para una sola máquina
 ├── pyproject.toml
 ├── uv.lock
 ├── .python-version

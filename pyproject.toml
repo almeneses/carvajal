@@ -17,18 +17,11 @@ classifiers = [
 ]
 dependencies = [
     "alembic>=1.14",
-    "beautifulsoup4>=4.12",
-    "faiss-cpu>=1.15.1",
     "fastapi>=0.162.4",
     "httpx>=0.28.1",
     "jinja2>=3.1.6",
-    "langchain>=1.4.7",
-    "langchain-anthropic>=1.7.7",
-    "langchain-community>=0.4.2",
     "langchain-ollama>=1.1.0",
     "langchain-openai>=1.7.3",
-    "langchain-text-splitters>=0.3",
-    "lxml>=5.1",
     "markdown>=3.11.3",
     "nh3>=0.3.7",
     "ollama>=0.6",
@@ -37,10 +30,27 @@ dependencies = [
     "pydantic-settings>=2.7",
     "python-dotenv>=1.2.4",
     "python-multipart>=0.0.32",
-    "requests>=2.32",
     "sqlalchemy>=2.0.36",
+    "uvicorn>=0.54.0",
+]
+
+[project.optional-dependencies]
+# Captura y curaduría del corpus: solo las usa la CLI (HTTP y extracción HTML).
+capture = [
+    "beautifulsoup4>=4.12",
+    "lxml>=5.1",
+    "requests>=2.32",
+]
+# Prototipo Streamlit y consulta con FAISS. La app web no los importa; W7.1 los
+# retira. En desarrollo, CI y para usar la CLI completa se instalan con
+# `uv sync --all-extras`.
+legacy = [
+    "faiss-cpu>=1.15.1",
+    "langchain>=1.4.7",
+    "langchain-anthropic>=1.7.7",
+    "langchain-community>=0.4.2",
+    "langchain-text-splitters>=0.3",
     "streamlit>=1.66.1",
-    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.urls]

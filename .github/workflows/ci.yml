@@ -40,7 +40,7 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Sincronizar entorno
-        run: uv sync --all-groups
+        run: uv sync --all-groups --all-extras
 
       - name: Pre-commit (higiene + Ruff + uv-lock)
         run: uv run pre-commit run --all-files --show-diff-on-failure
@@ -65,7 +65,7 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Sincronizar entorno
-        run: uv sync --all-groups
+        run: uv sync --all-groups --all-extras
 
       - name: Pruebas de integración
         # testcontainers usa el Docker del runner; sin pruebas marcadas aún, no falla.

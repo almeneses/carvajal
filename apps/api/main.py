@@ -1,7 +1,9 @@
 """Shell web del corpus Carvajal: FastAPI, Jinja2 y HTMX.
 
-Los handlers reales se construyen al primer uso, nunca al importar; ``embedder``
-y ``llm`` son singletons y cada petición abre su propia sesión.
+``/live`` solo comprueba que el proceso responde; ``/health`` es la preparación
+(readiness) y consulta la base. Los handlers reales se construyen al primer uso,
+nunca al importar; el embedder y el LLM se crean en la primera pregunta y cada
+petición abre su propia sesión.
 """
 
 from collections.abc import Callable
@@ -15,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.runtime import APP_DIR, embedder, llm_provider, session_factory, templates
+from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
 from apps.api.views import chat, corpus, documents, stream
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
@@ -46,11 +48,14 @@ class Handlers:
 
 @cache
 def _default_handlers() -> Handlers:
-    """Construye los handlers reales una sola vez, al primer uso."""
+    """Construye los handlers reales una sola vez, al primer uso.
+
+    Solo se crea la fábrica de sesiones: el embedder y el LLM se resuelven
+    dentro de ``ask``, de modo que ``/health`` no importa LangChain ni exige
+    credenciales del proveedor.
+    """
 
     factory = session_factory()
-    embed = embedder()
-    llm = llm_provider()
 
     def health() -> HealthStatus:
         with factory.begin() as session:
@@ -59,6 +64,7 @@ def _default_handlers() -> Handlers:
         return HealthStatus(documents or 0, chunks or 0)
 
     def ask(question: str) -> Answer:
+        embed, llm = ask_components()
         with factory.begin() as session:
             return AskQuestion(PgVectorStore(session), embed, llm).answer(question)
 
@@ -78,6 +84,12 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     for module in (corpus, documents, chat, stream):
         app.include_router(module.router)
+
+    @app.get("/live")
+    def live() -> JSONResponse:
+        """Vitalidad del proceso: no toca la base ni construye clientes de LLM."""
+
+        return JSONResponse({"status": "ok"})
 
     @app.get("/health")
     def health() -> JSONResponse:

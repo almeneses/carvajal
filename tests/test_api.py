@@ -6,7 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api import main
+from apps.api import main, runtime
+from apps.api.chat import service as chat_service
 from apps.api.main import (
     DB_UNAVAILABLE,
     SERVICE_UNAVAILABLE,
@@ -79,6 +80,20 @@ def test_health_degradado_no_filtra_detalles() -> None:
     assert response.status_code == 503
     assert response.json() == {"status": "degraded", "detail": DB_UNAVAILABLE}
     assert "127.0.0.1" not in response.text and "carvajal" not in response.text
+
+
+def test_live_responde_aunque_la_base_no_este() -> None:
+    """La vitalidad del contenedor no depende de Postgres."""
+
+    # Arrange: el readiness falla, pero /live no debe consultarlo.
+    client = make_client(health=unhealthy())
+
+    # Act
+    response = client.get("/live")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
 
 
 def test_portada_renderiza_el_formulario() -> None:
@@ -266,3 +281,57 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     assert response.status_code == 200
     assert calls == [1]
     assert response.json() == {"status": "ok", "documents": 1, "chunks": 2}
+
+
+def test_los_handlers_reales_no_construyen_el_llm_al_arrancar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Construir handlers no importa LangChain ni exige credenciales del LLM."""
+
+    # Arrange: la fábrica de sesiones y los clientes se sustituyen por dobles.
+    llamadas: list[int] = []
+
+    def fake_components() -> tuple[object, object]:
+        llamadas.append(1)
+        return object(), object()
+
+    monkeypatch.setattr(main, "session_factory", lambda: object())
+    monkeypatch.setattr(main, "ask_components", fake_components)
+    main._default_handlers.cache_clear()
+
+    try:
+        # Act: construir los handlers reales no debe tocar los clientes.
+        handlers = main._default_handlers()
+    finally:
+        main._default_handlers.cache_clear()
+
+    # Assert
+    assert isinstance(handlers, Handlers)
+    assert llamadas == []
+
+
+def test_el_servicio_de_chat_difiere_los_clientes_a_la_primera_pregunta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Abrir /chat no debe construir el embedder ni el LLM solo para leer historial."""
+
+    # Arrange: la sesión y los clientes se sustituyen por dobles.
+    llamadas: list[int] = []
+
+    def fake_components() -> tuple[object, object]:
+        llamadas.append(1)
+        return object(), object()
+
+    monkeypatch.setattr(runtime, "session_factory", lambda: object())
+    monkeypatch.setattr(runtime, "ask_components", fake_components)
+    chat_service.default_chat_service.cache_clear()
+
+    try:
+        # Act: crear el servicio real no debe resolver los clientes.
+        service = chat_service.default_chat_service()
+    finally:
+        chat_service.default_chat_service.cache_clear()
+
+    # Assert
+    assert isinstance(service, chat_service.ChatService)
+    assert llamadas == []
