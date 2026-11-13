@@ -111,6 +111,10 @@ make lint      # Ruff (lint)
 make format    # Ruff (formato)
 make test      # pytest
 make import    # importa el corpus externo a la capa extendida
+make qdrant    # levanta Qdrant con volumen persistente
+make index     # indexa data/gold en Qdrant (M2)
+make web       # frontend propio del M2 en :8001
+make api       # API del M2 en :8000
 make image     # construye la imagen Docker de la app web
 make prod-up   # levanta app + base con compose.prod.yml (requiere SESSION_SECRET)
 make prod-down # detiene app y base (conserva el volumen)
