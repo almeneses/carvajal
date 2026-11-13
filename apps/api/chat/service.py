@@ -221,8 +221,30 @@ def _safe_rollback(session: Session | None) -> None:
         logger.debug("No se pudo revertir la sesión del stream.", exc_info=True)
 
 
+class _DeferredEmbedder:
+    """Embedder que resuelve el cliente real en la primera llamada a ``embed``."""
+
+    def embed(self, text: str) -> Sequence[float]:
+        return runtime.ask_components()[0].embed(text)
+
+
+class _DeferredLLM:
+    """LLM que resuelve el cliente real en la primera generación."""
+
+    def complete(self, *, system: str, prompt: str) -> str:
+        return runtime.ask_components()[1].complete(system=system, prompt=prompt)
+
+    def stream(self, *, system: str, prompt: str) -> Iterator[str]:
+        return runtime.ask_components()[1].stream(system=system, prompt=prompt)
+
+
 @cache
 def default_chat_service() -> ChatService:
-    """Servicio real con los singletons perezosos de ``runtime``."""
+    """Servicio real con la sesión y los clientes diferidos de ``runtime``.
 
-    return ChatService(runtime.session_factory(), runtime.embedder(), runtime.llm_provider())
+    El embedder y el LLM se resuelven en la primera pregunta, no al abrir
+    ``/chat``: leer el historial no debe importar LangChain ni exigir la clave
+    del proveedor.
+    """
+
+    return ChatService(runtime.session_factory(), _DeferredEmbedder(), _DeferredLLM())

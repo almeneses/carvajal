@@ -111,7 +111,18 @@ make lint      # Ruff (lint)
 make format    # Ruff (formato)
 make test      # pytest
 make import    # importa el corpus externo a la capa extendida
+make image     # construye la imagen Docker de la app web
+make prod-up   # levanta app + base con compose.prod.yml (requiere SESSION_SECRET)
+make prod-down # detiene app y base (conserva el volumen)
 ```
+
+> 📦 `uv sync --all-extras` instala también los extras `capture` (CLI de
+> captura) y `legacy` (Streamlit y FAISS). El CLI completo requiere ambos:
+> `uv tool install "carvajal[capture,legacy]"`. La imagen Docker instala solo
+> el runtime web.
+>
+> 🐳 `compose.prod.yml` exige `SESSION_SECRET` y falla si falta. `/live` es la
+> vitalidad del proceso (sin base); `/health` es el readiness con conteos.
 
 > ⚠️ **Regla dura:** toda gestión de dependencias y entornos pasa por `uv`. Está
 > **prohibido** `pip` y `requirements.txt`.

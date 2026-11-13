@@ -139,9 +139,9 @@ se propone un stack distinto, documentado en
 ```text
 carvajal/
 ├── apps/
-│   └── api/                   # shell web FastAPI: /health, portada, /ask y pantallas
-│       ├── main.py            # create_app y handlers diferidos
-│       ├── runtime.py         # servicios compartidos: templates, sesiones, LLM
+│   └── api/                   # shell web FastAPI: /live, /health, portada, /ask y pantallas
+│       ├── main.py            # create_app, /live y /health con handlers diferidos
+│       ├── runtime.py         # templates, sesiones y clientes creados en la primera pregunta
 │       ├── views/             # un APIRouter por pantalla: corpus, documentos, chat, stream
 │       ├── chat/              # identidad, servicio y streaming del chat
 │       ├── static/            # CSS y HTMX vendorizado
@@ -205,6 +205,10 @@ carvajal/
 ├── CONTRIBUTING.md          # guía de contribución
 ├── CODE_OF_CONDUCT.md       # código de conducta
 ├── Makefile                 # automatización de tareas
+├── Dockerfile               # imagen multi-etapa de la app web (extras fuera)
+├── compose.yml              # Postgres 16 + pgvector para desarrollo local
+├── compose.prod.yml         # app + Postgres para una sola máquina (W6.1)
+├── .dockerignore            # contexto mínimo de la imagen
 ├── pyproject.toml           # metadatos y dependencias (uv)
 ├── uv.lock                  # lockfile determinista (versionado)
 ├── .python-version          # versión de Python fijada
@@ -249,6 +253,21 @@ carvajal/
   Corre automáticamente en PRs internos y se puede pedir con `@dippy review`
   desde una cuenta colaboradora una vez que el workflow llegue a `main`.
 - Toda dependencia nueva entra con `uv add` / `uv add --dev` (nunca editando `uv.lock` a mano).
+
+### 6.1 Imagen y despliegue
+
+- `make image` construye la imagen multi-etapa (`Dockerfile`) solo con las
+  dependencias base; `capture` (CLI) y `legacy` (Streamlit/FAISS) son extras y
+  se instalan en desarrollo con `uv sync --all-extras`.
+- `make prod-up` levanta app + Postgres con `compose.prod.yml`; `make prod-down`
+  los detiene conservando el volumen. El compose exige `SESSION_SECRET`
+  (falla si falta) y corre la app sin privilegios y con el sistema de archivos
+  de solo lectura.
+- `GET /live` es la vitalidad del proceso y no toca la base; `GET /health` es
+  el readiness y publica los conteos del corpus. El embedder y el LLM se crean
+  en la primera pregunta, nunca al arrancar.
+- El CLI completo requiere `carvajal[capture,legacy]`; la imagen web no lo
+  incluye. Las migraciones se aplican aparte con `alembic upgrade head`.
 
 ## 7. Repositorio y Git
 
@@ -337,6 +356,7 @@ git push
 | 2026-11-13 | Chat persistente: cookie firmada con `owner_key` opaco y tablas `conversations`/`messages` (migración 0003) | La cookie sola no guarda historial (4 KB, manipulable); Postgres es la fuente de verdad y la identidad no es autenticación: solo separa conversaciones anónimas |
 | 2026-11-13 | Cuota diaria por visitante anónimo en `usage_day` (migración 0004), reserva atómica y 429 con `Retry-After`; medianoche en `QUOTA_TIMEZONE` | El cupo usa la misma cookie firmada del chat y se evalúa antes del LLM; un fallo de BD al consultarlo responde 503. W4.1 añadirá `user_id` de forma aditiva |
 | 2026-11-13 | Stream SSE del chat con degradación: `open/meta/token/done/fallback/error` y persistencia exacta una vez | El primer token no debe esperar al LLM completo; si el stream falla antes de emitir, se completa por la vía normal y se persiste una sola vez |
+| 2026-11-13 | Imagen Docker multi-etapa; `capture` y `legacy` pasan a extras y `/live` se separa de `/health` | El contenedor instala solo el runtime web, arranca sin credenciales del LLM y usa `/live` para no marcar enfermo al proceso cuando Postgres está caído |
 
 ## 10. Notas y tareas pendientes
 
