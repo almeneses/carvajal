@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Chat · Asistente Carvajal{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/chat.css" />
+{% endblock %}
+{% block content %}
+<section class="seccion" aria-labelledby="titulo-chat">
+  <h1 id="titulo-chat">Conversación con el corpus</h1>
+  <p class="entradilla">
+    Cada respuesta se apoya en los documentos del corpus y cita sus fuentes. El historial
+    queda asociado a esta cookie anónima: recargar la página conserva la conversación.
+  </p>
+
+  <form class="formulario" method="post" action="/chat">
+    <div class="campo">
+      <label for="pregunta">Tu pregunta</label>
+      <input
+        id="pregunta"
+        name="question"
+        type="text"
+        required
+        maxlength="500"
+        autocomplete="off"
+        placeholder="¿Cuáles fueron los ingresos de 2025?"
+        aria-describedby="ayuda-chat"
+      />
+      <p id="ayuda-chat" class="ayuda">
+        Entre 1 y 500 caracteres. El asistente responde solo con el corpus y cita el
+        fragmento del que toma cada dato.
+      </p>
+    </div>
+    <button type="submit">Enviar</button>
+  </form>
+</section>
+
+<section class="seccion" aria-labelledby="titulo-historial">
+  <h2 id="titulo-historial">Historial</h2>
+  <div id="hilo" aria-live="polite">
+    {% include "_chat_thread.html" %}
+  </div>
+</section>
+{% endblock %}
