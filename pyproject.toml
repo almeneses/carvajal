@@ -19,6 +19,9 @@ dependencies = [
     "alembic>=1.14",
     "beautifulsoup4>=4.12",
     "faiss-cpu>=1.15.1",
+    "fastapi>=0.162.4",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
     "langchain>=1.4.7",
     "langchain-anthropic>=1.7.7",
     "langchain-community>=0.4.2",
@@ -26,12 +29,18 @@ dependencies = [
     "langchain-openai>=1.7.3",
     "langchain-text-splitters>=0.3",
     "lxml>=5.1",
+    "markdown>=3.11.3",
+    "nh3>=0.3.7",
+    "ollama>=0.6",
+    "pgvector>=0.5.1",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.7",
     "python-dotenv>=1.2.4",
+    "python-multipart>=0.0.32",
     "requests>=2.32",
     "sqlalchemy>=2.0.36",
     "streamlit>=1.66.1",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.urls]
@@ -64,19 +73,20 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["packages/core/src", "tests"]
+src = ["packages/core/src", "apps", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["carvajal"]
+known-first-party = ["apps", "carvajal"]
 
 [tool.ruff.format]
 quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q"
 markers = [
     "integration: requiere Postgres real vía testcontainers",

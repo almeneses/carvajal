@@ -1,11 +1,13 @@
 """Esquema relacional del corpus, definido con SQLAlchemy Core.
 
 Sin ORM declarativo ni sesiones asíncronas: los repositorios de W1.3 operarán
-sobre estas ``Table`` con una ``Session`` síncrona. La columna ``embedding`` no
-vive aquí; es responsabilidad de W2.1 (pgvector).
+sobre estas ``Table`` con una ``Session`` síncrona. La columna ``embedding`` de
+``chunks`` es un ``Vector`` de pgvector y la administra ``PgVectorStore``.
 """
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -19,8 +21,16 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 
-__all__ = ["chunks", "document_versions", "documents", "metadata"]
+__all__ = [
+    "chunks",
+    "conversations",
+    "document_versions",
+    "documents",
+    "messages",
+    "metadata",
+]
 
 metadata = MetaData()
 
@@ -56,6 +66,7 @@ chunks = Table(
     Column("position", Integer, nullable=False),
     Column("section", String(64), nullable=False),
     Column("layer", String(32), nullable=False),
+    Column("embedding", Vector(768), nullable=True),
     UniqueConstraint("document_id", "position", name="uq_chunks_document_position"),
 )
 
@@ -84,4 +95,58 @@ Index(
     "ix_document_versions_document_created",
     document_versions.c.document_id,
     document_versions.c.created_at,
+)
+
+conversations = Table(
+    "conversations",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("owner_key", Text, nullable=False),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
+)
+
+Index(
+    "ix_conversations_owner_updated",
+    conversations.c.owner_key,
+    conversations.c.updated_at.desc(),
+)
+
+messages = Table(
+    "messages",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column(
+        "conversation_id",
+        Text,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("role", String(16), nullable=False),
+    Column("content", Text, nullable=False),
+    Column("sources", JSONB, nullable=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
+    CheckConstraint("role IN ('user', 'assistant')", name="ck_messages_role"),
+)
+
+Index(
+    "ix_messages_conversation_created",
+    messages.c.conversation_id,
+    messages.c.created_at,
+    messages.c.id,
 )

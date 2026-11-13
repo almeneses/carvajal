@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
+    ollama_model: str = "llama3.2"
 
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
@@ -99,6 +100,11 @@ class Settings(BaseSettings):
     postgres_db: str = "carvajal"
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     database_url: str = ""
+
+    # Firma de la cookie anónima del chat. No es autenticación. Si está vacío
+    # se usa un secreto aleatorio por proceso; en producción debe fijarse para
+    # que las cookies sobrevivan reinicios y compartan valor entre workers.
+    session_secret: str = ""
 
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":

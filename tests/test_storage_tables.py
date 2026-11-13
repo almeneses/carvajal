@@ -1,6 +1,8 @@
 """Pruebas del esquema Core: tablas, claves foráneas y restricciones."""
 
-from sqlalchemy import Table, UniqueConstraint
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import CheckConstraint, Table, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 
 from carvajal.adapters.storage import tables
 
@@ -15,10 +17,16 @@ def _unique_column_sets(table: Table) -> set[tuple[str, ...]]:
     }
 
 
-def test_exporta_las_tres_tablas_del_esquema() -> None:
-    """El metadata contiene exactamente las tablas de W1.2."""
+def test_exporta_las_cinco_tablas_del_esquema() -> None:
+    """El metadata contiene el corpus de W1.2 y el chat de W3.3."""
 
-    assert set(tables.metadata.tables) == {"documents", "chunks", "document_versions"}
+    assert set(tables.metadata.tables) == {
+        "documents",
+        "chunks",
+        "document_versions",
+        "conversations",
+        "messages",
+    }
 
 
 def test_claves_foraneas_borran_en_cascada() -> None:
@@ -51,8 +59,33 @@ def test_indices_de_consulta_existen() -> None:
     }
 
 
-def test_ninguna_tabla_tiene_embedding() -> None:
-    """El vector llega en W2.1; el esquema inicial no lo incluye."""
+def test_el_vector_vive_solo_en_los_fragmentos() -> None:
+    """W2.1 añade ``embedding`` a ``chunks`` como vector de 768 dimensiones."""
 
-    for table in tables.metadata.tables.values():
-        assert "embedding" not in table.c
+    assert isinstance(tables.chunks.c.embedding.type, Vector)
+    assert tables.chunks.c.embedding.type.dim == 768
+    assert tables.chunks.c.embedding.nullable is True
+    assert "embedding" not in tables.documents.c
+    assert "embedding" not in tables.document_versions.c
+
+
+def test_el_esquema_del_chat_tiene_cascada_rol_e_indices() -> None:
+    """W3.3 relaciona los mensajes con su conversación y limita el rol."""
+
+    foreign_key = next(iter(tables.messages.c.conversation_id.foreign_keys))
+    assert foreign_key.target_fullname == "conversations.id"
+    assert foreign_key.ondelete == "CASCADE"
+
+    checks = {
+        constraint.name
+        for constraint in tables.messages.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert "ck_messages_role" in checks
+    assert isinstance(tables.messages.c.sources.type, JSONB)
+    assert tables.messages.c.sources.nullable is True
+
+    assert "ix_conversations_owner_updated" in {
+        index.name for index in tables.conversations.indexes
+    }
+    assert "ix_messages_conversation_created" in {index.name for index in tables.messages.indexes}

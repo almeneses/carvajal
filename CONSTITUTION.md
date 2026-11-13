@@ -129,14 +129,23 @@ se propone un stack distinto, documentado en
 | LLM | Puerto `LLMProvider`; LangChain como adaptador |
 | Ingesta | CLI/cron (la web no captura) |
 
-> ⚠️ **Nada de esto está implementado.** El stack vigente —y el que gobierna el
-> código— sigue siendo el de la tabla anterior hasta que el ADR pase a `aceptado`
-> y la migración avance fase por fase.
+> ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector), W2.2
+> (adaptadores de LLM), W2.3 (caso de uso `AskQuestion`), W2.4 (shell FastAPI) y
+> W2.5 (layout y tema) están en revisión. El resto del stack sigue vigente hasta
+> que el ADR pase a `aceptado` y la migración avance fase por fase.
 
 ## 4. Estructura del repositorio
 
 ```text
 carvajal/
+├── apps/
+│   └── api/                   # shell web FastAPI: /health, portada, /ask y pantallas
+│       ├── main.py            # create_app y handlers diferidos
+│       ├── runtime.py         # servicios compartidos: templates, sesiones, LLM
+│       ├── views/             # un APIRouter por pantalla: corpus, documentos, chat, stream
+│       ├── chat/              # identidad, servicio y streaming del chat
+│       ├── static/            # CSS y HTMX vendorizado
+│       └── templates/         # Jinja2: base, portada, pantallas y parciales
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
@@ -146,13 +155,19 @@ carvajal/
 │           │   ├── frontmatter.py # lectura y parseo del front matter
 │           │   └── chunking.py  # división de documentos en chunks
 │           ├── application/   # casos de uso y puertos (Protocol)
-│           │   └── ports.py     # repositorios, vector store, LLM, fetcher, extractor
+│           │   ├── ask.py       # caso de uso AskQuestion con citas y stream
+│           │   ├── errors.py    # errores de aplicación (LLMError)
+│           │   └── ports.py     # repositorios, vector store, LLM, embedder, fetcher
 │           ├── adapters/      # adaptadores de infraestructura
-│           │   └── storage/     # SQLAlchemy Core
-│           │       ├── database.py      # motor y sesiones
-│           │       ├── tables.py        # esquema declarativo
-│           │       ├── repositories.py  # repositorios SQL
-│           │       └── import_corpus.py # importador Gold idempotente
+│           │   ├── storage/     # SQLAlchemy Core
+│           │   │   ├── database.py      # motor y sesiones
+│           │   │   ├── tables.py        # esquema declarativo
+│           │   │   ├── repositories.py  # repositorios SQL
+│           │   │   ├── chat.py          # conversaciones y mensajes del chat
+│           │   │   └── import_corpus.py # importador Gold idempotente
+│           │   ├── embeddings/  # Embedder: Ollama (nomic-embed-text)
+│           │   ├── llm/         # LLMProvider: DeepSeek y Ollama sobre LangChain
+│           │   └── vector/      # pgvector: PgVectorStore (HNSW, coseno)
 │           ├── infrastructure/ # adaptadores y configuración tipada
 │           │   └── settings.py  # pydantic-settings (.env + entorno)
 │           ├── config.py      # fachada de compatibilidad de settings
@@ -314,6 +329,13 @@ git push
 | 2026-11-08 | Registrar las decisiones en `docs/decisions/` (formato ADR) | `CONSTITUTION.md` dice *qué* es el proyecto; los ADR dicen *por qué* y qué se descartó, para no re-litigar decisiones ni perder el contexto ante agentes nuevos |
 | 2026-11-08 | ADR-0001 (**propuesto**): app web en un solo runtime Python (FastAPI + Jinja2 + HTMX) con Postgres/pgvector; captura por CLI/cron | Streamlit no da sesiones, concurrencia ni trabajos en segundo plano. Las 100 K cuentas proyectadas no exigen Kafka ni Kubernetes: el costo dominante son los tokens, no los servidores |
 | 2026-11-10 | Persistencia relacional de la Ola 1: Postgres 16 + pgvector, Alembic, repositorios SQLAlchemy Core e importador Gold idempotente con poda autoritativa | El corpus necesita historial de versiones y recargas seguras; el importador recalcula el estado desde `data/gold/` y elimina lo que ya no existe, sin duplicar en ejecuciones repetidas |
+| 2026-11-11 | Índice vectorial pgvector: `embedding` de 768 dimensiones en `chunks`, índice HNSW coseno y adaptador `PgVectorStore` | La recuperación semántica vive en Postgres (filtros SQL + ANN) en lugar de FAISS en disco |
+| 2026-11-11 | Puerto `LLMProvider` con adaptadores de DeepSeek y Ollama y fábrica `build_llm_provider` | La app web nueva depende del puerto, no de LangChain; `claude` queda solo en Streamlit, que conserva `rag.build_llm` intacto |
+| 2026-11-11 | Caso de uso `AskQuestion` con puerto `Embedder`, contexto numerado, citas y neutralización de delimitadores | Une recuperación y generación sin acoplar capas; sin contexto no se llama al LLM y el texto del corpus no puede inyectar instrucciones |
+| 2026-11-11 | Shell web FastAPI con handlers diferidos, `/health`, portada HTMX y `/ask` con citas | Importar el módulo no abre conexiones; los fallos de proveedor se traducen a 503 sin filtrar detalles internos |
+| 2026-11-13 | Pantallas de corpus y documento: un `APIRouter` por pantalla en `views/`, filtros/paginación y Markdown saneado con `nh3` | Las pantallas viven fuera de `main.py` para que las pistas de la ola 3 no compitan por el mismo archivo; el HTML se sanea con allowlist y la URL de origen se valida contra `javascript:` |
+| 2026-11-13 | Chat persistente: cookie firmada con `owner_key` opaco y tablas `conversations`/`messages` (migración 0003) | La cookie sola no guarda historial (4 KB, manipulable); Postgres es la fuente de verdad y la identidad no es autenticación: solo separa conversaciones anónimas |
+| 2026-11-13 | Stream SSE del chat con degradación: `open/meta/token/done/fallback/error` y persistencia exacta una vez | El primer token no debe esperar al LLM completo; si el stream falla antes de emitir, se completa por la vía normal y se persiste una sola vez |
 
 ## 10. Notas y tareas pendientes
 

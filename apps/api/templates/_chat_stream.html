@@ -1,0 +1,34 @@
+<p id="chat-stream-estado" class="ayuda" role="status" aria-live="polite"></p>
+
+<template id="plantilla-turno">
+  <li class="turno">
+    <p class="turno-rol"></p>
+    <div class="burbuja">
+      <p class="texto"></p>
+    </div>
+    <section class="citas" aria-label="Fuentes de la respuesta" hidden>
+      <h3>Fuentes citadas</h3>
+      <ol class="fuentes"></ol>
+    </section>
+  </li>
+</template>
+
+<template id="plantilla-fuente">
+  <li class="fuente">
+    <p class="fuente-meta">
+      <span>Documento: <strong data-campo="slug"></strong></span>
+      <span>Sección: <span data-campo="section"></span></span>
+      <span>Capa: <span data-campo="layer"></span></span>
+      <span class="puntuacion">Puntuación: <span data-campo="score"></span></span>
+    </p>
+    <p class="extracto" data-campo="excerpt"></p>
+    <p class="chunk" data-campo="chunk_id"></p>
+  </li>
+</template>
+
+<noscript>
+  <p class="ayuda">
+    El streaming en vivo necesita JavaScript; el formulario sigue funcionando y guarda la
+    conversación igual.
+  </p>
+</noscript>
