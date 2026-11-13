@@ -7,6 +7,7 @@ inyecta, la vista abre una sesión con la fábrica real al atender la petición.
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
@@ -38,6 +39,16 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
+def _safe_url(value: str) -> str | None:
+    """Devuelve la URL solo si usa ``http`` o ``https``; si no, ``None``."""
+
+    try:
+        scheme = urlsplit(value).scheme.lower()
+    except ValueError:
+        return None
+    return value if scheme in {"http", "https"} else None
+
+
 def _context(
     provider: DocumentProvider, document_id: str, version_id: str | None
 ) -> dict[str, object]:
@@ -51,7 +62,7 @@ def _context(
     selected: DocumentVersion | None = None
     if version_id is not None:
         selected = next((item for item in versions if item.id == version_id), None)
-        if selected is None:
+        if selected is None or selected.document_id != document_id:
             raise HTTPException(status_code=404, detail=VERSION_NOT_FOUND)
 
     markdown = selected.markdown if selected is not None else document.markdown
@@ -60,6 +71,7 @@ def _context(
 
     return {
         "document": document,
+        "document_url": _safe_url(document.url),
         "version": selected,
         "versions": versions,
         "content": render_markdown(markdown),

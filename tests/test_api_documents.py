@@ -82,6 +82,7 @@ def test_muestra_metadatos_y_contenido_actual() -> None:
     assert "<dd>core</dd>" in response.text
     assert "<dd>oficial</dd>" in response.text
     assert "https://www.carvajal.com/historia/" in response.text
+    assert 'href="https://www.carvajal.com/historia/"' in response.text
     assert '<time datetime="2024-05-01T10:30:00+00:00">' in response.text
     assert "2024-05-01 10:30 UTC" in response.text
     assert CURRENT_HASH[:12] in response.text
@@ -106,12 +107,13 @@ def test_version_archivada_muestra_aviso_y_volver_a_la_actual() -> None:
     assert "Inició operaciones en 1904." not in response.text
     assert "2023-01-02 03:04 UTC" in response.text
     assert VERSION.content_hash[:12] in response.text
-    assert "Versión anterior" in response.text
-    assert 'href="?version=ver-1"' in response.text
+    assert "Versión anterior" not in response.text
+    assert 'href="?version=ver-1"' not in response.text
 
 
 def test_version_de_otro_documento_devuelve_404() -> None:
-    # Arrange: la versión existe, pero pertenece a otro documento.
+    # Arrange: el doble devuelve la versión ajena bajo el id del documento,
+    # simulando un proveedor que no filtra por pertenencia.
     ajena = DocumentVersion(
         id="ver-2",
         document_id="doc-2",
@@ -120,7 +122,7 @@ def test_version_de_otro_documento_devuelve_404() -> None:
         captured_at=CAPTURED_AT,
         created_at=CAPTURED_AT,
     )
-    client = make_client(FakeDocuments(versions={"doc-2": [ajena]}))
+    client = make_client(FakeDocuments(versions={DOCUMENT.id: [ajena]}))
 
     # Act
     response = client.get("/documents/doc-1?version=ver-2")
@@ -190,3 +192,29 @@ def test_el_titulo_se_escapa() -> None:
     assert response.status_code == 200
     assert "&lt;script&gt;alert" in response.text
     assert "<script>alert" not in response.text
+
+
+def test_la_url_de_origen_insegura_no_se_renderiza_como_enlace() -> None:
+    # Arrange
+    inseguro = Document(
+        id="doc-inseguro",
+        url="javascript:alert(1)",
+        title="Documento con URL insegura",
+        slug="inseguro",
+        section="historia",
+        layer="core",
+        markdown="Texto seguro.",
+        content_hash=CURRENT_HASH,
+        captured_at=CAPTURED_AT,
+        source_type="oficial",
+    )
+    client = make_client(FakeDocuments({inseguro.id: inseguro}))
+
+    # Act
+    response = client.get("/documents/doc-inseguro")
+
+    # Assert
+    assert response.status_code == 200
+    assert 'href="javascript:alert(1)"' not in response.text
+    assert '<a href="javascript' not in response.text
+    assert "javascript:alert(1)" in response.text

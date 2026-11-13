@@ -23,7 +23,11 @@
       <div>
         <dt>Origen</dt>
         <dd>
-          <a href="{{ document.url }}" rel="noopener noreferrer">{{ document.url }}</a>
+          {% if document_url %}
+          <a href="{{ document_url }}" rel="noopener noreferrer">{{ document.url }}</a>
+          {% else %}
+          {{ document.url }}
+          {% endif %}
         </dd>
       </div>
       <div>
@@ -41,7 +45,7 @@
       <a href="/documents/{{ document.id }}">Volver a la actual</a>
     </p>
     {% endif %}
-    {% if versions %}
+    {% if versions and (not version or version.id != versions[0].id) %}
     <p class="documento-versiones">
       <a href="?version={{ versions[0].id }}">Versión anterior</a>
     </p>
