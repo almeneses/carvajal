@@ -24,10 +24,17 @@ __all__ = ["QdrantVectorStore", "payload_for", "point_id"]
 _NAMESPACE = UUID("6f0b8d9a-3c2e-5a7b-9e4d-1f2a3b4c5d6e")
 
 
-def point_id(chunk: Chunk) -> str:
-    """UUID5 estable para un fragmento; cambia si cambia su texto."""
+def point_id(chunk: Chunk, fingerprint: str = "") -> str:
+    """UUID5 estable para un fragmento.
 
-    digest = sha256(chunk.text.encode("utf-8")).hexdigest()[:16]
+    ``fingerprint`` incluye el texto vectorizado (título, sección y ficha); si
+    cambia la ficha, cambia el ID y la poda elimina el punto anterior. Sin
+    fingerprint se usa el texto original, suficiente para pruebas y llamadas
+    directas.
+    """
+
+    material = fingerprint or chunk.text
+    digest = sha256(material.encode("utf-8")).hexdigest()[:16]
     return str(uuid5(_NAMESPACE, f"carvajal:{chunk.document_id}:{chunk.position}:{digest}"))
 
 
@@ -206,6 +213,7 @@ class QdrantVectorStore:
         limit: int = 8,
         layer: str | None = None,
         section: str | None = None,
+        min_score: float | None = None,
     ) -> Sequence[ScoredChunk]:
         """Búsqueda híbrida: ANN + reordenamiento léxico sobre la ficha.
 
@@ -219,6 +227,11 @@ class QdrantVectorStore:
         candidates = list(
             self.search(embedding, limit=max(limit * 4, 20), layer=layer, section=section)
         )
+        if min_score is not None:
+            # El umbral se aplica al score vectorial, antes de la bonificación
+            # léxica: una coincidencia de términos no convierte por sí sola un
+            # fragmento poco similar en evidencia.
+            candidates = [result for result in candidates if result.score >= min_score]
         terms = _terms(query)
         if not terms:
             return candidates[:limit]
@@ -242,7 +255,7 @@ class QdrantVectorStore:
         payload = point.payload or {}
         chunk = Chunk(
             id=str(payload.get("chunk_id", point.id)),
-            document_id=str(payload.get("document_id", "")),
+            document_id=str(payload.get("slug") or payload.get("document_id", "")),
             text=str(payload.get("text", "")),
             position=int(payload.get("position", 0)),
             section=str(payload.get("section", "")),

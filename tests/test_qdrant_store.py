@@ -212,3 +212,28 @@ def test_payload_incluye_la_url_para_abrir_la_fuente() -> None:
     assert payload["url"] == "https://www.carvajal.com/historia/"
     assert payload["source_type"] == "oficial"
     assert payload["text"] == CHUNK.text
+
+
+def test_point_id_cambia_si_cambia_la_ficha() -> None:
+    assert point_id(CHUNK, "ficha-a") != point_id(CHUNK, "ficha-b")
+
+
+def test_la_busqueda_hibrida_aplica_el_umbral_vectorial_antes_del_lexico(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: un candidato léxicamente perfecto pero con vector bajo.
+    from carvajal.adapters.vector.qdrant_store import ScoredChunk
+
+    store = QdrantVectorStore(cast(Any, FakeClient()))
+    bajo = ScoredChunk(
+        chunk=Chunk("home:0", "home", "Cali 1904", 0, "home", "core"),
+        score=0.1,
+        metadata={"abstract": "Cali 1904"},
+    )
+    monkeypatch.setattr(store, "search", lambda *args, **kwargs: [bajo])
+
+    # Act
+    results = store.search_text("Cali 1904", [0.1] * 768, limit=1, min_score=0.3)
+
+    # Assert
+    assert results == []

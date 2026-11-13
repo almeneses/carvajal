@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for item in payload["queries"]:
         vector = embedder.embed(item["query"])
-        results = store.search(vector, limit=args.k)
+        results = store.search_text(item["query"], vector, limit=args.k)
         retrieved = [result.chunk.document_id for result in results]
         # Para nDCG se cuenta cada documento una sola vez, aunque recupere
         # varios fragmentos suyos en el top-k.

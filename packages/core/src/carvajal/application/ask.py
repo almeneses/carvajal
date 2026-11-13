@@ -130,7 +130,12 @@ class AskQuestion:
         embedding = self._embedder.embed(normalized)
         search_text = getattr(self._vector_store, "search_text", None)
         if callable(search_text):
-            results = search_text(normalized, embedding, limit=self._limit)
+            results = search_text(
+                normalized,
+                embedding,
+                limit=self._limit,
+                min_score=self._min_score,
+            )
         else:
             results = self._vector_store.search(embedding, limit=self._limit)
         if self._min_score is not None:

@@ -103,7 +103,10 @@ def index_gold(
             ]
             index_batch(store, batch, embeddings, metadata)
             indexed += len(batch)
-            valid_ids.extend(point_id(chunk) for chunk in batch)
+            valid_ids.extend(
+                point_id(chunk, f"{document.title}|{document.section}|{card}|{chunk.text}")
+                for chunk in batch
+            )
             logger.info(
                 "qdrant.document_progress",
                 document=document.id,
