@@ -105,7 +105,7 @@ def history(request: Request) -> JSONResponse:
                     "content": message.content,
                     "sources": message.sources or [],
                     "status": message.status,
-                    "created_at": message.created_at.isoformat(),
+                    "created_at": (message.created_at.isoformat() if message.created_at else None),
                 }
                 for message in messages
             ],

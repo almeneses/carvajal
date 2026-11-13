@@ -8,7 +8,7 @@ configura con ``CARVAJAL_API_BASE``.
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -17,6 +17,22 @@ STATIC_DIR = APP_DIR / "static"
 API_BASE = os.environ.get("CARVAJAL_API_BASE", "http://localhost:8000").rstrip("/")
 
 app = FastAPI(title="Carvajal · frontend M2", docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """CSP construida con el mismo API_BASE que consume el JavaScript."""
+
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        f"connect-src 'self' {API_BASE}; "
+        "img-src 'self' data:; style-src 'self'; script-src 'self'"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
