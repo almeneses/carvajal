@@ -180,8 +180,11 @@ class UnhandledErrorMiddleware:
     """Convierte una excepción no controlada en una respuesta controlada.
 
     Vive dentro de ``RequestContextMiddleware`` para que el 500 también lleve
-    ``X-Request-ID`` y, cuando exista, las cabeceras de seguridad. Sin esta
-    capa, ``ServerErrorMiddleware`` respondería por fuera de los middlewares.
+    ``X-Request-ID`` y, cuando exista, las cabeceras de seguridad. Sustituye a
+    propósito al ``ServerErrorMiddleware`` de Starlette: la excepción se registra
+    y se envía a Sentry de forma explícita, y la respuesta 500 atraviesa la pila
+    interna en lugar de saltársela. Si la respuesta ya empezó (SSE), se re-lanza
+    para no intentar enviar un segundo cuerpo.
     """
 
     def __init__(self, app: ASGIApp, handler: ErrorHandler) -> None:
