@@ -171,7 +171,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         allow_origins=list(settings.frontend_origins),
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=["Accept", "Content-Type"],
     )
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     for module in (corpus, documents, chat, stream, api):

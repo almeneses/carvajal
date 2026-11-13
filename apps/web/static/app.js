@@ -41,7 +41,11 @@
     formulario.addEventListener("submit", alEnviar);
     document.getElementById("nuevo-hilo").addEventListener("click", nuevoHilo);
     botonReintento.addEventListener("click", () => {
-      if (ultimaPregunta) void responder(ultimaPregunta, ultimoTurno);
+      if (!ultimaPregunta) return;
+      // Un reintento es un turno nuevo: reutilizar el id haría que el backend
+      // devolviera el turno anterior sin persistir esta respuesta.
+      ultimoTurno = nuevoTurnoId();
+      void responder(ultimaPregunta, ultimoTurno);
     });
   }
 

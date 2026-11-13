@@ -70,7 +70,7 @@ def health() -> JSONResponse:
         logger.warning("api.health_failed", error=str(error))
         return JSONResponse({"status": "degraded", "detail": "base de datos no disponible"}, 503)
     index = qdrant_store().health()
-    healthy = index.get("status") == "ok"
+    healthy = index.get("status") in {"ok", "not_configured"}
     return JSONResponse(
         {
             "status": "ok" if healthy else "degraded",
