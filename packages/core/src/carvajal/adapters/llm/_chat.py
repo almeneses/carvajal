@@ -3,9 +3,12 @@
 from collections.abc import Iterator, Sequence
 from typing import Protocol
 
+import structlog
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from carvajal.application.errors import LLMError
+
+logger = structlog.get_logger(__name__)
 
 
 class ChatLike(Protocol):
@@ -37,6 +40,25 @@ def _text(message: BaseMessage) -> str:
     return content
 
 
+def _log_usage(chat: ChatLike, message: BaseMessage) -> None:
+    """Registra el consumo de tokens si el proveedor publica su uso.
+
+    La línea sale por structlog, que ya lleva ``request_id`` y ``owner_key`` del
+    contexto de la petición: esa es la métrica de tokens por visitante.
+    """
+
+    uso = getattr(message, "usage_metadata", None)
+    if not uso:
+        return
+    modelo = getattr(chat, "model_name", None) or getattr(chat, "model", None)
+    logger.info(
+        "llm.completed",
+        model=modelo,
+        tokens_in=uso.get("input_tokens"),
+        tokens_out=uso.get("output_tokens"),
+    )
+
+
 class _LangChainChat:
     """Implementa ``LLMProvider`` sobre un chat de LangChain ya construido.
 
@@ -55,11 +77,14 @@ class _LangChainChat:
         """
 
         try:
-            return _text(self._chat.invoke(self._messages(system, prompt)))
+            respuesta = self._chat.invoke(self._messages(system, prompt))
+            texto = _text(respuesta)
         except LLMError:
             raise
         except Exception as error:
             raise LLMError("El proveedor de LLM no devolvió una respuesta utilizable.") from error
+        _log_usage(self._chat, respuesta)
+        return texto
 
     def stream(self, *, system: str, prompt: str) -> Iterator[str]:
         """Emite los fragmentos del modelo en el orden en que llegan.
@@ -70,8 +95,10 @@ class _LangChainChat:
             LLMError: si el proveedor falla o devuelve contenido no textual.
         """
 
+        ultimo: BaseMessage | None = None
         try:
             for chunk in self._chat.stream(self._messages(system, prompt)):
+                ultimo = chunk
                 fragment = _text(chunk)
                 if fragment:
                     yield fragment
@@ -79,6 +106,8 @@ class _LangChainChat:
             raise
         except Exception as error:
             raise LLMError("El proveedor de LLM no devolvió una respuesta utilizable.") from error
+        if ultimo is not None:
+            _log_usage(self._chat, ultimo)
 
     @staticmethod
     def _messages(system: str, prompt: str) -> list[BaseMessage]:

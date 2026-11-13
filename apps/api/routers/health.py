@@ -1,8 +1,8 @@
 """Ruta de salud: estado del proceso y conteos del corpus."""
 
-from logging import getLogger
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -11,7 +11,7 @@ from apps.api.deps import DB_UNAVAILABLE, Handlers, get_handlers
 
 __all__ = ["router"]
 
-logger = getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["salud"])
 
@@ -30,6 +30,6 @@ def health(handlers: Annotated[Handlers, Depends(get_handlers)]) -> JSONResponse
     try:
         status = handlers.health()
     except (SQLAlchemyError, OSError) as error:  # la base no responde
-        logger.warning("Health check falló: %s", error)
+        logger.warning("health.failed", error=str(error))
         return JSONResponse({"status": "degraded", "detail": DB_UNAVAILABLE}, status_code=503)
     return JSONResponse({"status": "ok", "documents": status.documents, "chunks": status.chunks})

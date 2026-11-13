@@ -35,4 +35,4 @@ EXPOSE 8000
 # enfermo cuando Postgres está caído.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live', timeout=2)"
-CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

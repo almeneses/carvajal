@@ -18,6 +18,7 @@ from apps.api.deps import (
     Handlers,
     HealthStatus,
 )
+from apps.api.observability import RequestContextMiddleware, configure_observability
 from apps.api.routers import chat, health
 from apps.api.session import OwnerSessionMiddleware
 
@@ -33,9 +34,11 @@ __all__ = [
 def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
+    configure_observability()
     app = FastAPI(title="Corpus Carvajal")
     app.state.handlers = handlers
     app.add_middleware(OwnerSessionMiddleware)
+    app.add_middleware(RequestContextMiddleware)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     app.include_router(health.router)
     app.include_router(chat.router)

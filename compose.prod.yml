@@ -49,6 +49,10 @@ services:
       # Cámbialo en el .env del servidor antes de abrir la app a internet.
       SESSION_SECRET: ${SESSION_SECRET:-desarrollo-local}
       DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Sin DSN no se envía nada a Sentry.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-produccion}
     ports:
       # Solo loopback: el proxy de W6.2 es el que expone el puerto público.
       - "127.0.0.1:${APP_PORT:-8000}:8000"

@@ -106,6 +106,13 @@ class Settings(BaseSettings):
     # defecto solo sirve para desarrollo local.
     session_secret: str = "desarrollo-local"
 
+    # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
+    # son JSON en stdout y el nivel se ajusta por entorno.
+    log_level: str = "INFO"
+    sentry_dsn: str = ""
+    sentry_environment: str = "local"
+    sentry_traces_sample_rate: float = 0.0
+
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
         """Deriva la URL del contenedor local si no se dio una explícita.

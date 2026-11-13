@@ -325,6 +325,7 @@ git push
 | 2026-11-11 | Caso de uso `AskQuestion` con puerto `Embedder`, contexto numerado, citas y neutralización de delimitadores | Une recuperación y generación sin acoplar capas; sin contexto no se llama al LLM y el texto del corpus no puede inyectar instrucciones |
 | 2026-11-11 | Shell web FastAPI con handlers diferidos, `/health`, portada HTMX y `/ask` con citas | Importar el módulo no abre conexiones; los fallos de proveedor se traducen a 503 sin filtrar detalles internos |
 | 2026-11-12 | Imagen Docker multi-etapa; captura y prototipo Streamlit pasan a extras (`capture`, `legacy`) | El contenedor instala solo el runtime web (259 MB) y el arranque no importa LangChain; desarrollo y CI siguen instalando todo con `--all-extras` |
+| 2026-11-12 | Logs JSON con `request_id` por petición, consumo de tokens por visitante y Sentry opcional por `SENTRY_DSN` | Una petición se sigue de punta a punta sin abrir el código; sin DSN no sale nada del proceso y `send_default_pii` queda en `False` |
 
 ## 10. Notas y tareas pendientes
 
