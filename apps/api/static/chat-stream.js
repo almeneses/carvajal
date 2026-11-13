@@ -62,8 +62,13 @@
     let cerrado = false;
     let recibioContenido = false;
     try {
-      const response = await fetch(`/chat/stream?question=${encodeURIComponent(pregunta)}`, {
-        headers: { Accept: "text/event-stream" },
+      const response = await fetch("/chat/stream", {
+        method: "POST",
+        headers: {
+          Accept: "text/event-stream",
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ question: pregunta }),
         signal: control.signal,
       });
       const tipo = response.headers.get("content-type") ?? "";

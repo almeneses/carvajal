@@ -79,26 +79,27 @@ class ChatService:
     def ask(self, owner_key: str, question: str) -> Answer:
         """Responde y guarda usuario y asistente en una sola transacción.
 
-        La conversación se crea dentro de la misma transacción: si el embedder,
-        el LLM o la base fallan, no queda ni conversación ni mensaje.
+        La recuperación se hace en una sesión corta; el LLM se llama fuera de
+        la transacción para no retener una conexión del pool mientras genera.
+        El turno se persiste después, en una transacción nueva.
         """
 
         text = question.strip()
-        with self._session_factory.begin() as session:
-            answer = AskQuestion(
-                PgVectorStore(session),
-                self._embedder,
-                self._llm,
-            ).answer(text)
-            repository = SqlChatRepository(session)
-            conversation = repository.get_or_create(owner_key)
-            repository.append_turn(
-                conversation.id,
-                question=text,
-                answer=answer.text,
-                sources=_sources(answer.sources),
-            )
-        return answer
+        session = self._session_factory()
+        try:
+            ask = AskQuestion(PgVectorStore(session), self._embedder, self._llm)
+            prepared = ask.prepare(text)
+            # La lectura termina aquí: no retenemos la transacción mientras el
+            # modelo genera, que puede tardar minutos.
+            session.rollback()
+            answer = ask.answer_prepared(prepared)
+            self._persist(session, owner_key, text, answer.text, answer.sources)
+            return answer
+        except Exception:
+            _safe_rollback(session)
+            raise
+        finally:
+            session.close()
 
     def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
         """Emite ``open``, ``meta``, ``token``… y persiste el turno al final.

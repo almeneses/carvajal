@@ -94,7 +94,7 @@ def test_stream_emite_open_meta_tokens_y_done_en_orden() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.get("/chat/stream", params={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
 
     # Assert
     assert response.status_code == 200
@@ -120,7 +120,7 @@ def test_stream_emite_cookie_si_el_visitante_no_tenia_identidad() -> None:
     client, chat = make_client()
 
     # Act
-    response = client.get("/chat/stream", params={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
 
     # Assert
     assert response.status_code == 200
@@ -143,7 +143,7 @@ def test_fallback_antes_del_primer_token_se_emite_y_cierra() -> None:
     client, chat = make_client(FakeChat(events=events))
 
     # Act
-    response = client.get("/chat/stream", params={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
 
     # Assert
     assert response.status_code == 200
@@ -174,7 +174,7 @@ def test_error_tras_un_token_marca_incompleto_y_no_emite_done() -> None:
     client, chat = make_client(FakeChat(events=events))
 
     # Act
-    response = client.get("/chat/stream", params={"question": "¿Cuándo nació?"})
+    response = client.post("/chat/stream", data={"question": "¿Cuándo nació?"})
 
     # Assert
     assert response.status_code == 200
@@ -199,7 +199,7 @@ def test_pregunta_invalida_devuelve_422_sse_sin_llamar_al_proveedor(
     client, chat = make_client()
 
     # Act
-    response = client.get("/chat/stream", params={"question": question})
+    response = client.post("/chat/stream", data={"question": question})
 
     # Assert
     assert response.status_code == 422
@@ -216,7 +216,7 @@ def test_open_es_el_primer_evento_y_llega_en_menos_de_dos_segundos() -> None:
     # Act
     inicio = perf_counter()
     primer_evento: tuple[str, float] | None = None
-    with client.stream("GET", "/chat/stream", params={"question": "¿Cuándo nació?"}) as response:
+    with client.stream("POST", "/chat/stream", data={"question": "¿Cuándo nació?"}) as response:
         assert response.status_code == 200
         for line in response.iter_lines():
             if line.startswith("event:"):
@@ -238,7 +238,7 @@ def test_el_primer_token_llega_en_menos_de_dos_segundos() -> None:
     # Act
     inicio = perf_counter()
     primer_token: float | None = None
-    with client.stream("GET", "/chat/stream", params={"question": "¿Cuándo nació?"}) as response:
+    with client.stream("POST", "/chat/stream", data={"question": "¿Cuándo nació?"}) as response:
         assert response.status_code == 200
         for line in response.iter_lines():
             if line.strip() == "event: token":
@@ -248,3 +248,15 @@ def test_el_primer_token_llega_en_menos_de_dos_segundos() -> None:
     # Assert
     assert primer_token is not None, "el stream no emitió ningún token"
     assert 0.05 <= primer_token < 2.0, f"el primer token tardó {primer_token:.3f} s"
+
+
+def test_get_no_puede_disparar_el_stream() -> None:
+    # Arrange: la pregunta no debe viajar en la URL ni dispararse con un GET.
+    client, chat = make_client()
+
+    # Act
+    response = client.get("/chat/stream", params={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 405
+    assert chat.calls == []
