@@ -15,17 +15,22 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from apps.api.chat.identity import ChatIdentity
 from apps.api.runtime import APP_DIR, embedder, llm_provider, session_factory, templates
 from apps.api.views import chat, corpus, documents, stream
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
+from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.adapters.vector.pgvector_store import PgVectorStore
 from carvajal.application.ask import Answer, AskQuestion, LLMError
+from carvajal.application.quota import DailyQuota, QuotaResult
+from carvajal.infrastructure.settings import Settings
 
 logger = getLogger(__name__)
 
 DB_UNAVAILABLE = "La base de datos no responde."
 SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este momento."
+LIMITE_ALCANZADO = "Has alcanzado el límite diario de preguntas. Vuelve a intentarlo mañana."
 
 
 @dataclass(frozen=True)
@@ -36,18 +41,26 @@ class HealthStatus:
     chunks: int
 
 
+def _sin_limite(owner_key: str) -> QuotaResult:
+    """Cupo por defecto: sin límite, para pruebas y desarrollo."""
+
+    return QuotaResult(allowed=True)
+
+
 @dataclass(frozen=True)
 class Handlers:
     """Casos de uso que expone el shell, inyectables en las pruebas."""
 
     ask: Callable[[str], Answer]
     health: Callable[[], HealthStatus]
+    quota: Callable[[str], QuotaResult] = _sin_limite
 
 
 @cache
 def _default_handlers() -> Handlers:
     """Construye los handlers reales una sola vez, al primer uso."""
 
+    settings = Settings()
     factory = session_factory()
     embed = embedder()
     llm = llm_provider()
@@ -62,13 +75,45 @@ def _default_handlers() -> Handlers:
         with factory.begin() as session:
             return AskQuestion(PgVectorStore(session), embed, llm).answer(question)
 
-    return Handlers(ask=ask, health=health)
+    def quota(owner_key: str) -> QuotaResult:
+        with factory.begin() as session:
+            uso = SqlUsageRepository(session)
+            return DailyQuota(
+                uso,
+                limit=settings.daily_requests_limit,
+                timezone=settings.quota_timezone,
+            ).consume(owner_key)
+
+    return Handlers(ask=ask, health=health, quota=quota)
 
 
-def _message(request: Request, status_code: int, message: str) -> Response:
+def _message(
+    request: Request,
+    status_code: int,
+    message: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> Response:
     """Devuelve el parcial de error para HTMX, sin exponer trazas."""
 
-    return templates.TemplateResponse(request, "_answer.html", {"error": message}, status_code)
+    return templates.TemplateResponse(
+        request, "_answer.html", {"error": message}, status_code, headers=headers
+    )
+
+
+def _emit_identity(
+    response: Response,
+    request: Request,
+    identity: ChatIdentity,
+    owner_key: str,
+    *,
+    new_owner: bool,
+) -> Response:
+    """Emite la cookie de identidad si el visitante aún no tenía una."""
+
+    if new_owner:
+        chat.set_identity_cookie(response, request, identity, owner_key)
+    return response
 
 
 def create_app(handlers: Handlers | None = None) -> FastAPI:
@@ -99,12 +144,38 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         text = question.strip()
         if not text:
             return _message(request, 422, "La pregunta no puede estar vacía.")
+
+        identity = chat.request_identity(request)
+        stored_owner = identity.read(request)
+        new_owner = stored_owner is None
+        owner_key = stored_owner or identity.new_owner_key()
+        current = handlers or _default_handlers()
+
         try:
-            answer = (handlers or _default_handlers()).ask(text)
+            quota = current.quota(owner_key)
+        except SQLAlchemyError as error:
+            logger.warning("No se pudo consultar la cuota diaria: %s", error)
+            unavailable = _message(request, 503, SERVICE_UNAVAILABLE)
+            return _emit_identity(unavailable, request, identity, owner_key, new_owner=new_owner)
+
+        if not quota.allowed:
+            limited = _message(
+                request,
+                429,
+                LIMITE_ALCANZADO,
+                headers={"Retry-After": str(quota.retry_after)},
+            )
+            return _emit_identity(limited, request, identity, owner_key, new_owner=new_owner)
+
+        try:
+            answer = current.ask(text)
         except (EmbeddingError, LLMError, SQLAlchemyError) as error:
             logger.warning("Fallo al responder: %s", error)
-            return _message(request, 503, SERVICE_UNAVAILABLE)
-        return templates.TemplateResponse(request, "_answer.html", {"answer": answer})
+            unavailable = _message(request, 503, SERVICE_UNAVAILABLE)
+            return _emit_identity(unavailable, request, identity, owner_key, new_owner=new_owner)
+
+        response = templates.TemplateResponse(request, "_answer.html", {"answer": answer})
+        return _emit_identity(response, request, identity, owner_key, new_owner=new_owner)
 
     return app
 

@@ -7,8 +7,10 @@ sobre estas ``Table`` con una ``Session`` síncrona. La columna ``embedding`` de
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -30,6 +32,7 @@ __all__ = [
     "documents",
     "messages",
     "metadata",
+    "usage_day",
 ]
 
 metadata = MetaData()
@@ -149,4 +152,15 @@ Index(
     messages.c.conversation_id,
     messages.c.created_at,
     messages.c.id,
+)
+
+# Cupo diario por visitante anónimo (W4.2). La clave es el identificador de la
+# cookie firmada, no un usuario: W4.1 añadirá `user_id` cuando exista OIDC.
+usage_day = Table(
+    "usage_day",
+    metadata,
+    Column("owner_key", Text, primary_key=True),
+    Column("day", Date, primary_key=True),
+    Column("requests", Integer, nullable=False, server_default="0"),
+    Column("tokens", BigInteger, nullable=False, server_default="0"),
 )

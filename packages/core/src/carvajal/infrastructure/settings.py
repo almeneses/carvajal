@@ -3,8 +3,9 @@
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -105,6 +106,23 @@ class Settings(BaseSettings):
     # se usa un secreto aleatorio por proceso; en producción debe fijarse para
     # que las cookies sobrevivan reinicios y compartan valor entre workers.
     session_secret: str = ""
+
+    # Cupo diario de preguntas por visitante anónimo (W4.2). El límite es una
+    # política de producto y la medianoche se calcula en la zona indicada, no
+    # en el TZ del contenedor.
+    daily_requests_limit: int = Field(default=20, ge=0)
+    quota_timezone: str = "America/Bogota"
+
+    @field_validator("quota_timezone")
+    @classmethod
+    def _zona_horaria_valida(cls, value: str) -> str:
+        """Rechaza una zona desconocida al construir la configuración."""
+
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError(f"zona horaria desconocida: {value}") from error
+        return value
 
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
