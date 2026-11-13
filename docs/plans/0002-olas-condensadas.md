@@ -42,7 +42,7 @@ vuelve a tocar.
 |---|---|---|
 | Composition root | `apps/api/main.py`, `apps/api/deps.py`, `apps/api/routers/` | `main.py` solo monta estáticos y registra routers; cada pista añade **una línea** `include_router` y nunca edita el router ajeno |
 | Handlers | `deps.get_handlers(request)` | Los routers reciben `Handlers` por dependencia; las pruebas inyectan dobles con `app.state.handlers` |
-| Identidad de conversación | `conversations.owner_key TEXT NOT NULL` | UUID de cookie firmada (`HttpOnly`, `SameSite=Lax`, sin PII). **No es autenticación**: solo delimita historial y cuotas |
+| Identidad de conversación | `apps/api/session.py` y `conversations.owner_key TEXT NOT NULL` | UUID de cookie firmada (`HttpOnly`, `SameSite=Lax`, sin PII), emitido por `OwnerSessionMiddleware` y expuesto con `Depends(owner_key)`. **No es autenticación**: solo delimita historial y cuotas |
 | Migración a OIDC | `conversations.user_id` y `usage_day.owner_key` | Aditiva: al primer login, `UPDATE … SET user_id = ? WHERE owner_key = ?`; sin migración destructiva |
 | CSRF | `apps/api/templates/_csrf.html` | `index.html` la incluye con `ignore missing`; B crea el parcial cuando llega W4.3 y A no cambia su formulario |
 | Navegación | `apps/api/templates/_nav_extra.html` | `base.html` la incluye con `ignore missing`; B añade «Mi cuenta» sin editar la cabecera |

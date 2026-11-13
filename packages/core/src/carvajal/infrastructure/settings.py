@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     database_url: str = ""
 
+    # Firma de la cookie anónima del visitante (historial y cuotas). No es
+    # autenticación. En producción debe venir de SESSION_SECRET; el valor por
+    # defecto solo sirve para desarrollo local.
+    session_secret: str = "desarrollo-local"
+
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
         """Deriva la URL del contenedor local si no se dio una explícita.

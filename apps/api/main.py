@@ -19,6 +19,7 @@ from apps.api.deps import (
     HealthStatus,
 )
 from apps.api.routers import chat, health
+from apps.api.session import OwnerSessionMiddleware
 
 __all__ = [
     "DB_UNAVAILABLE",
@@ -34,6 +35,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
 
     app = FastAPI(title="Corpus Carvajal")
     app.state.handlers = handlers
+    app.add_middleware(OwnerSessionMiddleware)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     app.include_router(health.router)
     app.include_router(chat.router)
