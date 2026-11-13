@@ -56,9 +56,10 @@ services:
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
-      # Cuota diaria por visitante (W4.2). Hoy la app aún no la lee; se deja
-      # definida para no cambiar el compose al integrar esa ola.
+      # Cuota diaria por visitante (W4.2); la medianoche se calcula en la zona
+      # indicada, no en el TZ del contenedor.
       DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}
+      QUOTA_TIMEZONE: ${QUOTA_TIMEZONE:-America/Bogota}
     ports:
       # Solo loopback: el proxy de W6.2 es el que expone el puerto público.
       - "127.0.0.1:${APP_PORT:-8000}:8000"

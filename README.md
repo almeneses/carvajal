@@ -260,8 +260,9 @@ También puedes configurar las variables en la terminal:
 
 Para la app web, `SESSION_SECRET` firma la cookie anónima y es obligatorio en
 producción (`compose.prod.yml` falla si falta); en desarrollo puede quedar vacío
-y se usa un secreto aleatorio por proceso. `DAILY_REQUESTS_LIMIT` queda definido
-para la cuota de W4.2 y `POSTGRES_*`/`DATABASE_URL` configuran la base.
+y se usa un secreto aleatorio por proceso. `DAILY_REQUESTS_LIMIT` y
+`QUOTA_TIMEZONE` configuran la cuota diaria; `POSTGRES_*`/`DATABASE_URL`
+configuran la base.
 
 El índice vectorial FAISS se guarda en `data/index/` (ignorado por Git) y se reutiliza
 mientras el corpus no cambie, de modo que la app arranca en segundos. La primera
