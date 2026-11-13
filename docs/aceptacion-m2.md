@@ -25,8 +25,8 @@
 | Salud del proceso separada de la del índice | ✅ | `/live` 200 sin base; `/health` 503 si Qdrant falta, con `index.status`. |
 | Registro de fragmentos indexados | ✅ | Salida del indexador y `/health` (`points`). |
 | Dataset de evaluación reutilizando `questions.json` | ✅ | `data/eval/retrieval_questions.json` (31 consultas etiquetadas). |
-| Reporte reproducible con top-k por consulta | ✅ | `docs/eval/retrieval-report.md` y `retrieval-results.json`; `make index-eval`. |
-| Recall@10 / nDCG@10 | ✅ | **Recall@10 = 0.8444**, **nDCG@10 = 0.8002** (k=10). |
+| Reporte reproducible con top-k por consulta | ✅ | `docs/eval/retrieval-report.md` (el JSON completo se regenera y no se versiona); `make index-eval`. |
+| Recall@10 / nDCG@10 | ✅ | **Recall@10 = 0.8000**, **nDCG@10 = 0.7791** (k=10). |
 | Una pregunta sin evidencia documentada | ✅ | `q31`; `abstained=true`, 0 fuentes. |
 | Retrieval inspeccionable separado de la respuesta | ✅ | El script no llama al LLM; el reporte incluye extractos y URLs. |
 
@@ -78,7 +78,7 @@
 | PR existentes | ✅ | #98 integrada con `--admin` autorizado; #72/#83/#86/#43 cerradas conservando ramas; #99/#100 conservadas para OIDC (colisión de `0004`); #40–#45 en mantenimiento de `main`. |
 | Pila M2 | ✅ | #102 → #103 → #104 → #105 → #106; cada PR <2.000 líneas y con `make check` verde. |
 | Demo 12 min + 3 de preguntas | ✅ | `docs/demo-m2.md`. |
-| `make check` e integración | ✅ | 430 unitarias + 41 de integración; salida reproducible con `make check` y `pytest -m integration`. |
+| `make check` e integración | ✅ | 437 unitarias + 41 de integración; salida reproducible con `make check` y `pytest -m integration`. |
 | Ensayo desde clon limpio | ⚠️ | Pendiente de repetir tras el commit final; comandos en README. |
 | Defensa contra instrucciones incrustadas / evaluación LangSmith / Playwright | ⚠️ | Deseable no ejecutado; el prompt ya neutraliza delimitadores y el contrato SSE está probado con HTTP. |
 

@@ -121,15 +121,16 @@ fragmento original.
 
 `data/eval/retrieval_questions.json` contiene 31 consultas etiquetadas a mano
 (30 con evidencia y una sin evidencia). El reporte reproducible está en
-[`docs/eval/retrieval-report.md`](docs/eval/retrieval-report.md) y el JSON con
-el top-k en [`docs/eval/retrieval-results.json`](docs/eval/retrieval-results.json).
+[`docs/eval/retrieval-report.md`](docs/eval/retrieval-report.md). El JSON
+completo con los 10 resultados por consulta se regenera con el mismo comando y
+no se versiona para no inflar el PR.
 
 ```bash
 make index-eval     # indexa y ejecuta scripts/eval_retrieval.py
 ```
 
-Resultado de la última corrida (Qdrant, k=10): **Recall@10 = 0.8444**,
-**nDCG@10 = 0.8002**; la consulta sin evidencia (`q31`, teléfono en Tokio) se
+Resultado de la última corrida (Qdrant, k=10): **Recall@10 = 0.8000**,
+**nDCG@10 = 0.7791**; la consulta sin evidencia (`q31`, teléfono en Tokio) se
 abstiene sin fuentes. La evaluación separa retrieval de calidad de respuesta:
 no llama al LLM.
 
@@ -381,11 +382,6 @@ obligatorio (`compose.prod.yml` falla si falta). En desarrollo, fíjalo también
 si vas a reiniciar el backend durante la demo: con un secreto aleatorio por
 proceso, la cookie deja de validar y el hilo no se recupera. `DAILY_REQUESTS_LIMIT`
 y `QUOTA_TIMEZONE` configuran la cuota diaria; `POSTGRES_*`/`DATABASE_URL`
-
-Para la app web, `SESSION_SECRET` firma la cookie anónima y es obligatorio en
-producción (`compose.prod.yml` falla si falta); en desarrollo puede quedar vacío
-y se usa un secreto aleatorio por proceso. `DAILY_REQUESTS_LIMIT` y
-`QUOTA_TIMEZONE` configuran la cuota diaria; `POSTGRES_*`/`DATABASE_URL`
 configuran la base.
 
 El índice vectorial FAISS se guarda en `data/index/` (ignorado por Git) y se reutiliza

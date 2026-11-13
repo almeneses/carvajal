@@ -34,7 +34,7 @@ hilo no se recupera.
 | 6:30–8:30 | **Memoria** | «Recuerda que prefiero respuestas breves» → «Nuevo hilo» → «Hola» | `memory=1` en el hilo nuevo; misma cookie, distinto hilo. Abre una ventana incógnito y saluda: `memory=0` (aislamiento). |
 | 8:30–10:00 | **Reinicio** | Reinicia el backend (o muestra la evidencia pregrabada) y repite «¿Y en qué año ocurrió eso?» en el hilo | Mismo `thread_id`, `intent=follow_up`, respuesta 1904; el checkpointer y el historial sobreviven. |
 | 10:00–11:00 | **Salud y trazas** | `/live`, `/health`, logs JSON | `/live` no toca base; `/health` separa documentos, fragmentos e índice. Logs con `request_id`, `thread_id`, `route`, `tool`, fuentes. |
-| 11:00–12:00 | **Evaluación y calidad** | Reporte de retrieval y `make check` | Recall@10=0.8444, nDCG@10=0.8002; 430 unitarias + 41 de integración; cita la consulta sin evidencia. |
+| 11:00–12:00 | **Evaluación y calidad** | Reporte de retrieval y `make check` | Recall@10=0.8000, nDCG@10=0.7791; 437 unitarias + 41 de integración; cita la consulta sin evidencia. |
 
 ## Frases exactas de respaldo
 
