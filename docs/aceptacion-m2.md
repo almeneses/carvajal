@@ -79,7 +79,7 @@
 | Pila M2 | ✅ | #102 → #103 → #104 → #105 → #106; cada PR <2.000 líneas y con `make check` verde. |
 | Demo 12 min + 3 de preguntas | ✅ | `docs/demo-m2.md`. |
 | `make check` e integración | ✅ | 437 unitarias + 41 de integración; salida reproducible con `make check` y `pytest -m integration`. |
-| Ensayo desde clon limpio | ⚠️ | Pendiente de repetir tras el commit final; comandos en README. |
+| Ensayo desde clon limpio | ✅ | `git clone -b feat/w7-m2-d …` + `uv sync --all-extras` + `make check`: 437 passed, 41 deselected. |
 | Defensa contra instrucciones incrustadas / evaluación LangSmith / Playwright | ⚠️ | Deseable no ejecutado; el prompt ya neutraliza delimitadores y el contrato SSE está probado con HTTP. |
 
 ## Pendiente por credenciales o servicios externos
