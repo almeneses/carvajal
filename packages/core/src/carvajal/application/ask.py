@@ -4,13 +4,13 @@ Depende solo de ``application.ports`` y del dominio: ni FastAPI ni LangChain ni
 la base de datos. Devuelve las fuentes que sustentan la respuesta.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from carvajal.application.errors import LLMError
 from carvajal.application.ports import Embedder, LLMProvider, ScoredChunk, VectorStore
 
-__all__ = ["Answer", "AskQuestion", "LLMError", "Source"]
+__all__ = ["Answer", "AskQuestion", "LLMError", "PreparedQuestion", "Source"]
 
 DEFAULT_SYSTEM_PROMPT = (
     "Eres el asistente del corpus Carvajal. Responde únicamente con el CONTEXTO "
@@ -51,6 +51,18 @@ class Answer:
     sources: Sequence[Source]
 
 
+@dataclass(frozen=True)
+class PreparedQuestion:
+    """Pregunta ya recuperada: prompt para el LLM y fuentes citables.
+
+    ``prompt`` es ``None`` cuando la búsqueda no devolvió fragmentos; en ese caso
+    el caso de uso responde sin consultar al modelo.
+    """
+
+    prompt: str | None
+    sources: Sequence[Source]
+
+
 class AskQuestion:
     """Responde una pregunta con el contexto recuperado del índice vectorial.
 
@@ -84,6 +96,15 @@ class AskQuestion:
             LLMError: si el proveedor de LLM devuelve una respuesta vacía.
         """
 
+        return self.answer_prepared(self.prepare(question))
+
+    def prepare(self, question: str) -> PreparedQuestion:
+        """Recupera el contexto y compone el prompt sin llamar al LLM.
+
+        Raises:
+            ValueError: si la pregunta está vacía o solo tiene espacios.
+        """
+
         normalized = question.strip()
         if not normalized:
             raise ValueError("La pregunta no puede estar vacía.")
@@ -91,13 +112,38 @@ class AskQuestion:
         embedding = self._embedder.embed(normalized)
         results = self._vector_store.search(embedding, limit=self._limit)
         if not results:
-            return Answer(text=NO_CONTEXT_ANSWER, sources=())
+            return PreparedQuestion(prompt=None, sources=())
+        return PreparedQuestion(
+            prompt=_build_prompt(normalized, results),
+            sources=tuple(_source(result) for result in results),
+        )
 
-        prompt = _build_prompt(normalized, results)
-        text = self._llm.complete(system=self._system_prompt, prompt=prompt)
+    def answer_prepared(self, prepared: PreparedQuestion) -> Answer:
+        """Completa el prompt ya preparado con una respuesta del LLM.
+
+        Raises:
+            LLMError: si el proveedor devuelve una respuesta vacía.
+        """
+
+        if prepared.prompt is None:
+            return Answer(text=NO_CONTEXT_ANSWER, sources=())
+        text = self._llm.complete(system=self._system_prompt, prompt=prepared.prompt)
         if not text.strip():
             raise LLMError("El proveedor de LLM devolvió una respuesta vacía.")
-        return Answer(text=text.strip(), sources=tuple(_source(result) for result in results))
+        return Answer(text=text.strip(), sources=tuple(prepared.sources))
+
+    def stream(self, question: str) -> Iterator[str]:
+        """Emite la respuesta por fragmentos, reutilizando la recuperación."""
+
+        yield from self.stream_prepared(self.prepare(question))
+
+    def stream_prepared(self, prepared: PreparedQuestion) -> Iterator[str]:
+        """Emite los fragmentos del LLM para un prompt ya preparado."""
+
+        if prepared.prompt is None:
+            yield NO_CONTEXT_ANSWER
+            return
+        yield from self._llm.stream(system=self._system_prompt, prompt=prepared.prompt)
 
 
 def _neutralize(value: str) -> str:
