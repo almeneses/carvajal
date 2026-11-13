@@ -1,5 +1,5 @@
 {% if error %}
-<div class="aviso">{{ error }}</div>
+<p class="aviso">{{ error }}</p>
 {% else %}
 <article class="tarjeta">
   <p class="texto">{{ answer.text }}</p>
@@ -9,13 +9,16 @@
 <ol class="fuentes">
   {% for source in answer.sources %}
   <li class="fuente">
-    <p class="meta">
-      {{ source.slug }} · {{ source.section }} · {{ source.layer }} · similitud
-      {{ "%.3f"|format(source.score) }}
+    <p class="fuente-meta">
+      <span>Documento: <strong>{{ source.slug }}</strong></span>
+      <span>Sección: {{ source.section }}</span>
+      <span>Capa: {{ source.layer }}</span>
+      <span class="puntuacion">Puntuación: {{ "%.3f"|format(source.score) }}</span>
     </p>
     <p class="extracto">{{ source.excerpt }}</p>
     <p class="chunk">{{ source.chunk_id }}</p>
   </li>
   {% endfor %}
 </ol>
-{% endif %} {% endif %}
+{% endif %}
+{% endif %}

@@ -90,7 +90,51 @@ def test_portada_renderiza_el_formulario() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert 'name="question"' in response.text and 'hx-post="/ask"' in response.text
+    assert 'name="question"' in response.text
+    assert 'for="pregunta"' in response.text and 'id="pregunta"' in response.text
+
+
+def test_portada_aplica_el_tema_y_la_accesibilidad_basica() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/")
+
+    # Assert
+    assert response.status_code == 200
+    assert 'lang="es"' in response.text
+    assert "<title>Asistente Carvajal</title>" in response.text
+    assert "Saltar al contenido" in response.text
+    assert 'alt="Carvajal"' in response.text
+    assert 'aria-live="polite"' in response.text and 'id="respuesta"' in response.text
+    assert "corpus público de Carvajal" in response.text
+
+
+def test_la_navegacion_solo_enlaza_secciones_de_la_pagina() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/")
+
+    # Assert
+    assert 'href="#preguntar"' in response.text and 'id="preguntar"' in response.text
+    assert 'href="#respuesta"' not in response.text
+
+
+def test_el_logo_se_sirve_como_svg() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/static/logo.svg")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert len(response.content) > 1000
+    assert "<svg" in response.text
 
 
 def test_ask_devuelve_respuesta_y_fuentes() -> None:
