@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ document.title }} — Asistente Carvajal{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/document.css" />
+{% endblock %}
+{% block content %}
+<article class="documento" aria-labelledby="titulo-documento">
+  <header class="documento-cabecera">
+    <h1 id="titulo-documento">{{ document.title }}</h1>
+    <dl class="documento-meta">
+      <div>
+        <dt>Sección</dt>
+        <dd>{{ document.section }}</dd>
+      </div>
+      <div>
+        <dt>Capa</dt>
+        <dd>{{ document.layer }}</dd>
+      </div>
+      <div>
+        <dt>Tipo de fuente</dt>
+        <dd>{{ document.source_type }}</dd>
+      </div>
+      <div>
+        <dt>Origen</dt>
+        <dd>
+          <a href="{{ document.url }}" rel="noopener noreferrer">{{ document.url }}</a>
+        </dd>
+      </div>
+      <div>
+        <dt>Fecha de captura</dt>
+        <dd><time datetime="{{ captured_iso }}">{{ captured_display }}</time></dd>
+      </div>
+      <div>
+        <dt>Hash</dt>
+        <dd><code>{{ content_hash }}</code></dd>
+      </div>
+    </dl>
+    {% if version %}
+    <p class="aviso-version" role="status">
+      Estás viendo una versión archivada del documento.
+      <a href="/documents/{{ document.id }}">Volver a la actual</a>
+    </p>
+    {% endif %}
+    {% if versions %}
+    <p class="documento-versiones">
+      <a href="?version={{ versions[0].id }}">Versión anterior</a>
+    </p>
+    {% endif %}
+  </header>
+  <div class="documento-contenido">
+    {{ content | safe }}
+  </div>
+</article>
+{% endblock %}

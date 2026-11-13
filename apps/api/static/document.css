@@ -1,0 +1,118 @@
+/* Pantalla de documento: metadatos y contenido Markdown saneado. */
+
+.documento-cabecera {
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--borde);
+}
+
+.documento-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem 1.5rem;
+  margin: 1.25rem 0 0;
+}
+
+.documento-meta div {
+  min-width: 0;
+}
+
+.documento-meta dt {
+  color: var(--secundario);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.documento-meta dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.documento-meta code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+.aviso-version {
+  margin: 1.25rem 0 0;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid #f0d9a8;
+  border-left: 4px solid var(--naranja);
+  border-radius: var(--radio);
+  background: #fff8ea;
+}
+
+.documento-versiones {
+  margin: 0.75rem 0 0;
+}
+
+.documento-contenido {
+  margin-top: 1.75rem;
+  overflow-wrap: anywhere;
+}
+
+.documento-contenido :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.75rem 0 0.6rem;
+  line-height: 1.3;
+}
+
+.documento-contenido :first-child {
+  margin-top: 0;
+}
+
+.documento-contenido :is(ul, ol) {
+  padding-left: 1.4rem;
+}
+
+.documento-contenido li + li {
+  margin-top: 0.3rem;
+}
+
+.documento-contenido blockquote {
+  margin: 1rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 4px solid var(--primario);
+  background: var(--fondo-suave);
+  color: var(--secundario);
+}
+
+.documento-contenido pre {
+  overflow-x: auto;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--fondo-suave);
+}
+
+.documento-contenido code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.documento-contenido :not(pre) > code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: var(--fondo-suave);
+}
+
+.documento-contenido table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.documento-contenido :is(th, td) {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--borde);
+  text-align: left;
+}
+
+.documento-contenido th {
+  background: var(--fondo-suave);
+}
+
+.documento-contenido hr {
+  border: 0;
+  border-top: 1px solid var(--borde);
+  margin: 1.75rem 0;
+}
