@@ -40,11 +40,19 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("client_turn_id IS NOT NULL AND role = 'assistant'"),
     )
+    op.create_index(
+        "uq_messages_turn_user",
+        "messages",
+        ["conversation_id", "client_turn_id"],
+        unique=True,
+        postgresql_where=sa.text("client_turn_id IS NOT NULL AND role = 'user'"),
+    )
 
 
 def downgrade() -> None:
     """Revierte las columnas y sus restricciones."""
 
+    op.drop_index("uq_messages_turn_user", table_name="messages")
     op.drop_index("uq_messages_turn", table_name="messages")
     op.drop_constraint("ck_messages_status", "messages", type_="check")
     op.drop_column("messages", "client_turn_id")

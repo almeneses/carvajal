@@ -160,6 +160,7 @@ class ChatService:
         fragments: list[str] = []
         conversation: Conversation | None = None
         turn: AgentTurn | None = None
+        runner: AgentRunner | None = None
         try:
             if not text:
                 raise ValueError("La pregunta no puede estar vacía.")
@@ -170,9 +171,8 @@ class ChatService:
             # PostgresSaver.setup() crea índices CONCURRENTLY y se bloquearía
             # si esta petición retuviera una transacción abierta.
             runner = self._runner()
-            # Fase de preparación: resolver el hilo, sembrar el checkpointer y
-            # decidir la ruta. La sesión se cierra antes de generar para no
-            # retener una conexión mientras el LLM produce tokens.
+            # Fase de preparación: resolver el hilo y sembrar el checkpointer.
+            # La sesión se cierra antes de decidir la ruta y de generar.
             with self._session_factory() as session:
                 repository = SqlChatRepository(session)
                 conversation = _owned_conversation(repository, owner_key, thread_id)
@@ -185,10 +185,10 @@ class ChatService:
                 if replay is not None:
                     yield from _replay(replay)
                     return
-                turn = runner.prepare(owner_key, conversation.id, text, seed)
                 # El hilo debe existir antes de generar; si el LLM falla, la UI
                 # puede seguir mostrando la conversación sin un turno a medias.
                 session.commit()
+            turn = runner.prepare(owner_key, conversation.id, text, seed)
             structlog.contextvars.bind_contextvars(
                 thread_id=conversation.id,
                 route=turn.route,
@@ -282,13 +282,14 @@ class ChatService:
             )
             if partial and conversation is not None and turn is not None:
                 self._persist_partial(conversation, text, "".join(fragments), turn, client_turn_id)
-                self._runner().record(
-                    conversation.id,
-                    question=text,
-                    answer="".join(fragments),
-                    incomplete=True,
-                    turns=turn.turns,
-                )
+                if runner is not None:
+                    runner.record(
+                        conversation.id,
+                        question=text,
+                        answer="".join(fragments),
+                        incomplete=True,
+                        turns=turn.turns,
+                    )
             yield ChatEvent(
                 "error",
                 {"message": SERVICE_UNAVAILABLE, "incomplete": bool(partial)},
@@ -384,10 +385,14 @@ def _seed_turns(repository: SqlChatRepository, conversation_id: str) -> list[Tur
     return turns
 
 
-def _replay(turn: tuple[ChatMessage, ChatMessage]) -> Iterator[ChatEvent]:
+def _replay(turn: tuple[ChatMessage, ChatMessage | None]) -> Iterator[ChatEvent]:
     """Reemite un turno ya persistido para un reintento idempotente."""
 
-    _user, assistant = turn
+    user, assistant = turn
+    if assistant is None:
+        yield ChatEvent("trace", {"thread_id": user.conversation_id, "route": "replay"})
+        yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": True})
+        return
     sources = () if assistant.sources is None else _sources_from_payload(assistant.sources)
     yield ChatEvent("trace", {"thread_id": assistant.conversation_id, "route": "replay"})
     yield ChatEvent("meta", {"sources": _sources(sources)})

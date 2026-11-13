@@ -206,7 +206,9 @@ def test_migracion_0003_crea_y_revierte_las_tablas(
         checks = inspector.get_check_constraints("messages")
         assert any(check["name"] == "ck_messages_role" for check in checks)
         assert any(check["name"] == "ck_messages_status" for check in checks)
-        assert "uq_messages_turn" in {index["name"] for index in inspector.get_indexes("messages")}
+        index_names = {index["name"] for index in inspector.get_indexes("messages")}
+        assert "uq_messages_turn" in index_names
+        assert "uq_messages_turn_user" in index_names
 
         # Act: bajar solo 0003.
         command.downgrade(config, "0002")

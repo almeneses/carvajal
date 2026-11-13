@@ -114,8 +114,8 @@ class SqlChatRepository:
         self,
         conversation_id: str,
         client_turn_id: str,
-    ) -> tuple[ChatMessage, ChatMessage] | None:
-        """Recupera un turno ya persistido para un reintento idempotente."""
+    ) -> tuple[ChatMessage, ChatMessage | None] | None:
+        """Recupera un turno ya persistido, incluso si quedó a medias."""
 
         if not client_turn_id:
             return None
@@ -131,9 +131,12 @@ class SqlChatRepository:
             .mappings()
             .all()
         )
-        if len(rows) != 2:
+        if not rows:
             return None
-        return ChatMessage(**rows[0]), ChatMessage(**rows[1])
+        first = ChatMessage(**rows[0])
+        if len(rows) == 1:
+            return first, None
+        return first, ChatMessage(**rows[1])
 
     def history(
         self,

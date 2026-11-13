@@ -163,6 +163,13 @@ Index(
     unique=True,
     postgresql_where=text("client_turn_id IS NOT NULL AND role = 'assistant'"),
 )
+Index(
+    "uq_messages_turn_user",
+    messages.c.conversation_id,
+    messages.c.client_turn_id,
+    unique=True,
+    postgresql_where=text("client_turn_id IS NOT NULL AND role = 'user'"),
+)
 
 Index(
     "ix_messages_conversation_created",
