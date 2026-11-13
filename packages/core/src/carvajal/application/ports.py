@@ -7,6 +7,7 @@ pasar las pruebas de contrato de ``tests/test_ports.py``.
 
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from datetime import date
 from typing import Protocol, runtime_checkable
 
 from carvajal.domain.entities import Chunk, Document, DocumentVersion
@@ -19,6 +20,7 @@ __all__ = [
     "Fetcher",
     "LLMProvider",
     "ScoredChunk",
+    "UsageRepository",
     "VectorStore",
 ]
 
@@ -186,5 +188,19 @@ class Extractor(Protocol):
 
     def extract(self, html: str) -> str:
         """Devuelve el Markdown del HTML."""
+
+        ...
+
+
+@runtime_checkable
+class UsageRepository(Protocol):
+    """Contador diario de uso por visitante anónimo."""
+
+    def try_consume(self, owner_key: str, day: date, limit: int) -> bool:
+        """Reserva una petición si queda cupo y devuelve si se concedió.
+
+        Debe ser atómico: dos peticiones simultáneas del mismo visitante no
+        pueden superar ``limit``. ``limit`` no positivo no concede nada.
+        """
 
         ...

@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     # defecto solo sirve para desarrollo local.
     session_secret: str = "desarrollo-local"
 
+    # Cupo diario de preguntas por visitante anónimo (W4.2). El valor es una
+    # política de producto: se ajusta por entorno sin tocar código.
+    daily_requests_limit: int = 20
+
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
         """Deriva la URL del contenedor local si no se dio una explícita.

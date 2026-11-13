@@ -17,8 +17,10 @@ from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.llm import build_llm_provider
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_engine, build_session_factory
+from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.adapters.vector.pgvector_store import PgVectorStore
 from carvajal.application.ask import Answer, AskQuestion
+from carvajal.application.quota import DailyQuota, QuotaResult
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
@@ -48,12 +50,19 @@ class HealthStatus:
     chunks: int
 
 
+def _sin_limite(_: str) -> QuotaResult:
+    """Cupo por defecto: sin límite, para pruebas y desarrollo."""
+
+    return QuotaResult(allowed=True)
+
+
 @dataclass(frozen=True)
 class Handlers:
     """Casos de uso que expone el shell, inyectables en las pruebas."""
 
     ask: Callable[[str], Answer]
     health: Callable[[], HealthStatus]
+    quota: Callable[[str], QuotaResult] = _sin_limite
 
 
 @cache
@@ -75,7 +84,12 @@ def default_handlers() -> Handlers:
         with session_factory.begin() as session:
             return AskQuestion(PgVectorStore(session), embedder, llm).answer(question)
 
-    return Handlers(ask=ask, health=health)
+    def quota(owner_key: str) -> QuotaResult:
+        with session_factory.begin() as session:
+            uso = SqlUsageRepository(session)
+            return DailyQuota(uso, limit=settings.daily_requests_limit).consume(owner_key)
+
+    return Handlers(ask=ask, health=health, quota=quota)
 
 
 def get_handlers(request: Request) -> Handlers:
@@ -85,7 +99,15 @@ def get_handlers(request: Request) -> Handlers:
     return inyectados or default_handlers()
 
 
-def message(request: Request, status_code: int, text: str) -> Response:
+def message(
+    request: Request,
+    status_code: int,
+    text: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> Response:
     """Devuelve el parcial de error para HTMX, sin exponer trazas."""
 
-    return templates.TemplateResponse(request, "_answer.html", {"error": text}, status_code)
+    return templates.TemplateResponse(
+        request, "_answer.html", {"error": text}, status_code, headers=headers
+    )

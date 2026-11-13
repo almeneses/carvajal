@@ -16,10 +16,15 @@ def _unique_column_sets(table: Table) -> set[tuple[str, ...]]:
     }
 
 
-def test_exporta_las_tres_tablas_del_esquema() -> None:
-    """El metadata contiene exactamente las tablas de W1.2."""
+def test_exporta_las_cuatro_tablas_del_esquema() -> None:
+    """El metadata contiene exactamente las tablas del esquema vigente."""
 
-    assert set(tables.metadata.tables) == {"documents", "chunks", "document_versions"}
+    assert set(tables.metadata.tables) == {
+        "documents",
+        "chunks",
+        "document_versions",
+        "usage_day",
+    }
 
 
 def test_claves_foraneas_borran_en_cascada() -> None:
@@ -60,3 +65,11 @@ def test_el_vector_vive_solo_en_los_fragmentos() -> None:
     assert tables.chunks.c.embedding.nullable is True
     assert "embedding" not in tables.documents.c
     assert "embedding" not in tables.document_versions.c
+
+
+def test_el_cupo_se_identifica_por_visitante_y_dia() -> None:
+    """``usage_day`` usa (``owner_key``, ``day``) como clave primaria."""
+
+    assert [column.name for column in tables.usage_day.primary_key] == ["owner_key", "day"]
+    assert tables.usage_day.c.requests.nullable is False
+    assert tables.usage_day.c.tokens.nullable is False

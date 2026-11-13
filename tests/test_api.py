@@ -16,6 +16,7 @@ from apps.api.main import (
 )
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.application.ask import Answer, LLMError, Source
+from carvajal.application.quota import QuotaResult
 
 SOURCE = Source("historia-1", "historia", "historia", "core", 0.912, "Inició operaciones en 1904.")
 ANSWER = Answer(text="Carvajal nació en 1904 [1].", sources=(SOURCE,))
@@ -24,6 +25,7 @@ ANSWER = Answer(text="Carvajal nació en 1904 [1].", sources=(SOURCE,))
 def make_client(
     ask: Callable[[str], Answer] | None = None,
     health: Callable[[], HealthStatus] | None = None,
+    quota: Callable[[str], QuotaResult] | None = None,
     *,
     raise_server_exceptions: bool = True,
 ) -> TestClient:
@@ -34,6 +36,7 @@ def make_client(
             Handlers(
                 ask=ask or (lambda question: ANSWER),
                 health=health or (lambda: HealthStatus(documents=12, chunks=34)),
+                quota=quota or (lambda owner: QuotaResult(allowed=True)),
             )
         ),
         raise_server_exceptions=raise_server_exceptions,
@@ -161,6 +164,40 @@ def test_pregunta_vacia_devuelve_422() -> None:
     # Assert
     assert response.status_code == 422
     assert "La pregunta no puede estar vacía." in response.text
+
+
+def test_ask_agota_la_cuota_diaria() -> None:
+    """Al agotar el cupo, 429 con la hora de reinicio y un aviso legible."""
+
+    # Arrange
+    client = make_client(quota=lambda owner: QuotaResult(allowed=False, retry_after=120))
+
+    # Act
+    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "120"
+    assert "límite diario" in response.text
+
+
+def test_la_cuota_bloquea_antes_de_llamar_al_modelo() -> None:
+    """Sin cupo no se gasta una llamada al LLM."""
+
+    # Arrange
+    preguntas: list[str] = []
+
+    def ask(question: str) -> Answer:
+        preguntas.append(question)
+        return ANSWER
+
+    client = make_client(ask=ask, quota=lambda owner: QuotaResult(allowed=False))
+
+    # Act
+    client.post("/ask", data={"question": "¿Cuándo nació?"})
+
+    # Assert
+    assert preguntas == []
 
 
 def test_error_interno_no_filtra_detalles() -> None:
