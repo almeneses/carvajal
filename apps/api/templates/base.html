@@ -10,6 +10,7 @@
     />
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/static/htmx.min.js" defer></script>
+    {% block head_extra %}{% endblock %}
   </head>
   <body>
     <a class="saltar" href="#contenido">Saltar al contenido</a>
@@ -21,7 +22,9 @@
         </a>
         <nav class="navegacion" aria-label="Secciones de la página">
           <ul>
-            <li><a href="#preguntar">Preguntar</a></li>
+            <li><a href="/#preguntar">Preguntar</a></li>
+            <li><a href="/corpus">Corpus</a></li>
+            <li><a href="/chat">Chat</a></li>
             {% if answer is defined and answer %}
             <li><a href="#respuesta">Respuesta</a></li>
             {% endif %}
