@@ -157,10 +157,12 @@ class ChatService:
         yield ChatEvent("open", {"stream": "chat"})
 
         text = question.strip()
+        client_turn_id = (client_turn_id or "").strip() or None
         fragments: list[str] = []
         conversation: Conversation | None = None
         turn: AgentTurn | None = None
         runner: AgentRunner | None = None
+        persisted = False
         try:
             if not text:
                 raise ValueError("La pregunta no puede estar vacía.")
@@ -243,6 +245,7 @@ class ChatService:
                     status="complete",
                     client_turn_id=client_turn_id,
                 )
+                persisted = True
             runner.record(
                 conversation.id,
                 question=text,
@@ -280,7 +283,7 @@ class ChatService:
                 route=getattr(turn, "route", None),
                 incomplete=bool(partial),
             )
-            if partial and conversation is not None and turn is not None:
+            if partial and conversation is not None and turn is not None and not persisted:
                 self._persist_partial(conversation, text, "".join(fragments), turn, client_turn_id)
                 if runner is not None:
                     runner.record(
