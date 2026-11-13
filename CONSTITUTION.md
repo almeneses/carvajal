@@ -243,6 +243,11 @@ carvajal/
 
 - Ningún commit se salta los hooks (`--no-verify` está prohibido salvo causa justificada y documentada).
 - La **CI debe estar en verde** antes de fusionar un Pull Request.
+- El presupuesto de cambios suma adiciones y borrados. CI advierte al superar
+  300 líneas y falla al superar 2.000 en PRs con base distinta de `main`.
+- Dippy usa DeepSeek para publicar revisiones de GitHub con hallazgos P0/P1.
+  Corre automáticamente en PRs internos y se puede pedir con `@dippy review`
+  desde una cuenta colaboradora una vez que el workflow llegue a `main`.
 - Toda dependencia nueva entra con `uv add` / `uv add --dev` (nunca editando `uv.lock` a mano).
 
 ## 7. Repositorio y Git

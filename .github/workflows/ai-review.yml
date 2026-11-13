@@ -17,45 +17,66 @@
 name: AI Review (DeepSeek)
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
   pull-requests: write
 
-concurrency:
-  group: ai-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
   revisar:
-    # Se omite en borradores, en PRs de Dependabot (bumps triviales) y en forks,
-    # donde Actions no expone secretos.
     if: >-
-      github.event.pull_request.draft == false &&
-      github.actor != 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request &&
+       github.event.comment.body == '@dippy review' &&
+       github.event.comment.user.type == 'User' &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    concurrency:
+      group: ai-review-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout
+      - name: Consultar el PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
+          if jq -e --arg repo "$GITHUB_REPOSITORY" --arg head "$EVENT_HEAD" '
+            .state == "open" and (.draft | not) and .head.repo.full_name == $repo and
+            .user.login != "dependabot[bot]" and ($head == "" or .head.sha == $head)
+          ' "$RUNNER_TEMP/pr.json" > /dev/null; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # El revisor viene de la rama por defecto. El código del PR solo se lee como diff.
+      - name: Checkout de confianza
+        if: steps.pr.outputs.eligible == 'true'
         uses: actions/checkout@v7
         with:
+          ref: refs/heads/${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Generar diff del PR
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        if: steps.pr.outputs.eligible == 'true'
         run: |
-          git diff --no-color "$BASE_SHA...$HEAD_SHA" \
+          base=$(jq -er .base.sha "$RUNNER_TEMP/pr.json")
+          head=$(jq -er .head.sha "$RUNNER_TEMP/pr.json")
+          git fetch --no-tags origin "$base" "$head"
+          git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv "$base...$head" \
             -- . ':(exclude)uv.lock' ':(exclude)**/*.lock' ':(exclude)data/**' \
             > "$RUNNER_TEMP/pr.diff"
           echo "Tamaño del diff: $(wc -c < "$RUNNER_TEMP/pr.diff") bytes"
 
       - name: Comprobar la clave de API
         id: config
+        if: steps.pr.outputs.eligible == 'true'
         env:
           KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
@@ -70,7 +91,7 @@ jobs:
         # Si aún no existe la app, se sigue usando github.token y los
         # comentarios aparecen como "github-actions[bot]".
         id: dippy
-        if: vars.DIPPY_APP_ID != ''
+        if: steps.config.outputs.enabled == 'true' && vars.DIPPY_APP_ID != ''
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.DIPPY_APP_ID }}
@@ -84,8 +105,14 @@ jobs:
           DEEPSEEK_THINKING: ${{ vars.DEEPSEEK_THINKING || 'disabled' }}
           DEEPSEEK_EFFORT: ${{ vars.DEEPSEEK_EFFORT || 'high' }}
           GITHUB_TOKEN: ${{ steps.dippy.outputs.token || github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 .github/scripts/ai_review.py --diff "$RUNNER_TEMP/pr.diff"
+        run: |
+          PR_NUMBER=$(jq -er .number "$RUNNER_TEMP/pr.json")
+          PR_HEAD_SHA=$(jq -er .head.sha "$RUNNER_TEMP/pr.json")
+          PR_TITLE=$(jq -r .title "$RUNNER_TEMP/pr.json")
+          PR_BODY=$(jq -r '.body // ""' "$RUNNER_TEMP/pr.json")
+          export PR_NUMBER PR_HEAD_SHA PR_TITLE PR_BODY
+          args=()
+          if [ "$GITHUB_EVENT_NAME" = issue_comment ]; then
+            args+=(--manual)
+          fi
+          python3 .github/scripts/ai_review.py --diff "$RUNNER_TEMP/pr.diff" "${args[@]}"
