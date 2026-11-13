@@ -30,7 +30,6 @@ logger = getLogger(__name__)
 
 DB_UNAVAILABLE = "La base de datos no responde."
 SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este momento."
-LIMITE_ALCANZADO = "Has alcanzado el límite diario de preguntas. Vuelve a intentarlo mañana."
 
 
 @dataclass(frozen=True)
@@ -87,6 +86,12 @@ def _default_handlers() -> Handlers:
     return Handlers(ask=ask, health=health, quota=quota)
 
 
+def _default_quota(owner_key: str) -> QuotaResult:
+    """Cuota real, diferida hasta la primera petición que la necesita."""
+
+    return _default_handlers().quota(owner_key)
+
+
 def _message(
     request: Request,
     status_code: int,
@@ -120,6 +125,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
     app = FastAPI(title="Corpus Carvajal")
+    app.state.quota = handlers.quota if handlers is not None else _default_quota
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     for module in (corpus, documents, chat, stream):
         app.include_router(module.router)
@@ -162,7 +168,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
             limited = _message(
                 request,
                 429,
-                LIMITE_ALCANZADO,
+                chat.LIMITE_ALCANZADO,
                 headers={"Retry-After": str(quota.retry_after)},
             )
             return _emit_identity(limited, request, identity, owner_key, new_owner=new_owner)
