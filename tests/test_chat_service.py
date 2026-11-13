@@ -1,11 +1,12 @@
 """Pruebas de integración del servicio de chat contra un Postgres real."""
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict
 
 import pytest
 from sqlalchemy import Engine, delete, func, select
 
+from apps.api.chat import service as chat_service
 from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatService
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
@@ -17,6 +18,8 @@ from carvajal.application.ask import (
     PreparedQuestion,
     Source,
 )
+from carvajal.application.ports import ScoredChunk
+from carvajal.domain.entities import Chunk
 
 pytestmark = pytest.mark.integration
 
@@ -98,6 +101,51 @@ class BrokenAfterTokenLLM:
         raise LLMError("corte a mitad del stream")
 
 
+class FixedVectorStore:
+    """Índice doble con un fragmento fijo; evita pgvector y fija el contexto."""
+
+    def __init__(self, session: object) -> None:
+        self._session = session
+
+    def search(
+        self,
+        embedding: Sequence[float],
+        *,
+        limit: int = 8,
+        layer: str | None = None,
+        section: str | None = None,
+    ) -> Sequence[ScoredChunk]:
+        chunk = Chunk(
+            id=SOURCE.chunk_id,
+            document_id=SOURCE.slug,
+            text=SOURCE.excerpt,
+            position=0,
+            section=SOURCE.section,
+            layer=SOURCE.layer,
+        )
+        return [ScoredChunk(chunk=chunk, score=SOURCE.score)]
+
+
+class StreamingLLM:
+    """Emite el texto en tres fragmentos y no debe llamar a ``complete``."""
+
+    def __init__(self) -> None:
+        self.stream_calls = 0
+        self.complete_calls = 0
+        self.prompt = ""
+
+    def complete(self, *, system: str, prompt: str) -> str:
+        self.complete_calls += 1
+        raise AssertionError("No debe completarse un stream exitoso.")
+
+    def stream(self, *, system: str, prompt: str) -> Iterator[str]:
+        self.stream_calls += 1
+        self.prompt = prompt
+        yield "Carvajal "
+        yield "nació "
+        yield "en 1904 [1]."
+
+
 def _fixed_prepare(self: AskQuestion, question: str) -> PreparedQuestion:
     """Evita la recuperación vectorial en las pruebas de fallo del LLM."""
 
@@ -134,6 +182,53 @@ def test_stream_persiste_un_solo_turno_y_emite_done(engine: Engine) -> None:
         assert history[0].content == "¿Dato del corpus?"
         assert history[1].content == NO_CONTEXT_ANSWER
         assert history[1].sources == []
+    finally:
+        _delete_owner(engine, owner_key)
+
+
+def test_stream_exitoso_emite_tokens_y_persiste_el_turno(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: contexto fijo por vector store doble y LLM que emite tres tokens.
+    monkeypatch.setattr(chat_service, "PgVectorStore", FixedVectorStore)
+    llm = StreamingLLM()
+    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm)
+    owner_key = "stream-tokens"
+
+    try:
+        # Act
+        events = list(service.stream(owner_key, "¿Cuándo nació?"))
+        history = list(service.history(owner_key))
+
+        # Assert
+        assert [event.name for event in events] == [
+            "open",
+            "meta",
+            "token",
+            "token",
+            "token",
+            "done",
+        ]
+        assert events[0].data == {"stream": "chat"}
+        assert events[1].data == {"sources": [asdict(SOURCE)]}
+        assert [event.data["text"] for event in events[2:5]] == [
+            "Carvajal ",
+            "nació ",
+            "en 1904 [1].",
+        ]
+        assert llm.stream_calls == 1
+        assert llm.complete_calls == 0
+        assert "Inició en 1904." in llm.prompt
+
+        # Longitud 2: append_turn insertó exactamente un turno usuario/asistente.
+        assert len(history) == 2
+        assert [message.role for message in history] == ["user", "assistant"]
+        assert history[0].content == "¿Cuándo nació?"
+        assert history[1].content == "Carvajal nació en 1904 [1]."
+        assert history[1].sources == [asdict(SOURCE)]
+        assert events[-1].data["conversation_id"] == history[0].conversation_id
+        assert events[-1].data["message_id"] == history[1].id
     finally:
         _delete_owner(engine, owner_key)
 

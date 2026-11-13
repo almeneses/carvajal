@@ -164,6 +164,8 @@ def test_get_con_cookie_muestra_el_historial_en_orden() -> None:
     respuesta = response.text.index("primera respuesta")
     segunda = response.text.index("segunda pregunta")
     assert primera < respuesta < segunda
+    assert "Fuentes citadas" in response.text
+    assert "<strong>historia</strong>" in response.text
 
 
 def test_get_con_cookie_manipulada_regenera_sin_romper() -> None:
@@ -190,7 +192,12 @@ def test_post_vacio_devuelve_422_sin_persistir() -> None:
 
     # Assert
     assert response.status_code == 422
+    assert "<!doctype html>" in response.text
+    assert "<header" in response.text
+    assert "<form" in response.text
+    assert 'id="pregunta"' in response.text
     assert EMPTY_QUESTION in response.text
+    assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.calls == []
     assert chat.by_owner == {}
 
@@ -204,8 +211,12 @@ def test_post_demasiado_largo_devuelve_422_sin_persistir() -> None:
 
     # Assert
     assert response.status_code == 422
+    assert "<form" in response.text
+    assert 'id="pregunta"' in response.text
     assert TOO_LONG_QUESTION in response.text
     assert "500" in response.text
+    assert 'value="' + "x" * 501 + '"' in response.text
+    assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.calls == []
     assert chat.by_owner == {}
 
@@ -291,10 +302,31 @@ def test_fallos_del_proveedor_devuelven_503_sin_filtrar_ni_persistir(error: Exce
 
     # Assert
     assert response.status_code == 503
+    assert "<form" in response.text
+    assert 'id="pregunta"' in response.text
+    assert 'value="¿Cuándo nació?"' in response.text
     assert SERVICE_UNAVAILABLE in response.text
     assert str(error) not in response.text
     assert "Traceback" not in response.text
+    assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.by_owner == {}
+
+
+def test_el_error_503_conserva_el_historial_previo() -> None:
+    # Arrange
+    client, chat = make_client(chat=FakeChat(error=LLMError("caído")))
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+    chat.by_owner["dueno-a"] = [_message("user", "pregunta previa", sources=None)]
+
+    # Act
+    response = client.post("/chat", data={"question": "pregunta nueva"})
+
+    # Assert
+    assert response.status_code == 503
+    assert "pregunta previa" in response.text
+    assert 'value="pregunta nueva"' in response.text
+    assert chat.calls == [("dueno-a", "pregunta nueva")]
+    assert [message.content for message in chat.by_owner["dueno-a"]] == ["pregunta previa"]
 
 
 def test_fallo_de_base_al_leer_el_historial_devuelve_503_generico() -> None:
