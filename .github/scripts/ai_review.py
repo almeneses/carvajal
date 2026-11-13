@@ -22,7 +22,7 @@ Variables de entorno:
     DEEPSEEK_MODEL     Modelo a usar (por defecto deepseek-flash).
     DEEPSEEK_THINKING  "enabled" activa el modo de razonamiento (por defecto
                        "disabled", que es más rápido y barato para una revisión).
-                       Con razonamiento se reservan 32k tokens de salida y, si
+                       Con razonamiento se reservan 40k tokens de salida y, si
                        el pensamiento los agota sin responder, se reintenta sin él.
     DEEPSEEK_EFFORT    Esfuerzo de razonamiento si THINKING está activo:
                        low, high o max (por defecto high).
@@ -48,8 +48,8 @@ PRIORITIES = ("P0", "P1")
 EFFORTS = ("low", "high", "max")
 # En modo razonamiento los tokens de pensamiento cuentan como salida: con 8k
 # el modelo puede gastarlos todos razonando y no emitir la revisión.
-THINKING_MAX_TOKENS = 32000
-PLAIN_MAX_TOKENS = 4000
+THINKING_MAX_TOKENS = 40000
+PLAIN_MAX_TOKENS = 6000
 
 ROOT = Path(__file__).resolve().parents[2]
 STYLE_PATH = ROOT / ".github" / "review" / "style.md"
