@@ -96,7 +96,7 @@ class Api:
             "tool": trace.get("tool", ""),
             "memory": trace.get("memory", 0),
             "retrieved": trace.get("retrieved", 0),
-            "thread_id": trace.get("thread_id", thread or ""),
+            "thread_id": str(trace.get("thread_id", "")),
             "sources": [
                 {
                     "chunk_id": source.get("chunk_id"),
@@ -109,6 +109,7 @@ class Api:
             ],
             "answer": text,
             "first_token_ms": round(first_token * 1000) if first_token else None,
+            "last_event": events[-1]["event"] if events else "",
             "total_ms": round((time.perf_counter() - started) * 1000),
         }
 
@@ -165,12 +166,18 @@ def main(argv: list[str] | None = None) -> int:
         "checks": {
             "directa_sin_busqueda": direct["route"] == "direct" and direct["retrieved"] == 0,
             "rag_con_fuente_url": bool(city["sources"]) and bool(city["sources"][0]["url"]),
-            "seguimiento_mismo_hilo": year["thread_id"] == city["thread_id"],
+            "seguimiento_mismo_hilo": bool(city["thread_id"])
+            and year["thread_id"] == city["thread_id"],
             "seguimiento_responde_1904": "1904" in year["answer"],
             "herramienta_ebitda": tool["tool"] == "ebitda" and "351.631" in tool["answer"],
             "memoria_entre_hilos": recalled["memory"] >= 1,
             "aislamiento": isolated["memory"] == 0,
             "abstencion_sin_fuentes": not no_evidence["sources"],
+            "todos_los_turnos_cierran": all(
+                case["status"] == 200 and case["last_event"] == "done" for case in cases
+            ),
+            "herramienta_cierra_sin_error": tool["last_event"] == "done"
+            and "error" not in tool["events"],
         },
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
