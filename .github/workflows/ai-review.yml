@@ -92,7 +92,7 @@ jobs:
         # comentarios aparecen como "github-actions[bot]".
         id: dippy
         if: steps.config.outputs.enabled == 'true' && vars.DIPPY_APP_ID != ''
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.DIPPY_APP_ID }}
           private-key: ${{ secrets.DIPPY_PRIVATE_KEY }}
