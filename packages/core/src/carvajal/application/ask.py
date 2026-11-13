@@ -138,8 +138,8 @@ class AskQuestion:
             )
         else:
             results = self._vector_store.search(embedding, limit=self._limit)
-        if self._min_score is not None:
-            results = [result for result in results if result.score >= self._min_score]
+            if self._min_score is not None:
+                results = [result for result in results if result.score >= self._min_score]
         if not results:
             return PreparedQuestion(prompt=None, sources=())
         return PreparedQuestion(

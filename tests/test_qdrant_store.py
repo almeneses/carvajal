@@ -121,6 +121,7 @@ def test_upsert_es_idempotente_y_guarda_procedencia() -> None:
     # Assert
     assert len(client.points) == 2
     assert client.points[0].id == client.points[1].id
+    assert client.points[0].id == store.point_ids([CHUNK], [METADATA])[0]
     payload = client.points[0].payload or {}
     assert payload["url"] == METADATA["url"]
     assert payload["chunk_id"] == CHUNK.id

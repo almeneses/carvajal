@@ -51,6 +51,21 @@ def proper_entities_supported(question: str, texts: list[str]) -> bool:
 
 
 _PREPOSITIONS = {"en", "de", "para", "sobre", "desde", "hasta", "con"}
+# Entidades conocidas del corpus que pueden aparecer en minúsculas. Evita
+# convertir sustantivos comunes («sede», «teléfono», «año») en entidades.
+_KNOWN_ENTITIES = {
+    "tokio",
+    "cali",
+    "colombia",
+    "carvajal",
+    "liquidezya",
+    "mepal",
+    "norma",
+    "bioform",
+    "zonamerica",
+    "yumbo",
+    "candelaria",
+}
 
 
 def _entities(question: str) -> list[str]:
@@ -65,8 +80,7 @@ def _entities(question: str) -> list[str]:
         after_preposition = (
             position > 0
             and words[position - 1].casefold() in _PREPOSITIONS
-            and len(word) >= 5
-            and word.casefold() not in _QUESTION_WORDS
+            and word.casefold() in _KNOWN_ENTITIES
         )
         if (capitalized and len(word) >= 3) or after_preposition:
             entities.append(word)

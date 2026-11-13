@@ -19,7 +19,7 @@ from qdrant_client import QdrantClient, models
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
 
-__all__ = ["QdrantVectorStore", "payload_for", "point_id"]
+__all__ = ["QdrantVectorStore", "fingerprint_for", "payload_for", "point_id"]
 
 _NAMESPACE = UUID("6f0b8d9a-3c2e-5a7b-9e4d-1f2a3b4c5d6e")
 
@@ -36,6 +36,13 @@ def point_id(chunk: Chunk, fingerprint: str = "") -> str:
     material = fingerprint or chunk.text
     digest = sha256(material.encode("utf-8")).hexdigest()[:16]
     return str(uuid5(_NAMESPACE, f"carvajal:{chunk.document_id}:{chunk.position}:{digest}"))
+
+
+def fingerprint_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> str:
+    """Material que determina el ID: título, sección, ficha y texto."""
+
+    extra = metadata or {}
+    return f"{extra.get('title', '')}|{chunk.section}|{extra.get('abstract', '')}|{chunk.text}"
 
 
 def payload_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> dict[str, object]:
@@ -165,12 +172,26 @@ class QdrantVectorStore:
             extra = None if metadata is None else metadata[position]
             points.append(
                 models.PointStruct(
-                    id=point_id(chunk),
+                    id=point_id(chunk, fingerprint_for(chunk, extra)),
                     vector=vector,
                     payload=payload_for(chunk, extra),
                 )
             )
         self._client.upsert(collection_name=self._collection, points=points, wait=True)
+
+    def point_ids(
+        self,
+        chunks: Sequence[Chunk],
+        metadata: Sequence[Mapping[str, str]] | None = None,
+    ) -> list[str]:
+        """IDs que ``upsert`` escribirá; la poda debe usar exactamente esta lista."""
+
+        if metadata is not None and len(metadata) != len(chunks):
+            raise ValueError("Cada fragmento necesita su metadata para calcular el ID.")
+        return [
+            point_id(chunk, fingerprint_for(chunk, None if metadata is None else metadata[index]))
+            for index, chunk in enumerate(chunks)
+        ]
 
     def search(
         self,

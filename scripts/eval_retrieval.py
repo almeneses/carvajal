@@ -187,17 +187,11 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"| {row['id']} | {row['query']} | abstención: "
                 f"{'sí' if row['abstained'] else 'no'} | — | {top} |"
             )
-    lines.extend(["", "## Top-3 por consulta", ""])
-    for row in summary["rows"]:
-        top = ", ".join(row["retrieved"][:3]) or "—"
-        scores = ", ".join(str(score) for score in row["scores"][:3]) or "—"
-        lines.append(f"- **{row['id']}** · {row['query']}")
-        lines.append(f"  - top-3: `{top}`")
-        lines.append(f"  - scores: `{scores}`")
     lines.append("")
     lines.append(
-        "El JSON completo con extractos y los 10 resultados por consulta se "
-        "regenera con el mismo comando y no se versiona para no inflar el PR."
+        "El detalle por consulta incluye el top-3 y su score; el JSON completo "
+        "con los 10 resultados y extractos se regenera con el mismo comando y "
+        "no se versiona para no inflar el PR."
     )
     return "\n".join(lines) + "\n"
 

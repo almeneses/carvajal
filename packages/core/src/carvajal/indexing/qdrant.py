@@ -20,7 +20,7 @@ from time import perf_counter
 import structlog
 
 from carvajal.adapters.storage.import_corpus import load_document, split_document
-from carvajal.adapters.vector.qdrant_store import QdrantVectorStore, point_id
+from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.application.ports import Embedder
 from carvajal.domain.entities import Chunk
 
@@ -103,10 +103,7 @@ def index_gold(
             ]
             index_batch(store, batch, embeddings, metadata)
             indexed += len(batch)
-            valid_ids.extend(
-                point_id(chunk, f"{document.title}|{document.section}|{card}|{chunk.text}")
-                for chunk in batch
-            )
+            valid_ids.extend(store.point_ids(batch, [metadata for _ in batch]))
             logger.info(
                 "qdrant.document_progress",
                 document=document.id,
