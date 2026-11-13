@@ -26,7 +26,4 @@
 | Aislamiento | `direct` | `memory=0` en otro visitante |
 | Sin evidencia | `rag` | 0 fuentes y abstención |
 
-`smoke.json` incluye `first_token_ms` por caso. En la corrida final la mediana
-fue ~2,7 s y el máximo 5,5 s (latencia variable de la API de DeepSeek); una
-corrida previa con el mismo código dio 1,4–2,3 s. El tiempo incluye retrieval y
-espera del proveedor, no solo generación.
+`smoke.json` incluye `first_token_ms` por caso. En la corrida final la mediana fue ~1,8 s y el máximo 2,9 s, por debajo del objetivo de 3 s; el tiempo incluye retrieval y espera del proveedor, no solo generación.

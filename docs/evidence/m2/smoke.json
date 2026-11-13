@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-13T21:58:52Z",
+  "generated_at": "2026-11-13T22:25:01Z",
   "base_url": "http://localhost:8000",
   "checks": {
     "directa_sin_busqueda": true,
@@ -19,11 +19,11 @@
       "tool": "",
       "memory": 0,
       "retrieved": 0,
-      "thread_id": "4f221eb03ba94fb0a7e67214d70b1899",
-      "first_token_ms": 3430,
-      "total_ms": 4055,
+      "thread_id": "d885c7ee5d6b4b25b495412d6cdeda8a",
+      "first_token_ms": 2082,
+      "total_ms": 2545,
       "sources": [],
-      "answer": "Puedo ayudarte a responder consultas **únicamente con el contexto del corpus Carvajal que se me suministre**. Puedo:\n\n- Resumir y responder de forma clara y breve.\n- Citar el fragmento que sustenta cada afirmación con el formato [n].\n- Indicar cuándo una cita proviene de la capa extendida o de fuentes de terceros.\n- Avisar si el corpus no contiene el dato, sin suponerlo.\n- Si uso una herramienta estructurada, citar el documento y la URL devueltos."
+      "answer": "Hola. Puedo ayudarte a consultar y resumir información del corpus Carvajal usando únicamente el contexto suministrado, citando los fragmentos que sustentan cada afirmación. También puedo indicar cuándo una cita proviene de la capa extendida, usar herramientas estructuradas citando documento y URL, y decirte claramente cuando un dato no esté disponible en el corpus. No uso conocimiento externo ni invento datos."
     },
     {
       "case": "rag_ciudad",
@@ -32,9 +32,9 @@
       "tool": "",
       "memory": 0,
       "retrieved": 6,
-      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
-      "first_token_ms": 5510,
-      "total_ms": 5663,
+      "thread_id": "0e93a279789649a7935ec36c4fcb2051",
+      "first_token_ms": 2892,
+      "total_ms": 3029,
       "sources": [
         {
           "chunk_id": "historia:2",
@@ -49,7 +49,7 @@
           "url": "https://www.carvajal.com/historia/"
         }
       ],
-      "answer": "Carvajal fue fundada en **Cali, Colombia**, en **1904**, según el contexto: “En 1904 en Cali, Colombia. Inicia un sueño familiar…” [5]."
+      "answer": "Carvajal fue fundada en **Cali, Colombia**, en 1904, cuando inició un sueño familiar que ha evolucionado generación tras generación [5]."
     },
     {
       "case": "rag_seguimiento",
@@ -58,9 +58,9 @@
       "tool": "",
       "memory": 0,
       "retrieved": 6,
-      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
-      "first_token_ms": 3493,
-      "total_ms": 3512,
+      "thread_id": "0e93a279789649a7935ec36c4fcb2051",
+      "first_token_ms": 1852,
+      "total_ms": 2138,
       "sources": [
         {
           "chunk_id": "historia:2",
@@ -75,7 +75,7 @@
           "url": "https://www.carvajal.com/historia/"
         }
       ],
-      "answer": "Carvajal fue fundada en **Cali, Colombia**, en el año **1904**, cuando inició como un sueño familiar [4]."
+      "answer": "Carvajal fue fundada en **Cali, Colombia**, en el año **1904** [4]."
     },
     {
       "case": "herramienta",
@@ -84,16 +84,16 @@
       "tool": "ebitda",
       "memory": 0,
       "retrieved": 1,
-      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
-      "first_token_ms": 1569,
-      "total_ms": 2037,
+      "thread_id": "0e93a279789649a7935ec36c4fcb2051",
+      "first_token_ms": 1702,
+      "total_ms": 2434,
       "sources": [
         {
           "chunk_id": "tool:ebitda:2025-09",
           "url": "https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762"
         }
       ],
-      "answer": "El EBITDA consolidado de Carvajal a septiembre de 2025 fue de **$351.631 millones**, con un **margen EBITDA del 14%** (frente al 12% del año anterior) [documento: carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762 — https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762]."
+      "answer": "A septiembre de 2025, el EBITDA consolidado de Carvajal fue de **$351.631 millones** (millones de COP), con un **margen EBITDA del 14%**, según reporta la fuente: «El Ebitda consolidado ascendió a $351.631 millones, mejorando el margen Ebitda de 12% a 14% en el último año».\n\nFuente: documento *carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762* — https://www.larepublica.co/empresas/carvajal-reporto-ingresos-por-2-58-billones-a-septiembre-de-2025-4269762\n\nNota: esta cita pro"
     },
     {
       "case": "memoria_guardar",
@@ -102,11 +102,11 @@
       "tool": "",
       "memory": 1,
       "retrieved": 0,
-      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
-      "first_token_ms": 3080,
-      "total_ms": 3094,
+      "thread_id": "0e93a279789649a7935ec36c4fcb2051",
+      "first_token_ms": 1549,
+      "total_ms": 1626,
       "sources": [],
-      "answer": "Entendido, de ahora en adelante te responderé de forma breve."
+      "answer": "Entendido, mantendré las respuestas breves."
     },
     {
       "case": "memoria_recuperar_otro_hilo",
@@ -115,11 +115,11 @@
       "tool": "",
       "memory": 1,
       "retrieved": 0,
-      "thread_id": "c82477ab22e248c99b93f63ce7ecf1dc",
-      "first_token_ms": 1701,
-      "total_ms": 1730,
+      "thread_id": "eb662736255c49fda6980d3765b3eef9",
+      "first_token_ms": 1343,
+      "total_ms": 1441,
       "sources": [],
-      "answer": "Hola. Anotado: respuestas breves. ¿Qué quieres consultar del corpus?"
+      "answer": "¡Hola! Entendido, mantendré las respuestas breves. ¿Qué necesitas consultar?"
     },
     {
       "case": "aislamiento_otro_visitante",
@@ -128,11 +128,11 @@
       "tool": "",
       "memory": 0,
       "retrieved": 0,
-      "thread_id": "e7812da2be284094a62d0da773f72886",
-      "first_token_ms": 2297,
-      "total_ms": 2311,
+      "thread_id": "6cf0c971bf8f4b8db0825651c33434cc",
+      "first_token_ms": 2036,
+      "total_ms": 2092,
       "sources": [],
-      "answer": "Hola. ¿En qué puedo ayudarte con el corpus Carvajal?"
+      "answer": "Hola. ¿Qué deseas consultar sobre el corpus Carvajal?"
     },
     {
       "case": "sin_evidencia",
@@ -141,9 +141,9 @@
       "tool": "",
       "memory": 1,
       "retrieved": 0,
-      "thread_id": "c2e526cf29e145b99329e815ea8f1771",
-      "first_token_ms": 80,
-      "total_ms": 87,
+      "thread_id": "0e93a279789649a7935ec36c4fcb2051",
+      "first_token_ms": 65,
+      "total_ms": 71,
       "sources": [],
       "answer": "No dispongo de información suficiente en el corpus para responder esa pregunta."
     }

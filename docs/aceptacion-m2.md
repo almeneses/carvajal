@@ -70,7 +70,7 @@
 | Cookies, streaming y CORS al separar orígenes | ✅ | `test_cors_permite_el_origen_del_frontend`; `HttpOnly/SameSite=Lax`. |
 | Logs con `request_id`, `thread_id`, ruta, duración, resultado, tool y fuentes | ✅ | `chat.turn_completed` en `apps/api/chat/service.py`; `RequestContextMiddleware`. |
 | Evidencia anonimizada de los cuatro casos | ✅ | `docs/evidence/m2/smoke.json` (sin cookies ni claves). |
-| Primer token medido | ✅/⚠️ | Mediana ~2,7 s; máximo 5,5 s por latencia de DeepSeek (corrida previa 1,4–2,3 s). Depende del proveedor externo; no se promete <3 s p95. |
+| Primer token medido | ✅ | Corrida final: mediana ~1,8 s, máximo 2,9 s (incluye retrieval + proveedor). Depende de DeepSeek; la evidencia previa mostró hasta 5,5 s. |
 | README con instalación, variables, arranque, migraciones, índice y URL | ✅ | README § Entrega M2. |
 | Diagrama real del M2 | ✅ | Mermaid en README y `docs/arquitectura-m2.md`. |
 | Enlace al reporte de retrieval | ✅ | README § Evaluación y `docs/demo-m2.md`. |
