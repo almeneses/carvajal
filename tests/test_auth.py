@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.auth import google
 from apps.api.auth.deps import AUTH_COOKIE
@@ -232,3 +233,32 @@ def test_la_navegacion_muestra_entrar_o_salir(monkeypatch: pytest.MonkeyPatch) -
     portada = client.get("/").text
     assert "Salir" in portada
     assert "Ana" in portada
+
+
+class RepoCaido:
+    """Repositorio que simula una base de datos caída."""
+
+    def find_session(self, session_id: str) -> SessionUser | None:
+        raise SQLAlchemyError("la base no responde")
+
+
+def test_la_portada_sigue_en_anonimo_si_la_base_falla() -> None:
+    """Una consulta de sesión caída no tumba la portada pública."""
+
+    # Arrange
+    app = create_app(
+        Handlers(
+            ask=lambda question: RESPUESTA,
+            health=lambda: HealthStatus(0, 0),
+        )
+    )
+    app.state.auth_repository = RepoCaido()
+    client = TestClient(app)
+    client.cookies.set(AUTH_COOKIE, "token")
+
+    # Act
+    response = client.get("/")
+
+    # Assert
+    assert response.status_code == 200
+    assert "Entrar" in response.text
