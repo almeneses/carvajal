@@ -26,4 +26,4 @@
 | Aislamiento | `direct` | `memory=0` en otro visitante |
 | Sin evidencia | `rag` | 0 fuentes y abstención |
 
-`smoke.json` incluye `first_token_ms` por caso. En la corrida final la mediana fue ~1,8 s y el máximo 2,9 s, por debajo del objetivo de 3 s; el tiempo incluye retrieval y espera del proveedor, no solo generación.
+`smoke.json` incluye `first_token_ms` por caso. En la corrida final la mediana fue ~1.8 s y el máximo 2.0 s; incluye retrieval y espera del proveedor, no solo generación.
