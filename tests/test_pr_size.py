@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / ".github" / "scripts" / "pr_size.py"
 
 
@@ -134,3 +136,15 @@ def test_lineas_malformadas_se_descartan() -> None:
 
     # Assert
     assert (files, added, deleted) == (1, 7, 3)
+
+
+@pytest.mark.parametrize(("total", "status"), [(701, 0), (2000, 0), (2001, 1)])
+def test_limite_duro_predeterminado(
+    total: int, status: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("HARD_LIMIT", raising=False)
+    monkeypatch.setenv("BASE_SHA", "base")
+    monkeypatch.setenv("HEAD_SHA", "head")
+    monkeypatch.setattr(pr_size, "read_numstat", lambda *_: f"{total - 1}\t1\ta.py\n")
+
+    assert pr_size.main() == status

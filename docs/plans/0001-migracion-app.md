@@ -7,8 +7,8 @@
 
 | Regla | Valor |
 |---|---|
-| Presupuesto por PR | **≤ 300 líneas cambiadas** (add + del) |
-| Excepción | **≤ 700** solo para dependencias, migraciones o scaffolding |
+| Presupuesto por PR | Aviso al superar **300 líneas cambiadas** (adiciones + borrados) |
+| Límite de CI | Falla al superar **2.000 líneas cambiadas** |
 | Un PR | Un objetivo del plan, un ID, un dueño |
 | **Base de los PRs** | **`dev`** (no `main`) |
 | Merge | Lo hace **el owner**; ningún agente mergea (`AGENTS.md`) |
@@ -17,8 +17,7 @@
 | Commit | Conventional Commits, referenciando el ID del plan |
 | Release | Un PR dev → main no se presupuesta por línea: integra una ola ya revisada por PR |
 
-Si un PR necesita más presupuesto, **se parte**, no se justifica. La única
-excepción legítima es "esto es una migración de base de datos".
+Si un PR supera el límite de CI, se divide antes de integrarlo.
 
 ### 1.1 Estrategia de ramas
 
@@ -54,7 +53,7 @@ flowchart LR
 ```bash
 # 1. Presupuesto y alcance
 gh pr diff <n> --name-only          # ¿toca solo los archivos de su pista?
-gh pr view <n> --json additions,deletions   # ¿dentro de 300/700?
+gh pr view <n> --json additions,deletions   # aviso >300, límite 2000
 
 # 2. Calidad
 uv run ruff check . && uv run ruff format --check . && uv run ty check
@@ -149,7 +148,7 @@ flowchart LR
 
 | ID | Objetivo | Alcance | LOC | Aceptación |
 |---|---|---|---|---|
-| W0.1 | Gate de presupuesto y CI en `dev` | `.github/scripts/pr_size.py`, tests, workflow | 170 | Falla >700 líneas, advierte >300; CI también en `push` a `dev` |
+| W0.1 | Gate de presupuesto y CI en `dev` | `.github/scripts/pr_size.py`, tests, workflow | 170 | Falla >2.000 líneas, advierte >300; CI también en `push` a `dev` |
 | W0.1b | Estructura `packages/core` | `git mv src`, `[tool.uv.build-backend]`, rutas de docs | 40 | `import carvajal`, `uv build` y `make check` verdes |
 | W0.1c | Tags por merge | `.github/workflows/auto-tag.yml`, `.github/scripts/plan_tag.py`, tests | 245 | Merge a `dev` crea `w0-1c`; `ola-N` vía `workflow_dispatch` |
 | W0.2 | Configuración tipada | `packages/core/src/carvajal/infrastructure/settings.py` (pydantic-settings) reemplaza los globales de `config.py` | 295 | Mismos valores por defecto; test de carga por entorno |
@@ -231,7 +230,7 @@ semanas de un agente.
 
 ## 5. Definition of Done (por PR)
 
-- [ ] Presupuesto de líneas respetado (o excepción justificada en la descripción)
+- [ ] Presupuesto de líneas respetado
 - [ ] CI verde: `ruff`, `ty`, `pytest`
 - [ ] Tests nuevos: unitarios para reglas, integración para persistencia
 - [ ] Criterios de aceptación del plan cumplidos (checklist en la PR)
@@ -247,7 +246,7 @@ semanas de un agente.
 | `Calidad` | Siempre | Ruff, `ty`, tests unitarios |
 | `integration` | Olas 1–3 | Postgres real vía testcontainers |
 | `e2e` | Olas 3, 5, 6 | Playwright sobre `compose.test.yml` |
-| `size` | Siempre, salvo release dev → main | Corre dentro de `Calidad`: falla >700 líneas, advierte >300 |
+| `size` | Siempre, salvo release dev → main | Corre dentro de `Calidad`: falla >2.000 líneas, advierte >300 |
 
 ## 7. Escenarios E2E
 
