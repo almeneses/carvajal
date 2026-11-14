@@ -43,6 +43,8 @@ remember_image() {
 
 rollback() {
   echo "==> Despliegue fallido; rollback a ${PREV_TAG:-<sin versión anterior>}" >&2
+  # Solo se cambia la imagen: las migraciones ya aplicadas no se revierten.
+  # Mantén migraciones compatibles hacia atrás (expand/contract).
   if [[ -n "$PREV_TAG" ]]; then
     export APP_IMAGE="${IMAGE_REPO}:${PREV_TAG}"
     remember_image "$PREV_TAG"
@@ -72,7 +74,8 @@ HEALTH_PORT="${HEALTH_PORT:-8000}"
 echo "==> Esperando /live en 127.0.0.1:${HEALTH_PORT}"
 LISTO=0
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${HEALTH_PORT}/live" >/dev/null 2>&1; then
+  if curl -fsS --max-time 5 --connect-timeout 2 \
+    "http://127.0.0.1:${HEALTH_PORT}/live" >/dev/null 2>&1; then
     LISTO=1
     break
   fi
@@ -85,7 +88,8 @@ fi
 echo "==> Comprobando /health"
 SALUD=0
 for _ in $(seq 1 15); do
-  HEALTH_CODE="$(curl -s -o "$HEALTH_FILE" -w '%{http_code}' \
+  HEALTH_CODE="$(curl -s --max-time 5 --connect-timeout 2 \
+    -o "$HEALTH_FILE" -w '%{http_code}' \
     "http://127.0.0.1:${HEALTH_PORT}/health" || true)"
   if [[ "$HEALTH_CODE" == "200" ]]; then
     SALUD=1
