@@ -23,24 +23,70 @@ for required in .env compose.prod.yml Caddyfile; do
   fi
 done
 
+for key in DOMAIN SESSION_SECRET; do
+  if ! grep -Eq "^${key}=.+" .env; then
+    echo "==> Falta ${key} en ${DIR}/.env (ver docs/despliegue-ovh.md)." >&2
+    exit 1
+  fi
+done
+
+# El runbook exige 600: el .env contiene SESSION_SECRET y contraseñas.
+if [[ "$(stat -c '%a' .env 2>/dev/null || true)" != "600" ]]; then
+  echo "==> Ajustando permisos de .env a 600" >&2
+  chmod 600 .env
+fi
+
 COMPOSE=(docker compose -f compose.prod.yml)
 STATE_FILE=".deployed_tag"
-PREV_TAG="$(cat "$STATE_FILE" 2>/dev/null || true)"
 HEALTH_FILE="$(mktemp)"
-trap 'rm -f "$HEALTH_FILE"' EXIT
+trap 'rm -f "$HEALTH_FILE" "${DIR}"/.env.??????' EXIT
+
+# Tag anterior: el último despliegue sano o, en su defecto, el que ya estaba
+# en .env (por ejemplo, la imagen construida con `make prod-up`).
+PREV_TAG="$(cat "$STATE_FILE" 2>/dev/null || true)"
+if [[ -z "$PREV_TAG" ]]; then
+  PREV_TAG="$(sed -nE 's|^APP_IMAGE=.*:([^:]+)$|\1|p' .env | head -n 1)"
+fi
 
 export APP_IMAGE="${IMAGE_REPO}:${IMAGE_TAG}"
 
 remember_image() {
   # Deja el tag desplegado en .env para que los comandos manuales
-  # (`docker compose exec`, `logs`, `run`) usen la misma imagen.
+  # (`docker compose exec`, `logs`, `run`) usen la misma imagen. Se reescribe
+  # el archivo completo (no `sed -i`) para no corromper valores con `|` y
+  # conservar los permisos 600.
   local tag="$1"
   local image="${IMAGE_REPO}:${tag}"
+  local tmp
+  tmp="$(mktemp "${DIR}/.env.XXXXXX")"
+  chmod 600 "$tmp"
   if grep -q '^APP_IMAGE=' .env 2>/dev/null; then
-    sed -i "s|^APP_IMAGE=.*|APP_IMAGE=${image}|" .env
+    grep -v '^APP_IMAGE=' .env > "$tmp" || true
   else
-    printf 'APP_IMAGE=%s\n' "$image" >> .env
+    cat .env > "$tmp"
   fi
+  printf 'APP_IMAGE=%s\n' "$image" >> "$tmp"
+  mv -f "$tmp" .env
+  chmod 600 .env
+}
+
+wait_live() {
+  local port="$1"
+  local attempts="${2:-30}"
+  for _ in $(seq 1 "$attempts"); do
+    if curl -fsS --max-time 5 --connect-timeout 2 \
+      "http://127.0.0.1:${port}/live" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+published_port() {
+  "${COMPOSE[@]}" port app 8000 2>/dev/null \
+    | sed -nE 's/.*:([0-9]+)$/\1/p' \
+    | head -n 1
 }
 
 rollback() {
@@ -50,15 +96,33 @@ rollback() {
   if [[ -n "$PREV_TAG" ]]; then
     export APP_IMAGE="${IMAGE_REPO}:${PREV_TAG}"
     remember_image "$PREV_TAG"
-    "${COMPOSE[@]}" up -d --no-build app
+    if ! "${COMPOSE[@]}" up -d --no-build app; then
+      echo "==> El rollback no pudo recrear app; revisa los logs." >&2
+      exit 1
+    fi
+    local port
+    port="$(published_port)"
+    port="${port:-8000}"
+    if ! wait_live "$port" 15; then
+      echo "==> La versión anterior tampoco responde en /live (puerto ${port})." >&2
+      echo "    Revisa: docker compose -f compose.prod.yml logs app" >&2
+      exit 1
+    fi
+    echo "==> Rollback a ${PREV_TAG} verificado en /live" >&2
   else
-    echo "==> Revisa los logs: docker compose -f compose.prod.yml logs app" >&2
+    echo "==> No hay versión anterior; revisa los logs:" >&2
+    echo "    docker compose -f compose.prod.yml logs app" >&2
   fi
   exit 1
 }
 
 echo "==> Imagen: ${APP_IMAGE}"
 "${COMPOSE[@]}" pull app
+
+echo "==> Preparando la base"
+# `compose run` no garantiza que `db` esté listo: se arranca y se espera aquí
+# para que Alembic no falle por conexión rechazada en el primer despliegue.
+"${COMPOSE[@]}" up -d --wait --wait-timeout 120 db
 
 echo "==> Migraciones"
 if ! "${COMPOSE[@]}" run --rm --no-build app alembic upgrade head; then
@@ -72,26 +136,17 @@ fi
 
 # Puerto publicado real de la app (puede ser distinto de 8000 si APP_PORT
 # cambió en .env). Se consulta a Compose para no adivinar desde el shell.
-HEALTH_PORT="$("${COMPOSE[@]}" port app 8000 2>/dev/null | head -n 1 | sed -E 's/.*:([0-9]+)$/\1/')"
+HEALTH_PORT="$(published_port)"
 HEALTH_PORT="${HEALTH_PORT:-8000}"
 
 echo "==> Esperando /live en 127.0.0.1:${HEALTH_PORT}"
-LISTO=0
-for _ in $(seq 1 30); do
-  if curl -fsS --max-time 5 --connect-timeout 2 \
-    "http://127.0.0.1:${HEALTH_PORT}/live" >/dev/null 2>&1; then
-    LISTO=1
-    break
-  fi
-  sleep 2
-done
-if [[ "$LISTO" -ne 1 ]]; then
+if ! wait_live "$HEALTH_PORT" 30; then
   rollback
 fi
 
 echo "==> Comprobando /health"
 SALUD=0
-for _ in $(seq 1 15); do
+for _ in $(seq 1 30); do
   HEALTH_CODE="$(curl -s --max-time 5 --connect-timeout 2 \
     -o "$HEALTH_FILE" -w '%{http_code}' \
     "http://127.0.0.1:${HEALTH_PORT}/health" || true)"
@@ -99,7 +154,11 @@ for _ in $(seq 1 15); do
     SALUD=1
     break
   fi
-  if [[ "$HEALTH_CODE" == "503" ]] && grep -q '"status":"missing"' "$HEALTH_FILE"; then
+  # Solo se acepta el 503 de índice ausente (`index.status == missing`), que
+  # ocurre en el primer despliegue antes de indexar. Cualquier otro 503
+  # (`degraded`, `unavailable`) se reintenta y, si persiste, revierte.
+  if [[ "$HEALTH_CODE" == "503" ]] \
+    && grep -Eq '"index":\{[^}]*"status":"missing"' "$HEALTH_FILE"; then
     SALUD=2
     break
   fi
