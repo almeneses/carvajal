@@ -40,6 +40,15 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - name: Verificar que el commit pertenece a main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$SHA" FETCH_HEAD; then
+            echo "::error::$SHA no pertenece a main; no se despliega código sin fusionar."
+            exit 1
+          fi
 
       - name: Validar compose de producción
         env:
@@ -82,6 +91,19 @@ jobs:
           fi
           printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+
+      - name: Verificar .env en el VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          if ! ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            'test -f /srv/carvajal/.env && grep -Eq "^DOMAIN=.+" /srv/carvajal/.env && grep -Eq "^SESSION_SECRET=.+" /srv/carvajal/.env'; then
+            echo "::error::Prepara /srv/carvajal/.env con DOMAIN y SESSION_SECRET antes de desplegar (docs/despliegue-ovh.md)."
+            exit 1
+          fi
 
       - name: Copiar configuración al VPS
         env:

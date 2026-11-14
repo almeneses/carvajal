@@ -183,13 +183,17 @@ manuales de `docker compose` usan la misma imagen que quedó desplegada.
 `main` está protegida: los cambios llegan por el PR de release aprobado. Al
 fusionarlo:
 
-1. CI corre en el commit de merge.
-2. Si CI termina en verde, `deploy.yml` construye la imagen con el SHA completo
-   y la publica como `sha-<commit>` y `latest`.
-3. Copia `compose.prod.yml`, `Caddyfile` y `deploy.sh` a `/srv/carvajal`.
-4. `deploy.sh` descarga el tag SHA, aplica `alembic upgrade head`, recrea los
-   contenedores y comprueba `/live` y `/health`.
-5. Si algo falla, vuelve al tag guardado en `/srv/carvajal/.deployed_tag`.
+1. CI corre en el push a `main` (el commit de merge del PR de release).
+2. Si CI termina en verde, `deploy.yml` comprueba que ese commit pertenece a
+   `main`, construye la imagen con el SHA completo y la publica como
+   `sha-<commit>` y `latest`.
+3. Verifica que `/srv/carvajal/.env` existe con `DOMAIN` y `SESSION_SECRET`, y
+   copia `compose.prod.yml`, `Caddyfile` y `deploy.sh` a `/srv/carvajal`.
+4. `deploy.sh` descarga el tag SHA, espera a Postgres, aplica
+   `alembic upgrade head`, recrea los contenedores y comprueba `/live` y
+   `/health`.
+5. Si algo falla, vuelve al tag de `/srv/carvajal/.deployed_tag` o, en el primer
+   despliegue, al `APP_IMAGE` que ya estuviera en `.env`.
 
 El workflow se puede relanzar a mano desde `main`; no se dispara desde ramas de
 feature ni desde `dev`. Usa el environment `production` de GitHub: si le añades
