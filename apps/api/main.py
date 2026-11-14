@@ -182,6 +182,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     for module in (corpus, documents, chat, stream, api, config, faq):
         app.include_router(module.router)
+    app.include_router(faq.page_router)
 
     @app.get("/live")
     def live() -> JSONResponse:

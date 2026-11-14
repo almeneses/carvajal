@@ -118,6 +118,22 @@ def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
     return events
 
 
+def test_pagina_faq_renderiza_y_comparte_csrf() -> None:
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/faq")
+
+    # Assert
+    assert response.status_code == 200
+    assert 'id="faq-generar"' in response.text
+    assert "data-faq" in response.text
+    assert 'data-csrf="' in response.text and 'data-csrf=""' not in response.text
+    assert 'href="/faq"' in response.text
+    assert 'aria-current="page"' in response.text
+
+
 def test_faq_stream_emite_open_tokens_y_done() -> None:
     # Arrange
     client, _ = make_client()

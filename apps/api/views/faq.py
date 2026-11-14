@@ -16,13 +16,14 @@ from typing import cast
 
 import structlog
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api import runtime
 from apps.api.chat.service import SERVICE_UNAVAILABLE
 from apps.api.observability import capture_exception
+from apps.api.runtime import templates
 from apps.api.security import verify_csrf
 from apps.api.views.chat import (
     CSRF_INVALIDO,
@@ -46,10 +47,11 @@ from carvajal.application.ports import LLMProvider
 from carvajal.domain.entities import Document
 from carvajal.infrastructure.settings import Settings
 
-__all__ = ["router"]
+__all__ = ["page_router", "router"]
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api")
+page_router = APIRouter()
 
 SSE_MEDIA_TYPE = "text/event-stream"
 SSE_HEADERS = {
@@ -100,6 +102,13 @@ def faq_service(request: Request) -> GenerateFaq:
             max(20_000, settings.ollama_num_ctx * 3),
         )
     return GenerateFaq(corpus, llm, max_prompt_chars=max_prompt_chars)
+
+
+@page_router.get("/faq", response_class=HTMLResponse)
+def faq_page(request: Request) -> Response:
+    """Renderiza la pestaña FAQ del shell Jinja2 con su token CSRF."""
+
+    return templates.TemplateResponse(request, "faq.html", {})
 
 
 @router.post("/faq")

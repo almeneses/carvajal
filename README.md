@@ -301,9 +301,10 @@ superiores —**Asistente**, **FAQ**, **Corpus** y **Documento**— con URLs est
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
-<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; sus
-pantallas comparten la cabecera, la paleta y los componentes visuales del
-frontend del M2. El texto generado se formatea con Markdown saneado, las
+<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; su
+pestaña **FAQ** (`/faq`) consume el mismo endpoint `/api/faq` y ofrece la misma
+experiencia de lotes de 10. Sus pantallas comparten la cabecera, la paleta y los
+componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
 fuentes se pliegan por defecto y cada cita abre un panel lateral con el
 documento en el fragmento citado. El chat mantiene el compositor abajo, un
 panel de hilos anteriores y la pestaña **Configuración** para subir documentos
