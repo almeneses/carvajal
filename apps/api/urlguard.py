@@ -4,9 +4,9 @@ La captura la dispara cualquier visitante de la pestaña Configuración, así qu
 el servidor no puede pedir una URL arbitraria: sería un SSRF. Este módulo
 rechaza esquemas inusuales, credenciales embebidas, puertos fuera de 80/443 e
 IPs privadas, loopback, link-local o reservadas, y revalida cada salto de una
-redirección. La resolución DNS y la petición real las hace ``requests`` por
-separado; queda un riesgo residual de *DNS rebinding* que se documenta y se
-mitiga con el límite de bytes y el timeout.
+redirección. Además, fija la IP ya validada en la conexión: si ``requests``
+volviera a resolver el nombre, un cambio de DNS entre la comprobación y la
+petición (*DNS rebinding*) podría llevar la conexión a una IP privada.
 """
 
 from __future__ import annotations
@@ -14,10 +14,17 @@ from __future__ import annotations
 import ipaddress
 import socket
 from collections.abc import Iterable
+from contextvars import ContextVar
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import requests
+import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+from urllib3.util.connection import create_connection
 
 from carvajal.config import (
     BASE_URL,
@@ -28,13 +35,19 @@ from carvajal.config import (
 )
 from carvajal.fetching import FetchError, RobotsDenied, WebClient, normalize_robots
 
-__all__ = ["SafeWebClient", "UrlRejected", "validate_capture_url"]
+__all__ = [
+    "SafeWebClient",
+    "UrlRejected",
+    "resolve_capture_target",
+    "validate_capture_url",
+]
 
 _ALLOWED_SCHEMES = {"http", "https"}
 _ALLOWED_PORTS = {80, 443}
 MAX_URL_CHARS = 2048
 _MAX_ROBOTS_BYTES = 512 * 1024
 _CHUNK_SIZE = 64 * 1024
+_PINNED_IP: ContextVar[str] = ContextVar("carvajal_pinned_ip")
 
 
 class UrlRejected(FetchError, ValueError):
@@ -92,17 +105,18 @@ def _reject_private(addresses: Iterable[str]) -> None:
             raise UrlRejected(f"La URL apunta a una dirección no pública ({address}).")
 
 
-def validate_capture_url(
+def resolve_capture_target(
     raw: str,
     *,
     allowed_domains: Iterable[str] = (),
     allow_private: bool = False,
     max_length: int = MAX_URL_CHARS,
-) -> str:
-    """Devuelve la URL normalizada o lanza ``UrlRejected``.
+) -> tuple[str, str]:
+    """Valida la URL y devuelve ``(url, ip)`` con la IP que se debe usar.
 
+    La IP se resuelve una sola vez y el cliente HTTP la fija en la conexión.
     ``allow_private`` existe solo para desarrollo y pruebas: permite loopback,
-    redes privadas y puertos no estándar. En producción debe quedar apagado.
+    redes privadas y puertos no estándar, pero sigue resolviendo el host.
     """
 
     url = (raw or "").strip()
@@ -132,10 +146,157 @@ def validate_capture_url(
     if allowed and not _domain_allowed(normalized_host, allowed):
         raise UrlRejected(f"El dominio {normalized_host!r} no está permitido.")
 
+    default_port = port or (443 if parsed.scheme.lower() == "https" else 80)
+    addresses = _resolve(normalized_host, default_port)
     if not allow_private:
-        default_port = port or (443 if parsed.scheme.lower() == "https" else 80)
-        _reject_private(_resolve(normalized_host, default_port))
-    return url
+        _reject_private(addresses)
+    if not addresses:
+        raise UrlRejected(f"No se pudo resolver el host {normalized_host!r}.")
+    # Preferir IPv4: el contenedor puede no tener salida IPv6.
+    addresses.sort(key=lambda address: ":" in address)
+    return url, addresses[0]
+
+
+def validate_capture_url(
+    raw: str,
+    *,
+    allowed_domains: Iterable[str] = (),
+    allow_private: bool = False,
+    max_length: int = MAX_URL_CHARS,
+) -> str:
+    """Devuelve la URL normalizada o lanza ``UrlRejected``."""
+
+    return resolve_capture_target(
+        raw,
+        allowed_domains=allowed_domains,
+        allow_private=allow_private,
+        max_length=max_length,
+    )[0]
+
+
+class _PinnedConnectionMixin:
+    """Conecta a ``pinned_ip`` conservando el host original para Host/SNI."""
+
+    pinned_ip: str
+    port: int
+    timeout: Any
+    source_address: Any
+    socket_options: Any
+
+    def _new_conn(self) -> socket.socket:
+        return create_connection(
+            (self.pinned_ip, self.port),
+            self.timeout,
+            self.source_address,
+            self.socket_options,
+        )
+
+
+class _PinnedHTTPConnection(_PinnedConnectionMixin, HTTPConnection):
+    """Conexión HTTP que usa la IP validada en lugar de resolver el host."""
+
+    def __init__(self, *args: Any, pinned_ip: str, **kwargs: Any) -> None:
+        self.pinned_ip = pinned_ip
+        super().__init__(*args, **kwargs)
+
+
+class _PinnedHTTPSConnection(_PinnedConnectionMixin, HTTPSConnection):
+    """Conexión HTTPS con SNI y certificado del host, pero IP fijada."""
+
+    def __init__(self, *args: Any, pinned_ip: str, **kwargs: Any) -> None:
+        self.pinned_ip = pinned_ip
+        super().__init__(*args, **kwargs)
+
+
+class _PinnedHTTPConnectionPool(HTTPConnectionPool):
+    """Pool HTTP que propaga la IP fijada a cada conexión."""
+
+    ConnectionCls = cast(Any, _PinnedHTTPConnection)
+
+    def __init__(self, host: str, port: int | None = None, **kwargs: Any) -> None:
+        self._pinned_ip = _PINNED_IP.get()
+        super().__init__(host, port, **kwargs)
+
+    def _new_conn(self) -> Any:
+        return _PinnedHTTPConnection(
+            host=self.host,
+            port=self.port,
+            timeout=self.timeout,
+            pinned_ip=self._pinned_ip,
+            **self.conn_kw,
+        )
+
+
+class _PinnedHTTPSConnectionPool(HTTPSConnectionPool):
+    """Pool HTTPS que propaga la IP fijada a cada conexión."""
+
+    ConnectionCls = cast(Any, _PinnedHTTPSConnection)
+
+    def __init__(self, host: str, port: int | None = None, **kwargs: Any) -> None:
+        self._pinned_ip = _PINNED_IP.get()
+        super().__init__(host, port, **kwargs)
+
+    def _new_conn(self) -> Any:
+        return _PinnedHTTPSConnection(
+            host=self.host,
+            port=self.port,
+            timeout=self.timeout,
+            pinned_ip=self._pinned_ip,
+            **self.conn_kw,
+        )
+
+
+class _PinnedAdapter(HTTPAdapter):
+    """Adaptador de ``requests`` que fija la IP validada en sus pools."""
+
+    def __init__(self, pinned_ip: str) -> None:
+        self._pinned_ip = pinned_ip
+        super().__init__(max_retries=0)
+
+    def init_poolmanager(
+        self,
+        connections: int,
+        maxsize: int,
+        block: bool = False,
+        **pool_kwargs: Any,
+    ) -> None:
+        self.poolmanager = urllib3.PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            **pool_kwargs,
+        )
+        self.poolmanager.pool_classes_by_scheme = cast(
+            Any,
+            {
+                "http": _PinnedHTTPConnectionPool,
+                "https": _PinnedHTTPSConnectionPool,
+            },
+        )
+
+    def send(
+        self,
+        request: Any,
+        stream: bool = False,
+        timeout: Any = None,
+        verify: bool | str = True,
+        cert: Any = None,
+        proxies: Any = None,
+    ) -> requests.Response:
+        """Fija la IP en el contexto mientras ``requests`` crea el pool."""
+
+        token = _PINNED_IP.set(self._pinned_ip)
+        try:
+            return super().send(
+                request,
+                stream=stream,
+                timeout=timeout,
+                verify=verify,
+                cert=cert,
+                proxies=proxies,
+            )
+        finally:
+            _PINNED_IP.reset(token)
 
 
 class SafeWebClient(WebClient):
@@ -164,6 +325,8 @@ class SafeWebClient(WebClient):
             delay=delay,
             respect_robots=respect_robots,
         )
+        # Un proxy del entorno podría saltarse la IP fijada.
+        self.session.trust_env = False
         self._allowed_domains = _normalize_domains(allowed_domains)
         self._allow_private = allow_private
         self._max_bytes = max_bytes
@@ -235,36 +398,52 @@ class SafeWebClient(WebClient):
 
         current = url
         for _ in range(self._max_redirects + 1):
-            validate_capture_url(
+            current, ip = resolve_capture_target(
                 current,
                 allowed_domains=self._allowed_domains,
                 allow_private=self._allow_private,
             )
             self._throttle(current)
+            session = self._pinned_session(ip)
             try:
-                response = self.session.get(
-                    current,
-                    timeout=self.timeout,
-                    allow_redirects=False,
-                    stream=True,
-                )
-            except requests.RequestException as error:
-                raise FetchError(f"{current}: {error}") from error
-
-            with response:
-                if response.is_redirect:
-                    location = response.headers.get("location", "")
-                    if not location:
-                        raise FetchError(f"{current}: redirección sin destino.")
-                    current = urljoin(current, location)
-                    continue
                 try:
-                    response.raise_for_status()
+                    response = session.get(
+                        current,
+                        timeout=self.timeout,
+                        allow_redirects=False,
+                        stream=True,
+                    )
                 except requests.RequestException as error:
                     raise FetchError(f"{current}: {error}") from error
-                return _read_limited(response, max_bytes)
+
+                with response:
+                    if response.is_redirect:
+                        location = response.headers.get("location", "")
+                        if not location:
+                            raise FetchError(f"{current}: redirección sin destino.")
+                        current = urljoin(current, location)
+                        continue
+                    try:
+                        response.raise_for_status()
+                    except requests.RequestException as error:
+                        raise FetchError(f"{current}: {error}") from error
+                    return _read_limited(response, max_bytes)
+            finally:
+                session.close()
 
         raise FetchError(f"{url}: demasiadas redirecciones.")
+
+    def _pinned_session(self, ip: str) -> requests.Session:
+        """Sesión de un solo salto que conecta a ``ip`` y conserva el Host."""
+
+        session = requests.Session()
+        session.trust_env = False
+        session.headers.update(self.session.headers)
+        session.cookies.update(self.session.cookies)
+        adapter = _PinnedAdapter(ip)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
 
 
 def _read_limited(response: requests.Response, limit: int) -> str:

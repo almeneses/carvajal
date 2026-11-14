@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 import pytest
 
-from apps.api.capture_jobs import CaptureBusy, CaptureJobs
+from apps.api.capture_jobs import CaptureBusy, CaptureJobs, CaptureRateLimited
 from apps.api.web_capture import CaptureOutcome, CaptureRequest
 from carvajal.pipeline import CaptureEvent
 
@@ -124,3 +124,40 @@ def test_stream_de_un_job_inexistente_falla() -> None:
     # Act / Assert
     with pytest.raises(KeyError):
         list(jobs.stream("no-existe"))
+
+
+def test_el_limite_por_owner_bloquea_y_libera_a_otro_owner() -> None:
+    # Arrange
+    jobs = CaptureJobs(lambda request, on_event: OUTCOME, rate_limit=1, window_seconds=60)
+    primero = jobs.start(CaptureRequest(limit=1), owner_key="1.2.3.4")
+    list(jobs.stream(primero.id))
+
+    # Act / Assert
+    with pytest.raises(CaptureRateLimited) as error:
+        jobs.start(CaptureRequest(limit=1), owner_key="1.2.3.4")
+    assert error.value.retry_after >= 1
+
+    otro = jobs.start(CaptureRequest(limit=1), owner_key="5.6.7.8")
+    list(jobs.stream(otro.id))
+    assert jobs.get(otro.id) is not None
+
+
+def test_stream_async_corta_si_el_cliente_se_desconecta() -> None:
+    # Arrange
+    import asyncio
+
+    jobs = CaptureJobs(lambda request, on_event: OUTCOME)
+    job = jobs.start(CaptureRequest(limit=1))
+
+    async def desconectado() -> bool:
+        return True
+
+    async def recolectar() -> list[str]:
+        return [evento async for evento in jobs.stream_async(job.id, desconectado)]
+
+    # Act
+    eventos = asyncio.run(recolectar())
+
+    # Assert
+    assert eventos == []
+    list(jobs.stream(job.id))

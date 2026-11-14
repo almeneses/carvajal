@@ -11,7 +11,7 @@ import structlog
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
-from apps.api.capture_jobs import CaptureBusy, CaptureJob, CaptureJobs
+from apps.api.capture_jobs import CaptureBusy, CaptureJob, CaptureJobs, CaptureRateLimited
 from apps.api.ingestion import (
     ALLOWED_EXTENSIONS,
     MAX_FILE_BYTES,
@@ -141,22 +141,31 @@ def iniciar_captura(
             form=form,
             status_code=422,
         )
+    owner_key = request.client.host if request.client is not None else "desconocido"
     try:
-        job = _captures(request).start(capture_request)
+        job = _captures(request).start(capture_request, owner_key=owner_key)
     except CaptureBusy as error:
         return _capture_response(request, error=str(error), form=form, status_code=409)
+    except CaptureRateLimited as error:
+        return _capture_response(
+            request,
+            error=str(error),
+            form=form,
+            status_code=429,
+            headers={"Retry-After": str(error.retry_after)},
+        )
     return _capture_response(request, job=job, form=form)
 
 
 @router.get("/configuracion/captura/{job_id}/eventos")
-def eventos_captura(request: Request, job_id: str) -> Response:
-    """Emite el progreso de una captura por SSE."""
+async def eventos_captura(request: Request, job_id: str) -> Response:
+    """Emite el progreso de una captura por SSE y corta si el cliente se va."""
 
     jobs = _captures(request)
     if jobs.get(job_id) is None:
         return JSONResponse({"error": "La captura no existe o expiró."}, status_code=404)
     return StreamingResponse(
-        jobs.stream(job_id),
+        jobs.stream_async(job_id, request.is_disconnected),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
     )
@@ -352,10 +361,12 @@ def _page(
     status_code: int = 200,
     job: CaptureJob | None = None,
     form: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> Response:
     """Renderiza la configuración con formatos admitidos y resultado."""
 
-    headers = {"X-Carvajal-Error": "1"} if error is not None else {}
+    merged = {"X-Carvajal-Error": "1"} if error is not None else {}
+    merged.update(headers or {})
     token_requerido = bool(Settings().config_token.strip())
     return templates.TemplateResponse(
         request,
@@ -372,7 +383,7 @@ def _page(
             **_capture_context(form=form),
         },
         status_code=status_code,
-        headers=headers,
+        headers=merged,
     )
 
 
@@ -383,10 +394,12 @@ def _capture_partial(
     error: str | None = None,
     form: dict[str, Any] | None = None,
     status_code: int = 200,
+    headers: dict[str, str] | None = None,
 ) -> Response:
     """Parcial de HTMX con el formulario y el progreso de la captura."""
 
-    headers = {"X-Carvajal-Error": "1"} if error is not None else {}
+    merged = {"X-Carvajal-Error": "1"} if error is not None else {}
+    merged.update(headers or {})
     return templates.TemplateResponse(
         request,
         "_captura.html",
@@ -397,7 +410,7 @@ def _capture_partial(
             **_capture_context(form=form),
         },
         status_code=status_code,
-        headers=headers,
+        headers=merged,
     )
 
 
@@ -408,6 +421,7 @@ def _capture_response(
     error: str | None = None,
     form: dict[str, Any] | None = None,
     status_code: int = 200,
+    headers: dict[str, str] | None = None,
 ) -> Response:
     """Responde el parcial para HTMX o la página completa sin JavaScript."""
 
@@ -418,6 +432,7 @@ def _capture_response(
             error=error,
             form=form,
             status_code=status_code,
+            headers=headers,
         )
     return _page(
         request,
@@ -425,4 +440,5 @@ def _capture_response(
         status_code=status_code,
         job=job,
         form=form,
+        headers=headers,
     )

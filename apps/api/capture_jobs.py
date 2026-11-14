@@ -9,11 +9,12 @@ se escala, hará falta un lock distribuido.
 
 from __future__ import annotations
 
+import asyncio
 import queue
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -27,6 +28,7 @@ __all__ = [
     "CaptureBusy",
     "CaptureJob",
     "CaptureJobs",
+    "CaptureRateLimited",
     "default_capture_runner",
 ]
 
@@ -40,6 +42,17 @@ _JOB_TTL_SECONDS = 60 * 60
 
 class CaptureBusy(RuntimeError):
     """Ya hay una captura en curso; escribir dos a la vez corrompería Gold."""
+
+
+class CaptureRateLimited(RuntimeError):
+    """El visitante superó el límite de capturas de su ventana."""
+
+    def __init__(self, retry_after: int) -> None:
+        self.retry_after = max(1, retry_after)
+        super().__init__(
+            "Has alcanzado el límite de capturas. "
+            f"Inténtalo de nuevo en {self.retry_after} segundos."
+        )
 
 
 @dataclass
@@ -79,15 +92,25 @@ class CaptureJobs:
         runner: Runner | None = None,
         *,
         max_jobs: int = 20,
+        rate_limit: int = 5,
+        window_seconds: int = 3600,
     ) -> None:
         self._runner = runner or default_capture_runner
         self._jobs: dict[str, CaptureJob] = {}
         self._lock = threading.Lock()
         self._active: str | None = None
         self._max_jobs = max_jobs
+        self._rate_limit = max(0, rate_limit)
+        self._window_seconds = max(1, window_seconds)
+        self._recent: dict[str, list[float]] = {}
 
-    def start(self, request: CaptureRequest) -> CaptureJob:
-        """Crea el job y lo ejecuta en un hilo; falla si ya hay uno activo."""
+    def start(self, request: CaptureRequest, *, owner_key: str = "") -> CaptureJob:
+        """Crea el job y lo ejecuta en un hilo; falla si ya hay uno activo.
+
+        ``owner_key`` es la IP del visitante para el límite de capturas. Un
+        segundo envío con un job en curso recibe ``CaptureBusy``; superar la
+        ventana recibe ``CaptureRateLimited``.
+        """
 
         with self._lock:
             self._prune()
@@ -95,6 +118,7 @@ class CaptureJobs:
                 active = self._jobs.get(self._active)
                 if active is not None and active.status in {"pending", "running"}:
                     raise CaptureBusy("Ya hay una captura en curso. Espera a que termine.")
+            self._check_rate(owner_key)
             job = CaptureJob(id=uuid.uuid4().hex, request=request)
             self._jobs[job.id] = job
             self._active = job.id
@@ -124,6 +148,44 @@ class CaptureJobs:
 
         with self._lock:
             return self._jobs.get(job_id)
+
+    async def stream_async(
+        self,
+        job_id: str,
+        is_disconnected: Callable[[], Awaitable[bool]] | None = None,
+    ) -> AsyncIterator[str]:
+        """Emite el progreso sin retener el hilo si el cliente se desconecta.
+
+        ``is_disconnected`` lo aporta la petición de Starlette; se consulta
+        entre eventos para abortar el generador cuando el navegador cierra.
+        El job de captura sigue corriendo en su hilo y termina de persistir.
+        """
+
+        job = self.get(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        sent_final = False
+        while True:
+            if is_disconnected is not None and await is_disconnected():
+                return
+            if job.finished.is_set() and job.events.empty():
+                if not sent_final:
+                    yield _final_event(job)
+                return
+            try:
+                item = await asyncio.to_thread(job.events.get, True, 0.5)
+            except queue.Empty:
+                if job.finished.is_set():
+                    if not sent_final:
+                        yield _final_event(job)
+                    return
+                continue
+            if item is None:
+                continue
+            name, data = item
+            if name in {"done", "error"}:
+                sent_final = True
+            yield encode(name, data)
 
     def stream(self, job_id: str) -> Iterator[str]:
         """Emite los eventos del job hasta su cierre.
@@ -212,13 +274,34 @@ class CaptureJobs:
             if self._active == job.id:
                 self._active = None
 
+    def _check_rate(self, owner_key: str) -> None:
+        """Anota la captura o lanza ``CaptureRateLimited`` si no queda cupo."""
+
+        if self._rate_limit <= 0:
+            return
+        now = time.monotonic()
+        recent = [
+            stamp for stamp in self._recent.get(owner_key, []) if now - stamp < self._window_seconds
+        ]
+        if len(recent) >= self._rate_limit:
+            retry_after = max(1, round(self._window_seconds - (now - recent[0])))
+            raise CaptureRateLimited(retry_after)
+        recent.append(now)
+        self._recent[owner_key] = recent
+
     def _prune(self) -> None:
-        """Descarta jobs viejos para que el registro no crezca sin límite."""
+        """Descarta jobs y marcas de rate limit viejas."""
 
         now = time.monotonic()
         for job_id, job in list(self._jobs.items()):
             if job.finished_at is not None and now - job.finished_at > _JOB_TTL_SECONDS:
                 del self._jobs[job_id]
+        for owner_key, stamps in list(self._recent.items()):
+            recent = [stamp for stamp in stamps if now - stamp < self._window_seconds]
+            if recent:
+                self._recent[owner_key] = recent
+            else:
+                del self._recent[owner_key]
         if len(self._jobs) <= self._max_jobs:
             return
         for job_id, job in sorted(self._jobs.items(), key=lambda item: item[1].created_at):

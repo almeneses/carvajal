@@ -27,9 +27,18 @@ OUTCOME = CaptureOutcome(
 )
 
 
-def _client(runner: Runner) -> TestClient:
+def _client(
+    runner: Runner,
+    *,
+    rate_limit: int = 5,
+    window_seconds: int = 3600,
+) -> TestClient:
     app = create_app()
-    app.state.captures = CaptureJobs(runner)
+    app.state.captures = CaptureJobs(
+        runner,
+        rate_limit=rate_limit,
+        window_seconds=window_seconds,
+    )
     app.state.ingest = lambda documents: IngestReport(files=len(documents))
     return TestClient(app)
 
@@ -251,3 +260,36 @@ def test_un_job_inexistente_devuelve_404() -> None:
     # Act / Assert
     assert client.get("/configuracion/captura/no-existe").status_code == 404
     assert client.get("/configuracion/captura/no-existe/eventos").status_code == 404
+
+
+def test_el_limite_por_ip_devuelve_429_con_retry_after() -> None:
+    # Arrange
+    client = _client(_runner_ok, rate_limit=1, window_seconds=60)
+    token = _token(client)
+    payload = {
+        CSRF_FIELD: token,
+        "urls": "http://8.8.8.8/",
+        "scope": "manual",
+        "limit": "5",
+        "respect_robots": "on",
+    }
+
+    # Act
+    primero = client.post(
+        "/configuracion/captura",
+        data=payload,
+        headers={"HX-Request": "true"},
+    )
+    job_id = _job_id(primero.text)
+    _stream = client.get(f"/configuracion/captura/{job_id}/eventos").text
+    segundo = client.post(
+        "/configuracion/captura",
+        data=payload,
+        headers={"HX-Request": "true"},
+    )
+
+    # Assert
+    assert primero.status_code == 200
+    assert segundo.status_code == 429
+    assert "límite de capturas" in segundo.text
+    assert int(segundo.headers["Retry-After"]) >= 1

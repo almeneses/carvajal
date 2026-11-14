@@ -1,9 +1,10 @@
 """Pruebas de la captura web: semillas, límites, slugs y cierre del pipeline."""
 
+import threading
 from pathlib import Path
 from unittest.mock import Mock
 
-from apps.api.web_capture import CaptureRequest, ingest_urls, resolve_seeds
+from apps.api.web_capture import CaptureOutcome, CaptureRequest, ingest_urls, resolve_seeds
 from carvajal.infrastructure.settings import Settings
 
 
@@ -251,3 +252,48 @@ def test_ingest_urls_captura_las_semillas_del_alcance(tmp_path: Path) -> None:
     assert outcome.requested == 2
     assert outcome.written == 2
     assert outcome.captured == ("oficial", "tercero")
+
+
+def test_el_lock_de_gold_serializa_dos_capturas_con_el_mismo_slug(tmp_path: Path) -> None:
+    # Arrange
+    settings = _settings(tmp_path)
+    empezado = threading.Event()
+    liberar = threading.Event()
+
+    class SlowClient(FakeClient):
+        def __init__(self, bloqueante: str) -> None:
+            super().__init__()
+            self.bloqueante = bloqueante
+
+        def fetch(self, url: str) -> str:
+            if url == self.bloqueante:
+                empezado.set()
+                liberar.wait(timeout=5)
+            return super().fetch(url)
+
+    resultados: list[CaptureOutcome] = []
+
+    def correr(url: str) -> None:
+        resultados.append(
+            ingest_urls(
+                CaptureRequest(urls=(url,), scope="manual", limit=5),
+                settings=settings,
+                client=SlowClient(url),
+                importar=lambda gold_dir, only: (1, 1),
+                indexar=lambda gold_dir, only: 1,
+            )
+        )
+
+    primera = threading.Thread(target=correr, args=("https://example.com/a",))
+    primera.start()
+    assert empezado.wait(timeout=5)
+    segunda = threading.Thread(target=correr, args=("https://otro.example/a",))
+    segunda.start()
+    liberar.set()
+    primera.join(timeout=5)
+    segunda.join(timeout=5)
+
+    # Assert
+    escritos = [resultado for resultado in resultados if resultado.written]
+    assert len(escritos) == 1
+    assert any("slug" in error for resultado in resultados for error in resultado.errors)

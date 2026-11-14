@@ -396,6 +396,8 @@ También puedes configurar las variables en la terminal:
 | `CAPTURE_MAX_BYTES` | Tamaño máximo de una respuesta capturada. | `5000000` |
 | `CAPTURE_TIMEOUT_SECONDS` | Timeout por petición de la captura. | `30` |
 | `CAPTURE_MAX_REDIRECTS` | Saltos de redirección permitidos y revalidados. | `5` |
+| `CAPTURE_REQUESTS_LIMIT` | Capturas por IP y ventana; `0` desactiva el límite. | `5` |
+| `CAPTURE_WINDOW_SECONDS` | Ventana en segundos del límite por IP. | `3600` |
 | `CAPTURE_ALLOWED_DOMAINS` | Allowlist opcional separada por coma; vacía = cualquier host público. | vacío |
 | `CAPTURE_ALLOW_PRIVATE_HOSTS` | Solo desarrollo: permite loopback y redes privadas. | `false` |
 

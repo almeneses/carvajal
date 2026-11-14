@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     # Solo para desarrollo y pruebas: permite capturar desde loopback y redes
     # privadas. En producción debe quedar en False.
     capture_allow_private_hosts: bool = False
+    # Límite por IP para el endpoint público: N capturas por ventana. Cero
+    # desactiva el límite (solo para desarrollo).
+    capture_requests_limit: int = Field(default=5, ge=0)
+    capture_window_seconds: int = Field(default=3600, ge=1)
     # Lista opcional de dominios permitidos (separados por coma). Vacía
     # significa cualquier host público que pase el guard SSRF.
     capture_allowed_domains: Annotated[tuple[str, ...], NoDecode] = ()

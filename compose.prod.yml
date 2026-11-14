@@ -95,6 +95,9 @@ services:
       CAPTURE_MAX_BYTES: ${CAPTURE_MAX_BYTES:-5000000}
       CAPTURE_TIMEOUT_SECONDS: ${CAPTURE_TIMEOUT_SECONDS:-30}
       CAPTURE_MAX_REDIRECTS: ${CAPTURE_MAX_REDIRECTS:-5}
+      # Límite por IP del endpoint público de captura.
+      CAPTURE_REQUESTS_LIMIT: ${CAPTURE_REQUESTS_LIMIT:-5}
+      CAPTURE_WINDOW_SECONDS: ${CAPTURE_WINDOW_SECONDS:-3600}
       # Allowlist opcional de dominios separados por coma. Vacía = cualquier
       # host público que pase el guard SSRF.
       CAPTURE_ALLOWED_DOMAINS: ${CAPTURE_ALLOWED_DOMAINS:-}

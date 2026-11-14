@@ -1,8 +1,10 @@
 """Pruebas del guard SSRF de la captura web."""
 
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+import requests
 
 from apps.api.urlguard import SafeWebClient, UrlRejected, validate_capture_url
 from carvajal.fetching import RobotsDenied
@@ -65,11 +67,12 @@ def test_allowlist_rechaza_un_dominio_ajeno_sin_resolver_dns() -> None:
 
 def test_allowlist_acepta_subdominios() -> None:
     # Act
-    resultado = validate_capture_url(
-        "http://sub.example.com/",
-        allowed_domains=("example.com",),
-        allow_private=True,
-    )
+    with patch("apps.api.urlguard._resolve", return_value=["8.8.8.8"]):
+        resultado = validate_capture_url(
+            "http://sub.example.com/",
+            allowed_domains=("example.com",),
+            allow_private=True,
+        )
 
     # Assert
     assert resultado == "http://sub.example.com/"
@@ -111,7 +114,7 @@ def test_una_redireccion_a_una_ip_privada_se_rechaza_antes_de_pedirla() -> None:
 
     # Act / Assert
     with (
-        patch.object(client.session, "get", return_value=_redirect("http://169.254.169.254/")),
+        patch.object(requests.Session, "get", return_value=_redirect("http://169.254.169.254/")),
         pytest.raises(UrlRejected),
     ):
         client.fetch("http://8.8.8.8/")
@@ -123,7 +126,7 @@ def test_robots_no_sigue_una_redireccion_privada() -> None:
 
     # Act
     with patch.object(
-        client.session,
+        requests.Session,
         "get",
         return_value=_redirect("http://169.254.169.254/"),
     ) as llamadas:
@@ -174,3 +177,43 @@ def test_respect_robots_false_no_consulta_robots() -> None:
     # Assert
     assert permitido is True
     llamadas.assert_not_called()
+
+
+def test_safe_web_client_conecta_a_la_ip_fijada_y_conserva_el_host() -> None:
+    # Arrange
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    hosts: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            hosts.append(self.headers.get("Host", ""))
+            body = b"<html><body>ok</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    client = SafeWebClient(allow_private=True, respect_robots=False, delay=0)
+
+    try:
+        # ``public.example`` no resuelve: si el cliente no usara la IP fijada,
+        # la petición fallaría al intentar resolverlo.
+        with patch("apps.api.urlguard._resolve", return_value=["127.0.0.1"]):
+            html = client.fetch(f"http://public.example:{port}/")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    # Assert
+    assert "ok" in html
+    assert hosts == [f"public.example:{port}"]

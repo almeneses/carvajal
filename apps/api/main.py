@@ -160,15 +160,18 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     # Sin Swagger público: la interfaz de la app es el formulario HTML y el
     # esquema no aporta a un visitante anónimo.
     app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
+    settings = Settings()
     app.state.quota = handlers.quota if handlers is not None else _default_quota
     # Captura web: un registro por app para que las pruebas inyecten su runner.
-    app.state.captures = CaptureJobs()
+    app.state.captures = CaptureJobs(
+        rate_limit=settings.capture_requests_limit,
+        window_seconds=settings.capture_window_seconds,
+    )
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityMiddleware)
-    settings = Settings()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.frontend_origins),

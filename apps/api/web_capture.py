@@ -8,7 +8,10 @@ URLs, el timeout y el guard SSRF de ``urlguard`` son su defensa.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+import fcntl
+import threading
+from collections.abc import Callable, Generator, Iterable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +34,8 @@ __all__ = [
 ]
 
 logger = structlog.get_logger(__name__)
+
+_GOLD_THREAD_LOCK = threading.Lock()
 
 SCOPES = {
     "manual": "Solo las URLs que escribo",
@@ -72,6 +77,25 @@ class CaptureOutcome:
     robots_denied: tuple[str, ...] = ()
     duplicates: tuple[str, ...] = ()
     captured: tuple[str, ...] = ()
+
+
+@contextmanager
+def _gold_lock(settings: Settings) -> Generator[None]:
+    """Serializa comprobación y escritura de Gold entre hilos y procesos.
+
+    ``CaptureJobs`` ya permite un solo job por proceso, pero la CLI u otra
+    instancia podrían escribir a la vez. ``flock`` cubre ese caso en el
+    despliegue Linux; el archivo de bloqueo vive en Gold y no es un ``.md``.
+    """
+
+    lock_path = settings.gold_dir / ".capture.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with _GOLD_THREAD_LOCK, lock_path.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _dedupe(items: Iterable[str]) -> list[str]:
@@ -235,12 +259,8 @@ def ingest_urls(
     if client is None:
         seeds, invalid = _validate_seeds(seeds, settings)
         errors.extend(invalid)
-    seeds, collisions = _guard_slugs(seeds, settings)
-    errors.extend(collisions)
-    if not seeds:
-        return _outcome(None, requested=0, errors=errors)
-
-    if client is None:
+        if not seeds:
+            return _outcome(None, requested=0, errors=errors)
         client = SafeWebClient(
             allowed_domains=settings.capture_allowed_domains,
             allow_private=settings.capture_allow_private_hosts,
@@ -252,15 +272,20 @@ def ingest_urls(
             respect_robots=request.respect_robots,
         )
 
-    report = capture(
-        seeds,
-        client=client,
-        gold_dir=settings.gold_dir,
-        raw_dir=settings.raw_dir,
-        processed_dir=settings.processed_dir,
-        index_file=settings.index_file,
-        on_event=on_event,
-    )
+    with _gold_lock(settings):
+        seeds, collisions = _guard_slugs(seeds, settings)
+        errors.extend(collisions)
+        if not seeds:
+            return _outcome(None, requested=0, errors=errors)
+        report = capture(
+            seeds,
+            client=client,
+            gold_dir=settings.gold_dir,
+            raw_dir=settings.raw_dir,
+            processed_dir=settings.processed_dir,
+            index_file=settings.index_file,
+            on_event=on_event,
+        )
     errors.extend(report.errors)
     slugs = {page.slug for page in report.pages}
     documents = chunks = indexed = 0
