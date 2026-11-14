@@ -1,19 +1,19 @@
 /* Ficha y contenido del documento con el sistema visual institucional. */
 
 .documento-cabecera {
-  padding: clamp(18px, 3vw, 28px);
+  padding: clamp(22px, 3vw, 32px);
 }
 
 .documento-cabecera h1 {
   margin: 0;
   color: var(--tinta);
-  font-size: clamp(1.6rem, 2.8vw, 2.2rem);
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
   overflow-wrap: anywhere;
 }
 
 .documento-volver {
-  margin: 10px 0 0;
-  font-size: 0.85rem;
+  margin: 12px 0 0;
+  font-size: 0.95rem;
 }
 
 .documento-volver a {
@@ -40,14 +40,16 @@
 
 .documento-meta dt {
   color: var(--secundario);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .documento-meta dd {
-  margin: 0.15rem 0 0;
+  margin: 0.2rem 0 0;
+  font-size: 1rem;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -57,12 +59,14 @@
   border-radius: 5px;
   background: var(--fondo-suave);
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
 }
 
 .aviso-version {
   margin: 1.25rem 0 0;
-  padding: 0.9rem 1.1rem;
+  padding: 1rem 1.2rem;
+  font-size: 1rem;
+  line-height: 1.55;
   border: 1px solid #f0d9a8;
   border-left: 4px solid var(--externa-texto);
   border-radius: 12px;
@@ -75,8 +79,8 @@
 }
 
 .documento-contenido {
-  margin-top: 18px;
-  padding: clamp(18px, 3vw, 32px);
+  margin-top: 22px;
+  padding: clamp(22px, 3vw, 36px);
   overflow-wrap: anywhere;
 }
 
@@ -91,7 +95,8 @@
 }
 
 .documento-contenido p {
-  margin: 0.9rem 0;
+  margin: 1rem 0;
+  line-height: 1.7;
 }
 
 .documento-contenido :is(ul, ol) {
@@ -136,7 +141,7 @@
 }
 
 .documento-contenido :is(th, td) {
-  padding: 0.5rem 0.7rem;
+  padding: 0.7rem 0.9rem;
   border: 1px solid var(--borde);
   text-align: left;
 }
