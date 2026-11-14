@@ -55,6 +55,9 @@ async def security_headers(request: Request, call_next):
         "img-src 'self' data:; style-src 'self'; script-src 'self'; "
         "base-uri 'self'; frame-ancestors 'none'"
     )
+    # La SPA conserva la misma política que el shell: el dictado por voz solo
+    # se permite desde el propio origen.
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(self), camera=()"
     response.headers["X-Content-Type-Options"] = "nosniff"
     if request.url.path.startswith("/static/"):
         # El HTML no se cachea; los assets se revalidan para que una versión

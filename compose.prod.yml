@@ -57,6 +57,10 @@ services:
         # puede iniciar aunque Ollama aún esté calentando. El modelo se
         # descarga aparte (docs/despliegue-ovh.md).
         condition: service_started
+      whisper:
+        # El modelo de voz se descarga en el primer arranque; la app puede
+        # iniciar antes, pero el dictado responde 503 hasta que termine.
+        condition: service_started
     environment:
       # Dentro de la red de compose el host de la base es el servicio `db`,
       # no loopback: por eso la URL se compone aquí a partir de POSTGRES_*.
@@ -78,6 +82,16 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-carvajal_chunks}
       QDRANT_DIMENSIONS: ${QDRANT_DIMENSIONS:-768}
       QDRANT_DISTANCE: ${QDRANT_DISTANCE:-Cosine}
+      # Voz a texto: el servicio `whisper` vive en la red interna de Compose.
+      # Si usas un servicio externo, añade un override con TRANSCRIPTION_URL.
+      TRANSCRIPTION_URL: http://whisper:8000
+      TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}
+      TRANSCRIPTION_LANGUAGE: ${TRANSCRIPTION_LANGUAGE:-es}
+      TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY:-}
+      TRANSCRIPTION_REQUESTS_LIMIT: ${TRANSCRIPTION_REQUESTS_LIMIT:-20}
+      TRANSCRIPTION_WINDOW_SECONDS: ${TRANSCRIPTION_WINDOW_SECONDS:-3600}
+      TRANSCRIPTION_MAX_BYTES: ${TRANSCRIPTION_MAX_BYTES:-2000000}
+      TRANSCRIPTION_TIMEOUT_SECONDS: ${TRANSCRIPTION_TIMEOUT_SECONDS:-120}
       RAG_TOP_K: ${RAG_TOP_K:-6}
       RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.30}
       AGENT_CHECKPOINTER: ${AGENT_CHECKPOINTER:-postgres}
@@ -146,6 +160,54 @@ services:
       retries: 3
       start_period: 15s
 
+  whisper:
+    # Speaches + faster-whisper en CPU. El modelo no se instala en la imagen:
+    # se descarga en whisperdata al arrancar (puede tardar varios minutos).
+    image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
+    restart: unless-stopped
+    environment:
+      ENABLE_UI: "false"
+      WHISPER__INFERENCE_DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: int8
+      # Mantiene el modelo en memoria entre dictados (la caché ya está en disco).
+      WHISPER__TTL: "-1"
+    volumes:
+      - whisperdata:/home/ubuntu/.cache/huggingface/hub
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  whisper-init:
+    # Descarga el modelo en el volumen compartido; si falla, la app sigue
+    # arrancando y el dictado devuelve 503 hasta que se reintente.
+    image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
+    depends_on:
+      whisper:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        curl -fsS --retry 5 --retry-delay 5 -X POST
+        http://whisper:8000/v1/models/${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small} || true
+    volumes:
+      - whisperdata:/home/ubuntu/.cache/huggingface/hub
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   qdrant:
     image: qdrant/qdrant:v1.15.4
     restart: unless-stopped
@@ -171,3 +233,4 @@ volumes:
   pgdata:
   qdrantdata:
   ollamadata:
+  whisperdata:

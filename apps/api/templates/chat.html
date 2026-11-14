@@ -5,6 +5,7 @@
 <link rel="stylesheet" href="/static/chat.css" />
 <script src="/static/hilos.js" defer></script>
 <script src="/static/chat-stream.js" defer></script>
+<script src="/static/voz.js" defer></script>
 {% endblock %}
 {% block content %}
 <section class="seccion chat-seccion" aria-labelledby="titulo-chat">
@@ -49,20 +50,37 @@
         <input type="hidden" name="client_turn_id" value="" data-client-turn-id />
         <div class="campo">
           <label for="pregunta">Tu pregunta</label>
-          <input
-            id="pregunta"
-            name="question"
-            type="text"
-            required
-            maxlength="500"
-            autocomplete="off"
-            placeholder="¿Cuáles fueron los ingresos de 2025?"
-            aria-describedby="ayuda-chat"
-            value="{{ question }}"
-          />
+          <div class="entrada-voz">
+            <input
+              id="pregunta"
+              name="question"
+              type="text"
+              required
+              maxlength="500"
+              autocomplete="off"
+              placeholder="¿Cuáles fueron los ingresos de 2025?"
+              aria-describedby="ayuda-chat"
+              value="{{ question }}"
+            />
+            <button
+              id="boton-voz"
+              type="button"
+              class="boton boton-voz"
+              aria-label="Dictar la pregunta por voz"
+              aria-pressed="false"
+              hidden
+            >
+              <svg class="icono-voz" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+                <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path>
+              </svg>
+              <span data-voz-texto>Dictar</span>
+            </button>
+          </div>
           <p id="ayuda-chat" class="ayuda">
             Entre 1 y 500 caracteres. El asistente responde solo con el corpus y cita el
-            fragmento del que toma cada dato.
+            fragmento del que toma cada dato. Si tu navegador lo permite, también puedes
+            dictar la pregunta.
           </p>
         </div>
         <button type="submit">Enviar</button>

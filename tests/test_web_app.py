@@ -40,6 +40,9 @@ def test_csp_estricta_y_cabeceras_de_seguridad() -> None:
     assert "unsafe-inline" not in csp
     assert "unsafe-eval" not in csp
     assert respuesta.headers["x-content-type-options"] == "nosniff"
+    assert respuesta.headers["permissions-policy"] == (
+        "geolocation=(), microphone=(self), camera=()"
+    )
 
 
 def test_index_carga_scripts_y_hojas_en_orden() -> None:

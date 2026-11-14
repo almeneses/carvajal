@@ -158,6 +158,21 @@ class Settings(BaseSettings):
     agent_sqlite_path: Path = Path("data") / "agent" / "checkpoints.sqlite"
     agent_history_turns: int = Field(default=8, ge=1, le=50)
 
+    # Voz a texto del chat. El servicio (Speaches con faster-whisper) corre
+    # aparte: la app solo lo llama por HTTP y nunca carga el modelo. `make
+    # whisper` lo publica en el puerto 9000 para desarrollo; en compose.prod.yml
+    # se apunta a http://whisper:8000. Vacío desactiva la función.
+    transcription_url: str = "http://127.0.0.1:9000"
+    transcription_api_key: str = ""
+    transcription_model: str = "Systran/faster-whisper-small"
+    transcription_language: str = "es"
+    transcription_timeout_seconds: int = Field(default=120, ge=5, le=600)
+    transcription_max_bytes: int = Field(default=2_000_000, ge=1)
+    # Límite por IP independiente de la cuota diaria de preguntas: una
+    # transcripción fallida o cancelada no debe gastar una pregunta.
+    transcription_requests_limit: int = Field(default=20, ge=0)
+    transcription_window_seconds: int = Field(default=3600, ge=1)
+
     # Frontend propio (proceso separado) y orígenes permitidos por CORS.
     # NoDecode evita que pydantic-settings intente JSON antes del validador:
     # se aceptan tanto `a,b` como una lista JSON, y también el valor vacío.

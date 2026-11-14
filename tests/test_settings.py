@@ -22,6 +22,7 @@ def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "POSTGRES_PORT",
         "OLLAMA_BASE_URL",
         "FRONTEND_ORIGINS",
+        "TRANSCRIPTION_URL",
     ):
         monkeypatch.delenv(nombre, raising=False)
 
@@ -48,6 +49,28 @@ def test_semillas_por_defecto_no_vacias() -> None:
     assert len(settings.seeds) > 0
     assert len(settings.external_seeds) > 0
     assert all("carvajal.com" not in url for url in settings.external_seeds)
+
+
+def test_voz_a_texto_por_defecto() -> None:
+    """El dictado apunta al Speaches local y usa el modelo pequeño multilingüe."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.transcription_url == "http://127.0.0.1:9000"
+    assert settings.transcription_model == "Systran/faster-whisper-small"
+    assert settings.transcription_language == "es"
+    assert settings.transcription_max_bytes == 2_000_000
+    assert settings.transcription_requests_limit == 20
+
+
+def test_voz_a_texto_se_puede_desactivar(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Una URL vacía desactiva el endpoint sin borrar el resto de la configuración."""
+
+    monkeypatch.setenv("TRANSCRIPTION_URL", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.transcription_url == ""
 
 
 def test_proveedor_llm_por_defecto() -> None:

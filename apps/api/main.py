@@ -28,7 +28,7 @@ from apps.api.observability import (
 )
 from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
 from apps.api.security import SecurityMiddleware, verify_csrf
-from apps.api.views import api, chat, config, corpus, documents, faq, stream
+from apps.api.views import api, chat, config, corpus, documents, faq, stream, transcribe
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
@@ -167,6 +167,12 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         rate_limit=settings.capture_requests_limit,
         window_seconds=settings.capture_window_seconds,
     )
+    # La voz a texto tiene su propio límite: no comparte la cuota diaria de
+    # preguntas y vive en memoria porque el despliegue usa un solo worker.
+    app.state.transcription_limits = transcribe.TranscriptionRateLimiter(
+        limit=settings.transcription_requests_limit,
+        window_seconds=settings.transcription_window_seconds,
+    )
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
@@ -180,7 +186,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         allow_headers=["Accept", "Content-Type"],
     )
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
-    for module in (corpus, documents, chat, stream, api, config, faq):
+    for module in (corpus, documents, chat, stream, api, config, faq, transcribe):
         app.include_router(module.router)
     app.include_router(faq.page_router)
 
