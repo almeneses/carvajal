@@ -2,7 +2,7 @@
 
 import pytest
 
-from apps.api.rendering import render_markdown
+from apps.api.rendering import render_answer, render_markdown
 
 
 def test_renderiza_tablas_de_markdown() -> None:
@@ -124,4 +124,144 @@ def test_conserva_enlaces_seguros_con_rel(href: str) -> None:
 
     # Assert
     assert f'href="{href}"' in html
+    assert 'rel="noopener noreferrer"' in html
+
+
+def test_render_answer_formatea_titulos_negritas_y_cursivas() -> None:
+    # Arrange
+    text = "# Carvajal\n\n**Importante** y *cursiva*."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert "<h1>Carvajal</h1>" in html
+    assert "<strong>Importante</strong>" in html
+    assert "<em>cursiva</em>" in html
+
+
+def test_render_answer_convierte_referencias_en_enlaces_de_fuente() -> None:
+    # Arrange
+    text = "El dato aparece en la historia [1] y en prensa [2]."
+
+    # Act
+    html = str(render_answer(text, 2))
+
+    # Assert
+    assert 'class="cita-inline" href="#cita-1"' in html
+    assert 'class="cita-inline" href="#cita-2"' in html
+    assert 'href="#cita-3"' not in html
+
+
+def test_render_answer_no_enlaza_referencias_fuera_de_rango() -> None:
+    # Arrange
+    text = "Una referencia inventada [5]."
+
+    # Act
+    html = str(render_answer(text, 2))
+
+    # Assert
+    assert 'href="#cita-5"' not in html
+    assert "[5]" in html
+
+
+def test_render_answer_autoenlaza_urls_sueltas() -> None:
+    # Arrange
+    text = "Consulta https://www.carvajal.com/historia/ para más detalle."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert 'href="https://www.carvajal.com/historia/"' in html
+    assert 'target="_blank"' in html
+    assert 'rel="noopener noreferrer"' in html
+
+
+def test_render_answer_convierte_citas_textuales_en_blockquote() -> None:
+    # Arrange
+    text = '"El proyecto familiar comenzó en Cali."'
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert "<blockquote>" in html
+    assert "El proyecto familiar comenzó en Cali." in html
+
+
+def test_render_answer_escapa_html_del_modelo() -> None:
+    # Arrange
+    text = '<script>alert("xss")</script> y <b>texto</b>.'
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert "<script" not in html
+    assert "<b>" not in html
+    assert "&lt;script&gt;alert" in html
+    assert "&lt;b&gt;texto&lt;/b&gt;" in html
+
+
+def test_render_answer_elimina_enlaces_javascript() -> None:
+    # Arrange
+    text = "[Clic](javascript:alert(1))"
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert "javascript:" not in html
+    assert "href=" not in html
+    assert "Clic" in html
+
+
+def test_render_answer_no_enlaza_citas_dentro_de_codigo() -> None:
+    # Arrange
+    text = "El código `[1]` no es una cita, pero [1] sí."
+
+    # Act
+    html = str(render_answer(text, 1))
+
+    # Assert
+    assert "<code>[1]</code>" in html
+    assert html.count('href="#cita-1"') == 1
+
+
+def test_render_answer_no_anida_enlaces_markdown_y_urls() -> None:
+    # Arrange
+    text = "[Documento](https://example.com/a) y https://example.com/b."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert html.count("<a ") == 2
+    assert '<a href="https://example.com/a" rel="noopener noreferrer">Documento</a>' in html
+    assert 'href="https://example.com/b"' in html
+
+
+def test_render_answer_escapa_entidades_escritas_por_el_modelo() -> None:
+    # Arrange
+    text = "Texto con &lt;script&gt; y un ampersand & suelto."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert "&amp;lt;script&amp;gt;" in html
+    assert "&amp; suelto" in html
+    assert "<script" not in html
+
+
+def test_render_answer_escapa_la_url_del_enlace_automatico() -> None:
+    # Arrange
+    text = "Consulta https://example.com/buscar?q=a&b=c."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert 'href="https://example.com/buscar?q=a&amp;b=c"' in html
     assert 'rel="noopener noreferrer"' in html

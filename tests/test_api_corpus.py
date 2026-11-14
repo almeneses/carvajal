@@ -216,3 +216,17 @@ def test_las_opciones_de_seccion_vienen_del_proveedor() -> None:
     assert '<option value="historia">historia</option>' in response.text
     assert '<option value="prensa" selected>prensa</option>' in response.text
     assert "Fecha" in response.text and "2026-11-01" in response.text
+
+
+def test_la_tabla_muestra_el_tipo_de_fuente_como_etiqueta() -> None:
+    # Arrange: el tipo por defecto del documento es ``oficial``.
+    corpus = FakeCorpus([make_document(0)])
+    client = make_client(corpus)
+
+    # Act
+    response = client.get("/corpus")
+
+    # Assert
+    assert response.status_code == 200
+    assert '<th scope="col">Tipo</th>' in response.text
+    assert 'class="etiqueta etiqueta-oficial">Oficial</span>' in response.text

@@ -1,22 +1,32 @@
-/* Pantalla del corpus: formulario, tabla y paginación. */
+/* Explorador del corpus con el sistema visual institucional. */
 
-.formulario select {
-  padding: 0.7rem 0.9rem;
-  border: 1px solid #9fb2c6;
-  border-radius: 0.4rem;
-  background: var(--fondo);
-  color: inherit;
-  font: inherit;
+.filtros {
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
 }
 
-.formulario .limpiar {
-  padding-bottom: 0.7rem;
-  font-weight: 600;
+.filtros .campo {
+  flex: 1 1 13rem;
+}
+
+.filtros button {
+  flex: 0 0 auto;
+}
+
+.filtros .limpiar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  min-height: 46px;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radio-pequeno);
 }
 
 .tabla-envoltura {
-  margin-top: 1.5rem;
+  margin-top: 18px;
   overflow-x: auto;
+  background: var(--panel);
   border: 1px solid var(--borde);
   border-radius: var(--radio);
   box-shadow: var(--sombra);
@@ -25,11 +35,11 @@
 .tabla-corpus {
   width: 100%;
   border-collapse: collapse;
-  background: var(--fondo);
+  background: var(--panel);
 }
 
 .tabla-corpus caption {
-  padding: 0.75rem 1rem;
+  padding: 12px 16px;
   background: var(--fondo-suave);
   border-bottom: 1px solid var(--borde);
   text-align: left;
@@ -37,18 +47,21 @@
 
 .tabla-corpus th,
 .tabla-corpus td {
-  padding: 0.7rem 1rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--borde);
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 .tabla-corpus thead th {
   background: var(--fondo-suave);
   color: var(--secundario);
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .tabla-corpus tbody tr:last-child th,
@@ -56,62 +69,74 @@
   border-bottom: 0;
 }
 
+.tabla-corpus tbody tr {
+  transition: background-color var(--transicion);
+}
+
 .tabla-corpus tbody tr:hover {
-  background: #f9fbfd;
+  background: #f7fbfd;
 }
 
 .tabla-corpus tbody th {
   font-weight: 600;
 }
 
-.etiqueta {
-  display: inline-block;
-  padding: 0.1rem 0.55rem;
-  border: 1px solid var(--borde);
-  border-radius: 999px;
-  background: var(--fondo-suave);
-  font-size: 0.78rem;
-  font-weight: 600;
+.tabla-corpus tbody th a {
+  color: var(--azul);
+  text-decoration-thickness: 1px;
+}
+
+.tabla-corpus tbody th a:hover {
+  color: var(--etiqueta-texto);
 }
 
 .etiqueta-core {
-  color: var(--enlace);
+  background: var(--oficial-fondo);
+  color: var(--oficial-texto);
 }
 
 .etiqueta-extended {
-  border-color: #cfdca3;
-  background: #f6f9ea;
-  color: var(--oliva);
+  background: var(--externa-fondo);
+  color: var(--externa-texto);
 }
 
 .vacio {
-  margin: 1.5rem 0 0;
-  padding: 1.25rem;
+  margin: 18px 0 0;
+  padding: 18px;
   border: 1px dashed var(--borde);
-  border-radius: var(--radio);
+  border-radius: 12px;
   background: var(--fondo-suave);
   color: var(--secundario);
 }
 
 .paginacion {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  gap: 12px;
+  margin-top: 20px;
 }
 
 .pagina {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--borde);
-  border-radius: 0.4rem;
-  background: var(--fondo);
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--borde-control);
+  border-radius: var(--radio-pequeno);
+  background: var(--panel);
+  color: var(--azul);
   font-weight: 600;
   text-decoration: none;
+  transition:
+    background-color var(--transicion),
+    border-color var(--transicion);
 }
 
 .pagina:hover {
-  border-color: var(--primario);
+  background: var(--fondo-suave);
+  border-color: var(--cian);
 }
 
 .pagina-actual {
@@ -119,9 +144,106 @@
   font-size: 0.9rem;
 }
 
-@media (max-width: 40rem) {
+@media (max-width: 760px) {
+  .filtros button,
+  .filtros .limpiar {
+    width: auto;
+  }
+
   .tabla-corpus th,
   .tabla-corpus td {
-    padding: 0.55rem 0.65rem;
+    padding: 0.6rem 0.7rem;
+  }
+}
+
+@media (max-width: 620px) {
+  /* La tabla se convierte en fichas apiladas para no comprimir las columnas. */
+  .tabla-envoltura {
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .tabla-corpus,
+  .tabla-corpus tbody,
+  .tabla-corpus tr,
+  .tabla-corpus th,
+  .tabla-corpus td {
+    display: block;
+    width: 100%;
+  }
+
+  .tabla-corpus {
+    border-collapse: separate;
+  }
+
+  .tabla-corpus caption {
+    display: block;
+    width: 100%;
+    padding: 0 0 10px;
+    background: transparent;
+    border: 0;
+  }
+
+  .tabla-corpus thead {
+    display: none;
+  }
+
+  .tabla-corpus tbody tr {
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 1px solid var(--borde);
+    border-radius: 14px;
+    box-shadow: var(--sombra);
+  }
+
+  .tabla-corpus tbody tr:hover {
+    background: var(--panel);
+  }
+
+  .tabla-corpus tbody th,
+  .tabla-corpus tbody td {
+    padding: 0;
+    border: 0;
+  }
+
+  .tabla-corpus tbody th {
+    margin-bottom: 6px;
+    font-size: 1rem;
+    line-height: 1.35;
+  }
+
+  .tabla-corpus tbody th::before {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--secundario);
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .tabla-corpus tbody td {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding-top: 3px;
+  }
+
+  .tabla-corpus tbody td::before {
+    flex: 0 0 5.25rem;
+    color: var(--secundario);
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .tabla-corpus tbody tr:last-child {
+    margin-bottom: 0;
   }
 }

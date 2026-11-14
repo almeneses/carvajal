@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.rendering import render_answer
 from apps.api.security import csrf_context
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.llm import build_llm_provider
@@ -25,6 +26,7 @@ templates = Jinja2Templates(
     directory=APP_DIR / "templates",
     context_processors=[csrf_context],
 )
+templates.env.filters["respuesta"] = render_answer
 
 __all__ = [
     "APP_DIR",

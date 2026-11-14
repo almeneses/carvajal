@@ -1,53 +1,193 @@
-/* Hilo de conversación y citas; reutiliza las variables del tema de app.css. */
+/* Conversación y citas del shell HTMX con el sistema visual institucional. */
 
-.hilo { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
+.conversacion {
+  overflow: hidden;
+}
 
-.turno { display: grid; gap: 0.4rem; }
+.cabecera-conversacion {
+  padding: clamp(18px, 3vw, 28px);
+  background: var(--azul);
+  color: #fff;
+}
+
+.cabecera-conversacion h1 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(1.5rem, 2.6vw, 2.05rem);
+}
+
+.cabecera-conversacion .sobrelinea {
+  color: #9bddf3;
+}
+
+.cabecera-conversacion .bajada {
+  max-width: 68ch;
+  margin: 6px 0 0;
+  color: #d0eaf4;
+}
+
+.cabecera-conversacion :focus-visible {
+  outline-color: #8be7fb !important;
+}
+
+.cuerpo-conversacion {
+  display: grid;
+  gap: 16px;
+  padding: clamp(16px, 2.4vw, 24px);
+}
+
+.cuerpo-conversacion .formulario {
+  margin-top: 0;
+  background: var(--fondo-suave);
+  box-shadow: none;
+}
+
+.formulario-nuevo-hilo {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.formulario-nuevo-hilo .ayuda {
+  flex: 1 1 22rem;
+}
+
+.formulario-nuevo-hilo button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0.5rem 1rem;
+}
+
+.panel-historial h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.hilo {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.turno {
+  display: grid;
+  gap: 6px;
+  animation: aparecer 220ms ease both;
+}
 
 .turno-rol {
   margin: 0;
   color: var(--secundario);
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .burbuja {
-  padding: 1rem 1.25rem;
+  padding: 12px 15px;
+  background: #f8fbfd;
   border: 1px solid var(--borde);
-  border-radius: var(--radio);
-  background: var(--fondo);
-  box-shadow: var(--sombra);
+  border-radius: 4px 14px 14px 14px;
 }
 
-.turno-user .burbuja { border-left: 4px solid var(--primario); background: var(--fondo-suave); }
-.turno-assistant .burbuja { border-left: 4px solid var(--naranja); }
+.turno-user {
+  justify-items: end;
+}
 
-.citas { margin-top: 0.25rem; }
-.citas h3 { margin: 0.75rem 0 0.5rem; color: var(--secundario); font-size: 0.95rem; }
+.turno-user .turno-rol {
+  text-align: right;
+}
+
+.turno-user .burbuja {
+  max-width: 88%;
+  background: var(--etiqueta-fondo);
+  border-color: transparent;
+  border-radius: 14px 14px 4px 14px;
+  color: var(--etiqueta-texto);
+}
+
+.turno-assistant .burbuja {
+  border-left: 3px solid var(--cian);
+}
+
+.estado-incompleto {
+  margin-left: 0.5rem;
+  color: var(--error);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.citas {
+  margin-top: 2px;
+}
 
 .vacio {
   margin: 0;
-  padding: 1.25rem;
+  padding: 16px;
   border: 1px dashed var(--borde);
-  border-radius: var(--radio);
-  color: var(--secundario);
+  border-radius: 12px;
   background: var(--fondo-suave);
+  color: var(--secundario);
 }
 
 .traza {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  margin: 0.75rem 0 0;
-  padding: 0.65rem 0.9rem;
+  gap: 5px 14px;
+  margin: 0;
+  padding: 10px 12px;
   border: 1px solid var(--borde);
-  border-radius: var(--radio);
+  border-radius: 12px;
   background: var(--fondo-suave);
-  font-size: 0.85rem;
+  color: var(--secundario);
+  font-size: 0.8rem;
 }
 
-.traza code { font-size: 0.8rem; word-break: break-all; }
-.estado-incompleto { margin-left: 0.5rem; color: #a33; font-weight: 600; }
-.fuente a { color: var(--primario); }
+.traza-item {
+  min-width: 0;
+}
+
+.traza code {
+  padding: 2px 5px;
+  border: 1px solid var(--borde);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--tinta);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+#chat-stream-estado {
+  min-height: 1.4em;
+}
+
+#chat-stream-estado.aviso {
+  padding: 8px 10px;
+  border-left-width: 3px;
+  font-weight: 600;
+}
+
+.fuente a {
+  color: var(--azul);
+}
+
+@media (max-width: 560px) {
+  .cabecera-conversacion {
+    padding: 16px;
+  }
+
+  .cuerpo-conversacion {
+    padding: 14px;
+  }
+
+  .turno-user .burbuja {
+    max-width: 100%;
+  }
+
+  .formulario-nuevo-hilo button {
+    width: 100%;
+  }
+}
