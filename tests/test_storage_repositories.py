@@ -78,6 +78,55 @@ def test_list_rechaza_limites_negativos(session: Session) -> None:
     assert [document.id for document in repository.list(limit=1)] == ["limites"]
 
 
+def test_list_y_count_filtran_por_texto_y_tipo(session: Session) -> None:
+    """La búsqueda es literal e insensible a mayúsculas y ``count`` coincide."""
+
+    repository = SqlDocumentRepository(session)
+    primero = replace(
+        _document("texto-1", slug="texto-1"),
+        title="Informe 100% Real",
+        url="https://www.carvajal.com/informe-100/",
+    )
+    segundo = replace(
+        _document("texto-2", slug="texto-2"),
+        title="Informe 100X Real",
+        url="https://www.carvajal.com/informe-100x/",
+    )
+    tercero = replace(
+        _document("texto-3", slug="texto-3", markdown="# Nota"),
+        title=r"Nota externa C:\Carvajal",
+        url="https://example.com/nota/",
+        section="prensa",
+        layer="extended",
+        source_type="tercero",
+    )
+    for document in (primero, segundo, tercero):
+        repository.upsert(document)
+
+    # ``%`` y ``_`` no actúan como comodines de LIKE.
+    assert [item.id for item in repository.list(q="100%")] == ["texto-1"]
+    assert repository.count(q="100%") == 1
+    assert repository.list(q="informe_100") == []
+    assert repository.count(q="informe_100") == 0
+
+    # La búsqueda ignora mayúsculas en título, sección, slug y URL.
+    assert [item.id for item in repository.list(q="INFORME")] == ["texto-1", "texto-2"]
+    assert repository.count(q="INFORME") == 2
+    assert [item.id for item in repository.list(q="EXAMPLE.COM")] == ["texto-3"]
+    assert [item.id for item in repository.list(q=r"C:\Carvajal")] == ["texto-3"]
+    assert repository.count(q=r"c:\carvajal") == 1
+
+    # Filtros combinados y conteo sobre el conjunto completo.
+    assert repository.count(section="prensa", layer="extended", source_type="tercero") == 1
+    assert repository.count(source_type="oficial") == 2
+    assert [item.id for item in repository.list(source_type="tercero")] == ["texto-3"]
+    assert repository.count(layer="core", q="informe") == 2
+    assert [item.id for item in repository.list(layer="core", q="informe")] == [
+        "texto-1",
+        "texto-2",
+    ]
+
+
 def test_versionado_y_slug_inmutable(session: Session) -> None:
     """v1→v2→v2→v3 deja dos versiones y un slug no puede cambiar de id."""
 
