@@ -195,6 +195,47 @@ def test_marca_el_texto_que_supera_el_limite_de_la_pregunta() -> None:
     assert len(response.json()["text"]) == 600
 
 
+def test_recorta_la_transcripcion_muy_larga_y_lo_avisa() -> None:
+    # Arrange
+    client, _ = make_client(FakeTranscriber(texto="a" * 2_500))
+
+    # Act
+    response = _post(client)
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["truncated"] is True
+    assert len(response.json()["text"]) == 2_000
+
+
+def test_un_texto_de_500_caracteres_no_se_marca_truncado() -> None:
+    # Arrange
+    client, _ = make_client(FakeTranscriber(texto="a" * 500))
+
+    # Act
+    response = _post(client)
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["truncated"] is False
+    assert len(response.json()["text"]) == 500
+
+
+def test_una_peticion_invalida_no_consume_el_cupo() -> None:
+    # Arrange
+    client, fake = make_client(limit=1)
+    invalido = {"audio": ("nota.txt", b"texto", "text/plain")}
+
+    # Act: el MIME inválido no debe gastar el único dictado disponible.
+    rechazada = _post(client, archivo=invalido)
+    aceptada = _post(client)
+
+    # Assert
+    assert rechazada.status_code == 415
+    assert aceptada.status_code == 200
+    assert len(fake.llamadas) == 1
+
+
 def test_el_limite_por_ip_no_comparte_la_cuota_de_preguntas() -> None:
     # Arrange
     client, fake = make_client(limit=1)

@@ -126,6 +126,19 @@ def transcribe(
         logger.warning("csrf.rejected", path=request.url.path)
         return JSONResponse({"detail": CSRF_INVALIDO}, status_code=403)
 
+    content_type = _audio_type(audio.content_type)
+    if content_type not in ALLOWED_AUDIO_TYPES:
+        return JSONResponse({"detail": INVALID_AUDIO}, status_code=415)
+
+    settings = Settings()
+    data = audio.file.read(settings.transcription_max_bytes + 1)
+    if len(data) > settings.transcription_max_bytes:
+        return JSONResponse({"detail": TOO_LARGE}, status_code=413)
+    if not data:
+        return JSONResponse({"detail": INVALID_AUDIO}, status_code=422)
+
+    # El cupo se cobra solo a peticiones válidas: un MIME rechazado o un audio
+    # demasiado grande no debe bloquear los dictados legítimos de la misma IP.
     allowed, retry_after = _limit_for(request)
     if not allowed:
         return JSONResponse(
@@ -138,17 +151,6 @@ def transcribe(
             status_code=429,
             headers={"Retry-After": str(retry_after)},
         )
-
-    content_type = _audio_type(audio.content_type)
-    if content_type not in ALLOWED_AUDIO_TYPES:
-        return JSONResponse({"detail": INVALID_AUDIO}, status_code=415)
-
-    settings = Settings()
-    data = audio.file.read(settings.transcription_max_bytes + 1)
-    if len(data) > settings.transcription_max_bytes:
-        return JSONResponse({"detail": TOO_LARGE}, status_code=413)
-    if not data:
-        return JSONResponse({"detail": INVALID_AUDIO}, status_code=422)
 
     transcriber = transcriber_for(request)
     if transcriber is None:
@@ -168,14 +170,11 @@ def transcribe(
         logger.exception("transcription.unexpected", error=str(error))
         return JSONResponse({"detail": UNAVAILABLE}, status_code=503)
 
-    text = text.strip()[:MAX_TRANSCRIPT_CHARS]
+    text = text.strip()
     if not text:
         return JSONResponse({"detail": EMPTY_TRANSCRIPT}, status_code=422)
+    truncated = len(text) > MAX_QUESTION_CHARS
+    text = text[:MAX_TRANSCRIPT_CHARS]
 
     logger.info("transcription.completed", bytes=len(data), chars=len(text))
-    return JSONResponse(
-        {
-            "text": text,
-            "truncated": len(text) > MAX_QUESTION_CHARS,
-        }
-    )
+    return JSONResponse({"text": text, "truncated": truncated})
