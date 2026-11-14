@@ -1,9 +1,10 @@
 """Vista del chat (W3.3): formulario, turnos e historial con cookie firmada."""
 
 from collections.abc import Sequence
+from urllib.parse import quote
 
 import structlog
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -17,13 +18,14 @@ from apps.api.chat.service import (
     SERVICE_UNAVAILABLE,
     ChatFailure,
     ChatProvider,
+    ThreadAccessError,
     default_chat_service,
 )
 from apps.api.observability import capture_exception
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
 from carvajal.adapters.embeddings import EmbeddingError
-from carvajal.adapters.storage.chat import ChatMessage
+from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
 from carvajal.application.ask import LLMError
 from carvajal.application.quota import QuotaResult
 
@@ -49,24 +51,49 @@ CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e intént
 
 
 @router.get("/chat", response_class=HTMLResponse)
-def chat(request: Request) -> Response:
-    """Muestra el historial de la conversación activa del visitante."""
+def chat(
+    request: Request,
+    thread: str | None = None,
+    panel: str | None = None,
+) -> Response:
+    """Muestra el hilo solicitado o el activo, con el panel de hilos."""
 
     identity = request_identity(request)
     owner_key = identity.read(request)
     new_owner = owner_key is None
+    thread_id = (thread or "").strip() or None
+    messages: Sequence[ChatMessage] = []
     if owner_key is None:
         owner_key = identity.new_owner_key()
-        messages: Sequence[ChatMessage] = []
     else:
         structlog.contextvars.bind_contextvars(owner_key=owner_key)
         try:
-            messages = chat_provider(request).history(owner_key)
+            provider = chat_provider(request)
+            if thread_id:
+                messages = provider.history(owner_key, thread_id=thread_id)
+            else:
+                messages = provider.history(owner_key)
+        except ThreadAccessError as error:
+            raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
         except SQLAlchemyError as error:
             logger.warning("chat.history_failed", error=str(error))
-            return _page(request, [], error=SERVICE_UNAVAILABLE, status_code=503)
+            return _page(
+                request,
+                [],
+                thread_id=thread_id,
+                error=SERVICE_UNAVAILABLE,
+                status_code=503,
+            )
 
-    response = _page(request, messages)
+    if thread_id is None and messages:
+        thread_id = messages[0].conversation_id
+    response = _page(
+        request,
+        messages,
+        thread_id=thread_id,
+        conversations=_conversations(request, owner_key),
+        panel_hilos=panel == "hilos",
+    )
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
     return response
@@ -100,7 +127,7 @@ def new_chat(
             status_code=403,
         )
     try:
-        chat_provider(request).new_conversation(owner_key)
+        conversation = chat_provider(request).new_conversation(owner_key)
     except SQLAlchemyError as error:
         logger.warning("chat.new_thread_failed", error=str(error))
         return _error_page(
@@ -112,7 +139,10 @@ def new_chat(
             message=SERVICE_UNAVAILABLE,
             status_code=503,
         )
-    response = RedirectResponse(url="/chat", status_code=303)
+    response = RedirectResponse(
+        url=f"/chat?thread={quote(conversation.id)}&panel=hilos",
+        status_code=303,
+    )
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
     return response
@@ -123,10 +153,12 @@ def chat_turn(
     request: Request,
     question: str = Form(default=""),
     csrf_token: str = Form(default=""),
+    thread_id: str = Form(default=""),
 ) -> Response:
-    """Responde un turno y redirige a ``/chat`` solo si la respuesta se guardó."""
+    """Responde un turno y redirige al hilo activo solo si se guardó."""
 
     text = question.strip()
+    hilo = thread_id.strip() or None
     identity = request_identity(request)
     stored_owner = identity.read(request)
     new_owner = stored_owner is None
@@ -145,6 +177,7 @@ def chat_turn(
             question=question,
             message=CSRF_INVALIDO,
             status_code=403,
+            thread_id=hilo,
         )
 
     if not text:
@@ -156,6 +189,7 @@ def chat_turn(
             question=question,
             message=EMPTY_QUESTION,
             status_code=422,
+            thread_id=hilo,
         )
     if len(text) > MAX_QUESTION_CHARS:
         return _error_page(
@@ -166,6 +200,7 @@ def chat_turn(
             question=question,
             message=TOO_LONG_QUESTION,
             status_code=422,
+            thread_id=hilo,
         )
 
     try:
@@ -180,6 +215,7 @@ def chat_turn(
             question=question,
             message=SERVICE_UNAVAILABLE,
             status_code=503,
+            thread_id=hilo,
         )
     if not quota.allowed:
         return _error_page(
@@ -191,10 +227,17 @@ def chat_turn(
             message=LIMITE_ALCANZADO,
             status_code=429,
             headers={"Retry-After": str(quota.retry_after)},
+            thread_id=hilo,
         )
 
     try:
-        chat_provider(request).ask(owner_key, text)
+        provider = chat_provider(request)
+        if hilo:
+            provider.ask(owner_key, text, thread_id=hilo)
+        else:
+            provider.ask(owner_key, text)
+    except ThreadAccessError as error:
+        raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
     except (ChatFailure, EmbeddingError, LLMError, SQLAlchemyError) as error:
         logger.warning("chat.ask_failed", error=str(error))
         if isinstance(error, LLMError):
@@ -207,9 +250,11 @@ def chat_turn(
             question=question,
             message=SERVICE_UNAVAILABLE,
             status_code=503,
+            thread_id=hilo,
         )
 
-    response = RedirectResponse(url="/chat", status_code=303)
+    destino = f"/chat?thread={quote(hilo)}" if hilo else "/chat"
+    response = RedirectResponse(url=destino, status_code=303)
     set_identity_cookie(response, request, identity, owner_key)
     return response
 
@@ -264,15 +309,25 @@ def _page(
     error: str | None = None,
     status_code: int = 200,
     headers: dict[str, str] | None = None,
+    thread_id: str | None = None,
+    conversations: Sequence[ConversationSummary] | None = None,
+    panel_hilos: bool = False,
 ) -> Response:
-    """Página completa del chat con su hilo de mensajes."""
+    """Página completa del chat con su hilo, compositor y panel de hilos."""
 
     if error is not None:
         headers = {"X-Carvajal-Error": "1", **(headers or {})}
     return templates.TemplateResponse(
         request,
         "chat.html",
-        {"messages": messages, "question": question, "error": error},
+        {
+            "messages": messages,
+            "question": question,
+            "error": error,
+            "thread_id": thread_id or "",
+            "conversations": conversations or [],
+            "panel_hilos": panel_hilos,
+        },
         status_code=status_code,
         headers=headers,
     )
@@ -288,29 +343,65 @@ def _error_page(
     message: str,
     status_code: int,
     headers: dict[str, str] | None = None,
+    thread_id: str | None = None,
 ) -> Response:
     """Página completa de error, con formulario e historial si se puede leer."""
 
+    try:
+        history = _history(request, None if new_owner else owner_key, thread_id)
+    except ThreadAccessError:
+        history = []
+        thread_id = None
     response = _page(
         request,
-        _history(request, None if new_owner else owner_key),
+        history,
         question=question,
         error=message,
         status_code=status_code,
         headers=headers,
+        thread_id=thread_id,
+        conversations=_conversations(request, None if new_owner else owner_key),
     )
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
     return response
 
 
-def _history(request: Request, owner_key: str | None) -> Sequence[ChatMessage]:
-    """Historial previo para una página de error; vacío si no hay dueño o BD."""
+def _history(
+    request: Request,
+    owner_key: str | None,
+    thread_id: str | None = None,
+) -> Sequence[ChatMessage]:
+    """Historial de un hilo del dueño; vacío si no hay dueño o BD."""
 
     if owner_key is None:
         return []
+    provider = chat_provider(request)
     try:
-        return chat_provider(request).history(owner_key)
+        if thread_id:
+            return provider.history(owner_key, thread_id=thread_id)
+        return provider.history(owner_key)
+    except ThreadAccessError:
+        raise
     except SQLAlchemyError as error:
         logger.warning("chat.history_failed", error=str(error))
+        return []
+
+
+def _conversations(
+    request: Request,
+    owner_key: str | None,
+) -> Sequence[ConversationSummary]:
+    """Hilos del dueño para el panel lateral; vacío si el proveedor no los expone."""
+
+    if owner_key is None:
+        return []
+    provider = chat_provider(request)
+    listar = getattr(provider, "conversations", None)
+    if listar is None:
+        return []
+    try:
+        return listar(owner_key)
+    except SQLAlchemyError as error:
+        logger.warning("chat.conversations_failed", error=str(error))
         return []

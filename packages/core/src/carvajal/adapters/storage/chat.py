@@ -17,7 +17,13 @@ from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage import tables
 
-__all__ = ["HISTORY_LIMIT", "ChatMessage", "Conversation", "SqlChatRepository"]
+__all__ = [
+    "HISTORY_LIMIT",
+    "ChatMessage",
+    "Conversation",
+    "ConversationSummary",
+    "SqlChatRepository",
+]
 
 HISTORY_LIMIT = 50
 
@@ -28,6 +34,16 @@ class Conversation:
 
     id: str
     owner_key: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ConversationSummary:
+    """Resumen de un hilo para el panel lateral de conversaciones."""
+
+    id: str
+    preview: str
     created_at: datetime
     updated_at: datetime
 
@@ -87,6 +103,43 @@ class SqlChatRepository:
         self._session.execute(insert(tables.conversations).values(asdict(conversation)))
         self._session.flush()
         return conversation
+
+    def summarize(self, owner_key: str, *, limit: int = 50) -> list[ConversationSummary]:
+        """Lista los hilos del dueño, del más reciente al más antiguo.
+
+        La vista previa es el último mensaje del hilo, recortado para el panel.
+        Un hilo recién creado se conserva con la vista previa vacía.
+        """
+
+        if limit < 1:
+            raise ValueError("limit debe ser mayor que cero.")
+        rows = (
+            self._session.execute(
+                select(tables.conversations)
+                .where(tables.conversations.c.owner_key == owner_key)
+                .order_by(
+                    tables.conversations.c.updated_at.desc(),
+                    tables.conversations.c.id.desc(),
+                )
+                .limit(min(limit, 100))
+            )
+            .mappings()
+            .all()
+        )
+        summaries: list[ConversationSummary] = []
+        for row in rows:
+            conversation = Conversation(**row)
+            messages = self.history(conversation.id, limit=1)
+            preview = " ".join(messages[-1].content.split()) if messages else ""
+            summaries.append(
+                ConversationSummary(
+                    id=conversation.id,
+                    preview=preview[:160],
+                    created_at=conversation.created_at,
+                    updated_at=conversation.updated_at,
+                )
+            )
+        return summaries
 
     def get_or_create(self, owner_key: str) -> Conversation:
         """Devuelve la conversación activa o crea una si el dueño no tiene."""

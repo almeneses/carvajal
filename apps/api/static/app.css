@@ -37,6 +37,7 @@
 
 html {
   font-family: var(--fuente);
+  font-size: 17px;
   color: var(--tinta);
   scroll-behavior: smooth;
 }
@@ -207,6 +208,13 @@ main {
   padding: clamp(18px, 3vw, 32px) clamp(16px, 3vw, 28px) 40px;
 }
 
+@media (min-width: 1024px) {
+  .ancho-chat {
+    width: 80vw;
+    max-width: 1600px;
+  }
+}
+
 h1 {
   margin: 0;
   font-size: clamp(1.7rem, 1.2rem + 2vw, 2.5rem);
@@ -365,6 +373,18 @@ h2 {
   filter: none;
 }
 
+.boton-fantasma {
+  background: rgb(255 255 255 / 8%);
+  border-color: rgb(255 255 255 / 45%);
+  color: #fff;
+}
+
+.boton-fantasma:hover {
+  background: rgb(255 255 255 / 16%);
+  border-color: #fff;
+  filter: none;
+}
+
 .formulario .limpiar {
   align-self: center;
   padding: 0.5rem 0.75rem;
@@ -385,6 +405,27 @@ h2 {
 
 .respuesta:empty {
   margin-top: 0;
+}
+
+.respuesta-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: min(60vh, 720px);
+}
+
+.respuesta-composer .respuesta {
+  flex: 1 1 auto;
+  margin-top: 0;
+}
+
+.composer {
+  position: sticky;
+  bottom: 12px;
+  z-index: 3;
+  margin-top: auto;
+  border-color: var(--cian);
+  box-shadow: 0 -8px 24px rgb(20 73 103 / 10%);
 }
 
 .tarjeta {
@@ -785,15 +826,15 @@ h2 {
   .pestanas {
     display: grid;
     grid-column: 1 / -1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 2px;
   }
 
   .pestana {
     min-height: 44px;
-    padding: 6px 4px;
+    padding: 6px 2px;
     border-radius: 0;
-    font-size: 0.9rem;
+    font-size: clamp(0.64rem, 0.56rem + 0.7vw, 0.86rem);
     white-space: nowrap;
   }
 
@@ -813,6 +854,11 @@ h2 {
 
   .formulario .limpiar {
     width: auto;
+  }
+
+  .composer {
+    position: static;
+    box-shadow: none;
   }
 }
 

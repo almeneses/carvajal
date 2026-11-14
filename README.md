@@ -305,7 +305,10 @@ Corpus y Documento leen los endpoints JSON `/api/corpus` y
 pantallas comparten la cabecera, la paleta y los componentes visuales del
 frontend del M2. El texto generado se formatea con Markdown saneado, las
 fuentes se pliegan por defecto y cada cita abre un panel lateral con el
-documento en el fragmento citado.
+documento en el fragmento citado. El chat mantiene el compositor abajo, un
+panel de hilos anteriores y la pestaña **Configuración** para subir documentos
+o carpetas: Bronze → Silver → Gold → PostgreSQL → Qdrant, reutilizando el
+pipeline del corpus.
 
 ### Interfaz legada (Streamlit)
 

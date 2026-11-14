@@ -5,9 +5,26 @@
 }
 
 .cabecera-conversacion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
   padding: clamp(18px, 3vw, 28px);
   background: var(--azul);
   color: #fff;
+}
+
+.cabecera-texto {
+  min-width: min(100%, 32rem);
+  flex: 1 1 24rem;
+}
+
+.cabecera-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .cabecera-conversacion h1 {
@@ -36,6 +53,30 @@
   padding: clamp(16px, 2.4vw, 24px);
 }
 
+.chat-cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: min(72vh, 860px);
+}
+
+.historial-chat {
+  flex: 1 1 auto;
+  min-height: 240px;
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.cabecera-conversacion .formulario-nuevo-hilo {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .cuerpo-conversacion .formulario {
   margin-top: 0;
   background: var(--fondo-suave);
@@ -45,10 +86,6 @@
 .formulario-nuevo-hilo {
   align-items: center;
   justify-content: space-between;
-}
-
-.formulario-nuevo-hilo .ayuda {
-  flex: 1 1 22rem;
 }
 
 .formulario-nuevo-hilo button {
@@ -133,6 +170,51 @@
   color: var(--secundario);
 }
 
+.hilos-lista {
+  display: grid;
+  gap: 8px;
+}
+
+.hilo-item {
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 11px;
+  background: var(--panel);
+  color: var(--tinta);
+  text-decoration: none;
+  transition:
+    background-color var(--transicion),
+    border-color var(--transicion),
+    transform var(--transicion);
+}
+
+.hilo-item:hover {
+  background: var(--fondo-suave);
+  border-color: var(--cian);
+  transform: translateX(2px);
+}
+
+.hilo-item.activo {
+  border-color: var(--cian);
+  background: var(--etiqueta-fondo);
+}
+
+.hilo-preview {
+  overflow: hidden;
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hilo-fecha {
+  color: var(--secundario);
+  font-size: 0.72rem;
+}
+
 .traza {
   display: flex;
   flex-wrap: wrap;
@@ -174,6 +256,31 @@
   color: var(--azul);
 }
 
+@media (max-width: 760px) {
+  .cabecera-acciones {
+    width: 100%;
+  }
+
+  .cabecera-acciones .boton,
+  .cabecera-acciones .formulario-nuevo-hilo,
+  .cabecera-acciones .formulario-nuevo-hilo button {
+    flex: 1 1 auto;
+  }
+
+  .cabecera-acciones .formulario-nuevo-hilo button {
+    width: 100%;
+  }
+
+  .chat-cuerpo {
+    min-height: 0;
+  }
+
+  .historial-chat {
+    max-height: none;
+  }
+
+}
+
 @media (max-width: 560px) {
   .cabecera-conversacion {
     padding: 16px;
@@ -185,9 +292,5 @@
 
   .turno-user .burbuja {
     max-width: 100%;
-  }
-
-  .formulario-nuevo-hilo button {
-    width: 100%;
   }
 }

@@ -136,6 +136,10 @@ def test_portada_renderiza_el_formulario() -> None:
     assert "/static/texto.js" in response.text
     assert "/static/panel.js" in response.text
     assert "/static/panel.css" in response.text
+    assert 'href="/configuracion"' in response.text
+    assert response.text.index('id="respuesta"') < response.text.index(
+        'class="formulario composer"'
+    )
 
 
 def test_portada_aplica_el_tema_y_la_accesibilidad_basica() -> None:
@@ -203,7 +207,7 @@ def test_los_assets_del_panel_y_del_formateador_se_sirven() -> None:
     client = make_client()
 
     # Act / Assert
-    for nombre in ("panel.css", "panel.js", "texto.js"):
+    for nombre in ("panel.css", "panel.js", "texto.js", "hilos.js", "configuracion.css"):
         response = client.get(f"/static/{nombre}")
         assert response.status_code == 200, nombre
         assert (main.APP_DIR / "static" / nombre).is_file(), nombre

@@ -18,7 +18,7 @@ from apps.api.views.chat import (
     TOO_LONG_QUESTION,
 )
 from carvajal.adapters.embeddings import EmbeddingError
-from carvajal.adapters.storage.chat import ChatMessage
+from carvajal.adapters.storage.chat import ChatMessage, Conversation, ConversationSummary
 from carvajal.application.ask import Answer, LLMError, Source
 from carvajal.application.quota import QuotaResult
 
@@ -32,18 +32,45 @@ class FakeChat:
     """Doble en memoria del servicio; solo persiste si la respuesta termina bien."""
 
     by_owner: dict[str, list[ChatMessage]] = field(default_factory=dict)
+    by_thread: dict[str, list[ChatMessage]] = field(default_factory=dict)
+    summaries: dict[str, list[ConversationSummary]] = field(default_factory=dict)
     calls: list[tuple[str, str]] = field(default_factory=list)
     history_calls: list[str] = field(default_factory=list)
+    thread_calls: list[str | None] = field(default_factory=list)
     error: Exception | None = None
     history_error: Exception | None = None
 
-    def history(self, owner_key: str) -> Sequence[ChatMessage]:
+    def history(
+        self,
+        owner_key: str,
+        thread_id: str | None = None,
+    ) -> Sequence[ChatMessage]:
         self.history_calls.append(owner_key)
+        self.thread_calls.append(thread_id)
         if self.history_error is not None:
             raise self.history_error
+        if thread_id is not None:
+            return list(self.by_thread.get(thread_id, []))
         return list(self.by_owner.get(owner_key, []))
 
-    def ask(self, owner_key: str, question: str) -> Answer:
+    def conversations(self, owner_key: str) -> Sequence[ConversationSummary]:
+        return list(self.summaries.get(owner_key, []))
+
+    def new_conversation(self, owner_key: str) -> Conversation:
+        return Conversation(
+            id="hilo-nuevo",
+            owner_key=owner_key,
+            created_at=WHEN,
+            updated_at=WHEN,
+        )
+
+    def ask(
+        self,
+        owner_key: str,
+        question: str,
+        *,
+        thread_id: str | None = None,
+    ) -> Answer:
         self.calls.append((owner_key, question))
         if self.error is not None:
             raise self.error
@@ -436,3 +463,50 @@ def test_fallo_de_bd_en_la_cuota_del_chat_devuelve_503() -> None:
     assert response.status_code == 503
     assert SERVICE_UNAVAILABLE in response.text
     assert chat.calls == []
+
+
+def test_get_thread_selecciona_el_historial_y_marca_el_hilo_activo() -> None:
+    # Arrange
+    client, chat = make_client()
+    chat.summaries["dueno-a"] = [
+        ConversationSummary("hilo-1", "pregunta anterior", WHEN, WHEN),
+        ConversationSummary("hilo-2", "pregunta del hilo 2", WHEN, WHEN),
+    ]
+    chat.by_thread["hilo-2"] = [_message("user", "pregunta del hilo 2", sources=None)]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    # Act
+    response = client.get("/chat?thread=hilo-2")
+
+    # Assert
+    assert response.status_code == 200
+    assert chat.thread_calls == ["hilo-2"]
+    assert "pregunta del hilo 2" in response.text
+    assert 'href="/chat?thread=hilo-2"' in response.text
+    assert 'id="panel-hilos"' in response.text
+    assert 'data-abrir="0"' in response.text
+    assert response.text.index('id="hilo"') < response.text.index('class="formulario composer"')
+
+
+def test_nuevo_hilo_redirige_al_hilo_nuevo_y_abre_el_panel() -> None:
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = _post(client, "/chat/new", {}, follow_redirects=False)
+
+    # Assert
+    assert response.status_code == 303
+    assert response.headers["location"] == "/chat?thread=hilo-nuevo&panel=hilos"
+
+
+def test_el_panel_de_hilos_puede_abrirse_desde_la_url() -> None:
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat?panel=hilos")
+
+    # Assert
+    assert response.status_code == 200
+    assert 'data-abrir="1"' in response.text

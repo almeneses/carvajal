@@ -15,6 +15,7 @@
 
   const input = form.querySelector('input[name="question"]');
   const csrf = form.querySelector('input[name="csrf_token"]');
+  const threadInput = form.querySelector("[data-thread-id]");
   const turnIdInput = form.querySelector("[data-client-turn-id]");
   const boton = form.querySelector('button[type="submit"]');
   const traza = document.getElementById("chat-traza");
@@ -86,6 +87,7 @@
           question: pregunta,
           csrf_token: csrf ? csrf.value : "",
           client_turn_id: turnId,
+          thread_id: threadInput ? threadInput.value : "",
         }),
         signal: control.signal,
       });
@@ -104,6 +106,9 @@
             avisar("Recuperando fuentes…");
             break;
           case "trace":
+            if (threadInput && evento.datos.thread_id) {
+              threadInput.value = String(evento.datos.thread_id);
+            }
             pintarTraza(evento.datos);
             avisar(
               evento.datos.route === "tool"
@@ -139,6 +144,9 @@
             break;
           case "done":
             cerrado = true;
+            if (threadInput && evento.datos.thread_id) {
+              threadInput.value = String(evento.datos.thread_id);
+            }
             formatearTurno(turnoAsistente, texto, false);
             avisar("");
             break;

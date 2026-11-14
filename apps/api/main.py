@@ -27,7 +27,7 @@ from apps.api.observability import (
 )
 from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
 from apps.api.security import SecurityMiddleware, verify_csrf
-from apps.api.views import api, chat, corpus, documents, stream
+from apps.api.views import api, chat, config, corpus, documents, stream
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
@@ -174,7 +174,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         allow_headers=["Accept", "Content-Type"],
     )
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
-    for module in (corpus, documents, chat, stream, api):
+    for module in (corpus, documents, chat, stream, api, config):
         app.include_router(module.router)
 
     @app.get("/live")
