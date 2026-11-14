@@ -371,7 +371,7 @@ def ingest_uploads(
         import_ok = True
     except Exception as error:  # la UI informa el fallo de la etapa
         logger.warning("upload.import_failed", error=str(error))
-        errors.append(f"No se pudo importar a PostgreSQL: {error}")
+        errors.append("No se pudo importar a PostgreSQL; revisa la conexión y los logs.")
 
     indexed = 0
     if import_ok:
@@ -379,7 +379,7 @@ def ingest_uploads(
             indexed = (indexar or _indexar_gold)(settings.gold_dir)
         except Exception as error:  # Ollama o Qdrant pueden no estar disponibles
             logger.warning("upload.index_failed", error=str(error))
-            errors.append(f"No se pudo indexar en Qdrant: {error}")
+            errors.append("No se pudo indexar en Qdrant; revisa Qdrant y Ollama.")
     else:
         errors.append("Se omitió la indexación porque PostgreSQL no recibió los documentos.")
 

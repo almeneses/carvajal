@@ -77,7 +77,7 @@ async def subir_documentos(
         logger.warning("config.ingest_failed", error=str(error))
         report = IngestReport(
             files=len(batch.documents),
-            errors=(*batch.errors, f"No se pudo procesar la carga: {error}"),
+            errors=(*batch.errors, "No se pudo procesar la carga; revisa los logs del servidor."),
         )
     else:
         if batch.errors:
