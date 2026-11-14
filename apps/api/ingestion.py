@@ -286,11 +286,14 @@ def ingest_uploads(
     settings: Settings | None = None,
     importar: Callable[[Path, set[str]], tuple[int, int]] | None = None,
     indexar: Callable[[Path, set[str]], int] | None = None,
+    on_event: Callable[[str, str, int, int], None] | None = None,
 ) -> IngestReport:
     """Ejecuta Bronze → Silver → Gold → PostgreSQL → Qdrant para las cargas.
 
     ``importar`` e ``indexar`` permiten inyectar las etapas finales en pruebas
-    sin tocar PostgreSQL ni Qdrant.
+    sin tocar PostgreSQL ni Qdrant. ``on_event`` recibe
+    ``(etapa, detalle, actual, total)`` para que el job de la interfaz muestre
+    el progreso sin bloquear la petición.
     """
 
     settings = settings or Settings()
@@ -299,11 +302,16 @@ def ingest_uploads(
     slugs: set[str] = set()
     captured_at = datetime.now(UTC)
 
+    def emit(stage: str, detail: str = "", current: int = 0, total: int = 0) -> None:
+        if on_event is not None:
+            on_event(stage, detail, current, total)
+
     if len(documents) > MAX_FILES:
         errors.append(f"Solo se procesan {MAX_FILES} archivos por carga.")
         documents = documents[:MAX_FILES]
 
     settings.gold_dir.mkdir(parents=True, exist_ok=True)
+    emit("Preparando", f"{len(documents)} archivo(s)", 0, len(documents))
     for document in documents:
         nombre = Path(document.filename or "").name
         if not nombre:
@@ -364,14 +372,17 @@ def ingest_uploads(
         bronze += 1
         silver += 1
         gold += 1
+        emit("Gold", nombre, archivos, len(documents))
         logger.info("upload.staged", document=slug, filename=nombre)
 
     if gold == 0:
+        emit("Sin cambios", "", 0, len(documents))
         return IngestReport(files=archivos, errors=tuple(errors))
 
     documents_count = 0
     chunks = 0
     import_ok = False
+    emit("PostgreSQL", "Importando documentos", len(documents), len(documents))
     try:
         documents_count, chunks = (importar or importar_gold)(settings.gold_dir, slugs)
         import_ok = True
@@ -381,6 +392,7 @@ def ingest_uploads(
 
     indexed = 0
     if import_ok:
+        emit("Qdrant", "Indexando fragmentos", len(documents), len(documents))
         try:
             indexed = (indexar or indexar_gold)(settings.gold_dir, slugs)
         except Exception as error:  # Ollama o Qdrant pueden no estar disponibles
@@ -389,6 +401,7 @@ def ingest_uploads(
     else:
         errors.append("Se omitió la indexación porque PostgreSQL no recibió los documentos.")
 
+    emit("Listo", "", len(documents), len(documents))
     return IngestReport(
         files=archivos,
         bronze=bronze,

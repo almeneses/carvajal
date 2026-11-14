@@ -312,7 +312,9 @@ o carpetas y para capturar páginas web por semillas o URLs: Bronze → Silver �
 Gold → PostgreSQL → Qdrant, reutilizando el pipeline del corpus y conservando
 los documentos ya indexados. La captura muestra el progreso por SSE, respeta
 `robots.txt` y valida las URLs contra un guard SSRF; en esta fase la carga y la
-captura son públicas y no exigen autenticación.
+captura son públicas y no exigen autenticación. La carga de archivos corre en un
+job en segundo plano: el botón se bloquea con un spinner, la página consulta su
+estado y la barra lateral mantiene la lista de cargas recientes.
 
 La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
 núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras

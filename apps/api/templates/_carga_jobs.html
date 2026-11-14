@@ -1,0 +1,51 @@
+{% if carga_jobs %}
+<ol class="carga-jobs-lista" aria-label="Cargas de archivos">
+  {% for job in carga_jobs %}
+  <li
+    class="carga-job{% if job.id == carga_nuevo_id %} carga-job-nueva{% endif %}"
+    data-estado="{{ job.status }}"
+    data-job-id="{{ job.id }}"
+  >
+    <div class="carga-job-cabecera">
+      <strong>{{ job.stage }}</strong>
+      <span class="etiqueta {{ job.status_class }}">{{ job.status_label }}</span>
+    </div>
+    <p class="carga-job-detalle">
+      {% if job.status == "done" %}
+      Carga terminada
+      {% elif job.status == "error" %}
+      No se pudo procesar
+      {% else %}
+      {{ job.detail or "Preparando…" }}
+      {% endif %}
+    </p>
+    <p class="carga-job-meta">
+      {{ job.total }} archivo(s)
+      {% if job.status == "done" and job.documents %}
+      · {{ job.documents }} documentos
+      {% endif %}
+      {% if job.status == "done" and job.indexed %}
+      · {{ job.indexed }} puntos
+      {% endif %}
+      {% if job.status in ("pending", "running") %}
+      · {{ job.percent }}%
+      {% endif %}
+    </p>
+    {% if job.status in ("pending", "running") %}
+    <div
+      class="barra-progreso barra-progreso-pequena"
+      role="progressbar"
+      aria-valuenow="{{ job.percent }}"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-label="Progreso de la carga {{ loop.index }}"
+    >
+      <span style="width: {{ job.percent }}%"></span>
+    </div>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="ayuda">Todavía no hay cargas en esta sesión.</p>
+{% endif %}

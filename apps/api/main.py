@@ -28,6 +28,7 @@ from apps.api.observability import (
 )
 from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
 from apps.api.security import SecurityMiddleware, verify_csrf
+from apps.api.upload_jobs import UploadJobs
 from apps.api.views import api, chat, config, corpus, documents, faq, stream
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage import tables
@@ -167,6 +168,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         rate_limit=settings.capture_requests_limit,
         window_seconds=settings.capture_window_seconds,
     )
+    # Carga de archivos: un registro por app para que las pruebas inyecten su runner.
+    app.state.uploads = UploadJobs()
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)

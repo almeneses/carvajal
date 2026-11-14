@@ -105,3 +105,25 @@ def test_ingest_uploads_rechaza_extensiones_no_admitidas(tmp_path: Path) -> None
     assert report.gold == 0
     assert any("formato no admitido" in error for error in report.errors)
     assert not settings.gold_dir.exists() or not list(settings.gold_dir.glob("*.md"))
+
+
+def test_ingest_uploads_emite_el_progreso_por_etapas(tmp_path: Path) -> None:
+    # Arrange
+    settings = _settings(tmp_path)
+    eventos: list[tuple[str, str, int, int]] = []
+    documento = UploadedDocument(filename="guia.md", data=b"# Guia\n\nContenido util.")
+
+    # Act
+    report = ingest_uploads(
+        [documento],
+        settings=settings,
+        importar=lambda gold_dir, only: (1, 2),
+        indexar=lambda gold_dir, only: 2,
+        on_event=lambda *args: eventos.append(args),
+    )
+
+    # Assert
+    assert report.gold == 1
+    assert any(stage == "PostgreSQL" for stage, *_ in eventos)
+    assert any(stage == "Qdrant" for stage, *_ in eventos)
+    assert eventos[-1][0] == "Listo"

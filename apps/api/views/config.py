@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import asdict, dataclass, field
 from typing import Annotated, Any
 
@@ -11,17 +10,11 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from apps.api.capture_jobs import CaptureBusy, CaptureJob, CaptureJobs, CaptureRateLimited
-from apps.api.ingestion import (
-    ALLOWED_EXTENSIONS,
-    MAX_FILE_BYTES,
-    MAX_FILES,
-    IngestReport,
-    UploadedDocument,
-    ingest_uploads,
-)
+from apps.api.ingestion import ALLOWED_EXTENSIONS, MAX_FILE_BYTES, MAX_FILES, UploadedDocument
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
 from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE
+from apps.api.upload_jobs import UploadBusy, UploadJob, UploadJobs
 from apps.api.urlguard import UrlRejected, validate_capture_url
 from apps.api.web_capture import SCOPES, CaptureRequest
 from carvajal.infrastructure.settings import Settings
@@ -58,45 +51,59 @@ async def subir_documentos(
     archivos: Annotated[list[UploadFile] | None, File()] = None,
     carpeta: Annotated[list[UploadFile] | None, File()] = None,
 ) -> Response:
-    """Procesa documentos sueltos o una carpeta y reconstruye el corpus."""
+    """Lee los archivos y lanza la ingesta en segundo plano."""
 
     if not verify_csrf(request, csrf_token):
         logger.warning("csrf.rejected", path=request.url.path)
-        return _page(
+        return _carga_response(
             request,
-            error=CSRF_INVALIDO,
+            carga_error=CSRF_INVALIDO,
             status_code=403,
+            oob=False,
         )
+
     batch = await _leer_archivos(*(archivos or []), *(carpeta or []))
     if not batch.documents:
         detalle = [SIN_ARCHIVOS, *batch.errors]
-        return _page(request, error=" ".join(detalle), status_code=422)
-
-    ingestor = getattr(request.app.state, "ingest", None)
-    try:
-        if ingestor is None:
-            report = await asyncio.to_thread(ingest_uploads, batch.documents)
-        else:
-            report = ingestor(batch.documents)
-    except Exception as error:  # el pipeline no debe tumbar la página
-        logger.warning("config.ingest_failed", error=str(error))
-        report = IngestReport(
-            files=len(batch.documents),
-            errors=(*batch.errors, "No se pudo procesar la carga; revisa los logs del servidor."),
+        return _carga_response(
+            request,
+            carga_error=" ".join(detalle),
+            status_code=422,
+            oob=False,
         )
-    else:
-        if batch.errors:
-            report = IngestReport(
-                files=report.files,
-                bronze=report.bronze,
-                silver=report.silver,
-                gold=report.gold,
-                documents=report.documents,
-                chunks=report.chunks,
-                indexed=report.indexed,
-                errors=(*batch.errors, *report.errors),
-            )
-    return _page(request, report=report)
+
+    try:
+        job = _uploads(request).start(batch.documents, notes=batch.errors)
+    except UploadBusy as error:
+        return _carga_response(
+            request,
+            carga_error=str(error),
+            status_code=409,
+            oob=False,
+        )
+    return _carga_response(request, job=job, nuevo_id=job.id)
+
+
+@router.get("/configuracion/carga/{job_id}", response_class=HTMLResponse)
+def estado_carga(request: Request, job_id: str) -> Response:
+    """Devuelve el estado de una carga para el polling de la interfaz."""
+
+    job = _uploads(request).get(job_id)
+    if job is None:
+        return JSONResponse({"error": "La carga no existe o expiró."}, status_code=404)
+    return _carga_response(request, job=job)
+
+
+@router.get("/configuracion/carga/{job_id}/estado")
+def estado_carga_json(request: Request, job_id: str) -> Response:
+    """Expone el mismo estado en JSON para pruebas y operación."""
+
+    job = _uploads(request).get(job_id)
+    if job is None:
+        return JSONResponse({"error": "La carga no existe o expiró."}, status_code=404)
+    data = job.snapshot()
+    data["report"] = asdict(job.report) if job.report is not None else None
+    return JSONResponse(data)
 
 
 @router.post("/configuracion/captura", response_class=HTMLResponse)
@@ -208,13 +215,24 @@ async def _leer_archivos(*subidas: UploadFile) -> _UploadBatch:
 
 
 def _captures(request: Request) -> CaptureJobs:
-    """Registro de jobs de la app; se crea si una prueba no lo inyectó."""
+    """Registro de capturas de la app; se crea si una prueba no lo inyectó."""
 
     registry = getattr(request.app.state, "captures", None)
     if isinstance(registry, CaptureJobs):
         return registry
     registry = CaptureJobs()
     request.app.state.captures = registry
+    return registry
+
+
+def _uploads(request: Request) -> UploadJobs:
+    """Registro de cargas de la app; se crea si una prueba no lo inyectó."""
+
+    registry = getattr(request.app.state, "uploads", None)
+    if isinstance(registry, UploadJobs):
+        return registry
+    registry = UploadJobs()
+    request.app.state.uploads = registry
     return registry
 
 
@@ -336,15 +354,49 @@ def _job_view(job: CaptureJob | None) -> dict[str, Any] | None:
     }
 
 
+def _carga_context(
+    job: UploadJob | None,
+    *,
+    carga_error: str | None = None,
+    nuevo_id: str = "",
+    oob: bool = False,
+) -> dict[str, Any]:
+    """Contexto del panel de carga y de la lista lateral de jobs."""
+
+    report = job.report if job is not None else None
+    notes = list(job.notes) if job is not None else []
+    issues = [*(report.errors if report is not None else []), *notes]
+    ok = bool(report is not None and report.ok and not notes)
+    if job is None:
+        estado = "error" if carga_error else "idle"
+        cargando = False
+    else:
+        estado = "running" if job.status in {"pending", "running"} else job.status
+        cargando = job.status in {"pending", "running"}
+    return {
+        "report": report,
+        "carga_job": job.snapshot() if job is not None else None,
+        "carga_error": carga_error,
+        "carga_estado": estado,
+        "cargando": cargando,
+        "carga_issues": issues,
+        "carga_ok": ok,
+        "carga_nuevo_id": nuevo_id,
+        "carga_oob": oob,
+    }
+
+
 def _page(
     request: Request,
     *,
-    report: IngestReport | None = None,
     error: str | None = None,
+    carga_error: str | None = None,
     status_code: int = 200,
     job: CaptureJob | None = None,
+    carga_job: UploadJob | None = None,
     form: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
+    nuevo_id: str = "",
 ) -> Response:
     """Renderiza la configuración con formatos admitidos y resultado."""
 
@@ -354,17 +406,86 @@ def _page(
         request,
         "configuracion.html",
         {
-            "report": report,
             "error": error,
             "partial": False,
             "job": _job_view(job),
+            "carga_jobs": _uploads(request).recent(),
             "MAX_FILES": MAX_FILES,
             "MAX_FILE_MB": MAX_FILE_BYTES // 1024 // 1024,
             "formatos": sorted(ALLOWED_EXTENSIONS),
+            **_carga_context(
+                carga_job,
+                carga_error=carga_error,
+                nuevo_id=nuevo_id,
+                oob=False,
+            ),
             **_capture_context(form=form),
         },
         status_code=status_code,
         headers=merged,
+    )
+
+
+def _carga_partial(
+    request: Request,
+    *,
+    job: UploadJob | None = None,
+    carga_error: str | None = None,
+    nuevo_id: str = "",
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+    oob: bool = True,
+) -> Response:
+    """Parcial del panel de carga para HTMX."""
+
+    merged = {"X-Carvajal-Error": "1"} if carga_error is not None else {}
+    merged.update(headers or {})
+    return templates.TemplateResponse(
+        request,
+        "_carga_estado.html",
+        {
+            "carga_jobs": _uploads(request).recent(),
+            **_carga_context(
+                job,
+                carga_error=carga_error,
+                nuevo_id=nuevo_id,
+                oob=oob,
+            ),
+        },
+        status_code=status_code,
+        headers=merged,
+    )
+
+
+def _carga_response(
+    request: Request,
+    *,
+    job: UploadJob | None = None,
+    carga_error: str | None = None,
+    nuevo_id: str = "",
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+    oob: bool = True,
+) -> Response:
+    """Responde el parcial para HTMX o la página completa sin JavaScript."""
+
+    if request.headers.get("HX-Request", "").lower() == "true":
+        return _carga_partial(
+            request,
+            job=job,
+            carga_error=carga_error,
+            nuevo_id=nuevo_id,
+            status_code=status_code,
+            headers=headers,
+            oob=oob,
+        )
+    return _page(
+        request,
+        carga_error=carga_error,
+        carga_job=job,
+        nuevo_id=nuevo_id,
+        status_code=status_code,
+        headers=headers,
     )
 
 

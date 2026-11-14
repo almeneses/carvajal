@@ -6,7 +6,6 @@ from collections.abc import Callable
 from fastapi.testclient import TestClient
 
 from apps.api.capture_jobs import CaptureJobs
-from apps.api.ingestion import IngestReport
 from apps.api.main import create_app
 from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from apps.api.web_capture import CaptureOutcome, CaptureRequest
@@ -39,7 +38,6 @@ def _client(
         rate_limit=rate_limit,
         window_seconds=window_seconds,
     )
-    app.state.ingest = lambda documents: IngestReport(files=len(documents))
     return TestClient(app)
 
 
