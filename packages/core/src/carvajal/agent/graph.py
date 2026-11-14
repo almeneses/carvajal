@@ -266,7 +266,7 @@ def build_agent(
         else:
             instructions = (
                 "La herramienta no encontró el registro. Declara la ausencia sin "
-                f"estimar ni interpolar valores. Mensaje: {result['message']}"
+f"estimar ni interpolar valores. Mensaje: {result.get('message', 'No hay registro para esa consulta.')}"
             )
             sources = []
         return {
