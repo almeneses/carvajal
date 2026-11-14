@@ -25,6 +25,7 @@ from apps.api.chat.service import SERVICE_UNAVAILABLE
 from apps.api.observability import capture_exception
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
+from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE, encode
 from apps.api.views.chat import (
     CSRF_INVALIDO,
     consume_quota,
@@ -53,11 +54,6 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api")
 page_router = APIRouter()
 
-SSE_MEDIA_TYPE = "text/event-stream"
-SSE_HEADERS = {
-    "Cache-Control": "no-cache",
-    "X-Accel-Buffering": "no",
-}
 MAX_EXCLUDE = 100
 MAX_EXCLUDE_CHARS = 200
 MAX_EXCLUDE_TOTAL_CHARS = 50_000
@@ -218,35 +214,35 @@ def _sse(
 
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
     buffer: list[str] = []
-    yield _encode("open", {"stream": "faq"})
+    yield encode("open", {"stream": "faq"})
     try:
         for chunk in service.stream(prepared):
             if not chunk:
                 continue
             buffer.append(chunk)
-            yield _encode("token", {"text": chunk})
+            yield encode("token", {"text": chunk})
         batch = service.finish(prepared, "".join(buffer), previous)
     except LLMError as error:
         logger.warning("faq.llm_failed", error=str(error))
         capture_exception(error)
-        yield _encode(
+        yield encode(
             "error",
             {"message": SERVICE_UNAVAILABLE, "incomplete": bool(buffer)},
         )
         return
     except FAQError as error:
-        yield _encode("error", {"message": str(error), "incomplete": False})
+        yield encode("error", {"message": str(error), "incomplete": False})
         return
     except Exception as error:
         logger.warning("faq.stream_failed", error=str(error))
         capture_exception(error)
-        yield _encode(
+        yield encode(
             "error",
             {"message": SERVICE_UNAVAILABLE, "incomplete": bool(buffer)},
         )
         return
 
-    yield _encode("done", _payload(batch))
+    yield encode("done", _payload(batch))
 
 
 def _payload(batch: FaqBatch) -> dict[str, object]:
@@ -261,13 +257,6 @@ def _payload(batch: FaqBatch) -> dict[str, object]:
     }
 
 
-def _encode(name: str, data: dict[str, object]) -> str:
-    """Serializa un evento con el mismo formato de cable que el chat."""
-
-    payload = json.dumps(data, ensure_ascii=False)
-    return f"event: {name}\ndata: {payload}\n\n"
-
-
 def _invalid(
     message: str,
     *,
@@ -277,7 +266,7 @@ def _invalid(
     """Respuesta SSE controlada para CSRF, cupo o corpus no disponible."""
 
     return Response(
-        content=_encode("error", {"message": message, "incomplete": False}),
+        content=encode("error", {"message": message, "incomplete": False}),
         status_code=status_code,
         media_type=SSE_MEDIA_TYPE,
         headers={"X-Carvajal-Error": "1", **SSE_HEADERS, **(headers or {})},
