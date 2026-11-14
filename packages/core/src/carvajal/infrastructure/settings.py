@@ -112,11 +112,6 @@ class Settings(BaseSettings):
     # que las cookies sobrevivan reinicios y compartan valor entre workers.
     session_secret: str = ""
 
-    # Token de administración para la carga de documentos. Si está vacío, la
-    # pestaña Configuración solo acepta peticiones desde loopback (desarrollo).
-    # En producción fíjalo para habilitar la carga desde el navegador.
-    config_token: str = ""
-
     # Captura web desde la pestaña Configuración. El máximo de URLs por
     # ejecución sigue al de la primera versión (todas las semillas
     # configuradas) y el valor inicial es de cinco. La captura es pública en

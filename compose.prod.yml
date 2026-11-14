@@ -85,9 +85,6 @@ services:
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
-      # Obligatorio para habilitar la carga desde fuera del contenedor. Sin él,
-      # la pestaña Configuración solo acepta loopback.
-      CONFIG_TOKEN: ${CONFIG_TOKEN:-}
       # Captura web pública desde Configuración. El máximo por ejecución lo
       # deriva Settings de las semillas (24 por defecto); aquí solo se ajustan
       # el valor inicial, el tamaño y el timeout.

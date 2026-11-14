@@ -31,6 +31,7 @@ def test_configuracion_muestra_el_formulario_y_las_etapas() -> None:
     assert "Configuración" in response.text
     assert 'href="/configuracion"' in response.text
     assert response.text.count('aria-current="page"') == 1
+    assert 'name="token_admin"' not in response.text
 
 
 def test_subir_documento_pasa_los_archivos_al_ingestor() -> None:
@@ -99,35 +100,29 @@ def test_subir_sin_csrf_devuelve_403() -> None:
     assert "La sesión del formulario expiró" in response.text
 
 
-def test_configuracion_exige_token_cuando_esta_configurado(monkeypatch) -> None:
+def test_subir_desde_una_ip_remota_no_exige_token() -> None:
     # Arrange
-    monkeypatch.setenv("CONFIG_TOKEN", "secreto-de-carga")
     app = create_app()
-    app.state.ingest = lambda documents: IngestReport(files=len(documents))
-    client = TestClient(app)
+    app.state.ingest = lambda documents: IngestReport(
+        files=len(documents),
+        bronze=1,
+        silver=1,
+        gold=1,
+        documents=1,
+        chunks=1,
+        indexed=1,
+    )
+    client = TestClient(app, client=("203.0.113.10", 12345))
     client.get("/configuracion")
     token = client.cookies[CSRF_COOKIE]
-    archivo = ("nota.md", b"# Nota\n\nTexto.", "text/markdown")
 
-    # Act: sin token y con token incorrecto no se procesa.
-    sin_token = client.post(
+    # Act
+    response = client.post(
         "/configuracion",
         data={CSRF_FIELD: token},
-        files={"archivos": archivo},
-    )
-    incorrecto = client.post(
-        "/configuracion",
-        data={CSRF_FIELD: token, "token_admin": "otro"},
-        files={"archivos": archivo},
-    )
-    correcto = client.post(
-        "/configuracion",
-        data={CSRF_FIELD: token, "token_admin": "secreto-de-carga"},
-        files={"archivos": archivo},
+        files={"archivos": ("nota.md", b"# Nota\n\nTexto.", "text/markdown")},
     )
 
     # Assert
-    assert sin_token.status_code == 403
-    assert incorrecto.status_code == 403
-    assert "no está autorizada" in sin_token.text
-    assert correcto.status_code == 200
+    assert response.status_code == 200
+    assert "Corpus actualizado" in response.text
