@@ -1,17 +1,20 @@
-# App web + Postgres 16 + Qdrant + Ollama + Caddy para una sola máquina.
+# App web + Postgres 16 + Qdrant + Ollama para una sola máquina (demo por IP).
 #
-#   cp .env.example .env   # edita DOMAIN, SESSION_SECRET, POSTGRES_PASSWORD...
-#   docker compose -f compose.prod.yml up -d --build
+#   cp .env.example .env   # edita SESSION_SECRET, POSTGRES_PASSWORD...
+#   APP_PORT=8080 docker compose -f compose.prod.yml up -d --build
 #   docker compose -f compose.prod.yml run --rm app alembic upgrade head
 #   docker compose -f compose.prod.yml logs -f app
 #
 # Compose falla si falta SESSION_SECRET: una clave HMAC conocida permitiría
 # falsificar la cookie del visitante. En producción no se construye la imagen
 # en el VPS: `scripts/deploy.sh` la descarga de GHCR con un tag inmutable.
-# Caddy termina TLS en 80/443; la app solo escucha en loopback.
 #
-# El runbook completo (VPS, DNS, secretos, primer despliegue y rollback) está
-# en `docs/despliegue-ovh.md`.
+# Este compose no incluye proxy TLS: publica la app en 0.0.0.0:APP_PORT
+# (8080 por defecto) para una demo por IP. Si más adelante pones un dominio,
+# añade nginx/Caddy delante y publica la app solo en 127.0.0.1.
+#
+# El runbook completo (VPS, secretos, primer despliegue y rollback) está en
+# `docs/despliegue-ovh.md`.
 
 name: carvajal-prod
 
@@ -92,17 +95,14 @@ services:
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-produccion}
       # Muestreo de trazas de Sentry entre 0 y 1; por defecto apagado.
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
-      # Caddy termina TLS y reenvía X-Forwarded-Proto. La app no está expuesta
-      # fuera de la red de compose (solo loopback para los healthchecks), así
-      # que solo se confía en las subredes privadas que usa Docker. Un proceso
-      # local que entre por 127.0.0.1 no puede falsificar las cabeceras.
-      # 172.16.0.0/12 cubre la red por defecto de Compose; si defines una red
-      # propia en 10.x o 192.168.x, ajusta FORWARDED_ALLOW_IPS en el .env.
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
+      # Sin proxy delante, uvicorn no debe confiar en X-Forwarded-* de los
+      # clientes. Si añades nginx/Caddy en el host o en un contenedor, ajusta
+      # esta variable a su IP o subred.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
-      # Solo loopback: Caddy es el que expone 80/443 y llega a `app:8000`
-      # por la red interna de Compose.
-      - "127.0.0.1:${APP_PORT:-8000}:8000"
+      # Demo por IP: la app se publica directamente en 0.0.0.0:APP_PORT.
+      # Para TLS con dominio, publica solo en 127.0.0.1 y pon el proxy delante.
+      - "0.0.0.0:${APP_PORT:-8080}:8000"
     # La app solo lee código, plantillas y estáticos: no necesita escribir en
     # el sistema de archivos ni privilegios adicionales.
     read_only: true
@@ -149,57 +149,7 @@ services:
       retries: 5
       start_period: 90s
 
-  caddy:
-    # TLS automático con Let's Encrypt. Necesita DOMAIN en el .env y los
-    # puertos 80/443 abiertos; el certificado se guarda en caddydata.
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      # No se espera a `service_healthy` de la app: en el primer despliegue el
-      # índice de Qdrant aún no existe y `/health` devuelve 503. El deploy.sh
-      # comprueba readiness por separado.
-      app:
-        condition: service_started
-      db:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-    environment:
-      DOMAIN: ${DOMAIN:?Define DOMAIN en el .env del servidor}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      # Long syntax: si Caddyfile no existe, Compose falla con un error claro
-      # en lugar de crear un directorio vacío en esa ruta.
-      - type: bind
-        source: ./Caddyfile
-        target: /etc/caddy/Caddyfile
-        read_only: true
-        bind:
-          create_host_path: false
-      - caddydata:/data
-      - caddyconfig:/config
-    # Caddy escucha en 80/443 como root dentro del contenedor. Se le quitan
-    # todos los privilegios salvo el de enlazar puertos bajos y se monta el
-    # sistema de archivos de solo lectura: /data, /config y /tmp son volátiles.
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 256m
-    pids_limit: 128
-    stop_grace_period: 10s
-
 volumes:
   pgdata:
   qdrantdata:
   ollamadata:
-  caddydata:
-  caddyconfig:

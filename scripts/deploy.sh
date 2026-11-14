@@ -15,15 +15,15 @@ IMAGE_REPO="${IMAGE_REPO:-ghcr.io/almeneses/carvajal-api}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
-for required in .env compose.prod.yml Caddyfile; do
+for required in .env compose.prod.yml; do
   if [[ ! -f "$required" ]]; then
-    echo "==> Falta ${DIR}/${required}. El workflow copia compose.prod.yml y" >&2
-    echo "    Caddyfile; .env se prepara a mano antes del primer despliegue." >&2
+    echo "==> Falta ${DIR}/${required}. El workflow copia compose.prod.yml;" >&2
+    echo "    .env se prepara a mano antes del primer despliegue." >&2
     exit 1
   fi
 done
 
-for key in DOMAIN SESSION_SECRET; do
+for key in SESSION_SECRET; do
   if ! grep -Eq "^${key}=.+" .env; then
     echo "==> Falta ${key} en ${DIR}/.env (ver docs/despliegue-ovh.md)." >&2
     exit 1
@@ -107,7 +107,7 @@ rollback() {
   if [[ -n "$PREV_TAG" ]]; then
     export APP_IMAGE="${IMAGE_REPO}:${PREV_TAG}"
     remember_image "$PREV_TAG"
-    # Se recrea el stack completo: si el fallo vino de caddy u otro servicio,
+    # Se recrea el stack completo: si el fallo vino de otro servicio,
     # relanzar solo `app` dejaría el resto en el estado roto.
     if ! "${COMPOSE[@]}" up -d --no-build --remove-orphans; then
       echo "==> El rollback no pudo recrear el stack; revisa los logs." >&2

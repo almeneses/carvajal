@@ -116,7 +116,7 @@ make index     # indexa data/gold en Qdrant (M2)
 make web       # frontend propio del M2 en :8001
 make api       # API del M2 en :8000
 make image     # construye la imagen Docker de la app web
-make prod-up   # levanta app, Postgres, Qdrant, Ollama y Caddy (SESSION_SECRET y DOMAIN)
+make prod-up   # levanta app, Postgres, Qdrant y Ollama en APP_PORT (SESSION_SECRET)
 make prod-down # detiene los servicios (conserva los volúmenes)
 ```
 

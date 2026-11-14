@@ -214,8 +214,7 @@ carvajal/
 ├── Makefile                 # automatización de tareas
 ├── Dockerfile               # imagen multi-etapa de la app web (extras fuera)
 ├── compose.yml              # Postgres 16 + pgvector para desarrollo local
-├── compose.prod.yml         # app + Postgres + Qdrant + Ollama + Caddy (una máquina)
-├── Caddyfile                # TLS automático y proxy inverso a la app
+├── compose.prod.yml         # app + Postgres + Qdrant + Ollama (demo por IP)
 ├── scripts/deploy.sh        # despliegue/rollback que invoca GitHub Actions
 ├── .dockerignore            # contexto mínimo de la imagen
 ├── pyproject.toml           # metadatos y dependencias (uv)
@@ -268,21 +267,21 @@ carvajal/
 - `make image` construye la imagen multi-etapa (`Dockerfile`) solo con las
   dependencias base; `capture` (CLI) y `legacy` (Streamlit/FAISS) son extras y
   se instalan en desarrollo con `uv sync --all-extras`.
-- `make prod-up` levanta app, Postgres, Qdrant, Ollama y Caddy con
+- `make prod-up` levanta app, Postgres, Qdrant y Ollama con
   `compose.prod.yml`; `make prod-down` los detiene conservando los volúmenes.
-  El compose exige `SESSION_SECRET` y `DOMAIN` (falla si faltan) y corre la app
-  sin privilegios y con el sistema de archivos de solo lectura.
+  El compose exige `SESSION_SECRET` (falla si falta), publica la app en
+  `0.0.0.0:APP_PORT` (8080 por defecto) y corre sin privilegios y con el
+  sistema de archivos de solo lectura.
 - El despliegue de producción es automático: al fusionar el PR de release en
   `main`, CI debe terminar en verde; `.github/workflows/deploy.yml` publica la
   imagen en GHCR con un tag `sha-<commit>` y `scripts/deploy.sh` la descarga en
   el VPS, aplica migraciones, recrea los contenedores y comprueba `/live` y
-  `/health`. Si falla, vuelve al tag anterior. El runbook completo —VPS, DNS,
+  `/health`. Si falla, vuelve al tag anterior. El runbook completo —VPS,
   secretos, primer despliegue, respaldos y rollback— está en
   [`docs/despliegue-ovh.md`](docs/despliegue-ovh.md).
-- Caddy termina TLS (Let's Encrypt) en 80/443 y reenvía a la app por la red de
-  Compose; la app solo se publica en `127.0.0.1:8000` para los healthchecks.
-  `FORWARDED_ALLOW_IPS` se limita a las subredes privadas de Docker
-  (`172.16.0.0/12`), así que un proceso local no puede falsificar cabeceras.
+- La demo se publica por IP y HTTP en `APP_PORT` (8080), sin dominio ni TLS.
+  Para un dominio, se pone nginx/Caddy delante, se publica la app solo en
+  `127.0.0.1:8000` y se ajusta `FORWARDED_ALLOW_IPS` a la IP del proxy.
 - Los embeddings se calculan con Ollama (`nomic-embed-text`), configurable con
   `OLLAMA_BASE_URL`; el LLM puede ser DeepSeek. El servicio `ollama` de
   `compose.prod.yml` cubre el caso por defecto.
