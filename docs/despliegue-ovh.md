@@ -32,7 +32,11 @@ más.
 # En el VPS, como root
 adduser deploy
 usermod -aG sudo deploy
-rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy/
+# Copia solo las claves públicas, nunca las privadas de root.
+install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+if [[ -f /root/.ssh/authorized_keys ]]; then
+  install -m 600 -o deploy -g deploy /root/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys
+fi
 ```
 
 ```bash
