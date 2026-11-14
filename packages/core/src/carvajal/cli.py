@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -180,6 +181,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--batch-size", type=int, default=32, help="Fragmentos por lote de embeddings."
     )
 
+    stats_parser = subparsers.add_parser(
+        "qdrant-stats",
+        help="Muestra el estado y las métricas de la colección en Qdrant.",
+    )
+    stats_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Imprime el estado completo como JSON.",
+    )
+
     subparsers.add_parser(
         "status",
         help="Muestra el estado del corpus (semillas y entregables Gold).",
@@ -308,6 +319,40 @@ def main(argv: list[str] | None = None) -> int:
         if report.removed:
             print(f"Documentos podados: {report.removed}")
         return 0
+
+    if args.command == "qdrant-stats":
+        from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
+        from carvajal.infrastructure.settings import Settings
+
+        settings = Settings()
+        store = QdrantVectorStore(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+            collection=settings.qdrant_collection,
+            dimensions=settings.qdrant_dimensions,
+            distance=settings.qdrant_distance,
+        )
+        try:
+            info = store.info()
+        finally:
+            store.close()
+        payload = {"url": settings.qdrant_url, **info}
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"Qdrant: {settings.qdrant_url}")
+            print(f"Colección: {info.get('collection')}")
+            print(f"Estado: {info.get('status')}")
+            if info.get("status") in {"ok", "green", "yellow"}:
+                print(f"Optimizador: {info.get('optimizer_status')}")
+                print(f"Puntos: {info.get('points')}")
+                print(f"Vectores indexados: {info.get('indexed_vectors')}")
+                print(f"Segmentos: {info.get('segments')}")
+                print(f"Dimensión: {info.get('dimensions')}")
+                print(f"Distancia: {info.get('distance')}")
+            else:
+                print(f"Detalle: {info.get('detail', 'colección ausente')}")
+        return 0 if info.get("status") in {"ok", "green", "yellow"} else 1
 
     if args.command == "index-qdrant":
         from carvajal.adapters.embeddings import EmbeddingError, OllamaEmbedder

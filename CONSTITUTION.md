@@ -148,7 +148,7 @@ carvajal/
 │   │   ├── static/            # CSS y JS del chat
 │   │   └── templates/         # Jinja2: base, chat, pantallas y parciales
 │   └── web/                   # frontend propio del M2 (:8001): shell SPA con
-│                              # pestañas FAQ · Corpus · Documento, sin RAG
+│                              # pestañas FAQ · Corpus · Métricas · Documento, sin RAG
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
@@ -402,6 +402,7 @@ git push
 | 2026-11-14 | Carga de documentos pública en Configuración: se elimina `CONFIG_TOKEN` y el gate de loopback | La pestaña queda abierta a cualquier visitante, igual que la captura web; se conservan el CSRF, los límites de 100 archivos/5 MB y el pipeline Bronze → Silver → Gold → PostgreSQL → Qdrant. El riesgo de abuso se acepta por decisión del owner |
 | 2026-11-14 | FAQ en la SPA y el shell HTMX (`/faq`): lotes de hasta 10 preguntas, botón «Generar otras 10» y descarga Markdown | El caso de uso lee los documentos `core` de Postgres, excluye las preguntas ya mostradas y no persiste: el estado acumulado vive en la pestaña. Comparte CSRF y cuota diaria con el chat, genera por SSE sobre el corpus completo y advierte si el bloque se truncó por longitud; con Ollama se fija `num_ctx` (32 768) para que el prompt no se recorte en el servidor |
 | 2026-11-14 | Se oculta la pestaña Asistente en el shell HTMX y en la SPA; `/` redirige a `/chat` en `apps/api` y a `/corpus` en `apps/web` | El chat concentra la entrada al asistente y la portada heredada deja de competir en la navegación. La ruta `/ask` y la vista `#vista-asistente` se conservan por compatibilidad, pero no se enlazan; la marca lleva al chat en el shell y al corpus en la SPA |
+| 2026-11-14 | Pestaña Métricas (`/metricas`) en la SPA, `GET /api/metricas` y `make qdrant-stats` | El estado operativo de Qdrant (puntos, vectores indexados, segmentos, dimensión y distancia) y los conteos de Postgres dejan de exigir `curl` o el dashboard nativo; el resumen de retrieval se lee de `data/eval/retrieval-summary.json`, que versiona `scripts/eval_retrieval.py` y se copia a la imagen, sin arrastrar los diez resultados por consulta |
 
 ## 10. Notas y tareas pendientes
 

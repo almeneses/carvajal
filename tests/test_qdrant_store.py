@@ -49,11 +49,16 @@ class FakeClient:
 
     def get_collection(self, name: str) -> Any:
         return SimpleNamespace(
+            status=models.CollectionStatus.GREEN,
+            optimizer_status=models.OptimizersStatusOneOf.OK,
+            points_count=len(self.points),
+            indexed_vectors_count=0,
+            segments_count=2,
             config=SimpleNamespace(
                 params=SimpleNamespace(
                     vectors=models.VectorParams(size=self.size, distance=models.Distance.COSINE)
                 )
-            )
+            ),
         )
 
     def upsert(self, collection_name: str, points: list[Any], wait: bool) -> None:
@@ -181,6 +186,48 @@ def test_health_no_lanza_si_qdrant_no_responde() -> None:
     # Assert
     assert health["status"] == "unavailable"
     assert health["detail"] == "ConnectionError"
+
+
+def test_info_resume_la_coleccion_para_metricas() -> None:
+    # Arrange
+    store = QdrantVectorStore(cast(Any, FakeClient()))
+
+    # Act
+    info = store.info()
+
+    # Assert
+    assert info["status"] == "green"
+    assert info["optimizer_status"] == "ok"
+    assert info["collection"] == "carvajal_chunks"
+    assert info["points"] == 0
+    assert info["segments"] == 2
+    assert info["dimensions"] == 768
+    assert info["distance"] == "Cosine"
+
+
+def test_info_reporta_coleccion_ausente() -> None:
+    # Arrange
+    store = QdrantVectorStore(cast(Any, FakeClient(exists=False)))
+
+    # Act
+    info = store.info()
+
+    # Assert
+    assert info == {"status": "missing", "collection": "carvajal_chunks", "points": 0}
+
+
+def test_info_no_lanza_si_qdrant_no_responde() -> None:
+    # Arrange
+    client = FakeClient()
+    client.fail = True
+    store = QdrantVectorStore(cast(Any, client))
+
+    # Act
+    info = store.info()
+
+    # Assert
+    assert info["status"] == "unavailable"
+    assert info["detail"] == "ConnectionError"
 
 
 def test_la_busqueda_hibrida_prioriza_la_ficha_relevante(monkeypatch: pytest.MonkeyPatch) -> None:

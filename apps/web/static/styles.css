@@ -944,6 +944,69 @@ h1:focus-visible,
   white-space: pre-wrap;
 }
 
+/* Métricas: estado del índice, del corpus y del último retrieval. */
+.metricas-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.metricas-nota {
+  margin: 0;
+  color: var(--secundario);
+  font-size: 0.85rem;
+}
+
+.metricas-rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.metrica-tarjeta {
+  padding: 24px;
+}
+
+.metrica-tarjeta h2 {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+}
+
+.metrica-lista {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.metrica-fila {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.metrica-fila:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.metrica-fila dt {
+  color: var(--secundario);
+  font-size: 0.9rem;
+}
+
+.metrica-fila dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .faq-acciones .boton {
     width: 100%;

@@ -1,6 +1,6 @@
 # Evaluación de retrieval — Qdrant
 
-> Generado: 2026-11-13T22:45:29.008844+00:00 · colección `carvajal_chunks` · k=10 · puntos=125
+> Generado: 2026-11-14T13:38:31.507423+00:00 · colección `carvajal_chunks` · k=10 · puntos=125
 
 Etiquetas manuales a nivel de documento. La relevancia se marca sobre `data/gold`; no depende del LLM.
 

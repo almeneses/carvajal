@@ -62,6 +62,8 @@ COPY migrations ./migrations
 COPY apps ./apps
 # Extracto versionado de indicadores que `indicator_lookup` lee en runtime.
 COPY data/indicators.json ./data/indicators.json
+# Resumen versionado de la evaluación de retrieval que pinta la pestaña Métricas.
+COPY data/eval ./data/eval
 # Volumen persistente para Bronze, Silver, Gold e índice de cargas. El dueño
 # debe ser el usuario sin privilegios para poder escribir con read_only: true.
 RUN mkdir -p /app/data && chown -R app:app /app/data

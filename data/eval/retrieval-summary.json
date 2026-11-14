@@ -1,0 +1,10 @@
+{
+  "generated_at": "2026-11-14T13:38:31.507423+00:00",
+  "collection": "carvajal_chunks",
+  "k": 10,
+  "queries": 31,
+  "labeled_queries": 30,
+  "recall_at_k": 0.8,
+  "ndcg_at_k": 0.7791,
+  "abstentions": 1
+}

@@ -93,6 +93,13 @@ def corpus() -> FileResponse:
     return _pagina()
 
 
+@app.get("/metricas")
+def metricas() -> FileResponse:
+    """Vista del estado del índice y de la evaluación de retrieval."""
+
+    return _pagina()
+
+
 @app.get("/documents")
 def documents() -> FileResponse:
     """Vista de documento sin selección (estado vacío) dentro del shell SPA."""

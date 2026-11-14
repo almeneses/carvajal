@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="/static/lectura.css" />
     <script src="/config.js" defer></script>
     <script src="/static/lectura.js" defer></script>
+    <script src="/static/metricas.js" defer></script>
     <script src="/static/app.js" defer></script>
     <script src="/static/faq.js" defer></script>
   </head>
@@ -29,6 +30,9 @@
         <nav class="pestanas" aria-label="Pantallas de la aplicación">
           <a id="nav-faq" class="pestana" href="/faq" data-vista="faq">FAQ</a>
           <a id="nav-corpus" class="pestana" href="/corpus" data-vista="corpus">Corpus</a>
+          <a id="nav-metricas" class="pestana" href="/metricas" data-vista="metricas">
+            Métricas
+          </a>
           <a id="nav-documento" class="pestana" href="/documents" data-vista="documento">
             Documento
           </a>
@@ -222,6 +226,44 @@
           class="paginacion"
           aria-label="Paginación del corpus"
         ></nav>
+      </section>
+
+      <section id="vista-metricas" data-vista="metricas" hidden aria-labelledby="titulo-metricas">
+        <header class="cabecera-vista">
+          <p class="sobrelinea">Métricas · Índice y retrieval</p>
+          <h1 id="titulo-metricas" tabindex="-1">Estado del índice y del retrieval</h1>
+          <p class="bajada">
+            Estado en vivo de Qdrant y del corpus en Postgres, más el último resultado
+            reproducible de la evaluación (Recall@k y nDCG@k).
+          </p>
+        </header>
+
+        <div class="metricas-acciones">
+          <button id="metricas-actualizar" type="button" class="boton boton-secundario">
+            Actualizar
+          </button>
+          <p class="metricas-nota">
+            La evaluación se regenera con <code>make index-eval</code> y queda en
+            <code>docs/eval/retrieval-report.md</code>.
+          </p>
+        </div>
+
+        <p id="metricas-estado" class="estado" role="status" aria-live="polite"></p>
+
+        <div class="metricas-rejilla">
+          <article class="panel metrica-tarjeta" aria-labelledby="metricas-indice">
+            <h2 id="metricas-indice">Índice Qdrant</h2>
+            <dl id="metricas-indice-lista" class="metrica-lista"></dl>
+          </article>
+          <article class="panel metrica-tarjeta" aria-labelledby="metricas-corpus">
+            <h2 id="metricas-corpus">Corpus</h2>
+            <dl id="metricas-corpus-lista" class="metrica-lista"></dl>
+          </article>
+          <article class="panel metrica-tarjeta" aria-labelledby="metricas-retrieval">
+            <h2 id="metricas-retrieval">Evaluación de retrieval</h2>
+            <dl id="metricas-retrieval-lista" class="metrica-lista"></dl>
+          </article>
+        </div>
       </section>
 
       <section

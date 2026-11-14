@@ -8,7 +8,7 @@ from apps.web.main import API_BASE, app
 
 cliente = TestClient(app)
 
-RUTAS_SPA = ("/", "/faq", "/corpus", "/documents", "/documents/abc")
+RUTAS_SPA = ("/", "/faq", "/corpus", "/metricas", "/documents", "/documents/abc")
 
 
 def test_rutas_spa_devuelven_el_mismo_html() -> None:
@@ -54,6 +54,7 @@ def test_index_carga_scripts_y_hojas_en_orden() -> None:
     assert [encontrado.group(1) for encontrado in fuentes if encontrado] == [
         "/config.js",
         "/static/lectura.js",
+        "/static/metricas.js",
         "/static/app.js",
         "/static/faq.js",
     ]
@@ -130,8 +131,8 @@ def test_la_navegacion_no_muestra_la_pestana_asistente() -> None:
     # Act
     enlaces = re.findall(r'<a id="nav-[^"]+"[^>]*href="([^"]+)"', html)
 
-    # Assert: quedan FAQ, Corpus y Documento; la marca lleva al corpus.
-    assert enlaces == ["/faq", "/corpus", "/documents"]
+    # Assert: quedan FAQ, Corpus, Métricas y Documento; la marca lleva al corpus.
+    assert enlaces == ["/faq", "/corpus", "/metricas", "/documents"]
     assert 'class="marca" href="/corpus"' in html
     assert "Asistente</a>" not in html
 
