@@ -59,7 +59,9 @@ echo "==> Imagen: ${APP_IMAGE}"
 "${COMPOSE[@]}" pull app
 
 echo "==> Migraciones"
-"${COMPOSE[@]}" run --rm --no-build app alembic upgrade head
+if ! "${COMPOSE[@]}" run --rm --no-build app alembic upgrade head; then
+  rollback
+fi
 
 echo "==> Recreando contenedores"
 if ! "${COMPOSE[@]}" up -d --no-build --remove-orphans; then

@@ -67,14 +67,18 @@ jobs:
 
       - name: Preparar SSH
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
           install -m 700 -d ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          if [[ -z "$VPS_HOST_KEY" ]]; then
+            echo "::error::Define VPS_HOST_KEY con la línea de ssh-keyscan del VPS."
+            exit 1
+          fi
+          printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Copiar configuración al VPS
         env:
@@ -82,9 +86,9 @@ jobs:
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
         run: |
-          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 \
+          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" "mkdir -p /srv/carvajal"
-          scp -P "$VPS_PORT" -i ~/.ssh/id_ed25519 \
+          scp -P "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             compose.prod.yml Caddyfile scripts/deploy.sh \
             "$VPS_USER@$VPS_HOST:/srv/carvajal/"
 
@@ -98,6 +102,6 @@ jobs:
           # Escapa los valores antes de interpolarlos en el comando remoto.
           IMAGE_TAG_Q="$(printf '%q' "$IMAGE_TAG")"
           IMAGE_REPO_Q="$(printf '%q' "$IMAGE_REPO")"
-          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 \
+          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
             "cd /srv/carvajal && IMAGE_REPO=$IMAGE_REPO_Q bash deploy.sh $IMAGE_TAG_Q"

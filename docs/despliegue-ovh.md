@@ -114,8 +114,18 @@ En **Settings → Secrets and variables → Actions** del repositorio:
 | `VPS_HOST` | IP o nombre del VPS |
 | `VPS_USER` | `deploy` |
 | `VPS_SSH_KEY` | contenido de la clave privada dedicada |
+| `VPS_HOST_KEY` | línea de `ssh-keyscan` con la clave pública del VPS |
 | `VPS_PORT` | opcional; por defecto `22` |
 
+Fija la clave del host para que Actions no confíe en la primera conexión
+(`VPS_HOST_KEY` debe empezar por el mismo valor de `VPS_HOST`):
+
+```bash
+ssh-keyscan -t ed25519 IP_DEL_VPS
+# Copia la línea completa (IP ssh-ed25519 AAAA...) en el secreto VPS_HOST_KEY.
+```
+
+Si usas un puerto distinto de 22, el primer campo debe ser `[host]:puerto`.
 Genera una clave solo para el despliegue y autorízala en el VPS:
 
 ```bash

@@ -50,7 +50,10 @@ services:
       qdrant:
         condition: service_started
       ollama:
-        condition: service_healthy
+        # El embedder se crea en la primera pregunta, no al arrancar: la app
+        # puede iniciar aunque Ollama aún esté calentando. El modelo se
+        # descarga aparte (docs/despliegue-ovh.md).
+        condition: service_started
     environment:
       # Dentro de la red de compose el host de la base es el servicio `db`,
       # no loopback: por eso la URL se compone aquí a partir de POSTGRES_*.
