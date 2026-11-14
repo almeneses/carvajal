@@ -2,7 +2,8 @@
 
 Calcula Recall@10 y nDCG@10 con etiquetas manuales por documento y guarda el
 top-k de cada consulta. No llama al LLM: separa retrieval de calidad de
-respuesta, como exige la rúbrica del M2.
+respuesta, como exige la rúbrica del M2. Además deja un resumen pequeño y
+versionado en `data/eval/retrieval-summary.json` que consume la web.
 
 Uso:
     uv run python scripts/eval_retrieval.py
@@ -27,6 +28,7 @@ from carvajal.infrastructure.settings import Settings
 DEFAULT_QUERIES = Path("data") / "eval" / "retrieval_questions.json"
 DEFAULT_OUTPUT = Path("docs") / "eval" / "retrieval-report.md"
 DEFAULT_JSON = Path("docs") / "eval" / "retrieval-results.json"
+DEFAULT_SUMMARY = Path("data") / "eval" / "retrieval-summary.json"
 
 
 def dcg(relevances: list[int]) -> float:
@@ -59,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--queries", type=Path, default=DEFAULT_QUERIES)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--json", type=Path, default=DEFAULT_JSON)
+    parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
     parser.add_argument("--k", type=int, default=10)
     args = parser.parse_args(argv)
 
@@ -141,6 +144,22 @@ def main(argv: list[str] | None = None) -> int:
     args.json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(render_markdown(summary), encoding="utf-8")
+    # Resumen versionado y pequeño: lo consume la pestaña Métricas de la web
+    # sin arrastrar los diez resultados y extractos de cada consulta.
+    resumen = {
+        "generated_at": summary["generated_at"],
+        "collection": summary["collection"],
+        "k": summary["k"],
+        "queries": summary["queries"],
+        "labeled_queries": summary["labeled_queries"],
+        "recall_at_k": summary["recall_at_k"],
+        "ndcg_at_k": summary["ndcg_at_k"],
+        "abstentions": len(abstentions),
+    }
+    args.summary.parent.mkdir(parents=True, exist_ok=True)
+    args.summary.write_text(
+        json.dumps(resumen, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(
         f"Recall@{args.k}={summary['recall_at_k']} nDCG@{args.k}={summary['ndcg_at_k']} "
         f"-> {args.output}"

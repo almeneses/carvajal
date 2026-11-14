@@ -76,7 +76,9 @@ make web                             # http://localhost:8001  ← entrada del M2
 
 `make index` reejecuta la indexación con IDs UUID5 estables y poda los puntos
 obsoletos; `uv run carvajal index-qdrant --recreate` reconstruye la colección
-desde cero. El arranque web no indexa: funciona con un índice ya preparado.
+desde cero. `make qdrant-stats` resume el estado de la colección (puntos,
+segmentos, dimensión y distancia) sin abrir el dashboard de Qdrant. El arranque
+web no indexa: funciona con un índice ya preparado.
 `/live` comprueba el proceso y `/health` publica documentos, fragmentos y estado
 de Qdrant por separado.
 
@@ -295,10 +297,10 @@ make eval
 ### Interfaz web del M2
 
 La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
-API en <http://localhost:8000> (`make api`). El frontend ofrece tres pestañas
-superiores —**FAQ**, **Corpus** y **Documento**— con URLs estables
-(`/faq`, `/corpus` y `/documents/{id}`); `/` redirige a `/corpus` y conserva el
-hilo del chat al navegar.
+API en <http://localhost:8000> (`make api`). El frontend ofrece cuatro pestañas
+superiores —**FAQ**, **Corpus**, **Métricas** y **Documento**— con URLs estables
+(`/faq`, `/corpus`, `/metricas` y `/documents/{id}`); `/` redirige a `/corpus` y
+conserva el hilo del chat al navegar.
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
@@ -324,6 +326,13 @@ La generación usa SSE, comparte el CSRF y la cuota diaria del chat y avisa
 cuando el corpus se truncó por longitud. Con Ollama, la ventana de contexto se
 configura con `OLLAMA_NUM_CTX` (32 768 tokens por defecto) para que el corpus
 completo quepa en el prompt.
+
+La pestaña **Métricas** (`/metricas`) publica el estado en vivo del índice
+Qdrant (puntos, vectores indexados, segmentos, dimensión y distancia), los
+conteos de documentos y fragmentos de Postgres y el último resumen de
+evaluación de retrieval (Recall@k y nDCG@k) que versiona
+`data/eval/retrieval-summary.json`. La misma ficha del índice se consulta desde
+la terminal con `make qdrant-stats` (o `uv run carvajal qdrant-stats --json`).
 
 ### Interfaz legada (Streamlit)
 
@@ -492,6 +501,7 @@ despliegue, respaldos y rollback— está en
 | `GET /live` | Que el proceso responde (liveness del contenedor). | No |
 | `GET /health` | Conteos de documentos/fragmentos y estado de Qdrant (readiness). | Sí |
 | `GET /api/health` | El mismo readiness para el frontend propio. | Sí |
+| `GET /api/metricas` | Estado del índice, conteos del corpus y último resumen de retrieval. | Sí |
 
 La demo no lleva proxy TLS: la app se publica en `0.0.0.0:APP_PORT` (8080 por
 defecto) y se accede por `http://IP:8080`. Si más adelante pones un dominio, usa

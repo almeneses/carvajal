@@ -5,6 +5,7 @@ from collections.abc import Generator, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -310,3 +311,86 @@ def test_health_api_separa_indice_y_base(monkeypatch: pytest.MonkeyPatch) -> Non
     assert response.status_code == 200
     assert response.json()["index"]["points"] == 125
     assert response.json()["documents"] == 24
+
+
+def test_metricas_publica_indice_corpus_y_retrieval(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Arrange
+    from apps.api import runtime
+    from apps.api.views import api as api_views
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.valores = iter([24, 125])
+
+        def scalar(self, statement: Any) -> int:
+            return next(self.valores)
+
+    @contextmanager
+    def fake_begin() -> Generator[FakeSession]:
+        yield FakeSession()
+
+    class FakeFactory:
+        def begin(self) -> Any:
+            return fake_begin()
+
+    class FakeQdrant:
+        def info(self) -> dict[str, object]:
+            return {
+                "status": "green",
+                "optimizer_status": "ok",
+                "collection": "carvajal_chunks",
+                "points": 125,
+            }
+
+    resumen = tmp_path / "retrieval-summary.json"
+    resumen.write_text(
+        json.dumps({"k": 10, "recall_at_k": 0.8, "ndcg_at_k": 0.7791}), encoding="utf-8"
+    )
+    monkeypatch.setattr(runtime, "session_factory", lambda: FakeFactory())
+    monkeypatch.setattr(runtime, "qdrant_store", lambda: FakeQdrant())
+    monkeypatch.setattr(api_views, "RETRIEVAL_SUMMARY", resumen)
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/api/metricas")
+
+    # Assert
+    datos = response.json()
+    assert response.status_code == 200
+    assert datos["corpus"] == {"documents": 24, "chunks": 125}
+    assert datos["index"]["points"] == 125
+    assert datos["retrieval"]["recall_at_k"] == 0.8
+
+
+def test_metricas_degrada_sin_base_y_sin_resumen(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Arrange
+    from apps.api import runtime
+    from apps.api.views import api as api_views
+
+    class FakeFactory:
+        def begin(self) -> Any:
+            raise OSError("base no disponible")
+
+    class FakeQdrant:
+        def info(self) -> dict[str, object]:
+            return {"status": "green", "collection": "carvajal_chunks", "points": 125}
+
+    monkeypatch.setattr(runtime, "session_factory", lambda: FakeFactory())
+    monkeypatch.setattr(runtime, "qdrant_store", lambda: FakeQdrant())
+    monkeypatch.setattr(api_views, "RETRIEVAL_SUMMARY", tmp_path / "inexistente.json")
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/api/metricas")
+
+    # Assert
+    datos = response.json()
+    assert response.status_code == 503
+    assert datos["status"] == "degraded"
+    assert datos["corpus"] == {"status": "unavailable"}
+    assert datos["index"]["points"] == 125
+    assert datos["retrieval"] is None

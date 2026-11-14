@@ -1,8 +1,10 @@
 """Pruebas de la interfaz de línea de comandos."""
 
+import json
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
@@ -52,6 +54,7 @@ def test_parser_lista_subcomandos_validos() -> None:
     assert parser.parse_args(["list"]) is not None
     assert parser.parse_args(["status"]) is not None
     assert parser.parse_args(["import"]) is not None
+    assert parser.parse_args(["qdrant-stats"]) is not None
 
 
 def test_parser_import_no_exige_argumentos() -> None:
@@ -267,3 +270,95 @@ def test_migrate_gold_reenvia_allow_empty(
     assert code == 0
     assert recibido["allow_empty"] is True
     assert "Documentos podados: 2" in capsys.readouterr().out
+
+
+class _FakeQdrantStats:
+    """Doble del adaptador Qdrant que solo expone ``info`` y ``close``."""
+
+    creados: ClassVar[list["_FakeQdrantStats"]] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        self.kwargs = kwargs
+        self.closed = False
+        _FakeQdrantStats.creados.append(self)
+
+    def info(self) -> dict[str, object]:
+        return {
+            "status": "green",
+            "optimizer_status": "ok",
+            "collection": "carvajal_chunks",
+            "points": 125,
+            "indexed_vectors": 0,
+            "segments": 6,
+            "dimensions": 768,
+            "distance": "Cosine",
+        }
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeSettings:
+    qdrant_url = "http://127.0.0.1:6333"
+    qdrant_api_key = ""
+    qdrant_collection = "carvajal_chunks"
+    qdrant_dimensions = 768
+    qdrant_distance = "Cosine"
+
+
+def test_qdrant_stats_resume_la_coleccion(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``qdrant-stats`` pinta el estado y cierra el cliente."""
+
+    _FakeQdrantStats.creados.clear()
+    monkeypatch.setattr("carvajal.adapters.vector.qdrant_store.QdrantVectorStore", _FakeQdrantStats)
+    monkeypatch.setattr("carvajal.infrastructure.settings.Settings", _FakeSettings)
+
+    codigo = main(["qdrant-stats"])
+
+    salida = capsys.readouterr().out
+    assert codigo == 0
+    assert "Colección: carvajal_chunks" in salida
+    assert "Puntos: 125" in salida
+    assert "Distancia: Cosine" in salida
+    assert _FakeQdrantStats.creados[0].closed is True
+
+
+def test_qdrant_stats_json_es_parseable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--json`` imprime el estado completo, incluida la URL configurada."""
+
+    monkeypatch.setattr("carvajal.adapters.vector.qdrant_store.QdrantVectorStore", _FakeQdrantStats)
+    monkeypatch.setattr("carvajal.infrastructure.settings.Settings", _FakeSettings)
+
+    codigo = main(["qdrant-stats", "--json"])
+
+    datos = json.loads(capsys.readouterr().out)
+    assert codigo == 0
+    assert datos["url"] == "http://127.0.0.1:6333"
+    assert datos["points"] == 125
+
+
+def test_qdrant_stats_devuelve_1_si_el_indice_no_responde(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Un Qdrant caído no se disfraza de éxito: código 1 y detalle explícito."""
+
+    class _Caido(_FakeQdrantStats):
+        def info(self) -> dict[str, object]:
+            return {
+                "status": "unavailable",
+                "collection": "carvajal_chunks",
+                "points": 0,
+                "detail": "ConnectionError",
+            }
+
+    monkeypatch.setattr("carvajal.adapters.vector.qdrant_store.QdrantVectorStore", _Caido)
+    monkeypatch.setattr("carvajal.infrastructure.settings.Settings", _FakeSettings)
+
+    codigo = main(["qdrant-stats"])
+
+    assert codigo == 1
+    assert "Detalle: ConnectionError" in capsys.readouterr().out

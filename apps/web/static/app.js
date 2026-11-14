@@ -9,6 +9,7 @@
   const TITULOS_VISTA = {
     faq: "Preguntas frecuentes",
     corpus: "Corpus",
+    metricas: "Métricas",
     documento: "Documento",
   };
 
@@ -32,11 +33,13 @@
     asistente: document.getElementById("vista-asistente"),
     faq: document.getElementById("vista-faq"),
     corpus: document.getElementById("vista-corpus"),
+    metricas: document.getElementById("vista-metricas"),
     documento: document.getElementById("vista-documento"),
   };
   const enlacesNav = {
     faq: document.getElementById("nav-faq"),
     corpus: document.getElementById("nav-corpus"),
+    metricas: document.getElementById("nav-metricas"),
     documento: document.getElementById("nav-documento"),
   };
 
@@ -135,6 +138,7 @@
     const params = new URLSearchParams(location.search);
     if (camino === "/faq") return { vista: "faq", documentId: null, params };
     if (camino === "/corpus") return { vista: "corpus", documentId: null, params };
+    if (camino === "/metricas") return { vista: "metricas", documentId: null, params };
     if (camino === "/documents") return { vista: "documento", documentId: null, params };
     if (camino.startsWith("/documents/")) {
       const bruto = camino.slice("/documents/".length);
@@ -222,6 +226,13 @@
           }
         });
       }
+    } else if (actual.vista === "metricas") {
+      const pendiente = Promise.resolve(activarMetricas()).catch(() => {});
+      if (enfocar && cambioVista) {
+        pendiente.finally(() => {
+          if (analizarRuta().vista === "metricas") enfocarVista("metricas");
+        });
+      }
     } else if (enfocar && cambioVista) {
       enfocarVista(actual.vista);
     }
@@ -297,6 +308,7 @@
         camino === "/" ||
         camino === "/faq" ||
         camino === "/corpus" ||
+        camino === "/metricas" ||
         camino === "/documents" ||
         camino.startsWith("/documents/")
       );
@@ -391,6 +403,18 @@
     } catch {
       // La vista ya está oculta; no conviene romper el enrutador por ello.
     }
+  }
+
+  function activarMetricas() {
+    try {
+      const modulo = window.CarvajalMetricas;
+      if (modulo && typeof modulo.activar === "function") return modulo.activar();
+    } catch {
+      // Se muestra el fallback de abajo.
+    }
+    const destino = document.getElementById("metricas-estado");
+    if (destino) destino.textContent = "No se pudieron cargar las métricas. Recarga la página.";
+    return undefined;
   }
 
   /* Chat ------------------------------------------------------------------- */

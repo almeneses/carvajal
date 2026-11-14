@@ -6,7 +6,11 @@ pinta tokens y citas. La cookie firmada y el CSRF son los mismos del shell
 Jinja2, de modo que ambas entradas comparten identidad y cuota.
 """
 
+from __future__ import annotations
+
+import json
 from collections.abc import Iterator, Sequence
+from pathlib import Path
 from typing import cast
 
 import structlog
@@ -40,6 +44,17 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api")
 
 DB_UNAVAILABLE = "La base de datos no responde."
+RETRIEVAL_SUMMARY = Path(__file__).resolve().parents[3] / "data" / "eval" / "retrieval-summary.json"
+
+
+def _retrieval_summary() -> dict[str, object] | None:
+    """Último resumen de evaluación versionado; ``None`` si aún no existe."""
+
+    try:
+        data = json.loads(RETRIEVAL_SUMMARY.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _owner(request: Request) -> tuple[str, bool]:
@@ -83,6 +98,44 @@ def health() -> JSONResponse:
             "documents": documents or 0,
             "chunks": chunks or 0,
             "index": index,
+        },
+        status_code=200 if healthy else 503,
+    )
+
+
+@router.get("/metricas")
+def metricas() -> JSONResponse:
+    """Estado del índice, del corpus y del último retrieval para la pestaña Métricas.
+
+    Es de solo lectura y tolera fallos parciales: si Postgres no responde se
+    conserva el estado de Qdrant y el resumen de evaluación ya generado.
+    """
+
+    from sqlalchemy import func, select
+
+    from apps.api.runtime import qdrant_store, session_factory
+    from carvajal.adapters.storage import tables
+
+    try:
+        with session_factory().begin() as session:
+            documents = session.scalar(select(func.count()).select_from(tables.documents))
+            chunks = session.scalar(select(func.count()).select_from(tables.chunks))
+    except (SQLAlchemyError, OSError) as error:
+        logger.warning("api.metricas_corpus_failed", error=str(error))
+        documents = chunks = None
+
+    index = qdrant_store().info()
+    healthy = index.get("status") in {"ok", "green", "yellow"} and documents is not None
+    return JSONResponse(
+        {
+            "status": "ok" if healthy else "degraded",
+            "corpus": (
+                {"documents": documents or 0, "chunks": chunks or 0}
+                if documents is not None
+                else {"status": "unavailable"}
+            ),
+            "index": index,
+            "retrieval": _retrieval_summary(),
         },
         status_code=200 if healthy else 503,
     )

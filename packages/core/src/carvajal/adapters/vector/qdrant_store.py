@@ -24,6 +24,12 @@ __all__ = ["QdrantVectorStore", "fingerprint_for", "payload_for", "point_id"]
 _NAMESPACE = UUID("6f0b8d9a-3c2e-5a7b-9e4d-1f2a3b4c5d6e")
 
 
+def _enum_value(value: object) -> str:
+    """Valor textual de un enum de Qdrant (``Distance.COSINE`` → ``Cosine``)."""
+
+    return str(getattr(value, "value", value))
+
+
 def point_id(chunk: Chunk, fingerprint: str = "") -> str:
     """UUID5 estable para un fragmento.
 
@@ -368,6 +374,37 @@ class QdrantVectorStore:
                 "collection": self._collection,
                 "points": self.count(),
                 "dimensions": self._dimensions,
+            }
+        except Exception as error:  # Qdrant caído o inaccesible
+            return {
+                "status": "unavailable",
+                "collection": self._collection,
+                "points": 0,
+                "detail": type(error).__name__,
+            }
+
+    def info(self) -> dict[str, object]:
+        """Ficha de la colección para métricas y diagnóstico (solo lectura).
+
+        A diferencia de ``health``, incluye la configuración efectiva del
+        índice (distancia, segmentos, vectores indexados) y nunca propaga
+        errores: un Qdrant caído se reporta como ``unavailable``.
+        """
+
+        try:
+            if not self._client.collection_exists(self._collection):
+                return {"status": "missing", "collection": self._collection, "points": 0}
+            info = self._client.get_collection(self._collection)
+            vectors = info.config.params.vectors
+            return {
+                "status": _enum_value(getattr(info, "status", "ok")),
+                "optimizer_status": _enum_value(getattr(info, "optimizer_status", "")),
+                "collection": self._collection,
+                "points": int(getattr(info, "points_count", 0) or 0),
+                "indexed_vectors": int(getattr(info, "indexed_vectors_count", 0) or 0),
+                "segments": int(getattr(info, "segments_count", 0) or 0),
+                "dimensions": int(getattr(vectors, "size", self._dimensions)),
+                "distance": _enum_value(getattr(vectors, "distance", self._distance)),
             }
         except Exception as error:  # Qdrant caído o inaccesible
             return {
