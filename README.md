@@ -452,8 +452,9 @@ secretos, primer despliegue, respaldos y rollback— está en
 
 El proxy con TLS es Caddy (`Caddyfile`): obtiene y renueva el certificado de
 Let's Encrypt y reenvía a la app por la red de Compose. Uvicorn arranca con
-`--proxy-headers` para respetar `X-Forwarded-Proto`; `FORWARDED_ALLOW_IPS=*` es
-seguro porque la app solo escucha en loopback y en esa red interna. De ello
+`--proxy-headers` para respetar `X-Forwarded-Proto`; `FORWARDED_ALLOW_IPS` se
+limita a las subredes privadas de Docker (`172.16.0.0/12`), así que un proceso
+local que entre por loopback no puede falsificar las cabeceras. De ello
 dependen las cookies `Secure`, HSTS y la cabecera CSRF.
 
 ## Estructura

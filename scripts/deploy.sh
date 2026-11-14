@@ -15,6 +15,12 @@ IMAGE_REPO="${IMAGE_REPO:-ghcr.io/almeneses/carvajal-api}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
+if [[ ! -f .env ]]; then
+  echo "==> Falta ${DIR}/.env: copia .env.example y define DOMAIN, SESSION_SECRET," >&2
+  echo "    POSTGRES_PASSWORD y DEEPSEEK_API_KEY antes de desplegar." >&2
+  exit 1
+fi
+
 COMPOSE=(docker compose -f compose.prod.yml)
 STATE_FILE=".deployed_tag"
 PREV_TAG="$(cat "$STATE_FILE" 2>/dev/null || true)"
@@ -51,17 +57,22 @@ echo "==> Imagen: ${APP_IMAGE}"
 "${COMPOSE[@]}" pull app
 
 echo "==> Migraciones"
-"${COMPOSE[@]}" run --rm app alembic upgrade head
+"${COMPOSE[@]}" run --rm --no-build app alembic upgrade head
 
 echo "==> Recreando contenedores"
 if ! "${COMPOSE[@]}" up -d --no-build --remove-orphans; then
   rollback
 fi
 
-echo "==> Esperando /live"
+# Puerto publicado real de la app (puede ser distinto de 8000 si APP_PORT
+# cambió en .env). Se consulta a Compose para no adivinar desde el shell.
+HEALTH_PORT="$("${COMPOSE[@]}" port app 8000 2>/dev/null | tail -n 1 | awk -F: '{print $NF}')"
+HEALTH_PORT="${HEALTH_PORT:-8000}"
+
+echo "==> Esperando /live en 127.0.0.1:${HEALTH_PORT}"
 LISTO=0
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${APP_PORT:-8000}/live" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:${HEALTH_PORT}/live" >/dev/null 2>&1; then
     LISTO=1
     break
   fi
@@ -75,7 +86,7 @@ echo "==> Comprobando /health"
 SALUD=0
 for _ in $(seq 1 15); do
   HEALTH_CODE="$(curl -s -o "$HEALTH_FILE" -w '%{http_code}' \
-    "http://127.0.0.1:${APP_PORT:-8000}/health" || true)"
+    "http://127.0.0.1:${HEALTH_PORT}/health" || true)"
   if [[ "$HEALTH_CODE" == "200" ]]; then
     SALUD=1
     break

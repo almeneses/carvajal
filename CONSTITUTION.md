@@ -281,8 +281,8 @@ carvajal/
   [`docs/despliegue-ovh.md`](docs/despliegue-ovh.md).
 - Caddy termina TLS (Let's Encrypt) en 80/443 y reenvía a la app por la red de
   Compose; la app solo se publica en `127.0.0.1:8000` para los healthchecks.
-  `FORWARDED_ALLOW_IPS=*` es seguro porque la app no es accesible fuera de esa
-  red.
+  `FORWARDED_ALLOW_IPS` se limita a las subredes privadas de Docker
+  (`172.16.0.0/12`), así que un proceso local no puede falsificar cabeceras.
 - Los embeddings se calculan con Ollama (`nomic-embed-text`), configurable con
   `OLLAMA_BASE_URL`; el LLM puede ser DeepSeek. El servicio `ollama` de
   `compose.prod.yml` cubre el caso por defecto.

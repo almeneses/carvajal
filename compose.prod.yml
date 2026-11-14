@@ -91,8 +91,9 @@ services:
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
       # Caddy termina TLS y reenvía X-Forwarded-Proto. La app no está expuesta
       # fuera de la red de compose (solo loopback para los healthchecks), así
-      # que se confía en cualquier proxy de esa red.
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
+      # que solo se confía en las subredes privadas que usa Docker. Un proceso
+      # local que entre por 127.0.0.1 no puede falsificar las cabeceras.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
     ports:
       # Solo loopback: Caddy es el que expone 80/443 y llega a `app:8000`
       # por la red interna de Compose.
