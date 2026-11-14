@@ -338,8 +338,11 @@
       const modulo = window.CarvajalLectura;
       if (modulo && typeof modulo.activar === "function") return modulo.activar(params);
     } catch {
-      anunciar("No se pudo cargar el explorador del corpus.", { error: true });
+      // Se muestra el fallback de abajo.
     }
+    mostrarFalloLectura(
+      "No se pudo cargar el explorador del corpus. Recarga la página e inténtalo de nuevo.",
+    );
     return undefined;
   }
 
@@ -350,9 +353,27 @@
         return modulo.mostrarDocumento(documentId, params);
       }
     } catch {
-      anunciar("No se pudo cargar la ficha del documento.", { error: true });
+      // Se muestra el fallback de abajo.
     }
+    mostrarFalloLectura(
+      "No se pudo cargar la ficha del documento. Recarga la página e inténtalo de nuevo.",
+    );
     return undefined;
+  }
+
+  function mostrarFalloLectura(mensaje) {
+    anunciar(mensaje, { error: true });
+    const destino =
+      vistaActual === "documento"
+        ? document.getElementById("documento-contenido")
+        : document.getElementById("corpus-estado");
+    if (!destino) return;
+    destino.replaceChildren();
+    const aviso = document.createElement("p");
+    aviso.className = "lectura-error";
+    aviso.setAttribute("role", "alert");
+    aviso.textContent = mensaje;
+    destino.append(aviso);
   }
 
   function desactivarLectura() {
