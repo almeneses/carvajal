@@ -10,7 +10,7 @@ from collections.abc import Iterator, Sequence
 from typing import cast
 
 import structlog
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -217,6 +217,10 @@ def _document_response(
         context = documents_views.load_document_context(
             request, identifier, version_id, by_slug=by_slug
         )
+    except HTTPException as error:
+        # La vista HTML deja que FastAPI renderice el 404; el contrato JSON lo
+        # devuelve explícitamente para no depender del orden de los handlers.
+        return JSONResponse({"detail": error.detail}, status_code=error.status_code)
     except (SQLAlchemyError, OSError) as error:
         logger.warning("api.document_failed", error=str(error))
         return JSONResponse({"detail": DB_UNAVAILABLE}, status_code=503)

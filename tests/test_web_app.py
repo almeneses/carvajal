@@ -136,6 +136,20 @@ def test_la_base_local_sigue_el_host_para_conservar_la_cookie() -> None:
     assert cliente_local.get("/healthz").json()["api"] == "http://127.0.0.1:8000"
 
 
+def test_un_host_ajeno_no_se_interpola_en_la_csp() -> None:
+    # Arrange: Host manipulado que no pertenece a la lista blanca local.
+    cliente_ajeno = TestClient(app, base_url="http://localhost.evil.com")
+
+    # Act
+    config = cliente_ajeno.get("/config.js")
+    respuesta = cliente_ajeno.get("/")
+
+    # Assert
+    assert f'window.CARVAJAL_API = "{API_BASE}";' in config.text
+    assert f"connect-src 'self' {API_BASE}" in respuesta.headers["content-security-policy"]
+    assert "evil.com" not in respuesta.headers["content-security-policy"]
+
+
 def test_estaticos_no_se_marcan_como_no_store() -> None:
     # Arrange / Act
     respuesta = cliente.get("/static/app.js")

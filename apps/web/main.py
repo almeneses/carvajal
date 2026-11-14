@@ -20,6 +20,11 @@ STATIC_DIR = APP_DIR / "static"
 INDEX_FILE = STATIC_DIR / "index.html"
 _API_BASE_ENV = os.environ.get("CARVAJAL_API_BASE", "").strip().rstrip("/")
 API_BASE = _API_BASE_ENV or "http://localhost:8000"
+# Orígenes literales: el Host de la petición nunca se interpola en la CSP.
+_LOCAL_API_BASES = {
+    "localhost": "http://localhost:8000",
+    "127.0.0.1": "http://127.0.0.1:8000",
+}
 
 
 def api_base(request: Request | None = None) -> str:
@@ -33,10 +38,7 @@ def api_base(request: Request | None = None) -> str:
     if _API_BASE_ENV:
         return _API_BASE_ENV
     host = request.url.hostname if request is not None else ""
-    if host in {"localhost", "127.0.0.1"}:
-        scheme = request.url.scheme if request is not None else "http"
-        return f"{scheme}://{host}:8000"
-    return API_BASE
+    return _LOCAL_API_BASES.get(host, API_BASE)
 
 
 app = FastAPI(title="Carvajal · frontend M2", docs_url=None, redoc_url=None)
