@@ -12,10 +12,11 @@ from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from pydantic import ValidationError
 
 from carvajal.agent.router import decide_route
 from carvajal.agent.state import AgentState, Turn
-from carvajal.agent.tools import find_indicator, indicator_lookup
+from carvajal.agent.tools import indicator_lookup
 from carvajal.application.ask import DEFAULT_SYSTEM_PROMPT, NO_CONTEXT_ANSWER, AskQuestion, Source
 from carvajal.application.evidence import proper_entities_supported
 from carvajal.application.ports import Embedder, VectorStore
@@ -239,10 +240,11 @@ def build_agent(
 
     def tool(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         try:
-            result = find_indicator(
-                state.get("tool_name", ""), state.get("tool_period", "")
-            ).model_dump()
-        except Exception:
+            result = indicator_lookup.invoke(
+                {"name": state.get("tool_name", ""), "period": state.get("tool_period", "")},
+                config=config,
+            )
+        except ValidationError:
             # Un alias o período que no pase la validación Pydantic se trata
             # como ausencia de registro, no como un 503 del turno.
             result = {
@@ -263,8 +265,8 @@ def build_agent(
             sources = [_tool_source(result)]
         else:
             instructions = (
-                "La herramienta no encontró el registro. Declara la ausencia con el "
-                "mensaje devuelto y no inventes ni interpoles valores."
+                "La herramienta no encontró el registro. Declara la ausencia sin "
+                f"estimar ni interpolar valores. Mensaje: {result['message']}"
             )
             sources = []
         return {

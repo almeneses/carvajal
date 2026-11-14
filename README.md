@@ -64,6 +64,7 @@ make db                              # Postgres 16 + pgvector
 make qdrant                          # Qdrant con volumen persistente
 uv run alembic upgrade head          # migraciones, incluida 0005
 ollama pull nomic-embed-text         # embeddings locales de 768 dimensiones
+uv run carvajal migrate-gold         # importa documentos y fragmentos a Postgres
 make index                           # indexa data/gold en Qdrant (idempotente)
 
 # Terminal 1: API
@@ -105,8 +106,9 @@ y `GET /api/chat/history` devuelve el hilo activo al recargar.
 - **Largo plazo:** `PostgresStore` en el namespace `("carvajal", "preferences",
   owner_key)`. Una preferencia declarada se recupera en otro hilo del mismo
   dueño y no cruza a otro visitante.
-- **Herramienta:** `@tool` con `args_schema` Pydantic sobre
-  `data/indicators.json`; devuelve valor, unidad, cita y URL, o ausencia estable.
+- **Herramienta:** el nodo `tool` invoca `indicator_lookup` con `@tool` y
+  `args_schema` Pydantic sobre `data/indicators.json`. Devuelve valor, unidad,
+  cita y URL, o una ausencia explícita.
 - **Router:** orden documentado en `carvajal/agent/router.py`: preferencia →
   herramienta con período explícito → saludo/capacidad → RAG (seguimiento
   elíptico reescrito con la pregunta anterior) → abstención si falta evidencia.
