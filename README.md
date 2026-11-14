@@ -147,9 +147,9 @@ no llama al LLM.
 | **HTTP** | `requests` (sesión única, `User-Agent` identificable, `timeout`) |
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
 | **RAG web (M2)** | Qdrant + LangGraph + Postgres (checkpointer y Store) |
-| **RAG legado** | LangChain + FAISS + Streamlit (prototipo, no es la entrada del M2) |
+| **RAG legado** | LangChain + FAISS |
 | **LLM** | DeepSeek (`deepseek-chat`), Anthropic Claude u Ollama (`llama3.2`) |
-| **Interfaz de pruebas** | Streamlit |
+| **Interfaz de pruebas** | HTMLX |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
 | **Linting / Formato** | [Ruff](https://docs.astral.sh/ruff/) |
@@ -328,7 +328,7 @@ completo quepa en el prompt.
 ### Interfaz legada (Streamlit)
 
 > El prototipo Streamlit conserva las tareas del Módulo 1 y no es la entrada del
-> M2. Se retira en la ola 7 del plan de migración.
+> M2.
 
 `uv run streamlit run app.py` abre cuatro pestañas:
 
@@ -562,7 +562,7 @@ Lee [`CONTRIBUTING.md`](CONTRIBUTING.md) y la [`CONSTITUTION.md`](CONSTITUTION.m
 - **Herramientas:** [uv](https://docs.astral.sh/uv/), [Ruff](https://docs.astral.sh/ruff/),
   [ty](https://github.com/astral-sh/ty), [LangChain](https://www.langchain.com/),
   [FAISS](https://github.com/facebookresearch/faiss),
-  [Streamlit](https://streamlit.io/), [Ollama](https://ollama.com/),
+  [Ollama](https://ollama.com/),
   [DeepSeek](https://www.deepseek.com/) y [Archify](https://github.com/tt-a1i/archify).
 
 ## Licencia
