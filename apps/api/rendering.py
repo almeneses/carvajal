@@ -3,12 +3,21 @@
 El Markdown del corpus puede contener HTML incrustado; primero se convierte con
 Python-Markdown y después se sanea con ``nh3``. El resultado es el único HTML
 que las plantillas pueden insertar sin escapar.
+
+``render_answer`` aplica el mismo saneamiento al texto generado por el modelo:
+admite énfasis, títulos, listas, citas textuales, enlaces y referencias ``[n]``
+convertidas en enlaces a la lista de fuentes.
 """
+
+import re
+from html import escape as html_escape
+from html import unescape as html_unescape
 
 import markdown
 import nh3
+from markupsafe import Markup
 
-__all__ = ["render_markdown"]
+__all__ = ["render_answer", "render_markdown"]
 
 # Lista blanca mínima para el contenido editorial del corpus: estructura,
 # énfasis, código, tablas y enlaces. Nada de formularios, medios ni scripts.
@@ -51,6 +60,40 @@ _ALLOWED_ATTRIBUTES = {
 
 _ALLOWED_URL_SCHEMES = {"http", "https", "mailto"}
 
+# El texto del asistente no necesita tablas ni bloques de código: se limita a
+# lo que puede aparecer en una respuesta conversacional.
+_ANSWER_TAGS = {
+    "p",
+    "br",
+    "strong",
+    "em",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "a",
+    "sup",
+    "code",
+}
+
+_ANSWER_ATTRIBUTES = {
+    "a": {"href", "title", "target", "class"},
+    "sup": set(),
+}
+
+_CITATION_RE = re.compile(r"\[(\d{1,2})\]")
+_URL_RE = re.compile(r"(?<![\w\"'=(<])(https?://[^\s<>\"']+)")
+_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(https?://[^)\s]+\)")
+_TRAILING_PUNCTUATION = ".,;:!?)]}"
+
 
 def render_markdown(text: str) -> str:
     """Convierte Markdown a HTML saneado y listo para insertar en una plantilla.
@@ -68,3 +111,121 @@ def render_markdown(text: str) -> str:
         url_schemes=_ALLOWED_URL_SCHEMES,
         link_rel="noopener noreferrer",
     )
+
+
+def _cita(numero: int, source_count: int | None) -> str:
+    """Enlace de cita inline si el número corresponde a una fuente conocida."""
+
+    if numero < 1:
+        return f"[{numero}]"
+    if source_count is not None and numero > source_count:
+        return f"[{numero}]"
+    return (
+        f'<sup><a class="cita-inline" href="#cita-{numero}" '
+        f'aria-label="Abrir la fuente {numero}">[{numero}]</a></sup>'
+    )
+
+
+def _enlazar_url(match: re.Match[str]) -> str:
+    """Envuelve una URL suelta en un enlace y conserva la puntuación final."""
+
+    url = html_unescape(match.group(1))
+    sufijo = ""
+    while url and url[-1] in _TRAILING_PUNCTUATION:
+        sufijo = url[-1] + sufijo
+        url = url[:-1]
+    if not url:
+        return match.group(0)
+    href = html_escape(url, quote=True)
+    texto = html_escape(url)
+    return f'<a href="{href}" target="_blank">{texto}</a>{sufijo}'
+
+
+def _proteger_fragmentos(texto: str) -> tuple[str, list[str]]:
+    """Saca código y enlaces Markdown del alcance de citas y autoenlaces."""
+
+    fragmentos: list[str] = []
+
+    def guardar(match: re.Match[str]) -> str:
+        fragmentos.append(match.group(0))
+        return f"@@CARVAJAL-FRAG-{len(fragmentos) - 1}@@"
+
+    for patron in (_CODE_FENCE_RE, _INLINE_CODE_RE, _MARKDOWN_LINK_RE):
+        texto = patron.sub(guardar, texto)
+    return texto, fragmentos
+
+
+def _restaurar_fragmentos(texto: str, fragmentos: list[str]) -> str:
+    """Devuelve los fragmentos protegidos antes de convertir el Markdown."""
+
+    for indice, fragmento in enumerate(fragmentos):
+        texto = texto.replace(f"@@CARVAJAL-FRAG-{indice}@@", fragmento)
+    return texto
+
+
+def _citas_enteras(texto: str) -> str:
+    """Convierte líneas enteras entre comillas en citas textuales Markdown."""
+
+    lineas: list[str] = []
+    for linea in texto.splitlines():
+        limpia = linea.strip()
+        if len(limpia) > 2 and limpia[0] in {'"', "“"} and limpia[-1] in {'"', "”"}:
+            lineas.append(f"> {limpia}")
+        else:
+            lineas.append(linea)
+    return "\n".join(lineas)
+
+
+def _escapar_texto(texto: str) -> str:
+    """Escapa entidades y ángulos para que el modelo se vea como texto."""
+
+    return texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _escapar_html(text: str) -> str:
+    """Escapa HTML del modelo sin romper los marcadores ``>`` de cita."""
+
+    lineas: list[str] = []
+    for linea in text.splitlines():
+        contenido = linea.lstrip()
+        sangria = linea[: len(linea) - len(contenido)]
+        if contenido.startswith(">"):
+            lineas.append(f"{sangria}>{_escapar_texto(contenido[1:])}")
+        else:
+            lineas.append(_escapar_texto(linea))
+    return "\n".join(lineas)
+
+
+def render_answer(text: str, source_count: int | None = None) -> Markup:
+    """Formatea una respuesta generada y devuelve HTML saneado.
+
+    ``source_count`` limita los enlaces ``[n]`` a las fuentes realmente
+    citadas; una referencia fuera de rango se conserva como texto.
+
+    El HTML que venga en el texto generado se escapa antes de Markdown: se
+    muestra como texto, nunca se interpreta. Después se insertan los enlaces de
+    cita y las URL sueltas, que sí son marcado propio y controlado.
+    """
+
+    preparado = _escapar_html(text)
+    preparado, fragmentos = _proteger_fragmentos(preparado)
+    preparado = _citas_enteras(preparado)
+    preparado = _CITATION_RE.sub(
+        lambda match: _cita(int(match.group(1)), source_count),
+        preparado,
+    )
+    preparado = _URL_RE.sub(_enlazar_url, preparado)
+    preparado = _restaurar_fragmentos(preparado, fragmentos)
+    html = markdown.markdown(
+        preparado,
+        extensions=["extra", "sane_lists"],
+    )
+    limpio = nh3.clean(
+        html,
+        tags=_ANSWER_TAGS,
+        clean_content_tags={"script", "style"},
+        attributes=_ANSWER_ATTRIBUTES,
+        url_schemes=_ALLOWED_URL_SCHEMES,
+        link_rel="noopener noreferrer",
+    )
+    return Markup(limpio)

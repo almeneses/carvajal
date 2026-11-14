@@ -1,3 +1,4 @@
+{% from "_fuentes.html" import fuente %}
 {% if error %}
 <p class="aviso" role="alert">{{ error }}</p>
 {% endif %}
@@ -12,33 +13,17 @@
       {% endif %}
     </p>
     <div class="burbuja">
-      <p class="texto">{{ message.content }}</p>
+      <div class="texto texto-formateado">{{ message.content | respuesta((message.sources or []) | length) }}</div>
     </div>
     {% if message.sources %}
-    <section class="citas" aria-label="Fuentes de la respuesta">
-      <h3>Fuentes citadas</h3>
+    <details class="citas">
+      <summary>Fuentes citadas <span class="citas-conteo">({{ message.sources | length }})</span></summary>
       <ol class="fuentes">
         {% for source in message.sources %}
-        <li class="fuente">
-          <p class="fuente-meta">
-            <span>Documento:
-              {% if source.url %}
-              <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer"><strong>{{ source.title or source.slug }}</strong></a>
-              {% else %}
-              <strong>{{ source.slug }}</strong>
-              {% endif %}
-            </span>
-            <span>Sección: {{ source.section }}</span>
-            <span>Capa: {{ source.layer }}</span>
-            <span>Tipo: {{ source.source_type }}</span>
-            <span class="puntuacion">Puntuación: {{ "%.3f"|format(source.score) }}</span>
-          </p>
-          <p class="extracto">{{ source.excerpt }}</p>
-          <p class="chunk">{{ source.chunk_id }}</p>
-        </li>
+        {{ fuente(source, loop.index) }}
         {% endfor %}
       </ol>
-    </section>
+    </details>
     {% endif %}
   </li>
   {% endfor %}

@@ -183,6 +183,9 @@ def test_get_con_cookie_muestra_el_historial_en_orden() -> None:
     assert primera < respuesta < segunda
     assert "Fuentes citadas" in response.text
     assert "<strong>historia</strong>" in response.text
+    assert '<details class="citas">' in response.text
+    assert 'class="cita-fuente"' in response.text
+    assert "texto-formateado" in response.text
 
 
 def test_get_con_cookie_manipulada_regenera_sin_romper() -> None:
