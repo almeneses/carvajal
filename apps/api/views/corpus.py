@@ -4,6 +4,10 @@ La pantalla pide una página de ``PAGE_SIZE`` documentos al proveedor inyectado
 en ``app.state.corpus``; si no existe, se construye uno real sobre PostgreSQL al
 momento de la petición. El proveedor traduce a consultas el filtro por sección
 y por capa, y expone las secciones disponibles para el formulario.
+
+El mismo proveedor alimenta los endpoints JSON de lectura del M2: además de
+listar, cuenta el conjunto filtrado y ofrece las secciones y tipos de fuente
+distintos que el frontend usa como facetas.
 """
 
 from collections.abc import Sequence
@@ -22,17 +26,22 @@ from carvajal.domain.entities import Document
 router = APIRouter()
 
 PAGE_SIZE = 50
+API_PAGE_SIZE = 24
+MAX_PAGE_SIZE = 100
+MAX_QUERY_CHARS = 200
 LAYERS = ("core", "extended")
 
 
 class CorpusProvider(Protocol):
-    """Puerto de lectura que la pantalla del corpus necesita."""
+    """Puerto de lectura que la pantalla y la API del corpus necesitan."""
 
     def list(
         self,
         *,
         layer: str | None = None,
         section: str | None = None,
+        source_type: str | None = None,
+        q: str | None = None,
         limit: int = PAGE_SIZE,
         offset: int = 0,
     ) -> Sequence[Document]:
@@ -40,8 +49,25 @@ class CorpusProvider(Protocol):
 
         ...
 
+    def count(
+        self,
+        *,
+        layer: str | None = None,
+        section: str | None = None,
+        source_type: str | None = None,
+        q: str | None = None,
+    ) -> int:
+        """Cuenta el conjunto completo que cumple los filtros, sin paginar."""
+
+        ...
+
     def sections(self) -> Sequence[str]:
         """Devuelve las secciones distintas que ofrece el corpus."""
+
+        ...
+
+    def source_types(self) -> Sequence[str]:
+        """Devuelve los tipos de fuente distintos que ofrece el corpus."""
 
         ...
 
@@ -57,6 +83,8 @@ class SqlCorpusProvider:
         *,
         layer: str | None = None,
         section: str | None = None,
+        source_type: str | None = None,
+        q: str | None = None,
         limit: int = PAGE_SIZE,
         offset: int = 0,
     ) -> Sequence[Document]:
@@ -64,7 +92,27 @@ class SqlCorpusProvider:
 
         with self._factory.begin() as session:
             return SqlDocumentRepository(session).list(
-                layer=layer, section=section, limit=limit, offset=offset
+                layer=layer,
+                section=section,
+                source_type=source_type,
+                q=q,
+                limit=limit,
+                offset=offset,
+            )
+
+    def count(
+        self,
+        *,
+        layer: str | None = None,
+        section: str | None = None,
+        source_type: str | None = None,
+        q: str | None = None,
+    ) -> int:
+        """Cuenta los documentos que cumplen los filtros, sin paginar."""
+
+        with self._factory.begin() as session:
+            return SqlDocumentRepository(session).count(
+                layer=layer, section=section, source_type=source_type, q=q
             )
 
     def sections(self) -> Sequence[str]:
@@ -74,22 +122,30 @@ class SqlCorpusProvider:
         with self._factory.begin() as session:
             return list(session.scalars(query))
 
+    def source_types(self) -> Sequence[str]:
+        """Consulta los tipos de fuente distintos, en orden alfabético."""
 
-def _parse_section(raw: str | None) -> str | None:
+        column = tables.documents.c.source_type
+        query = select(column).distinct().order_by(column)
+        with self._factory.begin() as session:
+            return list(session.scalars(query))
+
+
+def parse_section(raw: str | None) -> str | None:
     """Recorta la sección y convierte el vacío en ``None``."""
 
     section = (raw or "").strip()
     return section or None
 
 
-def _parse_layer(raw: str | None) -> str | None:
+def parse_layer(raw: str | None) -> str | None:
     """Acepta solo las capas conocidas; cualquier otro valor se ignora."""
 
     layer = (raw or "").strip()
     return layer if layer in LAYERS else None
 
 
-def _parse_page(raw: str | None) -> int:
+def parse_page(raw: str | None) -> int:
     """Convierte la página en un entero mayor o igual que uno.
 
     Un valor ausente, vacío, no numérico o menor que uno se normaliza a la
@@ -106,7 +162,36 @@ def _parse_page(raw: str | None) -> int:
     return page if page >= 1 else 1
 
 
-def _provider(request: Request) -> CorpusProvider:
+def parse_page_size(
+    raw: str | None,
+    *,
+    default: int = API_PAGE_SIZE,
+    maximum: int = MAX_PAGE_SIZE,
+) -> int:
+    """Normaliza el tamaño de página al rango ``1..maximum``.
+
+    Un valor ausente, no numérico o fuera del rango se sustituye por ``default``
+    para que un parámetro mal formado no abra una consulta desmedida.
+    """
+
+    text = (raw or "").strip()
+    if not text:
+        return default
+    try:
+        size = int(text)
+    except ValueError:
+        return default
+    return size if 1 <= size <= maximum else default
+
+
+def parse_query(raw: str | None, *, limit: int = MAX_QUERY_CHARS) -> str | None:
+    """Recorta la búsqueda, la limita a ``limit`` caracteres y vacía es ``None``."""
+
+    text = (raw or "").strip()
+    return text[:limit] or None
+
+
+def corpus_provider(request: Request) -> CorpusProvider:
     """Usa el proveedor inyectado en ``app.state.corpus`` o construye el real."""
 
     injected = cast(CorpusProvider | None, getattr(request.app.state, "corpus", None))
@@ -141,11 +226,11 @@ def corpus_list(
 ) -> Response:
     """Muestra la lista paginada del corpus con filtros combinables."""
 
-    clean_section = _parse_section(section)
-    clean_layer = _parse_layer(layer)
-    current_page = _parse_page(page)
+    clean_section = parse_section(section)
+    clean_layer = parse_layer(layer)
+    current_page = parse_page(page)
     offset = (current_page - 1) * PAGE_SIZE
-    provider = _provider(request)
+    provider = corpus_provider(request)
 
     # Se pide un documento de más: si llega el 51, hay página siguiente.
     rows = list(

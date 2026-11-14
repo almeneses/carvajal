@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
 
-from sqlalchemy import CursorResult, delete, func, insert, select, update
+from sqlalchemy import ColumnElement, CursorResult, delete, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.orm import Session
@@ -32,6 +32,41 @@ _CHUNK_COLUMNS = (
     tables.chunks.c.section,
     tables.chunks.c.layer,
 )
+
+
+def _escape_like(value: str) -> str:
+    """Escapa los comodines de ``LIKE`` para buscar el texto de forma literal."""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _document_conditions(
+    *,
+    layer: str | None,
+    section: str | None,
+    source_type: str | None,
+    q: str | None,
+) -> list[ColumnElement[bool]]:
+    """Condiciones compartidas por ``list`` y ``count`` del repositorio."""
+
+    conditions: list[ColumnElement[bool]] = []
+    if layer is not None:
+        conditions.append(tables.documents.c.layer == layer)
+    if section is not None:
+        conditions.append(tables.documents.c.section == section)
+    if source_type is not None:
+        conditions.append(tables.documents.c.source_type == source_type)
+    if q:
+        pattern = f"%{_escape_like(q)}%"
+        conditions.append(
+            or_(
+                tables.documents.c.title.ilike(pattern, escape="\\"),
+                tables.documents.c.section.ilike(pattern, escape="\\"),
+                tables.documents.c.slug.ilike(pattern, escape="\\"),
+                tables.documents.c.url.ilike(pattern, escape="\\"),
+            )
+        )
+    return conditions
 
 
 class SqlDocumentRepository:
@@ -67,11 +102,14 @@ class SqlDocumentRepository:
         *,
         layer: str | None = None,
         section: str | None = None,
+        source_type: str | None = None,
+        q: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Sequence[Document]:
-        """Lista documentos por slug, filtrando por capa y sección.
+        """Lista documentos por slug, filtrando por capa, sección, tipo y texto.
 
+        ``q`` busca sin distinguir mayúsculas en título, sección, slug y URL.
         Lanza ``ValueError`` si ``limit`` u ``offset`` son negativos. ``limit=0``
         es válido y devuelve una secuencia vacía, igual que en SQL.
         """
@@ -83,10 +121,11 @@ class SqlDocumentRepository:
             )
 
         query = select(tables.documents)
-        if layer is not None:
-            query = query.where(tables.documents.c.layer == layer)
-        if section is not None:
-            query = query.where(tables.documents.c.section == section)
+        conditions = _document_conditions(
+            layer=layer, section=section, source_type=source_type, q=q
+        )
+        if conditions:
+            query = query.where(*conditions)
         query = query.order_by(tables.documents.c.slug).limit(limit).offset(offset)
         return [Document(**row) for row in self._session.execute(query).mappings()]
 
@@ -184,12 +223,22 @@ class SqlDocumentRepository:
         self._session.flush()
         return result.rowcount > 0
 
-    def count(self, *, layer: str | None = None) -> int:
-        """Cuenta documentos, opcionalmente filtrados por capa."""
+    def count(
+        self,
+        *,
+        layer: str | None = None,
+        section: str | None = None,
+        source_type: str | None = None,
+        q: str | None = None,
+    ) -> int:
+        """Cuenta documentos con los mismos filtros que ``list``."""
 
         query = select(func.count()).select_from(tables.documents)
-        if layer is not None:
-            query = query.where(tables.documents.c.layer == layer)
+        conditions = _document_conditions(
+            layer=layer, section=section, source_type=source_type, q=q
+        )
+        if conditions:
+            query = query.where(*conditions)
         return self._session.execute(query).scalar_one()
 
 

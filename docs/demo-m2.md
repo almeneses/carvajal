@@ -13,6 +13,7 @@ cp .env.example .env
 make db && make qdrant
 uv run alembic upgrade head
 ollama pull nomic-embed-text
+uv run carvajal migrate-gold
 make index
 make api      # terminal 1
 make web      # terminal 2
@@ -20,8 +21,8 @@ curl -s http://localhost:8000/health | python3 -m json.tool
 ```
 
 Comprueba que `/health` devuelve `"index": {"status": "ok", "points": 125}`.
-Fija `SESSION_SECRET` antes de reiniciar: sin él, la cookie cambia de firma y el
-hilo no se recupera.
+Configura `AGENT_CHECKPOINTER=postgres` y fija `SESSION_SECRET` para que la
+cookie conserve su validez tras reiniciar la API.
 
 ## Guion (12 min)
 
@@ -31,8 +32,8 @@ hilo no se recupera.
 | 1:00–2:30 | **Directa** | «Hola, ¿qué puedes hacer?» | `trace.route=direct`, `retrieved=0`: no se consulta Qdrant ni la herramienta. |
 | 2:30–5:00 | **RAG + seguimiento** | «¿En qué ciudad fue fundada Carvajal?» y «¿Y en qué año ocurrió eso?» | Tokens incrementales, 6 fuentes, `quienes_somos`/`historia`; clic en la URL original. El seguimiento conserva el mismo `thread_id` y responde 1904. |
 | 5:00–6:30 | **Herramienta** | «¿Cuál fue el EBITDA consolidado a septiembre de 2025 y qué margen reportó?» | `route=tool`, `tool=ebitda`, valor \$351.631 millones, margen 14%, URL de La República. |
-| 6:30–8:30 | **Memoria** | «Recuerda que prefiero respuestas breves» → «Nuevo hilo» → «Hola» | `memory=1` en el hilo nuevo; misma cookie, distinto hilo. Abre una ventana incógnito y saluda: `memory=0` (aislamiento). |
-| 8:30–10:00 | **Reinicio** | Reinicia el backend (o muestra la evidencia pregrabada) y repite «¿Y en qué año ocurrió eso?» en el hilo | Mismo `thread_id`, `intent=follow_up`, respuesta 1904; el checkpointer y el historial sobreviven. |
+| 6:30–8:30 | **Reinicio** | Pregunta por la ciudad de fundación y anota el `thread_id`. Reinicia la API, recarga el frontend en el mismo navegador y pregunta «¿Y en qué año ocurrió eso?». | Historial recuperado, mismo `thread_id`, `intent=follow_up` y respuesta 1904. |
+| 8:30–10:00 | **Memoria larga** | «Recuerda que prefiero respuestas breves» → «Nuevo hilo» → «Hola» | `memory=1` en el hilo nuevo. Abre una ventana de incógnito y saluda para comprobar el aislamiento con `memory=0`. |
 | 10:00–11:00 | **Salud y trazas** | `/live`, `/health`, logs JSON | `/live` no toca base; `/health` separa documentos, fragmentos e índice. Logs con `request_id`, `thread_id`, `route`, `tool`, fuentes. |
 | 11:00–12:00 | **Evaluación y calidad** | Reporte de retrieval y `make check` | Recall@10=0.8000, nDCG@10=0.7791; 437 unitarias + 41 de integración; cita la consulta sin evidencia. |
 
