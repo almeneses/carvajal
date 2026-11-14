@@ -166,10 +166,11 @@ for _ in $(seq 1 30); do
     break
   fi
   # Solo se acepta el 503 de índice ausente (`index.status == missing`), que
-  # ocurre en el primer despliegue antes de indexar. Cualquier otro 503
-  # (`degraded`, `unavailable`) se reintenta y, si persiste, revierte.
+  # ocurre en el primer despliegue antes de indexar. El cuerpo solo contiene
+  # `"status":"missing"` en ese caso; Qdrant caído devuelve `"unavailable"`.
+  # Cualquier otro 503 se reintenta y, si persiste, revierte.
   if [[ "$HEALTH_CODE" == "503" ]] \
-    && grep -Eq '"index":\{[^}]*"status":"missing"' "$HEALTH_FILE"; then
+    && grep -q '"status":"missing"' "$HEALTH_FILE"; then
     SALUD=2
     break
   fi
