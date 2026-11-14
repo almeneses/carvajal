@@ -12,7 +12,13 @@
   function leerCookie(nombre) {
     for (const parte of document.cookie.split(";")) {
       const [clave, ...resto] = parte.trim().split("=");
-      if (clave === nombre) return decodeURIComponent(resto.join("="));
+      if (clave === nombre) {
+        try {
+          return decodeURIComponent(resto.join("="));
+        } catch {
+          return "";
+        }
+      }
     }
     return "";
   }
