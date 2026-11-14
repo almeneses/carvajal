@@ -32,8 +32,8 @@
     if (boton.dataset.listo === "1") return;
     boton.dataset.listo = "1";
     boton.addEventListener("click", () => void generar());
-    reiniciar.addEventListener("click", limpiar);
-    descargar.addEventListener("click", descargarMarkdown);
+    if (reiniciar) reiniciar.addEventListener("click", limpiar);
+    if (descargar) descargar.addEventListener("click", descargarMarkdown);
   }
 
   async function cargarCsrf() {
@@ -242,8 +242,8 @@
   function actualizarBotones() {
     const hayContenido = preguntas.length > 0 || temasFaltantes.length > 0;
     boton.textContent = hayContenido ? "Generar otras 10" : "Generar 10 preguntas";
-    reiniciar.hidden = !hayContenido;
-    descargar.hidden = preguntas.length === 0;
+    if (reiniciar) reiniciar.hidden = !hayContenido;
+    if (descargar) descargar.hidden = preguntas.length === 0;
   }
 
   function limpiar() {
