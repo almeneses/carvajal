@@ -117,6 +117,21 @@ class Settings(BaseSettings):
     # En producción fíjalo para habilitar la carga desde el navegador.
     config_token: str = ""
 
+    # Captura web desde la pestaña Configuración. El máximo de URLs por
+    # ejecución sigue al de la primera versión (todas las semillas
+    # configuradas) y el valor inicial es de cinco. La captura es pública en
+    # esta fase; el límite, el timeout y el guard SSRF son su única defensa.
+    capture_default_urls: int = Field(default=5, ge=1)
+    capture_max_bytes: int = Field(default=5_000_000, ge=1)
+    capture_timeout_seconds: int = Field(default=30, ge=1)
+    capture_max_redirects: int = Field(default=5, ge=0, le=10)
+    # Solo para desarrollo y pruebas: permite capturar desde loopback y redes
+    # privadas. En producción debe quedar en False.
+    capture_allow_private_hosts: bool = False
+    # Lista opcional de dominios permitidos (separados por coma). Vacía
+    # significa cualquier host público que pase el guard SSRF.
+    capture_allowed_domains: Annotated[tuple[str, ...], NoDecode] = ()
+
     # Cupo diario de preguntas por visitante anónimo (W4.2). El límite es una
     # política de producto y la medianoche se calcula en la zona indicada, no
     # en el TZ del contenedor.
@@ -166,6 +181,15 @@ class Settings(BaseSettings):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
 
+    @field_validator("capture_allowed_domains", mode="before")
+    @classmethod
+    def _dominios_separados_por_coma(cls, value: Any) -> Any:
+        """Acepta ``a.com,b.com`` en el entorno además de una lista JSON."""
+
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
     @field_validator("log_level")
     @classmethod
     def _nivel_de_log_valido(cls, value: str) -> str:
@@ -209,6 +233,16 @@ class Settings(BaseSettings):
         """Ruta del índice JSONL del corpus, derivada del directorio Gold."""
 
         return self.gold_dir / "index.jsonl"
+
+    @property
+    def capture_max_urls(self) -> int:
+        """Máximo de URLs por captura: todas las semillas configuradas.
+
+        Reproduce el límite de la primera interfaz, donde el control llegaba
+        hasta el total de semillas oficiales y de terceros.
+        """
+
+        return len(self.seeds) + len(self.external_seeds)
 
 
 def load_settings(**overrides: Any) -> Settings:

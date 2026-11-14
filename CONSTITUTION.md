@@ -265,9 +265,11 @@ carvajal/
 
 ### 6.1 Imagen y despliegue
 
-- `make image` construye la imagen multi-etapa (`Dockerfile`) solo con las
-  dependencias base; `capture` (CLI) y `legacy` (Streamlit/FAISS) son extras y
-  se instalan en desarrollo con `uv sync --all-extras`.
+- `make image` construye la imagen multi-etapa (`Dockerfile`) con las
+  dependencias base y el extra `capture` (la captura web desde Configuración
+  usa `requests`, `beautifulsoup4` y `lxml` en runtime); `legacy`
+  (Streamlit/FAISS) se queda fuera de la imagen y se instala en desarrollo con
+  `uv sync --all-extras`.
 - `make prod-up` levanta app, Postgres, Qdrant y Ollama con
   `compose.prod.yml`; `make prod-down` los detiene conservando los volúmenes.
   El compose exige `SESSION_SECRET` (falla si falta), publica la app en
@@ -290,8 +292,9 @@ carvajal/
 - `GET /live` es la vitalidad del proceso y no toca la base; `GET /health` es
   el readiness y publica los conteos del corpus. El embedder y el LLM se crean
   en la primera pregunta, nunca al arrancar.
-- El CLI completo requiere `carvajal[capture,legacy]`; la imagen web no lo
-  incluye. Las migraciones se aplican aparte con `alembic upgrade head`.
+- El CLI completo requiere `carvajal[capture,legacy]`; la imagen web incluye
+  el extra `capture` para la captura desde Configuración, pero no `legacy`.
+  Las migraciones se aplican aparte con `alembic upgrade head`.
 
 ## 7. Repositorio y Git
 
@@ -394,6 +397,7 @@ git push
 | 2026-11-13 | Interfaz institucional con pestañas superiores en el frontend del M2: rutas SPA `/`, `/corpus`, `/documents` y `/documents/{id}`, y contrato JSON de lectura `/api/corpus` y `/api/documents/*` | Las tres pantallas comparten header, navegación y estado sin recargar el chat; el frontend consume JSON y reutiliza los proveedores y el Markdown saneado con `nh3` de las vistas HTML, que se conservan como compatibilidad |
 | 2026-11-14 | Chat HTMX con compositor inferior y panel lateral de hilos; pestaña Configuración para cargas | El hilo seleccionado se resuelve por `?thread=` y el compositor envía ese id al stream; la carga reutiliza Bronze → Silver → Gold, `migrate_gold` y `index_gold` para no duplicar el pipeline |
 | 2026-11-14 | El shell HTMX de compatibilidad (`apps/api`, :8000) adopta el sistema visual institucional del M2, fuentes plegables y un panel lateral de lectura | Cabecera, paleta y componentes unificados; el texto generado se formatea en servidor con Markdown saneado y en cliente para el stream, las fuentes quedan contraídas por defecto y el panel resuelve el documento con `/api/documents/by-slug` y resalta el fragmento citado, sin cambiar rutas ni contratos SSE/CSRF |
+| 2026-11-14 | Captura web pública desde Configuración: semillas + URLs, máximo de 24 por ejecución, guard SSRF, job en segundo plano y progreso SSE | La petición solo valida y crea el job; el cierre reutiliza `importar_gold` e `indexar_gold` con `only` y sin poda. Sin autenticación en esta fase: el límite, `robots.txt`, el timeout y el guard SSRF (IPs privadas, puertos 80/443 y redirecciones revalidadas) son la defensa; `CAPTURE_ALLOWED_DOMAINS` permite restringir dominios por entorno |
 
 ## 10. Notas y tareas pendientes
 

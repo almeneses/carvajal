@@ -307,8 +307,11 @@ frontend del M2. El texto generado se formatea con Markdown saneado, las
 fuentes se pliegan por defecto y cada cita abre un panel lateral con el
 documento en el fragmento citado. El chat mantiene el compositor abajo, un
 panel de hilos anteriores y la pestaña **Configuración** para subir documentos
-o carpetas: Bronze → Silver → Gold → PostgreSQL → Qdrant, reutilizando el
-pipeline del corpus y conservando los documentos ya indexados.
+o carpetas y para capturar páginas web por semillas o URLs: Bronze → Silver →
+Gold → PostgreSQL → Qdrant, reutilizando el pipeline del corpus y conservando
+los documentos ya indexados. La captura muestra el progreso por SSE, respeta
+`robots.txt` y valida las URLs contra un guard SSRF; en esta fase es pública y
+no exige autenticación.
 
 ### Interfaz legada (Streamlit)
 
@@ -389,6 +392,12 @@ También puedes configurar las variables en la terminal:
 | `FRONTEND_ORIGINS` | Orígenes CORS del frontend separado. | `http://localhost:8001,...` |
 | `CARVAJAL_API_BASE` | URL de la API para `config.js` y la CSP del frontend; obligatoria fuera de `localhost`/`127.0.0.1`. | `http://localhost:8000` |
 | `CONFIG_TOKEN` | Token de la pestaña Configuración; sin él solo se aceptan cargas desde loopback. | vacío |
+| `CAPTURE_DEFAULT_URLS` | Valor inicial del máximo de URLs por captura. | `5` |
+| `CAPTURE_MAX_BYTES` | Tamaño máximo de una respuesta capturada. | `5000000` |
+| `CAPTURE_TIMEOUT_SECONDS` | Timeout por petición de la captura. | `30` |
+| `CAPTURE_MAX_REDIRECTS` | Saltos de redirección permitidos y revalidados. | `5` |
+| `CAPTURE_ALLOWED_DOMAINS` | Allowlist opcional separada por coma; vacía = cualquier host público. | vacío |
+| `CAPTURE_ALLOW_PRIVATE_HOSTS` | Solo desarrollo: permite loopback y redes privadas. | `false` |
 
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
 > independientemente del proveedor del LLM. `make index` requiere ese modelo.

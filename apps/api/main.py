@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from apps.api.capture_jobs import CaptureJobs
 from apps.api.chat.identity import ChatIdentity
 from apps.api.observability import (
     RequestContextMiddleware,
@@ -160,6 +161,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     # esquema no aporta a un visitante anónimo.
     app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.quota = handlers.quota if handlers is not None else _default_quota
+    # Captura web: un registro por app para que las pruebas inyecten su runner.
+    app.state.captures = CaptureJobs()
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)

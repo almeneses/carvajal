@@ -30,6 +30,8 @@ __all__ = [
     "MAX_FILE_BYTES",
     "IngestReport",
     "UploadedDocument",
+    "importar_gold",
+    "indexar_gold",
     "ingest_uploads",
 ]
 
@@ -240,7 +242,7 @@ def _merge_index(index_file: Path, entry: dict[str, object]) -> None:
     )
 
 
-def _importar_gold(gold_dir: Path, only: set[str]) -> tuple[int, int]:
+def importar_gold(gold_dir: Path, only: set[str]) -> tuple[int, int]:
     """Importa Gold a PostgreSQL y devuelve ``(documentos, fragmentos)``."""
 
     from apps.api.runtime import session_factory
@@ -251,7 +253,7 @@ def _importar_gold(gold_dir: Path, only: set[str]) -> tuple[int, int]:
     return report.documents, report.chunks
 
 
-def _indexar_gold(gold_dir: Path, only: set[str]) -> int:
+def indexar_gold(gold_dir: Path, only: set[str]) -> int:
     """Reindexa Gold en Qdrant y devuelve los puntos indexados."""
 
     from apps.api.runtime import embedder
@@ -371,7 +373,7 @@ def ingest_uploads(
     chunks = 0
     import_ok = False
     try:
-        documents_count, chunks = (importar or _importar_gold)(settings.gold_dir, slugs)
+        documents_count, chunks = (importar or importar_gold)(settings.gold_dir, slugs)
         import_ok = True
     except Exception as error:  # la UI informa el fallo de la etapa
         logger.warning("upload.import_failed", error=str(error))
@@ -380,7 +382,7 @@ def ingest_uploads(
     indexed = 0
     if import_ok:
         try:
-            indexed = (indexar or _indexar_gold)(settings.gold_dir, slugs)
+            indexed = (indexar or indexar_gold)(settings.gold_dir, slugs)
         except Exception as error:  # Ollama o Qdrant pueden no estar disponibles
             logger.warning("upload.index_failed", error=str(error))
             errors.append("No se pudo indexar en Qdrant; revisa Qdrant y Ollama.")

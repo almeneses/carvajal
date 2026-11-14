@@ -125,3 +125,21 @@ def test_captura_parcial_conserva_el_indice(tmp_path: Path) -> None:
 
     assert len(lineas) == 2
     assert {json.loads(linea)["slug"] for linea in lineas} == {"historia", "empaques"}
+
+
+class GuardClient(FakeClient):
+    """Cliente cuyo ``can_fetch`` falla, como el guard SSRF de la captura web."""
+
+    def can_fetch(self, url: str) -> bool:
+        raise FetchError("URL no permitida")
+
+
+def test_capture_registra_un_can_fetch_que_falla_sin_abortar(tmp_path: Path) -> None:
+    """Un fallo del guard se reporta como error de la URL, no del turno."""
+
+    client = GuardClient({HISTORIA: HTML_HISTORIA})
+
+    report = _capture(tmp_path, client, [HISTORIA])
+
+    assert report.written == 0
+    assert report.errors and "URL no permitida" in report.errors[0]

@@ -88,6 +88,16 @@ services:
       # Obligatorio para habilitar la carga desde fuera del contenedor. Sin él,
       # la pestaña Configuración solo acepta loopback.
       CONFIG_TOKEN: ${CONFIG_TOKEN:-}
+      # Captura web pública desde Configuración. El máximo por ejecución lo
+      # deriva Settings de las semillas (24 por defecto); aquí solo se ajustan
+      # el valor inicial, el tamaño y el timeout.
+      CAPTURE_DEFAULT_URLS: ${CAPTURE_DEFAULT_URLS:-5}
+      CAPTURE_MAX_BYTES: ${CAPTURE_MAX_BYTES:-5000000}
+      CAPTURE_TIMEOUT_SECONDS: ${CAPTURE_TIMEOUT_SECONDS:-30}
+      CAPTURE_MAX_REDIRECTS: ${CAPTURE_MAX_REDIRECTS:-5}
+      # Allowlist opcional de dominios separados por coma. Vacía = cualquier
+      # host público que pase el guard SSRF.
+      CAPTURE_ALLOWED_DOMAINS: ${CAPTURE_ALLOWED_DOMAINS:-}
       # Cuota diaria por visitante (W4.2); la medianoche se calcula en la zona
       # indicada, no en el TZ del contenedor.
       DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}

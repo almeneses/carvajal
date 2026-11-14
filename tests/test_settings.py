@@ -295,3 +295,27 @@ def test_sentry_traces_sample_rate_invalido_falla(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_capture_max_urls_es_el_total_de_semillas() -> None:
+    """El máximo de la captura sigue al total de semillas configuradas."""
+
+    settings = Settings(
+        _env_file=None,
+        seeds=("https://example.com/a", "https://example.com/b"),
+        external_seeds=("https://example.org/c",),
+    )
+
+    assert settings.capture_max_urls == 3
+
+
+def test_capture_allowed_domains_acepta_lista_separada_por_coma(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La allowlist se puede definir como texto en el entorno."""
+
+    monkeypatch.setenv("CAPTURE_ALLOWED_DOMAINS", "carvajal.com, larepublica.co")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.capture_allowed_domains == ("carvajal.com", "larepublica.co")

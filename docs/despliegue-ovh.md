@@ -260,6 +260,9 @@ curl -fsS http://144.217.80.136:8080/health
 El índice queda en el volumen `qdrantdata` y sobrevive a reinicios y despliegues.
 Las cargas de la pestaña Configuración escriben en el volumen `appdata`
 montado en `/app/data`; también sobreviven a los reinicios y a los despliegues.
+La captura web usa el mismo volumen y el mismo cierre Gold → PostgreSQL →
+Qdrant; es pública en esta fase y se puede restringir con
+`CAPTURE_ALLOWED_DOMAINS` (lista separada por coma) en el `.env` del servidor.
 `deploy.sh` escribe `APP_IMAGE=ghcr.io/...:<tag>` en `.env`, así que los comandos
 manuales de `docker compose` usan la misma imagen que quedó desplegada.
 

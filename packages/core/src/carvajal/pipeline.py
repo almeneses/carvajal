@@ -96,7 +96,13 @@ def capture(
     _emit(on_event, "descubrir", detail=f"{len(seeds)} semillas")
 
     for url in seeds:
-        if not web_client.can_fetch(url):
+        try:
+            allowed = web_client.can_fetch(url)
+        except FetchError as error:
+            report.errors.append(f"{url}: {error}")
+            _emit(on_event, "robots", url, f"error: {error}")
+            continue
+        if not allowed:
             report.robots_denied.append(url)
             _emit(on_event, "robots", url, "bloqueada por robots.txt")
             continue
