@@ -64,6 +64,7 @@ make db                              # Postgres 16 + pgvector
 make qdrant                          # Qdrant con volumen persistente
 uv run alembic upgrade head          # migraciones, incluida 0005
 ollama pull nomic-embed-text         # embeddings locales de 768 dimensiones
+uv run carvajal migrate-gold         # importa documentos y fragmentos a Postgres
 make index                           # indexa data/gold en Qdrant (idempotente)
 
 # Terminal 1: API
@@ -105,8 +106,9 @@ y `GET /api/chat/history` devuelve el hilo activo al recargar.
 - **Largo plazo:** `PostgresStore` en el namespace `("carvajal", "preferences",
   owner_key)`. Una preferencia declarada se recupera en otro hilo del mismo
   dueño y no cruza a otro visitante.
-- **Herramienta:** `@tool` con `args_schema` Pydantic sobre
-  `data/indicators.json`; devuelve valor, unidad, cita y URL, o ausencia estable.
+- **Herramienta:** el nodo `tool` invoca `indicator_lookup` con `@tool` y
+  `args_schema` Pydantic sobre `data/indicators.json`. Devuelve valor, unidad,
+  cita y URL, o una ausencia explícita.
 - **Router:** orden documentado en `carvajal/agent/router.py`: preferencia →
   herramienta con período explícito → saludo/capacidad → RAG (seguimiento
   elíptico reescrito con la pregunta anterior) → abstención si falta evidencia.
@@ -293,7 +295,12 @@ make eval
 ### Interfaz web del M2
 
 La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
-API en <http://localhost:8000> (`make api`). El shell Jinja2 sigue disponible en
+API en <http://localhost:8000> (`make api`). El frontend ofrece tres pestañas
+superiores —**Asistente**, **Corpus** y **Documento**— con URLs estables
+(`/`, `/corpus` y `/documents/{id}`) y conserva el hilo del chat al navegar.
+Corpus y Documento leen los endpoints JSON `/api/corpus` y
+`/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
+`nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
 <http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE.
 
 ### Interfaz legada (Streamlit)
@@ -373,6 +380,7 @@ También puedes configurar las variables en la terminal:
 | `RAG_MIN_SCORE` | Umbral mínimo de similitud. | `0.30` |
 | `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
 | `FRONTEND_ORIGINS` | Orígenes CORS del frontend separado. | `http://localhost:8001,...` |
+| `CARVAJAL_API_BASE` | URL de la API para `config.js` y la CSP del frontend; obligatoria fuera de `localhost`/`127.0.0.1`. | `http://localhost:8000` |
 
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
 > independientemente del proveedor del LLM. `make index` requiere ese modelo.

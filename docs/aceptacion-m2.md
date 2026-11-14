@@ -38,13 +38,13 @@
 | Esquema reproducible del checkpointer | ✅ | `setup()` en la primera pregunta, antes de abrir transacción (evita bloqueo de índice concurrente). |
 | `thread_id` estable y pertenencia al dueño | ✅ | `thread_id = conversations.id`; `get_owned()`; `test_un_hilo_ajeno_no_se_puede_usar`. |
 | Estado influye en seguimiento | ✅ | Router `follow_up` reescribe con la pregunta anterior; smoke `rag_seguimiento`. |
-| Supervivencia a reinicio | ✅ | Reinicio real + `thread_id` recuperado; `docs/evidence/m2/smoke.json`. |
+| Supervivencia a reconexión del agente | Prueba de integración | `test_el_checkpointer_postgres_recupera_el_hilo_tras_reconectar` reconstruye el grafo con una conexión nueva; el reinicio completo de la API se comprueba siguiendo `docs/demo-m2.md`. |
 | Historial de UI sin duplicar turnos | ✅ | `client_turn_id` único (índice parcial) y replay; `test_reintento...`. |
 | Store persistente con namespace por dueño | ✅ | `PostgresStore`, namespace `("carvajal","preferences",owner_key)`. |
 | Preferencia visible y recuperada en otro hilo | ✅ | `memoria_guardar` y `memoria_recuperar_otro_hilo` (`memory=1`). |
 | Aislamiento entre sesiones | ✅ | `aislamiento_otro_visitante` (`memory=0`). |
 | Datos personales innecesarios evitados | ✅ | Solo se guarda la frase de preferencia declarada, máximo 280 chars. |
-| Herramienta `@tool` con `args_schema` Pydantic | ✅ | `indicator_lookup`, `IndicatorQuery`; `tests/test_agent_router.py`. |
+| Herramienta `@tool` con `args_schema` Pydantic | ✅ | El nodo `tool` llama a `indicator_lookup.invoke`; `tests/test_agent_graph.py` comprueba la invocación y la cita. |
 | Caso válido, parámetros inválidos y combinación inexistente | ✅ | EBITDA 2025-09; nombre/período inválido; EBITDA 2024 ausente. |
 | Router explícito `tool`/`rag`/`direct` | ✅ | `decide_route`, orden documentado; tests de las tres rutas. |
 | Saludo sin Qdrant ni herramienta | ✅ | `test_directo_no_consulta_qdrant` y smoke `directa`. |
