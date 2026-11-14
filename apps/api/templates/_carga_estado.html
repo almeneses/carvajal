@@ -1,0 +1,124 @@
+{% if carga_error %}
+<p class="aviso" role="alert">{{ carga_error }}</p>
+{% endif %}
+
+<div
+  data-carga-estado="{{ carga_estado }}"
+  data-carga-job-id="{{ carga_job.id if carga_job else '' }}"
+>
+  {% if carga_job and cargando %}
+  <section
+    class="panel config-resultado config-carga-estado"
+    hx-get="/configuracion/carga/{{ carga_job.id }}"
+    hx-trigger="every 1s"
+    hx-target="#carga-estado"
+    hx-swap="innerHTML"
+    aria-live="polite"
+    aria-busy="true"
+  >
+    <div class="config-resultado-cabecera">
+      <div>
+        <p class="sobrelinea">Carga en curso</p>
+        <h2 id="titulo-carga-estado">{{ carga_job.stage }}</h2>
+      </div>
+      <span class="etiqueta etiqueta-externa">Procesando</span>
+    </div>
+
+    <p class="ayuda">
+      {{ carga_job.detail or "Preparando los archivos…" }}
+      {% if carga_job.total %}
+      · {{ carga_job.current }} de {{ carga_job.total }} archivo(s)
+      {% endif %}
+    </p>
+
+    <div
+      class="barra-progreso"
+      role="progressbar"
+      aria-valuenow="{{ carga_job.percent }}"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-label="Progreso de la carga"
+    >
+      <span style="width: {{ carga_job.percent }}%"></span>
+    </div>
+
+    <noscript>
+      <p class="ayuda">
+        El procesamiento continúa en segundo plano. Recarga la página para ver el resultado.
+      </p>
+    </noscript>
+  </section>
+  {% elif report %}
+  <section class="panel config-resultado" aria-labelledby="titulo-resultado">
+    <div class="config-resultado-cabecera">
+      <div>
+        <p class="sobrelinea">Resultado de la carga</p>
+        <h2 id="titulo-resultado">
+          {% if report.gold %}Corpus actualizado{% else %}No se pudo procesar la carga{% endif %}
+        </h2>
+      </div>
+      <span class="etiqueta {{ 'etiqueta-oficial' if carga_ok else 'etiqueta-externa' }}">
+        {{ "Completado" if carga_ok else "Revisar" }}
+      </span>
+    </div>
+
+    <ol class="pipeline" aria-label="Etapas del procesamiento">
+      <li class="pipeline-paso">
+        <span class="pipeline-nombre">Bronze</span>
+        <strong>{{ report.bronze }}</strong>
+        <span class="pipeline-detalle">originales guardados</span>
+      </li>
+      <li class="pipeline-paso">
+        <span class="pipeline-nombre">Silver</span>
+        <strong>{{ report.silver }}</strong>
+        <span class="pipeline-detalle">Markdown limpio</span>
+      </li>
+      <li class="pipeline-paso">
+        <span class="pipeline-nombre">Gold</span>
+        <strong>{{ report.gold }}</strong>
+        <span class="pipeline-detalle">documentos con ficha</span>
+      </li>
+      <li class="pipeline-paso">
+        <span class="pipeline-nombre">PostgreSQL</span>
+        <strong>{{ report.documents }}</strong>
+        <span class="pipeline-detalle">{{ report.chunks }} fragmentos</span>
+      </li>
+      <li class="pipeline-paso">
+        <span class="pipeline-nombre">Qdrant</span>
+        <strong>{{ report.indexed }}</strong>
+        <span class="pipeline-detalle">puntos indexados</span>
+      </li>
+    </ol>
+
+    {% if carga_issues %}
+    <div class="config-errores">
+      <h3>Incidencias</h3>
+      <ul>
+        {% for item in carga_issues %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </section>
+  {% elif carga_job and carga_job.status == "error" %}
+  <section class="panel config-resultado" aria-labelledby="titulo-error-carga">
+    <div class="config-resultado-cabecera">
+      <div>
+        <p class="sobrelinea">Resultado de la carga</p>
+        <h2 id="titulo-error-carga">No se pudo procesar la carga</h2>
+      </div>
+      <span class="etiqueta etiqueta-externa">Error</span>
+    </div>
+    <p class="aviso" role="alert">
+      {{ carga_job.error or "Revisa los logs del servidor e inténtalo de nuevo." }}
+    </p>
+  </section>
+  {% endif %}
+</div>
+
+{% if carga_oob %}
+<div id="carga-jobs" hx-swap-oob="innerHTML">
+  {% include "_carga_jobs.html" %}
+</div>
+{% endif %}

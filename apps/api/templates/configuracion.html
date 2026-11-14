@@ -3,6 +3,7 @@
 {% block head_extra %}
 <link rel="stylesheet" href="/static/configuracion.css" />
 <script src="/static/captura.js" defer></script>
+<script src="/static/carga.js" defer></script>
 {% endblock %}
 {% block content %}
 <section class="seccion" aria-labelledby="titulo-configuracion">
@@ -20,60 +21,9 @@
   <p class="aviso" role="alert">{{ error }}</p>
   {% endif %}
 
-  {% if report %}
-  <section class="panel config-resultado" aria-labelledby="titulo-resultado">
-    <div class="config-resultado-cabecera">
-      <div>
-        <p class="sobrelinea">Resultado de la carga</p>
-        <h2 id="titulo-resultado">
-          {% if report.gold %}Corpus actualizado{% else %}No se pudo procesar la carga{% endif %}
-        </h2>
-      </div>
-      <span class="etiqueta {{ 'etiqueta-oficial' if report.ok else 'etiqueta-externa' }}">
-        {{ "Completado" if report.ok else "Revisar" }}
-      </span>
-    </div>
-
-    <ol class="pipeline" aria-label="Etapas del procesamiento">
-      <li class="pipeline-paso">
-        <span class="pipeline-nombre">Bronze</span>
-        <strong>{{ report.bronze }}</strong>
-        <span class="pipeline-detalle">originales guardados</span>
-      </li>
-      <li class="pipeline-paso">
-        <span class="pipeline-nombre">Silver</span>
-        <strong>{{ report.silver }}</strong>
-        <span class="pipeline-detalle">Markdown limpio</span>
-      </li>
-      <li class="pipeline-paso">
-        <span class="pipeline-nombre">Gold</span>
-        <strong>{{ report.gold }}</strong>
-        <span class="pipeline-detalle">documentos con ficha</span>
-      </li>
-      <li class="pipeline-paso">
-        <span class="pipeline-nombre">PostgreSQL</span>
-        <strong>{{ report.documents }}</strong>
-        <span class="pipeline-detalle">{{ report.chunks }} fragmentos</span>
-      </li>
-      <li class="pipeline-paso">
-        <span class="pipeline-nombre">Qdrant</span>
-        <strong>{{ report.indexed }}</strong>
-        <span class="pipeline-detalle">puntos indexados</span>
-      </li>
-    </ol>
-
-    {% if report.errors %}
-    <div class="config-errores">
-      <h3>Incidencias</h3>
-      <ul>
-        {% for item in report.errors %}
-        <li>{{ item }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-    {% endif %}
-  </section>
-  {% endif %}
+  <div id="carga-estado" aria-live="polite">
+    {% include "_carga_estado.html" %}
+  </div>
 
   <div class="config-grid">
     <form
@@ -81,6 +31,13 @@
       method="post"
       action="/configuracion"
       enctype="multipart/form-data"
+      data-carga-form
+      aria-busy="{{ 'true' if cargando else 'false' }}"
+      hx-post="/configuracion"
+      hx-target="#carga-estado"
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
+      hx-disabled-elt="find button"
     >
       {% include "_csrf.html" %}
       <div class="config-campo">
@@ -91,6 +48,7 @@
           type="file"
           multiple
           accept=".md,.markdown,.txt,.html,.htm"
+          {% if cargando %}disabled{% endif %}
         />
         <p class="ayuda">Puedes seleccionar varios archivos a la vez.</p>
       </div>
@@ -105,14 +63,35 @@
           webkitdirectory
           directory
           accept=".md,.markdown,.txt,.html,.htm"
+          {% if cargando %}disabled{% endif %}
         />
         <p class="ayuda">Se recorren los archivos admitidos de la carpeta elegida.</p>
       </div>
 
-      <button type="submit" class="boton">Procesar e indexar</button>
+      <button
+        type="submit"
+        class="boton"
+        data-carga-submit
+        {% if cargando %}disabled aria-busy="true"{% endif %}
+      >
+        <span
+          class="spinner"
+          data-carga-spinner
+          {% if not cargando %}hidden{% endif %}
+          aria-hidden="true"
+        ></span>
+        <span data-carga-texto>{% if cargando %}Procesando…{% else %}Procesar e indexar{% endif %}</span>
+      </button>
     </form>
 
     <aside class="panel config-ayuda" aria-labelledby="titulo-ayuda">
+      <section class="carga-jobs" aria-labelledby="titulo-carga-jobs">
+        <h2 id="titulo-carga-jobs">Cargas recientes</h2>
+        <div id="carga-jobs">
+          {% include "_carga_jobs.html" %}
+        </div>
+      </section>
+
       <h2 id="titulo-ayuda">Antes de subir</h2>
       <p>
         Formatos admitidos: {% for formato in formatos %}<code>{{ formato }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
