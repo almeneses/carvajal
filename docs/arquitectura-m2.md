@@ -48,8 +48,9 @@ sequenceDiagram
 
 | Componente | Responsabilidad | Archivo |
 |---|---|---|
-| Frontend propio | HTML/CSS/JS, streaming, errores, citas clicables | `apps/web/` |
-| Contrato HTTP/SSE | JSON de historial, CSRF, nuevo hilo y stream | `apps/api/views/api.py`, `apps/api/views/stream.py` |
+| Frontend propio | Shell SPA con pestañas Asistente · Corpus · Documento, streaming, errores y citas clicables | `apps/web/` |
+| Contrato HTTP/SSE | JSON de historial, CSRF, nuevo hilo, stream y lectura de corpus/documentos | `apps/api/views/api.py`, `apps/api/views/stream.py` |
+| Lectura del corpus | Búsqueda/filtros paginados y ficha de documento con HTML saneado | `apps/api/views/corpus.py`, `apps/api/views/documents.py` |
 | Servicio de chat | hilo, idempotencia, persistencia, estado incompleto | `apps/api/chat/service.py` |
 | Grafo | router, memoria, herramienta y preparación del prompt | `packages/core/src/carvajal/agent/` |
 | Checkpointer | `PostgresSaver` por `thread_id` | `apps/api/agent_runtime.py` |
@@ -58,6 +59,21 @@ sequenceDiagram
 | Indexador | Gold → chunks → embeddings → Qdrant | `packages/core/src/carvajal/indexing/qdrant.py` |
 | Herramienta | indicadores verificables por nombre y período | `packages/core/src/carvajal/agent/tools.py` |
 | Observabilidad | JSON con `request_id`, `thread_id`, ruta, tool, fuentes y duración | `apps/api/observability.py`, `chat/service.py` |
+
+## Pantallas de lectura
+
+El shell de `apps/web` sirve la misma SPA en `/`, `/corpus` y
+`/documents/{id}`. El navegador conserva el hilo y el stream del chat al cambiar
+de pestaña; las vistas de lectura consumen JSON y no acceden a Postgres.
+
+| Endpoint | Uso |
+|---|---|
+| `GET /api/corpus` | Lista paginada con `q`, `section`, `source_type`, `layer`, `page` y `page_size`; `total` y `has_next` se calculan sobre el conjunto filtrado. |
+| `GET /api/documents/{id}` | Ficha, HTML saneado con `nh3`, hash, fecha de captura y versiones. |
+| `GET /api/documents/by-slug/{slug}` | Resuelve una cita del chat por el slug real del documento. |
+
+Las rutas HTML `/corpus` y `/documents/{id}` de la API se mantienen como
+compatibilidad y comparten los mismos proveedores.
 
 ## Decisiones verificables
 

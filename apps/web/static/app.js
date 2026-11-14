@@ -1,9 +1,17 @@
 // Frontend del M2: consume la API por JSON/SSE. No calcula RAG ni guarda
-// credenciales; solo pinta tokens, rutas y citas verificables.
+// credenciales; solo pinta tokens, rutas y citas verificables. Además es el
+// shell SPA de las pantallas Asistente, Corpus y Documento.
 (() => {
   "use strict";
 
   const API = String(window.CARVAJAL_API || "http://localhost:8000").replace(/\/$/, "");
+  const CLAVE_DOCUMENTO = "carvajal:documento";
+  const TITULOS_VISTA = {
+    asistente: "Asistente del corpus",
+    corpus: "Corpus",
+    documento: "Documento",
+  };
+
   const formulario = document.getElementById("formulario");
   const pregunta = document.getElementById("pregunta");
   const enviar = document.getElementById("enviar");
@@ -15,15 +23,39 @@
   const botonReintento = document.getElementById("boton-reintento");
   const plantillaTurno = document.getElementById("plantilla-turno");
   const plantillaFuente = document.getElementById("plantilla-fuente");
+  const plantillaFuentePanel = document.getElementById("plantilla-fuente-panel");
+  const panelFuentes = document.getElementById("panel-fuentes");
+  const anuncios = document.getElementById("anuncios");
+  const botonesSugerencia = [...document.querySelectorAll("[data-pregunta]")];
+
+  const secciones = {
+    asistente: document.getElementById("vista-asistente"),
+    corpus: document.getElementById("vista-corpus"),
+    documento: document.getElementById("vista-documento"),
+  };
+  const enlacesNav = {
+    asistente: document.getElementById("nav-asistente"),
+    corpus: document.getElementById("nav-corpus"),
+    documento: document.getElementById("nav-documento"),
+  };
 
   let csrf = "";
   let enCurso = false;
   let ultimaPregunta = "";
   let ultimoTurno = "";
   let hiloActual = "";
+  let vistaActual = null;
+  let observadorDocumento = null;
+  let temporizadorObservador = 0;
+  const cacheFichas = new Map();
 
   const INCOMPLETA = "La respuesta se interrumpió antes de completarse.";
   const AVISO = "No se pudo completar la respuesta. Revisa la conexión e inténtalo de nuevo.";
+  const VACIO_PANEL =
+    "Cuando hagas una pregunta, verás aquí las fuentes citadas en el último turno.";
+
+  // Contrato expuesto al módulo de lectura (lectura.js) y a cualquier vista.
+  window.CarvajalApp = { navegar, ruta, anunciar };
 
   document.addEventListener("DOMContentLoaded", iniciar);
   if (document.readyState !== "loading") iniciar();
@@ -31,6 +63,35 @@
   async function iniciar() {
     if (formulario.dataset.listo === "1") return;
     formulario.dataset.listo = "1";
+
+    actualizarEnlaceDocumento();
+    renderizar({ enfocar: location.pathname !== "/" });
+    document.addEventListener("click", manejarClic);
+    document.addEventListener("carvajal:documento-abierto", (evento) => {
+      const id = evento.detail && evento.detail.id ? String(evento.detail.id) : "";
+      if (id) recordarDocumento(id);
+    });
+    window.addEventListener("popstate", () => renderizar());
+    formulario.addEventListener("submit", alEnviar);
+    document.getElementById("nuevo-hilo").addEventListener("click", nuevoHilo);
+    botonReintento.addEventListener("click", () => {
+      if (!ultimaPregunta || enCurso) return;
+      // Un reintento es un turno nuevo: reutilizar el id haría que el backend
+      // devolviera el turno anterior sin persistir esta respuesta.
+      enCurso = true;
+      ultimoTurno = nuevoTurnoId();
+      void responder(ultimaPregunta, ultimoTurno);
+    });
+    for (const boton of botonesSugerencia) {
+      boton.addEventListener("click", () => {
+        const texto = String(boton.dataset.pregunta || "");
+        if (!texto || enCurso) return;
+        pregunta.value = texto;
+        if (typeof formulario.requestSubmit === "function") formulario.requestSubmit();
+        else formulario.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+      });
+    }
+
     try {
       await cargarCsrf();
       await cargarHistorial();
@@ -38,16 +99,293 @@
     } catch (error) {
       avisar(`No se pudo conectar con la API en ${API}.`, true);
     }
-    formulario.addEventListener("submit", alEnviar);
-    document.getElementById("nuevo-hilo").addEventListener("click", nuevoHilo);
-    botonReintento.addEventListener("click", () => {
-      if (!ultimaPregunta) return;
-      // Un reintento es un turno nuevo: reutilizar el id haría que el backend
-      // devolviera el turno anterior sin persistir esta respuesta.
-      ultimoTurno = nuevoTurnoId();
-      void responder(ultimaPregunta, ultimoTurno);
-    });
   }
+
+  /* Enrutador SPA ---------------------------------------------------------- */
+
+  function navegar(href, opciones = {}) {
+    const destino = rutaInterna(href);
+    if (!destino) {
+      anunciar("Solo se admiten rutas internas de la aplicación.", { error: true });
+      return false;
+    }
+    const actual = `${location.pathname}${location.search}${location.hash}`;
+    if (destino === actual) {
+      renderizar();
+      return true;
+    }
+    if (opciones && opciones.replace) history.replaceState({}, "", destino);
+    else history.pushState({}, "", destino);
+    renderizar();
+    return true;
+  }
+
+  function ruta() {
+    return analizarRuta();
+  }
+
+  function analizarRuta() {
+    const camino = normalizarCamino(location.pathname);
+    const params = new URLSearchParams(location.search);
+    if (camino === "/corpus") return { vista: "corpus", documentId: null, params };
+    if (camino === "/documents") return { vista: "documento", documentId: null, params };
+    if (camino.startsWith("/documents/")) {
+      const bruto = camino.slice("/documents/".length);
+      if (bruto && !bruto.includes("/")) {
+        let documentId = bruto;
+        try {
+          documentId = decodeURIComponent(bruto);
+        } catch {
+          documentId = bruto;
+        }
+        return { vista: "documento", documentId, params };
+      }
+    }
+    return { vista: "asistente", documentId: null, params };
+  }
+
+  function normalizarCamino(camino) {
+    const limpio = String(camino || "/")
+      .replace(/\/{2,}/g, "/")
+      .replace(/\/+$/, "");
+    return limpio || "/";
+  }
+
+  function rutaInterna(valor) {
+    if (typeof valor !== "string") return null;
+    const href = valor.trim();
+    if (!href.startsWith("/") || href.startsWith("//")) return null;
+    try {
+      const url = new URL(href, location.origin);
+      if (url.origin !== location.origin) return null;
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderizar(opciones = {}) {
+    const { enfocar = true } = opciones;
+    const actual = analizarRuta();
+    const anterior = vistaActual;
+
+    cancelarObservadorDocumento();
+
+    for (const [nombre, seccion] of Object.entries(secciones)) {
+      if (seccion) seccion.hidden = nombre !== actual.vista;
+    }
+    for (const [nombre, enlace] of Object.entries(enlacesNav)) {
+      if (!enlace) continue;
+      if (nombre === actual.vista) enlace.setAttribute("aria-current", "page");
+      else enlace.removeAttribute("aria-current");
+    }
+
+    document.title = `${TITULOS_VISTA[actual.vista]} · Carvajal`;
+
+    const cambioVista = anterior !== actual.vista;
+    if ((anterior === "corpus" || anterior === "documento") && cambioVista) {
+      desactivarLectura();
+    }
+    vistaActual = actual.vista;
+
+    if (actual.vista === "documento" && !actual.documentId) {
+      // El estado vacío de la pestaña debe apuntar a su propia URL, no al
+      // último documento válido recordado.
+      enlacesNav.documento?.setAttribute("href", "/documents");
+    } else {
+      actualizarEnlaceDocumento();
+    }
+
+    if (actual.vista === "corpus") {
+      const pendiente = Promise.resolve(activarLectura(actual.params)).catch(() => {});
+      if (enfocar && cambioVista) {
+        pendiente.finally(() => {
+          if (analizarRuta().vista === "corpus") enfocarVista("corpus");
+        });
+      }
+    } else if (actual.vista === "documento") {
+      const pendiente = Promise.resolve(
+        mostrarDocumento(actual.documentId, actual.params),
+      ).catch(() => {});
+      if (enfocar) {
+        pendiente.finally(() => {
+          const ahora = analizarRuta();
+          if (ahora.vista === "documento" && ahora.documentId === actual.documentId) {
+            enfocarDocumento();
+          }
+        });
+      }
+    } else if (enfocar && cambioVista) {
+      enfocarVista("asistente");
+    }
+  }
+
+  function enfocarVista(nombre) {
+    const seccion = secciones[nombre];
+    if (!seccion || seccion.hidden) return;
+    enfocarNodo(seccion.querySelector("h1") || seccion);
+  }
+
+  function enfocarNodo(nodo) {
+    if (!nodo) return;
+    if (!nodo.hasAttribute("tabindex")) nodo.setAttribute("tabindex", "-1");
+    nodo.focus();
+  }
+
+  function enfocarDocumento() {
+    const seccion = secciones.documento;
+    if (!seccion || seccion.hidden) return;
+    const h1 = seccion.querySelector("h1");
+    if (h1) {
+      enfocarNodo(h1);
+      return;
+    }
+    // La ficha llega por JSON después de `mostrarDocumento`; se enfoca el h1
+    // en cuanto el módulo de lectura lo inserta, sin robar el foco al usuario.
+    enfocarVista("documento");
+    if (typeof MutationObserver !== "function") return;
+    const observador = new MutationObserver(() => {
+      const titulo = seccion.querySelector("h1");
+      if (!titulo) return;
+      cancelarObservadorDocumento();
+      const activo = document.activeElement;
+      if (activo && activo !== document.body && activo !== seccion && !seccion.contains(activo)) {
+        return;
+      }
+      enfocarNodo(titulo);
+    });
+    observadorDocumento = observador;
+    observador.observe(seccion, { childList: true, subtree: true });
+    temporizadorObservador = window.setTimeout(cancelarObservadorDocumento, 8000);
+  }
+
+  function cancelarObservadorDocumento() {
+    if (observadorDocumento) {
+      observadorDocumento.disconnect();
+      observadorDocumento = null;
+    }
+    if (temporizadorObservador) {
+      window.clearTimeout(temporizadorObservador);
+      temporizadorObservador = 0;
+    }
+  }
+
+  function manejarClic(evento) {
+    if (evento.defaultPrevented || evento.button !== 0) return;
+    if (evento.metaKey || evento.ctrlKey || evento.shiftKey || evento.altKey) return;
+    const objetivo = evento.target.closest ? evento.target.closest("a[href]") : null;
+    if (!objetivo) return;
+    if (objetivo.target && objetivo.target !== "_self") return;
+    if (objetivo.hasAttribute("download")) return;
+    const destino = rutaInterna(objetivo.getAttribute("href"));
+    if (!destino || !esRutaApp(destino)) return;
+    evento.preventDefault();
+    navegar(destino);
+  }
+
+  function esRutaApp(destino) {
+    try {
+      const camino = normalizarCamino(new URL(destino, location.origin).pathname);
+      return (
+        camino === "/" ||
+        camino === "/corpus" ||
+        camino === "/documents" ||
+        camino.startsWith("/documents/")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  function anunciar(texto, opciones = {}) {
+    if (!anuncios) return;
+    const urgente = Boolean(opciones && (opciones.urgente || opciones.assertive));
+    if (opciones && opciones.error) anuncios.classList.add("error");
+    else anuncios.classList.remove("error");
+    anuncios.setAttribute("aria-live", urgente ? "assertive" : "polite");
+    anuncios.textContent = texto == null ? "" : String(texto);
+  }
+
+  function recordarDocumento(documentId) {
+    try {
+      window.sessionStorage.setItem(CLAVE_DOCUMENTO, String(documentId));
+    } catch {
+      // sessionStorage puede estar bloqueado; la navegación sigue funcionando.
+    }
+    actualizarEnlaceDocumento();
+  }
+
+  function leerDocumentoRecordado() {
+    try {
+      const valor = window.sessionStorage.getItem(CLAVE_DOCUMENTO);
+      return valor && valor.trim() ? valor.trim() : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function actualizarEnlaceDocumento() {
+    if (!enlacesNav.documento) return;
+    const ultimo = leerDocumentoRecordado();
+    enlacesNav.documento.setAttribute(
+      "href",
+      ultimo ? `/documents/${encodeURIComponent(ultimo)}` : "/documents",
+    );
+  }
+
+  function activarLectura(params) {
+    try {
+      const modulo = window.CarvajalLectura;
+      if (modulo && typeof modulo.activar === "function") return modulo.activar(params);
+    } catch {
+      // Se muestra el fallback de abajo.
+    }
+    mostrarFalloLectura(
+      "No se pudo cargar el explorador del corpus. Recarga la página e inténtalo de nuevo.",
+    );
+    return undefined;
+  }
+
+  function mostrarDocumento(documentId, params) {
+    try {
+      const modulo = window.CarvajalLectura;
+      if (modulo && typeof modulo.mostrarDocumento === "function") {
+        return modulo.mostrarDocumento(documentId, params);
+      }
+    } catch {
+      // Se muestra el fallback de abajo.
+    }
+    mostrarFalloLectura(
+      "No se pudo cargar la ficha del documento. Recarga la página e inténtalo de nuevo.",
+    );
+    return undefined;
+  }
+
+  function mostrarFalloLectura(mensaje) {
+    anunciar(mensaje, { error: true });
+    const destino =
+      vistaActual === "documento"
+        ? document.getElementById("documento-contenido")
+        : document.getElementById("corpus-estado");
+    if (!destino) return;
+    destino.replaceChildren();
+    const aviso = document.createElement("p");
+    aviso.className = "lectura-error";
+    aviso.setAttribute("role", "alert");
+    aviso.textContent = mensaje;
+    destino.append(aviso);
+  }
+
+  function desactivarLectura() {
+    try {
+      const modulo = window.CarvajalLectura;
+      if (modulo && typeof modulo.desactivar === "function") modulo.desactivar();
+    } catch {
+      // La vista ya está oculta; no conviene romper el enrutador por ello.
+    }
+  }
+
+  /* Chat ------------------------------------------------------------------- */
 
   async function cargarCsrf() {
     const response = await fetch(`${API}/api/csrf`, { credentials: "include" });
@@ -62,18 +400,24 @@
     const datos = await response.json();
     hilo.textContent = "";
     hiloActual = datos.thread_id || "";
+    let ultimasFuentes = [];
     if (!Array.isArray(datos.messages) || datos.messages.length === 0) {
       const vacio = document.createElement("li");
       vacio.className = "vacio";
       vacio.textContent = "Todavía no hay mensajes en este hilo. Escribe la primera pregunta.";
       hilo.append(vacio);
+      pintarPanelFuentes(ultimasFuentes);
       return;
     }
     for (const mensaje of datos.messages) {
       const turno = crearTurno(mensaje.role, mensaje.content, mensaje.status);
       pintarFuentes(turno, mensaje.sources || []);
+      if (mensaje.role === "assistant") {
+        ultimasFuentes = Array.isArray(mensaje.sources) ? mensaje.sources : [];
+      }
       hilo.append(turno);
     }
+    pintarPanelFuentes(ultimasFuentes);
     if (hiloActual) pintarHilo(hiloActual);
   }
 
@@ -82,7 +426,7 @@
     const datos = await response.json().catch(() => ({}));
     const indice = datos.index || {};
     if (response.ok && indice.status === "ok") {
-      salud.textContent = `Índice listo · ${indice.points} fragmentos`;
+      salud.textContent = "Índice listo";
       salud.classList.add("ok");
     } else {
       salud.textContent = `Índice ${indice.status || "no disponible"}`;
@@ -113,12 +457,14 @@
 
   async function responder(texto, turnoId) {
     quitarVacio();
+    pintarPanelFuentes([]);
     const turnoUsuario = crearTurno("user", texto);
     const turnoAsistente = crearTurno("assistant", "");
     hilo.append(turnoUsuario, turnoAsistente);
     const destino = turnoAsistente.querySelector(".texto");
     pregunta.value = "";
     enviar.disabled = true;
+    fijarSugerencias(false);
     formulario.setAttribute("aria-busy", "true");
     avisar("Generando respuesta…");
 
@@ -166,6 +512,7 @@
             break;
           case "meta":
             pintarFuentes(turnoAsistente, evento.datos.sources || []);
+            pintarPanelFuentes(evento.datos.sources || []);
             avisar("Redactando…");
             break;
           case "token": {
@@ -177,12 +524,13 @@
           case "fallback":
             destino.textContent = String(evento.datos.text || "");
             pintarFuentes(turnoAsistente, evento.datos.sources || []);
+            pintarPanelFuentes(evento.datos.sources || []);
             recibioContenido = true;
             avisar("Respuesta completa sin streaming.");
             break;
           case "done":
             cerrado = true;
-            avisar("");
+            avisar("Respuesta completa.");
             break;
           case "error":
             cerrado = true;
@@ -219,6 +567,7 @@
     } finally {
       clearTimeout(temporizador);
       enviar.disabled = false;
+      fijarSugerencias(true);
       formulario.removeAttribute("aria-busy");
       pregunta.focus();
       enCurso = false;
@@ -239,6 +588,7 @@
       hiloActual = datos.thread_id || "";
       hilo.textContent = "";
       traza.hidden = true;
+      pintarPanelFuentes([]);
       const vacio = document.createElement("li");
       vacio.className = "vacio";
       vacio.textContent = "Hilo nuevo. La memoria de preferencias sigue disponible para este dueño.";
@@ -248,6 +598,10 @@
     } catch (error) {
       avisar("No se pudo abrir un hilo nuevo.", true);
     }
+  }
+
+  function fijarSugerencias(activas) {
+    for (const boton of botonesSugerencia) boton.disabled = !activas;
   }
 
   function crearTurno(rol, contenido, status) {
@@ -268,36 +622,234 @@
   }
 
   function pintarFuentes(turno, fuentes) {
-    if (!Array.isArray(fuentes) || fuentes.length === 0) return;
     const seccion = turno.querySelector(".citas");
+    if (!seccion) return;
     const lista = seccion.querySelector(".fuentes");
     lista.textContent = "";
-    for (const fuente of fuentes) {
-      const item = plantillaFuente.content.firstElementChild.cloneNode(true);
-      const titulo = item.querySelector('[data-campo="title"]');
-      const enlace = item.querySelector('[data-campo="url"]');
-      const url = String((fuente && fuente.url) || "");
-      titulo.textContent = String((fuente && (fuente.title || fuente.slug)) || "Fuente");
-      if (/^https?:\/\//.test(url)) {
+    const validas = Array.isArray(fuentes) ? fuentes : [];
+    if (validas.length === 0) {
+      seccion.hidden = true;
+      return;
+    }
+    for (const fuente of validas) lista.append(crearFuente(fuente));
+    const conteo = seccion.querySelector(".citas-conteo");
+    if (conteo) conteo.textContent = `(${validas.length})`;
+    seccion.hidden = false;
+  }
+
+  function crearFuente(fuente) {
+    const datos = fuente && typeof fuente === "object" ? fuente : {};
+    const item = plantillaFuente.content.firstElementChild.cloneNode(true);
+    const titulo = String(datos.title || datos.slug || "Fuente");
+    const url = urlSegura(datos.url);
+    const enlace = item.querySelector('[data-campo="url"]');
+    enlace.querySelector('[data-campo="title"]').textContent = titulo;
+    if (url) {
+      enlace.href = url;
+    } else {
+      enlace.removeAttribute("href");
+      enlace.removeAttribute("target");
+    }
+
+    const tipo = String(datos.source_type || "");
+    const etiqueta = item.querySelector('[data-campo="source_type"]');
+    etiqueta.textContent = etiquetaTipo(tipo);
+    if (tipo) etiqueta.classList.add(esOficial(tipo) ? "etiqueta-oficial" : "etiqueta-externa");
+
+    const campos = {
+      section: datos.section,
+      layer: etiquetaCapa(datos.layer),
+      excerpt: datos.excerpt,
+      score: Number.isFinite(Number(datos.score)) ? Number(datos.score).toFixed(3) : "",
+    };
+    for (const [campo, valor] of Object.entries(campos)) {
+      const nodo = item.querySelector(`[data-campo="${campo}"]`);
+      if (nodo) nodo.textContent = valor == null ? "" : String(valor);
+    }
+
+    const acciones = item.querySelector(".fuente-acciones");
+    agregarAccionFuente(acciones, {
+      slug: datos.slug,
+      url,
+      titulo,
+    });
+    return item;
+  }
+
+  function pintarPanelFuentes(fuentes) {
+    panelFuentes.textContent = "";
+    const validas = Array.isArray(fuentes) ? fuentes : [];
+    if (validas.length === 0) {
+      const vacio = document.createElement("p");
+      vacio.className = "panel-vacio";
+      vacio.textContent = VACIO_PANEL;
+      panelFuentes.append(vacio);
+      return;
+    }
+    for (const fuente of validas) {
+      const datos = fuente && typeof fuente === "object" ? fuente : {};
+      const item = plantillaFuentePanel.content.firstElementChild.cloneNode(true);
+      const titulo = String(datos.title || datos.slug || "Fuente");
+      const url = urlSegura(datos.url);
+      const enlace = item.querySelector(".fuente-panel-enlace");
+      enlace.querySelector('[data-campo="title"]').textContent = titulo;
+      const detalle = [
+        datos.section,
+        etiquetaCapa(datos.layer),
+        etiquetaTipo(datos.source_type),
+      ]
+        .filter((valor) => valor != null && valor !== "")
+        .join(" · ");
+      enlace.querySelector('[data-campo="detail"]').textContent = detalle;
+      if (url) {
         enlace.href = url;
       } else {
         enlace.removeAttribute("href");
         enlace.removeAttribute("target");
       }
-      const campos = {
-        section: fuente.section,
-        layer: fuente.layer,
-        source_type: fuente.source_type,
-        excerpt: fuente.excerpt,
-        score: Number.isFinite(Number(fuente.score)) ? Number(fuente.score).toFixed(3) : "",
-      };
-      for (const [campo, valor] of Object.entries(campos)) {
-        const nodo = item.querySelector(`[data-campo="${campo}"]`);
-        if (nodo) nodo.textContent = valor == null ? "" : String(valor);
-      }
-      lista.append(item);
+      const acciones = item.querySelector(".fuente-panel-acciones");
+      agregarAccionFuente(acciones, {
+        slug: datos.slug,
+        url,
+        titulo,
+      });
+      panelFuentes.append(item);
     }
-    seccion.hidden = false;
+  }
+
+  function agregarAccionFuente(contenedor, datos) {
+    const slug = datos.slug == null ? "" : String(datos.slug).trim();
+    const url = urlSegura(datos.url);
+    const titulo = datos.titulo || "la fuente";
+    if (slug) {
+      const boton = document.createElement("button");
+      boton.type = "button";
+      boton.className = "boton-cita";
+      boton.dataset.slug = slug;
+      boton.dataset.url = url;
+      boton.dataset.titulo = titulo;
+      boton.textContent = "Ver ficha en el corpus";
+      boton.setAttribute("aria-label", `Ver la ficha en el corpus de ${titulo}`);
+      boton.addEventListener("click", () => void abrirCita(boton));
+      contenedor.append(boton);
+      return;
+    }
+    if (url) {
+      const enlace = document.createElement("a");
+      enlace.className = "boton-cita";
+      enlace.href = url;
+      enlace.target = "_blank";
+      enlace.rel = "noopener noreferrer";
+      enlace.textContent = "Abrir fuente";
+      enlace.setAttribute("aria-label", `Abrir la fuente original de ${titulo}`);
+      contenedor.append(enlace);
+    }
+  }
+
+  async function abrirCita(boton) {
+    const slug = String(boton.dataset.slug || "").trim();
+    const url = urlSegura(boton.dataset.url);
+    const titulo = boton.dataset.titulo || "la fuente";
+    if (slug) {
+      boton.disabled = true;
+      boton.setAttribute("aria-busy", "true");
+      anunciar(`Buscando la ficha de ${titulo} en el corpus…`);
+      try {
+        const documentId = await resolverDocumento(slug);
+        if (documentId) {
+          navegar(`/documents/${encodeURIComponent(documentId)}?from=asistente`);
+          anunciar(`Abriendo la ficha de ${titulo}.`);
+          return;
+        }
+      } catch {
+        // Se conserva el enlace externo de la fuente como alternativa.
+      } finally {
+        boton.disabled = false;
+        boton.removeAttribute("aria-busy");
+      }
+    }
+    if (url) {
+      const ventana = window.open(url, "_blank");
+      if (ventana) {
+        try {
+          ventana.opener = null;
+        } catch {
+          // El navegador puede impedir tocar la ventana recién abierta.
+        }
+        anunciar("Fuente original abierta en otra pestaña.");
+      } else {
+        anunciar("No hay ficha en el corpus; abre el enlace de la fuente original.", {
+          error: true,
+        });
+      }
+      return;
+    }
+    anunciar("Esta fuente no tiene ficha ni enlace disponible.", { error: true });
+  }
+
+  function resolverDocumento(slug) {
+    const clave = String(slug || "").trim();
+    if (!clave) return Promise.resolve(null);
+    if (cacheFichas.has(clave)) return cacheFichas.get(clave);
+    const consulta = (async () => {
+      const control = new AbortController();
+      const temporizador = setTimeout(() => control.abort(), 10000);
+      try {
+        const response = await fetch(
+          `${API}/api/documents/by-slug/${encodeURIComponent(clave)}`,
+          {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+            signal: control.signal,
+          },
+        );
+        if (!response.ok) return null;
+        const datos = await response.json().catch(() => null);
+        const id = datos && datos.document && datos.document.id;
+        return id == null || id === "" ? null : String(id);
+      } finally {
+        clearTimeout(temporizador);
+      }
+    })();
+    cacheFichas.set(clave, consulta);
+    consulta
+      .then((id) => {
+        // Un 404/503 no se cachea: la siguiente cita puede resolverse si la
+        // fuente se indexa o la API se recupera.
+        if (!id) cacheFichas.delete(clave);
+      })
+      .catch(() => cacheFichas.delete(clave));
+    return consulta;
+  }
+
+  function esOficial(tipo) {
+    const normalizado = String(tipo || "").toLowerCase();
+    return normalizado.includes("oficial") || normalizado === "official";
+  }
+
+  function etiquetaTipo(valor) {
+    const texto = String(valor || "").trim();
+    if (!texto) return "";
+    const normalizado = texto.toLowerCase();
+    if (normalizado === "oficial" || normalizado === "official") return "Oficial";
+    if (normalizado === "tercero") return "Tercero";
+    if (normalizado === "colaborador") return "Colaborador";
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+  }
+
+  function etiquetaCapa(valor) {
+    const texto = String(valor || "").trim();
+    if (!texto) return "";
+    const normalizado = texto.toLowerCase();
+    if (normalizado === "core") return "Núcleo";
+    if (normalizado === "extended") return "Extendida";
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+  }
+
+  function urlSegura(valor) {
+    if (typeof valor !== "string") return "";
+    const limpio = valor.trim();
+    return /^https?:\/\//i.test(limpio) ? limpio : "";
   }
 
   function pintarTraza(datos) {
