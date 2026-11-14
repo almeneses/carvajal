@@ -422,8 +422,8 @@ make typecheck  # ty
 make test       # pytest
 make build      # uv build
 make image      # imagen Docker de la app web
-make prod-up    # app + base con compose.prod.yml (requiere SESSION_SECRET)
-make prod-down  # detiene app y base (conserva el volumen)
+make prod-up    # app + base + Qdrant + Ollama en APP_PORT (requiere SESSION_SECRET)
+make prod-down  # detiene los servicios (conserva los volúmenes)
 make db         # Postgres 16 con pgvector (docker compose)
 make db-down    # detiene la base local
 make clean      # limpiar cachés y artefactos
@@ -434,7 +434,8 @@ make clean      # limpiar cachés y artefactos
 ```bash
 make image                  # docker build -t carvajal-api:local .
 export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
-make prod-up                # app + Postgres con compose.prod.yml
+export APP_PORT=8080        # puerto público de la demo
+make prod-up                # app + Postgres + Qdrant + Ollama
 docker compose -f compose.prod.yml run --rm app alembic upgrade head
 ```
 
@@ -446,17 +447,25 @@ fuera. El build fija las imágenes base por digest y omite `zstandard`
 `SESSION_SECRET` (falla si falta) y endurece el contenedor con `read_only`,
 `cap_drop: ALL` y `no-new-privileges`.
 
+En producción el despliegue es automático al fusionar el PR de release en
+`main`: GitHub Actions publica la imagen en GHCR con un tag `sha-<commit>` y
+`scripts/deploy.sh` la descarga en el VPS, aplica migraciones y comprueba
+`/live` y `/health`. La demo se publica directamente en `http://IP:APP_PORT`
+(8080 por defecto), sin dominio ni TLS. El runbook —VPS, secretos, primer
+despliegue, respaldos y rollback— está en
+[`docs/despliegue-ovh.md`](docs/despliegue-ovh.md).
+
 | Ruta | Qué comprueba | Depende de Postgres |
 |---|---|---|
 | `GET /live` | Que el proceso responde (liveness del contenedor). | No |
 | `GET /health` | Conteos de documentos/fragmentos y estado de Qdrant (readiness). | Sí |
 | `GET /api/health` | El mismo readiness para el frontend propio. | Sí |
 
-El proxy con TLS queda para W6.2. Uvicorn arranca con `--proxy-headers` para
-respetar `X-Forwarded-Proto`; solo confía en las IPs de `FORWARDED_ALLOW_IPS`
-(por defecto `127.0.0.1`). Si el proxy es otro contenedor de la red de compose,
-añade su dirección o subred a esa variable para que `request.url.scheme` sea
-`https`: de ello dependen las cookies `Secure`, HSTS y la cabecera CSRF.
+La demo no lleva proxy TLS: la app se publica en `0.0.0.0:APP_PORT` (8080 por
+defecto) y se accede por `http://IP:8080`. Si más adelante pones un dominio, usa
+nginx/Caddy delante, publica la app solo en `127.0.0.1:8000` y ajusta
+`FORWARDED_ALLOW_IPS` a la IP del proxy. De ello dependen las cookies `Secure`,
+HSTS y la cabecera CSRF cuando hay TLS.
 
 ## Estructura
 

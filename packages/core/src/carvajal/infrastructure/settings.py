@@ -2,12 +2,12 @@
 
 from logging import getLevelNamesMapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     ollama_model: str = "llama3.2"
+    # Los embeddings del corpus se calculan con Ollama. En local el valor por
+    # defecto apunta al Ollama del host; en compose.prod.yml se inyecta
+    # http://ollama:11434 para usar el servicio de la red de Compose.
+    ollama_base_url: str = "http://127.0.0.1:11434"
 
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
@@ -133,7 +137,9 @@ class Settings(BaseSettings):
     agent_history_turns: int = Field(default=8, ge=1, le=50)
 
     # Frontend propio (proceso separado) y orígenes permitidos por CORS.
-    frontend_origins: tuple[str, ...] = (
+    # NoDecode evita que pydantic-settings intente JSON antes del validador:
+    # se aceptan tanto `a,b` como una lista JSON, y también el valor vacío.
+    frontend_origins: Annotated[tuple[str, ...], NoDecode] = (
         "http://localhost:8001",
         "http://127.0.0.1:8001",
     )

@@ -58,6 +58,8 @@ COPY --from=builder /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY apps ./apps
+# Extracto versionado de indicadores que `indicator_lookup` lee en runtime.
+COPY data/indicators.json ./data/indicators.json
 USER app
 EXPOSE 8000
 # Vitalidad del proceso: /live no toca la base, así el contenedor no se marca

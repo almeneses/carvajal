@@ -315,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
             report = index_gold(
                 gold_dir=args.gold,
                 store=store,
-                embedder=OllamaEmbedder(),
+                embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
                 recreate=args.recreate,
                 prune=not args.no_prune,
                 batch_size=max(1, args.batch_size),
