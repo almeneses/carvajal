@@ -1,15 +1,17 @@
 """Interfaz de línea de comandos: capture / ask / summarize / faq / import / migrate-gold."""
 
+from __future__ import annotations
+
 import argparse
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Engine
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
 
 from carvajal.adapters.storage.database import build_engine, build_session_factory
-from carvajal.adapters.storage.import_corpus import GoldImportError, migrate_gold
 from carvajal.config import (
     EXTERNAL_DIR,
     EXTERNAL_SEEDS,
@@ -21,22 +23,11 @@ from carvajal.config import (
     SEEDS,
 )
 from carvajal.corpus import load_gold_documents
-from carvajal.fetching import WebClient
-from carvajal.importer import ImportReport, import_external
-from carvajal.pipeline import CaptureReport
-from carvajal.pipeline import capture as run_capture
-from carvajal.rag import (
-    ask as run_ask,
-)
-from carvajal.rag import (
-    build_retriever,
-    build_system_prompt,
-    evaluate,
-    generate_faq,
-    load_questions,
-    render_results_markdown,
-    summarize,
-)
+
+if TYPE_CHECKING:
+    from carvajal.fetching import WebClient
+    from carvajal.importer import ImportReport
+    from carvajal.pipeline import CaptureReport
 
 _CREDENTIALS_IN_URL = re.compile(r"(?P<scheme>://[^:/@\s]+:)[^@\s]+@")
 
@@ -216,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "capture":
+        from carvajal.pipeline import capture as run_capture
+
         seeds = (*_seeds_for(args.scope), *(args.seed or []))
         if args.list_seeds:
             for seed in seeds:
@@ -229,6 +222,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "ask":
+        from carvajal.rag import ask as run_ask
+        from carvajal.rag import build_retriever, build_system_prompt
+
         documents = load_gold_documents()
         retriever = build_retriever(documents)
         answer = run_ask(args.question, retriever, system_prompt=build_system_prompt(documents))
@@ -236,6 +232,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "eval":
+        from carvajal.rag import (
+            build_retriever,
+            build_system_prompt,
+            evaluate,
+            load_questions,
+            render_results_markdown,
+        )
+
         documents = load_gold_documents()
         retriever = build_retriever(documents)
         questions = load_questions(args.questions)
@@ -246,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "summarize":
+        from carvajal.rag import summarize
+
         documents = load_gold_documents()
         content = summarize(documents, focus=args.focus)
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -254,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "faq":
+        from carvajal.rag import generate_faq
+
         documents = load_gold_documents()
         content = generate_faq(documents)
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -262,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "import":
+        from carvajal.importer import import_external
+
         try:
             report = import_external()
         except FileNotFoundError as error:
@@ -271,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "migrate-gold":
+        from carvajal.adapters.storage.import_corpus import GoldImportError, migrate_gold
+
         engine: Engine | None = None
         try:
             # La URL se valida al construir el motor (ArgumentError), antes de conectar.
@@ -355,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _build_client(args: argparse.Namespace) -> WebClient:
     """Construye el cliente HTTP con el rate limit y la política pedidos."""
+
+    from carvajal.fetching import WebClient
 
     delay = REQUEST_DELAY_SECONDS if args.delay is None else args.delay
     return WebClient(delay=delay, respect_robots=not args.ignore_robots)
