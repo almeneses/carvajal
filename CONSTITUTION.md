@@ -147,7 +147,8 @@ carvajal/
 │   │   ├── chat/              # identidad, servicio, adaptador del agente y streaming
 │   │   ├── static/            # CSS y JS del chat
 │   │   └── templates/         # Jinja2: base, portada, pantallas y parciales
-│   └── web/                   # frontend propio del M2 (:8001), sin lógica de RAG
+│   └── web/                   # frontend propio del M2 (:8001): shell SPA con
+│                              # pestañas Asistente · Corpus · Documento, sin RAG
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
@@ -388,6 +389,7 @@ git push
 | 2026-11-13 | Migración 0005: `status` de mensaje e idempotencia `client_turn_id` (índice parcial por asistente) | Un reintento del navegador no duplica el turno y una respuesta cortada queda `incomplete`; el usuario puede distinguirla |
 | 2026-11-13 | Evaluación de retrieval separada de la respuesta: 31 consultas, Recall@10=0.8000, nDCG@10=0.7791 | Permite inspeccionar el top-k y documentar una consulta sin evidencia sin depender del LLM |
 | 2026-11-13 | CSRF por doble cookie, cabeceras de seguridad con CSP sin `unsafe-inline`, HSTS solo sobre TLS y Swagger fuera | El POST sin token se rechaza con 403 antes de la cuota y del caso de uso; el script del formulario pasa a `/static/app.js` para que la CSP sea estricta; las cookies son `HttpOnly` y `SameSite=Lax` y el token se compara en bytes |
+| 2026-11-13 | Interfaz institucional con pestañas superiores en el frontend del M2: rutas SPA `/`, `/corpus`, `/documents` y `/documents/{id}`, y contrato JSON de lectura `/api/corpus` y `/api/documents/*` | Las tres pantallas comparten header, navegación y estado sin recargar el chat; el frontend consume JSON y reutiliza los proveedores y el Markdown saneado con `nh3` de las vistas HTML, que se conservan como compatibilidad |
 
 ## 10. Notas y tareas pendientes
 

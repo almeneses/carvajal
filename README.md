@@ -295,7 +295,12 @@ make eval
 ### Interfaz web del M2
 
 La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
-API en <http://localhost:8000> (`make api`). El shell Jinja2 sigue disponible en
+API en <http://localhost:8000> (`make api`). El frontend ofrece tres pestañas
+superiores —**Asistente**, **Corpus** y **Documento**— con URLs estables
+(`/`, `/corpus` y `/documents/{id}`) y conserva el hilo del chat al navegar.
+Corpus y Documento leen los endpoints JSON `/api/corpus` y
+`/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
+`nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
 <http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE.
 
 ### Interfaz legada (Streamlit)
@@ -375,6 +380,7 @@ También puedes configurar las variables en la terminal:
 | `RAG_MIN_SCORE` | Umbral mínimo de similitud. | `0.30` |
 | `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
 | `FRONTEND_ORIGINS` | Orígenes CORS del frontend separado. | `http://localhost:8001,...` |
+| `CARVAJAL_API_BASE` | URL de la API para `config.js` y la CSP del frontend; obligatoria fuera de `localhost`/`127.0.0.1`. | `http://localhost:8000` |
 
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
 > independientemente del proveedor del LLM. `make index` requiere ese modelo.
