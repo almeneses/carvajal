@@ -247,6 +247,8 @@ def ingest_urls(
             max_bytes=settings.capture_max_bytes,
             max_redirects=settings.capture_max_redirects,
             timeout=settings.capture_timeout_seconds,
+            # La bandera viaja en el cliente: ``can_fetch`` y ``fetch`` la
+            # respetan y no consultan ``robots.txt`` cuando está desactivada.
             respect_robots=request.respect_robots,
         )
 

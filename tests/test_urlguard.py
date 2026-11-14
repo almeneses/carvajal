@@ -144,3 +144,33 @@ def test_allowlist_normaliza_esquema_y_punto_inicial() -> None:
 
     # Assert
     assert resultado == "http://8.8.8.8/"
+
+
+def test_can_fetch_usa_el_loader_seguro_de_robots() -> None:
+    # Arrange
+    from urllib.robotparser import RobotFileParser
+
+    client = SafeWebClient(respect_robots=True)
+    parser = RobotFileParser()
+    parser.parse([])
+
+    # Act
+    with patch.object(client, "_load_robots", return_value=parser) as cargar:
+        permitido = client.can_fetch("http://8.8.8.8/")
+
+    # Assert
+    assert permitido is True
+    cargar.assert_called_once()
+
+
+def test_respect_robots_false_no_consulta_robots() -> None:
+    # Arrange
+    client = SafeWebClient(respect_robots=False)
+
+    # Act
+    with patch.object(client.session, "get") as llamadas:
+        permitido = client.can_fetch("http://8.8.8.8/")
+
+    # Assert
+    assert permitido is True
+    llamadas.assert_not_called()

@@ -19,7 +19,13 @@ from urllib.robotparser import RobotFileParser
 
 import requests
 
-from carvajal.config import BASE_URL, REQUEST_DELAY_SECONDS, RESPECT_ROBOTS, TIMEOUT_SECONDS
+from carvajal.config import (
+    BASE_URL,
+    REQUEST_DELAY_SECONDS,
+    RESPECT_ROBOTS,
+    TIMEOUT_SECONDS,
+    USER_AGENT,
+)
 from carvajal.fetching import FetchError, RobotsDenied, WebClient, normalize_robots
 
 __all__ = ["SafeWebClient", "UrlRejected", "validate_capture_url"]
@@ -164,7 +170,12 @@ class SafeWebClient(WebClient):
         self._max_redirects = max_redirects
 
     def can_fetch(self, url: str) -> bool:
-        """Valida la URL antes de descargar su ``robots.txt``."""
+        """Valida la URL y consulta ``robots.txt`` con la carga segura.
+
+        No se delega en ``WebClient.can_fetch`` para que la consulta de
+        ``robots.txt`` pase siempre por ``_load_robots``: ese método usa
+        ``_get_raw`` con timeout, tope de bytes y revalidación de redirecciones.
+        """
 
         try:
             validate_capture_url(
@@ -174,12 +185,29 @@ class SafeWebClient(WebClient):
             )
         except UrlRejected as error:
             raise RobotsDenied(str(error)) from error
-        return super().can_fetch(url)
+        if not self.respect_robots:
+            return True
+        return self._robots_for(url).can_fetch(USER_AGENT, url)
+
+    def _robots_for(self, url: str) -> RobotFileParser:
+        """Devuelve el parser del host, cargándolo una sola vez."""
+
+        host = urlparse(url).netloc
+        parser = self._robots.get(host)
+        if parser is None:
+            parser = self._load_robots(url)
+            self._robots[host] = parser
+        return parser
 
     def fetch(self, url: str) -> str:
         """Descarga la página si ``robots.txt`` lo permite y con límite de bytes."""
 
-        if not super().can_fetch(url):
+        validate_capture_url(
+            url,
+            allowed_domains=self._allowed_domains,
+            allow_private=self._allow_private,
+        )
+        if self.respect_robots and not self._robots_for(url).can_fetch(USER_AGENT, url):
             raise RobotsDenied(f"robots.txt excluye {url}")
         return self._get_raw(url, max_bytes=self._max_bytes)
 

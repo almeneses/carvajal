@@ -53,6 +53,7 @@ class CaptureJob:
     error: str = ""
     created_at: float = field(default_factory=time.monotonic)
     finished_at: float | None = None
+    finished: threading.Event = field(default_factory=threading.Event, repr=False)
     events: queue.Queue[tuple[str, dict[str, Any]] | None] = field(default_factory=queue.Queue)
 
 
@@ -127,27 +128,36 @@ class CaptureJobs:
     def stream(self, job_id: str) -> Iterator[str]:
         """Emite los eventos del job hasta su cierre.
 
-        Si el navegador reconecta cuando el job ya terminó y la cola está
-        vacía, se reemite el resultado final en vez de dejar la conexión
-        colgada esperando un centinela que ya se consumió.
+        ``finished`` es la señal de sincronización: se activa después de
+        escribir ``outcome``/``error`` y antes de poner el centinela. Si el
+        navegador reconecta cuando el job ya terminó, se reemite el resultado
+        final aunque el centinela ya se haya consumido.
         """
 
         job = self.get(job_id)
         if job is None:
             raise KeyError(job_id)
-        if job.status in {"done", "error"} and job.events.empty():
-            yield _final_event(job)
-            return
+        sent_final = False
         while True:
+            if job.finished.is_set() and job.events.empty():
+                if not sent_final:
+                    yield _final_event(job)
+                return
             try:
                 item = job.events.get(timeout=0.5)
             except queue.Empty:
-                if job.status in {"done", "error"}:
+                if job.finished.is_set():
+                    if not sent_final:
+                        yield _final_event(job)
                     return
                 continue
             if item is None:
-                return
+                # Centinela: se drena lo que quede y el siguiente ciclo emite
+                # el evento final solo si no se emitió ya.
+                continue
             name, data = item
+            if name in {"done", "error"}:
+                sent_final = True
             yield encode(name, data)
 
     def _run(self, job: CaptureJob) -> None:
@@ -183,6 +193,7 @@ class CaptureJobs:
             self._finish_with_error(job, error)
         finally:
             job.finished_at = time.monotonic()
+            job.finished.set()
             with self._lock:
                 if self._active == job.id:
                     self._active = None
@@ -196,6 +207,7 @@ class CaptureJobs:
         logger.warning("capture.failed", job_id=job.id, error=str(error))
         job.events.put(("error", {"message": "La captura no se pudo completar."}))
         job.finished_at = time.monotonic()
+        job.finished.set()
         with self._lock:
             if self._active == job.id:
                 self._active = None
