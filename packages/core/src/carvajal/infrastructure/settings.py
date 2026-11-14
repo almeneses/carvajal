@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     ollama_model: str = "llama3.2"
+    # La FAQ y el chat envían prompts grandes: sin una ventana explícita,
+    # Ollama recorta el contexto y puede responder con datos incompletos.
+    ollama_num_ctx: int = Field(default=32768, ge=2048, le=131072)
     # Los embeddings del corpus se calculan con Ollama. En local el valor por
     # defecto apunta al Ollama del host; en compose.prod.yml se inyecta
     # http://ollama:11434 para usar el servicio de la red de Compose.
@@ -111,11 +114,6 @@ class Settings(BaseSettings):
     # se usa un secreto aleatorio por proceso; en producción debe fijarse para
     # que las cookies sobrevivan reinicios y compartan valor entre workers.
     session_secret: str = ""
-
-    # Token de administración para la carga de documentos. Si está vacío, la
-    # pestaña Configuración solo acepta peticiones desde loopback (desarrollo).
-    # En producción fíjalo para habilitar la carga desde el navegador.
-    config_token: str = ""
 
     # Captura web desde la pestaña Configuración. El máximo de URLs por
     # ejecución sigue al de la primera versión (todas las semillas

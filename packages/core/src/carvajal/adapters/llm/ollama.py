@@ -18,4 +18,10 @@ class OllamaProvider(_LangChainChat):
             settings = Settings()
         if not settings.ollama_model.strip():
             raise ValueError("OLLAMA_MODEL está vacío: define un modelo para Ollama.")
-        super().__init__(ChatOllama(model=settings.ollama_model, temperature=0))
+        super().__init__(
+            ChatOllama(
+                model=settings.ollama_model,
+                temperature=0,
+                num_ctx=settings.ollama_num_ctx,
+            )
+        )

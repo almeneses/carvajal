@@ -63,6 +63,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      # La FAQ envía el corpus completo; sin esta ventana Ollama recorta el prompt.
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
       # Los embeddings del RAG se calculan en el servicio `ollama`. Si usas un
       # Ollama externo, define OLLAMA_BASE_URL en el .env del servidor.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
@@ -85,9 +87,6 @@ services:
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
-      # Obligatorio para habilitar la carga desde fuera del contenedor. Sin él,
-      # la pestaña Configuración solo acepta loopback.
-      CONFIG_TOKEN: ${CONFIG_TOKEN:-}
       # Captura web pública desde Configuración. El máximo por ejecución lo
       # deriva Settings de las semillas (24 por defecto); aquí solo se ajustan
       # el valor inicial, el tamaño y el timeout.

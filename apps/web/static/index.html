@@ -15,6 +15,7 @@
     <script src="/config.js" defer></script>
     <script src="/static/lectura.js" defer></script>
     <script src="/static/app.js" defer></script>
+    <script src="/static/faq.js" defer></script>
   </head>
   <body>
     <a class="saltar" href="#contenido">Saltar al contenido</a>
@@ -29,6 +30,7 @@
           <a id="nav-asistente" class="pestana" href="/" data-vista="asistente" aria-current="page">
             Asistente
           </a>
+          <a id="nav-faq" class="pestana" href="/faq" data-vista="faq">FAQ</a>
           <a id="nav-corpus" class="pestana" href="/corpus" data-vista="corpus">Corpus</a>
           <a id="nav-documento" class="pestana" href="/documents" data-vista="documento">
             Documento
@@ -144,6 +146,39 @@
             </details>
           </aside>
         </div>
+      </section>
+
+      <section id="vista-faq" data-vista="faq" hidden aria-labelledby="titulo-faq">
+        <header class="cabecera-vista">
+          <p class="sobrelinea">FAQ · Preguntas frecuentes</p>
+          <h1 id="titulo-faq" tabindex="-1">Preguntas frecuentes del corpus</h1>
+          <p class="bajada">
+            Genera hasta 10 preguntas para una persona que contacta a Carvajal por primera
+            vez. Cada clic añade otras 10 preguntas nuevas, sin repetir las anteriores.
+          </p>
+        </header>
+
+        <div class="faq-acciones">
+          <button id="faq-generar" type="button" class="boton boton-primario">
+            Generar 10 preguntas
+          </button>
+          <button id="faq-reiniciar" type="button" class="boton boton-secundario" hidden>
+            Empezar de nuevo
+          </button>
+          <button id="faq-descargar" type="button" class="boton boton-fantasma" hidden>
+            Descargar faq.md
+          </button>
+        </div>
+
+        <p id="faq-estado" class="estado" role="status" aria-live="polite"></p>
+        <p id="faq-aviso" class="faq-aviso" hidden></p>
+
+        <p id="faq-vacio" class="panel-vacio">
+          Aún no hay preguntas. Pulsa «Generar 10 preguntas» para empezar.
+        </p>
+        <div id="faq-lista" class="faq-lista"></div>
+        <div id="faq-faltantes" class="faq-faltantes" hidden></div>
+        <pre id="faq-preview" class="faq-preview" hidden aria-hidden="true"></pre>
       </section>
 
       <section id="vista-corpus" data-vista="corpus" hidden aria-labelledby="titulo-corpus">

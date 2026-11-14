@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hmac
 from dataclasses import asdict, dataclass, field
 from typing import Annotated, Any
 
@@ -34,7 +33,6 @@ router = APIRouter()
 
 CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
 SIN_ARCHIVOS = "Selecciona al menos un documento o una carpeta con archivos admitidos."
-NO_AUTORIZADO = "La carga de documentos no está autorizada."
 MAX_CAPTURE_FORM_CHARS = 10_000
 
 
@@ -57,7 +55,6 @@ def configuracion(request: Request) -> Response:
 async def subir_documentos(
     request: Request,
     csrf_token: str = Form(default=""),
-    token_admin: str = Form(default=""),
     archivos: Annotated[list[UploadFile] | None, File()] = None,
     carpeta: Annotated[list[UploadFile] | None, File()] = None,
 ) -> Response:
@@ -70,10 +67,6 @@ async def subir_documentos(
             error=CSRF_INVALIDO,
             status_code=403,
         )
-    if not _autorizado(request, token_admin):
-        logger.warning("config.unauthorized", path=request.url.path)
-        return _page(request, error=NO_AUTORIZADO, status_code=403)
-
     batch = await _leer_archivos(*(archivos or []), *(carpeta or []))
     if not batch.documents:
         detalle = [SIN_ARCHIVOS, *batch.errors]
@@ -212,16 +205,6 @@ async def _leer_archivos(*subidas: UploadFile) -> _UploadBatch:
     if len(subidas) > MAX_FILES:
         errores.append(f"Solo se procesan {MAX_FILES} archivos por carga.")
     return _UploadBatch(documents=documentos, errors=tuple(errores))
-
-
-def _autorizado(request: Request, token: str) -> bool:
-    """Exige el token configurado o, sin token, una petición de loopback."""
-
-    esperado = Settings().config_token.strip()
-    if esperado:
-        return hmac.compare_digest(esperado.encode("utf-8"), token.encode("utf-8"))
-    host = request.client.host if request.client is not None else ""
-    return host in {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 def _captures(request: Request) -> CaptureJobs:
@@ -367,7 +350,6 @@ def _page(
 
     merged = {"X-Carvajal-Error": "1"} if error is not None else {}
     merged.update(headers or {})
-    token_requerido = bool(Settings().config_token.strip())
     return templates.TemplateResponse(
         request,
         "configuracion.html",
@@ -379,7 +361,6 @@ def _page(
             "MAX_FILES": MAX_FILES,
             "MAX_FILE_MB": MAX_FILE_BYTES // 1024 // 1024,
             "formatos": sorted(ALLOWED_EXTENSIONS),
-            "token_requerido": token_requerido,
             **_capture_context(form=form),
         },
         status_code=status_code,
