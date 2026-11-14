@@ -336,8 +336,9 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
 - Si quieres limitar el acceso, restringe el puerto 8080 por IP en el firewall
   de OVH o en un proxy delante.
 - `.env` siempre en `600`.
-- Define `CONFIG_TOKEN` para habilitar la carga de documentos desde el
-  navegador; sin él, `/configuracion` solo acepta peticiones desde loopback.
+- La carga de documentos y la captura web de `/configuracion` son públicas: no
+  hay autenticación. Si no quieres que cualquiera escriba en el corpus,
+  restringe `/configuracion` por firewall o proxy.
 - No publiques 5432, 6333 ni 11434; el compose solo expone `APP_PORT`.
 - Pertenecer al grupo `docker` equivale a root en el host.
 - No detengas nginx para poner Caddy: este servidor sirve 538 sitios con nginx.

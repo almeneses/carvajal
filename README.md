@@ -311,8 +311,8 @@ panel de hilos anteriores y la pestaña **Configuración** para subir documentos
 o carpetas y para capturar páginas web por semillas o URLs: Bronze → Silver →
 Gold → PostgreSQL → Qdrant, reutilizando el pipeline del corpus y conservando
 los documentos ya indexados. La captura muestra el progreso por SSE, respeta
-`robots.txt` y valida las URLs contra un guard SSRF; en esta fase es pública y
-no exige autenticación.
+`robots.txt` y valida las URLs contra un guard SSRF; en esta fase la carga y la
+captura son públicas y no exigen autenticación.
 
 La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
 núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras
@@ -403,7 +403,6 @@ También puedes configurar las variables en la terminal:
 | `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
 | `FRONTEND_ORIGINS` | Orígenes CORS del frontend separado. | `http://localhost:8001,...` |
 | `CARVAJAL_API_BASE` | URL de la API para `config.js` y la CSP del frontend; obligatoria fuera de `localhost`/`127.0.0.1`. | `http://localhost:8000` |
-| `CONFIG_TOKEN` | Token de la pestaña Configuración; sin él solo se aceptan cargas desde loopback. | vacío |
 | `CAPTURE_DEFAULT_URLS` | Valor inicial del máximo de URLs por captura. | `5` |
 | `CAPTURE_MAX_BYTES` | Tamaño máximo de una respuesta capturada. | `5000000` |
 | `CAPTURE_TIMEOUT_SECONDS` | Timeout por petición de la captura. | `30` |
