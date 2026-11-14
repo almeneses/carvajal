@@ -143,9 +143,6 @@
 
   function destinoVolver(params) {
     const desde = String(params.get("from") || "");
-    if (desde === "asistente") {
-      return { etiqueta: "Volver al asistente", destino: "/" };
-    }
     if (desde === "corpus") {
       return {
         etiqueta: "Volver al corpus",

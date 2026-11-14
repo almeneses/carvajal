@@ -50,9 +50,9 @@ def make_client(
 
 
 def _ask(client: TestClient, question: str) -> Any:
-    """Envía una pregunta con el token CSRF que emite la portada."""
+    """Envía una pregunta con el token CSRF que emite el chat."""
 
-    client.get("/")
+    client.get("/faq")
     token = client.cookies[CSRF_COOKIE]
     return client.post("/ask", data={"question": question, CSRF_FIELD: token})
 
@@ -121,12 +121,24 @@ def test_live_responde_aunque_la_base_no_este() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_portada_renderiza_el_formulario() -> None:
+def test_la_portada_redirige_al_chat() -> None:
     # Arrange
     client = make_client()
 
     # Act
-    response = client.get("/")
+    response = client.get("/", follow_redirects=False)
+
+    # Assert
+    assert response.status_code == 303
+    assert response.headers["location"] == "/chat"
+
+
+def test_chat_renderiza_el_formulario_y_el_panel() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/chat")
 
     # Assert
     assert response.status_code == 200
@@ -137,41 +149,40 @@ def test_portada_renderiza_el_formulario() -> None:
     assert "/static/panel.js" in response.text
     assert "/static/panel.css" in response.text
     assert 'href="/configuracion"' in response.text
-    assert response.text.index('id="respuesta"') < response.text.index(
-        'class="formulario composer"'
-    )
+    assert response.text.index('id="hilo"') < response.text.index('class="formulario composer"')
 
 
-def test_portada_aplica_el_tema_y_la_accesibilidad_basica() -> None:
+def test_chat_aplica_el_tema_y_la_accesibilidad_basica() -> None:
     # Arrange
     client = make_client()
 
     # Act
-    response = client.get("/")
+    response = client.get("/chat")
 
     # Assert
     assert response.status_code == 200
     assert 'lang="es"' in response.text
-    assert "<title>Asistente Carvajal</title>" in response.text
+    assert "<title>Chat · Asistente Carvajal</title>" in response.text
     assert "Saltar al contenido" in response.text
     assert 'alt="Carvajal"' in response.text
-    assert 'aria-live="polite"' in response.text and 'id="respuesta"' in response.text
+    assert 'aria-live="polite"' in response.text and 'id="hilo"' in response.text
     assert "corpus público de Carvajal" in response.text
 
 
-def test_la_navegacion_enlaza_la_portada_y_las_pantallas() -> None:
+def test_la_navegacion_enlaza_las_pantallas_y_oculta_el_asistente() -> None:
     # Arrange
     client = make_client()
 
     # Act
-    response = client.get("/")
+    response = client.get("/chat")
 
     # Assert
-    assert 'href="/#preguntar"' in response.text and 'id="preguntar"' in response.text
+    assert 'href="/#preguntar"' not in response.text
+    assert 'id="preguntar"' not in response.text
     assert 'href="/corpus"' in response.text
     assert 'href="/chat"' in response.text
     assert 'href="/faq"' in response.text
-    assert 'href="#respuesta"' not in response.text
+    assert 'href="/configuracion"' in response.text
 
 
 def test_las_pestanas_marcan_la_pantalla_activa() -> None:
@@ -179,12 +190,9 @@ def test_las_pestanas_marcan_la_pantalla_activa() -> None:
     client = make_client()
 
     # Act
-    portada = client.get("/")
     chat = client.get("/chat")
 
     # Assert: una sola pestaña activa por pantalla, con aria-current.
-    assert portada.text.count('aria-current="page"') == 1
-    assert re.search(r'href="/#preguntar"\s+aria-current="page"', portada.text)
     assert chat.text.count('aria-current="page"') == 1
     assert re.search(r'href="/chat"\s+aria-current="page"', chat.text)
 
@@ -457,17 +465,36 @@ def test_fallo_inesperado_no_se_convierte_en_503() -> None:
     assert "detalle interno" not in response.text
 
 
-def test_portada_carga_htmx_local() -> None:
+def test_chat_carga_htmx_local() -> None:
     # Arrange
     client = make_client()
 
     # Act
-    response = client.get("/")
+    response = client.get("/chat")
 
     # Assert
     assert response.status_code == 200
     assert "/static/htmx.min.js" in response.text
     assert (main.APP_DIR / "static" / "htmx.min.js").is_file()
+
+
+def test_chat_muestra_indicadores_de_carga() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/chat")
+    css = client.get("/static/chat.css")
+
+    # Assert: espera al entrar al chat y espera de cada turno.
+    assert response.status_code == 200
+    assert 'id="chat-cargando"' in response.text
+    assert "Cargando la conversación…" in response.text
+    assert "data-girando" in response.text
+    assert "data-estado-texto" in response.text
+    assert css.status_code == 200
+    assert "@keyframes girar" in css.text
+    assert "@media (scripting: none)" in css.text
 
 
 def test_la_salida_escapa_html() -> None:

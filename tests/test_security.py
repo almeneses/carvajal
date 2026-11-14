@@ -52,7 +52,7 @@ def _client(*, base_url: str = "http://testserver") -> TestClient:
 
 
 def _token(client: TestClient) -> str:
-    client.get("/")
+    client.get("/chat")
     return client.cookies[CSRF_COOKIE]
 
 
@@ -72,29 +72,28 @@ def _parse_sse(body: str) -> list[tuple[str, dict[str, object]]]:
     return eventos
 
 
-def test_la_portada_emite_el_token_y_lo_incrusta_en_el_formulario() -> None:
-    """El token de la cookie viaja en el campo oculto del formulario."""
-
-    # Act
-    response = _client().get("/")
-
-    # Assert
-    token = response.cookies[CSRF_COOKIE]
-    assert f'name="csrf_token" value="{token}"' in response.text
-
-
 def test_el_chat_incrusta_el_token_en_su_formulario() -> None:
-    """La pantalla de chat también recibe el campo oculto."""
-
-    # Arrange
-    client = _client()
+    """La pantalla de chat recibe el token que emite el middleware."""
 
     # Act
-    response = client.get("/chat")
+    response = _client().get("/chat")
 
     # Assert
     token = response.cookies[CSRF_COOKIE]
     assert f'name="csrf_token" value="{token}"' in response.text
+
+
+def test_la_portada_emite_el_token_aunque_redirija() -> None:
+    """El 303 no pierde la cookie: pasar por / sigue habilitando los POST."""
+
+    # Act
+    response = _client().get("/", follow_redirects=False)
+
+    # Assert
+    assert response.status_code == 303
+    assert response.headers["location"] == "/chat"
+    assert response.cookies[CSRF_COOKIE]
+    assert f"{CSRF_COOKIE}=" in response.headers["set-cookie"]
 
 
 def test_el_post_sin_token_se_rechaza_antes_de_llamar_al_caso_de_uso() -> None:
@@ -204,7 +203,7 @@ def test_la_cookie_csrf_es_secure_sobre_tls() -> None:
     """La cookie del token no viaja en claro."""
 
     # Act
-    response = _client(base_url="https://testserver").get("/")
+    response = _client(base_url="https://testserver").get("/chat")
 
     # Assert
     csrf = next(
@@ -230,7 +229,7 @@ def test_una_cookie_csrf_fijada_por_tercero_se_reemplaza() -> None:
     client.cookies.set(CSRF_COOKIE, "token-elegido-por-el-atacante")
 
     # Act
-    response = client.get("/")
+    response = client.get("/chat")
 
     # Assert
     token = response.cookies[CSRF_COOKIE]

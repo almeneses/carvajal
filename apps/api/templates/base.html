@@ -23,15 +23,10 @@
     <a class="saltar" href="#contenido">Saltar al contenido</a>
     <header class="cabecera">
       <div class="cabecera-interior">
-        <a class="marca" href="/" aria-label="Carvajal, ir al asistente">
+        <a class="marca" href="/chat" aria-label="Carvajal, ir al chat">
           <img src="/static/logo.svg" alt="Carvajal" width="150" height="20" />
         </a>
         <nav class="pestanas" aria-label="Pantallas de la aplicación">
-          <a
-            class="pestana"
-            href="/#preguntar"
-            {% if ruta in ("/", "/ask") %}aria-current="page"{% endif %}
-          >Asistente</a>
           <a
             class="pestana"
             href="/chat"
