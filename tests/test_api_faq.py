@@ -96,7 +96,7 @@ def _data(client: TestClient, exclude: str = "[]") -> dict[str, str]:
     """Datos del POST con el token CSRF emitido por la portada."""
 
     if CSRF_COOKIE not in client.cookies:
-        client.get("/")
+        client.get("/faq")
     return {CSRF_FIELD: client.cookies[CSRF_COOKIE], "exclude": exclude}
 
 

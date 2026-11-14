@@ -82,7 +82,7 @@ def _data(client: TestClient, question: str) -> dict[str, str]:
     """Datos del POST con el token CSRF emitido por una página."""
 
     if CSRF_COOKIE not in client.cookies:
-        client.get("/")
+        client.get("/faq")
     return {"question": question, CSRF_FIELD: client.cookies[CSRF_COOKIE]}
 
 

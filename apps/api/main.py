@@ -13,7 +13,7 @@ from functools import cache
 import structlog
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -214,9 +214,11 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
             status_code=200 if healthy else 503,
         )
 
-    @app.get("/", response_class=HTMLResponse)
-    def index(request: Request) -> Response:
-        return templates.TemplateResponse(request, "index.html", {})
+    @app.get("/")
+    def index() -> RedirectResponse:
+        """La portada redirige al chat: la pestaña Asistente ya no se muestra."""
+
+        return RedirectResponse(url="/chat", status_code=307)
 
     @app.post("/ask", response_class=HTMLResponse)
     def ask(

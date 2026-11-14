@@ -81,7 +81,7 @@ def test_markup_del_contrato_de_lectura() -> None:
 
     # Assert
     assert '<nav class="pestanas" aria-label="Pantallas de la aplicación">' in html
-    assert 'aria-current="page"' in html
+    assert 'id="nav-asistente"' not in html
     assert '<section id="vista-faq" data-vista="faq" hidden' in html
     assert '<h1 id="titulo-faq" tabindex="-1">Preguntas frecuentes del corpus</h1>' in html
     for identificador in (
@@ -121,6 +121,19 @@ def test_markup_del_contrato_de_lectura() -> None:
     assert 'data-vista="documento"' in html
     assert '<div id="documento-contenido"></div>' in html
     assert '<div id="anuncios"' in html
+
+
+def test_la_navegacion_no_muestra_la_pestana_asistente() -> None:
+    # Arrange
+    html = cliente.get("/").text
+
+    # Act
+    enlaces = re.findall(r'<a id="nav-[^"]+"[^>]*href="([^"]+)"', html)
+
+    # Assert: quedan FAQ, Corpus y Documento; la marca lleva al corpus.
+    assert enlaces == ["/faq", "/corpus", "/documents"]
+    assert 'class="marca" href="/corpus"' in html
+    assert "Asistente</a>" not in html
 
 
 def test_config_js_y_healthz_se_mantienen() -> None:
