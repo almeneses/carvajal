@@ -17,8 +17,10 @@ from apps.api.security import csrf_context
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.llm import build_llm_provider
 from carvajal.adapters.storage.database import build_engine, build_session_factory
+from carvajal.adapters.transcription import SpeachesTranscriber
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.application.ports import Embedder, LLMProvider
+from carvajal.application.transcription import Transcriber
 from carvajal.infrastructure.settings import Settings
 
 APP_DIR = Path(__file__).resolve().parent
@@ -36,6 +38,7 @@ __all__ = [
     "qdrant_store",
     "session_factory",
     "templates",
+    "transcriber",
 ]
 
 
@@ -70,6 +73,25 @@ def llm_provider() -> LLMProvider:
     """Proveedor de LLM configurado; se crea una sola vez por proceso."""
 
     return build_llm_provider(Settings())
+
+
+@cache
+def transcriber() -> Transcriber | None:
+    """Cliente de voz a texto o ``None`` si la función está desactivada.
+
+    No se construye ningún cliente HTTP al importar ni al arrancar: solo se
+    crea el adaptador cuando el endpoint de transcripción lo pide.
+    """
+
+    settings = Settings()
+    if not settings.transcription_url.strip():
+        return None
+    return SpeachesTranscriber(
+        settings.transcription_url,
+        settings.transcription_model,
+        api_key=settings.transcription_api_key,
+        timeout_seconds=settings.transcription_timeout_seconds,
+    )
 
 
 @cache

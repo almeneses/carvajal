@@ -148,6 +148,9 @@ def test_chat_renderiza_el_formulario_y_el_panel() -> None:
     assert "/static/texto.js" in response.text
     assert "/static/panel.js" in response.text
     assert "/static/panel.css" in response.text
+    assert "/static/voz.js" in response.text
+    assert 'id="boton-voz"' in response.text
+    assert 'aria-label="Dictar la pregunta por voz"' in response.text
     assert 'href="/configuracion"' in response.text
     assert response.text.index('id="hilo"') < response.text.index('class="formulario composer"')
 
@@ -224,6 +227,7 @@ def test_los_assets_del_panel_y_del_formateador_se_sirven() -> None:
         "configuracion.css",
         "captura.js",
         "identidad.js",
+        "voz.js",
     ):
         response = client.get(f"/static/{nombre}")
         assert response.status_code == 200, nombre

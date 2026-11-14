@@ -47,6 +47,46 @@ services:
     volumes:
       - qdrantdata:/qdrant/storage
 
+  whisper:
+    # Speaches ejecuta faster-whisper y expone la API compatible con OpenAI.
+    # El puerto 9000 es solo para que la API del host lo alcance en desarrollo;
+    # el modelo se descarga en el primer arranque y queda en whisperdata.
+    image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
+    restart: unless-stopped
+    environment:
+      ENABLE_UI: "false"
+      WHISPER__INFERENCE_DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: int8
+      # Mantiene el modelo en memoria entre dictados (la caché ya está en disco).
+      WHISPER__TTL: "-1"
+    ports:
+      - "127.0.0.1:9000:8000"
+    volumes:
+      - whisperdata:/home/ubuntu/.cache/huggingface/hub
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  whisper-init:
+    # Speaches 0.8.x no precarga al arrancar: este contenedor de un solo uso
+    # descarga el modelo en el volumen compartido antes de la primera pregunta.
+    image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
+    depends_on:
+      whisper:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        curl -fsS --retry 5 --retry-delay 5 -X POST
+        http://whisper:8000/v1/models/${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}
+    volumes:
+      - whisperdata:/home/ubuntu/.cache/huggingface/hub
+
 volumes:
   pgdata:
   qdrantdata:
+  whisperdata:

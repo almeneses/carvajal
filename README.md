@@ -316,6 +316,21 @@ los documentos ya indexados. La captura muestra el progreso por SSE, respeta
 `robots.txt` y valida las URLs contra un guard SSRF; en esta fase la carga y la
 captura son públicas y no exigen autenticación.
 
+El compositor del chat incluye un botón **Dictar** que graba hasta 60 segundos
+con el micrófono, envía el audio a `POST /api/chat/transcribe` y escribe la
+transcripción en la pregunta para que la persona la revise antes de enviar. La
+transcripción corre en un servicio aparte (`whisper`, Speaches +
+faster-whisper) para no cargar el modelo en el proceso web; el audio no se
+persiste ni se registra en logs y el endpoint tiene su propio límite por IP,
+independiente de la cuota diaria de preguntas. `make whisper` levanta el
+servicio y descarga el modelo antes de la primera pregunta; en producción lo
+hace el contenedor de un solo uso `whisper-init`.
+
+> ⚠️ El micrófono exige un **contexto seguro**: funciona en `http://localhost`
+> y en `https://`, pero no en la demo por `http://IP:8080`. Para probar la voz
+> en la demo hace falta un proxy TLS (Caddy/nginx) o abrir el chat desde la
+> propia máquina.
+
 La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
 núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras
 10** pide un lote nuevo, excluye las preguntas ya mostradas y acumula el
@@ -413,6 +428,13 @@ También puedes configurar las variables en la terminal:
 | `CAPTURE_WINDOW_SECONDS` | Ventana en segundos del límite por IP. | `3600` |
 | `CAPTURE_ALLOWED_DOMAINS` | Allowlist opcional separada por coma; vacía = cualquier host público. | vacío |
 | `CAPTURE_ALLOW_PRIVATE_HOSTS` | Solo desarrollo: permite loopback y redes privadas. | `false` |
+| `TRANSCRIPTION_URL` | Servicio Speaches de voz a texto. Vacío desactiva el dictado. | `http://127.0.0.1:9000` |
+| `TRANSCRIPTION_MODEL` | Modelo de faster-whisper que descarga Speaches. | `Systran/faster-whisper-small` |
+| `TRANSCRIPTION_LANGUAGE` | Idioma esperado de la grabación. | `es` |
+| `TRANSCRIPTION_MAX_BYTES` | Tamaño máximo del audio aceptado (~2 min en opus). | `2000000` |
+| `TRANSCRIPTION_TIMEOUT_SECONDS` | Timeout de la llamada al servicio de voz. | `120` |
+| `TRANSCRIPTION_REQUESTS_LIMIT` | Dictados por IP y ventana; `0` desactiva el límite. | `20` |
+| `TRANSCRIPTION_WINDOW_SECONDS` | Ventana en segundos del límite de dictados. | `3600` |
 
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
 > independientemente del proveedor del LLM. `make index` requiere ese modelo.
@@ -458,6 +480,8 @@ make prod-up    # app + base + Qdrant + Ollama en APP_PORT (requiere SESSION_SEC
 make prod-down  # detiene los servicios (conserva los volúmenes)
 make db         # Postgres 16 con pgvector (docker compose)
 make db-down    # detiene la base local
+make whisper    # Speaches (voz a texto) en :9000
+make whisper-down # detiene el servicio de voz (conserva el modelo)
 make clean      # limpiar cachés y artefactos
 ```
 
@@ -477,7 +501,9 @@ fuera. El build fija las imágenes base por digest y omite `zstandard`
 (compresión opcional de trazas de LangSmith) y las herramientas de build (`uv`,
 `pip`) para mantenerse por debajo de 300 MB. `compose.prod.yml` exige
 `SESSION_SECRET` (falla si falta) y endurece el contenedor con `read_only`,
-`cap_drop: ALL` y `no-new-privileges`.
+`cap_drop: ALL` y `no-new-privileges`. El servicio `whisper` (Speaches en CPU)
+se descarga aparte y guarda el modelo en el volumen `whisperdata`; su primer
+arranque puede tardar varios minutos y reserva 2 GB de memoria.
 
 En producción el despliegue es automático al fusionar el PR de release en
 `main`: GitHub Actions publica la imagen en GHCR con un tag `sha-<commit>` y

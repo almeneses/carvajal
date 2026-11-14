@@ -112,6 +112,7 @@ make format    # Ruff (formato)
 make test      # pytest
 make import    # importa el corpus externo a la capa extendida
 make qdrant    # levanta Qdrant con volumen persistente
+make whisper   # levanta Speaches (voz a texto) en :9000
 make index     # indexa data/gold en Qdrant (M2)
 make web       # frontend propio del M2 en :8001
 make api       # API del M2 en :8000

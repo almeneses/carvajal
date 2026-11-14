@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build app api web image prod-up prod-down db db-down qdrant qdrant-down index index-eval eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build app api web image prod-up prod-down db db-down qdrant qdrant-down whisper whisper-down index index-eval eval import clean
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -28,6 +28,8 @@ help: ## Muestra esta ayuda
 	@echo "  web                Lanza el frontend propio en :8001"
 	@echo "  qdrant             Levanta Qdrant con volumen persistente"
 	@echo "  qdrant-down        Detiene Qdrant (conserva el volumen)"
+	@echo "  whisper            Levanta Speaches (voz a texto) y descarga el modelo"
+	@echo "  whisper-down       Detiene el servicio de voz (conserva el modelo)"
 	@echo "  index              Indexa data/gold en Qdrant"
 	@echo "  index-eval         Indexa y ejecuta la evaluación de retrieval"
 	@echo "  image              Construye la imagen Docker de la app web"
@@ -91,6 +93,13 @@ qdrant: ## Levanta Qdrant con volumen persistente
 
 qdrant-down: ## Detiene Qdrant (conserva el volumen)
 	docker compose stop qdrant
+
+whisper: ## Levanta Speaches (voz a texto) en :9000 y descarga el modelo
+	docker compose up -d --wait whisper
+	docker compose run --rm whisper-init
+
+whisper-down: ## Detiene el servicio de voz (conserva el modelo descargado)
+	docker compose stop whisper
 
 index: ## Indexa data/gold en Qdrant
 	uv run carvajal index-qdrant

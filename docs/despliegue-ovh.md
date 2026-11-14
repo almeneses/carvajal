@@ -6,7 +6,7 @@ Esta guía despliega Carvajal en el VPS `144.217.80.136` como **demo por IP**:
 Internet
    │  http://144.217.80.136:8080
    ▼
-contenedor app ── red Docker interna ── db, qdrant, ollama
+contenedor app ── red Docker interna ── db, qdrant, ollama, whisper
 ```
 
 No hay dominio ni TLS. La app se publica directamente en el puerto `8080`
@@ -126,6 +126,9 @@ Notas:
 - `SESSION_SECRET` debe mantenerse estable; si lo cambias, se invalidan las
   cookies de los visitantes.
 - Si copiaste `.env.example`, deja `FRONTEND_ORIGINS` vacío.
+- El servicio `whisper` descarga el modelo de voz en el volumen `whisperdata`
+  durante el primer arranque (varios minutos) y reserva 2 GB de memoria. La app
+  lo alcanza en `http://whisper:8000`; no hace falta publicar su puerto.
 
 Comprueba permisos y variables sin imprimir secretos:
 
@@ -333,6 +336,9 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
 ## 9. Seguridad de la demo
 
 - La demo va por **HTTP**, sin TLS. No la uses para datos sensibles.
+- El dictado por voz necesita un contexto seguro: el navegador no expone el
+  micrófono en `http://IP:8080`, solo en `localhost` o sobre HTTPS. Si la demo
+  debe admitir voz, pon un proxy TLS delante sin detener nginx.
 - Si quieres limitar el acceso, restringe el puerto 8080 por IP en el firewall
   de OVH o en un proxy delante.
 - `.env` siempre en `600`.

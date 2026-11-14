@@ -152,6 +152,21 @@ def test_el_post_con_el_token_de_la_cookie_pasa() -> None:
     assert "ok" in response.text
 
 
+def test_el_microfono_se_permite_solo_desde_el_propio_origen() -> None:
+    """El dictado necesita ``microphone=(self)``, no un permiso global."""
+
+    # Arrange
+    client = _client()
+
+    # Act
+    response = client.get("/")
+
+    # Assert
+    assert response.headers["permissions-policy"] == (
+        "geolocation=(), microphone=(self), camera=()"
+    )
+
+
 def test_las_cabeceras_de_seguridad_van_en_todas_las_respuestas() -> None:
     """Incluidas las de error: el endurecimiento no depende del camino feliz."""
 

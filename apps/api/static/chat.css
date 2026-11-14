@@ -85,6 +85,71 @@
   box-shadow: none;
 }
 
+/* Dictado por voz: el botón solo aparece si el navegador puede grabar. */
+.entrada-voz {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.entrada-voz input {
+  flex: 1 1 auto;
+}
+
+.entrada-voz .boton-voz {
+  flex: 0 0 auto;
+  min-width: 8.5rem;
+  background: var(--fondo);
+  border-color: var(--borde-control);
+  color: var(--azul);
+}
+
+.entrada-voz .boton-voz:hover {
+  border-color: var(--cian);
+}
+
+.boton-voz .icono-voz {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.boton-voz[aria-pressed="true"] {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+}
+
+.boton-voz[aria-pressed="true"] .icono-voz {
+  animation: pulso-voz 1s ease-in-out infinite;
+}
+
+@keyframes pulso-voz {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 760px) {
+  .entrada-voz {
+    flex-wrap: wrap;
+  }
+
+  .entrada-voz .boton-voz {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boton-voz[aria-pressed="true"] .icono-voz {
+    animation: none;
+  }
+}
+
 .formulario-nuevo-hilo {
   align-items: center;
   justify-content: space-between;
