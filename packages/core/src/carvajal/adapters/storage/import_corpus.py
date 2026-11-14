@@ -5,6 +5,7 @@ documento se identifica por su slug y cada fragmento por ``documento:posición``
 La función solo hace ``flush()``; la transacción la abre quien la invoca (la CLI).
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -92,6 +93,8 @@ def migrate_gold(
     gold_dir: Path,
     layer: str = "core",
     allow_empty: bool = False,
+    prune: bool = True,
+    only: Collection[str] | None = None,
 ) -> GoldImportReport:
     """Importa los ``*.md`` de ``gold_dir`` y devuelve los totales.
 
@@ -105,9 +108,18 @@ def migrate_gold(
     Un directorio existente sin Markdown se rechaza con ``GoldImportError``
     salvo ``allow_empty=True``, que interpreta el vacío como una poda total de
     la capa. Un directorio inexistente se rechaza siempre.
+
+    Con ``prune=False`` solo se hace la importación incremental: útil para
+    cargas de documentos sobre un corpus cuya copia Gold no está en el mismo
+    contenedor, donde podar borraría documentos válidos. ``only`` limita la
+    importación a esos slugs y nunca poda el resto.
     """
 
     loaded = _load_documents(gold_dir, layer=layer)
+    if only is not None:
+        seleccionados = set(only)
+        loaded = [document for document in loaded if document.id in seleccionados]
+        prune = False
     if not loaded and not allow_empty:
         raise GoldImportError(
             f"{gold_dir}: no hay documentos Gold; usa --allow-empty para vaciar la capa."
@@ -123,7 +135,9 @@ def migrate_gold(
         chunks.replace(document.id, document_chunks)
         total_chunks += len(document_chunks)
 
-    removed = _prune(documents, layer=layer, keep={document.id for document in loaded})
+    removed = (
+        _prune(documents, layer=layer, keep={document.id for document in loaded}) if prune else 0
+    )
     return GoldImportReport(documents=len(loaded), chunks=total_chunks, removed=removed)
 
 

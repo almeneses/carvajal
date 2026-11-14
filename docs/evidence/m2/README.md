@@ -8,7 +8,7 @@
 |---|---|---|
 | `smoke.json` | cuatro casos de la rúbrica, ruta, tool, memoria, fuentes, TTFT y abstención | `uv run python scripts/smoke_m2.py` |
 | `health.json` | `/health` separa documentos, fragmentos e índice | `curl -s localhost:8000/health \| python3 -m json.tool` |
-| `make check` | 484 pruebas unitarias/HTTP | `make check` (la salida no se versiona) |
+| `make check` | 499 pruebas unitarias/HTTP | `make check` (la salida no se versiona) |
 | `pytest -m integration` | 41 pruebas de integración con Postgres real | `uv run pytest -m integration` |
 | `frontend-mobile.png` | frontend anterior a 390×844 | Chrome headless, `--window-size=390,844` |
 | `frontend-desktop.png` | frontend anterior a 1440×900 | Chrome headless, `--window-size=1440,900` |
@@ -17,8 +17,11 @@
 | `institucional-documento-desktop.png` | Documento con contenido saneado y ficha a 1440×1000 | Chrome headless + CDP |
 | `institucional-mobile.png` | pestañas en segunda fila y Asistente a 390×844 | Chrome headless + CDP |
 | `institucional-corpus-mobile.png` | Corpus real a 390×844 | Chrome headless + CDP |
-| `institucional-htmx-asistente-desktop.png` | asistente HTMX con respuesta formateada, cita inline y fuentes plegadas a 1440×1000 (datos de ejemplo) | Chrome headless con proveedores falsos |
+| `institucional-htmx-asistente-desktop.png` | asistente HTMX con respuesta arriba, compositor abajo y fuentes plegadas a 1440×1000 (datos de ejemplo) | Chrome headless con proveedores falsos |
 | `institucional-htmx-chat-desktop.png` | chat HTMX con texto formateado, citas inline y fuentes plegadas a 1440×1350 (datos de ejemplo) | Chrome headless con proveedores falsos |
+| `institucional-htmx-chat-composer.png` | chat con compositor inferior y vista al 80% en escritorio a 1440×1200 (datos de ejemplo) | Chrome headless con proveedores falsos |
+| `institucional-htmx-hilos.png` | panel lateral de hilos anteriores con el hilo activo a 1440×1200 (datos de ejemplo) | Chrome headless + CDP |
+| `institucional-htmx-configuracion.png` | pestaña Configuración con carga de archivos y carpeta a 1440×1000 | Chrome headless |
 | `institucional-htmx-fuentes-desktop.png` | lista de fuentes desplegada con enlaces al panel de documento (datos de ejemplo) | Chrome headless con proveedores falsos |
 | `institucional-htmx-panel-documento.png` | panel lateral con el documento y el fragmento citado resaltado a 1440×1350 (datos de ejemplo) | Chrome headless + CDP |
 | `institucional-htmx-panel-mobile.png` | panel lateral de documento a 390×1000 (datos de ejemplo) | Chrome headless + CDP |

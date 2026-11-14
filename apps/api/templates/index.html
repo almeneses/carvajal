@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block main_class %}ancho-chat{% endblock %}
 {% block content %}
 <section class="seccion" id="preguntar" aria-labelledby="titulo-preguntar">
   <header class="cabecera-vista">
@@ -9,27 +10,29 @@
     </p>
   </header>
 
-  <form class="formulario" method="post" action="/ask" data-preguntar>
-    {% include "_csrf.html" %}
-    <div class="campo">
-      <label for="pregunta">Tu pregunta</label>
-      <input
-        id="pregunta"
-        name="question"
-        type="text"
-        required
-        autocomplete="off"
-        placeholder="¿Cuándo nació la empresa?"
-        aria-describedby="ayuda-pregunta"
-      />
-      <p id="ayuda-pregunta" class="ayuda">
-        Formula una pregunta concreta: el asistente responde solo con el corpus y cita el
-        fragmento del que toma cada dato.
-      </p>
-    </div>
-    <button type="submit">Preguntar</button>
-  </form>
+  <div class="respuesta-composer">
+    <section class="respuesta" id="respuesta" aria-live="polite" aria-label="Respuesta"></section>
 
-  <section class="respuesta" id="respuesta" aria-live="polite" aria-label="Respuesta"></section>
+    <form class="formulario composer" method="post" action="/ask" data-preguntar>
+      {% include "_csrf.html" %}
+      <div class="campo">
+        <label for="pregunta">Tu pregunta</label>
+        <input
+          id="pregunta"
+          name="question"
+          type="text"
+          required
+          autocomplete="off"
+          placeholder="¿Cuándo nació la empresa?"
+          aria-describedby="ayuda-pregunta"
+        />
+        <p id="ayuda-pregunta" class="ayuda">
+          Formula una pregunta concreta: el asistente responde solo con el corpus y cita el
+          fragmento del que toma cada dato.
+        </p>
+      </div>
+      <button type="submit">Preguntar</button>
+    </form>
+  </div>
 </section>
 {% endblock %}

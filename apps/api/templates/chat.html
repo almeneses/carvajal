@@ -1,39 +1,47 @@
 {% extends "base.html" %}
 {% block title %}Chat · Asistente Carvajal{% endblock %}
+{% block main_class %}ancho-chat{% endblock %}
 {% block head_extra %}
 <link rel="stylesheet" href="/static/chat.css" />
+<script src="/static/hilos.js" defer></script>
 <script src="/static/chat-stream.js" defer></script>
 {% endblock %}
 {% block content %}
-<section class="seccion" aria-labelledby="titulo-chat">
+<section class="seccion chat-seccion" aria-labelledby="titulo-chat">
   <div class="panel conversacion">
     <header class="cabecera-conversacion">
-      <p class="sobrelinea">Asistente · Conversación</p>
-      <h1 id="titulo-chat">Conversación con el corpus</h1>
-      <p class="bajada">
-        Cada respuesta se apoya en los documentos del corpus y cita sus fuentes. El
-        historial queda asociado a esta cookie anónima: recargar la página conserva la
-        conversación.
-      </p>
+      <div class="cabecera-texto">
+        <p class="sobrelinea">Asistente · Conversación</p>
+        <h1 id="titulo-chat">Conversación con el corpus</h1>
+        <p class="bajada">
+          Cada respuesta se apoya en los documentos del corpus y cita sus fuentes. El
+          historial queda asociado a esta cookie anónima.
+        </p>
+      </div>
+      <div class="cabecera-acciones">
+        <button type="button" class="boton boton-fantasma" data-abrir-hilos>
+          Hilos
+        </button>
+        <form class="formulario-nuevo-hilo" method="post" action="/chat/new">
+          {% include "_csrf.html" %}
+          <button type="submit" class="boton boton-fantasma">Nuevo hilo</button>
+        </form>
+      </div>
     </header>
 
-    <div class="cuerpo-conversacion">
-      <form
-        class="formulario formulario-nuevo-hilo"
-        method="post"
-        action="/chat/new"
-        aria-label="Abrir un hilo nuevo"
-      >
-        {% include "_csrf.html" %}
-        <p class="ayuda">
-          Un hilo nuevo conserva las preferencias que hayas declarado, pero no el historial
-          de esta conversación.
-        </p>
-        <button type="submit" class="secundario">Nuevo hilo</button>
-      </form>
+    <div class="cuerpo-conversacion chat-cuerpo">
+      {% include "_chat_stream.html" %}
 
-      <form class="formulario" method="post" action="/chat" data-chat-stream>
+      <section class="historial-chat" aria-labelledby="titulo-historial">
+        <h2 id="titulo-historial" class="sr-solo">Historial de la conversación</h2>
+        <div id="hilo" aria-live="polite">
+          {% include "_chat_thread.html" %}
+        </div>
+      </section>
+
+      <form class="formulario composer" method="post" action="/chat" data-chat-stream>
         {% include "_csrf.html" %}
+        <input type="hidden" name="thread_id" value="{{ thread_id }}" data-thread-id />
         <input type="hidden" name="client_turn_id" value="" data-client-turn-id />
         <div class="campo">
           <label for="pregunta">Tu pregunta</label>
@@ -55,18 +63,44 @@
         </div>
         <button type="submit">Enviar</button>
       </form>
-
-      {% include "_chat_stream.html" %}
     </div>
   </div>
 </section>
 
-<section class="seccion panel panel-historial" aria-labelledby="titulo-historial">
-  <div class="cuerpo-conversacion">
-    <h2 id="titulo-historial">Historial</h2>
-    <div id="hilo" aria-live="polite">
-      {% include "_chat_thread.html" %}
+<dialog
+  id="panel-hilos"
+  class="panel-hilos"
+  data-abrir="{{ '1' if panel_hilos else '0' }}"
+  aria-labelledby="panel-hilos-titulo"
+>
+  <header class="panel-hilos-cabecera">
+    <div>
+      <p class="sobrelinea">Asistente · Conversaciones</p>
+      <h2 id="panel-hilos-titulo">Hilos anteriores</h2>
     </div>
+    <button type="button" class="panel-cerrar" data-cerrar-hilos aria-label="Cerrar los hilos">
+      ×
+    </button>
+  </header>
+  <div class="panel-hilos-cuerpo">
+    {% if conversations %}
+    <nav class="hilos-lista" aria-label="Hilos anteriores">
+      {% for conversation in conversations %}
+      <a
+        class="hilo-item{% if conversation.id == thread_id %} activo{% endif %}"
+        href="/chat?thread={{ conversation.id | urlencode }}"
+        {% if conversation.id == thread_id %}aria-current="page"{% endif %}
+      >
+        <span class="hilo-preview">{{ conversation.preview or "Hilo vacío" }}</span>
+        <span class="hilo-fecha">
+          {{ conversation.updated_at.strftime("%d/%m/%Y %H:%M") }}
+        </span>
+      </a>
+      {% endfor %}
+    </nav>
+    {% else %}
+    <p class="vacio">Todavía no hay hilos anteriores.</p>
+    {% endif %}
   </div>
-</section>
+</dialog>
 {% endblock %}

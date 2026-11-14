@@ -22,7 +22,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.chat.agent import AgentRunner, AgentTurn, default_agent_runner
 from apps.api.chat.streaming import ChatEvent
-from carvajal.adapters.storage.chat import ChatMessage, Conversation, SqlChatRepository
+from carvajal.adapters.storage.chat import (
+    ChatMessage,
+    Conversation,
+    ConversationSummary,
+    SqlChatRepository,
+)
 from carvajal.agent.state import Turn
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
 from carvajal.application.ports import Embedder, LLMProvider
@@ -53,12 +58,27 @@ class ChatFailure(RuntimeError):
 class ChatProvider(Protocol):
     """Contrato que consume la vista; el servicio real y los dobles lo cumplen."""
 
-    def history(self, owner_key: str) -> Sequence[ChatMessage]:
-        """Devuelve el historial de la conversación activa del dueño."""
+    def history(
+        self,
+        owner_key: str,
+        thread_id: str | None = None,
+    ) -> Sequence[ChatMessage]:
+        """Devuelve el historial del hilo indicado o del activo."""
 
         ...
 
-    def ask(self, owner_key: str, question: str) -> Answer:
+    def conversations(self, owner_key: str) -> Sequence[ConversationSummary]:
+        """Lista los hilos del dueño para el panel lateral."""
+
+        ...
+
+    def ask(
+        self,
+        owner_key: str,
+        question: str,
+        *,
+        thread_id: str | None = None,
+    ) -> Answer:
         """Responde la pregunta y persiste el turno completo."""
 
         ...
@@ -101,15 +121,30 @@ class ChatService:
 
         return self._agent or default_agent_runner()
 
-    def history(self, owner_key: str) -> Sequence[ChatMessage]:
-        """Lee el historial sin crear conversación si el dueño aún no tiene."""
+    def history(
+        self,
+        owner_key: str,
+        thread_id: str | None = None,
+    ) -> Sequence[ChatMessage]:
+        """Lee el historial del hilo indicado o del activo sin crear conversación."""
 
         with self._session_factory() as session:
             repository = SqlChatRepository(session)
+            if thread_id:
+                conversation = repository.get_owned(thread_id, owner_key)
+                if conversation is None:
+                    raise ThreadAccessError("El hilo no pertenece a este visitante.")
+                return repository.history(conversation.id)
             conversation = repository.active(owner_key)
             if conversation is None:
                 return []
             return repository.history(conversation.id)
+
+    def conversations(self, owner_key: str) -> Sequence[ConversationSummary]:
+        """Lista los hilos del dueño, con una vista previa del último mensaje."""
+
+        with self._session_factory() as session:
+            return SqlChatRepository(session).summarize(owner_key)
 
     def new_conversation(self, owner_key: str) -> Conversation:
         """Crea un hilo nuevo y lo deja como activo para el dueño."""
@@ -120,13 +155,19 @@ class ChatService:
             logger.info("chat.thread_created", thread_id=conversation.id)
             return conversation
 
-    def ask(self, owner_key: str, question: str) -> Answer:
+    def ask(
+        self,
+        owner_key: str,
+        question: str,
+        *,
+        thread_id: str | None = None,
+    ) -> Answer:
         """Responde y persiste el turno; los errores se elevan para el 503."""
 
         text = ""
         sources: tuple[Source, ...] = ()
         error: str | None = None
-        for event in self.stream(owner_key, question):
+        for event in self.stream(owner_key, question, thread_id=thread_id):
             if event.name == "meta":
                 sources = _sources_from_payload(event.data.get("sources", []))
             elif event.name in {"token", "fallback"}:

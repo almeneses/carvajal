@@ -53,6 +53,7 @@ def index_gold(
     prune: bool = True,
     batch_size: int = 32,
     cards_path: Path | None = None,
+    only: set[str] | None = None,
 ) -> IndexReport:
     """Indexa el corpus Gold y devuelve los conteos de la corrida.
 
@@ -73,9 +74,13 @@ def index_gold(
     cards = _load_cards(cards_path or gold_dir.parent / "retrieval_cards.json")
     documents = []
     for path in sorted(gold_dir.glob("*.md")):
-        documents.append(load_document(path, layer="core"))
+        document = load_document(path, layer="core")
+        if only is None or document.id in only:
+            documents.append(document)
     if not documents:
         raise ValueError(f"{gold_dir}: no hay documentos Gold para indexar.")
+    if only is not None:
+        prune = False
 
     valid_ids: list[str] = []
     indexed = 0

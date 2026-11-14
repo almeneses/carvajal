@@ -112,6 +112,11 @@ class Settings(BaseSettings):
     # que las cookies sobrevivan reinicios y compartan valor entre workers.
     session_secret: str = ""
 
+    # Token de administración para la carga de documentos. Si está vacío, la
+    # pestaña Configuración solo acepta peticiones desde loopback (desarrollo).
+    # En producción fíjalo para habilitar la carga desde el navegador.
+    config_token: str = ""
+
     # Cupo diario de preguntas por visitante anónimo (W4.2). El límite es una
     # política de producto y la medianoche se calcula en la zona indicada, no
     # en el TZ del contenedor.

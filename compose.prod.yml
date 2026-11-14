@@ -85,6 +85,9 @@ services:
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
+      # Obligatorio para habilitar la carga desde fuera del contenedor. Sin él,
+      # la pestaña Configuración solo acepta loopback.
+      CONFIG_TOKEN: ${CONFIG_TOKEN:-}
       # Cuota diaria por visitante (W4.2); la medianoche se calcula en la zona
       # indicada, no en el TZ del contenedor.
       DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}
@@ -103,9 +106,11 @@ services:
       # Demo por IP: la app se publica directamente en 0.0.0.0:APP_PORT.
       # Para TLS con dominio, publica solo en 127.0.0.1 y pon el proxy delante.
       - "0.0.0.0:${APP_PORT:-8080}:8000"
-    # La app solo lee código, plantillas y estáticos: no necesita escribir en
-    # el sistema de archivos ni privilegios adicionales.
+    # El código y los estáticos son de solo lectura; /app/data es el volumen
+    # persistente donde viven Bronze, Silver, Gold y el índice de las cargas.
     read_only: true
+    volumes:
+      - appdata:/app/data
     tmpfs:
       - /tmp
     cap_drop:
@@ -150,6 +155,7 @@ services:
       start_period: 90s
 
 volumes:
+  appdata:
   pgdata:
   qdrantdata:
   ollamadata:

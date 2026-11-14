@@ -60,6 +60,9 @@ COPY migrations ./migrations
 COPY apps ./apps
 # Extracto versionado de indicadores que `indicator_lookup` lee en runtime.
 COPY data/indicators.json ./data/indicators.json
+# Volumen persistente para Bronze, Silver, Gold e índice de cargas. El dueño
+# debe ser el usuario sin privilegios para poder escribir con read_only: true.
+RUN mkdir -p /app/data && chown -R app:app /app/data
 USER app
 EXPOSE 8000
 # Vitalidad del proceso: /live no toca la base, así el contenedor no se marca
