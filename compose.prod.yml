@@ -1,16 +1,17 @@
-# App web + Postgres 16 con pgvector para una sola máquina (W6.1).
+# App web + Postgres 16 + Qdrant + Ollama + Caddy para una sola máquina.
 #
-#   export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+#   cp .env.example .env   # edita DOMAIN, SESSION_SECRET, POSTGRES_PASSWORD...
 #   docker compose -f compose.prod.yml up -d --build
+#   docker compose -f compose.prod.yml run --rm app alembic upgrade head
 #   docker compose -f compose.prod.yml logs -f app
 #
-# O define SESSION_SECRET en el `.env` del servidor. Compose falla si no está:
-# una clave HMAC conocida permitiría falsificar la cookie del visitante.
+# Compose falla si falta SESSION_SECRET: una clave HMAC conocida permitiría
+# falsificar la cookie del visitante. En producción no se construye la imagen
+# en el VPS: `scripts/deploy.sh` la descarga de GHCR con un tag inmutable.
+# Caddy termina TLS en 80/443; la app solo escucha en loopback.
 #
-# Las migraciones se aplican aparte, antes de la primera petición real:
-#   docker compose -f compose.prod.yml run --rm app alembic upgrade head
-#
-# El proxy con TLS y el runbook completo llegan en W6.2.
+# El runbook completo (VPS, DNS, secretos, primer despliegue y rollback) está
+# en `docs/despliegue-ovh.md`.
 
 name: carvajal-prod
 
@@ -39,12 +40,16 @@ services:
   app:
     build:
       context: .
-    image: carvajal-api:local
+    # En producción `deploy.sh` exporta APP_IMAGE con el tag SHA de GHCR; en
+    # local se mantiene el nombre que construye `make prod-up`.
+    image: ${APP_IMAGE:-carvajal-api:local}
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
       qdrant:
+        condition: service_started
+      ollama:
         condition: service_started
     environment:
       # Dentro de la red de compose el host de la base es el servicio `db`,
@@ -52,14 +57,25 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      # Los embeddings del RAG se calculan en el servicio `ollama`. Si usas un
+      # Ollama externo, define OLLAMA_BASE_URL en el .env del servidor.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       # El RAG evaluado del M2 consulta Qdrant; Postgres sigue siendo la
       # fuente de verdad relacional y el backend de memoria del agente.
       QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-carvajal_chunks}
+      QDRANT_DIMENSIONS: ${QDRANT_DIMENSIONS:-768}
+      QDRANT_DISTANCE: ${QDRANT_DISTANCE:-Cosine}
+      RAG_TOP_K: ${RAG_TOP_K:-6}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.30}
       AGENT_CHECKPOINTER: ${AGENT_CHECKPOINTER:-postgres}
+      # La app sirve la interfaz en el mismo origen; solo hace falta si se
+      # publica un frontend separado (apps/web) detrás de otro dominio.
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-}
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
@@ -73,12 +89,13 @@ services:
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-produccion}
       # Muestreo de trazas de Sentry entre 0 y 1; por defecto apagado.
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
-      # W6.2 termina TLS en el proxy y reenvía X-Forwarded-Proto. Uvicorn solo
-      # confía en estas IPs (por defecto 127.0.0.1); si el proxy es otro
-      # contenedor de la red de compose, añade su dirección o la subred.
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Caddy termina TLS y reenvía X-Forwarded-Proto. La app no está expuesta
+      # fuera de la red de compose (solo loopback para los healthchecks), así
+      # que se confía en cualquier proxy de esa red.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
     ports:
-      # Solo loopback: el proxy de W6.2 es el que expone el puerto público.
+      # Solo loopback: Caddy es el que expone 80/443 y llega a `app:8000`
+      # por la red interna de Compose.
       - "127.0.0.1:${APP_PORT:-8000}:8000"
     # La app solo lee código, plantillas y estáticos: no necesita escribir en
     # el sistema de archivos ni privilegios adicionales.
@@ -112,6 +129,45 @@ services:
     volumes:
       - qdrantdata:/qdrant/storage
 
+  ollama:
+    # Solo se usa para embeddings (nomic-embed-text); el LLM puede ser DeepSeek.
+    # El modelo se descarga aparte: docker compose exec ollama ollama pull nomic-embed-text
+    image: ollama/ollama:0.40.16
+    restart: unless-stopped
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  caddy:
+    # TLS automático con Let's Encrypt. Necesita DOMAIN en el .env y los
+    # puertos 80/443 abiertos; el certificado se guarda en caddydata.
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      # No se espera a `service_healthy`: en el primer despliegue el índice de
+      # Qdrant aún no existe y `/health` devuelve 503. El deploy.sh comprueba
+      # readiness por separado.
+      app:
+        condition: service_started
+    environment:
+      DOMAIN: ${DOMAIN:?Define DOMAIN en el .env del servidor}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
 volumes:
   pgdata:
   qdrantdata:
+  ollamadata:
+  caddydata:
+  caddyconfig:

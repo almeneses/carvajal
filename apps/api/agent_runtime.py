@@ -82,7 +82,11 @@ def _build(settings: Settings) -> AgentRuntime:
             store = stack.enter_context(PostgresStore.from_conn_string(url))
             store.setup()
         graph = build_agent(
-            AgentDeps(vector_store=qdrant, embedder=OllamaEmbedder(), settings=settings),
+            AgentDeps(
+                vector_store=qdrant,
+                embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
+                settings=settings,
+            ),
             checkpointer=checkpointer,
             store=store,
         )

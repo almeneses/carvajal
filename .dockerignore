@@ -13,7 +13,12 @@ htmlcov
 dist
 build
 *.egg-info
-data
+# El corpus y los artefactos no entran en la imagen, pero el extracto de
+# indicadores sí: la herramienta `indicator_lookup` lo lee en runtime desde
+# `data/indicators.json`. La negación debe excluir el contenido, no el
+# directorio padre, para que Docker pueda re-incluir el archivo.
+data/*
+!data/indicators.json
 docs
 specs
 tests

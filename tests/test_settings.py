@@ -20,6 +20,7 @@ def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
         "POSTGRES_PORT",
+        "OLLAMA_BASE_URL",
     ):
         monkeypatch.delenv(nombre, raising=False)
 
@@ -88,6 +89,24 @@ def test_tupla_desde_entorno_json(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(_env_file=None)
 
     assert settings.seeds == ("https://ejemplo.test/",)
+
+
+def test_ollama_base_url_por_defecto() -> None:
+    """Sin configuración, los embeddings apuntan al Ollama local."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ollama_base_url == "http://127.0.0.1:11434"
+
+
+def test_ollama_base_url_desde_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """En el compose de producción la URL apunta al servicio `ollama`."""
+
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ollama_base_url == "http://ollama:11434"
 
 
 def test_fachada_coincide_con_settings() -> None:

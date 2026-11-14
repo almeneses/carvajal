@@ -1,0 +1,6 @@
+# Caddy termina TLS (Let's Encrypt) y reenvía a la app por la red de Compose.
+# El dominio se inyecta desde el .env del servidor (DOMAIN=app.ejemplo.com).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8000
+}

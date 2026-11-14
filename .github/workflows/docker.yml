@@ -50,6 +50,7 @@ jobs:
       - name: Validar compose.prod.yml
         env:
           SESSION_SECRET: secreto-de-ci
+          DOMAIN: ejemplo.test
         run: docker compose -f compose.prod.yml config -q
 
       - name: Construir imagen
