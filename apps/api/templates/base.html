@@ -8,29 +8,38 @@
       name="description"
       content="Asistente del corpus público de Carvajal: respuestas con la fuente citada."
     />
+    <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/app.css" />
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/app.js" defer></script>
     {% block head_extra %}{% endblock %}
   </head>
   <body>
+    {% set ruta = request.url.path %}
     <a class="saltar" href="#contenido">Saltar al contenido</a>
     <header class="cabecera">
       <div class="cabecera-interior">
-        <a class="marca" href="/">
-          <span class="marca-logo"><img src="/static/logo.svg" alt="Carvajal" /></span>
-          <span class="marca-texto">Asistente del corpus</span>
+        <a class="marca" href="/" aria-label="Carvajal, ir al asistente">
+          <img src="/static/logo.svg" alt="Carvajal" width="150" height="20" />
         </a>
-        <nav class="navegacion" aria-label="Secciones de la página">
-          <ul>
-            <li><a href="/#preguntar">Preguntar</a></li>
-            <li><a href="/corpus">Corpus</a></li>
-            <li><a href="/chat">Chat</a></li>
-            {% if answer is defined and answer %}
-            <li><a href="#respuesta">Respuesta</a></li>
-            {% endif %}
-          </ul>
+        <nav class="pestanas" aria-label="Pantallas de la aplicación">
+          <a
+            class="pestana"
+            href="/#preguntar"
+            {% if ruta == "/" %}aria-current="page"{% endif %}
+          >Asistente</a>
+          <a
+            class="pestana"
+            href="/chat"
+            {% if ruta == "/chat" %}aria-current="page"{% endif %}
+          >Chat</a>
+          <a
+            class="pestana"
+            href="/corpus"
+            {% if ruta == "/corpus" or ruta.startswith("/documents") %}aria-current="page"{% endif %}
+          >Corpus</a>
         </nav>
+        <span class="estado-sitio">Corpus público</span>
       </div>
     </header>
     <main id="contenido" tabindex="-1">

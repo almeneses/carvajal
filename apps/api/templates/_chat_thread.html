@@ -19,8 +19,11 @@
       <h3>Fuentes citadas</h3>
       <ol class="fuentes">
         {% for source in message.sources %}
+        {% set tipo = (source.source_type or "oficial") | lower %}
+        {% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(source.layer, source.layer) %}
         <li class="fuente">
           <p class="fuente-meta">
+            <span class="etiqueta {{ 'etiqueta-oficial' if tipo in ['oficial', 'official'] else 'etiqueta-externa' }}"><span class="sr-solo">Tipo de fuente: </span>{{ (source.source_type or "oficial") | capitalize }}</span>
             <span>Documento:
               {% if source.url %}
               <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer"><strong>{{ source.title or source.slug }}</strong></a>
@@ -29,8 +32,7 @@
               {% endif %}
             </span>
             <span>Sección: {{ source.section }}</span>
-            <span>Capa: {{ source.layer }}</span>
-            <span>Tipo: {{ source.source_type }}</span>
+            <span>Capa: {{ capa }}</span>
             <span class="puntuacion">Puntuación: {{ "%.3f"|format(source.score) }}</span>
           </p>
           <p class="extracto">{{ source.excerpt }}</p>

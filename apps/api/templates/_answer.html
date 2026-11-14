@@ -8,11 +8,14 @@
 <h2>Fuentes</h2>
 <ol class="fuentes">
   {% for source in answer.sources %}
+  {% set tipo = (source.source_type or "oficial") | lower %}
+  {% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(source.layer, source.layer) %}
   <li class="fuente">
     <p class="fuente-meta">
+      <span class="etiqueta {{ 'etiqueta-oficial' if tipo in ['oficial', 'official'] else 'etiqueta-externa' }}"><span class="sr-solo">Tipo de fuente: </span>{{ (source.source_type or "oficial") | capitalize }}</span>
       <span>Documento: <strong>{{ source.slug }}</strong></span>
       <span>Sección: {{ source.section }}</span>
-      <span>Capa: {{ source.layer }}</span>
+      <span>Capa: {{ capa }}</span>
       <span class="puntuacion">Puntuación: {{ "%.3f"|format(source.score) }}</span>
     </p>
     <p class="extracto">{{ source.excerpt }}</p>

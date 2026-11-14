@@ -1,5 +1,6 @@
 """Pruebas del shell web con handlers falsos: sin red ni base de datos."""
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -164,6 +165,21 @@ def test_la_navegacion_enlaza_la_portada_y_las_pantallas() -> None:
     assert 'href="#respuesta"' not in response.text
 
 
+def test_las_pestanas_marcan_la_pantalla_activa() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    portada = client.get("/")
+    chat = client.get("/chat")
+
+    # Assert: una sola pestaña activa por pantalla, con aria-current.
+    assert portada.text.count('aria-current="page"') == 1
+    assert re.search(r'href="/#preguntar"\s+aria-current="page"', portada.text)
+    assert chat.text.count('aria-current="page"') == 1
+    assert re.search(r'href="/chat"\s+aria-current="page"', chat.text)
+
+
 def test_el_logo_se_sirve_como_svg() -> None:
     # Arrange
     client = make_client()
@@ -190,6 +206,9 @@ def test_ask_devuelve_respuesta_y_fuentes() -> None:
     assert "Carvajal nació en 1904" in response.text
     assert "historia-1" in response.text
     assert "0.912" in response.text
+    assert "etiqueta-oficial" in response.text
+    assert "Tipo de fuente:" in response.text
+    assert "Capa: Núcleo" in response.text
 
 
 def test_pregunta_vacia_devuelve_422() -> None:

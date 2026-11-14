@@ -17,6 +17,10 @@
 | `institucional-documento-desktop.png` | Documento con contenido saneado y ficha a 1440×1000 | Chrome headless + CDP |
 | `institucional-mobile.png` | pestañas en segunda fila y Asistente a 390×844 | Chrome headless + CDP |
 | `institucional-corpus-mobile.png` | Corpus real a 390×844 | Chrome headless + CDP |
+| `institucional-htmx-asistente-desktop.png` | shell HTMX con cabecera y pestañas institucionales a 1440×1000 (datos de ejemplo) | Chrome headless con proveedores falsos |
+| `institucional-htmx-chat-desktop.png` | chat HTMX con turnos y etiquetas de fuente a 1440×1200 (datos de ejemplo) | Chrome headless con proveedores falsos |
+| `institucional-htmx-corpus-mobile.png` | Corpus HTMX con filtros y fichas apiladas a 390×1000 (datos de ejemplo) | Chrome headless con proveedores falsos |
+| `institucional-htmx-documento-desktop.png` | Documento HTMX con ficha y contenido saneado a 1440×1000 (datos de ejemplo) | Chrome headless con proveedores falsos |
 | `../../eval/retrieval-report.md` | Recall@10 y nDCG@10 por consulta | `make index-eval` |
 
 ## Resultado del smoke

@@ -1,140 +1,217 @@
-/* Tema de marca de Carvajal (paleta oficial del logo y del sitio). */
+/* Sistema visual institucional de Carvajal para el shell HTMX.
+   Los tokens replican la paleta y las formas del frontend del M2 (apps/web). */
 
 :root {
-  --primario: #00b5e5;
-  --texto: #003a5d;
+  --azul: #003a5d;
+  --cian: #00b5e5;
+  --tinta: #072b46;
+  --secundario: #4c6578;
+  --fondo-pagina: #edf5f9;
   --fondo: #ffffff;
-  --fondo-suave: #f4f7fa;
-  --oliva: #80a41b;
-  --naranja: #ed7004;
-  --secundario: #3d566e;
-  --borde: #d7e0ea;
-  --enlace: #00648f;
-  --error: #8a1c1c;
-  --radio: 0.6rem;
-  --sombra: 0 1px 3px rgb(0 58 93 / 12%);
-  --lienzo: min(100% - 2rem, 60rem);
+  --fondo-suave: #f4f8fb;
+  --panel: #ffffff;
+  --borde: #d8e5ed;
+  --borde-control: #7d95a6;
+  --etiqueta-fondo: #e2f6fc;
+  --etiqueta-texto: #00688b;
+  --oficial-fondo: #e2f6fc;
+  --oficial-texto: #00688b;
+  --externa-fondo: #fff0e3;
+  --externa-texto: #844219;
+  --error: #a32626;
+  --foco: #007ca5;
+  --radio: 16px;
+  --radio-pequeno: 10px;
+  --sombra: 0 8px 24px rgb(20 73 103 / 7%);
+  --transicion: 180ms ease;
+  --fuente: "DM Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 * {
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+html {
+  font-family: var(--fuente);
+  color: var(--tinta);
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
-  background: var(--fondo);
-  color: var(--texto);
-  font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-  line-height: 1.6;
+  background: var(--fondo-pagina);
+  line-height: 1.55;
   -webkit-text-size-adjust: 100%;
 }
 
 a {
-  color: var(--enlace);
+  color: var(--etiqueta-texto);
+  text-underline-offset: 2px;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
 }
 
 :focus-visible {
-  outline: 3px solid var(--texto);
-  outline-offset: 2px;
-  border-radius: 2px;
+  outline: 3px solid var(--foco) !important;
+  outline-offset: 2px !important;
+}
+
+/* El h1 recibe foco programático para orientar a lectores de pantalla; no es
+   un control, así que no dibuja el anillo de foco de los interactivos. */
+h1:focus,
+h1:focus-visible,
+#contenido:focus {
+  outline: none !important;
 }
 
 .saltar {
   position: absolute;
   top: -4rem;
   left: 1rem;
-  z-index: 10;
+  z-index: 30;
   padding: 0.6rem 1rem;
-  border-radius: 0 0 var(--radio) var(--radio);
-  background: var(--fondo);
-  color: var(--texto);
+  border-radius: 0 0 var(--radio-pequeno) var(--radio-pequeno);
+  background: var(--azul);
+  color: #fff;
   font-weight: 600;
+  text-decoration: none;
 }
 
 .saltar:focus {
-  top: 0;
+  top: 0.5rem;
 }
 
-/* Cabecera: banda azul con el logo oficial y el wordmark. */
+.sr-solo {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Cabecera ---------------------------------------------------------------- */
 
 .cabecera {
-  background: var(--texto);
-  border-bottom: 4px solid var(--primario);
+  background: var(--panel);
+  border-bottom: 1px solid var(--borde);
 }
 
 .cabecera-interior {
-  width: var(--lienzo);
-  margin-inline: auto;
-  padding: 0.9rem 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1.5rem;
+  gap: clamp(14px, 3vw, 32px);
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 12px clamp(16px, 3vw, 28px) 0;
 }
 
 .marca {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: var(--fondo);
-  text-decoration: none;
-}
-
-.marca-logo {
   display: inline-flex;
-  padding: 0.3rem 0.5rem;
-  border-radius: 0.35rem;
-  background: var(--fondo);
-}
-
-.marca-logo img {
-  display: block;
-  height: 1.5rem;
-  width: auto;
-}
-
-.marca-texto {
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-.cabecera :focus-visible {
-  outline-color: var(--primario);
-}
-
-.navegacion ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.25rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.navegacion a {
-  color: var(--fondo);
+  align-items: center;
+  min-height: 44px;
   text-decoration: none;
-  padding-bottom: 2px;
-  border-bottom: 2px solid transparent;
 }
 
-.navegacion a:hover {
-  border-bottom-color: var(--primario);
+.marca img {
+  display: block;
+  width: clamp(122px, 14vw, 156px);
+  height: auto;
 }
 
-/* Contenido. */
+.pestanas {
+  display: flex;
+  align-self: stretch;
+  justify-content: center;
+  gap: clamp(4px, 1.5vw, 16px);
+}
+
+.pestana {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 8px 14px;
+  border-radius: 10px 10px 0 0;
+  color: var(--secundario);
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    color var(--transicion),
+    background-color var(--transicion);
+}
+
+.pestana::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 3px;
+  content: "";
+  background: var(--cian);
+  border-radius: 3px 3px 0 0;
+  transform: scaleX(0);
+  transition: transform var(--transicion);
+}
+
+.pestana:hover {
+  background: var(--fondo-suave);
+  color: var(--azul);
+}
+
+.pestana[aria-current="page"] {
+  color: var(--azul);
+  font-weight: 600;
+}
+
+.pestana[aria-current="page"]::after {
+  transform: scaleX(1);
+}
+
+.estado-sitio {
+  max-width: 220px;
+  color: var(--secundario);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  text-align: right;
+}
+
+.estado-sitio::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  content: "";
+  background: var(--cian);
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+/* Contenido --------------------------------------------------------------- */
 
 main {
-  width: var(--lienzo);
-  margin-inline: auto;
-  padding: 2rem 0 3rem;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: clamp(18px, 3vw, 32px) clamp(16px, 3vw, 28px) 40px;
 }
 
 h1 {
   margin: 0;
-  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
-  line-height: 1.25;
+  font-size: clamp(1.7rem, 1.2rem + 2vw, 2.5rem);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
 h2 {
@@ -142,22 +219,50 @@ h2 {
   font-size: 1.125rem;
 }
 
+.sobrelinea {
+  margin: 0 0 6px;
+  color: var(--etiqueta-texto);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.cabecera-vista {
+  margin: 0 0 18px;
+}
+
 .entradilla {
-  max-width: 55ch;
-  margin: 0.5rem 0 0;
+  max-width: 68ch;
+  margin: 8px 0 0;
   color: var(--secundario);
 }
+
+.panel {
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+.seccion + .seccion {
+  margin-top: 22px;
+}
+
+/* Formularios y controles ------------------------------------------------- */
 
 .formulario {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.9rem;
-  margin-top: 1.5rem;
-  padding: 1.25rem;
-  background: var(--fondo-suave);
+  gap: 0.9rem 1rem;
+  margin-top: 1.25rem;
+  padding: clamp(16px, 2.4vw, 24px);
+  background: var(--panel);
   border: 1px solid var(--borde);
   border-radius: var(--radio);
+  box-shadow: var(--sombra);
 }
 
 .campo {
@@ -165,97 +270,186 @@ h2 {
   flex: 1 1 20rem;
   flex-direction: column;
   gap: 0.35rem;
+  min-width: 0;
 }
 
-.campo label {
-  font-weight: 600;
+.campo label,
+.formulario > label {
+  color: var(--tinta);
+  font-size: 0.88rem;
+  font-weight: 700;
 }
 
 .ayuda {
   margin: 0;
   color: var(--secundario);
-  font-size: 0.85rem;
+  font-size: 0.78rem;
 }
 
-.formulario input {
+.formulario input,
+.formulario select {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
   padding: 0.7rem 0.9rem;
-  border: 1px solid #9fb2c6;
-  border-radius: 0.4rem;
+  border: 1px solid var(--borde-control);
+  border-radius: 11px;
   background: var(--fondo);
-  color: inherit;
+  color: var(--tinta);
   font: inherit;
+  transition: border-color var(--transicion);
 }
 
-.formulario button {
-  padding: 0.7rem 1.4rem;
-  border: 0;
-  border-radius: 0.4rem;
-  background: var(--texto);
-  color: var(--fondo);
+.formulario input::placeholder {
+  color: var(--secundario);
+  opacity: 1;
+}
+
+.formulario input:focus-visible,
+.formulario select:focus-visible {
+  border-color: var(--foco);
+}
+
+.formulario button,
+.boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 0.65rem 1.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radio-pequeno);
+  background: var(--azul);
+  color: #fff;
   font: inherit;
   font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
   cursor: pointer;
+  transition:
+    background-color var(--transicion),
+    border-color var(--transicion),
+    color var(--transicion),
+    filter var(--transicion),
+    transform var(--transicion);
 }
 
-.formulario button:hover {
-  background: #00547f;
+.formulario button:hover,
+.boton:hover {
+  filter: brightness(1.12);
 }
 
-.seccion + .seccion {
-  margin-top: 2.5rem;
+.formulario button:active,
+.boton:active {
+  transform: translateY(1px);
 }
 
-.tarjeta,
-.fuente {
-  padding: 1rem 1.25rem;
-  background: var(--fondo);
+.formulario button:disabled,
+.boton:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.formulario button.secundario,
+.boton.secundario {
+  background: var(--panel);
+  border-color: var(--borde-control);
+  color: var(--azul);
+}
+
+.formulario button.secundario:hover,
+.boton.secundario:hover {
+  background: var(--fondo-suave);
+  border-color: var(--cian);
+  filter: none;
+}
+
+.formulario .limpiar {
+  align-self: center;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radio-pequeno);
+  font-weight: 600;
+  transition: background-color var(--transicion);
+}
+
+.formulario .limpiar:hover {
+  background: var(--fondo-suave);
+}
+
+/* Respuesta de la portada ------------------------------------------------- */
+
+.respuesta {
+  margin-top: 1.25rem;
+}
+
+.respuesta:empty {
+  margin-top: 0;
+}
+
+.tarjeta {
+  padding: clamp(16px, 2.4vw, 24px);
+  background: var(--panel);
   border: 1px solid var(--borde);
+  border-left: 3px solid var(--cian);
   border-radius: var(--radio);
   box-shadow: var(--sombra);
 }
 
-.tarjeta {
-  border-left: 4px solid var(--naranja);
-}
-
 .texto {
   margin: 0;
+  overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
 .aviso {
   margin: 0;
   padding: 1rem 1.25rem;
-  border: 1px solid #f3c6c6;
+  border: 1px solid #f0c9c9;
   border-left: 4px solid var(--error);
   border-radius: var(--radio);
-  background: #fdf2f2;
+  background: #fdf5f5;
   color: var(--error);
+  font-weight: 600;
 }
+
+/* Fuentes y etiquetas ----------------------------------------------------- */
 
 .fuentes {
   display: grid;
-  gap: 0.75rem;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .fuente {
-  border-left: 4px solid var(--oliva);
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-left: 3px solid var(--cian);
+  border-radius: 12px;
 }
 
 .fuente-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 1rem;
+  align-items: center;
+  gap: 6px 10px;
   margin: 0;
   color: var(--secundario);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .fuente-meta strong {
-  color: var(--texto);
+  color: var(--tinta);
+}
+
+.fuente-meta a {
+  color: var(--azul);
+  overflow-wrap: anywhere;
+  text-decoration-thickness: 1px;
 }
 
 .puntuacion {
@@ -263,44 +457,133 @@ h2 {
 }
 
 .extracto {
-  margin: 0.4rem 0 0;
+  margin: 6px 0 0;
+  color: var(--tinta);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
 }
 
 .chunk {
-  margin: 0.5rem 0 0;
-  color: #4a6178;
+  margin: 6px 0 0;
+  color: var(--secundario);
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 0.72rem;
   word-break: break-all;
 }
 
-/* Pie con la nota de procedencia del corpus. */
+.etiqueta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--etiqueta-fondo);
+  color: var(--etiqueta-texto);
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.etiqueta-oficial,
+.etiqueta-core {
+  background: var(--oficial-fondo);
+  color: var(--oficial-texto);
+}
+
+.etiqueta-externa,
+.etiqueta-extended {
+  background: var(--externa-fondo);
+  color: var(--externa-texto);
+}
+
+/* Pie --------------------------------------------------------------------- */
 
 .pie {
-  background: var(--fondo-suave);
-  border-top: 4px solid var(--oliva);
-  padding: 1.25rem 0;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 3vw, 28px) 28px;
+  color: var(--secundario);
+  font-size: 0.78rem;
+  text-align: center;
 }
 
 .pie p {
-  width: var(--lienzo);
-  margin-inline: auto;
-  color: var(--secundario);
-  font-size: 0.85rem;
+  margin: 0;
 }
 
-@media (max-width: 40rem) {
-  .cabecera-interior,
-  .navegacion {
-    flex-direction: column;
-    align-items: flex-start;
+/* Adaptación -------------------------------------------------------------- */
+
+@media (max-width: 760px) {
+  .cabecera-interior {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    padding: 10px 16px 0;
   }
 
-  .formulario button {
-    width: 100%;
+  .marca {
+    min-height: 44px;
+  }
+
+  .marca img {
+    width: 132px;
+  }
+
+  .estado-sitio {
+    display: none;
+  }
+
+  .pestanas {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
+  }
+
+  .pestana {
+    min-height: 44px;
+    padding: 6px 4px;
+    border-radius: 0;
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .pestana::after {
+    right: 6px;
+    left: 6px;
   }
 
   main {
-    padding-top: 1.5rem;
+    padding-top: 16px;
+  }
+
+  .formulario button,
+  .boton {
+    width: 100%;
+  }
+
+  .formulario .limpiar {
+    width: auto;
+  }
+}
+
+@media (pointer: coarse) {
+  .pestana,
+  .formulario button,
+  .boton {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

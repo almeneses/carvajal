@@ -5,13 +5,16 @@
 {% endblock %}
 {% block content %}
 <section class="seccion" aria-labelledby="titulo-corpus">
-  <h1 id="titulo-corpus">Corpus</h1>
-  <p class="entradilla">
-    Documentos capturados del sitio de Carvajal y de fuentes externas. Filtra por sección o capa
-    para revisar su procedencia y abre cualquiera para leer su contenido.
-  </p>
+  <header class="cabecera-vista">
+    <p class="sobrelinea">Corpus · Explorador</p>
+    <h1 id="titulo-corpus">Corpus</h1>
+    <p class="entradilla">
+      Documentos capturados del sitio de Carvajal y de fuentes externas. Filtra por sección o capa
+      para revisar su procedencia y abre cualquiera para leer su contenido.
+    </p>
+  </header>
 
-  <form class="formulario" method="get" action="/corpus" role="search">
+  <form class="formulario filtros" method="get" action="/corpus" role="search">
     <div class="campo">
       <label for="seccion">Sección</label>
       <select id="seccion" name="section">
@@ -34,7 +37,7 @@
   </form>
 
   {% if documents %}
-  <div class="tabla-envoltura">
+  <div class="tabla-envoltura" role="region" aria-label="Documentos del corpus" tabindex="0">
     <table class="tabla-corpus">
       <caption class="ayuda">
         Documentos ordenados por slug; se muestran {{ documents | length }} de esta página.
@@ -43,17 +46,23 @@
         <tr>
           <th scope="col">Título</th>
           <th scope="col">Sección</th>
+          <th scope="col">Tipo</th>
           <th scope="col">Capa</th>
           <th scope="col">Fecha</th>
         </tr>
       </thead>
       <tbody>
         {% for document in documents %}
+        {% set tipo = (document.source_type or "oficial") | lower %}
+        {% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(document.layer, document.layer) %}
         <tr>
           <th scope="row"><a href="/documents/{{ document.id }}">{{ document.title }}</a></th>
-          <td>{{ document.section }}</td>
-          <td><span class="etiqueta etiqueta-{{ document.layer }}">{{ document.layer }}</span></td>
-          <td>
+          <td data-label="Sección">{{ document.section }}</td>
+          <td data-label="Tipo">
+            <span class="etiqueta {{ 'etiqueta-oficial' if tipo in ['oficial', 'official'] else 'etiqueta-externa' }}">{{ (document.source_type or "oficial") | capitalize }}</span>
+          </td>
+          <td data-label="Capa"><span class="etiqueta etiqueta-{{ document.layer }}">{{ capa }}</span></td>
+          <td data-label="Fecha">
             <time datetime="{{ document.captured_at.strftime('%Y-%m-%d') }}">
               {{ document.captured_at.strftime("%Y-%m-%d") }}
             </time>

@@ -4,9 +4,14 @@
 <link rel="stylesheet" href="/static/document.css" />
 {% endblock %}
 {% block content %}
+{% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(document.layer, document.layer) %}
 <article class="documento" aria-labelledby="titulo-documento">
-  <header class="documento-cabecera">
+  <header class="documento-cabecera panel">
+    <p class="sobrelinea">Corpus · Documento</p>
     <h1 id="titulo-documento">{{ document.title }}</h1>
+    <p class="documento-volver">
+      <a href="/corpus">← Volver al corpus</a>
+    </p>
     <dl class="documento-meta">
       <div>
         <dt>Sección</dt>
@@ -14,11 +19,11 @@
       </div>
       <div>
         <dt>Capa</dt>
-        <dd>{{ document.layer }}</dd>
+        <dd>{{ capa }}</dd>
       </div>
       <div>
         <dt>Tipo de fuente</dt>
-        <dd>{{ document.source_type }}</dd>
+        <dd>{{ document.source_type | capitalize }}</dd>
       </div>
       <div>
         <dt>Origen</dt>
@@ -51,7 +56,7 @@
     </p>
     {% endif %}
   </header>
-  <div class="documento-contenido">
+  <div class="documento-contenido panel">
     {{ content | safe }}
   </div>
 </article>

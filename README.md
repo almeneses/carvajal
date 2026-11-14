@@ -301,7 +301,9 @@ superiores —**Asistente**, **Corpus** y **Documento**— con URLs estables
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
-<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE.
+<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; sus
+pantallas comparten la cabecera, la paleta y los componentes visuales
+institucionales del frontend del M2.
 
 ### Interfaz legada (Streamlit)
 

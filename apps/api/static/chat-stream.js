@@ -60,9 +60,10 @@
 
   async function responder(pregunta, turnId) {
     quitarVacio();
+    const lista = asegurarLista();
     const turnoUsuario = crearTurno("user", pregunta);
     const turnoAsistente = crearTurno("assistant", "");
-    hilo.append(turnoUsuario, turnoAsistente);
+    lista.append(turnoUsuario, turnoAsistente);
     const texto = turnoAsistente.querySelector(".texto");
     input.value = "";
     form.setAttribute("aria-busy", "true");
@@ -210,6 +211,16 @@
     if (vacio) vacio.remove();
   }
 
+  function asegurarLista() {
+    let lista = hilo.querySelector("ol.hilo");
+    if (!lista) {
+      lista = document.createElement("ol");
+      lista.className = "hilo";
+      hilo.append(lista);
+    }
+    return lista;
+  }
+
   function avisar(mensaje, esError = false) {
     estado.textContent = mensaje;
     estado.classList.toggle("aviso", esError);
@@ -226,14 +237,28 @@
       const campos = {
         title: (fuente && (fuente.title || fuente.slug)) || "",
         section: fuente && fuente.section,
-        layer: fuente && fuente.layer,
-        source_type: fuente && fuente.source_type,
         excerpt: fuente && fuente.excerpt,
         chunk_id: fuente && fuente.chunk_id,
       };
       for (const [campo, valor] of Object.entries(campos)) {
         const nodo = item.querySelector(`[data-campo="${campo}"]`);
         if (nodo) nodo.textContent = valor == null ? "" : String(valor);
+      }
+      const capa = String((fuente && fuente.layer) || "");
+      const nodoCapa = item.querySelector('[data-campo="layer"]');
+      if (nodoCapa) {
+        nodoCapa.textContent =
+          capa === "core" ? "Núcleo" : capa === "extended" ? "Extendida" : capa;
+      }
+      const etiquetaTipo = item.querySelector('[data-campo="source_type"]');
+      if (etiquetaTipo) {
+        const tipo = String((fuente && fuente.source_type) || "oficial").toLowerCase();
+        const texto = tipo.charAt(0).toUpperCase() + tipo.slice(1);
+        etiquetaTipo.textContent = texto;
+        etiquetaTipo.setAttribute("aria-label", `Tipo de fuente: ${texto}`);
+        const esOficial = tipo === "oficial" || tipo === "official";
+        etiquetaTipo.classList.toggle("etiqueta-oficial", esOficial);
+        etiquetaTipo.classList.toggle("etiqueta-externa", !esOficial);
       }
       const enlace = item.querySelector('[data-campo="url"]');
       const url = String((fuente && fuente.url) || "");
