@@ -229,6 +229,25 @@ def test_faq_respeta_el_cupo_diario() -> None:
     assert llm.calls == []
 
 
+def test_faq_no_cobra_cuota_si_el_corpus_no_se_puede_preparar() -> None:
+    # Arrange
+    cobros: list[str] = []
+
+    def quota(owner: str) -> QuotaResult:
+        cobros.append(owner)
+        return QuotaResult(allowed=True)
+
+    corpus = FakeCorpus([_document("prensa", "Terceros.", layer="extended")])
+    client, _ = make_client(corpus=corpus, quota=quota)
+
+    # Act
+    response = client.post("/api/faq", data=_data(client))
+
+    # Assert
+    assert response.status_code == 422
+    assert cobros == []
+
+
 def test_faq_emite_cookie_si_el_visitante_no_tenia_identidad() -> None:
     # Arrange
     client, _ = make_client()

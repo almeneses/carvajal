@@ -106,6 +106,18 @@ def test_build_faq_prompt_trunca_y_avisa() -> None:
     assert len(system) < 1_500
 
 
+def test_build_faq_prompt_respeta_el_presupuesto_total() -> None:
+    # Arrange
+    documents = [_document("historia", "Contenido del corpus " * 100)]
+
+    # Act
+    system, prompt, truncated = build_faq_prompt(documents, max_chars=5_000)
+
+    # Assert
+    assert truncated is False
+    assert len(system) + len(prompt) <= 5_000
+
+
 def test_build_faq_prompt_sin_nucleo_falla() -> None:
     # Arrange
     documents = [_document("prensa", "Terceros.", layer="extended")]

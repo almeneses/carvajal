@@ -132,6 +132,24 @@ def faq_stream(
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
 
     try:
+        service = faq_service(request)
+        prepared = service.prepare(previous)
+    except FAQError as error:
+        logger.warning("faq.prepare_failed", error=str(error))
+        response = _invalid(str(error), status_code=422)
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
+    except (SQLAlchemyError, OSError, ValueError) as error:
+        logger.warning("faq.corpus_failed", error=str(error))
+        response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
+
+    # La cuota se cobra solo cuando el corpus y el prompt ya están listos: un
+    # fallo de preparación no debe gastar una generación del visitante.
+    try:
         quota = consume_quota(request, owner_key)
     except SQLAlchemyError as error:
         logger.warning("faq.quota_failed", error=str(error))
@@ -145,22 +163,6 @@ def faq_stream(
             status_code=429,
             headers={"Retry-After": str(quota.retry_after)},
         )
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
-
-    try:
-        service = faq_service(request)
-        prepared = service.prepare(previous)
-    except FAQError as error:
-        logger.warning("faq.prepare_failed", error=str(error))
-        response = _invalid(str(error), status_code=422)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
-    except (SQLAlchemyError, OSError, ValueError) as error:
-        logger.warning("faq.corpus_failed", error=str(error))
-        response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
         if new_owner:
             set_identity_cookie(response, request, identity, owner_key)
         return response

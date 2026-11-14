@@ -56,16 +56,24 @@
     });
     if (response.status === 403 && reintentar) {
       // El token CSRF caduca a las 12 h; se renueva una vez y se reintenta.
+      if (signal && signal.aborted) throw abortError();
       try {
         if (response.body) await response.body.cancel();
       } catch {
         // El cuerpo ya no se va a leer; cerrar el stream es best-effort.
       }
       await cargarCsrf();
+      if (signal && signal.aborted) throw abortError();
       cuerpo.set("csrf_token", csrf);
       return solicitar(cuerpo, signal, false);
     }
     return response;
+  }
+
+  function abortError() {
+    const error = new Error("La generación tardó demasiado.");
+    error.name = "AbortError";
+    return error;
   }
 
   async function generar() {
@@ -111,6 +119,7 @@
             break;
           case "error":
             cerrado = true;
+            control.abort();
             throw new Error(String(evento.datos.message || "No se pudo generar la FAQ."));
           default:
             break;
