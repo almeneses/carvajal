@@ -9,8 +9,8 @@
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 12px 20px;
-  padding: clamp(18px, 3vw, 28px);
+  gap: 16px 24px;
+  padding: clamp(22px, 3vw, 34px);
   background: var(--azul);
   color: #fff;
 }
@@ -30,7 +30,7 @@
 .cabecera-conversacion h1 {
   margin: 0;
   color: #fff;
-  font-size: clamp(1.5rem, 2.6vw, 2.05rem);
+  font-size: clamp(1.75rem, 2.8vw, 2.3rem);
 }
 
 .cabecera-conversacion .sobrelinea {
@@ -38,9 +38,11 @@
 }
 
 .cabecera-conversacion .bajada {
-  max-width: 68ch;
-  margin: 6px 0 0;
+  max-width: 70ch;
+  margin: 8px 0 0;
   color: #d0eaf4;
+  font-size: 1.05rem;
+  line-height: 1.6;
 }
 
 .cabecera-conversacion :focus-visible {
@@ -49,23 +51,23 @@
 
 .cuerpo-conversacion {
   display: grid;
-  gap: 16px;
-  padding: clamp(16px, 2.4vw, 24px);
+  gap: 20px;
+  padding: clamp(20px, 2.6vw, 30px);
 }
 
 .chat-cuerpo {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-height: min(72vh, 860px);
+  gap: 18px;
+  min-height: min(70vh, 900px);
 }
 
 .historial-chat {
   flex: 1 1 auto;
-  min-height: 240px;
-  max-height: calc(100vh - 320px);
+  min-height: 280px;
+  max-height: calc(100vh - 380px);
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 6px;
   scrollbar-gutter: stable;
 }
 
@@ -90,8 +92,8 @@
 
 .formulario-nuevo-hilo button {
   flex: 0 0 auto;
-  min-height: 40px;
-  padding: 0.5rem 1rem;
+  min-height: var(--alto-control);
+  padding: 0.75rem 1.3rem;
 }
 
 .panel-historial h2 {
@@ -109,24 +111,26 @@
 
 .turno {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   animation: aparecer 220ms ease both;
 }
 
 .turno-rol {
   margin: 0;
   color: var(--secundario);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .burbuja {
-  padding: 12px 15px;
+  padding: 16px 20px;
   background: #f8fbfd;
   border: 1px solid var(--borde);
-  border-radius: 4px 14px 14px 14px;
+  border-radius: 4px 16px 16px 16px;
+  font-size: 1.03rem;
+  line-height: 1.65;
 }
 
 .turno-user {
@@ -138,7 +142,7 @@
 }
 
 .turno-user .burbuja {
-  max-width: 88%;
+  max-width: 90%;
   background: var(--etiqueta-fondo);
   border-color: transparent;
   border-radius: 14px 14px 4px 14px;
@@ -146,6 +150,7 @@
 }
 
 .turno-assistant .burbuja {
+  max-width: 84ch;
   border-left: 3px solid var(--cian);
 }
 
@@ -163,7 +168,7 @@
 
 .vacio {
   margin: 0;
-  padding: 16px;
+  padding: 20px;
   border: 1px dashed var(--borde);
   border-radius: 12px;
   background: var(--fondo-suave);
@@ -177,8 +182,8 @@
 
 .hilo-item {
   display: grid;
-  gap: 3px;
-  padding: 11px 12px;
+  gap: 4px;
+  padding: 14px 16px;
   border: 1px solid var(--borde);
   border-radius: 11px;
   background: var(--panel);
@@ -203,7 +208,7 @@
 
 .hilo-preview {
   overflow: hidden;
-  font-size: 0.86rem;
+  font-size: 0.98rem;
   font-weight: 600;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -212,7 +217,7 @@
 
 .hilo-fecha {
   color: var(--secundario);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
 }
 
 .traza {
@@ -220,12 +225,12 @@
   flex-wrap: wrap;
   gap: 5px 14px;
   margin: 0;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border: 1px solid var(--borde);
   border-radius: 12px;
   background: var(--fondo-suave);
   color: var(--secundario);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 .traza-item {
@@ -238,7 +243,7 @@
   border-radius: 5px;
   background: var(--panel);
   color: var(--tinta);
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
 
@@ -283,11 +288,15 @@
 
 @media (max-width: 560px) {
   .cabecera-conversacion {
-    padding: 16px;
+    padding: 20px;
   }
 
   .cuerpo-conversacion {
-    padding: 14px;
+    padding: 18px;
+  }
+
+  .burbuja {
+    padding: 14px 16px;
   }
 
   .turno-user .burbuja {
