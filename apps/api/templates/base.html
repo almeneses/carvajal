@@ -10,8 +10,11 @@
     />
     <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/app.css" />
+    <link rel="stylesheet" href="/static/panel.css" />
     <script src="/static/htmx.min.js" defer></script>
+    <script src="/static/texto.js" defer></script>
     <script src="/static/app.js" defer></script>
+    <script src="/static/panel.js" defer></script>
     {% block head_extra %}{% endblock %}
   </head>
   <body>
@@ -50,5 +53,38 @@
         Respuestas basadas únicamente en el corpus público de Carvajal; cada una cita su fuente.
       </p>
     </footer>
+
+    <dialog
+      id="panel-documento"
+      class="panel-documento"
+      aria-labelledby="panel-documento-titulo"
+    >
+      <header class="panel-documento-cabecera">
+        <div>
+          <p class="sobrelinea">Corpus · Fuente citada</p>
+          <h2 id="panel-documento-titulo">Documento</h2>
+        </div>
+        <button
+          type="button"
+          class="panel-cerrar"
+          data-cerrar-panel
+          aria-label="Cerrar el documento"
+        >×</button>
+      </header>
+      <div class="panel-documento-cuerpo">
+        <p class="panel-documento-meta" id="panel-documento-meta"></p>
+        <p class="panel-documento-estado" id="panel-documento-estado" role="status" aria-live="polite"></p>
+        <div class="panel-documento-contenido documento-contenido" id="panel-documento-contenido"></div>
+      </div>
+      <footer class="panel-documento-pie">
+        <a
+          id="panel-documento-origen"
+          class="panel-documento-origen"
+          target="_blank"
+          rel="noopener noreferrer"
+          hidden
+        >Abrir fuente original <span aria-hidden="true">↗</span></a>
+      </footer>
+    </dialog>
   </body>
 </html>

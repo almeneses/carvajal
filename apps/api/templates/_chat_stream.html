@@ -10,12 +10,12 @@
   <li class="turno">
     <p class="turno-rol"></p>
     <div class="burbuja">
-      <p class="texto"></p>
+      <div class="texto"></div>
     </div>
-    <section class="citas" aria-label="Fuentes de la respuesta" hidden>
-      <h3>Fuentes citadas</h3>
+    <details class="citas" hidden>
+      <summary>Fuentes citadas <span class="citas-conteo"></span></summary>
       <ol class="fuentes"></ol>
-    </section>
+    </details>
   </li>
 </template>
 
@@ -23,13 +23,23 @@
   <li class="fuente">
     <p class="fuente-meta">
       <span class="etiqueta" data-campo="source_type"></span>
-      <span>Documento: <a data-campo="url" target="_blank" rel="noopener noreferrer"><strong data-campo="title"></strong></a></span>
+      <span>Documento:
+        <button
+          type="button"
+          class="cita-fuente"
+          data-campo="documento"
+          aria-haspopup="dialog"
+          aria-controls="panel-documento"
+        ><strong data-campo="title"></strong></button>
+      </span>
       <span>Sección: <span data-campo="section"></span></span>
       <span>Capa: <span data-campo="layer"></span></span>
       <span class="puntuacion">Puntuación: <span data-campo="score"></span></span>
     </p>
     <p class="extracto" data-campo="excerpt"></p>
-    <p class="chunk" data-campo="chunk_id"></p>
+    <p class="fuente-acciones" data-campo="acciones" hidden>
+      <a class="fuente-origen" data-campo="url" target="_blank" rel="noopener noreferrer">Abrir fuente original <span aria-hidden="true">↗</span></a>
+    </p>
   </li>
 </template>
 

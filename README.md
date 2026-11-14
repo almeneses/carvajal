@@ -302,8 +302,10 @@ Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
 <http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; sus
-pantallas comparten la cabecera, la paleta y los componentes visuales
-institucionales del frontend del M2.
+pantallas comparten la cabecera, la paleta y los componentes visuales del
+frontend del M2. El texto generado se formatea con Markdown saneado, las
+fuentes se pliegan por defecto y cada cita abre un panel lateral con el
+documento en el fragmento citado.
 
 ### Interfaz legada (Streamlit)
 

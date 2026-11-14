@@ -1,0 +1,36 @@
+{% macro fuente(source, numero) %}
+{% set tipo = (source.source_type or "oficial") | lower %}
+{% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(source.layer, source.layer) %}
+{% set titulo = source.title or source.slug or "Fuente" %}
+{% set url = source.url if source.url and (source.url.startswith('http://') or source.url.startswith('https://')) else '' %}
+<li class="fuente" data-fuente="{{ numero }}">
+  <p class="fuente-meta">
+    <span class="etiqueta {{ 'etiqueta-oficial' if tipo in ['oficial', 'official'] else 'etiqueta-externa' }}"><span class="sr-solo">Tipo de fuente: </span>{{ (source.source_type or "oficial") | capitalize }}</span>
+    <span>Documento:
+      {% if source.slug %}
+      <button
+        type="button"
+        class="cita-fuente"
+        data-documento-slug="{{ source.slug }}"
+        data-documento-titulo="{{ titulo }}"
+        data-documento-excerpt="{{ source.excerpt or '' }}"
+        {% if url %}data-documento-url="{{ url }}"{% endif %}
+        aria-haspopup="dialog"
+        aria-controls="panel-documento"
+      ><strong>{{ titulo }}</strong></button>
+      {% else %}
+      <strong>{{ titulo }}</strong>
+      {% endif %}
+    </span>
+    <span>Sección: {{ source.section or "" }}</span>
+    <span>Capa: {{ capa or "" }}</span>
+    <span class="puntuacion">Puntuación: {{ "%.3f"|format(source.score) }}</span>
+  </p>
+  <p class="extracto">{{ source.excerpt or "" }}</p>
+  {% if url %}
+  <p class="fuente-acciones">
+    <a class="fuente-origen" href="{{ url }}" target="_blank" rel="noopener noreferrer">Abrir fuente original <span aria-hidden="true">↗</span></a>
+  </p>
+  {% endif %}
+</li>
+{% endmacro %}

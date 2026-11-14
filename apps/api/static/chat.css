@@ -73,6 +73,7 @@
 .turno {
   display: grid;
   gap: 6px;
+  animation: aparecer 220ms ease both;
 }
 
 .turno-rol {
@@ -121,12 +122,6 @@
 
 .citas {
   margin-top: 2px;
-}
-
-.citas h3 {
-  margin: 0 0 8px;
-  color: var(--azul);
-  font-size: 0.86rem;
 }
 
 .vacio {

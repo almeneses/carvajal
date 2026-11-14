@@ -132,6 +132,10 @@ def test_portada_renderiza_el_formulario() -> None:
     assert response.status_code == 200
     assert 'name="question"' in response.text
     assert 'for="pregunta"' in response.text and 'id="pregunta"' in response.text
+    assert 'id="panel-documento"' in response.text
+    assert "/static/texto.js" in response.text
+    assert "/static/panel.js" in response.text
+    assert "/static/panel.css" in response.text
 
 
 def test_portada_aplica_el_tema_y_la_accesibilidad_basica() -> None:
@@ -194,6 +198,17 @@ def test_el_logo_se_sirve_como_svg() -> None:
     assert "<svg" in response.text
 
 
+def test_los_assets_del_panel_y_del_formateador_se_sirven() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act / Assert
+    for nombre in ("panel.css", "panel.js", "texto.js"):
+        response = client.get(f"/static/{nombre}")
+        assert response.status_code == 200, nombre
+        assert (main.APP_DIR / "static" / nombre).is_file(), nombre
+
+
 def test_ask_devuelve_respuesta_y_fuentes() -> None:
     # Arrange
     client = make_client()
@@ -204,11 +219,36 @@ def test_ask_devuelve_respuesta_y_fuentes() -> None:
     # Assert
     assert response.status_code == 200
     assert "Carvajal nació en 1904" in response.text
-    assert "historia-1" in response.text
+    assert 'data-documento-slug="historia"' in response.text
     assert "0.912" in response.text
     assert "etiqueta-oficial" in response.text
     assert "Tipo de fuente:" in response.text
     assert "Capa: Núcleo" in response.text
+    assert "texto-formateado" in response.text
+    assert '<details class="citas citas-respuesta">' in response.text
+    assert 'class="cita-fuente"' in response.text
+    assert 'aria-haspopup="dialog"' in response.text
+    assert re.search(r'<details class="citas citas-respuesta">\s*<summary>', response.text)
+
+
+def test_ask_formatea_el_texto_generado_y_sus_citas() -> None:
+    # Arrange
+    answer = Answer(
+        text='## Título\n\n**Dato citado** [1].\n\n> "Una cita textual."',
+        sources=(SOURCE,),
+    )
+    client = make_client(ask=lambda question: answer)
+
+    # Act
+    response = _ask(client, "¿?")
+
+    # Assert
+    assert response.status_code == 200
+    assert "<h2>Título</h2>" in response.text
+    assert "<strong>Dato citado</strong>" in response.text
+    assert 'href="#cita-1"' in response.text
+    assert "<blockquote>" in response.text
+    assert "<em>" not in response.text  # la cita va en blockquote, no en énfasis suelto
 
 
 def test_pregunta_vacia_devuelve_422() -> None:

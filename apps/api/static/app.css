@@ -399,8 +399,156 @@ h2 {
 .texto {
   margin: 0;
   overflow-wrap: anywhere;
-  white-space: pre-line;
+  white-space: pre-wrap;
 }
+
+/* Texto generado: Markdown ligero saneado en el servidor. */
+
+.texto-formateado {
+  display: flow-root;
+  white-space: normal;
+}
+
+.texto-formateado > :first-child {
+  margin-top: 0;
+}
+
+.texto-formateado > :last-child {
+  margin-bottom: 0;
+}
+
+.texto-formateado p {
+  margin: 0.55rem 0;
+}
+
+.texto-formateado h1,
+.texto-formateado h2,
+.texto-formateado h3,
+.texto-formateado h4,
+.texto-formateado h5,
+.texto-formateado h6,
+.texto-formateado .texto-titulo {
+  margin: 1rem 0 0.4rem;
+  color: var(--tinta);
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.texto-formateado blockquote {
+  margin: 0.8rem 0;
+  padding: 0.35rem 0 0.35rem 0.9rem;
+  border-left: 3px solid var(--cian);
+  color: var(--secundario);
+  font-style: italic;
+}
+
+.texto-formateado blockquote p {
+  margin: 0;
+}
+
+.texto-formateado ul,
+.texto-formateado ol {
+  margin: 0.6rem 0;
+  padding-left: 1.35rem;
+}
+
+.texto-formateado li + li {
+  margin-top: 0.25rem;
+}
+
+.texto-formateado a {
+  color: var(--etiqueta-texto);
+  font-weight: 600;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.texto-formateado a[href^="http"]::after {
+  content: " ↗";
+  font-size: 0.8em;
+  font-weight: 400;
+}
+
+.texto-formateado code {
+  padding: 0.08rem 0.3rem;
+  border-radius: 0.25rem;
+  background: var(--fondo-suave);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.86em;
+}
+
+.texto-formateado sup {
+  line-height: 0;
+}
+
+.texto-formateado .cita-inline {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.15rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--etiqueta-fondo);
+  color: var(--etiqueta-texto);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.texto-formateado .cita-inline::after {
+  content: none;
+}
+
+.texto-formateado .cita-inline:hover {
+  background: var(--cian);
+  color: var(--azul);
+}
+
+.palabra {
+  display: inline-block;
+  opacity: 0;
+  animation: palabra-entra 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 14ms);
+}
+
+.fragmento {
+  animation: fragmento-entra 200ms ease both;
+}
+
+@keyframes palabra-entra {
+  from {
+    opacity: 0;
+    transform: translateY(0.18em);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fragmento-entra {
+  from {
+    opacity: 0.2;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes aparecer {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 
 .aviso {
   margin: 0;
@@ -414,6 +562,60 @@ h2 {
 }
 
 /* Fuentes y etiquetas ----------------------------------------------------- */
+
+.citas {
+  margin-top: 8px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+}
+
+.citas summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 12px;
+  color: var(--etiqueta-texto);
+  font-size: 0.85rem;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+  transition: background-color var(--transicion);
+}
+
+.citas summary::-webkit-details-marker {
+  display: none;
+}
+
+.citas summary::before {
+  color: var(--cian);
+  content: "▸";
+  font-size: 0.9rem;
+  transition: transform var(--transicion);
+}
+
+.citas[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.citas summary:hover {
+  background: var(--fondo-suave);
+}
+
+.citas-conteo {
+  color: var(--secundario);
+  font-weight: 500;
+}
+
+.citas .fuentes {
+  padding: 0 14px 14px 30px;
+}
+
+.citas[open] .fuentes {
+  animation: aparecer 180ms ease both;
+}
 
 .fuentes {
   display: grid;
@@ -429,6 +631,16 @@ h2 {
   border: 1px solid var(--borde);
   border-left: 3px solid var(--cian);
   border-radius: 12px;
+  transition:
+    border-color var(--transicion),
+    box-shadow var(--transicion),
+    transform var(--transicion);
+}
+
+.fuente:hover {
+  border-color: var(--cian);
+  box-shadow: var(--sombra);
+  transform: translateY(-1px);
 }
 
 .fuente-meta {
@@ -451,6 +663,43 @@ h2 {
   overflow-wrap: anywhere;
   text-decoration-thickness: 1px;
 }
+
+.cita-fuente {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--azul);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgb(0 181 229 / 70%);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cita-fuente:hover {
+  color: var(--etiqueta-texto);
+  text-decoration-color: var(--cian);
+}
+
+.fuente-acciones {
+  margin: 8px 0 0;
+}
+
+.fuente-origen {
+  color: var(--etiqueta-texto);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.fuente-origen:hover {
+  text-decoration: underline;
+}
+
 
 .puntuacion {
   font-variant-numeric: tabular-nums;
@@ -584,6 +833,13 @@ h2 {
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .palabra,
+  .fragmento {
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
