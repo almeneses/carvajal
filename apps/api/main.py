@@ -218,7 +218,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     def index() -> RedirectResponse:
         """La portada redirige al chat: la pestaña Asistente ya no se muestra."""
 
-        return RedirectResponse(url="/chat", status_code=307)
+        return RedirectResponse(url="/chat", status_code=303)
 
     @app.post("/ask", response_class=HTMLResponse)
     def ask(

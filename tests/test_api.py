@@ -129,7 +129,7 @@ def test_la_portada_redirige_al_chat() -> None:
     response = client.get("/", follow_redirects=False)
 
     # Assert
-    assert response.status_code == 307
+    assert response.status_code == 303
     assert response.headers["location"] == "/chat"
 
 

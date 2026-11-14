@@ -291,6 +291,7 @@
     try {
       const camino = normalizarCamino(new URL(destino, location.origin).pathname);
       return (
+        camino === "/" ||
         camino === "/faq" ||
         camino === "/corpus" ||
         camino === "/documents" ||
