@@ -12,7 +12,6 @@ from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
-from pydantic import ValidationError
 
 from carvajal.agent.router import decide_route
 from carvajal.agent.state import AgentState, Turn
@@ -148,6 +147,30 @@ def _tool_source(result: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _tool_payload(raw: Any, name: str, period: str) -> dict[str, Any]:
+    """Normaliza la salida de la herramienta al contrato ``dict`` del nodo.
+
+    ``StructuredTool.invoke`` devuelve el output crudo de la función; hoy es un
+    dict, pero un cambio a ``BaseModel`` o a texto no debe romper el turno con
+    un ``AttributeError`` fuera del ``try``.
+    """
+
+    if isinstance(raw, dict):
+        return raw
+    dump = getattr(raw, "model_dump", None)
+    if callable(dump):
+        dumped = dump()
+        if isinstance(dumped, dict):
+            return dumped
+    message = str(raw).strip() if raw is not None else ""
+    return {
+        "found": False,
+        "name": name,
+        "period": period,
+        "message": message or "La herramienta no devolvió un resultado válido.",
+    }
+
+
 def build_agent(
     deps: AgentDeps,
     *,
@@ -239,21 +262,24 @@ def build_agent(
         }
 
     def tool(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        name = state.get("tool_name", "")
+        period = state.get("tool_period", "")
         try:
-            result = indicator_lookup.invoke(
-                {"name": state.get("tool_name", ""), "period": state.get("tool_period", "")},
-                config=config,
+            result = _tool_payload(
+                indicator_lookup.invoke({"name": name, "period": period}, config=config),
+                name,
+                period,
             )
         except Exception:
             # Un alias o período que no pase la validación Pydantic se trata
             # como ausencia de registro, no como un 503 del turno.
             result = {
                 "found": False,
-                "name": state.get("tool_name", ""),
-                "period": state.get("tool_period", ""),
+                "name": name,
+                "period": period,
                 "message": "La consulta estructurada no es válida; no se estima el dato.",
             }
-        if result["found"]:
+        if result.get("found"):
             instructions = (
                 "Responde usando exclusivamente el resultado de la herramienta. "
                 f"El usuario preguntó: {state['question']}\n"
@@ -264,9 +290,10 @@ def build_agent(
             )
             sources = [_tool_source(result)]
         else:
+            message = result.get("message") or "No hay registro para esa consulta."
             instructions = (
                 "La herramienta no encontró el registro. Declara la ausencia sin "
-f"estimar ni interpolar valores. Mensaje: {result.get('message', 'No hay registro para esa consulta.')}"
+                f"estimar ni interpolar valores. Mensaje: {message}"
             )
             sources = []
         return {

@@ -1,7 +1,7 @@
 """Pruebas del grafo: rutas, citas, abstención y memoria entre hilos."""
 
 from collections.abc import Sequence
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
@@ -12,7 +12,7 @@ from apps.api.agent_runtime import _plain_postgres_url
 from apps.api.chat.agent import GraphAgentRunner
 from carvajal.adapters.vector.qdrant_store import point_id
 from carvajal.agent.graph import AgentDeps, build_agent, memory_namespace
-from carvajal.agent.tools import indicator_lookup
+from carvajal.agent.tools import IndicatorResult, indicator_lookup
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
 from carvajal.infrastructure.settings import Settings
@@ -111,6 +111,59 @@ def test_herramienta_ejecuta_el_registro_real_y_cita_la_fuente() -> None:
     assert "$3,96 billones" in (turn.prompt or "")
     assert len(turn.sources) == 1
     assert turn.sources[0].url.startswith("https://caliescribe.com/")
+
+
+def test_herramienta_acepta_una_salida_pydantic() -> None:
+    # Arrange
+    agent = runner()
+    output = IndicatorResult(
+        found=True,
+        name="ebitda",
+        period="2025-09",
+        value=1.0,
+        unit="COP",
+        display="$1,0",
+        source_document="informe",
+        source_url="https://example.com/informe",
+        quote="EBITDA de $1,0",
+    )
+    tool = Mock()
+    tool.invoke.return_value = output
+
+    # Act
+    with patch("carvajal.agent.graph.indicator_lookup", tool):
+        turn = agent.prepare(
+            "dueno-1",
+            "hilo-1",
+            "¿Cuál fue el EBITDA de Carvajal en septiembre de 2025?",
+            [],
+        )
+
+    # Assert
+    assert turn.route == "tool"
+    assert "$1,0" in (turn.prompt or "")
+    assert turn.sources[0].url == "https://example.com/informe"
+
+
+def test_herramienta_con_salida_no_estructurada_declara_ausencia() -> None:
+    # Arrange
+    agent = runner()
+    tool = Mock()
+    tool.invoke.return_value = "respuesta sin estructura"
+
+    # Act
+    with patch("carvajal.agent.graph.indicator_lookup", tool):
+        turn = agent.prepare(
+            "dueno-1",
+            "hilo-1",
+            "¿Cuál fue el EBITDA de Carvajal en septiembre de 2025?",
+            [],
+        )
+
+    # Assert
+    assert turn.route == "tool"
+    assert turn.sources == ()
+    assert "respuesta sin estructura" in (turn.prompt or "")
 
 
 def test_rag_usa_qdrant_y_expone_la_url_del_fragmento() -> None:
