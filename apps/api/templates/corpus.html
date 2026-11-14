@@ -56,7 +56,7 @@
         {% set tipo = (document.source_type or "oficial") | lower %}
         {% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(document.layer, document.layer) %}
         <tr>
-          <th scope="row"><a href="/documents/{{ document.id }}">{{ document.title }}</a></th>
+          <th scope="row" data-label="Título"><a href="/documents/{{ document.id }}">{{ document.title }}</a></th>
           <td data-label="Sección">{{ document.section }}</td>
           <td data-label="Tipo">
             <span class="etiqueta {{ 'etiqueta-oficial' if tipo in ['oficial', 'official'] else 'etiqueta-externa' }}">{{ (document.source_type or "oficial") | capitalize }}</span>

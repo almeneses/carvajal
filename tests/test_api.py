@@ -552,3 +552,16 @@ def test_el_servicio_de_chat_difiere_los_clientes_a_la_primera_pregunta(
     # Assert
     assert isinstance(service, chat_service.ChatService)
     assert llamadas == []
+
+
+def test_la_fuente_escapa_el_extracto_en_los_atributos() -> None:
+    # Arrange: comillas y ángulos no deben romper el atributo del botón.
+    source = Source("x-1", "doc", "seccion", "core", 0.5, 'Texto con "comillas" & <b>')
+    client = make_client(ask=lambda question: Answer(text="Hola", sources=(source,)))
+
+    # Act
+    response = _ask(client, "¿?")
+
+    # Assert
+    assert response.status_code == 200
+    assert 'data-documento-excerpt="Texto con &#34;comillas&#34; &amp; &lt;b&gt;"' in response.text

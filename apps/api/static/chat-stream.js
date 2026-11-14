@@ -127,6 +127,7 @@
             break;
           }
           case "fallback":
+            delete texto.dataset.formateado;
             texto.textContent = String(evento.datos.text ?? "");
             turnoAsistente._fuentes = Array.isArray(evento.datos.sources)
               ? evento.datos.sources
@@ -177,6 +178,9 @@
       formatearTurno(turnoAsistente, texto, true);
       if (!texto.textContent) turnoAsistente.remove();
     } finally {
+      if (texto.textContent.trim() && texto.dataset.formateado !== "1") {
+        formatearTurno(turnoAsistente, texto, false);
+      }
       clearTimeout(temporizador);
       form.removeAttribute("aria-busy");
       if (boton) boton.disabled = false;
@@ -195,7 +199,7 @@
   }
 
   function agregarFragmento(nodo, fragmento) {
-    if (!fragmento) return;
+    if (!fragmento || nodo.dataset.formateado === "1") return;
     const span = document.createElement("span");
     span.className = "fragmento";
     span.textContent = fragmento;
@@ -246,11 +250,13 @@
 
   function asegurarLista() {
     let lista = hilo.querySelector("ol.hilo");
+    const sueltos = Array.from(hilo.querySelectorAll(":scope > li.turno"));
     if (!lista) {
       lista = document.createElement("ol");
       lista.className = "hilo";
       hilo.append(lista);
     }
+    if (sueltos.length > 0) lista.append(...sueltos);
     return lista;
   }
 
@@ -304,11 +310,12 @@
         nodoCapa.textContent =
           capa === "core" ? "Núcleo" : capa === "extended" ? "Extendida" : capa;
       }
-      const etiquetaTipo = item.querySelector('[data-campo="source_type"]');
-      if (etiquetaTipo) {
+      const etiquetaTipo = item.querySelector('[data-campo="badge-tipo"]');
+      const textoTipo = item.querySelector('[data-campo="source_type"]');
+      if (etiquetaTipo && textoTipo) {
         const tipo = String((fuente && fuente.source_type) || "oficial").toLowerCase();
         const texto = tipo.charAt(0).toUpperCase() + tipo.slice(1);
-        etiquetaTipo.textContent = texto;
+        textoTipo.textContent = texto;
         etiquetaTipo.setAttribute("aria-label", `Tipo de fuente: ${texto}`);
         const esOficial = tipo === "oficial" || tipo === "official";
         etiquetaTipo.classList.toggle("etiqueta-oficial", esOficial);

@@ -139,7 +139,8 @@
 
     const html = String(payload.content_html || "");
     if (html.trim()) {
-      contenido.innerHTML = html;
+      const documentoHtml = sanear(html);
+      contenido.replaceChildren(...Array.from(documentoHtml.body.childNodes));
     } else {
       contenido.textContent = "Este documento no tiene contenido capturado.";
     }
@@ -173,6 +174,24 @@
       cerrando = false;
       panel.close();
     }, 160);
+  }
+
+  function sanear(html) {
+    const documento = new DOMParser().parseFromString(html, "text/html");
+    documento.body
+      .querySelectorAll("script, style, iframe, object, embed, form, base, link, meta")
+      .forEach((nodo) => nodo.remove());
+    for (const nodo of documento.body.querySelectorAll("*")) {
+      for (const atributo of Array.from(nodo.attributes)) {
+        const nombre = atributo.name.toLowerCase();
+        const valor = atributo.value.trim().toLowerCase();
+        const peligroso =
+          nombre.startsWith("on") ||
+          ((nombre === "href" || nombre === "src") && valor.startsWith("javascript:"));
+        if (peligroso) nodo.removeAttribute(atributo.name);
+      }
+    }
+    return documento;
   }
 
   function buscarPunto(raiz, excerpt) {

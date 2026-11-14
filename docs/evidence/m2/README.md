@@ -8,7 +8,7 @@
 |---|---|---|
 | `smoke.json` | cuatro casos de la rúbrica, ruta, tool, memoria, fuentes, TTFT y abstención | `uv run python scripts/smoke_m2.py` |
 | `health.json` | `/health` separa documentos, fragmentos e índice | `curl -s localhost:8000/health \| python3 -m json.tool` |
-| `make check` | 475 pruebas unitarias/HTTP | `make check` (la salida no se versiona) |
+| `make check` | 480 pruebas unitarias/HTTP | `make check` (la salida no se versiona) |
 | `pytest -m integration` | 41 pruebas de integración con Postgres real | `uv run pytest -m integration` |
 | `frontend-mobile.png` | frontend anterior a 390×844 | Chrome headless, `--window-size=390,844` |
 | `frontend-desktop.png` | frontend anterior a 1440×900 | Chrome headless, `--window-size=1440,900` |

@@ -9,7 +9,7 @@
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const PATRON_INLINE =
-    /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s<]+|\[\d{1,2}\])/g;
+    /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s<)\]]+|\[\d{1,2}\])/g;
 
   function formatear(texto, fuentes) {
     const listaFuentes = Array.isArray(fuentes) ? fuentes : [];

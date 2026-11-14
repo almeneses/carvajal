@@ -10,6 +10,8 @@ convertidas en enlaces a la lista de fuentes.
 """
 
 import re
+from html import escape as html_escape
+from html import unescape as html_unescape
 
 import markdown
 import nh3
@@ -87,6 +89,9 @@ _ANSWER_ATTRIBUTES = {
 
 _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
 _URL_RE = re.compile(r"(?<![\w\"'=(<])(https?://[^\s<>\"']+)")
+_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(https?://[^)\s]+\)")
 _TRAILING_PUNCTUATION = ".,;:!?)]}"
 
 
@@ -124,14 +129,38 @@ def _cita(numero: int, source_count: int | None) -> str:
 def _enlazar_url(match: re.Match[str]) -> str:
     """Envuelve una URL suelta en un enlace y conserva la puntuación final."""
 
-    url = match.group(1)
+    url = html_unescape(match.group(1))
     sufijo = ""
     while url and url[-1] in _TRAILING_PUNCTUATION:
         sufijo = url[-1] + sufijo
         url = url[:-1]
     if not url:
         return match.group(0)
-    return f'<a href="{url}" target="_blank">{url}</a>{sufijo}'
+    href = html_escape(url, quote=True)
+    texto = html_escape(url)
+    return f'<a href="{href}" target="_blank">{texto}</a>{sufijo}'
+
+
+def _proteger_fragmentos(texto: str) -> tuple[str, list[str]]:
+    """Saca código y enlaces Markdown del alcance de citas y autoenlaces."""
+
+    fragmentos: list[str] = []
+
+    def guardar(match: re.Match[str]) -> str:
+        fragmentos.append(match.group(0))
+        return f"@@CARVAJAL-FRAG-{len(fragmentos) - 1}@@"
+
+    for patron in (_CODE_FENCE_RE, _INLINE_CODE_RE, _MARKDOWN_LINK_RE):
+        texto = patron.sub(guardar, texto)
+    return texto, fragmentos
+
+
+def _restaurar_fragmentos(texto: str, fragmentos: list[str]) -> str:
+    """Devuelve los fragmentos protegidos antes de convertir el Markdown."""
+
+    for indice, fragmento in enumerate(fragmentos):
+        texto = texto.replace(f"@@CARVAJAL-FRAG-{indice}@@", fragmento)
+    return texto
 
 
 def _citas_enteras(texto: str) -> str:
@@ -147,6 +176,12 @@ def _citas_enteras(texto: str) -> str:
     return "\n".join(lineas)
 
 
+def _escapar_texto(texto: str) -> str:
+    """Escapa entidades y ángulos para que el modelo se vea como texto."""
+
+    return texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _escapar_html(text: str) -> str:
     """Escapa HTML del modelo sin romper los marcadores ``>`` de cita."""
 
@@ -155,10 +190,9 @@ def _escapar_html(text: str) -> str:
         contenido = linea.lstrip()
         sangria = linea[: len(linea) - len(contenido)]
         if contenido.startswith(">"):
-            resto = contenido[1:].replace("<", "&lt;").replace(">", "&gt;")
-            lineas.append(f"{sangria}>{resto}")
+            lineas.append(f"{sangria}>{_escapar_texto(contenido[1:])}")
         else:
-            lineas.append(linea.replace("<", "&lt;").replace(">", "&gt;"))
+            lineas.append(_escapar_texto(linea))
     return "\n".join(lineas)
 
 
@@ -174,12 +208,14 @@ def render_answer(text: str, source_count: int | None = None) -> Markup:
     """
 
     preparado = _escapar_html(text)
+    preparado, fragmentos = _proteger_fragmentos(preparado)
     preparado = _citas_enteras(preparado)
     preparado = _CITATION_RE.sub(
         lambda match: _cita(int(match.group(1)), source_count),
         preparado,
     )
     preparado = _URL_RE.sub(_enlazar_url, preparado)
+    preparado = _restaurar_fragmentos(preparado, fragmentos)
     html = markdown.markdown(
         preparado,
         extensions=["extra", "sane_lists"],

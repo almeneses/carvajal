@@ -215,6 +215,17 @@
     line-height: 1.35;
   }
 
+  .tabla-corpus tbody th::before {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--secundario);
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
   .tabla-corpus tbody td {
     display: flex;
     align-items: baseline;

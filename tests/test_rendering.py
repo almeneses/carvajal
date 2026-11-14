@@ -215,3 +215,53 @@ def test_render_answer_elimina_enlaces_javascript() -> None:
     assert "javascript:" not in html
     assert "href=" not in html
     assert "Clic" in html
+
+
+def test_render_answer_no_enlaza_citas_dentro_de_codigo() -> None:
+    # Arrange
+    text = "El código `[1]` no es una cita, pero [1] sí."
+
+    # Act
+    html = str(render_answer(text, 1))
+
+    # Assert
+    assert "<code>[1]</code>" in html
+    assert html.count('href="#cita-1"') == 1
+
+
+def test_render_answer_no_anida_enlaces_markdown_y_urls() -> None:
+    # Arrange
+    text = "[Documento](https://example.com/a) y https://example.com/b."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert html.count("<a ") == 2
+    assert '<a href="https://example.com/a" rel="noopener noreferrer">Documento</a>' in html
+    assert 'href="https://example.com/b"' in html
+
+
+def test_render_answer_escapa_entidades_escritas_por_el_modelo() -> None:
+    # Arrange
+    text = "Texto con &lt;script&gt; y un ampersand & suelto."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert "&amp;lt;script&amp;gt;" in html
+    assert "&amp; suelto" in html
+    assert "<script" not in html
+
+
+def test_render_answer_escapa_la_url_del_enlace_automatico() -> None:
+    # Arrange
+    text = "Consulta https://example.com/buscar?q=a&b=c."
+
+    # Act
+    html = str(render_answer(text, 0))
+
+    # Assert
+    assert 'href="https://example.com/buscar?q=a&amp;b=c"' in html
+    assert 'rel="noopener noreferrer"' in html

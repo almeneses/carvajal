@@ -12,9 +12,9 @@
         type="button"
         class="cita-fuente"
         data-documento-slug="{{ source.slug }}"
-        data-documento-titulo="{{ titulo }}"
-        data-documento-excerpt="{{ source.excerpt or '' }}"
-        {% if url %}data-documento-url="{{ url }}"{% endif %}
+        data-documento-titulo="{{ titulo | forceescape }}"
+        data-documento-excerpt="{{ (source.excerpt or '') | forceescape }}"
+        {% if url %}data-documento-url="{{ url | forceescape }}"{% endif %}
         aria-haspopup="dialog"
         aria-controls="panel-documento"
       ><strong>{{ titulo }}</strong></button>
