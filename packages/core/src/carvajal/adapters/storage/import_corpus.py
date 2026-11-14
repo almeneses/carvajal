@@ -5,6 +5,7 @@ documento se identifica por su slug y cada fragmento por ``documento:posición``
 La función solo hace ``flush()``; la transacción la abre quien la invoca (la CLI).
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -93,6 +94,7 @@ def migrate_gold(
     layer: str = "core",
     allow_empty: bool = False,
     prune: bool = True,
+    only: Collection[str] | None = None,
 ) -> GoldImportReport:
     """Importa los ``*.md`` de ``gold_dir`` y devuelve los totales.
 
@@ -109,10 +111,15 @@ def migrate_gold(
 
     Con ``prune=False`` solo se hace la importación incremental: útil para
     cargas de documentos sobre un corpus cuya copia Gold no está en el mismo
-    contenedor, donde podar borraría documentos válidos.
+    contenedor, donde podar borraría documentos válidos. ``only`` limita la
+    importación a esos slugs y nunca poda el resto.
     """
 
     loaded = _load_documents(gold_dir, layer=layer)
+    if only is not None:
+        seleccionados = set(only)
+        loaded = [document for document in loaded if document.id in seleccionados]
+        prune = False
     if not loaded and not allow_empty:
         raise GoldImportError(
             f"{gold_dir}: no hay documentos Gold; usa --allow-empty para vaciar la capa."

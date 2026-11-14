@@ -85,6 +85,9 @@ services:
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
+      # Obligatorio para habilitar la carga desde fuera del contenedor. Sin él,
+      # la pestaña Configuración solo acepta loopback.
+      CONFIG_TOKEN: ${CONFIG_TOKEN:-}
       # Cuota diaria por visitante (W4.2); la medianoche se calcula en la zona
       # indicada, no en el TZ del contenedor.
       DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}

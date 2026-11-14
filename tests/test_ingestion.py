@@ -22,12 +22,14 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     settings = _settings(tmp_path)
     llamadas: list[tuple[str, Path]] = []
 
-    def importar(gold_dir: Path) -> tuple[int, int]:
+    def importar(gold_dir: Path, only: set[str]) -> tuple[int, int]:
         llamadas.append(("importar", gold_dir))
+        assert only
         return 7, 21
 
-    def indexar(gold_dir: Path) -> int:
+    def indexar(gold_dir: Path, only: set[str]) -> int:
         llamadas.append(("indexar", gold_dir))
+        assert only
         return 35
 
     documento = UploadedDocument(
@@ -76,8 +78,8 @@ def test_ingest_uploads_extrae_texto_de_html(tmp_path: Path) -> None:
     report = ingest_uploads(
         [documento],
         settings=settings,
-        importar=lambda gold_dir: (1, 1),
-        indexar=lambda gold_dir: 1,
+        importar=lambda gold_dir, only: (1, 1),
+        indexar=lambda gold_dir, only: 1,
     )
 
     # Assert

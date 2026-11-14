@@ -82,6 +82,20 @@
       enctype="multipart/form-data"
     >
       {% include "_csrf.html" %}
+      {% if token_requerido %}
+      <div class="config-campo">
+        <label for="token_admin">Token de administración</label>
+        <input
+          id="token_admin"
+          name="token_admin"
+          type="password"
+          autocomplete="off"
+          required
+          aria-describedby="ayuda-token"
+        />
+        <p id="ayuda-token" class="ayuda">Necesario para cargar documentos en este despliegue.</p>
+      </div>
+      {% endif %}
       <div class="config-campo">
         <label for="archivos">Documentos sueltos</label>
         <input

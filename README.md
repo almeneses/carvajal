@@ -388,6 +388,7 @@ También puedes configurar las variables en la terminal:
 | `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
 | `FRONTEND_ORIGINS` | Orígenes CORS del frontend separado. | `http://localhost:8001,...` |
 | `CARVAJAL_API_BASE` | URL de la API para `config.js` y la CSP del frontend; obligatoria fuera de `localhost`/`127.0.0.1`. | `http://localhost:8000` |
+| `CONFIG_TOKEN` | Token de la pestaña Configuración; sin él solo se aceptan cargas desde loopback. | vacío |
 
 > Los embeddings se calculan localmente con Ollama (`nomic-embed-text`),
 > independientemente del proveedor del LLM. `make index` requiere ese modelo.

@@ -97,3 +97,37 @@ def test_subir_sin_csrf_devuelve_403() -> None:
     # Assert
     assert response.status_code == 403
     assert "La sesión del formulario expiró" in response.text
+
+
+def test_configuracion_exige_token_cuando_esta_configurado(monkeypatch) -> None:
+    # Arrange
+    monkeypatch.setenv("CONFIG_TOKEN", "secreto-de-carga")
+    app = create_app()
+    app.state.ingest = lambda documents: IngestReport(files=len(documents))
+    client = TestClient(app)
+    client.get("/configuracion")
+    token = client.cookies[CSRF_COOKIE]
+    archivo = ("nota.md", b"# Nota\n\nTexto.", "text/markdown")
+
+    # Act: sin token y con token incorrecto no se procesa.
+    sin_token = client.post(
+        "/configuracion",
+        data={CSRF_FIELD: token},
+        files={"archivos": archivo},
+    )
+    incorrecto = client.post(
+        "/configuracion",
+        data={CSRF_FIELD: token, "token_admin": "otro"},
+        files={"archivos": archivo},
+    )
+    correcto = client.post(
+        "/configuracion",
+        data={CSRF_FIELD: token, "token_admin": "secreto-de-carga"},
+        files={"archivos": archivo},
+    )
+
+    # Assert
+    assert sin_token.status_code == 403
+    assert incorrecto.status_code == 403
+    assert "no está autorizada" in sin_token.text
+    assert correcto.status_code == 200

@@ -240,18 +240,18 @@ def _merge_index(index_file: Path, entry: dict[str, object]) -> None:
     )
 
 
-def _importar_gold(gold_dir: Path) -> tuple[int, int]:
+def _importar_gold(gold_dir: Path, only: set[str]) -> tuple[int, int]:
     """Importa Gold a PostgreSQL y devuelve ``(documentos, fragmentos)``."""
 
     from apps.api.runtime import session_factory
     from carvajal.adapters.storage.import_corpus import migrate_gold
 
     with session_factory().begin() as session:
-        report = migrate_gold(session, gold_dir=gold_dir, prune=False)
+        report = migrate_gold(session, gold_dir=gold_dir, prune=False, only=only)
     return report.documents, report.chunks
 
 
-def _indexar_gold(gold_dir: Path) -> int:
+def _indexar_gold(gold_dir: Path, only: set[str]) -> int:
     """Reindexa Gold en Qdrant y devuelve los puntos indexados."""
 
     from apps.api.runtime import embedder
@@ -272,6 +272,7 @@ def _indexar_gold(gold_dir: Path) -> int:
             store=store,
             embedder=embedder(),
             prune=False,
+            only=only,
         ).indexed
     finally:
         store.close()
@@ -281,8 +282,8 @@ def ingest_uploads(
     documents: list[UploadedDocument],
     *,
     settings: Settings | None = None,
-    importar: Callable[[Path], tuple[int, int]] | None = None,
-    indexar: Callable[[Path], int] | None = None,
+    importar: Callable[[Path, set[str]], tuple[int, int]] | None = None,
+    indexar: Callable[[Path, set[str]], int] | None = None,
 ) -> IngestReport:
     """Ejecuta Bronze → Silver → Gold → PostgreSQL → Qdrant para las cargas.
 
@@ -293,6 +294,7 @@ def ingest_uploads(
     settings = settings or Settings()
     errors: list[str] = []
     archivos = bronze = silver = gold = 0
+    slugs: set[str] = set()
     captured_at = datetime.now(UTC)
 
     if len(documents) > MAX_FILES:
@@ -355,6 +357,7 @@ def ingest_uploads(
                 "tokens_estimate": estimate_tokens(markdown),
             },
         )
+        slugs.add(slug)
         archivos += 1
         bronze += 1
         silver += 1
@@ -368,7 +371,7 @@ def ingest_uploads(
     chunks = 0
     import_ok = False
     try:
-        documents_count, chunks = (importar or _importar_gold)(settings.gold_dir)
+        documents_count, chunks = (importar or _importar_gold)(settings.gold_dir, slugs)
         import_ok = True
     except Exception as error:  # la UI informa el fallo de la etapa
         logger.warning("upload.import_failed", error=str(error))
@@ -377,7 +380,7 @@ def ingest_uploads(
     indexed = 0
     if import_ok:
         try:
-            indexed = (indexar or _indexar_gold)(settings.gold_dir)
+            indexed = (indexar or _indexar_gold)(settings.gold_dir, slugs)
         except Exception as error:  # Ollama o Qdrant pueden no estar disponibles
             logger.warning("upload.index_failed", error=str(error))
             errors.append("No se pudo indexar en Qdrant; revisa Qdrant y Ollama.")

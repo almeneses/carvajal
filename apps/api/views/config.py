@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 from dataclasses import dataclass, field
 from typing import Annotated
 
@@ -20,6 +21,7 @@ from apps.api.ingestion import (
 )
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
+from carvajal.infrastructure.settings import Settings
 
 __all__ = ["router"]
 
@@ -28,6 +30,7 @@ router = APIRouter()
 
 CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
 SIN_ARCHIVOS = "Selecciona al menos un documento o una carpeta con archivos admitidos."
+NO_AUTORIZADO = "La carga de documentos no está autorizada."
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ def configuracion(request: Request) -> Response:
 async def subir_documentos(
     request: Request,
     csrf_token: str = Form(default=""),
+    token_admin: str = Form(default=""),
     archivos: Annotated[list[UploadFile] | None, File()] = None,
     carpeta: Annotated[list[UploadFile] | None, File()] = None,
 ) -> Response:
@@ -61,6 +65,9 @@ async def subir_documentos(
             error=CSRF_INVALIDO,
             status_code=403,
         )
+    if not _autorizado(request, token_admin):
+        logger.warning("config.unauthorized", path=request.url.path)
+        return _page(request, error=NO_AUTORIZADO, status_code=403)
 
     batch = await _leer_archivos(*(archivos or []), *(carpeta or []))
     if not batch.documents:
@@ -120,6 +127,16 @@ async def _leer_archivos(*subidas: UploadFile) -> _UploadBatch:
     return _UploadBatch(documents=documentos, errors=tuple(errores))
 
 
+def _autorizado(request: Request, token: str) -> bool:
+    """Exige el token configurado o, sin token, una petición de loopback."""
+
+    esperado = Settings().config_token.strip()
+    if esperado:
+        return hmac.compare_digest(esperado.encode("utf-8"), token.encode("utf-8"))
+    host = request.client.host if request.client is not None else ""
+    return host in {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
 def _page(
     request: Request,
     *,
@@ -130,6 +147,7 @@ def _page(
     """Renderiza la configuración con formatos admitidos y resultado."""
 
     headers = {"X-Carvajal-Error": "1"} if error is not None else {}
+    token_requerido = bool(Settings().config_token.strip())
     return templates.TemplateResponse(
         request,
         "configuracion.html",
@@ -139,6 +157,7 @@ def _page(
             "MAX_FILES": MAX_FILES,
             "MAX_FILE_MB": MAX_FILE_BYTES // 1024 // 1024,
             "formatos": sorted(ALLOWED_EXTENSIONS),
+            "token_requerido": token_requerido,
         },
         status_code=status_code,
         headers=headers,
