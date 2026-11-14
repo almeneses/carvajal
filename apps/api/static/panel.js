@@ -30,7 +30,7 @@
       const boton = fuente ? fuente.querySelector("[data-documento-slug]") : null;
       if (boton) {
         evento.preventDefault();
-        abrirDesde(boton);
+        abrirDesde(boton, cita);
       }
       return;
     }
@@ -53,11 +53,14 @@
   panel.addEventListener("close", () => {
     document.body.classList.remove("panel-abierto");
     panel.removeAttribute("data-cerrando");
+    panel.querySelectorAll(".resaltado").forEach((nodo) => {
+      nodo.classList.remove("resaltado");
+    });
     if (disparador && typeof disparador.focus === "function") disparador.focus();
     disparador = null;
   });
 
-  function abrirDesde(boton) {
+  function abrirDesde(boton, origen) {
     const slug = String(boton.dataset.documentoSlug || "").trim();
     if (!slug) return;
     abrir(
@@ -67,7 +70,7 @@
         excerpt: boton.dataset.documentoExcerpt || "",
         url: boton.dataset.documentoUrl || "",
       },
-      boton,
+      origen || boton,
     );
   }
 
@@ -135,7 +138,11 @@
       .join(" · ");
 
     const html = String(payload.content_html || "");
-    contenido.innerHTML = html;
+    if (html.trim()) {
+      contenido.innerHTML = html;
+    } else {
+      contenido.textContent = "Este documento no tiene contenido capturado.";
+    }
 
     const url = urlSegura(payload.document_url || documento.url);
     if (url) {
@@ -201,7 +208,6 @@
       block: "center",
       behavior: reducido ? "auto" : "smooth",
     });
-    setTimeout(() => bloque.classList.remove("resaltado"), 3600);
     return true;
   }
 
