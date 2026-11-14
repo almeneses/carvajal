@@ -21,6 +21,7 @@ def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "POSTGRES_DB",
         "POSTGRES_PORT",
         "OLLAMA_BASE_URL",
+        "FRONTEND_ORIGINS",
     ):
         monkeypatch.delenv(nombre, raising=False)
 
@@ -107,6 +108,26 @@ def test_ollama_base_url_desde_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(_env_file=None)
 
     assert settings.ollama_base_url == "http://ollama:11434"
+
+
+def test_frontend_origins_separados_por_coma(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``FRONTEND_ORIGINS`` acepta una lista separada por comas, sin JSON."""
+
+    monkeypatch.setenv("FRONTEND_ORIGINS", "http://a.test,http://b.test")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.frontend_origins == ("http://a.test", "http://b.test")
+
+
+def test_frontend_origins_vacio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un valor vacío de ``FRONTEND_ORIGINS`` significa sin orígenes CORS."""
+
+    monkeypatch.setenv("FRONTEND_ORIGINS", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.frontend_origins == ()
 
 
 def test_fachada_coincide_con_settings() -> None:

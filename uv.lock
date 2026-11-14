@@ -276,6 +276,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "langchain-ollama" },
     { name = "langchain-openai" },
+    { name = "langchain-text-splitters" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-checkpoint-sqlite" },
@@ -306,7 +307,6 @@ legacy = [
     { name = "langchain" },
     { name = "langchain-anthropic" },
     { name = "langchain-community" },
-    { name = "langchain-text-splitters" },
     { name = "streamlit" },
 ]
 
@@ -332,7 +332,7 @@ requires-dist = [
     { name = "langchain-community", marker = "extra == 'legacy'", specifier = ">=0.4.2" },
     { name = "langchain-ollama", specifier = ">=1.1.0" },
     { name = "langchain-openai", specifier = ">=1.7.3" },
-    { name = "langchain-text-splitters", marker = "extra == 'legacy'", specifier = ">=0.3" },
+    { name = "langchain-text-splitters", specifier = ">=0.3" },
     { name = "langgraph", specifier = ">=1.2" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0" },

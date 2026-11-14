@@ -137,7 +137,7 @@ echo "==> Preparando la base"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 120 db
 
 echo "==> Migraciones"
-if ! "${COMPOSE[@]}" run --rm --no-build app alembic upgrade head; then
+if ! "${COMPOSE[@]}" run --rm app alembic upgrade head; then
   rollback
 fi
 
