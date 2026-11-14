@@ -83,6 +83,19 @@ def test_el_chat_incrusta_el_token_en_su_formulario() -> None:
     assert f'name="csrf_token" value="{token}"' in response.text
 
 
+def test_la_portada_emite_el_token_aunque_redirija() -> None:
+    """El 303 no pierde la cookie: pasar por / sigue habilitando los POST."""
+
+    # Act
+    response = _client().get("/", follow_redirects=False)
+
+    # Assert
+    assert response.status_code == 303
+    assert response.headers["location"] == "/chat"
+    assert response.cookies[CSRF_COOKIE]
+    assert f"{CSRF_COOKIE}=" in response.headers["set-cookie"]
+
+
 def test_el_post_sin_token_se_rechaza_antes_de_llamar_al_caso_de_uso() -> None:
     """Sin token CSRF no se ejecuta la pregunta."""
 

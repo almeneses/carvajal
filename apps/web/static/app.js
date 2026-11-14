@@ -66,9 +66,12 @@
     formulario.dataset.listo = "1";
 
     actualizarEnlaceDocumento();
-    const enPortada = normalizarCamino(location.pathname) === "/";
-    if (enPortada) history.replaceState({}, "", "/corpus");
-    renderizar({ enfocar: !enPortada });
+    // `/` y `/corpus` son la misma vista: la URL se unifica antes de pintar
+    // para que recargar o compartir el enlace se comporte igual.
+    if (normalizarCamino(location.pathname) === "/") {
+      history.replaceState({}, "", `/corpus${location.search}${location.hash}`);
+    }
+    renderizar();
     document.addEventListener("click", manejarClic);
     document.addEventListener("carvajal:documento-abierto", (evento) => {
       const id = evento.detail && evento.detail.id ? String(evento.detail.id) : "";
