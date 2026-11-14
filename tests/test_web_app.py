@@ -8,7 +8,7 @@ from apps.web.main import API_BASE, app
 
 cliente = TestClient(app)
 
-RUTAS_SPA = ("/", "/corpus", "/documents", "/documents/abc")
+RUTAS_SPA = ("/", "/faq", "/corpus", "/documents", "/documents/abc")
 
 
 def test_rutas_spa_devuelven_el_mismo_html() -> None:
@@ -55,6 +55,7 @@ def test_index_carga_scripts_y_hojas_en_orden() -> None:
         "/config.js",
         "/static/lectura.js",
         "/static/app.js",
+        "/static/faq.js",
     ]
     assert all("defer" in etiqueta for etiqueta in etiquetas)
     assert html.index("/static/styles.css") < html.index("/static/lectura.css")
@@ -81,6 +82,21 @@ def test_markup_del_contrato_de_lectura() -> None:
     # Assert
     assert '<nav class="pestanas" aria-label="Pantallas de la aplicación">' in html
     assert 'aria-current="page"' in html
+    assert '<section id="vista-faq" data-vista="faq" hidden' in html
+    assert '<h1 id="titulo-faq" tabindex="-1">Preguntas frecuentes del corpus</h1>' in html
+    for identificador in (
+        "faq-generar",
+        "faq-reiniciar",
+        "faq-descargar",
+        "faq-estado",
+        "faq-aviso",
+        "faq-vacio",
+        "faq-lista",
+        "faq-faltantes",
+        "faq-preview",
+    ):
+        assert f'id="{identificador}"' in html
+    assert 'id="nav-faq" class="pestana" href="/faq"' in html
     assert '<section id="vista-corpus" data-vista="corpus" hidden' in html
     assert '<h1 id="titulo-corpus" tabindex="-1">Explora el corpus</h1>' in html
     assert '<form id="corpus-filtros" class="filtros" role="search"' in html

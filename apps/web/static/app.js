@@ -8,6 +8,7 @@
   const CLAVE_DOCUMENTO = "carvajal:documento";
   const TITULOS_VISTA = {
     asistente: "Asistente del corpus",
+    faq: "Preguntas frecuentes",
     corpus: "Corpus",
     documento: "Documento",
   };
@@ -30,11 +31,13 @@
 
   const secciones = {
     asistente: document.getElementById("vista-asistente"),
+    faq: document.getElementById("vista-faq"),
     corpus: document.getElementById("vista-corpus"),
     documento: document.getElementById("vista-documento"),
   };
   const enlacesNav = {
     asistente: document.getElementById("nav-asistente"),
+    faq: document.getElementById("nav-faq"),
     corpus: document.getElementById("nav-corpus"),
     documento: document.getElementById("nav-documento"),
   };
@@ -127,6 +130,7 @@
   function analizarRuta() {
     const camino = normalizarCamino(location.pathname);
     const params = new URLSearchParams(location.search);
+    if (camino === "/faq") return { vista: "faq", documentId: null, params };
     if (camino === "/corpus") return { vista: "corpus", documentId: null, params };
     if (camino === "/documents") return { vista: "documento", documentId: null, params };
     if (camino.startsWith("/documents/")) {
@@ -216,7 +220,7 @@
         });
       }
     } else if (enfocar && cambioVista) {
-      enfocarVista("asistente");
+      enfocarVista(actual.vista === "faq" ? "faq" : "asistente");
     }
   }
 
@@ -288,6 +292,7 @@
       const camino = normalizarCamino(new URL(destino, location.origin).pathname);
       return (
         camino === "/" ||
+        camino === "/faq" ||
         camino === "/corpus" ||
         camino === "/documents" ||
         camino.startsWith("/documents/")
