@@ -15,11 +15,13 @@ IMAGE_REPO="${IMAGE_REPO:-ghcr.io/almeneses/carvajal-api}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
-if [[ ! -f .env ]]; then
-  echo "==> Falta ${DIR}/.env: copia .env.example y define DOMAIN, SESSION_SECRET," >&2
-  echo "    POSTGRES_PASSWORD y DEEPSEEK_API_KEY antes de desplegar." >&2
-  exit 1
-fi
+for required in .env compose.prod.yml Caddyfile; do
+  if [[ ! -f "$required" ]]; then
+    echo "==> Falta ${DIR}/${required}. El workflow copia compose.prod.yml y" >&2
+    echo "    Caddyfile; .env se prepara a mano antes del primer despliegue." >&2
+    exit 1
+  fi
+done
 
 COMPOSE=(docker compose -f compose.prod.yml)
 STATE_FILE=".deployed_tag"
