@@ -213,6 +213,7 @@ def test_los_assets_del_panel_y_del_formateador_se_sirven() -> None:
         "texto.js",
         "hilos.js",
         "configuracion.css",
+        "captura.js",
         "identidad.js",
     ):
         response = client.get(f"/static/{nombre}")

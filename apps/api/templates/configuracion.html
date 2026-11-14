@@ -2,6 +2,7 @@
 {% block title %}Configuración · Asistente Carvajal{% endblock %}
 {% block head_extra %}
 <link rel="stylesheet" href="/static/configuracion.css" />
+<script src="/static/captura.js" defer></script>
 {% endblock %}
 {% block content %}
 <section class="seccion" aria-labelledby="titulo-configuracion">
@@ -142,6 +143,22 @@
         archivos y la base de datos.
       </p>
     </aside>
+  </div>
+</section>
+
+<section class="seccion" aria-labelledby="titulo-captura">
+  <header class="cabecera-vista">
+    <p class="sobrelinea">Configuración · Captura web</p>
+    <h2 id="titulo-captura">Trae páginas nuevas al corpus</h2>
+    <p class="entradilla">
+      Captura una o varias URLs públicas y añádelas al núcleo del corpus. Cada
+      página pasa por las siete etapas del pipeline, se importa a PostgreSQL y
+      se indexa en Qdrant. También puedes ejecutar las semillas ya configuradas.
+    </p>
+  </header>
+
+  <div id="captura-panel">
+    {% include "_captura.html" %}
   </div>
 </section>
 {% endblock %}

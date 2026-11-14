@@ -50,6 +50,175 @@
   border-color: var(--cian);
 }
 
+.config-campo input[type="number"],
+.config-campo select,
+.config-campo textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--borde-control);
+  border-radius: 11px;
+  background: var(--panel);
+  color: var(--tinta);
+  font: inherit;
+}
+
+.config-campo textarea {
+  min-height: 140px;
+  resize: vertical;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.config-campo textarea:focus,
+.config-campo select:focus,
+.config-campo input[type="number"]:focus {
+  outline: 2px solid var(--cian);
+  outline-offset: 1px;
+}
+
+.config-captura-opciones {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
+  gap: 14px;
+}
+
+.config-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--secundario);
+  font-size: 0.86rem;
+}
+
+.config-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--cian);
+}
+
+.captura-progreso {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: clamp(18px, 2.6vw, 26px);
+}
+
+.captura-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.captura-cabecera h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.captura-etapas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.captura-etapa {
+  padding: 7px 11px;
+  border: 1px dashed var(--borde-control);
+  border-radius: 999px;
+  background: var(--fondo-suave);
+  color: var(--secundario);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.captura-etapa-activa {
+  border-style: solid;
+  border-color: var(--cian);
+  background: color-mix(in srgb, var(--cian) 14%, var(--panel));
+  color: var(--tinta);
+}
+
+.captura-etapa-completa {
+  border-style: solid;
+  border-color: #9fd4b5;
+  background: #eef8f2;
+  color: #1b6b43;
+}
+
+.captura-log {
+  max-height: 220px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid var(--borde);
+  border-radius: 11px;
+  background: #0f2233;
+  color: #d8e6f2;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.captura-metricas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.captura-metrica {
+  display: grid;
+  gap: 2px;
+  padding: 11px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 11px;
+  background: var(--fondo-suave);
+}
+
+.captura-metrica-nombre {
+  color: var(--etiqueta-texto);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.captura-metrica strong {
+  color: var(--tinta);
+  font-size: 1.25rem;
+  line-height: 1.1;
+}
+
+.captura-incidencias {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #f0c9c9;
+  border-left: 4px solid var(--error);
+  border-radius: 11px;
+  background: #fdf5f5;
+}
+
+.captura-incidencias h3 {
+  margin: 0 0 6px;
+  color: var(--error);
+  font-size: 0.86rem;
+}
+
+.captura-incidencias ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--error);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
 .config-formulario button {
   justify-self: start;
 }
@@ -161,6 +330,10 @@
 
 @media (max-width: 900px) {
   .config-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .config-captura-opciones {
     grid-template-columns: minmax(0, 1fr);
   }
 

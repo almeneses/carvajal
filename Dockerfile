@@ -27,11 +27,13 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e
 # El paquete vive en packages/core (src-layout); el build lo necesita.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY packages/core/src ./packages/core/src
-# Solo dependencias base: `capture` y `legacy` se quedan fuera del runtime web.
+# Dependencias base + extra `capture`: la captura web desde Configuración usa
+# `requests`, `beautifulsoup4` y `lxml` en runtime. `legacy` (Streamlit/FAISS)
+# sigue fuera de la imagen.
 # `zstandard` es un backend opcional de compresión de trazas de LangSmith; sin
 # tracing activo, LangSmith cae a la ingesta multipart sin comprimir. Se omite
 # para no pagar 23 MB en la imagen.
-RUN uv sync --frozen --no-dev --no-editable --no-install-package zstandard
+RUN uv sync --frozen --no-dev --no-editable --no-install-package zstandard --extra capture
 
 FROM base AS runtime
 # Usuario sin privilegios: la app solo lee plantillas y estáticos.
