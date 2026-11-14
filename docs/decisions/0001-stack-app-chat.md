@@ -64,6 +64,10 @@ flowchart LR
 En el VPS, Caddy termina TLS y hace `reverse_proxy` a `app`. Sin CDN ni WAF en
 esta etapa.
 
+> **Actualización 2026-11-14:** el despliegue demo actual usa la IP y el puerto
+> `8080`, sin Caddy, porque el VPS comparte nginx con otros sitios. Ver
+> [`docs/despliegue-ovh.md`](../despliegue-ovh.md).
+
 ### Stack
 
 | Capa | Elección |

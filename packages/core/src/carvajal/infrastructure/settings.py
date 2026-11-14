@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     ollama_model: str = "llama3.2"
+    # Los embeddings del corpus se calculan con Ollama. En local el valor por
+    # defecto apunta al Ollama del host; en compose.prod.yml se inyecta
+    # http://ollama:11434 para usar el servicio de la red de Compose.
+    ollama_base_url: str = "http://127.0.0.1:11434"
 
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"

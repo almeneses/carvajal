@@ -31,8 +31,8 @@ help: ## Muestra esta ayuda
 	@echo "  index              Indexa data/gold en Qdrant"
 	@echo "  index-eval         Indexa y ejecuta la evaluación de retrieval"
 	@echo "  image              Construye la imagen Docker de la app web"
-	@echo "  prod-up            Levanta app y base con compose.prod.yml"
-	@echo "  prod-down          Detiene app y base (conserva el volumen)"
+	@echo "  prod-up            Levanta app, Postgres, Qdrant y Ollama en APP_PORT"
+	@echo "  prod-down          Detiene los servicios (conserva los volúmenes)"
 	@echo "  db                 Levanta Postgres 16 con pgvector (docker compose)"
 	@echo "  db-down            Detiene la base de datos local"
 	@echo "  eval               Ejecuta las preguntas de prueba (genera docs/resultados.md)"
@@ -102,10 +102,10 @@ index-eval: ## Indexa y evalúa el retrieval (Recall@10 y nDCG@10)
 image: ## Construye la imagen Docker de la app web
 	docker build -t carvajal-api:local .
 
-prod-up: ## Levanta la app y la base con compose.prod.yml (requiere SESSION_SECRET)
+prod-up: ## Levanta app, Postgres, Qdrant y Ollama en APP_PORT (requiere SESSION_SECRET)
 	docker compose -f compose.prod.yml up -d --build
 
-prod-down: ## Detiene app y base de compose.prod.yml (conserva el volumen)
+prod-down: ## Detiene app, Postgres, Qdrant y Ollama (conserva los volúmenes)
 	docker compose -f compose.prod.yml down
 
 # Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias

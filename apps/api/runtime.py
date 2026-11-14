@@ -60,7 +60,7 @@ def ask_components() -> tuple[Embedder, LLMProvider]:
 def embedder() -> OllamaEmbedder:
     """Embedder del corpus; se crea una sola vez por proceso."""
 
-    return OllamaEmbedder()
+    return OllamaEmbedder(base_url=Settings().ollama_base_url)
 
 
 @cache

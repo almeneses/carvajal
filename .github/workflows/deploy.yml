@@ -1,0 +1,136 @@
+name: Despliegue
+
+# Se dispara cuando CI termina en main: un push a main solo llega ahí tras el
+# PR de release aprobado, así que ese es el punto de publicación. También se
+# puede lanzar a mano desde main para el primer despliegue o un reintento.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: despliegue-produccion
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPO: ghcr.io/${{ github.repository_owner }}/carvajal-api
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  deploy:
+    name: Producción
+    if: >
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - name: Verificar que el commit pertenece a main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$SHA" FETCH_HEAD; then
+            echo "::error::$SHA no pertenece a main; no se despliega código sin fusionar."
+            exit 1
+          fi
+
+      - name: Validar compose de producción
+        env:
+          SESSION_SECRET: secreto-de-ci
+        run: docker compose -f compose.prod.yml config -q
+
+      - name: Preparar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Iniciar sesión en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar la imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_REPO }}:sha-${{ env.SHA }}
+            ${{ env.IMAGE_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Preparar SSH
+        env:
+          VPS_HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          if [[ -z "$VPS_HOST_KEY" ]]; then
+            echo "::error::Define VPS_HOST_KEY con la línea de ssh-keyscan del VPS."
+            exit 1
+          fi
+          printf '%s\n' "$VPS_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verificar .env en el VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          if ! ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            'test -f /opt/carvajal/.env && grep -Eq "^SESSION_SECRET=.+" /opt/carvajal/.env'; then
+            echo "::error::Prepara /opt/carvajal/.env con SESSION_SECRET antes de desplegar (docs/despliegue-ovh.md)."
+            exit 1
+          fi
+
+      - name: Copiar configuración al VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" "mkdir -p /opt/carvajal/.incoming"
+          # Se copia a un directorio temporal y se renombra en el VPS: si el
+          # scp se corta, no deja deploy.sh truncado para el siguiente intento.
+          scp -P "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            compose.prod.yml scripts/deploy.sh \
+            "$VPS_USER@$VPS_HOST:/opt/carvajal/.incoming/"
+          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "cd /opt/carvajal && mv .incoming/compose.prod.yml .incoming/deploy.sh . && rmdir .incoming"
+
+      - name: Desplegar en el VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          IMAGE_TAG: sha-${{ env.SHA }}
+        run: |
+          # Escapa los valores antes de interpolarlos en el comando remoto.
+          IMAGE_TAG_Q="$(printf '%q' "$IMAGE_TAG")"
+          IMAGE_REPO_Q="$(printf '%q' "$IMAGE_REPO")"
+          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "cd /opt/carvajal && IMAGE_REPO=$IMAGE_REPO_Q bash deploy.sh $IMAGE_TAG_Q"
