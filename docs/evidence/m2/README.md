@@ -8,10 +8,15 @@
 |---|---|---|
 | `smoke.json` | cuatro casos de la rúbrica, ruta, tool, memoria, fuentes, TTFT y abstención | `uv run python scripts/smoke_m2.py` |
 | `health.json` | `/health` separa documentos, fragmentos e índice | `curl -s localhost:8000/health \| python3 -m json.tool` |
-| `make check` | 437 pruebas unitarias/HTTP | `make check` (la salida no se versiona) |
+| `make check` | 463 pruebas unitarias/HTTP | `make check` (la salida no se versiona) |
 | `pytest -m integration` | 41 pruebas de integración con Postgres real | `uv run pytest -m integration` |
-| `frontend-mobile.png` | frontend a 390×844 | Chrome headless, `--window-size=390,844` |
-| `frontend-desktop.png` | frontend a 1440×900 | Chrome headless, `--window-size=1440,900` |
+| `frontend-mobile.png` | frontend anterior a 390×844 | Chrome headless, `--window-size=390,844` |
+| `frontend-desktop.png` | frontend anterior a 1440×900 | Chrome headless, `--window-size=1440,900` |
+| `institucional-desktop.png` | pestañas superiores y Asistente con fuentes a 1440×1000 | Chrome headless + CDP |
+| `institucional-corpus-desktop.png` | Corpus real con filtros y conteo a 1440×1000 | Chrome headless + CDP |
+| `institucional-documento-desktop.png` | Documento con contenido saneado y ficha a 1440×1000 | Chrome headless + CDP |
+| `institucional-mobile.png` | pestañas en segunda fila y Asistente a 390×844 | Chrome headless + CDP |
+| `institucional-corpus-mobile.png` | Corpus real a 390×844 | Chrome headless + CDP |
 | `../../eval/retrieval-report.md` | Recall@10 y nDCG@10 por consulta | `make index-eval` |
 
 ## Resultado del smoke

@@ -295,7 +295,12 @@ make eval
 ### Interfaz web del M2
 
 La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
-API en <http://localhost:8000> (`make api`). El shell Jinja2 sigue disponible en
+API en <http://localhost:8000> (`make api`). El frontend ofrece tres pestañas
+superiores —**Asistente**, **Corpus** y **Documento**— con URLs estables
+(`/`, `/corpus` y `/documents/{id}`) y conserva el hilo del chat al navegar.
+Corpus y Documento leen los endpoints JSON `/api/corpus` y
+`/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
+`nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
 <http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE.
 
 ### Interfaz legada (Streamlit)
