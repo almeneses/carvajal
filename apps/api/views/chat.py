@@ -91,7 +91,7 @@ def chat(
         request,
         messages,
         thread_id=thread_id,
-        conversations=_conversations(request, owner_key),
+        conversations=[] if new_owner else _conversations(request, owner_key),
         panel_hilos=panel == "hilos",
     )
     if new_owner:
