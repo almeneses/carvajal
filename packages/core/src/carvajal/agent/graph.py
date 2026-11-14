@@ -244,7 +244,7 @@ def build_agent(
                 {"name": state.get("tool_name", ""), "period": state.get("tool_period", "")},
                 config=config,
             )
-        except ValidationError:
+        except Exception:
             # Un alias o período que no pase la validación Pydantic se trata
             # como ausencia de registro, no como un 503 del turno.
             result = {
