@@ -150,10 +150,14 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      # No se espera a `service_healthy`: en el primer despliegue el índice de
-      # Qdrant aún no existe y `/health` devuelve 503. El deploy.sh comprueba
-      # readiness por separado.
+      # No se espera a `service_healthy` de la app: en el primer despliegue el
+      # índice de Qdrant aún no existe y `/health` devuelve 503. El deploy.sh
+      # comprueba readiness por separado.
       app:
+        condition: service_started
+      db:
+        condition: service_healthy
+      qdrant:
         condition: service_started
     environment:
       DOMAIN: ${DOMAIN:?Define DOMAIN en el .env del servidor}

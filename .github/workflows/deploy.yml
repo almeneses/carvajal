@@ -95,6 +95,9 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
           IMAGE_TAG: sha-${{ env.SHA }}
         run: |
+          # Escapa los valores antes de interpolarlos en el comando remoto.
+          IMAGE_TAG_Q="$(printf '%q' "$IMAGE_TAG")"
+          IMAGE_REPO_Q="$(printf '%q' "$IMAGE_REPO")"
           ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 \
             "$VPS_USER@$VPS_HOST" \
-            "cd /srv/carvajal && IMAGE_REPO='$IMAGE_REPO' bash deploy.sh '$IMAGE_TAG'"
+            "cd /srv/carvajal && IMAGE_REPO=$IMAGE_REPO_Q bash deploy.sh $IMAGE_TAG_Q"

@@ -66,7 +66,7 @@ fi
 
 # Puerto publicado real de la app (puede ser distinto de 8000 si APP_PORT
 # cambió en .env). Se consulta a Compose para no adivinar desde el shell.
-HEALTH_PORT="$("${COMPOSE[@]}" port app 8000 2>/dev/null | tail -n 1 | awk -F: '{print $NF}')"
+HEALTH_PORT="$("${COMPOSE[@]}" port app 8000 2>/dev/null | head -n 1 | sed -E 's/.*:([0-9]+)$/\1/')"
 HEALTH_PORT="${HEALTH_PORT:-8000}"
 
 echo "==> Esperando /live en 127.0.0.1:${HEALTH_PORT}"
@@ -115,6 +115,8 @@ case "$SALUD" in
     ;;
 esac
 
+# Solo se escribe .env cuando el despliegue quedó sano. Si el `up` falla,
+# .env conserva el tag anterior y rollback lo reutiliza.
 remember_image "$IMAGE_TAG"
 printf '%s\n' "$IMAGE_TAG" > "$STATE_FILE"
 echo "==> Despliegue completado: ${IMAGE_TAG}"
