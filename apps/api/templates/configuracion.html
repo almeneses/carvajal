@@ -119,8 +119,8 @@
       <p>Máximo {{ MAX_FILES }} archivos por carga y {{ MAX_FILE_MB }} MB por archivo.</p>
       <p>
         Los documentos se incorporan con sección <strong>Cargas</strong> y origen
-        <strong>colaborador</strong>. El proceso reemplaza el índice de PostgreSQL y
-        Qdrant con el corpus Gold vigente.
+        <strong>colaborador</strong>. El proceso actualiza PostgreSQL y Qdrant de
+        forma incremental, sin eliminar documentos ajenos a la carga.
       </p>
       <p class="ayuda">
         La indexación usa el embedding configurado en Ollama. Si Qdrant u Ollama no

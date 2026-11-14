@@ -247,7 +247,7 @@ def _importar_gold(gold_dir: Path) -> tuple[int, int]:
     from carvajal.adapters.storage.import_corpus import migrate_gold
 
     with session_factory().begin() as session:
-        report = migrate_gold(session, gold_dir=gold_dir)
+        report = migrate_gold(session, gold_dir=gold_dir, prune=False)
     return report.documents, report.chunks
 
 
@@ -271,6 +271,7 @@ def _indexar_gold(gold_dir: Path) -> int:
             gold_dir=gold_dir,
             store=store,
             embedder=embedder(),
+            prune=False,
         ).indexed
     finally:
         store.close()

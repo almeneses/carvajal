@@ -92,6 +92,7 @@ def migrate_gold(
     gold_dir: Path,
     layer: str = "core",
     allow_empty: bool = False,
+    prune: bool = True,
 ) -> GoldImportReport:
     """Importa los ``*.md`` de ``gold_dir`` y devuelve los totales.
 
@@ -105,6 +106,10 @@ def migrate_gold(
     Un directorio existente sin Markdown se rechaza con ``GoldImportError``
     salvo ``allow_empty=True``, que interpreta el vacío como una poda total de
     la capa. Un directorio inexistente se rechaza siempre.
+
+    Con ``prune=False`` solo se hace la importación incremental: útil para
+    cargas de documentos sobre un corpus cuya copia Gold no está en el mismo
+    contenedor, donde podar borraría documentos válidos.
     """
 
     loaded = _load_documents(gold_dir, layer=layer)
@@ -123,7 +128,9 @@ def migrate_gold(
         chunks.replace(document.id, document_chunks)
         total_chunks += len(document_chunks)
 
-    removed = _prune(documents, layer=layer, keep={document.id for document in loaded})
+    removed = (
+        _prune(documents, layer=layer, keep={document.id for document in loaded}) if prune else 0
+    )
     return GoldImportReport(documents=len(loaded), chunks=total_chunks, removed=removed)
 
 

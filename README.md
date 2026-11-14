@@ -308,7 +308,7 @@ fuentes se pliegan por defecto y cada cita abre un panel lateral con el
 documento en el fragmento citado. El chat mantiene el compositor abajo, un
 panel de hilos anteriores y la pestaña **Configuración** para subir documentos
 o carpetas: Bronze → Silver → Gold → PostgreSQL → Qdrant, reutilizando el
-pipeline del corpus.
+pipeline del corpus y conservando los documentos ya indexados.
 
 ### Interfaz legada (Streamlit)
 
@@ -395,9 +395,13 @@ También puedes configurar las variables en la terminal:
 Para la app web, `SESSION_SECRET` firma la cookie anónima. En producción es
 obligatorio (`compose.prod.yml` falla si falta). En desarrollo, fíjalo también
 si vas a reiniciar el backend durante la demo: con un secreto aleatorio por
-proceso, la cookie deja de validar y el hilo no se recupera. `DAILY_REQUESTS_LIMIT`
-y `QUOTA_TIMEZONE` configuran la cuota diaria; `POSTGRES_*`/`DATABASE_URL`
-configuran la base.
+proceso, la cookie deja de validar y el hilo no se recupera. El shell genera
+además un hash de 256 bits en `localStorage` la primera vez que visita cada
+navegador, lo refleja en la cookie `carvajal_visitante` y el servidor deriva el
+dueño con HMAC; así recupera sus hilos aunque se pierda la cookie firmada. No
+es autenticación: el hash es un identificador anónimo portador.
+`DAILY_REQUESTS_LIMIT` y `QUOTA_TIMEZONE` configuran la cuota diaria;
+`POSTGRES_*`/`DATABASE_URL` configuran la base.
 
 El índice vectorial FAISS se guarda en `data/index/` (ignorado por Git) y se reutiliza
 mientras el corpus no cambie, de modo que la app arranca en segundos. La primera

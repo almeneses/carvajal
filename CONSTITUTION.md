@@ -271,8 +271,9 @@ carvajal/
 - `make prod-up` levanta app, Postgres, Qdrant y Ollama con
   `compose.prod.yml`; `make prod-down` los detiene conservando los volúmenes.
   El compose exige `SESSION_SECRET` (falla si falta), publica la app en
-  `0.0.0.0:APP_PORT` (8080 por defecto) y corre sin privilegios y con el
-  sistema de archivos de solo lectura.
+  `0.0.0.0:APP_PORT` (8080 por defecto), corre sin privilegios, mantiene el
+  sistema de archivos de solo lectura y monta el volumen `appdata` en
+  `/app/data` para conservar Bronze, Silver, Gold y el índice de las cargas.
 - El despliegue de producción es automático: al fusionar el PR de release en
   `main`, CI debe terminar en verde; `.github/workflows/deploy.yml` publica la
   imagen en GHCR con un tag `sha-<commit>` y `scripts/deploy.sh` la descarga en
@@ -376,6 +377,7 @@ git push
 | 2026-11-11 | Caso de uso `AskQuestion` con puerto `Embedder`, contexto numerado, citas y neutralización de delimitadores | Une recuperación y generación sin acoplar capas; sin contexto no se llama al LLM y el texto del corpus no puede inyectar instrucciones |
 | 2026-11-11 | Shell web FastAPI con handlers diferidos, `/health`, portada HTMX y `/ask` con citas | Importar el módulo no abre conexiones; los fallos de proveedor se traducen a 503 sin filtrar detalles internos |
 | 2026-11-13 | Pantallas de corpus y documento: un `APIRouter` por pantalla en `views/`, filtros/paginación y Markdown saneado con `nh3` | Las pantallas viven fuera de `main.py` para que las pistas de la ola 3 no compitan por el mismo archivo; el HTML se sanea con allowlist y la URL de origen se valida contra `javascript:` |
+| 2026-11-14 | Identidad del shell HTMX: hash de 256 bits en `localStorage`, cookie `carvajal_visitante` y dueño derivado con HMAC | El navegador genera el hash una sola vez y lo conserva; el servidor no usa el valor crudo como clave y mantiene la cookie firmada como respaldo si el visitante no envía el hash. No es autenticación |
 | 2026-11-13 | Chat persistente: cookie firmada con `owner_key` opaco y tablas `conversations`/`messages` (migración 0003) | La cookie sola no guarda historial (4 KB, manipulable); Postgres es la fuente de verdad y la identidad no es autenticación: solo separa conversaciones anónimas |
 | 2026-11-13 | Cuota diaria por visitante anónimo en `usage_day` (migración 0004), reserva atómica y 429 con `Retry-After`; medianoche en `QUOTA_TIMEZONE` | El cupo usa la misma cookie firmada del chat y se evalúa antes del LLM; un fallo de BD al consultarlo responde 503. W4.1 añadirá `user_id` de forma aditiva |
 | 2026-11-13 | Stream SSE del chat con degradación: `open/meta/token/done/fallback/error` y persistencia exacta una vez | El primer token no debe esperar al LLM completo; si el stream falla antes de emitir, se completa por la vía normal y se persiste una sola vez |

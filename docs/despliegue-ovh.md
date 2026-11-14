@@ -249,14 +249,17 @@ cd /opt/carvajal
 
 docker compose -f compose.prod.yml exec ollama ollama pull nomic-embed-text
 
-docker compose -f compose.prod.yml run --rm \
-  -v /opt/carvajal/data:/app/data:ro \
-  app carvajal index-qdrant --recreate
+# Copia el corpus Gold al volumen persistente de la app y reindexa.
+docker compose -f compose.prod.yml up -d app
+docker compose -f compose.prod.yml cp /opt/carvajal/data/. app:/app/data/
+docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
 
 curl -fsS http://144.217.80.136:8080/health
 ```
 
 El índice queda en el volumen `qdrantdata` y sobrevive a reinicios y despliegues.
+Las cargas de la pestaña Configuración escriben en el volumen `appdata`
+montado en `/app/data`; también sobreviven a los reinicios y a los despliegues.
 `deploy.sh` escribe `APP_IMAGE=ghcr.io/...:<tag>` en `.env`, así que los comandos
 manuales de `docker compose` usan la misma imagen que quedó desplegada.
 
@@ -320,7 +323,9 @@ APP_IMAGE=ghcr.io/almeneses/carvajal-api:sha-<tag-anterior> \
 Recuerda: el rollback cambia la imagen, **no revierte migraciones**. Mantén
 migraciones compatibles hacia atrás.
 
-No uses `docker compose down -v`: borra los volúmenes de Postgres y Qdrant.
+No uses `docker compose down -v`: borra los volúmenes de Postgres, Qdrant y
+las cargas de `appdata`. Incluye `appdata` en el respaldo si quieres conservar
+los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
 
 ## 9. Seguridad de la demo
 

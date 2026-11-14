@@ -207,7 +207,14 @@ def test_los_assets_del_panel_y_del_formateador_se_sirven() -> None:
     client = make_client()
 
     # Act / Assert
-    for nombre in ("panel.css", "panel.js", "texto.js", "hilos.js", "configuracion.css"):
+    for nombre in (
+        "panel.css",
+        "panel.js",
+        "texto.js",
+        "hilos.js",
+        "configuracion.css",
+        "identidad.js",
+    ):
         response = client.get(f"/static/{nombre}")
         assert response.status_code == 200, nombre
         assert (main.APP_DIR / "static" / nombre).is_file(), nombre

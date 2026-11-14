@@ -9,7 +9,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.chat.identity import COOKIE_MAX_AGE, COOKIE_NAME, SignedCookieIdentity
+from apps.api.chat.identity import (
+    COOKIE_MAX_AGE,
+    COOKIE_NAME,
+    VISITOR_COOKIE,
+    SignedCookieIdentity,
+)
 from apps.api.main import create_app
 from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from apps.api.views.chat import (
@@ -510,3 +515,20 @@ def test_el_panel_de_hilos_puede_abrirse_desde_la_url() -> None:
     # Assert
     assert response.status_code == 200
     assert 'data-abrir="1"' in response.text
+
+
+def test_la_cookie_de_visitante_carga_los_hilos_del_hash() -> None:
+    # Arrange: el hash de localStorage se refleja en carvajal_visitante.
+    client, chat = make_client()
+    visitante = "c" * 64
+    esperado = IDENTITY._visitor_owner(visitante)
+    chat.by_owner[esperado] = [_message("user", "hilo del visitante", sources=None)]
+    client.cookies.set(VISITOR_COOKIE, visitante)
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    assert response.status_code == 200
+    assert chat.history_calls == [esperado]
+    assert "hilo del visitante" in response.text
