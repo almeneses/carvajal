@@ -96,6 +96,8 @@ services:
       # fuera de la red de compose (solo loopback para los healthchecks), así
       # que solo se confía en las subredes privadas que usa Docker. Un proceso
       # local que entre por 127.0.0.1 no puede falsificar las cabeceras.
+      # 172.16.0.0/12 cubre la red por defecto de Compose; si defines una red
+      # propia en 10.x o 192.168.x, ajusta FORWARDED_ALLOW_IPS en el .env.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
     ports:
       # Solo loopback: Caddy es el que expone 80/443 y llega a `app:8000`

@@ -112,10 +112,15 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
         run: |
           ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
-            "$VPS_USER@$VPS_HOST" "mkdir -p /srv/carvajal"
+            "$VPS_USER@$VPS_HOST" "mkdir -p /srv/carvajal/.incoming"
+          # Se copia a un directorio temporal y se renombra en el VPS: si el
+          # scp se corta, no deja deploy.sh truncado para el siguiente intento.
           scp -P "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             compose.prod.yml Caddyfile scripts/deploy.sh \
-            "$VPS_USER@$VPS_HOST:/srv/carvajal/"
+            "$VPS_USER@$VPS_HOST:/srv/carvajal/.incoming/"
+          ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "cd /srv/carvajal && mv .incoming/compose.prod.yml .incoming/Caddyfile .incoming/deploy.sh . && rmdir .incoming"
 
       - name: Desplegar en el VPS
         env:

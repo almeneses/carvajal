@@ -157,6 +157,7 @@ fi
 
 echo "==> Comprobando /health"
 SALUD=0
+HEALTH_CODE=""
 for _ in $(seq 1 30); do
   HEALTH_CODE="$(curl -s --max-time 5 --connect-timeout 2 \
     -o "$HEALTH_FILE" -w '%{http_code}' \
