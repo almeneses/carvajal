@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
 
 from carvajal import cli
+from carvajal.adapters.storage import import_corpus
 from carvajal.adapters.storage.import_corpus import GoldImportReport
 from carvajal.cli import build_parser, main
 
@@ -259,7 +260,7 @@ def test_migrate_gold_reenvia_allow_empty(
         recibido["allow_empty"] = allow_empty
         return GoldImportReport(documents=0, chunks=0, removed=2)
 
-    monkeypatch.setattr(cli, "migrate_gold", fake_migrate)
+    monkeypatch.setattr(import_corpus, "migrate_gold", fake_migrate)
 
     code = main(["migrate-gold", "--gold", str(tmp_path), "--allow-empty"])
 
