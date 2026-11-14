@@ -169,7 +169,14 @@ services:
       - "443:443"
       - "443:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Long syntax: si Caddyfile no existe, Compose falla con un error claro
+      # en lugar de crear un directorio vacío en esa ruta.
+      - type: bind
+        source: ./Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false
       - caddydata:/data
       - caddyconfig:/config
     # Caddy escucha en 80/443 como root dentro del contenedor. Se le quitan

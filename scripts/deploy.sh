@@ -89,6 +89,17 @@ published_port() {
     | head -n 1
 }
 
+# Valida un puerto numérico; si Compose no devuelve un valor usable, usa 8000.
+resolve_port() {
+  local port
+  port="$(published_port)"
+  if [[ "$port" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$port"
+  else
+    printf '8000\n'
+  fi
+}
+
 rollback() {
   echo "==> Despliegue fallido; rollback a ${PREV_TAG:-<sin versión anterior>}" >&2
   # Solo se cambia la imagen: las migraciones ya aplicadas no se revierten.
@@ -96,13 +107,14 @@ rollback() {
   if [[ -n "$PREV_TAG" ]]; then
     export APP_IMAGE="${IMAGE_REPO}:${PREV_TAG}"
     remember_image "$PREV_TAG"
-    if ! "${COMPOSE[@]}" up -d --no-build app; then
-      echo "==> El rollback no pudo recrear app; revisa los logs." >&2
+    # Se recrea el stack completo: si el fallo vino de caddy u otro servicio,
+    # relanzar solo `app` dejaría el resto en el estado roto.
+    if ! "${COMPOSE[@]}" up -d --no-build --remove-orphans; then
+      echo "==> El rollback no pudo recrear el stack; revisa los logs." >&2
       exit 1
     fi
     local port
-    port="$(published_port)"
-    port="${port:-8000}"
+    port="$(resolve_port)"
     if ! wait_live "$port" 15; then
       echo "==> La versión anterior tampoco responde en /live (puerto ${port})." >&2
       echo "    Revisa: docker compose -f compose.prod.yml logs app" >&2
@@ -136,8 +148,7 @@ fi
 
 # Puerto publicado real de la app (puede ser distinto de 8000 si APP_PORT
 # cambió en .env). Se consulta a Compose para no adivinar desde el shell.
-HEALTH_PORT="$(published_port)"
-HEALTH_PORT="${HEALTH_PORT:-8000}"
+HEALTH_PORT="$(resolve_port)"
 
 echo "==> Esperando /live en 127.0.0.1:${HEALTH_PORT}"
 if ! wait_live "$HEALTH_PORT" 30; then

@@ -200,6 +200,10 @@ feature ni desde `dev`. Usa el environment `production` de GitHub: si le añades
 revisores obligatorios, el despliegue deja de ser automático y espera una
 aprobación manual.
 
+`compose.prod.yml`, `Caddyfile` y `deploy.sh` en `/srv/carvajal` son efímeros:
+el workflow los sobrescribe en cada despliegue. No edites esos archivos en el
+servidor; cualquier ajuste debe ir en el repositorio.
+
 ## 4. Rollback
 
 Automático: si `/live` no responde o `/health` falla por algo distinto de un
