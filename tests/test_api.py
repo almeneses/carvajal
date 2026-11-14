@@ -478,6 +478,25 @@ def test_chat_carga_htmx_local() -> None:
     assert (main.APP_DIR / "static" / "htmx.min.js").is_file()
 
 
+def test_chat_muestra_indicadores_de_carga() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/chat")
+    css = client.get("/static/chat.css")
+
+    # Assert: espera al entrar al chat y espera de cada turno.
+    assert response.status_code == 200
+    assert 'id="chat-cargando"' in response.text
+    assert "Cargando la conversación…" in response.text
+    assert "data-girando" in response.text
+    assert "data-estado-texto" in response.text
+    assert css.status_code == 200
+    assert "@keyframes girar" in css.text
+    assert "@media (scripting: none)" in css.text
+
+
 def test_la_salida_escapa_html() -> None:
     # Arrange
     peligro = "<script>alert(1)</script>"

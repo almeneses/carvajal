@@ -1,3 +1,13 @@
+// El chat se pinta completo en el servidor; el aviso de carga solo cubre el
+// tramo entre el primer pintado y la página lista (CSS, scripts y fuentes).
+function ocultarCargadorChat() {
+  const cargador = document.getElementById("chat-cargando");
+  if (cargador) cargador.remove();
+}
+
+if (document.readyState === "complete") ocultarCargadorChat();
+else window.addEventListener("load", ocultarCargadorChat);
+
 // Sustituye a HTMX en el formulario de la portada: envía la pregunta y pinta el parcial.
 document.addEventListener("submit", async (event) => {
   const form = event.target.closest("form[data-preguntar]");
