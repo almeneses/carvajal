@@ -110,6 +110,16 @@ def test_ollama_base_url_desde_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.ollama_base_url == "http://ollama:11434"
 
 
+def test_ollama_num_ctx_por_defecto_y_desde_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La ventana de contexto de Ollama debe caber el corpus completo."""
+
+    assert Settings(_env_file=None).ollama_num_ctx == 32768
+
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "16384")
+
+    assert Settings(_env_file=None).ollama_num_ctx == 16384
+
+
 def test_frontend_origins_separados_por_coma(monkeypatch: pytest.MonkeyPatch) -> None:
     """``FRONTEND_ORIGINS`` acepta una lista separada por comas, sin JSON."""
 

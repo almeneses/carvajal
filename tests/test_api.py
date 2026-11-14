@@ -170,6 +170,7 @@ def test_la_navegacion_enlaza_la_portada_y_las_pantallas() -> None:
     assert 'href="/#preguntar"' in response.text and 'id="preguntar"' in response.text
     assert 'href="/corpus"' in response.text
     assert 'href="/chat"' in response.text
+    assert 'href="/faq"' in response.text
     assert 'href="#respuesta"' not in response.text
 
 

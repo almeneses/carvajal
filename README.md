@@ -295,15 +295,16 @@ make eval
 ### Interfaz web del M2
 
 La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
-API en <http://localhost:8000> (`make api`). El frontend ofrece tres pestañas
-superiores —**Asistente**, **Corpus** y **Documento**— con URLs estables
-(`/`, `/corpus` y `/documents/{id}`) y conserva el hilo del chat al navegar.
+API en <http://localhost:8000> (`make api`). El frontend ofrece cuatro pestañas
+superiores —**Asistente**, **FAQ**, **Corpus** y **Documento**— con URLs estables
+(`/`, `/faq`, `/corpus` y `/documents/{id}`) y conserva el hilo del chat al navegar.
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
-<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; sus
-pantallas comparten la cabecera, la paleta y los componentes visuales del
-frontend del M2. El texto generado se formatea con Markdown saneado, las
+<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; su
+pestaña **FAQ** (`/faq`) consume el mismo endpoint `/api/faq` y ofrece la misma
+experiencia de lotes de 10. Sus pantallas comparten la cabecera, la paleta y los
+componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
 fuentes se pliegan por defecto y cada cita abre un panel lateral con el
 documento en el fragmento citado. El chat mantiene el compositor abajo, un
 panel de hilos anteriores y la pestaña **Configuración** para subir documentos
@@ -312,6 +313,15 @@ Gold → PostgreSQL → Qdrant, reutilizando el pipeline del corpus y conservand
 los documentos ya indexados. La captura muestra el progreso por SSE, respeta
 `robots.txt` y valida las URLs contra un guard SSRF; en esta fase es pública y
 no exige autenticación.
+
+La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
+núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras
+10** pide un lote nuevo, excluye las preguntas ya mostradas y acumula el
+resultado en la pestaña; **Descargar faq.md** produce el Markdown equivalente.
+La generación usa SSE, comparte el CSRF y la cuota diaria del chat y avisa
+cuando el corpus se truncó por longitud. Con Ollama, la ventana de contexto se
+configura con `OLLAMA_NUM_CTX` (32 768 tokens por defecto) para que el corpus
+completo quepa en el prompt.
 
 ### Interfaz legada (Streamlit)
 
@@ -383,6 +393,8 @@ También puedes configurar las variables en la terminal:
 | `DEEPSEEK_BASE_URL` | Endpoint compatible con OpenAI. | `https://api.deepseek.com/v1` |
 | `ANTHROPIC_API_KEY` | Clave API de Anthropic (solo si `LLM_PROVIDER=claude`). | `""` |
 | `CLAUDE_MODEL` | Modelo Claude a utilizar (p. ej. `claude-sonnet-4-5`). | `claude-sonnet-4-5` |
+| `OLLAMA_MODEL` | Modelo local para el chat y la FAQ. | `llama3.2` |
+| `OLLAMA_NUM_CTX` | Ventana de contexto de Ollama; debe caber el prompt de la FAQ. | `32768` |
 | `QDRANT_URL` | Endpoint de Qdrant. | `http://127.0.0.1:6333` |
 | `QDRANT_COLLECTION` | Colección del índice M2. | `carvajal_chunks` |
 | `QDRANT_DIMENSIONS` | Dimensión de los embeddings. | `768` |

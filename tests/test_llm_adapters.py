@@ -315,7 +315,11 @@ def test_ollama_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
     fragments = list(provider.stream(system="sistema", prompt="pregunta"))
 
     # Assert
-    assert creados[0].kwargs == {"model": "llama3.2", "temperature": 0}
+    assert creados[0].kwargs == {
+        "model": "llama3.2",
+        "temperature": 0,
+        "num_ctx": 32768,
+    }
     assert fragments == ["respuesta"]
 
 

@@ -79,6 +79,13 @@ def index() -> FileResponse:
     return _pagina()
 
 
+@app.get("/faq")
+def faq() -> FileResponse:
+    """Vista de preguntas frecuentes generadas a partir del corpus."""
+
+    return _pagina()
+
+
 @app.get("/corpus")
 def corpus() -> FileResponse:
     """Vista del explorador del corpus dentro del shell SPA."""
