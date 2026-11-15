@@ -67,7 +67,7 @@ Una persona interesada escribe una pregunta en lenguaje natural y recibe una res
 - **FR-006**: En FAQ por lotes, devolver hasta 10 preguntas nuevas, excluir las ya mostradas, no persistir el estado y permitir descargar el lote en Markdown.
 - **FR-007**: Avisar cuando el corpus se trunca por longitud o se alcanza el máximo de documentos.
 - **FR-008**: Generar los entregables `docs/resumen.md` y `docs/faq.md` de forma reproducible por comando.
-- **FR-009**: Mantener temperatura 0 y proveedor de LLM configurable (DeepSeek, Ollama o Claude) sin cambiar el contrato de las tres tareas.
+- **FR-009**: Mantener temperatura 0 y proveedor de LLM configurable (DeepSeek u Ollama en la aplicación web; Claude solo en la interfaz heredada) sin cambiar el contrato de las tres tareas.
 
 ## Success Criteria *(mandatory)*
 

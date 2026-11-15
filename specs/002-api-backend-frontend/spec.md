@@ -21,10 +21,11 @@ fuente de verdad del corpus.
 Durante la implementación el frontend se resolvió en dos capas: un **shell renderizado en
 servidor con HTMX** para las actualizaciones parciales (puerto 8000) y un **frontend propio
 con pestañas** (puerto 8001) que consume un contrato JSON de lectura (`/api/corpus`,
-`/api/documents/*`). La captura se ejecuta por CLI, por cron o desde la pantalla de
-Configuración. Las olas 0–3, 5 y 6 quedaron entregadas el 2026-11-14; la ola 4 (autenticación
-y cuotas) y la 7 (retiro del prototipo) siguen pendientes, y Streamlit continúa disponible
-como extra `legacy` hasta esa ola 7.
+`/api/documents/*`). La captura se ejecuta por CLI o desde la pantalla de Configuración; la
+captura programada por cron sigue pendiente (T047 de [`tasks.md`](./tasks.md)). Las olas 0–3,
+5 y 6 quedaron entregadas el 2026-11-14; la ola 4 (autenticación y cuotas) y la 7 (retiro del
+prototipo) siguen pendientes, y Streamlit continúa disponible como extra `legacy` hasta esa
+ola 7.
 
 **Fuera de alcance**: framework de JavaScript con SPA en el cliente, Kubernetes, despliegue
 multi-región y aplicación móvil.
