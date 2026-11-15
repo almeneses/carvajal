@@ -63,7 +63,7 @@ Cabecera normalizada para una as-built:
 
 | # | Capacidad | Estado | Acción |
 |---|---|---|---|
-| [001](001-asistente-rag-carvajal/spec.md) | Asistente Q&A con RAG sobre el corpus | `Implemented (as-built)` | Correcta. Ya está documentada a posteriori; no se toca. |
+| [001](001-asistente-rag-carvajal/spec.md) | Asistente Q&A con RAG sobre el corpus | `Implemented (as-built)` | Documentada a posteriori; cabecera normalizada a la convención el 2026-11-15. |
 | [002](002-api-backend-frontend/spec.md) | App web con backend y frontend | `Implemented (as-built)` | Reconvertida el 2026-11-15: supuestos corregidos y `plan.md` + `tasks.md` conforme a obra. Los pendientes (olas 4 y 7) están en su `tasks.md`. |
 
 ## 5. As-built a escribir — Módulo 1 (prototipo)
