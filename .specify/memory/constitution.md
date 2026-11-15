@@ -2,8 +2,10 @@
 
 > Proyección de la constitución del proyecto para el flujo de Spec-Driven Development.
 > **La fuente única de verdad es [`CONSTITUTION.md`](../../CONSTITUTION.md) en la raíz del
-> repositorio**: este archivo resume sus principios para que los comandos de Spec Kit
-> (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
+> repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
+> de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
+>
+> **Sincronizada**: 2026-11-15, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -20,9 +22,9 @@ El entregable versionado es `data/gold/` (24 documentos con *front matter*: `url
 Bronze (`data/raw/`) y silver (`data/processed/`) se regeneran y no se versionan.
 
 - Nada del RAG toca la web: se deriva siempre de `data/gold/`.
-- Cambiar el corpus invalida el índice vectorial por huella (FAISS hoy, pgvector desde la ola 2
-  del plan de migración); reconstruirlo es parte del flujo.
-- La capa extendida (`data/external/`) es opcional y solo participa en recuperación.
+- Cambiar el corpus invalida el índice y obliga a reconstruirlo: en el M2 se ejecuta
+  `carvajal index-qdrant`; FAISS y pgvector quedan como legado del prototipo.
+- La capa extendida (`data/external/`) es opcional y solo participa en recuperación y citación.
 
 ### III. Sin fuentes no hay respuesta (NO NEGOCIABLE)
 
@@ -33,12 +35,13 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
 - La temperatura es `0`.
 - Cada variante de prompt se mide antes de adoptarla (`docs/prompts.md`,
   `scripts/experimentos_prompts.py`).
+- Sin contexto recuperado no se llama al LLM: la respuesta es una abstención declarada.
 
 ### IV. Calidad automatizada y reproducible
 
 `uv` es el único gestor de dependencias (prohibido `pip` y `requirements.txt`). Ruff, `ty`,
-pytest y pre-commit se ejecutan antes de cada commit; el CI corre lo mismo que en local.
-Nada se integra con `make check` en rojo.
+pytest y pre-commit se ejecutan antes de cada commit; el CI corre lo mismo que en local
+(pre-commit, `ty` y pytest) y nada se integra con `make check` en rojo.
 
 ### V. Captura responsable
 
@@ -46,40 +49,61 @@ Se respeta `robots.txt` (incluido `Crawl-delay`), se identifica el cliente con u
 `User-Agent` propio, se espera un segundo entre peticiones al mismo host y los errores de
 red se registran como descartes, no como excepciones.
 
+- La captura desde la interfaz está acotada: máximo de 24 URLs por ejecución y límite por IP.
+- Las URLs de usuario pasan por un guard SSRF: solo HTTP/HTTPS en los puertos 80 y 443, sin
+  IPs privadas, con redirecciones revalidadas y DNS fijado a la IP validada.
+
 ### VI. Cambios por Pull Request
 
 Los cambios grandes van en rama (`feat/…`, `fix/…`, `docs/…`, `chore/…`), con Conventional
-Commits, y entran por Pull Request con descripción y checks verdes. Las ramas se integran a
-`dev`; `main` solo recibe releases al cierre de las olas 1, 3, 5 y 7 del plan de migración.
-Los agentes abren el PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
+Commits, y entran por Pull Request con descripción y checks verdes. El trabajo de producto se
+integra a `dev`; la documentación y las decisiones pueden ir directo a `main`, que solo recibe
+releases aprobados. Los agentes abren el PR y se detienen: no mergean ni aprueban, ni siquiera
+con `--admin`.
 
 ## Estado técnico
 
-- Migración de Streamlit a una app web con backend y frontend separados, decidida en
-  [`docs/decisions/0001-stack-app-chat.md`](../../docs/decisions/0001-stack-app-chat.md)
-  (FastAPI + Jinja2 + HTMX, Postgres 16 con pgvector, Docker en VPS) y planificada por olas en
-  [`docs/plans/0001-migracion-app.md`](../../docs/plans/0001-migracion-app.md).
-- Streamlit sigue siendo la interfaz desplegada hasta la ola 7, cuando se retira.
+- La migración del prototipo a la app web entregó las olas 0–6 el 2026-11-14 y el Módulo 2
+  está aceptado, con evidencia en `docs/aceptacion-m2.md`.
+- Dos frontends y un solo RAG: shell renderizado en servidor con HTMX (puerto 8000) y
+  frontend propio con pestañas (puerto 8001) que consume un contrato JSON de lectura.
+- Postgres 16 es la fuente de verdad del corpus, del chat y de los checkpoints; Qdrant es el
+  índice vectorial del M2.
+- Streamlit y FAISS siguen disponibles como extra `legacy` y se retiran en la ola 7.
+- Pendientes vivos: autenticación y cuotas por usuario (ola 4), captura programada por cron y
+  endurecimiento del despliegue (TLS, dominio, respaldos).
+- Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
+  convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
 ## Restricciones técnicas
 
 - Python 3.13+, monorepo `uv` con el paquete en `packages/core/src/carvajal` (src-layout).
-- LLM configurable: DeepSeek (por defecto), Claude u Ollama.
-- Embeddings locales con Ollama (`nomic-embed-text`, 768 dimensiones) o por API según el
-  entorno de despliegue.
-- Persistencia en Postgres 16 con la extensión `pgvector`; migraciones con Alembic.
+- API FastAPI + Jinja2 + HTMX; frontend propio sin framework de JavaScript.
+- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0005).
+- Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
+- Agente LangGraph con `PostgresSaver` y `PostgresStore`; router `direct`/`tool`/`rag`.
+- LLM configurable: DeepSeek (por defecto) u Ollama; embeddings locales con
+  `nomic-embed-text` (768 dimensiones).
+- Streaming por SSE; CSRF por doble cookie, CSP sin `unsafe-inline` y cookies `HttpOnly`.
 - Sin secretos en el repositorio: `.env` está en `.gitignore`.
 
 ## Flujo de desarrollo
 
 1. `/speckit.specify` → `specs/NNN-*/spec.md` (qué y para quién, sin tecnología).
-2. `/speckit.plan` → `plan.md` (cómo, con la constitución como filtro).
-3. `/speckit.tasks` → `tasks.md` (tareas accionables por historia de usuario).
-4. Implementación en rama, `make check`, commit convencional y PR.
+2. `/speckit.clarify` → resuelve las ambigüedades antes de planear.
+3. `/speckit.plan` → `plan.md` (cómo, con esta constitución como filtro).
+4. `/speckit.tasks` → `tasks.md` (tareas accionables por historia de usuario).
+5. `/speckit.analyze` → coherencia entre spec, plan y tasks antes de implementar.
+6. Implementación en rama, `make check`, commit convencional y PR.
+
+- Una capacidad ya entregada sin spec se documenta como *as-built*: fecha honesta, requisito
+  observable y evidencia por escenario, sin `plan` ni `tasks` retroactivos.
+- Toda spec nueva se numera en `specs/` y se registra en el índice `specs/README.md`.
 
 ## Gobernanza
 
-- Enmiendas: PR que modifique `CONSTITUTION.md` y, si aplica, esta proyección.
+- Enmiendas: PR que modifique `CONSTITUTION.md` y, si aplica, esta proyección **en el mismo
+  commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 1.1.0 - 2026-11-08, alineada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.0.0 - 2026-11-15, sincronizada con `CONSTITUTION.md` del repositorio.
