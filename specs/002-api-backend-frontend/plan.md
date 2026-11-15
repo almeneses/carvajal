@@ -1,7 +1,8 @@
 # Implementation Plan: Aplicación web del asistente *(as-built)*
 
 **Spec**: [`spec.md`](./spec.md) · **Tasks**: [`tasks.md`](./tasks.md) ·
-**Estado**: entregado en las olas 0–6 · **Ventana real**: 2026-11-08 → 2026-11-14 ·
+**Estado**: entregado en las olas 0–3, 5 y 6 (la 4 y la 7 siguen pendientes) ·
+**Ventana real**: 2026-11-08 → 2026-11-14 ·
 **Evidencia**: `CONSTITUTION.md` §9, [`docs/aceptacion-m2.md`](../../docs/aceptacion-m2.md)
 
 > Plan **conforme a obra**: describe cómo se resolvió la spec después de implementarla. No es
@@ -53,6 +54,7 @@ anónimo; la captura programada por cron no se entregó.
 | 2 | `PgVectorStore`, puerto `LLMProvider` con adaptadores, caso de uso `AskQuestion`, shell FastAPI con `/health` y `/ask` | 2026-11-12 | §9 (2026-11-11); PRs #64, #65, #66 |
 | 3 | Pantallas de corpus y documento, identidad de visitante, chat persistente, cuota diaria, SSE, Qdrant, agente LangGraph, herramienta de indicadores, RAG híbrido, SPA, seguridad y evaluación del retrieval | 2026-11-13 | §9 (2026-11-13); migraciones 0003–0005 |
 | 3b | Chat HTMX con hilos, Configuración, sistema visual, escala accesible, captura y carga públicas, FAQ por lotes | 2026-11-14 | §9 (2026-11-14); PRs #114–#120 |
+| 5 | Citas verificables y E2E del flujo real | 2026-11-14 | [`docs/aceptacion-m2.md`](../../docs/aceptacion-m2.md) §A; `docs/evidence/m2/smoke.json` |
 | 6 | Imagen Docker multi-etapa, `/live` separado de `/health`, compose de producción y runbook de despliegue | 2026-11-13 | §9 (2026-11-13); `docs/despliegue-ovh.md` |
 
 ## Decisiones de diseño no obvias

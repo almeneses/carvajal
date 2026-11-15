@@ -47,7 +47,10 @@ Una spec as-built solo es legítima si se etiqueta. Reglas, en orden de importan
    que hay hoy y añade una línea de historial. No se reescribe el pasado como si no
    hubiera existido.
 5. **Sin plan ni tasks retroactivos.** Para las as-built basta `spec.md`. Un plan
-   inventado después sí sería ficción.
+   inventado después sí sería ficción. **Excepción: la 002**, que conserva `plan.md` y
+   `tasks.md` as-built porque no documenta una capacidad cerrada: fija las olas entregadas
+   y deja el trabajo pendiente (olas 4 y 7) como contrato de lo que falta. No reconstruye
+   un plan vivido.
 
 Cabecera normalizada para una as-built:
 
@@ -84,8 +87,9 @@ con `Status: Implemented (as-built)`.
 
 ## 6. As-built a escribir — Módulo 2 (app web)
 
-Periodo real: **2026-11-08 → 2026-11-14** (olas 0–6 del
-[plan de migración](../docs/plans/0001-migracion-app.md)). Mismo `Status` as-built.
+Periodo real: **2026-11-08 → 2026-11-14** (olas 0–3, 5 y 6 del
+[plan de migración](../docs/plans/0001-migracion-app.md); la ola 4 y la 7 siguen pendientes).
+Mismo `Status` as-built.
 
 | # | Capacidad | Prioridad | Entregada | Evidencia |
 |---|---|---|---|---|
@@ -133,7 +137,7 @@ historia real del proyecto. Cada tanda es una PR independiente.
 | 2 | 011–014 | Arquitectura y persistencia del M2 |
 | 3 | 015–020 | Núcleo de la app web: shell, chat, Qdrant, agente, RAG híbrido |
 | 4 | 021–028 | Interfaz, seguridad, evaluación y operación |
-| 5 | 002 | Reconversión de la spec existente: supuestos, `plan.md` y `tasks.md` as-built |
+| 5 | 002 | Reconversión de la spec existente: supuestos, `plan.md` y `tasks.md` as-built (excepción de §3.5) |
 
 **Estado (2026-11-15)**: las tandas 1–5 están escritas. Las capacidades 004, 026 y 028 quedaron
 plegadas en su vecina. Las specs futuras (029–034) no se escriben hasta que se prioricen con el

@@ -1,7 +1,7 @@
 # Tasks: Aplicación web del asistente *(as-built)*
 
 **Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) ·
-**Estado**: olas 0–6 entregadas el 2026-11-14; los pendientes van marcados `[ ]`
+**Estado**: olas 0–3, 5 y 6 entregadas el 2026-11-14; los pendientes (olas 4 y 7) van marcados `[ ]`
 
 ## Formato: `[ID] [P?] [USn] Descripción`
 

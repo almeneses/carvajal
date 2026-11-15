@@ -3,7 +3,7 @@
 **Feature Branch**: `002-api-backend-frontend`
 **Created**: 2026-11-03
 **Updated**: 2026-11-15
-**Status**: Implemented (as-built; olas 0–6, pendientes en [`tasks.md`](./tasks.md))
+**Status**: Implemented (as-built; olas 0–3, 5 y 6, pendientes en [`tasks.md`](./tasks.md))
 **Implemented**: 2026-11-08 → 2026-11-14
 **Evidence**: `CONSTITUTION.md` §9 (2026-11-08 → 2026-11-14); [`docs/aceptacion-m2.md`](../../docs/aceptacion-m2.md); PRs #33–#120
 **Input**: «La aplicación debe correr en un servidor y tener su backend y su frontend.»
@@ -22,8 +22,9 @@ Durante la implementación el frontend se resolvió en dos capas: un **shell ren
 servidor con HTMX** para las actualizaciones parciales (puerto 8000) y un **frontend propio
 con pestañas** (puerto 8001) que consume un contrato JSON de lectura (`/api/corpus`,
 `/api/documents/*`). La captura se ejecuta por CLI, por cron o desde la pantalla de
-Configuración. Las olas 0–6 quedaron entregadas el 2026-11-14 y Streamlit sigue disponible
-como extra `legacy` hasta la ola 7.
+Configuración. Las olas 0–3, 5 y 6 quedaron entregadas el 2026-11-14; la ola 4 (autenticación
+y cuotas) y la 7 (retiro del prototipo) siguen pendientes, y Streamlit continúa disponible
+como extra `legacy` hasta esa ola 7.
 
 **Fuera de alcance**: framework de JavaScript con SPA en el cliente, Kubernetes, despliegue
 multi-región y aplicación móvil.
