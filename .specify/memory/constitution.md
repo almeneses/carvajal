@@ -35,7 +35,9 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
 - La temperatura es `0`.
 - Cada variante de prompt se mide antes de adoptarla (`docs/prompts.md`,
   `scripts/experimentos_prompts.py`).
-- Sin contexto recuperado no se llama al LLM: la respuesta es una abstención declarada.
+- En la ruta documental (`rag`) sin contexto recuperado no se llama al LLM: la respuesta es
+  una abstención declarada. Las rutas `direct` (saludos) y `tool` (indicadores estructurados)
+  responden sin recuperación y no afirman hechos del corpus sin evidencia.
 
 ### IV. Calidad automatizada y reproducible
 
@@ -63,8 +65,9 @@ con `--admin`.
 
 ## Estado técnico
 
-- La migración del prototipo a la app web entregó las olas 0–6 el 2026-11-14 y el Módulo 2
-  está aceptado, con evidencia en `docs/aceptacion-m2.md`.
+- La migración del prototipo a la app web entregó las olas 0–3, 5 y 6 el 2026-11-14; la ola 4
+  (autenticación y cuotas por usuario) y la 7 (retiro del prototipo) siguen pendientes. El
+  Módulo 2 está aceptado, con evidencia en `docs/aceptacion-m2.md`.
 - Dos frontends y un solo RAG: shell renderizado en servidor con HTMX (puerto 8000) y
   frontend propio con pestañas (puerto 8001) que consume un contrato JSON de lectura.
 - Postgres 16 es la fuente de verdad del corpus, del chat y de los checkpoints; Qdrant es el
