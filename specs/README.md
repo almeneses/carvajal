@@ -64,7 +64,7 @@ Cabecera normalizada para una as-built:
 | # | Capacidad | Estado | Acción |
 |---|---|---|---|
 | [001](001-asistente-rag-carvajal/spec.md) | Asistente Q&A con RAG sobre el corpus | `Implemented (as-built)` | Correcta. Ya está documentada a posteriori; no se toca. |
-| [002](002-api-backend-frontend/spec.md) | App web con backend y frontend | `Draft` **desfasada** | Reconvertir: corregir supuestos (SPA, Qdrant, sin token), poner `Status: Implemented (as-built)` con las olas 1–6 y escribir `plan.md` + `tasks.md` conforme a obra. |
+| [002](002-api-backend-frontend/spec.md) | App web con backend y frontend | `Implemented (as-built)` | Reconvertida el 2026-11-15: supuestos corregidos y `plan.md` + `tasks.md` conforme a obra. Los pendientes (olas 4 y 7) están en su `tasks.md`. |
 
 ## 5. As-built a escribir — Módulo 1 (prototipo)
 
@@ -134,6 +134,10 @@ historia real del proyecto. Cada tanda es una PR independiente.
 | 3 | 015–020 | Núcleo de la app web: shell, chat, Qdrant, agente, RAG híbrido |
 | 4 | 021–028 | Interfaz, seguridad, evaluación y operación |
 | 5 | 002 | Reconversión de la spec existente: supuestos, `plan.md` y `tasks.md` as-built |
+
+**Estado (2026-11-15)**: las tandas 1–5 están escritas. Las capacidades 004, 026 y 028 quedaron
+plegadas en su vecina. Las specs futuras (029–034) no se escriben hasta que se prioricen con el
+flujo normal.
 
 - **Excepción de orden**: si el objetivo es sanear lo antes posible, la tanda 5 (002) se
   adelanta a la primera posición. Es la única spec que hoy induce a error, y arreglarla

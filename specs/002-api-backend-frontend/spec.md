@@ -2,8 +2,10 @@
 
 **Feature Branch**: `002-api-backend-frontend`
 **Created**: 2026-11-03
-**Updated**: 2026-11-08
-**Status**: Draft
+**Updated**: 2026-11-15
+**Status**: Implemented (as-built; olas 0–6, pendientes en [`tasks.md`](./tasks.md))
+**Implemented**: 2026-11-08 → 2026-11-14
+**Evidence**: `CONSTITUTION.md` §9 (2026-11-08 → 2026-11-14); [`docs/aceptacion-m2.md`](../../docs/aceptacion-m2.md); PRs #33–#120
 **Input**: «La aplicación debe correr en un servidor y tener su backend y su frontend.»
 **Decisiones**: [`ADR-0001`](../../docs/decisions/0001-stack-app-chat.md) elige el stack;
 [`plan 0001`](../../docs/plans/0001-migracion-app.md) lo divide en olas.
@@ -16,12 +18,15 @@ no se comparte. Esta spec define la aplicación objetivo: **un servicio desplega
 servidor**, con backend y frontend separados en responsabilidades, y una base de datos como
 fuente de verdad del corpus.
 
-El frontend es HTML servido por el mismo runtime Python (renderizado en servidor con HTMX para
-las actualizaciones parciales); no hay SPA. La captura se ejecuta por CLI o cron, nunca desde
-la interfaz. Streamlit se retira al final de la migración.
+Durante la implementación el frontend se resolvió en dos capas: un **shell renderizado en
+servidor con HTMX** para las actualizaciones parciales (puerto 8000) y un **frontend propio
+con pestañas** (puerto 8001) que consume un contrato JSON de lectura (`/api/corpus`,
+`/api/documents/*`). La captura se ejecuta por CLI, por cron o desde la pantalla de
+Configuración. Las olas 0–6 quedaron entregadas el 2026-11-14 y Streamlit sigue disponible
+como extra `legacy` hasta la ola 7.
 
-**Fuera de alcance**: SPA con framework de JavaScript, Kubernetes, despliegue multi-región,
-aplicación móvil y captura disparada desde la web.
+**Fuera de alcance**: framework de JavaScript con SPA en el cliente, Kubernetes, despliegue
+multi-región y aplicación móvil.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -138,7 +143,8 @@ cambian y que coinciden con `index.jsonl`.
 - **FR-002**: Exponer el contrato HTTP del asistente — consulta con streaming, listado de
   corpus, detalle de documento, salud y disponibilidad — documentado con OpenAPI.
 - **FR-003**: Usar la base de datos como fuente de verdad del corpus: documentos, fragmentos y
-  versiones; el índice vectorial vive en la misma base.
+  versiones. El índice vectorial se resuelve con Qdrant en el M2; pgvector queda como adaptador
+  heredado del prototipo.
 - **FR-004**: Importar `data/gold/` de forma idempotente, marcando la procedencia de cada
   documento (oficial, tercero, colaborador).
 - **FR-005**: Toda respuesta incluye fuentes citadas con enlace al documento de origen.
@@ -187,8 +193,23 @@ cambian y que coinciden con `index.jsonl`.
   exigen clúster ni colas externas.
 - **Embeddings**: `nomic-embed-text` local (768 dimensiones); si el destino no puede ejecutar
   Ollama, se usa un proveedor por API y se recalcula.
-- **Autenticación**: llega en la ola 4; mientras tanto la demo se protege con una clave.
+- **Autenticación**: llega en la ola 4. El gate con clave de la demo estaba previsto y se
+  eliminó el 2026-11-14: la captura y la carga de documentos son públicas y su defensa son el
+  límite por IP, el guard SSRF y los límites de tamaño.
 - **Corpus**: `data/gold/` sigue siendo el entregable versionado; la base es derivada y
   reconstruible desde él.
 - **Entrega por olas**: los criterios de aceptación de cada ola están en
   [`docs/plans/0001-migracion-app.md`](../../docs/plans/0001-migracion-app.md).
+
+## Estado de implementación (as-built)
+
+| Historia | Estado | Evidencia |
+|---|---|---|
+| US1 — Consultar el asistente | ✅ Entregada | `docs/aceptacion-m2.md`; `tests/test_api_chat.py`, `tests/test_api_stream.py` |
+| US2 — Explorar el corpus | ✅ Entregada | `tests/test_api_corpus.py`, `tests/test_api_documents.py`, `tests/test_api_read.py` |
+| US3 — Operar el servicio | 🟡 Parcial: despliegue por IP y HTTP, sin dominio ni TLS | `docs/despliegue-ovh.md`; `tests/test_api.py` |
+| US4 — Mantener el corpus al día | 🟡 Parcial: importación idempotente y captura desde Configuración; falta la captura programada | `tests/test_import_corpus.py`, `tests/test_capture_jobs.py` |
+
+Quedan pendientes de esta spec la autenticación y las cuotas por usuario (ola 4), el retiro de
+Streamlit y FAISS (ola 7) y el endurecimiento del despliegue con TLS y respaldos. El detalle
+está en [`tasks.md`](./tasks.md) y el cómo se resolvió, en [`plan.md`](./plan.md).
