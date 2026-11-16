@@ -35,16 +35,16 @@ class Catalog:
     distributors: tuple[Distributor, ...]
 
 
-def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[T, ...]:
-    """Valida cada fila; la línea reportada es la del archivo (cabecera = 1)."""
+def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[tuple[int, T], ...]:
+    """Valida cada fila y la devuelve con su línea en el archivo (cabecera = 1)."""
 
     if not path.is_file():
         raise CatalogError(f"{path}: no existe el archivo del catálogo.")
-    rows: list[T] = []
+    rows: list[tuple[int, T]] = []
     with path.open(encoding="utf-8", newline="") as handle:
         for line, raw in enumerate(csv.DictReader(handle), start=2):
             try:
-                rows.append(model.model_validate(raw))
+                rows.append((line, model.model_validate(raw)))
             except ValidationError as error:
                 first = error.errors()[0]
                 field = ".".join(str(part) for part in first["loc"]) or "fila"
@@ -63,19 +63,29 @@ def load_catalog(directory: str = str(DEFAULT_DIR)) -> Catalog:
     materials = _read(base / MATERIALS, MaterialRule)
     distributors = _read(base / DISTRIBUTORS, Distributor)
 
-    seen: set[tuple[str, str]] = set()
-    for reference in references:
+    seen: dict[tuple[str, str], int] = {}
+    for line, reference in references:
         key = (reference.sku, reference.country)
         if key in seen:
             raise CatalogError(
-                f"{REFERENCES}: SKU repetido {reference.sku} en {reference.country}."
+                f"{REFERENCES}:{line}: SKU repetido {reference.sku} en {reference.country} "
+                f"(ya en la línea {seen[key]})."
             )
-        seen.add(key)
+        seen[key] = line
 
     by_material: dict[str, MaterialRule] = {}
-    for rule in materials:
+    first_line: dict[str, int] = {}
+    for line, rule in materials:
         if rule.material in by_material:
-            raise CatalogError(f"{MATERIALS}: material repetido {rule.material}.")
+            raise CatalogError(
+                f"{MATERIALS}:{line}: material repetido {rule.material} "
+                f"(ya en la línea {first_line[rule.material]})."
+            )
         by_material[rule.material] = rule
+        first_line[rule.material] = line
 
-    return Catalog(references=references, materials=by_material, distributors=distributors)
+    return Catalog(
+        references=tuple(reference for _, reference in references),
+        materials=by_material,
+        distributors=tuple(distributor for _, distributor in distributors),
+    )
