@@ -144,8 +144,10 @@ Decisiones tomadas al curar los datos (PR 2):
   tabla anterior, independiente del orden de declaración del modelo. Si el corpus deja
   fuera un SKU ya presente, aborta antes de escribir salvo que se pase `--allow-missing`;
   en ese caso los SKU retirados quedan en las notas del manifiesto.
-- El manifiesto se reemplaza atómicamente antes que el CSV: un fallo al actualizarlo deja
-  intacto el catálogo anterior y sincronizado.
+- El manifiesto y el CSV se confirman en un único paso: si el reemplazo de uno falla, se
+  restaura el otro, de modo que nunca quedan desincronizados. La CLI exige que
+  `referencias.csv` ya exista en `--out` (o `--allow-missing`) para no crear un catálogo
+  vacío que perdería las filas curadas al apuntar a una ruta equivocada.
 
 ### Herramientas (`agent/commercial.py`)
 

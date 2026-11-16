@@ -313,12 +313,19 @@ def main(argv: list[str] | None = None) -> int:
             build_mx_references,
             write_references,
         )
-        from carvajal.catalog.loader import DEFAULT_DIR, CatalogError, load_catalog
+        from carvajal.catalog.loader import DEFAULT_DIR, REFERENCES, CatalogError, load_catalog
 
         if not args.corpus.is_dir():
             print(f"No existe la carpeta del corpus: {args.corpus}")
             return 1
         out = args.out or DEFAULT_DIR
+        references_file = out / REFERENCES
+        if not references_file.is_file() and not args.allow_missing:
+            print(
+                f"No existe {references_file}: revisa --out o usa --allow-missing para "
+                "crear un catálogo nuevo (se perderían las filas curadas a mano)."
+            )
+            return 1
         out.mkdir(parents=True, exist_ok=True)
         pages = sorted(args.corpus.rglob("*.html"))
         references, notes = build_mx_references(pages, args.captured_at)
