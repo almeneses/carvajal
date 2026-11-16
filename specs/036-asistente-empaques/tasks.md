@@ -14,18 +14,18 @@
 - [ ] T001 Aprobar la spec 036 y aplicar la enmienda de `CONSTITUTION.md` §2, §5 y §9 y de
       `.specify/memory/constitution.md` después de que la 035 entre a `dev`
 - [ ] T002 Registrar la 036 en `specs/README.md` §7 (specs futuras)
-- [ ] T003 [P] Crear `tests/fixtures/catalog/` con 6 referencias, 5 materiales y 3
+- [X] T003 [P] Crear `tests/fixtures/catalog/` con 6 referencias, 5 materiales y 3
       distribuidores de prueba
 
 ## Phase 2: Fundacional (prerrequisitos bloqueantes)
 
 **PR 1 — Modelo y carga del catálogo**
 
-- [ ] T004 `catalog/models.py`: `Reference`, `MaterialRule`, `Distributor` con validación de
+- [X] T004 `catalog/models.py`: `Reference`, `MaterialRule`, `Distributor` con validación de
       rangos, moneda y fecha
-- [ ] T005 `catalog/loader.py`: carga de los CSV con cache en memoria y error claro por fila
+- [X] T005 `catalog/loader.py`: carga de los CSV con cache en memoria y error claro por fila
       inválida
-- [ ] T006 [P] `tests/test_catalog_loader.py`: filas válidas, fila inválida, archivo ausente
+- [X] T006 [P] `tests/test_catalog_loader.py`: filas válidas, fila inválida, archivo ausente
 
 **PR 2 — Datos curados**
 

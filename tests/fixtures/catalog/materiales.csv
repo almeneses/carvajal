@@ -1,0 +1,7 @@
+material,temp_min_c,temp_max_c,microwave,refrigeration,freezing,hot_content,recycling_code,applications
+PP,0,100,true,true,false,true,5,comida caliente|sopas|salsas
+EPS,-20,60,false,true,false,true,6,comida caliente|frituras
+PS,-30,60,false,true,true,false,6,comida fría|ensaladas
+PET,-20,40,false,true,false,false,1,bebida fría|ensaladas|frutas
+ALUMINIO,-30,250,false,true,true,true,,horno|congelación
+PAPEL,0,95,false,false,false,true,,bebida caliente
