@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from apps.api.ingestion import IngestReport, UploadedDocument
+from apps.api.ingestion import ALLOWED_EXTENSIONS, IngestReport, UploadedDocument
 from apps.api.main import create_app
 from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 
@@ -126,3 +126,41 @@ def test_subir_desde_una_ip_remota_no_exige_token() -> None:
     # Assert
     assert response.status_code == 200
     assert "Corpus actualizado" in response.text
+
+
+def test_configuracion_anuncia_los_mismos_formatos_que_acepta_el_backend() -> None:
+    # Arrange
+    client = make_client()
+    aceptados = ",".join(sorted(ALLOWED_EXTENSIONS))
+
+    # Act
+    response = client.get("/configuracion")
+
+    # Assert
+    assert response.text.count(aceptados) == 2
+
+
+def test_subir_un_json_llega_al_ingestor() -> None:
+    # Arrange
+    recibidos: list[UploadedDocument] = []
+
+    def ingestor(documents: list[UploadedDocument]) -> IngestReport:
+        recibidos.extend(documents)
+        return IngestReport(files=len(documents), gold=1, documents=1, chunks=1, indexed=1)
+
+    app = create_app()
+    app.state.ingest = ingestor
+    client = TestClient(app)
+    client.get("/configuracion")
+    token = client.cookies[CSRF_COOKIE]
+
+    # Act
+    response = client.post(
+        "/configuracion",
+        data={CSRF_FIELD: token},
+        files={"archivos": ("datos.json", b'{"a": 1}', "application/json")},
+    )
+
+    # Assert
+    assert response.status_code == 200
+    assert recibidos and recibidos[0].filename == "datos.json"

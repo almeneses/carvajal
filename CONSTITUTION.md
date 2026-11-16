@@ -280,7 +280,8 @@ carvajal/
   dependencias base y el extra `capture` (la captura web desde Configuración
   usa `requests`, `beautifulsoup4` y `lxml` en runtime); `legacy`
   (Streamlit/FAISS) se queda fuera de la imagen y se instala en desarrollo con
-  `uv sync --all-extras`.
+  `uv sync --all-extras`. La etapa de runtime instala `poppler-utils` porque
+  `pdftotext` extrae el texto de los PDF que llegan por la carga local.
 - `make prod-up` levanta app, Postgres, Qdrant y Ollama con
   `compose.prod.yml`; `make prod-down` los detiene conservando los volúmenes.
   El compose exige `SESSION_SECRET` (falla si falta), publica la app en
@@ -419,7 +420,7 @@ git push
 
 ## 10. Notas y tareas pendientes
 
-- [ ] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035).
+- [x] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035, entregada el 2026-11-16).
 - [ ] Evaluar OCR para PDF escaneados sin capa de texto.
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.

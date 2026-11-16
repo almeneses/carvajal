@@ -9,19 +9,23 @@ mismo formato.
 
 from __future__ import annotations
 
-import html
-import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from html.parser import HTMLParser
 from pathlib import Path
 
 import structlog
 
-from carvajal.domain.frontmatter import strip_front_matter
+from apps.api.document_formats import (
+    EXTRACTED_EXTENSIONS,
+    HTML_EXTENSIONS,
+    TEXT_EXTENSIONS,
+    ExtractError,
+    extract_markdown,
+)
 from carvajal.domain.rules import content_hash, estimate_tokens
+from carvajal.gold import merge_index
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
@@ -37,38 +41,9 @@ __all__ = [
 
 logger = structlog.get_logger(__name__)
 
-ALLOWED_EXTENSIONS = {".md", ".markdown", ".txt", ".html", ".htm"}
+ALLOWED_EXTENSIONS = TEXT_EXTENSIONS | HTML_EXTENSIONS | EXTRACTED_EXTENSIONS
 MAX_FILES = 100
 MAX_FILE_BYTES = 5 * 1024 * 1024
-_BLOCK_TAGS = {
-    "address",
-    "article",
-    "aside",
-    "blockquote",
-    "br",
-    "div",
-    "footer",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "header",
-    "hr",
-    "li",
-    "main",
-    "p",
-    "pre",
-    "section",
-    "table",
-    "td",
-    "th",
-    "tr",
-    "ul",
-    "ol",
-}
-_TITLE_RE = re.compile(r"^\s*#{1,6}\s+(.+)$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -100,88 +75,6 @@ class IngestReport:
         return self.gold > 0 and not self.errors
 
 
-class _HtmlText(HTMLParser):
-    """Extrae texto visible y título de un HTML sin dependencias externas."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self._partes: list[str] = []
-        self._ignorar = 0
-        self._en_titulo = False
-        self.titulo = ""
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        tag = tag.lower()
-        if tag in {"script", "style", "noscript"}:
-            self._ignorar += 1
-            return
-        if tag == "title":
-            self._en_titulo = True
-            return
-        if tag in _BLOCK_TAGS:
-            self._partes.append("\n")
-        elif tag in {"span", "a", "strong", "em", "b", "i", "code"}:
-            self._partes.append(" ")
-
-    def handle_endtag(self, tag: str) -> None:
-        tag = tag.lower()
-        if tag in {"script", "style", "noscript"}:
-            self._ignorar = max(0, self._ignorar - 1)
-            return
-        if tag == "title":
-            self._en_titulo = False
-            return
-        if tag in _BLOCK_TAGS:
-            self._partes.append("\n")
-        elif tag in {"span", "a", "strong", "em", "b", "i", "code"}:
-            self._partes.append(" ")
-
-    def handle_data(self, data: str) -> None:
-        if self._ignorar:
-            return
-        if self._en_titulo:
-            self.titulo += data
-        else:
-            self._partes.append(data)
-
-    def texto(self) -> str:
-        """Normaliza las líneas y conserva párrafos separados."""
-
-        lineas = [linea.strip() for linea in "".join(self._partes).splitlines()]
-        return "\n\n".join(linea for linea in lineas if linea)
-
-
-def _decode(data: bytes) -> str:
-    """Decodifica UTF-8 con tolerancia para archivos de texto heredados."""
-
-    return data.decode("utf-8-sig", errors="replace")
-
-
-def _markdown(filename: str, data: bytes) -> tuple[str, str]:
-    """Devuelve ``(markdown, título)`` según el tipo de archivo."""
-
-    suffix = Path(filename).suffix.lower()
-    if suffix in {".html", ".htm"}:
-        parser = _HtmlText()
-        parser.feed(_decode(data))
-        parser.close()
-        markdown = parser.texto()
-        titulo = html.unescape(parser.titulo).strip()
-        if not titulo:
-            titulo = _titulo_desde_markdown(markdown) or Path(filename).stem
-        return markdown, titulo
-
-    markdown = strip_front_matter(_decode(data)).strip()
-    return markdown, _titulo_desde_markdown(markdown) or Path(filename).stem
-
-
-def _titulo_desde_markdown(markdown: str) -> str:
-    """Toma el primer encabezado del Markdown si existe."""
-
-    match = _TITLE_RE.search(markdown)
-    return match.group(1).strip() if match else ""
-
-
 def _slug(filename: str, digest: str) -> str:
     """Slug estable por contenido, seguro para el front matter y la base."""
 
@@ -202,6 +95,7 @@ def _gold(
     markdown: str,
     digest: str,
     captured_at: datetime,
+    source_type: str = "colaborador",
 ) -> str:
     """Construye el Markdown Gold con procedencia de carga local."""
 
@@ -211,34 +105,12 @@ def _gold(
         f"title: {_limpiar_titulo(titulo)}\n"
         "section: Cargas\n"
         "domain: carga-local\n"
-        "source_type: colaborador\n"
+        f"source_type: {source_type}\n"
         f"captured_at: {captured_at.isoformat()}\n"
         f"hash: {digest}\n"
         f"chars: {len(markdown)}\n"
         "---\n\n"
         f"{markdown.strip()}\n"
-    )
-
-
-def _merge_index(index_file: Path, entry: dict[str, object]) -> None:
-    """Añade o actualiza la entrada del índice JSONL sin perder las demás."""
-
-    index_file.parent.mkdir(parents=True, exist_ok=True)
-    entries: dict[str, dict[str, object]] = {}
-    if index_file.is_file():
-        for line in index_file.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                previous = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(previous, dict) and previous.get("slug"):
-                entries[str(previous["slug"])] = previous
-    entries[str(entry["slug"])] = entry
-    index_file.write_text(
-        "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in entries.values()),
-        encoding="utf-8",
     )
 
 
@@ -286,17 +158,22 @@ def ingest_uploads(
     settings: Settings | None = None,
     importar: Callable[[Path, set[str]], tuple[int, int]] | None = None,
     indexar: Callable[[Path, set[str]], int] | None = None,
+    max_file_bytes: int = MAX_FILE_BYTES,
+    solo_extraer: bool = False,
+    source_type: str = "colaborador",
 ) -> IngestReport:
     """Ejecuta Bronze → Silver → Gold → PostgreSQL → Qdrant para las cargas.
 
     ``importar`` e ``indexar`` permiten inyectar las etapas finales en pruebas
-    sin tocar PostgreSQL ni Qdrant.
+    sin tocar PostgreSQL ni Qdrant. ``solo_extraer`` se detiene en Gold y
+    ``max_file_bytes`` ajusta el límite por archivo de la consola.
     """
 
     settings = settings or Settings()
     errors: list[str] = []
     archivos = bronze = silver = gold = 0
     slugs: set[str] = set()
+    entries: list[dict[str, str | int]] = []
     captured_at = datetime.now(UTC)
 
     if len(documents) > MAX_FILES:
@@ -313,14 +190,18 @@ def ingest_uploads(
         if sufijo not in ALLOWED_EXTENSIONS:
             errors.append(f"{nombre}: formato no admitido ({sufijo or 'sin extensión'}).")
             continue
-        if len(document.data) > MAX_FILE_BYTES:
-            errors.append(f"{nombre}: supera el límite de {MAX_FILE_BYTES // 1024 // 1024} MB.")
+        if len(document.data) > max_file_bytes:
+            errors.append(f"{nombre}: supera el límite de {max_file_bytes // 1024 // 1024} MB.")
             continue
         if not document.data.strip():
             errors.append(f"{nombre}: está vacío.")
             continue
 
-        markdown, titulo = _markdown(nombre, document.data)
+        try:
+            markdown, titulo = extract_markdown(nombre, document.data)
+        except ExtractError as error:
+            errors.append(f"{nombre}: {error}")
+            continue
         if not markdown.strip():
             errors.append(f"{nombre}: no se extrajo texto legible.")
             continue
@@ -341,23 +222,23 @@ def ingest_uploads(
                 markdown=markdown,
                 digest=digest,
                 captured_at=captured_at,
+                source_type=source_type,
             ),
             encoding="utf-8",
         )
-        _merge_index(
-            settings.index_file,
+        entries.append(
             {
                 "url": f"upload://{slug}",
                 "title": _limpiar_titulo(titulo),
                 "slug": slug,
                 "section": "Cargas",
                 "domain": "carga-local",
-                "source_type": "colaborador",
+                "source_type": source_type,
                 "captured_at": captured_at.isoformat(),
                 "hash": digest,
                 "chars": len(markdown),
                 "tokens_estimate": estimate_tokens(markdown),
-            },
+            }
         )
         slugs.add(slug)
         archivos += 1
@@ -366,8 +247,19 @@ def ingest_uploads(
         gold += 1
         logger.info("upload.staged", document=slug, filename=nombre)
 
-    if gold == 0:
-        return IngestReport(files=archivos, errors=tuple(errors))
+    if entries:
+        # Una sola fusión por lote: con cientos de archivos, reescribir el
+        # índice por archivo multiplica el trabajo y la ventana de bloqueo.
+        merge_index(settings.index_file, entries, gold_dir=settings.gold_dir)
+
+    if gold == 0 or solo_extraer:
+        return IngestReport(
+            files=archivos,
+            bronze=bronze,
+            silver=silver,
+            gold=gold,
+            errors=tuple(errors),
+        )
 
     documents_count = 0
     chunks = 0

@@ -1,6 +1,9 @@
 """Entregables del corpus: capas Bronze, Silver y Gold, más el índice JSONL."""
 
+import fcntl
 import json
+from collections.abc import Generator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -108,8 +111,65 @@ def write_gold(page: CapturedPage, title: str, gold_dir: Path) -> Path:
 
 
 def write_index(entries: list[dict[str, str | int]], index_file: Path) -> Path:
-    """Escribe el índice JSONL del corpus (una línea por documento)."""
+    """Escribe el índice JSONL de forma atómica (temporal + reemplazo)."""
 
     index_file.parent.mkdir(parents=True, exist_ok=True)
-    index_file.write_text(to_jsonl(entries), encoding="utf-8")
+    temporal = index_file.with_name(f".{index_file.name}.tmp")
+    temporal.write_text(to_jsonl(entries), encoding="utf-8")
+    temporal.replace(index_file)
     return index_file
+
+
+@contextmanager
+def _index_lock(index_file: Path) -> Generator[None]:
+    """Exclusión mutua entre procesos sobre el índice del corpus."""
+
+    lock = index_file.with_name(f".{index_file.name}.lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def merge_index(
+    index_file: Path,
+    entries: Sequence[Mapping[str, str | int]],
+    *,
+    gold_dir: Path | None = None,
+) -> Path:
+    """Fusiona entradas en el índice bajo bloqueo y lo reemplaza de forma atómica.
+
+    Con ``gold_dir`` descarta las entradas cuyo documento ya no existe en Gold:
+    una captura parcial no debe truncar el índice, pero sí limpiar lo obsoleto.
+    """
+
+    with _index_lock(index_file):
+        merged: dict[str, Mapping[str, str | int]] = _read_index(index_file)
+        for entry in entries:
+            merged[str(entry["slug"])] = entry
+        if gold_dir is not None:
+            merged = {
+                slug: entry for slug, entry in merged.items() if (gold_dir / f"{slug}.md").is_file()
+            }
+        return write_index([dict(merged[slug]) for slug in sorted(merged)], index_file)
+
+
+def _read_index(index_file: Path) -> dict[str, Mapping[str, str | int]]:
+    """Lee el índice existente; las líneas corruptas se descartan."""
+
+    merged: dict[str, Mapping[str, str | int]] = {}
+    if not index_file.is_file():
+        return merged
+    for line in index_file.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            previous = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(previous, dict) and previous.get("slug"):
+            merged[str(previous["slug"])] = previous
+    return merged
