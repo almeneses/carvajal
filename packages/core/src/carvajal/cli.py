@@ -335,8 +335,10 @@ def main(argv: list[str] | None = None) -> int:
         from carvajal.agent.routers import build_router
         from carvajal.agent.routers.decision import DecisionModelUnavailable
         from carvajal.agent.routers.evaluation import evaluate_router, load_items, render_report
+        from carvajal.catalog.loader import load_catalog
 
         items = load_items(args.questions)
+        catalog = load_catalog()
         reports = []
         for name in args.router or ["rules"]:
             try:
@@ -344,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
             except (DecisionModelUnavailable, ValueError) as error:
                 print(f"No se evaluó el enrutador {name}: {error}")
                 return 1
-            reports.append(evaluate_router(router, items))
+            reports.append(evaluate_router(router, items, catalog=catalog))
         table = render_report(reports)
         print(table)
         if args.output is not None:
