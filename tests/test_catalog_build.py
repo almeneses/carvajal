@@ -9,7 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from carvajal.catalog.build import build_mx_references, parse_mx_product, write_references
+from carvajal.catalog.build import (
+    build_mx_references,
+    parse_mx_product,
+    update_manifest,
+    write_references,
+)
 from carvajal.catalog.loader import load_catalog
 from carvajal.cli import main
 
@@ -144,7 +149,7 @@ def test_regenerar_conserva_las_filas_de_otros_paises(tmp_path: Path) -> None:
     referencia = parse_mx_product(_ficha(), CAPTURA)
     assert referencia is not None
 
-    total = write_references(base, [referencia])
+    total = write_references(base, [referencia], allow_missing=True)
 
     with (base / "referencias.csv").open(encoding="utf-8", newline="") as handle:
         filas = list(csv.DictReader(handle))
@@ -153,6 +158,22 @@ def test_regenerar_conserva_las_filas_de_otros_paises(tmp_path: Path) -> None:
     assert filas[0]["tax_included"] == "true"
     load_catalog.cache_clear()
     assert len(load_catalog(str(base)).references) == 3
+
+
+def test_regenerar_aborta_si_falta_una_referencia(tmp_path: Path) -> None:
+    """Un corpus parcial no debe borrar en silencio referencias ya presentes."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    archivo = base / "referencias.csv"
+    original = archivo.read_text(encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+
+    with pytest.raises(ValueError, match=r"no incluye 4 referencia"):
+        write_references(base, [referencia])
+
+    assert archivo.read_text(encoding="utf-8") == original
 
 
 def test_build_ignora_paginas_ajenas(tmp_path: Path) -> None:
@@ -186,6 +207,7 @@ def test_orden_catalog_build(tmp_path: Path) -> None:
             "2026-10-23",
             "--out",
             str(salida),
+            "--allow-missing",
         ]
     )
 
@@ -247,3 +269,30 @@ def test_fila_curada_invalida_no_toca_el_archivo(tmp_path: Path) -> None:
 
     assert archivo.read_text(encoding="utf-8") == roto
     assert not list(base.glob(".*.tmp"))
+
+
+def test_ld_json_malformado_se_anota_con_su_url(tmp_path: Path) -> None:
+    """Un bloque ld+json roto no aborta el lote: se anota con la URL de la ficha."""
+
+    (tmp_path / "buena.html").write_text(_ficha(), encoding="utf-8")
+    rota = _ficha(slug="ld-roto").replace('{"@graph"', "{roto", 1)
+    (tmp_path / "rota.html").write_text(rota, encoding="utf-8")
+
+    referencias, notas = build_mx_references(sorted(tmp_path.glob("*.html")), CAPTURA)
+
+    assert [ref.sku for ref in referencias] == ["123"]
+    assert len(notas) == 1
+    assert "ld-roto" in notas[0]
+    assert "ld+json" in notas[0]
+
+
+def test_manifest_se_reemplaza_sin_dejar_temporales(tmp_path: Path) -> None:
+    """El manifiesto se actualiza de forma atómica y queda JSON válido."""
+
+    (tmp_path / "manifest.json").write_text('{"spec": "036-asistente-empaques"}', encoding="utf-8")
+
+    update_manifest(tmp_path, "referencias_mx", {"rows": 2})
+
+    data = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert data["sources"]["referencias_mx"]["rows"] == 2
+    assert not list(tmp_path.glob(".*.tmp"))

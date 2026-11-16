@@ -140,7 +140,8 @@ Decisiones tomadas al curar los datos (PR 2):
 - Si el título y la descripción de una ficha se contradicen, o la temperatura contradice el
   uso declarado, se usa el dato coherente y la contradicción queda en el manifiesto.
 - `referencias.csv` se reescribe de forma atómica y valida antes las filas curadas que
-  conserva.
+  conserva. Si el corpus deja fuera un SKU ya presente, aborta antes de escribir salvo que se
+  pase `--allow-missing`.
 
 ### Herramientas (`agent/commercial.py`)
 
