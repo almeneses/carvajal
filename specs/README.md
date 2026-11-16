@@ -125,13 +125,12 @@ en `Status: Draft`, **antes** de implementar.
 | 032 | Transcripciones de vídeo | `CONSTITUTION.md` §10 |
 | 033 | Entidades y especialidades detectadas en el front matter | `CONSTITUTION.md` §10 |
 | 034 | Contrato de chunking y deduplicación de *boilerplate* | `CONSTITUTION.md` §10 |
-| [035](035-ingesta-multiformato/spec.md) | Ingesta multiformato de archivos locales (PDF, XML, JSON, JSONL, CSV y TSV) en web y consola, con índice concurrente | `CONSTITUTION.md` §2; PR #130 como implementación candidata |
+| [035](035-ingesta-multiformato/spec.md) | Ingesta multiformato de archivos locales (PDF, XML, JSON, JSONL, CSV y TSV) en web y consola, con índice concurrente | `CONSTITUTION.md` §2; flujo normal de Spec Kit (`/speckit.specify`) |
 
-La 035 es la primera spec escrita **después** de que existiera una implementación
-propuesta (PR #130, abierto y sin mergear). Se escribe en `Status: Draft` como contrato
-—no como as-built— y su cabecera lo declara, para que nadie la lea como el plan que guió
-ese trabajo. Si el owner prefiere la convención as-built de §3, basta con reetiquetarla y
-retirar `plan.md` y `tasks.md` (excepción de §3.5).
+La 035 es la primera spec que se abre con el flujo normal **antes** de implementar. Se
+escribe en `Status: Draft` con `spec.md`, `plan.md` y `tasks.md`; los tres pasan a
+`Implemented (as-built)` cuando la capacidad se entregue y tenga evidencia.
+
 
 ## 8. Orden de escritura y estimación
 
@@ -151,8 +150,7 @@ plegadas en su vecina. Las specs futuras (029–034) no se escriben hasta que se
 flujo normal.
 
 **Estado (2026-11-16)**: la 035 se escribió como `Draft` con `spec.md`, `plan.md` y
-`tasks.md`, a partir de la capacidad que propone el PR #130. Las 029–034 siguen sin
-escribir.
+`tasks.md`, antes de implementar. Las 029–034 siguen sin escribir.
 
 - **Excepción de orden**: si el objetivo es sanear lo antes posible, la tanda 5 (002) se
   adelanta a la primera posición. Es la única spec que hoy induce a error, y arreglarla

@@ -2,8 +2,6 @@
 
 **Branch**: `035-ingesta-multiformato` | **Date**: 2026-11-16 | **Spec**: [`spec.md`](./spec.md)
 **Input**: Feature specification from `/specs/035-ingesta-multiformato/spec.md`
-**Nota de origen**: plan escrito con el PR #130 ya propuesto como implementación candidata; no
-reconstruye un plan aprobado antes de escribir código.
 
 ## Summary
 

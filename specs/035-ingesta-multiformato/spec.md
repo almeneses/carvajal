@@ -4,7 +4,6 @@
 **Created**: 2026-11-16
 **Status**: Draft
 **Input**: User description: "La pestaña Configuración y la consola deben admitir PDF, XML, JSON, JSONL, CSV y TSV además de HTML, Markdown y TXT; los PDF conservan el número de página y avisan cuando requieren OCR, y las cargas concurrentes no pierden entradas del índice."
-**Nota de origen**: contrato escrito después de que el PR #130 (abierto contra `dev`, sin mergear) propusiera una implementación. No afirma haber guiado ese trabajo.
 
 ## User Scenarios & Testing *(mandatory)*
 
