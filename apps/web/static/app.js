@@ -523,6 +523,9 @@
             pintarPanelFuentes(evento.datos.sources || []);
             avisar("Redactando…");
             break;
+          case "products":
+            pintarProductos(turnoAsistente, String(evento.datos.html || ""));
+            break;
           case "token": {
             const fragmento = String(evento.datos.text || "");
             destino.textContent += fragmento;
@@ -627,6 +630,17 @@
     etiqueta.className = "estado-incompleto";
     etiqueta.textContent = "respuesta incompleta";
     turno.querySelector(".rol").append(etiqueta);
+  }
+
+  // Tarjetas de la ruta comercial (spec 036). El HTML llega renderizado y escapado por la
+  // API con Jinja (_productos.html), como el documento que inserta lectura.js.
+  function pintarProductos(turno, html) {
+    turno.querySelector(".productos")?.remove();
+    if (!html) return;
+    const plantilla = document.createElement("template");
+    plantilla.innerHTML = html;
+    const tarjetas = plantilla.content.firstElementChild;
+    if (tarjetas) turno.querySelector(".burbuja")?.after(tarjetas);
   }
 
   function pintarFuentes(turno, fuentes) {
