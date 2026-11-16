@@ -351,7 +351,11 @@ def main(argv: list[str] | None = None) -> int:
 
         def _valida_catalogo() -> None:
             load_catalog.cache_clear()
-            load_catalog(str(out))
+            try:
+                load_catalog(str(out))
+            except Exception as error:
+                # ``_replace_all`` restaura ambos archivos; la CLI solo informa.
+                raise ValueError(f"el catálogo no valida: {error}") from error
 
         try:
             # El catálogo se valida dentro de la transacción: si no valida, la

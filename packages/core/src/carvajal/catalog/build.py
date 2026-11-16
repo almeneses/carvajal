@@ -344,6 +344,7 @@ def write_references(
     fields = list(_COLUMNS)
     kept: list[Reference] = []
     existing_mx: dict[str, Reference] = {}
+    existing_lines: dict[str, int] = {}
     if target.is_file():
         with target.open(encoding="utf-8", newline="") as handle:
             for line, row in enumerate(csv.DictReader(handle), start=2):
@@ -352,7 +353,13 @@ def write_references(
                         reference = Reference.model_validate(row)
                     except ValueError as error:
                         raise ValueError(f"{REFERENCES}:{line}: {error}") from error
+                    if reference.sku in existing_mx:
+                        raise ValueError(
+                            f"{REFERENCES}:{line}: SKU repetido {reference.sku} "
+                            f"(ya en la línea {existing_lines[reference.sku]})"
+                        )
                     existing_mx[reference.sku] = reference
+                    existing_lines[reference.sku] = line
                     continue
                 try:  # una fila curada inválida detiene todo antes de tocar el archivo
                     kept.append(Reference.model_validate(row))
@@ -396,6 +403,7 @@ def _replace_all(staged: list[tuple[Path, Path]], check: Callable[[], None] | No
 
     backups: list[tuple[Path, Path | None]] = []
     replaced: list[Path] = []
+    preservar: set[Path] = set()
     try:
         # Los respaldos se crean dentro del ``try``: si su escritura falla, el
         # ``finally`` borra los temporales y cualquier ``.bak`` parcial.
@@ -425,10 +433,12 @@ def _replace_all(staged: list[tuple[Path, Path]], check: Callable[[], None] | No
                 # Se conserva el error original y se deja constancia del fallo de
                 # restauración en su nota; nunca se silencia la causa inicial.
                 error.add_note(f"no se pudo restaurar {target.name}: {restore_error}")
+                if backup is not None:
+                    preservar.add(backup)  # el respaldo es la única copia del original
         raise
     finally:
         for _, backup in backups:
-            if backup is not None:
+            if backup is not None and backup not in preservar:
                 backup.unlink(missing_ok=True)
 
 
@@ -442,9 +452,13 @@ def _stage_manifest(directory: Path, section: str, data: dict[str, Any]) -> tupl
     manifest.setdefault("spec", "036-asistente-empaques")
     manifest.setdefault("sources", {})[section] = data
     temporary = target.with_name(f".{target.name}.tmp")
-    temporary.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    try:
+        temporary.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError:
+        temporary.unlink(missing_ok=True)  # una escritura fallida no deja temporales
+        raise
     return temporary, target
 
 

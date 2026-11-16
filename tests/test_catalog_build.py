@@ -351,6 +351,8 @@ def test_si_falla_la_restauracion_se_conserva_el_error_original(
     base = tmp_path / "catalogo"
     shutil.copytree(FIXTURE, base)
     (base / "manifest.json").write_text('{"spec": "036-asistente-empaques"}\n', encoding="utf-8")
+    archivo = base / "referencias.csv"
+    original = archivo.read_text(encoding="utf-8")
     referencia = parse_mx_product(_ficha(), CAPTURA)
     assert referencia is not None
     real_replace = Path.replace
@@ -374,7 +376,66 @@ def test_si_falla_la_restauracion_se_conserva_el_error_original(
 
     assert any("no se pudo restaurar referencias.csv" in note for note in excinfo.value.__notes__)
     assert not list(base.glob(".*.tmp"))
+    # El respaldo fallido se conserva: es la única copia del CSV original.
+    assert (base / ".referencias.csv.bak").read_text(encoding="utf-8") == original
+
+
+def test_si_falla_la_escritura_del_manifiesto_no_quedan_temporales(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un fallo al escribir el temporal del manifiesto lo limpia antes de relanzar."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    (base / "manifest.json").write_text('{"spec": "036-asistente-empaques"}\n', encoding="utf-8")
+    archivo = base / "referencias.csv"
+    original = archivo.read_text(encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+    real_write_text = Path.write_text
+
+    def write_text(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self.name == ".manifest.json.tmp":
+            raise OSError("disco lleno")
+        return real_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", write_text)
+
+    with pytest.raises(OSError, match="disco lleno"):
+        write_references(
+            base,
+            [referencia],
+            allow_missing=True,
+            manifest=("referencias_mx", {"rows": 1}),
+        )
+
+    assert archivo.read_text(encoding="utf-8") == original
+    assert not list(base.glob(".*.tmp"))
     assert not list(base.glob(".*.bak"))
+
+
+def test_sku_mx_repetido_en_el_archivo_existente_aborta(tmp_path: Path) -> None:
+    """Dos filas MX con el mismo SKU detienen la regeneración con su línea."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    archivo = base / "referencias.csv"
+    original = archivo.read_text(encoding="utf-8")
+    filas = original.splitlines()
+    archivo.write_text(original + filas[1] + "\n", encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+
+    with pytest.raises(ValueError, match=r"SKU repetido FX-VASO-PAPEL-12 \(ya en la línea 2\)"):
+        write_references(base, [referencia], allow_missing=True)
+
+    assert archivo.read_text(encoding="utf-8") == original + filas[1] + "\n"
 
 
 def test_si_falla_la_validacion_final_restaura_ambos_archivos(tmp_path: Path) -> None:

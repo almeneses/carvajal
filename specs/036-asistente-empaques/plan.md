@@ -146,7 +146,8 @@ Decisiones tomadas al curar los datos (PR 2):
   en ese caso el listado completo de SKU retirados queda en las notas del manifiesto.
 - El manifiesto y el CSV se confirman en un único paso: si el reemplazo de uno falla, se
   restaura el otro, de modo que nunca quedan desincronizados; un fallo al restaurar se
-  anota y se relanza el error original. El catálogo se valida dentro de esa transacción,
+  anota y se relanza el error original, conservando el respaldo como última copia del
+  archivo anterior. El catálogo se valida dentro de esa transacción,
   así que una validación fallida restaura ambos archivos. La CLI exige que el directorio
   de `--out` exista y, salvo `--allow-missing`, que ya contenga `referencias.csv`, para no
   crear un catálogo vacío que perdería las filas curadas al apuntar a una ruta equivocada.
