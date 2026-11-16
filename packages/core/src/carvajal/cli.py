@@ -313,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
             build_mx_references,
             write_references,
         )
-        from carvajal.catalog.loader import DEFAULT_DIR, REFERENCES, CatalogError, load_catalog
+        from carvajal.catalog.loader import DEFAULT_DIR, REFERENCES, load_catalog
 
         if not args.corpus.is_dir():
             print(f"No existe la carpeta del corpus: {args.corpus}")
@@ -348,15 +348,21 @@ def main(argv: list[str] | None = None) -> int:
                 "notes": notes,
             },
         )
+
+        def _valida_catalogo() -> None:
+            load_catalog.cache_clear()
+            load_catalog(str(out))
+
         try:
-            # El manifiesto se actualiza antes del CSV y ambos reemplazos son atómicos:
-            # un fallo deja el catálogo anterior intacto y sincronizado.
+            # El catálogo se valida dentro de la transacción: si no valida, la
+            # restauración deja CSV y manifiesto anteriores intactos.
             total = write_references(
                 out,
                 references,
                 allow_missing=args.allow_missing,
                 notes=notes,
                 manifest=manifest,
+                check=_valida_catalogo,
             )
         except (OSError, ValueError) as error:
             print(f"No se reescribió el catálogo: {error}")
@@ -364,12 +370,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Referencias de México: {len(references)} (total en el archivo: {total}).")
         for note in notes:
             print(f"  - {note}")
-        try:
-            load_catalog.cache_clear()
-            load_catalog(str(out))
-        except CatalogError as error:
-            print(f"El catálogo no valida: {error}")
-            return 1
         return 0
 
     if args.command == "migrate-gold":

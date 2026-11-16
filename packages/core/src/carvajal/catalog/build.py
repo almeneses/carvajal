@@ -12,7 +12,7 @@ import html
 import json
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -299,7 +299,14 @@ def build_mx_references(
         if reference is None:
             notes.append(f"{url.group(0)}: no es una referencia por caja (combo o kit)")
             continue
-        by_sku.setdefault(reference.sku, reference)
+        previous = by_sku.get(reference.sku)
+        if previous is not None:
+            notes.append(
+                f"{reference.source_url}: SKU {reference.sku} repetido; "
+                f"ya estaba en {previous.source_url}"
+            )
+            continue
+        by_sku[reference.sku] = reference
     return [by_sku[sku] for sku in sorted(by_sku)], sorted(set(notes))
 
 
@@ -318,6 +325,7 @@ def write_references(
     allow_missing: bool = False,
     notes: list[str] | None = None,
     manifest: tuple[str, dict[str, Any]] | None = None,
+    check: Callable[[], None] | None = None,
 ) -> int:
     """Reescribe ``referencias.csv`` con las filas de México y conserva las demás.
 
@@ -329,6 +337,7 @@ def write_references(
     ``manifest`` permite actualizar el manifiesto en el mismo paso: CSV y manifiesto se
     confirman juntos, y si un reemplazo falla se restaura el otro, de modo que nunca quedan
     desincronizados. ``notes`` recoge además los SKU retirados con ``allow_missing``.
+    ``check`` se ejecuta tras los reemplazos: si lanza, ambos archivos se restauran.
     """
 
     target = directory / REFERENCES
@@ -374,7 +383,7 @@ def write_references(
             staged.append(manifest_staged)
         # Un único punto de confirmación: si el segundo reemplazo falla, se restaura
         # el primero, así CSV y manifiesto nunca quedan desincronizados.
-        _replace_all(staged)
+        _replace_all(staged, check)
     finally:
         temporary.unlink(missing_ok=True)  # un fallo a mitad no deja temporales huérfanos
         if manifest_staged is not None:
@@ -382,8 +391,8 @@ def write_references(
     return len(mx) + len(kept)
 
 
-def _replace_all(staged: list[tuple[Path, Path]]) -> None:
-    """Reemplaza varios temporales y restaura los destinos si uno falla."""
+def _replace_all(staged: list[tuple[Path, Path]], check: Callable[[], None] | None = None) -> None:
+    """Reemplaza varios temporales, valida y restaura los destinos si algo falla."""
 
     backups: list[tuple[Path, Path | None]] = []
     replaced: list[Path] = []
@@ -401,7 +410,9 @@ def _replace_all(staged: list[tuple[Path, Path]]) -> None:
         for temporary, target in staged:
             temporary.replace(target)
             replaced.append(target)
-    except OSError as error:
+        if check is not None:
+            check()  # validación posterior al reemplazo: un fallo deshace la transacción
+    except Exception as error:
         for target, backup in backups:
             if target not in replaced:
                 continue

@@ -377,6 +377,37 @@ def test_si_falla_la_restauracion_se_conserva_el_error_original(
     assert not list(base.glob(".*.bak"))
 
 
+def test_si_falla_la_validacion_final_restaura_ambos_archivos(tmp_path: Path) -> None:
+    """Un ``check`` posterior deshace los dos reemplazos, no solo uno."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    archivo = base / "referencias.csv"
+    manifiesto = base / "manifest.json"
+    manifiesto.write_text('{"spec": "036-asistente-empaques"}\n', encoding="utf-8")
+    original_csv = archivo.read_text(encoding="utf-8")
+    original_manifest = manifiesto.read_text(encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+
+    def check() -> None:
+        raise ValueError("el catálogo no valida")
+
+    with pytest.raises(ValueError, match="no valida"):
+        write_references(
+            base,
+            [referencia],
+            allow_missing=True,
+            manifest=("referencias_mx", {"rows": 1}),
+            check=check,
+        )
+
+    assert archivo.read_text(encoding="utf-8") == original_csv
+    assert manifiesto.read_text(encoding="utf-8") == original_manifest
+    assert not list(base.glob(".*.tmp"))
+    assert not list(base.glob(".*.bak"))
+
+
 def test_regenerar_aborta_si_falta_una_referencia(tmp_path: Path) -> None:
     """Un corpus parcial no debe borrar en silencio referencias ya presentes."""
 
@@ -414,6 +445,20 @@ def test_la_url_se_busca_en_toda_la_pagina(tmp_path: Path) -> None:
 
     assert [ref.sku for ref in referencias] == ["123"]
     assert notas == []
+
+
+def test_sku_repetido_en_el_corpus_se_anota(tmp_path: Path) -> None:
+    """Dos fichas con el mismo SKU no se descartan en silencio."""
+
+    (tmp_path / "a.html").write_text(_ficha(), encoding="utf-8")
+    (tmp_path / "b.html").write_text(_ficha(slug="vaso-repetido"), encoding="utf-8")
+
+    referencias, notas = build_mx_references(sorted(tmp_path.glob("*.html")), CAPTURA)
+
+    assert [ref.sku for ref in referencias] == ["123"]
+    assert len(notas) == 1
+    assert "SKU 123 repetido" in notas[0]
+    assert "ya estaba en" in notas[0]
 
 
 def test_ficha_sin_nombre_o_url_se_anota_y_el_lote_sigue(tmp_path: Path) -> None:
