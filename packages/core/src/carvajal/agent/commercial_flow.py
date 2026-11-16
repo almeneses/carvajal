@@ -10,10 +10,11 @@ mostrarlo sin saber el país sería cotizar a quien quizá compra en Colombia (F
 """
 
 import json
+from collections import Counter
 from dataclasses import asdict
 from datetime import date
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from carvajal.agent.commercial import (
     RENEWABLE,
@@ -183,6 +184,22 @@ def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _mx_store(data: Catalog) -> tuple[SplitResult, Reference] | None:
+    """Raíz de la tienda MX: el host que aporta más fichas del país.
+
+    Una ficha aislada de otro dominio (un marketplace o un PDF) no desvía el canal; si el
+    catálogo cambia de host, la raíz se sigue deduciendo de las fichas, sin hardcodear el
+    dominio.
+    """
+
+    pages = [(urlsplit(ref.source_url), ref) for ref in data.references if ref.country == "MX"]
+    if not pages:
+        return None
+    hosts = Counter(parts.netloc for parts, _ in pages)
+    store = hosts.most_common(1)[0][0]
+    return next((parts, ref) for parts, ref in pages if parts.netloc == store)
+
+
 def custom_need_result(*, catalog: Catalog | None = None) -> dict[str, Any]:
     """Canales oficiales para derivar una necesidad a la medida (FR-010).
 
@@ -192,9 +209,9 @@ def custom_need_result(*, catalog: Catalog | None = None) -> dict[str, Any]:
 
     data = catalog or load_catalog()
     contacts: list[dict[str, Any]] = []
-    mx = next((ref for ref in data.references if ref.country == "MX"), None)
-    if mx is not None:
-        parts = urlsplit(mx.source_url)
+    store = _mx_store(data)
+    if store is not None:
+        parts, mx = store
         contacts.append(
             {
                 "country": "MX",

@@ -257,6 +257,17 @@ def test_la_necesidad_a_la_medida_entrega_solo_canales_oficiales() -> None:
     ]
 
 
+def test_la_tienda_mx_no_se_desvia_por_una_ficha_de_otro_dominio() -> None:
+    intrusa = FIXTURES.references[0].model_copy(
+        update={"source_url": "https://marketplace.test/ficha/vaso"}
+    )
+    catalogo = replace(FIXTURES, references=(intrusa, *FIXTURES.references))
+
+    resultado = custom_need_result(catalog=catalogo)
+
+    assert resultado["contacts"][0]["url"] == "https://ejemplo.test/"
+
+
 def test_el_grafo_deriva_la_necesidad_a_la_medida_sin_referencias() -> None:
     estado = _invocar("quiero vasos personalizados con mi logo", "hilo-medida")
 

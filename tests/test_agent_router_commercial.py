@@ -253,6 +253,29 @@ def test_una_pregunta_institucional_sobre_productos_va_a_rag(texto: str) -> None
     assert decide_route(texto).route == "rag"
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "¿Qué empaques flexibles fabrica Carvajal Empaques?",
+        "¿Qué bolsas industriales produce Carvajal?",
+    ],
+)
+def test_la_regla_institucional_gana_sobre_la_necesidad_a_la_medida(texto: str) -> None:
+    assert decide_route(texto).route == "rag"
+
+
+def test_un_precio_sin_datos_sigue_siendo_comercial() -> None:
+    decision = decide_route("¿Carvajal tiene precios de vasos?")
+
+    assert decision.intent.startswith("commercial")
+
+
+def test_una_duda_de_entrega_es_parte_de_la_compra() -> None:
+    decision = decide_route("Necesito vasos para café de 12 oz. ¿Cuál es el tiempo de entrega?")
+
+    assert decision.intent == "commercial"
+
+
 def test_nombrar_a_carvajal_con_datos_de_compra_sigue_siendo_comercial() -> None:
     decision = decide_route("vasos de 12 oz para café de Carvajal en Cali")
 
