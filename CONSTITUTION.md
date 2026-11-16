@@ -68,6 +68,13 @@ con asistente RAG.
   conserva el original en Bronze, el texto en Silver y la ficha en Gold, y admite PDF
   con texto por página y datos XML, JSON, JSONL, CSV y TSV, además de HTML, Markdown y
   TXT.
+- Mantener un corpus incremental (spec 037): cada documento conserva una identidad
+  estable derivada de su fuente (URL, ruta relativa o nombre de archivo), se deduplica
+  por la huella del original antes de escribir Bronze, se actualiza en sitio con
+  versiones y se sincroniza con PostgreSQL y Qdrant por un único camino. La capa
+  extendida se recupera y se cita con prioridad posterior al núcleo; la FAQ sigue
+  leyendo solo el núcleo. El chat es el único camino de respuesta y Qdrant el único
+  índice vectorial.
 - Recomendar empaques de foodservice desde un **catálogo curado** (`data/catalog/`,
   spec 036): referencias, reglas de material y distribuidores derivados del corpus
   externo, con validación técnica por material, cálculo de cajas y precio de referencia
@@ -417,11 +424,14 @@ git push
 | 2026-11-15 | Documentar *as-built* las 23 capacidades ya entregadas (`specs/003`–`specs/027`) y reconvertir la 002 | El proyecto adoptó Spec Kit el 2026-11-03, pero el Módulo 1 y la migración del M2 se registraron en PRs y en esta tabla: `specs/` tenía dos entradas y la 002 describía otra aplicación. La convención as-built exige fecha honesta, requisito observable y evidencia por escenario, y prohíbe `plan`/`tasks` retroactivos, salvo la excepción documentada de la 002 (§3.5 del inventario); el índice y el estado de cada spec viven en `specs/README.md` |
 | 2026-11-16 | Ampliar el alcance a la carga local multiformato: PDF con texto por página y datos XML, JSON, JSONL, CSV y TSV | Se especifica antes de implementar en `specs/035-ingesta-multiformato` con el flujo de Spec Kit; la web conserva 100 archivos y 5 MB por archivo y la consola admite 100 MB por archivo. El OCR de PDF escaneados sigue fuera de alcance y se avisa al usuario en lugar de convertirlo |
 | 2026-11-16 | Añadir la capa de catálogo curado (`data/catalog/`) y la ruta comercial de empaques (spec 036) | Recomendar empaques exige filtros exactos (capacidad, material, temperatura) que la recuperación por similitud no garantiza. Son unas 230 filas de solo lectura: se versionan como CSV y se cargan en memoria, como `data/indicators.json`, sin migración. La capa extendida sigue siendo solo de recuperación; el catálogo es una capa distinta, derivada y revisada en PR |
+| 2026-11-16 | Corpus incremental: identidad estable por fuente, doble huella y sincronización única (spec 037) | El slug con hash convertía cada archivo modificado en un documento nuevo y cada copia en un duplicado. La identidad pasa a derivarse de la fuente (URL, ruta relativa o nombre), la huella del original deduplica antes de Bronze y la huella del texto decide actualización y reindexación. El registro vive en los `index.jsonl` para funcionar sin base; PostgreSQL y Qdrant se reconcilian con un solo `sync` idempotente y poda explícita |
+| 2026-11-16 | Indexar la capa extendida con prioridad y retirar `/ask` y pgvector (spec 037) | La capa extendida suma cobertura si no desplaza al núcleo: se indexa en la misma colección con `layer` en el payload y el chat busca primero el núcleo. La FAQ sigue leyendo solo `core`. Ningún flujo escribe vectores en PostgreSQL, así que `/ask` respondía sin contexto y el adaptador pgvector era un índice vacío; el chat queda como único camino de respuesta y Qdrant como único índice vectorial |
 
 ## 10. Notas y tareas pendientes
 
 - [x] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035, entregada el 2026-11-16).
 - [ ] Evaluar OCR para PDF escaneados sin capa de texto.
+- [ ] Rastrear el sitio de forma periódica (cron/crawler) sobre `carvajal capture` y `carvajal sync`; la spec 037 deja los contratos de identidad y sincronización.
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.

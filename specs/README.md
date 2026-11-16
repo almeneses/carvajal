@@ -127,6 +127,7 @@ en `Status: Draft`, **antes** de implementar.
 | 034 | Contrato de chunking y deduplicación de *boilerplate* | `CONSTITUTION.md` §10 |
 | [035](035-ingesta-multiformato/spec.md) | Ingesta multiformato de archivos locales (PDF, XML, JSON, JSONL, CSV y TSV) en web y consola, con índice concurrente | `CONSTITUTION.md` §2; flujo normal de Spec Kit (`/speckit.specify`) |
 | [036](036-asistente-empaques/spec.md) | Asistente comercial de empaques foodservice sobre un catálogo curado, con ruta `commercial` y comparación de enrutadores | `CONSTITUTION.md` §2 y §5; flujo normal de Spec Kit (`/speckit.specify`) |
+| [037](037-corpus-incremental/spec.md) | Corpus incremental: identidad estable por fuente, deduplicación por huella antes de Bronze, versiones, sincronización única y capa extendida con prioridad | `CONSTITUTION.md` §2 y §9; flujo normal de Spec Kit (`/speckit.specify`) |
 
 La 035 es la primera spec que se abre con el flujo normal **antes** de implementar. Se
 escribe en `Status: Draft` con `spec.md`, `plan.md` y `tasks.md`; los tres pasan a
