@@ -7,6 +7,8 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from carvajal.catalog.build import build_mx_references, parse_mx_product, write_references
 from carvajal.catalog.loader import load_catalog
 from carvajal.cli import main
@@ -191,3 +193,57 @@ def test_orden_catalog_build(tmp_path: Path) -> None:
     manifiesto = json.loads((salida / "manifest.json").read_text(encoding="utf-8"))
     assert manifiesto["sources"]["referencias_mx"]["rows"] == 1
     assert manifiesto["sources"]["referencias_mx"]["captured_at"] == "2026-10-23"
+
+
+def test_ficha_sin_precio_se_anota_y_el_lote_sigue(tmp_path: Path) -> None:
+    """Una ficha sin oferta no tumba la regeneración: se anota con su URL."""
+
+    sin_oferta = _ficha(slug="sin-oferta").replace('"offers"', '"sin_ofertas"')
+    (tmp_path / "a.html").write_text(_ficha(), encoding="utf-8")
+    (tmp_path / "b.html").write_text(sin_oferta, encoding="utf-8")
+
+    referencias, notas = build_mx_references(sorted(tmp_path.glob("*.html")), CAPTURA)
+
+    assert [ref.sku for ref in referencias] == ["123"]
+    assert len(notas) == 1
+    assert "sin-oferta" in notas[0]
+    assert "precio" in notas[0]
+
+
+def test_temperatura_en_otro_formato_se_anota() -> None:
+    """Si la ficha declara temperatura pero no se reconoce, queda un aviso."""
+
+    avisos: list[str] = []
+    ficha = _ficha(
+        corta=(
+            "Marca: CONVERPRO Materiales: PET Temperatura de uso recomendada: -20°C a 40°C "
+            "Color: Transparente Cantidad por caja: 800 Unidades"
+        )
+    )
+
+    referencia = parse_mx_product(ficha, CAPTURA, avisos)
+
+    assert referencia is not None
+    assert referencia.temp_min_c is None
+    assert avisos == [
+        "https://mexico.carvajalempaques.com/producto/vaso-plastico-pet-16_oz/: "
+        "temperatura en formato no reconocido; se omite"
+    ]
+
+
+def test_fila_curada_invalida_no_toca_el_archivo(tmp_path: Path) -> None:
+    """Si una fila de Colombia es inválida, el CSV original queda intacto."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    archivo = base / "referencias.csv"
+    roto = archivo.read_text(encoding="utf-8").replace("FX-VASO-PS-12,", ",", 1)
+    archivo.write_text(roto, encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+
+    with pytest.raises(ValueError, match=r"referencias\.csv:6"):
+        write_references(base, [referencia])
+
+    assert archivo.read_text(encoding="utf-8") == roto
+    assert not list(base.glob(".*.tmp"))

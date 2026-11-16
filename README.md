@@ -225,6 +225,26 @@ ya están en el núcleo y deduplica por URL normalizada y hash del texto. Escrib
 > La capa extendida es material de terceros: conserva la atribución y no se presenta como
 > comunicación oficial de Carvajal.
 
+## Catálogo de empaques (spec 036)
+
+El asistente comercial de empaques consulta un **catálogo curado** en `data/catalog/empaques/`
+(CSV versionados y `manifest.json`), no el RAG: recomendar un vaso exige filtros exactos de
+capacidad, material y temperatura.
+
+| Archivo | Contenido | Cómo se mantiene |
+|---|---|---|
+| `referencias.csv` | Referencias con SKU, material, unidades por caja, temperatura de uso y precio de referencia (México) | `carvajal catalog-build` para México; otros países curados a mano |
+| `materiales.csv` | Reglas de la guía de materiales (PP, EPS, PS, PET, aluminio) | Curado a mano |
+| `distribuidores.csv` | Distribuidores de Colombia por ciudad (sin datos personales) | Curado a mano |
+
+```bash
+uv run carvajal catalog-build --corpus <carpeta del corpus externo> --captured-at 2026-10-23
+```
+
+La orden lee las fichas HTML de la tienda de Carvajal Empaques México, regenera sus filas,
+conserva las de otros países y anota en el manifiesto las fichas descartadas o
+contradictorias. Los precios son siempre de referencia y llevan la fecha de captura.
+
 ## 🗺️ Arquitectura
 
 Diagrama interactivo autocontenido (generado con [Archify](https://github.com/tt-a1i/archify)):

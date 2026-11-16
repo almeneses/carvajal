@@ -93,6 +93,22 @@ def _product_ld(page: str) -> tuple[dict[str, Any], list[str]]:
     return product, crumbs
 
 
+def _price_spec(product: dict[str, Any]) -> dict[str, Any]:
+    """Primera especificación de precio; ``ValueError`` con la URL si falta."""
+
+    offers = product.get("offers")
+    offer = offers[0] if isinstance(offers, list) and offers else offers
+    specs = offer.get("priceSpecification") if isinstance(offer, dict) else None
+    spec = specs[0] if isinstance(specs, list) and specs else specs
+    if (
+        not isinstance(spec, dict)
+        or spec.get("price") in (None, "")
+        or not spec.get("priceCurrency")
+    ):
+        raise ValueError(f"{product.get('url')}: la ficha no publica precio ni moneda")
+    return {**spec, "price": str(spec["price"])}
+
+
 def parse_mx_product(
     page: str, captured_at: date, warnings: list[str] | None = None
 ) -> Reference | None:
@@ -156,6 +172,8 @@ def parse_mx_product(
     temp_range = (
         (float(found["temp"].group(1)), float(found["temp"].group(2))) if found["temp"] else None
     )
+    if temp_range is None and "temperatura" in _plain(short):
+        notes.append(f"{product['url']}: temperatura en formato no reconocido; se omite")
     if temp_range and "bebida_caliente" in uses and temp_range[1] < 60:
         notes.append(
             f"{product['url']}: temperatura {temp_range} contradice «bebida caliente»; se omite"
@@ -164,7 +182,7 @@ def parse_mx_product(
     if family == "tapa":
         capacity = None  # «12oz a 24oz» es compatibilidad, no capacidad
 
-    spec = product["offers"][0]["priceSpecification"][0]
+    spec = _price_spec(product)
     # El JSON-LD de WooCommerce marca ``valueAddedTaxIncluded: false`` por defecto;
     # manda el texto visible junto al precio.
     tax = bool(spec.get("valueAddedTaxIncluded")) or "iva incluido" in _plain(page)
@@ -228,24 +246,34 @@ def _cell(value: Any) -> str:
 
 
 def write_references(directory: Path, mx: list[Reference]) -> int:
-    """Reescribe ``referencias.csv`` con las filas de México y conserva las demás."""
+    """Reescribe ``referencias.csv`` con las filas de México y conserva las demás.
+
+    Las filas conservadas se validan antes de escribir y el archivo se reemplaza de una
+    sola vez: un fallo deja intacto el original con las filas curadas a mano.
+    """
 
     target = directory / REFERENCES
     provenance = ("source_url", "captured_at")
     fields = [name for name in Reference.model_fields if name not in provenance]
     fields += list(provenance)
-    kept: list[dict[str, str]] = []
+    kept: list[Reference] = []
     if target.is_file():
         with target.open(encoding="utf-8", newline="") as handle:
-            kept = [row for row in csv.DictReader(handle) if row.get("country") != "MX"]
-    with target.open("w", encoding="utf-8", newline="") as handle:
+            for line, row in enumerate(csv.DictReader(handle), start=2):
+                if row.get("country") == "MX":
+                    continue
+                try:  # una fila curada inválida detiene todo antes de tocar el archivo
+                    kept.append(Reference.model_validate(row))
+                except ValueError as error:
+                    raise ValueError(f"{REFERENCES}:{line}: {error}") from error
+    temporary = target.with_name(f".{target.name}.tmp")
+    with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
-        for reference in mx:
+        for reference in [*mx, *kept]:
             row = reference.model_dump(mode="json")
             writer.writerow({key: _cell(row[key]) for key in fields})
-        for row in kept:
-            writer.writerow({key: row.get(key, "") for key in fields})
+    temporary.replace(target)  # reemplazo atómico: nunca queda un archivo a medias
     return len(mx) + len(kept)
 
 

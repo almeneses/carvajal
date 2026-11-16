@@ -170,6 +170,7 @@ carvajal/
 │           │   ├── errors.py    # errores de aplicación (LLMError)
 │           │   └── ports.py     # repositorios, vector store, LLM, embedder, fetcher
 │           ├── agent/         # router, herramienta, memoria y grafo LangGraph
+│           ├── catalog/       # catálogo curado de empaques: modelos, carga y construcción (spec 036)
 │           ├── indexing/      # indexación Gold → Qdrant
 │           ├── adapters/      # adaptadores de infraestructura
 │           │   ├── storage/     # SQLAlchemy Core
@@ -200,6 +201,7 @@ carvajal/
 │   ├── external/            # capa extendida importada (solo manifiesto en Git)
 │   ├── eval/                # consultas etiquetadas para Recall@10 / nDCG@10
 │   ├── indicators.json      # herramienta estructurada del M2
+│   ├── catalog/empaques/    # catálogo curado versionado (CSV + manifest.json, spec 036)
 │   ├── retrieval_cards.json # fichas de recuperación (no son fuente de respuesta)
 │   └── index/               # índice FAISS legado (regenerable, ignorado por Git)
 ├── migrations/              # migraciones Alembic (esquema relacional)
