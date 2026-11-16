@@ -125,6 +125,14 @@ en `Status: Draft`, **antes** de implementar.
 | 032 | Transcripciones de vídeo | `CONSTITUTION.md` §10 |
 | 033 | Entidades y especialidades detectadas en el front matter | `CONSTITUTION.md` §10 |
 | 034 | Contrato de chunking y deduplicación de *boilerplate* | `CONSTITUTION.md` §10 |
+| [035](035-ingesta-multiformato/spec.md) | Ingesta multiformato de archivos locales (PDF, XML, JSON, JSONL, CSV y TSV) en web y consola, con índice concurrente | `CONSTITUTION.md` §2; flujo normal de Spec Kit (`/speckit.specify`) |
+
+La 035 es la primera spec que se abre con el flujo normal **antes** de implementar. Se
+escribe en `Status: Draft` con `spec.md`, `plan.md` y `tasks.md`; los tres pasan a
+`Implemented (as-built)` cuando la capacidad se entregue y tenga evidencia. La ampliación
+de alcance que exige —PDF y datos estructurados— se enmienda en `CONSTITUTION.md` §2, §9
+y §10 en la misma PR, como manda el Principio I.
+
 
 ## 8. Orden de escritura y estimación
 
@@ -142,6 +150,9 @@ historia real del proyecto. Cada tanda es una PR independiente.
 **Estado (2026-11-15)**: las tandas 1–5 están escritas. Las capacidades 004, 026 y 028 quedaron
 plegadas en su vecina. Las specs futuras (029–034) no se escriben hasta que se prioricen con el
 flujo normal.
+
+**Estado (2026-11-16)**: la 035 se escribió como `Draft` con `spec.md`, `plan.md` y
+`tasks.md`, antes de implementar. Las 029–034 siguen sin escribir.
 
 - **Excepción de orden**: si el objetivo es sanear lo antes posible, la tanda 5 (002) se
   adelanta a la primera posición. Es la única spec que hoy induce a error, y arreglarla

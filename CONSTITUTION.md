@@ -64,12 +64,16 @@ con asistente RAG.
   solo para recuperación y citación, con manifiesto, deduplicación por URL/hash
   (incluidas las URLs del núcleo) y procedencia explícita (`origin`, `category`,
   `entity`). Se importa solo HTML y esa capa nunca se consolida en el prompt.
+- Cargar archivos locales desde Configuración o desde la consola (spec 035). La carga
+  conserva el original en Bronze, el texto en Silver y la ficha en Gold, y admite PDF
+  con texto por página y datos XML, JSON, JSONL, CSV y TSV, además de HTML, Markdown y
+  TXT.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
 ### Fuera del alcance (por ahora)
 
 - Rastrear el `sitemap.xml` completo del dominio (podcast, noticias, especialistas).
-- Vídeos, PDFs y transcripciones.
+- Vídeos, OCR de PDF escaneados y transcripciones.
 - Páginas tras autenticación o cualquier contenido no público.
 - Evaluación automatizada y benchmarking del asistente (fuera de la interfaz de pruebas).
 
@@ -403,10 +407,12 @@ git push
 | 2026-11-14 | FAQ en la SPA y el shell HTMX (`/faq`): lotes de hasta 10 preguntas, botón «Generar otras 10» y descarga Markdown | El caso de uso lee los documentos `core` de Postgres, excluye las preguntas ya mostradas y no persiste: el estado acumulado vive en la pestaña. Comparte CSRF y cuota diaria con el chat, genera por SSE sobre el corpus completo y advierte si el bloque se truncó por longitud; con Ollama se fija `num_ctx` (32 768) para que el prompt no se recorte en el servidor |
 | 2026-11-14 | Se oculta la pestaña Asistente en el shell HTMX y en la SPA; `/` redirige a `/chat` en `apps/api` y a `/corpus` en `apps/web` | El chat concentra la entrada al asistente y la portada heredada deja de competir en la navegación. La ruta `/ask` y la vista `#vista-asistente` se conservan por compatibilidad, pero no se enlazan; la marca lleva al chat en el shell y al corpus en la SPA |
 | 2026-11-15 | Documentar *as-built* las 23 capacidades ya entregadas (`specs/003`–`specs/027`) y reconvertir la 002 | El proyecto adoptó Spec Kit el 2026-11-03, pero el Módulo 1 y la migración del M2 se registraron en PRs y en esta tabla: `specs/` tenía dos entradas y la 002 describía otra aplicación. La convención as-built exige fecha honesta, requisito observable y evidencia por escenario, y prohíbe `plan`/`tasks` retroactivos, salvo la excepción documentada de la 002 (§3.5 del inventario); el índice y el estado de cada spec viven en `specs/README.md` |
+| 2026-11-16 | Ampliar el alcance a la carga local multiformato: PDF con texto por página y datos XML, JSON, JSONL, CSV y TSV | Se especifica antes de implementar en `specs/035-ingesta-multiformato` con el flujo de Spec Kit; la web conserva 100 archivos y 5 MB por archivo y la consola admite 100 MB por archivo. El OCR de PDF escaneados sigue fuera de alcance y se avisa al usuario en lugar de convertirlo |
 
 ## 10. Notas y tareas pendientes
 
-- [ ] Añadir extracción de PDFs (informes, memorias anuales).
+- [ ] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035).
+- [ ] Evaluar OCR para PDF escaneados sin capa de texto.
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.
