@@ -160,6 +160,80 @@ def test_regenerar_conserva_las_filas_de_otros_paises(tmp_path: Path) -> None:
     assert len(load_catalog(str(base)).references) == 3
 
 
+def test_regenerar_respeta_el_orden_de_columnas_del_contrato(tmp_path: Path) -> None:
+    """El CSV regenerado conserva el orden publicado en el plan de la spec 036."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+
+    write_references(base, [referencia], allow_missing=True)
+
+    with (base / "referencias.csv").open(encoding="utf-8", newline="") as handle:
+        assert next(csv.reader(handle)) == [
+            "sku",
+            "name",
+            "family",
+            "use",
+            "capacity_oz",
+            "diameter_mm",
+            "material",
+            "brand",
+            "units_per_pack",
+            "packs_per_box",
+            "units_per_box",
+            "temp_min_c",
+            "temp_max_c",
+            "price",
+            "currency",
+            "tax_included",
+            "price_valid_until",
+            "country",
+            "source_url",
+            "captured_at",
+        ]
+
+
+def test_baja_autorizada_queda_en_las_notas(tmp_path: Path) -> None:
+    """Con ``allow_missing`` los SKU retirados se informan antes de reescribir."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+    notas: list[str] = []
+
+    write_references(base, [referencia], allow_missing=True, notes=notas)
+
+    assert len(notas) == 1
+    assert "baja autorizada" in notas[0]
+    assert "FX-VASO-PAPEL-12" in notas[0]
+
+
+def test_manifest_falla_no_toca_el_csv(tmp_path: Path) -> None:
+    """Si el manifiesto no se puede actualizar, el CSV anterior queda intacto."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    archivo = base / "referencias.csv"
+    (base / "manifest.json").write_text("{roto", encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+    original = archivo.read_text(encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        write_references(
+            base,
+            [referencia],
+            allow_missing=True,
+            manifest=("referencias_mx", {"rows": 1}),
+        )
+
+    assert archivo.read_text(encoding="utf-8") == original
+    assert not list(base.glob(".*.tmp"))
+
+
 def test_regenerar_aborta_si_falta_una_referencia(tmp_path: Path) -> None:
     """Un corpus parcial no debe borrar en silencio referencias ya presentes."""
 
@@ -186,6 +260,37 @@ def test_build_ignora_paginas_ajenas(tmp_path: Path) -> None:
 
     assert [ref.sku for ref in referencias] == ["123"]
     assert notas == []
+
+
+def test_la_url_se_busca_en_toda_la_pagina(tmp_path: Path) -> None:
+    """Una cabecera larga no hace pasar la ficha por «página ajena»."""
+
+    (tmp_path / "larga.html").write_text("<html>" + "x" * 9000 + _ficha(), encoding="utf-8")
+
+    referencias, notas = build_mx_references(sorted(tmp_path.glob("*.html")), CAPTURA)
+
+    assert [ref.sku for ref in referencias] == ["123"]
+    assert notas == []
+
+
+def test_ficha_sin_nombre_o_url_se_anota_y_el_lote_sigue(tmp_path: Path) -> None:
+    """Un ``Product`` incompleto se anota con su URL y no aborta la regeneración."""
+
+    sin_nombre = _ficha(slug="sin-nombre").replace(
+        '"@type": "Product", "name"', '"@type": "Product", "titulo"'
+    )
+    sin_url = _ficha(slug="sin-url").replace('"url": "', '"enlace": "', 1)
+    (tmp_path / "a.html").write_text(_ficha(), encoding="utf-8")
+    (tmp_path / "b.html").write_text(sin_nombre, encoding="utf-8")
+    (tmp_path / "c.html").write_text(sin_url, encoding="utf-8")
+
+    referencias, notas = build_mx_references(sorted(tmp_path.glob("*.html")), CAPTURA)
+
+    assert [ref.sku for ref in referencias] == ["123"]
+    assert len(notas) == 2
+    assert any("sin-nombre" in nota and "nombre" in nota for nota in notas)
+    assert any("sin-nombre" in nota and "nombre" in nota for nota in notas)
+    assert any("no publica URL" in nota for nota in notas)
 
 
 def test_orden_catalog_build(tmp_path: Path) -> None:

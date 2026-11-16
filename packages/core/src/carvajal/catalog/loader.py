@@ -6,6 +6,7 @@ línea exactos: un catálogo a medias recomendaría con datos incompletos.
 """
 
 import csv
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -35,14 +36,37 @@ class Catalog:
     distributors: tuple[Distributor, ...]
 
 
+def _check_header[T: BaseModel](path: Path, model: type[T], header: Sequence[str]) -> None:
+    """La cabecera debe listar exactamente los campos del modelo, en cualquier orden."""
+
+    missing = [name for name in model.model_fields if name not in header]
+    extra = [name for name in header if name not in model.model_fields]
+    if not missing and not extra:
+        return
+    details: list[str] = []
+    if missing:
+        details.append(f"faltan {', '.join(missing)}")
+    if extra:
+        details.append(f"sobran {', '.join(extra)}")
+    raise CatalogError(f"{path.name}: cabecera inválida: {'; '.join(details)}.")
+
+
 def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[tuple[int, T], ...]:
-    """Valida cada fila y la devuelve con su línea en el archivo (cabecera = 1)."""
+    """Valida la cabecera y cada fila y devuelve su línea física en el archivo.
+
+    Se usa ``reader.line_num`` en vez de contar filas lógicas: una celda entrecomillada
+    con saltos de línea ocupa varias líneas del archivo y el mensaje debe apuntar a una
+    línea real (la cabecera es la línea 1).
+    """
 
     if not path.is_file():
         raise CatalogError(f"{path}: no existe el archivo del catálogo.")
     rows: list[tuple[int, T]] = []
     with path.open(encoding="utf-8", newline="") as handle:
-        for line, raw in enumerate(csv.DictReader(handle), start=2):
+        reader = csv.DictReader(handle)
+        _check_header(path, model, reader.fieldnames or [])
+        for raw in reader:
+            line = reader.line_num
             try:
                 rows.append((line, model.model_validate(raw)))
             except ValidationError as error:
@@ -56,7 +80,11 @@ def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[tuple[int, T], ...]
 
 @cache
 def load_catalog(directory: str = str(DEFAULT_DIR)) -> Catalog:
-    """Carga los tres CSV y verifica claves únicas."""
+    """Carga los tres CSV y verifica claves únicas.
+
+    El resultado se cachea por directorio durante la vida del proceso; las pruebas
+    limpian la caché con ``load_catalog.cache_clear()``.
+    """
 
     base = Path(directory)
     references = _read(base / REFERENCES, Reference)

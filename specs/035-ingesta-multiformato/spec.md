@@ -2,7 +2,7 @@
 
 **Feature Branch**: `035-ingesta-multiformato`
 **Created**: 2026-11-16
-**Status**: Draft
+**Status**: Implemented (2026-11-16)
 **Input**: User description: "La pestaña Configuración y la consola deben admitir PDF, XML, JSON, JSONL, CSV y TSV además de HTML, Markdown y TXT; los PDF conservan el número de página y avisan cuando requieren OCR, y las cargas concurrentes no pierden entradas del índice."
 
 ## User Scenarios & Testing *(mandatory)*

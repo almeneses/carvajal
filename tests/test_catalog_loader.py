@@ -1,13 +1,14 @@
 """Pruebas de la carga del catálogo curado de empaques (spec 036, T004-T006)."""
 
 import shutil
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from carvajal.catalog import CatalogError, load_catalog
-from carvajal.catalog.models import Reference
+from carvajal.catalog.models import MaterialRule, Reference
 
 FIXTURE = Path(__file__).parent / "fixtures" / "catalog"
 
@@ -42,6 +43,7 @@ def test_carga_el_catalogo_valido() -> None:
     vaso = catalogo.references[0]
     assert vaso.price == Decimal("1450.00")
     assert vaso.uses == ("bebida_caliente", "para_llevar")
+    assert catalogo.materials["PP"].source_url == "https://ejemplo.test/guia-materiales"
     sin_precio = next(ref for ref in catalogo.references if ref.country == "CO")
     assert sin_precio.price is None
     assert sin_precio.currency is None
@@ -64,6 +66,35 @@ def test_archivo_ausente(tmp_path: Path) -> None:
     (base / "distribuidores.csv").unlink()
 
     with pytest.raises(CatalogError, match="no existe"):
+        load_catalog(str(base))
+
+
+def test_cabecera_desalineada_reporta_las_columnas(tmp_path: Path) -> None:
+    """Una cabecera desalineada se reporta como esquema, no como fila inválida."""
+
+    base = _copia(tmp_path)
+    _reemplaza(base / "materiales.csv", ",applications,", ",app,")
+
+    with pytest.raises(
+        CatalogError,
+        match=r"materiales\.csv: cabecera inválida: faltan applications; sobran app",
+    ):
+        load_catalog(str(base))
+
+
+def test_fila_multilinea_reporta_la_linea_fisica(tmp_path: Path) -> None:
+    """Una celda entrecomillada con salto de línea corre la numeración lógica."""
+
+    base = _copia(tmp_path)
+    ruta = base / "referencias.csv"
+    texto = ruta.read_text(encoding="utf-8")
+    viejo = "FX-VASO-PAPEL-12,Vaso papel 12 oz bebida caliente,"
+    nuevo = 'FX-VASO-PAPEL-12,"Vaso papel\n12 oz bebida caliente",'
+    assert viejo in texto
+    ruta.write_text(texto.replace(viejo, nuevo, 1), encoding="utf-8")
+    _reemplaza(ruta, "980.00", "-1")
+
+    with pytest.raises(CatalogError, match=r"referencias\.csv:4: price"):
         load_catalog(str(base))
 
 
@@ -117,9 +148,43 @@ def test_unidades_por_caja_coherentes() -> None:
         Reference.model_validate(_fila(units_per_pack="50", packs_per_box="10"))
 
 
+def test_empaque_parcial_no_es_valido() -> None:
+    """Un paquete sin caja (o al revés) no permite calcular cajas: se rechaza."""
+
+    with pytest.raises(ValueError, match="van juntos"):
+        Reference.model_validate(_fila(units_per_pack="50"))
+    with pytest.raises(ValueError, match="van juntos"):
+        Reference.model_validate(_fila(packs_per_box="10"))
+
+
 def test_material_se_normaliza_y_url_debe_ser_http() -> None:
     """El material se guarda en mayúsculas; la fuente debe ser una URL."""
 
     assert Reference.model_validate(_fila()).material == "PP"
     with pytest.raises(ValueError, match="source_url"):
         Reference.model_validate(_fila(source_url="ficha.pdf"))
+
+
+def test_regla_de_material_exige_procedencia() -> None:
+    """La guía técnica se cita: una regla sin fuente ni fecha no es válida."""
+
+    fila: dict[str, object] = {
+        "material": "pp",
+        "temp_min_c": "0",
+        "temp_max_c": "100",
+        "microwave": "true",
+        "refrigeration": "true",
+        "freezing": "false",
+        "hot_content": "true",
+        "source_url": "https://ejemplo.test/guia-materiales",
+        "captured_at": "2026-10-23",
+    }
+
+    regla = MaterialRule.model_validate(fila)
+    assert regla.material == "PP"
+    assert regla.captured_at == date(2026, 10, 23)
+
+    for faltante in ("source_url", "captured_at"):
+        sin_fuente = {key: value for key, value in fila.items() if key != faltante}
+        with pytest.raises(ValueError, match=faltante):
+            MaterialRule.model_validate(sin_fuente)
