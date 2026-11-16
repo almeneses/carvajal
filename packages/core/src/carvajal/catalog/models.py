@@ -90,6 +90,15 @@ class Reference(_Sourced):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _empaque_completo(self) -> Self:
+        if (self.units_per_pack is None) != (self.packs_per_box is None):
+            raise ValueError(
+                "units_per_pack y packs_per_box van juntos: "
+                "deja solo units_per_box o completa el paquete y la caja"
+            )
+        return self
+
 
 class MaterialRule(_Sourced):
     """Regla técnica de la guía de materiales."""

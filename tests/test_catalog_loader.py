@@ -69,6 +69,19 @@ def test_archivo_ausente(tmp_path: Path) -> None:
         load_catalog(str(base))
 
 
+def test_cabecera_desalineada_reporta_las_columnas(tmp_path: Path) -> None:
+    """Una cabecera desalineada se reporta como esquema, no como fila inválida."""
+
+    base = _copia(tmp_path)
+    _reemplaza(base / "materiales.csv", ",applications,", ",app,")
+
+    with pytest.raises(
+        CatalogError,
+        match=r"materiales\.csv: cabecera inválida: faltan applications; sobran app",
+    ):
+        load_catalog(str(base))
+
+
 def test_sku_repetido_en_el_mismo_pais(tmp_path: Path) -> None:
     """El par SKU-país identifica la referencia."""
 
@@ -117,6 +130,15 @@ def test_unidades_por_caja_coherentes() -> None:
 
     with pytest.raises(ValueError, match="no coincide"):
         Reference.model_validate(_fila(units_per_pack="50", packs_per_box="10"))
+
+
+def test_empaque_parcial_no_es_valido() -> None:
+    """Un paquete sin caja (o al revés) no permite calcular cajas: se rechaza."""
+
+    with pytest.raises(ValueError, match="van juntos"):
+        Reference.model_validate(_fila(units_per_pack="50"))
+    with pytest.raises(ValueError, match="van juntos"):
+        Reference.model_validate(_fila(packs_per_box="10"))
 
 
 def test_material_se_normaliza_y_url_debe_ser_http() -> None:
