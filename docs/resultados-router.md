@@ -31,13 +31,42 @@ Métricas:
 
 ## Resultados
 
-Corrida del 2026-11-16, rama `feat/036-pr7-enrutadores`:
+### Corrida 1 — 2026-11-16, DeepSeek (`deepseek-chat`)
 
 | Enrutador | Preguntas | Ruta | Intención | Datos | Violaciones de material | Salidas inválidas | Latencia media (ms) | Latencia p95 (ms) | Llamadas al modelo |
 |---|---|---|---|---|---|---|---|---|---|
-| rules | 110 | 100.0% | 100.0% | 100.0% | 0 | 0 | 0.3 | 0.5 | 0 |
-| llm | — | pendiente | | | | | | | |
+| rules | 110 | 100.0% | 100.0% | 100.0% | 0 | 0 | 0.4 | 0.7 | 0 |
+| llm | 110 | 99.1% | 98.2% | 95.0% | 3 | 4 | 1316.7 | 1637.7 | 110 |
 | decision | — | pendiente | | | | | | | |
+
+Costo del LLM: unos 735 tokens de entrada y 100 de salida por decisión (logs `llm.completed`),
+es decir, unos 81 000 de entrada y 11 000 de salida para las 110 preguntas.
+
+Fallos del LLM (8) y su causa:
+
+| Pregunta | Fallo | Causa |
+|---|---|---|
+| `c-09` sopa para calentar en microondas | `microwave` perdido; EPS recomendado | **Error del adaptador** |
+| `c-10` envases para salsas aptos para microondas | `microwave` perdido; 2 referencias no aptas | **Error del adaptador** |
+| `c-03`, `c-19`, `c-21` (papel, compostables, sin icopor) | `prefers_renewable` perdido | **Error del adaptador** |
+| `n-05` «Mi nombre es Laura» | `greeting` en vez de `memory_write` | Error del LLM: el prompt no lista «mi nombre es» como preferencia |
+| `c-12` «contenedores para almuerzos» | pide aclaración en vez de recomendar | Etiqueta discutible: «almuerzo» no dice si es caliente |
+| `c-14` «bandejas para frutas» | temperatura `ambiente` en vez de `fria` | Etiqueta discutible: la fruta entera puede ir a temperatura ambiente |
+
+**Error del adaptador.** El esquema que recibía el LLM mostraba los booleanos entre comillas
+(`"microwave": "true | null"`) y el modelo respondió el texto `"true"`, que la validación
+descartaba. Las 3 violaciones de material vienen de ahí: sin «microondas», la secuencia
+comercial no excluyó el EPS. Corregido en esta misma PR: el esquema muestra `true | null` sin
+comillas y la validación acepta el texto `"true"`. Las 4 salidas inválidas no aparecían en la
+lista porque el respaldo a reglas acertaba; desde esta corrección se listan también.
+
+### Corrida 2 — pendiente
+
+Con el adaptador corregido y el mismo prompt, para aislar el efecto de la corrección:
+
+```bash
+uv run carvajal eval-router --router rules --router llm --output docs/eval/router.md
+```
 
 ### Lectura
 
@@ -45,12 +74,14 @@ Corrida del 2026-11-16, rama `feat/036-pr7-enrutadores`:
   Lo que sí demuestra es la no regresión (las 49 preguntas previas conservan la ruta del router
   de `dev`) y que ninguna recomendación viola la regla de material. Es el piso de latencia y
   costo (sin llamadas al modelo).
-- **LLM.** Pendiente de una corrida con red hacia el proveedor: el entorno donde se preparó
-  esta PR no alcanza `api.deepseek.com`. Las pruebas `tests/test_agent_routers.py` verifican
-  con un LLM falso la validación del contrato y el respaldo a reglas.
+- **LLM.** Sin el error del adaptador, sus fallos se reducen a uno claro (`n-05`) y dos casos
+  donde la etiqueta del conjunto es discutible. Cuesta unos 1,3 s y ~835 tokens por turno
+  frente a menos de 1 ms de las reglas. La regla de material nunca depende del enrutador: la
+  aplica `check_material`, pero un dato mal extraído (microondas, temperatura) sí cambia qué se
+  valida, y por eso se mide.
 - **Modelo de decisión.** Pendiente de elegir el paquete (Jev, GLiNER2.5-Decide u otro). El
   adaptador lo carga con `DECISION_MODEL=paquete.modulo:fabrica`; sin él, `eval-router`
   termina con un error controlado y el agente sigue con reglas.
 
-Para ver qué tan bien generaliza cada enrutador hace falta una segunda tanda de preguntas
-redactadas por otra persona, sin mirar las reglas.
+Para comparar la generalización hace falta un grupo de unas 30 preguntas redactadas por alguien
+que no haya visto las reglas (grupo `ciego` en `routing_questions.json`).

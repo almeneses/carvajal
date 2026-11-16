@@ -40,6 +40,7 @@ _COUNTRIES = frozenset({"MX", "CO"})
 FALLBACK_PREFIX = "salida inválida del enrutador"
 _PERIOD = re.compile(r"20\d{2}(?:-(?:0[1-9]|1[0-2]))?")
 
+# Los booleanos van sin comillas: con «"true | null"» el modelo responde el texto "true".
 OUTPUT_SCHEMA = """{
   "route": "direct | rag | tool | commercial",
   "intent": "una de las intenciones permitidas para esa ruta",
@@ -50,13 +51,13 @@ OUTPUT_SCHEMA = """{
     "use": "bebida_caliente | bebida_fria | comida_caliente | comida_fria | sopas | frituras
             | ensaladas | sandwiches | salsas | panaderia | frutas | null",
     "temperature": "caliente | fria | ambiente | null",
-    "microwave": "true | null",
+    "microwave": true | null,
     "capacity_oz": "número en onzas (convierte ml dividiendo por 29.5735) | null",
     "family": "vaso | tapa | contenedor | charola | cubierto | envase | plato | null",
     "quantity": "unidades como entero | null",
     "country": "MX | CO | null",
     "city": "ciudad tal como la escribió | null",
-    "prefers_renewable": "true | false"
+    "prefers_renewable": true | false
   },
   "reason": "una frase corta"
 }"""
@@ -91,6 +92,12 @@ def _number(value: Any) -> float | None:
     return number if number > 0 else None
 
 
+def _flag(value: Any) -> bool:
+    """Booleano del contrato; acepta también el texto «true» que algunos modelos devuelven."""
+
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+
+
 def _request(raw: Any) -> dict[str, Any]:
     """Normaliza la solicitud: un valor fuera del contrato queda en ``None``."""
 
@@ -101,7 +108,7 @@ def _request(raw: Any) -> dict[str, Any]:
     result["temperature"] = (
         data.get("temperature") if data.get("temperature") in _TEMPERATURES else None
     )
-    result["microwave"] = True if data.get("microwave") is True else None
+    result["microwave"] = True if _flag(data.get("microwave")) else None
     capacity = _number(data.get("capacity_oz"))
     result["capacity_oz"] = round(capacity, 2) if capacity else None
     result["family"] = data.get("family") if data.get("family") in _FAMILIES else None
@@ -110,7 +117,7 @@ def _request(raw: Any) -> dict[str, Any]:
     result["country"] = data.get("country") if data.get("country") in _COUNTRIES else None
     city = data.get("city")
     result["city"] = city.strip() if isinstance(city, str) and city.strip() else None
-    result["prefers_renewable"] = data.get("prefers_renewable") is True
+    result["prefers_renewable"] = _flag(data.get("prefers_renewable"))
     return result
 
 

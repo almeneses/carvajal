@@ -31,7 +31,7 @@ COMERCIAL = """```json
 {"route": "commercial", "intent": "commercial",
  "request": {"use": "bebida_caliente", "temperature": "caliente", "capacity_oz": "12",
              "family": "vaso", "quantity": 5000.0, "country": "MX", "city": null,
-             "microwave": "sí", "prefers_renewable": false, "color": "rojo"},
+             "microwave": "sí", "prefers_renewable": "true", "color": "rojo"},
  "reason": "compra de vasos"}
 ```"""
 
@@ -65,6 +65,7 @@ def test_el_llm_cumple_el_contrato_y_normaliza_la_solicitud() -> None:
     assert decision.extra["capacity_oz"] == 12.0
     assert decision.extra["quantity"] == 5000
     assert decision.extra["microwave"] is None  # «sí» no es un booleano del contrato
+    assert decision.extra["prefers_renewable"] is True  # el texto «true» sí se acepta
     assert "color" not in decision.extra
     assert decision.reason == "llm: compra de vasos"
     assert (router.calls, router.invalid) == (1, 0)
@@ -216,6 +217,7 @@ def test_la_evaluacion_cuenta_aciertos_fallos_y_salidas_invalidas() -> None:
     assert reglas.route_accuracy == 1.0
     assert reglas.material_violations == 0
     assert (fallido.invalid_outputs, fallido.model_calls) == (3, 3)
+    assert all(failure["problems"][0].startswith(FALLBACK_PREFIX) for failure in fallido.failures)
     tabla = render_report([reglas, fallido])
     assert "| rules | 110 | 100.0% |" in tabla
     assert "| llm | 3 |" in tabla

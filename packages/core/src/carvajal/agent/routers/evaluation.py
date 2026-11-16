@@ -89,6 +89,8 @@ def evaluate_router(
         problems: list[str] = []
         if decision.reason.startswith(FALLBACK_PREFIX):
             report.invalid_outputs += 1
+            # El respaldo a reglas puede acertar: el fallo del modelo se lista igual.
+            problems.append(decision.reason.split("; reglas:")[0])
         if decision.route == item["route"]:
             report.route_hits += 1
         else:
