@@ -73,7 +73,7 @@ def test_sku_repetido_en_el_mismo_pais(tmp_path: Path) -> None:
     base = _copia(tmp_path)
     _reemplaza(base / "referencias.csv", "FX-VASO-PET-16", "FX-VASO-PAPEL-12")
 
-    with pytest.raises(CatalogError, match="SKU repetido"):
+    with pytest.raises(CatalogError, match=r"referencias\.csv:3: SKU repetido .*línea 2"):
         load_catalog(str(base))
 
 
@@ -83,7 +83,7 @@ def test_material_repetido(tmp_path: Path) -> None:
     base = _copia(tmp_path)
     _reemplaza(base / "materiales.csv", "EPS,-20", "PP,-20")
 
-    with pytest.raises(CatalogError, match="material repetido"):
+    with pytest.raises(CatalogError, match=r"materiales\.csv:3: material repetido .*línea 2"):
         load_catalog(str(base))
 
 
