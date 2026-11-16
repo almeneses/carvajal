@@ -35,6 +35,7 @@ from carvajal.agent.state import Turn
 
 __all__ = [
     "COMMERCIAL_KEYS",
+    "USES",
     "empty_request",
     "extract_commercial",
     "is_custom_need",
@@ -89,6 +90,7 @@ _USES = (
     ("comida_fria", r"comidas? frias?"),
     ("comida_caliente", r"comidas? calientes?|almuerzos?"),
 )
+USES = frozenset(name for name, _ in _USES)
 _USE_TEMPERATURE = {
     "bebida_caliente": "caliente",
     "comida_caliente": "caliente",

@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, get_args
 
-from carvajal.agent.commercial_intent import empty_request
+from carvajal.agent.commercial_intent import USES, empty_request
 from carvajal.agent.router import decide_route
 from carvajal.agent.state import RouteDecision, Turn
 from carvajal.agent.tools import resolve_indicator_name
@@ -104,7 +104,8 @@ def _request(raw: Any) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
     result = empty_request()
     use = data.get("use")
-    result["use"] = use if isinstance(use, str) and use.strip() else None
+    use = use.strip() if isinstance(use, str) else None
+    result["use"] = use if use in USES else None
     result["temperature"] = (
         data.get("temperature") if data.get("temperature") in _TEMPERATURES else None
     )

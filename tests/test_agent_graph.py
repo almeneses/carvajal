@@ -8,10 +8,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.memory import InMemoryStore
 
-from apps.api.agent_runtime import _plain_postgres_url
+from apps.api.agent_runtime import _plain_postgres_url, _router
 from apps.api.chat.agent import GraphAgentRunner
 from carvajal.adapters.vector.qdrant_store import point_id
 from carvajal.agent.graph import AgentDeps, build_agent, memory_namespace
+from carvajal.agent.router import decide_route
 from carvajal.agent.tools import IndicatorResult, indicator_lookup
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
@@ -330,3 +331,17 @@ def test_el_checkpointer_postgres_recupera_el_hilo_tras_reconectar(
 def test_point_id_es_estable_para_el_mismo_chunk() -> None:
     # Act / Assert
     assert point_id(CHUNK) == point_id(CHUNK)
+
+
+def test_el_runtime_cae_a_las_reglas_si_el_enrutador_no_arranca() -> None:
+    # Arrange: nombre inexistente y «decision» sin DECISION_MODEL.
+    settings = Settings(agent_router="otro")
+    sin_modelo = Settings(agent_router="decision", decision_model="")
+
+    # Act
+    router = _router(settings)
+    router_sin_modelo = _router(sin_modelo)
+
+    # Assert
+    assert router is decide_route
+    assert router_sin_modelo is decide_route

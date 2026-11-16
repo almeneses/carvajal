@@ -71,6 +71,24 @@ def test_el_llm_cumple_el_contrato_y_normaliza_la_solicitud() -> None:
     assert (router.calls, router.invalid) == (1, 0)
 
 
+def test_el_llm_descarta_un_uso_fuera_del_catalogo() -> None:
+    # "postres" no es un uso del catálogo (aunque suene a panadería) y el espacio se recorta.
+    salida = (
+        '{"route": "commercial", "intent": "commercial", '
+        '"request": {"use": "postres", "family": "vaso"}, "reason": "compra"}'
+    )
+    con_espacios = (
+        '{"route": "commercial", "intent": "commercial", '
+        '"request": {"use": " sopas ", "family": "contenedor"}, "reason": "compra"}'
+    )
+
+    inventado = LLMRouter(FakeLLM(salida))("Necesito vasos para postres")
+    normalizado = LLMRouter(FakeLLM(con_espacios))("Necesito contenedores para sopas")
+
+    assert inventado.extra["use"] is None
+    assert normalizado.extra["use"] == "sopas"
+
+
 def test_el_llm_resuelve_el_indicador_con_el_registro_real() -> None:
     salida = (
         '{"route": "tool", "intent": "indicator", "tool_name": "ingresos", "tool_period": "2024"}'
