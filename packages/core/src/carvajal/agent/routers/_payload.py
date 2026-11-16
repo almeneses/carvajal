@@ -114,7 +114,7 @@ def _request(raw: Any) -> dict[str, Any]:
     result["capacity_oz"] = round(capacity, 2) if capacity else None
     result["family"] = data.get("family") if data.get("family") in _FAMILIES else None
     quantity = _number(data.get("quantity"))
-    result["quantity"] = int(quantity) if quantity else None
+    result["quantity"] = int(quantity) if quantity and quantity.is_integer() else None
     result["country"] = data.get("country") if data.get("country") in _COUNTRIES else None
     city = data.get("city")
     result["city"] = city.strip() if isinstance(city, str) and city.strip() else None
