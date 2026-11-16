@@ -37,6 +37,8 @@ def _regla(material: str, **extra: object) -> MaterialRule:
         "refrigeration": True,
         "freezing": False,
         "hot_content": True,
+        "source_url": f"https://ejemplo.test/guia/{material}",
+        "captured_at": date(2026, 10, 23),
     }
     datos.update(extra)
     return MaterialRule.model_validate(datos)
