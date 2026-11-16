@@ -198,6 +198,16 @@ def test_una_pregunta_intermedia_con_senal_corta_la_herencia() -> None:
     assert decide_route("caliente", turnos).route == "rag"
 
 
+def test_la_temperatura_tras_la_ciudad_cierra_la_aclaracion() -> None:
+    turnos = [_turno("busco vasos de 16 oz"), _turno("en Cali")]
+
+    decision = decide_route("caliente", turnos)
+
+    assert decision.route == "commercial"
+    assert decision.extra["city"] == "Cali"
+    assert decision.extra["temperature"] == "caliente"
+
+
 def test_una_pregunta_institucional_con_producto_y_ciudad_no_es_comercial() -> None:
     assert decide_route("¿Qué vasos vende Carvajal en Cali?").route == "rag"
     assert decide_route("¿Los vasos de 12 oz de Carvajal son compostables?").route == "rag"

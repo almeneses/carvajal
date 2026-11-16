@@ -96,6 +96,7 @@ def test_colombia_sin_ciudad_la_pide() -> None:
     resultado = _correr(use="bebida_fria", temperature="fria", country="CO")
 
     assert any(pendiente.startswith("ciudad") for pendiente in resultado["pending"])
+    assert resultado["channel"]["cities_with_distributors"] == ["Bogotá", "Medellín"]
 
 
 def test_sin_referencias_del_pais_avisa_que_falta_catalogo() -> None:
