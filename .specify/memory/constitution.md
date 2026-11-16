@@ -5,7 +5,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-15, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-16, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -75,6 +75,9 @@ con `--admin`.
 - Streamlit y FAISS siguen disponibles como extra `legacy` y se retiran en la ola 7.
 - Pendientes vivos: autenticación y cuotas por usuario (ola 4), captura programada por cron y
   endurecimiento del despliegue (TLS, dominio, respaldos).
+- La spec 035 define la carga local multiformato —PDF con texto por página y datos XML, JSON,
+  JSONL, CSV y TSV— para la web y la consola; el OCR de PDF escaneados sigue fuera de alcance.
+  El código se implementa después de aprobar el contrato.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
@@ -109,4 +112,4 @@ con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.0.0 - 2026-11-15, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.1.0 - 2026-11-16, sincronizada con `CONSTITUTION.md` del repositorio.
