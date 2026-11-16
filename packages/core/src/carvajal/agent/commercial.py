@@ -13,24 +13,36 @@ Validación de material (FR-003):
   para bebida caliente) se descarta.
 """
 
+import math
+import unicodedata
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal
 
 from carvajal.catalog.loader import Catalog, load_catalog
-from carvajal.catalog.models import Family, MaterialRule, Reference
+from carvajal.catalog.models import Distributor, Family, MaterialRule, Reference
 
 __all__ = [
+    "BULK_BOXES",
     "HOT_MIN_C",
     "RENEWABLE",
+    "BoxCount",
     "CommercialRequest",
     "Discarded",
+    "NoPriceError",
+    "Quote",
+    "boxes_for",
     "check_material",
+    "find_distributors",
+    "quote",
     "search_packaging",
 ]
 
 # Temperatura máxima que debe soportar una referencia para contenido caliente. Coincide con
 # el EPS de la guía (-20 °C / 60 °C), que la guía recomienda para comida caliente.
 HOT_MIN_C = 60.0
+# A partir de este volumen se calcula igual, pero se sugiere contacto comercial (spec 036).
+BULK_BOXES = 100
 RENEWABLE = frozenset({"PAPEL", "PULPA"})
 CAPACITY_TOLERANCE_OZ = 0.25
 _DRINK_FAMILY: dict[str, Family] = {"bebida_caliente": "vaso", "bebida_fria": "vaso"}
@@ -57,6 +69,30 @@ class Discarded:
 
     sku: str
     reason: str
+
+
+@dataclass(frozen=True)
+class BoxCount:
+    """Cajas que hay que pedir y unidades que sobran al redondear hacia arriba."""
+
+    boxes: int
+    surplus: int
+
+
+@dataclass(frozen=True)
+class Quote:
+    """Precio de referencia de un pedido; nunca es una oferta comercial (FR-005)."""
+
+    total: str
+    currency: str
+    tax_included: bool
+    captured_at: str
+    valid_until: str | None
+    notice: str
+
+
+class NoPriceError(ValueError):
+    """La referencia no publica precio: se declara, no se estima (FR-006)."""
 
 
 def search_packaging(req: CommercialRequest, *, catalog: Catalog | None = None) -> list[Reference]:
@@ -153,3 +189,68 @@ def _application_level(rule: MaterialRule, use: str | None) -> str | None:
         return None
     levels = dict(part.split("=", 1) for part in rule.applications.split("|") if "=" in part)
     return levels.get(use)
+
+
+def boxes_for(ref: Reference, units: int) -> BoxCount:
+    """Cajas completas para cubrir ``units``, con aritmética entera (FR-004)."""
+
+    if units <= 0:
+        raise ValueError("La cantidad debe ser un número positivo de unidades.")
+    boxes = math.ceil(units / ref.units_per_box)
+    return BoxCount(boxes=boxes, surplus=boxes * ref.units_per_box - units)
+
+
+def quote(ref: Reference, boxes: int, *, today: date | None = None) -> Quote:
+    """Total de referencia = cajas x precio por caja, con fecha y avisos (FR-005, FR-006)."""
+
+    if boxes <= 0:
+        raise ValueError("El número de cajas debe ser positivo.")
+    if ref.price is None or ref.currency is None or ref.tax_included is None:
+        raise NoPriceError(
+            f"{ref.name}: el catálogo no publica precio para esta referencia; "
+            "no se estima. Consulta un distribuidor."
+        )
+    taxes = "con impuestos incluidos" if ref.tax_included else "sin impuestos"
+    notes = [
+        f"Precio de referencia {taxes}, capturado el {ref.captured_at.isoformat()} de la ficha "
+        "publicada; no confirma existencias ni condiciones de venta."
+    ]
+    current = today or date.today()
+    if ref.price_valid_until is not None and ref.price_valid_until < current:
+        notes.append(
+            f"La vigencia publicada del precio terminó el {ref.price_valid_until.isoformat()}; "
+            "puede haber cambiado."
+        )
+    if boxes > BULK_BOXES:
+        notes.append(
+            f"Para más de {BULK_BOXES} cajas conviene pedir una cotización comercial por volumen."
+        )
+    return Quote(
+        total=str(ref.price * boxes),
+        currency=ref.currency,
+        tax_included=ref.tax_included,
+        captured_at=ref.captured_at.isoformat(),
+        valid_until=ref.price_valid_until.isoformat() if ref.price_valid_until else None,
+        notice=" ".join(notes),
+    )
+
+
+def find_distributors(
+    city: str, *, catalog: Catalog | None = None
+) -> tuple[list[Distributor], list[str]]:
+    """Distribuidores de la ciudad y la lista de ciudades que sí tienen (FR-008).
+
+    La ciudad se compara sin tildes ni mayúsculas. Si no hay distribuidores, la primera
+    lista viene vacía y la segunda permite ofrecer alternativas.
+    """
+
+    distributors = (catalog or load_catalog()).distributors
+    wanted = _plain(city)
+    found = [distributor for distributor in distributors if _plain(distributor.city) == wanted]
+    cities = sorted({distributor.city for distributor in distributors}, key=_plain)
+    return found, cities
+
+
+def _plain(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value.strip().lower())
+    return "".join(char for char in decomposed if not unicodedata.combining(char))

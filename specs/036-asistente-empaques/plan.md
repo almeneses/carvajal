@@ -148,9 +148,9 @@ Decisiones tomadas al curar los datos (PR 2):
 |---|---|---|---|
 | `search_packaging` | uso, capacidad, país, familia | referencias candidatas | filtro por familia (una bebida implica vaso), capacidad (±0,25 oz) y país; primero las que la ficha declara para el uso; ml → oz lo convierte el router |
 | `check_material` | referencias, temperatura, microondas | válidas y descartadas con motivo | FR-003: regla de la guía; papel y pulpa, con su ficha («contenido caliente» = uso caliente declarado o máxima ≥ 60 °C, como el EPS de la guía); una ficha declarada solo para el uso contrario se descarta |
-| `boxes_for` | referencia, unidades | cajas, excedente | `ceil`; FR-004 |
-| `quote` | referencia, cajas | total, moneda, impuestos, fecha | solo con precio; FR-005 y FR-006 |
-| `find_distributors` | ciudad | distribuidores o ciudades disponibles | FR-008 |
+| `boxes_for` | referencia, unidades | cajas, excedente | `ceil`; FR-004; cantidad no positiva es error |
+| `quote` | referencia, cajas | total, moneda, impuestos, fecha, vigencia y aviso | solo con precio (`NoPriceError` si no hay); FR-005 y FR-006; avisa vigencia vencida y sugiere cotización comercial por encima de `BULK_BOXES` (100 cajas) |
+| `find_distributors` | ciudad | distribuidores y ciudades que sí tienen | FR-008; compara sin tildes ni mayúsculas. El canal de México es `Reference.source_url` |
 
 ### Router y grafo
 
