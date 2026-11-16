@@ -136,6 +136,9 @@ class _SinRecuperacion:
     def search(self, *args: Any, **kwargs: Any) -> list[Any]:
         raise AssertionError("La ruta comercial no consulta Qdrant.")
 
+    def delete_by_document(self, document_id: str) -> None:
+        raise AssertionError("La ruta comercial no borra.")
+
 
 def test_el_grafo_enruta_a_commercial_con_el_catalogo_real() -> None:
     falso = _SinRecuperacion()
