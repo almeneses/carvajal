@@ -54,9 +54,9 @@ queda archivada.
    capturar, **Then** no se reescriben sus capas ni se recalculan sus embeddings.
 6. **Given** una página web cuyo texto cambió, **When** se vuelve a capturar, **Then** el mismo
    documento se actualiza y su versión anterior queda archivada.
-7. **Given** un archivo cuyo texto ya existe bajo otra identidad con otro nombre o formato,
-   **When** se importa, **Then** se reporta como duplicado semántico con el documento
-   existente y no se crea nada.
+7. **Given** un archivo importado o subido cuyo texto ya existe bajo otra identidad con otro
+   nombre o formato, **When** se procesa, **Then** se reporta como duplicado semántico con el
+   documento existente y no se crea nada.
 8. **Given** una carga web con dos archivos distintos llamados igual, **When** se envía,
    **Then** el primero llega a Gold y el segundo se rechaza con un mensaje que pide
    renombrarlo.
@@ -148,8 +148,8 @@ la cita lleva su origen.
 4. **Given** la evaluación de recuperación del núcleo, **When** se compara antes y después de
    indexar la capa extendida, **Then** las métricas del núcleo no empeoran.
 5. **Given** un corpus con núcleo y capa extendida, **When** se filtra el explorador por capa
-   o procedencia, **Then** solo aparecen los documentos de ese filtro y cada uno muestra su
-   origen.
+   o tipo de procedencia (`layer` o `source_type`), **Then** solo aparecen los documentos de
+   ese filtro y cada uno muestra su capa y su tipo de procedencia.
 
 ---
 
@@ -243,9 +243,9 @@ siguen funcionando igual.
   priorizar el núcleo; la capa extendida MUST completar solo cuando el núcleo devuelva menos de
   los resultados pedidos o su mejor puntaje quede por debajo del umbral de relevancia
   configurado.
-- **FR-013**: El explorador de corpus MUST mostrar `layer` y `source_type` y MUST permitir
-  filtrar por ambos. La procedencia extendida (`origin`, `category`, `entity`) se muestra en
-  la cita del chat, no en el explorador.
+- **FR-013**: El explorador de corpus MUST mostrar `layer` y `source_type` de cada documento y
+  MUST permitir filtrar por ambos. La procedencia extendida (`origin`, `category`, `entity`)
+  se muestra solo en la cita del chat; el explorador no la muestra ni filtra por ella.
 - **FR-014**: La ruta heredada `/ask` y el adaptador de vectores en PostgreSQL MUST retirarse; el
   chat MUST quedar como único camino de respuesta. Documentos y fragmentos MUST conservarse en
   PostgreSQL para la FAQ y el explorador.
@@ -258,14 +258,18 @@ siguen funcionando igual.
   archivo truncado.
 - **FR-018**: El corpus existente MUST adoptarse sin pérdida de contenido ni renombres: conserva
   su identidad actual y registra su fuente y sus huellas; la huella del original se calcula
-  desde Bronze cuando el original sigue ahí y queda vacía si no.
+  desde Bronze cuando el original sigue ahí y queda vacía si no. Si varias entradas legadas
+  resuelven la misma fuente, la más reciente conserva el `source_key` y las demás quedan como
+  versiones archivadas con identidad `legacy:<slug>`.
 - **FR-019**: Dos sincronizaciones simultáneas MUST serializarse: la segunda espera el bloqueo.
   El corpus MUST NOT quedar en un estado intermedio.
 - **FR-020**: Los límites de la carga (100 archivos y 5 MB en la web; 100 MB por archivo en la
   consola) MUST mantenerse (heredado de la spec 035).
-- **FR-021**: Si la huella del texto de un archivo ya pertenece a **otro** documento del
-  corpus, el sistema MUST reportarlo como duplicado semántico y MUST NOT crear documento,
-  capas ni fragmentos.
+- **FR-021**: Si la huella del texto de un archivo importado o subido ya pertenece a **otro**
+  documento del corpus, el sistema MUST reportarlo como duplicado semántico y MUST NOT crear
+  documento, capas ni fragmentos. La compuerta no aplica a capturas web: cada URL es una
+  fuente distinta y se registra aunque su texto coincida con el de otra página, porque la
+  identidad de la captura es la URL y la poda se apoya en ese registro.
 - **FR-022**: Dos archivos del mismo lote con la misma fuente y contenido distinto MUST
   rechazar el segundo con un error que nombre el archivo; el primero MUST procesarse.
 
@@ -314,6 +318,10 @@ siguen funcionando igual.
   necesitará.
 - Las subidas web se identifican por nombre de archivo porque el navegador no envía la ruta
   relativa; si dos archivos del mismo lote chocan, el segundo se rechaza y se pide renombrarlo.
+- Una subida web con un nombre ya registrado y contenido distinto actualiza el documento
+  (FR-004) y conserva la versión anterior; no se rechaza, porque es el mismo camino que
+  actualiza un archivo revisado. El choque que se rechaza es el de dos archivos distintos con
+  el mismo nombre en el mismo lote (FR-022).
 - La capa extendida conserva su origen, su taxonomía y su carácter de solo recuperación.
 - La columna de vectores de PostgreSQL está vacía en producción, por lo que retirarla no pierde
   datos.

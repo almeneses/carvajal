@@ -117,11 +117,12 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 - [ ] T041 [P] [US4] Probar que una pregunta con respuesta en ambas capas cita el núcleo en `tests/test_retrieval.py`
 - [ ] T042 [P] [US4] Probar que una pregunta sólo respondida por la capa extendida la cita con su origen, categoría y entidad en `tests/test_retrieval.py`
 - [ ] T043 [P] [US4] Probar que la FAQ sigue leyendo sólo documentos `core` en `tests/test_faq.py`
-- [ ] T062 [P] [US4] Probar que el explorador filtra por `source_type` y muestra `layer`/`source_type` (el filtro por capa ya está cubierto) en `tests/test_api_corpus.py`
+- [ ] T062 [P] [US4] Probar que el explorador HTML y la API del corpus filtran por `source_type` y muestran `layer`/`source_type` (el filtro por capa ya está cubierto) en `tests/test_api_corpus.py` y `tests/test_api_read.py`
 
 ### Implementación de US4
 
 - [ ] T044 [US4] Indexar en una sola corrida el núcleo y cada fuente extendida con su `layer` y su procedencia en `application/sync.py` e `indexing/qdrant.py`
+- [ ] T075 [US4] Añadir el filtro por `source_type` al explorador HTML y conservar las columnas de capa y tipo de procedencia en `apps/api/views/corpus.py` y `apps/api/templates/corpus.html`
 - [ ] T063 [US4] Extender `Document` (`domain/entities.py`), `load_document` (`adapters/storage/import_corpus.py`), el metadata de `index_gold` y `payload_for`/`Source` (`qdrant_store.py`, `application/ask.py`) con `origin`, `category` y `entity`
 - [ ] T064 [P] [US4] Probar que una cita extendida conserva los tres campos y que un documento sin ellos no falla en `tests/test_retrieval.py`
 - [ ] T045 [US4] Implementar el envoltorio de recuperación con prioridad núcleo → extendida en `packages/core/src/carvajal/application/retrieval.py`
@@ -151,8 +152,8 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 ## Phase 7: Adopción, documentación y pulido
 
-- [ ] T054 [US1] Implementar `sync --adopt` para completar `source_key` y `raw_hash` en el registro existente sin reindexar
-- [ ] T055 [US1] Probar la adopción con un índice legado (URL, slug con hash y subidas homónimas que caen a `legacy:<slug>`) en `tests/test_registry.py`
+- [ ] T054 [US1] Implementar `sync --adopt` para completar `source_key` y `raw_hash` en el registro existente sin reindexar, resolviendo las fuentes repetidas (vigente + `legacy:<slug>`)
+- [ ] T055 [US1] Probar la adopción con un índice legado (URL, slug con hash, subidas homónimas que caen a `legacy:<slug>` y dos versiones legadas de la misma subida) en `tests/test_registry.py`
 - [ ] T056 Ejecutar la adopción y la poda en el VPS siguiendo `docs/despliegue-ovh.md` y registrar el antes/después de `/health` (manual: requiere acceso al servidor)
 - [ ] T057 Documentar en `README.md` la identidad, la deduplicación, `carvajal sync` y la prioridad de capas
 - [ ] T058 Registrar en `CONSTITUTION.md` §2, §9 y §10 las decisiones de identidad, dedupe, sincronización, prioridad y retiro de pgvector

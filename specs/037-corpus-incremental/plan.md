@@ -24,7 +24,7 @@ atómica). Esta capacidad no la reescribe: la usa y la completa.
 | Registro | Los `index.jsonl` por área (`data/gold`, `data/external/*/gold`) se amplían con `source_key`, `raw_hash`, `layer` y `updated_at`; son la fuente de verdad en disco | `carvajal.gold.merge_index` |
 | Huellas | `raw_hash` = SHA-256 de los bytes originales; `content_hash` = SHA-256 del texto normalizado (ya existe) | `carvajal.domain.rules.content_hash` |
 | Procedencia | `Document` y el payload de Qdrant llevan `origin`, `category` y `entity` leídos del front matter; no se persisten en PostgreSQL | `import_corpus.load_document`, `qdrant_store.payload_for` |
-| Dedupe | Dos compuertas: `raw_hash` antes de Bronze (archivos); `content_hash` tras extraer (todo, incluido scraping) | `spec.md` FR-003, FR-005, FR-006 |
+| Dedupe | Dos compuertas: `raw_hash` antes de Bronze para archivos; `content_hash` tras extraer para detectar cambios de la misma identidad y duplicados semánticos entre archivos (no entre capturas) | `spec.md` FR-003, FR-005, FR-006, FR-021 |
 | Actualización | Misma `source_key` + texto distinto → mismo `slug`, `migrate_gold` archiva versión | `document_versions`, `migrate_gold` |
 | Sincronización | Servicio único en `packages/core/src/carvajal/application/sync.py`; usado por web, CLI y consola | `spec.md` FR-007, FR-008 |
 | Índice del chat | Una colección Qdrant con `layer` en el payload (ya existe) y poda por capa | `adapters/vector/qdrant_store.py` |
@@ -102,7 +102,8 @@ apps/api/
 ├── ingest_cli.py               # source_key por ruta relativa y dedupe
 ├── web_capture.py              # usa el sync del núcleo
 ├── main.py                     # retira /ask
-└── views/*                     # sin cambios funcionales
+├── views/corpus.py             # filtro por `source_type` del explorador
+└── templates/corpus.html       # selector de `source_type` y columnas de capa/tipo
 
 migrations/versions/
 └── 0006_drop_chunk_embeddings.py  # retira la columna de vectores
@@ -164,9 +165,15 @@ y para decidir si un documento cambió.
   `upload:<nombre>`. Para un archivo suelto, `file:<nombre>`.
 - `slug` se asigna una vez desde el nombre legible; si ya existe para otra fuente, se añade un
   sufijo numérico. No se renombra un documento existente.
-- Un documento legado sin `source_key` se adopta con la URL de su front matter o con el nombre
-  recuperable de su slug; `raw_hash` se calcula desde Bronze si existe y si no queda vacío. Si
-  el nombre recuperado no es único entre las subidas legadas, se usa `legacy:<slug>`.
+- Un documento legado sin `source_key` se adopta así: las capturas usan la URL de su front
+  matter; las subidas usan `upload:<nombre recuperable>` (el slug sin el sufijo de hash); si
+  el nombre no se puede recuperar, `legacy:<slug>`. `raw_hash` se calcula desde Bronze si
+  existe y si no queda vacío.
+- Si varias entradas legadas resuelven la misma fuente (por ejemplo, versiones sucesivas de
+  una subida homónima), la de `updated_at` —o `captured_at` en su defecto— más reciente
+  conserva el `source_key` y queda vigente; las demás pasan a `legacy:<slug>` y quedan como
+  versiones archivadas. Los slugs no se renombran y el informe de adopción registra el
+  conflicto con la entrada elegida.
 
 ### Contrato de procedencia
 
@@ -174,21 +181,30 @@ y para decidir si un documento cambió.
   `load_document`; los documentos del núcleo los dejan vacíos.
 - `index_gold` los pasa al payload de Qdrant y `Source` los expone en la cita. Un documento sin
   ellos no falla: la cita los omite.
-- No se persisten en PostgreSQL; el explorador muestra `layer` y `source_type`.
+- No se persisten en PostgreSQL; el explorador muestra `layer` y `source_type` y gana el
+  filtro por `source_type` (FR-013). `origin`, `category` y `entity` no se muestran ni se
+  filtran allí.
 
 ### Contrato de deduplicación
 
 0. Antes de escribir, validar que el lote no repita `source_key` con contenido distinto; el
    segundo se reporta y se descarta, para no sobrescribir el primero en silencio.
 1. Calcular `raw_hash` de los bytes antes de escribir Bronze.
-2. Buscar en el registro: si existe y la identidad es la misma, comparar `content_hash`; si
-   coincide, saltar; si difiere, actualizar.
-3. Si existe bajo otra identidad, reportar duplicado y saltar (sin escribir capas). La
-   comparación es por bytes, así que cubre copias y movimientos; no se re-apunta la fuente.
-4. Tras extraer, recalcular `content_hash`; si coincide con la versión vigente, saltar.
-5. Buscar `content_hash` en el registro: si pertenece a otra identidad, reportar duplicado
-   semántico y saltar.
-6. En capturas, el paso 2 usa `content_hash` (el HTML cambia aunque el texto no).
+2. Buscar el archivo en el registro por `source_key`: si existe con el mismo `raw_hash`, no
+   cambió y se salta antes de extraer; si el `raw_hash` difiere, se extrae y decide el paso 4.
+   Para archivos la compuerta temprana es `raw_hash`, no `content_hash`, que solo existe tras
+   extraer.
+3. Si el `raw_hash` pertenece a otra identidad, reportar duplicado exacto y saltar (sin
+   escribir capas). La comparación es por bytes, así que cubre copias y movimientos; no se
+   re-apunta la fuente.
+4. Tras extraer, recalcular `content_hash`; si coincide con la versión vigente de la misma
+   identidad, saltar sin reescribir capas ni embeddings; si difiere, actualizar el mismo
+   documento.
+5. Buscar `content_hash` en el registro solo para archivos (consola y subida web): si
+   pertenece a otra identidad, reportar duplicado semántico y saltar. Una captura con texto
+   igual al de otra URL se registra como documento propio.
+6. En capturas, el paso 2 compara el `content_hash` de la versión vigente de esa URL (el HTML
+   puede cambiar aunque el texto no); no se aplica la deduplicación semántica entre URLs.
 
 ### Contrato de sincronización
 
@@ -227,7 +243,8 @@ La FAQ no cambia: lee `layer=core` de PostgreSQL.
 
 ### Migración del corpus existente
 
-1. `carvajal sync --adopt` completa `source_key` y `raw_hash` en el registro sin reindexar.
+1. `carvajal sync --adopt` completa `source_key` y `raw_hash` en el registro sin reindexar y
+   resuelve las fuentes repetidas (la más reciente queda vigente y el resto en `legacy:<slug>`).
 2. `carvajal sync --prune` reconcilia ambos almacenes.
 3. Los slugs actuales se conservan; no hay renombres ni pérdida de versiones.
 
@@ -242,7 +259,7 @@ La FAQ no cambia: lee `layer=core` de PostgreSQL.
 | Prioridad mal ajustada esconde respuestas del núcleo | Umbral y límite configurables; evaluación antes/después con `make index-eval`. |
 | Retirar pgvector rompe `/ask` o pruebas heredadas | Se elimina la ruta, el adaptador y sus pruebas en el mismo cambio; migración reversible. |
 | Fallo a mitad de sincronización | Gold es la fuente; el registro y el índice del corpus se escriben al final; prueba de reejecución. |
-| Duplicado semántico falso positivo (misma nota sindicada en dos fuentes) | Se reporta con el documento existente; el operador decide renombrar o conservar una sola copia. |
+| Duplicado semántico falso positivo entre archivos (misma nota en dos archivos) | Se reporta con el documento existente; el operador decide renombrar o conservar una sola copia. Las capturas web no entran en esta compuerta: cada URL es una fuente. |
 | Colisión de nombres en una carga web | El segundo archivo del lote se rechaza con su nombre; no se sobrescribe el primero. |
 | Documento extendido sin `origin`, `category` o `entity` | La cita los omite; el indexador no falla y el payload queda con cadenas vacías. |
 
