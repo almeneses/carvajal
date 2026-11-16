@@ -182,6 +182,25 @@ def test_dos_aclaraciones_seguidas_conservan_lo_anterior() -> None:
     assert decision.extra["country"] == "CO"
 
 
+def test_la_ciudad_heredada_no_sustituye_la_temperatura_obligatoria() -> None:
+    turnos = [_turno("busco vasos de 16 oz")]
+
+    decision = decide_route("en Cali", turnos)
+
+    assert decision.intent == "commercial_clarify"
+    assert decision.extra["family"] == "vaso"
+    assert decision.extra["city"] == "Cali"
+
+
+def test_una_pregunta_institucional_con_producto_y_ciudad_no_es_comercial() -> None:
+    assert decide_route("¿Qué vasos vende Carvajal en Cali?").route == "rag"
+    assert decide_route("¿Los vasos de 12 oz de Carvajal son compostables?").route == "rag"
+
+
+def test_la_temperatura_mantiene_comercial_la_pregunta_sobre_carvajal() -> None:
+    assert decide_route("¿Carvajal tiene vasos para café caliente?").route == "commercial"
+
+
 @pytest.mark.parametrize(
     "texto",
     [

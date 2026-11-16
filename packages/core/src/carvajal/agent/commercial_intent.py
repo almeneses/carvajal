@@ -256,6 +256,16 @@ def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[s
 
     product, data = _extract(question)
     if product:
+        # Una pregunta institucional que menciona a Carvajal (nombre del producto,
+        # capacidad, ciudad o preferencia) no es una compra; solo la temperatura o el
+        # uso explícitos la acercan a la ruta comercial.
+        if (
+            "carvajal" in _plain(question)
+            and not data.get("_intent")
+            and data.get("temperature") is None
+            and data.get("use") is None
+        ):
+            return None
         return _complete(data) if _has_signal(data) else None
     # Respuesta corta a una aclaración: hereda la solicitud de los turnos anteriores.
     if (
