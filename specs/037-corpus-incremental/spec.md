@@ -257,7 +257,8 @@ siguen funcionando igual.
   mutuamente entre procesos; dos escrituras simultáneas MUST NOT perder entradas ni dejar el
   archivo truncado.
 - **FR-018**: El corpus existente MUST adoptarse sin pérdida de contenido ni renombres: conserva
-  su identidad actual y registra su fuente y sus huellas cuando estén disponibles.
+  su identidad actual y registra su fuente y sus huellas; la huella del original se calcula
+  desde Bronze cuando el original sigue ahí y queda vacía si no.
 - **FR-019**: Dos sincronizaciones simultáneas MUST serializarse: la segunda espera el bloqueo.
   El corpus MUST NOT quedar en un estado intermedio.
 - **FR-020**: Los límites de la carga (100 archivos y 5 MB en la web; 100 MB por archivo en la

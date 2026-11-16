@@ -125,8 +125,8 @@ necesitan la web y la consola; `apps/api` queda como interfaz. El registro se ap
 
 ## Phase 0: Investigación
 
-- Confirmar que Qdrant permite borrar por filtro `document_id` y podar por `layer` sin recrear
-  la colección (cliente `qdrant-client` 1.15 ya instalado).
+- Confirmar que `delete_by_document` (ya existente) y el filtro por `layer` cubren el borrado
+  incremental y la poda sin recrear la colección (cliente `qdrant-client` 1.15).
 - Verificar que `migrate_gold` archiva una versión sólo cuando cambia el cuerpo y no duplica
   fragmentos (ya probado en `tests/test_import_corpus.py`).
 - Confirmar que la columna `chunks.embedding` está vacía en producción antes de eliminarla
