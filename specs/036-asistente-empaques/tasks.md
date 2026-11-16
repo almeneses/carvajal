@@ -65,16 +65,17 @@
 
 **PR 5 — Cálculo y cotización**
 
-- [ ] T021 [US2] `boxes_for` con redondeo hacia arriba y excedente
-- [ ] T022 [US2] `quote` con moneda, impuestos, fecha y aviso; error explícito sin precio
-- [ ] T023 [US2] Aviso de oferta vencida cuando la vigencia capturada ya pasó
-- [ ] T024 [P] [US2] Pruebas de los escenarios 1–4 de la US2 y del borde «más de 100 cajas»
+- [X] T021 [US2] `boxes_for` con redondeo hacia arriba y excedente
+- [X] T022 [US2] `quote` con moneda, impuestos, fecha y aviso; error explícito sin precio
+- [X] T023 [US2] Aviso de oferta vencida cuando la vigencia capturada ya pasó
+- [X] T024 [P] [US2] Pruebas de los escenarios 1–4 de la US2 y del borde «más de 100 cajas»
 
 ## Phase 5: User Story 3 — Dónde comprar (P2)
 
-- [ ] T025 [US3] `find_distributors` por ciudad, con lista de ciudades disponibles si no hay
-- [ ] T026 [US3] Canal MX: enlace de la ficha; país ausente → aclaración
-- [ ] T027 [P] [US3] Pruebas de los escenarios 1–4 de la US3
+- [X] T025 [US3] `find_distributors` por ciudad, con lista de ciudades disponibles si no hay
+- [X] T026 [US3] Canal MX: enlace de la ficha; país ausente → aclaración (el enlace es
+      `Reference.source_url`; la aclaración por país la hace el router, T018)
+- [X] T027 [P] [US3] Pruebas de los escenarios 1–4 de la US3
 
 **PR 6 — Tarjetas en la interfaz**
 
