@@ -115,7 +115,9 @@
             avisar(
               evento.datos.route === "tool"
                 ? "Consultando la herramienta…"
-                : evento.datos.route === "direct"
+                : evento.datos.route === "commercial"
+                  ? "Consultando el catálogo de empaques…"
+                  : evento.datos.route === "direct"
                   ? "Respondiendo sin búsqueda…"
                   : "Buscando en el corpus…",
             );
@@ -126,6 +128,9 @@
               : [];
             pintarFuentes(turnoAsistente, evento.datos.sources);
             avisar("Redactando…");
+            break;
+          case "products":
+            pintarProductos(turnoAsistente, String(evento.datos.html ?? ""));
             break;
           case "token": {
             const fragmento = String(evento.datos.text ?? "");
@@ -228,6 +233,17 @@
     nodo.classList.add("texto-formateado");
     nodo.dataset.formateado = "1";
     if (animar) formateador.animar(nodo, { forzar: true });
+  }
+
+  // Tarjetas de la ruta comercial (spec 036). El HTML llega renderizado y escapado por
+  // Jinja en el servidor (_productos.html), igual que los parciales que inserta app.js.
+  function pintarProductos(turno, html) {
+    turno.querySelector(".productos")?.remove();
+    if (!html) return;
+    const plantilla = document.createElement("template");
+    plantilla.innerHTML = html;
+    const tarjetas = plantilla.content.firstElementChild;
+    if (tarjetas) turno.querySelector(".burbuja")?.after(tarjetas);
   }
 
   function pintarTraza(datos) {

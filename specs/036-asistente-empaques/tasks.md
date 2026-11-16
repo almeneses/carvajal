@@ -83,10 +83,11 @@
 
 **PR 6 — Tarjetas en la interfaz**
 
-- [ ] T028 [US1] [US2] [US3] `apps/api/templates/_productos.html`: nombre, SKU, material,
+- [X] T028 [US1] [US2] [US3] `apps/api/templates/_productos.html`: nombre, SKU, material,
       unidades por caja, precio de referencia con fecha y fuente
-- [ ] T029 [US1] Integrar las tarjetas en `_chat_stream.html` cuando la ruta es `commercial`
-- [ ] T030 [P] Prueba de renderizado del parcial con y sin precio
+- [X] T029 [US1] Integrar las tarjetas en el chat cuando la ruta es `commercial` (evento SSE
+      `products` con el parcial renderizado en el servidor; `chat-stream.js` lo inserta)
+- [X] T030 [P] Prueba de renderizado del parcial con y sin precio
 
 ## Phase 6: User Story 4 — Enrutar sin romper lo existente (P2)
 
