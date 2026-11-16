@@ -351,7 +351,7 @@ def write_references(
                     raise ValueError(f"{REFERENCES}:{line}: {error}") from error
     missing = sorted(set(existing_mx) - {reference.sku for reference in mx})
     if missing:
-        listed = ", ".join(missing[:5]) + ("…" if len(missing) > 5 else "")
+        listed = ", ".join(missing)  # listado completo: la baja debe ser auditable
         if not allow_missing:
             raise ValueError(
                 f"{REFERENCES}: el corpus no incluye {len(missing)} referencia(s) ya presentes "
@@ -386,24 +386,34 @@ def _replace_all(staged: list[tuple[Path, Path]]) -> None:
     """Reemplaza varios temporales y restaura los destinos si uno falla."""
 
     backups: list[tuple[Path, Path | None]] = []
-    for _, target in staged:
-        backup = None
-        if target.is_file():
-            backup = target.with_name(f".{target.name}.bak")
-            backup.write_bytes(target.read_bytes())
-        backups.append((target, backup))
     replaced: list[Path] = []
     try:
+        # Los respaldos se crean dentro del ``try``: si su escritura falla, el
+        # ``finally`` borra los temporales y cualquier ``.bak`` parcial.
+        for _, target in staged:
+            backup = None
+            if target.is_file():
+                backup = target.with_name(f".{target.name}.bak")
+                backups.append((target, backup))
+                backup.write_bytes(target.read_bytes())
+            else:
+                backups.append((target, None))
         for temporary, target in staged:
             temporary.replace(target)
             replaced.append(target)
-    except OSError:
+    except OSError as error:
         for target, backup in backups:
-            if target in replaced:
+            if target not in replaced:
+                continue
+            try:
                 if backup is None:
                     target.unlink(missing_ok=True)
                 else:
                     backup.replace(target)
+            except OSError as restore_error:
+                # Se conserva el error original y se deja constancia del fallo de
+                # restauración en su nota; nunca se silencia la causa inicial.
+                error.add_note(f"no se pudo restaurar {target.name}: {restore_error}")
         raise
     finally:
         for _, backup in backups:

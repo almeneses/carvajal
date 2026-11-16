@@ -212,7 +212,8 @@ def test_baja_autorizada_queda_en_las_notas(tmp_path: Path) -> None:
 
     assert len(notas) == 1
     assert "baja autorizada" in notas[0]
-    assert "FX-VASO-PAPEL-12" in notas[0]
+    for sku in ("FX-VASO-PAPEL-12", "FX-VASO-PET-16", "FX-CONT-EPS-7X7", "FX-ENV-PP-4"):
+        assert sku in notas[0]  # listado completo, sin truncar a cinco
 
 
 def test_manifest_falla_no_toca_el_csv(tmp_path: Path) -> None:
@@ -305,6 +306,73 @@ def test_si_falla_el_reemplazo_del_manifest_restaura_el_csv(
 
     assert archivo.read_text(encoding="utf-8") == original_csv
     assert manifiesto.read_text(encoding="utf-8") == original_manifest
+    assert not list(base.glob(".*.tmp"))
+    assert not list(base.glob(".*.bak"))
+
+
+def test_si_falla_el_respaldo_no_quedan_temporales(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un fallo al crear el respaldo no deja ``.tmp`` ni ``.bak`` huérfanos."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    archivo = base / "referencias.csv"
+    original = archivo.read_text(encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+    real_write_bytes = Path.write_bytes
+
+    def write_bytes(self: Path, data: bytes) -> int:
+        if self.name.endswith(".bak"):
+            raise OSError("disco lleno")
+        return real_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", write_bytes)
+
+    with pytest.raises(OSError, match="disco lleno"):
+        write_references(
+            base,
+            [referencia],
+            allow_missing=True,
+            manifest=("referencias_mx", {"rows": 1}),
+        )
+
+    assert archivo.read_text(encoding="utf-8") == original
+    assert not list(base.glob(".*.tmp"))
+    assert not list(base.glob(".*.bak"))
+
+
+def test_si_falla_la_restauracion_se_conserva_el_error_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El error de restauración se anota, pero se relanza la causa original."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    (base / "manifest.json").write_text('{"spec": "036-asistente-empaques"}\n', encoding="utf-8")
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+    real_replace = Path.replace
+
+    def replace(self: Path, target: Path) -> Path:
+        if self.name == ".manifest.json.tmp":
+            raise OSError("sin espacio")
+        if self.name == ".referencias.csv.bak":
+            raise OSError("permiso denegado")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace)
+
+    with pytest.raises(OSError, match="sin espacio") as excinfo:
+        write_references(
+            base,
+            [referencia],
+            allow_missing=True,
+            manifest=("referencias_mx", {"rows": 1}),
+        )
+
+    assert any("no se pudo restaurar referencias.csv" in note for note in excinfo.value.__notes__)
     assert not list(base.glob(".*.tmp"))
     assert not list(base.glob(".*.bak"))
 
@@ -421,7 +489,35 @@ def test_catalog_build_no_crea_un_catalogo_vacio_sin_allow_missing(
 
     assert codigo == 1
     assert not salida.exists()
-    assert "allow-missing" in capsys.readouterr().out
+    assert "No existe el directorio" in capsys.readouterr().out
+
+
+def test_catalog_build_no_crea_directorio_ni_con_allow_missing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--allow-missing`` tampoco debe inventar un ``--out`` inexistente."""
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "ficha.html").write_text(_ficha(), encoding="utf-8")
+    salida = tmp_path / "ruta-equivocada"
+
+    codigo = main(
+        [
+            "catalog-build",
+            "--corpus",
+            str(corpus),
+            "--captured-at",
+            "2026-10-23",
+            "--out",
+            str(salida),
+            "--allow-missing",
+        ]
+    )
+
+    assert codigo == 1
+    assert not salida.exists()
+    assert "No existe el directorio" in capsys.readouterr().out
 
 
 def test_orden_catalog_build_aborta_si_falta_una_referencia(

@@ -320,13 +320,18 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         out = args.out or DEFAULT_DIR
         references_file = out / REFERENCES
+        if not out.is_dir():
+            print(
+                f"No existe el directorio del catálogo: {out}; créalo antes de regenerar "
+                "para no escribir en una ruta equivocada."
+            )
+            return 1
         if not references_file.is_file() and not args.allow_missing:
             print(
                 f"No existe {references_file}: revisa --out o usa --allow-missing para "
                 "crear un catálogo nuevo (se perderían las filas curadas a mano)."
             )
             return 1
-        out.mkdir(parents=True, exist_ok=True)
         pages = sorted(args.corpus.rglob("*.html"))
         references, notes = build_mx_references(pages, args.captured_at)
         if not references:
