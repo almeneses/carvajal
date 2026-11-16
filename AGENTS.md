@@ -158,6 +158,8 @@ En OpenCode la preferencia se aplica automáticamente mediante la regla
 - `packages/core/src/carvajal/` — código del paquete (src-layout, módulo `uv_build`).
 - `tests/` — pruebas con `pytest` (patrón AAA).
 - `docs/` — documentación, ADRs y notas de investigación.
+- `docs/agentes/` — prompts de arranque por pista para sesiones con IA. Si existe uno para
+  tu tarea, úsalo como punto de partida; se cambia por PR, como cualquier contrato.
 - `CONSTITUTION.md` — fuente única de verdad.
 - Estilo impuesto por **Ruff** (`line-length = 100`, comillas dobles).
 - Idioma: UI, comentarios y commits en español; identificadores en inglés.
