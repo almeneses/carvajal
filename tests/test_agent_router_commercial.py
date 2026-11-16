@@ -162,6 +162,18 @@ def test_un_saludo_intermedio_no_pierde_la_aclaración() -> None:
     assert decision.extra["capacity_oz"] == 16.0
 
 
+def test_dos_aclaraciones_seguidas_conservan_lo_anterior() -> None:
+    turnos = [_turno("busco vasos de 16 oz"), _turno("caliente")]
+
+    decision = decide_route("en Cali", turnos)
+
+    assert decision.route == "commercial"
+    assert decision.extra["capacity_oz"] == 16.0
+    assert decision.extra["temperature"] == "caliente"
+    assert decision.extra["city"] == "Cali"
+    assert decision.extra["country"] == "CO"
+
+
 @pytest.mark.parametrize(
     "texto",
     [
