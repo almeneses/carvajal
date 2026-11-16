@@ -89,6 +89,9 @@ todavía y que al sincronizar aparece una sola vez.
    converge al mismo estado que si hubiera terminado, sin documentos repetidos ni huérfanos.
 4. **Given** un documento eliminado del corpus, **When** se sincroniza con poda, **Then** deja
    de aparecer en el chat, la FAQ y el explorador.
+5. **Given** un corpus con diferencias entre Gold y un almacén, **When** se ejecuta la
+   sincronización en modo verificación, **Then** informa la diferencia y sale con código
+   distinto de cero sin escribir.
 
 ---
 
@@ -203,7 +206,7 @@ siguen funcionando igual.
 ### Functional Requirements
 
 - **FR-001**: Cada documento MUST tener una identidad estable derivada de su fuente canónica:
-  URL normalizada para capturas, ruta relativa para importaciones de consola y nombre de
+  URL normalizada para capturas, ruta relativa a la raíz importada para la consola y nombre de
   archivo para subidas web. La huella del contenido MUST NOT formar parte de una identidad
   nueva.
 - **FR-002**: El sistema MUST conservar un registro persistente que asocie fuente, identidad,
@@ -216,14 +219,17 @@ siguen funcionando igual.
 - **FR-004**: Si una fuente ya conocida llega con contenido distinto, el sistema MUST actualizar
   el mismo documento y archivar la versión anterior; MUST NOT crear un documento nuevo.
 - **FR-005**: Tras la extracción, la huella del texto normalizado MUST compararse con la versión
-  vigente. Si no cambió, el sistema MUST NOT reescribir capas ni recalcular embeddings.
-- **FR-006**: Las capturas web MUST usar la URL normalizada como identidad y la huella del texto
-  para detectar cambios, porque los bytes del HTML cambian sin que cambie el contenido.
+  vigente. Si no cambió, el sistema MUST NOT reescribir capas ni recalcular embeddings. La
+  misma compuerta aplica a las capturas.
+- **FR-006**: Las capturas web MUST usar la URL normalizada como identidad; los bytes del HTML
+  cambian sin que cambie el contenido, por eso el cambio se decide por la huella del texto.
 - **FR-007**: Todo camino de entrada —subida web, captura web, captura por consola e importación
   de carpeta— MUST terminar sincronizando los documentos afectados con PostgreSQL y con el
   índice vectorial del chat.
 - **FR-008**: El sistema MUST ofrecer una sincronización explícita que reconcilie el corpus en
-  disco con ambos almacenes, de forma incremental, idempotente y repetible tras un fallo.
+  disco con ambos almacenes, de forma incremental, idempotente y repetible tras un fallo, y un
+  modo de verificación que compare huellas y conteos entre Gold, PostgreSQL y Qdrant sin
+  escribir, con salida distinta de cero si difieren.
 - **FR-009**: La sincronización MUST NOT recalcular embeddings de documentos sin cambios; para
   los cambiados MUST reemplazar sus fragmentos y puntos sin dejar residuos de la versión
   anterior.
@@ -234,7 +240,9 @@ siguen funcionando igual.
   campos viajan en el payload de recuperación; si un documento no los declara, la cita los
   omite sin fallar.
 - **FR-012**: Cuando núcleo y capa extendida respondan a la misma pregunta, la recuperación MUST
-  priorizar el núcleo; la capa extendida MUST completar solo cuando el núcleo no alcance.
+  priorizar el núcleo; la capa extendida MUST completar solo cuando el núcleo devuelva menos de
+  los resultados pedidos o su mejor puntaje quede por debajo del umbral de relevancia
+  configurado.
 - **FR-013**: El explorador de corpus MUST mostrar `layer` y `source_type` y MUST permitir
   filtrar por ambos. La procedencia extendida (`origin`, `category`, `entity`) se muestra en
   la cita del chat, no en el explorador.
@@ -250,10 +258,10 @@ siguen funcionando igual.
   archivo truncado.
 - **FR-018**: El corpus existente MUST adoptarse sin pérdida de contenido ni renombres: conserva
   su identidad actual y registra su fuente y sus huellas cuando estén disponibles.
-- **FR-019**: Dos sincronizaciones simultáneas MUST serializarse o rechazarse de forma explícita;
-  el corpus MUST NOT quedar en un estado intermedio.
+- **FR-019**: Dos sincronizaciones simultáneas MUST serializarse: la segunda espera el bloqueo.
+  El corpus MUST NOT quedar en un estado intermedio.
 - **FR-020**: Los límites de la carga (100 archivos y 5 MB en la web; 100 MB por archivo en la
-  consola) MUST mantenerse.
+  consola) MUST mantenerse (heredado de la spec 035).
 - **FR-021**: Si la huella del texto de un archivo ya pertenece a **otro** documento del
   corpus, el sistema MUST reportarlo como duplicado semántico y MUST NOT crear documento,
   capas ni fragmentos.
@@ -270,7 +278,7 @@ siguen funcionando igual.
 - **Versión**: contenido vigente y anteriores de un documento, identificados por la huella del
   texto y la fecha de captura.
 - **Registro del corpus**: asociación persistente entre fuente, identidad, huellas, capa y
-  estado de sincronización.
+  fecha de actualización.
 - **Informe de corrida**: conteos de nuevos, actualizados, sin cambios, duplicados y errores,
   con el motivo por elemento.
 
@@ -284,8 +292,9 @@ siguen funcionando igual.
   las M como duplicadas.
 - **SC-003**: Modificar un archivo y reimportarlo actualiza un único documento y archiva una
   única versión; el conteo total no cambia.
-- **SC-004**: El 100 % de los documentos presentes en Gold es recuperable por el chat después de
-  cualquier camino de entrada, verificado con una muestra de preguntas.
+- **SC-004**: Para una muestra de hasta diez documentos por capa, una consulta por el título del
+  documento lo devuelve en el top-10; el 100 % de la muestra es recuperable después de
+  cualquier camino de entrada.
 - **SC-005**: Una sincronización sin cambios recalcula cero embeddings y deja el mismo número de
   puntos.
 - **SC-006**: Las métricas de recuperación del núcleo (Recall@10 y nDCG@10) no empeoran al

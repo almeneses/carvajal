@@ -30,7 +30,7 @@ atómica). Esta capacidad no la reescribe: la usa y la completa.
 | Índice del chat | Una colección Qdrant con `layer` en el payload (ya existe) y poda por capa | `adapters/vector/qdrant_store.py` |
 | Prioridad | Envoltura del puerto `VectorStore` que busca núcleo y completa con extendida | `application/ports.py`, `agent/graph.py` |
 | Consola | Comando nuevo en `packages/core/src/carvajal/cli.py`; la consola de carpetas de 035 se mantiene | `apps/api/ingest_cli.py` |
-| Concurrencia | `flock` sobre `data/.corpus.lock` para escrituras y sincronización; índice atómico | `gold.merge_index` |
+| Concurrencia | `flock` sobre `data/.corpus.lock` para escrituras y sincronización; índice del corpus atómico | `gold.merge_index` |
 | Persistencia | PostgreSQL para texto/FAQ/explorador; Qdrant para recuperación del chat | `apps/api/runtime.py` |
 | Pruebas | pytest con dobles inyectados; integración para Postgres/Qdrant | `tests/` |
 
@@ -92,10 +92,10 @@ packages/core/src/carvajal/
 ├── domain/entities.py          # Document con la procedencia extendida
 ├── adapters/storage/import_corpus.py  # lee origin/category/entity del front matter
 ├── gold.py                     # merge_index admite los campos nuevos
-├── cli.py                      # `sync` y `--no-sync`/`--solo-gold` en capture
+├── cli.py                      # `sync`, `index-qdrant --layer` y `--solo-gold` en capture
 ├── pipeline.py                 # compuerta de texto sin cambios y registro
 ├── indexing/qdrant.py          # varios directorios/capas, incremental y borrado por documento
-└── adapters/vector/qdrant_store.py  # delete_document, payload y poda por capa
+└── adapters/vector/qdrant_store.py  # delete_by_document, payload y poda por capa
 
 apps/api/
 ├── ingestion.py                # dedupe raw + identidad + sync de núcleo
@@ -154,17 +154,19 @@ Cada entrada de `index.jsonl` conserva sus campos actuales y añade:
 }
 ```
 
-`carvajal.registry` carga y fusiona los índices de todas las áreas; `merge_index` sigue siendo
-la única escritura (atómica y bloqueada). El registro es la fuente para deduplicar y para
-decidir si un documento cambió.
+`carvajal.registry` carga y fusiona los índices del corpus de todas las áreas; `merge_index`
+sigue siendo la única escritura (atómica y bloqueada). El registro es la fuente para deduplicar
+y para decidir si un documento cambió.
 
 ### Contrato de identidad
 
-- `source_key` = `url:<normalizada>`, `file:<ruta relativa>` o `upload:<nombre>`.
+- `source_key` = `url:<normalizada>`, `file:<basename de la raíz>/<ruta relativa>` o
+  `upload:<nombre>`. Para un archivo suelto, `file:<nombre>`.
 - `slug` se asigna una vez desde el nombre legible; si ya existe para otra fuente, se añade un
   sufijo numérico. No se renombra un documento existente.
 - Un documento legado sin `source_key` se adopta con la URL de su front matter o con el nombre
-  recuperable de su slug; `raw_hash` se calcula desde Bronze si existe y si no queda vacío.
+  recuperable de su slug; `raw_hash` se calcula desde Bronze si existe y si no queda vacío. Si
+  el nombre recuperado no es único entre las subidas legadas, se usa `legacy:<slug>`.
 
 ### Contrato de procedencia
 
@@ -190,7 +192,7 @@ decidir si un documento cambió.
 
 ### Contrato de sincronización
 
-`sync_corpus(layers, prune=False, only=None)`:
+`sync_corpus(layers, prune=False, only=None, verify=False)`:
 
 1. Cargar el registro y los documentos de cada directorio de capa.
 2. Comparar `content_hash` con PostgreSQL: `migrate_gold` upserta y archiva versiones; con
@@ -200,9 +202,11 @@ decidir si un documento cambió.
    `document_id` ya no existe.
 4. Informar `nuevos`, `actualizados`, `sin_cambios`, `duplicados`, `podados`, `errores`.
 5. Cualquier fallo por documento no aborta el resto; el siguiente `sync` converge.
+6. Con `verify=True` no escribe: compara huellas y conteos entre Gold, PostgreSQL y Qdrant y
+   devuelve las diferencias.
 
-La sincronización y las escrituras comparten `data/.corpus.lock`; el índice conserva su bloqueo
-interno.
+La sincronización y las escrituras comparten `data/.corpus.lock`; dos sincronizaciones se
+serializan (la segunda espera) y el índice del corpus (JSONL) conserva su bloqueo interno.
 
 ### Contrato de recuperación con prioridad
 
@@ -216,6 +220,8 @@ La FAQ no cambia: lee `layer=core` de PostgreSQL.
 - `carvajal sync [--layer core|extended|all] [--prune] [--verify]`.
 - `carvajal capture` termina en `sync_corpus` con los slugs capturados; `--solo-gold` se
   detiene en Gold para pruebas o trabajo sin base.
+- `carvajal index-qdrant [--layer core|extended|all]` indexa la capa elegida en una sola
+  corrida; `make index` e `make index-eval` usan `--layer all`.
 - `python -m apps.api.ingest_cli` mantiene sus banderas y gana dedupe por `raw_hash` y
   `source_key` por ruta relativa.
 
@@ -229,13 +235,13 @@ La FAQ no cambia: lee `layer=core` de PostgreSQL.
 
 | Riesgo | Mitigación |
 |---|---|
-| Adopción incompleta deja dos identidades para el mismo documento | Prueba de adopción con los índices reales; `--verify` reporta documentos sin `source_key`. |
+| Adopción incompleta deja dos identidades para el mismo documento | Prueba de adopción con los índices del corpus reales; `--verify` reporta documentos sin `source_key`. |
 | Borrado por `document_id` elimina puntos de otro documento | El filtro usa el `document_id` exacto del payload; prueba con dos documentos que comparten título. |
 | Poda global borra lo no tocado | La poda se limita a la capa sincronizada y al conjunto válido de esa corrida. |
 | Indexación incremental deja fragmentos viejos | Borrar por documento antes de insertar; prueba de documento acortado. |
 | Prioridad mal ajustada esconde respuestas del núcleo | Umbral y límite configurables; evaluación antes/después con `make index-eval`. |
 | Retirar pgvector rompe `/ask` o pruebas heredadas | Se elimina la ruta, el adaptador y sus pruebas en el mismo cambio; migración reversible. |
-| Fallo a mitad de sincronización | Gold es la fuente; el registro y el índice se escriben al final; prueba de reejecución. |
+| Fallo a mitad de sincronización | Gold es la fuente; el registro y el índice del corpus se escriben al final; prueba de reejecución. |
 | Duplicado semántico falso positivo (misma nota sindicada en dos fuentes) | Se reporta con el documento existente; el operador decide renombrar o conservar una sola copia. |
 | Colisión de nombres en una carga web | El segundo archivo del lote se rechaza con su nombre; no se sobrescribe el primero. |
 | Documento extendido sin `origin`, `category` o `entity` | La cita los omite; el indexador no falla y el payload queda con cadenas vacías. |
