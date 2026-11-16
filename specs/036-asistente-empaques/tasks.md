@@ -29,14 +29,15 @@
 
 **PR 2 — Datos curados**
 
-- [ ] T007 `catalog/build.py` y orden `catalog-build`: fichas de la tienda MX →
+- [X] T007 `catalog/build.py` y orden `catalog-build`: fichas de la tienda MX →
       `referencias.csv` con `source_url` y `captured_at`
-- [ ] T008 [P] Transcribir la guía de materiales a `materiales.csv` (con la fuente y la fecha
+- [X] T008 [P] Transcribir la guía de materiales a `materiales.csv` (con la fuente y la fecha
       de captura de la guía) y revisarla contra el PDF
 - [ ] T009 [P] Transcribir el catálogo PDF a filas de `referencias.csv` (país CO, sin precio)
-- [ ] T010 [P] Transcribir el directorio a `distribuidores.csv`
-- [ ] T011 `manifest.json` con fuente, fecha de captura, conteos y filas curadas a mano
-- [ ] T012 Prueba de integridad: todo material de `referencias.csv` existe en
+      — se separa en la PR 2b para no bloquear la PR 3
+- [X] T010 [P] Transcribir el directorio a `distribuidores.csv`
+- [X] T011 `manifest.json` con fuente, fecha de captura, conteos y filas curadas a mano
+- [X] T012 Prueba de integridad: todo material de `referencias.csv` existe en
       `materiales.csv` o queda marcado como excluido de filtros de temperatura
 
 ## Phase 3: User Story 1 — Recomendación técnicamente válida (P1) 🎯 MVP

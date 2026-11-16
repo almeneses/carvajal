@@ -180,6 +180,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--batch-size", type=int, default=32, help="Fragmentos por lote de embeddings."
     )
 
+    catalog_parser = subparsers.add_parser(
+        "catalog-build",
+        help=(
+            "Regenera las referencias de México del catálogo de empaques (spec 036) desde "
+            "el corpus capturado; conserva las filas curadas a mano de otros países."
+        ),
+    )
+    catalog_parser.add_argument(
+        "--corpus", type=Path, required=True, help="Carpeta del corpus externo con las fichas HTML."
+    )
+    catalog_parser.add_argument(
+        "--captured-at",
+        type=lambda value: datetime.strptime(value, "%Y-%m-%d").date(),
+        required=True,
+        help="Fecha de captura del corpus (AAAA-MM-DD); se guarda en cada fila.",
+    )
+    catalog_parser.add_argument(
+        "--out", type=Path, default=None, help="Directorio del catálogo (data/catalog/empaques)."
+    )
+    catalog_parser.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help=(
+            "Acepta que el corpus no incluya SKUs ya presentes en referencias.csv; "
+            "sin esta bandera la orden aborta para no borrar referencias por un corpus parcial."
+        ),
+    )
+
     subparsers.add_parser(
         "status",
         help="Muestra el estado del corpus (semillas y entregables Gold).",
@@ -278,6 +306,74 @@ def main(argv: list[str] | None = None) -> int:
             print(error)
             return 1
         print_import_report(report)
+        return 0
+
+    if args.command == "catalog-build":
+        from carvajal.catalog.build import (
+            build_mx_references,
+            write_references,
+        )
+        from carvajal.catalog.loader import DEFAULT_DIR, REFERENCES, load_catalog
+
+        if not args.corpus.is_dir():
+            print(f"No existe la carpeta del corpus: {args.corpus}")
+            return 1
+        out = args.out or DEFAULT_DIR
+        references_file = out / REFERENCES
+        if not out.is_dir():
+            print(
+                f"No existe el directorio del catálogo: {out}; créalo antes de regenerar "
+                "para no escribir en una ruta equivocada."
+            )
+            return 1
+        if not references_file.is_file() and not args.allow_missing:
+            print(
+                f"No existe {references_file}: revisa --out o usa --allow-missing para "
+                "crear un catálogo nuevo (se perderían las filas curadas a mano)."
+            )
+            return 1
+        pages = sorted(args.corpus.rglob("*.html"))
+        references, notes = build_mx_references(pages, args.captured_at)
+        if not references:
+            print("No se encontró ninguna ficha de la tienda de México en el corpus.")
+            return 1
+        manifest = (
+            "referencias_mx",
+            {
+                "origin": "Tienda en línea de Carvajal Empaques México (fichas de producto)",
+                "generated_by": "carvajal catalog-build",
+                "captured_at": args.captured_at.isoformat(),
+                "pages_read": len(pages),
+                "rows": len(references),
+                "notes": notes,
+            },
+        )
+
+        def _valida_catalogo() -> None:
+            load_catalog.cache_clear()
+            try:
+                load_catalog(str(out))
+            except Exception as error:
+                # ``_replace_all`` restaura ambos archivos; la CLI solo informa.
+                raise ValueError(f"el catálogo no valida: {error}") from error
+
+        try:
+            # El catálogo se valida dentro de la transacción: si no valida, la
+            # restauración deja CSV y manifiesto anteriores intactos.
+            total = write_references(
+                out,
+                references,
+                allow_missing=args.allow_missing,
+                notes=notes,
+                manifest=manifest,
+                check=_valida_catalogo,
+            )
+        except (OSError, ValueError) as error:
+            print(f"No se reescribió el catálogo: {error}")
+            return 1
+        print(f"Referencias de México: {len(references)} (total en el archivo: {total}).")
+        for note in notes:
+            print(f"  - {note}")
         return 0
 
     if args.command == "migrate-gold":

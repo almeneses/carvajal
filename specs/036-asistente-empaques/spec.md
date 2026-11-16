@@ -159,8 +159,13 @@ produce un informe con las mismas métricas para los tres.
 - Bebida «tibia» o temperatura no declarada: se pregunta en lugar de suponer frío.
 - Precio capturado con oferta vigente hasta una fecha ya vencida: se muestra el precio
   regular y se advierte que la oferta pudo terminar.
-- Referencia cuyo material no está en la guía: se excluye de las recomendaciones con
-  restricción de temperatura y se informa en el registro de importación.
+- Referencia cuyo material no está en la guía (papel, pulpa): se valida con la temperatura
+  y el uso que declara su propia ficha; si la ficha no declara ninguno de los dos, se excluye
+  de las recomendaciones con restricción de temperatura. El material queda listado en el
+  manifiesto del catálogo.
+- Ficha con datos contradictorios (título contra descripción, temperatura contra uso
+  declarado): se usa el dato coherente, se descarta el dudoso y la contradicción queda
+  anotada en el manifiesto.
 - Cantidades muy grandes (más de 100 cajas): se calcula, pero se sugiere contacto
   comercial por volumen.
 - Petición de hacer el pedido o pagar: el asistente aclara que no procesa pedidos y remite
@@ -176,7 +181,8 @@ produce un informe con las mismas métricas para los tres.
 - **FR-002**: El sistema MUST pedir aclaración cuando falte el uso o la temperatura para
   recomendar, o el país para cotizar o indicar canal; nunca MUST suponerlos.
 - **FR-003**: Toda referencia recomendada MUST cumplir las reglas de la guía de materiales
-  para el uso y la temperatura solicitados.
+  para el uso y la temperatura solicitados. Si la guía no cubre su material, MUST cumplir la
+  temperatura y el uso declarados en su propia ficha.
 - **FR-004**: El cálculo de cajas MUST hacerse con aritmética determinista, redondeando
   hacia arriba; el modelo de lenguaje no MUST calcular cantidades ni totales.
 - **FR-005**: Todo precio mostrado MUST incluir moneda, nota de impuestos y fecha de
@@ -204,8 +210,9 @@ produce un informe con las mismas métricas para los tres.
 ### Key Entities *(include if feature involves data)*
 
 - **Referencia de empaque**: producto vendible con identificador, nombre, familia (vaso,
-  tapa, contenedor, charola, cubierto, envase), uso, capacidad, material, marca, unidades
-  por paquete y por caja, precio y moneda cuando existen, país, fuente y fecha de captura.
+  tapa, contenedor, charola, cubierto, envase, plato), uso, capacidad, material, marca,
+  unidades por paquete y por caja, temperatura de uso declarada en la ficha, precio, moneda
+  y vigencia cuando existen, país, fuente y fecha de captura.
 - **Regla de material**: material con su rango de temperatura, aptitud para microondas,
   refrigeración, congelación y contenido caliente, código de reciclaje y aplicaciones
   recomendadas.
@@ -239,7 +246,15 @@ produce un informe con las mismas métricas para los tres.
 - Los datos provienen del corpus capturado el 2026-10-23; los precios son de esa fecha y
   la actualización periódica queda fuera de alcance.
 - La guía de materiales es la autoridad técnica; si una ficha contradice la guía, manda la
-  guía y la contradicción se registra.
+  guía y la contradicción se registra. La guía solo cubre PP, EPS, PS, PET y aluminio; para
+  papel y pulpa la autoridad es la ficha del producto.
 - El asistente no sustituye al asesor comercial ni vincula a Carvajal con ningún precio.
 - El modelo de decisión especializado es opcional: el asistente funciona con el enrutador
   por reglas.
+
+## Historial de cambios
+
+- 2026-11-16 (PR 2, #135): al curar los datos se encontró que la guía de materiales no cubre
+  papel ni pulpa, que son el material de casi todos los vasos para bebida caliente. Se
+  ajustan FR-003, un caso borde y un supuesto para validar esos materiales con su ficha, y
+  se añade el caso de fichas contradictorias.

@@ -23,7 +23,7 @@ El router pasa a ser intercambiable para comparar reglas, LLM y un modelo de dec
 | Router | Reglas deterministas que devuelven `RouteDecision`; se añade la ruta y los datos en `extra` | `packages/core/src/carvajal/agent/router.py`, `state.py` |
 | Herramientas | Esquemas Pydantic y `@tool`, como `indicator_lookup` | `packages/core/src/carvajal/agent/tools.py` |
 | Catálogo | CSV en `data/catalog/empaques/` + `manifest.json`; carga en memoria con validación Pydantic | patrón de `data/indicators.json` |
-| Construcción del catálogo | Orden de la CLI que lee el corpus externo; HTML con `beautifulsoup4` (extra `capture`) | `packages/core/src/carvajal/cli.py` |
+| Construcción del catálogo | Orden `catalog-build`: JSON-LD y descripción de cada ficha, solo con biblioteca estándar | `packages/core/src/carvajal/catalog/build.py` |
 | Interfaz | Parcial Jinja de tarjetas en el shell HTMX; la SPA lo consume después | `apps/api/templates/_fuentes.html` |
 | Evaluación | Conjunto etiquetado en `data/eval/` y orden `eval-router` | `data/eval/retrieval_questions.json` |
 | Modelo de decisión | Adaptador opcional tras un extra `decision`; fuera de la imagen de producción | — |
@@ -53,7 +53,7 @@ El router pasa a ser intercambiable para comparar reglas, LLM y un modelo de dec
 | IV. Calidad automatizada | Cada escenario tiene prueba; `make check` en verde antes de cada PR. |
 | V. Captura responsable | No hay captura nueva: se reutiliza el corpus capturado el 2026-10-23. |
 | VI. Cambios por PR | Siete PRs a `dev`, cada uno dentro de 300 líneas salvo los datos curados. |
-| §3 Stack: sin dependencias nuevas en runtime | Carga con Pydantic; construcción con `beautifulsoup4` del extra `capture`; el adaptador del modelo de decisión va en un extra opcional. |
+| §3 Stack: sin dependencias nuevas en runtime | Carga con Pydantic; construcción solo con biblioteca estándar; el adaptador del modelo de decisión va en un extra opcional. |
 | §5 Regla de la capa extendida | Hoy la capa extendida «solo se recupera y se cita». El catálogo usa datos del corpus externo como **datos estructurados**, lo que exige enmienda. |
 
 **Enmienda propuesta** (`CONSTITUTION.md` §2, §5 y §9, y su proyección en
@@ -96,7 +96,7 @@ packages/core/src/carvajal/
 ├── catalog/                       # nuevo
 │   ├── models.py                  # Pydantic: Reference, MaterialRule, Distributor
 │   ├── loader.py                  # carga y valida los CSV (cache en memoria)
-│   └── build.py                   # construcción desde el corpus externo (extra capture)
+│   └── build.py                   # construcción desde el corpus externo (biblioteca estándar)
 ├── agent/
 │   ├── state.py                   # RouteName += "commercial"
 │   ├── router.py                  # reglas comerciales y extracción de datos
@@ -121,21 +121,46 @@ tests/
 
 | Archivo | Columnas | Origen |
 |---|---|---|
-| `referencias.csv` | `sku, name, family, use, capacity_oz, diameter_mm, material, brand, units_per_pack, packs_per_box, units_per_box, price, currency, tax_included, country, source_url, captured_at` | Fichas de la tienda MX (precio y SKU de los datos estructurados de la página); catálogo PDF transcrito y revisado |
-| `materiales.csv` | `material, temp_min_c, temp_max_c, microwave, refrigeration, freezing, hot_content, recycling_code, applications, source_url, captured_at` | Guía de materiales (PDF de 15 páginas) |
+| `referencias.csv` | `sku, name, family, use, capacity_oz, diameter_mm, material, brand, units_per_pack, packs_per_box, units_per_box, temp_min_c, temp_max_c, price, currency, tax_included, price_valid_until, country, source_url, captured_at` | Fichas de la tienda MX (precio y SKU de los datos estructurados de la página); catálogo PDF transcrito y revisado |
+| `materiales.csv` | `material, temp_min_c, temp_max_c, microwave, refrigeration, freezing, hot_content, recycling_code, applications, source_url, captured_at` (`applications` usa `uso=recomendable\|aplicable\|no_apto`) | Guía de materiales, «Lineamientos Generales», pág. 3 (PP, EPS, PS, PET, aluminio) |
 | `distribuidores.csv` | `name, city, address, phone, source_url, captured_at` | Directorio de distribuidores |
 
 La orden `carvajal catalog-build --corpus <ruta>` regenera `referencias.csv` desde la tienda y
 deja el catálogo PDF y la guía como CSV curados a mano: el PDF en columnas mezcla productos
 vecinos al extraerse y la guía son cinco filas críticas. El manifiesto registra qué filas son
-automáticas y cuáles curadas.
+automáticas y cuáles curadas, las observaciones de cada ficha (contradicciones, combos) y los
+materiales sin regla en la guía (`materials_without_rule`: papel y pulpa).
+
+Decisiones tomadas al curar los datos (PR 2):
+
+- La temperatura y la vigencia del precio salen de la ficha (`temp_min_c`, `temp_max_c`,
+  `price_valid_until`); la vigencia se normaliza a fecha aunque el JSON-LD traiga hora y
+  zona, y una oferta que vence el día de captura ya no se usa como precio de referencia.
+- El IVA visible junto al precio prevalece sobre el `valueAddedTaxIncluded: false` que
+  WooCommerce pone por defecto en el JSON-LD.
+- Si el título y la descripción de una ficha se contradicen, o la temperatura contradice el
+  uso declarado, se usa el dato coherente y la contradicción queda en el manifiesto.
+- `referencias.csv` se reescribe de forma atómica y valida antes las filas curadas que
+  conserva, sin dejar temporales huérfanos. Las columnas se escriben en el orden de la
+  tabla anterior, independiente del orden de declaración del modelo. Si el corpus deja
+  fuera un SKU ya presente, aborta antes de escribir salvo que se pase `--allow-missing`;
+  en ese caso el listado completo de SKU retirados queda en las notas del manifiesto.
+- El manifiesto y el CSV se confirman en un único paso: si el reemplazo de uno falla, se
+  restaura el otro, de modo que nunca quedan desincronizados; un fallo al restaurar se
+  anota y se relanza el error original, conservando el respaldo como última copia del
+  archivo anterior. El catálogo se valida dentro de esa transacción,
+  así que una validación fallida restaura ambos archivos. La CLI exige que el directorio
+  de `--out` exista y, salvo `--allow-missing`, que ya contenga `referencias.csv`, para no
+  crear un catálogo vacío que perdería las filas curadas al apuntar a una ruta equivocada.
+- Un SKU repetido en el corpus no se descarta en silencio: la ficha duplicada queda como
+  nota con ambas URL y se conserva la primera.
 
 ### Herramientas (`agent/commercial.py`)
 
 | Herramienta | Entrada | Salida | Regla |
 |---|---|---|---|
 | `search_packaging` | uso, capacidad, país, familia | referencias candidatas | filtro exacto; ml → oz |
-| `check_material` | referencias, temperatura, microondas | válidas y descartadas con motivo | FR-003 |
+| `check_material` | referencias, temperatura, microondas | válidas y descartadas con motivo | FR-003: regla de la guía; papel y pulpa, con la temperatura y el uso de su ficha |
 | `boxes_for` | referencia, unidades | cajas, excedente | `ceil`; FR-004 |
 | `quote` | referencia, cajas | total, moneda, impuestos, fecha | solo con precio; FR-005 y FR-006 |
 | `find_distributors` | ciudad | distribuidores o ciudades disponibles | FR-008 |

@@ -59,9 +59,12 @@ class Reference(_Sourced):
     units_per_pack: int | None = Field(default=None, gt=0)
     packs_per_box: int | None = Field(default=None, gt=0)
     units_per_box: int = Field(gt=0)
+    temp_min_c: float | None = Field(default=None, description="Temperatura declarada en la ficha")
+    temp_max_c: float | None = None
     price: Decimal | None = Field(default=None, ge=0, description="Precio por caja")
     currency: Currency | None = None
     tax_included: bool | None = None
+    price_valid_until: date | None = None
     country: Country
 
     @field_validator("material")
@@ -88,6 +91,18 @@ class Reference(_Sourced):
                     f"units_per_box={self.units_per_box} no coincide con "
                     f"units_per_pack * packs_per_box = {expected}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _temperatura_coherente(self) -> Self:
+        if (self.temp_min_c is None) != (self.temp_max_c is None):
+            raise ValueError("la temperatura de la ficha exige mínimo y máximo")
+        if (
+            self.temp_min_c is not None
+            and self.temp_max_c is not None
+            and self.temp_min_c >= self.temp_max_c
+        ):
+            raise ValueError("temp_min_c debe ser menor que temp_max_c")
         return self
 
     @model_validator(mode="after")

@@ -1,7 +1,7 @@
-sku,name,family,use,capacity_oz,diameter_mm,material,brand,units_per_pack,packs_per_box,units_per_box,price,currency,tax_included,country,source_url,captured_at
-FX-VASO-PAPEL-12,Vaso papel 12 oz bebida caliente,vaso,bebida_caliente|para_llevar,12,90,PAPEL,Bioform,50,20,1000,1450.00,MXN,true,MX,https://ejemplo.test/mx/vaso-papel-12,2026-10-23
-FX-VASO-PET-16,Vaso plástico 16 oz PET,vaso,bebida_fria|para_llevar,16,98,PET,,50,16,800,980.00,MXN,true,MX,https://ejemplo.test/mx/vaso-pet-16,2026-10-23
-FX-CONT-EPS-7X7,Contenedor térmico 7x7 liso,contenedor,comida_caliente|para_llevar,,,EPS,,50,4,200,620.50,MXN,true,MX,https://ejemplo.test/mx/contenedor-7x7,2026-10-23
-FX-ENV-PP-4,Envase plástico 4 oz PP,envase,salsas|microondas,4,,PP,,,,2000,540.00,MXN,true,MX,https://ejemplo.test/mx/envase-pp-4,2026-10-23
-FX-VASO-PS-12,Vaso 12 oz cristal,vaso,bebida_fria|mesa,12,86,PS,Kristall,15,60,900,,,,CO,https://ejemplo.test/co/catalogo#vaso-12,2026-10-23
-FX-CHAROLA-AL,Charola de aluminio,charola,horno|comida_caliente,,,ALUMINIO,,,,500,,,,CO,https://ejemplo.test/co/catalogo#charola,2026-10-23
+sku,name,family,use,capacity_oz,diameter_mm,material,brand,units_per_pack,packs_per_box,units_per_box,temp_min_c,temp_max_c,price,currency,tax_included,price_valid_until,country,source_url,captured_at
+FX-VASO-PAPEL-12,Vaso papel 12 oz bebida caliente,vaso,bebida_caliente|para_llevar,12,90,PAPEL,Bioform,50,20,1000,,,1450.00,MXN,true,,MX,https://ejemplo.test/mx/vaso-papel-12,2026-10-23
+FX-VASO-PET-16,Vaso plástico 16 oz PET,vaso,bebida_fria|para_llevar,16,98,PET,,50,16,800,,,980.00,MXN,true,,MX,https://ejemplo.test/mx/vaso-pet-16,2026-10-23
+FX-CONT-EPS-7X7,Contenedor térmico 7x7 liso,contenedor,comida_caliente|para_llevar,,,EPS,,50,4,200,,,620.50,MXN,true,,MX,https://ejemplo.test/mx/contenedor-7x7,2026-10-23
+FX-ENV-PP-4,Envase plástico 4 oz PP,envase,salsas|microondas,4,,PP,,,,2000,,,540.00,MXN,true,,MX,https://ejemplo.test/mx/envase-pp-4,2026-10-23
+FX-VASO-PS-12,Vaso 12 oz cristal,vaso,bebida_fria|mesa,12,86,PS,Kristall,15,60,900,,,,,,,CO,https://ejemplo.test/co/catalogo#vaso-12,2026-10-23
+FX-CHAROLA-AL,Charola de aluminio,charola,horno|comida_caliente,,,ALUMINIO,,,,500,,,,,,,CO,https://ejemplo.test/co/catalogo#charola,2026-10-23
