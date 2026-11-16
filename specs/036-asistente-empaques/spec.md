@@ -258,3 +258,9 @@ produce un informe con las mismas métricas para los tres.
   papel ni pulpa, que son el material de casi todos los vasos para bebida caliente. Se
   ajustan FR-003, un caso borde y un supuesto para validar esos materiales con su ficha, y
   se añade el caso de fichas contradictorias.
+- 2026-11-16 (PR 4): al implementar FR-002 se precisa cómo se aplica, sin cambiar el
+  requisito. La temperatura es el dato que decide el material: se toma de la pregunta o se
+  deduce del uso declarado («café» → caliente, «microondas» → caliente), y el uso se deduce
+  de la familia y la temperatura. Si no se puede obtener la temperatura, el router pide
+  aclaración. La falta de país no bloquea la recomendación: el nodo recomienda sin precio y
+  pide el país para cotizar e indicar el canal.

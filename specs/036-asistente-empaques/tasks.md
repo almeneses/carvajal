@@ -51,14 +51,17 @@
 
 **PR 4 — Ruta comercial en el router y el grafo**
 
-- [ ] T016 [US1] `agent/state.py`: `RouteName` incluye `commercial`
-- [ ] T017 [US1] `agent/router.py`: regla comercial y extracción de uso, temperatura,
-      capacidad, cantidad, país y ciudad en `RouteDecision.extra`
-- [ ] T018 [US1] `agent/router.py`: aclaración en `direct` cuando falta uso o temperatura
-- [ ] T019 [US1] `agent/graph.py`: nodo `commercial` con secuencia fija y prompt que prohíbe
-      añadir referencias, cifras o disponibilidad
-- [ ] T020 [P] [US1] Ampliar `tests/test_agent_router.py` y `tests/test_agent_graph.py`
-      con los escenarios 1–5 de la US1
+- [X] T016 [US1] `agent/state.py`: `RouteName` incluye `commercial`
+- [X] T017 [US1] `agent/router.py`: regla comercial y extracción de uso, temperatura,
+      capacidad, cantidad, país y ciudad en `RouteDecision.extra` (la extracción vive en
+      `agent/commercial_intent.py`)
+- [X] T018 [US1] `agent/router.py`: aclaración en `direct` cuando falta uso o temperatura
+- [X] T019 [US1] `agent/graph.py`: nodo `commercial` con secuencia fija y prompt que prohíbe
+      añadir referencias, cifras o disponibilidad (la secuencia vive en
+      `agent/commercial_flow.py`)
+- [X] T020 [P] [US1] Pruebas de los escenarios 1–5 de la US1 en
+      `tests/test_agent_router_commercial.py` y `tests/test_agent_commercial_flow.py`; las
+      de `test_agent_router.py` y `test_agent_graph.py` siguen en verde sin cambios
 
 ## Phase 4: User Story 2 — Cantidad y precio de referencia (P1)
 
@@ -73,7 +76,8 @@
 
 - [X] T025 [US3] `find_distributors` por ciudad, con lista de ciudades disponibles si no hay
 - [X] T026 [US3] Canal MX: enlace de la ficha; país ausente → aclaración (el enlace es
-      `Reference.source_url`; la aclaración por país la hace el router, T018)
+      `Reference.source_url`; el país ausente lo pide el nodo `commercial` junto con la
+      recomendación, T019)
 - [X] T027 [P] [US3] Pruebas de los escenarios 1–4 de la US3
 
 **PR 6 — Tarjetas en la interfaz**

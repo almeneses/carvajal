@@ -1,0 +1,169 @@
+"""Secuencia fija del nodo ``commercial`` (spec 036, T019).
+
+buscar → validar material → (cajas → cotizar) → canal de compra. Todas las cifras salen de
+las herramientas deterministas de ``agent/commercial.py``; el LLM solo redacta con el
+resultado estructurado y el prompt le prohíbe añadir referencias, cifras o disponibilidad
+(FR-004, FR-006, FR-007).
+
+El precio solo se muestra cuando el país es México: es el único catálogo con precio y
+mostrarlo sin saber el país sería cotizar a quien quizá compra en Colombia (FR-002).
+"""
+
+import json
+from dataclasses import asdict
+from datetime import date
+from typing import Any
+
+from carvajal.agent.commercial import (
+    RENEWABLE,
+    CommercialRequest,
+    NoPriceError,
+    boxes_for,
+    check_material,
+    find_distributors,
+    quote,
+    search_packaging,
+)
+from carvajal.agent.commercial_intent import COMMERCIAL_KEYS
+from carvajal.catalog.loader import Catalog, load_catalog
+from carvajal.catalog.models import Reference
+
+__all__ = [
+    "COMMERCIAL_INSTRUCTIONS",
+    "MAX_OPTIONS",
+    "commercial_prompt_block",
+    "commercial_sources",
+    "run_commercial",
+]
+
+MAX_OPTIONS = 3
+MAX_DISCARDED = 5
+MAX_DISTRIBUTORS = 5
+
+COMMERCIAL_INSTRUCTIONS = (
+    "Eres el asesor comercial de Carvajal Empaques. Redacta la respuesta usando solo el "
+    "resultado estructurado de abajo. No añadas referencias, materiales, cifras, precios, "
+    "existencias ni plazos que no estén en él, y no calcules nada: las cajas y los totales ya "
+    "vienen calculados. Para cada opción menciona el SKU, el material, las unidades por caja "
+    "y la ficha con su fecha de captura. Si hay precio, copia la moneda y el aviso tal cual. "
+    "Si una opción no tiene precio, dilo sin estimarlo. Si no hay opciones, dilo, resume los "
+    "descartes y no ofrezcas alternativas que incumplan la regla de material. Si hay datos "
+    "pendientes, termina pidiéndolos. No tomes pedidos ni pidas datos de pago."
+)
+
+
+def _request(extra: dict[str, Any]) -> CommercialRequest:
+    values = {key: extra.get(key) for key in COMMERCIAL_KEYS}
+    values["prefers_renewable"] = bool(values["prefers_renewable"])
+    return CommercialRequest(**values)
+
+
+def _option(reference: Reference, req: CommercialRequest, today: date | None) -> dict[str, Any]:
+    option: dict[str, Any] = {
+        "sku": reference.sku,
+        "name": reference.name,
+        "material": reference.material,
+        "capacity_oz": reference.capacity_oz,
+        "units_per_box": reference.units_per_box,
+        "country": reference.country,
+        "source_url": reference.source_url,
+        "captured_at": reference.captured_at.isoformat(),
+    }
+    boxes = 1
+    if req.quantity:
+        count = boxes_for(reference, req.quantity)
+        option.update(boxes=count.boxes, surplus_units=count.surplus)
+        boxes = count.boxes
+    if req.country != "MX":
+        return option
+    try:
+        result = quote(reference, boxes, today=today)
+    except NoPriceError as error:
+        option["price_note"] = str(error)
+        return option
+    label = "total" if req.quantity else "price_per_box"
+    option[label] = f"{result.total} {result.currency}"
+    option["price_notice"] = result.notice
+    return option
+
+
+def _channel(req: CommercialRequest, catalog: Catalog | None) -> dict[str, Any]:
+    if req.country == "MX":
+        return {"type": "tienda_en_linea", "note": "Cada opción enlaza a su ficha en la tienda."}
+    if req.country != "CO":
+        return {}
+    if req.city is None:
+        _, cities = find_distributors("", catalog=catalog)
+        return {"type": "distribuidores", "cities_with_distributors": cities}
+    found, cities = find_distributors(req.city, catalog=catalog)
+    channel: dict[str, Any] = {"type": "distribuidores", "city": req.city}
+    if not found:
+        channel["cities_with_distributors"] = cities
+    channel["distributors"] = [
+        item.model_dump(mode="json", exclude={"captured_at"}) for item in found[:MAX_DISTRIBUTORS]
+    ]
+    return channel
+
+
+def run_commercial(
+    extra: dict[str, Any], *, catalog: Catalog | None = None, today: date | None = None
+) -> dict[str, Any]:
+    """Ejecuta la secuencia fija y devuelve el resultado estructurado del turno."""
+
+    req = _request(extra)
+    data = catalog or load_catalog()
+    valid, discarded = check_material(search_packaging(req, catalog=data), req, catalog=data)
+    chosen = valid[:MAX_OPTIONS]
+    pending: list[str] = []
+    if req.country is None:
+        pending.append("país (México o Colombia), para indicar precio y dónde comprar")
+    elif req.country == "CO" and req.city is None:
+        pending.append("ciudad, para indicar los distribuidores")
+    if req.quantity is None and chosen:
+        pending.append("cantidad en unidades, si quiere calcular cajas")
+    result: dict[str, Any] = {
+        "request": asdict(req),
+        "options": [_option(reference, req, today) for reference in chosen],
+        "discarded": [asdict(item) for item in discarded[:MAX_DISCARDED]],
+        "discarded_total": len(discarded),
+        "channel": _channel(req, data),
+        "pending": pending,
+    }
+    if req.country and not any(ref.country == req.country for ref in data.references):
+        # Sin referencias del país no es que «ninguna cumpla»: el catálogo aún no las tiene.
+        result["catalog_note"] = (
+            f"El catálogo cargado todavía no tiene referencias de {req.country}; "
+            "remite a los distribuidores sin recomendar productos."
+        )
+    if req.prefers_renewable:
+        result["renewable_available"] = any(ref.material in RENEWABLE for ref in chosen)
+    return result
+
+
+def commercial_prompt_block(result: dict[str, Any]) -> str:
+    """Instrucciones y resultado serializado para el prompt del nodo."""
+
+    data = json.dumps(result, ensure_ascii=False, indent=1)
+    return f"{COMMERCIAL_INSTRUCTIONS}\n\nResultado estructurado:\n{data}"
+
+
+def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Una cita por opción: la ficha de origen con su fecha de captura (FR-007)."""
+
+    return [
+        {
+            "chunk_id": f"catalogo:{option['sku']}",
+            "slug": option["sku"],
+            "section": "catalogo_empaques",
+            "layer": "core",
+            "score": 1.0,
+            "excerpt": (
+                f"{option['material']} · {option['units_per_box']} unidades por caja · "
+                f"ficha capturada el {option['captured_at']}"
+            ),
+            "url": option["source_url"],
+            "title": option["name"],
+            "source_type": "oficial",
+        }
+        for option in result["options"]
+    ]
