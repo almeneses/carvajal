@@ -8,6 +8,7 @@ declaradas por el dueño, en un namespace aislado.
 
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
+from datetime import date
 from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
@@ -24,6 +25,7 @@ from carvajal.agent.tools import indicator_lookup
 from carvajal.application.ask import DEFAULT_SYSTEM_PROMPT, NO_CONTEXT_ANSWER, AskQuestion, Source
 from carvajal.application.evidence import proper_entities_supported
 from carvajal.application.ports import Embedder, VectorStore
+from carvajal.catalog.loader import Catalog
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
@@ -51,6 +53,10 @@ class AgentDeps:
     vector_store: VectorStore
     embedder: Embedder
     settings: Settings
+    # Overrides opcionales de la ruta comercial: catálogo ya cargado y fecha de
+    # referencia. Sin ellos se usa ``load_catalog()`` y la fecha del sistema.
+    catalog: Catalog | None = None
+    today: date | None = None
 
 
 class _UnusedLLM:
@@ -322,7 +328,7 @@ def build_agent(
 
     def commercial(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         # Secuencia fija y determinista: el LLM solo redacta con este resultado (FR-004).
-        result = run_commercial(state.get("commercial", {}))
+        result = run_commercial(state.get("commercial", {}), catalog=deps.catalog, today=deps.today)
         return {
             "prompt": build_conversation_prompt(
                 state["question"],

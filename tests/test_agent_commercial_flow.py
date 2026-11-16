@@ -165,6 +165,33 @@ def test_el_grafo_enruta_a_commercial_con_el_catalogo_real() -> None:
     assert opciones[0]["total"] in estado["prompt"]
 
 
+def test_el_nodo_commercial_usa_el_catalogo_y_la_fecha_inyectados() -> None:
+    falso = _SinRecuperacion()
+    grafo = build_agent(
+        AgentDeps(
+            vector_store=falso,
+            embedder=falso,
+            settings=Settings(),
+            catalog=FIXTURES,
+            today=HOY,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+
+    estado = grafo.invoke(
+        {
+            "question": "Necesito 5.000 vasos de 12 oz para café en México",
+            "owner_key": "dueño",
+            "thread_id": "hilo-inyectado",
+        },
+        config={"configurable": {"thread_id": "hilo-inyectado"}},
+    )
+
+    [opcion] = estado["tool_result"]["options"]
+    assert opcion["sku"] == "FX-VASO-PAPEL-12"
+    assert opcion["total"] == "7250.00 MXN"
+
+
 def test_la_aclaracion_comercial_no_ejecuta_la_secuencia() -> None:
     falso = _SinRecuperacion()
     grafo = build_agent(

@@ -236,10 +236,18 @@ def _complete(data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _is_question(text: str) -> bool:
+    """Una pregunta corta no es la respuesta a una aclaración comercial."""
+
+    return "?" in text or "¿" in text
+
+
 def _has_signal(data: dict[str, Any]) -> bool:
     """Señal de compra o dato de la necesidad; nombrar el producto no basta."""
 
-    keys = [key for key in COMMERCIAL_KEYS if key != "family"]
+    # ``family`` solo nombra el producto y ``prefers_renewable`` es una preferencia
+    # de material: ninguno de los dos convierte una pregunta institucional en compra.
+    keys = [key for key in COMMERCIAL_KEYS if key not in ("family", "prefers_renewable")]
     return any(data.get(key) is not None for key in (*keys, "_intent"))
 
 
@@ -250,7 +258,11 @@ def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[s
     if product:
         return _complete(data) if _has_signal(data) else None
     # Respuesta corta a una aclaración: hereda la solicitud de los turnos anteriores.
-    if len(question.split()) > FOLLOW_UP_MAX_WORDS or "carvajal" in _plain(question):
+    if (
+        _is_question(question)
+        or len(question.split()) > FOLLOW_UP_MAX_WORDS
+        or "carvajal" in _plain(question)
+    ):
         return None
     if not _has_signal({key: value for key, value in data.items() if key != "_intent"}):
         return None
@@ -258,6 +270,10 @@ def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[s
     for turn in reversed((turns or [])[-FOLLOW_UP_DEPTH:]):
         previous_product, previous = _extract(turn["question"])
         if not (previous_product or _has_signal(previous)):
+            # Un saludo u otro turno sin datos no invalida la respuesta a la aclaración.
+            continue
+        if not previous_product and _is_question(turn["question"]):
+            # Una pregunta intermedia cambia de tema: no se hereda a través de ella.
             return None
         chain.append(previous)
         if previous_product:

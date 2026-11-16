@@ -125,10 +125,48 @@ def test_una_pregunta_institucional_tras_un_turno_comercial_no_se_hereda() -> No
     assert decide_route("¿Qué presencia tiene Carvajal en Cali?", turnos).route == "rag"
 
 
+def test_una_pregunta_corta_no_hereda_la_aclaración_comercial() -> None:
+    turnos = [_turno("necesito vasos para café de 12 oz")]
+
+    decision = decide_route("¿Qué presencia tiene en Cali?", turnos)
+
+    assert decision.route == "rag"
+    assert decision.extra == {}
+
+
+def test_la_pregunta_corta_del_revisor_no_activa_la_ruta_comercial() -> None:
+    turnos = [_turno("necesito vasos para café de 12 oz")]
+
+    decision = decide_route("¿Cuántos empleados hay en Cali?", turnos)
+
+    assert decision.route != "commercial"
+    assert decision.extra == {}
+
+
+def test_la_respuesta_a_la_aclaración_puede_ser_solo_la_temperatura() -> None:
+    turnos = [_turno("busco vasos de 16 oz")]
+
+    decision = decide_route("caliente", turnos)
+
+    assert decision.route == "commercial"
+    assert decision.extra["family"] == "vaso"
+    assert decision.extra["temperature"] == "caliente"
+
+
+def test_un_saludo_intermedio_no_pierde_la_aclaración() -> None:
+    turnos = [_turno("busco vasos de 16 oz"), _turno("hola")]
+
+    decision = decide_route("caliente", turnos)
+
+    assert decision.route == "commercial"
+    assert decision.extra["capacity_oz"] == 16.0
+
+
 @pytest.mark.parametrize(
     "texto",
     [
         "¿Qué vasos fabrica Carvajal Empaques?",
+        "¿Qué vasos de papel fabrica Carvajal Empaques?",
         "¿Qué empresas conforman el sector de Papel y Empaques?",
         "¿Qué te puedo preguntar?",
     ],
