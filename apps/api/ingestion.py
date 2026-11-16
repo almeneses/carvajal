@@ -10,7 +10,6 @@ mismo formato.
 from __future__ import annotations
 
 import html
-import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,8 +19,10 @@ from pathlib import Path
 
 import structlog
 
+from apps.api.document_formats import EXTRACTED_EXTENSIONS, extract_markdown
 from carvajal.domain.frontmatter import strip_front_matter
 from carvajal.domain.rules import content_hash, estimate_tokens
+from carvajal.gold import merge_index
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
@@ -37,7 +38,7 @@ __all__ = [
 
 logger = structlog.get_logger(__name__)
 
-ALLOWED_EXTENSIONS = {".md", ".markdown", ".txt", ".html", ".htm"}
+ALLOWED_EXTENSIONS = {".md", ".markdown", ".txt", ".html", ".htm"} | EXTRACTED_EXTENSIONS
 MAX_FILES = 100
 MAX_FILE_BYTES = 5 * 1024 * 1024
 _BLOCK_TAGS = {
@@ -161,6 +162,8 @@ def _markdown(filename: str, data: bytes) -> tuple[str, str]:
     """Devuelve ``(markdown, título)`` según el tipo de archivo."""
 
     suffix = Path(filename).suffix.lower()
+    if suffix in EXTRACTED_EXTENSIONS:
+        return extract_markdown(suffix, data), Path(filename).stem
     if suffix in {".html", ".htm"}:
         parser = _HtmlText()
         parser.feed(_decode(data))
@@ -220,28 +223,6 @@ def _gold(
     )
 
 
-def _merge_index(index_file: Path, entry: dict[str, object]) -> None:
-    """Añade o actualiza la entrada del índice JSONL sin perder las demás."""
-
-    index_file.parent.mkdir(parents=True, exist_ok=True)
-    entries: dict[str, dict[str, object]] = {}
-    if index_file.is_file():
-        for line in index_file.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                previous = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(previous, dict) and previous.get("slug"):
-                entries[str(previous["slug"])] = previous
-    entries[str(entry["slug"])] = entry
-    index_file.write_text(
-        "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in entries.values()),
-        encoding="utf-8",
-    )
-
-
 def importar_gold(gold_dir: Path, only: set[str]) -> tuple[int, int]:
     """Importa Gold a PostgreSQL y devuelve ``(documentos, fragmentos)``."""
 
@@ -286,6 +267,8 @@ def ingest_uploads(
     settings: Settings | None = None,
     importar: Callable[[Path, set[str]], tuple[int, int]] | None = None,
     indexar: Callable[[Path, set[str]], int] | None = None,
+    max_file_bytes: int = MAX_FILE_BYTES,
+    solo_extraer: bool = False,
 ) -> IngestReport:
     """Ejecuta Bronze → Silver → Gold → PostgreSQL → Qdrant para las cargas.
 
@@ -297,6 +280,7 @@ def ingest_uploads(
     errors: list[str] = []
     archivos = bronze = silver = gold = 0
     slugs: set[str] = set()
+    entries: list[dict[str, str | int]] = []
     captured_at = datetime.now(UTC)
 
     if len(documents) > MAX_FILES:
@@ -313,14 +297,18 @@ def ingest_uploads(
         if sufijo not in ALLOWED_EXTENSIONS:
             errors.append(f"{nombre}: formato no admitido ({sufijo or 'sin extensión'}).")
             continue
-        if len(document.data) > MAX_FILE_BYTES:
-            errors.append(f"{nombre}: supera el límite de {MAX_FILE_BYTES // 1024 // 1024} MB.")
+        if len(document.data) > max_file_bytes:
+            errors.append(f"{nombre}: supera el límite de {max_file_bytes // 1024 // 1024} MB.")
             continue
         if not document.data.strip():
             errors.append(f"{nombre}: está vacío.")
             continue
 
-        markdown, titulo = _markdown(nombre, document.data)
+        try:
+            markdown, titulo = _markdown(nombre, document.data)
+        except ValueError as error:
+            errors.append(f"{nombre}: {error}")
+            continue
         if not markdown.strip():
             errors.append(f"{nombre}: no se extrajo texto legible.")
             continue
@@ -344,8 +332,7 @@ def ingest_uploads(
             ),
             encoding="utf-8",
         )
-        _merge_index(
-            settings.index_file,
+        entries.append(
             {
                 "url": f"upload://{slug}",
                 "title": _limpiar_titulo(titulo),
@@ -368,6 +355,11 @@ def ingest_uploads(
 
     if gold == 0:
         return IngestReport(files=archivos, errors=tuple(errors))
+    merge_index(settings.index_file, entries)
+    if solo_extraer:
+        return IngestReport(
+            files=archivos, bronze=bronze, silver=silver, gold=gold, errors=tuple(errors)
+        )
 
     documents_count = 0
     chunks = 0

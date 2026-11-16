@@ -64,12 +64,16 @@ con asistente RAG.
   solo para recuperación y citación, con manifiesto, deduplicación por URL/hash
   (incluidas las URLs del núcleo) y procedencia explícita (`origin`, `category`,
   `entity`). Se importa solo HTML y esa capa nunca se consolida en el prompt.
+- Cargar archivos locales desde Configuración o desde la consola. La carga
+  conserva el original en Bronze y organiza el texto en Silver y Gold. Admite
+  PDF con texto por página y datos JSON, JSONL, XML, CSV y TSV, además de HTML,
+  Markdown y TXT.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
 ### Fuera del alcance (por ahora)
 
 - Rastrear el `sitemap.xml` completo del dominio (podcast, noticias, especialistas).
-- Vídeos, PDFs y transcripciones.
+- Vídeos, OCR de PDF escaneados y transcripciones.
 - Páginas tras autenticación o cualquier contenido no público.
 - Evaluación automatizada y benchmarking del asistente (fuera de la interfaz de pruebas).
 
@@ -267,7 +271,8 @@ carvajal/
 
 - `make image` construye la imagen multi-etapa (`Dockerfile`) con las
   dependencias base y el extra `capture` (la captura web desde Configuración
-  usa `requests`, `beautifulsoup4` y `lxml` en runtime); `legacy`
+  usa `requests`, `beautifulsoup4` y `lxml` en runtime); incluye `poppler-utils`
+  para la extracción de PDF. El extra `legacy`
   (Streamlit/FAISS) se queda fuera de la imagen y se instala en desarrollo con
   `uv sync --all-extras`.
 - `make prod-up` levanta app, Postgres, Qdrant y Ollama con
@@ -406,7 +411,7 @@ git push
 
 ## 10. Notas y tareas pendientes
 
-- [ ] Añadir extracción de PDFs (informes, memorias anuales).
+- [ ] Evaluar OCR para PDF escaneados sin capa de texto.
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.

@@ -316,6 +316,28 @@ los documentos ya indexados. La captura muestra el progreso por SSE, respeta
 `robots.txt` y valida las URLs contra un guard SSRF; en esta fase la carga y la
 captura son públicas y no exigen autenticación.
 
+#### Carga de archivos locales
+
+**Configuración → Alimenta el corpus** admite archivos o carpetas con PDF, XML,
+JSON, JSONL, CSV, TSV, HTML, Markdown y TXT. La web acepta hasta 100 archivos por
+carga y 5 MB por archivo. Para recorrer carpetas grandes, usa la consola desde
+la raíz del repositorio:
+
+```bash
+uv run python -m apps.api.ingest_cli external_corpus
+uv run python -m apps.api.ingest_cli external_corpus --solo-extraer
+```
+
+La consola acepta hasta 100 MB por archivo y divide la carga en lotes. Guarda los
+originales en `data/raw/uploads/`, el texto en `data/processed/uploads/` y las
+fichas con texto en `data/gold/`. Con `--solo-extraer` se detiene en Gold.
+La carga completa usa PostgreSQL, Qdrant y Ollama configurados para la app.
+
+Los PDF requieren `pdftotext` (paquete `poppler-utils`, incluido en Docker).
+Se conserva el número de página del texto extraído. Las páginas escaneadas sin
+capa de texto requieren OCR previo. Las carpetas omiten extensiones ajenas a la
+lista, como `.bin`. La carga local identifica las fuentes por nombre de archivo.
+
 La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
 núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras
 10** pide un lote nuevo, excluye las preguntas ya mostradas y acumula el

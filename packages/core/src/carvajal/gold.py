@@ -1,7 +1,9 @@
 """Entregables del corpus: capas Bronze, Silver y Gold, más el índice JSONL."""
 
 import json
+from fcntl import LOCK_EX, flock
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.parse import urlparse
 
 from carvajal.models import CapturedPage
@@ -111,5 +113,42 @@ def write_index(entries: list[dict[str, str | int]], index_file: Path) -> Path:
     """Escribe el índice JSONL del corpus (una línea por documento)."""
 
     index_file.parent.mkdir(parents=True, exist_ok=True)
-    index_file.write_text(to_jsonl(entries), encoding="utf-8")
+    with NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=index_file.parent, delete=False
+    ) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(to_jsonl(entries))
+            stream.close()
+            temporary.chmod(index_file.stat().st_mode & 0o777 if index_file.exists() else 0o644)
+            temporary.replace(index_file)
+        finally:
+            temporary.unlink(missing_ok=True)
     return index_file
+
+
+def merge_index(
+    index_file: Path, entries: list[dict[str, str | int]], *, gold_dir: Path | None = None
+) -> None:
+    """Actualiza el índice sin perder entradas de otras cargas o capturas concurrentes."""
+
+    index_file.parent.mkdir(parents=True, exist_ok=True)
+    with index_file.with_name(f".{index_file.name}.lock").open("a") as lock:
+        flock(lock, LOCK_EX)
+        merged: dict[str, dict[str, str | int]] = {}
+        if index_file.is_file():
+            for line in index_file.read_text(encoding="utf-8").splitlines():
+                try:
+                    previous = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(previous, dict) and previous.get("slug"):
+                    merged[str(previous["slug"])] = previous
+        merged.update((str(entry["slug"]), entry) for entry in entries)
+        if gold_dir is not None:
+            merged = {
+                slug: entry
+                for slug, entry in sorted(merged.items())
+                if (gold_dir / f"{slug}.md").exists()
+            }
+        write_index(list(merged.values()), index_file)

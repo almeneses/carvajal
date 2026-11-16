@@ -27,6 +27,12 @@ def test_configuracion_muestra_el_formulario_y_las_etapas() -> None:
     assert 'enctype="multipart/form-data"' in response.text
     assert 'name="archivos"' in response.text
     assert 'name="carpeta"' in response.text
+    assert (
+        response.text.count(
+            'accept=".csv,.htm,.html,.json,.jsonl,.markdown,.md,.pdf,.tsv,.txt,.xml"'
+        )
+        == 2
+    )
     assert "Bronze" in response.text and "Qdrant" in response.text
     assert "Configuración" in response.text
     assert 'href="/configuracion"' in response.text
@@ -60,12 +66,12 @@ def test_subir_documento_pasa_los_archivos_al_ingestor() -> None:
     response = client.post(
         "/configuracion",
         data={CSRF_FIELD: token},
-        files={"archivos": ("nota.md", b"# Nota\n\nTexto de prueba.", "text/markdown")},
+        files={"archivos": ("datos.json", b'{"dato": "Texto de prueba."}', "application/json")},
     )
 
     # Assert
     assert response.status_code == 200
-    assert recibidos and recibidos[0].filename == "nota.md"
+    assert recibidos and recibidos[0].filename == "datos.json"
     assert "Corpus actualizado" in response.text
     assert "56" in response.text
 

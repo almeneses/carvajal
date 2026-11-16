@@ -36,6 +36,9 @@ COPY packages/core/src ./packages/core/src
 RUN uv sync --frozen --no-dev --no-editable --no-install-package zstandard --extra capture
 
 FROM base AS runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 # Usuario sin privilegios: la app solo lee plantillas y estáticos.
 RUN addgroup --system app && adduser --system --ingroup app app
 # El venv ya trae todo lo necesario; pip, setuptools y el resto del Python

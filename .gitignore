@@ -25,6 +25,7 @@ htmlcov/
 # el entregable versionado es data/gold/ (capa gold).
 data/raw/*
 data/processed/*
+data/gold/.index.jsonl.lock
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
