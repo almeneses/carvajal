@@ -117,11 +117,17 @@ def evaluate_router(
                 problems.append(f"{key}={got!r} (esperado {expected!r})")
         forbidden = set(item.get("constraints", {}).get("forbidden_materials", []))
         if forbidden and decision.route == "commercial" and decision.intent != "commercial_custom":
-            result = run_commercial(decision.extra, catalog=catalog)
-            violations = [opt["sku"] for opt in result["options"] if opt["material"] in forbidden]
-            report.material_violations += len(violations)
-            if violations:
-                problems.append(f"material prohibido en {', '.join(violations)}")
+            try:
+                result = run_commercial(decision.extra, catalog=catalog)
+            except Exception as error:  # una pregunta no debe abortar la corrida
+                problems.append(f"secuencia comercial falló: {type(error).__name__}: {error}")
+            else:
+                violations = [
+                    opt["sku"] for opt in result["options"] if opt["material"] in forbidden
+                ]
+                report.material_violations += len(violations)
+                if violations:
+                    problems.append(f"material prohibido en {', '.join(violations)}")
         if problems:
             report.failures.append(
                 {"id": item["id"], "question": item["question"], "problems": problems}

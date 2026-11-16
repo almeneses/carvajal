@@ -52,7 +52,7 @@ def load_decision_model(spec: str) -> DecisionModel:
         module = importlib.import_module(module_name)
         factory = getattr(module, factory_name)
         model = factory()
-    except (ImportError, AttributeError) as error:
+    except Exception as error:  # la fábrica puede fallar al construir el modelo
         raise DecisionModelUnavailable(
             f"No se pudo cargar el modelo de decisión {spec!r}: {error}"
         ) from error

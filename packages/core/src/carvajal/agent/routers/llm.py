@@ -21,11 +21,12 @@ from carvajal.agent.state import RouteDecision, Turn
 from carvajal.agent.tools import known_names
 from carvajal.application.ports import LLMProvider
 
-__all__ = ["FALLBACK_PREFIX", "LLM_ROUTER_SYSTEM", "LLMRouter"]
+__all__ = ["FALLBACK_PREFIX", "LLMRouter", "system_prompt"]
 
 MAX_CONTEXT_TURNS = 3
+_INDICATORS = "<<indicadores>>"
 
-LLM_ROUTER_SYSTEM = f"""Eres el enrutador de un asistente sobre Carvajal. Clasifica la \
+_SYSTEM_TEMPLATE = f"""Eres el enrutador de un asistente sobre Carvajal. Clasifica la \
 pregunta en una ruta y extrae datos. Responde solo con un objeto JSON con este esquema:
 
 {OUTPUT_SCHEMA}
@@ -34,7 +35,7 @@ Rutas e intenciones:
 - direct/greeting: saludo, agradecimiento o pregunta sobre lo que puede hacer el asistente.
 - direct/memory_write: el usuario declara una preferencia («recuerda que…», «prefiero…»).
 - tool/indicator: indicador financiero o de empleados de Carvajal con un período explícito.
-  tool_name debe ser uno de: {", ".join(sorted(known_names()))}.
+  tool_name debe ser uno de: {_INDICATORS}.
 - direct/missing_period: pide un indicador pero sin período.
 - commercial/commercial: quiere comprar o cotizar empaques (vasos, tapas, contenedores,
   charolas, cubiertos, envases, platos) y se conoce la temperatura del contenido.
@@ -50,6 +51,13 @@ Rutas e intenciones:
 Si la respuesta corta completa una solicitud comercial anterior, combina sus datos con los de
 los turnos previos. Deduce la temperatura del uso («café» → caliente, «microondas» → caliente).
 No inventes datos: lo que no se dijo va en null."""
+
+
+def system_prompt() -> str:
+    """Prompt del sistema con los indicadores del registro, leídos en cada turno."""
+
+    return _SYSTEM_TEMPLATE.replace(_INDICATORS, ", ".join(sorted(known_names())))
+
 
 Router = Callable[[str, list[Turn] | None], RouteDecision]
 
@@ -74,9 +82,7 @@ class LLMRouter:
         turns = turns or []
         self.calls += 1
         try:
-            text = self._llm.complete(
-                system=LLM_ROUTER_SYSTEM, prompt=self._prompt(question, turns)
-            )
+            text = self._llm.complete(system=system_prompt(), prompt=self._prompt(question, turns))
             return decision_from_payload(parse_json(text), question, turns, source=self.name)
         except Exception as error:  # el turno nunca se cae por el enrutador
             self.invalid += 1

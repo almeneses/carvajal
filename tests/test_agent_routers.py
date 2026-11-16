@@ -20,7 +20,7 @@ from carvajal.agent.routers.decision import (
     load_decision_model,
 )
 from carvajal.agent.routers.evaluation import evaluate_router, load_items, render_report
-from carvajal.agent.routers.llm import LLM_ROUTER_SYSTEM, LLMRouter
+from carvajal.agent.routers.llm import LLMRouter, system_prompt
 from carvajal.agent.state import RouteDecision, Turn
 from carvajal.cli import main
 from carvajal.infrastructure.settings import Settings
@@ -40,8 +40,10 @@ class FakeLLM:
     def __init__(self, *answers: str | Exception) -> None:
         self.answers = list(answers)
         self.prompts: list[str] = []
+        self.systems: list[str] = []
 
     def complete(self, *, system: str, prompt: str) -> str:
+        self.systems.append(system)
         self.prompts.append(prompt)
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
@@ -105,7 +107,15 @@ def test_el_prompt_del_llm_lista_los_indicadores_del_registro() -> None:
 
     LLMRouter(llm)("hola")
 
-    assert "ebitda, empleados, ingresos_consolidados" in LLM_ROUTER_SYSTEM
+    assert "ebitda, empleados, ingresos_consolidados" in llm.systems[0]
+
+
+def test_el_prompt_del_llm_lee_el_registro_en_cada_turno(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("carvajal.agent.routers.llm.known_names", lambda: {"indicador_nuevo_036"})
+
+    assert "indicador_nuevo_036" in system_prompt()
 
 
 def test_el_seguimiento_del_llm_recupera_con_el_turno_anterior() -> None:
@@ -148,6 +158,19 @@ def test_sin_modelo_de_decision_el_error_es_controlado() -> None:
         load_decision_model("modulo_que_no_existe_036:crear")
     with pytest.raises(DecisionModelUnavailable):
         build_router("decision", Settings(decision_model=""))
+
+
+def test_una_fabrica_rota_es_un_error_controlado(monkeypatch: pytest.MonkeyPatch) -> None:
+    modulo = types.ModuleType("decision_roto_036")
+
+    def crear() -> None:
+        raise RuntimeError("sin credenciales")
+
+    setattr(modulo, "crear", crear)  # noqa: B010
+    monkeypatch.setitem(sys.modules, "decision_roto_036", modulo)
+
+    with pytest.raises(DecisionModelUnavailable, match="sin credenciales"):
+        load_decision_model("decision_roto_036:crear")
 
 
 class FakeDecisionModel:
@@ -247,6 +270,35 @@ def test_la_evaluacion_cuenta_aciertos_fallos_y_salidas_invalidas() -> None:
     tabla = render_report([reglas, fallido])
     assert "| rules | 110 | 100.0% |" in tabla
     assert "| llm | 3 |" in tabla
+
+
+def test_una_falla_de_la_secuencia_comercial_no_aborta_la_evaluacion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: una pregunta comercial que hace fallar la secuencia real.
+    def boom(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("catálogo roto")
+
+    monkeypatch.setattr("carvajal.agent.routers.evaluation.run_commercial", boom)
+    items = [
+        {
+            "id": "c-99",
+            "question": "necesito vasos",
+            "route": "commercial",
+            "intent": "commercial",
+            "constraints": {"forbidden_materials": ["papel"]},
+        }
+    ]
+
+    def router(question: str, turns: list[Turn] | None = None) -> RouteDecision:
+        return RouteDecision(route="commercial", intent="commercial", query=question)
+
+    # Act
+    report = evaluate_router(router, items)
+
+    # Assert
+    assert report.total == 1
+    assert "secuencia comercial falló" in report.failures[0]["problems"][0]
 
 
 def test_la_orden_eval_router_escribe_la_tabla(tmp_path: Path) -> None:
