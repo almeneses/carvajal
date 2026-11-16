@@ -153,8 +153,10 @@ plegadas en su vecina. Las specs futuras (029–034) no se escriben hasta que se
 flujo normal.
 
 **Estado (2026-11-16)**: la 035 se escribió como `Draft` con `spec.md`, `plan.md` y
-`tasks.md`, antes de implementar. La 036 sigue el mismo flujo y enmienda §2, §5 y §9 en
-su PR. Las 029–034 siguen sin escribir.
+`tasks.md`, antes de implementar. La implementación (extracción multiformato, PDF por
+página y consola de carpetas) quedó entregada el mismo día con `make check` en verde. La
+036 sigue el mismo flujo y enmienda §2, §5 y §9 en su PR. Las 029–034 siguen sin
+escribir.
 
 - **Excepción de orden**: si el objetivo es sanear lo antes posible, la tanda 5 (002) se
   adelanta a la primera posición. Es la única spec que hoy induce a error, y arreglarla

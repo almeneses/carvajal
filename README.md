@@ -316,6 +316,43 @@ los documentos ya indexados. La captura muestra el progreso por SSE, respeta
 `robots.txt` y valida las URLs contra un guard SSRF; en esta fase la carga y la
 captura son públicas y no exigen autenticación.
 
+#### Carga local multiformato (web y consola)
+
+La pestaña Configuración y la consola aceptan `.pdf`, `.xml`, `.json`, `.jsonl`,
+`.csv`, `.tsv`, `.html`, `.txt`, `.md` y `.markdown`. Cada archivo deja el original en
+Bronze, el texto extraído en Silver y la ficha en Gold; los PDF conservan el número de
+página (`## Página N`) gracias a `pdftotext` (poppler-utils) y los escaneados se rechazan
+con un aviso de OCR. Los datos estructurados se validan (sin DTD ni entidades externas)
+y se conservan como texto íntegro delimitado por su formato. La web mantiene 100
+archivos por carga y 5 MB por archivo.
+
+Para volúmenes grandes, desde la consola:
+
+```bash
+python -m apps.api.ingest_cli /ruta/de/la/carpeta --source-type oficial
+```
+
+Recorre carpetas y subcarpetas, ignora las extensiones no admitidas, procesa en lotes
+(`--lote`, 25 por defecto), admite 100 MB por archivo (`--max-file-mb`) y al cerrar cada
+lote actualiza PostgreSQL y Qdrant. `--solo-extraer` se detiene en Gold para revisar la
+extracción antes de tocar la base y el índice. `--source-type` (`oficial`, `tercero` o
+`colaborador`) fija la procedencia que se escribe en el *front matter*: la procedencia es
+independiente de que el archivo se suba por la web o se importe por consola.
+
+En el VPS se ejecuta dentro del contenedor, que es donde están la base, Qdrant y los
+volúmenes:
+
+```bash
+cd /opt/carvajal
+docker compose -f compose.prod.yml run --rm --no-deps \
+  -v /opt/carvajal/inbox:/inbox:ro \
+  app python -m apps.api.ingest_cli /inbox --source-type oficial
+```
+
+Los archivos de `/opt/carvajal/inbox` se leen en solo lectura; el original queda copiado
+en el volumen (`appdata`) dentro de Bronze, así que la carpeta del host puede borrarse
+después.
+
 La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
 núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras
 10** pide un lote nuevo, excluye las preguntas ya mostradas y acumula el
