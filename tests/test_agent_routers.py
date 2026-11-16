@@ -20,7 +20,7 @@ from carvajal.agent.routers.decision import (
     load_decision_model,
 )
 from carvajal.agent.routers.evaluation import evaluate_router, load_items, render_report
-from carvajal.agent.routers.llm import LLMRouter
+from carvajal.agent.routers.llm import LLM_ROUTER_SYSTEM, LLMRouter
 from carvajal.agent.state import RouteDecision, Turn
 from carvajal.cli import main
 from carvajal.infrastructure.settings import Settings
@@ -80,6 +80,14 @@ def test_el_llm_resuelve_el_indicador_con_el_registro_real() -> None:
 
     assert decision.tool_name == "ingresos_consolidados"
     assert decision.tool_period == "2024"
+
+
+def test_el_prompt_del_llm_lista_los_indicadores_del_registro() -> None:
+    llm = FakeLLM('{"route": "direct", "intent": "greeting"}')
+
+    LLMRouter(llm)("hola")
+
+    assert "ebitda, empleados, ingresos_consolidados" in LLM_ROUTER_SYSTEM
 
 
 def test_el_seguimiento_del_llm_recupera_con_el_turno_anterior() -> None:

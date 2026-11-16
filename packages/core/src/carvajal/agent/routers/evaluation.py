@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from carvajal.agent.commercial import CAPACITY_TOLERANCE_OZ
 from carvajal.agent.commercial_flow import run_commercial
 from carvajal.agent.routers import Router, router_name
 from carvajal.agent.routers._payload import FALLBACK_PREFIX
@@ -69,6 +70,14 @@ class RouterReport:
         return ordered[min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)]
 
 
+def _matches(key: str, got: Any, expected: Any) -> bool:
+    """La capacidad se compara con la tolerancia de la búsqueda; lo demás, exacto."""
+
+    if key == "capacity_oz" and isinstance(got, float) and isinstance(expected, float):
+        return abs(got - expected) <= CAPACITY_TOLERANCE_OZ
+    return got == expected
+
+
 def load_items(path: Path) -> list[dict[str, Any]]:
     """Preguntas del conjunto, en el orden del archivo."""
 
@@ -102,7 +111,7 @@ def evaluate_router(
         for key, expected in item.get("expected", {}).items():
             report.field_total += 1
             got = decision.extra.get(key)
-            if got == expected:
+            if _matches(key, got, expected):
                 report.field_hits += 1
             else:
                 problems.append(f"{key}={got!r} (esperado {expected!r})")

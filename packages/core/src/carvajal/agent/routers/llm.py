@@ -18,6 +18,7 @@ from carvajal.agent.routers._payload import (
     parse_json,
 )
 from carvajal.agent.state import RouteDecision, Turn
+from carvajal.agent.tools import known_names
 from carvajal.application.ports import LLMProvider
 
 __all__ = ["FALLBACK_PREFIX", "LLM_ROUTER_SYSTEM", "LLMRouter"]
@@ -33,6 +34,7 @@ Rutas e intenciones:
 - direct/greeting: saludo, agradecimiento o pregunta sobre lo que puede hacer el asistente.
 - direct/memory_write: el usuario declara una preferencia («recuerda que…», «prefiero…»).
 - tool/indicator: indicador financiero o de empleados de Carvajal con un período explícito.
+  tool_name debe ser uno de: {", ".join(sorted(known_names()))}.
 - direct/missing_period: pide un indicador pero sin período.
 - commercial/commercial: quiere comprar o cotizar empaques (vasos, tapas, contenedores,
   charolas, cubiertos, envases, platos) y se conoce la temperatura del contenido.

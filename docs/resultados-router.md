@@ -60,9 +60,40 @@ comercial no excluyó el EPS. Corregido en esta misma PR: el esquema muestra `tr
 comillas y la validación acepta el texto `"true"`. Las 4 salidas inválidas no aparecían en la
 lista porque el respaldo a reglas acertaba; desde esta corrección se listan también.
 
-### Corrida 2 — pendiente
+### Corrida 2 — 2026-11-16, adaptador corregido y mismo prompt
 
-Con el adaptador corregido y el mismo prompt, para aislar el efecto de la corrección:
+| Enrutador | Preguntas | Ruta | Intención | Datos | Violaciones de material | Salidas inválidas | Latencia media (ms) | Latencia p95 (ms) | Llamadas al modelo |
+|---|---|---|---|---|---|---|---|---|---|
+| rules | 110 | 100.0% | 100.0% | 100.0% | 0 | 0 | 0.4 | 0.6 | 0 |
+| llm | 110 | 98.2% | 97.3% | 95.6% | 0 | 3 | 1342.1 | 1742.3 | 110 |
+
+La corrección de los booleanos funcionó: **0 violaciones de material** (microondas ya se
+respeta) y `c-09`, `c-10` y `c-19` pasan. Como ahora se listan las salidas inválidas,
+aparecen fallos que en la corrida 1 quedaban ocultos detrás del respaldo a reglas. Por eso la
+ruta baja de 99,1 % a 98,2 %: no es que el LLM empeorara, es que la métrica dejó de esconderlos.
+
+Fallos del LLM (10) y su causa:
+
+| Pregunta | Fallo | Causa |
+|---|---|---|
+| `r-q29`, `n-06`, `n-09` (activos, EBITDA, utilidad neta) | salida inválida: indicador no reconocido | **Vacío del adaptador**: el prompt no listaba los nombres del registro y el LLM respondió «EBITDA consolidado» |
+| `c-13` «charolas para ensalada de 500 ml» | 16,9 oz en vez de 16,91 | **Error de la métrica**: exigía igualdad exacta; la búsqueda tolera ±0,25 oz |
+| `n-05` «Mi nombre es Laura» | `greeting` en vez de `memory_write` | Error del LLM |
+| `c-03` «vasos de papel…», `c-21` «…sin icopor…» | no marca la preferencia renovable | Error del LLM: no deduce la preferencia del material |
+| `c-15` «contenedores para papas fritas» | pide aclaración de temperatura | Error del LLM: no deduce caliente de «papas fritas» |
+| `c-12` «contenedores para almuerzos» | pide aclaración | Etiqueta discutible |
+| `c-14` «bandejas para frutas» | temperatura `ambiente` | Etiqueta discutible |
+
+Cambios después de la corrida 2, en esta misma PR: el prompt lista los indicadores válidos
+(`activos, ebitda, empleados, ingresos_consolidados, utilidad_bruta, utilidad_neta`) y la
+evaluación compara la capacidad con la tolerancia de la búsqueda. No se cambiaron las
+etiquetas del conjunto ni se añadieron reglas al prompt para los errores del LLM, para no
+ajustar el enrutador al examen.
+
+### Corrida 3 — opcional
+
+Mide el efecto de esos dos cambios. Si se corre, lo esperado son 0 salidas inválidas y unos 6
+fallos: los 4 del LLM y las 2 etiquetas discutibles.
 
 ```bash
 uv run carvajal eval-router --router rules --router llm --output docs/eval/router.md
@@ -74,8 +105,10 @@ uv run carvajal eval-router --router rules --router llm --output docs/eval/route
   Lo que sí demuestra es la no regresión (las 49 preguntas previas conservan la ruta del router
   de `dev`) y que ninguna recomendación viola la regla de material. Es el piso de latencia y
   costo (sin llamadas al modelo).
-- **LLM.** Sin el error del adaptador, sus fallos se reducen a uno claro (`n-05`) y dos casos
-  donde la etiqueta del conjunto es discutible. Cuesta unos 1,3 s y ~835 tokens por turno
+- **LLM.** Con el adaptador corregido, no viola la regla de material y sus errores propios son
+  de deducción: no infiere caliente de «papas fritas», ni la preferencia renovable de «papel»
+  o «sin icopor», ni que «mi nombre es» se guarda en memoria. Las reglas aciertan esos casos
+  porque se escribieron para ellos; con frases nuevas la ventaja puede invertirse. Cuesta unos 1,3 s y ~835 tokens por turno
   frente a menos de 1 ms de las reglas. La regla de material nunca depende del enrutador: la
   aplica `check_material`, pero un dato mal extraído (microondas, temperatura) sí cambia qué se
   valida, y por eso se mide.
