@@ -249,13 +249,20 @@ cd /opt/carvajal
 
 docker compose -f compose.prod.yml exec ollama ollama pull nomic-embed-text
 
-# Copia el corpus Gold al volumen persistente de la app y reindexa.
+# Copia el corpus Gold al volumen persistente de la app, cárgalo en Postgres
+# y reindexa en Qdrant.
 docker compose -f compose.prod.yml up -d app
 docker compose -f compose.prod.yml cp /opt/carvajal/data/. app:/app/data/
+docker compose -f compose.prod.yml exec app carvajal migrate-gold
 docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
 
 curl -fsS http://144.217.80.136:8080/health
 ```
+
+> El volumen `appdata` es la fuente de verdad del corpus una vez que hay cargas
+> o recapturas: la copia de `/opt/carvajal/data` puede quedarse atrás. Antes de
+> volver a copiar, sincroniza el volumen hacia el host o vuelve a capturar; un
+> `docker compose cp` a ciegas sobrescribe los documentos más nuevos.
 
 El índice queda en el volumen `qdrantdata` y sobrevive a reinicios y despliegues.
 Las cargas de la pestaña Configuración escriben en el volumen `appdata`
@@ -265,6 +272,35 @@ Qdrant; es pública en esta fase y se puede restringir con
 `CAPTURE_ALLOWED_DOMAINS` (lista separada por coma) en el `.env` del servidor.
 `deploy.sh` escribe `APP_IMAGE=ghcr.io/...:<tag>` en `.env`, así que los comandos
 manuales de `docker compose` usan la misma imagen que quedó desplegada.
+
+### Carga masiva de una carpeta (PDF, XML, JSON, CSV…)
+
+Para cientos de archivos, la consola es el camino; la web limita a 100 archivos
+de 5 MB. Sube la carpeta al host y procésala dentro del contenedor:
+
+```bash
+# LOCAL
+rsync -av ./mi-corpus/ deploy@144.217.80.136:/opt/carvajal/inbox/
+```
+
+```bash
+# VPS
+cd /opt/carvajal
+docker compose -f compose.prod.yml run --rm --no-deps \
+  -v /opt/carvajal/inbox:/inbox:ro \
+  app python -m apps.api.ingest_cli /inbox --source-type oficial
+```
+
+- Recorre subcarpetas, ignora extensiones no admitidas y procesa en lotes de 25
+  archivos (100 MB por archivo, `--lote` y `--max-file-mb`).
+- Al terminar cada lote actualiza PostgreSQL y Qdrant. `--solo-extraer` se
+  detiene en Gold para revisar la extracción antes de tocar la base y el índice.
+- `--source-type` fija la procedencia del *front matter*: `oficial` para el sitio
+  y documentos de Carvajal, `tercero` para prensa o reguladores, `colaborador`
+  para material de un tercero. No cambia la capa: todo entra al núcleo
+  (`data/gold`) para que el chat y la FAQ lo usen.
+- Los originales quedan en Bronze dentro de `appdata`; la carpeta del host puede
+  borrarse después.
 
 ## 7. Backups
 

@@ -1,6 +1,5 @@
 """Orquestación del pipeline: capas Bronze → Silver → Gold con reporte de métricas."""
 
-import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -16,7 +15,7 @@ from carvajal.config import (
 from carvajal.domain.rules import is_duplicate
 from carvajal.extracting import html_title, html_to_markdown
 from carvajal.fetching import Fetcher, FetchError, RobotsDenied, WebClient
-from carvajal.gold import index_entry, write_bronze, write_gold, write_index, write_silver
+from carvajal.gold import index_entry, merge_index, write_bronze, write_gold, write_silver
 from carvajal.models import CapturedPage
 
 
@@ -143,37 +142,10 @@ def capture(
         report.written += 1
         report.chars += len(page.markdown)
 
-    write_index(_merge_index(target_index, entries, target_gold), target_index)
+    merge_index(target_index, entries, gold_dir=target_gold)
     _emit(on_event, "indice", detail=f"{len(entries)} documentos indexados")
     report.duration_seconds = round(time.monotonic() - started, 2)
     return report
-
-
-def _merge_index(
-    index_file: Path,
-    entries: list[dict[str, str | int]],
-    gold_dir: Path,
-) -> list[dict[str, str | int]]:
-    """Fusiona la captura actual con el índice existente, sin perder documentos.
-
-    Una captura parcial (por ejemplo ``--seed`` o las primeras N URLs desde la interfaz)
-    no debe truncar el índice: las entradas previas se conservan y solo se descartan las
-    que ya no tienen archivo en Gold.
-    """
-
-    merged: dict[str, dict[str, str | int]] = {}
-    if index_file.exists():
-        for line in index_file.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                previous = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            merged[str(previous.get("slug", ""))] = previous
-    for entry in entries:
-        merged[str(entry["slug"])] = entry
-    return [entry for slug, entry in sorted(merged.items()) if (gold_dir / f"{slug}.md").exists()]
 
 
 def _emit(hook: ProgressHook | None, stage: str, url: str = "", detail: str = "") -> None:

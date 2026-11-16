@@ -122,7 +122,7 @@ tests/
 | Archivo | Columnas | Origen |
 |---|---|---|
 | `referencias.csv` | `sku, name, family, use, capacity_oz, diameter_mm, material, brand, units_per_pack, packs_per_box, units_per_box, temp_min_c, temp_max_c, price, currency, tax_included, price_valid_until, country, source_url, captured_at` | Fichas de la tienda MX (precio y SKU de los datos estructurados de la página); catálogo PDF transcrito y revisado |
-| `materiales.csv` | `material, temp_min_c, temp_max_c, microwave, refrigeration, freezing, hot_content, recycling_code, applications` (`uso=recomendable\|aplicable\|no_apto`) | Guía de materiales, pág. 3 (PP, EPS, PS, PET, aluminio) |
+| `materiales.csv` | `material, temp_min_c, temp_max_c, microwave, refrigeration, freezing, hot_content, recycling_code, applications, source_url, captured_at` (`applications` usa `uso=recomendable\|aplicable\|no_apto`) | Guía de materiales, «Lineamientos Generales», pág. 3 (PP, EPS, PS, PET, aluminio) |
 | `distribuidores.csv` | `name, city, address, phone, source_url, captured_at` | Directorio de distribuidores |
 
 La orden `carvajal catalog-build --corpus <ruta>` regenera `referencias.csv` desde la tienda y

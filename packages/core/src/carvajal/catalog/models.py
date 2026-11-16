@@ -84,14 +84,6 @@ class Reference(_Sourced):
             raise ValueError("un precio exige moneda (currency) y nota de impuestos (tax_included)")
         if self.price is None and self.currency is not None:
             raise ValueError("currency sin price: deja ambos vacíos o completa el precio")
-        if (self.temp_min_c is None) != (self.temp_max_c is None):
-            raise ValueError("la temperatura de la ficha exige mínimo y máximo")
-        if (
-            self.temp_min_c is not None
-            and self.temp_max_c is not None
-            and self.temp_min_c >= self.temp_max_c
-        ):
-            raise ValueError("temp_min_c debe ser menor que temp_max_c")
         if self.units_per_pack and self.packs_per_box:
             expected = self.units_per_pack * self.packs_per_box
             if expected != self.units_per_box:
@@ -101,8 +93,29 @@ class Reference(_Sourced):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _temperatura_coherente(self) -> Self:
+        if (self.temp_min_c is None) != (self.temp_max_c is None):
+            raise ValueError("la temperatura de la ficha exige mínimo y máximo")
+        if (
+            self.temp_min_c is not None
+            and self.temp_max_c is not None
+            and self.temp_min_c >= self.temp_max_c
+        ):
+            raise ValueError("temp_min_c debe ser menor que temp_max_c")
+        return self
 
-class MaterialRule(_Row):
+    @model_validator(mode="after")
+    def _empaque_completo(self) -> Self:
+        if (self.units_per_pack is None) != (self.packs_per_box is None):
+            raise ValueError(
+                "units_per_pack y packs_per_box van juntos: "
+                "deja solo units_per_box o completa el paquete y la caja"
+            )
+        return self
+
+
+class MaterialRule(_Sourced):
     """Regla técnica de la guía de materiales."""
 
     material: str = Field(min_length=1)
