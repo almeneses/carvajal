@@ -88,6 +88,8 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
+    # Tiempo máximo de espera por llamada al proveedor de LLM.
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
     ollama_model: str = "llama3.2"
     # La FAQ y el chat envían prompts grandes: sin una ventana explícita,
     # Ollama recorta el contexto y puede responder con datos incompletos.

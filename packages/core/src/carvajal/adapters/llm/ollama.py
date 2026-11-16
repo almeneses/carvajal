@@ -23,5 +23,6 @@ class OllamaProvider(_LangChainChat):
                 model=settings.ollama_model,
                 temperature=0,
                 num_ctx=settings.ollama_num_ctx,
+                client_kwargs={"timeout": settings.llm_timeout_seconds},
             )
         )

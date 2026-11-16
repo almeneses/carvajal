@@ -31,5 +31,6 @@ class DeepSeekProvider(_LangChainChat):
                 api_key=api_key,
                 base_url=base_url,
                 temperature=0,
+                request_timeout=settings.llm_timeout_seconds,
             )
         )
