@@ -140,8 +140,12 @@ Decisiones tomadas al curar los datos (PR 2):
 - Si el título y la descripción de una ficha se contradicen, o la temperatura contradice el
   uso declarado, se usa el dato coherente y la contradicción queda en el manifiesto.
 - `referencias.csv` se reescribe de forma atómica y valida antes las filas curadas que
-  conserva. Si el corpus deja fuera un SKU ya presente, aborta antes de escribir salvo que se
-  pase `--allow-missing`.
+  conserva, sin dejar temporales huérfanos. Las columnas se escriben en el orden de la
+  tabla anterior, independiente del orden de declaración del modelo. Si el corpus deja
+  fuera un SKU ya presente, aborta antes de escribir salvo que se pase `--allow-missing`;
+  en ese caso los SKU retirados quedan en las notas del manifiesto.
+- El manifiesto se reemplaza atómicamente antes que el CSV: un fallo al actualizarlo deja
+  intacto el catálogo anterior y sincronizado.
 
 ### Herramientas (`agent/commercial.py`)
 

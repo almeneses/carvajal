@@ -51,6 +51,30 @@ _MATERIALS = (
     ("PP", ("polipropileno", "pp")),
     ("PS", ("poliestireno", "ps", "gpps")),
 )
+# Orden del contrato publicado en specs/036-asistente-empaques/plan.md y del
+# archivo versionado: no depende del orden de declaración de ``Reference``.
+_COLUMNS = (
+    "sku",
+    "name",
+    "family",
+    "use",
+    "capacity_oz",
+    "diameter_mm",
+    "material",
+    "brand",
+    "units_per_pack",
+    "packs_per_box",
+    "units_per_box",
+    "temp_min_c",
+    "temp_max_c",
+    "price",
+    "currency",
+    "tax_included",
+    "price_valid_until",
+    "country",
+    "source_url",
+    "captured_at",
+)
 
 
 def _plain(value: str) -> str:
@@ -128,6 +152,11 @@ def parse_mx_product(
     product, crumbs = _product_ld(page)
     if not product.get("sku"):
         return None
+    location = str(product.get("url") or "ficha sin URL")
+    if not product.get("name"):
+        raise ValueError(f"{location}: la ficha no publica nombre")
+    if not product.get("url"):
+        raise ValueError(f"{location}: la ficha no publica URL")
     name = html.unescape(str(product["name"]))
     family = _first(_FAMILIES, name)
     if family is None or _plain(name).startswith(("combo", "kit")):
@@ -227,11 +256,12 @@ def build_mx_references(
     by_sku: dict[str, Reference] = {}
     notes: list[str] = []
     for path in pages:
-        with path.open("rb") as handle:  # la cabecera basta para descartar otras páginas
-            url = MX_PRODUCT.search(handle.read(8000).decode("utf-8", errors="ignore"))
+        # Se lee la página completa: la URL puede aparecer tras cabeceras o scripts
+        # largos y descartarla por un límite fijo perdería la ficha en silencio.
+        page = path.read_text(encoding="utf-8", errors="ignore")
+        url = MX_PRODUCT.search(page)
         if url is None:
             continue
-        page = path.read_text(encoding="utf-8", errors="ignore")
         try:
             reference = parse_mx_product(page, captured_at, notes)
         except ValueError as error:
@@ -252,19 +282,28 @@ def _cell(value: Any) -> str:
     return str(value)
 
 
-def write_references(directory: Path, mx: list[Reference], *, allow_missing: bool = False) -> int:
+def write_references(
+    directory: Path,
+    mx: list[Reference],
+    *,
+    allow_missing: bool = False,
+    notes: list[str] | None = None,
+    manifest: tuple[str, dict[str, Any]] | None = None,
+) -> int:
     """Reescribe ``referencias.csv`` con las filas de México y conserva las demás.
 
     Las filas conservadas se validan antes de escribir y el archivo se reemplaza de una
     sola vez: un fallo deja intacto el original con las filas curadas a mano. Si el corpus
     deja fuera un SKU que ya estaba en el archivo, la orden aborta antes de escribir salvo
-    que ``allow_missing`` lo autorice.
+    que ``allow_missing`` lo autorice; en ese caso la baja se anota en ``notes``.
+
+    ``manifest`` permite actualizar el manifiesto en el mismo paso: se escribe antes del
+    reemplazo del CSV, así que si falla el CSV original queda intacto. ``notes`` recoge
+    además los SKU retirados con ``allow_missing``.
     """
 
     target = directory / REFERENCES
-    provenance = ("source_url", "captured_at")
-    fields = [name for name in Reference.model_fields if name not in provenance]
-    fields += list(provenance)
+    fields = list(_COLUMNS)
     kept: list[Reference] = []
     existing_mx: dict[str, Reference] = {}
     if target.is_file():
@@ -282,20 +321,30 @@ def write_references(directory: Path, mx: list[Reference], *, allow_missing: boo
                 except ValueError as error:
                     raise ValueError(f"{REFERENCES}:{line}: {error}") from error
     missing = sorted(set(existing_mx) - {reference.sku for reference in mx})
-    if missing and not allow_missing:
+    if missing:
         listed = ", ".join(missing[:5]) + ("…" if len(missing) > 5 else "")
-        raise ValueError(
-            f"{REFERENCES}: el corpus no incluye {len(missing)} referencia(s) ya presentes "
-            f"({listed}); usa --allow-missing para aceptar la baja"
-        )
+        if not allow_missing:
+            raise ValueError(
+                f"{REFERENCES}: el corpus no incluye {len(missing)} referencia(s) ya presentes "
+                f"({listed}); usa --allow-missing para aceptar la baja"
+            )
+        if notes is not None:
+            notes.append(f"{REFERENCES}: baja autorizada de {len(missing)} referencia(s): {listed}")
     temporary = target.with_name(f".{target.name}.tmp")
-    with temporary.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
-        writer.writeheader()
-        for reference in [*mx, *kept]:
-            row = reference.model_dump(mode="json")
-            writer.writerow({key: _cell(row[key]) for key in fields})
-    temporary.replace(target)  # reemplazo atómico: nunca queda un archivo a medias
+    try:
+        with temporary.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
+            writer.writeheader()
+            for reference in [*mx, *kept]:
+                row = reference.model_dump(mode="json")
+                writer.writerow({key: _cell(row[key]) for key in fields})
+        if manifest is not None:
+            # El manifiesto se reemplaza atómicamente antes que el CSV: si falla,
+            # el ``finally`` borra el temporal y el catálogo anterior sigue siendo válido.
+            update_manifest(directory, *manifest)
+        temporary.replace(target)  # reemplazo atómico: nunca queda un archivo a medias
+    finally:
+        temporary.unlink(missing_ok=True)  # un fallo a mitad no deja temporales huérfanos
     return len(mx) + len(kept)
 
 
@@ -312,8 +361,11 @@ def update_manifest(directory: Path, section: str, data: dict[str, Any]) -> Path
     manifest.setdefault("spec", "036-asistente-empaques")
     manifest.setdefault("sources", {})[section] = data
     temporary = target.with_name(f".{target.name}.tmp")
-    temporary.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    temporary.replace(target)
+    try:
+        temporary.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
     return target

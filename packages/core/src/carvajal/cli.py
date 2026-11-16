@@ -311,7 +311,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "catalog-build":
         from carvajal.catalog.build import (
             build_mx_references,
-            update_manifest,
             write_references,
         )
         from carvajal.catalog.loader import DEFAULT_DIR, CatalogError, load_catalog
@@ -326,13 +325,7 @@ def main(argv: list[str] | None = None) -> int:
         if not references:
             print("No se encontró ninguna ficha de la tienda de México en el corpus.")
             return 1
-        try:
-            total = write_references(out, references, allow_missing=args.allow_missing)
-        except ValueError as error:
-            print(f"No se reescribió el catálogo: {error}")
-            return 1
-        update_manifest(
-            out,
+        manifest = (
             "referencias_mx",
             {
                 "origin": "Tienda en línea de Carvajal Empaques México (fichas de producto)",
@@ -343,6 +336,19 @@ def main(argv: list[str] | None = None) -> int:
                 "notes": notes,
             },
         )
+        try:
+            # El manifiesto se actualiza antes del CSV y ambos reemplazos son atómicos:
+            # un fallo deja el catálogo anterior intacto y sincronizado.
+            total = write_references(
+                out,
+                references,
+                allow_missing=args.allow_missing,
+                notes=notes,
+                manifest=manifest,
+            )
+        except (OSError, ValueError) as error:
+            print(f"No se reescribió el catálogo: {error}")
+            return 1
         print(f"Referencias de México: {len(references)} (total en el archivo: {total}).")
         for note in notes:
             print(f"  - {note}")
