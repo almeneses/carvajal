@@ -82,6 +82,22 @@ def test_cabecera_desalineada_reporta_las_columnas(tmp_path: Path) -> None:
         load_catalog(str(base))
 
 
+def test_fila_multilinea_reporta_la_linea_fisica(tmp_path: Path) -> None:
+    """Una celda entrecomillada con salto de línea corre la numeración lógica."""
+
+    base = _copia(tmp_path)
+    ruta = base / "referencias.csv"
+    texto = ruta.read_text(encoding="utf-8")
+    viejo = "FX-VASO-PAPEL-12,Vaso papel 12 oz bebida caliente,"
+    nuevo = 'FX-VASO-PAPEL-12,"Vaso papel\n12 oz bebida caliente",'
+    assert viejo in texto
+    ruta.write_text(texto.replace(viejo, nuevo, 1), encoding="utf-8")
+    _reemplaza(ruta, "980.00", "-1")
+
+    with pytest.raises(CatalogError, match=r"referencias\.csv:4: price"):
+        load_catalog(str(base))
+
+
 def test_sku_repetido_en_el_mismo_pais(tmp_path: Path) -> None:
     """El par SKU-país identifica la referencia."""
 

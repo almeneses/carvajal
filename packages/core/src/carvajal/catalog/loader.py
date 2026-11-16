@@ -52,7 +52,12 @@ def _check_header[T: BaseModel](path: Path, model: type[T], header: Sequence[str
 
 
 def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[tuple[int, T], ...]:
-    """Valida la cabecera y cada fila; la línea reportada es la del archivo (cabecera = 1)."""
+    """Valida la cabecera y cada fila y devuelve su línea física en el archivo.
+
+    Se usa ``reader.line_num`` en vez de contar filas lógicas: una celda entrecomillada
+    con saltos de línea ocupa varias líneas del archivo y el mensaje debe apuntar a una
+    línea real (la cabecera es la línea 1).
+    """
 
     if not path.is_file():
         raise CatalogError(f"{path}: no existe el archivo del catálogo.")
@@ -60,7 +65,8 @@ def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[tuple[int, T], ...]
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         _check_header(path, model, reader.fieldnames or [])
-        for line, raw in enumerate(reader, start=2):
+        for raw in reader:
+            line = reader.line_num
             try:
                 rows.append((line, model.model_validate(raw)))
             except ValidationError as error:
