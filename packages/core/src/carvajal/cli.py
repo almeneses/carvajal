@@ -199,6 +199,14 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_parser.add_argument(
         "--out", type=Path, default=None, help="Directorio del catálogo (data/catalog/empaques)."
     )
+    catalog_parser.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help=(
+            "Acepta que el corpus no incluya SKUs ya presentes en referencias.csv; "
+            "sin esta bandera la orden aborta para no borrar referencias por un corpus parcial."
+        ),
+    )
 
     subparsers.add_parser(
         "status",
@@ -318,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
         if not references:
             print("No se encontró ninguna ficha de la tienda de México en el corpus.")
             return 1
-        total = write_references(out, references)
+        try:
+            total = write_references(out, references, allow_missing=args.allow_missing)
+        except ValueError as error:
+            print(f"No se reescribió el catálogo: {error}")
+            return 1
         update_manifest(
             out,
             "referencias_mx",

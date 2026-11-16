@@ -84,7 +84,14 @@ def _product_ld(page: str) -> tuple[dict[str, Any], list[str]]:
     product: dict[str, Any] = {}
     crumbs: list[str] = []
     for block in _LD.findall(page):
-        graph = json.loads(block)
+        try:
+            graph = json.loads(block)
+        except json.JSONDecodeError as error:
+            match = MX_PRODUCT.search(page)
+            location = match.group(0) if match else "ficha sin URL"
+            raise ValueError(f"{location}: bloque ld+json malformado ({error.msg})") from error
+        if not isinstance(graph, dict):
+            continue
         for node in graph.get("@graph", [graph]):
             if node.get("@type") == "Product":
                 product = node
@@ -245,11 +252,13 @@ def _cell(value: Any) -> str:
     return str(value)
 
 
-def write_references(directory: Path, mx: list[Reference]) -> int:
+def write_references(directory: Path, mx: list[Reference], *, allow_missing: bool = False) -> int:
     """Reescribe ``referencias.csv`` con las filas de México y conserva las demás.
 
     Las filas conservadas se validan antes de escribir y el archivo se reemplaza de una
-    sola vez: un fallo deja intacto el original con las filas curadas a mano.
+    sola vez: un fallo deja intacto el original con las filas curadas a mano. Si el corpus
+    deja fuera un SKU que ya estaba en el archivo, la orden aborta antes de escribir salvo
+    que ``allow_missing`` lo autorice.
     """
 
     target = directory / REFERENCES
@@ -257,15 +266,28 @@ def write_references(directory: Path, mx: list[Reference]) -> int:
     fields = [name for name in Reference.model_fields if name not in provenance]
     fields += list(provenance)
     kept: list[Reference] = []
+    existing_mx: dict[str, Reference] = {}
     if target.is_file():
         with target.open(encoding="utf-8", newline="") as handle:
             for line, row in enumerate(csv.DictReader(handle), start=2):
                 if row.get("country") == "MX":
+                    try:  # una fila MX inválida también detiene todo antes de escribir
+                        reference = Reference.model_validate(row)
+                    except ValueError as error:
+                        raise ValueError(f"{REFERENCES}:{line}: {error}") from error
+                    existing_mx[reference.sku] = reference
                     continue
                 try:  # una fila curada inválida detiene todo antes de tocar el archivo
                     kept.append(Reference.model_validate(row))
                 except ValueError as error:
                     raise ValueError(f"{REFERENCES}:{line}: {error}") from error
+    missing = sorted(set(existing_mx) - {reference.sku for reference in mx})
+    if missing and not allow_missing:
+        listed = ", ".join(missing[:5]) + ("…" if len(missing) > 5 else "")
+        raise ValueError(
+            f"{REFERENCES}: el corpus no incluye {len(missing)} referencia(s) ya presentes "
+            f"({listed}); usa --allow-missing para aceptar la baja"
+        )
     temporary = target.with_name(f".{target.name}.tmp")
     with temporary.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
@@ -278,7 +300,10 @@ def write_references(directory: Path, mx: list[Reference]) -> int:
 
 
 def update_manifest(directory: Path, section: str, data: dict[str, Any]) -> Path:
-    """Actualiza una sección de ``manifest.json`` y conserva las curadas a mano."""
+    """Actualiza una sección de ``manifest.json`` y conserva las curadas a mano.
+
+    El reemplazo es atómico: un fallo deja intacto el manifiesto anterior.
+    """
 
     target = directory / "manifest.json"
     manifest: dict[str, Any] = {}
@@ -286,5 +311,9 @@ def update_manifest(directory: Path, section: str, data: dict[str, Any]) -> Path
         manifest = json.loads(target.read_text(encoding="utf-8"))
     manifest.setdefault("spec", "036-asistente-empaques")
     manifest.setdefault("sources", {})[section] = data
-    target.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary = target.with_name(f".{target.name}.tmp")
+    temporary.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    temporary.replace(target)
     return target

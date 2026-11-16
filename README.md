@@ -243,7 +243,9 @@ uv run carvajal catalog-build --corpus <carpeta del corpus externo> --captured-a
 
 La orden lee las fichas HTML de la tienda de Carvajal Empaques México, regenera sus filas,
 conserva las de otros países y anota en el manifiesto las fichas descartadas o
-contradictorias. Los precios son siempre de referencia y llevan la fecha de captura.
+contradictorias. Los precios son siempre de referencia y llevan la fecha de captura. Si el
+corpus no incluye una ficha que ya estaba en `referencias.csv`, la orden aborta antes de
+escribir para no perder filas; `--allow-missing` acepta la baja.
 
 ## 🗺️ Arquitectura
 
