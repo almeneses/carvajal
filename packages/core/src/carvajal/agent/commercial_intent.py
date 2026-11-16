@@ -13,6 +13,17 @@ Reglas deterministas, como el resto del router:
   aclaración. El uso se deduce de la familia y la temperatura cuando la pregunta no lo dice.
 - La capacidad en ml o litros se convierte a onzas líquidas.
 
+Casos límite (T031-T033):
+
+- Una pregunta sobre lo que hace Carvajal («¿Qué vasos fabrica Carvajal Empaques?») sin
+  señal de compra ni datos concretos (capacidad, cantidad, lugar, microondas) es
+  institucional y va a ``rag`` (FR-009).
+- Una necesidad a la medida (industrial, agro, exportación, impresión con logo) no se
+  resuelve con el catálogo estándar: se deriva a contacto comercial (FR-010).
+- En una pregunta mixta, ``non_commercial_part`` devuelve la parte que pregunta por otro
+  tema (la empresa, su historia o sus cifras) para avisarla sin responderla con datos
+  inventados; las dudas de la misma compra (entrega, empaque, pago) se atienden con ella.
+
 Las claves del diccionario que devuelve son las de ``CommercialRequest``.
 """
 
@@ -22,7 +33,13 @@ from typing import Any
 
 from carvajal.agent.state import Turn
 
-__all__ = ["COMMERCIAL_KEYS", "extract_commercial"]
+__all__ = [
+    "COMMERCIAL_KEYS",
+    "empty_request",
+    "extract_commercial",
+    "is_custom_need",
+    "non_commercial_part",
+]
 
 COMMERCIAL_KEYS = (
     "use",
@@ -85,9 +102,24 @@ _USE_TEMPERATURE = {
 _FOOD_FAMILIES = {"contenedor", "charola", "plato", "envase"}
 _INTENT = re.compile(
     r"\b(necesit\w*|busc\w*|quier\w*|compr\w*|cotiz\w*|precios?|cuesta|cuanto vale|cajas?"
-    r"|recomiend\w*|recomendacion|sugier\w*|me sirve|conviene|donde (?:compro|consigo)"
+    r"|recomiend\w*|recomendacion|sugier\w*|me sirve|conviene|donde (?:compro|consigo)|cuest\w*"
     r"|distribuidor\w*|para mi (?:negocio|cafeteria|restaurante|local|tienda|panaderia))\b"
 )
+_CUSTOM = re.compile(
+    r"\b(a la medida|personalizad\w*|con (?:mi|nuestro|el) logo|industrial\w*|agro\w*"
+    r"|agricol\w*|exporta\w*|corrugad\w*|flexibles?|maquila\w*|big ?bags?|estibas?)\b"
+)
+_PACKAGING = re.compile(r"\b(empaques?|embalajes?|bolsas?|cajas?|sacos?|etiquetas?)\b")
+# Temas ajenos a la compra: una parte solo se aparta cuando pregunta por la empresa, su
+# historia o sus cifras. «¿Cuál es el tiempo de entrega?» es de la misma compra.
+_OTHER_TOPIC = re.compile(
+    r"\b(empresas?|compania|historia|fund\w*|quien\w*|ingresos?|ventas?|accion(?:es)?"
+    r"|sostenibilidad|reportes?|noticias?|empleados?|plantas?|sedes?|mision|vision|valores"
+    r"|politicas?)\b"
+)
+# Datos concretos de una compra: con ellos una pregunta que nombra a Carvajal sigue siendo
+# comercial («vasos de 12 oz de Carvajal en Cali»).
+_HARD_DATA = ("capacity_oz", "quantity", "country", "city", "microwave")
 _RENEWABLE = re.compile(
     r"\b(renovables?|compostables?|biodegradables?|ecologic\w*|sostenibles?|de papel|de carton"
     r"|fibra|cana|bagazo|pulpa|sin plastico|sin icopor)\b"
@@ -251,20 +283,22 @@ def _has_signal(data: dict[str, Any]) -> bool:
     return any(data.get(key) is not None for key in (*keys, "_intent"))
 
 
+def _is_institutional(question: str, data: dict[str, Any]) -> bool:
+    """Nombrar a Carvajal y su producto sin señal de compra ni datos duros (FR-009)."""
+
+    return (
+        "carvajal" in _plain(question)
+        and not data.get("_intent")
+        and all(data.get(key) is None for key in _HARD_DATA)
+    )
+
+
 def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[str, Any] | None:
     """Solicitud comercial con las claves de ``CommercialRequest``, o ``None`` si no lo es."""
 
     product, data = _extract(question)
     if product:
-        # Una pregunta institucional que menciona a Carvajal (nombre del producto,
-        # capacidad, ciudad o preferencia) no es una compra; solo la temperatura o el
-        # uso explícitos la acercan a la ruta comercial.
-        if (
-            "carvajal" in _plain(question)
-            and not data.get("_intent")
-            and data.get("temperature") is None
-            and data.get("use") is None
-        ):
+        if _is_institutional(question, data):
             return None
         return _complete(data) if _has_signal(data) else None
     # Respuesta corta a una aclaración: hereda la solicitud de los turnos anteriores.
@@ -291,4 +325,46 @@ def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[s
             for item in reversed(chain):
                 merged = _merge(merged, item)
             return _complete(merged)
+    return None
+
+
+def empty_request() -> dict[str, Any]:
+    """Solicitud sin datos, con las claves del contrato."""
+
+    return _complete({})
+
+
+def is_custom_need(question: str) -> bool:
+    """Necesidad a la medida de empaque o embalaje, fuera del catálogo estándar (FR-010).
+
+    La regla institucional (FR-009) se evalúa primero: «¿Qué empaques flexibles fabrica
+    Carvajal Empaques?» se informa desde el corpus, aunque «flexibles» sea una señal de
+    necesidad a la medida, porque no hay compra ni datos concretos.
+    """
+
+    text = _plain(question)
+    product = _family(text) is not None or _PACKAGING.search(text) is not None
+    if not (product and _CUSTOM.search(text)):
+        return False
+    _, data = _extract(question)
+    return not _is_institutional(question, data)
+
+
+def non_commercial_part(question: str) -> str | None:
+    """Parte de una pregunta mixta que no es comercial, o ``None`` si no la hay.
+
+    Se parte por signos de interrogación, puntos, comas y la conjunción «y». Una parte
+    cuenta si tiene al menos tres palabras, pregunta por otro tema (empresa, historia,
+    cifras) y no trae producto, señal de compra ni dato de la necesidad: así «¿Cuánto
+    cuestan?», «¿Cuál es el tiempo de entrega?» o «Es para mi cafetería en Cali» siguen
+    siendo parte de la compra.
+    """
+
+    parts = [part.strip(" ,") for part in re.split(r"[¿?]+|\.\s+|;\s*|,\s*|\s+y\s+", question)]
+    for part in parts:
+        if len(part.split()) < 3:
+            continue
+        product, data = _extract(part)
+        if not product and not _has_signal(data) and _OTHER_TOPIC.search(_plain(part)):
+            return part
     return None

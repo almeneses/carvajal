@@ -13,6 +13,7 @@ import json
 from dataclasses import asdict
 from datetime import date
 from typing import Any
+from urllib.parse import urlsplit
 
 from carvajal.agent.commercial import (
     RENEWABLE,
@@ -30,9 +31,13 @@ from carvajal.catalog.models import Reference
 
 __all__ = [
     "COMMERCIAL_INSTRUCTIONS",
+    "CUSTOM_INSTRUCTIONS",
     "MAX_OPTIONS",
     "commercial_prompt_block",
     "commercial_sources",
+    "custom_need_result",
+    "custom_sources",
+    "mixed_notice",
     "run_commercial",
 ]
 
@@ -49,6 +54,13 @@ COMMERCIAL_INSTRUCTIONS = (
     "Si una opción no tiene precio, dilo sin estimarlo. Si no hay opciones, dilo, resume los "
     "descartes y no ofrezcas alternativas que incumplan la regla de material. Si hay datos "
     "pendientes, termina pidiéndolos. No tomes pedidos ni pidas datos de pago."
+)
+
+CUSTOM_INSTRUCTIONS = (
+    "La necesidad es a la medida (uso industrial, agro, exportación, impresión personalizada "
+    "o similar) y no está en el catálogo estándar de Carvajal Empaques. No recomiendes "
+    "referencias, materiales ni cifras. Explica que la atiende un asesor comercial y entrega "
+    "solo los canales del resultado de abajo, sin inventar teléfonos, correos ni plazos."
 )
 
 
@@ -140,11 +152,13 @@ def run_commercial(
     return result
 
 
-def commercial_prompt_block(result: dict[str, Any]) -> str:
+def commercial_prompt_block(
+    result: dict[str, Any], *, instructions: str = COMMERCIAL_INSTRUCTIONS
+) -> str:
     """Instrucciones y resultado serializado para el prompt del nodo."""
 
     data = json.dumps(result, ensure_ascii=False, indent=1)
-    return f"{COMMERCIAL_INSTRUCTIONS}\n\nResultado estructurado:\n{data}"
+    return f"{instructions}\n\nResultado estructurado:\n{data}"
 
 
 def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -167,3 +181,65 @@ def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
         }
         for option in result["options"]
     ]
+
+
+def custom_need_result(*, catalog: Catalog | None = None) -> dict[str, Any]:
+    """Canales oficiales para derivar una necesidad a la medida (FR-010).
+
+    Salen del catálogo capturado: la tienda de México (raíz de sus fichas) y el directorio
+    de distribuidores de Colombia. No hay contacto comercial publicado fuera de ellos.
+    """
+
+    data = catalog or load_catalog()
+    contacts: list[dict[str, Any]] = []
+    mx = next((ref for ref in data.references if ref.country == "MX"), None)
+    if mx is not None:
+        parts = urlsplit(mx.source_url)
+        contacts.append(
+            {
+                "country": "MX",
+                "channel": "tienda en línea de Carvajal Empaques México",
+                "url": f"{parts.scheme}://{parts.netloc}/",
+                "captured_at": mx.captured_at.isoformat(),
+            }
+        )
+    if data.distributors:
+        first = data.distributors[0]
+        contacts.append(
+            {
+                "country": "CO",
+                "channel": "directorio de distribuidores de Carvajal Empaques Colombia",
+                "url": first.source_url,
+                "captured_at": first.captured_at.isoformat(),
+            }
+        )
+    return {"custom_need": True, "options": [], "contacts": contacts}
+
+
+def custom_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cita de cada canal de contacto, con su fecha de captura."""
+
+    return [
+        {
+            "chunk_id": f"canal:{contact['country']}",
+            "slug": f"canal-{contact['country'].lower()}",
+            "section": "catalogo_empaques",
+            "layer": "core",
+            "score": 1.0,
+            "excerpt": f"{contact['channel']} · capturado el {contact['captured_at']}",
+            "url": contact["url"],
+            "title": contact["channel"],
+            "source_type": "oficial",
+        }
+        for contact in result["contacts"]
+    ]
+
+
+def mixed_notice(other: str) -> str:
+    """Aviso para la parte no comercial de una pregunta mixta (T033)."""
+
+    return (
+        f"La pregunta incluye también una parte que no es comercial: «{other}». No la "
+        "respondas aquí ni con datos de este resultado; al final dile al usuario que la haga "
+        "en un mensaje aparte para buscarla con sus fuentes."
+    )

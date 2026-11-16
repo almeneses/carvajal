@@ -184,7 +184,8 @@ Decisiones tomadas al curar los datos (PR 2):
 
 ### Evaluación
 
-`data/eval/routing_questions.json` (unas 100 preguntas): las de `retrieval_questions.json` y
+`data/eval/routing_questions.json` (110 preguntas, campos `route`, `intent`, `expected` y
+`constraints.forbidden_materials`): las de `retrieval_questions.json` y
 las de indicadores con su ruta actual, más preguntas comerciales con datos esperados y
 restricciones de la referencia correcta. `carvajal eval-router --router rules|llm|decision`
 reporta precisión de ruta, precisión por dato, violaciones de regla de material, latencia y

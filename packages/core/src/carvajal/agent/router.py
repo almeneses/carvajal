@@ -10,7 +10,10 @@ Orden de decisión (documentado y probado):
    catálogo con una señal de compra o un dato de la necesidad, ``commercial``
    con la solicitud en ``extra``. Si falta la temperatura (ni dicha ni
    deducible del uso), ``direct`` pide aclararla: no se supone el material.
-   La extracción vive en ``commercial_intent``.
+   Una necesidad a la medida va a ``commercial`` para derivarla a contacto
+   comercial; si la pregunta trae además una parte no comercial, se marca
+   ``commercial_mixed`` y esa parte viaja en ``query``. La extracción vive en
+   ``commercial_intent``.
 4. **Intención estructurada.** Si hay un indicador reconocible y un período
    explícito, ``tool``. Si hay indicador pero falta el período, ``direct`` pide
    aclararlo: no se inventa el período ni se mezcla con RAG.
@@ -28,7 +31,12 @@ import re
 import unicodedata
 from typing import Any
 
-from carvajal.agent.commercial_intent import extract_commercial
+from carvajal.agent.commercial_intent import (
+    empty_request,
+    extract_commercial,
+    is_custom_need,
+    non_commercial_part,
+)
 from carvajal.agent.state import RouteDecision, Turn
 from carvajal.agent.tools import known_names, resolve_indicator_name
 
@@ -204,6 +212,18 @@ def _commercial_decision(question: str, request: dict[str, Any]) -> RouteDecisio
             reason=f"solicitud comercial sin temperatura ni uso; se pide aclaración ({said})",
             extra=request,
         )
+    other = non_commercial_part(question)
+    tool_name, period = _tool_intent(question)
+    if other is None and tool_name and period:
+        other = f"el indicador {tool_name.replace('_', ' ')} de {period}"
+    if other is not None:
+        return RouteDecision(
+            route="commercial",
+            intent="commercial_mixed",
+            query=other,
+            reason=f"pregunta mixta: se atiende la parte comercial ({said}) y se avisa la otra",
+            extra=request,
+        )
     return RouteDecision(
         route="commercial",
         intent="commercial",
@@ -228,6 +248,14 @@ def decide_route(question: str, turns: list[Turn] | None = None) -> RouteDecisio
             reason="el usuario declaró una preferencia",
         )
 
+    if is_custom_need(question):
+        return RouteDecision(
+            route="commercial",
+            intent="commercial_custom",
+            query=question,
+            reason="necesidad a la medida fuera del catálogo; se deriva a contacto comercial",
+            extra=extract_commercial(question, turns) or empty_request(),
+        )
     commercial = extract_commercial(question, turns)
     if commercial is not None:
         return _commercial_decision(question, commercial)
