@@ -157,6 +157,10 @@ class Settings(BaseSettings):
     agent_checkpointer: str = "postgres"
     agent_sqlite_path: Path = Path("data") / "agent" / "checkpoints.sqlite"
     agent_history_turns: int = Field(default=8, ge=1, le=50)
+    # Enrutador del agente (spec 036, FR-013): rules (por defecto), llm o decision.
+    agent_router: str = "rules"
+    # Modelo de decisión para el enrutador «decision», como paquete.modulo:fabrica.
+    decision_model: str = ""
 
     # Frontend propio (proceso separado) y orígenes permitidos por CORS.
     # NoDecode evita que pydantic-settings intente JSON antes del validador:

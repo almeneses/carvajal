@@ -269,3 +269,7 @@ produce un informe con las mismas métricas para los tres.
   usa los únicos canales publicados en el corpus (tienda de México y directorio de
   distribuidores de Colombia), porque no hay un contacto comercial de Empaques aparte. En
   una pregunta mixta se atiende la parte comercial y la otra se pide en un mensaje aparte.
+- 2026-11-16 (PR 7): el modelo de decisión se carga desde `DECISION_MODEL` en lugar de un
+  extra de instalación, porque todavía no se eligió el paquete (Jev, GLiNER2.5-Decide u
+  otro). Los enrutadores LLM y de decisión caen al de reglas si su salida no cumple el
+  contrato, y la razón lo deja visible para la evaluación.

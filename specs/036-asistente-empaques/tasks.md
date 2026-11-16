@@ -104,14 +104,15 @@
 
 **PR 7 — Router intercambiable y evaluación comparativa**
 
-- [ ] T036 [US5] `build_agent(router=...)` con `decide_route` por defecto
-- [ ] T037 [P] [US5] `agent/routers/llm.py`: salida estructurada con el mismo contrato
-- [ ] T038 [P] [US5] `agent/routers/decision.py`: adaptador del modelo de decisión tras el
-      extra `decision`; no disponible → error controlado
-- [ ] T039 [US5] Orden `eval-router --router rules|llm|decision` con precisión de ruta,
+- [X] T036 [US5] `build_agent(router=...)` con `decide_route` por defecto
+- [X] T037 [P] [US5] `agent/routers/llm.py`: salida estructurada con el mismo contrato
+- [X] T038 [P] [US5] `agent/routers/decision.py`: adaptador del modelo de decisión cargado
+      desde `DECISION_MODEL=paquete.modulo:fabrica` (sin extra hasta elegir el paquete); no
+      disponible → error controlado
+- [X] T039 [US5] Orden `eval-router --router rules|llm|decision` con precisión de ruta,
       precisión por dato, violaciones de material, latencia y costo
-- [ ] T040 [US5] Registrar en los logs la ruta, los datos extraídos y el enrutador (FR-012)
-- [ ] T041 [US5] `docs/resultados-router.md` con la tabla comparativa
+- [X] T040 [US5] Registrar en los logs la ruta, los datos extraídos y el enrutador (FR-012)
+- [X] T041 [US5] `docs/resultados-router.md` con la tabla comparativa
 
 ## Phase 8: Pulido y transversal
 

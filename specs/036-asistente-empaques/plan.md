@@ -26,7 +26,7 @@ El router pasa a ser intercambiable para comparar reglas, LLM y un modelo de dec
 | Construcción del catálogo | Orden `catalog-build`: JSON-LD y descripción de cada ficha, solo con biblioteca estándar | `packages/core/src/carvajal/catalog/build.py` |
 | Interfaz | Parcial Jinja de tarjetas en el shell HTMX; la SPA lo consume después | `apps/api/templates/_fuentes.html` |
 | Evaluación | Conjunto etiquetado en `data/eval/` y orden `eval-router` | `data/eval/retrieval_questions.json` |
-| Modelo de decisión | Adaptador opcional tras un extra `decision`; fuera de la imagen de producción | — |
+| Modelo de decisión | Adaptador opcional cargado desde `DECISION_MODEL=paquete.modulo:fabrica`; sin dependencia hasta elegir el paquete | — |
 | Pruebas | pytest con LLM falso y catálogo de prueba en `tests/fixtures/` | `tests/test_agent_router.py`, `tests/test_agent_graph.py` |
 | Alcance | Sin migraciones, sin pedidos ni pagos, sin captura nueva | `spec.md` §Assumptions |
 

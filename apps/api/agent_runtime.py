@@ -18,6 +18,7 @@ from sqlalchemy.engine import make_url
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.agent.graph import AgentDeps, build_agent
+from carvajal.agent.routers import build_router
 from carvajal.infrastructure.settings import Settings
 
 __all__ = ["AgentRuntime", "agent_runtime", "close_agent_runtime"]
@@ -89,9 +90,11 @@ def _build(settings: Settings) -> AgentRuntime:
             ),
             checkpointer=checkpointer,
             store=store,
+            router=build_router(settings.agent_router, settings),
         )
         logger.info(
             "agent.runtime_ready",
+            router=settings.agent_router,
             checkpointer=settings.agent_checkpointer,
             collection=settings.qdrant_collection,
         )
