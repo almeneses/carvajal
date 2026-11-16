@@ -1,0 +1,6 @@
+material,temp_min_c,temp_max_c,microwave,refrigeration,freezing,hot_content,recycling_code,applications
+PP,0,100,true,true,false,true,5,comida_fria=aplicable|comida_caliente=recomendable|sopas=recomendable|frituras=recomendable|ensaladas=aplicable|sandwiches=aplicable|salsas=recomendable|panaderia=aplicable|frutas=aplicable
+EPS,-20,60,false,true,false,true,6,comida_fria=recomendable|comida_caliente=recomendable|sopas=recomendable|frituras=recomendable|ensaladas=aplicable|sandwiches=recomendable|salsas=aplicable|panaderia=aplicable|frutas=aplicable
+PS,-30,60,false,true,true,true,6,comida_fria=recomendable|comida_caliente=aplicable|sopas=aplicable|frituras=aplicable|ensaladas=recomendable|sandwiches=aplicable|salsas=recomendable|panaderia=aplicable|frutas=recomendable
+PET,-20,40,false,true,false,false,1,comida_fria=recomendable|comida_caliente=no_apto|sopas=no_apto|frituras=no_apto|ensaladas=recomendable|sandwiches=aplicable|salsas=aplicable|panaderia=recomendable|frutas=recomendable
+ALUMINIO,-30,250,false,true,true,true,,comida_fria=recomendable|comida_caliente=recomendable|sopas=no_apto|frituras=no_apto|ensaladas=no_apto|sandwiches=no_apto|salsas=no_apto|panaderia=aplicable|frutas=no_apto

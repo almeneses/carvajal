@@ -1,0 +1,193 @@
+"""Pruebas del extractor de fichas de México y de la orden ``catalog-build`` (T007)."""
+
+import csv
+import json
+import shutil
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+
+from carvajal.catalog.build import build_mx_references, parse_mx_product, write_references
+from carvajal.catalog.loader import load_catalog
+from carvajal.cli import main
+
+FIXTURE = Path(__file__).parent / "fixtures" / "catalog"
+CAPTURA = date(2026, 10, 23)
+
+
+def _ficha(
+    nombre: str = "Vasos de plástico 16oz PET - Caja con 800 pzs",
+    corta: str = (
+        "Vasos de plástico 16oz PET 98.5mm transparente Converpro caja 16x50 - 800 piezas. "
+        "Marca: CONVERPRO Materiales: PET Temperatura de uso recomendada: Desde -20°C / 40°C "
+        "Color: Transparente Cantidad por caja: 800 Unidades"
+    ),
+    slug: str = "vaso-plastico-pet-16_oz",
+) -> str:
+    url = f"https://mexico.carvajalempaques.com/producto/{slug}/"
+    ld = {
+        "@graph": [
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"item": {"name": "Home"}},
+                    {"item": {"name": "Usos y aplicaciones"}},
+                    {"item": {"name": "Fiestas y Eventos"}},
+                    {"item": {"name": nombre}},
+                ],
+            },
+            {
+                "@type": "Product",
+                "name": nombre,
+                "url": url,
+                "sku": "123",
+                "offers": [
+                    {
+                        "priceSpecification": [
+                            {
+                                "price": "1519.00",
+                                "priceCurrency": "MXN",
+                                "valueAddedTaxIncluded": False,
+                                "validThrough": "2027-12-31",
+                            }
+                        ]
+                    }
+                ],
+            },
+        ]
+    }
+    return (
+        f'<html><head><link rel="canonical" href="{url}" />'
+        f'<script type="application/ld+json">{json.dumps(ld)}</script></head><body>'
+        f"<h1>{nombre} (IVA Incluido)</h1>"
+        f'<div class="woocommerce-product-details__short-description"><p>{corta}</p></div>'
+        "<form>quantity</form></body></html>"
+    )
+
+
+def test_extrae_la_ficha_completa() -> None:
+    """SKU, precio, caja, material, temperatura y uso salen de la ficha."""
+
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+
+    assert referencia is not None
+    assert referencia.sku == "123"
+    assert referencia.family == "vaso"
+    assert referencia.material == "PET"
+    assert referencia.capacity_oz == 16
+    assert (referencia.packs_per_box, referencia.units_per_pack) == (16, 50)
+    assert referencia.units_per_box == 800
+    assert (referencia.temp_min_c, referencia.temp_max_c) == (-20, 40)
+    assert referencia.price == Decimal("1519.00")
+    assert referencia.uses == ("fiestas_y_eventos", "bebida_fria")
+
+
+def test_el_iva_visible_prevalece_sobre_el_json_ld() -> None:
+    """WooCommerce marca ``valueAddedTaxIncluded: false`` por defecto; manda el texto."""
+
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+
+    assert referencia is not None
+    assert referencia.tax_included is True
+
+
+def test_los_combos_no_son_referencias() -> None:
+    """Un combo no se vende por caja: no entra al catálogo."""
+
+    assert parse_mx_product(_ficha(nombre="Combo Platos Fiestas"), CAPTURA) is None
+
+
+def test_contradicciones_de_la_ficha_se_anotan_y_no_se_usan() -> None:
+    """Título contra descripción y temperatura contra uso quedan como avisos."""
+
+    avisos: list[str] = []
+    ficha = _ficha(
+        nombre="Vasos de papel 12oz 90mm - Caja con 400 pzs",
+        corta=(
+            "Vasos de papel 12oz 90mm bebida caliente caja 20x50 - 1000 piezas. "
+            "Marca: BIOFORM Materiales: Papel Temperatura de uso recomendada: Desde -30 C/ 40 C "
+            "Color: Impreso Cantidad por caja: 1000 Unidades"
+        ),
+    )
+
+    referencia = parse_mx_product(ficha, CAPTURA, avisos)
+
+    assert referencia is not None
+    assert referencia.units_per_box == 1000
+    assert referencia.temp_min_c is None
+    assert "bebida_caliente" in referencia.uses
+    assert len(avisos) == 2
+
+
+def test_las_tapas_no_declaran_capacidad() -> None:
+    """«12oz a 24oz» en una tapa es compatibilidad, no capacidad."""
+
+    ficha = _ficha(
+        nombre="Tapas de plástico PET 12oz a 24oz - Caja con 800 pzs",
+        corta="Marca: CONVERPRO Materiales: PET Cantidad por caja: 800 Unidades",
+    )
+
+    referencia = parse_mx_product(ficha, CAPTURA)
+
+    assert referencia is not None
+    assert referencia.family == "tapa"
+    assert referencia.capacity_oz is None
+
+
+def test_regenerar_conserva_las_filas_de_otros_paises(tmp_path: Path) -> None:
+    """Las filas curadas a mano (Colombia) sobreviven a la regeneración."""
+
+    base = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, base)
+    referencia = parse_mx_product(_ficha(), CAPTURA)
+    assert referencia is not None
+
+    total = write_references(base, [referencia])
+
+    with (base / "referencias.csv").open(encoding="utf-8", newline="") as handle:
+        filas = list(csv.DictReader(handle))
+    assert total == 3
+    assert [fila["country"] for fila in filas] == ["MX", "CO", "CO"]
+    assert filas[0]["tax_included"] == "true"
+    load_catalog.cache_clear()
+    assert len(load_catalog(str(base)).references) == 3
+
+
+def test_build_ignora_paginas_ajenas(tmp_path: Path) -> None:
+    """Solo las fichas de producto de la tienda de México se procesan."""
+
+    (tmp_path / "ficha.html").write_text(_ficha(), encoding="utf-8")
+    (tmp_path / "otra.html").write_text("<html><body>Inicio</body></html>", encoding="utf-8")
+
+    referencias, notas = build_mx_references(sorted(tmp_path.glob("*.html")), CAPTURA)
+
+    assert [ref.sku for ref in referencias] == ["123"]
+    assert notas == []
+
+
+def test_orden_catalog_build(tmp_path: Path) -> None:
+    """La CLI regenera México, actualiza el manifiesto y valida el catálogo."""
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "ficha.html").write_text(_ficha(), encoding="utf-8")
+    salida = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, salida)
+    load_catalog.cache_clear()
+
+    codigo = main(
+        [
+            "catalog-build",
+            "--corpus",
+            str(corpus),
+            "--captured-at",
+            "2026-10-23",
+            "--out",
+            str(salida),
+        ]
+    )
+
+    assert codigo == 0
+    manifiesto = json.loads((salida / "manifest.json").read_text(encoding="utf-8"))
+    assert manifiesto["sources"]["referencias_mx"]["rows"] == 1
+    assert manifiesto["sources"]["referencias_mx"]["captured_at"] == "2026-10-23"

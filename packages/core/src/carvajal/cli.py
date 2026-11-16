@@ -180,6 +180,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--batch-size", type=int, default=32, help="Fragmentos por lote de embeddings."
     )
 
+    catalog_parser = subparsers.add_parser(
+        "catalog-build",
+        help=(
+            "Regenera las referencias de México del catálogo de empaques (spec 036) desde "
+            "el corpus capturado; conserva las filas curadas a mano de otros países."
+        ),
+    )
+    catalog_parser.add_argument(
+        "--corpus", type=Path, required=True, help="Carpeta del corpus externo con las fichas HTML."
+    )
+    catalog_parser.add_argument(
+        "--captured-at",
+        type=lambda value: datetime.strptime(value, "%Y-%m-%d").date(),
+        required=True,
+        help="Fecha de captura del corpus (AAAA-MM-DD); se guarda en cada fila.",
+    )
+    catalog_parser.add_argument(
+        "--out", type=Path, default=None, help="Directorio del catálogo (data/catalog/empaques)."
+    )
+
     subparsers.add_parser(
         "status",
         help="Muestra el estado del corpus (semillas y entregables Gold).",
@@ -278,6 +298,48 @@ def main(argv: list[str] | None = None) -> int:
             print(error)
             return 1
         print_import_report(report)
+        return 0
+
+    if args.command == "catalog-build":
+        from carvajal.catalog.build import (
+            build_mx_references,
+            update_manifest,
+            write_references,
+        )
+        from carvajal.catalog.loader import DEFAULT_DIR, CatalogError, load_catalog
+
+        if not args.corpus.is_dir():
+            print(f"No existe la carpeta del corpus: {args.corpus}")
+            return 1
+        out = args.out or DEFAULT_DIR
+        out.mkdir(parents=True, exist_ok=True)
+        pages = sorted(args.corpus.rglob("*.html"))
+        references, notes = build_mx_references(pages, args.captured_at)
+        if not references:
+            print("No se encontró ninguna ficha de la tienda de México en el corpus.")
+            return 1
+        total = write_references(out, references)
+        update_manifest(
+            out,
+            "referencias_mx",
+            {
+                "origin": "Tienda en línea de Carvajal Empaques México (fichas de producto)",
+                "generated_by": "carvajal catalog-build",
+                "captured_at": args.captured_at.isoformat(),
+                "pages_read": len(pages),
+                "rows": len(references),
+                "notes": notes,
+            },
+        )
+        print(f"Referencias de México: {len(references)} (total en el archivo: {total}).")
+        for note in notes:
+            print(f"  - {note}")
+        try:
+            load_catalog.cache_clear()
+            load_catalog(str(out))
+        except CatalogError as error:
+            print(f"El catálogo no valida: {error}")
+            return 1
         return 0
 
     if args.command == "migrate-gold":
