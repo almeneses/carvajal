@@ -68,6 +68,10 @@ con asistente RAG.
   conserva el original en Bronze, el texto en Silver y la ficha en Gold, y admite PDF
   con texto por página y datos XML, JSON, JSONL, CSV y TSV, además de HTML, Markdown y
   TXT.
+- Recomendar empaques de foodservice desde un **catálogo curado** (`data/catalog/`,
+  spec 036): referencias, reglas de material y distribuidores derivados del corpus
+  externo, con validación técnica por material, cálculo de cajas y precio de referencia
+  fechado donde exista. No se procesan pedidos ni pagos.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
 ### Fuera del alcance (por ahora)
@@ -246,6 +250,9 @@ carvajal/
   - La capa extendida (`data/external/`) **solo** se recupera y se cita; nunca se
     consolida completa en el prompt ni se presenta como fuente oficial.
   - Toda importación deja `manifest.json` con su fuente, captura donante y conteos.
+  - La capa de catálogo (`data/catalog/`) contiene datos estructurados curados a partir
+    del corpus; cada fila conserva `source_url` y `captured_at`, y los precios se
+    presentan siempre como referencia fechada, nunca como oferta ni con disponibilidad.
 
 ## 6. Calidad y automatización
 
@@ -408,6 +415,7 @@ git push
 | 2026-11-14 | Se oculta la pestaña Asistente en el shell HTMX y en la SPA; `/` redirige a `/chat` en `apps/api` y a `/corpus` en `apps/web` | El chat concentra la entrada al asistente y la portada heredada deja de competir en la navegación. La ruta `/ask` y la vista `#vista-asistente` se conservan por compatibilidad, pero no se enlazan; la marca lleva al chat en el shell y al corpus en la SPA |
 | 2026-11-15 | Documentar *as-built* las 23 capacidades ya entregadas (`specs/003`–`specs/027`) y reconvertir la 002 | El proyecto adoptó Spec Kit el 2026-11-03, pero el Módulo 1 y la migración del M2 se registraron en PRs y en esta tabla: `specs/` tenía dos entradas y la 002 describía otra aplicación. La convención as-built exige fecha honesta, requisito observable y evidencia por escenario, y prohíbe `plan`/`tasks` retroactivos, salvo la excepción documentada de la 002 (§3.5 del inventario); el índice y el estado de cada spec viven en `specs/README.md` |
 | 2026-11-16 | Ampliar el alcance a la carga local multiformato: PDF con texto por página y datos XML, JSON, JSONL, CSV y TSV | Se especifica antes de implementar en `specs/035-ingesta-multiformato` con el flujo de Spec Kit; la web conserva 100 archivos y 5 MB por archivo y la consola admite 100 MB por archivo. El OCR de PDF escaneados sigue fuera de alcance y se avisa al usuario en lugar de convertirlo |
+| 2026-11-16 | Añadir la capa de catálogo curado (`data/catalog/`) y la ruta comercial de empaques (spec 036) | Recomendar empaques exige filtros exactos (capacidad, material, temperatura) que la recuperación por similitud no garantiza. Son unas 230 filas de solo lectura: se versionan como CSV y se cargan en memoria, como `data/indicators.json`, sin migración. La capa extendida sigue siendo solo de recuperación; el catálogo es una capa distinta, derivada y revisada en PR |
 
 ## 10. Notas y tareas pendientes
 

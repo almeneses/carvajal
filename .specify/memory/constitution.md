@@ -25,6 +25,8 @@ Bronze (`data/raw/`) y silver (`data/processed/`) se regeneran y no se versionan
 - Cambiar el corpus invalida el índice y obliga a reconstruirlo: en el M2 se ejecuta
   `carvajal index-qdrant`; FAISS y pgvector quedan como legado del prototipo.
 - La capa extendida (`data/external/`) es opcional y solo participa en recuperación y citación.
+- La capa de catálogo (`data/catalog/`, spec 036) guarda datos estructurados curados con
+  fuente y fecha por fila; sus precios son siempre referencias fechadas.
 
 ### III. Sin fuentes no hay respuesta (NO NEGOCIABLE)
 
@@ -78,6 +80,8 @@ con `--admin`.
 - La spec 035 define la carga local multiformato —PDF con texto por página y datos XML, JSON,
   JSONL, CSV y TSV— para la web y la consola; el OCR de PDF escaneados sigue fuera de alcance.
   El código se implementa después de aprobar el contrato.
+- La spec 036 define el asistente comercial de empaques sobre la capa de catálogo, con una
+  ruta `commercial` en el agente y un router intercambiable para evaluación comparativa.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
