@@ -276,6 +276,22 @@ def test_una_duda_de_entrega_es_parte_de_la_compra() -> None:
     assert decision.intent == "commercial"
 
 
+def test_la_parte_mixta_se_detecta_sin_puntuacion() -> None:
+    decision = decide_route("Necesito vasos para café de 12 oz y quién fundó Carvajal")
+
+    assert decision.intent == "commercial_mixed"
+    assert decision.query == "quién fundó Carvajal"
+
+
+def test_una_respuesta_corta_heredada_no_se_marca_como_mixta() -> None:
+    turnos = [_turno("necesito vasos para café de 12 oz")]
+
+    decision = decide_route("caliente, es para la empresa", turnos)
+
+    assert decision.intent == "commercial"
+    assert decision.extra["temperature"] == "caliente"
+
+
 def test_nombrar_a_carvajal_con_datos_de_compra_sigue_siendo_comercial() -> None:
     decision = decide_route("vasos de 12 oz para café de Carvajal en Cali")
 

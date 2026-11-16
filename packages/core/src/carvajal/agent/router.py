@@ -212,9 +212,14 @@ def _commercial_decision(question: str, request: dict[str, Any]) -> RouteDecisio
             reason=f"solicitud comercial sin temperatura ni uso; se pide aclaración ({said})",
             extra=request,
         )
-    other = non_commercial_part(question)
+    # La parte mixta solo se busca en el texto de este turno: una respuesta corta
+    # («caliente», «en Cali») hereda la solicitud y no debe perderla porque una palabra
+    # suelta suene a otro tema.
+    own = extract_commercial(question) is not None
+    other = non_commercial_part(question) if own else None
     tool_name, period = _tool_intent(question)
-    if other is None and tool_name and period:
+    if own and tool_name and period:
+        # El indicador se nombra en su forma canónica legible y con su período.
         other = f"el indicador {tool_name.replace('_', ' ')} de {period}"
     if other is not None:
         return RouteDecision(
