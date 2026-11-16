@@ -148,7 +148,7 @@ def test_get_de_un_job_inexistente_es_none() -> None:
     assert jobs.get("no-existe") is None
 
 
-def test_un_runner_colgado_libera_el_registro_por_lease() -> None:
+def test_un_runner_colgado_marca_interrumpido_sin_abrir_otra_ingesta() -> None:
     # Arrange
     puerta = threading.Event()
 
@@ -162,16 +162,28 @@ def test_un_runner_colgado_libera_el_registro_por_lease() -> None:
     jobs = UploadJobs(runner, max_running_seconds=0.05)
     primero = jobs.start([_document()])
 
-    # Act: el primer job sigue colgado y el turno se libera por tiempo
+    # Act: vence el lease; el intento de arrancar otra ingesta lo marca interrumpido
     time.sleep(0.15)
-    segundo = jobs.start([_document()])
+    with pytest.raises(UploadBusy):
+        jobs.start([_document()])
+    estado = primero.snapshot()
 
-    # Assert
-    assert segundo.id != primero.id
-    assert primero.snapshot()["status"] == "error"
-    assert "interrumpió" in primero.snapshot()["error"]
+    # Assert: la interfaz ve el job terminado y no se arranca otra ingesta encima
+    assert estado["status"] == "error"
+    assert "interrumpió" in estado["error"]
     assert primero.finished.is_set()
+
+    # Al morir el hilo, el turno se libera y la carga se puede reintentar
     puerta.set()
+    limite = time.monotonic() + 5
+    while True:
+        try:
+            segundo = jobs.start([_document()])
+            break
+        except UploadBusy:
+            if time.monotonic() > limite:
+                raise
+            time.sleep(0.02)
     assert segundo.finished.wait(timeout=5)
 
 

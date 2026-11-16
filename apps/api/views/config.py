@@ -86,11 +86,20 @@ async def subir_documentos(
 
 @router.get("/configuracion/carga/{job_id}", response_class=HTMLResponse)
 def estado_carga(request: Request, job_id: str) -> Response:
-    """Devuelve el estado de una carga para el polling de la interfaz."""
+    """Devuelve el estado de una carga para el polling de la interfaz.
+
+    Si el job se limpió (TTL, tope del registro o reinicio del proceso) responde
+    el parcial con el aviso y código 200: un 404 JSON no lo pinta el polling de
+    HTMX y la interfaz quedaría bloqueada en «Procesando» sin forma de reintentar.
+    """
 
     job = _uploads(request).get(job_id)
     if job is None:
-        return JSONResponse({"error": "La carga no existe o expiró."}, status_code=404)
+        return _carga_response(
+            request,
+            carga_error="La carga no existe o expiró. Vuelve a seleccionar los archivos.",
+            oob=False,
+        )
     return _carga_response(request, job=job)
 
 

@@ -57,6 +57,7 @@ class UploadJob:
     created_wall: float = field(default_factory=time.time)
     finished_at: float | None = None
     finalized: bool = field(default=False, repr=False)
+    worker: threading.Thread | None = field(default=None, repr=False)
     finished: threading.Event = field(default_factory=threading.Event, repr=False)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     documents: list[UploadedDocument] = field(default_factory=list, repr=False)
@@ -136,14 +137,25 @@ class UploadJobs:
             self._release_stale()
             if self._active is not None:
                 active = self._jobs.get(self._active)
-                if active is not None and active.status in {"pending", "running"}:
+                if active is None:
+                    self._active = None
+                elif active.status in {"pending", "running"} or self._worker_alive(active):
                     raise UploadBusy("Ya hay una carga en curso. Espera a que termine.")
+                else:
+                    self._active = None
             job = UploadJob(
                 id=uuid.uuid4().hex,
                 total=len(documents),
                 notes=tuple(notes),
                 documents=list(documents),
             )
+            thread = threading.Thread(
+                target=self._run,
+                args=(job,),
+                name=f"carga-{job.id[:8]}",
+                daemon=True,
+            )
+            job.worker = thread
             self._jobs[job.id] = job
             self._active = job.id
 
@@ -154,12 +166,6 @@ class UploadJobs:
             notes=len(job.notes),
         )
         try:
-            thread = threading.Thread(
-                target=self._run,
-                args=(job,),
-                name=f"carga-{job.id[:8]}",
-                daemon=True,
-            )
             thread.start()
         except Exception as error:  # el hilo no arrancó: el job no queda colgado
             self._mark_error(job, error)
@@ -262,18 +268,22 @@ class UploadJobs:
         return True
 
     def _release_stale(self) -> None:
-        """Libera el turno de carga si el job activo se quedó colgado.
+        """Marca como interrumpido el job activo que superó el tiempo máximo.
 
-        Se llama con ``self._lock`` tomado. Sin esta red, un runner atascado
-        mantiene ``_active`` ocupado y todas las cargas posteriores responden
-        409 hasta reiniciar el proceso.
+        Se llama con ``self._lock`` tomado. No libera el turno: la ingesta
+        anterior puede seguir escribiendo en Bronze/Silver/Gold/PostgreSQL/
+        Qdrant, y arrancar otra en paralelo corrompería el pipeline. El turno
+        lo libera el propio hilo de ``_run`` al terminar; mientras siga vivo,
+        las cargas nuevas reciben 409 con un mensaje explícito.
         """
 
         if self._active is None:
             return
         job = self._jobs.get(self._active)
-        if job is None or job.status not in {"pending", "running"}:
+        if job is None:
             self._active = None
+            return
+        if job.status not in {"pending", "running"}:
             return
         if time.monotonic() - job.created_at <= self._max_running_seconds:
             return
@@ -285,10 +295,15 @@ class UploadJobs:
         self._mark_error(
             job,
             RuntimeError("el runner excedió el tiempo máximo"),
-            message="La carga anterior se interrumpió; vuelve a intentarlo.",
+            message="La carga anterior se interrumpió; espera a que el proceso libere el turno.",
         )
         self._finalize(job)
-        self._active = None
+
+    @staticmethod
+    def _worker_alive(job: UploadJob) -> bool:
+        """Indica si el hilo de la ingesta del job sigue vivo."""
+
+        return job.worker is not None and job.worker.is_alive()
 
     def _prune(self) -> None:
         """Descarta jobs viejos y aplica un tope duro al registro."""

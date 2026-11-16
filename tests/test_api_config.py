@@ -253,3 +253,30 @@ def test_el_endpoint_json_expone_el_estado_del_job() -> None:
     assert estado.json()["status"] == "done"
     assert estado.json()["indexed"] == 56
     assert "report" not in estado.json()
+
+
+def test_el_polling_de_un_job_limpiado_devuelve_el_aviso_y_libera_la_interfaz() -> None:
+    # Arrange
+    client = make_client()
+    token = _token(client)
+    response = client.post(
+        "/configuracion",
+        data={CSRF_FIELD: token},
+        files={"archivos": ("nota.md", b"# Nota\n\nTexto.", "text/markdown")},
+        headers={"HX-Request": "true"},
+    )
+    job_id = _job_id(response.text)
+    _wait(client, job_id)
+    # El registro se recrea como tras un reinicio del proceso
+    cast(Any, client.app).state.uploads = UploadJobs(_runner)
+
+    # Act
+    polling = client.get(
+        f"/configuracion/carga/{job_id}",
+        headers={"HX-Request": "true"},
+    )
+
+    # Assert
+    assert polling.status_code == 200
+    assert "no existe o expiró" in polling.text
+    assert 'data-carga-estado="error"' in polling.text
