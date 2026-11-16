@@ -21,6 +21,8 @@
   const traza = document.getElementById("chat-traza");
   const hilo = document.getElementById("hilo");
   const estado = document.getElementById("chat-stream-estado");
+  const estadoTexto = estado ? estado.querySelector("[data-estado-texto]") : null;
+  const girando = estado ? estado.querySelector("[data-girando]") : null;
   const plantillaTurno = document.getElementById("plantilla-turno");
   const plantillaFuente = document.getElementById("plantilla-fuente");
   if (!input || !hilo || !estado || !plantillaTurno || !plantillaFuente) return;
@@ -70,7 +72,7 @@
     input.value = "";
     form.setAttribute("aria-busy", "true");
     if (boton) boton.disabled = true;
-    avisar("Generando respuesta…");
+    avisar("");
 
     const control = new AbortController();
     const temporizador = setTimeout(() => control.abort(), 120000);
@@ -195,6 +197,7 @@
       input.focus();
       turnoAsistente.scrollIntoView({ block: "nearest" });
       enCurso = false;
+      if (girando) girando.hidden = true;
     }
   }
 
@@ -269,7 +272,12 @@
   }
 
   function avisar(mensaje, esError = false) {
-    estado.textContent = mensaje;
+    const texto = String(mensaje == null ? "" : mensaje);
+    const ocupado = enCurso && !esError;
+    const visible = ocupado ? (texto ? `Consultando… · ${texto}` : "Consultando…") : texto;
+    if (estadoTexto) estadoTexto.textContent = visible;
+    else estado.textContent = visible;
+    if (girando) girando.hidden = !ocupado;
     estado.classList.toggle("aviso", esError);
     estado.classList.toggle("ayuda", !esError);
   }

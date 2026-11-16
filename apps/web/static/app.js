@@ -1,13 +1,12 @@
 // Frontend del M2: consume la API por JSON/SSE. No calcula RAG ni guarda
 // credenciales; solo pinta tokens, rutas y citas verificables. Además es el
-// shell SPA de las pantallas Asistente, Corpus y Documento.
+// shell SPA de las pantallas Corpus y Documento.
 (() => {
   "use strict";
 
   const API = String(window.CARVAJAL_API || "http://localhost:8000").replace(/\/$/, "");
   const CLAVE_DOCUMENTO = "carvajal:documento";
   const TITULOS_VISTA = {
-    asistente: "Asistente del corpus",
     faq: "Preguntas frecuentes",
     corpus: "Corpus",
     documento: "Documento",
@@ -36,7 +35,6 @@
     documento: document.getElementById("vista-documento"),
   };
   const enlacesNav = {
-    asistente: document.getElementById("nav-asistente"),
     faq: document.getElementById("nav-faq"),
     corpus: document.getElementById("nav-corpus"),
     documento: document.getElementById("nav-documento"),
@@ -68,7 +66,12 @@
     formulario.dataset.listo = "1";
 
     actualizarEnlaceDocumento();
-    renderizar({ enfocar: location.pathname !== "/" });
+    // `/` y `/corpus` son la misma vista: la URL se unifica antes de pintar
+    // para que recargar o compartir el enlace se comporte igual.
+    if (normalizarCamino(location.pathname) === "/") {
+      history.replaceState({}, "", `/corpus${location.search}${location.hash}`);
+    }
+    renderizar();
     document.addEventListener("click", manejarClic);
     document.addEventListener("carvajal:documento-abierto", (evento) => {
       const id = evento.detail && evento.detail.id ? String(evento.detail.id) : "";
@@ -145,7 +148,7 @@
         return { vista: "documento", documentId, params };
       }
     }
-    return { vista: "asistente", documentId: null, params };
+    return { vista: "corpus", documentId: null, params };
   }
 
   function normalizarCamino(camino) {
@@ -220,7 +223,7 @@
         });
       }
     } else if (enfocar && cambioVista) {
-      enfocarVista(actual.vista === "faq" ? "faq" : "asistente");
+      enfocarVista(actual.vista);
     }
   }
 

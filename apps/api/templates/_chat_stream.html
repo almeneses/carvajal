@@ -4,7 +4,10 @@
   <span class="traza-item" data-campo="memory-wrap" hidden>Memoria: <strong data-campo="memory"></strong> preferencia(s)</span>
   <span class="traza-item">Hilo: <code data-campo="thread"></code></span>
 </div>
-<p id="chat-stream-estado" class="ayuda" role="status" aria-live="polite"></p>
+<p id="chat-stream-estado" class="ayuda estado-chat" role="status" aria-live="polite">
+  <span class="girando" data-girando aria-hidden="true" hidden></span>
+  <span data-estado-texto></span>
+</p>
 
 <template id="plantilla-turno">
   <li class="turno">

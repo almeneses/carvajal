@@ -30,6 +30,10 @@
     </header>
 
     <div class="cuerpo-conversacion chat-cuerpo">
+      <p id="chat-cargando" class="cargando-chat" role="status" aria-live="polite">
+        <span class="girando" aria-hidden="true"></span>
+        <span>Cargando la conversación…</span>
+      </p>
       {% include "_chat_stream.html" %}
 
       <section class="historial-chat" aria-labelledby="titulo-historial">

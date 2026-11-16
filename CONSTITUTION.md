@@ -139,16 +139,16 @@ se propone un stack distinto, documentado en
 ```text
 carvajal/
 ├── apps/
-│   ├── api/                   # API FastAPI: /live, /health, /api, portada y pantallas
+│   ├── api/                   # API FastAPI: /live, /health, /api, chat y pantallas
 │   │   ├── main.py            # create_app, CORS, /live y /health
 │   │   ├── agent_runtime.py   # checkpointer, Store, Qdrant y grafo compilado
 │   │   ├── runtime.py         # templates, sesiones y clientes diferidos
 │   │   ├── views/             # routers: corpus, documentos, chat, stream y api
 │   │   ├── chat/              # identidad, servicio, adaptador del agente y streaming
 │   │   ├── static/            # CSS y JS del chat
-│   │   └── templates/         # Jinja2: base, portada, pantallas y parciales
+│   │   └── templates/         # Jinja2: base, chat, pantallas y parciales
 │   └── web/                   # frontend propio del M2 (:8001): shell SPA con
-│                              # pestañas Asistente · Corpus · Documento, sin RAG
+│                              # pestañas FAQ · Corpus · Documento, sin RAG
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
@@ -402,6 +402,8 @@ git push
 | 2026-11-14 | Carga de archivos en segundo plano con spinner y lista de jobs | El POST solo lee los archivos y crea un job; el botón se bloquea y muestra un spinner, la página consulta el estado por polling y la barra lateral acumula las cargas recientes con una animación de entrada. Un solo job activo evita saturar Postgres y Qdrant |
 | 2026-11-14 | Carga de documentos pública en Configuración: se elimina `CONFIG_TOKEN` y el gate de loopback | La pestaña queda abierta a cualquier visitante, igual que la captura web; se conservan el CSRF, los límites de 100 archivos/5 MB y el pipeline Bronze → Silver → Gold → PostgreSQL → Qdrant. El riesgo de abuso se acepta por decisión del owner |
 | 2026-11-14 | FAQ en la SPA y el shell HTMX (`/faq`): lotes de hasta 10 preguntas, botón «Generar otras 10» y descarga Markdown | El caso de uso lee los documentos `core` de Postgres, excluye las preguntas ya mostradas y no persiste: el estado acumulado vive en la pestaña. Comparte CSRF y cuota diaria con el chat, genera por SSE sobre el corpus completo y advierte si el bloque se truncó por longitud; con Ollama se fija `num_ctx` (32 768) para que el prompt no se recorte en el servidor |
+| 2026-11-14 | Se oculta la pestaña Asistente en el shell HTMX y en la SPA; `/` redirige a `/chat` en `apps/api` y a `/corpus` en `apps/web` | El chat concentra la entrada al asistente y la portada heredada deja de competir en la navegación. La ruta `/ask` y la vista `#vista-asistente` se conservan por compatibilidad, pero no se enlazan; la marca lleva al chat en el shell y al corpus en la SPA |
+| 2026-11-15 | Documentar *as-built* las 23 capacidades ya entregadas (`specs/003`–`specs/027`) y reconvertir la 002 | El proyecto adoptó Spec Kit el 2026-11-03, pero el Módulo 1 y la migración del M2 se registraron en PRs y en esta tabla: `specs/` tenía dos entradas y la 002 describía otra aplicación. La convención as-built exige fecha honesta, requisito observable y evidencia por escenario, y prohíbe `plan`/`tasks` retroactivos, salvo la excepción documentada de la 002 (§3.5 del inventario); el índice y el estado de cada spec viven en `specs/README.md` |
 
 ## 10. Notas y tareas pendientes
 

@@ -147,9 +147,9 @@ no llama al LLM.
 | **HTTP** | `requests` (sesión única, `User-Agent` identificable, `timeout`) |
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
 | **RAG web (M2)** | Qdrant + LangGraph + Postgres (checkpointer y Store) |
-| **RAG legado** | LangChain + FAISS + Streamlit (prototipo, no es la entrada del M2) |
+| **RAG legado** | LangChain + FAISS |
 | **LLM** | DeepSeek (`deepseek-chat`), Anthropic Claude u Ollama (`llama3.2`) |
-| **Interfaz de pruebas** | Streamlit |
+| **Interfaz de pruebas** | HTMLX |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
 | **Linting / Formato** | [Ruff](https://docs.astral.sh/ruff/) |
@@ -295,13 +295,15 @@ make eval
 ### Interfaz web del M2
 
 La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
-API en <http://localhost:8000> (`make api`). El frontend ofrece cuatro pestañas
-superiores —**Asistente**, **FAQ**, **Corpus** y **Documento**— con URLs estables
-(`/`, `/faq`, `/corpus` y `/documents/{id}`) y conserva el hilo del chat al navegar.
+API en <http://localhost:8000> (`make api`). El frontend ofrece tres pestañas
+superiores —**FAQ**, **Corpus** y **Documento**— con URLs estables
+(`/faq`, `/corpus` y `/documents/{id}`); `/` redirige a `/corpus` y conserva el
+hilo del chat al navegar.
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
-<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; su
+<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; la
+pestaña **Asistente** ya no se muestra y `/` redirige a `/chat`. Su
 pestaña **FAQ** (`/faq`) consume el mismo endpoint `/api/faq` y ofrece la misma
 experiencia de lotes de 10. Sus pantallas comparten la cabecera, la paleta y los
 componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
@@ -328,7 +330,7 @@ completo quepa en el prompt.
 ### Interfaz legada (Streamlit)
 
 > El prototipo Streamlit conserva las tareas del Módulo 1 y no es la entrada del
-> M2. Se retira en la ola 7 del plan de migración.
+> M2.
 
 `uv run streamlit run app.py` abre cuatro pestañas:
 
@@ -538,7 +540,7 @@ carvajal/
 
 ## Documentación
 
-- [`specs/`](specs/) — especificaciones versionadas con Spec Kit: `spec`, `plan` y `tasks` por funcionalidad.
+- [`specs/`](specs/) — especificaciones versionadas con Spec Kit: `spec`, `plan` y `tasks` por funcionalidad. El índice, la convención *as-built* y el orden de escritura están en [`specs/README.md`](specs/README.md).
 - [`docs/prompts.md`](docs/prompts.md) - los tres prompts, las variantes probadas y qué se decidió.
 - [`docs/alcance.md`](docs/alcance.md) — alcance del Q&A: tipos de pregunta y cobertura real del corpus.
 - [`docs/arquitectura.md`](docs/arquitectura.md) — diagramas Mermaid del pipeline y del stack.
@@ -562,7 +564,7 @@ Lee [`CONTRIBUTING.md`](CONTRIBUTING.md) y la [`CONSTITUTION.md`](CONSTITUTION.m
 - **Herramientas:** [uv](https://docs.astral.sh/uv/), [Ruff](https://docs.astral.sh/ruff/),
   [ty](https://github.com/astral-sh/ty), [LangChain](https://www.langchain.com/),
   [FAISS](https://github.com/facebookresearch/faiss),
-  [Streamlit](https://streamlit.io/), [Ollama](https://ollama.com/),
+  [Ollama](https://ollama.com/),
   [DeepSeek](https://www.deepseek.com/) y [Archify](https://github.com/tt-a1i/archify).
 
 ## Licencia

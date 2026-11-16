@@ -248,7 +248,48 @@
 }
 
 #chat-stream-estado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   min-height: 1.4em;
+}
+
+/* Indicadores de carga: espera al entrar al chat y turno en curso. */
+.girando {
+  width: 1em;
+  height: 1em;
+  border: 2px solid var(--borde);
+  border-top-color: var(--azul);
+  border-radius: 50%;
+  animation: girar 700ms linear infinite;
+  flex: 0 0 auto;
+}
+
+.cargando-chat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  background: var(--fondo-suave);
+  color: var(--secundario);
+  font-weight: 600;
+}
+
+/* Sin JavaScript el chat se pintó completo en el servidor: no hay espera. */
+@media (scripting: none) {
+  .cargando-chat {
+    display: none;
+  }
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 #chat-stream-estado.aviso {
