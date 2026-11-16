@@ -134,7 +134,8 @@ materiales sin regla en la guía (`materials_without_rule`: papel y pulpa).
 Decisiones tomadas al curar los datos (PR 2):
 
 - La temperatura y la vigencia del precio salen de la ficha (`temp_min_c`, `temp_max_c`,
-  `price_valid_until`).
+  `price_valid_until`); la vigencia se normaliza a fecha aunque el JSON-LD traiga hora y
+  zona, y una oferta que vence el día de captura ya no se usa como precio de referencia.
 - El IVA visible junto al precio prevalece sobre el `valueAddedTaxIncluded: false` que
   WooCommerce pone por defecto en el JSON-LD.
 - Si el título y la descripción de una ficha se contradicen, o la temperatura contradice el

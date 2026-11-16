@@ -469,6 +469,37 @@ def test_si_falla_la_validacion_final_restaura_ambos_archivos(tmp_path: Path) ->
     assert not list(base.glob(".*.bak"))
 
 
+def test_la_vigencia_con_hora_se_normaliza_y_el_dia_de_captura_caduca() -> None:
+    """``validThrough`` ISO con hora se guarda como fecha y vence el mismo día."""
+
+    ofertas = [
+        {
+            "priceSpecification": [
+                {
+                    "price": "999.00",
+                    "priceCurrency": "MXN",
+                    "validThrough": "2026-10-23T23:59:59-06:00",
+                }
+            ]
+        },
+        {
+            "priceSpecification": [
+                {
+                    "price": "1519.00",
+                    "priceCurrency": "MXN",
+                    "validThrough": "2027-12-31T23:59:59-06:00",
+                }
+            ]
+        },
+    ]
+
+    referencia = parse_mx_product(_ficha(ofertas=ofertas), CAPTURA)
+
+    assert referencia is not None
+    assert referencia.price == Decimal("1519.00")
+    assert referencia.price_valid_until == date(2027, 12, 31)
+
+
 def test_regenerar_aborta_si_falta_una_referencia(tmp_path: Path) -> None:
     """Un corpus parcial no debe borrar en silencio referencias ya presentes."""
 

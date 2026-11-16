@@ -13,7 +13,7 @@ import json
 import re
 import unicodedata
 from collections.abc import Callable, Iterable
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -159,14 +159,26 @@ def _price_spec(product: dict[str, Any], captured_at: date) -> dict[str, Any]:
 
 
 def _vigente(raw: Any, captured_at: date) -> bool:
-    """Una oferta sin fecha de vigencia o con fecha futura sigue siendo válida."""
+    """Una oferta sin fecha de vigencia o que vence después de la captura sigue válida."""
 
     if not raw:
         return True
+    expiry = _fecha(raw)
+    return True if expiry is None else expiry > captured_at  # el día de captura ya no vale
+
+
+def _fecha(raw: Any) -> date | None:
+    """Fecha de una vigencia ISO, con o sin hora y zona horaria."""
+
+    if not raw:
+        return None
     try:
-        return date.fromisoformat(str(raw)[:10]) >= captured_at
+        return datetime.fromisoformat(str(raw).strip()).date()
     except ValueError:
-        return True  # fecha ilegible: se conserva lo publicado por la ficha
+        try:
+            return date.fromisoformat(str(raw).strip()[:10])
+        except ValueError:
+            return None  # fecha ilegible: se conserva lo publicado por la ficha
 
 
 def parse_mx_product(
@@ -269,7 +281,7 @@ def parse_mx_product(
             "price": spec["price"],
             "currency": spec["priceCurrency"],
             "tax_included": tax,
-            "price_valid_until": spec.get("validThrough"),
+            "price_valid_until": _fecha(spec.get("validThrough")),
             "country": "MX",
             "source_url": str(product["url"]),
             "captured_at": captured_at,
