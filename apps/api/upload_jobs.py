@@ -31,6 +31,9 @@ EventHook = Callable[[str, str, int, int], None]
 Runner = Callable[[list[UploadedDocument], EventHook], IngestReport]
 
 _JOB_TTL_SECONDS = 60 * 60
+# Un runner colgado no puede dejar el registro ocupado para siempre: pasado este
+# tiempo el job se marca interrumpido y libera el turno de carga.
+_JOB_MAX_RUNNING_SECONDS = 15 * 60
 
 
 class UploadBusy(RuntimeError):
@@ -53,6 +56,7 @@ class UploadJob:
     created_at: float = field(default_factory=time.monotonic)
     created_wall: float = field(default_factory=time.time)
     finished_at: float | None = None
+    finalized: bool = field(default=False, repr=False)
     finished: threading.Event = field(default_factory=threading.Event, repr=False)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     documents: list[UploadedDocument] = field(default_factory=list, repr=False)
@@ -105,12 +109,19 @@ def default_upload_runner(
 class UploadJobs:
     """Registro en memoria con un solo job activo a la vez."""
 
-    def __init__(self, runner: Runner | None = None, *, max_jobs: int = 20) -> None:
+    def __init__(
+        self,
+        runner: Runner | None = None,
+        *,
+        max_jobs: int = 20,
+        max_running_seconds: float = _JOB_MAX_RUNNING_SECONDS,
+    ) -> None:
         self._runner = runner or default_upload_runner
         self._jobs: dict[str, UploadJob] = {}
         self._lock = threading.Lock()
         self._active: str | None = None
         self._max_jobs = max_jobs
+        self._max_running_seconds = max_running_seconds
 
     def start(
         self,
@@ -122,6 +133,7 @@ class UploadJobs:
 
         with self._lock:
             self._prune()
+            self._release_stale()
             if self._active is not None:
                 active = self._jobs.get(self._active)
                 if active is not None and active.status in {"pending", "running"}:
@@ -150,8 +162,11 @@ class UploadJobs:
             )
             thread.start()
         except Exception as error:  # el hilo no arrancó: el job no queda colgado
-            self._finish_with_error(job, error)
-            job.finished.set()
+            self._mark_error(job, error)
+            self._finalize(job)
+            with self._lock:
+                if self._active == job.id:
+                    self._active = None
         return job
 
     def get(self, job_id: str) -> UploadJob | None:
@@ -168,71 +183,127 @@ class UploadJobs:
         return [job.snapshot() for job in jobs]
 
     def _run(self, job: UploadJob) -> None:
-        """Ejecuta la ingesta y publica el progreso en el job."""
+        """Ejecuta la ingesta y publica el progreso en el job.
+
+        Los documentos se copian bajo el lock: el registro vacía
+        ``job.documents`` al finalizar o al liberar un job colgado, y el runner
+        no debe quedarse con una lista que otro hilo vacía a mitad de camino.
+        """
 
         with job.lock:
+            if job.finalized:
+                return
             job.status = "running"
             job.stage = "Preparando"
+            documentos = tuple(job.documents)
 
         def on_event(stage: str, detail: str, current: int, total: int) -> None:
             with job.lock:
+                if job.finalized:
+                    return
                 job.stage = stage or job.stage
                 job.detail = detail
                 job.current = current
                 job.total = total or job.total
 
         try:
-            report = self._runner(job.documents, on_event)
-            with job.lock:
-                job.report = report
-                job.status = "done"
-                job.stage = "Listo"
-                job.detail = ""
-            logger.info(
-                "upload.job_finished",
-                job_id=job.id,
-                documents=report.documents,
-                indexed=report.indexed,
-                errors=len(report.errors),
-            )
+            report = self._runner(list(documentos), on_event)
         except Exception as error:
-            self._finish_with_error(job, error)
-        finally:
+            self._mark_error(job, error)
+        else:
             with job.lock:
-                job.finished_at = time.monotonic()
-                job.documents = []
-            job.finished.set()
+                completado = not job.finalized
+                if completado:
+                    job.report = report
+                    job.status = "done"
+                    job.stage = "Listo"
+                    job.detail = ""
+            if completado:
+                logger.info(
+                    "upload.job_finished",
+                    job_id=job.id,
+                    documents=report.documents,
+                    indexed=report.indexed,
+                    errors=len(report.errors),
+                )
+        finally:
+            self._finalize(job)
             with self._lock:
                 if self._active == job.id:
                     self._active = None
 
-    def _finish_with_error(self, job: UploadJob, error: Exception) -> None:
+    def _mark_error(
+        self,
+        job: UploadJob,
+        error: Exception,
+        *,
+        message: str = "",
+    ) -> None:
         """Marca el job como fallido sin exponer el detalle interno al navegador."""
 
         with job.lock:
+            if job.finalized:
+                return
             job.status = "error"
             job.stage = "Error"
-            job.error = "No se pudo procesar la carga; revisa los logs del servidor."
+            job.error = message or "No se pudo procesar la carga; revisa los logs del servidor."
+        logger.warning("upload.job_failed", job_id=job.id, error=str(error))
+
+    def _finalize(self, job: UploadJob) -> bool:
+        """Cierra el job una sola vez y despierta a quien espere su final."""
+
+        with job.lock:
+            if job.finalized:
+                return False
+            job.finalized = True
             job.finished_at = time.monotonic()
             job.documents = []
-        logger.warning("upload.job_failed", job_id=job.id, error=str(error))
         job.finished.set()
-        with self._lock:
-            if self._active == job.id:
-                self._active = None
+        return True
+
+    def _release_stale(self) -> None:
+        """Libera el turno de carga si el job activo se quedó colgado.
+
+        Se llama con ``self._lock`` tomado. Sin esta red, un runner atascado
+        mantiene ``_active`` ocupado y todas las cargas posteriores responden
+        409 hasta reiniciar el proceso.
+        """
+
+        if self._active is None:
+            return
+        job = self._jobs.get(self._active)
+        if job is None or job.status not in {"pending", "running"}:
+            self._active = None
+            return
+        if time.monotonic() - job.created_at <= self._max_running_seconds:
+            return
+        logger.warning(
+            "upload.job_interrupted",
+            job_id=job.id,
+            seconds=round(time.monotonic() - job.created_at, 1),
+        )
+        self._mark_error(
+            job,
+            RuntimeError("el runner excedió el tiempo máximo"),
+            message="La carga anterior se interrumpió; vuelve a intentarlo.",
+        )
+        self._finalize(job)
+        self._active = None
 
     def _prune(self) -> None:
-        """Descarta jobs viejos para que el registro no crezca sin límite."""
+        """Descarta jobs viejos y aplica un tope duro al registro."""
 
         now = time.monotonic()
         for job_id, job in list(self._jobs.items()):
             if job.finished_at is not None and now - job.finished_at > _JOB_TTL_SECONDS:
                 del self._jobs[job_id]
-        if len(self._jobs) <= self._max_jobs:
-            return
-        for job_id, job in sorted(self._jobs.items(), key=lambda item: item[1].created_at):
-            if job.finished_at is None:
-                continue
-            del self._jobs[job_id]
-            if len(self._jobs) <= self._max_jobs:
+        while len(self._jobs) > self._max_jobs:
+            candidatos = [
+                (job.created_at, job_id)
+                for job_id, job in self._jobs.items()
+                if job_id != self._active
+            ]
+            if not candidatos:
                 break
+            _, mas_antiguo = min(candidatos)
+            del self._jobs[mas_antiguo]

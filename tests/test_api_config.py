@@ -251,4 +251,5 @@ def test_el_endpoint_json_expone_el_estado_del_job() -> None:
     # Assert
     assert estado.status_code == 200
     assert estado.json()["status"] == "done"
-    assert estado.json()["report"]["indexed"] == 56
+    assert estado.json()["indexed"] == 56
+    assert "report" not in estado.json()

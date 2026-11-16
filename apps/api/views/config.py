@@ -96,14 +96,18 @@ def estado_carga(request: Request, job_id: str) -> Response:
 
 @router.get("/configuracion/carga/{job_id}/estado")
 def estado_carga_json(request: Request, job_id: str) -> Response:
-    """Expone el mismo estado en JSON para pruebas y operación."""
+    """Expone el estado público del job, el mismo que muestra el parcial.
+
+    No devuelve el reporte interno: la respuesta es la instantánea que ya ve
+    cualquier visitante en el panel de carga, sin rutas ni detalles de la
+    ingesta. La identificación por id es la única credencial en esta fase; el
+    control por usuario llega con la ola de autenticación.
+    """
 
     job = _uploads(request).get(job_id)
     if job is None:
         return JSONResponse({"error": "La carga no existe o expiró."}, status_code=404)
-    data = job.snapshot()
-    data["report"] = asdict(job.report) if job.report is not None else None
-    return JSONResponse(data)
+    return JSONResponse(job.snapshot())
 
 
 @router.post("/configuracion/captura", response_class=HTMLResponse)

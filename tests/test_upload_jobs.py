@@ -1,6 +1,7 @@
 """Pruebas del job de carga de archivos y su registro."""
 
 import threading
+import time
 from collections.abc import Callable
 
 import pytest
@@ -145,3 +146,53 @@ def test_get_de_un_job_inexistente_es_none() -> None:
 
     # Act / Assert
     assert jobs.get("no-existe") is None
+
+
+def test_un_runner_colgado_libera_el_registro_por_lease() -> None:
+    # Arrange
+    puerta = threading.Event()
+
+    def runner(
+        documents: list[UploadedDocument],
+        on_event: Callable[[str, str, int, int], None],
+    ) -> IngestReport:
+        puerta.wait(timeout=5)
+        return REPORT
+
+    jobs = UploadJobs(runner, max_running_seconds=0.05)
+    primero = jobs.start([_document()])
+
+    # Act: el primer job sigue colgado y el turno se libera por tiempo
+    time.sleep(0.15)
+    segundo = jobs.start([_document()])
+
+    # Assert
+    assert segundo.id != primero.id
+    assert primero.snapshot()["status"] == "error"
+    assert "interrumpió" in primero.snapshot()["error"]
+    assert primero.finished.is_set()
+    puerta.set()
+    assert segundo.finished.wait(timeout=5)
+
+
+def test_el_runner_recibe_una_lista_propia_de_documentos() -> None:
+    # Arrange
+    recibidos: list[list[UploadedDocument]] = []
+
+    def runner(
+        documents: list[UploadedDocument],
+        on_event: Callable[[str, str, int, int], None],
+    ) -> IngestReport:
+        recibidos.append(documents)
+        return REPORT
+
+    jobs = UploadJobs(runner)
+
+    # Act
+    job = jobs.start([_document()])
+
+    # Assert
+    assert job.finished.wait(timeout=5)
+    assert len(recibidos) == 1
+    assert [document.filename for document in recibidos[0]] == ["nota.md"]
+    assert job.documents == []
