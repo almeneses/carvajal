@@ -74,6 +74,17 @@ def test_cajas_redondean_hacia_arriba_con_excedente() -> None:
     assert (redondeo.boxes, redondeo.surplus) == (6, 999)
 
 
+def test_cajas_exactas_con_cantidades_grandes() -> None:
+    """El techo se calcula con enteros: nada de redondear hacia abajo por coma flotante."""
+
+    unidades = 10**16 + 1
+    resultado = boxes_for(_ref(), unidades)
+
+    assert resultado.boxes == unidades // 1000 + 1
+    assert resultado.surplus == resultado.boxes * 1000 - unidades
+    assert resultado.surplus >= 0
+
+
 def test_cantidad_invalida() -> None:
     """Cero o negativo no es una cantidad."""
 

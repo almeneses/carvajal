@@ -13,7 +13,6 @@ Validación de material (FR-003):
   para bebida caliente) se descarta.
 """
 
-import math
 import unicodedata
 from dataclasses import dataclass
 from datetime import date
@@ -199,7 +198,7 @@ def boxes_for(ref: Reference, units: int) -> BoxCount:
 
     if units <= 0:
         raise ValueError("La cantidad debe ser un número positivo de unidades.")
-    boxes = math.ceil(units / ref.units_per_box)
+    boxes = -(-units // ref.units_per_box)
     return BoxCount(boxes=boxes, surplus=boxes * ref.units_per_box - units)
 
 
