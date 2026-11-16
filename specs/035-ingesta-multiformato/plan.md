@@ -39,17 +39,19 @@ entradas cuando coinciden carga y captura).
 
 | Puerta | Cómo se cumple |
 |---|---|
-| §2 Alcance: carga de archivos locales dentro del alcance | La carga ya existía para HTML/Markdown/TXT; esta capacidad amplía formatos, no el modelo de datos. |
+| §2 Alcance: PDF y datos estructurados dentro del alcance | La enmienda de esta misma PR mueve los PDF de «fuera del alcance» a «dentro del alcance» y añade la carga local multiformato; el contrato es esta spec. |
 | §2 Fuera del alcance: OCR de PDF escaneados | Se avisa y se rechaza el archivo; no se incorpora OCR. |
 | §3 Stack: sin dependencias nuevas de Python | PDF vía binario del sistema; XML/JSON/CSV con biblioteca estándar. |
 | §4 Estructura: dominio en `packages/core`, web en `apps/api` | El índice y sus garantías viven en `carvajal.gold`; la extracción y la CLI en `apps/api`. |
 | §5 Convenciones: Ruff, 100 columnas, comillas dobles, UI en español | Se aplica en los módulos nuevos. |
 | §6 Calidad: `make check` con lint, tipos y pruebas | Cada escenario de la spec tiene prueba en `tests/test_ingestion.py` y `tests/test_api_config.py`. |
 | §6.1 Imagen: multi-etapa, sin privilegios | `poppler-utils` se instala en la etapa runtime antes de crear el usuario `app`. |
-| §9 Decisiones | La entrada de historial debe registrar la ampliación de alcance y el cambio de pendiente de PDFs a OCR. |
+| §9 Decisiones | Registrada la ampliación de alcance con fecha 2026-11-16 en `CONSTITUTION.md` §9. |
+| §10 Pendientes | «Extraer texto de PDF» queda como implementación pendiente de la 035 y el OCR como pendiente aparte. |
 
-**Resultado**: pasa. La actualización de `CONSTITUTION.md` §9 y §10 es una tarea de la fase
-final, no una violación.
+**Resultado**: pasa con la enmienda incluida en esta PR. `CONSTITUTION.md` §2, §9 y §10 y la
+proyección `.specify/memory/constitution.md` se actualizan en el mismo commit que la spec
+(Principio I); del cumplimiento queda pendiente solo la implementación.
 
 ## Project Structure
 

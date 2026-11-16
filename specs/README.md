@@ -129,7 +129,9 @@ en `Status: Draft`, **antes** de implementar.
 
 La 035 es la primera spec que se abre con el flujo normal **antes** de implementar. Se
 escribe en `Status: Draft` con `spec.md`, `plan.md` y `tasks.md`; los tres pasan a
-`Implemented (as-built)` cuando la capacidad se entregue y tenga evidencia.
+`Implemented (as-built)` cuando la capacidad se entregue y tenga evidencia. La ampliación
+de alcance que exige —PDF y datos estructurados— se enmienda en `CONSTITUTION.md` §2, §9
+y §10 en la misma PR, como manda el Principio I.
 
 
 ## 8. Orden de escritura y estimación

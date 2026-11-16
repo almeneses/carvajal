@@ -2,7 +2,7 @@
 
 **Input**: Design documents from `/specs/035-ingesta-multiformato/`
 **Prerequisites**: [`plan.md`](./plan.md), [`spec.md`](./spec.md)
-**Estado**: `[ ]` pendiente · tareas de la spec en `Status: Draft`
+**Estado**: `[ ]` pendiente · `[X]` cumplida · tareas de la spec en `Status: Draft`
 
 **Pruebas**: incluidas. El repositorio exige un escenario verificable por requisito y
 `make check` antes de abrir PR.
@@ -138,8 +138,8 @@ truncado.
 
 ## Phase 7: Pulido y documentación
 
-- [ ] T039 [P] Registrar en `CONSTITUTION.md` §9 la ampliación de formatos y el paso del pendiente de PDF a OCR
-- [ ] T040 [P] Actualizar `CONSTITUTION.md` §2 (alcance y fuera de alcance) y §6.1 (poppler en la imagen)
+- [X] T039 [P] Registrar en `CONSTITUTION.md` §9 y §2 la ampliación de alcance, junto con la spec (PR #131)
+- [ ] T040 [P] Actualizar `CONSTITUTION.md` §6.1 con la dependencia del extractor y marcar en §10 la entrega de la extracción de PDF
 - [ ] T041 [P] Añadir la fila de esta capacidad a `specs/README.md`
 - [ ] T042 Ejecutar `make check` y anotar el número de pruebas en el PR
 - [ ] T043 Revisar que ningún mensaje de error expone rutas internas ni detalles del entorno
