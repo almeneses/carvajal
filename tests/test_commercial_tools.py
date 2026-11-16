@@ -127,6 +127,28 @@ def test_bebida_caliente_descarta_pet_ps_y_vasos_para_frio() -> None:
     assert all(d.reason for d in descartadas)
 
 
+def test_bebida_caliente_sin_temperatura_tambien_descarta_pet_y_ps() -> None:
+    """El uso pedido basta: el router puede no entregar temperatura y la regla igual aplica."""
+
+    pedido = _pedido(use="bebida_caliente")
+    candidatas = search_packaging(pedido, catalog=CATALOGO)
+
+    validas, descartadas = check_material(candidatas, pedido, catalog=CATALOGO)
+
+    assert set(_skus(validas)) == {"PAPEL-CAL", "PP-12"}
+    assert {"PET-12", "PS-12", "PAPEL-FRIA", "PAPEL-SIN"} <= {d.sku for d in descartadas}
+
+
+def test_bebida_fria_sin_temperatura_descarta_vasos_solo_calientes() -> None:
+    """El uso frío pedido también descarta una ficha declarada solo para caliente."""
+
+    _, descartadas = check_material(
+        [CATALOGO.references[0]], _pedido(use="bebida_fria"), catalog=CATALOGO
+    )
+
+    assert descartadas[0].sku == "PAPEL-CAL"
+
+
 def test_papel_sin_temperatura_ni_uso_no_pasa_para_caliente() -> None:
     """Si la guía no cubre el material, la ficha debe respaldar el uso caliente."""
 

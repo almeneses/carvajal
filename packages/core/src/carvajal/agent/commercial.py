@@ -34,6 +34,8 @@ HOT_MIN_C = 60.0
 RENEWABLE = frozenset({"PAPEL", "PULPA"})
 CAPACITY_TOLERANCE_OZ = 0.25
 _DRINK_FAMILY: dict[str, Family] = {"bebida_caliente": "vaso", "bebida_fria": "vaso"}
+_HOT_USES = frozenset({"bebida_caliente", "comida_caliente"})
+_COLD_USES = frozenset({"bebida_fria"})
 
 
 @dataclass(frozen=True)
@@ -107,10 +109,11 @@ def _reject_reason(
 ) -> str | None:
     """Motivo de descarte o ``None`` si la referencia es apta."""
 
-    hot = req.temperature == "caliente"
+    hot = req.temperature == "caliente" or req.use in _HOT_USES
+    cold = req.temperature == "fria" or req.use in _COLD_USES
     if hot and _declared_opposite(reference, "caliente"):
         return f"{reference.name}: la ficha la declara para bebida fría, no caliente."
-    if req.temperature == "fria" and _declared_opposite(reference, "fria"):
+    if cold and _declared_opposite(reference, "fria"):
         return f"{reference.name}: la ficha la declara para bebida caliente, no fría."
 
     if rule is not None:  # material de la guía: manda la guía
