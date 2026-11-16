@@ -1,5 +1,6 @@
 """Pruebas del nodo ``commercial``: secuencia fija y prompt acotado (spec 036, T019-T020)."""
 
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,21 @@ def test_colombia_sin_ciudad_la_pide() -> None:
     resultado = _correr(use="bebida_fria", temperature="fria", country="CO")
 
     assert any(pendiente.startswith("ciudad") for pendiente in resultado["pending"])
+
+
+def test_sin_referencias_del_pais_avisa_que_falta_catalogo() -> None:
+    solo_mexico = replace(
+        FIXTURES, references=tuple(ref for ref in FIXTURES.references if ref.country == "MX")
+    )
+
+    resultado = run_commercial(
+        _pedido(use="bebida_fria", temperature="fria", country="CO"),
+        catalog=solo_mexico,
+        today=HOY,
+    )
+
+    assert "CO" not in solo_mexico.countries
+    assert "todavía no tiene referencias de CO" in resultado["catalog_note"]
 
 
 def test_ninguna_opcion_valida_no_ofrece_alternativas() -> None:

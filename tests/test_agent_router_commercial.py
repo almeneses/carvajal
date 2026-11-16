@@ -81,6 +81,14 @@ def test_una_ciudad_conocida_implica_el_pais() -> None:
     assert decision.extra["prefers_renewable"] is True
 
 
+def test_una_ciudad_conocida_se_detecta_aunque_vaya_en_minuscula() -> None:
+    decision = decide_route("necesito vasos para café en cali")
+
+    assert decision.route == "commercial"
+    assert decision.extra["city"] == "Cali"
+    assert decision.extra["country"] == "CO"
+
+
 def test_una_ciudad_sin_distribuidor_se_conserva_para_listar_alternativas() -> None:
     decision = decide_route("necesito vasos para jugo en Tuluá")
 

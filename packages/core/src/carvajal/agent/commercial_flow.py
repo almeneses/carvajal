@@ -129,7 +129,7 @@ def run_commercial(
         "channel": _channel(req, data),
         "pending": pending,
     }
-    if req.country and not any(ref.country == req.country for ref in data.references):
+    if req.country and req.country not in data.countries:
         # Sin referencias del país no es que «ninguna cumpla»: el catálogo aún no las tiene.
         result["catalog_note"] = (
             f"El catálogo cargado todavía no tiene referencias de {req.country}; "

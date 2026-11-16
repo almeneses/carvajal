@@ -6,7 +6,7 @@ línea exactos: un catálogo a medias recomendaría con datos incompletos.
 """
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
@@ -33,6 +33,11 @@ class Catalog:
     references: tuple[Reference, ...]
     materials: dict[str, MaterialRule]
     distributors: tuple[Distributor, ...]
+    # Países presentes, calculados una vez al construir el catálogo.
+    countries: frozenset[str] = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "countries", frozenset(ref.country for ref in self.references))
 
 
 def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[tuple[int, T], ...]:
