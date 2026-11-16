@@ -65,14 +65,14 @@ from carvajal.catalog.models import Distributor, Family, Reference
 
 @dataclass(frozen=True)
 class CommercialRequest:          # lo llena el router (RouteDecision.extra usa estas claves)
-    use: str | None               # "bebida_caliente", "bebida_fria", "comida_caliente", "sopas"…
-    temperature: Literal["caliente", "fria", "ambiente"] | None
-    microwave: bool | None
-    capacity_oz: float | None     # el router convierte ml → oz
-    family: Family | None         # vaso, tapa, contenedor, charola, cubierto, envase, plato
-    quantity: int | None          # unidades
-    country: Literal["MX", "CO"] | None
-    city: str | None
+    use: str | None = None        # "bebida_caliente", "bebida_fria", "comida_caliente", "sopas"…
+    temperature: Literal["caliente", "fria", "ambiente"] | None = None
+    microwave: bool | None = None
+    capacity_oz: float | None = None     # el router convierte ml → oz
+    family: Family | None = None         # vaso, tapa, contenedor, charola, cubierto, envase, plato
+    quantity: int | None = None          # unidades
+    country: Literal["MX", "CO"] | None = None
+    city: str | None = None
     prefers_renewable: bool = False
 
 @dataclass(frozen=True)
@@ -106,8 +106,10 @@ Datos que debes conocer:
    - Regla comercial en `decide_route`, evaluada después de memoria y saludo y antes de
      indicadores.
    - Extrae los datos a `RouteDecision.extra` con las claves de `CommercialRequest`.
-   - Si falta el uso o la temperatura, decide `direct` con una pregunta de aclaración, igual
-     que la ruta `tool` cuando falta el periodo.
+   - Si falta el uso, o la temperatura en las familias que la admiten (vaso, tapa,
+     contenedor y envase), decide `direct` con una pregunta de aclaración, igual que la ruta
+     `tool` cuando falta el periodo. Charola, cubierto y plato no exigen temperatura: se
+     cotizan sin preguntarla.
    - Nodo `commercial` en el grafo con una **secuencia fija**: buscar → validar →
      (cajas → cotizar | distribuidores). El LLM solo redacta con el resultado estructurado,
      y el prompt le prohíbe añadir referencias, cifras o disponibilidad.

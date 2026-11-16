@@ -64,14 +64,14 @@ from carvajal.catalog.models import Distributor, Family, Reference
 
 @dataclass(frozen=True)
 class CommercialRequest:          # lo llena el router (RouteDecision.extra usa estas claves)
-    use: str | None               # "bebida_caliente", "bebida_fria", "comida_caliente", "sopas"…
-    temperature: Literal["caliente", "fria", "ambiente"] | None
-    microwave: bool | None
-    capacity_oz: float | None     # el router convierte ml → oz
-    family: Family | None
-    quantity: int | None          # unidades
-    country: Literal["MX", "CO"] | None
-    city: str | None
+    use: str | None = None        # "bebida_caliente", "bebida_fria", "comida_caliente", "sopas"…
+    temperature: Literal["caliente", "fria", "ambiente"] | None = None
+    microwave: bool | None = None
+    capacity_oz: float | None = None     # el router convierte ml → oz
+    family: Family | None = None
+    quantity: int | None = None          # unidades
+    country: Literal["MX", "CO"] | None = None
+    city: str | None = None
     prefers_renewable: bool = False
 
 @dataclass(frozen=True)
@@ -93,7 +93,8 @@ def find_distributors(city: str) -> tuple[list[Distributor], list[str]]: ...
 ## 5. Orden de trabajo
 
 1. **PR 3: buscar y validar (T013–T015).**
-   - `search_packaging` filtra exacto por familia, uso, capacidad y país.
+   - `search_packaging` filtra por familia, uso y país, y la capacidad con tolerancia (±5 %),
+     porque el router convierte ml a oz.
    - `check_material` aplica FR-003:
      - materiales con regla en `materiales.csv` (PP, EPS, PS, PET, aluminio): manda la guía.
        Contenido caliente exige `hot_content`; microondas exige `microwave`; las aplicaciones
