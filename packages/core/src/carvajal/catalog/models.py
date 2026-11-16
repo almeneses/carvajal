@@ -91,7 +91,7 @@ class Reference(_Sourced):
         return self
 
 
-class MaterialRule(_Row):
+class MaterialRule(_Sourced):
     """Regla técnica de la guía de materiales."""
 
     material: str = Field(min_length=1)

@@ -31,7 +31,8 @@
 
 - [ ] T007 `catalog/build.py` y orden `catalog-build`: fichas de la tienda MX →
       `referencias.csv` con `source_url` y `captured_at`
-- [ ] T008 [P] Transcribir la guía de materiales a `materiales.csv` y revisarla contra el PDF
+- [ ] T008 [P] Transcribir la guía de materiales a `materiales.csv` (con la fuente y la fecha
+      de captura de la guía) y revisarla contra el PDF
 - [ ] T009 [P] Transcribir el catálogo PDF a filas de `referencias.csv` (país CO, sin precio)
 - [ ] T010 [P] Transcribir el directorio a `distribuidores.csv`
 - [ ] T011 `manifest.json` con fuente, fecha de captura, conteos y filas curadas a mano
