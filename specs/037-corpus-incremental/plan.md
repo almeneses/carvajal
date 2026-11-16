@@ -23,6 +23,7 @@ atómica). Esta capacidad no la reescribe: la usa y la completa.
 | Identidad | `source_key` canónico → `slug` inmutable; el hash no forma parte del slug nuevo | `spec.md` FR-001 |
 | Registro | Los `index.jsonl` por área (`data/gold`, `data/external/*/gold`) se amplían con `source_key`, `raw_hash`, `layer` y `updated_at`; son la fuente de verdad en disco | `carvajal.gold.merge_index` |
 | Huellas | `raw_hash` = SHA-256 de los bytes originales; `content_hash` = SHA-256 del texto normalizado (ya existe) | `carvajal.domain.rules.content_hash` |
+| Procedencia | `Document` y el payload de Qdrant llevan `origin`, `category` y `entity` leídos del front matter; no se persisten en PostgreSQL | `import_corpus.load_document`, `qdrant_store.payload_for` |
 | Dedupe | Dos compuertas: `raw_hash` antes de Bronze (archivos); `content_hash` tras extraer (todo, incluido scraping) | `spec.md` FR-003, FR-005, FR-006 |
 | Actualización | Misma `source_key` + texto distinto → mismo `slug`, `migrate_gold` archiva versión | `document_versions`, `migrate_gold` |
 | Sincronización | Servicio único en `packages/core/src/carvajal/application/sync.py`; usado por web, CLI y consola | `spec.md` FR-007, FR-008 |
@@ -87,11 +88,14 @@ packages/core/src/carvajal/
 ├── registry.py                 # lectura/escritura del registro sobre los index.jsonl (nuevo)
 ├── application/sync.py         # sync_corpus: disco → PostgreSQL → Qdrant (nuevo)
 ├── application/retrieval.py    # búsqueda con prioridad de capas (nuevo) o wrapper del puerto
+├── application/ask.py          # Source con origin/category/entity
+├── domain/entities.py          # Document con la procedencia extendida
+├── adapters/storage/import_corpus.py  # lee origin/category/entity del front matter
 ├── gold.py                     # merge_index admite los campos nuevos
 ├── cli.py                      # `sync` y `--no-sync`/`--solo-gold` en capture
 ├── pipeline.py                 # compuerta de texto sin cambios y registro
 ├── indexing/qdrant.py          # varios directorios/capas, incremental y borrado por documento
-└── adapters/vector/qdrant_store.py  # delete_document y poda por capa
+└── adapters/vector/qdrant_store.py  # delete_document, payload y poda por capa
 
 apps/api/
 ├── ingestion.py                # dedupe raw + identidad + sync de núcleo
@@ -162,14 +166,27 @@ decidir si un documento cambió.
 - Un documento legado sin `source_key` se adopta con la URL de su front matter o con el nombre
   recuperable de su slug; `raw_hash` se calcula desde Bronze si existe y si no queda vacío.
 
+### Contrato de procedencia
+
+- `Document` gana `origin`, `category` y `entity` opcionales, leídos del front matter por
+  `load_document`; los documentos del núcleo los dejan vacíos.
+- `index_gold` los pasa al payload de Qdrant y `Source` los expone en la cita. Un documento sin
+  ellos no falla: la cita los omite.
+- No se persisten en PostgreSQL; el explorador muestra `layer` y `source_type`.
+
 ### Contrato de deduplicación
 
+0. Antes de escribir, validar que el lote no repita `source_key` con contenido distinto; el
+   segundo se reporta y se descarta, para no sobrescribir el primero en silencio.
 1. Calcular `raw_hash` de los bytes antes de escribir Bronze.
 2. Buscar en el registro: si existe y la identidad es la misma, comparar `content_hash`; si
    coincide, saltar; si difiere, actualizar.
-3. Si existe bajo otra identidad, reportar duplicado y saltar (sin escribir capas).
+3. Si existe bajo otra identidad, reportar duplicado y saltar (sin escribir capas). La
+   comparación es por bytes, así que cubre copias y movimientos; no se re-apunta la fuente.
 4. Tras extraer, recalcular `content_hash`; si coincide con la versión vigente, saltar.
-5. En capturas, el paso 2 usa `content_hash` (el HTML cambia aunque el texto no).
+5. Buscar `content_hash` en el registro: si pertenece a otra identidad, reportar duplicado
+   semántico y saltar.
+6. En capturas, el paso 2 usa `content_hash` (el HTML cambia aunque el texto no).
 
 ### Contrato de sincronización
 
@@ -191,8 +208,8 @@ interno.
 
 Un envoltorio del puerto `VectorStore` busca primero en `layer=core`; si devuelve menos de
 `limit` resultados o el mejor puntaje queda por debajo de `RAG_MIN_SCORE`, completa con
-`layer=extended`. Conserva `source_type`, `origin` y `layer` en la cita. La FAQ no cambia: lee
-`layer=core` de PostgreSQL.
+`layer=extended`. Conserva `source_type`, `origin`, `category`, `entity` y `layer` en la cita.
+La FAQ no cambia: lee `layer=core` de PostgreSQL.
 
 ### Contrato de la consola
 
@@ -219,6 +236,9 @@ Un envoltorio del puerto `VectorStore` busca primero en `layer=core`; si devuelv
 | Prioridad mal ajustada esconde respuestas del núcleo | Umbral y límite configurables; evaluación antes/después con `make index-eval`. |
 | Retirar pgvector rompe `/ask` o pruebas heredadas | Se elimina la ruta, el adaptador y sus pruebas en el mismo cambio; migración reversible. |
 | Fallo a mitad de sincronización | Gold es la fuente; el registro y el índice se escriben al final; prueba de reejecución. |
+| Duplicado semántico falso positivo (misma nota sindicada en dos fuentes) | Se reporta con el documento existente; el operador decide renombrar o conservar una sola copia. |
+| Colisión de nombres en una carga web | El segundo archivo del lote se rechaza con su nombre; no se sobrescribe el primero. |
+| Documento extendido sin `origin`, `category` o `entity` | La cita los omite; el indexador no falla y el payload queda con cadenas vacías. |
 
 ## Complexity Tracking
 

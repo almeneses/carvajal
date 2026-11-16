@@ -33,7 +33,8 @@
 
 - La identidad de las subidas web es el nombre del archivo porque el navegador no envía la
   ruta relativa. Es una limitación de la plataforma, no del diseño: la consola sí usa la ruta.
-  Si el owner quiere evitar los choques de nombre en la web, hay que cambiar el formulario.
+  Los choques dentro de un lote se rechazan (FR-022); para evitarlos de raíz habría que cambiar
+  el formulario.
 - El retiro de `/ask` y pgvector es una decisión de producto (un solo índice) y depende de que
   la columna de vectores esté vacía en producción; verificado el 2026-11-16.
 - La prioridad de capas se valida con la evaluación existente (`make index-eval`), no con una

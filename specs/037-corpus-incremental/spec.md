@@ -54,6 +54,12 @@ queda archivada.
    capturar, **Then** no se reescriben sus capas ni se recalculan sus embeddings.
 6. **Given** una página web cuyo texto cambió, **When** se vuelve a capturar, **Then** el mismo
    documento se actualiza y su versión anterior queda archivada.
+7. **Given** un archivo cuyo texto ya existe bajo otra identidad con otro nombre o formato,
+   **When** se importa, **Then** se reporta como duplicado semántico con el documento
+   existente y no se crea nada.
+8. **Given** una carga web con dos archivos distintos llamados igual, **When** se envía,
+   **Then** el primero llega a Gold y el segundo se rechaza con un mensaje que pide
+   renombrarlo.
 
 ---
 
@@ -132,7 +138,8 @@ la cita lleva su origen.
 1. **Given** un núcleo y una capa extendida indexados, **When** una pregunta tiene respuesta en
    ambos, **Then** las citas priorizan el núcleo.
 2. **Given** una pregunta que solo responde la capa extendida, **When** se consulta, **Then** la
-   respuesta cita el documento extendido con su origen y categoría.
+   respuesta cita el documento extendido con su origen, categoría y entidad cuando el documento
+   los declare.
 3. **Given** la capa extendida indexada, **When** se genera la FAQ, **Then** solo se usan
    documentos del núcleo.
 4. **Given** la evaluación de recuperación del núcleo, **When** se compara antes y después de
@@ -171,11 +178,16 @@ siguen funcionando igual.
 - Copia exacta del mismo archivo con otro nombre en la misma corrida: el segundo se reporta
   como duplicado del primero; no se procesa.
 - Mismo contenido re-codificado (PDF re-guardado): la huella del original difiere, la huella del
-  texto coincide; se detecta después de extraer y se evita la indexación duplicada.
+  texto coincide; se detecta después de extraer, se reporta con el documento existente y no se
+  indexa de nuevo.
+- Dos archivos distintos con el mismo nombre en una carga web: el segundo se rechaza con un
+  mensaje que pide renombrarlo; el primero se conserva. En la consola no ocurre porque la ruta
+  relativa forma parte de la identidad.
 - Página web con bytes distintos pero texto idéntico: se considera sin cambios.
 - Página web eliminada o con error: no se borra el documento existente sin poda explícita.
-- Archivo movido de carpeta: al cambiar su ruta cambia su identidad; la importación lo trata
-  como nuevo y la poda elimina el anterior sólo si se pide.
+- Archivo movido de carpeta: sus bytes coinciden con un documento existente, así que se
+  reporta como duplicado y conserva la identidad anterior. La ruta nueva se registra solo si
+  se elimina el documento anterior y se sincroniza con poda, o si se importa con otro nombre.
 - Fallo de Postgres o Qdrant a mitad de una sincronización: Gold queda intacto y la siguiente
   corrida repara.
 - Dos sincronizaciones simultáneas: la segunda espera o se rechaza; el corpus nunca queda a
@@ -199,7 +211,8 @@ siguen funcionando igual.
   consistente con el índice del corpus.
 - **FR-003**: Los archivos locales MUST deduplicarse por la huella SHA-256 de los bytes
   originales antes de escribir Bronze. Un duplicado MUST omitirse y reportarse sin gastar
-  extracción ni indexación.
+  extracción ni indexación. La comparación es por bytes, no por ruta: un archivo movido de
+  carpeta se reporta como duplicado del documento existente y conserva su identidad anterior.
 - **FR-004**: Si una fuente ya conocida llega con contenido distinto, el sistema MUST actualizar
   el mismo documento y archivar la versión anterior; MUST NOT crear un documento nuevo.
 - **FR-005**: Tras la extracción, la huella del texto normalizado MUST compararse con la versión
@@ -217,11 +230,14 @@ siguen funcionando igual.
 - **FR-010**: Un fallo de un almacén durante la sincronización MUST NOT perder el documento en
   Gold; la siguiente sincronización MUST reparar la diferencia.
 - **FR-011**: La capa extendida MUST ser recuperable y citable por el chat con su procedencia
-  (`origin`, `category`, `entity`), y la FAQ MUST seguir leyendo solo el núcleo.
+  (`origin`, `category`, `entity`), y la FAQ MUST seguir leyendo solo el núcleo. Los tres
+  campos viajan en el payload de recuperación; si un documento no los declara, la cita los
+  omite sin fallar.
 - **FR-012**: Cuando núcleo y capa extendida respondan a la misma pregunta, la recuperación MUST
   priorizar el núcleo; la capa extendida MUST completar solo cuando el núcleo no alcance.
-- **FR-013**: El explorador de corpus MUST mostrar capa y procedencia y MUST permitir filtrar
-  por ambas.
+- **FR-013**: El explorador de corpus MUST mostrar `layer` y `source_type` y MUST permitir
+  filtrar por ambos. La procedencia extendida (`origin`, `category`, `entity`) se muestra en
+  la cita del chat, no en el explorador.
 - **FR-014**: La ruta heredada `/ask` y el adaptador de vectores en PostgreSQL MUST retirarse; el
   chat MUST quedar como único camino de respuesta. Documentos y fragmentos MUST conservarse en
   PostgreSQL para la FAQ y el explorador.
@@ -238,12 +254,19 @@ siguen funcionando igual.
   el corpus MUST NOT quedar en un estado intermedio.
 - **FR-020**: Los límites de la carga (100 archivos y 5 MB en la web; 100 MB por archivo en la
   consola) MUST mantenerse.
+- **FR-021**: Si la huella del texto de un archivo ya pertenece a **otro** documento del
+  corpus, el sistema MUST reportarlo como duplicado semántico y MUST NOT crear documento,
+  capas ni fragmentos.
+- **FR-022**: Dos archivos del mismo lote con la misma fuente y contenido distinto MUST
+  rechazar el segundo con un error que nombre el archivo; el primero MUST procesarse.
 
 ### Key Entities
 
 - **Documento**: unidad del corpus con identidad estable, título, sección, capa y procedencia.
 - **Fuente**: de dónde vino el documento (URL, ruta relativa o archivo subido) y con qué tipo de
   procedencia (`oficial`, `tercero`, `colaborador`).
+- **Procedencia**: `source_type` y `layer` para todo el corpus; `origin`, `category` y `entity`
+  para la capa extendida, que viajan en la cita del chat.
 - **Versión**: contenido vigente y anteriores de un documento, identificados por la huella del
   texto y la fecha de captura.
 - **Registro del corpus**: asociación persistente entre fuente, identidad, huellas, capa y
@@ -280,7 +303,7 @@ siguen funcionando igual.
 - El rastreo periódico (cron/crawler) queda fuera; esta capacidad entrega los contratos que
   necesitará.
 - Las subidas web se identifican por nombre de archivo porque el navegador no envía la ruta
-  relativa; un choque de nombres se resuelve renombrando el archivo.
+  relativa; si dos archivos del mismo lote chocan, el segundo se rechaza y se pide renombrarlo.
 - La capa extendida conserva su origen, su taxonomía y su carácter de solo recuperación.
 - La columna de vectores de PostgreSQL está vacía en producción, por lo que retirarla no pierde
   datos.

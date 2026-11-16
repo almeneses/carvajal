@@ -23,8 +23,8 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 - [ ] T001 Probar la normalización de `source_key`, la asignación de slug y las colisiones en `tests/test_identity.py`
 - [ ] T002 [P] Implementar `source_key` y asignación de slug en `packages/core/src/carvajal/identity.py`
-- [ ] T003 Probar carga, fusión y búsqueda del registro (por `source_key` y por `raw_hash`) en `tests/test_registry.py`
-- [ ] T004 [P] Implementar `packages/core/src/carvajal/registry.py` sobre los `index.jsonl` de todas las áreas
+- [ ] T003 Probar carga, fusión y búsqueda del registro (por `source_key`, `raw_hash` y `content_hash`) en `tests/test_registry.py`
+- [ ] T004 [P] Implementar `packages/core/src/carvajal/registry.py` sobre los `index.jsonl` de todas las áreas, con búsqueda por `source_key`, `raw_hash` y `content_hash`
 - [ ] T005 Ampliar el contrato de `merge_index`/`_read_index` y su tipado para conservar `source_key`, `raw_hash`, `layer` y `updated_at` en `packages/core/src/carvajal/gold.py`
 - [ ] T006 Probar el bloqueo compartido `data/.corpus.lock` y la exclusión entre procesos en `tests/test_registry.py`
 - [ ] T007 [P] Implementar `corpus_lock()` junto a `_index_lock` y exportarlo desde `packages/core/src/carvajal/gold.py`
@@ -53,6 +53,11 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 - [ ] T018 [US1] Añadir la compuerta de `content_hash` contra el registro en `packages/core/src/carvajal/pipeline.py`
 - [ ] T019 [US1] Registrar `source_key`, `raw_hash`, `layer` y `updated_at` al escribir el índice en `apps/api/ingestion.py` y `packages/core/src/carvajal/pipeline.py`
 - [ ] T020 [US1] Reportar duplicados, sin cambios y actualizados en `IngestReport` y en el resumen de la consola
+- [ ] T065 [US1] Buscar `content_hash` en el registro y saltar/reportar duplicados semánticos entre documentos en `apps/api/ingestion.py` y `packages/core/src/carvajal/pipeline.py`
+- [ ] T066 [P] [US1] Probar el PDF re-codificado y el HTML con otro contenedor como duplicado semántico en `tests/test_ingestion.py`
+- [ ] T067 [P] [US1] Probar que mover un archivo no crea documento y se reporta con la identidad existente en `tests/test_ingestion.py`
+- [ ] T068 [US1] Detectar `source_key` repetido con contenido distinto dentro de un lote y rechazar el segundo en `apps/api/ingestion.py`
+- [ ] T069 [P] [US1] Probar el rechazo de dos archivos homónimos en una carga web y que el primero llega a Gold en `tests/test_ingestion.py`
 
 **Checkpoint**: importar dos veces no duplica; modificar actualiza.
 
@@ -107,12 +112,14 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 ### Pruebas de US4
 
 - [ ] T041 [P] [US4] Probar que una pregunta con respuesta en ambas capas cita el núcleo en `tests/test_retrieval.py`
-- [ ] T042 [P] [US4] Probar que una pregunta sólo respondida por la capa extendida la cita con su origen en `tests/test_retrieval.py`
+- [ ] T042 [P] [US4] Probar que una pregunta sólo respondida por la capa extendida la cita con su origen, categoría y entidad en `tests/test_retrieval.py`
 - [ ] T043 [P] [US4] Probar que la FAQ sigue leyendo sólo documentos `core` en `tests/test_faq.py`
 
 ### Implementación de US4
 
-- [ ] T044 [US4] Indexar en una sola corrida el núcleo y cada fuente extendida con su `layer` en `application/sync.py` e `indexing/qdrant.py`
+- [ ] T044 [US4] Indexar en una sola corrida el núcleo y cada fuente extendida con su `layer` y su procedencia en `application/sync.py` e `indexing/qdrant.py`
+- [ ] T063 [US4] Extender `Document` (`domain/entities.py`), `load_document` (`adapters/storage/import_corpus.py`), el metadata de `index_gold` y `payload_for`/`Source` (`qdrant_store.py`, `application/ask.py`) con `origin`, `category` y `entity`
+- [ ] T064 [P] [US4] Probar que una cita extendida conserva los tres campos y que un documento sin ellos no falla en `tests/test_retrieval.py`
 - [ ] T045 [US4] Implementar el envoltorio de recuperación con prioridad núcleo → extendida en `packages/core/src/carvajal/application/retrieval.py`
 - [ ] T046 [US4] Usar el envoltorio en `apps/api/agent_runtime.py` sin cambiar el contrato del agente
 - [ ] T047 [US4] Ejecutar `make index-eval` antes y después y registrar la evidencia en `docs/eval/` y `specs/037-corpus-incremental/`

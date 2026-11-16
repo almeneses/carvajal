@@ -138,11 +138,11 @@ se propone un stack distinto, documentado en
 |------|----------|
 | Web + API | FastAPI + Jinja2 + HTMX + Tailwind (un solo runtime) |
 | Persistencia | Postgres 16 + SQLAlchemy 2.0 + Alembic |
-| Vectores | Qdrant (M2, índice evaluado); pgvector queda para el prototipo |
+| Vectores | Qdrant (único índice vectorial del chat y de la recuperación); pgvector retirado con la spec 037 |
 | Autenticación | Authlib (OIDC) + sesiones de servidor en Postgres |
 | Streaming | SSE (`hx-ext="sse"`) |
 | LLM | Puerto `LLMProvider`; LangChain como adaptador |
-| Ingesta | CLI/cron (la web no captura) |
+| Ingesta | CLI, consola y web (Configuración); el rastreo periódico por cron es futuro |
 
 > ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector), W2.2
 > (adaptadores de LLM), W2.3 (caso de uso `AskQuestion`), W2.4 (shell FastAPI) y
