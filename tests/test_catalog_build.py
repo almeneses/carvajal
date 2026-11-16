@@ -217,6 +217,39 @@ def test_orden_catalog_build(tmp_path: Path) -> None:
     assert manifiesto["sources"]["referencias_mx"]["captured_at"] == "2026-10-23"
 
 
+def test_orden_catalog_build_aborta_si_falta_una_referencia(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """La CLI informa la baja no autorizada y no toca el CSV."""
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "ficha.html").write_text(_ficha(), encoding="utf-8")
+    salida = tmp_path / "catalogo"
+    shutil.copytree(FIXTURE, salida)
+    archivo = salida / "referencias.csv"
+    original = archivo.read_text(encoding="utf-8")
+    load_catalog.cache_clear()
+
+    codigo = main(
+        [
+            "catalog-build",
+            "--corpus",
+            str(corpus),
+            "--captured-at",
+            "2026-10-23",
+            "--out",
+            str(salida),
+        ]
+    )
+
+    assert codigo == 1
+    mensaje = capsys.readouterr().out
+    assert "No se reescribió el catálogo" in mensaje
+    assert "allow-missing" in mensaje
+    assert archivo.read_text(encoding="utf-8") == original
+
+
 def test_ficha_sin_precio_se_anota_y_el_lote_sigue(tmp_path: Path) -> None:
     """Una ficha sin oferta no tumba la regeneración: se anota con su URL."""
 

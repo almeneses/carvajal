@@ -326,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
         if not references:
             print("No se encontró ninguna ficha de la tienda de México en el corpus.")
             return 1
-        total = write_references(out, references, allow_missing=args.allow_missing)
+        try:
+            total = write_references(out, references, allow_missing=args.allow_missing)
+        except ValueError as error:
+            print(f"No se reescribió el catálogo: {error}")
+            return 1
         update_manifest(
             out,
             "referencias_mx",
