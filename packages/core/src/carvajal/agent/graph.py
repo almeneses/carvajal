@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any, cast
 
+import structlog
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
@@ -24,6 +25,7 @@ from carvajal.agent.commercial_flow import (
     run_commercial,
 )
 from carvajal.agent.router import decide_route
+from carvajal.agent.routers import Router, router_name
 from carvajal.agent.state import AgentState, Turn
 from carvajal.agent.tools import indicator_lookup
 from carvajal.application.ask import DEFAULT_SYSTEM_PROMPT, NO_CONTEXT_ANSWER, AskQuestion, Source
@@ -45,6 +47,8 @@ AGENT_SYSTEM = (
     "Cuando el usuario declare una preferencia, confírmala en una frase y no la mezcles "
     "con datos del corpus."
 )
+
+logger = structlog.get_logger(__name__)
 
 MEMORY_KEY = "profile"
 MAX_PREFERENCES = 10
@@ -191,8 +195,15 @@ def build_agent(
     *,
     checkpointer: Any,
     store: Any = None,
+    router: Router = decide_route,
 ) -> Any:
-    """Compila el grafo con checkpointer y Store reales o de prueba."""
+    """Compila el grafo con checkpointer y Store reales o de prueba.
+
+    ``router`` decide la ruta de cada turno; por defecto, las reglas de ``decide_route``.
+    Cualquier enrutador con el mismo contrato se usa sin cambiar los nodos (FR-013).
+    """
+
+    active_router = router_name(router)
 
     ask = AskQuestion(
         deps.vector_store,
@@ -213,7 +224,16 @@ def build_agent(
         }
 
     def route(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        decision = decide_route(state["question"], state.get("turns", []))
+        decision = router(state["question"], state.get("turns", []))
+        # FR-012: ruta, datos extraídos y enrutador quedan en el log de cada turno.
+        logger.info(
+            "agent.route_decided",
+            router=active_router,
+            route=decision.route,
+            intent=decision.intent,
+            extracted={key: value for key, value in decision.extra.items() if value},
+            reason=decision.reason,
+        )
         preferences = state.get("preferences", [])
         if decision.preference:
             preferences = _remember(store, state["owner_key"], decision.preference)

@@ -300,6 +300,7 @@ def test_deepseek_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
         "api_key": "clave-de-prueba",
         "base_url": settings.deepseek_base_url,
         "temperature": 0,
+        "request_timeout": 60.0,
     }
     assert answer == "respuesta"
 
@@ -319,6 +320,7 @@ def test_ollama_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
         "model": "llama3.2",
         "temperature": 0,
         "num_ctx": 32768,
+        "client_kwargs": {"timeout": 60.0},
     }
     assert fragments == ["respuesta"]
 

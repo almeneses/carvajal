@@ -180,6 +180,29 @@ def build_parser() -> argparse.ArgumentParser:
         "--batch-size", type=int, default=32, help="Fragmentos por lote de embeddings."
     )
 
+    router_parser = subparsers.add_parser(
+        "eval-router",
+        help=(
+            "Compara enrutadores del agente (spec 036) sobre data/eval/routing_questions.json: "
+            "ruta, datos extraídos, reglas de material, latencia y llamadas al modelo."
+        ),
+    )
+    router_parser.add_argument(
+        "--router",
+        action="append",
+        choices=("rules", "llm", "decision"),
+        help="Enrutador a evaluar; se puede repetir. Por defecto, rules.",
+    )
+    router_parser.add_argument(
+        "--questions",
+        type=Path,
+        default=Path("data") / "eval" / "routing_questions.json",
+        help="Conjunto de evaluación del enrutamiento.",
+    )
+    router_parser.add_argument(
+        "--output", type=Path, default=None, help="Archivo Markdown donde guardar la tabla."
+    )
+
     catalog_parser = subparsers.add_parser(
         "catalog-build",
         help=(
@@ -306,6 +329,30 @@ def main(argv: list[str] | None = None) -> int:
             print(error)
             return 1
         print_import_report(report)
+        return 0
+
+    if args.command == "eval-router":
+        from carvajal.agent.routers import build_router
+        from carvajal.agent.routers.decision import DecisionModelUnavailable
+        from carvajal.agent.routers.evaluation import evaluate_router, load_items, render_report
+        from carvajal.catalog.loader import load_catalog
+
+        items = load_items(args.questions)
+        catalog = load_catalog()
+        reports = []
+        for name in args.router or ["rules"]:
+            try:
+                router = build_router(name)
+            except (DecisionModelUnavailable, ValueError) as error:
+                print(f"No se evaluó el enrutador {name}: {error}")
+                return 1
+            reports.append(evaluate_router(router, items, catalog=catalog))
+        table = render_report(reports)
+        print(table)
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(table + "\n", encoding="utf-8")
+            print(f"Tabla guardada en {args.output}")
         return 0
 
     if args.command == "catalog-build":
