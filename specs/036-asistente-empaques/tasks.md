@@ -44,10 +44,10 @@
 
 **PR 3 — Herramientas de búsqueda y validación**
 
-- [ ] T013 [US1] `agent/commercial.py`: `search_packaging` con filtro exacto y conversión
-      ml → oz
-- [ ] T014 [US1] `agent/commercial.py`: `check_material` con motivo de descarte
-- [ ] T015 [P] [US1] `tests/test_commercial_tools.py`: caliente excluye PS/PET; microondas
+- [X] T013 [US1] `agent/commercial.py`: `search_packaging` con filtro exacto (la conversión
+      ml → oz la hace el router, T017, según el contrato de `docs/agentes/`)
+- [X] T014 [US1] `agent/commercial.py`: `check_material` con motivo de descarte
+- [X] T015 [P] [US1] `tests/test_commercial_tools.py`: caliente excluye PS/PET; microondas
       solo PP; sin candidatos válidos devuelve vacío con motivo
 
 **PR 4 — Ruta comercial en el router y el grafo**

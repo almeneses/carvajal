@@ -159,8 +159,8 @@ Decisiones tomadas al curar los datos (PR 2):
 
 | Herramienta | Entrada | Salida | Regla |
 |---|---|---|---|
-| `search_packaging` | uso, capacidad, país, familia | referencias candidatas | filtro exacto; ml → oz |
-| `check_material` | referencias, temperatura, microondas | válidas y descartadas con motivo | FR-003: regla de la guía; papel y pulpa, con la temperatura y el uso de su ficha |
+| `search_packaging` | uso, capacidad, país, familia | referencias candidatas | filtro por familia (una bebida implica vaso), capacidad (±0,25 oz) y país; primero las que la ficha declara para el uso; ml → oz lo convierte el router |
+| `check_material` | referencias, temperatura, microondas | válidas y descartadas con motivo | FR-003: regla de la guía; papel y pulpa, con su ficha («contenido caliente» = uso caliente declarado o máxima ≥ 60 °C, como el EPS de la guía); una ficha declarada solo para el uso contrario se descarta |
 | `boxes_for` | referencia, unidades | cajas, excedente | `ceil`; FR-004 |
 | `quote` | referencia, cajas | total, moneda, impuestos, fecha | solo con precio; FR-005 y FR-006 |
 | `find_distributors` | ciudad | distribuidores o ciudades disponibles | FR-008 |
