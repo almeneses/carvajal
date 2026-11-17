@@ -94,6 +94,9 @@ async def subir_documentos(
                 documents=report.documents,
                 chunks=report.chunks,
                 indexed=report.indexed,
+                duplicates=report.duplicates,
+                unchanged=report.unchanged,
+                updated=report.updated,
                 errors=(*batch.errors, *report.errors),
             )
     return _page(request, report=report)

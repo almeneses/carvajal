@@ -5,18 +5,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from carvajal.config import (
-    GOLD_DIR,
-    INDEX_FILE,
-    MIN_DEDUPE_CHARS,
-    PROCESSED_DIR,
-    RAW_DIR,
-)
-from carvajal.domain.rules import is_duplicate
+from carvajal.config import GOLD_DIR, INDEX_FILE, PROCESSED_DIR, RAW_DIR
 from carvajal.extracting import html_title, html_to_markdown
 from carvajal.fetching import Fetcher, FetchError, RobotsDenied, WebClient
 from carvajal.gold import index_entry, merge_index, write_bronze, write_gold, write_silver
+from carvajal.identity import raw_hash, source_key_for_url
 from carvajal.models import CapturedPage
+from carvajal.registry import corpus_areas, load_registry
 
 
 @dataclass(frozen=True)
@@ -40,8 +35,11 @@ class CaptureReport:
     written: int = 0
     robots_denied: list[str] = field(default_factory=list)
     duplicates: list[str] = field(default_factory=list)
+    unchanged: list[str] = field(default_factory=list)
+    updated: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     pages: list[CapturedPage] = field(default_factory=list)
+    slugs: dict[str, str] = field(default_factory=dict)
     chars: int = 0
     duration_seconds: float = 0.0
 
@@ -90,7 +88,7 @@ def capture(
     target_index = index_file or INDEX_FILE
 
     report = CaptureReport(discovered=len(seeds))
-    seen_hashes: set[str] = set()
+    registro = load_registry(corpus_areas(target_gold.parent))
     entries: list[dict[str, str | int]] = []
     _emit(on_event, "descubrir", detail=f"{len(seeds)} semillas")
 
@@ -121,18 +119,47 @@ def capture(
         page = CapturedPage(url=url, html=html, markdown=html_to_markdown(html))
         _emit(on_event, "extraer", url, f"{len(page.markdown):,} caracteres")
 
-        if is_duplicate(page.markdown, seen_hashes, min_chars=MIN_DEDUPE_CHARS):
-            report.duplicates.append(url)
-            _emit(on_event, "deduplicar", url, "duplicada por hash")
+        source_key = source_key_for_url(url)
+        existente = registro.by_source_key(source_key)
+        if existente is None:
+            # Corpus anterior a la 037: la identidad no está en el índice, pero
+            # la URL del front matter permite reconocer la misma captura.
+            candidato = registro.by_slug(page.slug)
+            url_previa = str(candidato.entry.get("url") or "") if candidato else ""
+            if (
+                candidato is not None
+                and url_previa
+                and source_key_for_url(url_previa) == source_key
+            ):
+                existente = candidato
+        if existente is not None and existente.content_hash == page.content_hash:
+            report.unchanged.append(url)
+            _emit(on_event, "deduplicar", url, "sin cambios de texto")
             continue
-        seen_hashes.add(page.content_hash)
-        _emit(on_event, "deduplicar", url, "nueva")
 
-        write_bronze(page, target_raw)
-        write_silver(page, target_processed)
+        slug = existente.slug if existente is not None else page.slug
+        if existente is not None:
+            report.updated.append(url)
+            _emit(on_event, "deduplicar", url, "actualizada")
+        else:
+            _emit(on_event, "deduplicar", url, "nueva")
+
+        write_bronze(page, target_raw, slug=slug)
+        write_silver(page, target_processed, slug=slug)
         title = _title_for(page)
-        write_gold(page, title=title, gold_dir=target_gold)
-        entries.append(index_entry(page, title))
+        write_gold(page, title=title, gold_dir=target_gold, slug=slug)
+        entries.append(
+            index_entry(
+                page,
+                title,
+                slug=slug,
+                source_key=source_key,
+                raw_hash=raw_hash(page.html.encode("utf-8")),
+                layer="core",
+                updated_at=page.captured_at.isoformat(),
+            )
+        )
+        report.slugs[url] = slug
         _emit(
             on_event, "enriquecer", url, f"sección {page.section} · {page.tokens_estimate} tokens"
         )
