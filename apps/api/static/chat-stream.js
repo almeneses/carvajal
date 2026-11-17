@@ -342,6 +342,22 @@
         nodoCapa.textContent =
           capa === "core" ? "Núcleo" : capa === "extended" ? "Extendida" : capa;
       }
+      const partesProcedencia = [];
+      for (const [campo, etiqueta] of [
+        ["origin", "Origen"],
+        ["category", "Categoría"],
+        ["entity", "Entidad"],
+      ]) {
+        const valor = String((fuente && fuente[campo]) || "").trim();
+        if (valor) partesProcedencia.push(`${etiqueta}: ${valor}`);
+      }
+      const nodoProcedencia = item.querySelector('[data-campo="procedencia"]');
+      const textoProcedencia = item.querySelector('[data-campo="procedencia-texto"]');
+      if (nodoProcedencia && textoProcedencia) {
+        textoProcedencia.textContent = partesProcedencia.join(" · ");
+        nodoProcedencia.hidden = partesProcedencia.length === 0;
+      }
+
       const etiquetaTipo = item.querySelector('[data-campo="badge-tipo"]');
       const textoTipo = item.querySelector('[data-campo="source_type"]');
       if (etiquetaTipo && textoTipo) {

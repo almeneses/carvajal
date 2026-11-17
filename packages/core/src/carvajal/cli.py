@@ -538,6 +538,7 @@ def main(argv: list[str] | None = None) -> int:
                 recreate=args.recreate,
                 prune=not args.no_prune,
                 batch_size=max(1, args.batch_size),
+                prune_layers=tuple(layer.name for layer in layers),
             )
         except (FileNotFoundError, ValueError, EmbeddingError) as error:
             print(f"No se pudo indexar: {error}")

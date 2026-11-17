@@ -7,7 +7,9 @@
 
 `make index-eval` ejecuta `carvajal index-qdrant --layer all` y después
 `scripts/eval_retrieval.py` sobre las 30 consultas etiquetadas de
-`data/eval/retrieval_questions.json` (k=10).
+`data/eval/retrieval_questions.json` (k=10). La evaluación usa el mismo
+`LayerPriorityStore` que el chat, así que mide la política desplegada y no un
+filtro plano que diluiría el núcleo.
 
 - **Antes**: índice con la capa núcleo ya indexada (125 puntos).
 - **Después**: corrida con `--layer all`, que indexa el núcleo y cada fuente

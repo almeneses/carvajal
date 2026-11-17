@@ -377,6 +377,9 @@ class QdrantVectorStore:
                 title=str(payload.get("title") or ""),
                 section=str(payload.get("section") or ""),
                 source_type=str(payload.get("source_type") or ""),
+                origin=str(payload.get("origin") or ""),
+                category=str(payload.get("category") or ""),
+                entity=str(payload.get("entity") or ""),
             )
             total = str(payload.get("chunks_total") or "")
             expected[document_id] = int(total) if total.isdigit() else 0

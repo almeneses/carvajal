@@ -314,3 +314,41 @@ def test_un_documento_sin_procedencia_no_falla_y_la_cita_la_omite() -> None:
     source = answer.sources[0]
     assert (source.origin, source.category, source.entity) == ("", "", "")
     assert source.slug == "historia"
+
+
+def test_podar_una_capa_seleccionada_sin_directorios_la_vacia(tmp_path: Path) -> None:
+    """Retirar la última fuente extendida elimina sus puntos del índice."""
+
+    # Arrange: núcleo y extendida indexados en la misma colección.
+    nucleo = tmp_path / "gold"
+    extendida = tmp_path / "external" / "donante" / "gold"
+    _documento(nucleo, "historia", "Historia de Carvajal", "Fundada en Cali.")
+    _documento(extendida, "informe", "Informe externo", "Documento de un tercero.")
+    store = QdrantVectorStore(
+        client=QdrantClient(location=":memory:"),
+        collection="podar_capa_vacia",
+        dimensions=len(BowEmbedder.VOCABULARIO),
+    )
+    embedder = BowEmbedder()
+    store.ensure_collection()
+    index_gold(
+        gold_dirs=((nucleo, "core"), (extendida, "extended")),
+        store=store,
+        embedder=embedder,
+        prune=True,
+    )
+    assert store.count() > 0
+
+    # Act: la fuente extendida ya no existe, pero la capa se sigue pidiendo.
+    report = index_gold(
+        gold_dirs=((nucleo, "core"),),
+        store=store,
+        embedder=embedder,
+        prune=True,
+        prune_layers=("core", "extended"),
+    )
+
+    # Assert: solo quedan los puntos del núcleo.
+    assert report.deleted > 0
+    assert store.search(embedder.embed("Informe externo"), limit=10, layer="extended") == []
+    assert store.search(embedder.embed("Historia"), limit=10, layer="core")
