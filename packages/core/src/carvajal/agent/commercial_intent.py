@@ -286,7 +286,6 @@ def _has_signal(data: dict[str, Any]) -> bool:
     return any(data.get(key) is not None for key in (*keys, "_intent"))
 
 
-<<<<<<< HEAD
 def _is_institutional(question: str, data: dict[str, Any]) -> bool:
     """Nombrar a Carvajal y su producto sin señal de compra ni datos duros (FR-009)."""
 
@@ -295,7 +294,8 @@ def _is_institutional(question: str, data: dict[str, Any]) -> bool:
         and not data.get("_intent")
         and all(data.get(key) is None for key in _HARD_DATA)
     )
-=======
+
+
 def _previous_request(turns: list[Turn]) -> list[dict[str, Any]] | None:
     """Datos de los turnos previos de la misma solicitud, del más antiguo al más reciente.
 
@@ -329,7 +329,6 @@ def _inherit(previous: list[dict[str, Any]], data: dict[str, Any]) -> dict[str, 
     for item in [*previous, data]:
         merged = _merge(merged, item)
     return _complete(merged)
->>>>>>> 9f4fec0 (fix(036): los seguimientos comerciales conservan la solicitud anterior)
 
 
 def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[str, Any] | None:
