@@ -509,3 +509,63 @@ def test_podar_una_capa_no_toca_la_otra(tmp_path: Path) -> None:
     # Assert
     assert store.document_ids("core") == {"nuevo"}
     assert store.document_ids("extended") == {"externo"}
+
+
+class _EmbedderQueFalla:
+    """Embedder que deja de responder: simula Ollama caído a mitad de la corrida."""
+
+    def embed(self, text: str) -> list[float]:
+        raise RuntimeError("el proveedor de embeddings no responde")
+
+
+def test_si_el_embedder_falla_el_documento_anterior_sigue(tmp_path: Path) -> None:
+    """Reindexar no borra la versión vigente si los vectores nuevos no se preparan."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "largo", "Largo", cuerpo="Palabra. " * 400)
+    store = _store("sin-vectores")
+    index_gold(gold_dir=nucleo, store=store, embedder=_Embedder(), prune=False)
+    antes = store.count()
+    assert antes > 1
+    _document(nucleo, "largo", "nuevo", cuerpo="Texto nuevo.")
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="no responde"):
+        index_gold(
+            gold_dir=nucleo,
+            store=store,
+            embedder=_EmbedderQueFalla(),
+            only={"largo"},
+            prune=False,
+        )
+
+    assert store.count() == antes
+    assert store.document_ids("core") == {"largo"}
+
+
+def test_un_directorio_inexistente_no_borra_la_coleccion(tmp_path: Path) -> None:
+    """``--recreate`` con una ruta mal escrita no debe vaciar el índice vigente."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "Historia", cuerpo="Inició en 1904.")
+    store = _store("recreate-seguro")
+    index_gold(gold_dir=nucleo, store=store, embedder=_Embedder(), prune=False)
+    antes = store.count()
+    assert antes == 1
+
+    # Act / Assert
+    with pytest.raises(FileNotFoundError, match="no existe"):
+        index_gold(
+            gold_dir=tmp_path / "gold-mal-escrito",
+            store=store,
+            embedder=_Embedder(),
+            recreate=True,
+        )
+
+    assert store.count() == antes

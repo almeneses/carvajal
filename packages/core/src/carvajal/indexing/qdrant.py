@@ -78,6 +78,11 @@ def index_gold(
         areas = [(gold_dir, layer)]
     if not areas:
         raise ValueError("index_gold necesita gold_dir o gold_dirs.")
+    # Las rutas se validan antes de tocar la colección: un directorio mal escrito no
+    # debe borrar el índice que ya funciona, ni siquiera con ``recreate``.
+    for directory, _ in areas:
+        if not directory.is_dir():
+            raise FileNotFoundError(f"{directory}: el directorio Gold no existe.")
 
     started = perf_counter()
     if recreate and store.client.collection_exists(store.collection):
@@ -88,8 +93,6 @@ def index_gold(
     cards: dict[str, str] = {}
     documents = []
     for directory, area_layer in areas:
-        if not directory.is_dir():
-            raise FileNotFoundError(f"{directory}: el directorio Gold no existe.")
         for slug, card in _load_cards(
             cards_path or directory.parent / "retrieval_cards.json"
         ).items():
@@ -139,8 +142,9 @@ def index_gold(
             "abstract": card,
             "chunks_total": str(len(chunks)),
         }
-        # Los vectores se preparan antes de borrar: si el proveedor falla a mitad del
-        # documento, la versión anterior sigue en el índice y en la recuperación.
+        # Los vectores del documento se preparan antes de tocar el índice: si el
+        # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
+        # Qdrant y el documento no desaparece de la recuperación.
         prepared: list[tuple[list[Chunk], list[list[float]]]] = []
         for start in range(0, len(chunks), batch_size):
             batch = chunks[start : start + batch_size]
@@ -148,20 +152,22 @@ def index_gold(
             # front matter); se anteponen al texto que se vectoriza para que
             # una pregunta por el nombre del documento lo recupere. El payload
             # conserva el texto original para la cita.
-            vectors = [
-                [
-                    float(value)
-                    for value in embedder.embed(
-                        f"{document.title} · {document.section}. {card}\n{chunk.text}"
-                    )
-                ]
-                for chunk in batch
-            ]
-            # Validar aquí, no en ``upsert``: la versión anterior se borra antes
-            # de escribir, así que un proveedor con otra dimensión dejaría el
-            # documento sin ningún punto.
-            _validate_dimensions(vectors, store.dimensions)
-            prepared.append((batch, vectors))
+            # ``_vector`` valida la dimensión al preparar, no en ``upsert``: la
+            # versión anterior se borra antes de escribir, así que un proveedor
+            # mal configurado dejaría el documento sin ningún punto.
+            prepared.append(
+                (
+                    batch,
+                    [
+                        _vector(
+                            embedder,
+                            f"{document.title} · {document.section}. {card}\n{chunk.text}",
+                            store.dimensions,
+                        )
+                        for chunk in batch
+                    ],
+                )
+            )
         if not recreate:
             # Un documento acortado o reescrito no debe dejar fragmentos de la versión
             # vieja: sus puntos se reemplazan en cada indexación.
@@ -212,16 +218,6 @@ def index_gold(
     return report
 
 
-def _validate_dimensions(vectors: Sequence[Sequence[float]], dimensions: int) -> None:
-    """Rechaza vectores de otra dimensión antes de borrar la versión indexada."""
-
-    for vector in vectors:
-        if len(vector) != dimensions:
-            raise ValueError(
-                f"El vector debe tener {dimensions} dimensiones; recibidas {len(vector)}."
-            )
-
-
 def _load_cards(path: Path) -> dict[str, str]:
     """Carga las fichas de recuperación; sin archivo, el índice sigue válido."""
 
@@ -247,3 +243,12 @@ def index_batch(
         embeddings,
         metadata=[metadata for _ in chunks],
     )
+
+
+def _vector(embedder: Embedder, text: str, dimensions: int) -> list[float]:
+    """Vector del texto; valida la dimensión antes de que se borre nada."""
+
+    vector = [float(value) for value in embedder.embed(text)]
+    if len(vector) != dimensions:
+        raise ValueError(f"El vector debe tener {dimensions} dimensiones; recibidas {len(vector)}.")
+    return vector
