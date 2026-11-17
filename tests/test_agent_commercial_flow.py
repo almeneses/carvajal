@@ -9,7 +9,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from carvajal.agent.commercial_flow import (
     COMMERCIAL_INSTRUCTIONS,
+    CUSTOM_INSTRUCTIONS,
     commercial_sources,
+    custom_need_result,
+    custom_sources,
+    mixed_notice,
     run_commercial,
 )
 from carvajal.agent.commercial_intent import COMMERCIAL_KEYS
@@ -224,3 +228,59 @@ def test_la_aclaracion_comercial_no_ejecuta_la_secuencia() -> None:
     assert estado["route"] == "direct"
     assert estado["tool_result"] == {}
     assert "caliente, frío o a temperatura ambiente" in estado["prompt"]
+
+
+def _grafo() -> Any:
+    falso = _SinRecuperacion()
+    return build_agent(
+        AgentDeps(vector_store=falso, embedder=falso, settings=Settings()),
+        checkpointer=InMemorySaver(),
+    )
+
+
+def _invocar(pregunta: str, hilo: str) -> dict[str, Any]:
+    return _grafo().invoke(
+        {"question": pregunta, "owner_key": "dueño", "thread_id": hilo},
+        config={"configurable": {"thread_id": hilo}},
+    )
+
+
+def test_la_necesidad_a_la_medida_entrega_solo_canales_oficiales() -> None:
+    resultado = custom_need_result(catalog=FIXTURES)
+
+    assert resultado["options"] == []
+    assert {contacto["country"] for contacto in resultado["contacts"]} == {"MX", "CO"}
+    assert resultado["contacts"][0]["url"] == "https://ejemplo.test/"
+    assert [cita["url"] for cita in custom_sources(resultado)] == [
+        "https://ejemplo.test/",
+        "https://ejemplo.test/co/directorio",
+    ]
+
+
+def test_la_tienda_mx_no_se_desvia_por_una_ficha_de_otro_dominio() -> None:
+    intrusa = FIXTURES.references[0].model_copy(
+        update={"source_url": "https://marketplace.test/ficha/vaso"}
+    )
+    catalogo = replace(FIXTURES, references=(intrusa, *FIXTURES.references))
+
+    resultado = custom_need_result(catalog=catalogo)
+
+    assert resultado["contacts"][0]["url"] == "https://ejemplo.test/"
+
+
+def test_el_grafo_deriva_la_necesidad_a_la_medida_sin_referencias() -> None:
+    estado = _invocar("quiero vasos personalizados con mi logo", "hilo-medida")
+
+    assert estado["route"] == "commercial"
+    assert estado["tool_result"]["custom_need"] is True
+    assert estado["tool_result"]["options"] == []
+    assert CUSTOM_INSTRUCTIONS in estado["prompt"]
+    assert COMMERCIAL_INSTRUCTIONS not in estado["prompt"]
+
+
+def test_el_grafo_avisa_la_parte_no_comercial_de_una_pregunta_mixta() -> None:
+    estado = _invocar("Necesito vasos para café de 12 oz. ¿Quién fundó Carvajal?", "hilo-mixto")
+
+    assert estado["intent"] == "commercial_mixed"
+    assert estado["tool_result"]["options"]
+    assert mixed_notice("Quién fundó Carvajal") in estado["prompt"]

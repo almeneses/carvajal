@@ -90,13 +90,15 @@
 
 ## Phase 6: User Story 4 — Enrutar sin romper lo existente (P2)
 
-- [ ] T031 [US4] Regla: pregunta institucional sobre empaques sin intención de compra → `rag`
-- [ ] T032 [US4] Regla: necesidad a la medida (industrial, agro) → derivación comercial
-- [ ] T033 [US4] Pregunta mixta: atender la parte comercial y avisar la otra
-- [ ] T034 [US4] `data/eval/routing_questions.json` con preguntas existentes y comerciales
-      etiquetadas
-- [ ] T035 [US4] Verificar SC-005: pruebas actuales del router y del grafo y evaluación de
-      recuperación sin regresión
+- [X] T031 [US4] Regla: pregunta institucional sobre empaques sin intención de compra → `rag`
+- [X] T032 [US4] Regla: necesidad a la medida (industrial, agro) → derivación comercial
+- [X] T033 [US4] Pregunta mixta: atender la parte comercial y avisar la otra
+- [X] T034 [US4] `data/eval/routing_questions.json` con preguntas existentes y comerciales
+      etiquetadas (110: 49 existentes con la ruta del router de `dev`, 61 comerciales)
+- [X] T035 [US4] Verificar SC-005: pruebas actuales del router y del grafo y evaluación de
+      recuperación sin regresión (`tests/test_routing_eval_set.py`; las 31 consultas de
+      recuperación conservan ruta, intención y consulta expandida, así que el retrieval no
+      cambia)
 
 ## Phase 7: User Story 5 — Comparar enrutadores (P3)
 

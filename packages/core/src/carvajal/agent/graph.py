@@ -15,8 +15,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
 from carvajal.agent.commercial_flow import (
+    CUSTOM_INSTRUCTIONS,
     commercial_prompt_block,
     commercial_sources,
+    custom_need_result,
+    custom_sources,
+    mixed_notice,
     run_commercial,
 )
 from carvajal.agent.router import decide_route
@@ -328,16 +332,28 @@ def build_agent(
 
     def commercial(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         # Secuencia fija y determinista: el LLM solo redacta con este resultado (FR-004).
-        result = run_commercial(state.get("commercial", {}), catalog=deps.catalog, today=deps.today)
+        intent = state.get("intent", "")
+        if intent == "commercial_custom":
+            result = custom_need_result(catalog=deps.catalog)
+            instructions = commercial_prompt_block(result, instructions=CUSTOM_INSTRUCTIONS)
+            sources = custom_sources(result)
+        else:
+            result = run_commercial(
+                state.get("commercial", {}), catalog=deps.catalog, today=deps.today
+            )
+            instructions = commercial_prompt_block(result)
+            if intent == "commercial_mixed":
+                instructions += "\n\n" + mixed_notice(state.get("query", ""))
+            sources = commercial_sources(result)
         return {
             "prompt": build_conversation_prompt(
                 state["question"],
                 turns=state.get("turns", []),
                 preferences=state.get("preferences", []),
-                instructions=commercial_prompt_block(result),
+                instructions=instructions,
             ),
             "system": AGENT_SYSTEM,
-            "sources": commercial_sources(result),
+            "sources": sources,
             "tool_name": "catalogo_empaques",
             "tool_result": result,
         }

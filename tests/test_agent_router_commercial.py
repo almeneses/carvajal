@@ -235,3 +235,87 @@ def test_las_rutas_existentes_conservan_su_decision() -> None:
     assert decide_route("hola").route == "direct"
     assert decide_route("¿Cuáles fueron los ingresos de Carvajal en 2024?").route == "tool"
     assert decide_route("recuerda que prefiero respuestas cortas").intent == "memory_write"
+
+
+def test_una_necesidad_a_la_medida_se_deriva_sin_recomendar() -> None:
+    decision = decide_route("Necesito empaques a la medida para exportar flores")
+
+    assert decision.route == "commercial"
+    assert decision.intent == "commercial_custom"
+    assert set(decision.extra) == set(COMMERCIAL_KEYS)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["¿Carvajal Empaques produce contenedores de pulpa?", "¿Qué platos y cubiertos hace Carvajal?"],
+)
+def test_una_pregunta_institucional_sobre_productos_va_a_rag(texto: str) -> None:
+    assert decide_route(texto).route == "rag"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "¿Qué empaques flexibles fabrica Carvajal Empaques?",
+        "¿Qué bolsas industriales produce Carvajal?",
+    ],
+)
+def test_la_regla_institucional_gana_sobre_la_necesidad_a_la_medida(texto: str) -> None:
+    assert decide_route(texto).route == "rag"
+
+
+def test_un_precio_sin_datos_sigue_siendo_comercial() -> None:
+    decision = decide_route("¿Carvajal tiene precios de vasos?")
+
+    assert decision.intent.startswith("commercial")
+
+
+def test_una_duda_de_entrega_es_parte_de_la_compra() -> None:
+    decision = decide_route("Necesito vasos para café de 12 oz. ¿Cuál es el tiempo de entrega?")
+
+    assert decision.intent == "commercial"
+
+
+def test_la_parte_mixta_se_detecta_sin_puntuacion() -> None:
+    decision = decide_route("Necesito vasos para café de 12 oz y quién fundó Carvajal")
+
+    assert decision.intent == "commercial_mixed"
+    assert decision.query == "quién fundó Carvajal"
+
+
+def test_una_respuesta_corta_heredada_no_se_marca_como_mixta() -> None:
+    turnos = [_turno("necesito vasos para café de 12 oz")]
+
+    decision = decide_route("caliente, es para la empresa", turnos)
+
+    assert decision.intent == "commercial"
+    assert decision.extra["temperature"] == "caliente"
+
+
+def test_nombrar_a_carvajal_con_datos_de_compra_sigue_siendo_comercial() -> None:
+    decision = decide_route("vasos de 12 oz para café de Carvajal en Cali")
+
+    assert decision.route == "commercial"
+    assert decision.extra["city"] == "Cali"
+
+
+def test_una_pregunta_mixta_atiende_lo_comercial_y_guarda_la_otra_parte() -> None:
+    decision = decide_route("Necesito vasos para café de 12 oz. ¿Quién fundó Carvajal?")
+
+    assert decision.route == "commercial"
+    assert decision.intent == "commercial_mixed"
+    assert decision.query == "Quién fundó Carvajal"
+    assert decision.extra["capacity_oz"] == 12.0
+
+
+def test_un_indicador_dentro_de_una_compra_es_mixta() -> None:
+    decision = decide_route("necesito vasos de café de 12 oz y los ingresos de Carvajal en 2024")
+
+    assert decision.intent == "commercial_mixed"
+    assert decision.query == "el indicador ingresos consolidados de 2024"
+
+
+def test_una_pregunta_corta_de_precio_no_es_mixta() -> None:
+    decision = decide_route("Necesito vasos para café de 12 oz. ¿Cuánto cuestan?")
+
+    assert decision.intent == "commercial"

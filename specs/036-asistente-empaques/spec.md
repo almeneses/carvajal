@@ -264,3 +264,8 @@ produce un informe con las mismas métricas para los tres.
   de la familia y la temperatura. Si no se puede obtener la temperatura, el router pide
   aclaración. La falta de país no bloquea la recomendación: el nodo recomienda sin precio y
   pide el país para cotizar e indicar el canal.
+- 2026-11-16 (PR 6): casos límite de US4. Una pregunta que nombra a Carvajal y un producto
+  sin señal de compra ni datos concretos es institucional (`rag`). La derivación de FR-010
+  usa los únicos canales publicados en el corpus (tienda de México y directorio de
+  distribuidores de Colombia), porque no hay un contacto comercial de Empaques aparte. En
+  una pregunta mixta se atiende la parte comercial y la otra se pide en un mensaje aparte.
