@@ -43,8 +43,9 @@ def load_document(path: Path, *, layer: str) -> Document:
     """Construye el documento de dominio a partir de un Markdown Gold.
 
     El *front matter* manda: ``slug`` (o el nombre del archivo), ``hash``,
-    ``captured_at``, ``section`` y ``title``. La capa la impone el llamador. Un
-    ``captured_at`` ausente, inválido o sin zona horaria cae a la mtime en UTC;
+    ``captured_at``, ``section``, ``title`` y la procedencia ``origin``,
+    ``category`` y ``entity``. La capa la impone el llamador. Un ``captured_at``
+    ausente, inválido o sin zona horaria cae a la mtime en UTC;
     uno válido se normaliza a UTC. Un slug vacío cae al nombre del archivo y uno
     con separadores de ruta lanza ``GoldImportError``.
     """
@@ -66,6 +67,9 @@ def load_document(path: Path, *, layer: str) -> Document:
         content_hash=front_matter.get("hash") or content_hash(markdown),
         captured_at=_captured_at(front_matter, path),
         source_type=front_matter.get("source_type") or "oficial",
+        origin=front_matter.get("origin") or "",
+        category=front_matter.get("category") or "",
+        entity=front_matter.get("entity") or "",
     )
 
 

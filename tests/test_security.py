@@ -4,7 +4,6 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
@@ -46,7 +45,7 @@ class FakeChat:
 
 
 def _client(*, base_url: str = "http://testserver") -> TestClient:
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat_identity = IDENTITY
     return TestClient(app, base_url=base_url)
 
@@ -96,62 +95,6 @@ def test_la_portada_emite_el_token_aunque_redirija() -> None:
     assert f"{CSRF_COOKIE}=" in response.headers["set-cookie"]
 
 
-def test_el_post_sin_token_se_rechaza_antes_de_llamar_al_caso_de_uso() -> None:
-    """Sin token CSRF no se ejecuta la pregunta."""
-
-    # Arrange
-    preguntas: list[str] = []
-
-    def ask(question: str) -> Answer:
-        preguntas.append(question)
-        return RESPUESTA
-
-    app = create_app(Handlers(ask=ask, health=lambda: HealthStatus(0, 0)))
-    client = TestClient(app)
-
-    # Act
-    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
-
-    # Assert
-    assert response.status_code == 403
-    assert "sesión del formulario expiró" in response.text
-    assert response.headers["x-carvajal-error"] == "1"
-    assert preguntas == []
-
-
-@pytest.mark.parametrize("token", ["otro", "ñ", "token-con-ñ"])
-def test_el_post_con_un_token_ajeno_o_no_ascii_se_rechaza(token: str) -> None:
-    """Un token que no coincide —o que no es ASCII— se rechaza sin lanzar 500."""
-
-    # Arrange
-    client = _client()
-    client.get("/")
-
-    # Act
-    response = client.post(
-        "/ask",
-        data={"question": "¿Cuándo nació?", CSRF_FIELD: token},
-    )
-
-    # Assert
-    assert response.status_code == 403
-
-
-def test_el_post_con_el_token_de_la_cookie_pasa() -> None:
-    """El token emitido por la portada habilita el formulario."""
-
-    # Arrange
-    client = _client()
-    token = _token(client)
-
-    # Act
-    response = client.post("/ask", data={"question": "¿Cuándo nació?", CSRF_FIELD: token})
-
-    # Assert
-    assert response.status_code == 200
-    assert "ok" in response.text
-
-
 def test_las_cabeceras_de_seguridad_van_en_todas_las_respuestas() -> None:
     """Incluidas las de error: el endurecimiento no depende del camino feliz."""
 
@@ -160,7 +103,7 @@ def test_las_cabeceras_de_seguridad_van_en_todas_las_respuestas() -> None:
 
     # Act
     portada = client.get("/")
-    rechazo = client.post("/ask", data={"question": "¿?"})
+    rechazo = client.post("/chat", data={"question": "¿?"})
 
     # Assert
     for response in (portada, rechazo):
@@ -292,7 +235,7 @@ def test_post_chat_exige_csrf_antes_de_la_cuota_y_del_proveedor() -> None:
     # Arrange
     chat = FakeChat()
     cupos: list[str] = []
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = chat
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: cupos.append(owner) or QuotaResult(allowed=True)
@@ -314,7 +257,7 @@ def test_post_chat_stream_exige_csrf_antes_de_la_cuota_y_del_proveedor() -> None
     # Arrange
     chat = FakeChat()
     cupos: list[str] = []
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = chat
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: cupos.append(owner) or QuotaResult(allowed=True)
@@ -338,7 +281,7 @@ def test_post_chat_con_token_valido_pasa_cuota_y_proveedor() -> None:
     # Arrange
     chat = FakeChat()
     cupos: list[str] = []
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = chat
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: cupos.append(owner) or QuotaResult(allowed=True)
@@ -362,15 +305,14 @@ def test_el_500_lleva_request_id_cabeceras_y_parcial() -> None:
     """Una excepción no controlada no se escapa del endurecimiento."""
 
     # Arrange
-    def explode(question: str) -> Answer:
+    def explode() -> HealthStatus:
         raise ValueError("detalle interno")
 
-    app = create_app(Handlers(ask=explode, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=explode))
     client = TestClient(app, raise_server_exceptions=False)
-    token = _token(client)
 
     # Act
-    response = client.post("/ask", data={"question": "¿?", CSRF_FIELD: token})
+    response = client.get("/health")
 
     # Assert
     assert response.status_code == 500

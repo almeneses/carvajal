@@ -60,6 +60,7 @@ def index_gold(
     batch_size: int = 32,
     cards_path: Path | None = None,
     only: set[str] | None = None,
+    prune_layers: Sequence[str] | None = None,
 ) -> IndexReport:
     """Indexa una o varias áreas Gold y devuelve los conteos de la corrida.
 
@@ -69,6 +70,9 @@ def index_gold(
     puntos anteriores: un documento acortado no deja fragmentos de la versión
     vieja. La poda se limita a las capas de las áreas indexadas, comparando cada
     una solo con sus puntos: el resto de la colección queda intacto.
+    ``prune_layers`` permite podar también una capa seleccionada sin directorios
+    (una capa vacía): sin ella, retirar la última fuente extendida dejaría sus
+    puntos en el índice.
 
     Raises:
         FileNotFoundError: si algún directorio Gold no existe.
@@ -148,6 +152,9 @@ def index_gold(
             "content_hash": document.content_hash,
             "abstract": card,
             "chunks_total": str(len(chunks)),
+            "origin": document.origin,
+            "category": document.category,
+            "entity": document.entity,
         }
         # Los vectores del documento se preparan antes de tocar el índice: si el
         # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
@@ -195,7 +202,9 @@ def index_gold(
 
     deleted = 0
     if prune:
-        for name in sorted({area_layer for _, area_layer in areas}):
+        layers_to_prune = set(prune_layers or ())
+        layers_to_prune.update(area_layer for _, area_layer in areas)
+        for name in sorted(layers_to_prune):
             deleted += store.prune(valid_ids.get(name, []), layer=name)
     points = store.count()
     elapsed_ms = round((perf_counter() - started) * 1000)

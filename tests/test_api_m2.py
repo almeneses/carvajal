@@ -5,7 +5,7 @@ from collections.abc import Generator, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +17,7 @@ from apps.api.main import Handlers, HealthStatus, create_app
 from carvajal.adapters.storage.chat import ChatMessage, Conversation
 from carvajal.application.ask import Answer
 from carvajal.application.quota import QuotaResult
+from carvajal.domain.entities import Document
 
 IDENTITY = SignedCookieIdentity(b"secreto-m2")
 RESPUESTA = Answer("ok", ())
@@ -77,7 +78,7 @@ def make_client(chat: FakeChat | None = None, quota: Any = None) -> tuple[TestCl
             ChatEvent("done", {"conversation_id": "hilo-1", "message_id": "m-1"}),
         ]
     )
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(1, 2)))
+    app = create_app(Handlers(health=lambda: HealthStatus(1, 2)))
     app.state.chat = provider
     app.state.chat_identity = IDENTITY
     app.state.quota = quota or (lambda owner: QuotaResult(allowed=True))
@@ -310,3 +311,56 @@ def test_health_api_separa_indice_y_base(monkeypatch: pytest.MonkeyPatch) -> Non
     assert response.status_code == 200
     assert response.json()["index"]["points"] == 125
     assert response.json()["documents"] == 24
+
+
+class FakeCorpus:
+    """Proveedor mínimo del explorador para comprobar que sigue sirviendo."""
+
+    def list(self, **kwargs: Any) -> Sequence[Document]:
+        return [DOCUMENTO_EXPLORADOR]
+
+    def count(self, **kwargs: Any) -> int:
+        return 1
+
+    def sections(self) -> Sequence[str]:
+        return ["historia"]
+
+    def source_types(self) -> Sequence[str]:
+        return ["oficial"]
+
+
+DOCUMENTO_EXPLORADOR = Document(
+    id="historia",
+    url="https://www.carvajal.com/historia/",
+    title="Historia",
+    slug="historia",
+    section="historia",
+    layer="core",
+    markdown="Cali, 1904.",
+    content_hash="h" * 64,
+    captured_at=datetime(2025, 1, 1, tzinfo=UTC),
+)
+
+
+def test_ask_ya_no_existe_y_las_vistas_siguen_funcionando() -> None:
+    """El chat es el único camino de respuesta; FAQ y explorador no dependen de /ask."""
+
+    # Arrange: la app del M2 con chat y corpus inyectados.
+    client, provider = make_client()
+    cast(Any, client.app).state.corpus = FakeCorpus()
+
+    # Act: /ask ya no está en ninguna de sus formas.
+    get_ask = client.get("/ask")
+    post_ask = client.post("/ask", data={"question": "¿Cuándo nació?"})
+    chat = client.get("/chat")
+    faq = client.get("/faq")
+    corpus = client.get("/corpus")
+
+    # Assert
+    assert get_ask.status_code == 404
+    assert post_ask.status_code == 404
+    assert chat.status_code == 200 and "chat" in chat.text
+    assert faq.status_code == 200
+    assert corpus.status_code == 200
+    assert "Historia" in corpus.text
+    assert provider.calls == []

@@ -1,6 +1,6 @@
 """Pruebas de contrato de los puertos de aplicación.
 
-Cada adaptador real (Postgres, pgvector, DeepSeek…) debe poder ejecutar estas
+Cada adaptador real (Postgres, Qdrant, DeepSeek…) debe poder ejecutar estas
 mismas aserciones contra su implementación. Los dobles en memoria de este
 archivo son la referencia de comportamiento.
 """

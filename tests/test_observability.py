@@ -70,14 +70,7 @@ class FakeChat:
 
 
 def _client() -> TestClient:
-    return TestClient(
-        create_app(
-            Handlers(
-                ask=lambda question: RESPUESTA,
-                health=lambda: HealthStatus(0, 0),
-            )
-        )
-    )
+    return TestClient(create_app(Handlers(health=lambda: HealthStatus(0, 0))))
 
 
 def _data(client: TestClient, **campos: str) -> dict[str, str]:
@@ -136,14 +129,14 @@ def test_un_500_lleva_request_id_y_no_filtra_detalles() -> None:
     """La excepción no controlada se convierte en 500 dentro de la pila."""
 
     # Arrange
-    def explode(question: str) -> Answer:
+    def explode() -> HealthStatus:
         raise ValueError("detalle interno que no debe salir")
 
-    app = create_app(Handlers(ask=explode, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=explode))
     client = TestClient(app, raise_server_exceptions=False)
 
     # Act
-    response = client.post("/ask", data=_data(client, question="¿?"))
+    response = client.get("/health")
 
     # Assert
     assert response.status_code == 500
@@ -302,35 +295,12 @@ class _ChatDoble:
         yield ChatEvent("done", {})
 
 
-def test_ask_vincula_owner_key_al_contexto() -> None:
-    """Los tokens del LLM en /ask quedan asociados al visitante anónimo."""
-
-    # Arrange
-    contextos: list[dict[str, Any]] = []
-
-    def ask(question: str) -> Answer:
-        contextos.append(dict(structlog.contextvars.get_contextvars()))
-        return RESPUESTA
-
-    app = create_app(Handlers(ask=ask, health=lambda: HealthStatus(0, 0)))
-    app.state.chat_identity = IDENTITY
-
-    # Act
-    client = TestClient(app)
-    response = client.post("/ask", data=_data(client, question="¿Cuándo nació?"))
-
-    # Assert
-    assert response.status_code == 200
-    assert contextos[0]["owner_key"]
-    assert contextos[0]["request_id"]
-
-
 def test_chat_vincula_owner_key_al_contexto() -> None:
     """Los tokens del LLM en POST /chat quedan asociados al visitante anónimo."""
 
     # Arrange
     provider = _ChatDoble()
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = provider
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: QuotaResult(allowed=True)
@@ -354,7 +324,7 @@ def test_chat_stream_vincula_owner_key_al_contexto() -> None:
 
     # Arrange
     provider = _ChatDoble()
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = provider
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: QuotaResult(allowed=True)

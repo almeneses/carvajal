@@ -394,7 +394,10 @@ Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
 <http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; la
-pestaña **Asistente** ya no se muestra y `/` redirige a `/chat`. Su
+pestaña **Asistente** ya no se muestra y `/` redirige a `/chat`. El chat es el
+**único camino de respuesta**: la ruta heredada `/ask` y el adaptador pgvector
+se retiraron en la spec 037 porque ningún flujo escribía vectores en Postgres.
+Su
 pestaña **FAQ** (`/faq`) consume el mismo endpoint `/api/faq` y ofrece la misma
 experiencia de lotes de 10. Sus pantallas comparten la cabecera, la paleta y los
 componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
@@ -639,7 +642,7 @@ carvajal/
 ├── packages/core/src/carvajal/
 │   ├── agent/      # router, herramienta, memoria y grafo LangGraph
 │   ├── indexing/   # Gold → Qdrant
-│   └── adapters/   # storage, embeddings, LLM y vector (pgvector/Qdrant)
+│   └── adapters/   # storage, embeddings, LLM y vector (Qdrant)
 ├── tests/
 ├── data/
 │   ├── gold/       # entregable versionado (capa gold)

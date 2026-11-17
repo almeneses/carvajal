@@ -1,11 +1,10 @@
 """Esquema relacional del corpus, definido con SQLAlchemy Core.
 
 Sin ORM declarativo ni sesiones asíncronas: los repositorios de W1.3 operarán
-sobre estas ``Table`` con una ``Session`` síncrona. La columna ``embedding`` de
-``chunks`` es un ``Vector`` de pgvector y la administra ``PgVectorStore``.
+sobre estas ``Table`` con una ``Session`` síncrona. Los fragmentos no guardan
+vectores: el único índice de respuestas es Qdrant (spec 037, US5).
 """
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -69,7 +68,6 @@ chunks = Table(
     Column("position", Integer, nullable=False),
     Column("section", String(64), nullable=False),
     Column("layer", String(32), nullable=False),
-    Column("embedding", Vector(768), nullable=True),
     UniqueConstraint("document_id", "position", name="uq_chunks_document_position"),
 )
 

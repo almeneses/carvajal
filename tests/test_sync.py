@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from carvajal.application.sync import CorpusLayer, corpus_layers, gold_hashes, sync_corpus
+from carvajal.application.sync import (
+    CorpusLayer,
+    corpus_layers,
+    gold_hashes,
+    gold_index_hashes,
+    sync_corpus,
+)
 
 
 def _con_titulo(path: Path, titulo: str) -> None:
@@ -725,3 +731,37 @@ def test_un_slug_repetido_no_borra_la_coleccion(tmp_path: Path) -> None:
 
     assert store.count() == antes
     assert store.document_ids("core") == {"historia"}
+
+
+def test_la_procedencia_solo_cambia_la_huella_del_indice(tmp_path: Path) -> None:
+    """Corregir origin/category/entity fuerza reindexación sin tocar PostgreSQL."""
+
+    # Arrange: un documento extendido con procedencia en el front matter.
+    nucleo = tmp_path / "gold"
+    nucleo.mkdir()
+    layer = CorpusLayer("extended", (nucleo,))
+    ruta = nucleo / "informe.md"
+    ruta.write_text(
+        "---\n"
+        "title: Informe\n"
+        "url: https://carvajal.com/informe\n"
+        "hash: hash-1\n"
+        "origin: Cámara de Comercio\n"
+        "category: informe\n"
+        "entity: Carvajal Empaques\n"
+        "---\n\nContenido.\n",
+        encoding="utf-8",
+    )
+    base_antes, indice_antes = gold_hashes(layer), gold_index_hashes(layer)
+
+    # Act: cambia solo la entidad declarada.
+    ruta.write_text(
+        ruta.read_text(encoding="utf-8").replace(
+            "entity: Carvajal Empaques", "entity: Carvajal S.A."
+        ),
+        encoding="utf-8",
+    )
+
+    # Assert
+    assert gold_hashes(layer) == base_antes
+    assert gold_index_hashes(layer) != indice_antes

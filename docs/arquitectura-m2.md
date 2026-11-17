@@ -87,9 +87,10 @@ compatibilidad y comparten los mismos proveedores.
 
 ## Decisiones verificables
 
-1. **Qdrant es el RAG evaluado.** `PgVectorStore` sigue existiendo para el
-   prototipo y las pruebas históricas, pero el chat web usa
-   `QdrantVectorStore`.
+1. **Qdrant es el único índice vectorial.** El adaptador `PgVectorStore` y la
+   ruta heredada `/ask` se retiraron en la spec 037: ningún flujo escribía
+   vectores en PostgreSQL. El chat es el único camino de respuesta; Postgres
+   conserva documentos y fragmentos para la FAQ y el explorador.
 2. **Postgres sigue siendo fuente de verdad relacional.** Documentos, chat y
    memoria viven ahí; Qdrant es derivado y reconstruible.
 3. **El índice se prepara antes del arranque.** La web no indexa; `/health`
