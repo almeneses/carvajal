@@ -361,9 +361,20 @@ class QdrantVectorStore:
         }
 
     def document_ids(self, layer: str | None = None) -> set[str]:
-        """Documentos distintos presentes en el índice, filtrados por capa."""
+        """Documentos distintos presentes en el índice, filtrados por capa.
 
-        return set(self.document_hashes(layer))
+        A diferencia de ``document_hashes``, incluye los documentos incompletos:
+        un documento con lotes pendientes no se publica como vigente, pero sus
+        fragmentos ya existen y la poda debe poder eliminarlos cuando su Markdown
+        desaparece de Gold.
+        """
+
+        ids: set[str] = set()
+        for payload in self._payloads(layer):
+            document_id = str(payload.get("document_id") or payload.get("slug") or "")
+            if document_id:
+                ids.add(document_id)
+        return ids
 
     def _payloads(self, layer: str | None = None) -> Iterable[dict[str, object]]:
         """Recorre los payloads de la colección, opcionalmente por capa.

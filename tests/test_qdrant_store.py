@@ -273,3 +273,26 @@ def test_la_huella_solo_se_publica_con_todos_los_fragmentos() -> None:
     # Act / Assert
     assert QdrantVectorStore(cast(Any, completo)).document_hashes("core") == {"historia": "hash-1"}
     assert QdrantVectorStore(cast(Any, parcial)).document_hashes("core") == {}
+
+
+def test_los_documentos_incompletos_cuentan_para_la_poda() -> None:
+    """Sus fragmentos existen: si el Markdown desaparece, la poda debe borrarlos."""
+
+    def registro(ident: int, *, total: str) -> models.Record:
+        return models.Record(
+            id=ident,
+            payload={
+                "document_id": "historia",
+                "layer": "core",
+                "content_hash": "hash-1",
+                "chunks_total": total,
+            },
+        )
+
+    cliente = FakeClient()
+    cliente.records = [registro(1, total="3"), registro(2, total="3")]
+    store = QdrantVectorStore(cast(Any, cliente))
+
+    # Act / Assert
+    assert store.document_hashes("core") == {}
+    assert store.document_ids("core") == {"historia"}

@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 
 from carvajal.adapters.storage import tables
-from carvajal.application.sync import CorpusLayer
+from carvajal.application.sync import CorpusLayer, gold_hashes
 
 __all__ = ["PostgresSync"]
 
@@ -39,27 +39,34 @@ class PostgresSync:
     ) -> tuple[int, int, int]:
         """Importa los directorios de la capa y suma sus conteos.
 
-        La poda solo se aplica cuando la capa tiene un único directorio: con
-        varios, ``migrate_gold`` borraría los documentos de las otras fuentes.
+        La poda opera sobre la capa completa. Con un único directorio,
+        ``migrate_gold`` es autoritativo y poda por sí mismo. Con varias fuentes,
+        ningún directorio lo es: podar con la lista de uno borraría los
+        documentos de los otros, así que se importa sin poda y al terminar se
+        eliminan los slugs que no estén en la unión de todas las fuentes.
         """
 
-        from carvajal.adapters.storage.import_corpus import migrate_gold
+        from carvajal.adapters.storage.import_corpus import migrate_gold, prune_layer
 
         documents = chunks = removed = 0
-        authoritative = prune and len(layer.directories) == 1
+        single = len(layer.directories) == 1
         with self._session_factory.begin() as session:
             for directory in layer.directories:
                 report = migrate_gold(
                     session,
                     gold_dir=directory,
                     layer=layer.name,
-                    allow_empty=authoritative,
+                    # Un directorio vacío solo es aceptable cuando hay una poda
+                    # autoritativa detrás que decide el estado de la capa.
+                    allow_empty=prune,
                     only=only,
-                    prune=authoritative,
+                    prune=prune and single,
                 )
                 documents += report.documents
                 chunks += report.chunks
                 removed += report.removed
+            if prune and not single:
+                removed += prune_layer(session, layer=layer.name, keep=set(gold_hashes(layer)))
         return documents, chunks, removed
 
     def count(self, layer: str) -> int:

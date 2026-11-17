@@ -145,6 +145,17 @@ def migrate_gold(
     return GoldImportReport(documents=len(loaded), chunks=total_chunks, removed=removed)
 
 
+def prune_layer(session: Session, *, layer: str, keep: Collection[str]) -> int:
+    """Borra de la capa los documentos cuyo slug no está en ``keep``.
+
+    La poda de una capa repartida en varias fuentes se hace con la unión de sus
+    slugs: ningún directorio es autoritativo por separado, así que borrar con la
+    lista de uno solo eliminaría los documentos de los demás.
+    """
+
+    return _prune(SqlDocumentRepository(session), layer=layer, keep=set(keep))
+
+
 def _load_documents(gold_dir: Path, *, layer: str) -> list[Document]:
     """Carga y valida todos los Markdown antes de tocar la base."""
 

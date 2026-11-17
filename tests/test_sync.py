@@ -4,6 +4,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from carvajal.application.sync import CorpusLayer, gold_hashes, sync_corpus
 
 
@@ -263,3 +265,36 @@ def test_un_documento_actualizado_reemplaza_sus_fragmentos(tmp_path: Path) -> No
     # Assert
     assert store.count() == 1
     assert store.document_hashes("core") == {"largo": "v2"}
+
+
+class _EmbedderOtraDimension:
+    """Embedder que devuelve vectores de dos dimensiones, como un proveedor mal configurado."""
+
+    def embed(self, text: str) -> list[float]:
+        return [1.0, 0.0]
+
+
+def test_un_vector_de_otra_dimension_no_borra_la_version_indexada(tmp_path: Path) -> None:
+    """Un proveedor mal configurado no debe dejar el documento sin ningún punto."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "v1", cuerpo="Fundada en Cali.")
+    store = _store("dimension_incorrecta")
+    index_gold(gold_dir=nucleo, store=store, embedder=_EmbedderUnaDimension(), prune=False)
+    antes = store.count()
+    assert antes == 1
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="dimensiones"):
+        index_gold(
+            gold_dir=nucleo,
+            store=store,
+            embedder=_EmbedderOtraDimension(),
+            only={"historia"},
+            prune=False,
+        )
+    assert store.count() == antes
+    assert store.document_hashes("core") == {"historia": "v1"}

@@ -120,20 +120,20 @@ def index_gold(
             # front matter); se anteponen al texto que se vectoriza para que
             # una pregunta por el nombre del documento lo recupere. El payload
             # conserva el texto original para la cita.
-            prepared.append(
-                (
-                    batch,
-                    [
-                        [
-                            float(value)
-                            for value in embedder.embed(
-                                f"{document.title} · {document.section}. {card}\n{chunk.text}"
-                            )
-                        ]
-                        for chunk in batch
-                    ],
-                )
-            )
+            vectors = [
+                [
+                    float(value)
+                    for value in embedder.embed(
+                        f"{document.title} · {document.section}. {card}\n{chunk.text}"
+                    )
+                ]
+                for chunk in batch
+            ]
+            # Validar aquí, no en ``upsert``: la versión anterior se borra antes
+            # de escribir, así que un proveedor con otra dimensión dejaría el
+            # documento sin ningún punto.
+            _validate_dimensions(vectors, store.dimensions)
+            prepared.append((batch, vectors))
         if not recreate:
             # Un documento acortado o reescrito no debe dejar fragmentos de la versión
             # vieja: sus puntos se reemplazan en cada indexación.
@@ -182,6 +182,16 @@ def index_gold(
         recreated=report.recreated,
     )
     return report
+
+
+def _validate_dimensions(vectors: Sequence[Sequence[float]], dimensions: int) -> None:
+    """Rechaza vectores de otra dimensión antes de borrar la versión indexada."""
+
+    for vector in vectors:
+        if len(vector) != dimensions:
+            raise ValueError(
+                f"El vector debe tener {dimensions} dimensiones; recibidas {len(vector)}."
+            )
 
 
 def _load_cards(path: Path) -> dict[str, str]:

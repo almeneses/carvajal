@@ -1,10 +1,12 @@
 """Pruebas de los adaptadores de sincronización (spec 037, US2)."""
 
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from sqlalchemy.orm import Session
 
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.adapters.vector.sync_qdrant import QdrantSync
@@ -104,16 +106,115 @@ def test_postgres_permite_vaciar_la_capa_solo_al_podar(
         recibidas.append({"allow_empty": allow_empty, "prune": prune})
         return import_corpus.GoldImportReport(0, 0, 0)
 
+    def podar(session: object, *, layer: str, keep: set[str]) -> int:
+        return 0
+
     monkeypatch.setattr(import_corpus, "migrate_gold", migrar)
+    monkeypatch.setattr(import_corpus, "prune_layer", podar)
     sync = PostgresSync(_FabricaSesiones())
 
     # Act
     sync.import_gold(CorpusLayer("core", (tmp_path,)), only=None, prune=True)
     sync.import_gold(CorpusLayer("extended", (tmp_path, tmp_path)), only=None, prune=True)
+    sync.import_gold(CorpusLayer("extended", (tmp_path, tmp_path)), only=None, prune=False)
 
-    # Assert: solo la capa de un directorio puede vaciarse; con varias fuentes no.
-    assert [item["allow_empty"] for item in recibidas] == [True, False, False]
-    assert [item["prune"] for item in recibidas] == [True, False, False]
+    # Assert: el vacío solo se acepta cuando hay una poda autoritativa detrás; la
+    # poda por directorio queda reservada a la capa de un único directorio.
+    assert [item["allow_empty"] for item in recibidas] == [True, True, True, False, False]
+    assert [item["prune"] for item in recibidas] == [True, False, False, False, False]
+
+
+def test_postgres_poda_la_capa_con_la_union_de_sus_fuentes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Una capa con varias fuentes no puede quedar sin podar en PostgreSQL."""
+
+    from carvajal.adapters.storage import import_corpus
+    from carvajal.adapters.storage.sync_postgres import PostgresSync
+
+    primera = tmp_path / "donante_uno" / "gold"
+    segunda = tmp_path / "donante_dos" / "gold"
+    _gold(primera, "uno")
+    _gold(segunda, "dos")
+    podadas: list[tuple[str, set[str]]] = []
+
+    def migrar(
+        session: object,
+        *,
+        gold_dir: Path,
+        layer: str,
+        allow_empty: bool,
+        only: set[str] | None,
+        prune: bool,
+    ) -> import_corpus.GoldImportReport:
+        return import_corpus.GoldImportReport(1, 2, 0)
+
+    def podar(session: object, *, layer: str, keep: set[str]) -> int:
+        podadas.append((layer, set(keep)))
+        return 1
+
+    monkeypatch.setattr(import_corpus, "migrate_gold", migrar)
+    monkeypatch.setattr(import_corpus, "prune_layer", podar)
+
+    # Act
+    documents, chunks, removed = PostgresSync(_FabricaSesiones()).import_gold(
+        CorpusLayer("extended", (primera, segunda)), only=None, prune=True
+    )
+
+    # Assert
+    assert (documents, chunks) == (2, 4)
+    assert podadas == [("extended", {"uno", "dos"})]
+    assert removed == 1
+
+
+def _gold(directory: Path, slug: str) -> None:
+    """Escribe un Markdown Gold mínimo con su slug."""
+
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{slug}.md").write_text(
+        f"---\nslug: {slug}\ntitle: {slug}\n---\n\nCuerpo de {slug}.",
+        encoding="utf-8",
+    )
+
+
+class _FabricaDeSesion:
+    """Reutiliza la sesión de la prueba para que la transacción se revierta."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def begin(self) -> AbstractContextManager[Session]:
+        return nullcontext(self._session)
+
+
+@pytest.mark.integration
+def test_postgres_poda_la_capa_extendida_con_la_union_de_sus_fuentes(
+    tmp_path: Path, session: Session
+) -> None:
+    """Un documento que desaparece de una fuente se borra de PostgreSQL al podar."""
+
+    from carvajal.adapters.storage.sync_postgres import PostgresSync
+
+    primera = tmp_path / "fuente_uno" / "gold"
+    segunda = tmp_path / "fuente_dos" / "gold"
+    _gold(primera, "uno")
+    _gold(primera, "compartido")
+    _gold(segunda, "dos")
+    capa = CorpusLayer("extended", (primera, segunda))
+    sync = PostgresSync(_FabricaDeSesion(session))
+
+    # Act: la primera corrida importa las dos fuentes.
+    sync.import_gold(capa, only=None, prune=True)
+    assert sync.count("extended") == 3
+
+    # Act: una fuente pierde su único documento y la otra lo conserva.
+    (segunda / "dos.md").unlink()
+    documents, _, removed = sync.import_gold(capa, only=None, prune=True)
+
+    # Assert: la poda usa la unión, no la lista de la primera fuente.
+    assert documents == 2
+    assert removed == 1
+    assert sync.count("extended") == 2
 
 
 def test_los_hashes_de_un_qdrant_vacio_permiten_la_primera_corrida(tmp_path: Path) -> None:
