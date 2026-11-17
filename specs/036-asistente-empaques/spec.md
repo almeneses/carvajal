@@ -276,3 +276,7 @@ produce un informe con las mismas métricas para los tres.
 - 2026-11-16 (PR 8): las tarjetas se renderizan en el servidor con `_productos.html` y viajan
   en un evento SSE `products`, entre `meta` y los tokens. No se guardan con el mensaje: al
   recargar el hilo queda la respuesta en texto, que ya cita cada ficha con su fecha.
+- 2026-11-16 (PR 9): al preparar la prueba de punta a punta se corrigieron dos seguimientos
+  que perdían la solicitud: uno que vuelve a nombrar el producto sin decir para qué («¿y si
+  son 4.500 vasos?») y una cantidad suelta («¿y si son 4.500?»). La evidencia de cada criterio
+  de éxito queda en `evidencia.md`.
