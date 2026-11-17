@@ -480,6 +480,55 @@ def test_la_poda_de_una_capa_conserva_los_puntos_de_la_otra(tmp_path: Path) -> N
     assert store.count() == 2
 
 
+def test_la_poda_con_un_gold_dirs_solo_extendido_no_borra_el_nucleo(
+    tmp_path: Path,
+) -> None:
+    """La capa a podar sale de las áreas indexadas, no del ``layer`` por defecto."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    extendida = tmp_path / "external" / "donante" / "gold"
+    _document(nucleo, "historia", "h1")
+    _document(extendida, "informe", "h2")
+    store = _store("poda_dirs")
+    embedder = _Embedder()
+    index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+
+    # Act: solo la capa extendida, con los argumentos por defecto de la firma.
+    index_gold(gold_dirs=((extendida, "extended"),), store=store, embedder=embedder, prune=True)
+
+    # Assert
+    assert store.document_ids("core") == {"historia"}
+    assert store.document_ids("extended") == {"informe"}
+
+
+def test_la_poda_con_varias_areas_limpia_la_capa_extendida(tmp_path: Path) -> None:
+    """Una corrida mixta poda también los puntos obsoletos de la capa extendida."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    extendida = tmp_path / "external" / "donante" / "gold"
+    _document(nucleo, "historia", "h1")
+    _document(extendida, "informe", "h2")
+    areas = ((nucleo, "core"), (extendida, "extended"))
+    store = _store("poda_areas")
+    embedder = _Embedder()
+    index_gold(gold_dirs=areas, store=store, embedder=embedder, prune=False)
+    (extendida / "informe.md").unlink()
+
+    # Act
+    report = index_gold(gold_dirs=areas, store=store, embedder=embedder, prune=True)
+
+    # Assert
+    assert report.deleted == 1
+    assert store.document_ids("core") == {"historia"}
+    assert store.document_ids("extended") == set()
+
+
 class _Embedder768:
     """Embedder de 768 dimensiones con valores distintos, como un modelo real."""
 

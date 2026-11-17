@@ -67,7 +67,8 @@ def index_gold(
     corrida, cada directorio con su capa. ``gold_dir`` se conserva para los
     llamadores de una sola área. Antes de insertar cada documento se borran sus
     puntos anteriores: un documento acortado no deja fragmentos de la versión
-    vieja.
+    vieja. La poda se limita a las capas de las áreas indexadas, comparando cada
+    una solo con sus puntos: el resto de la colección queda intacto.
 
     Raises:
         FileNotFoundError: si algún directorio Gold no existe.
@@ -131,7 +132,9 @@ def index_gold(
         logger.info("qdrant.collection_recreated", collection=store.collection)
     store.ensure_collection()
 
-    valid_ids: list[str] = []
+    # Los IDs válidos se agrupan por capa: cada capa se poda comparando solo sus
+    # puntos, y las capas que esta corrida no tocó quedan intactas.
+    valid_ids: dict[str, list[str]] = {}
     indexed = 0
     total_chunks = 0
     for document in documents:
@@ -174,7 +177,9 @@ def index_gold(
                 batch = chunks[start : start + batch_size]
                 index_batch(store, batch, prepared.take(len(batch)), metadata)
                 indexed += len(batch)
-                valid_ids.extend(store.point_ids(batch, [metadata for _ in batch]))
+                valid_ids.setdefault(document.layer, []).extend(
+                    store.point_ids(batch, [metadata for _ in batch])
+                )
                 logger.info(
                     "qdrant.document_progress",
                     document=document.id,
@@ -188,7 +193,10 @@ def index_gold(
             url=document.url,
         )
 
-    deleted = store.prune(valid_ids, layer=layer) if prune else 0
+    deleted = 0
+    if prune:
+        for name in sorted({area_layer for _, area_layer in areas}):
+            deleted += store.prune(valid_ids.get(name, []), layer=name)
     points = store.count()
     elapsed_ms = round((perf_counter() - started) * 1000)
     report = IndexReport(
