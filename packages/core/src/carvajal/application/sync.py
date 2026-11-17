@@ -267,7 +267,19 @@ def _sync(
             hashes = gold_hashes(layer)
             if selected is not None:
                 hashes = {slug: value for slug, value in hashes.items() if slug in selected}
-            store_hashes = dict(database.hashes(layer.name))
+        except Exception as error:  # Gold ilegible: no se toca ningún almacén
+            errors.append(f"{layer.name}: {error}")
+            continue
+
+        # La lectura de huellas también se aísla: con PostgreSQL caído el índice
+        # sigue siendo reparable, igual que cuando falla su importación.
+        try:
+            store_hashes: Mapping[str, str] | None = dict(database.hashes(layer.name))
+        except Exception as error:
+            errors.append(f"{layer.name} (PostgreSQL): {error}")
+            store_hashes = None
+
+        if store_hashes is not None:
             new_slugs = {slug for slug in hashes if slug not in store_hashes}
             updated_slugs = {
                 slug
@@ -278,21 +290,28 @@ def _sync(
             new += len(new_slugs)
             updated += len(updated_slugs)
             unchanged += len(hashes) - len(changed)
+        else:
+            # Sin lectura de la base no hay comparación posible; la siguiente
+            # corrida vuelve a verla pendiente.
+            changed = set()
 
-            if verify:
+        if verify:
+            if store_hashes is not None:
+                try:
+                    differences.extend(_database_differences(layer, hashes, store_hashes, database))
+                except Exception as error:  # el conteo también puede caerse
+                    errors.append(f"{layer.name} (PostgreSQL): {error}")
+            try:
                 differences.extend(
-                    _differences(
-                        layer,
-                        hashes,
-                        store_hashes,
-                        index,
-                        database,
-                    )
+                    _index_differences(layer, hashes, dict(index.hashes(layer.name)))
                 )
-                continue
+            except Exception as error:  # Qdrant puede estar caído; Gold queda
+                errors.append(f"{layer.name} (Qdrant): {error}")
+            continue
 
-            # PostgreSQL y Qdrant se reparan por separado: si uno falló en la
-            # corrida anterior, el siguiente sync vuelve a verlo pendiente.
+        # PostgreSQL y Qdrant se reparan por separado: si uno falló en la
+        # corrida anterior, el siguiente sync vuelve a verlo pendiente.
+        if store_hashes is not None:
             try:
                 # Con poda la base necesita ver el directorio completo para
                 # saber qué falta; sin poda basta con los cambiados.
@@ -312,23 +331,19 @@ def _sync(
             except Exception as error:  # un almacén caído no debe perder Gold
                 errors.append(f"{layer.name} (PostgreSQL): {error}")
 
-            try:
-                index_hashes = dict(index.hashes(layer.name))
-                index_changed = {
-                    slug for slug, value in hashes.items() if index_hashes.get(slug) != value
-                }
-                if index_changed or prune:
-                    layer_indexed, deleted = index.index_gold(
-                        layer, only=index_changed, prune=prune
-                    )
-                else:
-                    layer_indexed = deleted = 0
-                indexed += layer_indexed
-                pruned += deleted
-            except Exception as error:  # Qdrant puede estar caído; Gold queda
-                errors.append(f"{layer.name} (Qdrant): {error}")
-        except Exception as error:  # Gold ilegible: no se toca ningún almacén
-            errors.append(f"{layer.name}: {error}")
+        try:
+            index_hashes = dict(index.hashes(layer.name))
+            index_changed = {
+                slug for slug, value in hashes.items() if index_hashes.get(slug) != value
+            }
+            if index_changed or prune:
+                layer_indexed, deleted = index.index_gold(layer, only=index_changed, prune=prune)
+            else:
+                layer_indexed = deleted = 0
+            indexed += layer_indexed
+            pruned += deleted
+        except Exception as error:  # Qdrant puede estar caído; Gold queda
+            errors.append(f"{layer.name} (Qdrant): {error}")
 
     return SyncReport(
         new=new,
@@ -344,18 +359,15 @@ def _sync(
     )
 
 
-def _differences(
+def _database_differences(
     layer: CorpusLayer,
     gold: Mapping[str, str],
     database: Mapping[str, str],
-    index: SyncIndex,
     db: SyncDatabase,
 ) -> list[str]:
-    """Compara Gold con PostgreSQL y Qdrant sin escribir nada."""
+    """Compara Gold con las huellas y el conteo de PostgreSQL, sin escribir."""
 
     differences: list[str] = []
-    index_hashes = dict(index.hashes(layer.name))
-
     for slug in sorted(set(gold) | set(database)):
         if slug not in database:
             differences.append(f"{slug}: falta en PostgreSQL.")
@@ -364,6 +376,23 @@ def _differences(
         elif gold[slug] != database[slug]:
             differences.append(f"{slug}: PostgreSQL tiene otra huella de sincronización.")
 
+    expected = len(gold)
+    db_count = db.count(layer.name)
+    if db_count != expected:
+        differences.append(
+            f"{layer.name}: PostgreSQL tiene {db_count} documentos y Gold {expected}."
+        )
+    return differences
+
+
+def _index_differences(
+    layer: CorpusLayer,
+    gold: Mapping[str, str],
+    index_hashes: Mapping[str, str],
+) -> list[str]:
+    """Compara Gold con las huellas del índice vectorial, sin escribir."""
+
+    differences: list[str] = []
     for slug in sorted(set(gold) | set(index_hashes)):
         if slug not in index_hashes:
             differences.append(f"{slug}: falta en Qdrant.")
@@ -373,12 +402,7 @@ def _differences(
             differences.append(f"{slug}: Qdrant tiene otra huella de sincronización.")
 
     expected = len(gold)
-    db_count = db.count(layer.name)
     index_count = len(index_hashes)
-    if db_count != expected:
-        differences.append(
-            f"{layer.name}: PostgreSQL tiene {db_count} documentos y Gold {expected}."
-        )
     if index_count != expected:
         differences.append(
             f"{layer.name}: Qdrant tiene {index_count} documentos y Gold {expected}."

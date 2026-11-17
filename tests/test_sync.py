@@ -164,6 +164,48 @@ def test_sync_corpus_repara_qdrant_en_la_segunda_corrida(tmp_path: Path) -> None
     assert (tmp_path / "gold" / "uno.md").is_file()
 
 
+class _DatabaseIlegible(FakeDatabase):
+    """Doble cuya lectura de huellas falla, como un PostgreSQL sin conexión."""
+
+    def hashes(self, layer: str) -> dict[str, str]:
+        raise ConnectionError("PostgreSQL no responde")
+
+
+def test_sync_corpus_reconcilia_qdrant_si_postgres_no_responde(tmp_path: Path) -> None:
+    """Un fallo al leer la base no impide indexar ni podar el índice vectorial."""
+
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = _DatabaseIlegible(gold)
+    index = FakeIndex(gold)
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index)
+
+    # Assert: la base queda pendiente, pero Qdrant sí se reconcilia.
+    assert any("PostgreSQL" in error for error in report.errors)
+    assert db.imports == []
+    assert index.hashes_map == gold
+    assert report.indexed == 1
+
+
+def test_verify_reporta_qdrant_aunque_postgres_no_responda(tmp_path: Path) -> None:
+    """La verificación sigue viendo el índice cuando la base no responde."""
+
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = _DatabaseIlegible(gold)
+    index = FakeIndex(gold)
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index, verify=True)
+
+    # Assert
+    assert any("PostgreSQL" in error for error in report.errors)
+    assert any("falta en Qdrant" in difference for difference in report.differences)
+    assert report.ok is False
+
+
 def test_sync_corpus_poda_documentos_ausentes(tmp_path: Path) -> None:
     # Arrange
     layer, gold = _layer(tmp_path, {"uno": "h1"})
