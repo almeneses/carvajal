@@ -532,6 +532,8 @@ def print_report(report: CaptureReport) -> None:
     print(f"  Descubiertas (semillas): {report.discovered}")
     print(f"  Descargadas:             {report.fetched}")
     print(f"  Escritas en Gold:        {report.written}")
+    print(f"     - actualizadas:       {len(report.updated)}")
+    print(f"     - sin cambios:        {len(report.unchanged)}")
     print(f"  Descartadas:             {report.discarded}")
     print(f"     - por robots.txt:     {len(report.robots_denied)}")
     print(f"     - duplicadas:         {len(report.duplicates)}")

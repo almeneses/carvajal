@@ -37,27 +37,27 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 ### Pruebas de US1
 
-- [ ] T008 [P] [US1] Probar que una copia exacta con otro nombre se reporta como duplicada y no escribe capas en `tests/test_ingestion.py`
-- [ ] T009 [P] [US1] Probar que reimportar sin cambios no reescribe capas ni embebe en `tests/test_ingestion.py`
-- [ ] T010 [P] [US1] Probar que un archivo modificado actualiza el mismo `slug` y archiva versión en `tests/test_ingestion.py`
-- [ ] T011 [P] [US1] Probar que dos archivos homónimos con contenido distinto reciben identidades distintas en `tests/test_ingestion.py`
-- [ ] T012 [P] [US1] Probar que una captura sin cambios de texto no reescribe capas en `tests/test_pipeline.py`
-- [ ] T013 [P] [US1] Probar que una captura con texto distinto actualiza el mismo documento en `tests/test_pipeline.py`
+- [X] T008 [P] [US1] Probar que una copia exacta con otro nombre se reporta como duplicada y no escribe capas en `tests/test_ingestion.py`
+- [X] T009 [P] [US1] Probar que reimportar sin cambios no reescribe capas ni embebe en `tests/test_ingestion.py`
+- [X] T010 [P] [US1] Probar que un archivo modificado actualiza el mismo `slug` y archiva versión en `tests/test_ingestion.py`
+- [X] T011 [P] [US1] Probar que dos archivos homónimos con contenido distinto reciben identidades distintas en `tests/test_ingestion.py`
+- [X] T012 [P] [US1] Probar que una captura sin cambios de texto no reescribe capas en `tests/test_pipeline.py`
+- [X] T013 [P] [US1] Probar que una captura con texto distinto actualiza el mismo documento en `tests/test_pipeline.py`
 
 ### Implementación de US1
 
-- [ ] T014 [US1] Añadir `source_key` a `UploadedDocument` y calcular `raw_hash` antes de escribir Bronze en `apps/api/ingestion.py`
-- [ ] T015 [US1] Consultar el registro y saltar duplicados exactos o versiones sin cambios en `apps/api/ingestion.py`
-- [ ] T016 [US1] Reutilizar el `slug` de la identidad existente y actualizar en sitio cuando cambia el texto en `apps/api/ingestion.py`
-- [ ] T017 [US1] Pasar `source_key` como `file:<raíz>/<ruta relativa>` desde la consola y deduplicar antes de extraer y escribir capas en `apps/api/ingest_cli.py`
-- [ ] T018 [US1] Añadir la compuerta de `content_hash` contra el registro en `packages/core/src/carvajal/pipeline.py`
-- [ ] T019 [US1] Registrar `source_key`, `raw_hash`, `layer` y `updated_at` al escribir el índice en `apps/api/ingestion.py` y `packages/core/src/carvajal/pipeline.py`
-- [ ] T020 [US1] Reportar duplicados, sin cambios y actualizados en `IngestReport` y en el resumen de la consola
-- [ ] T065 [US1] Buscar `content_hash` en el registro y saltar/reportar duplicados semánticos entre documentos en `apps/api/ingestion.py` y `packages/core/src/carvajal/pipeline.py`
-- [ ] T066 [P] [US1] Probar el PDF re-codificado y el HTML con otro contenedor como duplicado semántico en `tests/test_ingestion.py`
-- [ ] T067 [P] [US1] Probar que mover un archivo no crea documento y se reporta con la identidad existente en `tests/test_ingestion.py`
-- [ ] T068 [US1] Detectar `source_key` repetido con contenido distinto dentro de un lote y rechazar el segundo en `apps/api/ingestion.py`
-- [ ] T069 [P] [US1] Probar el rechazo de dos archivos homónimos en una carga web y que el primero llega a Gold en `tests/test_ingestion.py`
+- [X] T014 [US1] Añadir `source_key` a `UploadedDocument` y calcular `raw_hash` antes de escribir Bronze en `apps/api/ingestion.py`
+- [X] T015 [US1] Consultar el registro y saltar duplicados exactos o versiones sin cambios en `apps/api/ingestion.py`
+- [X] T016 [US1] Reutilizar el `slug` de la identidad existente y actualizar en sitio cuando cambia el texto en `apps/api/ingestion.py`
+- [X] T017 [US1] Pasar `source_key` como `file:<raíz>/<ruta relativa>` desde la consola y deduplicar antes de extraer y escribir capas en `apps/api/ingest_cli.py`
+- [X] T018 [US1] Añadir la compuerta de `content_hash` contra el registro en `packages/core/src/carvajal/pipeline.py`
+- [X] T019 [US1] Registrar `source_key`, `raw_hash`, `layer` y `updated_at` al escribir el índice en `apps/api/ingestion.py` y `packages/core/src/carvajal/pipeline.py`
+- [X] T020 [US1] Reportar duplicados, sin cambios y actualizados en `IngestReport` y en el resumen de la consola
+- [X] T065 [US1] Buscar `content_hash` en el registro y saltar/reportar duplicados semánticos entre documentos en `apps/api/ingestion.py` y `packages/core/src/carvajal/pipeline.py`
+- [X] T066 [P] [US1] Probar el PDF re-codificado y el HTML con otro contenedor como duplicado semántico en `tests/test_ingestion.py`
+- [X] T067 [P] [US1] Probar que mover un archivo no crea documento y se reporta con la identidad existente en `tests/test_ingestion.py`
+- [X] T068 [US1] Detectar `source_key` repetido con contenido distinto dentro de un lote y rechazar el segundo en `apps/api/ingestion.py`
+- [X] T069 [P] [US1] Probar el rechazo de dos archivos homónimos en una carga web y que el primero llega a Gold en `tests/test_ingestion.py`
 
 **Checkpoint**: importar dos veces no duplica; modificar actualiza.
 

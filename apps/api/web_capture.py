@@ -234,7 +234,7 @@ def _outcome(
         errors=tuple(errors),
         robots_denied=tuple(report.robots_denied),
         duplicates=tuple(report.duplicates),
-        captured=tuple(page.slug for page in report.pages),
+        captured=tuple(report.slugs.values()),
     )
 
 
@@ -287,7 +287,7 @@ def ingest_urls(
             on_event=on_event,
         )
     errors.extend(report.errors)
-    slugs = {page.slug for page in report.pages}
+    slugs = set(report.slugs.values())
     documents = chunks = indexed = 0
     if slugs:
         try:

@@ -9,7 +9,6 @@ mismo formato.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -26,7 +25,14 @@ from apps.api.document_formats import (
 )
 from carvajal.domain.rules import content_hash, estimate_tokens
 from carvajal.gold import merge_index
+from carvajal.identity import (
+    assign_slug,
+    raw_hash,
+    slug_for_file,
+    source_key_for_upload,
+)
 from carvajal.infrastructure.settings import Settings
+from carvajal.registry import Registry, corpus_areas, load_registry
 
 __all__ = [
     "ALLOWED_EXTENSIONS",
@@ -48,11 +54,17 @@ MAX_FILE_BYTES = 5 * 1024 * 1024
 
 @dataclass(frozen=True)
 class UploadedDocument:
-    """Archivo recibido por el formulario, todavía sin procesar."""
+    """Archivo recibido por el formulario, todavía sin procesar.
+
+    ``source_key`` es la identidad canónica de la fuente. La consola de carpetas
+    la calcula con la ruta relativa; en una subida web queda vacía y se deriva
+    del nombre del archivo.
+    """
 
     filename: str
     data: bytes
     content_type: str = ""
+    source_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -66,20 +78,20 @@ class IngestReport:
     documents: int = 0
     chunks: int = 0
     indexed: int = 0
+    duplicates: tuple[str, ...] = field(default_factory=tuple)
+    unchanged: tuple[str, ...] = field(default_factory=tuple)
+    updated: tuple[str, ...] = field(default_factory=tuple)
     errors: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def ok(self) -> bool:
-        """Indica si al menos un documento llegó a Gold e indexación."""
+        """Indica si la carga terminó sin errores y con trabajo reconocido.
 
-        return self.gold > 0 and not self.errors
+        Una reimportación sin cambios o con solo duplicados es un éxito: no
+        escribió nada porque ya estaba todo en el corpus.
+        """
 
-
-def _slug(filename: str, digest: str) -> str:
-    """Slug estable por contenido, seguro para el front matter y la base."""
-
-    base = re.sub(r"[^a-z0-9]+", "-", Path(filename).stem.lower()).strip("-")
-    return f"{base or 'documento'}-{digest[:8]}"
+        return not self.errors and (self.gold > 0 or bool(self.duplicates) or bool(self.unchanged))
 
 
 def _limpiar_titulo(titulo: str) -> str:
@@ -152,6 +164,12 @@ def indexar_gold(gold_dir: Path, only: set[str]) -> int:
         store.close()
 
 
+def _registry(settings: Settings) -> Registry:
+    """Carga el registro del núcleo y de las capas extendidas del corpus."""
+
+    return load_registry(corpus_areas(settings.gold_dir.parent))
+
+
 def ingest_uploads(
     documents: list[UploadedDocument],
     *,
@@ -171,10 +189,18 @@ def ingest_uploads(
 
     settings = settings or Settings()
     errors: list[str] = []
+    duplicates: list[str] = []
+    unchanged: list[str] = []
+    updated: list[str] = []
     archivos = bronze = silver = gold = 0
     slugs: set[str] = set()
     entries: list[dict[str, str | int]] = []
     captured_at = datetime.now(UTC)
+    registro = _registry(settings)
+    ocupados = dict(registro.slug_owners())
+    lote_fuentes: dict[str, str] = {}
+    lote_raw: dict[str, str] = {}
+    lote_texto: dict[str, str] = {}
 
     if len(documents) > MAX_FILES:
         errors.append(f"Solo se procesan {MAX_FILES} archivos por carga.")
@@ -197,6 +223,33 @@ def ingest_uploads(
             errors.append(f"{nombre}: está vacío.")
             continue
 
+        source_key = document.source_key or source_key_for_upload(nombre)
+        digest_raw = raw_hash(document.data)
+        existente = registro.by_source_key(source_key)
+
+        previo = lote_fuentes.get(source_key)
+        if previo is not None and previo != digest_raw:
+            errors.append(
+                f"{nombre}: la fuente {source_key} ya se procesó en esta carga con otro "
+                "contenido; se omite."
+            )
+            continue
+        if previo is not None:
+            duplicates.append(f"{nombre}: duplicado exacto de {source_key} en esta carga.")
+            continue
+        if existente is not None and existente.raw_hash == digest_raw:
+            unchanged.append(nombre)
+            logger.info("upload.unchanged", document=existente.slug, filename=nombre)
+            continue
+        copia = registro.by_raw_hash(digest_raw)
+        if copia is not None and copia.source_key != source_key:
+            duplicates.append(f"{nombre}: copia exacta de {copia.slug}.")
+            continue
+        copia_lote = lote_raw.get(digest_raw)
+        if copia_lote is not None:
+            duplicates.append(f"{nombre}: copia exacta de {copia_lote} en esta carga.")
+            continue
+
         try:
             markdown, titulo = extract_markdown(nombre, document.data)
         except ExtractError as error:
@@ -207,7 +260,28 @@ def ingest_uploads(
             continue
 
         digest = content_hash(markdown)
-        slug = _slug(nombre, digest)
+        if existente is not None and existente.content_hash == digest:
+            unchanged.append(nombre)
+            logger.info("upload.unchanged", document=existente.slug, filename=nombre)
+            continue
+        semantico = registro.by_content_hash(digest)
+        if semantico is not None and semantico.source_key != source_key:
+            duplicates.append(f"{nombre}: el texto ya existe en {semantico.slug}.")
+            continue
+        fuente_lote = lote_texto.get(digest)
+        if fuente_lote is not None and fuente_lote != source_key:
+            duplicates.append(
+                f"{nombre}: el texto ya existe en otra fuente de esta carga ({fuente_lote})."
+            )
+            continue
+
+        if existente is not None:
+            slug = existente.slug
+            updated.append(nombre)
+        else:
+            slug = assign_slug(slug_for_file(nombre), source_key, ocupados)
+            ocupados[slug] = source_key
+
         raw_path = settings.raw_dir / "uploads" / f"{slug}{sufijo}"
         silver_path = settings.processed_dir / "uploads" / f"{slug}.md"
         gold_path = settings.gold_dir / f"{slug}.md"
@@ -238,14 +312,21 @@ def ingest_uploads(
                 "hash": digest,
                 "chars": len(markdown),
                 "tokens_estimate": estimate_tokens(markdown),
+                "source_key": source_key,
+                "raw_hash": digest_raw,
+                "layer": "core",
+                "updated_at": captured_at.isoformat(),
             }
         )
+        lote_fuentes[source_key] = digest_raw
+        lote_raw[digest_raw] = slug
+        lote_texto[digest] = source_key
         slugs.add(slug)
         archivos += 1
         bronze += 1
         silver += 1
         gold += 1
-        logger.info("upload.staged", document=slug, filename=nombre)
+        logger.info("upload.staged", document=slug, filename=nombre, updated=existente is not None)
 
     if entries:
         # Una sola fusión por lote: con cientos de archivos, reescribir el
@@ -258,6 +339,9 @@ def ingest_uploads(
             bronze=bronze,
             silver=silver,
             gold=gold,
+            duplicates=tuple(duplicates),
+            unchanged=tuple(unchanged),
+            updated=tuple(updated),
             errors=tuple(errors),
         )
 
@@ -289,5 +373,8 @@ def ingest_uploads(
         documents=documents_count,
         chunks=chunks,
         indexed=indexed,
+        duplicates=tuple(duplicates),
+        unchanged=tuple(unchanged),
+        updated=tuple(updated),
         errors=tuple(errors),
     )

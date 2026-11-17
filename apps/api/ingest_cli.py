@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from apps.api.ingestion import ALLOWED_EXTENSIONS, IngestReport, UploadedDocument, ingest_uploads
+from carvajal.identity import source_key_for_file
 from carvajal.infrastructure.settings import Settings
 
 __all__ = ["DEFAULT_BATCH_FILES", "DEFAULT_MAX_FILE_MB", "main", "run"]
@@ -67,7 +68,9 @@ def run(
         if batch.documents:
             print(
                 f"Lote: {len(batch.documents)} archivos · Gold {report.gold} · "
-                f"PostgreSQL {report.documents} · Qdrant {report.indexed}",
+                f"Actualizados {len(report.updated)} · Sin cambios {len(report.unchanged)} · "
+                f"Duplicados {len(report.duplicates)} · PostgreSQL {report.documents} · "
+                f"Qdrant {report.indexed}",
                 flush=True,
             )
         for error in (*batch.errors, *report.errors):
@@ -127,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"\nResumen: {report.files} archivos · Bronze {report.bronze} · "
         f"Silver {report.silver} · Gold {report.gold} · "
+        f"Actualizados {len(report.updated)} · Sin cambios {len(report.unchanged)} · "
+        f"Duplicados {len(report.duplicates)} · "
         f"PostgreSQL {report.documents} · Qdrant {report.indexed}"
     )
     if report.errors:
@@ -135,27 +140,35 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if report.gold else 1
 
 
-def _collect(rutas: list[Path]) -> tuple[list[Path], list[str]]:
-    """Lista los archivos admitidos en orden estable, sin duplicados."""
+def _collect(rutas: list[Path]) -> tuple[list[tuple[Path, str]], list[str]]:
+    """Lista los archivos admitidos con su identidad de fuente, en orden estable.
 
-    archivos: list[Path] = []
+    La raíz de la carpeta forma parte de ``source_key`` y la ruta relativa se
+    conserva, así dos archivos homónimos en carpetas distintas no colisionan.
+    """
+
+    archivos: list[tuple[Path, str]] = []
     errores: list[str] = []
     for ruta in rutas:
         if ruta.is_file():
-            candidatos = [ruta]
+            candidatos = [(ruta, source_key_for_file(ruta.name))]
         elif ruta.is_dir():
-            candidatos = sorted(path for path in ruta.rglob("*") if path.is_file())
+            root = ruta.name
+            candidatos = [
+                (path, source_key_for_file(str(path.relative_to(ruta)), root))
+                for path in sorted(path for path in ruta.rglob("*") if path.is_file())
+            ]
         else:
             errores.append(f"{ruta}: la ruta no existe.")
             continue
-        for path in candidatos:
+        for path, source_key in candidatos:
             if path.suffix.lower() in ALLOWED_EXTENSIONS:
-                archivos.append(path)
+                archivos.append((path, source_key))
     return archivos, errores
 
 
 def _batches(
-    archivos: list[Path],
+    archivos: list[tuple[Path, str]],
     lote: int,
     max_batch_bytes: int,
     max_file_bytes: int,
@@ -172,7 +185,7 @@ def _batches(
     errores: list[str] = []
     bytes_lote = 0
 
-    for path in archivos:
+    for path, source_key in archivos:
         try:
             data = path.read_bytes()
         except OSError as error:
@@ -184,7 +197,7 @@ def _batches(
         if actual and (len(actual) >= lote or bytes_lote + len(data) > max_batch_bytes):
             yield Batch(documents=actual, errors=tuple(errores))
             actual, errores, bytes_lote = [], [], 0
-        actual.append(UploadedDocument(filename=path.name, data=data))
+        actual.append(UploadedDocument(filename=path.name, data=data, source_key=source_key))
         bytes_lote += len(data)
 
     if actual or errores:
@@ -202,6 +215,9 @@ def _sum(total: IngestReport, report: IngestReport, errors: tuple[str, ...]) -> 
         documents=total.documents + report.documents,
         chunks=total.chunks + report.chunks,
         indexed=total.indexed + report.indexed,
+        duplicates=(*total.duplicates, *report.duplicates),
+        unchanged=(*total.unchanged, *report.unchanged),
+        updated=(*total.updated, *report.updated),
         errors=(*total.errors, *errors, *report.errors),
     )
 

@@ -88,17 +88,18 @@ def test_capture_genera_indice_jsonl(tmp_path: Path) -> None:
     assert all(entry["tokens_estimate"] > 0 for entry in entries)
 
 
-def test_capture_descarta_duplicados_por_hash(tmp_path: Path) -> None:
-    """Dos URLs con el mismo contenido escrito solo se guardan una vez."""
+def test_capture_registra_dos_urls_con_el_mismo_texto(tmp_path: Path) -> None:
+    """Cada URL es una fuente distinta aunque su texto coincida (FR-021)."""
 
     mismo_html = "<html><body><p>" + ("Contenido idéntico. " * 20) + "</p></body></html>"
     client = FakeClient({HISTORIA: mismo_html, EMPAQUES: mismo_html})
 
     report = _capture(tmp_path, client, [HISTORIA, EMPAQUES])
 
-    assert report.written == 1
-    assert report.duplicates == [EMPAQUES]
-    assert len(list((tmp_path / "gold").glob("*.md"))) == 1
+    assert report.written == 2
+    assert report.duplicates == []
+    assert sorted(report.slugs) == [EMPAQUES, HISTORIA]
+    assert len(list((tmp_path / "gold").glob("*.md"))) == 2
 
 
 def test_capture_respeta_robots_y_registra_errores(tmp_path: Path) -> None:
@@ -143,3 +144,58 @@ def test_capture_registra_un_can_fetch_que_falla_sin_abortar(tmp_path: Path) -> 
 
     assert report.written == 0
     assert report.errors and "URL no permitida" in report.errors[0]
+
+
+def test_capture_sin_cambios_de_texto_no_reescribe_capas(tmp_path: Path) -> None:
+    """Volver a capturar una página con el mismo texto no toca las capas."""
+
+    # Arrange
+    client = FakeClient({HISTORIA: HTML_HISTORIA})
+    _capture(tmp_path, client, [HISTORIA])
+    gold = tmp_path / "gold" / "historia.md"
+    antes = gold.read_bytes()
+    indice_antes = (tmp_path / "gold" / "index.jsonl").read_text(encoding="utf-8")
+
+    # Act
+    report = _capture(tmp_path, client, [HISTORIA])
+
+    # Assert
+    assert report.written == 0
+    assert report.unchanged == [HISTORIA]
+    assert gold.read_bytes() == antes
+    assert (tmp_path / "gold" / "index.jsonl").read_text(encoding="utf-8") == indice_antes
+
+
+def test_capture_con_texto_distinto_actualiza_el_mismo_documento(tmp_path: Path) -> None:
+    """Una página modificada conserva su slug y actualiza su hash."""
+
+    # Arrange
+    _capture(tmp_path, FakeClient({HISTORIA: HTML_HISTORIA}), [HISTORIA])
+    antes = json.loads((tmp_path / "gold" / "index.jsonl").read_text(encoding="utf-8"))
+    nuevo_html = "<html><body><h1>Historia</h1><p>Fundada en 1904 y ampliada.</p></body></html>"
+
+    # Act
+    report = _capture(tmp_path, FakeClient({HISTORIA: nuevo_html}), [HISTORIA])
+
+    # Assert
+    assert report.written == 1
+    assert report.updated == [HISTORIA]
+    assert report.slugs == {HISTORIA: "historia"}
+    assert sorted(path.name for path in (tmp_path / "gold").glob("*.md")) == ["historia.md"]
+    despues = json.loads((tmp_path / "gold" / "index.jsonl").read_text(encoding="utf-8"))
+    assert despues["slug"] == "historia"
+    assert despues["hash"] != antes["hash"]
+
+
+def test_capture_registra_identidad_huellas_y_capa(tmp_path: Path) -> None:
+    """El índice publica source_key, raw_hash, layer y updated_at (T019)."""
+
+    # Arrange / Act
+    _capture(tmp_path, FakeClient({HISTORIA: HTML_HISTORIA}), [HISTORIA])
+
+    # Assert
+    entrada = json.loads((tmp_path / "gold" / "index.jsonl").read_text(encoding="utf-8"))
+    assert entrada["source_key"] == "url:https://carvajal.com/historia"
+    assert len(entrada["raw_hash"]) == 64
+    assert entrada["layer"] == "core"
+    assert entrada["updated_at"]
