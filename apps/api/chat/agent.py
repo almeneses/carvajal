@@ -80,6 +80,9 @@ def _source(payload: dict[str, Any]) -> Source:
         url=str(payload.get("url", "")),
         title=str(payload.get("title", "")),
         source_type=str(payload.get("source_type", "oficial")),
+        origin=str(payload.get("origin", "")),
+        category=str(payload.get("category", "")),
+        entity=str(payload.get("entity", "")),
     )
 
 

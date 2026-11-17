@@ -205,15 +205,18 @@ def _page_url(
     page: int,
     section: str | None,
     layer: str | None,
+    source_type: str | None = None,
 ) -> str:
     """Construye un enlace de paginación con los filtros ya normalizados."""
 
-    url = request.url.remove_query_params(["page", "section", "layer"])
+    url = request.url.remove_query_params(["page", "section", "layer", "source_type"])
     params: dict[str, str | int] = {"page": page}
     if section is not None:
         params["section"] = section
     if layer is not None:
         params["layer"] = layer
+    if source_type is not None:
+        params["source_type"] = source_type
     return str(url.include_query_params(**params))
 
 
@@ -222,6 +225,7 @@ def corpus_list(
     request: Request,
     section: str | None = None,
     layer: str | None = None,
+    source_type: str | None = None,
     page: str | None = None,
 ) -> Response:
     """Muestra la lista paginada del corpus con filtros combinables."""
@@ -232,11 +236,18 @@ def corpus_list(
     offset = (current_page - 1) * PAGE_SIZE
     provider = corpus_provider(request)
 
+    # Un tipo de procedencia desconocido se ignora, igual que una capa inválida.
+    source_types = list(provider.source_types())
+    clean_source = parse_section(source_type)
+    if clean_source not in source_types:
+        clean_source = None
+
     # Se pide un documento de más: si llega el 51, hay página siguiente.
     rows = list(
         provider.list(
             layer=clean_layer,
             section=clean_section,
+            source_type=clean_source,
             limit=PAGE_SIZE + 1,
             offset=offset,
         )
@@ -250,16 +261,18 @@ def corpus_list(
         {
             "documents": documents,
             "sections": provider.sections(),
+            "source_types": source_types,
             "section": clean_section,
             "layer": clean_layer,
+            "source_type": clean_source,
             "page": current_page,
             "prev_url": (
-                _page_url(request, current_page - 1, clean_section, clean_layer)
+                _page_url(request, current_page - 1, clean_section, clean_layer, clean_source)
                 if current_page > 1
                 else None
             ),
             "next_url": (
-                _page_url(request, current_page + 1, clean_section, clean_layer)
+                _page_url(request, current_page + 1, clean_section, clean_layer, clean_source)
                 if has_next
                 else None
             ),

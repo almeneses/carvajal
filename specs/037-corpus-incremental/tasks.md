@@ -114,21 +114,21 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 ### Pruebas de US4
 
-- [ ] T041 [P] [US4] Probar que una pregunta con respuesta en ambas capas cita el núcleo en `tests/test_retrieval.py`
-- [ ] T042 [P] [US4] Probar que una pregunta sólo respondida por la capa extendida la cita con su origen, categoría y entidad en `tests/test_retrieval.py`
-- [ ] T043 [P] [US4] Probar que la FAQ sigue leyendo sólo documentos `core` en `tests/test_faq.py`
-- [ ] T062 [P] [US4] Probar que el explorador HTML y la API del corpus filtran por `source_type` y muestran `layer`/`source_type` (el filtro por capa ya está cubierto) en `tests/test_api_corpus.py` y `tests/test_api_read.py`
+- [X] T041 [P] [US4] Probar que una pregunta con respuesta en ambas capas cita el núcleo en `tests/test_retrieval.py`
+- [X] T042 [P] [US4] Probar que una pregunta sólo respondida por la capa extendida la cita con su origen, categoría y entidad en `tests/test_retrieval.py`
+- [X] T043 [P] [US4] Probar que la FAQ sigue leyendo sólo documentos `core` en `tests/test_faq.py`
+- [X] T062 [P] [US4] Probar que el explorador HTML y la API del corpus filtran por `source_type` y muestran `layer`/`source_type` (el filtro por capa ya está cubierto) en `tests/test_api_corpus.py` y `tests/test_api_read.py`
 
 ### Implementación de US4
 
-- [ ] T044 [US4] Indexar en una sola corrida el núcleo y cada fuente extendida con su `layer` y su procedencia en `application/sync.py` e `indexing/qdrant.py`
-- [ ] T075 [US4] Añadir el filtro por `source_type` al explorador HTML y conservar las columnas de capa y tipo de procedencia en `apps/api/views/corpus.py` y `apps/api/templates/corpus.html`
-- [ ] T063 [US4] Extender `Document` (`domain/entities.py`), `load_document` (`adapters/storage/import_corpus.py`), el metadata de `index_gold` y `payload_for`/`Source` (`qdrant_store.py`, `application/ask.py`) con `origin`, `category` y `entity`
-- [ ] T064 [P] [US4] Probar que una cita extendida conserva los tres campos y que un documento sin ellos no falla en `tests/test_retrieval.py`
-- [ ] T045 [US4] Implementar el envoltorio de recuperación con prioridad núcleo → extendida en `packages/core/src/carvajal/application/retrieval.py`
-- [ ] T046 [US4] Usar el envoltorio en `apps/api/agent_runtime.py` sin cambiar el contrato del agente
-- [ ] T047 [US4] Ejecutar `make index-eval` (con `--layer all`, depende de T070) antes y después y registrar la evidencia en `docs/eval/` y `specs/037-corpus-incremental/`
-- [ ] T070 [US4] Añadir `--layer core|extended|all` a `carvajal index-qdrant` y hacer que `make index`/`index-eval` usen `--layer all` en `cli.py` y `Makefile`
+- [X] T044 [US4] Indexar en una sola corrida el núcleo y cada fuente extendida con su `layer` y su procedencia en `application/sync.py` e `indexing/qdrant.py`
+- [X] T075 [US4] Añadir el filtro por `source_type` al explorador HTML y conservar las columnas de capa y tipo de procedencia en `apps/api/views/corpus.py` y `apps/api/templates/corpus.html`
+- [X] T063 [US4] Extender `Document` (`domain/entities.py`), `load_document` (`adapters/storage/import_corpus.py`), el metadata de `index_gold` y `payload_for`/`Source` (`qdrant_store.py`, `application/ask.py`) con `origin`, `category` y `entity`
+- [X] T064 [P] [US4] Probar que una cita extendida conserva los tres campos y que un documento sin ellos no falla en `tests/test_retrieval.py`
+- [X] T045 [US4] Implementar el envoltorio de recuperación con prioridad núcleo → extendida en `packages/core/src/carvajal/application/retrieval.py`
+- [X] T046 [US4] Usar el envoltorio en `apps/api/agent_runtime.py` sin cambiar el contrato del agente
+- [X] T047 [US4] Ejecutar `make index-eval` (con `--layer all`, depende de T070) antes y después y registrar la evidencia en `docs/eval/` y `specs/037-corpus-incremental/`
+- [X] T070 [US4] Añadir `--layer core|extended|all` a `carvajal index-qdrant` y hacer que `make index`/`index-eval` usen `--layer all` en `cli.py` y `Makefile`
 
 **Checkpoint**: la capa extendida suma sin diluir.
 

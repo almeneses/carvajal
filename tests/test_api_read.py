@@ -553,3 +553,25 @@ def test_documento_con_base_caida_devuelve_503_sin_detalles() -> None:
     assert response.status_code == 503
     assert response.json() == {"detail": "La base de datos no responde."}
     assert "secreto" not in response.text
+
+
+def test_corpus_filtra_por_un_tipo_de_procedencia_conocido() -> None:
+    # Arrange: un documento oficial y otro de terceros en la capa extendida.
+    corpus = FakeCorpus(
+        [
+            make_document(0, section="historia", source_type="oficial"),
+            make_document(1, section="prensa", layer="extended", source_type="tercero"),
+        ]
+    )
+    client = make_client(corpus=corpus)
+
+    # Act
+    response = client.get("/api/corpus", params={"source_type": "tercero"})
+
+    # Assert
+    assert response.status_code == 200
+    data = response.json()
+    assert [document["slug"] for document in data["documents"]] == ["doc-001"]
+    assert data["documents"][0]["layer"] == "extended"
+    assert data["documents"][0]["source_type"] == "tercero"
+    assert data["total"] == 1
