@@ -11,6 +11,17 @@ from carvajal.models import CapturedPage
 
 OFFICIAL_DOMAIN = "carvajal.com"
 
+IndexEntry = dict[str, str | int]
+"""Entrada del índice: los campos publicados de un documento del corpus."""
+
+PRESERVED_FIELDS = ("source_key", "raw_hash", "layer", "updated_at")
+"""Campos que sobreviven a una fusión aunque la entrada nueva no los declare.
+
+La identidad, la huella del original, la capa y la fecha de actualización las
+escribe el registro del corpus (spec 037); un camino de entrada que todavía no
+las conoce no debe borrarlas al fusionar su entrada.
+"""
+
 
 def domain_of(url: str) -> str:
     """Devuelve el dominio de la URL sin ``www.``."""
@@ -121,10 +132,9 @@ def write_index(entries: list[dict[str, str | int]], index_file: Path) -> Path:
 
 
 @contextmanager
-def _index_lock(index_file: Path) -> Generator[None]:
-    """Exclusión mutua entre procesos sobre el índice del corpus."""
+def _lock_file(lock: Path) -> Generator[None]:
+    """Toma un bloqueo exclusivo entre procesos sobre ``lock`` y lo libera al salir."""
 
-    lock = index_file.with_name(f".{index_file.name}.lock")
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open("a+") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
@@ -132,6 +142,27 @@ def _index_lock(index_file: Path) -> Generator[None]:
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _index_lock(index_file: Path) -> Generator[None]:
+    """Exclusión mutua entre procesos sobre el índice del corpus."""
+
+    with _lock_file(index_file.with_name(f".{index_file.name}.lock")):
+        yield
+
+
+@contextmanager
+def corpus_lock(root: Path) -> Generator[None]:
+    """Exclusión mutua del corpus completo sobre ``<root>/.corpus.lock``.
+
+    Serializa la escritura de capas y la sincronización entre procesos: dos
+    sincronizaciones simultáneas se turnan en vez de competir. Cuando se toma
+    junto a ``_index_lock``, este va siempre después (primero ``corpus_lock``).
+    """
+
+    with _lock_file(Path(root) / ".corpus.lock"):
+        yield
 
 
 def merge_index(
@@ -144,23 +175,32 @@ def merge_index(
 
     Con ``gold_dir`` descarta las entradas cuyo documento ya no existe en Gold:
     una captura parcial no debe truncar el índice, pero sí limpiar lo obsoleto.
+
+    La identidad y las huellas de una entrada existente se conservan cuando la
+    entrada nueva no las declara (ver ``PRESERVED_FIELDS``); si las declara,
+    mandan las nuevas.
     """
 
     with _index_lock(index_file):
-        merged: dict[str, Mapping[str, str | int]] = _read_index(index_file)
+        merged: dict[str, IndexEntry] = read_index(index_file)
         for entry in entries:
-            merged[str(entry["slug"])] = entry
+            slug = str(entry["slug"])
+            previous = merged.get(slug, {})
+            merged[slug] = {
+                **{field: previous[field] for field in PRESERVED_FIELDS if field in previous},
+                **entry,
+            }
         if gold_dir is not None:
             merged = {
                 slug: entry for slug, entry in merged.items() if (gold_dir / f"{slug}.md").is_file()
             }
-        return write_index([dict(merged[slug]) for slug in sorted(merged)], index_file)
+        return write_index([merged[slug] for slug in sorted(merged)], index_file)
 
 
-def _read_index(index_file: Path) -> dict[str, Mapping[str, str | int]]:
+def read_index(index_file: Path) -> dict[str, IndexEntry]:
     """Lee el índice existente; las líneas corruptas se descartan."""
 
-    merged: dict[str, Mapping[str, str | int]] = {}
+    merged: dict[str, IndexEntry] = {}
     if not index_file.is_file():
         return merged
     for line in index_file.read_text(encoding="utf-8").splitlines():

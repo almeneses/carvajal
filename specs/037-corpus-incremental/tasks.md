@@ -21,13 +21,13 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 **Purpose**: identidad, registro y bloqueo compartidos por todas las historias.
 
-- [ ] T001 Probar la normalización de `source_key`, la asignación de slug y las colisiones en `tests/test_identity.py`
-- [ ] T002 [P] Implementar `source_key` y asignación de slug en `packages/core/src/carvajal/identity.py`
-- [ ] T003 Probar carga, fusión y búsqueda del registro (por `source_key`, `raw_hash` y `content_hash`) en `tests/test_registry.py`
-- [ ] T004 [P] Implementar `packages/core/src/carvajal/registry.py` sobre los `index.jsonl` de todas las áreas, con búsqueda por `source_key`, `raw_hash` y `content_hash`
-- [ ] T005 Ampliar el contrato de `merge_index`/`_read_index` y su tipado para conservar `source_key`, `raw_hash`, `layer` y `updated_at` en `packages/core/src/carvajal/gold.py`
-- [ ] T006 Probar el bloqueo compartido `data/.corpus.lock` y la exclusión entre procesos en `tests/test_registry.py`
-- [ ] T007 [P] Implementar `corpus_lock()` junto a `_index_lock` y exportarlo desde `packages/core/src/carvajal/gold.py`
+- [X] T001 Probar la normalización de `source_key`, la asignación de slug y las colisiones en `tests/test_identity.py`
+- [X] T002 [P] Implementar `source_key` y asignación de slug en `packages/core/src/carvajal/identity.py`
+- [X] T003 Probar carga, fusión y búsqueda del registro (por `source_key`, `raw_hash` y `content_hash`) en `tests/test_registry.py`
+- [X] T004 [P] Implementar `packages/core/src/carvajal/registry.py` sobre los `index.jsonl` de todas las áreas, con búsqueda por `source_key`, `raw_hash` y `content_hash`
+- [X] T005 Ampliar el contrato de `merge_index`/`_read_index` y su tipado para conservar `source_key`, `raw_hash`, `layer` y `updated_at` en `packages/core/src/carvajal/gold.py`
+- [X] T006 Probar el bloqueo compartido `data/.corpus.lock` y la exclusión entre procesos en `tests/test_registry.py`
+- [X] T007 [P] Implementar `corpus_lock()` junto a `_index_lock` y exportarlo desde `packages/core/src/carvajal/gold.py`
 
 **Checkpoint**: identidad, registro y bloqueo listos; las historias pueden avanzar.
 
