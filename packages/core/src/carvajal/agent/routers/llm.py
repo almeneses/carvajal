@@ -73,6 +73,10 @@ class LLMRouter:
     El límite de espera por llamada lo aplica el proveedor: los adaptadores usan
     ``llm_timeout_seconds`` (``Settings``) en su cliente HTTP. Un ``LLMProvider`` propio
     debe configurar el mismo límite para que un turno no quede bloqueado.
+
+    El respaldo es el enrutador de reglas: ni el fallo del proveedor ni una salida fuera
+    del contrato tumban el turno. Un fallo dentro de las reglas sí se propaga, porque es
+    un defecto del código y no del modelo.
     """
 
     name = "llm"
@@ -97,7 +101,7 @@ class LLMRouter:
         try:
             text = self._llm.complete(system=system_prompt(), prompt=self._prompt(question, turns))
             return decision_from_payload(parse_json(text), question, turns, source=self.name)
-        except Exception as error:  # el turno nunca se cae por el enrutador
+        except Exception as error:  # el proveedor o el contrato no tumban el turno
             self.invalid += 1
             logger.warning(
                 "agent.router_fallback",
