@@ -134,7 +134,8 @@ materiales sin regla en la guía (`materials_without_rule`: papel y pulpa).
 Decisiones tomadas al curar los datos (PR 2):
 
 - La temperatura y la vigencia del precio salen de la ficha (`temp_min_c`, `temp_max_c`,
-  `price_valid_until`).
+  `price_valid_until`); la vigencia se normaliza a fecha aunque el JSON-LD traiga hora y
+  zona, y una oferta que vence el día de captura ya no se usa como precio de referencia.
 - El IVA visible junto al precio prevalece sobre el `valueAddedTaxIncluded: false` que
   WooCommerce pone por defecto en el JSON-LD.
 - Si el título y la descripción de una ficha se contradicen, o la temperatura contradice el
@@ -143,9 +144,16 @@ Decisiones tomadas al curar los datos (PR 2):
   conserva, sin dejar temporales huérfanos. Las columnas se escriben en el orden de la
   tabla anterior, independiente del orden de declaración del modelo. Si el corpus deja
   fuera un SKU ya presente, aborta antes de escribir salvo que se pase `--allow-missing`;
-  en ese caso los SKU retirados quedan en las notas del manifiesto.
-- El manifiesto se reemplaza atómicamente antes que el CSV: un fallo al actualizarlo deja
-  intacto el catálogo anterior y sincronizado.
+  en ese caso el listado completo de SKU retirados queda en las notas del manifiesto.
+- El manifiesto y el CSV se confirman en un único paso: si el reemplazo de uno falla, se
+  restaura el otro, de modo que nunca quedan desincronizados; un fallo al restaurar se
+  anota y se relanza el error original, conservando el respaldo como última copia del
+  archivo anterior. El catálogo se valida dentro de esa transacción,
+  así que una validación fallida restaura ambos archivos. La CLI exige que el directorio
+  de `--out` exista y, salvo `--allow-missing`, que ya contenga `referencias.csv`, para no
+  crear un catálogo vacío que perdería las filas curadas al apuntar a una ruta equivocada.
+- Un SKU repetido en el corpus no se descarta en silencio: la ficha duplicada queda como
+  nota con ambas URL y se conserva la primera.
 
 ### Herramientas (`agent/commercial.py`)
 

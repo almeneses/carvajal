@@ -12,8 +12,8 @@ import html
 import json
 import re
 import unicodedata
-from collections.abc import Iterable
-from datetime import date
+from collections.abc import Callable, Iterable
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -87,11 +87,17 @@ def _slug(value: str) -> str:
 
 
 def _first(rules: tuple[tuple[str, tuple[str, ...]], ...], text: str) -> str | None:
-    """Primer código cuya clave inicia alguna palabra (admite plurales)."""
+    """Primer código cuya clave inicia alguna palabra (admite plurales).
+
+    Las claves de tres letras o menos (``ps``, ``pp``, ``pet``) exigen coincidencia
+    exacta: ``startswith`` clasificaría como PS cualquier palabra que empiece por «ps».
+    """
 
     words = re.findall(r"[a-z0-9]+", _plain(text))
     for code, keys in rules:
-        if any(word.startswith(key) for key in keys for word in words):
+        if any(
+            word == key or (len(key) > 3 and word.startswith(key)) for key in keys for word in words
+        ):
             return code
     return None
 
@@ -124,20 +130,55 @@ def _product_ld(page: str) -> tuple[dict[str, Any], list[str]]:
     return product, crumbs
 
 
-def _price_spec(product: dict[str, Any]) -> dict[str, Any]:
-    """Primera especificación de precio; ``ValueError`` con la URL si falta."""
+def _price_spec(product: dict[str, Any], captured_at: date) -> dict[str, Any]:
+    """Primera especificación de precio vigente; ``ValueError`` con la URL si falta.
+
+    Una oferta con ``validThrough`` anterior a la captura es una promoción vencida y no
+    se toma como precio de referencia.
+    """
 
     offers = product.get("offers")
-    offer = offers[0] if isinstance(offers, list) and offers else offers
-    specs = offer.get("priceSpecification") if isinstance(offer, dict) else None
-    spec = specs[0] if isinstance(specs, list) and specs else specs
-    if (
-        not isinstance(spec, dict)
-        or spec.get("price") in (None, "")
-        or not spec.get("priceCurrency")
-    ):
-        raise ValueError(f"{product.get('url')}: la ficha no publica precio ni moneda")
-    return {**spec, "price": str(spec["price"])}
+    offers = offers if isinstance(offers, list) else [offers]
+    candidates: list[dict[str, Any]] = []
+    for offer in offers:
+        if not isinstance(offer, dict):
+            continue
+        specs = offer.get("priceSpecification")
+        specs = specs if isinstance(specs, list) else [specs]
+        for spec in specs:
+            if (
+                isinstance(spec, dict)
+                and spec.get("price") not in (None, "")
+                and spec.get("priceCurrency")
+            ):
+                candidates.append(spec)
+    vigentes = [spec for spec in candidates if _vigente(spec.get("validThrough"), captured_at)]
+    if not vigentes:
+        raise ValueError(f"{product.get('url')}: la ficha no publica precio ni moneda vigentes")
+    return {**vigentes[0], "price": str(vigentes[0]["price"])}
+
+
+def _vigente(raw: Any, captured_at: date) -> bool:
+    """Una oferta sin fecha de vigencia o que vence después de la captura sigue válida."""
+
+    if not raw:
+        return True
+    expiry = _fecha(raw)
+    return True if expiry is None else expiry > captured_at  # el día de captura ya no vale
+
+
+def _fecha(raw: Any) -> date | None:
+    """Fecha de una vigencia ISO, con o sin hora y zona horaria."""
+
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).strip()).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(str(raw).strip()[:10])
+        except ValueError:
+            return None  # fecha ilegible: se conserva lo publicado por la ficha
 
 
 def parse_mx_product(
@@ -218,7 +259,7 @@ def parse_mx_product(
     if family == "tapa":
         capacity = None  # «12oz a 24oz» es compatibilidad, no capacidad
 
-    spec = _price_spec(product)
+    spec = _price_spec(product, captured_at)
     # El JSON-LD de WooCommerce marca ``valueAddedTaxIncluded: false`` por defecto;
     # manda el texto visible junto al precio.
     tax = bool(spec.get("valueAddedTaxIncluded")) or "iva incluido" in _plain(page)
@@ -240,7 +281,7 @@ def parse_mx_product(
             "price": spec["price"],
             "currency": spec["priceCurrency"],
             "tax_included": tax,
-            "price_valid_until": spec.get("validThrough"),
+            "price_valid_until": _fecha(spec.get("validThrough")),
             "country": "MX",
             "source_url": str(product["url"]),
             "captured_at": captured_at,
@@ -270,7 +311,14 @@ def build_mx_references(
         if reference is None:
             notes.append(f"{url.group(0)}: no es una referencia por caja (combo o kit)")
             continue
-        by_sku.setdefault(reference.sku, reference)
+        previous = by_sku.get(reference.sku)
+        if previous is not None:
+            notes.append(
+                f"{reference.source_url}: SKU {reference.sku} repetido; "
+                f"ya estaba en {previous.source_url}"
+            )
+            continue
+        by_sku[reference.sku] = reference
     return [by_sku[sku] for sku in sorted(by_sku)], sorted(set(notes))
 
 
@@ -289,6 +337,7 @@ def write_references(
     allow_missing: bool = False,
     notes: list[str] | None = None,
     manifest: tuple[str, dict[str, Any]] | None = None,
+    check: Callable[[], None] | None = None,
 ) -> int:
     """Reescribe ``referencias.csv`` con las filas de México y conserva las demás.
 
@@ -297,15 +346,17 @@ def write_references(
     deja fuera un SKU que ya estaba en el archivo, la orden aborta antes de escribir salvo
     que ``allow_missing`` lo autorice; en ese caso la baja se anota en ``notes``.
 
-    ``manifest`` permite actualizar el manifiesto en el mismo paso: se escribe antes del
-    reemplazo del CSV, así que si falla el CSV original queda intacto. ``notes`` recoge
-    además los SKU retirados con ``allow_missing``.
+    ``manifest`` permite actualizar el manifiesto en el mismo paso: CSV y manifiesto se
+    confirman juntos, y si un reemplazo falla se restaura el otro, de modo que nunca quedan
+    desincronizados. ``notes`` recoge además los SKU retirados con ``allow_missing``.
+    ``check`` se ejecuta tras los reemplazos: si lanza, ambos archivos se restauran.
     """
 
     target = directory / REFERENCES
     fields = list(_COLUMNS)
     kept: list[Reference] = []
     existing_mx: dict[str, Reference] = {}
+    existing_lines: dict[str, int] = {}
     if target.is_file():
         with target.open(encoding="utf-8", newline="") as handle:
             for line, row in enumerate(csv.DictReader(handle), start=2):
@@ -314,7 +365,13 @@ def write_references(
                         reference = Reference.model_validate(row)
                     except ValueError as error:
                         raise ValueError(f"{REFERENCES}:{line}: {error}") from error
+                    if reference.sku in existing_mx:
+                        raise ValueError(
+                            f"{REFERENCES}:{line}: SKU repetido {reference.sku} "
+                            f"(ya en la línea {existing_lines[reference.sku]})"
+                        )
                     existing_mx[reference.sku] = reference
+                    existing_lines[reference.sku] = line
                     continue
                 try:  # una fila curada inválida detiene todo antes de tocar el archivo
                     kept.append(Reference.model_validate(row))
@@ -322,7 +379,7 @@ def write_references(
                     raise ValueError(f"{REFERENCES}:{line}: {error}") from error
     missing = sorted(set(existing_mx) - {reference.sku for reference in mx})
     if missing:
-        listed = ", ".join(missing[:5]) + ("…" if len(missing) > 5 else "")
+        listed = ", ".join(missing)  # listado completo: la baja debe ser auditable
         if not allow_missing:
             raise ValueError(
                 f"{REFERENCES}: el corpus no incluye {len(missing)} referencia(s) ya presentes "
@@ -331,6 +388,7 @@ def write_references(
         if notes is not None:
             notes.append(f"{REFERENCES}: baja autorizada de {len(missing)} referencia(s): {listed}")
     temporary = target.with_name(f".{target.name}.tmp")
+    manifest_staged: tuple[Path, Path] | None = None
     try:
         with temporary.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
@@ -338,21 +396,66 @@ def write_references(
             for reference in [*mx, *kept]:
                 row = reference.model_dump(mode="json")
                 writer.writerow({key: _cell(row[key]) for key in fields})
+        staged = [(temporary, target)]
         if manifest is not None:
-            # El manifiesto se reemplaza atómicamente antes que el CSV: si falla,
-            # el ``finally`` borra el temporal y el catálogo anterior sigue siendo válido.
-            update_manifest(directory, *manifest)
-        temporary.replace(target)  # reemplazo atómico: nunca queda un archivo a medias
+            manifest_staged = _stage_manifest(directory, *manifest)
+            staged.append(manifest_staged)
+        # Un único punto de confirmación: si el segundo reemplazo falla, se restaura
+        # el primero, así CSV y manifiesto nunca quedan desincronizados.
+        _replace_all(staged, check)
     finally:
         temporary.unlink(missing_ok=True)  # un fallo a mitad no deja temporales huérfanos
+        if manifest_staged is not None:
+            manifest_staged[0].unlink(missing_ok=True)
     return len(mx) + len(kept)
 
 
-def update_manifest(directory: Path, section: str, data: dict[str, Any]) -> Path:
-    """Actualiza una sección de ``manifest.json`` y conserva las curadas a mano.
+def _replace_all(staged: list[tuple[Path, Path]], check: Callable[[], None] | None = None) -> None:
+    """Reemplaza varios temporales, valida y restaura los destinos si algo falla."""
 
-    El reemplazo es atómico: un fallo deja intacto el manifiesto anterior.
-    """
+    backups: list[tuple[Path, Path | None]] = []
+    replaced: list[Path] = []
+    preservar: set[Path] = set()
+    try:
+        # Los respaldos se crean dentro del ``try``: si su escritura falla, el
+        # ``finally`` borra los temporales y cualquier ``.bak`` parcial.
+        for _, target in staged:
+            backup = None
+            if target.is_file():
+                backup = target.with_name(f".{target.name}.bak")
+                backups.append((target, backup))
+                backup.write_bytes(target.read_bytes())
+            else:
+                backups.append((target, None))
+        for temporary, target in staged:
+            temporary.replace(target)
+            replaced.append(target)
+        if check is not None:
+            check()  # validación posterior al reemplazo: un fallo deshace la transacción
+    except Exception as error:
+        for target, backup in backups:
+            if target not in replaced:
+                continue
+            try:
+                if backup is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    backup.replace(target)
+            except OSError as restore_error:
+                # Se conserva el error original y se deja constancia del fallo de
+                # restauración en su nota; nunca se silencia la causa inicial.
+                error.add_note(f"no se pudo restaurar {target.name}: {restore_error}")
+                if backup is not None:
+                    preservar.add(backup)  # el respaldo es la única copia del original
+        raise
+    finally:
+        for _, backup in backups:
+            if backup is not None and backup not in preservar:
+                backup.unlink(missing_ok=True)
+
+
+def _stage_manifest(directory: Path, section: str, data: dict[str, Any]) -> tuple[Path, Path]:
+    """Escribe ``manifest.json`` en un temporal y devuelve ``(temporal, destino)``."""
 
     target = directory / "manifest.json"
     manifest: dict[str, Any] = {}
@@ -365,6 +468,20 @@ def update_manifest(directory: Path, section: str, data: dict[str, Any]) -> Path
         temporary.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
+    except OSError:
+        temporary.unlink(missing_ok=True)  # una escritura fallida no deja temporales
+        raise
+    return temporary, target
+
+
+def update_manifest(directory: Path, section: str, data: dict[str, Any]) -> Path:
+    """Actualiza una sección de ``manifest.json`` y conserva las curadas a mano.
+
+    El reemplazo es atómico: un fallo deja intacto el manifiesto anterior.
+    """
+
+    temporary, target = _stage_manifest(directory, section, data)
+    try:
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)

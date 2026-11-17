@@ -313,13 +313,25 @@ def main(argv: list[str] | None = None) -> int:
             build_mx_references,
             write_references,
         )
-        from carvajal.catalog.loader import DEFAULT_DIR, CatalogError, load_catalog
+        from carvajal.catalog.loader import DEFAULT_DIR, REFERENCES, load_catalog
 
         if not args.corpus.is_dir():
             print(f"No existe la carpeta del corpus: {args.corpus}")
             return 1
         out = args.out or DEFAULT_DIR
-        out.mkdir(parents=True, exist_ok=True)
+        references_file = out / REFERENCES
+        if not out.is_dir():
+            print(
+                f"No existe el directorio del catálogo: {out}; créalo antes de regenerar "
+                "para no escribir en una ruta equivocada."
+            )
+            return 1
+        if not references_file.is_file() and not args.allow_missing:
+            print(
+                f"No existe {references_file}: revisa --out o usa --allow-missing para "
+                "crear un catálogo nuevo (se perderían las filas curadas a mano)."
+            )
+            return 1
         pages = sorted(args.corpus.rglob("*.html"))
         references, notes = build_mx_references(pages, args.captured_at)
         if not references:
@@ -336,15 +348,25 @@ def main(argv: list[str] | None = None) -> int:
                 "notes": notes,
             },
         )
+
+        def _valida_catalogo() -> None:
+            load_catalog.cache_clear()
+            try:
+                load_catalog(str(out))
+            except Exception as error:
+                # ``_replace_all`` restaura ambos archivos; la CLI solo informa.
+                raise ValueError(f"el catálogo no valida: {error}") from error
+
         try:
-            # El manifiesto se actualiza antes del CSV y ambos reemplazos son atómicos:
-            # un fallo deja el catálogo anterior intacto y sincronizado.
+            # El catálogo se valida dentro de la transacción: si no valida, la
+            # restauración deja CSV y manifiesto anteriores intactos.
             total = write_references(
                 out,
                 references,
                 allow_missing=args.allow_missing,
                 notes=notes,
                 manifest=manifest,
+                check=_valida_catalogo,
             )
         except (OSError, ValueError) as error:
             print(f"No se reescribió el catálogo: {error}")
@@ -352,12 +374,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Referencias de México: {len(references)} (total en el archivo: {total}).")
         for note in notes:
             print(f"  - {note}")
-        try:
-            load_catalog.cache_clear()
-            load_catalog(str(out))
-        except CatalogError as error:
-            print(f"El catálogo no valida: {error}")
-            return 1
         return 0
 
     if args.command == "migrate-gold":
