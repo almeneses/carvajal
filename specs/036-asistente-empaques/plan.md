@@ -161,21 +161,25 @@ Decisiones tomadas al curar los datos (PR 2):
 |---|---|---|---|
 | `search_packaging` | uso, capacidad, país, familia | referencias candidatas | filtro por familia (una bebida implica vaso), capacidad (±0,25 oz) y país; primero las que la ficha declara para el uso; ml → oz lo convierte el router |
 | `check_material` | referencias, temperatura, microondas | válidas y descartadas con motivo | FR-003: regla de la guía; papel y pulpa, con su ficha («contenido caliente» = uso caliente declarado o máxima ≥ 60 °C, como el EPS de la guía); una ficha declarada solo para el uso contrario se descarta |
-| `boxes_for` | referencia, unidades | cajas, excedente | `ceil`; FR-004 |
-| `quote` | referencia, cajas | total, moneda, impuestos, fecha | solo con precio; FR-005 y FR-006 |
-| `find_distributors` | ciudad | distribuidores o ciudades disponibles | FR-008 |
+| `boxes_for` | referencia, unidades | cajas, excedente | `ceil`; FR-004; cantidad no positiva es error |
+| `quote` | referencia, cajas | total, moneda, impuestos, fecha, vigencia y aviso | solo con precio (`NoPriceError` si no hay); FR-005 y FR-006; avisa vigencia vencida y sugiere cotización comercial por encima de `BULK_BOXES` (100 cajas) |
+| `find_distributors` | ciudad | distribuidores y ciudades que sí tienen | FR-008; compara sin tildes ni mayúsculas. El canal de México es `Reference.source_url` |
 
 ### Router y grafo
 
 - `RouteName` incluye `commercial`. La regla comercial se evalúa después de memoria y saludo
   y antes de indicadores; las preguntas institucionales sin intención de compra siguen en
   `rag` (FR-009).
-- Los datos extraídos viajan en `RouteDecision.extra`; si falta uno obligatorio, la decisión
-  es `direct` con la pregunta de aclaración, como ya ocurre con el periodo en `tool`.
+- Los datos extraídos viajan en `RouteDecision.extra` (extracción en
+  `agent/commercial_intent.py`). Si falta la temperatura, ni dicha ni deducible del uso, la
+  decisión es `direct` con la pregunta de aclaración, como ya ocurre con el periodo en
+  `tool`. Una respuesta corta a esa aclaración hereda la solicitud de los turnos anteriores.
+- El precio solo se muestra con país México. Sin país, el nodo recomienda sin precio y pide
+  el país (FR-002).
 - `build_agent(router=...)` recibe un `Callable[[str, list[Turn]], RouteDecision]`; el valor
   por defecto es `decide_route`. Los adaptadores LLM y de modelo de decisión cumplen el mismo
   contrato (FR-013).
-- El nodo `commercial` ejecuta la secuencia fija y entrega al LLM un resultado estructurado y
+- El nodo `commercial` (`agent/commercial_flow.py`) ejecuta la secuencia fija y entrega al LLM un resultado estructurado y
   las fuentes; el prompt prohíbe añadir referencias, cifras o disponibilidad.
 
 ### Evaluación

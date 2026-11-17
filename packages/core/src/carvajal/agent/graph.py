@@ -8,17 +8,24 @@ declaradas por el dueño, en un namespace aislado.
 
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
+from datetime import date
 from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
+from carvajal.agent.commercial_flow import (
+    commercial_prompt_block,
+    commercial_sources,
+    run_commercial,
+)
 from carvajal.agent.router import decide_route
 from carvajal.agent.state import AgentState, Turn
 from carvajal.agent.tools import indicator_lookup
 from carvajal.application.ask import DEFAULT_SYSTEM_PROMPT, NO_CONTEXT_ANSWER, AskQuestion, Source
 from carvajal.application.evidence import proper_entities_supported
 from carvajal.application.ports import Embedder, VectorStore
+from carvajal.catalog.loader import Catalog
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
@@ -46,6 +53,10 @@ class AgentDeps:
     vector_store: VectorStore
     embedder: Embedder
     settings: Settings
+    # Overrides opcionales de la ruta comercial: catálogo ya cargado y fecha de
+    # referencia. Sin ellos se usa ``load_catalog()`` y la fecha del sistema.
+    catalog: Catalog | None = None
+    today: date | None = None
 
 
 class _UnusedLLM:
@@ -210,6 +221,7 @@ def build_agent(
             "tool_name": decision.tool_name,
             "tool_period": decision.tool_period,
             "reason": decision.reason,
+            "commercial": decision.extra,
         }
 
     def direct(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -223,6 +235,12 @@ def build_agent(
             instructions = (
                 "El usuario pide un indicador pero no indicó un período. Pide el año "
                 "o el año y mes; no estimes ni inventes el dato."
+            )
+        elif intent == "commercial_clarify":
+            instructions = (
+                "El usuario busca empaques pero no dijo si el contenido es caliente, frío o a "
+                "temperatura ambiente, ni un uso que lo indique. Pregunta solo por ese dato; no "
+                "recomiendes referencias ni supongas el material."
             )
         else:
             instructions = "Responde de forma directa y breve; no recuperes documentos."
@@ -308,22 +326,40 @@ def build_agent(
             "tool_result": result,
         }
 
+    def commercial(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        # Secuencia fija y determinista: el LLM solo redacta con este resultado (FR-004).
+        result = run_commercial(state.get("commercial", {}), catalog=deps.catalog, today=deps.today)
+        return {
+            "prompt": build_conversation_prompt(
+                state["question"],
+                turns=state.get("turns", []),
+                preferences=state.get("preferences", []),
+                instructions=commercial_prompt_block(result),
+            ),
+            "system": AGENT_SYSTEM,
+            "sources": commercial_sources(result),
+            "tool_name": "catalogo_empaques",
+            "tool_result": result,
+        }
+
     workflow = StateGraph(cast(Any, AgentState))
     workflow.add_node("recall", recall)
     workflow.add_node("route", route)
     workflow.add_node("direct", direct)
     workflow.add_node("rag", rag)
     workflow.add_node("tool", tool)
+    workflow.add_node("commercial", commercial)
     workflow.set_entry_point("recall")
     workflow.add_edge("recall", "route")
     workflow.add_conditional_edges(
         "route",
         lambda state: state["route"],
-        {"direct": "direct", "rag": "rag", "tool": "tool"},
+        {"direct": "direct", "rag": "rag", "tool": "tool", "commercial": "commercial"},
     )
     workflow.add_edge("direct", END)
     workflow.add_edge("rag", END)
     workflow.add_edge("tool", END)
+    workflow.add_edge("commercial", END)
     return workflow.compile(checkpointer=checkpointer, store=store)
 
 
