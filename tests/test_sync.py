@@ -345,7 +345,7 @@ class _Embedder:
         return [1.0]
 
 
-def _store(nombre: str):
+def _store(nombre: str, dimensions: int = 1):
     from qdrant_client import QdrantClient
 
     from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
@@ -353,7 +353,7 @@ def _store(nombre: str):
     return QdrantVectorStore(
         client=QdrantClient(location=":memory:"),
         collection=nombre,
-        dimensions=1,
+        dimensions=dimensions,
     )
 
 
@@ -478,6 +478,76 @@ def test_la_poda_de_una_capa_conserva_los_puntos_de_la_otra(tmp_path: Path) -> N
     assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
     assert store.document_hashes("extended") == gold_hashes(CorpusLayer("extended", (extendida,)))
     assert store.count() == 2
+
+
+class _Embedder768:
+    """Embedder de 768 dimensiones con valores distintos, como un modelo real."""
+
+    def embed(self, text: str) -> list[float]:
+        return [float(index % 7) for index in range(768)]
+
+
+def test_preparar_vectores_no_retiene_el_documento_en_memoria(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un documento grande no acumula todos sus vectores antes de escribir."""
+
+    # Arrange
+    import tracemalloc
+
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "largo", "v1", cuerpo="Palabra. " * 35000)
+    store = _store("memoria", dimensions=768)
+    retenido = {"bytes": 0}
+    original = store.delete_by_document
+
+    def medir(document_id: str) -> None:
+        # El borrado ocurre justo después de preparar: lo retenido es el pico del documento.
+        retenido["bytes"] = tracemalloc.get_traced_memory()[0]
+        original(document_id)
+
+    monkeypatch.setattr(store, "delete_by_document", medir)
+
+    # Act
+    tracemalloc.start()
+    try:
+        index_gold(
+            gold_dir=nucleo,
+            store=store,
+            embedder=_Embedder768(),
+            prune=False,
+            batch_size=32,
+        )
+        retenido_mb = retenido["bytes"] / 1e6
+    finally:
+        tracemalloc.stop()
+
+    # Assert: con ~400 fragmentos de 768 dimensiones, retenerlos todos ronda 10 MB.
+    assert store.count() > 300
+    assert retenido_mb < 4
+
+
+def test_los_vectores_preparados_se_leen_en_orden_y_sin_perder_precision() -> None:
+    """El archivo temporal devuelve los vectores tal como los preparó el proveedor."""
+
+    from carvajal.indexing.qdrant import _staged_vectors
+
+    vectores = [[0.1, 0.2], [1 / 3, 2 / 3], [0.0, 1.0]]
+
+    # Act
+    with _staged_vectors(2) as preparados:
+        for vector in vectores:
+            preparados.add(vector)
+        primeros = preparados.take(2)
+        ultimos = preparados.take(2)
+        vacio = preparados.take(1)
+
+    # Assert
+    assert primeros == vectores[:2]
+    assert ultimos == vectores[2:]
+    assert vacio == []
 
 
 def test_podar_una_capa_no_toca_la_otra(tmp_path: Path) -> None:

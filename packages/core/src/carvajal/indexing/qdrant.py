@@ -12,10 +12,14 @@ reconstruye la colección desde cero para una demo o un cambio de modelo.
 """
 
 import json
-from collections.abc import Sequence
+import tempfile
+from array import array
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import IO
 
 import structlog
 
@@ -144,44 +148,39 @@ def index_gold(
         }
         # Los vectores del documento se preparan antes de tocar el índice: si el
         # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
-        # Qdrant y el documento no desaparece de la recuperación.
-        prepared: list[tuple[list[Chunk], list[list[float]]]] = []
-        for start in range(0, len(chunks), batch_size):
-            batch = chunks[start : start + batch_size]
-            # El título y la sección no viven en el cuerpo Gold (están en el
-            # front matter); se anteponen al texto que se vectoriza para que
-            # una pregunta por el nombre del documento lo recupere. El payload
-            # conserva el texto original para la cita.
-            # ``_vector`` valida la dimensión al preparar, no en ``upsert``: la
-            # versión anterior se borra antes de escribir, así que un proveedor
-            # mal configurado dejaría el documento sin ningún punto.
-            prepared.append(
-                (
-                    batch,
-                    [
+        # Qdrant y el documento no desaparece de la recuperación. Se preparan en un
+        # archivo temporal: un documento grande produce decenas de miles de vectores
+        # y retenerlos todos en memoria supera el límite del contenedor.
+        with _staged_vectors(store.dimensions) as prepared:
+            for start in range(0, len(chunks), batch_size):
+                batch = chunks[start : start + batch_size]
+                # El título y la sección no viven en el cuerpo Gold (están en el
+                # front matter); se anteponen al texto que se vectoriza para que
+                # una pregunta por el nombre del documento lo recupere. El payload
+                # conserva el texto original para la cita.
+                for chunk in batch:
+                    prepared.add(
                         _vector(
                             embedder,
                             f"{document.title} · {document.section}. {card}\n{chunk.text}",
                             store.dimensions,
                         )
-                        for chunk in batch
-                    ],
+                    )
+            if not recreate:
+                # Un documento acortado o reescrito no debe dejar fragmentos de la versión
+                # vieja: sus puntos se reemplazan en cada indexación.
+                store.delete_by_document(document.id)
+            for start in range(0, len(chunks), batch_size):
+                batch = chunks[start : start + batch_size]
+                index_batch(store, batch, prepared.take(len(batch)), metadata)
+                indexed += len(batch)
+                valid_ids.extend(store.point_ids(batch, [metadata for _ in batch]))
+                logger.info(
+                    "qdrant.document_progress",
+                    document=document.id,
+                    chunks=indexed,
+                    total=total_chunks,
                 )
-            )
-        if not recreate:
-            # Un documento acortado o reescrito no debe dejar fragmentos de la versión
-            # vieja: sus puntos se reemplazan en cada indexación.
-            store.delete_by_document(document.id)
-        for batch, embeddings in prepared:
-            index_batch(store, batch, embeddings, metadata)
-            indexed += len(batch)
-            valid_ids.extend(store.point_ids(batch, [metadata for _ in batch]))
-            logger.info(
-                "qdrant.document_progress",
-                document=document.id,
-                chunks=indexed,
-                total=total_chunks,
-            )
         logger.info(
             "qdrant.document_indexed",
             document=document.id,
@@ -252,3 +251,54 @@ def _vector(embedder: Embedder, text: str, dimensions: int) -> list[float]:
     if len(vector) != dimensions:
         raise ValueError(f"El vector debe tener {dimensions} dimensiones; recibidas {len(vector)}.")
     return vector
+
+
+@contextmanager
+def _staged_vectors(dimensions: int) -> Generator["_StagedVectors"]:
+    """Prepara los vectores de un documento en un archivo temporal.
+
+    El documento completo se embebe antes de borrar su versión anterior para que un
+    fallo del proveedor no lo saque de la recuperación. Guardar todos los vectores en
+    una lista rompe esa garantía de memoria: con 768 dimensiones y el chunking del
+    corpus, un documento grande acumula decenas de miles de vectores. El archivo
+    temporal deja un solo lote en memoria y conserva la versión anterior si la
+    preparación falla.
+    """
+
+    with tempfile.TemporaryFile() as file:
+        yield _StagedVectors(file, dimensions)
+
+
+class _StagedVectors:
+    """Vectores preparados en un archivo, en orden de preparación.
+
+    Se guardan como ``float64`` para devolver exactamente los valores del proveedor.
+    """
+
+    def __init__(self, file: IO[bytes], dimensions: int) -> None:
+        self._file = file
+        self._dimensions = dimensions
+        self._added = 0
+        self._taken = 0
+
+    def add(self, vector: Sequence[float]) -> None:
+        """Añade un vector ya validado al final del archivo."""
+
+        array("d", vector).tofile(self._file)
+        self._added += 1
+
+    def take(self, size: int) -> list[list[float]]:
+        """Devuelve los siguientes ``size`` vectores, en el orden en que se prepararon."""
+
+        count = min(size, self._added - self._taken)
+        if count <= 0:
+            return []
+        if self._taken == 0:
+            self._file.seek(0)
+        values = array("d")
+        values.fromfile(self._file, count * self._dimensions)
+        self._taken += count
+        return [
+            values[start : start + self._dimensions].tolist()
+            for start in range(0, len(values), self._dimensions)
+        ]
