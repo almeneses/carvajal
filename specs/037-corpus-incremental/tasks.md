@@ -155,11 +155,11 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 - [ ] T054 [US1] Implementar `sync --adopt` para completar `source_key` y `raw_hash` en el registro existente sin reindexar, resolviendo las fuentes repetidas (vigente + `legacy:<slug>`)
 - [ ] T055 [US1] Probar la adopción con un índice legado (URL, slug con hash, subidas homónimas que caen a `legacy:<slug>` y dos versiones legadas de la misma subida) en `tests/test_registry.py`
 - [ ] T056 Ejecutar la adopción y la poda en el VPS siguiendo `docs/despliegue-ovh.md` y registrar el antes/después de `/health` (manual: requiere acceso al servidor)
-- [ ] T057 Documentar en `README.md` la identidad, la deduplicación, `carvajal sync` y la prioridad de capas
+- [X] T057 Documentar en `README.md` la identidad, la deduplicación, `carvajal sync` y la prioridad de capas
 - [X] T058 Registrar en `CONSTITUTION.md` §2, §9 y §10 las decisiones de identidad, dedupe, sincronización, prioridad y retiro de pgvector
-- [ ] T059 [P] Añadir la fila de la 037 a `specs/README.md` y sincronizar `.specify/memory/constitution.md`
-- [ ] T060 Ejecutar `make check` y anotar el número de pruebas en el PR
-- [ ] T061 Revisar que los errores del informe no exponen rutas internas ni credenciales
+- [X] T059 [P] Añadir la fila de la 037 a `specs/README.md` y sincronizar `.specify/memory/constitution.md`
+- [X] T060 Ejecutar `make check` y anotar el número de pruebas en el PR
+- [X] T061 Revisar que los errores del informe no exponen rutas internas ni credenciales
 
 ## Dependencies & Execution Order
 
