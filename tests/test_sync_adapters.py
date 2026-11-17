@@ -1,5 +1,6 @@
 """Pruebas de los adaptadores de sincronización (spec 037, US2)."""
 
+from collections.abc import Iterable
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +32,12 @@ class FakeStore:
         self.deleted.append(document_id)
         self._hashes.pop(document_id, None)
 
+    def prune_layer(self, layer: str, valid_documents: Iterable[str]) -> int:
+        stale = set(self._hashes) - set(valid_documents)
+        for document_id in sorted(stale):
+            self.delete_by_document(document_id)
+        return len(stale)
+
 
 def test_qdrant_sync_indexa_solo_lo_pedido_y_poda_lo_ausente(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -44,14 +51,13 @@ def test_qdrant_sync_indexa_solo_lo_pedido_y_poda_lo_ausente(
 
     def indexar(
         *,
-        gold_dir: Path,
+        gold_dirs: tuple[tuple[Path, str], ...],
         store: QdrantVectorStore,
         embedder: Embedder,
-        layer: str,
         only: set[str] | None,
         prune: bool,
     ) -> SimpleNamespace:
-        llamadas.append({"layer": layer, "only": only, "prune": prune})
+        llamadas.append({"gold_dirs": gold_dirs, "only": only, "prune": prune})
         return SimpleNamespace(indexed=len(only) if only else 0)
 
     monkeypatch.setattr("carvajal.adapters.vector.sync_qdrant.index_gold", indexar)
@@ -70,7 +76,7 @@ def test_qdrant_sync_indexa_solo_lo_pedido_y_poda_lo_ausente(
     # Assert
     assert indexed == 1 and deleted == 1
     assert store.deleted == ["viejo"]
-    assert llamadas[0]["layer"] == "core"
+    assert llamadas[0]["gold_dirs"] == ((gold, "core"),)
     assert llamadas[0]["only"] == {"uno"}
     assert sync.count("core") == 1
 

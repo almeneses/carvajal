@@ -396,6 +396,19 @@ class QdrantVectorStore:
                 ids.add(document_id)
         return ids
 
+    def prune_layer(self, layer: str, valid_documents: Iterable[str]) -> int:
+        """Elimina los documentos de una capa que ya no están en Gold.
+
+        Devuelve cuántos documentos podó. Solo toca la capa indicada: el resto
+        del corpus conserva sus puntos.
+        """
+
+        keep = set(valid_documents)
+        stale = sorted(self.document_ids(layer) - keep)
+        for document_id in stale:
+            self.delete_by_document(document_id)
+        return len(stale)
+
     def _payloads(self, layer: str | None = None) -> Iterable[dict[str, object]]:
         """Recorre los payloads de la colección, opcionalmente por capa.
 

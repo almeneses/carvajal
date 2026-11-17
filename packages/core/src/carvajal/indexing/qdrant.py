@@ -46,7 +46,8 @@ class IndexReport:
 
 def index_gold(
     *,
-    gold_dir: Path,
+    gold_dir: Path | None = None,
+    gold_dirs: Sequence[tuple[Path, str]] | None = None,
     store: QdrantVectorStore,
     embedder: Embedder,
     recreate: bool = False,
@@ -56,28 +57,47 @@ def index_gold(
     cards_path: Path | None = None,
     only: set[str] | None = None,
 ) -> IndexReport:
-    """Indexa el corpus Gold y devuelve los conteos de la corrida.
+    """Indexa una o varias áreas Gold y devuelve los conteos de la corrida.
+
+    ``gold_dirs`` permite indexar el núcleo y las capas extendidas en la misma
+    corrida, cada directorio con su capa. ``gold_dir`` se conserva para los
+    llamadores de una sola área. Antes de insertar cada documento se borran sus
+    puntos anteriores: un documento acortado no deja fragmentos de la versión
+    vieja.
 
     Raises:
-        FileNotFoundError: si ``gold_dir`` no existe.
-        ValueError: si no hay documentos o si un vector no tiene la dimensión
-            configurada.
+        FileNotFoundError: si algún directorio Gold no existe.
+        ValueError: si no hay documentos, si un slug se repite entre áreas o si
+            un vector no tiene la dimensión configurada.
     """
 
-    if not gold_dir.is_dir():
-        raise FileNotFoundError(f"{gold_dir}: el directorio Gold no existe.")
+    areas = list(gold_dirs) if gold_dirs is not None else []
+    if gold_dir is not None:
+        if areas:
+            raise ValueError("Usa gold_dir o gold_dirs, no ambos.")
+        areas = [(gold_dir, layer)]
+    if not areas:
+        raise ValueError("index_gold necesita gold_dir o gold_dirs.")
+
     started = perf_counter()
     if recreate and store.client.collection_exists(store.collection):
         store.client.delete_collection(store.collection)
         logger.info("qdrant.collection_recreated", collection=store.collection)
     store.ensure_collection()
 
-    cards = _load_cards(cards_path or gold_dir.parent / "retrieval_cards.json")
+    cards: dict[str, str] = {}
     documents = []
-    for path in sorted(gold_dir.glob("*.md")):
-        document = load_document(path, layer=layer)
-        if only is None or document.id in only:
-            documents.append(document)
+    for directory, area_layer in areas:
+        if not directory.is_dir():
+            raise FileNotFoundError(f"{directory}: el directorio Gold no existe.")
+        for slug, card in _load_cards(
+            cards_path or directory.parent / "retrieval_cards.json"
+        ).items():
+            cards.setdefault(slug, card)
+        for path in sorted(directory.glob("*.md")):
+            document = load_document(path, layer=area_layer)
+            if only is None or document.id in only:
+                documents.append(document)
     if not documents:
         if only is not None:
             # La sincronización incremental puede no tocar este directorio: no es un error.
@@ -92,7 +112,15 @@ def index_gold(
                 elapsed_ms=round((perf_counter() - started) * 1000),
                 recreated=recreate,
             )
-        raise ValueError(f"{gold_dir}: no hay documentos Gold para indexar.")
+        raise ValueError("No hay documentos Gold para indexar.")
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for document in documents:
+        if document.id in seen:
+            duplicates.add(document.id)
+        seen.add(document.id)
+    if duplicates:
+        raise ValueError(f"Slug repetido entre áreas Gold: {sorted(duplicates)[0]!r}.")
     if only is not None:
         prune = False
 

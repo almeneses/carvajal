@@ -319,7 +319,26 @@ def test_la_huella_de_qdrant_cubre_los_metadatos(tmp_path: Path) -> None:
     assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
 
 
-class _EmbedderUnaDimension:
+def test_sync_corpus_sin_cambios_no_vuelve_a_indexar(tmp_path: Path) -> None:
+    """Una segunda sincronización sin cambios no indexa ni embebe nada."""
+
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = FakeDatabase(gold)
+    index = FakeIndex(gold)
+    sync_corpus([layer], database=db, index=index)
+    llamadas = len(index.imports)
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index)
+
+    # Assert
+    assert len(index.imports) == llamadas
+    assert report.indexed == 0
+    assert (report.new, report.updated, report.unchanged) == (0, 0, 1)
+
+
+class _Embedder:
     """Embedder de una dimensión: basta para contar puntos y podar."""
 
     def embed(self, text: str) -> list[float]:
@@ -347,7 +366,7 @@ def test_un_documento_actualizado_reemplaza_sus_fragmentos(tmp_path: Path) -> No
     nucleo = tmp_path / "gold"
     _document(nucleo, "largo", "v1", cuerpo="Palabra. " * 400)
     store = _store("actualizado")
-    embedder = _EmbedderUnaDimension()
+    embedder = _Embedder()
     index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
     antes = store.count()
     assert antes > 1
@@ -383,7 +402,7 @@ def test_un_vector_de_otra_dimension_no_borra_la_version_indexada(tmp_path: Path
     nucleo = tmp_path / "gold"
     _document(nucleo, "historia", "v1", cuerpo="Fundada en Cali.")
     store = _store("dimension_incorrecta")
-    index_gold(gold_dir=nucleo, store=store, embedder=_EmbedderUnaDimension(), prune=False)
+    index_gold(gold_dir=nucleo, store=store, embedder=_Embedder(), prune=False)
     antes = store.count()
     assert antes == 1
 
@@ -449,7 +468,7 @@ def test_la_poda_de_una_capa_conserva_los_puntos_de_la_otra(tmp_path: Path) -> N
     _document(nucleo, "historia", "h1")
     _document(extendida, "informe", "h2")
     store = _store("poda_por_capa")
-    embedder = _EmbedderUnaDimension()
+    embedder = _Embedder()
     index_gold(gold_dir=extendida, store=store, embedder=embedder, layer="extended", prune=False)
 
     # Act: ``make index`` indexa únicamente el núcleo y poda.
@@ -459,3 +478,34 @@ def test_la_poda_de_una_capa_conserva_los_puntos_de_la_otra(tmp_path: Path) -> N
     assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
     assert store.document_hashes("extended") == gold_hashes(CorpusLayer("extended", (extendida,)))
     assert store.count() == 2
+
+
+def test_podar_una_capa_no_toca_la_otra(tmp_path: Path) -> None:
+    """La poda de una capa se limita a sus documentos."""
+
+    # Arrange
+    from carvajal.adapters.vector.sync_qdrant import QdrantSync
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    extendida = tmp_path / "external" / "donante" / "gold"
+    _document(nucleo, "viejo", "Viejo", cuerpo="Contenido viejo.")
+    _document(nucleo, "nuevo", "Nuevo", cuerpo="Contenido nuevo.")
+    _document(extendida, "externo", "Externo", cuerpo="Contenido externo.")
+    store = _store("capas")
+    embedder = _Embedder()
+    index_gold(
+        gold_dirs=((nucleo, "core"), (extendida, "extended")),
+        store=store,
+        embedder=embedder,
+        prune=False,
+    )
+    (nucleo / "viejo.md").unlink()
+    sync = QdrantSync(store, embedder)
+
+    # Act
+    sync.index_gold(CorpusLayer("core", (nucleo,)), only=set(), prune=True)
+
+    # Assert
+    assert store.document_ids("core") == {"nuevo"}
+    assert store.document_ids("extended") == {"externo"}

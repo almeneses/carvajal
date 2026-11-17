@@ -94,17 +94,17 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 ### Pruebas de US3
 
-- [ ] T033 [P] [US3] Probar que una segunda sincronización sin cambios no emite embeddings en `tests/test_sync.py`
-- [ ] T034 [P] [US3] Probar que un documento acortado no deja puntos viejos en `tests/test_sync.py`
-- [ ] T035 [P] [US3] Probar el borrado por `document_id` con dos documentos que comparten título en `tests/test_qdrant_store.py`
-- [ ] T036 [P] [US3] Probar la poda por capa sin tocar la otra capa en `tests/test_sync.py`
+- [X] T033 [P] [US3] Probar que una segunda sincronización sin cambios no emite embeddings en `tests/test_sync.py`
+- [X] T034 [P] [US3] Probar que un documento acortado no deja puntos viejos en `tests/test_sync.py`
+- [X] T035 [P] [US3] Probar el borrado por `document_id` con dos documentos que comparten título en `tests/test_qdrant_store.py`
+- [X] T036 [P] [US3] Probar la poda por capa sin tocar la otra capa en `tests/test_sync.py`
 
 ### Implementación de US3
 
-- [ ] T037 [US3] Reutilizar y probar `delete_by_document` (ya existe) en `packages/core/src/carvajal/adapters/vector/qdrant_store.py`
-- [ ] T038 [US3] Añadir poda por `layer` (scroll del filtro y borrado de ids obsoletos) en `qdrant_store.py`
-- [ ] T039 [US3] Refactorizar `index_gold` para aceptar varios `(directorio, capa)` y un conjunto `only` en `packages/core/src/carvajal/indexing/qdrant.py`
-- [ ] T040 [US3] Incorporar el cálculo de documentos cambiados y el borrado previo por documento en `application/sync.py`
+- [X] T037 [US3] Reutilizar y probar `delete_by_document` (ya existe) en `packages/core/src/carvajal/adapters/vector/qdrant_store.py`
+- [X] T038 [US3] Añadir poda por `layer` (scroll del filtro y borrado de ids obsoletos) en `qdrant_store.py`
+- [X] T039 [US3] Refactorizar `index_gold` para aceptar varios `(directorio, capa)` y un conjunto `only` en `packages/core/src/carvajal/indexing/qdrant.py`
+- [X] T040 [US3] Incorporar el cálculo de documentos cambiados y el borrado previo por documento en `application/sync.py`
 
 **Checkpoint**: reimportar cientos de archivos sólo procesa los cambiados.
 

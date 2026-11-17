@@ -53,17 +53,9 @@ def test_una_muestra_de_cada_capa_se_recupera_por_titulo(tmp_path: Path) -> None
 
     # Act
     index_gold(
-        gold_dir=nucleo,
+        gold_dirs=((nucleo, "core"), (extendida, "extended")),
         store=store,
         embedder=embedder,
-        layer="core",
-        prune=False,
-    )
-    index_gold(
-        gold_dir=extendida,
-        store=store,
-        embedder=embedder,
-        layer="extended",
         prune=False,
     )
 

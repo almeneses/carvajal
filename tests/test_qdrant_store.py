@@ -74,7 +74,14 @@ class FakeClient:
         )
 
     def scroll(self, **kwargs: Any) -> tuple[list[models.Record], None]:
-        return self.records, None
+        records = self.records
+        query_filter = kwargs.get("scroll_filter")
+        if query_filter is not None:
+            for condition in query_filter.must or ():
+                key = condition.key
+                value = condition.match.value
+                records = [record for record in records if (record.payload or {}).get(key) == value]
+        return records, None
 
     def delete(self, collection_name: str, points_selector: Any, wait: bool) -> None:
         self.deleted.append(points_selector)
@@ -297,4 +304,58 @@ def test_los_documentos_incompletos_cuentan_para_la_poda() -> None:
 
     # Act / Assert
     assert store.document_hashes("core") == {}
+    assert store.document_ids("core") == {"historia"}
+
+
+def test_delete_by_document_usa_el_document_id_no_el_titulo() -> None:
+    """Dos documentos con el mismo título se distinguen por ``document_id``."""
+
+    # Arrange
+    client = FakeClient()
+    store = QdrantVectorStore(cast(Any, client))
+
+    # Act
+    store.delete_by_document("doc-a")
+
+    # Assert
+    selector = client.deleted[-1]
+    condition = selector.filter.must[0]
+    assert condition.key == "document_id"
+    assert condition.match.value == "doc-a"
+
+
+def test_document_hashes_y_ids_filtran_por_capa() -> None:
+    """La verificación compara huellas y documentos filtrados por capa."""
+
+    # Arrange
+    client = FakeClient()
+    client.records = [
+        models.Record(
+            id="1",
+            payload={
+                "document_id": "historia",
+                "content_hash": "h1",
+                "layer": "core",
+                "chunks_total": "1",
+            },
+        ),
+        models.Record(
+            id="2",
+            payload={
+                "document_id": "externo",
+                "content_hash": "h2",
+                "layer": "extended",
+                "chunks_total": "1",
+            },
+        ),
+    ]
+    store = QdrantVectorStore(cast(Any, client))
+
+    # Act
+    hashes = store.document_hashes("core")
+
+    # Assert
+    assert hashes == {
+        "historia": sync_fingerprint(content_hash="h1", title="", section="", source_type="")
+    }
     assert store.document_ids("core") == {"historia"}
