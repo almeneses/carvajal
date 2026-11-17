@@ -72,7 +72,9 @@ class Document:
     """Documento del corpus listo para persistir o recuperar.
 
     Modelo mínimo que usarán los contratos de persistencia/recuperación; no
-    incluye HTML crudo ni lógica de captura.
+    incluye HTML crudo ni lógica de captura. ``origin``, ``category`` y
+    ``entity`` son la procedencia editorial de la capa extendida, leída del
+    front matter; los documentos del núcleo los dejan vacíos.
     """
 
     id: str
@@ -85,6 +87,9 @@ class Document:
     content_hash: str
     captured_at: datetime
     source_type: str = "oficial"
+    origin: str = ""
+    category: str = ""
+    entity: str = ""
 
 
 @dataclass(frozen=True)

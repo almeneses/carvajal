@@ -32,6 +32,15 @@
         <option value="extended"{% if layer == "extended" %} selected{% endif %}>Extendida</option>
       </select>
     </div>
+    <div class="campo">
+      <label for="procedencia">Tipo de procedencia</label>
+      <select id="procedencia" name="source_type">
+        <option value="">Todos los tipos</option>
+        {% for option in source_types %}
+        <option value="{{ option }}"{% if option == source_type %} selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <button type="submit">Filtrar</button>
     <a class="limpiar" href="/corpus">Limpiar</a>
   </form>

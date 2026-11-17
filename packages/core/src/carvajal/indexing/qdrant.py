@@ -148,6 +148,9 @@ def index_gold(
             "content_hash": document.content_hash,
             "abstract": card,
             "chunks_total": str(len(chunks)),
+            "origin": document.origin,
+            "category": document.category,
+            "entity": document.entity,
         }
         # Los vectores del documento se preparan antes de tocar el índice: si el
         # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
