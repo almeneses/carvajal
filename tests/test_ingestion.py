@@ -268,6 +268,54 @@ def test_ingest_cli_procesa_en_lotes_y_devuelve_error_si_falta_la_ruta(tmp_path:
     assert any("no existe" in error for error in report.errors)
 
 
+def test_ingest_cli_lee_por_lote_y_conserva_lo_procesado(tmp_path: Path, monkeypatch) -> None:
+    # Arrange: si el lote se construye antes de procesar, el fallo del tercer
+    # archivo impediría que los dos primeros llegasen a Gold.
+    settings = _settings(tmp_path)
+    carpeta = tmp_path / "corpus"
+    carpeta.mkdir()
+    for nombre in ("a.md", "b.md", "c.md"):
+        (carpeta / nombre).write_text(f"# {nombre}\n\nContenido.", encoding="utf-8")
+
+    original = Path.read_bytes
+
+    def leer(self: Path) -> bytes:
+        if self.name == "c.md":
+            raise OSError(5, "fallo simulado")
+        return original(self)
+
+    monkeypatch.setattr(Path, "read_bytes", leer)
+
+    # Act
+    report = run([carpeta], settings=settings, solo_extraer=True, lote=1)
+
+    # Assert
+    assert report.gold == 2
+    assert any("no se pudo leer (fallo simulado)" in error for error in report.errors)
+
+
+def test_ingest_cli_limita_los_bytes_por_lote(tmp_path: Path, monkeypatch) -> None:
+    # Arrange: dos archivos que juntos superan 1 KB no caben en el mismo lote.
+    settings = _settings(tmp_path)
+    carpeta = tmp_path / "corpus"
+    carpeta.mkdir()
+    (carpeta / "a.md").write_text("# a\n\n" + "x" * 600, encoding="utf-8")
+    (carpeta / "b.md").write_text("# b\n\n" + "y" * 600, encoding="utf-8")
+    lotes: list[int] = []
+
+    def ingestar(documents, **kwargs):
+        lotes.append(len(documents))
+        return IngestReport(files=len(documents), gold=len(documents))
+
+    monkeypatch.setattr("apps.api.ingest_cli.ingest_uploads", ingestar)
+
+    # Act
+    run([carpeta], settings=settings, solo_extraer=True, lote=25, max_batch_bytes=1024)
+
+    # Assert
+    assert lotes == [1, 1]
+
+
 def test_merge_index_conserva_las_entradas_concurrentes(tmp_path: Path) -> None:
     # Arrange
     index_file = tmp_path / "gold" / "index.jsonl"
