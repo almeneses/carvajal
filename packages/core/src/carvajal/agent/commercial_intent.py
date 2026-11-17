@@ -286,6 +286,7 @@ def _has_signal(data: dict[str, Any]) -> bool:
     return any(data.get(key) is not None for key in (*keys, "_intent"))
 
 
+<<<<<<< HEAD
 def _is_institutional(question: str, data: dict[str, Any]) -> bool:
     """Nombrar a Carvajal y su producto sin señal de compra ni datos duros (FR-009)."""
 
@@ -294,41 +295,71 @@ def _is_institutional(question: str, data: dict[str, Any]) -> bool:
         and not data.get("_intent")
         and all(data.get(key) is None for key in _HARD_DATA)
     )
+=======
+def _previous_request(turns: list[Turn]) -> list[dict[str, Any]] | None:
+    """Datos de los turnos previos de la misma solicitud, del más antiguo al más reciente.
+
+    Se recorre hacia atrás hasta el turno que nombró el producto. Si antes aparece un turno
+    sin relación con la compra, no hay solicitud que heredar.
+    """
+
+    chain: list[dict[str, Any]] = []
+    for turn in reversed(turns[-FOLLOW_UP_DEPTH:]):
+        product, data = _extract(turn["question"])
+        if not (product or _has_signal(data)):
+            return None
+        chain.append(data)
+        if product:
+            return list(reversed(chain))
+    return None
+
+
+def _follow_up_quantity(text: str) -> int | None:
+    """Cantidad suelta de un seguimiento («¿y si son 4.500?»), nunca una capacidad."""
+
+    match = re.search(
+        rf"\b(?:son|serian|seran|para)\s+({_NUMBER})\b(?!\s*(?:oz|onzas?|ml|mililitros?|l|litros?)\b)",
+        text,
+    )
+    return int(_number(match.group(1))) if match else None
+
+
+def _inherit(previous: list[dict[str, Any]], data: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for item in [*previous, data]:
+        merged = _merge(merged, item)
+    return _complete(merged)
+>>>>>>> 9f4fec0 (fix(036): los seguimientos comerciales conservan la solicitud anterior)
 
 
 def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[str, Any] | None:
     """Solicitud comercial con las claves de ``CommercialRequest``, o ``None`` si no lo es."""
 
+    turns = turns or []
     product, data = _extract(question)
+    short = len(question.split()) <= FOLLOW_UP_MAX_WORDS and "carvajal" not in _plain(question)
     if product:
         if _is_institutional(question, data):
             return None
-        return _complete(data) if _has_signal(data) else None
+        if not _has_signal(data):
+            return None
+        request = _complete(data)
+        # «¿y si son 4.500 vasos?»: nombra el producto pero no dice para qué; si sigue una
+        # solicitud del mismo producto, hereda lo que ya se dijo en lugar de pedirlo otra vez.
+        if short and request["temperature"] is None:
+            previous = _previous_request(turns)
+            if previous and previous[0]["family"] in (None, data["family"]):
+                return _inherit(previous, data)
+        return request
     # Respuesta corta a una aclaración: hereda la solicitud de los turnos anteriores.
-    if (
-        _is_question(question)
-        or len(question.split()) > FOLLOW_UP_MAX_WORDS
-        or "carvajal" in _plain(question)
-    ):
+    if not short:
         return None
+    if data["quantity"] is None:
+        data["quantity"] = _follow_up_quantity(_plain(question))
     if not _has_signal({key: value for key, value in data.items() if key != "_intent"}):
         return None
-    chain = [data]
-    for turn in reversed((turns or [])[-FOLLOW_UP_DEPTH:]):
-        previous_product, previous = _extract(turn["question"])
-        if not (previous_product or _has_signal(previous)):
-            # Un saludo u otro turno sin datos no invalida la respuesta a la aclaración.
-            continue
-        if not previous_product and _is_question(turn["question"]):
-            # Una pregunta intermedia cambia de tema: no se hereda a través de ella.
-            return None
-        chain.append(previous)
-        if previous_product:
-            merged: dict[str, Any] = {}
-            for item in reversed(chain):
-                merged = _merge(merged, item)
-            return _complete(merged)
-    return None
+    previous = _previous_request(turns)
+    return _inherit(previous, data) if previous else None
 
 
 def empty_request() -> dict[str, Any]:
@@ -368,6 +399,11 @@ def non_commercial_part(question: str) -> str | None:
         if len(part.split()) < 3:
             continue
         product, data = _extract(part)
-        if not product and not _has_signal(data) and _OTHER_TOPIC.search(_plain(part)):
+        if (
+            not product
+            and not _has_signal(data)
+            and _OTHER_TOPIC.search(_plain(part))
+            and _follow_up_quantity(_plain(part)) is None
+        ):
             return part
     return None

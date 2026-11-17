@@ -319,3 +319,35 @@ def test_una_pregunta_corta_de_precio_no_es_mixta() -> None:
     decision = decide_route("Necesito vasos para café de 12 oz. ¿Cuánto cuestan?")
 
     assert decision.intent == "commercial"
+
+
+def test_un_seguimiento_que_nombra_el_producto_hereda_la_solicitud() -> None:
+    turnos = [_turno("Necesito 5.000 vasos de 12 oz para café en México")]
+
+    decision = decide_route("¿y si son 4.500 vasos?", turnos)
+
+    assert (decision.route, decision.intent) == ("commercial", "commercial")
+    assert decision.extra["quantity"] == 4500
+    assert decision.extra["country"] == "MX"
+    assert decision.extra["use"] == "bebida_caliente"
+
+
+def test_un_numero_suelto_en_un_seguimiento_es_la_cantidad() -> None:
+    turnos = [_turno("Necesito 5.000 vasos de 12 oz para café en México")]
+
+    decision = decide_route("¿y si son 4.500?", turnos)
+
+    assert (decision.route, decision.intent) == ("commercial", "commercial")
+    assert decision.extra["quantity"] == 4500
+
+
+def test_un_anio_en_un_seguimiento_no_es_una_cantidad() -> None:
+    turnos = [_turno("Necesito 5.000 vasos de 12 oz para café en México")]
+
+    assert decide_route("¿y en 2025?", turnos).route == "rag"
+
+
+def test_una_solicitud_nueva_no_hereda_de_una_pregunta_institucional() -> None:
+    turnos = [_turno("¿Quién fundó Carvajal?")]
+
+    assert decide_route("busco vasos de 16 oz", turnos).intent == "commercial_clarify"
