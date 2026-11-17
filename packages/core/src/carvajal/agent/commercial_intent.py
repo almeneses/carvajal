@@ -1,0 +1,294 @@
+"""Detección y extracción de solicitudes comerciales de empaques (spec 036, T017-T018).
+
+Reglas deterministas, como el resto del router:
+
+- Una pregunta es comercial si nombra un producto del catálogo (vaso, tapa, contenedor…)
+  **y** trae una señal de compra («necesito», «precio», «cotiza») o un dato de la necesidad
+  (capacidad, cantidad, temperatura, uso, microondas, país o ciudad). «¿Qué empresas
+  conforman el sector de Papel y Empaques?» no nombra un producto y sigue en ``rag``.
+- Una respuesta corta a una aclaración («caliente», «en Cali», «5.000 unidades») hereda la
+  solicitud de los turnos anteriores que sí nombraban el producto.
+- La temperatura es el dato que decide el material (FR-002): se toma de la pregunta o del
+  uso («café» → caliente; «calentar en microondas» → caliente). Si falta, el router pide
+  aclaración. El uso se deduce de la familia y la temperatura cuando la pregunta no lo dice.
+- La capacidad en ml o litros se convierte a onzas líquidas.
+
+Las claves del diccionario que devuelve son las de ``CommercialRequest``.
+"""
+
+import re
+import unicodedata
+from typing import Any
+
+from carvajal.agent.state import Turn
+
+__all__ = ["COMMERCIAL_KEYS", "extract_commercial"]
+
+COMMERCIAL_KEYS = (
+    "use",
+    "temperature",
+    "microwave",
+    "capacity_oz",
+    "family",
+    "quantity",
+    "country",
+    "city",
+    "prefers_renewable",
+)
+ML_PER_OZ = 29.5735
+FOLLOW_UP_MAX_WORDS = 8
+FOLLOW_UP_DEPTH = 3
+
+_FAMILIES = {
+    "vaso": r"vasos?",
+    "tapa": r"tapas?|domos?",
+    "contenedor": r"contenedor(?:es)?|recipientes?|portacomidas?",
+    "charola": r"charolas?|bandejas?",
+    "cubierto": r"cubiertos?|tenedor(?:es)?|cucharas?|cucharitas?|cuchillos?",
+    "envase": r"envases?",
+    "plato": r"platos?",
+}
+_GENERIC_PRODUCT = r"desechables?|empaques? (?:para|de) (?:llevar|comida|domicilio|delivery|mi)"
+# El orden importa: lo frío va antes para que «café frío» no se lea como caliente.
+_USES = (
+    (
+        "bebida_fria",
+        r"cafe (?:frio|helado)|te helado|jugos?|refrescos?|gaseosas?|limonadas?"
+        r"|malteadas?|smoothies?|frappes?|granizados?|bebidas? frias?",
+    ),
+    # «te» suelto es también pronombre («¿qué te sirve?»): solo cuenta con su apellido.
+    (
+        "bebida_caliente",
+        r"cafe|capuchinos?|lattes?|te (?:caliente|negro|verde)|infusion(?:es)?"
+        r"|chocolate|aromaticas?|bebidas? calientes?",
+    ),
+    ("sopas", r"sopas?|caldos?|consomes?"),
+    ("frituras", r"frituras?|papas fritas|fritos?"),
+    ("ensaladas", r"ensaladas?"),
+    ("frutas", r"frutas?"),
+    ("panaderia", r"pan|panes|panaderia|pasteles?|postres?|galletas?"),
+    ("sandwiches", r"sandwich(?:es)?|sanduches?|emparedados?"),
+    ("salsas", r"salsas?|aderezos?"),
+    ("comida_fria", r"comidas? frias?"),
+    ("comida_caliente", r"comidas? calientes?|almuerzos?"),
+)
+_USE_TEMPERATURE = {
+    "bebida_caliente": "caliente",
+    "comida_caliente": "caliente",
+    "sopas": "caliente",
+    "frituras": "caliente",
+    "bebida_fria": "fria",
+    "comida_fria": "fria",
+    "ensaladas": "fria",
+    "frutas": "fria",
+}
+_FOOD_FAMILIES = {"contenedor", "charola", "plato", "envase"}
+_INTENT = re.compile(
+    r"\b(necesit\w*|busc\w*|quier\w*|compr\w*|cotiz\w*|precios?|cuesta|cuanto vale|cajas?"
+    r"|recomiend\w*|recomendacion|sugier\w*|me sirve|conviene|donde (?:compro|consigo)"
+    r"|distribuidor\w*|para mi (?:negocio|cafeteria|restaurante|local|tienda|panaderia))\b"
+)
+_RENEWABLE = re.compile(
+    r"\b(renovables?|compostables?|biodegradables?|ecologic\w*|sostenibles?|de papel|de carton"
+    r"|fibra|cana|bagazo|pulpa|sin plastico|sin icopor)\b"
+)
+_HOT = re.compile(r"\b(calientes?|calentar|hirviendo)\b")
+_COLD = re.compile(r"\b(fri[ao]s?|helad[ao]s?|refrigera\w*|congela\w*)\b")
+_NUMBER = r"\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?"
+_CO_CITIES = (
+    "Bogotá Medellín Cali Barranquilla Cartagena Bucaramanga Pereira Manizales Armenia Ibagué "
+    "Neiva Pasto Villavicencio Cúcuta Santa_Marta Popayán Tunja Montería Valledupar Sincelejo"
+)
+_MX_CITIES = "Ciudad_de_México CDMX Monterrey Guadalajara Puebla Querétaro Tijuana León Mérida"
+_COUNTRIES = {"mexico": "MX", "colombia": "CO"}
+
+
+def _plain(value: str) -> str:
+    """Minúsculas sin tildes, para comparar sin depender de la ortografía."""
+
+    decomposed = unicodedata.normalize("NFKD", value.lower())
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
+def _cities(names: str, country: str) -> dict[str, tuple[str, str]]:
+    return {
+        _plain(name.replace("_", " ")): (name.replace("_", " "), country) for name in names.split()
+    }
+
+
+_KNOWN_CITIES = {**_cities(_CO_CITIES, "CO"), **_cities(_MX_CITIES, "MX")}
+
+
+def _number(raw: str) -> float:
+    """«5.000» y «5,000» son miles; «5,5» y «5.5» son decimales."""
+
+    if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", raw):
+        return float(re.sub(r"[.,]", "", raw))
+    return float(raw.replace(",", "."))
+
+
+def _search(pattern: str, text: str) -> re.Match[str] | None:
+    return re.search(rf"\b(?:{pattern})\b", text)
+
+
+def _family(text: str) -> str | None:
+    """La familia que se nombra primero: «tapas para vasos» pide tapas."""
+
+    found = [
+        (match.start(), name)
+        for name, pattern in _FAMILIES.items()
+        if (match := _search(pattern, text))
+    ]
+    return min(found)[1] if found else None
+
+
+def _capacity(text: str) -> float | None:
+    match = re.search(rf"({_NUMBER})\s*(oz|onzas?|ml|mililitros?|l|litros?)\b", text)
+    if match is None:
+        return None
+    value, unit = _number(match.group(1)), match.group(2)
+    if unit.startswith(("oz", "onza")):
+        return value
+    milliliters = value if unit.startswith(("ml", "mili")) else value * 1000
+    return round(milliliters / ML_PER_OZ, 2)
+
+
+def _quantity(text: str) -> int | None:
+    nouns = "|".join(_FAMILIES.values())
+    thousand = re.search(rf"({_NUMBER})\s*mil\b", text)
+    if thousand:
+        return int(_number(thousand.group(1)) * 1000)
+    counted = re.search(rf"({_NUMBER})\s*(?:unidades|piezas|pzas?|{nouns})\b", text)
+    approx = re.search(
+        rf"\b(?:unas?|unos|aproximadamente|cerca de)\s+({_NUMBER})\b(?!\s*(?:oz|ml))", text
+    )
+    match = counted or approx
+    return int(_number(match.group(1))) if match else None
+
+
+def _place(question: str, text: str) -> tuple[str | None, str | None]:
+    """País y ciudad. Una ciudad conocida implica su país; otra se conserva tal cual."""
+
+    country = next((code for name, code in _COUNTRIES.items() if _search(name, text)), None)
+    for plain, (display, city_country) in _KNOWN_CITIES.items():
+        if _search(re.escape(plain), text):
+            return country or city_country, display
+    other = re.search(r"\ben\s+([A-ZÁÉÍÓÚÑ]\w+(?:\s+(?:de\s+)?[A-ZÁÉÍÓÚÑ]\w+)?)", question)
+    if (
+        other
+        and _plain(other.group(1)) not in _COUNTRIES
+        and "carvajal" not in _plain(other.group(1))
+    ):
+        return country, other.group(1)
+    return country, None
+
+
+def _extract(question: str) -> tuple[bool, dict[str, Any]]:
+    """Datos que trae una sola pregunta y si nombra un producto."""
+
+    text = _plain(question)
+    family = _family(text)
+    use = next((name for name, pattern in _USES if _search(pattern, text)), None)
+    microwave = True if "microondas" in text else None
+    temperature: str | None = None
+    if _COLD.search(text):
+        temperature = "fria"
+    elif _HOT.search(text) or microwave:
+        temperature = "caliente"
+    elif "ambiente" in text:
+        temperature = "ambiente"
+    country, city = _place(question, text)
+    data: dict[str, Any] = {
+        "use": use,
+        "temperature": temperature,
+        "microwave": microwave,
+        "capacity_oz": _capacity(text),
+        "family": family,
+        "quantity": _quantity(text),
+        "country": country,
+        "city": city,
+        "prefers_renewable": True if _RENEWABLE.search(text) else None,
+    }
+    product = family is not None or _search(_GENERIC_PRODUCT, text) is not None
+    if _INTENT.search(text):
+        data["_intent"] = True
+    return product, data
+
+
+def _merge(base: dict[str, Any], newer: dict[str, Any]) -> dict[str, Any]:
+    """Lo que dice el turno más reciente reemplaza lo anterior; lo que calla se conserva."""
+
+    return {**base, **{key: value for key, value in newer.items() if value is not None}}
+
+
+def _complete(data: dict[str, Any]) -> dict[str, Any]:
+    """Deduce temperatura y uso a partir de lo dicho, sin inventar datos nuevos."""
+
+    result = {key: data.get(key) for key in COMMERCIAL_KEYS}
+    if result["temperature"] is None and result["use"] in _USE_TEMPERATURE:
+        result["temperature"] = _USE_TEMPERATURE[result["use"]]
+    if result["use"] is None and result["temperature"] in ("caliente", "fria"):
+        if result["family"] == "vaso":
+            result["use"] = f"bebida_{result['temperature']}"
+        elif result["family"] in _FOOD_FAMILIES:
+            result["use"] = f"comida_{result['temperature']}"
+    result["prefers_renewable"] = bool(result["prefers_renewable"])
+    return result
+
+
+def _is_question(text: str) -> bool:
+    """Una pregunta corta no es la respuesta a una aclaración comercial."""
+
+    return "?" in text or "¿" in text
+
+
+def _has_signal(data: dict[str, Any]) -> bool:
+    """Señal de compra o dato de la necesidad; nombrar el producto no basta."""
+
+    # ``family`` solo nombra el producto y ``prefers_renewable`` es una preferencia
+    # de material: ninguno de los dos convierte una pregunta institucional en compra.
+    keys = [key for key in COMMERCIAL_KEYS if key not in ("family", "prefers_renewable")]
+    return any(data.get(key) is not None for key in (*keys, "_intent"))
+
+
+def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[str, Any] | None:
+    """Solicitud comercial con las claves de ``CommercialRequest``, o ``None`` si no lo es."""
+
+    product, data = _extract(question)
+    if product:
+        # Una pregunta institucional que menciona a Carvajal (nombre del producto,
+        # capacidad, ciudad o preferencia) no es una compra; solo la temperatura o el
+        # uso explícitos la acercan a la ruta comercial.
+        if (
+            "carvajal" in _plain(question)
+            and not data.get("_intent")
+            and data.get("temperature") is None
+            and data.get("use") is None
+        ):
+            return None
+        return _complete(data) if _has_signal(data) else None
+    # Respuesta corta a una aclaración: hereda la solicitud de los turnos anteriores.
+    if (
+        _is_question(question)
+        or len(question.split()) > FOLLOW_UP_MAX_WORDS
+        or "carvajal" in _plain(question)
+    ):
+        return None
+    if not _has_signal({key: value for key, value in data.items() if key != "_intent"}):
+        return None
+    chain = [data]
+    for turn in reversed((turns or [])[-FOLLOW_UP_DEPTH:]):
+        previous_product, previous = _extract(turn["question"])
+        if not (previous_product or _has_signal(previous)):
+            # Un saludo u otro turno sin datos no invalida la respuesta a la aclaración.
+            continue
+        if not previous_product and _is_question(turn["question"]):
+            # Una pregunta intermedia cambia de tema: no se hereda a través de ella.
+            return None
+        chain.append(previous)
+        if previous_product:
+            merged: dict[str, Any] = {}
+            for item in reversed(chain):
+                merged = _merge(merged, item)
+            return _complete(merged)
+    return None

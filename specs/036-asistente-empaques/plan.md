@@ -170,12 +170,16 @@ Decisiones tomadas al curar los datos (PR 2):
 - `RouteName` incluye `commercial`. La regla comercial se evalúa después de memoria y saludo
   y antes de indicadores; las preguntas institucionales sin intención de compra siguen en
   `rag` (FR-009).
-- Los datos extraídos viajan en `RouteDecision.extra`; si falta uno obligatorio, la decisión
-  es `direct` con la pregunta de aclaración, como ya ocurre con el periodo en `tool`.
+- Los datos extraídos viajan en `RouteDecision.extra` (extracción en
+  `agent/commercial_intent.py`). Si falta la temperatura, ni dicha ni deducible del uso, la
+  decisión es `direct` con la pregunta de aclaración, como ya ocurre con el periodo en
+  `tool`. Una respuesta corta a esa aclaración hereda la solicitud de los turnos anteriores.
+- El precio solo se muestra con país México. Sin país, el nodo recomienda sin precio y pide
+  el país (FR-002).
 - `build_agent(router=...)` recibe un `Callable[[str, list[Turn]], RouteDecision]`; el valor
   por defecto es `decide_route`. Los adaptadores LLM y de modelo de decisión cumplen el mismo
   contrato (FR-013).
-- El nodo `commercial` ejecuta la secuencia fija y entrega al LLM un resultado estructurado y
+- El nodo `commercial` (`agent/commercial_flow.py`) ejecuta la secuencia fija y entrega al LLM un resultado estructurado y
   las fuentes; el prompt prohíbe añadir referencias, cifras o disponibilidad.
 
 ### Evaluación

@@ -1,4 +1,4 @@
-"""Router determinista del agente: ``tool``, ``rag`` o ``direct``.
+"""Router determinista del agente: ``tool``, ``commercial``, ``rag`` o ``direct``.
 
 Orden de decisión (documentado y probado):
 
@@ -6,12 +6,17 @@ Orden de decisión (documentado y probado):
    es…» se responde en ``direct`` y se guarda en el Store. No se busca.
 2. **Saludo, agradecimiento o capacidad.** ``direct`` sin tocar Qdrant ni la
    herramienta.
-3. **Intención estructurada.** Si hay un indicador reconocible y un período
+3. **Solicitud comercial de empaques (spec 036).** Si nombra un producto del
+   catálogo con una señal de compra o un dato de la necesidad, ``commercial``
+   con la solicitud en ``extra``. Si falta la temperatura (ni dicha ni
+   deducible del uso), ``direct`` pide aclararla: no se supone el material.
+   La extracción vive en ``commercial_intent``.
+4. **Intención estructurada.** Si hay un indicador reconocible y un período
    explícito, ``tool``. Si hay indicador pero falta el período, ``direct`` pide
    aclararlo: no se inventa el período ni se mezcla con RAG.
-4. **Seguimiento elíptico.** Si la pregunta es corta o usa «eso», «ese año»,
+5. **Seguimiento elíptico.** Si la pregunta es corta o usa «eso», «ese año»,
    «allí», se reescribe con el turno anterior y va a ``rag``.
-5. **Documental.** Todo lo demás va a ``rag``; si no hay evidencia sobre el
+6. **Documental.** Todo lo demás va a ``rag``; si no hay evidencia sobre el
    umbral, el caso de uso se abstiene.
 
 La ambigüedad tool/RAG se resuelve por la presencia de un indicador **y** un
@@ -21,7 +26,9 @@ consulta estructurada a medias.
 
 import re
 import unicodedata
+from typing import Any
 
+from carvajal.agent.commercial_intent import extract_commercial
 from carvajal.agent.state import RouteDecision, Turn
 from carvajal.agent.tools import known_names, resolve_indicator_name
 
@@ -185,6 +192,27 @@ _ALIASES = {
 }
 
 
+def _commercial_decision(question: str, request: dict[str, Any]) -> RouteDecision:
+    """Ruta comercial, o aclaración en ``direct`` si falta la temperatura (FR-002)."""
+
+    said = ", ".join(f"{key}={value}" for key, value in request.items() if value)
+    if request["temperature"] is None:
+        return RouteDecision(
+            route="direct",
+            intent="commercial_clarify",
+            query=question,
+            reason=f"solicitud comercial sin temperatura ni uso; se pide aclaración ({said})",
+            extra=request,
+        )
+    return RouteDecision(
+        route="commercial",
+        intent="commercial",
+        query=question,
+        reason=f"solicitud comercial de empaques ({said})",
+        extra=request,
+    )
+
+
 def decide_route(question: str, turns: list[Turn] | None = None) -> RouteDecision:
     """Aplica el orden de decisión y devuelve una decisión auditable."""
 
@@ -199,6 +227,10 @@ def decide_route(question: str, turns: list[Turn] | None = None) -> RouteDecisio
             preference=preference,
             reason="el usuario declaró una preferencia",
         )
+
+    commercial = extract_commercial(question, turns)
+    if commercial is not None:
+        return _commercial_decision(question, commercial)
 
     tool_name, period = _tool_intent(question)
     if tool_name and period:
