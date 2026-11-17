@@ -37,23 +37,18 @@ class QdrantSync:
 
         indexed = 0
         if only is None or only:
-            for directory in layer.directories:
-                report = index_gold(
-                    gold_dir=directory,
-                    store=self._store,
-                    embedder=self._embedder,
-                    layer=layer.name,
-                    only=only,
-                    prune=False,
-                )
-                indexed += report.indexed
+            report = index_gold(
+                gold_dirs=tuple((directory, layer.name) for directory in layer.directories),
+                store=self._store,
+                embedder=self._embedder,
+                only=only,
+                prune=False,
+            )
+            indexed = report.indexed
 
         deleted = 0
         if prune:
-            valid = set(gold_hashes(layer))
-            for document_id in sorted(self._store.document_ids(layer.name) - valid):
-                self._store.delete_by_document(document_id)
-                deleted += 1
+            deleted = self._store.prune_layer(layer.name, gold_hashes(layer))
         return indexed, deleted
 
     def count(self, layer: str) -> int:
