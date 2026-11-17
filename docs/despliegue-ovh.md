@@ -292,7 +292,9 @@ docker compose -f compose.prod.yml run --rm --no-deps \
 ```
 
 - Recorre subcarpetas, ignora extensiones no admitidas y procesa en lotes de 25
-  archivos (100 MB por archivo, `--lote` y `--max-file-mb`).
+  archivos (100 MB por archivo, `--lote` y `--max-file-mb`; 256 MB por lote con
+  `--max-batch-mb`). Cada lote se lee al procesarlo, así que la memoria se acota
+  al lote y no al tamaño del corpus.
 - Al terminar cada lote actualiza PostgreSQL y Qdrant. `--solo-extraer` se
   detiene en Gold para revisar la extracción antes de tocar la base y el índice.
 - `--source-type` fija la procedencia del *front matter*: `oficial` para el sitio

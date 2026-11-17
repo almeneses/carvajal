@@ -386,8 +386,10 @@ python -m apps.api.ingest_cli /ruta/de/la/carpeta --source-type oficial
 ```
 
 Recorre carpetas y subcarpetas, ignora las extensiones no admitidas, procesa en lotes
-(`--lote`, 25 por defecto), admite 100 MB por archivo (`--max-file-mb`) y al cerrar cada
-lote actualiza PostgreSQL y Qdrant. `--solo-extraer` se detiene en Gold para revisar la
+(`--lote`, 25 por defecto; `--max-batch-mb`, 256 MB por defecto), admite 100 MB por archivo
+(`--max-file-mb`) y al cerrar cada lote actualiza PostgreSQL y Qdrant. Cada lote se lee de
+disco al procesarlo, así que la memoria viva se acota al lote y no al tamaño del corpus.
+`--solo-extraer` se detiene en Gold para revisar la
 extracción antes de tocar la base y el índice. `--source-type` (`oficial`, `tercero` o
 `colaborador`) fija la procedencia que se escribe en el *front matter*: la procedencia es
 independiente de que el archivo se suba por la web o se importe por consola.

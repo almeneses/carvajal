@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -105,6 +106,14 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_BATCH_FILES,
         help=f"Archivos por lote (por defecto {DEFAULT_BATCH_FILES}).",
     )
+    parser.add_argument(
+        "--max-batch-mb",
+        type=int,
+        default=DEFAULT_BATCH_BYTES // 1024 // 1024,
+        help=(
+            f"Bytes acumulados por lote en MB (por defecto {DEFAULT_BATCH_BYTES // 1024 // 1024})."
+        ),
+    )
     args = parser.parse_args(argv)
 
     report = run(
@@ -113,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         source_type=args.source_type,
         max_file_bytes=max(1, args.max_file_mb) * 1024 * 1024,
         lote=max(1, args.lote),
+        max_batch_bytes=max(1, args.max_batch_mb) * 1024 * 1024,
     )
     print(
         f"\nResumen: {report.files} archivos · Bronze {report.bronze} · "
@@ -149,10 +159,15 @@ def _batches(
     lote: int,
     max_batch_bytes: int,
     max_file_bytes: int,
-) -> list[Batch]:
-    """Agrupa los archivos en lotes por número y bytes acumulados."""
+) -> Iterator[Batch]:
+    """Genera lotes leyendo cada archivo al llegar a su lote.
 
-    batches: list[Batch] = []
+    Es un generador a propósito: cargar de golpe el corpus completo mantiene
+    en memoria todos los bytes a la vez y el contenedor muere por OOM (137)
+    en cuanto la carpeta supera su límite. Así la memoria viva se acota al
+    lote en curso.
+    """
+
     actual: list[UploadedDocument] = []
     errores: list[str] = []
     bytes_lote = 0
@@ -167,14 +182,13 @@ def _batches(
             errores.append(f"{path.name}: supera el límite de {max_file_bytes // 1024 // 1024} MB.")
             continue
         if actual and (len(actual) >= lote or bytes_lote + len(data) > max_batch_bytes):
-            batches.append(Batch(documents=actual, errors=tuple(errores)))
+            yield Batch(documents=actual, errors=tuple(errores))
             actual, errores, bytes_lote = [], [], 0
         actual.append(UploadedDocument(filename=path.name, data=data))
         bytes_lote += len(data)
 
     if actual or errores:
-        batches.append(Batch(documents=actual, errors=tuple(errores)))
-    return batches
+        yield Batch(documents=actual, errors=tuple(errores))
 
 
 def _sum(total: IngestReport, report: IngestReport, errors: tuple[str, ...]) -> IngestReport:
