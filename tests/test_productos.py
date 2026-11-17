@@ -4,10 +4,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from structlog.testing import capture_logs
 
 from apps.api.chat.agent import GraphAgentRunner
-from apps.api.chat.products import has_cards, render_products
+from apps.api.chat.products import has_cards, render_products, safe_render_products
 from carvajal.agent.commercial_flow import custom_need_result, run_commercial
 from carvajal.agent.commercial_intent import COMMERCIAL_KEYS
 from carvajal.agent.graph import AgentDeps, build_agent
@@ -120,6 +122,24 @@ def test_sin_referencias_del_pais_la_nota_es_para_el_cliente() -> None:
 def test_un_resultado_vacio_no_genera_tarjetas() -> None:
     assert not has_cards({"options": [], "channel": {}, "discarded": [{"sku": "x"}]})
     assert has_cards({"options": [], "contacts": [{"url": "https://ejemplo.test/"}]})
+
+
+def test_un_parcial_roto_no_tumba_la_respuesta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Las tarjetas son opcionales: si el parcial falla, no se emiten y queda el log."""
+
+    resultado = _resultado(use="bebida_caliente", temperature="caliente", country="MX")
+
+    def roto(_: dict[str, Any]) -> str:
+        raise RuntimeError("plantilla rota")
+
+    monkeypatch.setattr("apps.api.chat.products.render_products", roto)
+
+    with capture_logs() as logs:
+        html = safe_render_products(resultado)
+
+    assert html == ""
+    [evento] = [log for log in logs if log["event"] == "chat.products_render_failed"]
+    assert "plantilla rota" in evento["error"]
 
 
 class _SinRecuperacion:
