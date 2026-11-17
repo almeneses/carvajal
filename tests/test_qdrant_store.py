@@ -7,6 +7,7 @@ import pytest
 from qdrant_client import models
 
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore, payload_for, point_id
+from carvajal.application.sync import sync_fingerprint
 from carvajal.domain.entities import Chunk
 
 CHUNK = Chunk(
@@ -271,7 +272,8 @@ def test_la_huella_solo_se_publica_con_todos_los_fragmentos() -> None:
     parcial.records = [registro(1), registro(2)]
 
     # Act / Assert
-    assert QdrantVectorStore(cast(Any, completo)).document_hashes("core") == {"historia": "hash-1"}
+    esperado = sync_fingerprint(content_hash="hash-1", title="", section="", source_type="")
+    assert QdrantVectorStore(cast(Any, completo)).document_hashes("core") == {"historia": esperado}
     assert QdrantVectorStore(cast(Any, parcial)).document_hashes("core") == {}
 
 

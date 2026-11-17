@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 
 from carvajal.adapters.storage import tables
-from carvajal.application.sync import CorpusLayer, gold_hashes
+from carvajal.application.sync import CorpusLayer, gold_hashes, sync_fingerprint
 
 __all__ = ["PostgresSync"]
 
@@ -20,15 +20,27 @@ class PostgresSync:
         self._session_factory = session_factory
 
     def hashes(self, layer: str) -> Mapping[str, str]:
-        """Huella de texto vigente por documento de la capa."""
+        """Huella de sincronización por documento de la capa (texto y metadatos)."""
 
         with self._session_factory.begin() as session:
             rows = session.execute(
-                select(tables.documents.c.id, tables.documents.c.content_hash).where(
-                    tables.documents.c.layer == layer
-                )
+                select(
+                    tables.documents.c.id,
+                    tables.documents.c.content_hash,
+                    tables.documents.c.title,
+                    tables.documents.c.section,
+                    tables.documents.c.source_type,
+                ).where(tables.documents.c.layer == layer)
             ).all()
-        return {str(row[0]): str(row[1]) for row in rows}
+        return {
+            str(row[0]): sync_fingerprint(
+                content_hash=str(row[1]),
+                title=str(row[2]),
+                section=str(row[3]),
+                source_type=str(row[4]),
+            )
+            for row in rows
+        }
 
     def import_gold(
         self,

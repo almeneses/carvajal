@@ -17,6 +17,7 @@ from uuid import UUID, uuid5
 from qdrant_client import QdrantClient, models
 
 from carvajal.application.ports import ScoredChunk
+from carvajal.application.sync import sync_fingerprint
 from carvajal.domain.entities import Chunk
 
 __all__ = ["QdrantVectorStore", "fingerprint_for", "payload_for", "point_id"]
@@ -347,11 +348,14 @@ class QdrantVectorStore:
         return len(stale)
 
     def document_hashes(self, layer: str | None = None) -> dict[str, str]:
-        """Huella de texto por documento, solo si están todos sus fragmentos.
+        """Huella de sincronización por documento, solo si están todos sus fragmentos.
 
-        Un documento con menos puntos que ``chunks_total`` quedó a medias (por ejemplo,
-        una corrida interrumpida a mitad de sus lotes): no se publica su huella para que
-        la siguiente sincronización lo reindexe en lugar de darlo por vigente.
+        La huella cubre el texto y los metadatos que el payload publica (título,
+        sección y tipo de fuente): corregir el título de un documento lo marca
+        como cambiado aunque su cuerpo no cambie. Un documento con menos puntos
+        que ``chunks_total`` quedó a medias (por ejemplo, una corrida interrumpida
+        a mitad de sus lotes): no se publica su huella para que la siguiente
+        sincronización lo reindexe en lugar de darlo por vigente.
         """
 
         hashes: dict[str, str] = {}
@@ -362,12 +366,17 @@ class QdrantVectorStore:
             if not document_id:
                 continue
             seen[document_id] = seen.get(document_id, 0) + 1
-            hashes[document_id] = str(payload.get("content_hash", ""))
+            hashes[document_id] = sync_fingerprint(
+                content_hash=str(payload.get("content_hash") or ""),
+                title=str(payload.get("title") or ""),
+                section=str(payload.get("section") or ""),
+                source_type=str(payload.get("source_type") or ""),
+            )
             total = str(payload.get("chunks_total") or "")
             expected[document_id] = int(total) if total.isdigit() else 0
         return {
-            document_id: content_hash
-            for document_id, content_hash in hashes.items()
+            document_id: fingerprint
+            for document_id, fingerprint in hashes.items()
             if expected[document_id] and seen[document_id] == expected[document_id]
         }
 

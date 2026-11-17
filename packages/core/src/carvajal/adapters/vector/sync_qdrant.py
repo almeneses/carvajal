@@ -18,7 +18,7 @@ class QdrantSync:
         self._embedder = embedder
 
     def hashes(self, layer: str) -> dict[str, str]:
-        """Huella de texto vigente por documento de la capa."""
+        """Huella de sincronización por documento de la capa (texto y metadatos)."""
 
         return self._store.document_hashes(layer)
 

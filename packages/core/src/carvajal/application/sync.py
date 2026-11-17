@@ -1,10 +1,11 @@
 """Sincronización del corpus: Gold → PostgreSQL → Qdrant.
 
 Un único camino reconcilia lo que está en disco con los dos almacenes que
-consultan la web y el chat. El servicio es incremental: compara la huella del
-texto de cada documento con la que guarda PostgreSQL y solo importa e indexa
-los nuevos o cambiados. Con ``verify`` no escribe: informa las diferencias y
-devuelve un reporte que la CLI traduce a código de salida distinto de cero.
+consultan la web y el chat. El servicio es incremental: compara la huella de
+cada documento —texto y metadatos persistidos— con la que guardan PostgreSQL y
+el índice, y solo importa e indexa los nuevos o cambiados. Con ``verify`` no
+escribe: informa las diferencias y devuelve un reporte que la CLI traduce a
+código de salida distinto de cero.
 
 Las escrituras se serializan con :func:`carvajal.gold.corpus_lock` sobre la raíz
 del corpus. El orden de bloqueo es siempre ``corpus_lock`` y después el bloqueo
@@ -13,6 +14,7 @@ interno del índice JSONL (``_index_lock``); nunca al revés.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +31,21 @@ __all__ = [
     "corpus_layers",
     "gold_hashes",
     "sync_corpus",
+    "sync_fingerprint",
 ]
+
+
+def sync_fingerprint(*, content_hash: str, title: str, section: str, source_type: str) -> str:
+    """Huella de sincronización: el cuerpo y los metadatos que se persisten.
+
+    El título, la sección y el tipo de fuente no viven en el cuerpo Gold, pero se
+    guardan en PostgreSQL, viajan en el payload de Qdrant y se vectorizan con
+    cada fragmento. Comparar solo la huella del texto dejaría sin reparar para
+    siempre una corrección editorial de esos campos.
+    """
+
+    raw = "\x1f".join((content_hash, title, section, source_type))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -73,7 +89,7 @@ class SyncDatabase(Protocol):
     """Lado PostgreSQL de la sincronización."""
 
     def hashes(self, layer: str) -> Mapping[str, str]:
-        """Huella de texto vigente por documento de la capa."""
+        """Huella de sincronización por documento de la capa (texto y metadatos)."""
 
         ...
 
@@ -99,7 +115,7 @@ class SyncIndex(Protocol):
     """Lado Qdrant de la sincronización."""
 
     def hashes(self, layer: str) -> Mapping[str, str]:
-        """Huella de texto vigente por documento de la capa en el índice."""
+        """Huella de sincronización por documento de la capa en el índice."""
 
         ...
 
@@ -159,8 +175,10 @@ def corpus_layers(
 
 
 def gold_hashes(layer: CorpusLayer) -> dict[str, str]:
-    """Lee las huellas de texto de los Markdown Gold de una capa.
+    """Lee las huellas de sincronización de los Markdown Gold de una capa.
 
+    Cada huella cubre el texto y los metadatos que los almacenes persisten: un
+    cambio solo de título, sección o tipo de fuente también cuenta como cambio.
     Una capa sin directorios es una capa vacía, no un error: su corpus está
     vacío y la poda debe poder vaciar los almacenes.
 
@@ -183,7 +201,12 @@ def gold_hashes(layer: CorpusLayer) -> dict[str, str]:
             document = load_document(path, layer=layer.name)
             if document.id in hashes:
                 raise ValueError(f"{path}: el slug {document.id!r} ya existe en la capa.")
-            hashes[document.id] = document.content_hash
+            hashes[document.id] = sync_fingerprint(
+                content_hash=document.content_hash,
+                title=document.title,
+                section=document.section,
+                source_type=document.source_type,
+            )
     if not found:
         raise FileNotFoundError(f"{layer.name}: no existe ningún directorio Gold de la capa.")
     return hashes
@@ -339,7 +362,7 @@ def _differences(
         elif slug not in gold:
             differences.append(f"{slug}: sobra en PostgreSQL.")
         elif gold[slug] != database[slug]:
-            differences.append(f"{slug}: PostgreSQL tiene otra huella de texto.")
+            differences.append(f"{slug}: PostgreSQL tiene otra huella de sincronización.")
 
     for slug in sorted(set(gold) | set(index_hashes)):
         if slug not in index_hashes:
@@ -347,7 +370,7 @@ def _differences(
         elif slug not in gold:
             differences.append(f"{slug}: sobra en Qdrant.")
         elif gold[slug] != index_hashes[slug]:
-            differences.append(f"{slug}: Qdrant tiene otra huella de texto.")
+            differences.append(f"{slug}: Qdrant tiene otra huella de sincronización.")
 
     expected = len(gold)
     db_count = db.count(layer.name)

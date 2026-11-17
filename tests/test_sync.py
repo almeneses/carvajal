@@ -9,6 +9,14 @@ import pytest
 from carvajal.application.sync import CorpusLayer, corpus_layers, gold_hashes, sync_corpus
 
 
+def _con_titulo(path: Path, titulo: str) -> None:
+    """Corrige el título del front matter sin tocar el cuerpo ni su huella."""
+
+    texto = path.read_text(encoding="utf-8")
+    anterior = next(line for line in texto.splitlines() if line.startswith("title: "))
+    path.write_text(texto.replace(anterior, f"title: {titulo}"), encoding="utf-8")
+
+
 def _document(directorio: Path, slug: str, hash_texto: str, cuerpo: str = "Contenido.") -> None:
     """Escribe un Markdown Gold mínimo con su huella en el front matter."""
 
@@ -121,9 +129,9 @@ def test_sync_corpus_separa_nuevos_actualizados_y_sin_cambios(tmp_path: Path) ->
     # Arrange
     layer, gold = _layer(tmp_path, {"uno": "h1", "dos": "h2", "tres": "h3"})
     db = FakeDatabase(gold)
-    db.hashes_map = {"uno": "h1", "dos": "viejo"}
+    db.hashes_map = {"uno": gold["uno"], "dos": "viejo"}
     index = FakeIndex(gold)
-    index.hashes_map = {"uno": "h1", "dos": "viejo"}
+    index.hashes_map = {"uno": gold["uno"], "dos": "viejo"}
 
     # Act
     report = sync_corpus([layer], database=db, index=index)
@@ -160,9 +168,9 @@ def test_sync_corpus_poda_documentos_ausentes(tmp_path: Path) -> None:
     # Arrange
     layer, gold = _layer(tmp_path, {"uno": "h1"})
     db = FakeDatabase(gold)
-    db.hashes_map = {"uno": "h1", "viejo": "h0"}
+    db.hashes_map = {"uno": gold["uno"], "viejo": "h0"}
     index = FakeIndex(gold)
-    index.hashes_map = {"uno": "h1", "viejo": "h0"}
+    index.hashes_map = {"uno": gold["uno"], "viejo": "h0"}
 
     # Act
     report = sync_corpus([layer], database=db, index=index, prune=True)
@@ -205,7 +213,7 @@ def test_sync_corpus_verify_no_escribe_y_reporta_diferencias(tmp_path: Path) -> 
     # Arrange
     layer, gold = _layer(tmp_path, {"uno": "h1"})
     db = FakeDatabase(gold)
-    db.hashes_map = {"uno": "h1"}
+    db.hashes_map = {"uno": gold["uno"]}
     index = FakeIndex(gold)
     index.hashes_map = {}
 
@@ -217,6 +225,56 @@ def test_sync_corpus_verify_no_escribe_y_reporta_diferencias(tmp_path: Path) -> 
     assert db.imports == [] and index.imports == []
     assert any("Qdrant" in difference for difference in report.differences)
     assert report.ok is False
+
+
+def test_un_cambio_solo_de_metadatos_reimporta_y_reindexa(tmp_path: Path) -> None:
+    """Corregir el título en Gold repara los almacenes aunque el cuerpo no cambie."""
+
+    # Arrange: la primera corrida deja los dos almacenes al día.
+    directorio = tmp_path / "gold"
+    _document(directorio, "historia", "h1", cuerpo="Fundada en Cali.")
+    layer = CorpusLayer("core", (directorio,))
+    gold = gold_hashes(layer)
+    db = FakeDatabase(gold)
+    index = FakeIndex(gold)
+    sync_corpus([layer], database=db, index=index)
+    assert db.imports and index.imports
+
+    # Act: solo cambia el título del front matter; el cuerpo y su hash no.
+    _con_titulo(directorio / "historia.md", "Historia renovada")
+    report = sync_corpus([layer], database=db, index=index)
+
+    # Assert
+    assert (report.new, report.updated, report.unchanged) == (0, 1, 0)
+    assert db.imports[-1] == ({"historia"}, False)
+    assert index.imports[-1] == ({"historia"}, False)
+
+
+def test_la_huella_de_qdrant_cubre_los_metadatos(tmp_path: Path) -> None:
+    """El índice publica la misma huella que Gold cuando cambia solo el título."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    class UnEmbedder:
+        """Embedder de una dimensión: basta para publicar una huella."""
+
+        def embed(self, text: str) -> list[float]:
+            return [1.0]
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "h1", cuerpo="Fundada en Cali.")
+    store = _store("metadatos")
+    index_gold(gold_dir=nucleo, store=store, embedder=UnEmbedder(), prune=False)
+    antes = store.document_hashes("core")
+
+    # Act: se reindexa el documento con el título corregido.
+    _con_titulo(nucleo / "historia.md", "Historia renovada")
+    index_gold(gold_dir=nucleo, store=store, embedder=UnEmbedder(), prune=False)
+
+    # Assert
+    assert store.document_hashes("core") != antes
+    assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
 
 
 class _EmbedderUnaDimension:
@@ -264,7 +322,7 @@ def test_un_documento_actualizado_reemplaza_sus_fragmentos(tmp_path: Path) -> No
 
     # Assert
     assert store.count() == 1
-    assert store.document_hashes("core") == {"largo": "v2"}
+    assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
 
 
 class _EmbedderOtraDimension:
@@ -297,7 +355,7 @@ def test_un_vector_de_otra_dimension_no_borra_la_version_indexada(tmp_path: Path
             prune=False,
         )
     assert store.count() == antes
-    assert store.document_hashes("core") == {"historia": "v1"}
+    assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
 
 
 def test_corpus_layers_conserva_la_capa_extendida_sin_fuentes(tmp_path: Path) -> None:
@@ -356,6 +414,6 @@ def test_la_poda_de_una_capa_conserva_los_puntos_de_la_otra(tmp_path: Path) -> N
     index_gold(gold_dir=nucleo, store=store, embedder=embedder, layer="core", prune=True)
 
     # Assert
-    assert store.document_hashes("core") == {"historia": "h1"}
-    assert store.document_hashes("extended") == {"informe": "h2"}
+    assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
+    assert store.document_hashes("extended") == gold_hashes(CorpusLayer("extended", (extendida,)))
     assert store.count() == 2
