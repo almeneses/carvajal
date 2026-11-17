@@ -1,11 +1,13 @@
 """Pruebas del registro del corpus y del bloqueo compartido (spec 037, Phase 1)."""
 
+import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-from carvajal.gold import corpus_lock, merge_index
+from carvajal.application.adopt import adopt_registry
+from carvajal.gold import corpus_lock, merge_index, read_index
 from carvajal.identity import assign_slug
 from carvajal.registry import (
     IndexedDocument,
@@ -351,3 +353,115 @@ def test_indexed_document_expone_los_campos_del_registro() -> None:
     assert documento.raw_hash == "bytes"
     assert documento.content_hash == "texto"
     assert documento.layer == "extended"
+
+
+def _bronce(raw: Path, nombre: str, contenido: bytes = b"bytes originales") -> Path:
+    """Escribe un archivo Bronze con el nombre indicado."""
+
+    raw.mkdir(parents=True, exist_ok=True)
+    ruta = raw / nombre
+    ruta.write_bytes(contenido)
+    return ruta
+
+
+def test_adopcion_completa_source_key_y_raw_hash_de_un_corpus_legado(tmp_path: Path) -> None:
+    # Arrange: una captura por URL y una subida con sufijo de hash, sin identidad.
+    area = tmp_path / "gold"
+    _indice(
+        area,
+        [
+            {"slug": "historia", "url": "https://www.carvajal.com/historia/", "hash": "h1"},
+            {
+                "slug": "informe-empaques-3f2a91b7",
+                "url": "upload://informe-empaques-3f2a91b7",
+                "hash": "h2",
+            },
+        ],
+    )
+    raw = tmp_path / "raw"
+    _bronce(raw, "historia.html", b"<html>historia</html>")
+
+    # Act
+    informe = adopt_registry((area,), raw_dir=raw)
+
+    # Assert: URL normalizada, nombre recuperado y raw_hash cuando hay Bronze.
+    entradas = read_index(area / "index.jsonl")
+    historia = entradas["historia"]
+    assert historia["source_key"] == "url:https://carvajal.com/historia"
+    assert historia["raw_hash"] == hashlib.sha256(b"<html>historia</html>").hexdigest()
+    subida = entradas["informe-empaques-3f2a91b7"]
+    assert subida["source_key"] == "upload:informe-empaques"
+    assert subida["raw_hash"] == ""
+    assert informe.adopted and not informe.conflicts
+
+
+def test_adopcion_resuelve_dos_versiones_legadas_de_la_misma_subida(tmp_path: Path) -> None:
+    # Arrange: dos versiones del mismo nombre, con distintas fechas.
+    area = tmp_path / "gold"
+    _indice(
+        area,
+        [
+            {
+                "slug": "informe-11111111",
+                "url": "upload://informe-11111111",
+                "hash": "viejo",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+            },
+            {
+                "slug": "informe-22222222",
+                "url": "upload://informe-22222222",
+                "hash": "nuevo",
+                "updated_at": "2026-05-01T00:00:00+00:00",
+            },
+        ],
+    )
+
+    # Act
+    reporte = adopt_registry((area,), raw_dir=tmp_path / "raw")
+
+    # Assert: la versión más reciente conserva la fuente y la otra queda archivada.
+    entradas = read_index(area / "index.jsonl")
+    assert entradas["informe-22222222"]["source_key"] == "upload:informe"
+    assert entradas["informe-11111111"]["source_key"] == "legacy:informe-11111111"
+    assert reporte.conflicts and reporte.conflicts[0].slug == "informe-11111111"
+
+
+def test_adopcion_usa_legacy_cuando_no_puede_recuperar_el_nombre(tmp_path: Path) -> None:
+    # Arrange: una subida antigua sin nombre legible.
+    area = tmp_path / "gold"
+    _indice(area, [{"slug": "3f2a91b7", "url": "upload://3f2a91b7", "hash": "h"}])
+
+    # Act
+    adopt_registry((area,), raw_dir=tmp_path / "raw")
+
+    # Assert
+    assert read_index(area / "index.jsonl")["3f2a91b7"]["source_key"] == "legacy:3f2a91b7"
+
+
+def test_adopcion_no_pisa_una_fuente_ya_asignada_y_es_idempotente(tmp_path: Path) -> None:
+    # Arrange: una entrada moderna ocupa la URL y una legada repite esa fuente.
+    area = tmp_path / "gold"
+    _indice(
+        area,
+        [
+            {
+                "slug": "historia",
+                "url": "https://carvajal.com/historia",
+                "source_key": "url:https://carvajal.com/historia",
+                "raw_hash": "abc",
+                "hash": "h1",
+            },
+            {"slug": "historia-vieja", "url": "https://www.carvajal.com/historia/", "hash": "h0"},
+        ],
+    )
+
+    # Act
+    primera = adopt_registry((area,), raw_dir=tmp_path / "raw")
+    segunda = adopt_registry((area,), raw_dir=tmp_path / "raw")
+
+    # Assert: la vigente conserva su fuente, la legada se archiva y repetir no cambia nada.
+    entradas = read_index(area / "index.jsonl")
+    assert entradas["historia"]["source_key"] == "url:https://carvajal.com/historia"
+    assert entradas["historia"]["raw_hash"] == "abc"
+    assert entradas["historia-vieja"]["source_key"] == "legacy:historia-vieja"
+    assert primera.conflicts and not segunda.changed

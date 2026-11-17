@@ -208,6 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="No escribe: compara huellas y conteos y sale con código 1 si difieren.",
     )
+    sync_parser.add_argument(
+        "--adopt",
+        action="store_true",
+        help="Completa source_key y raw_hash en el registro legado antes de sincronizar.",
+    )
 
     router_parser = subparsers.add_parser(
         "eval-router",
@@ -541,10 +546,30 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "sync":
+        from carvajal.application.adopt import adopt_registry
         from carvajal.application.sync import corpus_layers
+        from carvajal.gold import corpus_lock
         from carvajal.infrastructure.settings import Settings
+        from carvajal.registry import corpus_areas
 
         settings = Settings()
+        if args.adopt:
+            root = settings.gold_dir.parent
+            with corpus_lock(root):
+                adoption = adopt_registry(
+                    corpus_areas(root),
+                    raw_dir=settings.raw_dir,
+                )
+            print(
+                f"Adopción: {len(adoption.adopted)} adoptadas, "
+                f"{len(adoption.conflicts)} archivadas como legacy, "
+                f"{adoption.unchanged} sin cambios."
+            )
+            for conflict in adoption.conflicts:
+                print(
+                    f"  ! {conflict.slug}: {conflict.source_key} "
+                    f"(la fuente vigente es {conflict.conflicts_with})"
+                )
         layers = corpus_layers(settings.gold_dir, settings.external_dir, which=args.layer)
         if not layers:
             print(f"No hay documentos Gold en la capa {args.layer}.")

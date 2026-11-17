@@ -354,3 +354,51 @@ def test_capture_solo_gold_no_toca_servicios(
     code = cli.main(["capture", "--seed", "https://example.com/", "--solo-gold"])
 
     assert code == 0
+
+
+def test_parser_sync_acepta_adopt() -> None:
+    """``sync --adopt`` completa la identidad del registro legado."""
+
+    args = build_parser().parse_args(["sync", "--adopt"])
+
+    assert args.adopt is True
+
+
+def test_sync_con_adopt_completa_el_registro_sin_reindexar(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """La adopción escribe source_key y raw_hash y luego sincroniza."""
+
+    import json
+    from types import SimpleNamespace
+
+    from carvajal.application.sync import SyncReport
+    from carvajal.gold import read_index
+
+    # Arrange: un índice legado y la configuración apuntando a él.
+    data = tmp_path / "data"
+    gold = data / "gold"
+    gold.mkdir(parents=True)
+    (gold / "index.jsonl").write_text(
+        json.dumps({"slug": "historia", "url": "https://www.carvajal.com/historia/", "hash": "h1"})
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "carvajal.infrastructure.settings.Settings",
+        lambda: SimpleNamespace(
+            gold_dir=gold,
+            external_dir=data / "external",
+            raw_dir=data / "raw",
+        ),
+    )
+    monkeypatch.setattr(cli, "_sync_corpus", lambda *a, **k: SyncReport())
+
+    # Act
+    code = cli.main(["sync", "--adopt"])
+
+    # Assert
+    assert code == 0
+    entrada = read_index(gold / "index.jsonl")["historia"]
+    assert entrada["source_key"] == "url:https://carvajal.com/historia"
+    assert "Adopción: 1 adoptadas" in capsys.readouterr().out
