@@ -1,0 +1,85 @@
+{#- Tarjetas de la ruta comercial (spec 036, T028).
+    Recibe ``resultado``, la salida de ``run_commercial`` o de ``custom_need_result``. Todo el
+    texto pasa por el autoescape de Jinja; las URL vienen del catálogo validado (http/https).
+    El precio siempre va con su fecha de captura y el aviso de precio de referencia (FR-005,
+    FR-007); sin precio se dice por qué y no se estima (FR-006). -#}
+<section class="productos" aria-label="Referencias del catálogo de Carvajal Empaques">
+  {%- if resultado.catalog_note %}
+  {#- catalog_note es una instrucción para el LLM; al cliente se le explica con sus palabras. #}
+  <p class="productos-nota">
+    El catálogo de {{ "Colombia" if (resultado.request or {}).country == "CO" else "México" }}
+    todavía no tiene referencias cargadas; consulta a los distribuidores.
+  </p>
+  {%- endif %}
+  {%- if resultado.options %}
+  <ul class="productos-lista">
+    {%- for opcion in resultado.options %}
+    <li class="producto">
+      <h3 class="producto-nombre">{{ opcion.name }}</h3>
+      <dl class="producto-datos">
+        <div><dt>SKU</dt><dd><code>{{ opcion.sku }}</code></dd></div>
+        <div><dt>Material</dt><dd>{{ opcion.material }}</dd></div>
+        {%- if opcion.capacity_oz %}
+        <div><dt>Capacidad</dt><dd>{{ "%g" | format(opcion.capacity_oz) }} oz</dd></div>
+        {%- endif %}
+        <div><dt>Unidades por caja</dt><dd>{{ opcion.units_per_box }}</dd></div>
+        {%- if opcion.boxes %}
+        <div>
+          <dt>Cajas</dt>
+          <dd>{{ opcion.boxes }}{% if opcion.surplus_units %} (sobran {{ opcion.surplus_units }} unidades){% endif %}</dd>
+        </div>
+        {%- endif %}
+      </dl>
+      {%- if opcion.total or opcion.price_per_box %}
+      <p class="producto-precio">
+        <strong>{{ opcion.total or opcion.price_per_box }}</strong>
+        {{ "en total" if opcion.total else "por caja" }}
+      </p>
+      <p class="producto-aviso">{{ opcion.price_notice }}</p>
+      {%- elif opcion.price_note %}
+      <p class="producto-aviso">{{ opcion.price_note }}</p>
+      {%- elif opcion.country == "CO" %}
+      <p class="producto-aviso">El catálogo de Colombia no publica precios: consulta un distribuidor.</p>
+      {%- else %}
+      <p class="producto-aviso">Sin precio: indica el país (México o Colombia) para cotizar.</p>
+      {%- endif %}
+      <p class="producto-fuente">
+        <a href="{{ opcion.source_url }}" target="_blank" rel="noopener noreferrer">Ver ficha <span aria-hidden="true">↗</span></a>
+        · capturada el {{ opcion.captured_at }}
+      </p>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- if resultado.contacts %}
+  <ul class="productos-canales">
+    {%- for contacto in resultado.contacts %}
+    <li>
+      <a href="{{ contacto.url }}" target="_blank" rel="noopener noreferrer">{{ contacto.channel }} <span aria-hidden="true">↗</span></a>
+      · capturado el {{ contacto.captured_at }}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- set canal = resultado.channel or {} %}
+  {%- if canal.distributors %}
+  <h3 class="productos-titulo">Distribuidores en {{ canal.city }}</h3>
+  <ul class="productos-distribuidores">
+    {%- for distribuidor in canal.distributors %}
+    <li>
+      <strong>{{ distribuidor.name }}</strong>
+      {%- if distribuidor.address %} · {{ distribuidor.address }}{% endif %}
+      {%- if distribuidor.phone %} · {{ distribuidor.phone }}{% endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  <p class="producto-fuente">
+    <a href="{{ canal.distributors[0].source_url }}" target="_blank" rel="noopener noreferrer">Directorio de distribuidores <span aria-hidden="true">↗</span></a>
+  </p>
+  {%- elif canal.cities_with_distributors %}
+  <p class="productos-nota">
+    {%- if canal.city %}No hay distribuidores publicados en {{ canal.city }}. {% endif -%}
+    Ciudades con distribuidores: {{ canal.cities_with_distributors | join(", ") }}.
+  </p>
+  {%- endif %}
+</section>

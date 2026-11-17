@@ -88,6 +88,8 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
+    # Tiempo máximo de espera por llamada al proveedor de LLM.
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
     ollama_model: str = "llama3.2"
     # La FAQ y el chat envían prompts grandes: sin una ventana explícita,
     # Ollama recorta el contexto y puede responder con datos incompletos.
@@ -157,6 +159,10 @@ class Settings(BaseSettings):
     agent_checkpointer: str = "postgres"
     agent_sqlite_path: Path = Path("data") / "agent" / "checkpoints.sqlite"
     agent_history_turns: int = Field(default=8, ge=1, le=50)
+    # Enrutador del agente (spec 036, FR-013): rules (por defecto), llm o decision.
+    agent_router: str = "rules"
+    # Modelo de decisión para el enrutador «decision», como paquete.modulo:fabrica.
+    decision_model: str = ""
 
     # Frontend propio (proceso separado) y orígenes permitidos por CORS.
     # NoDecode evita que pydantic-settings intente JSON antes del validador:

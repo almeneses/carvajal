@@ -5,7 +5,7 @@ from typing import Any, Literal, TypedDict
 
 __all__ = ["AgentState", "RouteDecision", "RouteName", "Turn"]
 
-RouteName = Literal["direct", "rag", "tool"]
+RouteName = Literal["direct", "rag", "tool", "commercial"]
 
 
 class Turn(TypedDict):
@@ -34,6 +34,7 @@ class AgentState(TypedDict, total=False):
     tool_result: dict[str, Any]
     tool_name: str
     tool_period: str
+    commercial: dict[str, Any]
     reason: str
     answer: str
     incomplete: bool
@@ -46,7 +47,8 @@ class RouteDecision:
     ``query`` es la consulta de recuperación (puede incluir el turno anterior en
     un seguimiento elíptico). ``tool_name``/``tool_period`` solo existen en la
     ruta ``tool``. ``preference`` se guarda en el Store cuando el usuario declara
-    una preferencia.
+    una preferencia. ``extra`` lleva la solicitud comercial, con las claves de
+    ``CommercialRequest``, en la ruta ``commercial`` y en su aclaración.
     """
 
     route: RouteName

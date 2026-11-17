@@ -159,8 +159,13 @@ produce un informe con las mismas métricas para los tres.
 - Bebida «tibia» o temperatura no declarada: se pregunta en lugar de suponer frío.
 - Precio capturado con oferta vigente hasta una fecha ya vencida: se muestra el precio
   regular y se advierte que la oferta pudo terminar.
-- Referencia cuyo material no está en la guía: se excluye de las recomendaciones con
-  restricción de temperatura y se informa en el registro de importación.
+- Referencia cuyo material no está en la guía (papel, pulpa): se valida con la temperatura
+  y el uso que declara su propia ficha; si la ficha no declara ninguno de los dos, se excluye
+  de las recomendaciones con restricción de temperatura. El material queda listado en el
+  manifiesto del catálogo.
+- Ficha con datos contradictorios (título contra descripción, temperatura contra uso
+  declarado): se usa el dato coherente, se descarta el dudoso y la contradicción queda
+  anotada en el manifiesto.
 - Cantidades muy grandes (más de 100 cajas): se calcula, pero se sugiere contacto
   comercial por volumen.
 - Petición de hacer el pedido o pagar: el asistente aclara que no procesa pedidos y remite
@@ -176,7 +181,8 @@ produce un informe con las mismas métricas para los tres.
 - **FR-002**: El sistema MUST pedir aclaración cuando falte el uso o la temperatura para
   recomendar, o el país para cotizar o indicar canal; nunca MUST suponerlos.
 - **FR-003**: Toda referencia recomendada MUST cumplir las reglas de la guía de materiales
-  para el uso y la temperatura solicitados.
+  para el uso y la temperatura solicitados. Si la guía no cubre su material, MUST cumplir la
+  temperatura y el uso declarados en su propia ficha.
 - **FR-004**: El cálculo de cajas MUST hacerse con aritmética determinista, redondeando
   hacia arriba; el modelo de lenguaje no MUST calcular cantidades ni totales.
 - **FR-005**: Todo precio mostrado MUST incluir moneda, nota de impuestos y fecha de
@@ -204,8 +210,9 @@ produce un informe con las mismas métricas para los tres.
 ### Key Entities *(include if feature involves data)*
 
 - **Referencia de empaque**: producto vendible con identificador, nombre, familia (vaso,
-  tapa, contenedor, charola, cubierto, envase), uso, capacidad, material, marca, unidades
-  por paquete y por caja, precio y moneda cuando existen, país, fuente y fecha de captura.
+  tapa, contenedor, charola, cubierto, envase, plato), uso, capacidad, material, marca,
+  unidades por paquete y por caja, temperatura de uso declarada en la ficha, precio, moneda
+  y vigencia cuando existen, país, fuente y fecha de captura.
 - **Regla de material**: material con su rango de temperatura, aptitud para microondas,
   refrigeración, congelación y contenido caliente, código de reciclaje y aplicaciones
   recomendadas.
@@ -239,7 +246,37 @@ produce un informe con las mismas métricas para los tres.
 - Los datos provienen del corpus capturado el 2026-10-23; los precios son de esa fecha y
   la actualización periódica queda fuera de alcance.
 - La guía de materiales es la autoridad técnica; si una ficha contradice la guía, manda la
-  guía y la contradicción se registra.
+  guía y la contradicción se registra. La guía solo cubre PP, EPS, PS, PET y aluminio; para
+  papel y pulpa la autoridad es la ficha del producto.
 - El asistente no sustituye al asesor comercial ni vincula a Carvajal con ningún precio.
 - El modelo de decisión especializado es opcional: el asistente funciona con el enrutador
   por reglas.
+
+## Historial de cambios
+
+- 2026-11-16 (PR 2, #135): al curar los datos se encontró que la guía de materiales no cubre
+  papel ni pulpa, que son el material de casi todos los vasos para bebida caliente. Se
+  ajustan FR-003, un caso borde y un supuesto para validar esos materiales con su ficha, y
+  se añade el caso de fichas contradictorias.
+- 2026-11-16 (PR 4): al implementar FR-002 se precisa cómo se aplica, sin cambiar el
+  requisito. La temperatura es el dato que decide el material: se toma de la pregunta o se
+  deduce del uso declarado («café» → caliente, «microondas» → caliente), y el uso se deduce
+  de la familia y la temperatura. Si no se puede obtener la temperatura, el router pide
+  aclaración. La falta de país no bloquea la recomendación: el nodo recomienda sin precio y
+  pide el país para cotizar e indicar el canal.
+- 2026-11-16 (PR 6): casos límite de US4. Una pregunta que nombra a Carvajal y un producto
+  sin señal de compra ni datos concretos es institucional (`rag`). La derivación de FR-010
+  usa los únicos canales publicados en el corpus (tienda de México y directorio de
+  distribuidores de Colombia), porque no hay un contacto comercial de Empaques aparte. En
+  una pregunta mixta se atiende la parte comercial y la otra se pide en un mensaje aparte.
+- 2026-11-16 (PR 7): el modelo de decisión se carga desde `DECISION_MODEL` en lugar de un
+  extra de instalación, porque todavía no se eligió el paquete (Jev, GLiNER2.5-Decide u
+  otro). Los enrutadores LLM y de decisión caen al de reglas si su salida no cumple el
+  contrato, y la razón lo deja visible para la evaluación.
+- 2026-11-16 (PR 8): las tarjetas se renderizan en el servidor con `_productos.html` y viajan
+  en un evento SSE `products`, entre `meta` y los tokens. No se guardan con el mensaje: al
+  recargar el hilo queda la respuesta en texto, que ya cita cada ficha con su fecha.
+- 2026-11-16 (PR 9): al preparar la prueba de punta a punta se corrigieron dos seguimientos
+  que perdían la solicitud: uno que vuelve a nombrar el producto sin decir para qué («¿y si
+  son 4.500 vasos?») y una cantidad suelta («¿y si son 4.500?»). La evidencia de cada criterio
+  de éxito queda en `evidencia.md`.

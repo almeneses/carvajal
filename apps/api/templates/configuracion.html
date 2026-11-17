@@ -90,7 +90,7 @@
           name="archivos"
           type="file"
           multiple
-          accept=".md,.markdown,.txt,.html,.htm"
+          accept="{% for formato in formatos %}{{ formato }}{% if not loop.last %},{% endif %}{% endfor %}"
         />
         <p class="ayuda">Puedes seleccionar varios archivos a la vez.</p>
       </div>
@@ -104,7 +104,7 @@
           multiple
           webkitdirectory
           directory
-          accept=".md,.markdown,.txt,.html,.htm"
+          accept="{% for formato in formatos %}{{ formato }}{% if not loop.last %},{% endif %}{% endfor %}"
         />
         <p class="ayuda">Se recorren los archivos admitidos de la carpeta elegida.</p>
       </div>
@@ -118,6 +118,10 @@
         Formatos admitidos: {% for formato in formatos %}<code>{{ formato }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
       </p>
       <p>Máximo {{ MAX_FILES }} archivos por carga y {{ MAX_FILE_MB }} MB por archivo.</p>
+      <p>
+        Los PDF conservan el número de página. Los PDF escaneados no tienen texto
+        extraíble y requieren OCR previo: se avisa y no se convierten.
+      </p>
       <p>
         Los documentos se incorporan con sección <strong>Cargas</strong> y origen
         <strong>colaborador</strong>. El proceso actualiza PostgreSQL y Qdrant de

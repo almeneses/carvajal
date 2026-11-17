@@ -22,9 +22,12 @@ El entregable versionado es `data/gold/` (24 documentos con *front matter*: `url
 Bronze (`data/raw/`) y silver (`data/processed/`) se regeneran y no se versionan.
 
 - Nada del RAG toca la web: se deriva siempre de `data/gold/`.
-- Cambiar el corpus invalida el índice y obliga a reconstruirlo: en el M2 se ejecuta
-  `carvajal index-qdrant`; FAISS y pgvector quedan como legado del prototipo.
-- La capa extendida (`data/external/`) es opcional y solo participa en recuperación y citación.
+- Gold es la fuente de verdad del contenido; PostgreSQL y Qdrant se derivan y se reconcilian
+  con `sync`. Cambiar el corpus obliga a sincronizar, no a reconstruir a mano.
+- Cada documento tiene una identidad estable por fuente; la huella del original deduplica
+  antes de escribir capas y la huella del texto decide la versión.
+- La capa extendida (`data/external/`) es opcional y solo participa en recuperación y citación,
+  con prioridad posterior al núcleo.
 - La capa de catálogo (`data/catalog/`, spec 036) guarda datos estructurados curados con
   fuente y fecha por fila; sus precios son siempre referencias fechadas.
 
@@ -72,8 +75,8 @@ con `--admin`.
   Módulo 2 está aceptado, con evidencia en `docs/aceptacion-m2.md`.
 - Dos frontends y un solo RAG: shell renderizado en servidor con HTMX (puerto 8000) y
   frontend propio con pestañas (puerto 8001) que consume un contrato JSON de lectura.
-- Postgres 16 es la fuente de verdad del corpus, del chat y de los checkpoints; Qdrant es el
-  índice vectorial del M2.
+- Gold es la fuente de verdad del corpus; PostgreSQL guarda el texto para la FAQ y el
+  explorador y Qdrant es el índice vectorial del chat. Ambos se reconcilian con `sync`.
 - Streamlit y FAISS siguen disponibles como extra `legacy` y se retiran en la ola 7.
 - Pendientes vivos: autenticación y cuotas por usuario (ola 4), captura programada por cron y
   endurecimiento del despliegue (TLS, dominio, respaldos).
@@ -82,6 +85,9 @@ con `--admin`.
   El código se implementa después de aprobar el contrato.
 - La spec 036 define el asistente comercial de empaques sobre la capa de catálogo, con una
   ruta `commercial` en el agente y un router intercambiable para evaluación comparativa.
+- La spec 037 define el corpus incremental: identidad estable por fuente, deduplicación por
+  huella del original antes de Bronze, actualización con versiones, sincronización única con
+  PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
@@ -116,4 +122,4 @@ con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.1.0 - 2026-11-16, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.2.0 - 2026-11-16, sincronizada con `CONSTITUTION.md` del repositorio.

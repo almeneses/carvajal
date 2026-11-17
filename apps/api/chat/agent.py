@@ -6,7 +6,7 @@ la app real usa el grafo con PostgresSaver/Store y Qdrant.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 import structlog
@@ -34,6 +34,8 @@ class AgentTurn:
     tool: str = ""
     reason: str = ""
     query: str = ""
+    # Resultado estructurado de la ruta comercial (spec 036): opciones, canal y contactos.
+    products: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -108,8 +110,9 @@ class GraphAgentRunner:
         )
         sources = tuple(_source(payload) for payload in state.get("sources", []))
         turns = tuple(state.get("turns", []))
+        route = str(state.get("route", "direct"))
         return AgentTurn(
-            route=str(state.get("route", "direct")),
+            route=route,
             intent=str(state.get("intent", "")),
             prompt=state.get("prompt"),
             system=str(state.get("system", "")),
@@ -119,6 +122,7 @@ class GraphAgentRunner:
             tool=str(state.get("tool_name", "")),
             reason=str(state.get("reason", "")),
             query=str(state.get("query", "")),
+            products=dict(state.get("tool_result") or {}) if route == "commercial" else {},
         )
 
     def record(

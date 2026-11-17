@@ -15,6 +15,7 @@ sequenceDiagram
   participant R as Router LangGraph
   participant Q as Qdrant
   participant T as indicator_lookup
+  participant C as Catálogo de empaques
   participant P as Postgres
   participant L as LLM
 
@@ -34,9 +35,15 @@ sequenceDiagram
     R->>Q: embedding + top-k híbrido (ANN + léxico)
     Q-->>R: fragmentos con payload (URL, título, tipo)
     R->>R: abstención si falta evidencia
+  else commercial
+    R->>C: buscar → validar material → cajas y precio → canal
+    C-->>R: opciones, descartes y canal (sin LLM)
   end
-  R-->>API: route, prompt, sources
+  R-->>API: route, prompt, sources, tool_result
   API-->>FE: event: trace + event: meta
+  opt route = commercial
+    API-->>FE: event: products (tarjetas renderizadas)
+  end
   API->>L: stream(system, prompt)
   L-->>API: tokens
   API-->>FE: event: token (N veces)
@@ -58,6 +65,9 @@ sequenceDiagram
 | Índice | IDs UUID5, upsert idempotente, poda y payload | `packages/core/src/carvajal/adapters/vector/qdrant_store.py` |
 | Indexador | Gold → chunks → embeddings → Qdrant | `packages/core/src/carvajal/indexing/qdrant.py` |
 | Herramienta | indicadores verificables por nombre y período | `packages/core/src/carvajal/agent/tools.py` |
+| Ruta comercial | extracción de la solicitud, secuencia fija sobre el catálogo y tarjetas | `agent/commercial_intent.py`, `agent/commercial_flow.py`, `agent/commercial.py`, `apps/api/templates/_productos.html` |
+| Catálogo de empaques | CSV curados (referencias, materiales, distribuidores) cargados en memoria | `packages/core/src/carvajal/catalog/`, `data/catalog/empaques/` |
+| Enrutadores | reglas (por defecto), LLM y modelo de decisión con el mismo contrato | `packages/core/src/carvajal/agent/routers/` |
 | Observabilidad | JSON con `request_id`, `thread_id`, ruta, tool, fuentes y duración | `apps/api/observability.py`, `chat/service.py` |
 
 ## Pantallas de lectura

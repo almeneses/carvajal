@@ -8,17 +8,30 @@ declaradas por el dueño, en un namespace aislado.
 
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
+from datetime import date
 from typing import Any, cast
 
+import structlog
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
+from carvajal.agent.commercial_flow import (
+    CUSTOM_INSTRUCTIONS,
+    commercial_prompt_block,
+    commercial_sources,
+    custom_need_result,
+    custom_sources,
+    mixed_notice,
+    run_commercial,
+)
 from carvajal.agent.router import decide_route
+from carvajal.agent.routers import Router, router_name
 from carvajal.agent.state import AgentState, Turn
 from carvajal.agent.tools import indicator_lookup
 from carvajal.application.ask import DEFAULT_SYSTEM_PROMPT, NO_CONTEXT_ANSWER, AskQuestion, Source
 from carvajal.application.evidence import proper_entities_supported
 from carvajal.application.ports import Embedder, VectorStore
+from carvajal.catalog.loader import Catalog
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
@@ -35,6 +48,8 @@ AGENT_SYSTEM = (
     "con datos del corpus."
 )
 
+logger = structlog.get_logger(__name__)
+
 MEMORY_KEY = "profile"
 MAX_PREFERENCES = 10
 
@@ -46,6 +61,10 @@ class AgentDeps:
     vector_store: VectorStore
     embedder: Embedder
     settings: Settings
+    # Overrides opcionales de la ruta comercial: catálogo ya cargado y fecha de
+    # referencia. Sin ellos se usa ``load_catalog()`` y la fecha del sistema.
+    catalog: Catalog | None = None
+    today: date | None = None
 
 
 class _UnusedLLM:
@@ -176,8 +195,15 @@ def build_agent(
     *,
     checkpointer: Any,
     store: Any = None,
+    router: Router = decide_route,
 ) -> Any:
-    """Compila el grafo con checkpointer y Store reales o de prueba."""
+    """Compila el grafo con checkpointer y Store reales o de prueba.
+
+    ``router`` decide la ruta de cada turno; por defecto, las reglas de ``decide_route``.
+    Cualquier enrutador con el mismo contrato se usa sin cambiar los nodos (FR-013).
+    """
+
+    active_router = router_name(router)
 
     ask = AskQuestion(
         deps.vector_store,
@@ -198,7 +224,16 @@ def build_agent(
         }
 
     def route(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        decision = decide_route(state["question"], state.get("turns", []))
+        decision = router(state["question"], state.get("turns", []))
+        # FR-012: ruta, datos extraídos y enrutador quedan en el log de cada turno.
+        logger.info(
+            "agent.route_decided",
+            router=active_router,
+            route=decision.route,
+            intent=decision.intent,
+            extracted={key: value for key, value in decision.extra.items() if value},
+            reason=decision.reason,
+        )
         preferences = state.get("preferences", [])
         if decision.preference:
             preferences = _remember(store, state["owner_key"], decision.preference)
@@ -210,6 +245,7 @@ def build_agent(
             "tool_name": decision.tool_name,
             "tool_period": decision.tool_period,
             "reason": decision.reason,
+            "commercial": decision.extra,
         }
 
     def direct(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -223,6 +259,12 @@ def build_agent(
             instructions = (
                 "El usuario pide un indicador pero no indicó un período. Pide el año "
                 "o el año y mes; no estimes ni inventes el dato."
+            )
+        elif intent == "commercial_clarify":
+            instructions = (
+                "El usuario busca empaques pero no dijo si el contenido es caliente, frío o a "
+                "temperatura ambiente, ni un uso que lo indique. Pregunta solo por ese dato; no "
+                "recomiendes referencias ni supongas el material."
             )
         else:
             instructions = "Responde de forma directa y breve; no recuperes documentos."
@@ -308,22 +350,52 @@ def build_agent(
             "tool_result": result,
         }
 
+    def commercial(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        # Secuencia fija y determinista: el LLM solo redacta con este resultado (FR-004).
+        intent = state.get("intent", "")
+        if intent == "commercial_custom":
+            result = custom_need_result(catalog=deps.catalog)
+            instructions = commercial_prompt_block(result, instructions=CUSTOM_INSTRUCTIONS)
+            sources = custom_sources(result)
+        else:
+            result = run_commercial(
+                state.get("commercial", {}), catalog=deps.catalog, today=deps.today
+            )
+            instructions = commercial_prompt_block(result)
+            if intent == "commercial_mixed":
+                instructions += "\n\n" + mixed_notice(state.get("query", ""))
+            sources = commercial_sources(result)
+        return {
+            "prompt": build_conversation_prompt(
+                state["question"],
+                turns=state.get("turns", []),
+                preferences=state.get("preferences", []),
+                instructions=instructions,
+            ),
+            "system": AGENT_SYSTEM,
+            "sources": sources,
+            "tool_name": "catalogo_empaques",
+            "tool_result": result,
+        }
+
     workflow = StateGraph(cast(Any, AgentState))
     workflow.add_node("recall", recall)
     workflow.add_node("route", route)
     workflow.add_node("direct", direct)
     workflow.add_node("rag", rag)
     workflow.add_node("tool", tool)
+    workflow.add_node("commercial", commercial)
     workflow.set_entry_point("recall")
     workflow.add_edge("recall", "route")
     workflow.add_conditional_edges(
         "route",
         lambda state: state["route"],
-        {"direct": "direct", "rag": "rag", "tool": "tool"},
+        {"direct": "direct", "rag": "rag", "tool": "tool", "commercial": "commercial"},
     )
     workflow.add_edge("direct", END)
     workflow.add_edge("rag", END)
     workflow.add_edge("tool", END)
+    workflow.add_edge("commercial", END)
     return workflow.compile(checkpointer=checkpointer, store=store)
 
 

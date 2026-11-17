@@ -1,0 +1,50 @@
+{
+  "spec": "036-asistente-empaques",
+  "sources": {
+    "referencias_mx": {
+      "origin": "Tienda en línea de Carvajal Empaques México (fichas de producto)",
+      "generated_by": "carvajal catalog-build",
+      "captured_at": "2026-10-23",
+      "pages_read": 55,
+      "rows": 52,
+      "notes": [
+        "https://mexico.carvajalempaques.com/producto/combo-plato-navidad/: no es una referencia por caja (combo o kit)",
+        "https://mexico.carvajalempaques.com/producto/combo-verano-platos-vasos-y-cubiertos/: no es una referencia por caja (combo o kit)",
+        "https://mexico.carvajalempaques.com/producto/plato-papel-9-y-7-1010-impreso-canatek/: sin unidades por caja",
+        "https://mexico.carvajalempaques.com/producto/vaso-papel-12_oz-90mm/: el título dice 400 unidades y la descripción 1000; se usa la descripción",
+        "https://mexico.carvajalempaques.com/producto/vaso-papel-12_oz-90mm/: temperatura (-30.0, 40.0) contradice «bebida caliente»; se omite"
+      ],
+      "note_pages": "Se ejecutó sobre las 55 fichas de la tienda de México extraídas del corpus (products/ y business/)."
+    },
+    "materiales": {
+      "origin": "Guía de materiales, «Lineamientos Generales», pág. 3 del catálogo Mi Tiendita de Carvajal Empaques Centroamérica",
+      "source_url": "https://elsalvador.carvajalempaques.com",
+      "captured_at": "2026-10-23",
+      "curated": "transcrita a mano desde la imagen de la página",
+      "rows": 5,
+      "notes": [
+        "La guía no cubre papel ni pulpa; esas referencias se validan con la temperatura y el uso que declara su propia ficha.",
+        "refrigeration=true para PS y aluminio se deduce de su rango mínimo (-30 °C); la guía solo los declara aptos para congelación.",
+        "applications usa los niveles de la guía: recomendable (★), aplicable (✓) y no_apto (⊘)."
+      ]
+    },
+    "distribuidores": {
+      "origin": "Directorio de Distribuidores de Carvajal Empaques Colombia (PDF de 7 páginas)",
+      "source_url": "https://colombia.carvajalempaques.com/distribuidores",
+      "captured_at": "2026-10-23",
+      "curated": "transcrito a mano desde la imagen de cada página",
+      "rows": 29,
+      "notes": [
+        "Solo empresa, ciudad, dirección y un teléfono comercial; se omiten nombres de personas de contacto y correos.",
+        "La capa de texto de la página 5 contiene entradas ocultas que no se ven en la página; solo se transcribe lo visible."
+      ]
+    }
+  },
+  "materials_without_rule": [
+    "PAPEL",
+    "PULPA"
+  ],
+  "pending": [
+    "Catálogo PDF de Colombia (~180 referencias sin precio): T009, en una PR aparte."
+  ]
+}

@@ -21,6 +21,7 @@ import structlog
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.chat.agent import AgentRunner, AgentTurn, default_agent_runner
+from apps.api.chat.products import has_cards, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from carvajal.adapters.storage.chat import (
     ChatMessage,
@@ -250,6 +251,10 @@ class ChatService:
                 },
             )
             yield ChatEvent("meta", {"sources": _sources(turn.sources)})
+            if turn.products and has_cards(turn.products):
+                html = safe_render_products(turn.products)
+                if html:
+                    yield ChatEvent("products", {"html": html})
 
             if turn.prompt is None:
                 fragments.append(NO_CONTEXT_ANSWER)

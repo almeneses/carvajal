@@ -196,3 +196,13 @@ def test_logo_institucional_se_sirve() -> None:
     assert respuesta.status_code == 200
     assert respuesta.headers["content-type"].startswith("image/svg+xml")
     assert respuesta.text.lstrip().startswith("<svg")
+
+
+def test_el_chat_del_frontend_pinta_las_tarjetas_comerciales() -> None:
+    # spec 036: el evento SSE «products» trae el parcial _productos.html ya escapado.
+    script = cliente.get("/static/app.js").text
+    estilos = cliente.get("/static/styles.css").text
+
+    assert 'case "products":' in script
+    assert "function pintarProductos(turno, html)" in script
+    assert ".producto-precio" in estilos

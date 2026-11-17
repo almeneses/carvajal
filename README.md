@@ -43,13 +43,15 @@ modelo, ruta, memoria y herramientas.
 flowchart LR
   U[Navegador / móvil] -->|HTML + JS| FE["Frontend :8001<br/>apps/web"]
   FE -->|"JSON + SSE<br/>cookie firmada + CSRF"| API["API :8000<br/>FastAPI"]
-  API --> ROUTER["Router LangGraph<br/>direct | tool | rag"]
+  API --> ROUTER["Router LangGraph<br/>direct | tool | rag | commercial"]
   ROUTER -->|direct| PROMPT[Prompt con historial y preferencias]
   ROUTER -->|rag| Q[("Qdrant<br/>125 fragmentos · 768 dims · coseno")]
   ROUTER -->|tool| T["indicator_lookup<br/>data/indicators.json"]
+  ROUTER -->|commercial| C["Catálogo de empaques<br/>data/catalog/empaques"]
   PROMPT --> LLM[DeepSeek u Ollama]
   Q --> LLM
   T --> LLM
+  C --> LLM
   API <--> PG[("Postgres<br/>chat · checkpoints · Store")]
   API --> LOGS["structlog JSON<br/>request_id · thread_id · route · tool · sources"]
 ```
@@ -88,8 +90,9 @@ de Qdrant por separado.
 | Evento | Contenido |
 |---|---|
 | `open` | Apertura del stream. |
-| `trace` | `thread_id`, `route` (`direct`/`tool`/`rag`), `intent`, `tool`, `memory`, `retrieved`. |
+| `trace` | `thread_id`, `route` (`direct`/`tool`/`rag`/`commercial`), `intent`, `tool`, `memory`, `retrieved`. |
 | `meta` | `sources[]` con `chunk_id`, `slug`, `title`, `url`, `source_type`, `score` y extracto. |
+| `products` | Solo en la ruta `commercial`: `html` con las tarjetas de `_productos.html`, renderizadas y escapadas en la API. |
 | `token` | Fragmento incremental de la respuesta. |
 | `fallback` | Respuesta completa si el stream falla antes del primer token. |
 | `done` | `conversation_id`, `message_id`, `thread_id`, `route`, `elapsed_ms`. |
@@ -110,9 +113,11 @@ y `GET /api/chat/history` devuelve el hilo activo al recargar.
   `args_schema` Pydantic sobre `data/indicators.json`. Devuelve valor, unidad,
   cita y URL, o una ausencia explícita.
 - **Router:** orden documentado en `carvajal/agent/router.py`: preferencia →
-  herramienta con período explícito → saludo/capacidad → RAG (seguimiento
-  elíptico reescrito con la pregunta anterior) → abstención si falta evidencia.
-  Los saludos no tocan Qdrant ni la herramienta.
+  solicitud comercial de empaques → herramienta con período explícito →
+  saludo/capacidad → RAG (seguimiento elíptico reescrito con la pregunta
+  anterior) → abstención si falta evidencia. Los saludos no tocan Qdrant ni la
+  herramienta. El enrutador es intercambiable (`AGENT_ROUTER=rules|llm|decision`,
+  por defecto `rules`) y cada turno registra `agent.route_decided`.
 
 La expansión de consulta usa fechas y entidades que el corpus ya declara
 (`1904 Cali Colombia`, `10 países`, `13.000 empleados`) y las fichas de
@@ -225,6 +230,54 @@ ya están en el núcleo y deduplica por URL normalizada y hash del texto. Escrib
 > La capa extendida es material de terceros: conserva la atribución y no se presenta como
 > comunicación oficial de Carvajal.
 
+## Catálogo de empaques (spec 036)
+
+El asistente comercial de empaques consulta un **catálogo curado** en `data/catalog/empaques/`
+(CSV versionados y `manifest.json`), no el RAG: recomendar un vaso exige filtros exactos de
+capacidad, material y temperatura.
+
+| Archivo | Contenido | Cómo se mantiene |
+|---|---|---|
+| `referencias.csv` | Referencias con SKU, material, unidades por caja, temperatura de uso y precio de referencia (México) | `carvajal catalog-build` para México; otros países curados a mano |
+| `materiales.csv` | Reglas de la guía de materiales (PP, EPS, PS, PET, aluminio) | Curado a mano |
+| `distribuidores.csv` | Distribuidores de Colombia por ciudad (sin datos personales) | Curado a mano |
+
+```bash
+uv run carvajal catalog-build --corpus <carpeta del corpus externo> --captured-at 2026-10-23
+```
+
+La orden lee las fichas HTML de la tienda de Carvajal Empaques México, regenera sus filas,
+conserva las de otros países y anota en el manifiesto las fichas descartadas o
+contradictorias. Los precios son siempre de referencia y llevan la fecha de captura. Si el
+corpus no incluye una ficha que ya estaba en `referencias.csv`, la orden aborta antes de
+escribir para no perder filas; `--allow-missing` acepta la baja.
+
+### Ruta `commercial` del agente
+
+Una pregunta que nombra un producto (vaso, tapa, contenedor, charola, cubierto, envase,
+plato) con intención de compra o datos de la necesidad va a la ruta `commercial`. El
+router extrae uso, temperatura, microondas, capacidad (ml → oz), cantidad, país y ciudad;
+si falta la temperatura, pide aclararla. El nodo ejecuta una secuencia fija y determinista
+(`agent/commercial_flow.py`): buscar → validar el material con la guía → cajas y precio de
+referencia (solo México) → canal de compra (tienda en México, distribuidores por ciudad en
+Colombia). El LLM solo redacta con ese resultado, y el chat muestra una tarjeta por
+referencia con SKU, material, cajas, precio con fecha y enlace a la ficha.
+
+| Pregunta | Ruta |
+|---|---|
+| «Necesito 5.000 vasos de 12 oz para café en México» | `commercial`: 5 cajas por referencia, total en MXN con aviso |
+| «busco vasos de 16 oz» | `direct`: pide si el contenido es caliente o frío |
+| «vasos para jugo en Medellín» | `commercial`: sin precio, distribuidores de Medellín |
+| «quiero vasos personalizados con mi logo» | `commercial`: se deriva a los canales oficiales, sin recomendar |
+| «¿Qué vasos fabrica Carvajal Empaques?» | `rag`: pregunta institucional |
+
+```bash
+uv run carvajal eval-router                              # 110 preguntas, enrutador por reglas
+uv run carvajal eval-router --router rules --router llm  # comparación con el LLM
+```
+
+Resultados y análisis: [`docs/resultados-router.md`](docs/resultados-router.md).
+
 ## 🗺️ Arquitectura
 
 Diagrama interactivo autocontenido (generado con [Archify](https://github.com/tt-a1i/archify)):
@@ -315,6 +368,43 @@ Gold → PostgreSQL → Qdrant, reutilizando el pipeline del corpus y conservand
 los documentos ya indexados. La captura muestra el progreso por SSE, respeta
 `robots.txt` y valida las URLs contra un guard SSRF; en esta fase la carga y la
 captura son públicas y no exigen autenticación.
+
+#### Carga local multiformato (web y consola)
+
+La pestaña Configuración y la consola aceptan `.pdf`, `.xml`, `.json`, `.jsonl`,
+`.csv`, `.tsv`, `.html`, `.txt`, `.md` y `.markdown`. Cada archivo deja el original en
+Bronze, el texto extraído en Silver y la ficha en Gold; los PDF conservan el número de
+página (`## Página N`) gracias a `pdftotext` (poppler-utils) y los escaneados se rechazan
+con un aviso de OCR. Los datos estructurados se validan (sin DTD ni entidades externas)
+y se conservan como texto íntegro delimitado por su formato. La web mantiene 100
+archivos por carga y 5 MB por archivo.
+
+Para volúmenes grandes, desde la consola:
+
+```bash
+python -m apps.api.ingest_cli /ruta/de/la/carpeta --source-type oficial
+```
+
+Recorre carpetas y subcarpetas, ignora las extensiones no admitidas, procesa en lotes
+(`--lote`, 25 por defecto), admite 100 MB por archivo (`--max-file-mb`) y al cerrar cada
+lote actualiza PostgreSQL y Qdrant. `--solo-extraer` se detiene en Gold para revisar la
+extracción antes de tocar la base y el índice. `--source-type` (`oficial`, `tercero` o
+`colaborador`) fija la procedencia que se escribe en el *front matter*: la procedencia es
+independiente de que el archivo se suba por la web o se importe por consola.
+
+En el VPS se ejecuta dentro del contenedor, que es donde están la base, Qdrant y los
+volúmenes:
+
+```bash
+cd /opt/carvajal
+docker compose -f compose.prod.yml run --rm --no-deps \
+  -v /opt/carvajal/inbox:/inbox:ro \
+  app python -m apps.api.ingest_cli /inbox --source-type oficial
+```
+
+Los archivos de `/opt/carvajal/inbox` se leen en solo lectura; el original queda copiado
+en el volumen (`appdata`) dentro de Bronze, así que la carpeta del host puede borrarse
+después.
 
 La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
 núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras
