@@ -117,9 +117,11 @@
 
 ## Phase 8: Pulido y transversal
 
-- [ ] T042 Actualizar `README.md` y `docs/arquitectura.md` con la ruta `commercial`
+- [X] T042 Actualizar `README.md` y `docs/arquitectura.md` con la ruta `commercial`
 - [ ] T043 Ejecutar `make check` y el E2E del chat con tres conversaciones de ejemplo
-- [ ] T044 Revisar cada SC de la spec con evidencia en la PR de cierre
+      (`make check` en verde; guion en `docs/demo-036.md`, pendiente la corrida con la app)
+- [X] T044 Revisar cada SC de la spec con evidencia en la PR de cierre
+      (`specs/036-asistente-empaques/evidencia.md`)
 
 ## Dependencies & Execution Order
 

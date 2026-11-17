@@ -43,13 +43,15 @@ modelo, ruta, memoria y herramientas.
 flowchart LR
   U[Navegador / móvil] -->|HTML + JS| FE["Frontend :8001<br/>apps/web"]
   FE -->|"JSON + SSE<br/>cookie firmada + CSRF"| API["API :8000<br/>FastAPI"]
-  API --> ROUTER["Router LangGraph<br/>direct | tool | rag"]
+  API --> ROUTER["Router LangGraph<br/>direct | tool | rag | commercial"]
   ROUTER -->|direct| PROMPT[Prompt con historial y preferencias]
   ROUTER -->|rag| Q[("Qdrant<br/>125 fragmentos · 768 dims · coseno")]
   ROUTER -->|tool| T["indicator_lookup<br/>data/indicators.json"]
+  ROUTER -->|commercial| C["Catálogo de empaques<br/>data/catalog/empaques"]
   PROMPT --> LLM[DeepSeek u Ollama]
   Q --> LLM
   T --> LLM
+  C --> LLM
   API <--> PG[("Postgres<br/>chat · checkpoints · Store")]
   API --> LOGS["structlog JSON<br/>request_id · thread_id · route · tool · sources"]
 ```
@@ -88,8 +90,9 @@ de Qdrant por separado.
 | Evento | Contenido |
 |---|---|
 | `open` | Apertura del stream. |
-| `trace` | `thread_id`, `route` (`direct`/`tool`/`rag`), `intent`, `tool`, `memory`, `retrieved`. |
+| `trace` | `thread_id`, `route` (`direct`/`tool`/`rag`/`commercial`), `intent`, `tool`, `memory`, `retrieved`. |
 | `meta` | `sources[]` con `chunk_id`, `slug`, `title`, `url`, `source_type`, `score` y extracto. |
+| `products` | Solo en la ruta `commercial`: `html` con las tarjetas de `_productos.html`, renderizadas y escapadas en la API. |
 | `token` | Fragmento incremental de la respuesta. |
 | `fallback` | Respuesta completa si el stream falla antes del primer token. |
 | `done` | `conversation_id`, `message_id`, `thread_id`, `route`, `elapsed_ms`. |
@@ -110,9 +113,11 @@ y `GET /api/chat/history` devuelve el hilo activo al recargar.
   `args_schema` Pydantic sobre `data/indicators.json`. Devuelve valor, unidad,
   cita y URL, o una ausencia explícita.
 - **Router:** orden documentado en `carvajal/agent/router.py`: preferencia →
-  herramienta con período explícito → saludo/capacidad → RAG (seguimiento
-  elíptico reescrito con la pregunta anterior) → abstención si falta evidencia.
-  Los saludos no tocan Qdrant ni la herramienta.
+  solicitud comercial de empaques → herramienta con período explícito →
+  saludo/capacidad → RAG (seguimiento elíptico reescrito con la pregunta
+  anterior) → abstención si falta evidencia. Los saludos no tocan Qdrant ni la
+  herramienta. El enrutador es intercambiable (`AGENT_ROUTER=rules|llm|decision`,
+  por defecto `rules`) y cada turno registra `agent.route_decided`.
 
 La expansión de consulta usa fechas y entidades que el corpus ya declara
 (`1904 Cali Colombia`, `10 países`, `13.000 empleados`) y las fichas de
@@ -246,6 +251,32 @@ conserva las de otros países y anota en el manifiesto las fichas descartadas o
 contradictorias. Los precios son siempre de referencia y llevan la fecha de captura. Si el
 corpus no incluye una ficha que ya estaba en `referencias.csv`, la orden aborta antes de
 escribir para no perder filas; `--allow-missing` acepta la baja.
+
+### Ruta `commercial` del agente
+
+Una pregunta que nombra un producto (vaso, tapa, contenedor, charola, cubierto, envase,
+plato) con intención de compra o datos de la necesidad va a la ruta `commercial`. El
+router extrae uso, temperatura, microondas, capacidad (ml → oz), cantidad, país y ciudad;
+si falta la temperatura, pide aclararla. El nodo ejecuta una secuencia fija y determinista
+(`agent/commercial_flow.py`): buscar → validar el material con la guía → cajas y precio de
+referencia (solo México) → canal de compra (tienda en México, distribuidores por ciudad en
+Colombia). El LLM solo redacta con ese resultado, y el chat muestra una tarjeta por
+referencia con SKU, material, cajas, precio con fecha y enlace a la ficha.
+
+| Pregunta | Ruta |
+|---|---|
+| «Necesito 5.000 vasos de 12 oz para café en México» | `commercial`: 5 cajas por referencia, total en MXN con aviso |
+| «busco vasos de 16 oz» | `direct`: pide si el contenido es caliente o frío |
+| «vasos para jugo en Medellín» | `commercial`: sin precio, distribuidores de Medellín |
+| «quiero vasos personalizados con mi logo» | `commercial`: se deriva a los canales oficiales, sin recomendar |
+| «¿Qué vasos fabrica Carvajal Empaques?» | `rag`: pregunta institucional |
+
+```bash
+uv run carvajal eval-router                              # 110 preguntas, enrutador por reglas
+uv run carvajal eval-router --router rules --router llm  # comparación con el LLM
+```
+
+Resultados y análisis: [`docs/resultados-router.md`](docs/resultados-router.md).
 
 ## 🗺️ Arquitectura
 

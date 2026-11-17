@@ -117,7 +117,7 @@ _PACKAGING = re.compile(r"\b(empaques?|embalajes?|bolsas?|cajas?|sacos?|etiqueta
 _OTHER_TOPIC = re.compile(
     r"\b(empresas?|compania|historia|fund\w*|quien\w*|ingresos?|ventas?|accion(?:es)?"
     r"|sostenibilidad|reportes?|noticias?|empleados?|plantas?|sedes?|mision|vision|valores"
-    r"|politicas?)\b"
+    r"|politicas?|presencia)\b"
 )
 # Señales concretas de compra: con ellas una pregunta que nombra a Carvajal sigue siendo
 # comercial («Carvajal, 5000 vasos para microondas»). La capacidad o la ciudad solas no
@@ -130,6 +130,8 @@ _RENEWABLE = re.compile(
 _HOT = re.compile(r"\b(calientes?|calentar|hirviendo)\b")
 _COLD = re.compile(r"\b(fri[ao]s?|helad[ao]s?|refrigera\w*|congela\w*)\b")
 _NUMBER = r"\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?"
+# Un número de cuatro cifras entre 1900 y 2099 en un seguimiento es un año, no una cantidad.
+_YEAR = re.compile(r"(?:19|20)\d{2}")
 _CO_CITIES = (
     "Bogotá Medellín Cali Barranquilla Cartagena Bucaramanga Pereira Manizales Armenia Ibagué "
     "Neiva Pasto Villavicencio Cúcuta Santa_Marta Popayán Tunja Montería Valledupar Sincelejo"
@@ -296,39 +298,85 @@ def _is_institutional(question: str, data: dict[str, Any]) -> bool:
     )
 
 
+def _previous_request(turns: list[Turn]) -> list[dict[str, Any]] | None:
+    """Datos de los turnos previos de la misma solicitud, del más antiguo al más reciente.
+
+    Se recorre hacia atrás hasta el turno que nombró el producto. Si antes aparece un turno
+    sin relación con la compra, no hay solicitud que heredar.
+    """
+
+    chain: list[dict[str, Any]] = []
+    for turn in reversed(turns[-FOLLOW_UP_DEPTH:]):
+        product, data = _extract(turn["question"])
+        if data["quantity"] is None:
+            # «¿y si son 4.500?» no nombra el producto: la cantidad del seguimiento cuenta
+            # para el turno siguiente, aunque el turno sea una pregunta.
+            data["quantity"] = _follow_up_quantity(_plain(turn["question"]))
+        if not (product or _has_signal(data)):
+            # Un saludo u otro turno sin datos no invalida la respuesta a la aclaración.
+            continue
+        if not product and data["quantity"] is None and _is_question(turn["question"]):
+            # Una pregunta intermedia cambia de tema: no se hereda a través de ella.
+            return None
+        chain.append(data)
+        if product:
+            return list(reversed(chain))
+    return None
+
+
+def _follow_up_quantity(text: str) -> int | None:
+    """Cantidad suelta de un seguimiento («¿y si son 4.500?»), nunca una capacidad ni un año."""
+
+    match = re.search(
+        rf"\b(?:son|serian|seran|para)\s+({_NUMBER})\b(?!\s*(?:oz|onzas?|ml|mililitros?|l|litros?)\b)",
+        text,
+    )
+    if match is None:
+        return None
+    raw = match.group(1)
+    if _YEAR.fullmatch(raw):
+        # «¿y para 2025?» pregunta por un período, no por una cantidad de cajas.
+        return None
+    return int(_number(raw))
+
+
+def _inherit(previous: list[dict[str, Any]], data: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for item in [*previous, data]:
+        merged = _merge(merged, item)
+    return _complete(merged)
+
+
 def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[str, Any] | None:
     """Solicitud comercial con las claves de ``CommercialRequest``, o ``None`` si no lo es."""
 
+    turns = turns or []
     product, data = _extract(question)
+    short = len(question.split()) <= FOLLOW_UP_MAX_WORDS and "carvajal" not in _plain(question)
     if product:
         if _is_institutional(question, data):
             return None
-        return _complete(data) if _has_signal(data) else None
+        if not _has_signal(data):
+            return None
+        request = _complete(data)
+        # «¿y si son 4.500 vasos?»: nombra el producto pero no dice para qué; si sigue una
+        # solicitud del mismo producto, hereda lo que ya se dijo en lugar de pedirlo otra vez.
+        if short and request["temperature"] is None:
+            previous = _previous_request(turns)
+            if previous and previous[0]["family"] in (None, data["family"]):
+                return _inherit(previous, data)
+        return request
     # Respuesta corta a una aclaración: hereda la solicitud de los turnos anteriores.
-    if (
-        _is_question(question)
-        or len(question.split()) > FOLLOW_UP_MAX_WORDS
-        or "carvajal" in _plain(question)
-    ):
+    if not short:
         return None
+    if _is_question(question) and _OTHER_TOPIC.search(_plain(question)):
+        return None
+    if data["quantity"] is None:
+        data["quantity"] = _follow_up_quantity(_plain(question))
     if not _has_signal({key: value for key, value in data.items() if key != "_intent"}):
         return None
-    chain = [data]
-    for turn in reversed((turns or [])[-FOLLOW_UP_DEPTH:]):
-        previous_product, previous = _extract(turn["question"])
-        if not (previous_product or _has_signal(previous)):
-            # Un saludo u otro turno sin datos no invalida la respuesta a la aclaración.
-            continue
-        if not previous_product and _is_question(turn["question"]):
-            # Una pregunta intermedia cambia de tema: no se hereda a través de ella.
-            return None
-        chain.append(previous)
-        if previous_product:
-            merged: dict[str, Any] = {}
-            for item in reversed(chain):
-                merged = _merge(merged, item)
-            return _complete(merged)
-    return None
+    previous = _previous_request(turns)
+    return _inherit(previous, data) if previous else None
 
 
 def empty_request() -> dict[str, Any]:
@@ -368,6 +416,11 @@ def non_commercial_part(question: str) -> str | None:
         if len(part.split()) < 3:
             continue
         product, data = _extract(part)
-        if not product and not _has_signal(data) and _OTHER_TOPIC.search(_plain(part)):
+        if (
+            not product
+            and not _has_signal(data)
+            and _OTHER_TOPIC.search(_plain(part))
+            and _follow_up_quantity(_plain(part)) is None
+        ):
             return part
     return None

@@ -106,6 +106,7 @@ flowchart TD
 | Orquestación LLM | LangChain | Cadenas de prompt, retriever y LLM |
 | LLM | DeepSeek (`deepseek-chat`), Claude, Ollama | Respuesta con temperatura 0 |
 | Interfaz | Streamlit | Campo de pregunta + área de respuesta |
+| Catálogo comercial (spec 036) | CSV en `data/catalog/empaques/` + Pydantic | Recomendación de empaques con reglas de material, cajas y precio de referencia; ver `docs/arquitectura-m2.md` |
 | CLI | `argparse` | `capture` · `ask` · `eval` · `status` · `list` |
 | Calidad | Ruff · `ty` · pytest · pre-commit | Estilo, tipos y pruebas antes del commit |
 | Automatización | Makefile (GNU Make 4.4.1) | Interfaz única de comandos |
