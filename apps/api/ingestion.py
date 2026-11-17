@@ -23,6 +23,7 @@ from apps.api.document_formats import (
     ExtractError,
     extract_markdown,
 )
+from carvajal.application.sync import CorpusLayer, SyncReport, sync_corpus
 from carvajal.domain.rules import content_hash, estimate_tokens
 from carvajal.gold import merge_index
 from carvajal.identity import (
@@ -40,9 +41,8 @@ __all__ = [
     "MAX_FILE_BYTES",
     "IngestReport",
     "UploadedDocument",
-    "importar_gold",
-    "indexar_gold",
     "ingest_uploads",
+    "sync_gold",
 ]
 
 logger = structlog.get_logger(__name__)
@@ -126,23 +126,13 @@ def _gold(
     )
 
 
-def importar_gold(gold_dir: Path, only: set[str]) -> tuple[int, int]:
-    """Importa Gold a PostgreSQL y devuelve ``(documentos, fragmentos)``."""
+def sync_gold(gold_dir: Path, only: set[str]) -> SyncReport:
+    """Sincroniza los slugs cargados con PostgreSQL y Qdrant."""
 
-    from apps.api.runtime import session_factory
-    from carvajal.adapters.storage.import_corpus import migrate_gold
-
-    with session_factory().begin() as session:
-        report = migrate_gold(session, gold_dir=gold_dir, prune=False, only=only)
-    return report.documents, report.chunks
-
-
-def indexar_gold(gold_dir: Path, only: set[str]) -> int:
-    """Reindexa Gold en Qdrant y devuelve los puntos indexados."""
-
-    from apps.api.runtime import embedder
+    from apps.api.runtime import embedder, session_factory
+    from carvajal.adapters.storage.sync_postgres import PostgresSync
     from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
-    from carvajal.indexing.qdrant import index_gold
+    from carvajal.adapters.vector.sync_qdrant import QdrantSync
 
     settings = Settings()
     store = QdrantVectorStore(
@@ -153,13 +143,13 @@ def indexar_gold(gold_dir: Path, only: set[str]) -> int:
         distance=settings.qdrant_distance,
     )
     try:
-        return index_gold(
-            gold_dir=gold_dir,
-            store=store,
-            embedder=embedder(),
-            prune=False,
+        return sync_corpus(
+            [CorpusLayer("core", (gold_dir,))],
+            database=PostgresSync(session_factory()),
+            index=QdrantSync(store, embedder()),
             only=only,
-        ).indexed
+            lock_root=settings.gold_dir.parent,
+        )
     finally:
         store.close()
 
@@ -174,16 +164,15 @@ def ingest_uploads(
     documents: list[UploadedDocument],
     *,
     settings: Settings | None = None,
-    importar: Callable[[Path, set[str]], tuple[int, int]] | None = None,
-    indexar: Callable[[Path, set[str]], int] | None = None,
+    sincronizar: Callable[[Path, set[str]], SyncReport] | None = None,
     max_file_bytes: int = MAX_FILE_BYTES,
     solo_extraer: bool = False,
     source_type: str = "colaborador",
 ) -> IngestReport:
     """Ejecuta Bronze → Silver → Gold → PostgreSQL → Qdrant para las cargas.
 
-    ``importar`` e ``indexar`` permiten inyectar las etapas finales en pruebas
-    sin tocar PostgreSQL ni Qdrant. ``solo_extraer`` se detiene en Gold y
+    ``sincronizar`` permite inyectar la etapa final en pruebas sin tocar
+    PostgreSQL ni Qdrant. ``solo_extraer`` se detiene en Gold y
     ``max_file_bytes`` ajusta el límite por archivo de la consola.
     """
 
@@ -345,25 +334,16 @@ def ingest_uploads(
             errors=tuple(errors),
         )
 
-    documents_count = 0
-    chunks = 0
-    import_ok = False
+    documents_count = chunks = indexed = 0
     try:
-        documents_count, chunks = (importar or importar_gold)(settings.gold_dir, slugs)
-        import_ok = True
+        sync_report = (sincronizar or sync_gold)(settings.gold_dir, slugs)
+        documents_count = sync_report.documents
+        chunks = sync_report.chunks
+        indexed = sync_report.indexed
+        errors.extend(sync_report.errors)
     except Exception as error:  # la UI informa el fallo de la etapa
-        logger.warning("upload.import_failed", error=str(error))
-        errors.append("No se pudo importar a PostgreSQL; revisa la conexión y los logs.")
-
-    indexed = 0
-    if import_ok:
-        try:
-            indexed = (indexar or indexar_gold)(settings.gold_dir, slugs)
-        except Exception as error:  # Ollama o Qdrant pueden no estar disponibles
-            logger.warning("upload.index_failed", error=str(error))
-            errors.append("No se pudo indexar en Qdrant; revisa Qdrant y Ollama.")
-    else:
-        errors.append("Se omitió la indexación porque PostgreSQL no recibió los documentos.")
+        logger.warning("upload.sync_failed", error=str(error))
+        errors.append("No se pudo sincronizar el corpus; revisa la conexión y los logs.")
 
     return IngestReport(
         files=archivos,

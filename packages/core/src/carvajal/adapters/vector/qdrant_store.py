@@ -334,6 +334,44 @@ class QdrantVectorStore:
         )
         return len(stale)
 
+    def document_hashes(self, layer: str | None = None) -> dict[str, str]:
+        """Huella de texto vigente por documento, opcionalmente filtrada por capa."""
+
+        hashes: dict[str, str] = {}
+        for payload in self._payloads(layer):
+            document_id = str(payload.get("document_id") or payload.get("slug") or "")
+            if document_id and document_id not in hashes:
+                hashes[document_id] = str(payload.get("content_hash", ""))
+        return hashes
+
+    def document_ids(self, layer: str | None = None) -> set[str]:
+        """Documentos distintos presentes en el índice, filtrados por capa."""
+
+        return set(self.document_hashes(layer))
+
+    def _payloads(self, layer: str | None = None) -> Iterable[dict[str, object]]:
+        """Recorre los payloads de la colección, opcionalmente por capa."""
+
+        scroll_filter = None
+        if layer is not None:
+            scroll_filter = models.Filter(
+                must=[models.FieldCondition(key="layer", match=models.MatchValue(value=layer))]
+            )
+        offset = None
+        while True:
+            points, offset = self._client.scroll(
+                collection_name=self._collection,
+                limit=256,
+                offset=offset,
+                scroll_filter=scroll_filter,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for point in points:
+                yield dict(point.payload or {})
+            if offset is None:
+                break
+
     def all_point_ids(self) -> list[str]:
         """IDs actuales de la colección; la evaluación y la poda los usan."""
 

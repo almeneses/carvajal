@@ -51,6 +51,7 @@ def index_gold(
     embedder: Embedder,
     recreate: bool = False,
     prune: bool = True,
+    layer: str = "core",
     batch_size: int = 32,
     cards_path: Path | None = None,
     only: set[str] | None = None,
@@ -74,7 +75,7 @@ def index_gold(
     cards = _load_cards(cards_path or gold_dir.parent / "retrieval_cards.json")
     documents = []
     for path in sorted(gold_dir.glob("*.md")):
-        document = load_document(path, layer="core")
+        document = load_document(path, layer=layer)
         if only is None or document.id in only:
             documents.append(document)
     if not documents:

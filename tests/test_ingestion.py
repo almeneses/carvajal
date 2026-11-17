@@ -11,6 +11,7 @@ from apps.api.document_formats import ExtractError, extract_markdown
 from apps.api.ingest_cli import main, run
 from apps.api.ingestion import IngestReport, UploadedDocument, ingest_uploads
 from carvajal.adapters.storage.import_corpus import load_document
+from carvajal.application.sync import SyncReport
 from carvajal.gold import merge_index
 from carvajal.infrastructure.settings import Settings
 
@@ -30,15 +31,10 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     settings = _settings(tmp_path)
     llamadas: list[tuple[str, Path]] = []
 
-    def importar(gold_dir: Path, only: set[str]) -> tuple[int, int]:
-        llamadas.append(("importar", gold_dir))
+    def sincronizar(gold_dir: Path, only: set[str]) -> SyncReport:
+        llamadas.append(("sincronizar", gold_dir))
         assert only
-        return 7, 21
-
-    def indexar(gold_dir: Path, only: set[str]) -> int:
-        llamadas.append(("indexar", gold_dir))
-        assert only
-        return 35
+        return SyncReport(documents=7, chunks=21, indexed=35)
 
     documento = UploadedDocument(
         filename="politica.md",
@@ -46,7 +42,7 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     )
 
     # Act
-    report = ingest_uploads([documento], settings=settings, importar=importar, indexar=indexar)
+    report = ingest_uploads([documento], settings=settings, sincronizar=sincronizar)
 
     # Assert
     assert report == IngestReport(
@@ -71,7 +67,7 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     assert cargado.section == "Cargas"
     assert cargado.source_type == "colaborador"
     assert (settings.gold_dir / "index.jsonl").is_file()
-    assert llamadas == [("importar", settings.gold_dir), ("indexar", settings.gold_dir)]
+    assert llamadas == [("sincronizar", settings.gold_dir)]
 
 
 def test_ingest_uploads_extrae_texto_de_html(tmp_path: Path) -> None:
@@ -86,8 +82,7 @@ def test_ingest_uploads_extrae_texto_de_html(tmp_path: Path) -> None:
     report = ingest_uploads(
         [documento],
         settings=settings,
-        importar=lambda gold_dir, only: (1, 1),
-        indexar=lambda gold_dir, only: 1,
+        sincronizar=lambda gold_dir, only: SyncReport(documents=1, chunks=1, indexed=1),
     )
 
     # Assert
@@ -242,8 +237,7 @@ def test_ingest_cli_solo_extraer_no_llama_a_postgres_ni_qdrant(
     def prohibido(*args: object, **kwargs: object) -> None:
         raise AssertionError("no debe tocar servicios con --solo-extraer")
 
-    monkeypatch.setattr("apps.api.ingestion.importar_gold", prohibido)
-    monkeypatch.setattr("apps.api.ingestion.indexar_gold", prohibido)
+    monkeypatch.setattr("apps.api.ingestion.sync_gold", prohibido)
 
     # Act
     report = run([tmp_path / "corpus"], settings=settings, solo_extraer=True)
@@ -432,16 +426,12 @@ def test_ingest_uploads_no_reescribe_capas_si_no_cambia(tmp_path: Path) -> None:
     ingest_uploads([documento], settings=settings, solo_extraer=True)
     antes = (settings.gold_dir / "informe.md").read_bytes()
 
-    def importar(gold_dir: Path, only: set[str]) -> tuple[int, int]:
-        llamadas.append("importar")
-        return 1, 1
-
-    def indexar(gold_dir: Path, only: set[str]) -> int:
-        llamadas.append("indexar")
-        return 1
+    def sincronizar(gold_dir: Path, only: set[str]) -> SyncReport:
+        llamadas.append("sincronizar")
+        return SyncReport(documents=1, chunks=1, indexed=1)
 
     # Act
-    report = ingest_uploads([documento], settings=settings, importar=importar, indexar=indexar)
+    report = ingest_uploads([documento], settings=settings, sincronizar=sincronizar)
 
     # Assert
     assert report.gold == 0 and report.bronze == 0 and report.silver == 0
@@ -607,3 +597,73 @@ def test_ingest_uploads_conserva_el_primero_de_dos_homonimos_web(tmp_path: Path)
     assert (settings.gold_dir / "aviso.md").exists()
     assert "Primera version." in (settings.gold_dir / "aviso.md").read_text(encoding="utf-8")
     assert _entradas_index(settings)["aviso"]["source_key"] == "upload:aviso.md"
+
+
+def test_limites_de_carga_web_y_consola_se_conservan(tmp_path: Path) -> None:
+    """La web mantiene 100 archivos y 5 MB; la consola, 100 MB por archivo."""
+
+    # Arrange
+    from apps.api.ingest_cli import DEFAULT_MAX_FILE_MB
+    from apps.api.ingestion import MAX_FILE_BYTES, MAX_FILES
+
+    assert MAX_FILES == 100
+    assert MAX_FILE_BYTES == 5 * 1024 * 1024
+    assert DEFAULT_MAX_FILE_MB == 100
+
+    settings = _settings(tmp_path)
+    documentos = [
+        UploadedDocument(
+            filename=f"doc-{numero}.md",
+            data=f"# Doc {numero}\n\nContenido {numero}.".encode(),
+        )
+        for numero in range(MAX_FILES + 1)
+    ]
+
+    # Act
+    report = ingest_uploads(documentos, settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.files == MAX_FILES
+    assert any("Solo se procesan 100 archivos" in error for error in report.errors)
+
+
+def test_la_carga_web_rechaza_un_archivo_mayor_de_cinco_mb(tmp_path: Path) -> None:
+    """Un archivo por encima del límite no se escribe ni se extrae."""
+
+    # Arrange
+    from apps.api.ingestion import MAX_FILE_BYTES
+
+    settings = _settings(tmp_path)
+    documento = UploadedDocument(
+        filename="grande.md",
+        data=b"x" * (MAX_FILE_BYTES + 1),
+    )
+
+    # Act
+    report = ingest_uploads([documento], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 0
+    assert any("supera el límite" in error for error in report.errors)
+
+
+def test_la_consola_respeta_el_limite_por_archivo(tmp_path: Path) -> None:
+    """La consola aplica el ``max_file_bytes`` configurado a cada archivo."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    carpeta = tmp_path / "corpus"
+    carpeta.mkdir()
+    (carpeta / "grande.md").write_bytes(b"x" * 2048)
+
+    # Act
+    report = run(
+        [carpeta],
+        settings=settings,
+        solo_extraer=True,
+        max_file_bytes=1024,
+    )
+
+    # Assert
+    assert report.gold == 0
+    assert any("supera el límite" in error for error in report.errors)

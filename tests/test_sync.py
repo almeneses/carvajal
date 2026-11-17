@@ -1,0 +1,217 @@
+"""Pruebas de la sincronización Gold → PostgreSQL → Qdrant (spec 037, US2)."""
+
+import threading
+import time
+from pathlib import Path
+
+from carvajal.application.sync import CorpusLayer, gold_hashes, sync_corpus
+
+
+def _document(directorio: Path, slug: str, hash_texto: str, cuerpo: str = "Contenido.") -> None:
+    """Escribe un Markdown Gold mínimo con su huella en el front matter."""
+
+    directorio.mkdir(parents=True, exist_ok=True)
+    (directorio / f"{slug}.md").write_text(
+        "---\n"
+        f"title: {slug.title()}\n"
+        f"url: https://carvajal.com/{slug}\n"
+        f"hash: {hash_texto}\n"
+        "---\n\n"
+        f"{cuerpo}\n",
+        encoding="utf-8",
+    )
+
+
+class FakeDatabase:
+    """Doble de PostgreSQL: guarda huellas y registra las importaciones."""
+
+    def __init__(self, gold: dict[str, str]) -> None:
+        self.gold = gold
+        self.hashes_map: dict[str, str] = {}
+        self.imports: list[tuple[set[str] | None, bool]] = []
+        self.fail = False
+
+    def hashes(self, layer: str) -> dict[str, str]:
+        return dict(self.hashes_map)
+
+    def import_gold(
+        self, layer: CorpusLayer, *, only: set[str] | None, prune: bool
+    ) -> tuple[int, int, int]:
+        self.imports.append((set(only) if only is not None else None, prune))
+        if self.fail:
+            raise ConnectionError("PostgreSQL caído")
+        removed = 0
+        if prune:
+            removed = len(set(self.hashes_map) - set(self.gold))
+            self.hashes_map = dict(self.gold)
+        elif only:
+            self.hashes_map.update({slug: self.gold[slug] for slug in only})
+        selected = self.gold if prune else {slug: self.gold[slug] for slug in (only or ())}
+        return len(selected), len(selected) * 2, removed
+
+    def count(self, layer: str) -> int:
+        return len(self.hashes_map)
+
+
+class SlowDatabase(FakeDatabase):
+    """Doble que tarda en importar para comprobar la exclusión entre corridas."""
+
+    def __init__(self, gold: dict[str, str]) -> None:
+        super().__init__(gold)
+        self.activos = 0
+        self.maximo = 0
+        self._candado = threading.Lock()
+
+    def import_gold(
+        self, layer: CorpusLayer, *, only: set[str] | None, prune: bool
+    ) -> tuple[int, int, int]:
+        with self._candado:
+            self.activos += 1
+            self.maximo = max(self.maximo, self.activos)
+        time.sleep(0.15)
+        try:
+            return super().import_gold(layer, only=only, prune=prune)
+        finally:
+            with self._candado:
+                self.activos -= 1
+
+
+class FakeIndex:
+    """Doble de Qdrant: guarda huellas y registra las indexaciones."""
+
+    def __init__(self, gold: dict[str, str]) -> None:
+        self.gold = gold
+        self.hashes_map: dict[str, str] = {}
+        self.imports: list[tuple[set[str] | None, bool]] = []
+        self.fail = False
+
+    def hashes(self, layer: str) -> dict[str, str]:
+        return dict(self.hashes_map)
+
+    def index_gold(
+        self, layer: CorpusLayer, *, only: set[str] | None, prune: bool
+    ) -> tuple[int, int]:
+        self.imports.append((set(only) if only is not None else None, prune))
+        if self.fail:
+            raise ConnectionError("Qdrant caído")
+        removed = 0
+        if prune:
+            removed = len(set(self.hashes_map) - set(self.gold))
+            self.hashes_map = dict(self.gold)
+        elif only:
+            self.hashes_map.update({slug: self.gold[slug] for slug in only})
+        selected = self.gold if prune else {slug: self.gold[slug] for slug in (only or ())}
+        return len(selected), removed
+
+    def count(self, layer: str) -> int:
+        return len(self.hashes_map)
+
+
+def _layer(tmp_path: Path, docs: dict[str, str]) -> tuple[CorpusLayer, dict[str, str]]:
+    directorio = tmp_path / "gold"
+    for slug, hash_texto in docs.items():
+        _document(directorio, slug, hash_texto)
+    layer = CorpusLayer("core", (directorio,))
+    return layer, gold_hashes(layer)
+
+
+def test_sync_corpus_separa_nuevos_actualizados_y_sin_cambios(tmp_path: Path) -> None:
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1", "dos": "h2", "tres": "h3"})
+    db = FakeDatabase(gold)
+    db.hashes_map = {"uno": "h1", "dos": "viejo"}
+    index = FakeIndex(gold)
+    index.hashes_map = {"uno": "h1", "dos": "viejo"}
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index)
+
+    # Assert
+    assert (report.new, report.updated, report.unchanged) == (1, 1, 1)
+    assert db.imports == [({"dos", "tres"}, False)]
+    assert index.imports == [({"dos", "tres"}, False)]
+    assert report.documents == 2 and report.indexed == 2
+
+
+def test_sync_corpus_repara_qdrant_en_la_segunda_corrida(tmp_path: Path) -> None:
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = FakeDatabase(gold)
+    index = FakeIndex(gold)
+    index.fail = True
+
+    # Act
+    primera = sync_corpus([layer], database=db, index=index)
+    index.fail = False
+    segunda = sync_corpus([layer], database=db, index=index)
+
+    # Assert
+    assert primera.errors and "Qdrant" in primera.errors[0]
+    assert db.hashes_map == gold
+    assert index.hashes_map == gold
+    assert segunda.ok
+    assert segunda.indexed == 1
+    assert (tmp_path / "gold" / "uno.md").is_file()
+
+
+def test_sync_corpus_poda_documentos_ausentes(tmp_path: Path) -> None:
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = FakeDatabase(gold)
+    db.hashes_map = {"uno": "h1", "viejo": "h0"}
+    index = FakeIndex(gold)
+    index.hashes_map = {"uno": "h1", "viejo": "h0"}
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index, prune=True)
+
+    # Assert
+    assert db.imports == [(None, True)]
+    assert index.imports == [(set(), True)]
+    assert report.pruned == 2
+
+
+def test_sync_corpus_serializa_dos_corridas(tmp_path: Path) -> None:
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = SlowDatabase(gold)
+    index = FakeIndex(gold)
+
+    # Act
+    hilos = [
+        threading.Thread(
+            target=sync_corpus,
+            args=([layer],),
+            kwargs={
+                "database": db,
+                "index": index,
+                "lock_root": tmp_path,
+            },
+        )
+        for _ in range(2)
+    ]
+    for hilo in hilos:
+        hilo.start()
+    for hilo in hilos:
+        hilo.join()
+
+    # Assert
+    assert db.maximo == 1
+
+
+def test_sync_corpus_verify_no_escribe_y_reporta_diferencias(tmp_path: Path) -> None:
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = FakeDatabase(gold)
+    db.hashes_map = {"uno": "h1"}
+    index = FakeIndex(gold)
+    index.hashes_map = {}
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index, verify=True)
+
+    # Assert
+    assert report.verified is True
+    assert db.imports == [] and index.imports == []
+    assert any("Qdrant" in difference for difference in report.differences)
+    assert report.ok is False
