@@ -130,6 +130,8 @@ _RENEWABLE = re.compile(
 _HOT = re.compile(r"\b(calientes?|calentar|hirviendo)\b")
 _COLD = re.compile(r"\b(fri[ao]s?|helad[ao]s?|refrigera\w*|congela\w*)\b")
 _NUMBER = r"\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?"
+# Un número de cuatro cifras entre 1900 y 2099 en un seguimiento es un año, no una cantidad.
+_YEAR = re.compile(r"(?:19|20)\d{2}")
 _CO_CITIES = (
     "Bogotá Medellín Cali Barranquilla Cartagena Bucaramanga Pereira Manizales Armenia Ibagué "
     "Neiva Pasto Villavicencio Cúcuta Santa_Marta Popayán Tunja Montería Valledupar Sincelejo"
@@ -306,10 +308,14 @@ def _previous_request(turns: list[Turn]) -> list[dict[str, Any]] | None:
     chain: list[dict[str, Any]] = []
     for turn in reversed(turns[-FOLLOW_UP_DEPTH:]):
         product, data = _extract(turn["question"])
+        if data["quantity"] is None:
+            # «¿y si son 4.500?» no nombra el producto: la cantidad del seguimiento cuenta
+            # para el turno siguiente, aunque el turno sea una pregunta.
+            data["quantity"] = _follow_up_quantity(_plain(turn["question"]))
         if not (product or _has_signal(data)):
             # Un saludo u otro turno sin datos no invalida la respuesta a la aclaración.
             continue
-        if not product and _is_question(turn["question"]):
+        if not product and data["quantity"] is None and _is_question(turn["question"]):
             # Una pregunta intermedia cambia de tema: no se hereda a través de ella.
             return None
         chain.append(data)
@@ -319,13 +325,19 @@ def _previous_request(turns: list[Turn]) -> list[dict[str, Any]] | None:
 
 
 def _follow_up_quantity(text: str) -> int | None:
-    """Cantidad suelta de un seguimiento («¿y si son 4.500?»), nunca una capacidad."""
+    """Cantidad suelta de un seguimiento («¿y si son 4.500?»), nunca una capacidad ni un año."""
 
     match = re.search(
         rf"\b(?:son|serian|seran|para)\s+({_NUMBER})\b(?!\s*(?:oz|onzas?|ml|mililitros?|l|litros?)\b)",
         text,
     )
-    return int(_number(match.group(1))) if match else None
+    if match is None:
+        return None
+    raw = match.group(1)
+    if _YEAR.fullmatch(raw):
+        # «¿y para 2025?» pregunta por un período, no por una cantidad de cajas.
+        return None
+    return int(_number(raw))
 
 
 def _inherit(previous: list[dict[str, Any]], data: dict[str, Any]) -> dict[str, Any]:

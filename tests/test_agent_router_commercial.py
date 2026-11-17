@@ -345,6 +345,20 @@ def test_un_anio_en_un_seguimiento_no_es_una_cantidad() -> None:
     turnos = [_turno("Necesito 5.000 vasos de 12 oz para café en México")]
 
     assert decide_route("¿y en 2025?", turnos).route == "rag"
+    assert decide_route("¿y para 2025?", turnos).route == "rag"
+
+
+def test_un_seguimiento_hereda_la_cantidad_del_seguimiento_anterior() -> None:
+    # «¿y si son 4.500?» respondió la aclaración: el turno siguiente no vuelve a 5.000.
+    turnos = [
+        _turno("Necesito 5.000 vasos de 12 oz para café en México"),
+        _turno("¿y si son 4.500?"),
+    ]
+
+    decision = decide_route("¿y en Colombia?", turnos)
+
+    assert (decision.route, decision.intent) == ("commercial", "commercial")
+    assert decision.extra["quantity"] == 4500
 
 
 def test_una_solicitud_nueva_no_hereda_de_una_pregunta_institucional() -> None:
