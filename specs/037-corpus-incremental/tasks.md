@@ -67,24 +67,24 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 ### Pruebas de US2
 
-- [ ] T021 [P] [US2] Probar `sync_corpus` con dobles: nuevos, actualizados y sin cambios en `tests/test_sync.py`
-- [ ] T022 [P] [US2] Probar que un fallo de Qdrant no pierde Gold y que la segunda corrida repara en `tests/test_sync.py`
-- [ ] T023 [P] [US2] Probar la poda de documentos ausentes en `tests/test_sync.py`
-- [ ] T024 [P] [US2] Probar que dos sincronizaciones simultáneas se serializan (la segunda espera) en `tests/test_sync.py`
-- [ ] T025 [P] [US2] Probar que `capture` por consola sincroniza y que `--solo-gold` no toca servicios en `tests/test_cli.py`
-- [ ] T071 [P] [US2] Probar que una muestra de hasta diez documentos por capa se recupera por título en el top-10 en `tests/test_retrieval.py`
-- [ ] T072 [P] [US2] Probar la regresión de los límites de carga (100/5 MB web y 100 MB consola) en `tests/test_ingestion.py`
-- [ ] T073 [P] [US2] Probar el aviso y la selección determinista cuando el núcleo supera los 500 documentos de la FAQ en `tests/test_faq.py`
-- [ ] T074 [P] [US2] Probar que `sync --verify` no escribe y devuelve código distinto de cero ante diferencias en `tests/test_sync.py`
+- [X] T021 [P] [US2] Probar `sync_corpus` con dobles: nuevos, actualizados y sin cambios en `tests/test_sync.py`
+- [X] T022 [P] [US2] Probar que un fallo de Qdrant no pierde Gold y que la segunda corrida repara en `tests/test_sync.py`
+- [X] T023 [P] [US2] Probar la poda de documentos ausentes en `tests/test_sync.py`
+- [X] T024 [P] [US2] Probar que dos sincronizaciones simultáneas se serializan (la segunda espera) en `tests/test_sync.py`
+- [X] T025 [P] [US2] Probar que `capture` por consola sincroniza y que `--solo-gold` no toca servicios en `tests/test_cli.py`
+- [X] T071 [P] [US2] Probar que una muestra de hasta diez documentos por capa se recupera por título en el top-10 en `tests/test_retrieval.py`
+- [X] T072 [P] [US2] Probar la regresión de los límites de carga (100/5 MB web y 100 MB consola) en `tests/test_ingestion.py`
+- [X] T073 [P] [US2] Probar el aviso y la selección determinista cuando el núcleo supera los 500 documentos de la FAQ en `tests/test_faq.py`
+- [X] T074 [P] [US2] Probar que `sync --verify` no escribe y devuelve código distinto de cero ante diferencias en `tests/test_sync.py`
 
 ### Implementación de US2
 
-- [ ] T026 [US2] Crear `sync_corpus` en `packages/core/src/carvajal/application/sync.py` con inyección de sesión, índice y embedder
-- [ ] T027 [US2] Implementar el informe de sincronización (nuevos, actualizados, sin cambios, podados, errores) en `application/sync.py`
-- [ ] T028 [US2] Añadir el comando `sync` con `--layer`, `--prune` y `--verify` en `packages/core/src/carvajal/cli.py`
-- [ ] T029 [US2] Hacer que `capture` llame a `sync_corpus` con los slugs capturados y añadir `--solo-gold` en `cli.py` y `pipeline.py`
-- [ ] T030 [US2] Sustituir `importar_gold`/`indexar_gold` de `apps/api` por `sync_corpus` en `apps/api/ingestion.py` y `apps/api/web_capture.py` (el job de `capture_jobs.py` sólo delega en `ingest_urls`)
-- [ ] T031 [US2] Ejecutar la sincronización bajo `corpus_lock()` y documentar el orden de bloqueo
+- [X] T026 [US2] Crear `sync_corpus` en `packages/core/src/carvajal/application/sync.py` con inyección de sesión, índice y embedder
+- [X] T027 [US2] Implementar el informe de sincronización (nuevos, actualizados, sin cambios, podados, errores) en `application/sync.py`
+- [X] T028 [US2] Añadir el comando `sync` con `--layer`, `--prune` y `--verify` en `packages/core/src/carvajal/cli.py`
+- [X] T029 [US2] Hacer que `capture` llame a `sync_corpus` con los slugs capturados y añadir `--solo-gold` en `cli.py` y `pipeline.py`
+- [X] T030 [US2] Sustituir `importar_gold`/`indexar_gold` de `apps/api` por `sync_corpus` en `apps/api/ingestion.py` y `apps/api/web_capture.py` (el job de `capture_jobs.py` sólo delega en `ingest_urls`)
+- [X] T031 [US2] Ejecutar la sincronización bajo `corpus_lock()` y documentar el orden de bloqueo
 
 **Checkpoint**: cualquier entrada termina consultable; un `sync` repara diferencias.
 

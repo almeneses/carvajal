@@ -158,9 +158,15 @@ def build_faq_prompt(
     if max_chars <= 0:
         raise ValueError("max_chars debe ser mayor que cero.")
 
-    core = [document for document in documents if document.layer == CORE_LAYER]
+    core = sorted(
+        (document for document in documents if document.layer == CORE_LAYER),
+        key=lambda document: document.slug,
+    )
     if not core:
         raise FAQError("El corpus no tiene documentos de la capa núcleo.")
+    # El tope se aplica con orden por slug: dos corridas con el mismo corpus
+    # eligen los mismos documentos y la FAQ no cambia de contenido sin motivo.
+    core = core[:MAX_CORPUS_DOCUMENTS]
 
     shown = _previous_block(previous)
     request = "Genera hasta 10 preguntas nuevas siguiendo el formato indicado."
@@ -325,7 +331,7 @@ class GenerateFaq:
             system=system,
             prompt=prompt,
             truncated=truncated,
-            documents=len(documents),
+            documents=sum(1 for document in documents if document.layer == CORE_LAYER),
         )
 
     def complete(self, prepared: PreparedFaq, previous: Sequence[str] = ()) -> FaqBatch:

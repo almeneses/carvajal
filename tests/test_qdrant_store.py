@@ -7,6 +7,7 @@ import pytest
 from qdrant_client import models
 
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore, payload_for, point_id
+from carvajal.application.sync import sync_fingerprint
 from carvajal.domain.entities import Chunk
 
 CHUNK = Chunk(
@@ -79,6 +80,8 @@ class FakeClient:
         self.deleted.append(points_selector)
 
     def count(self, name: str, exact: bool) -> Any:
+        if not self.exists:
+            raise ValueError(f"Collection {name} not found")
         return SimpleNamespace(count=len(self.points))
 
     def close(self) -> None:
@@ -238,3 +241,60 @@ def test_la_busqueda_hibrida_aplica_el_umbral_vectorial_antes_del_lexico(
 
     # Assert
     assert results == []
+
+
+def test_una_coleccion_ausente_es_un_indice_vacio() -> None:
+    """La primera sincronización lee huellas antes de que la colección exista."""
+
+    store = QdrantVectorStore(cast(Any, FakeClient(exists=False)))
+
+    assert store.document_hashes("core") == {}
+    assert store.count() == 0
+
+
+def test_la_huella_solo_se_publica_con_todos_los_fragmentos() -> None:
+    """Un documento a medias no se da por sincronizado: la siguiente corrida lo rehace."""
+
+    def registro(ident: int) -> models.Record:
+        return models.Record(
+            id=ident,
+            payload={
+                "document_id": "historia",
+                "layer": "core",
+                "content_hash": "hash-1",
+                "chunks_total": "3",
+            },
+        )
+
+    completo = FakeClient()
+    completo.records = [registro(1), registro(2), registro(3)]
+    parcial = FakeClient()
+    parcial.records = [registro(1), registro(2)]
+
+    # Act / Assert
+    esperado = sync_fingerprint(content_hash="hash-1", title="", section="", source_type="")
+    assert QdrantVectorStore(cast(Any, completo)).document_hashes("core") == {"historia": esperado}
+    assert QdrantVectorStore(cast(Any, parcial)).document_hashes("core") == {}
+
+
+def test_los_documentos_incompletos_cuentan_para_la_poda() -> None:
+    """Sus fragmentos existen: si el Markdown desaparece, la poda debe borrarlos."""
+
+    def registro(ident: int, *, total: str) -> models.Record:
+        return models.Record(
+            id=ident,
+            payload={
+                "document_id": "historia",
+                "layer": "core",
+                "content_hash": "hash-1",
+                "chunks_total": total,
+            },
+        )
+
+    cliente = FakeClient()
+    cliente.records = [registro(1, total="3"), registro(2, total="3")]
+    store = QdrantVectorStore(cast(Any, cliente))
+
+    # Act / Assert
+    assert store.document_hashes("core") == {}
+    assert store.document_ids("core") == {"historia"}

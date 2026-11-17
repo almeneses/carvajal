@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from apps.api.web_capture import CaptureOutcome, CaptureRequest, ingest_urls, resolve_seeds
+from carvajal.application.sync import SyncReport
 from carvajal.infrastructure.settings import Settings
 
 
@@ -99,8 +100,7 @@ def test_ingest_urls_captura_importa_e_indexa_solo_los_slugs_nuevos(tmp_path: Pa
     # Arrange
     settings = _settings(tmp_path)
     client = FakeClient()
-    importar = Mock(return_value=(1, 2))
-    indexar = Mock(return_value=2)
+    sincronizar = Mock(return_value=SyncReport(documents=1, chunks=2, indexed=2))
     request = CaptureRequest(
         urls=("https://example.com/a",),
         scope="manual",
@@ -112,8 +112,7 @@ def test_ingest_urls_captura_importa_e_indexa_solo_los_slugs_nuevos(tmp_path: Pa
         request,
         settings=settings,
         client=client,
-        importar=importar,
-        indexar=indexar,
+        sincronizar=sincronizar,
     )
 
     # Assert
@@ -125,46 +124,48 @@ def test_ingest_urls_captura_importa_e_indexa_solo_los_slugs_nuevos(tmp_path: Pa
     assert outcome.indexed == 2
     assert outcome.errors == ()
     assert (settings.gold_dir / "a.md").is_file()
-    assert importar.call_args.args == (settings.gold_dir, {"a"})
-    assert indexar.call_args.args == (settings.gold_dir, {"a"})
+    assert sincronizar.call_args.args == (settings.gold_dir, {"a"})
     assert client.urls == ["https://example.com/a"]
 
 
 def test_ingest_urls_omite_la_indexacion_si_falla_postgres(tmp_path: Path) -> None:
     # Arrange
     settings = _settings(tmp_path)
-    importar = Mock(side_effect=RuntimeError("sin conexión"))
-    indexar = Mock(return_value=0)
+    sincronizar = Mock(side_effect=RuntimeError("sin conexión"))
 
     # Act
     outcome = ingest_urls(
         CaptureRequest(urls=("https://example.com/a",), scope="manual", limit=5),
         settings=settings,
         client=FakeClient(),
-        importar=importar,
-        indexar=indexar,
+        sincronizar=sincronizar,
     )
 
     # Assert
     assert outcome.written == 1
     assert outcome.documents == 0
     assert outcome.indexed == 0
-    assert any("PostgreSQL" in error for error in outcome.errors)
-    indexar.assert_not_called()
+    assert any("sincronizar" in error for error in outcome.errors)
 
 
 def test_ingest_urls_reporta_el_fallo_de_qdrant_sin_perder_el_gold(tmp_path: Path) -> None:
     # Arrange
     settings = _settings(tmp_path)
-    indexar = Mock(side_effect=RuntimeError("sin qdrant"))
+    sincronizar = Mock(
+        return_value=SyncReport(
+            documents=1,
+            chunks=1,
+            indexed=0,
+            errors=("core (Qdrant): sin qdrant",),
+        )
+    )
 
     # Act
     outcome = ingest_urls(
         CaptureRequest(urls=("https://example.com/a",), scope="manual", limit=5),
         settings=settings,
         client=FakeClient(),
-        importar=Mock(return_value=(1, 1)),
-        indexar=indexar,
+        sincronizar=sincronizar,
     )
 
     # Assert
@@ -190,8 +191,7 @@ def test_ingest_urls_rechaza_un_slug_que_ya_usa_otra_url(tmp_path: Path) -> None
         CaptureRequest(urls=("https://example.com/a",), scope="manual", limit=5),
         settings=settings,
         client=client,
-        importar=Mock(return_value=(0, 0)),
-        indexar=Mock(return_value=0),
+        sincronizar=Mock(return_value=SyncReport()),
     )
 
     # Assert
@@ -244,8 +244,7 @@ def test_ingest_urls_captura_las_semillas_del_alcance(tmp_path: Path) -> None:
         CaptureRequest(scope="todo", limit=2),
         settings=settings,
         client=FakeClient(),
-        importar=Mock(return_value=(2, 4)),
-        indexar=Mock(return_value=4),
+        sincronizar=Mock(return_value=SyncReport(documents=2, chunks=4, indexed=4)),
     )
 
     # Assert
@@ -279,8 +278,7 @@ def test_el_lock_de_gold_serializa_dos_capturas_con_el_mismo_slug(tmp_path: Path
                 CaptureRequest(urls=(url,), scope="manual", limit=5),
                 settings=settings,
                 client=SlowClient(url),
-                importar=lambda gold_dir, only: (1, 1),
-                indexar=lambda gold_dir, only: 1,
+                sincronizar=lambda gold_dir, only: SyncReport(documents=1, chunks=1, indexed=1),
             )
         )
 

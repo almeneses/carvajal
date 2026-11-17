@@ -1,9 +1,10 @@
-"""Interfaz de línea de comandos: capture / ask / summarize / faq / import / migrate-gold."""
+"""Interfaz de línea de comandos: capture, sync, index-qdrant, ask, faq e import."""
 
 from __future__ import annotations
 
 import argparse
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,8 +26,10 @@ from carvajal.config import (
 from carvajal.corpus import load_gold_documents
 
 if TYPE_CHECKING:
+    from carvajal.application.sync import CorpusLayer, SyncReport
     from carvajal.fetching import WebClient
     from carvajal.importer import ImportReport
+    from carvajal.infrastructure.settings import Settings
     from carvajal.pipeline import CaptureReport
 
 _CREDENTIALS_IN_URL = re.compile(r"(?P<scheme>://[^:/@\s]+:)[^@\s]+@")
@@ -82,6 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--ignore-robots",
         action="store_true",
         help="No consultar robots.txt (solo para pruebas locales).",
+    )
+    capture_parser.add_argument(
+        "--solo-gold",
+        action="store_true",
+        help="Se detiene en Gold: no importa a PostgreSQL ni indexa en Qdrant.",
     )
 
     ask_parser = subparsers.add_parser(
@@ -180,6 +188,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--batch-size", type=int, default=32, help="Fragmentos por lote de embeddings."
     )
 
+    sync_parser = subparsers.add_parser(
+        "sync",
+        help="Reconcilia Gold con PostgreSQL y Qdrant de forma incremental.",
+    )
+    sync_parser.add_argument(
+        "--layer",
+        choices=("core", "extended", "all"),
+        default="core",
+        help="Capa a sincronizar (por defecto, el núcleo).",
+    )
+    sync_parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Elimina de ambos almacenes los documentos que ya no están en Gold.",
+    )
+    sync_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="No escribe: compara huellas y conteos y sale con código 1 si difieren.",
+    )
+
     router_parser = subparsers.add_parser(
         "eval-router",
         help=(
@@ -269,8 +298,26 @@ def main(argv: list[str] | None = None) -> int:
         report = run_capture(seeds, client=client)
         for page in report.pages:
             print(f"Capturada: {page.url} -> data/gold/{page.slug}.md")
+
+        if not args.solo_gold and report.slugs:
+            from carvajal.application.sync import CorpusLayer
+            from carvajal.infrastructure.settings import Settings
+
+            settings = Settings()
+            try:
+                sync_report = _sync_corpus(
+                    settings,
+                    [CorpusLayer("core", (settings.gold_dir,))],
+                    only=set(report.slugs.values()),
+                )
+            except Exception as error:  # el corpus queda en Gold y se repara con sync
+                report.errors.append(f"No se pudo sincronizar el corpus: {error}")
+            else:
+                print_sync_report(sync_report)
+                report.errors.extend(sync_report.errors)
+
         print_report(report)
-        return 0
+        return 0 if not report.errors else 1
 
     if args.command == "ask":
         from carvajal.rag import ask as run_ask
@@ -493,6 +540,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Duración: {report.elapsed_ms} ms")
         return 0
 
+    if args.command == "sync":
+        from carvajal.application.sync import corpus_layers
+        from carvajal.infrastructure.settings import Settings
+
+        settings = Settings()
+        layers = corpus_layers(settings.gold_dir, settings.external_dir, which=args.layer)
+        if not layers:
+            print(f"No hay documentos Gold en la capa {args.layer}.")
+            return 0
+        try:
+            report = _sync_corpus(
+                settings,
+                layers,
+                prune=args.prune,
+                verify=args.verify,
+            )
+        except Exception as error:  # Qdrant, PostgreSQL o un Gold corrupto
+            print(f"No se pudo sincronizar: {_redact_credentials(str(error))}")
+            return 1
+        print_sync_report(report)
+        for difference in report.differences:
+            print(f"  ! {difference}")
+        return 0 if report.ok else 1
+
     if args.command == "list":
         for seed in (*SEEDS, *EXTERNAL_SEEDS):
             print(seed)
@@ -541,6 +612,64 @@ def print_report(report: CaptureReport) -> None:
     print(f"  Caracteres:              {report.chars:,}")
     print(f"  Tokens (estimados):      {report.tokens_estimate:,}")
     print(f"  Duración:                {report.duration_seconds} s")
+    for error in report.errors:
+        print(f"  ! {error}")
+
+
+def _sync_corpus(
+    settings: Settings,
+    layers: Sequence[CorpusLayer],
+    *,
+    only: set[str] | None = None,
+    prune: bool = False,
+    verify: bool = False,
+) -> SyncReport:
+    """Construye los adaptadores reales y ejecuta la sincronización."""
+
+    from carvajal.adapters.embeddings import OllamaEmbedder
+    from carvajal.adapters.storage.sync_postgres import PostgresSync
+    from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
+    from carvajal.adapters.vector.sync_qdrant import QdrantSync
+    from carvajal.application.sync import sync_corpus
+
+    engine = build_engine()
+    store = QdrantVectorStore(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        collection=settings.qdrant_collection,
+        dimensions=settings.qdrant_dimensions,
+        distance=settings.qdrant_distance,
+    )
+    try:
+        return sync_corpus(
+            layers,
+            database=PostgresSync(build_session_factory(engine)),
+            index=QdrantSync(
+                store,
+                OllamaEmbedder(base_url=settings.ollama_base_url),
+            ),
+            only=only,
+            prune=prune,
+            verify=verify,
+            lock_root=settings.gold_dir.parent,
+        )
+    finally:
+        store.close()
+        engine.dispose()
+
+
+def print_sync_report(report: SyncReport) -> None:
+    """Imprime el resultado de una sincronización o verificación."""
+
+    print()
+    print("Verificación del corpus" if report.verified else "Sincronización del corpus")
+    print(f"  Nuevos:                  {report.new}")
+    print(f"  Actualizados:            {report.updated}")
+    print(f"  Sin cambios:             {report.unchanged}")
+    print(f"  Podados:                 {report.pruned}")
+    print(f"  Puntos indexados:        {report.indexed}")
+    print(f"  Documentos importados:   {report.documents}")
+    print(f"  Fragmentos importados:   {report.chunks}")
     for error in report.errors:
         print(f"  ! {error}")
 

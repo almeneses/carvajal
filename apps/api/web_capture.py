@@ -17,9 +17,10 @@ from pathlib import Path
 
 import structlog
 
-from apps.api.ingestion import importar_gold, indexar_gold
+from apps.api.ingestion import sync_gold
 from apps.api.urlguard import SafeWebClient, UrlRejected, validate_capture_url
 from carvajal.application.ports import Fetcher
+from carvajal.application.sync import SyncReport
 from carvajal.domain.frontmatter import parse_front_matter
 from carvajal.domain.rules import slug_from_url
 from carvajal.infrastructure.settings import Settings
@@ -44,8 +45,7 @@ SCOPES = {
     "todo": "Todo el corpus",
 }
 
-Importar = Callable[[Path, set[str]], tuple[int, int]]
-Indexar = Callable[[Path, set[str]], int]
+Sincronizar = Callable[[Path, set[str]], SyncReport]
 EventHook = Callable[[CaptureEvent], None]
 
 
@@ -243,15 +243,14 @@ def ingest_urls(
     *,
     settings: Settings | None = None,
     client: Fetcher | None = None,
-    importar: Importar | None = None,
-    indexar: Indexar | None = None,
+    sincronizar: Sincronizar | None = None,
     on_event: EventHook | None = None,
 ) -> CaptureOutcome:
-    """Captura las URLs, importa los slugs nuevos y los indexa.
+    """Captura las URLs y sincroniza los slugs nuevos.
 
-    ``client``, ``importar`` e ``indexar`` se inyectan en las pruebas para no
-    tocar la red, PostgreSQL ni Qdrant. En la app real se usan
-    ``SafeWebClient``, ``importar_gold`` e ``indexar_gold``.
+    ``client`` y ``sincronizar`` se inyectan en las pruebas para no tocar la
+    red, PostgreSQL ni Qdrant. En la app real se usan ``SafeWebClient`` y
+    ``sync_gold``.
     """
 
     settings = settings or Settings()
@@ -291,16 +290,15 @@ def ingest_urls(
     documents = chunks = indexed = 0
     if slugs:
         try:
-            documents, chunks = (importar or importar_gold)(settings.gold_dir, slugs)
+            sync_report = (sincronizar or sync_gold)(settings.gold_dir, slugs)
         except Exception as error:  # la UI informa el fallo de la etapa
-            logger.warning("capture.import_failed", error=str(error))
-            errors.append("No se pudo importar a PostgreSQL; revisa la conexión y los logs.")
+            logger.warning("capture.sync_failed", error=str(error))
+            errors.append("No se pudo sincronizar el corpus; revisa la conexión y los logs.")
         else:
-            try:
-                indexed = (indexar or indexar_gold)(settings.gold_dir, slugs)
-            except Exception as error:  # Ollama o Qdrant pueden no estar disponibles
-                logger.warning("capture.index_failed", error=str(error))
-                errors.append("No se pudo indexar en Qdrant; revisa Qdrant y Ollama.")
+            documents = sync_report.documents
+            chunks = sync_report.chunks
+            indexed = sync_report.indexed
+            errors.extend(sync_report.errors)
     return _outcome(
         report,
         requested=len(seeds),

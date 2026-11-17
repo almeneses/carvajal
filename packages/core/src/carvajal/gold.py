@@ -6,6 +6,7 @@ from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from carvajal.models import CapturedPage
 
@@ -132,11 +133,28 @@ def write_silver(page: CapturedPage, processed_dir: Path, *, slug: str | None = 
 def write_gold(page: CapturedPage, title: str, gold_dir: Path, *, slug: str | None = None) -> Path:
     """Escribe el entregable Gold (Markdown + front matter) en ``gold_dir``."""
 
-    gold_dir.mkdir(parents=True, exist_ok=True)
-    markdown = to_gold_markdown(page, title)
-    target = gold_dir / f"{slug or page.slug}.md"
-    target.write_text(markdown, encoding="utf-8")
-    return target
+    return write_gold_file(gold_dir / f"{slug or page.slug}.md", to_gold_markdown(page, title))
+
+
+def write_gold_file(path: Path, markdown: str) -> Path:
+    """Escribe un Markdown de Gold con reemplazo atómico.
+
+    La sincronización lee Gold mientras una carga o una captura lo escriben. Un
+    ``write_text`` directo trunca el destino antes de escribir el cuerpo: el
+    lector puede llevarse la cabecera nueva —con su ``hash`` completa— y el
+    cuerpo a medias, y como las corridas siguientes solo comparan esa huella, la
+    copia truncada no se repararía nunca. El temporal y el ``rename`` final
+    garantizan que cada lectura vea una versión completa.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporal = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporal.write_text(markdown, encoding="utf-8")
+        temporal.replace(path)
+    finally:
+        temporal.unlink(missing_ok=True)
+    return path
 
 
 def write_index(entries: list[dict[str, str | int]], index_file: Path) -> Path:

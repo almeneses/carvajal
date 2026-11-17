@@ -51,6 +51,7 @@ def index_gold(
     embedder: Embedder,
     recreate: bool = False,
     prune: bool = True,
+    layer: str = "core",
     batch_size: int = 32,
     cards_path: Path | None = None,
     only: set[str] | None = None,
@@ -74,10 +75,23 @@ def index_gold(
     cards = _load_cards(cards_path or gold_dir.parent / "retrieval_cards.json")
     documents = []
     for path in sorted(gold_dir.glob("*.md")):
-        document = load_document(path, layer="core")
+        document = load_document(path, layer=layer)
         if only is None or document.id in only:
             documents.append(document)
     if not documents:
+        if only is not None:
+            # La sincronización incremental puede no tocar este directorio: no es un error.
+            return IndexReport(
+                collection=store.collection,
+                documents=0,
+                chunks=0,
+                indexed=0,
+                deleted=0,
+                points=store.count(),
+                dimensions=store.dimensions,
+                elapsed_ms=round((perf_counter() - started) * 1000),
+                recreated=recreate,
+            )
         raise ValueError(f"{gold_dir}: no hay documentos Gold para indexar.")
     if only is not None:
         prune = False
@@ -88,24 +102,43 @@ def index_gold(
     for document in documents:
         chunks = split_document(document)
         total_chunks += len(chunks)
+        card = cards.get(document.id, "")
         metadata = {
             "url": document.url,
             "title": document.title,
             "source_type": document.source_type,
             "content_hash": document.content_hash,
-            "abstract": cards.get(document.id, ""),
+            "abstract": card,
+            "chunks_total": str(len(chunks)),
         }
+        # Los vectores se preparan antes de borrar: si el proveedor falla a mitad del
+        # documento, la versión anterior sigue en el índice y en la recuperación.
+        prepared: list[tuple[list[Chunk], list[list[float]]]] = []
         for start in range(0, len(chunks), batch_size):
             batch = chunks[start : start + batch_size]
             # El título y la sección no viven en el cuerpo Gold (están en el
             # front matter); se anteponen al texto que se vectoriza para que
             # una pregunta por el nombre del documento lo recupere. El payload
             # conserva el texto original para la cita.
-            card = cards.get(document.id, "")
-            embeddings = [
-                embedder.embed(f"{document.title} · {document.section}. {card}\n{chunk.text}")
+            vectors = [
+                [
+                    float(value)
+                    for value in embedder.embed(
+                        f"{document.title} · {document.section}. {card}\n{chunk.text}"
+                    )
+                ]
                 for chunk in batch
             ]
+            # Validar aquí, no en ``upsert``: la versión anterior se borra antes
+            # de escribir, así que un proveedor con otra dimensión dejaría el
+            # documento sin ningún punto.
+            _validate_dimensions(vectors, store.dimensions)
+            prepared.append((batch, vectors))
+        if not recreate:
+            # Un documento acortado o reescrito no debe dejar fragmentos de la versión
+            # vieja: sus puntos se reemplazan en cada indexación.
+            store.delete_by_document(document.id)
+        for batch, embeddings in prepared:
             index_batch(store, batch, embeddings, metadata)
             indexed += len(batch)
             valid_ids.extend(store.point_ids(batch, [metadata for _ in batch]))
@@ -122,7 +155,7 @@ def index_gold(
             url=document.url,
         )
 
-    deleted = store.prune(valid_ids) if prune else 0
+    deleted = store.prune(valid_ids, layer=layer) if prune else 0
     points = store.count()
     elapsed_ms = round((perf_counter() - started) * 1000)
     report = IndexReport(
@@ -149,6 +182,16 @@ def index_gold(
         recreated=report.recreated,
     )
     return report
+
+
+def _validate_dimensions(vectors: Sequence[Sequence[float]], dimensions: int) -> None:
+    """Rechaza vectores de otra dimensión antes de borrar la versión indexada."""
+
+    for vector in vectors:
+        if len(vector) != dimensions:
+            raise ValueError(
+                f"El vector debe tener {dimensions} dimensiones; recibidas {len(vector)}."
+            )
 
 
 def _load_cards(path: Path) -> dict[str, str]:

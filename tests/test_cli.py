@@ -267,3 +267,90 @@ def test_migrate_gold_reenvia_allow_empty(
     assert code == 0
     assert recibido["allow_empty"] is True
     assert "Documentos podados: 2" in capsys.readouterr().out
+
+
+def test_parser_reconoce_sync_con_sus_banderas() -> None:
+    """``sync`` acepta capa, poda y verificación."""
+
+    parser = build_parser()
+
+    args = parser.parse_args(["sync", "--layer", "all", "--prune", "--verify"])
+
+    assert args.command == "sync"
+    assert args.layer == "all"
+    assert args.prune is True
+    assert args.verify is True
+
+
+def test_sync_verify_reporta_diferencias_y_falla(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Con una capa real resuelta, una diferencia hace fallar la verificación."""
+
+    from carvajal.application.sync import CorpusLayer, SyncReport
+
+    monkeypatch.setattr(
+        cli,
+        "_sync_corpus",
+        lambda *a, **k: SyncReport(verified=True, differences=("historia: falta en Qdrant.",)),
+    )
+    monkeypatch.setattr(
+        "carvajal.application.sync.corpus_layers",
+        lambda *a, **k: (CorpusLayer("core", (tmp_path,)),),
+    )
+
+    code = cli.main(["sync", "--verify"])
+
+    assert code == 1
+    assert "falta en Qdrant" in capsys.readouterr().out
+
+
+def test_capture_sincroniza_los_slugs_capturados(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``capture`` termina en la sincronización salvo con ``--solo-gold``."""
+
+    from carvajal.application.sync import SyncReport
+    from carvajal.domain.entities import CapturedPage
+    from carvajal.pipeline import CaptureReport
+
+    page = CapturedPage(url="https://example.com/", html="<p>x</p>", markdown="# X")
+    report = CaptureReport(pages=[page], slugs={page.url: "home"})
+    llamadas: list[set[str]] = []
+
+    monkeypatch.setattr(cli, "_build_client", lambda args: object())
+    monkeypatch.setattr("carvajal.pipeline.capture", lambda *a, **k: report)
+    monkeypatch.setattr(
+        cli,
+        "_sync_corpus",
+        lambda settings, layers, **kwargs: llamadas.append(kwargs["only"]) or SyncReport(indexed=1),
+    )
+
+    code = cli.main(["capture", "--seed", "https://example.com/"])
+
+    assert code == 0
+    assert llamadas == [{"home"}]
+
+
+def test_capture_solo_gold_no_toca_servicios(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--solo-gold`` no construye la sincronización."""
+
+    from carvajal.domain.entities import CapturedPage
+    from carvajal.pipeline import CaptureReport
+
+    page = CapturedPage(url="https://example.com/", html="<p>x</p>", markdown="# X")
+    report = CaptureReport(pages=[page], slugs={page.url: "home"})
+
+    monkeypatch.setattr(cli, "_build_client", lambda args: object())
+    monkeypatch.setattr("carvajal.pipeline.capture", lambda *a, **k: report)
+    monkeypatch.setattr(
+        cli,
+        "_sync_corpus",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe sincronizar")),
+    )
+
+    code = cli.main(["capture", "--seed", "https://example.com/", "--solo-gold"])
+
+    assert code == 0
