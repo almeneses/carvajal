@@ -3,6 +3,10 @@
 {% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(source.layer, source.layer) %}
 {% set titulo = source.title or source.slug or "Fuente" %}
 {% set url = source.url if source.url and (source.url.startswith('http://') or source.url.startswith('https://')) else '' %}
+{% set procedencia = [] %}
+{% if source.origin %}{% set _ = procedencia.append("Origen: " ~ source.origin) %}{% endif %}
+{% if source.category %}{% set _ = procedencia.append("Categoría: " ~ source.category) %}{% endif %}
+{% if source.entity %}{% set _ = procedencia.append("Entidad: " ~ source.entity) %}{% endif %}
 <li class="fuente" data-fuente="{{ numero }}">
   <p class="fuente-meta">
     <span class="etiqueta {{ 'etiqueta-oficial' if tipo in ['oficial', 'official'] else 'etiqueta-externa' }}"><span class="sr-solo">Tipo de fuente: </span>{{ (source.source_type or "oficial") | capitalize }}</span>
@@ -24,6 +28,7 @@
     </span>
     <span>Sección: {{ source.section or "" }}</span>
     <span>Capa: {{ capa or "" }}</span>
+    {% if procedencia %}<span class="procedencia">Procedencia: {{ procedencia | join(" · ") }}</span>{% endif %}
     <span class="puntuacion">Puntuación: {{ "%.3f"|format(source.score) }}</span>
   </p>
   <p class="extracto">{{ source.excerpt or "" }}</p>

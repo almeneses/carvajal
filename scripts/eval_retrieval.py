@@ -22,6 +22,7 @@ from typing import Any
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.application.evidence import proper_entities_supported
+from carvajal.application.retrieval import LayerPriorityStore
 from carvajal.infrastructure.settings import Settings
 
 DEFAULT_QUERIES = Path("data") / "eval" / "retrieval_questions.json"
@@ -74,6 +75,9 @@ def main(argv: list[str] | None = None) -> int:
     if health.get("status") != "ok":
         print(f"Qdrant no está listo: {health}", file=sys.stderr)
         return 1
+    # La evaluación mide la misma política que el chat: núcleo primero y la
+    # capa extendida solo como complemento (spec 037, US4).
+    retrieval = LayerPriorityStore(store, min_score=settings.rag_min_score)
     embedder = OllamaEmbedder()
     payload = json.loads(args.queries.read_text(encoding="utf-8"))
     rows: list[dict[str, Any]] = []
@@ -83,7 +87,9 @@ def main(argv: list[str] | None = None) -> int:
 
     for item in payload["queries"]:
         vector = embedder.embed(item["query"])
-        results = store.search_text(item["query"], vector, limit=args.k)
+        results = retrieval.search_text(
+            item["query"], vector, limit=args.k, min_score=settings.rag_min_score
+        )
         retrieved = [result.chunk.document_id for result in results]
         # Para nDCG se cuenta cada documento una sola vez, aunque recupere
         # varios fragmentos suyos en el top-k.

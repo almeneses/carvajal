@@ -30,21 +30,36 @@ __all__ = [
     "SyncReport",
     "corpus_layers",
     "gold_hashes",
+    "gold_index_hashes",
     "sync_corpus",
     "sync_fingerprint",
 ]
 
 
-def sync_fingerprint(*, content_hash: str, title: str, section: str, source_type: str) -> str:
+def sync_fingerprint(
+    *,
+    content_hash: str,
+    title: str,
+    section: str,
+    source_type: str,
+    origin: str = "",
+    category: str = "",
+    entity: str = "",
+) -> str:
     """Huella de sincronización: el cuerpo y los metadatos que se persisten.
 
     El título, la sección y el tipo de fuente no viven en el cuerpo Gold, pero se
     guardan en PostgreSQL, viajan en el payload de Qdrant y se vectorizan con
     cada fragmento. Comparar solo la huella del texto dejaría sin reparar para
     siempre una corrección editorial de esos campos.
+
+    ``origin``, ``category`` y ``entity`` solo los publica el índice vectorial:
+    PostgreSQL no los persiste, así que sus llamadores los omiten y la huella
+    base no cambia. El lado de Qdrant los incluye para que corregir la
+    procedencia de un documento también fuerce su reindexación.
     """
 
-    raw = "\x1f".join((content_hash, title, section, source_type))
+    raw = "\x1f".join((content_hash, title, section, source_type, origin, category, entity))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -177,7 +192,7 @@ def corpus_layers(
 def gold_hashes(layer: CorpusLayer) -> dict[str, str]:
     """Lee las huellas de sincronización de los Markdown Gold de una capa.
 
-    Cada huella cubre el texto y los metadatos que los almacenes persisten: un
+    Cada huella cubre el texto y los metadatos que ambos almacenes conservan: un
     cambio solo de título, sección o tipo de fuente también cuenta como cambio.
     Una capa sin directorios es una capa vacía, no un error: su corpus está
     vacío y la poda debe poder vaciar los almacenes.
@@ -187,11 +202,28 @@ def gold_hashes(layer: CorpusLayer) -> dict[str, str]:
         ValueError: si dos archivos de la capa publican el mismo slug.
     """
 
+    return _gold_fingerprints(layer)[0]
+
+
+def gold_index_hashes(layer: CorpusLayer) -> dict[str, str]:
+    """Huella de Gold para el índice vectorial, con la procedencia incluida.
+
+    ``origin``, ``category`` y ``entity`` viven en el payload de Qdrant y no en
+    PostgreSQL; el índice usa esta huella para detectar también sus cambios.
+    """
+
+    return _gold_fingerprints(layer)[1]
+
+
+def _gold_fingerprints(layer: CorpusLayer) -> tuple[dict[str, str], dict[str, str]]:
+    """Huellas de la capa para PostgreSQL y para Qdrant, en una sola lectura."""
+
     from carvajal.adapters.storage.import_corpus import load_document
 
     if not layer.directories:
-        return {}
-    hashes: dict[str, str] = {}
+        return {}, {}
+    base: dict[str, str] = {}
+    indexed: dict[str, str] = {}
     found = False
     for directory in layer.directories:
         if not directory.is_dir():
@@ -199,17 +231,26 @@ def gold_hashes(layer: CorpusLayer) -> dict[str, str]:
         found = True
         for path in sorted(directory.glob("*.md")):
             document = load_document(path, layer=layer.name)
-            if document.id in hashes:
+            if document.id in base:
                 raise ValueError(f"{path}: el slug {document.id!r} ya existe en la capa.")
-            hashes[document.id] = sync_fingerprint(
+            base[document.id] = sync_fingerprint(
                 content_hash=document.content_hash,
                 title=document.title,
                 section=document.section,
                 source_type=document.source_type,
             )
+            indexed[document.id] = sync_fingerprint(
+                content_hash=document.content_hash,
+                title=document.title,
+                section=document.section,
+                source_type=document.source_type,
+                origin=document.origin,
+                category=document.category,
+                entity=document.entity,
+            )
     if not found:
         raise FileNotFoundError(f"{layer.name}: no existe ningún directorio Gold de la capa.")
-    return hashes
+    return base, indexed
 
 
 def sync_corpus(
@@ -264,9 +305,10 @@ def _sync(
 
     for layer in layers:
         try:
-            hashes = gold_hashes(layer)
+            hashes, gold_index = _gold_fingerprints(layer)
             if selected is not None:
                 hashes = {slug: value for slug, value in hashes.items() if slug in selected}
+                gold_index = {slug: value for slug, value in gold_index.items() if slug in selected}
         except Exception as error:  # Gold ilegible: no se toca ningún almacén
             errors.append(f"{layer.name}: {error}")
             continue
@@ -303,7 +345,7 @@ def _sync(
                     errors.append(f"{layer.name} (PostgreSQL): {error}")
             try:
                 differences.extend(
-                    _index_differences(layer, hashes, dict(index.hashes(layer.name)))
+                    _index_differences(layer, gold_index, dict(index.hashes(layer.name)))
                 )
             except Exception as error:  # Qdrant puede estar caído; Gold queda
                 errors.append(f"{layer.name} (Qdrant): {error}")
@@ -332,9 +374,9 @@ def _sync(
                 errors.append(f"{layer.name} (PostgreSQL): {error}")
 
         try:
-            index_hashes = dict(index.hashes(layer.name))
+            store_index = dict(index.hashes(layer.name))
             index_changed = {
-                slug for slug, value in hashes.items() if index_hashes.get(slug) != value
+                slug for slug, value in gold_index.items() if store_index.get(slug) != value
             }
             if index_changed or prune:
                 layer_indexed, deleted = index.index_gold(layer, only=index_changed, prune=prune)

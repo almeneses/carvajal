@@ -354,3 +354,82 @@ def test_capture_solo_gold_no_toca_servicios(
     code = cli.main(["capture", "--seed", "https://example.com/", "--solo-gold"])
 
     assert code == 0
+
+
+def test_parser_index_qdrant_acepta_la_capa() -> None:
+    """``index-qdrant`` elige la capa y por defecto indexa solo el núcleo."""
+
+    parser = build_parser()
+
+    assert parser.parse_args(["index-qdrant"]).layer == "core"
+    assert parser.parse_args(["index-qdrant", "--layer", "extended"]).layer == "extended"
+    assert parser.parse_args(["index-qdrant", "--layer", "all"]).layer == "all"
+
+
+def test_index_qdrant_all_indexa_nucleo_y_fuentes_extendidas_en_una_corrida(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Con ``--layer all`` se pasan al indexador las áreas con su capa."""
+
+    from types import SimpleNamespace
+
+    from carvajal.application.sync import CorpusLayer
+    from carvajal.indexing.qdrant import IndexReport
+
+    core = tmp_path / "gold"
+    extended = tmp_path / "external" / "donante" / "gold"
+    core.mkdir()
+    extended.mkdir(parents=True)
+    received: dict[str, object] = {}
+
+    def fake_index_gold(**kwargs: object) -> IndexReport:
+        received.update(kwargs)
+        return IndexReport(
+            collection="corpus",
+            documents=2,
+            chunks=4,
+            indexed=4,
+            deleted=0,
+            points=4,
+            dimensions=768,
+            elapsed_ms=1,
+        )
+
+    class FakeStore:
+        collection = "corpus"
+        dimensions = 768
+
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "carvajal.infrastructure.settings.Settings",
+        lambda: SimpleNamespace(
+            external_dir=tmp_path / "external",
+            qdrant_url="http://localhost:6333",
+            qdrant_api_key=None,
+            qdrant_collection="corpus",
+            qdrant_dimensions=768,
+            qdrant_distance="cosine",
+            ollama_base_url="http://localhost:11434",
+        ),
+    )
+    monkeypatch.setattr(
+        "carvajal.application.sync.corpus_layers",
+        lambda *a, **k: (
+            CorpusLayer("core", (core,)),
+            CorpusLayer("extended", (extended,)),
+        ),
+    )
+    monkeypatch.setattr("carvajal.adapters.vector.qdrant_store.QdrantVectorStore", FakeStore)
+    monkeypatch.setattr("carvajal.adapters.embeddings.OllamaEmbedder", lambda **k: object())
+    monkeypatch.setattr("carvajal.indexing.qdrant.index_gold", fake_index_gold)
+
+    code = cli.main(["index-qdrant", "--layer", "all", "--gold", str(core)])
+
+    assert code == 0
+    assert received["gold_dirs"] == [(core, "core"), (extended, "extended")]
+    assert "Puntos indexados: 4" in capsys.readouterr().out

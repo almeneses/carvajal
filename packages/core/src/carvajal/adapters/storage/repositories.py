@@ -69,6 +69,16 @@ def _document_conditions(
     return conditions
 
 
+def _document_values(document: Document) -> dict[str, object]:
+    """Columnas persistibles del documento.
+
+    ``origin``, ``category`` y ``entity`` son procedencia de la cita y viven en
+    el payload de Qdrant, no en PostgreSQL (spec 037, US4).
+    """
+
+    return {key: value for key, value in asdict(document).items() if key in tables.documents.c}
+
+
 class SqlDocumentRepository:
     """Implementación PostgreSQL de ``DocumentRepository``."""
 
@@ -157,7 +167,7 @@ class SqlDocumentRepository:
         self._session.execute(
             update(tables.documents)
             .where(tables.documents.c.id == document.id)
-            .values(**asdict(document))
+            .values(**_document_values(document))
         )
         self._session.flush()
         return document
@@ -178,7 +188,7 @@ class SqlDocumentRepository:
 
         inserted_id = self._session.execute(
             postgresql_insert(tables.documents)
-            .values(**asdict(document))
+            .values(**_document_values(document))
             .on_conflict_do_nothing(index_elements=[tables.documents.c.slug])
             .returning(tables.documents.c.id)
         ).scalar_one_or_none()

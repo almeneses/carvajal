@@ -64,6 +64,9 @@ def payload_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> dict
         "content_hash": extra.get("content_hash", ""),
         "abstract": extra.get("abstract", ""),
         "chunks_total": extra.get("chunks_total", ""),
+        "origin": extra.get("origin", ""),
+        "category": extra.get("category", ""),
+        "entity": extra.get("entity", ""),
     }
 
 
@@ -290,6 +293,9 @@ class QdrantVectorStore:
             "source_type": str(payload.get("source_type", "oficial")),
             "content_hash": str(payload.get("content_hash", "")),
             "abstract": str(payload.get("abstract", "")),
+            "origin": str(payload.get("origin", "")),
+            "category": str(payload.get("category", "")),
+            "entity": str(payload.get("entity", "")),
         }
         return ScoredChunk(chunk=chunk, score=float(point.score), metadata=metadata)
 
@@ -371,6 +377,9 @@ class QdrantVectorStore:
                 title=str(payload.get("title") or ""),
                 section=str(payload.get("section") or ""),
                 source_type=str(payload.get("source_type") or ""),
+                origin=str(payload.get("origin") or ""),
+                category=str(payload.get("category") or ""),
+                entity=str(payload.get("entity") or ""),
             )
             total = str(payload.get("chunks_total") or "")
             expected[document_id] = int(total) if total.isdigit() else 0
