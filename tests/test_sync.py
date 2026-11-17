@@ -639,3 +639,40 @@ def test_un_directorio_inexistente_no_borra_la_coleccion(tmp_path: Path) -> None
         )
 
     assert store.count() == antes
+
+
+def test_un_slug_repetido_no_borra_la_coleccion(tmp_path: Path) -> None:
+    """``--recreate`` con dos archivos del mismo slug no debe vaciar el índice vigente."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "Historia", cuerpo="Inició en 1904.")
+    store = _store("recreate-slug")
+    index_gold(gold_dir=nucleo, store=store, embedder=_Embedder(), prune=False)
+    antes = store.count()
+    assert antes == 1
+    # Un segundo archivo declara el mismo slug en el front matter.
+    (nucleo / "historia-copia.md").write_text(
+        "---\n"
+        "slug: historia\n"
+        "title: Historia\n"
+        "url: https://carvajal.com/historia\n"
+        "hash: v1\n"
+        "---\n\n"
+        "Inició en 1904.\n",
+        encoding="utf-8",
+    )
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="Slug repetido"):
+        index_gold(
+            gold_dir=nucleo,
+            store=store,
+            embedder=_Embedder(),
+            recreate=True,
+        )
+
+    assert store.count() == antes
+    assert store.document_ids("core") == {"historia"}

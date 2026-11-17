@@ -82,18 +82,13 @@ def index_gold(
         areas = [(gold_dir, layer)]
     if not areas:
         raise ValueError("index_gold necesita gold_dir o gold_dirs.")
-    # Las rutas se validan antes de tocar la colección: un directorio mal escrito no
-    # debe borrar el índice que ya funciona, ni siquiera con ``recreate``.
+
+    started = perf_counter()
+    # Rutas, fichas, documentos y slugs se validan antes de tocar la colección: una
+    # entrada inválida no debe borrar el índice que ya funciona, ni con ``recreate``.
     for directory, _ in areas:
         if not directory.is_dir():
             raise FileNotFoundError(f"{directory}: el directorio Gold no existe.")
-
-    started = perf_counter()
-    if recreate and store.client.collection_exists(store.collection):
-        store.client.delete_collection(store.collection)
-        logger.info("qdrant.collection_recreated", collection=store.collection)
-    store.ensure_collection()
-
     cards: dict[str, str] = {}
     documents = []
     for directory, area_layer in areas:
@@ -130,6 +125,11 @@ def index_gold(
         raise ValueError(f"Slug repetido entre áreas Gold: {sorted(duplicates)[0]!r}.")
     if only is not None:
         prune = False
+
+    if recreate and store.client.collection_exists(store.collection):
+        store.client.delete_collection(store.collection)
+        logger.info("qdrant.collection_recreated", collection=store.collection)
+    store.ensure_collection()
 
     valid_ids: list[str] = []
     indexed = 0
