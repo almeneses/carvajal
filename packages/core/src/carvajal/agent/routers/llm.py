@@ -9,6 +9,8 @@ cuente como salida inválida en vez de ocultarlo.
 
 from collections.abc import Callable
 
+import structlog
+
 from carvajal.agent.router import decide_route
 from carvajal.agent.routers._payload import (
     FALLBACK_PREFIX,
@@ -22,6 +24,8 @@ from carvajal.agent.tools import known_names
 from carvajal.application.ports import LLMProvider
 
 __all__ = ["FALLBACK_PREFIX", "LLMRouter", "system_prompt"]
+
+logger = structlog.get_logger(__name__)
 
 MAX_CONTEXT_TURNS = 3
 _INDICATORS = "<<indicadores>>"
@@ -95,6 +99,11 @@ class LLMRouter:
             return decision_from_payload(parse_json(text), question, turns, source=self.name)
         except Exception as error:  # el turno nunca se cae por el enrutador
             self.invalid += 1
+            logger.warning(
+                "agent.router_fallback",
+                router=self.name,
+                error=f"{type(error).__name__}: {error}",
+            )
             return fallback_decision(
                 error, question, turns, source=self.name, fallback=self._fallback
             )

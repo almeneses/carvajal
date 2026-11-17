@@ -15,6 +15,8 @@ import importlib
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
+import structlog
+
 from carvajal.agent.routers._payload import (
     OUTPUT_SCHEMA,
     decision_from_payload,
@@ -23,6 +25,8 @@ from carvajal.agent.routers._payload import (
 from carvajal.agent.state import RouteDecision, Turn
 
 __all__ = ["DecisionModel", "DecisionModelUnavailable", "DecisionRouter", "load_decision_model"]
+
+logger = structlog.get_logger(__name__)
 
 
 class DecisionModelUnavailable(RuntimeError):
@@ -81,4 +85,9 @@ class DecisionRouter:
             return decision_from_payload(dict(payload), question, turns, source=self.name)
         except Exception as error:  # misma política que el enrutador LLM
             self.invalid += 1
+            logger.warning(
+                "agent.router_fallback",
+                router=self.name,
+                error=f"{type(error).__name__}: {error}",
+            )
             return fallback_decision(error, question, turns, source=self.name)

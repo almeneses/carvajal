@@ -142,6 +142,18 @@ def test_el_seguimiento_del_llm_recupera_con_el_turno_anterior() -> None:
     assert "¿Dónde nació Carvajal?" in llm.prompts[0]
 
 
+def test_el_seguimiento_sin_contexto_cae_a_las_reglas() -> None:
+    """Un follow_up sin turno previo es salida inválida: lo resuelven las reglas."""
+
+    router = LLMRouter(FakeLLM('{"route": "rag", "intent": "follow_up"}'))
+
+    decision = router("¿y en qué año fue eso?")
+
+    assert decision.reason.startswith(FALLBACK_PREFIX)
+    assert decision.query == "¿y en qué año fue eso?"
+    assert router.invalid == 1
+
+
 def test_el_contexto_del_hilo_se_marca_como_dato_no_confiable() -> None:
     salida = '{"route": "rag", "intent": "follow_up"}'
     llm = FakeLLM(salida)
@@ -172,6 +184,20 @@ def test_una_salida_invalida_cae_a_las_reglas_y_queda_visible(salida: str | Exce
     assert decision.intent == "greeting"
     assert decision.reason.startswith(FALLBACK_PREFIX)
     assert router.invalid == 1
+
+
+def test_el_fallo_del_proveedor_queda_en_el_log() -> None:
+    """El respaldo no es silencioso: el error del proveedor queda en el log."""
+
+    router = LLMRouter(FakeLLM(RuntimeError("API key inválida")))
+
+    with capture_logs() as logs:
+        decision = router("hola")
+
+    assert decision.reason.startswith(FALLBACK_PREFIX)
+    [evento] = [log for log in logs if log["event"] == "agent.router_fallback"]
+    assert evento["router"] == "llm"
+    assert "API key inválida" in evento["error"]
 
 
 def test_sin_modelo_de_decision_el_error_es_controlado() -> None:

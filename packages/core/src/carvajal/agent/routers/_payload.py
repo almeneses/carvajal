@@ -149,9 +149,15 @@ def decision_from_payload(
         return RouteDecision(
             route="direct", intent=intent, query=question, preference=preference, reason=reason
         )
-    if intent == "follow_up" and turns:
-        query = f"{turns[-1]['question']} {question}"
-        return RouteDecision(route="rag", intent=intent, query=query, reason=reason)
+    if intent == "follow_up":
+        previous = next(
+            (turn["question"] for turn in reversed(turns) if turn.get("question")), None
+        )
+        if not previous:
+            raise InvalidRouterOutput("follow_up sin pregunta previa en el hilo")
+        return RouteDecision(
+            route="rag", intent=intent, query=f"{previous} {question}", reason=reason
+        )
     if route == "commercial" or intent == "commercial_clarify":
         other = str(payload.get("other_part") or "").strip()
         query = other if intent == "commercial_mixed" and other else question
