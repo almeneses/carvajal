@@ -29,7 +29,6 @@ dependencies = [
     "markdown>=3.11.3",
     "nh3>=0.3.7",
     "ollama>=0.6",
-    "pgvector>=0.5.1",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.7",
     "python-dotenv>=1.2.4",
