@@ -71,3 +71,62 @@ def test_qdrant_sync_indexa_solo_lo_pedido_y_poda_lo_ausente(
     assert llamadas[0]["layer"] == "core"
     assert llamadas[0]["only"] == {"uno"}
     assert sync.count("core") == 1
+
+
+class _FabricaSesiones:
+    """Fábrica de sesiones vacía: el importador está sustituido en la prueba."""
+
+    def begin(self) -> object:
+        from contextlib import nullcontext
+
+        return nullcontext(object())
+
+
+def test_postgres_permite_vaciar_la_capa_solo_al_podar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``sync --prune`` con Gold vacío debe poder borrar los documentos de la capa."""
+
+    from carvajal.adapters.storage import import_corpus
+    from carvajal.adapters.storage.sync_postgres import PostgresSync
+
+    recibidas: list[dict[str, object]] = []
+
+    def migrar(
+        session: object,
+        *,
+        gold_dir: Path,
+        layer: str,
+        allow_empty: bool,
+        only: set[str] | None,
+        prune: bool,
+    ) -> import_corpus.GoldImportReport:
+        recibidas.append({"allow_empty": allow_empty, "prune": prune})
+        return import_corpus.GoldImportReport(0, 0, 0)
+
+    monkeypatch.setattr(import_corpus, "migrate_gold", migrar)
+    sync = PostgresSync(_FabricaSesiones())
+
+    # Act
+    sync.import_gold(CorpusLayer("core", (tmp_path,)), only=None, prune=True)
+    sync.import_gold(CorpusLayer("extended", (tmp_path, tmp_path)), only=None, prune=True)
+
+    # Assert: solo la capa de un directorio puede vaciarse; con varias fuentes no.
+    assert [item["allow_empty"] for item in recibidas] == [True, False, False]
+    assert [item["prune"] for item in recibidas] == [True, False, False]
+
+
+def test_los_hashes_de_un_qdrant_vacio_permiten_la_primera_corrida(tmp_path: Path) -> None:
+    """Sin colección no hay huellas, pero tampoco un error que impida crearla."""
+
+    from qdrant_client import QdrantClient
+
+    store = QdrantVectorStore(
+        client=QdrantClient(location=":memory:"),
+        collection="primera-corrida",
+        dimensions=1,
+    )
+    sync = QdrantSync(store, cast(Embedder, object()))
+
+    assert sync.hashes("core") == {}
+    assert sync.count("core") == 0

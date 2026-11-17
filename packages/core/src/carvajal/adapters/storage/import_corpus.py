@@ -112,15 +112,19 @@ def migrate_gold(
     Con ``prune=False`` solo se hace la importación incremental: útil para
     cargas de documentos sobre un corpus cuya copia Gold no está en el mismo
     contenedor, donde podar borraría documentos válidos. ``only`` limita la
-    importación a esos slugs y nunca poda el resto.
+    importación a esos slugs y nunca poda el resto; si ninguno de los slugs
+    pedidos está en este directorio, la llamada no hace nada (una capa puede
+    repartir sus documentos en varias fuentes).
     """
 
     loaded = _load_documents(gold_dir, layer=layer)
+    seleccion: set[str] | None = None
     if only is not None:
-        seleccionados = set(only)
-        loaded = [document for document in loaded if document.id in seleccionados]
+        seleccion = set(only)
+        loaded = [document for document in loaded if document.id in seleccion]
         prune = False
-    if not loaded and not allow_empty:
+    if not loaded and not allow_empty and seleccion is None:
+        # Una selección incremental puede no incluir este directorio; no es un error.
         raise GoldImportError(
             f"{gold_dir}: no hay documentos Gold; usa --allow-empty para vaciar la capa."
         )

@@ -62,6 +62,7 @@ def payload_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> dict
         "source_type": extra.get("source_type", "oficial"),
         "content_hash": extra.get("content_hash", ""),
         "abstract": extra.get("abstract", ""),
+        "chunks_total": extra.get("chunks_total", ""),
     }
 
 
@@ -335,14 +336,29 @@ class QdrantVectorStore:
         return len(stale)
 
     def document_hashes(self, layer: str | None = None) -> dict[str, str]:
-        """Huella de texto vigente por documento, opcionalmente filtrada por capa."""
+        """Huella de texto por documento, solo si están todos sus fragmentos.
+
+        Un documento con menos puntos que ``chunks_total`` quedó a medias (por ejemplo,
+        una corrida interrumpida a mitad de sus lotes): no se publica su huella para que
+        la siguiente sincronización lo reindexe en lugar de darlo por vigente.
+        """
 
         hashes: dict[str, str] = {}
+        seen: dict[str, int] = {}
+        expected: dict[str, int] = {}
         for payload in self._payloads(layer):
             document_id = str(payload.get("document_id") or payload.get("slug") or "")
-            if document_id and document_id not in hashes:
-                hashes[document_id] = str(payload.get("content_hash", ""))
-        return hashes
+            if not document_id:
+                continue
+            seen[document_id] = seen.get(document_id, 0) + 1
+            hashes[document_id] = str(payload.get("content_hash", ""))
+            total = str(payload.get("chunks_total") or "")
+            expected[document_id] = int(total) if total.isdigit() else 0
+        return {
+            document_id: content_hash
+            for document_id, content_hash in hashes.items()
+            if expected[document_id] and seen[document_id] == expected[document_id]
+        }
 
     def document_ids(self, layer: str | None = None) -> set[str]:
         """Documentos distintos presentes en el índice, filtrados por capa."""
@@ -350,8 +366,14 @@ class QdrantVectorStore:
         return set(self.document_hashes(layer))
 
     def _payloads(self, layer: str | None = None) -> Iterable[dict[str, object]]:
-        """Recorre los payloads de la colección, opcionalmente por capa."""
+        """Recorre los payloads de la colección, opcionalmente por capa.
 
+        Una colección que todavía no existe es un índice vacío: la etapa de escritura la
+        crea, así que la lectura no debe impedir la primera sincronización.
+        """
+
+        if not self._client.collection_exists(self._collection):
+            return
         scroll_filter = None
         if layer is not None:
             scroll_filter = models.Filter(
@@ -391,8 +413,10 @@ class QdrantVectorStore:
         return ids
 
     def count(self) -> int:
-        """Número de fragmentos indexados."""
+        """Número de fragmentos indexados; una colección ausente no tiene puntos."""
 
+        if not self._client.collection_exists(self._collection):
+            return 0
         return int(self._client.count(self._collection, exact=True).count)
 
     def health(self) -> dict[str, object]:

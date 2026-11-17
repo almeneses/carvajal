@@ -46,14 +46,16 @@ class PostgresSync:
         from carvajal.adapters.storage.import_corpus import migrate_gold
 
         documents = chunks = removed = 0
+        authoritative = prune and len(layer.directories) == 1
         with self._session_factory.begin() as session:
             for directory in layer.directories:
                 report = migrate_gold(
                     session,
                     gold_dir=directory,
                     layer=layer.name,
+                    allow_empty=authoritative,
                     only=only,
-                    prune=prune and len(layer.directories) == 1,
+                    prune=authoritative,
                 )
                 documents += report.documents
                 chunks += report.chunks

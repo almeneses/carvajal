@@ -215,3 +215,51 @@ def test_sync_corpus_verify_no_escribe_y_reporta_diferencias(tmp_path: Path) -> 
     assert db.imports == [] and index.imports == []
     assert any("Qdrant" in difference for difference in report.differences)
     assert report.ok is False
+
+
+class _EmbedderUnaDimension:
+    """Embedder de una dimensión: basta para contar puntos y podar."""
+
+    def embed(self, text: str) -> list[float]:
+        return [1.0]
+
+
+def _store(nombre: str):
+    from qdrant_client import QdrantClient
+
+    from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
+
+    return QdrantVectorStore(
+        client=QdrantClient(location=":memory:"),
+        collection=nombre,
+        dimensions=1,
+    )
+
+
+def test_un_documento_actualizado_reemplaza_sus_fragmentos(tmp_path: Path) -> None:
+    """Reindexar un documento más corto no deja fragmentos de la versión vieja."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "largo", "v1", cuerpo="Palabra. " * 400)
+    store = _store("actualizado")
+    embedder = _EmbedderUnaDimension()
+    index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+    antes = store.count()
+    assert antes > 1
+
+    # Act
+    _document(nucleo, "largo", "v2", cuerpo="Texto corto.")
+    index_gold(
+        gold_dir=nucleo,
+        store=store,
+        embedder=embedder,
+        only={"largo"},
+        prune=False,
+    )
+
+    # Assert
+    assert store.count() == 1
+    assert store.document_hashes("core") == {"largo": "v2"}
