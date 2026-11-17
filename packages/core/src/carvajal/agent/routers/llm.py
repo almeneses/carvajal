@@ -64,7 +64,12 @@ Router = Callable[[str, list[Turn] | None], RouteDecision]
 
 
 class LLMRouter:
-    """Enrutador que delega la clasificación en un ``LLMProvider``."""
+    """Enrutador que delega la clasificación en un ``LLMProvider``.
+
+    El límite de espera por llamada lo aplica el proveedor: los adaptadores usan
+    ``llm_timeout_seconds`` (``Settings``) en su cliente HTTP. Un ``LLMProvider`` propio
+    debe configurar el mismo límite para que un turno no quede bloqueado.
+    """
 
     name = "llm"
 

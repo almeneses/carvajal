@@ -327,7 +327,7 @@ def test_una_falla_de_la_secuencia_comercial_no_aborta_la_evaluacion(
 
 
 def test_la_orden_eval_router_escribe_la_tabla(tmp_path: Path) -> None:
-    salida = tmp_path / "tabla.md"
+    salida = tmp_path / "eval" / "tabla.md"
 
     assert main(["eval-router", "--output", str(salida)]) == 0
     assert salida.read_text(encoding="utf-8").startswith("| Enrutador |")

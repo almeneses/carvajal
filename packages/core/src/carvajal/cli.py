@@ -350,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
         table = render_report(reports)
         print(table)
         if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(table + "\n", encoding="utf-8")
             print(f"Tabla guardada en {args.output}")
         return 0
