@@ -117,7 +117,7 @@ _PACKAGING = re.compile(r"\b(empaques?|embalajes?|bolsas?|cajas?|sacos?|etiqueta
 _OTHER_TOPIC = re.compile(
     r"\b(empresas?|compania|historia|fund\w*|quien\w*|ingresos?|ventas?|accion(?:es)?"
     r"|sostenibilidad|reportes?|noticias?|empleados?|plantas?|sedes?|mision|vision|valores"
-    r"|politicas?)\b"
+    r"|politicas?|presencia)\b"
 )
 # Señales concretas de compra: con ellas una pregunta que nombra a Carvajal sigue siendo
 # comercial («Carvajal, 5000 vasos para microondas»). La capacidad o la ciudad solas no
@@ -307,6 +307,10 @@ def _previous_request(turns: list[Turn]) -> list[dict[str, Any]] | None:
     for turn in reversed(turns[-FOLLOW_UP_DEPTH:]):
         product, data = _extract(turn["question"])
         if not (product or _has_signal(data)):
+            # Un saludo u otro turno sin datos no invalida la respuesta a la aclaración.
+            continue
+        if not product and _is_question(turn["question"]):
+            # Una pregunta intermedia cambia de tema: no se hereda a través de ella.
             return None
         chain.append(data)
         if product:
@@ -352,6 +356,8 @@ def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[s
         return request
     # Respuesta corta a una aclaración: hereda la solicitud de los turnos anteriores.
     if not short:
+        return None
+    if _is_question(question) and _OTHER_TOPIC.search(_plain(question)):
         return None
     if data["quantity"] is None:
         data["quantity"] = _follow_up_quantity(_plain(question))
