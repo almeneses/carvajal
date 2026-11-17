@@ -16,6 +16,12 @@ from carvajal.gold import merge_index
 from carvajal.infrastructure.settings import Settings
 
 
+def _temporales(directorio: Path) -> list[str]:
+    """Temporales que dejó una escritura de Gold, incluidos los ocultos."""
+
+    return sorted(path.name for path in directorio.iterdir() if path.name.endswith(".tmp"))
+
+
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
         gold_dir=tmp_path / "gold",
@@ -439,6 +445,49 @@ def test_ingest_uploads_no_reescribe_capas_si_no_cambia(tmp_path: Path) -> None:
     assert llamadas == []
     assert (settings.gold_dir / "informe.md").read_bytes() == antes
     assert list(_entradas_index(settings)) == ["informe"]
+
+
+def test_una_carga_que_falla_al_escribir_gold_conserva_la_version_anterior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La sincronización nunca ve un Gold truncado con la huella nueva."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    ingest_uploads(
+        [UploadedDocument(filename="informe.md", data=b"# Informe\n\nVersion uno.")],
+        settings=settings,
+        solo_extraer=True,
+    )
+    gold = settings.gold_dir / "informe.md"
+    completo = gold.read_bytes()
+    escribir = Path.write_text
+
+    def cortar(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if data.startswith("---"):
+            escribir(self, data[:20], encoding, errors, newline)
+            raise OSError("disco lleno")
+        return escribir(self, data, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "write_text", cortar)
+
+    # Act
+    with pytest.raises(OSError):
+        ingest_uploads(
+            [UploadedDocument(filename="informe.md", data=b"# Informe\n\nVersion dos.")],
+            settings=settings,
+            solo_extraer=True,
+        )
+
+    # Assert
+    assert gold.read_bytes() == completo
+    assert _temporales(settings.gold_dir) == []
 
 
 def test_ingest_uploads_actualiza_el_mismo_slug_cuando_cambia(tmp_path: Path) -> None:

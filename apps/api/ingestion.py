@@ -25,7 +25,7 @@ from apps.api.document_formats import (
 )
 from carvajal.application.sync import CorpusLayer, SyncReport, sync_corpus
 from carvajal.domain.rules import content_hash, estimate_tokens
-from carvajal.gold import merge_index
+from carvajal.gold import merge_index, write_gold_file
 from carvajal.identity import (
     assign_slug,
     raw_hash,
@@ -278,7 +278,8 @@ def ingest_uploads(
         silver_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path.write_bytes(document.data)
         silver_path.write_text(markdown.strip() + "\n", encoding="utf-8")
-        gold_path.write_text(
+        write_gold_file(
+            gold_path,
             _gold(
                 slug=slug,
                 titulo=titulo,
@@ -287,7 +288,6 @@ def ingest_uploads(
                 captured_at=captured_at,
                 source_type=source_type,
             ),
-            encoding="utf-8",
         )
         entries.append(
             {
