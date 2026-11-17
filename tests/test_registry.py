@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from carvajal.gold import corpus_lock, merge_index
+from carvajal.identity import assign_slug
 from carvajal.registry import (
     IndexedDocument,
     corpus_areas,
@@ -197,7 +198,7 @@ def test_entradas_sin_fuente_no_participan_en_la_busqueda_por_clave(tmp_path: Pa
 
     # Assert
     assert documento is None
-    assert registro.slug_owners() == {}
+    assert registro.slug_owners() == {"legado": "", "otro": ""}
 
 
 def test_layer_por_defecto_es_core(tmp_path: Path) -> None:
@@ -228,7 +229,22 @@ def test_slug_owners_devuelve_los_duenos_del_slug(tmp_path: Path) -> None:
     duenos = load_registry([area]).slug_owners()
 
     # Assert
-    assert duenos == {"informe": "file:corpus/informe.pdf"}
+    assert duenos == {"informe": "file:corpus/informe.pdf", "legado": ""}
+
+
+def test_slug_owners_marca_ocupados_los_slugs_del_corpus_legado(tmp_path: Path) -> None:
+    """Un slug anterior a la 037 no puede reutilizarse y sobrescribir su documento."""
+
+    # Arrange
+    area = tmp_path / "gold"
+    _indice(area, [{"slug": "informe"}])
+    duenos = load_registry([area]).slug_owners()
+
+    # Act
+    slug = assign_slug("informe", "file:corpus/informe.pdf", duenos)
+
+    # Assert
+    assert slug == "informe-2"
 
 
 def test_corpus_areas_incluye_el_nucleo_y_las_extendidas(tmp_path: Path) -> None:

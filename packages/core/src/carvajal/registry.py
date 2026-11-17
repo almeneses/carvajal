@@ -129,13 +129,14 @@ class Registry:
         return self._by_content_hash.get(content_hash)
 
     def slug_owners(self) -> dict[str, str]:
-        """Mapa ``slug → source_key`` para asignar slugs sin renombrar existentes."""
+        """Mapa ``slug → source_key`` para asignar slugs sin renombrar existentes.
 
-        return {
-            document.slug: document.source_key
-            for document in self._documents
-            if document.source_key
-        }
+        Las entradas anteriores a la 037 no tienen ``source_key`` y se incluyen
+        con dueño vacío: así ``assign_slug`` las trata como ocupadas y nunca
+        reutiliza un slug ya publicado, que sobrescribiría el documento.
+        """
+
+        return {document.slug: document.source_key for document in self._documents}
 
 
 def corpus_areas(data_dir: str | Path) -> tuple[Path, ...]:
