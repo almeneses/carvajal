@@ -155,7 +155,7 @@ def index_gold(
             url=document.url,
         )
 
-    deleted = store.prune(valid_ids) if prune else 0
+    deleted = store.prune(valid_ids, layer=layer) if prune else 0
     points = store.count()
     elapsed_ms = round((perf_counter() - started) * 1000)
     report = IndexReport(

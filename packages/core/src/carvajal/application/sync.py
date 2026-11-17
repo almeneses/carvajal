@@ -130,6 +130,11 @@ def corpus_layers(
 
     ``which`` acepta ``core``, ``extended`` o ``all``. La capa extendida agrupa
     todas las fuentes importadas bajo la misma capa lógica.
+
+    La capa extendida se devuelve aunque no queden fuentes: es una capa vacía,
+    no una capa inexistente. Si se omitiera, ``sync --layer extended --prune``
+    no podría borrar sus documentos de los almacenes y ``--verify`` no vería los
+    residuos de una fuente eliminada.
     """
 
     if which not in {"core", "extended", "all"}:
@@ -149,21 +154,25 @@ def corpus_layers(
                     and (child / "gold").is_dir()
                 )
             )
-        if directories:
-            layers.append(CorpusLayer(LAYER_EXTENDED, directories))
+        layers.append(CorpusLayer(LAYER_EXTENDED, directories))
     return tuple(layers)
 
 
 def gold_hashes(layer: CorpusLayer) -> dict[str, str]:
     """Lee las huellas de texto de los Markdown Gold de una capa.
 
+    Una capa sin directorios es una capa vacía, no un error: su corpus está
+    vacío y la poda debe poder vaciar los almacenes.
+
     Raises:
-        FileNotFoundError: si ningún directorio de la capa existe.
+        FileNotFoundError: si la capa declara directorios y ninguno existe.
         ValueError: si dos archivos de la capa publican el mismo slug.
     """
 
     from carvajal.adapters.storage.import_corpus import load_document
 
+    if not layer.directories:
+        return {}
     hashes: dict[str, str] = {}
     found = False
     for directory in layer.directories:

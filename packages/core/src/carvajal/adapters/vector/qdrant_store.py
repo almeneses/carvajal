@@ -309,10 +309,20 @@ class QdrantVectorStore:
             wait=True,
         )
 
-    def prune(self, valid_ids: Iterable[str]) -> int:
-        """Elimina puntos que ya no pertenecen al corpus; devuelve cuántos borró."""
+    def prune(self, valid_ids: Iterable[str], *, layer: str | None = None) -> int:
+        """Elimina puntos que ya no pertenecen al corpus; devuelve cuántos borró.
+
+        ``layer`` limita la poda a esa capa. La colección es compartida: indexar
+        solo el núcleo (``carvajal index-qdrant``) no debe borrar los puntos de
+        la capa extendida.
+        """
 
         keep = set(valid_ids)
+        scroll_filter = None
+        if layer is not None:
+            scroll_filter = models.Filter(
+                must=[models.FieldCondition(key="layer", match=models.MatchValue(value=layer))]
+            )
         stale: list[str] = []
         offset = None
         while True:
@@ -320,6 +330,7 @@ class QdrantVectorStore:
                 collection_name=self._collection,
                 limit=256,
                 offset=offset,
+                scroll_filter=scroll_filter,
                 with_payload=False,
                 with_vectors=False,
             )

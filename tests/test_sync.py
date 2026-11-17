@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from carvajal.application.sync import CorpusLayer, gold_hashes, sync_corpus
+from carvajal.application.sync import CorpusLayer, corpus_layers, gold_hashes, sync_corpus
 
 
 def _document(directorio: Path, slug: str, hash_texto: str, cuerpo: str = "Contenido.") -> None:
@@ -298,3 +298,64 @@ def test_un_vector_de_otra_dimension_no_borra_la_version_indexada(tmp_path: Path
         )
     assert store.count() == antes
     assert store.document_hashes("core") == {"historia": "v1"}
+
+
+def test_corpus_layers_conserva_la_capa_extendida_sin_fuentes(tmp_path: Path) -> None:
+    """Una capa sin fuentes sigue siendo una capa: se puede podar y verificar."""
+
+    # Arrange
+    nucleo = tmp_path / "gold"
+    nucleo.mkdir()
+    externo = tmp_path / "external"
+    externo.mkdir()
+
+    # Act
+    layers = corpus_layers(nucleo, externo, which="extended")
+
+    # Assert
+    assert [layer.name for layer in layers] == ["extended"]
+    assert layers[0].directories == ()
+    assert gold_hashes(layers[0]) == {}
+
+
+def test_la_capa_vacia_se_poda_en_los_dos_almacenes() -> None:
+    """Sin fuentes, ``sync --layer extended --prune`` no debe dejar residuos."""
+
+    # Arrange
+    capa = CorpusLayer("extended", ())
+    db = FakeDatabase({})
+    db.hashes_map = {"viejo": "h0"}
+    index = FakeIndex({})
+    index.hashes_map = {"viejo": "h0"}
+
+    # Act
+    report = sync_corpus([capa], database=db, index=index, prune=True)
+
+    # Assert
+    assert report.ok
+    assert report.pruned == 2
+    assert db.hashes_map == {}
+    assert index.hashes_map == {}
+
+
+def test_la_poda_de_una_capa_conserva_los_puntos_de_la_otra(tmp_path: Path) -> None:
+    """Reindexar solo el núcleo con poda no debe borrar la capa extendida."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    extendida = tmp_path / "external" / "donante" / "gold"
+    _document(nucleo, "historia", "h1")
+    _document(extendida, "informe", "h2")
+    store = _store("poda_por_capa")
+    embedder = _EmbedderUnaDimension()
+    index_gold(gold_dir=extendida, store=store, embedder=embedder, layer="extended", prune=False)
+
+    # Act: ``make index`` indexa únicamente el núcleo y poda.
+    index_gold(gold_dir=nucleo, store=store, embedder=embedder, layer="core", prune=True)
+
+    # Assert
+    assert store.document_hashes("core") == {"historia": "h1"}
+    assert store.document_hashes("extended") == {"informe": "h2"}
+    assert store.count() == 2
