@@ -230,6 +230,43 @@ ya están en el núcleo y deduplica por URL normalizada y hash del texto. Escrib
 > La capa extendida es material de terceros: conserva la atribución y no se presenta como
 > comunicación oficial de Carvajal.
 
+## Corpus incremental (spec 037)
+
+Todo lo que entra al corpus pasa por el mismo camino: identidad estable, deduplicación
+por huellas, capas Bronze/Silver/Gold y una única sincronización con PostgreSQL y
+Qdrant.
+
+**Identidad.** Cada documento se identifica por su fuente, nunca por su texto:
+`url:<normalizada>` para capturas, `file:<raíz>/<ruta relativa>` para carpetas de la
+consola y `upload:<nombre>` para subidas web. El slug se asigna una vez y no se
+renombra. Un archivo movido conserva la identidad anterior y se reporta como duplicado.
+
+**Deduplicación.** Antes de escribir Bronze se compara el `raw_hash` (SHA-256 de los
+bytes): una copia exacta o un archivo movido no se procesa. Tras extraer se recalcula
+el `content_hash` del texto: una página con otro HTML pero el mismo texto, o un PDF
+re-codificado, se reporta con el documento existente sin reindexar. El informe separa
+nuevos, actualizados, idénticos y duplicados.
+
+**Sincronización.** `carvajal sync` es el único camino entre Gold y los almacenes:
+
+```bash
+uv run carvajal sync --layer all          # núcleo + cada fuente extendida
+uv run carvajal sync --layer all --prune  # además elimina lo que ya no está en Gold
+uv run carvajal sync --layer all --verify # no escribe; sale con 1 si hay diferencias
+uv run carvajal sync --adopt              # completa source_key/raw_hash en un registro legado
+```
+
+La corrida es incremental: compara huellas y solo importa e indexa lo nuevo o cambiado;
+la poda se limita a la capa sincronizada. La captura web y la carga desde Configuración
+terminan en la misma sincronización y comparten `data/.corpus.lock`, así que dos
+corridas no dejan el corpus a medio escribir.
+
+**Prioridad de capas.** El chat busca primero `layer=core` y solo completa con
+`layer=extended` si el núcleo no llena el cupo o queda por debajo de `RAG_MIN_SCORE`. La
+cita conserva `origin`, `category` y `entity` del front matter extendido. La FAQ sigue
+leyendo solo el núcleo, y `make index-eval` mide la misma política con
+`carvajal index-qdrant --layer all`.
+
 ## Catálogo de empaques (spec 036)
 
 El asistente comercial de empaques consulta un **catálogo curado** en `data/catalog/empaques/`
@@ -305,8 +342,9 @@ uv sync --all-extras
 
 ## Uso
 
-> El CLI (`carvajal capture`, `status`, `ask`, `eval`, `summarize`, `faq`,
-> `import`, `migrate-gold`) requiere los extras de captura y prototipo:
+> El CLI (`carvajal capture`, `sync`, `index-qdrant`, `status`, `ask`, `eval`,
+> `summarize`, `faq`, `import`, `migrate-gold`) requiere los extras de captura y
+> prototipo:
 > `uv sync --all-extras` en el repositorio, o
 > `uv tool install "carvajal[capture,legacy]"` fuera de él. La imagen Docker
 > solo instala el runtime web y no incluye el CLI.

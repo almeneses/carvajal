@@ -88,6 +88,8 @@ con `--admin`.
 - La spec 037 define el corpus incremental: identidad estable por fuente, deduplicación por
   huella del original antes de Bronze, actualización con versiones, sincronización única con
   PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.
+  `carvajal sync --adopt` completa la identidad de los índices anteriores sin renombrar
+  slugs ni reindexar.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
@@ -95,7 +97,7 @@ con `--admin`.
 
 - Python 3.13+, monorepo `uv` con el paquete en `packages/core/src/carvajal` (src-layout).
 - API FastAPI + Jinja2 + HTMX; frontend propio sin framework de JavaScript.
-- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0005).
+- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0006).
 - Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
 - Agente LangGraph con `PostgresSaver` y `PostgresStore`; router `direct`/`tool`/`rag`.
 - LLM configurable: DeepSeek (por defecto) u Ollama; embeddings locales con

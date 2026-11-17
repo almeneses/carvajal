@@ -716,3 +716,26 @@ def test_la_consola_respeta_el_limite_por_archivo(tmp_path: Path) -> None:
     # Assert
     assert report.gold == 0
     assert any("supera el límite" in error for error in report.errors)
+
+
+def test_el_informe_sanea_rutas_y_credenciales_de_la_sincronizacion(tmp_path: Path) -> None:
+    """La UI no publica rutas internas ni contraseñas del almacén."""
+
+    # Arrange: la sincronización devuelve un fallo con ruta y URL con contraseña.
+    settings = _settings(tmp_path)
+    documento = UploadedDocument(filename="informe.pdf", data=b"%PDF-1.4 texto")
+    error = (
+        "/srv/carvajal/data/gold/informe.md: connection to "
+        "postgresql://carvajal:s3creto@db:5432/carvajal failed"
+    )
+
+    def sincronizar(gold_dir: Path, only: set[str]) -> SyncReport:
+        return SyncReport(errors=(error,))
+
+    # Act
+    report = ingest_uploads([documento], settings=settings, sincronizar=sincronizar)
+
+    # Assert
+    assert report.errors
+    assert all("s3creto" not in mensaje for mensaje in report.errors)
+    assert all("/srv/carvajal" not in mensaje for mensaje in report.errors)

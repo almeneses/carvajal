@@ -34,6 +34,7 @@ from carvajal.identity import (
 )
 from carvajal.infrastructure.settings import Settings
 from carvajal.registry import Registry, corpus_areas, load_registry
+from carvajal.report import safe_report_error
 
 __all__ = [
     "ALLOWED_EXTENSIONS",
@@ -242,7 +243,7 @@ def ingest_uploads(
         try:
             markdown, titulo = extract_markdown(nombre, document.data)
         except ExtractError as error:
-            errors.append(f"{nombre}: {error}")
+            errors.append(f"{nombre}: {safe_report_error(error)}")
             continue
         if not markdown.strip():
             errors.append(f"{nombre}: no se extrajo texto legible.")
@@ -340,7 +341,7 @@ def ingest_uploads(
         documents_count = sync_report.documents
         chunks = sync_report.chunks
         indexed = sync_report.indexed
-        errors.extend(sync_report.errors)
+        errors.extend(safe_report_error(error) for error in sync_report.errors)
     except Exception as error:  # la UI informa el fallo de la etapa
         logger.warning("upload.sync_failed", error=str(error))
         errors.append("No se pudo sincronizar el corpus; revisa la conexión y los logs.")
