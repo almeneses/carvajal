@@ -117,9 +117,10 @@ _OTHER_TOPIC = re.compile(
     r"|sostenibilidad|reportes?|noticias?|empleados?|plantas?|sedes?|mision|vision|valores"
     r"|politicas?)\b"
 )
-# Datos concretos de una compra: con ellos una pregunta que nombra a Carvajal sigue siendo
-# comercial («vasos de 12 oz de Carvajal en Cali»).
-_HARD_DATA = ("capacity_oz", "quantity", "country", "city", "microwave")
+# Señales concretas de compra: con ellas una pregunta que nombra a Carvajal sigue siendo
+# comercial («Carvajal, 5000 vasos para microondas»). La capacidad o la ciudad solas no
+# bastan: «¿Qué vasos vende Carvajal en Cali?» sigue siendo institucional.
+_HARD_DATA = ("quantity", "microwave", "temperature", "use")
 _RENEWABLE = re.compile(
     r"\b(renovables?|compostables?|biodegradables?|ecologic\w*|sostenibles?|de papel|de carton"
     r"|fibra|cana|bagazo|pulpa|sin plastico|sin icopor)\b"
