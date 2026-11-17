@@ -435,6 +435,87 @@ h1:focus-visible,
   border-radius: 12px;
 }
 
+/* Tarjetas de la ruta comercial (spec 036, _productos.html; mismo bloque que apps/api/static/chat.css). */
+.productos {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.productos-lista,
+.productos-canales,
+.productos-distribuidores {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.productos-lista {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.producto {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+}
+
+.producto-nombre,
+.productos-titulo {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--tinta);
+}
+
+.producto-datos {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.producto-datos div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.producto-datos dt {
+  color: var(--secundario);
+}
+
+.producto-datos dd {
+  margin: 0;
+  text-align: right;
+}
+
+.producto-precio {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--azul);
+}
+
+.producto-aviso,
+.producto-fuente,
+.productos-nota {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--secundario);
+}
+
+.productos-distribuidores li,
+.productos-canales li {
+  padding: 8px 12px;
+  background: var(--etiqueta-fondo);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
 .citas summary {
   display: flex;
   align-items: center;

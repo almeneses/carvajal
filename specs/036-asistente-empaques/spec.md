@@ -273,3 +273,6 @@ produce un informe con las mismas métricas para los tres.
   extra de instalación, porque todavía no se eligió el paquete (Jev, GLiNER2.5-Decide u
   otro). Los enrutadores LLM y de decisión caen al de reglas si su salida no cumple el
   contrato, y la razón lo deja visible para la evaluación.
+- 2026-11-16 (PR 8): las tarjetas se renderizan en el servidor con `_productos.html` y viajan
+  en un evento SSE `products`, entre `meta` y los tokens. No se guardan con el mensaje: al
+  recargar el hilo queda la respuesta en texto, que ya cita cada ficha con su fecha.
