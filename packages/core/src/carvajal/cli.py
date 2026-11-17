@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,13 +31,9 @@ if TYPE_CHECKING:
     from carvajal.infrastructure.settings import Settings
     from carvajal.pipeline import CaptureReport
 
-_CREDENTIALS_IN_URL = re.compile(r"(?P<scheme>://[^:/@\s]+:)[^@\s]+@")
+from carvajal.report import redact_credentials, safe_report_error
 
-
-def _redact_credentials(message: str) -> str:
-    """Oculta la contraseña de una URL sin perder usuario, host ni diagnóstico."""
-
-    return _CREDENTIALS_IN_URL.sub(r"\g<scheme>***@", message)
+_redact_credentials = redact_credentials
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -613,7 +608,7 @@ def print_report(report: CaptureReport) -> None:
     print(f"  Tokens (estimados):      {report.tokens_estimate:,}")
     print(f"  Duración:                {report.duration_seconds} s")
     for error in report.errors:
-        print(f"  ! {error}")
+        print(f"  ! {safe_report_error(error)}")
 
 
 def _sync_corpus(
@@ -671,7 +666,7 @@ def print_sync_report(report: SyncReport) -> None:
     print(f"  Documentos importados:   {report.documents}")
     print(f"  Fragmentos importados:   {report.chunks}")
     for error in report.errors:
-        print(f"  ! {error}")
+        print(f"  ! {safe_report_error(error)}")
 
 
 def print_import_report(report: ImportReport) -> None:
