@@ -144,7 +144,7 @@ se propone un stack distinto, documentado en
 | LLM | Puerto `LLMProvider`; LangChain como adaptador |
 | Ingesta | CLI, consola y web (Configuración); el rastreo periódico por cron es futuro |
 
-> ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector), W2.2
+> ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector, retirado en la spec 037), W2.2
 > (adaptadores de LLM), W2.3 (caso de uso `AskQuestion`), W2.4 (shell FastAPI) y
 > W2.5 (layout y tema) están en revisión. El resto del stack sigue vigente hasta
 > que el ADR pase a `aceptado` y la migración avance fase por fase.
@@ -174,6 +174,8 @@ carvajal/
 │           │   └── chunking.py  # división de documentos en chunks
 │           ├── application/   # casos de uso y puertos (Protocol)
 │           │   ├── ask.py       # caso de uso AskQuestion con citas y stream
+│           │   ├── retrieval.py # prioridad núcleo → capa extendida (spec 037)
+│           │   ├── sync.py      # reconciliación Gold → PostgreSQL → Qdrant (037)
 │           │   ├── errors.py    # errores de aplicación (LLMError)
 │           │   └── ports.py     # repositorios, vector store, LLM, embedder, fetcher
 │           ├── agent/         # router, herramienta, memoria y grafo LangGraph
@@ -188,7 +190,7 @@ carvajal/
 │           │   │   └── import_corpus.py # importador Gold idempotente
 │           │   ├── embeddings/  # Embedder: Ollama (nomic-embed-text)
 │           │   ├── llm/         # LLMProvider: DeepSeek y Ollama sobre LangChain
-│           │   └── vector/      # pgvector legado + QdrantVectorStore (M2)
+│           │   └── vector/      # QdrantVectorStore (M2; pgvector retirado en 037)
 │           ├── infrastructure/ # adaptadores y configuración tipada
 │           │   └── settings.py  # pydantic-settings (.env + entorno)
 │           ├── config.py      # fachada de compatibilidad de settings
@@ -427,6 +429,9 @@ git push
 | 2026-11-16 | Ampliar el alcance a la carga local multiformato: PDF con texto por página y datos XML, JSON, JSONL, CSV y TSV | Se especifica antes de implementar en `specs/035-ingesta-multiformato` con el flujo de Spec Kit; la web conserva 100 archivos y 5 MB por archivo y la consola admite 100 MB por archivo. El OCR de PDF escaneados sigue fuera de alcance y se avisa al usuario en lugar de convertirlo |
 | 2026-11-16 | Añadir la capa de catálogo curado (`data/catalog/`) y la ruta comercial de empaques (spec 036) | Recomendar empaques exige filtros exactos (capacidad, material, temperatura) que la recuperación por similitud no garantiza. Son unas 230 filas de solo lectura: se versionan como CSV y se cargan en memoria, como `data/indicators.json`, sin migración. La capa extendida sigue siendo solo de recuperación; el catálogo es una capa distinta, derivada y revisada en PR |
 | 2026-11-16 | Corpus incremental: identidad estable por fuente, doble huella y sincronización única (spec 037) | El slug con hash convertía cada archivo modificado en un documento nuevo y cada copia en un duplicado. La identidad pasa a derivarse de la fuente (URL, ruta relativa o nombre), la huella del original deduplica antes de Bronze y la huella del texto decide actualización y reindexación. El registro vive en los `index.jsonl` para funcionar sin base; PostgreSQL y Qdrant se reconcilian con un solo `sync` idempotente y poda explícita |
+| 2026-11-17 | Recuperación con prioridad de capas y procedencia en la cita (spec 037, US4) | `LayerPriorityStore` vive en `application/retrieval.py` y no en el adaptador: la prioridad es política de producto. El chat busca primero `layer=core` y solo completa con `layer=extended` si el núcleo no llena el cupo o no supera `RAG_MIN_SCORE`. `origin`, `category` y `entity` viajan del front matter al payload de Qdrant y a la cita; no se persisten en PostgreSQL |
+| 2026-11-17 | Identidad estable, deduplicación por dos huellas y adopción del registro legado (spec 037, US1) | Cada documento se identifica por su fuente (`url:`, `file:` o `upload:`), el `raw_hash` corta la extracción de duplicados exactos y el `content_hash` detecta re-codificaciones. `carvajal sync --adopt` completa `source_key` y `raw_hash` en los índices anteriores sin renombrar slugs; si dos versiones legadas resuelven la misma subida, la más reciente conserva la fuente y el resto queda en `legacy:<slug>` |
+| 2026-11-17 | Un solo índice de respuestas: retirada de `/ask` y de pgvector (spec 037, US5) | Ningún flujo escribía vectores en PostgreSQL, así que el adaptador `PgVectorStore` y la columna `chunks.embedding` eran un índice vacío que aparentaba funcionar. Se eliminan la ruta, el adaptador y la dependencia, con la migración reversible `0006`; el chat es el único camino de respuesta y la FAQ y el explorador siguen leyendo PostgreSQL |
 | 2026-11-16 | Indexar la capa extendida con prioridad y retirar `/ask` y pgvector (spec 037) | La capa extendida suma cobertura si no desplaza al núcleo: se indexa en la misma colección con `layer` en el payload y el chat busca primero el núcleo. La FAQ sigue leyendo solo `core`. Ningún flujo escribe vectores en PostgreSQL, así que `/ask` respondía sin contexto y el adaptador pgvector era un índice vacío; el chat queda como único camino de respuesta y Qdrant como único índice vectorial |
 | 2026-11-17 | Sincronización única del corpus (spec 037, US2): `carvajal sync --layer core|extended|all [--prune] [--verify]` reconcilia Gold con PostgreSQL y Qdrant | Un solo camino incremental compara huellas y solo importa e indexa lo nuevo o cambiado; `--verify` no escribe y devuelve código distinto de cero si hay diferencias. La captura web y la carga desde Configuración cierran con la misma sincronización, que necesita PostgreSQL y Qdrant en marcha; `carvajal capture --solo-gold` conserva la corrida limitada a disco |
 
@@ -435,6 +440,7 @@ git push
 - [x] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035, entregada el 2026-11-16).
 - [ ] Evaluar OCR para PDF escaneados sin capa de texto.
 - [ ] Rastrear el sitio de forma periódica (cron/crawler) sobre `carvajal capture` y `carvajal sync`; la spec 037 deja los contratos de identidad y sincronización.
+- [ ] Ejecutar `carvajal sync --adopt` y `carvajal sync --prune` en el VPS y registrar el antes/después de `/health` (spec 037, T056); requiere acceso al servidor.
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.

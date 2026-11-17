@@ -92,11 +92,11 @@ qdrant: ## Levanta Qdrant con volumen persistente
 qdrant-down: ## Detiene Qdrant (conserva el volumen)
 	docker compose stop qdrant
 
-index: ## Indexa data/gold en Qdrant
-	uv run carvajal index-qdrant
+index: ## Indexa el núcleo y las capas extendidas en Qdrant
+	uv run carvajal index-qdrant --layer all
 
-index-eval: ## Indexa y evalúa el retrieval (Recall@10 y nDCG@10)
-	uv run carvajal index-qdrant
+index-eval: ## Indexa todas las capas y evalúa el retrieval (Recall@10 y nDCG@10)
+	uv run carvajal index-qdrant --layer all
 	uv run python scripts/eval_retrieval.py
 
 image: ## Construye la imagen Docker de la app web

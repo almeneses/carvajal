@@ -51,6 +51,9 @@ class Source:
     url: str = ""
     title: str = ""
     source_type: str = "oficial"
+    origin: str = ""
+    category: str = ""
+    entity: str = ""
 
 
 @dataclass(frozen=True)
@@ -219,6 +222,9 @@ def _source(result: ScoredChunk) -> Source:
         url=_safe_url(metadata.get("url", "")),
         title=metadata.get("title", ""),
         source_type=metadata.get("source_type", "oficial"),
+        origin=metadata.get("origin", ""),
+        category=metadata.get("category", ""),
+        entity=metadata.get("entity", ""),
     )
 
 

@@ -46,7 +46,7 @@ class OllamaEmbedder:
     def embed(self, text: str) -> list[float]:
         """Devuelve el vector del texto calculado por Ollama.
 
-        La dimensión la valida ``PgVectorStore``, que conoce el tamaño del
+        La dimensión la valida el índice vectorial, que conoce el tamaño del
         índice; aquí solo se rechaza un vector vacío.
 
         Raises:

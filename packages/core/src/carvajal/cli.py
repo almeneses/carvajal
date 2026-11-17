@@ -172,7 +172,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Indexa data/gold en Qdrant con IDs estables y poda lo obsoleto.",
     )
     index_parser.add_argument(
-        "--gold", type=Path, default=GOLD_DIR, help="Directorio Gold a indexar."
+        "--gold", type=Path, default=GOLD_DIR, help="Directorio Gold del núcleo a indexar."
+    )
+    index_parser.add_argument(
+        "--layer",
+        choices=("core", "extended", "all"),
+        default="core",
+        help="Capa a indexar (por defecto, el núcleo).",
     )
     index_parser.add_argument(
         "--recreate",
@@ -507,10 +513,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "index-qdrant":
         from carvajal.adapters.embeddings import EmbeddingError, OllamaEmbedder
         from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
+        from carvajal.application.sync import corpus_layers
         from carvajal.indexing.qdrant import index_gold
         from carvajal.infrastructure.settings import Settings
 
         settings = Settings()
+        layers = corpus_layers(args.gold, settings.external_dir, which=args.layer)
+        areas = [
+            (directory, layer.name)
+            for layer in layers
+            for directory in layer.directories
+            if directory.is_dir()
+        ]
+        if not areas:
+            print(f"No hay documentos Gold en la capa {args.layer}.")
+            return 1
         store = QdrantVectorStore(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
@@ -520,12 +537,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         try:
             report = index_gold(
-                gold_dir=args.gold,
+                gold_dirs=areas,
                 store=store,
                 embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
                 recreate=args.recreate,
                 prune=not args.no_prune,
                 batch_size=max(1, args.batch_size),
+                prune_layers=tuple(layer.name for layer in layers),
             )
         except (FileNotFoundError, ValueError, EmbeddingError) as error:
             print(f"No se pudo indexar: {error}")
