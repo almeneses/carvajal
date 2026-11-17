@@ -23,7 +23,7 @@ from carvajal.domain.entities import Chunk, Document, DocumentVersion
 __all__ = ["SqlChunkRepository", "SqlDocumentRepository"]
 
 # Columnas de ``chunks`` que forman la entidad; ``embedding`` queda fuera porque
-# la administra ``PgVectorStore`` y no es parte del dominio.
+# no es parte del dominio.
 _CHUNK_COLUMNS = (
     tables.chunks.c.id,
     tables.chunks.c.document_id,

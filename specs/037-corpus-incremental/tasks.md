@@ -138,15 +138,15 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 ### Pruebas de US5
 
-- [ ] T048 [P] [US5] Probar que `/ask` ya no existe y que el chat, la FAQ y el explorador siguen funcionando en `tests/test_api_m2.py`
-- [ ] T049 [P] [US5] Retirar `tests/test_vector_store.py` y las pruebas de `PgVectorStore`
+- [X] T048 [P] [US5] Probar que `/ask` ya no existe y que el chat, la FAQ y el explorador siguen funcionando en `tests/test_api_m2.py`
+- [X] T049 [P] [US5] Retirar `tests/test_vector_store.py` y las pruebas de `PgVectorStore`
 
 ### Implementación de US5
 
-- [ ] T050 [US5] Eliminar la ruta y el handler de `/ask` en `apps/api/main.py` y las plantillas que lo enlacen
-- [ ] T051 [US5] Eliminar `packages/core/src/carvajal/adapters/vector/pgvector_store.py`, la columna `embedding` de `tables.py` y la dependencia `pgvector` de `pyproject.toml`/`uv.lock`
-- [ ] T052 [US5] Añadir `migrations/versions/0006_drop_chunk_embeddings.py` (reversible), probar la migración y actualizar las pruebas de tablas y migraciones (`tests/test_storage_tables.py:64-70`, `tests/test_storage_migrations.py:61,93-95`)
-- [ ] T053 [US5] Actualizar `docs/` y `README` para declarar el chat como único camino de respuesta
+- [X] T050 [US5] Eliminar la ruta y el handler de `/ask` en `apps/api/main.py` y las plantillas que lo enlacen
+- [X] T051 [US5] Eliminar `packages/core/src/carvajal/adapters/vector/pgvector_store.py`, la columna `embedding` de `tables.py` y la dependencia `pgvector` de `pyproject.toml`/`uv.lock`
+- [X] T052 [US5] Añadir `migrations/versions/0006_drop_chunk_embeddings.py` (reversible), probar la migración y actualizar las pruebas de tablas y migraciones (`tests/test_storage_tables.py:64-70`, `tests/test_storage_migrations.py:61,93-95`)
+- [X] T053 [US5] Actualizar `docs/` y `README` para declarar el chat como único camino de respuesta
 
 **Checkpoint**: no queda un índice vacío que parezca funcionar.
 
@@ -156,7 +156,7 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 - [ ] T055 [US1] Probar la adopción con un índice legado (URL, slug con hash, subidas homónimas que caen a `legacy:<slug>` y dos versiones legadas de la misma subida) en `tests/test_registry.py`
 - [ ] T056 Ejecutar la adopción y la poda en el VPS siguiendo `docs/despliegue-ovh.md` y registrar el antes/después de `/health` (manual: requiere acceso al servidor)
 - [ ] T057 Documentar en `README.md` la identidad, la deduplicación, `carvajal sync` y la prioridad de capas
-- [ ] T058 Registrar en `CONSTITUTION.md` §2, §9 y §10 las decisiones de identidad, dedupe, sincronización, prioridad y retiro de pgvector
+- [X] T058 Registrar en `CONSTITUTION.md` §2, §9 y §10 las decisiones de identidad, dedupe, sincronización, prioridad y retiro de pgvector
 - [ ] T059 [P] Añadir la fila de la 037 a `specs/README.md` y sincronizar `.specify/memory/constitution.md`
 - [ ] T060 Ejecutar `make check` y anotar el número de pruebas en el PR
 - [ ] T061 Revisar que los errores del informe no exponen rutas internas ni credenciales
