@@ -30,6 +30,7 @@ class PostgresSync:
                     tables.documents.c.title,
                     tables.documents.c.section,
                     tables.documents.c.source_type,
+                    tables.documents.c.url,
                 ).where(tables.documents.c.layer == layer)
             ).all()
         return {
@@ -38,6 +39,7 @@ class PostgresSync:
                 title=str(row[2]),
                 section=str(row[3]),
                 source_type=str(row[4]),
+                url=str(row[5]),
             )
             for row in rows
         }
