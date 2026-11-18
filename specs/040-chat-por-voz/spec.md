@@ -6,6 +6,14 @@
 **Input**: User description: "Incluir el servicio para que se le pueda dictar al chat y que
 el chat le hable a uno también."
 
+## Clarifications
+
+### Session 2026-11-17
+
+- Q: ¿Dónde se convierte la voz a texto y el texto a voz? → A: En el navegador, con sus
+  capacidades nativas. El audio no pasa por el servidor del proyecto; la calidad y el
+  soporte dependen del navegador, y donde no hay soporte el chat sigue siendo escrito.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Dictar una pregunta (Priority: P1)
@@ -132,6 +140,9 @@ que el segundo turno conserva el contexto del primero.
   seguridad del chat (CSRF, CSP) sin excepciones.
 - **FR-012**: El modo manos libres MUST poder activarse y desactivarse, y apagarse solo tras
   10 segundos de silencio o con la palabra «terminar» (P3).
+- **FR-013**: El audio MUST procesarse en el navegador y no MUST enviarse al servidor del
+  proyecto. Antes del primer dictado, el chat MUST avisar que el navegador puede procesar
+  la voz con su propio servicio.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -165,7 +176,9 @@ que el segundo turno conserva el contexto del primero.
   tiene chat desde el PR #120.
 - No hay identificación de la persona por su voz ni llamadas telefónicas.
 - El diseño «Asistente Carvajal» ya prevé el botón de micrófono en la caja de mensaje.
-- [NEEDS CLARIFICATION: ¿Dónde se procesa el audio? (a) en el navegador, sin enviar audio
-  al servidor, con calidad y soporte según el navegador; (b) en el servidor con modelos
-  locales de transcripción y voz; (c) con un servicio externo de voz. Cada opción cambia la
-  privacidad, el costo y el soporte en móviles.]
+- La voz se procesa en el navegador (ver Clarifications). Algunos navegadores envían el
+  audio del dictado a su propio servicio de reconocimiento; el proyecto no lo recibe ni lo
+  guarda, y el chat lo advierte antes del primer dictado.
+- Los navegadores sin reconocimiento de voz (por ejemplo, Firefox de escritorio) no muestran
+  el micrófono o explican que no está disponible; la lectura en voz suele estar disponible
+  en todos.

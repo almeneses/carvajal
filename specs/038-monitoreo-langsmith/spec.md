@@ -5,6 +5,15 @@
 **Status**: Draft
 **Input**: User description: "Incluir el monitoreo con LangSmith."
 
+## Clarifications
+
+### Session 2026-11-17
+
+- Q: ¿En qué entornos se activa el monitoreo y con qué contenido? → A: En producción (VPS)
+  solo con metadatos: ruta, enrutador, pasos, tokens, tiempos y errores, sin el texto de
+  preguntas, respuestas ni fragmentos. En desarrollo y en las corridas de evaluación se
+  envía el contenido completo.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Seguir un turno del chat de punta a punta (Priority: P1)
@@ -27,8 +36,9 @@ y comprobar que existe una traza con la decisión del router, los pasos de la ru
 1. **Given** el monitoreo activado, **When** se completa un turno de cualquier ruta
    (`direct`, `rag`, `tool`, `commercial`), **Then** existe una traza con la ruta, el
    enrutador usado y cada paso ejecutado con su duración.
-2. **Given** un turno de la ruta `rag`, **When** se abre su traza, **Then** muestra los
-   fragmentos recuperados con su documento de origen y su puntuación.
+2. **Given** un turno de la ruta `rag` en desarrollo, **When** se abre su traza, **Then**
+   muestra los fragmentos recuperados con su documento de origen y su puntuación; en
+   producción muestra solo los documentos de origen y las puntuaciones.
 3. **Given** un turno con llamada al modelo de lenguaje, **When** se abre su traza, **Then**
    muestra el proveedor, el modelo, los tokens de entrada y salida y la latencia.
 4. **Given** el identificador de petición que aparece en los logs, **When** se busca en el
@@ -64,6 +74,8 @@ se persiste igual.
    monitoreo queda en los logs.
 4. **Given** un muestreo configurado (por ejemplo, 20 % de los turnos), **When** se usan
    muchos turnos, **Then** se traza aproximadamente esa proporción.
+5. **Given** el monitoreo activado en producción, **When** se registra un turno, **Then** la
+   traza no contiene el texto de la pregunta, de la respuesta ni de los fragmentos.
 
 ---
 
@@ -119,8 +131,8 @@ traza del turno.
   completo aunque no llame al modelo.
 - Ruta `rag` con abstención (sin contexto): la traza muestra que no hubo llamada al modelo.
 - Preguntas con datos personales que el visitante escribe por su cuenta (nombre, teléfono):
-  el texto de la pregunta se envía tal cual; se documenta y se puede desactivar el envío de
-  contenido dejando solo metadatos.
+  en producción no salen, porque solo se envían metadatos; en desarrollo se usan datos de
+  prueba.
 - Límite del plan del servicio alcanzado: el monitoreo deja de registrar sin afectar el
   chat y lo avisa en los logs.
 - Evaluaciones en CI: nunca registran experimentos ni requieren credenciales.
@@ -139,8 +151,9 @@ traza del turno.
   identificador seudónimo del hilo, de modo que logs y trazas se crucen.
 - **FR-005**: Las trazas no MUST contener IP, cookies, tokens CSRF, claves de API ni el
   identificador crudo del visitante.
-- **FR-006**: El sistema MUST permitir enviar solo metadatos (sin el texto de preguntas y
-  respuestas) mediante configuración.
+- **FR-006**: En producción, el monitoreo MUST enviar solo metadatos (ruta, enrutador,
+  pasos, tokens, tiempos y errores), sin el texto de preguntas, respuestas ni fragmentos
+  recuperados. El contenido completo MUST limitarse a desarrollo y evaluación.
 - **FR-007**: El sistema MUST permitir un porcentaje de muestreo configurable.
 - **FR-008**: Una falla, lentitud o límite del servicio de monitoreo no MUST alterar la
   respuesta, la persistencia ni la cuota del chat.
@@ -169,7 +182,8 @@ traza del turno.
 - **SC-001**: Con el monitoreo activado y muestreo del 100 %, el 100 % de los turnos de las
   cuatro rutas tiene traza.
 - **SC-002**: 0 trazas contienen IP, cookies, tokens CSRF, claves o el identificador crudo
-  del visitante, verificado con una prueba automática sobre las trazas emitidas.
+  del visitante, y 0 trazas de producción contienen texto de conversaciones, verificado con
+  una prueba automática sobre las trazas emitidas.
 - **SC-003**: Con el servicio de monitoreo inalcanzable, el 100 % de los turnos se responde
   y la latencia al primer fragmento no empeora más de 100 ms (p95) frente al monitoreo
   desactivado.
@@ -185,6 +199,6 @@ traza del turno.
 - Se usa un plan con límite mensual de trazas; el muestreo permite mantenerse dentro.
 - Sentry sigue siendo el canal de errores de la aplicación y los logs JSON siguen siendo la
   fuente de operación; LangSmith los complementa para el comportamiento del agente.
-- [NEEDS CLARIFICATION: ¿El monitoreo se activa en producción (VPS) con el texto de las
-  conversaciones, solo con metadatos, o únicamente en desarrollo y evaluación?]
+- En producción el monitoreo envía solo metadatos; el contenido completo se reserva para
+  desarrollo y evaluación (ver Clarifications).
 - La marca del visitante (US4) es opcional y puede salir en una entrega posterior.

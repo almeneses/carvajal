@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] Sin marcadores [NEEDS CLARIFICATION]
+- [x] Sin marcadores [NEEDS CLARIFICATION]
 - [x] Requisitos verificables y sin ambigüedad
 - [x] Criterios de éxito medibles
 - [x] Criterios de éxito sin detalles de implementación
@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Queda un marcador [NEEDS CLARIFICATION] (dónde se procesa el audio) para que lo decida el owner antes de
-  `/speckit.plan`.
+- La decisión abierta se decidió el 2026-11-17 (sección Clarifications de la
+  spec). Lista para `/speckit.plan`.
