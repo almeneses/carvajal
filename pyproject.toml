@@ -89,6 +89,8 @@ dev = [
 line-length = 100
 target-version = "py313"
 src = ["packages/core/src", "apps", "tests"]
+# `.dsh/` lo crea la herramienta de agentes con sus propios repos vendorizados.
+extend-exclude = [".dsh"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4"]
@@ -106,3 +108,6 @@ addopts = "-q"
 markers = [
     "integration: requiere Postgres real vía testcontainers",
 ]
+
+[tool.ty.src]
+exclude = [".dsh"]
