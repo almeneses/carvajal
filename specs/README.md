@@ -131,6 +131,7 @@ en `Status: Draft`, **antes** de implementar.
 | [038](038-monitoreo-langsmith/spec.md) | Monitoreo del agente con LangSmith: trazas por turno, opcional y sin PII, y experimentos de evaluación | `CONSTITUTION.md` §9 (2026-11-13 y 2026-11-17); flujo normal de Spec Kit (`/speckit.specify`) |
 | [039](039-catalogo-colombia/spec.md) | Catálogo de empaques de Colombia con precios de referencia en COP, fechados y con fuente; absorbe la T009 de la 036 | `CONSTITUTION.md` §9 (2026-11-17); Spec 036 (T009, absorbida); flujo normal de Spec Kit (`/speckit.specify`) |
 | [040](040-chat-por-voz/spec.md) | Chat por voz: dictado de preguntas y respuestas habladas, sin guardar audio | `CONSTITUTION.md` §9 (2026-11-17) y el diseño «Asistente Carvajal» del chat; flujo normal de Spec Kit (`/speckit.specify`) |
+| [041](041-enrutador-jev/spec.md) | Enrutador de decisiones con Jev cloud: clasificación de ruta e intención, respaldo por confianza y medición comparativa | `CONSTITUTION.md` §9 (2026-11-18); specs 036 (FR-013, SC-006) y 039; flujo normal de Spec Kit (`/speckit.specify`) |
 
 La 035 es la primera spec que se abre con el flujo normal **antes** de implementar. Se
 escribe en `Status: Draft` con `spec.md`, `plan.md` y `tasks.md`; los tres pasan a
