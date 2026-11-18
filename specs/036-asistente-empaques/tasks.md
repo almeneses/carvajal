@@ -1,6 +1,7 @@
 # Tasks: Asistente comercial de empaques para foodservice
 
-**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: pendiente
+**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: implementada
+(as-built; aprobada y cerrada el 2026-11-18; SC-006 transferido a la spec 041)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -11,8 +12,9 @@
 
 ## Phase 1: Setup (infraestructura compartida)
 
-- [ ] T001 Aprobar la spec 036 y aplicar la enmienda de `CONSTITUTION.md` §2, §5 y §9 y de
+- [X] T001 Aprobar la spec 036 y aplicar la enmienda de `CONSTITUTION.md` §2, §5 y §9 y de
       `.specify/memory/constitution.md` después de que la 035 entre a `dev`
+      (aprobada el 2026-11-18; enmienda aplicada en `4b96980`)
 - [X] T002 Registrar la 036 en `specs/README.md` §7 (specs futuras)
 - [X] T003 [P] Crear `tests/fixtures/catalog/` con 6 referencias, 5 materiales y 3
       distribuidores de prueba
