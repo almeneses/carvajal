@@ -568,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
         from carvajal.application.sync import corpus_layers
         from carvajal.gold import corpus_lock
         from carvajal.infrastructure.settings import Settings
-        from carvajal.registry import corpus_areas
+        from carvajal.registry import corpus_areas_for
 
         settings = Settings()
         if args.adopt and args.verify:
@@ -578,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
             root = settings.gold_dir.parent
             with corpus_lock(root):
                 adoption = adopt_registry(
-                    corpus_areas(root),
+                    corpus_areas_for(settings.gold_dir, settings.external_dir),
                     raw_dir=settings.raw_dir,
                 )
             print(

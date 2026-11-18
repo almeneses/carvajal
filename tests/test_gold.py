@@ -224,3 +224,24 @@ def test_merge_index_escribe_ordenado_por_slug(tmp_path: Path) -> None:
     lineas = index_file.read_text(encoding="utf-8").splitlines()
     slugs = [json.loads(linea)["slug"] for linea in lineas]
     assert slugs == ["alfa", "zeta"]
+
+
+def test_merge_index_en_modo_parche_conserva_los_campos_no_enviados(tmp_path: Path) -> None:
+    """La adopción solo cambia identidad y huella, sin pisar el resto."""
+
+    # Arrange: una entrada con título y cuerpo ya publicados.
+    index_file = tmp_path / "index.jsonl"
+    merge_index(index_file, [{"slug": "historia", "title": "Historia", "hash": "h1"}])
+
+    # Act: llega solo la identidad nueva.
+    merge_index(
+        index_file,
+        [{"slug": "historia", "source_key": "url:https://carvajal.com/historia"}],
+        patch=True,
+    )
+
+    # Assert
+    entrada = read_index(index_file)["historia"]
+    assert entrada["title"] == "Historia"
+    assert entrada["hash"] == "h1"
+    assert entrada["source_key"] == "url:https://carvajal.com/historia"

@@ -106,7 +106,7 @@ def adopt_registry(
         owner = taken.get(key)
         if owner is not None and owner != document.slug:
             updates[document.area].append(
-                _updated_entry(document, source_key=f"{LEGACY_PREFIX}{document.slug}")
+                _patched_entry(document, source_key=f"{LEGACY_PREFIX}{document.slug}")
             )
             conflicts.append(
                 AdoptedEntry(
@@ -126,7 +126,7 @@ def adopt_registry(
             if document is winner:
                 raw_hash = _raw_hash(document, raw_dir)
                 updates[document.area].append(
-                    _updated_entry(document, source_key=key, raw_hash=raw_hash)
+                    _patched_entry(document, source_key=key, raw_hash=raw_hash)
                 )
                 adopted.append(
                     AdoptedEntry(
@@ -138,13 +138,16 @@ def adopt_registry(
                 )
                 continue
             legacy = f"{LEGACY_PREFIX}{document.slug}"
-            updates[document.area].append(_updated_entry(document, source_key=legacy))
+            raw_hash = _raw_hash(document, raw_dir)
+            updates[document.area].append(
+                _patched_entry(document, source_key=legacy, raw_hash=raw_hash)
+            )
             conflicts.append(
                 AdoptedEntry(
                     slug=document.slug,
                     area=document.area,
                     source_key=legacy,
-                    raw_hash="",
+                    raw_hash=raw_hash,
                     conflicts_with=winner.slug,
                 )
             )
@@ -154,7 +157,7 @@ def adopt_registry(
             continue
         raw_hash = _raw_hash(document, raw_dir)
         if raw_hash and raw_hash != document.raw_hash:
-            updates[document.area].append(_updated_entry(document, raw_hash=raw_hash))
+            updates[document.area].append(_patched_entry(document, raw_hash=raw_hash))
             adopted.append(
                 AdoptedEntry(
                     slug=document.slug,
@@ -167,7 +170,7 @@ def adopt_registry(
             unchanged += 1
 
     for area, entries in updates.items():
-        merge_index(area / INDEX_NAME, entries)
+        merge_index(area / INDEX_NAME, entries, patch=True)
 
     return AdoptionReport(
         adopted=tuple(adopted),
@@ -193,15 +196,10 @@ def _proposed_key(document: IndexedDocument, raw_dir: Path | None) -> str:
     return f"{LEGACY_PREFIX}{document.slug}"
 
 
-def _updated_entry(document: IndexedDocument, **fields: str) -> dict[str, str | int]:
-    """Entrada completa del índice con los campos nuevos.
+def _patched_entry(document: IndexedDocument, **fields: str) -> dict[str, str | int]:
+    """Entrada mínima que se superpone a la vigente bajo el bloqueo del índice."""
 
-    ``merge_index`` solo conserva de la entrada anterior los campos de
-    ``PRESERVED_FIELDS``; enviar una entrada parcial perdería título, URL,
-    sección y huellas. La adopción reenvía la entrada original completa.
-    """
-
-    return {**document.entry, **fields}
+    return {"slug": document.slug, **fields}
 
 
 def _bronze_name(slug: str, raw_dir: Path | None) -> str:

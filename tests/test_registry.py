@@ -12,6 +12,7 @@ from carvajal.identity import assign_slug
 from carvajal.registry import (
     IndexedDocument,
     corpus_areas,
+    corpus_areas_for,
     load_registry,
     read_area,
 )
@@ -416,13 +417,19 @@ def test_adopcion_resuelve_dos_versiones_legadas_de_la_misma_subida(tmp_path: Pa
         ],
     )
 
-    # Act
-    reporte = adopt_registry((area,), raw_dir=tmp_path / "raw")
+    raw = tmp_path / "raw"
+    _bronce(raw, "informe-11111111.pdf", b"version vieja")
+    _bronce(raw, "informe-22222222.pdf", b"version nueva")
 
-    # Assert: la versión más reciente conserva la fuente y la otra queda archivada.
+    # Act
+    reporte = adopt_registry((area,), raw_dir=raw)
+
+    # Assert: la versión más reciente conserva la fuente y la otra queda archivada
+    # con la huella de su propio Bronze.
     entradas = read_index(area / "index.jsonl")
-    assert entradas["informe-22222222"]["source_key"] == "upload:informe"
+    assert entradas["informe-22222222"]["source_key"] == "upload:informe.pdf"
     assert entradas["informe-11111111"]["source_key"] == "legacy:informe-11111111"
+    assert entradas["informe-11111111"]["raw_hash"] == hashlib.sha256(b"version vieja").hexdigest()
     assert reporte.conflicts and reporte.conflicts[0].slug == "informe-11111111"
 
 
@@ -516,3 +523,22 @@ def test_adopcion_conserva_la_entrada_completa_del_indice(tmp_path: Path) -> Non
         if campo == "slug":
             continue
         assert entrada[campo] == valor, campo
+
+
+def test_corpus_areas_for_respeta_las_rutas_configuradas(tmp_path: Path) -> None:
+    """La adopción usa GOLD_DIR/EXTERNAL_DIR aunque no se llamen gold/external."""
+
+    # Arrange: núcleo en "coleccion" y extendida en "donantes/<fuente>/gold".
+    nucleo = tmp_path / "coleccion"
+    donante = tmp_path / "donantes" / "camara" / "gold"
+    otra = tmp_path / "donantes" / "sin-indice" / "gold"
+    for area in (nucleo, donante, otra):
+        area.mkdir(parents=True)
+    (nucleo / "index.jsonl").write_text("", encoding="utf-8")
+    (donante / "index.jsonl").write_text("", encoding="utf-8")
+
+    # Act
+    areas = corpus_areas_for(nucleo, tmp_path / "donantes")
+
+    # Assert
+    assert areas == (nucleo, donante)
