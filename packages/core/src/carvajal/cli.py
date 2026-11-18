@@ -571,6 +571,9 @@ def main(argv: list[str] | None = None) -> int:
         from carvajal.registry import corpus_areas
 
         settings = Settings()
+        if args.adopt and args.verify:
+            print("--adopt escribe el registro y --verify promete no escribir; usa uno de los dos.")
+            return 2
         if args.adopt:
             root = settings.gold_dir.parent
             with corpus_lock(root):

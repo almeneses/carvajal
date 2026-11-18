@@ -96,7 +96,7 @@ def adopt_registry(
         if document.source_key:
             seen_hashes[document.source_key] = document.slug
             continue
-        proposals.append((document, _proposed_key(document)))
+        proposals.append((document, _proposed_key(document, raw_dir)))
 
     # La fuente canónica solo puede tener un dueño: si otra entrada ya la
     # declara, la legada se archiva en lugar de robarle la identidad.
@@ -106,7 +106,7 @@ def adopt_registry(
         owner = taken.get(key)
         if owner is not None and owner != document.slug:
             updates[document.area].append(
-                {"slug": document.slug, "source_key": f"{LEGACY_PREFIX}{document.slug}"}
+                _updated_entry(document, source_key=f"{LEGACY_PREFIX}{document.slug}")
             )
             conflicts.append(
                 AdoptedEntry(
@@ -124,24 +124,21 @@ def adopt_registry(
         winner = max(documents, key=_recency)
         for document in documents:
             if document is winner:
+                raw_hash = _raw_hash(document, raw_dir)
                 updates[document.area].append(
-                    {
-                        "slug": document.slug,
-                        "source_key": key,
-                        "raw_hash": _raw_hash(document, raw_dir),
-                    }
+                    _updated_entry(document, source_key=key, raw_hash=raw_hash)
                 )
                 adopted.append(
                     AdoptedEntry(
                         slug=document.slug,
                         area=document.area,
                         source_key=key,
-                        raw_hash=_raw_hash(document, raw_dir),
+                        raw_hash=raw_hash,
                     )
                 )
                 continue
             legacy = f"{LEGACY_PREFIX}{document.slug}"
-            updates[document.area].append({"slug": document.slug, "source_key": legacy})
+            updates[document.area].append(_updated_entry(document, source_key=legacy))
             conflicts.append(
                 AdoptedEntry(
                     slug=document.slug,
@@ -157,7 +154,7 @@ def adopt_registry(
             continue
         raw_hash = _raw_hash(document, raw_dir)
         if raw_hash and raw_hash != document.raw_hash:
-            updates[document.area].append({"slug": document.slug, "raw_hash": raw_hash})
+            updates[document.area].append(_updated_entry(document, raw_hash=raw_hash))
             adopted.append(
                 AdoptedEntry(
                     slug=document.slug,
@@ -179,16 +176,44 @@ def adopt_registry(
     )
 
 
-def _proposed_key(document: IndexedDocument) -> str:
-    """Fuente canónica propuesta para una entrada sin ``source_key``."""
+def _proposed_key(document: IndexedDocument, raw_dir: Path | None) -> str:
+    """Fuente canónica propuesta para una entrada sin ``source_key``.
+
+    Para una subida, el nombre se recupera del slug sin el sufijo de hash y, si
+    Bronze conserva el archivo, con su extensión: así la identidad coincide con
+    la que asigna una nueva carga del mismo archivo.
+    """
 
     url = str(document.entry.get("url") or "").strip()
     if url.startswith(("http://", "https://")):
         return source_key_for_url(url)
     base = _upload_name(document.slug)
     if base:
-        return source_key_for_upload(base)
+        return source_key_for_upload(_bronze_name(document.slug, raw_dir) or base)
     return f"{LEGACY_PREFIX}{document.slug}"
+
+
+def _updated_entry(document: IndexedDocument, **fields: str) -> dict[str, str | int]:
+    """Entrada completa del índice con los campos nuevos.
+
+    ``merge_index`` solo conserva de la entrada anterior los campos de
+    ``PRESERVED_FIELDS``; enviar una entrada parcial perdería título, URL,
+    sección y huellas. La adopción reenvía la entrada original completa.
+    """
+
+    return {**document.entry, **fields}
+
+
+def _bronze_name(slug: str, raw_dir: Path | None) -> str:
+    """Nombre con extensión del archivo Bronze del documento, si existe."""
+
+    if raw_dir is None or not raw_dir.is_dir():
+        return ""
+    base = _upload_name(slug)
+    for path in sorted(raw_dir.rglob(f"{slug}.*")):
+        if path.is_file():
+            return f"{base}{path.suffix}" if base else path.name
+    return ""
 
 
 def _upload_name(slug: str) -> str:

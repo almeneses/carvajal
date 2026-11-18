@@ -481,3 +481,38 @@ def test_index_qdrant_all_indexa_nucleo_y_fuentes_extendidas_en_una_corrida(
     assert code == 0
     assert received["gold_dirs"] == [(core, "core"), (extended, "extended")]
     assert "Puntos indexados: 4" in capsys.readouterr().out
+
+
+def test_sync_rechaza_adopt_junto_a_verify(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--verify`` no escribe; combinarlo con ``--adopt`` se rechaza."""
+
+    # Arrange: una configuración con un índice legado que no debe tocarse.
+    import json
+    from types import SimpleNamespace
+
+    from carvajal.gold import read_index
+
+    data = tmp_path / "data"
+    gold = data / "gold"
+    gold.mkdir(parents=True)
+    (gold / "index.jsonl").write_text(
+        json.dumps({"slug": "historia", "url": "https://carvajal.com/historia", "hash": "h"})
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "carvajal.infrastructure.settings.Settings",
+        lambda: SimpleNamespace(
+            gold_dir=gold, external_dir=data / "external", raw_dir=data / "raw"
+        ),
+    )
+
+    # Act
+    code = cli.main(["sync", "--adopt", "--verify"])
+
+    # Assert
+    assert code == 2
+    assert "usa uno de los dos" in capsys.readouterr().out
+    assert "source_key" not in read_index(gold / "index.jsonl")["historia"]

@@ -465,3 +465,54 @@ def test_adopcion_no_pisa_una_fuente_ya_asignada_y_es_idempotente(tmp_path: Path
     assert entradas["historia"]["raw_hash"] == "abc"
     assert entradas["historia-vieja"]["source_key"] == "legacy:historia-vieja"
     assert primera.conflicts and not segunda.changed
+
+
+def test_adopcion_recupera_la_extension_desde_bronze(tmp_path: Path) -> None:
+    """La identidad de una subida adoptada coincide con la de una carga nueva."""
+
+    # Arrange: el slug perdió la extensión, pero Bronze conserva el archivo.
+    area = tmp_path / "gold"
+    _indice(
+        area,
+        [{"slug": "informe-12345678", "url": "upload://informe-12345678", "hash": "h"}],
+    )
+    raw = tmp_path / "raw"
+    _bronce(raw, "informe-12345678.pdf", b"%PDF-1.4")
+
+    # Act
+    adopt_registry((area,), raw_dir=raw)
+
+    # Assert
+    assert read_index(area / "index.jsonl")["informe-12345678"]["source_key"] == (
+        "upload:informe.pdf"
+    )
+
+
+def test_adopcion_conserva_la_entrada_completa_del_indice(tmp_path: Path) -> None:
+    """Adoptar no debe perder título, URL, sección ni huellas del documento."""
+
+    # Arrange: una entrada legada con todos sus metadatos.
+    area = tmp_path / "gold"
+    original = {
+        "slug": "historia",
+        "url": "https://www.carvajal.com/historia/",
+        "title": "Historia de Carvajal",
+        "section": "historia",
+        "source_type": "oficial",
+        "captured_at": "2026-10-31T13:43:34+00:00",
+        "hash": "h1",
+        "chars": 120,
+        "tokens_estimate": 30,
+    }
+    _indice(area, [original])
+
+    # Act
+    adopt_registry((area,), raw_dir=tmp_path / "raw")
+
+    # Assert: solo cambian source_key y raw_hash.
+    entrada = read_index(area / "index.jsonl")["historia"]
+    assert entrada["source_key"] == "url:https://carvajal.com/historia"
+    for campo, valor in original.items():
+        if campo == "slug":
+            continue
+        assert entrada[campo] == valor, campo
