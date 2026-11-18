@@ -22,6 +22,11 @@ class QdrantSync:
 
         return self._store.document_hashes(layer)
 
+    def document_ids(self, layer: str) -> set[str]:
+        """Todos los documentos con puntos, incluidos los incompletos."""
+
+        return self._store.document_ids(layer)
+
     def index_gold(
         self,
         layer: CorpusLayer,

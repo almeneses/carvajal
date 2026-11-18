@@ -377,6 +377,7 @@ class QdrantVectorStore:
                 title=str(payload.get("title") or ""),
                 section=str(payload.get("section") or ""),
                 source_type=str(payload.get("source_type") or ""),
+                url=str(payload.get("url") or ""),
                 origin=str(payload.get("origin") or ""),
                 category=str(payload.get("category") or ""),
                 entity=str(payload.get("entity") or ""),
