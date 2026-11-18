@@ -139,6 +139,23 @@ class Registry:
         return {document.slug: document.source_key for document in self._documents}
 
 
+def corpus_areas_for(gold_dir: str | Path, external_dir: str | Path) -> tuple[Path, ...]:
+    """Áreas del corpus a partir de las rutas configuradas.
+
+    No asume que el núcleo se llame ``gold`` ni que las fuentes extendidas
+    cuelguen del hermano ``external``: usa exactamente ``GOLD_DIR`` y
+    ``EXTERNAL_DIR``. Solo devuelve las áreas que publican ``index.jsonl``.
+    """
+
+    candidates = [Path(gold_dir)]
+    external = Path(external_dir)
+    if external.is_dir():
+        candidates.extend(
+            sorted(child / "gold" for child in external.iterdir() if (child / "gold").is_dir())
+        )
+    return tuple(area for area in candidates if (area / INDEX_NAME).is_file())
+
+
 def corpus_areas(data_dir: str | Path) -> tuple[Path, ...]:
     """Áreas del corpus en orden de prioridad: el núcleo y luego las extendidas.
 

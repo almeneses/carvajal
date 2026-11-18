@@ -356,6 +356,54 @@ def test_capture_solo_gold_no_toca_servicios(
     assert code == 0
 
 
+def test_parser_sync_acepta_adopt() -> None:
+    """``sync --adopt`` completa la identidad del registro legado."""
+
+    args = build_parser().parse_args(["sync", "--adopt"])
+
+    assert args.adopt is True
+
+
+def test_sync_con_adopt_completa_el_registro_sin_reindexar(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """La adopción escribe source_key y raw_hash y luego sincroniza."""
+
+    import json
+    from types import SimpleNamespace
+
+    from carvajal.application.sync import SyncReport
+    from carvajal.gold import read_index
+
+    # Arrange: un índice legado y la configuración apuntando a él.
+    data = tmp_path / "data"
+    gold = data / "gold"
+    gold.mkdir(parents=True)
+    (gold / "index.jsonl").write_text(
+        json.dumps({"slug": "historia", "url": "https://www.carvajal.com/historia/", "hash": "h1"})
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "carvajal.infrastructure.settings.Settings",
+        lambda: SimpleNamespace(
+            gold_dir=gold,
+            external_dir=data / "external",
+            raw_dir=data / "raw",
+        ),
+    )
+    monkeypatch.setattr(cli, "_sync_corpus", lambda *a, **k: SyncReport())
+
+    # Act
+    code = cli.main(["sync", "--adopt"])
+
+    # Assert
+    assert code == 0
+    entrada = read_index(gold / "index.jsonl")["historia"]
+    assert entrada["source_key"] == "url:https://carvajal.com/historia"
+    assert "Adopción: 1 adoptadas" in capsys.readouterr().out
+
+
 def test_parser_index_qdrant_acepta_la_capa() -> None:
     """``index-qdrant`` elige la capa y por defecto indexa solo el núcleo."""
 
@@ -433,3 +481,38 @@ def test_index_qdrant_all_indexa_nucleo_y_fuentes_extendidas_en_una_corrida(
     assert code == 0
     assert received["gold_dirs"] == [(core, "core"), (extended, "extended")]
     assert "Puntos indexados: 4" in capsys.readouterr().out
+
+
+def test_sync_rechaza_adopt_junto_a_verify(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--verify`` no escribe; combinarlo con ``--adopt`` se rechaza."""
+
+    # Arrange: una configuración con un índice legado que no debe tocarse.
+    import json
+    from types import SimpleNamespace
+
+    from carvajal.gold import read_index
+
+    data = tmp_path / "data"
+    gold = data / "gold"
+    gold.mkdir(parents=True)
+    (gold / "index.jsonl").write_text(
+        json.dumps({"slug": "historia", "url": "https://carvajal.com/historia", "hash": "h"})
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "carvajal.infrastructure.settings.Settings",
+        lambda: SimpleNamespace(
+            gold_dir=gold, external_dir=data / "external", raw_dir=data / "raw"
+        ),
+    )
+
+    # Act
+    code = cli.main(["sync", "--adopt", "--verify"])
+
+    # Assert
+    assert code == 2
+    assert "usa uno de los dos" in capsys.readouterr().out
+    assert "source_key" not in read_index(gold / "index.jsonl")["historia"]

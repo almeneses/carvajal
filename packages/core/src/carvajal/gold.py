@@ -206,6 +206,7 @@ def merge_index(
     entries: Sequence[Mapping[str, str | int]],
     *,
     gold_dir: Path | None = None,
+    patch: bool = False,
 ) -> Path:
     """Fusiona entradas en el índice bajo bloqueo y lo reemplaza de forma atómica.
 
@@ -215,6 +216,10 @@ def merge_index(
     La identidad y las huellas de una entrada existente se conservan cuando la
     entrada nueva no las declara (ver ``PRESERVED_FIELDS``); si las declara,
     mandan las nuevas.
+
+    Con ``patch=True`` la entrada se superpone a la anterior campo a campo, en
+    lugar de reemplazarla: sirve a la adopción, que solo cambia identidad y
+    huella y no debe pisar una actualización concurrente de título o cuerpo.
     """
 
     with _index_lock(index_file):
@@ -222,10 +227,12 @@ def merge_index(
         for entry in entries:
             slug = str(entry["slug"])
             previous = merged.get(slug, {})
-            merged[slug] = {
-                **{field: previous[field] for field in PRESERVED_FIELDS if field in previous},
-                **entry,
-            }
+            base = (
+                previous
+                if patch
+                else {field: previous[field] for field in PRESERVED_FIELDS if field in previous}
+            )
+            merged[slug] = {**base, **entry}
         if gold_dir is not None:
             merged = {
                 slug: entry for slug, entry in merged.items() if (gold_dir / f"{slug}.md").is_file()
