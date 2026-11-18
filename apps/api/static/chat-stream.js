@@ -209,7 +209,7 @@
   function crearTurno(rol, contenido) {
     const turno = plantillaTurno.content.firstElementChild.cloneNode(true);
     turno.classList.add(`turno-${rol}`);
-    turno.querySelector(".turno-rol").textContent = rol === "user" ? "Tú" : "Asistente";
+    turno.querySelector(".turno-rol").textContent = rol === "user" ? "Tú" : "Carva";
     turno.querySelector(".texto").textContent = contenido;
     return turno;
   }
