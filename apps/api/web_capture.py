@@ -8,12 +8,13 @@ URLs, el timeout y el guard SSRF de ``urlguard`` son su defensa.
 
 from __future__ import annotations
 
-import fcntl
+import sys
 import threading
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 import structlog
 
@@ -79,23 +80,45 @@ class CaptureOutcome:
     captured: tuple[str, ...] = ()
 
 
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock(handle: IO[str]) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock(handle: IO[str]) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _lock(handle: IO[str]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+    def _unlock(handle: IO[str]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 @contextmanager
 def _gold_lock(settings: Settings) -> Generator[None]:
     """Serializa comprobación y escritura de Gold entre hilos y procesos.
 
     ``CaptureJobs`` ya permite un solo job por proceso, pero la CLI u otra
     instancia podrían escribir a la vez. ``flock`` cubre ese caso en el
-    despliegue Linux; el archivo de bloqueo vive en Gold y no es un ``.md``.
+    despliegue Linux y ``msvcrt.locking`` en Windows (desarrollo local); el archivo
+    de bloqueo vive en Gold y no es un ``.md``.
     """
 
     lock_path = settings.gold_dir / ".capture.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with _GOLD_THREAD_LOCK, lock_path.open("a+") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _lock(handle)
         try:
             yield
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _unlock(handle)
 
 
 def _dedupe(items: Iterable[str]) -> list[str]:
