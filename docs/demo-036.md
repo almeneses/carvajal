@@ -1,7 +1,7 @@
 # Prueba de punta a punta del asistente de empaques (spec 036, T043)
 
-> Entrada: <http://localhost:8001> (`make web`). API: <http://localhost:8000> (`make api`).
-> Prepara el entorno como en [`demo-m2.md`](demo-m2.md) y deja a la vista los logs de la API.
+> Entrada: <http://localhost:8000> (`make api`). Prepara el entorno como en
+> [`demo-m2.md`](demo-m2.md) y deja a la vista los logs de la API.
 > Con `AGENT_ROUTER=rules` (por defecto) la ruta no depende del LLM; el LLM solo redacta.
 
 Cada conversación se hace en un **hilo nuevo**. Un seguimiento hereda la solicitud anterior si
@@ -39,6 +39,10 @@ Log esperado del turno 1: `extracted={'use': 'bebida_caliente', 'temperature': '
 
 | Conversación | Fecha | Resultado | Observaciones |
 |---|---|---|---|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
+| 1 | 2026-11-18 | ✅ Pasa por API | 2 turnos. `route=commercial`, `tool=catalogo_empaques`, 3 tarjetas de papel 12 oz y 5 cajas en ambos turnos; el seguimiento de 4.500 conserva uso, capacidad y país. El texto del LLM dice «1.000 piezas por caja» para las tres referencias, pero el nombre de la primera ficha dice «Caja con 400 pzs»: revisar el dato del catálogo, no el cálculo. |
+| 2 | 2026-11-18 | ✅ Pasa por API | 3 turnos. Turno 1 `direct/commercial_clarify` sin tarjetas; turnos 2 y 3 `commercial` con 0 opciones y descartes por material/microondas. |
+| 3 | 2026-11-18 | ⚠️ Pasa con observación | 4 turnos. `commercial` en Medellín y Tuluá con tarjetas de distribuidores; `commercial_custom` deriva a contacto; `rag/documental` acierta la ruta, pero el corpus no tiene el listado de vasos y el asistente se abstiene. |
+
+Corrida no interactiva del 2026-11-18 contra la app local (`:8000`), con `make check` en
+verde (1124 pruebas) y Qdrant con 125 fragmentos indexados. Falta la revisión visual en
+navegador de las tarjetas.

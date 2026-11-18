@@ -31,7 +31,8 @@
 
 ## Notes
 
-- Pendiente de decisión del owner: la enmienda de la constitución (§2, §5, §9) descrita en
-  el plan, coordinada con la 035.
-- `specs/README.md` §7 pide aprobar el inventario antes de escribir specs futuras; la 036 se
-  presenta como propuesta en ese marco.
+- La enmienda de `CONSTITUTION.md` §2, §5 y §9 ya está aplicada (commit `4b96980`); falta la
+  aprobación formal del owner para marcar T001.
+- `specs/README.md` §7 ya registra la 036: T002 queda cerrado.
+- T043 se ejecutó por API el 2026-11-18 y quedó registrado en `docs/demo-036.md`; la revisión
+  visual de las tarjetas sigue pendiente del owner.

@@ -16,7 +16,8 @@ Estado al 2026-11-16, rama `feat/036-pr9-cierre` (incluye #135, #139–#143 y #1
 - **T009**: traspasada a la spec 039 (catálogo de Colombia con precios). La 036 cierra sin
   referencias de Colombia, como estaba previsto, y en Colombia el asistente remite a los
   distribuidores hasta que la 039 se implemente.
-- **T043**: la prueba de punta a punta con la app levantada sigue el guion de
-  [`docs/demo-036.md`](../../docs/demo-036.md) y se registra allí.
+- **T043**: corrida por API el 2026-11-18 con `make check` en verde (1124 pruebas) y las tres
+  conversaciones registradas en [`docs/demo-036.md`](../../docs/demo-036.md). Falta la
+  revisión visual de las tarjetas en el navegador.
 - **Generalización del enrutador**: falta un grupo de unas 30 preguntas redactadas sin ver
   las reglas para comparar `rules` y `llm` en igualdad de condiciones.
