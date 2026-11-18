@@ -12,7 +12,6 @@ from functools import cache
 
 import structlog
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
@@ -146,13 +145,6 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityMiddleware)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(settings.frontend_origins),
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Accept", "Content-Type"],
-    )
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
     for module in (corpus, documents, chat, stream, api, config, faq):
         app.include_router(module.router)

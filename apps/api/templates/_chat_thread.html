@@ -6,8 +6,9 @@
 <ol class="hilo">
   {% for message in messages %}
   <li class="turno turno-{{ message.role }}">
+    <span class="turno-avatar" aria-hidden="true"></span>
     <p class="turno-rol">
-      {{ "Tú" if message.role == "user" else "Asistente" }}
+      {{ "Tú" if message.role == "user" else "Carva" }}
       {% if message.status == "incomplete" %}
       <span class="estado-incompleto" role="status">respuesta incompleta</span>
       {% endif %}

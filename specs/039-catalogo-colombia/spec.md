@@ -14,6 +14,10 @@ directorio de 29 distribuidores de Colombia. Las referencias de Colombia quedaro
 Bogotá recibe referencias mexicanas y ningún precio. El sitio de Carvajal Empaques Colombia
 no publica precios: la ampliación necesita una fuente de precios explícita y fechada.
 
+Esta spec sustituye la regla de la 036 FR-006 («declarar la ausencia de precio en lugar de
+estimarlo»): declarar la ausencia sigue siendo el comportamiento por defecto y la estimación
+por conversión es la única excepción, definida aquí en FR-006a y FR-006b.
+
 ## Clarifications
 
 ### Session 2026-11-17
@@ -22,6 +26,12 @@ no publica precios: la ampliación necesita una fuente de precios explícita y f
   distribuidores del directorio. Para las referencias sin precio de distribuidor, se estima
   convirtiendo a COP el precio de la referencia equivalente de México con una tasa de cambio
   fechada.
+
+### Session 2026-11-18
+
+- Q: ¿Qué hace equivalente a una referencia de México para estimar su precio? → A: La misma
+  familia, capacidad y material, comparando el precio por unidad y reescalándolo a las cajas
+  de la referencia colombiana. Las unidades por caja no son un requisito de equivalencia.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -129,6 +139,8 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
    registra el valor anterior, el nuevo y la fecha.
 3. **Given** una fila sin datos mínimos (unidades por caja, material o capacidad), **When**
    se regenera, **Then** se descarta con el motivo en el manifiesto.
+4. **Given** una tienda cuyo `robots.txt` prohíbe la captura o no publica precio, **When**
+   se regenera, **Then** esa tienda no se captura y el manifiesto registra el motivo.
 
 ---
 
@@ -171,9 +183,10 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
 - **FR-006**: El sistema MUST declarar la ausencia de precio cuando no hay precio de
   distribuidor ni equivalente en México, y no MUST promediar precios entre fuentes.
 - **FR-006a**: La estimación por conversión MUST aplicarse solo a referencias con un
-  equivalente en México (misma familia, capacidad, material y unidades por caja), y MUST
-  mostrarse como estimación con el precio original en MXN, la tasa de cambio, su fuente y
-  su fecha. Nunca MUST presentarse como precio publicado en Colombia.
+  equivalente en México (misma familia, capacidad y material), comparando el precio por
+  unidad y reescalándolo a las cajas de la referencia colombiana, y MUST mostrarse como
+  estimación con el precio original en MXN, la tasa de cambio, su fuente y su fecha. Nunca
+  MUST presentarse como precio publicado en Colombia.
 - **FR-006b**: La tasa de cambio MUST provenir de una fuente oficial fechada y guardarse con
   el catálogo para que la estimación sea reproducible.
 - **FR-007**: Los precios con más de 90 días desde su captura MUST mostrarse con la
@@ -206,8 +219,9 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
 
 ### Measurable Outcomes
 
-- **SC-001**: Al menos el 90 % de las referencias foodservice del catálogo PDF de Colombia
-  quedan en el catálogo o descartadas con motivo en el manifiesto (100 % con destino).
+- **SC-001**: El 100 % de las referencias foodservice del catálogo PDF de Colombia tiene
+  destino: queda en el catálogo o se descarta con su motivo en el manifiesto. De ellas, al
+  menos el 90 % queda en el catálogo.
 - **SC-002**: 0 % de recomendaciones para Colombia con referencias de otro país o que violen
   una regla de material en el conjunto de evaluación.
 - **SC-003**: 100 % de los precios de Colombia mostrados llevan COP, nota de IVA, fecha y

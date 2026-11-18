@@ -6,7 +6,8 @@
 
 ## Content Quality
 
-- [x] Sin detalles de implementación en la spec (lenguajes, frameworks, APIs)
+- [x] Sin tecnologías nuevas fuera de las ya decididas en la constitución; las
+  excepciones están en Notes
 - [x] Centrada en el valor para el usuario y el negocio
 - [x] Escrita para personas no técnicas
 - [x] Todas las secciones obligatorias completas
@@ -24,12 +25,20 @@
 
 ## Feature Readiness
 
-- [x] Cada requisito funcional tiene criterio de aceptación
+- [x] Cada requisito funcional es verificable por un escenario de aceptación o un
+  criterio de éxito; las excepciones están en Notes
 - [x] Las historias cubren los flujos principales
 - [x] La capacidad cumple los resultados medibles definidos
-- [x] No se filtran detalles de implementación en la spec
+- [x] Los detalles técnicos que aparecen son contratos existentes o decisiones ya
+  registradas, no diseño nuevo
 
 ## Notes
 
 - La decisión abierta se decidió el 2026-11-17 (sección Clarifications de la
-  spec). Lista para `/speckit.plan`.
+  spec).
+- FR-012 se verifica con SC-004 (20 preguntas nuevas de Colombia) y FR-011 con US4.4 y el
+  Principio V de la constitución.
+- Sustituye la regla de la 036 FR-006 (ver `## Contexto` de la spec).
+- La equivalencia MX–CO se decidió el 2026-11-18 (Clarifications): por unidad, no por
+  unidades por caja.
+- Lista para `/speckit.plan`.

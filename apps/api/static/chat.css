@@ -4,15 +4,37 @@
   overflow: hidden;
 }
 
+/* Diseño «Asistente Carvajal» (Stitch): cabecera clara con la mascota Carva, letra grande
+   y controles de al menos 48 px, pensado también para personas mayores. */
 .cabecera-conversacion {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 16px 24px;
   padding: clamp(22px, 3vw, 34px);
-  background: var(--azul);
-  color: #fff;
+  background: var(--fondo);
+  border-bottom: 1px solid var(--borde);
+  color: var(--tinta);
+}
+
+/* En la cabecera clara, los botones fantasma (pensados para fondo azul) van en azul. */
+.cabecera-conversacion .boton-fantasma {
+  background: var(--fondo);
+  border: 2px solid var(--azul);
+  color: var(--azul);
+  font-weight: 700;
+}
+
+.cabecera-conversacion .boton-fantasma:hover {
+  background: var(--etiqueta-fondo);
+  border-color: var(--azul);
+}
+
+.cabecera-conversacion .carva {
+  flex: 0 0 auto;
+  width: 88px;
+  height: 88px;
 }
 
 .cabecera-texto {
@@ -29,24 +51,21 @@
 
 .cabecera-conversacion h1 {
   margin: 0;
-  color: #fff;
-  font-size: clamp(1.75rem, 2.8vw, 2.3rem);
+  color: var(--tinta);
+  font-size: clamp(2rem, 3.2vw, 2.6rem);
+  letter-spacing: -0.02em;
 }
 
 .cabecera-conversacion .sobrelinea {
-  color: #9bddf3;
+  color: var(--etiqueta-texto);
 }
 
 .cabecera-conversacion .bajada {
   max-width: 70ch;
   margin: 8px 0 0;
-  color: #d0eaf4;
-  font-size: 1.05rem;
+  color: var(--secundario);
+  font-size: 1.1rem;
   line-height: 1.6;
-}
-
-.cabecera-conversacion :focus-visible {
-  outline-color: #8be7fb !important;
 }
 
 .cuerpo-conversacion {
@@ -115,21 +134,42 @@
   animation: aparecer 220ms ease both;
 }
 
+/* Carva a la izquierda de sus respuestas; el resto del turno ocupa la segunda columna. */
+.turno-assistant {
+  grid-template-columns: 52px minmax(0, 1fr);
+  column-gap: 14px;
+}
+
+.turno-assistant > :not(.turno-avatar) {
+  grid-column: 2;
+}
+
+.turno-avatar {
+  display: none;
+}
+
+.turno-assistant .turno-avatar {
+  display: block;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 52px;
+  height: 52px;
+  background: url("/static/carva.svg") center / contain no-repeat;
+}
+
 .turno-rol {
   margin: 0;
   color: var(--secundario);
-  font-size: 0.8rem;
+  font-size: 0.95rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .burbuja {
-  padding: 16px 20px;
-  background: #f8fbfd;
+  padding: 18px 22px;
+  background: var(--fondo);
   border: 1px solid var(--borde);
-  border-radius: 4px 16px 16px 16px;
-  font-size: 1.03rem;
+  border-radius: 6px 20px 20px 20px;
+  font-size: 1.15rem;
   line-height: 1.65;
 }
 
@@ -142,16 +182,15 @@
 }
 
 .turno-user .burbuja {
-  max-width: 90%;
-  background: var(--etiqueta-fondo);
+  max-width: min(90%, 40rem);
+  background: var(--azul);
   border-color: transparent;
-  border-radius: 14px 14px 4px 14px;
-  color: var(--etiqueta-texto);
+  border-radius: 20px 20px 6px 20px;
+  color: #fff;
 }
 
 .turno-assistant .burbuja {
   max-width: 84ch;
-  border-left: 3px solid var(--cian);
 }
 
 .estado-incompleto {
@@ -166,40 +205,103 @@
   margin-top: 2px;
 }
 
-/* Tarjetas de la ruta comercial (spec 036, _productos.html). */
+/* Tarjetas de la ruta comercial (spec 036, _productos.html), con el diseño «Asistente
+   Carvajal»: resumen de lo entendido, insignias de material y precio destacado. */
 .productos {
   display: grid;
-  gap: 12px;
+  gap: 16px;
   margin-top: 4px;
+}
+
+.productos-entendi {
+  padding: 18px 22px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 20px;
+}
+
+.entendi-lista {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.entendi-lista div {
+  padding: 10px 16px;
+  background: var(--fondo-suave);
+  border-radius: 14px;
+}
+
+.entendi-lista dt {
+  color: var(--secundario);
+  font-size: 0.9rem;
+}
+
+.entendi-lista dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 .productos-lista,
 .productos-canales,
 .productos-distribuidores {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .productos-lista {
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
 }
 
 .producto {
   display: grid;
-  gap: 8px;
-  padding: 14px 16px;
+  align-content: start;
+  gap: 10px;
+  padding: 18px 20px;
   background: var(--panel);
   border: 1px solid var(--borde);
-  border-radius: 12px;
+  border-radius: 20px;
+}
+
+.producto-destacado {
+  border: 2px solid var(--azul);
+}
+
+.producto-etiquetas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.etiqueta-material,
+.etiqueta-destacada {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.etiqueta-material {
+  background: var(--etiqueta-fondo);
+  color: var(--etiqueta-texto);
+}
+
+.etiqueta-destacada {
+  background: var(--azul);
+  color: #fff;
 }
 
 .producto-nombre,
 .productos-titulo {
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.1rem;
+  line-height: 1.35;
   color: var(--tinta);
 }
 
@@ -207,7 +309,7 @@
   display: grid;
   gap: 4px;
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.98rem;
 }
 
 .producto-datos div {
@@ -226,25 +328,68 @@
 }
 
 .producto-precio {
+  display: grid;
   margin: 0;
-  font-size: 1.05rem;
   color: var(--azul);
+}
+
+.producto-precio strong {
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+
+.producto-precio-detalle {
+  color: var(--secundario);
+  font-size: 0.95rem;
 }
 
 .producto-aviso,
 .producto-fuente,
 .productos-nota {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   color: var(--secundario);
+}
+
+.producto-fuente a {
+  font-weight: 700;
+}
+
+.productos-descartes {
+  padding: 12px 20px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+}
+
+.productos-descartes summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.productos-descartes ul {
+  margin: 8px 0 4px;
+  padding-left: 1.2rem;
+}
+
+.productos-canal {
+  margin: 0;
+  padding: 14px 20px;
+  background: var(--etiqueta-fondo);
+  border-radius: 16px;
+  font-size: 1.02rem;
 }
 
 .productos-distribuidores li,
 .productos-canales li {
-  padding: 8px 12px;
-  background: var(--fondo-suave);
-  border-radius: 8px;
-  font-size: 0.9rem;
+  padding: 12px 16px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  font-size: 1rem;
 }
 
 .vacio {
@@ -423,5 +568,50 @@
 
   .turno-user .burbuja {
     max-width: 100%;
+  }
+}
+
+/* Caja de texto: más alta y con el botón Enviar en azul Carvajal. */
+.cuerpo-conversacion .composer {
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 20px;
+}
+
+.composer input {
+  min-height: 60px;
+  font-size: 1.15rem;
+}
+
+.composer button[type="submit"] {
+  min-height: 60px;
+  padding: 0 2rem;
+  font-size: 1.1rem;
+}
+
+/* En el móvil, Carva se achica y las tarjetas usan todo el ancho bajo la respuesta. */
+@media (max-width: 560px) {
+  .turno-assistant {
+    grid-template-columns: 36px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+
+  .turno-assistant .turno-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .turno-assistant > .productos,
+  .turno-assistant > .citas {
+    grid-column: 1 / -1;
+  }
+
+  .burbuja {
+    font-size: 1.05rem;
+  }
+
+  .productos-entendi,
+  .producto {
+    padding: 16px;
   }
 }

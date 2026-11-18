@@ -128,9 +128,9 @@ en `Status: Draft`, **antes** de implementar.
 | [035](035-ingesta-multiformato/spec.md) | Ingesta multiformato de archivos locales (PDF, XML, JSON, JSONL, CSV y TSV) en web y consola, con índice concurrente | `CONSTITUTION.md` §2; flujo normal de Spec Kit (`/speckit.specify`) |
 | [036](036-asistente-empaques/spec.md) | Asistente comercial de empaques foodservice sobre un catálogo curado, con ruta `commercial` y comparación de enrutadores | `CONSTITUTION.md` §2 y §5; flujo normal de Spec Kit (`/speckit.specify`) |
 | [037](037-corpus-incremental/spec.md) | Corpus incremental: identidad estable por fuente, deduplicación por huella antes de Bronze, versiones, sincronización única y capa extendida con prioridad | `CONSTITUTION.md` §2 y §9; flujo normal de Spec Kit (`/speckit.specify`) |
-| [038](038-monitoreo-langsmith/spec.md) | Monitoreo del agente con LangSmith: trazas por turno, opcional y sin PII, y experimentos de evaluación | `CONSTITUTION.md` §9 (2026-11-13, observabilidad); flujo normal de Spec Kit (`/speckit.specify`) |
-| [039](039-catalogo-colombia/spec.md) | Catálogo de empaques de Colombia con precios de referencia en COP, fechados y con fuente; absorbe la T009 de la 036 | Spec 036 (T009); flujo normal de Spec Kit (`/speckit.specify`) |
-| [040](040-chat-por-voz/spec.md) | Chat por voz: dictado de preguntas y respuestas habladas, sin guardar audio | Diseño «Asistente Carvajal» del chat; flujo normal de Spec Kit (`/speckit.specify`) |
+| [038](038-monitoreo-langsmith/spec.md) | Monitoreo del agente con LangSmith: trazas por turno, opcional y sin PII, y experimentos de evaluación | `CONSTITUTION.md` §9 (2026-11-13 y 2026-11-17); flujo normal de Spec Kit (`/speckit.specify`) |
+| [039](039-catalogo-colombia/spec.md) | Catálogo de empaques de Colombia con precios de referencia en COP, fechados y con fuente; absorbe la T009 de la 036 | `CONSTITUTION.md` §9 (2026-11-17); Spec 036 (T009, absorbida); flujo normal de Spec Kit (`/speckit.specify`) |
+| [040](040-chat-por-voz/spec.md) | Chat por voz: dictado de preguntas y respuestas habladas, sin guardar audio | `CONSTITUTION.md` §9 (2026-11-17) y el diseño «Asistente Carvajal» del chat; flujo normal de Spec Kit (`/speckit.specify`) |
 
 La 035 es la primera spec que se abre con el flujo normal **antes** de implementar. Se
 escribe en `Status: Draft` con `spec.md`, `plan.md` y `tasks.md`; los tres pasan a
@@ -138,6 +138,11 @@ escribe en `Status: Draft` con `spec.md`, `plan.md` y `tasks.md`; los tres pasan
 de alcance que exige —PDF y datos estructurados— se enmienda en `CONSTITUTION.md` §2, §9
 y §10 en la misma PR, como manda el Principio I.
 
+La 038, 039 y 040 se abren con `spec.md` y `checklists/requirements.md`. Sus `plan.md` y
+`tasks.md` llegan en una PR de seguimiento inmediata (`/speckit.plan` y `/speckit.tasks`),
+antes de implementar: tres planes y tres listas de tareas no caben en la misma revisión sin
+agotar el presupuesto de cambios. La ampliación de alcance de §2, la decisión de §9 y la
+proyección de la constitución para Spec Kit se enmiendan en esta misma PR.
 
 ## 8. Orden de escritura y estimación
 

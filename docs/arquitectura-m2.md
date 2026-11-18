@@ -1,8 +1,8 @@
 # Arquitectura del M2 — agente, Qdrant y memoria
 
-> Entrada oficial: **http://localhost:8001** (`make web`). API:
-> **http://localhost:8000** (`make api`). Postgres conserva chat, checkpoints y
-> preferencias; Qdrant es el índice vectorial evaluado.
+> **Histórico.** Documenta la entrega del 2026-11-13, con dos procesos y la SPA
+> en `:8001`. Desde el 2026-11-18 la interfaz es única en **http://localhost:8000**
+> (`make api`): ver `CONSTITUTION.md` §9.
 
 ## Flujo de un turno
 

@@ -14,6 +14,12 @@
   preguntas, respuestas ni fragmentos. En desarrollo y en las corridas de evaluación se
   envía el contenido completo.
 
+### Session 2026-11-18
+
+- Q: ¿Qué pasa con la marca del visitante cuando el turno no se muestrea? → A: La marca se
+  guarda con el identificador de la petición y se enlaza a la traza solo si existe; nunca se
+  fuerza una traza por una marca, porque el muestreo existe para respetar el límite del plan.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Seguir un turno del chat de punta a punta (Priority: P1)
@@ -76,6 +82,8 @@ se persiste igual.
    muchos turnos, **Then** se traza aproximadamente esa proporción.
 5. **Given** el monitoreo activado en producción, **When** se registra un turno, **Then** la
    traza no contiene el texto de la pregunta, de la respuesta ni de los fragmentos.
+6. **Given** el monitoreo activado, **When** se abre el diagnóstico de salud, **Then** se ve
+   si está activo, el muestreo y el modo de contenido, sin credenciales.
 
 ---
 
@@ -106,20 +114,23 @@ el monitoreo un experimento con las métricas que ya produce el informe local.
 ### User Story 4 - Marcar respuestas malas desde el chat (Priority: P3)
 
 El visitante puede indicar con un clic si una respuesta le sirvió o no; la marca queda
-asociada a la traza del turno para revisarla después.
+asociada al turno para revisarla después.
 
 **Why this priority**: acelera encontrar los casos que importan, pero añade interfaz y no es
 necesario para diagnosticar.
 
-**Independent Test**: marcar una respuesta como «no me sirvió» y encontrar la marca en la
-traza del turno.
+**Independent Test**: marcar una respuesta como «no me sirvió» y encontrar la marca asociada
+al turno en los datos del proyecto.
 
 **Acceptance Scenarios**:
 
 1. **Given** una respuesta del asistente, **When** el visitante la marca, **Then** la marca
-   se asocia a la traza del turno y el chat lo confirma sin recargar.
+   se guarda con el identificador de la petición, el chat lo confirma sin recargar y, si ese
+   turno tiene traza, se enlaza a ella.
 2. **Given** el monitoreo desactivado, **When** se muestra el chat, **Then** no aparece el
    control de marca o la marca solo se guarda localmente.
+3. **Given** un turno sin traza por el muestreo, **When** el visitante lo marca, **Then** la
+   marca se conserva con su identificador de petición y no se crea una traza nueva.
 
 ---
 
@@ -136,6 +147,8 @@ traza del turno.
 - Límite del plan del servicio alcanzado: el monitoreo deja de registrar sin afectar el
   chat y lo avisa en los logs.
 - Evaluaciones en CI: nunca registran experimentos ni requieren credenciales.
+- Turno no muestreado que el visitante marca: la marca se conserva con su identificador de
+  petición y queda sin traza asociada; el muestreo no se fuerza por una marca.
 
 ## Requirements *(mandatory)*
 
@@ -162,8 +175,9 @@ traza del turno.
 - **FR-010**: Las pruebas y el CI no MUST requerir credenciales ni enviar datos al servicio.
 - **FR-011**: El estado del monitoreo (activo o no, muestreo, modo de contenido) MUST verse en
   el diagnóstico de salud sin exponer credenciales.
-- **FR-012**: El visitante MUST poder marcar una respuesta como útil o no útil, y la marca
-  MUST asociarse a la traza del turno (P3).
+- **FR-012**: El visitante MUST poder marcar una respuesta como útil o no útil; la marca
+  MUST guardarse con el identificador de la petición y MUST asociarse a la traza cuando ese
+  turno tenga una. Una marca no MUST forzar la creación de una traza (P3).
 
 ### Key Entities *(include if feature involves data)*
 
@@ -182,8 +196,7 @@ traza del turno.
 - **SC-001**: Con el monitoreo activado y muestreo del 100 %, el 100 % de los turnos de las
   cuatro rutas tiene traza.
 - **SC-002**: 0 trazas contienen IP, cookies, tokens CSRF, claves o el identificador crudo
-  del visitante, y 0 trazas de producción contienen texto de conversaciones, verificado con
-  una prueba automática sobre las trazas emitidas.
+  del visitante, y 0 trazas de producción contienen texto de conversaciones.
 - **SC-003**: Con el servicio de monitoreo inalcanzable, el 100 % de los turnos se responde
   y la latencia al primer fragmento no empeora más de 100 ms (p95) frente al monitoreo
   desactivado.

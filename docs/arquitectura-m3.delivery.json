@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "c237a908-c925-487f-8055-c0a7534e2f33",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/sessions/rcw-01xalts2wrkv5kfl2obyxvav/wtm3/docs/arquitectura-m3.json",
+  "output": "/sessions/rcw-01xalts2wrkv5kfl2obyxvav/wtm3/docs/arquitectura-m3.html",
+  "specification": {
+    "sha256": "4468f869a6f013aad63f305bb3170d34b12df6b259459f8cca8634ed169ab35d",
+    "bytes": 7048
+  },
+  "artifact": {
+    "sha256": "0b6d65d6e4fb539d59f5d47425df75e28bdd7ffa819d1e834174834f886ae1a7",
+    "bytes": 864509
+  }
+}

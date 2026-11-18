@@ -1,9 +1,10 @@
-"""Contrato HTTP/SSE para el frontend propio del M2.
+"""Contrato HTTP/SSE en JSON para clientes automatizados.
 
-El frontend (proceso separado) consume estos endpoints JSON/SSE. El backend
-controla credenciales, modelo, ruta, memoria y herramientas; el navegador solo
-pinta tokens y citas. La cookie firmada y el CSRF son los mismos del shell
-Jinja2, de modo que ambas entradas comparten identidad y cuota.
+El shell Jinja2/HTMX es la interfaz única; estos endpoints conservan el mismo
+contrato en JSON/SSE para pruebas y clientes propios. El backend controla
+credenciales, modelo, ruta, memoria y herramientas; el cliente solo recibe
+tokens y citas. La cookie firmada y el CSRF son los mismos del shell, de modo
+que ambas entradas comparten identidad y cuota.
 """
 
 from collections.abc import Iterator, Sequence
@@ -54,14 +55,14 @@ def _owner(request: Request) -> tuple[str, bool]:
 
 @router.get("/csrf")
 def csrf(request: Request) -> JSONResponse:
-    """Entrega el token que el formulario del frontend debe repetir."""
+    """Entrega el token que el cliente debe repetir en el formulario."""
 
     return JSONResponse({"token": getattr(request.state, "csrf_token", "")})
 
 
 @router.get("/health")
 def health() -> JSONResponse:
-    """Resumen para el frontend: base, documentos y estado de Qdrant."""
+    """Resumen JSON: base, documentos y estado de Qdrant."""
 
     from sqlalchemy import func, select
 
@@ -98,7 +99,7 @@ def corpus_read(
     page: str | None = None,
     page_size: str | None = None,
 ) -> JSONResponse:
-    """Lista paginada del corpus para el frontend propio del M2.
+    """Lista paginada del corpus en JSON.
 
     Los filtros y la búsqueda se aplican al conjunto completo antes de paginar:
     ``total`` y ``has_next`` describen el resultado filtrado, no la página.

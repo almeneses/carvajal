@@ -10,12 +10,14 @@
 <section class="seccion chat-seccion" aria-labelledby="titulo-chat">
   <div class="panel conversacion">
     <header class="cabecera-conversacion">
+      <img class="carva" src="/static/carva.svg" alt="" width="88" height="88" />
       <div class="cabecera-texto">
-        <p class="sobrelinea">Asistente · Conversación</p>
-        <h1 id="titulo-chat">Conversación con el corpus</h1>
+        <p class="sobrelinea">Asistente Carvajal</p>
+        <h1 id="titulo-chat">Hola, soy Carva</h1>
         <p class="bajada">
-          Cada respuesta se apoya en los documentos del corpus y cita sus fuentes. El
-          historial queda asociado a esta cookie anónima.
+          Pregúntame por Carvajal y su historia, o por vasos, tapas, contenedores y cubiertos
+          de Carvajal Empaques: te digo qué material sirve y te calculo cajas y precio de
+          referencia. Cito siempre de dónde saco cada dato.
         </p>
       </div>
       <div class="cabecera-acciones">
@@ -48,7 +50,7 @@
         <input type="hidden" name="thread_id" value="{{ thread_id }}" data-thread-id />
         <input type="hidden" name="client_turn_id" value="" data-client-turn-id />
         <div class="campo">
-          <label for="pregunta">Tu pregunta</label>
+          <label for="pregunta">Escribe tu pregunta</label>
           <input
             id="pregunta"
             name="question"
@@ -56,13 +58,13 @@
             required
             maxlength="500"
             autocomplete="off"
-            placeholder="¿Cuáles fueron los ingresos de 2025?"
+            placeholder="Por ejemplo: vasos para café de 12 oz en México"
             aria-describedby="ayuda-chat"
             value="{{ question }}"
           />
           <p id="ayuda-chat" class="ayuda">
-            Entre 1 y 500 caracteres. El asistente responde solo con el corpus y cita el
-            fragmento del que toma cada dato.
+            Hasta 500 caracteres. Los precios son de referencia: no confirmo existencias ni
+            tomo pedidos.
           </p>
         </div>
         <button type="submit">Enviar</button>

@@ -1,5 +1,31 @@
 /* Sistema visual institucional de Carvajal para el shell HTMX.
-   Los tokens replican la paleta y las formas del frontend del M2 (apps/web). */
+   Los tokens replican la paleta y las formas del frontend aprobado del M2. */
+
+/* DM Sans servida desde la app (OFL, ver static/fonts/OFL-DM-Sans.txt): la CSP no
+   permite Google Fonts y sin ella Windows mostraba Segoe UI. */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/static/fonts/dm-sans-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/static/fonts/dm-sans-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/static/fonts/dm-sans-latin-700-normal.woff2") format("woff2");
+}
 
 :root {
   --azul: #003a5d;
@@ -28,6 +54,9 @@
   --sombra: 0 8px 24px rgb(20 73 103 / 7%);
   --transicion: 180ms ease;
   --fuente: "DM Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --kraft: #c89b6a;
+  --kraft-fondo: #f3eadf;
+  --kraft-texto: #6e4a22;
 }
 
 * {

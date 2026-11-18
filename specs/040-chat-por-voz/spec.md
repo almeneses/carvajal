@@ -43,6 +43,9 @@ misma ruta que con la pregunta escrita.
 5. **Given** cifras y unidades dichas en voz («doce onzas», «cinco mil vasos»), **When** se
    transcriben, **Then** el router extrae la capacidad y la cantidad igual que de «12 oz» y
    «5.000».
+6. **Given** la primera vez que se usa el micrófono, **When** se activa el dictado, **Then**
+   el chat avisa que el navegador puede procesar la voz con su propio servicio antes de
+   escuchar.
 
 ---
 
@@ -136,8 +139,9 @@ que el segundo turno conserva el contexto del primero.
   funcionando por escrito y explicar la limitación.
 - **FR-010**: Los controles de voz MUST operarse con teclado y tener nombres accesibles,
   conforme al nivel de accesibilidad del chat (spec 024).
-- **FR-011**: El dictado y la lectura MUST respetar la cuota diaria, los límites por IP y la
-  seguridad del chat (CSRF, CSP) sin excepciones.
+- **FR-011**: El envío del texto dictado MUST respetar la cuota diaria, los límites por IP y
+  la seguridad del chat (CSRF, CSP); el dictado y la lectura ocurren en el navegador y no
+  consumen cuota.
 - **FR-012**: El modo manos libres MUST poder activarse y desactivarse, y apagarse solo tras
   10 segundos de silencio o con la palabra «terminar» (P3).
 - **FR-013**: El audio MUST procesarse en el navegador y no MUST enviarse al servidor del
@@ -172,8 +176,8 @@ que el segundo turno conserva el contexto del primero.
 ## Assumptions
 
 - El idioma es español (Colombia y México); otros idiomas quedan fuera de alcance.
-- El chat de la API (`/chat`) es la interfaz que recibe la voz; el frontend de `apps/web` no
-  tiene chat desde el PR #120.
+- El chat vive en el shell Jinja2/HTMX que sirve la API en `:8000`; la SPA `apps/web` y el
+  prototipo Streamlit se retiraron en #163.
 - No hay identificación de la persona por su voz ni llamadas telefónicas.
 - El diseño «Asistente Carvajal» ya prevé el botón de micrófono en la caja de mensaje.
 - La voz se procesa en el navegador (ver Clarifications). Algunos navegadores envían el

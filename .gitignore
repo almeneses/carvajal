@@ -46,6 +46,9 @@ data/index/
 .vscode/
 .idea/
 
+# Herramientas de agentes con entornos vendorizados (no se versiona)
+.dsh/
+
 # Artefactos generados de evaluación/evidencia (se regeneran con make index-eval / smoke_m2)
 docs/eval/retrieval-results.json
 docs/evidence/m2/tests-*.txt
