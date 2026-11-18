@@ -43,7 +43,9 @@ GENERATED_FILES = {
     ".specify/integration.json",
     ".specify/memory/.constitution-template.json",
 }
-GENERATED_GLOBS = (".opencode/commands/speckit.*.md",)
+# Los diagramas de Archify se generan con ``archify finalize`` a partir de su
+# fuente ``docs/arquitectura*.json``, que sí cuenta y es lo que se revisa.
+GENERATED_GLOBS = (".opencode/commands/speckit.*.md", "docs/arquitectura*.html")
 
 
 def is_ignored(path: str, extra: set[str] | None = None) -> bool:

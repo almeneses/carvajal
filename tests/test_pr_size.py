@@ -58,6 +58,21 @@ def test_ignora_andamiaje_generado_por_spec_kit() -> None:
     assert (files, added, deleted) == (1, 20, 0)
 
 
+def test_ignora_html_generado_por_archify_pero_cuenta_su_fuente() -> None:
+    # Arrange
+    numstat = (
+        "14965\t0\tdocs/arquitectura-m3.html\n"
+        "92\t0\tdocs/arquitectura-m3.json\n"
+        "30\t0\tdocs/otra.html\n"
+    )
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (2, 122, 0)
+
+
 def test_lo_escrito_por_el_equipo_siempre_cuenta() -> None:
     # Arrange
     numstat = (

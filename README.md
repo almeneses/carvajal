@@ -141,6 +141,40 @@ Resultado de la última corrida (Qdrant, k=10): **Recall@10 = 0.8000**,
 abstiene sin fuentes. La evaluación separa retrieval de calidad de respuesta:
 no llama al LLM.
 
+## Entrega M3 — asistente de empaques y corpus incremental
+
+La tercera entrega extiende el agente del M2 sin cambiar su contrato: el router suma la ruta
+`commercial` para recomendar y cotizar empaques de Carvajal Empaques (spec 036), el enrutador
+se vuelve intercambiable y medible, y el corpus pasa a sincronizarse de forma incremental entre
+Gold, PostgreSQL y Qdrant (spec 037).
+
+[![Arquitectura de la entrega M3 (tema oscuro)](docs/arquitectura-m3.visual-check.2048x1320.dark.png)](docs/arquitectura-m3.html)
+
+Diagrama interactivo generado con [Archify](https://github.com/tt-a1i/archify) 3.2:
+[`docs/arquitectura-m3.html`](docs/arquitectura-m3.html) (pan/zoom, búsqueda, rutas, tema
+claro/oscuro y exportación). La fuente versionada es
+[`docs/arquitectura-m3.json`](docs/arquitectura-m3.json): cada componente cita el archivo y las
+líneas del código que lo respaldan en el commit `a369705` de `dev`, y Archify verifica esas
+citas al generar el HTML.
+
+| Novedad | Qué hace | Dónde |
+|---|---|---|
+| Ruta `commercial` | Extrae uso, temperatura, capacidad, cantidad, país y ciudad; valida el material con la guía; calcula cajas y precio de referencia (México) o remite a distribuidores (Colombia). El LLM solo redacta. | [Catálogo de empaques](#catálogo-de-empaques-spec-036) |
+| Tarjetas en el chat | Cada referencia llega como tarjeta por el evento SSE `products`, con SKU, cajas, precio con fecha y enlace a la ficha. | `apps/api/templates/_productos.html` |
+| Enrutador intercambiable | `AGENT_ROUTER=rules` (por defecto), `llm` o `decision`; `carvajal eval-router` los compara sobre 110 preguntas. | [`docs/resultados-router.md`](docs/resultados-router.md) |
+| Corpus incremental | Solo importa e indexa lo nuevo o cambiado, por huella; `--verify` compara sin escribir. | [Corpus incremental](#corpus-incremental-spec-037) |
+
+```bash
+uv run carvajal sync --layer all          # Gold → PostgreSQL → Qdrant, incremental
+uv run carvajal sync --verify             # compara huellas y conteos sin escribir
+uv run carvajal eval-router               # precisión del enrutador por reglas
+```
+
+Para probarlo, levanta el entorno como en el M2 y abre el chat en
+<http://localhost:8000/chat>; el guion de la demo está en [`docs/demo-036.md`](docs/demo-036.md)
+y la evidencia de los criterios de éxito en
+[`specs/036-asistente-empaques/evidencia.md`](specs/036-asistente-empaques/evidencia.md).
+
 ## Stack
 
 | Categoría | Tecnología |
@@ -316,6 +350,10 @@ uv run carvajal eval-router --router rules --router llm  # comparación con el L
 Resultados y análisis: [`docs/resultados-router.md`](docs/resultados-router.md).
 
 ## 🗺️ Arquitectura
+
+La arquitectura vigente, con el agente, la ruta `commercial` y la sincronización incremental,
+está en la [entrega M3](#entrega-m3--asistente-de-empaques-y-corpus-incremental). El diagrama de
+esta sección es el de la primera entrega: el pipeline de captura y el RAG original.
 
 Diagrama interactivo autocontenido (generado con [Archify](https://github.com/tt-a1i/archify)):
 pan/zoom, búsqueda de componentes, tema claro/oscuro y exportación. Ábrelo en el
