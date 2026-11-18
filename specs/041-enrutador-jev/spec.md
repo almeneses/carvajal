@@ -24,6 +24,10 @@ La alternativa local (OpenJev sobre GPU propia) se descartó por hardware, lo qu
 TypeSafe en una dependencia externa con costo por llamada y con la pregunta del visitante
 saliendo del servidor del proyecto.
 
+La 036 cierra y transfiere a esta spec su SC-006 (informe de los tres enrutadores con las
+mismas métricas). La 036 queda con `rules` como enrutador por defecto; esta spec es la que
+mide y decide si Jev se enciende.
+
 La medición depende de la spec 039: el catálogo de Colombia cambia las preguntas comerciales
 (país y precio) del conjunto de evaluación. Medir antes de la 039 es medir un blanco móvil.
 
