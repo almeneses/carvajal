@@ -1,6 +1,6 @@
 {
   "integration": "speckit",
-  "version": "1.2.7.dev0",
+  "version": "1.4.3.dev0",
   "installed_at": "2026-11-03T16:49:22.346588+00:00",
   "files": {
     ".specify/scripts/powershell/check-prerequisites.ps1": "1c01b9ca6e71f1044e799da30bde484866c896ae76fe8aa34f66facf5a3519ed",
@@ -14,6 +14,7 @@
     ".specify/templates/plan-template.md": "5ef0e4c97b36e9f91372dc6eb8e5a7e515af8958cf1a9286e43a1ebd9bd48540",
     ".specify/templates/spec-template.md": "3945437fc35cd30a5b2bf7beea680337c3516826d3efa5a6b92c4a7eca1ba28e",
     ".specify/templates/tasks-template.md": "c731575d8099b3f871861186fbd1a592b51b2ba57fb99e1a0dab439ff6d5608f",
-    ".specify/.gitignore": "0a61c5378b0bb2e0f85babff99c8b166f2170a2c12378cd17d929aa19296ec88"
+    ".specify/.gitignore": "0a61c5378b0bb2e0f85babff99c8b166f2170a2c12378cd17d929aa19296ec88",
+    ".specify/scripts/powershell/markdown_sections.py": "189e980b7c86f54c0886be57e3113cf47fc474467a08dff851144b5cc5e1fe39"
   }
 }

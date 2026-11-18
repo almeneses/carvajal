@@ -1,13 +1,18 @@
 {
-  "version": "1.2.7.dev0",
+  "version": "1.4.3.dev0",
   "integration_state_schema": 1,
   "installed_integrations": [
-    "opencode"
+    "opencode",
+    "dsh"
   ],
   "integration_settings": {
     "opencode": {
-      "script": "ps",
+      "script": "bash",
       "invoke_separator": "."
+    },
+    "dsh": {
+      "script": "bash",
+      "invoke_separator": "-"
     }
   },
   "integration": "opencode",
