@@ -73,11 +73,12 @@ con `--admin`.
 - La migración del prototipo a la app web entregó las olas 0–3, 5 y 6 el 2026-11-14; la ola 4
   (autenticación y cuotas por usuario) y la 7 (retiro del prototipo) siguen pendientes. El
   Módulo 2 está aceptado, con evidencia en `docs/aceptacion-m2.md`.
-- Dos frontends y un solo RAG: shell renderizado en servidor con HTMX (puerto 8000) y
-  frontend propio con pestañas (puerto 8001) que consume un contrato JSON de lectura.
+- Un solo frontend y un solo RAG: shell renderizado en servidor con HTMX y la API en el
+  mismo proceso (puerto 8000).
 - Gold es la fuente de verdad del corpus; PostgreSQL guarda el texto para la FAQ y el
   explorador y Qdrant es el índice vectorial del chat. Ambos se reconcilian con `sync`.
-- Streamlit y FAISS siguen disponibles como extra `legacy` y se retiran en la ola 7.
+- El prototipo Streamlit se retiró el 2026-11-18; FAISS sigue en el extra `legacy`
+  porque la CLI histórica (`ask`, `summarize`, `faq`, `eval`) lo usa.
 - Pendientes vivos: autenticación y cuotas por usuario (ola 4), captura programada por cron y
   endurecimiento del despliegue (TLS, dominio, respaldos).
 - La spec 035 define la carga local multiformato —PDF con texto por página y datos XML, JSON,

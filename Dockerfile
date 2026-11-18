@@ -28,8 +28,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY packages/core/src ./packages/core/src
 # Dependencias base + extra `capture`: la captura web desde Configuración usa
-# `requests`, `beautifulsoup4` y `lxml` en runtime. `legacy` (Streamlit/FAISS)
-# sigue fuera de la imagen.
+# `requests`, `beautifulsoup4` y `lxml` en runtime. `legacy` (FAISS/CLI) sigue
+# fuera de la imagen.
 # `zstandard` es un backend opcional de compresión de trazas de LangSmith; sin
 # tracing activo, LangSmith cae a la ingesta multipart sin comprimir. Se omite
 # para no pagar 23 MB en la imagen.

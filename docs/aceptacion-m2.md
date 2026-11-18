@@ -1,5 +1,9 @@
 # Matriz de aceptación — Módulo 2
 
+> **Histórico.** La aceptación se verificó con la SPA en `:8001`. Desde el
+> 2026-11-18 la interfaz es única en **http://localhost:8000** (`make api`);
+> ver `CONSTITUTION.md` §9.
+
 > Estado verificado el **13 de noviembre de 2026**. Base de integración:
 > `origin/dev` en `f82e48e` (merge de #98). La entrega se dividió en una pila de
 > PRs para respetar el límite de 2.000 líneas: **#102** (Qdrant/evaluación),

@@ -96,7 +96,7 @@ con asistente RAG.
 | 2. Ampliación de semillas | ✅ Hecha | 6 fuentes de terceros con indicadores financieros |
 | 3. Enriquecimiento (PDFs, vídeo) | ⬜ Pendiente | Nuevas semillas y extractores |
 | 4. Chunking y embeddings | ✅ Hecha | Chunking 1000/200 + FAISS con embeddings Ollama |
-| 5. Asistente RAG (LLM + prompt + UI) | 🚧 En curso | LangChain + FAISS + Ollama/DeepSeek/Claude + Streamlit |
+| 5. Asistente RAG (LLM + prompt + UI) | 🚧 En curso | LangChain + Qdrant/Ollama + interfaz única Jinja2/HTMX |
 | 6. Corpus externo (capa extendida) | ✅ Hecha | `carvajal import` + manifiesto + recuperación citada |
 
 ## 3. Stack técnico
@@ -111,7 +111,7 @@ con asistente RAG.
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
 | **RAG** | LangChain + FAISS + embeddings |
 | **LLM** | DeepSeek (`deepseek-chat`), Anthropic Claude u Ollama (`llama3.2`) |
-| **Interfaz de pruebas** | Streamlit |
+| **Interfaz web** | FastAPI + Jinja2 + HTMX (interfaz única en `:8000`) |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
 | **Linting / Formato** | [Ruff](https://docs.astral.sh/ruff/) |
@@ -155,15 +155,13 @@ se propone un stack distinto, documentado en
 carvajal/
 ├── apps/
 │   ├── api/                   # API FastAPI: /live, /health, /api, chat y pantallas
-│   │   ├── main.py            # create_app, CORS, /live y /health
+│   │   ├── main.py            # create_app, /live y /health
 │   │   ├── agent_runtime.py   # checkpointer, Store, Qdrant y grafo compilado
 │   │   ├── runtime.py         # templates, sesiones y clientes diferidos
 │   │   ├── views/             # routers: corpus, documentos, chat, stream y api
 │   │   ├── chat/              # identidad, servicio, adaptador del agente y streaming
 │   │   ├── static/            # CSS y JS del chat
 │   │   └── templates/         # Jinja2: base, chat, pantallas y parciales
-│   └── web/                   # frontend propio del M2 (:8001): shell SPA con
-│                              # pestañas FAQ · Corpus · Documento, sin RAG
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
@@ -200,8 +198,7 @@ carvajal/
 │           ├── pipeline.py    # orquestación de las tres capas
 │           ├── models.py      # reexporta el dominio (compatibilidad)
 │           ├── importer.py    # importación del corpus externo (capa extendida)
-│           ├── rag.py         # recuperación, prompt y generación (RAG)
-│           ├── ui.py          # interfaz web de pruebas (Streamlit)
+│           ├── rag.py         # recuperación, prompt y generación (RAG, solo CLI)
 │           └── cli.py         # capture / sync / import / ask / status / list
 ├── data/                    # capas Medallion (raw y processed ignoradas)
 │   ├── raw/                 # bronze — HTML crudo
@@ -218,7 +215,6 @@ carvajal/
 ├── specs/                   # especificaciones (Spec Kit: spec / plan / tasks)
 ├── .specify/                # plantillas y constitución del flujo (Spec Kit)
 ├── tests/                   # pruebas (pytest, patrón AAA)
-├── app.py                   # entrada de la interfaz: streamlit run app.py
 ├── docs/                    # documentación, ADRs e investigación
 │   ├── decisions/           # ADRs: contexto, opciones y consecuencias
 │   ├── arquitectura.json    # fuente tipada del diagrama (Archify)
@@ -290,8 +286,9 @@ carvajal/
 - `make image` construye la imagen multi-etapa (`Dockerfile`) con las
   dependencias base y el extra `capture` (la captura web desde Configuración
   usa `requests`, `beautifulsoup4` y `lxml` en runtime); `legacy`
-  (Streamlit/FAISS) se queda fuera de la imagen y se instala en desarrollo con
-  `uv sync --all-extras`. La etapa de runtime instala `poppler-utils` porque
+  (FAISS para la CLI histórica) se queda fuera de la imagen y se instala en
+  desarrollo con `uv sync --all-extras`. La etapa de runtime instala
+  `poppler-utils` porque
   `pdftotext` extrae el texto de los PDF que llegan por la carga local.
 - `make prod-up` levanta app, Postgres, Qdrant y Ollama con
   `compose.prod.yml`; `make prod-down` los detiene conservando los volúmenes.
@@ -441,6 +438,7 @@ git push
 | 2026-11-17 | Un solo índice de respuestas: retirada de `/ask` y de pgvector (spec 037, US5) | Ningún flujo escribía vectores en PostgreSQL, así que el adaptador `PgVectorStore` y la columna `chunks.embedding` eran un índice vacío que aparentaba funcionar. Se eliminan la ruta, el adaptador y la dependencia, con la migración reversible `0006`; el chat es el único camino de respuesta y la FAQ y el explorador siguen leyendo PostgreSQL |
 | 2026-11-16 | Indexar la capa extendida con prioridad y retirar `/ask` y pgvector (spec 037) | La capa extendida suma cobertura si no desplaza al núcleo: se indexa en la misma colección con `layer` en el payload y el chat busca primero el núcleo. La FAQ sigue leyendo solo `core`. Ningún flujo escribe vectores en PostgreSQL, así que `/ask` respondía sin contexto y el adaptador pgvector era un índice vacío; el chat queda como único camino de respuesta y Qdrant como único índice vectorial |
 | 2026-11-17 | Sincronización única del corpus (spec 037, US2): `carvajal sync --layer core|extended|all [--prune] [--verify]` reconcilia Gold con PostgreSQL y Qdrant | Un solo camino incremental compara huellas y solo importa e indexa lo nuevo o cambiado; `--verify` no escribe y devuelve código distinto de cero si hay diferencias. La captura web y la carga desde Configuración cierran con la misma sincronización, que necesita PostgreSQL y Qdrant en marcha; `carvajal capture --solo-gold` conserva la corrida limitada a disco |
+| 2026-11-18 | Interfaz única: se retiran la SPA `apps/web` (:8001) y el prototipo Streamlit; quedan el shell Jinja2/HTMX y la API en un solo proceso (:8000) | Dos implementaciones completas de chat, FAQ y corpus sobre los mismos endpoints ya habían divergido: el chat quedó sin enlace en la SPA tras #120. El shell era un superconjunto funcional (incluye Configuración y captura), así que la convergencia es de borrado, no de reescritura. Desaparecen CORS, `FRONTEND_ORIGINS`, el extra `streamlit` y `app.py`; `rag.py` y el extra `legacy` se conservan porque la CLI (`ask`, `summarize`, `faq`, `eval`) sigue usándolos |
 
 ## 10. Notas y tareas pendientes
 

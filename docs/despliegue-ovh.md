@@ -112,8 +112,6 @@ SESSION_SECRET=pega_aqui_el_hex_de_32
 POSTGRES_USER=carvajal
 POSTGRES_PASSWORD=pega_aqui_el_hex_de_24
 POSTGRES_DB=carvajal
-
-FRONTEND_ORIGINS=
 ```
 
 Notas:
@@ -125,14 +123,13 @@ Notas:
   primer arranque; el volumen ya quedó inicializado.
 - `SESSION_SECRET` debe mantenerse estable; si lo cambias, se invalidan las
   cookies de los visitantes.
-- Si copiaste `.env.example`, deja `FRONTEND_ORIGINS` vacío.
 
 Comprueba permisos y variables sin imprimir secretos:
 
 ```bash
 ls -l /opt/carvajal/.env
 # -rw------- deploy deploy
-grep -E '^(APP_PORT|LLM_PROVIDER|POSTGRES_USER|POSTGRES_DB|FRONTEND_ORIGINS)=' /opt/carvajal/.env
+grep -E '^(APP_PORT|LLM_PROVIDER|POSTGRES_USER|POSTGRES_DB)=' /opt/carvajal/.env
 ```
 
 ## 3. Acceso a GHCR
