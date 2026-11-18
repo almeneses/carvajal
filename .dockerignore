@@ -24,7 +24,6 @@ specs
 tests
 assets
 scripts
-.streamlit
 .opencode
 .specify
 .env

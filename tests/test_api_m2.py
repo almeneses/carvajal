@@ -1,4 +1,4 @@
-"""Pruebas del contrato HTTP/SSE del frontend propio del M2."""
+"""Pruebas del contrato HTTP/SSE en JSON de la interfaz."""
 
 import json
 from collections.abc import Generator, Iterator, Sequence
@@ -259,25 +259,6 @@ def test_stream_api_503_por_fallo_del_proveedor_es_sse() -> None:
     assert name == "error"
     assert data["message"] == SERVICE_UNAVAILABLE
     assert data["incomplete"] is False
-
-
-def test_cors_permite_el_origen_del_frontend() -> None:
-    # Arrange
-    client, _ = make_client()
-
-    # Act
-    response = client.options(
-        "/api/chat/stream",
-        headers={
-            "Origin": "http://localhost:8001",
-            "Access-Control-Request-Method": "POST",
-        },
-    )
-
-    # Assert
-    assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "http://localhost:8001"
-    assert response.headers["access-control-allow-credentials"] == "true"
 
 
 def test_health_api_separa_indice_y_base(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -48,15 +48,14 @@ capture = [
     "lxml>=5.1",
     "requests>=2.32",
 ]
-# Prototipo Streamlit y consulta con FAISS. La app web no los importa; W7.1 los
-# retira. En desarrollo, CI y para usar la CLI completa se instalan con
-# `uv sync --all-extras`.
+# Consulta con FAISS que usa la CLI histórica (ask, summarize, faq, eval). La
+# app web no la importa. En desarrollo, CI y para usar la CLI completa se
+# instalan con `uv sync --all-extras`.
 legacy = [
     "faiss-cpu>=1.15.1",
     "langchain>=1.4.7",
     "langchain-anthropic>=1.7.7",
     "langchain-community>=0.4.2",
-    "streamlit>=1.66.1",
 ]
 
 [project.urls]

@@ -272,13 +272,13 @@ def test_fabrica_rechaza_un_proveedor_desconocido(monkeypatch: pytest.MonkeyPatc
         build_llm_provider()
 
 
-def test_fabrica_remite_claude_a_streamlit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fabrica_remite_claude_a_la_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
     _limpia_entorno(monkeypatch)
     monkeypatch.setenv("LLM_PROVIDER", "claude")
 
     # Act / Assert
-    with pytest.raises(ValueError, match="Streamlit"):
+    with pytest.raises(ValueError, match="CLI histórica"):
         build_llm_provider()
 
 
