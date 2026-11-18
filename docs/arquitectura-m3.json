@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Carvajal Corpus · arquitectura de la entrega M3",
+    "output": "docs/arquitectura-m3.html",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/almeneses/carvajal.git",
+      "provider": "github",
+      "revision": "a369705b9ebdcdb317b9c3b2aede945d1bdf02c2"
+    }
+  },
+  "components": [
+    { "id": "visitante", "type": "external", "label": "Visitante", "sublabel": "navegador o móvil", "pos": [40, 230], "size": [130, 64] },
+    { "id": "frontend", "type": "frontend", "label": "Frontend propio", "sublabel": ":8001 · FAQ y corpus", "pos": [250, 60], "size": [160, 64],
+      "sources": [{ "path": "apps/web/main.py", "line": 44, "end_line": 60, "label": "app FastAPI del frontend" }] },
+    { "id": "api", "type": "backend", "label": "API FastAPI", "sublabel": ":8000 · /chat y SSE", "pos": [250, 230], "size": [160, 64], "tag": "ChatService",
+      "sources": [
+        { "path": "apps/api/main.py", "line": 130, "end_line": 197, "label": "create_app" },
+        { "path": "apps/api/views/stream.py", "line": 40, "end_line": 101, "label": "POST /chat/stream" },
+        { "path": "apps/api/chat/service.py", "line": 182, "end_line": 345, "label": "stream: trace, meta, products" }
+      ] },
+    { "id": "llm", "type": "cloud", "label": "LLM", "sublabel": "DeepSeek u Ollama", "pos": [250, 420], "size": [160, 64],
+      "sources": [{ "path": "packages/core/src/carvajal/adapters/llm/__init__.py", "line": 11, "end_line": 37, "label": "build_llm_provider" }] },
+    { "id": "agente", "type": "backend", "label": "Agente LangGraph", "sublabel": "router rules · llm · decision", "pos": [480, 214], "size": [180, 96], "tag": "4 rutas",
+      "sources": [
+        { "path": "packages/core/src/carvajal/agent/graph.py", "line": 193, "end_line": 399, "label": "build_agent" },
+        { "path": "packages/core/src/carvajal/agent/router.py", "line": 241, "end_line": 316, "label": "decide_route" },
+        { "path": "packages/core/src/carvajal/agent/routers/__init__.py", "line": 28, "end_line": 48, "label": "build_router" }
+      ] },
+    { "id": "embeddings", "type": "cloud", "label": "Embeddings", "sublabel": "Ollama nomic-embed-text", "pos": [490, 60], "size": [160, 64],
+      "sources": [{ "path": "packages/core/src/carvajal/adapters/embeddings/ollama.py", "line": 46, "end_line": 72, "label": "OllamaEmbedder.embed" }] },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "chat · checkpoints · Store", "pos": [490, 420], "size": [160, 64],
+      "sources": [
+        { "path": "apps/api/agent_runtime.py", "line": 94, "end_line": 102, "label": "PostgresSaver y PostgresStore" },
+        { "path": "packages/core/src/carvajal/adapters/storage/chat.py", "line": 240, "end_line": 292, "label": "append_turn" }
+      ] },
+    { "id": "qdrant", "type": "database", "label": "Qdrant", "sublabel": "fragmentos · 768 dims", "pos": [740, 60], "size": [160, 64],
+      "sources": [{ "path": "packages/core/src/carvajal/adapters/vector/qdrant_store.py", "line": 201, "end_line": 232, "label": "search" }] },
+    { "id": "indicadores", "type": "backend", "label": "indicator_lookup", "sublabel": "data/indicators.json", "pos": [740, 230], "size": [160, 64],
+      "sources": [{ "path": "packages/core/src/carvajal/agent/tools.py", "line": 140, "end_line": 148, "label": "herramienta @tool" }] },
+    { "id": "comercial", "type": "backend", "label": "Ruta commercial", "sublabel": "buscar · validar · cajas", "pos": [740, 420], "size": [160, 64], "tag": "spec 036",
+      "sources": [
+        { "path": "packages/core/src/carvajal/agent/graph.py", "line": 353, "end_line": 379, "label": "nodo commercial" },
+        { "path": "packages/core/src/carvajal/agent/commercial_flow.py", "line": 121, "end_line": 153, "label": "run_commercial" }
+      ] },
+    { "id": "catalogo", "type": "database", "label": "Catálogo CSV", "sublabel": "data/catalog/empaques", "pos": [980, 420], "size": [160, 64],
+      "sources": [{ "path": "packages/core/src/carvajal/catalog/loader.py", "line": 86, "end_line": 124, "label": "load_catalog" }] },
+    { "id": "sync", "type": "backend", "label": "Sync incremental", "sublabel": "Gold → PostgreSQL → Qdrant", "pos": [980, 60], "size": [170, 64], "tag": "spec 037",
+      "sources": [
+        { "path": "packages/core/src/carvajal/application/sync.py", "line": 256, "end_line": 290, "label": "sync_corpus" },
+        { "path": "apps/api/ingestion.py", "line": 130, "end_line": 155, "label": "sync_gold" }
+      ] },
+    { "id": "gold", "type": "database", "label": "Corpus Gold", "sublabel": "data/gold · Markdown", "pos": [985, 230], "size": [160, 64],
+      "sources": [{ "path": "packages/core/src/carvajal/application/sync.py", "line": 1, "end_line": 13, "label": "Gold como fuente" }] }
+  ],
+  "connections": [
+    { "id": "visitante-api", "from": "visitante", "to": "api", "label": "pregunta", "variant": "emphasis" },
+    { "id": "visitante-frontend", "from": "visitante", "to": "frontend", "label": "lee corpus" },
+    { "id": "frontend-api", "from": "frontend", "to": "api", "label": "JSON + SSE" },
+    { "id": "api-agente", "from": "api", "to": "agente", "label": "invoke", "variant": "emphasis" },
+    { "id": "api-llm", "from": "api", "to": "llm", "label": "stream" },
+    { "id": "agente-embeddings", "from": "agente", "to": "embeddings", "label": "embed (rag)" },
+    { "id": "agente-qdrant", "from": "agente", "to": "qdrant", "label": "rag · top-k" },
+    { "id": "agente-indicadores", "from": "agente", "to": "indicadores", "label": "tool" },
+    { "id": "agente-comercial", "from": "agente", "to": "comercial", "label": "commercial" },
+    { "id": "agente-postgres", "from": "agente", "to": "postgres", "label": "checkpoints" },
+    { "id": "api-postgres", "from": "api", "to": "postgres", "label": "historial" },
+    { "id": "comercial-catalogo", "from": "comercial", "to": "catalogo", "label": "lee CSV" },
+    { "id": "gold-sync", "from": "gold", "to": "sync", "label": "huellas" },
+    { "id": "sync-qdrant", "from": "sync", "to": "qdrant", "label": "upsert", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Ruta commercial (spec 036)", "items": [
+      "El router extrae uso, temperatura, capacidad, cantidad, país y ciudad",
+      "Secuencia fija sobre el catálogo: el LLM solo redacta",
+      "Tarjetas por SSE products con precio, fecha y ficha"
+    ] },
+    { "dot": "emerald", "title": "Corpus incremental (spec 037)", "items": [
+      "Gold es la fuente; PostgreSQL y Qdrant se derivan",
+      "Solo se importa e indexa lo nuevo o cambiado, por huella",
+      "La sincronización también escribe documentos en PostgreSQL"
+    ] },
+    { "dot": "amber", "title": "Enrutador intercambiable", "items": [
+      "AGENT_ROUTER=rules por defecto; llm y decision comparables",
+      "carvajal eval-router mide 110 preguntas",
+      "Cada turno registra agent.route_decided"
+    ] }
+  ]
+}
