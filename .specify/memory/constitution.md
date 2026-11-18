@@ -5,7 +5,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-16, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-18, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -91,16 +91,25 @@ con `--admin`.
   PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.
   `carvajal sync --adopt` completa la identidad de los índices anteriores sin renombrar
   slugs ni reindexar.
+- Las specs 038, 039 y 040 abren, en borrador, el monitoreo del agente con LangSmith, el
+  catálogo de Colombia con precios en COP y el chat por voz. Sus `plan.md` y `tasks.md`
+  llegan antes de implementar; hasta entonces no cambian el comportamiento.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
 ## Restricciones técnicas
 
 - Python 3.13+, monorepo `uv` con el paquete en `packages/core/src/carvajal` (src-layout).
-- API FastAPI + Jinja2 + HTMX; frontend propio sin framework de JavaScript.
+- API FastAPI + Jinja2 + HTMX; sin framework de JavaScript en el cliente.
 - Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0006).
 - Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
 - Agente LangGraph con `PostgresSaver` y `PostgresStore`; router `direct`/`tool`/`rag`.
+- Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con
+  LangSmith (spec 038) es opcional, sin PII y en producción solo con metadatos.
+- Precios del catálogo: referencias fechadas con moneda. Los de Colombia, en COP, pueden ser
+  estimados por conversión desde México (spec 039), siempre rotulados y con tasa fechada.
+- Voz en el chat (spec 040): dictado y lectura con las capacidades del navegador; el audio
+  no llega al servidor ni se guarda.
 - LLM configurable: DeepSeek (por defecto) u Ollama; embeddings locales con
   `nomic-embed-text` (768 dimensiones).
 - Streaming por SSE; CSRF por doble cookie, CSP sin `unsafe-inline` y cookies `HttpOnly`.

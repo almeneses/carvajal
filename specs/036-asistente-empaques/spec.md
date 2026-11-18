@@ -66,8 +66,9 @@ y lleva fecha.
    redondea hacia arriba y se informa el excedente de unidades.
 2. **Given** una referencia con precio en el catálogo, **When** se cotiza, **Then** el
    total es cajas × precio por caja, con moneda, nota de impuestos y fecha de captura.
-3. **Given** una referencia sin precio (por ejemplo, del catálogo de Colombia), **When** se
-   pide el costo, **Then** el asistente declara que no tiene precio y no lo estima.
+3. **Given** una referencia sin precio, **When** se pide el costo, **Then** el asistente
+   declara que no tiene precio y no lo estima; la única excepción es la estimación por
+   conversión de la spec 039, siempre rotulada como estimación.
 4. **Given** cualquier cotización, **When** se muestra, **Then** incluye el aviso de que es
    un precio de referencia y no confirma existencias ni condiciones de venta.
 
@@ -187,7 +188,9 @@ produce un informe con las mismas métricas para los tres.
   hacia arriba; el modelo de lenguaje no MUST calcular cantidades ni totales.
 - **FR-005**: Todo precio mostrado MUST incluir moneda, nota de impuestos y fecha de
   captura, y el aviso de precio de referencia.
-- **FR-006**: El sistema MUST declarar la ausencia de precio en lugar de estimarlo.
+- **FR-006**: El sistema MUST declarar la ausencia de precio en lugar de estimarlo. La única
+  excepción es la estimación por conversión de la spec 039 (FR-006a y FR-006b), rotulada
+  como estimación y con su tasa de cambio fechada.
 - **FR-007**: Cada referencia mostrada MUST citar su fuente (URL de la ficha o documento) y
   su fecha de captura.
 - **FR-008**: El sistema MUST indicar el canal de compra según el país: tienda en línea
@@ -241,8 +244,10 @@ produce un informe con las mismas métricas para los tres.
 
 - El alcance es foodservice y mesa (vasos, tapas, contenedores, charolas, cubiertos,
   envases). Industrial y agroindustrial a la medida quedan fuera: se derivan.
-- Solo la tienda de México publica precios; Colombia se recomienda sin precio. Perú y El
-  Salvador quedan fuera por falta de fichas.
+- Solo la tienda de México y las tiendas de los distribuidores colombianos publican precios;
+  donde no haya precio publicado, la spec 039 permite estimar por conversión desde la
+  referencia equivalente de México, siempre rotulado. Perú y El Salvador quedan fuera por
+  falta de fichas.
 - Los datos provienen del corpus capturado el 2026-10-23; los precios son de esa fecha y
   la actualización periódica queda fuera de alcance.
 - La guía de materiales es la autoridad técnica; si una ficha contradice la guía, manda la
@@ -280,3 +285,7 @@ produce un informe con las mismas métricas para los tres.
   que perdían la solicitud: uno que vuelve a nombrar el producto sin decir para qué («¿y si
   son 4.500 vasos?») y una cantidad suelta («¿y si son 4.500?»). La evidencia de cada criterio
   de éxito queda en `evidencia.md`.
+- 2026-11-18 (PR 162): la spec 039 abre el catálogo de Colombia con precios. Se ajustan
+  FR-006 y US2.3 para admitir la estimación por conversión como única excepción, siempre
+  rotulada, y el supuesto de precios deja de decir que Colombia se recomienda sin precio.
+  T009 se cierra como traspasada a la 039.

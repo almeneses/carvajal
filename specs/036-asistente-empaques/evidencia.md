@@ -13,8 +13,9 @@ Estado al 2026-11-16, rama `feat/036-pr9-cierre` (incluye #135, #139–#143 y #1
 
 ## Pendientes que afectan la evidencia
 
-- **T009**: el catálogo de Colombia no tiene referencias; en Colombia el asistente solo
-  remite a distribuidores.
+- **T009**: traspasada a la spec 039 (catálogo de Colombia con precios). La 036 cierra sin
+  referencias de Colombia, como estaba previsto, y en Colombia el asistente remite a los
+  distribuidores hasta que la 039 se implemente.
 - **T043**: la prueba de punta a punta con la app levantada sigue el guion de
   [`docs/demo-036.md`](../../docs/demo-036.md) y se registra allí.
 - **Generalización del enrutador**: falta un grupo de unas 30 preguntas redactadas sin ver
