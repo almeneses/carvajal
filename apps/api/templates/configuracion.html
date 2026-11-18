@@ -26,7 +26,7 @@
       <div>
         <p class="sobrelinea">Resultado de la carga</p>
         <h2 id="titulo-resultado">
-          {% if report.gold %}Corpus actualizado{% else %}No se pudo procesar la carga{% endif %}
+          {% if report.ok %}Corpus actualizado{% else %}No se pudo procesar la carga{% endif %}
         </h2>
       </div>
       <span class="etiqueta {{ 'etiqueta-oficial' if report.ok else 'etiqueta-externa' }}">

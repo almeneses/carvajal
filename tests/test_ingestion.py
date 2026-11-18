@@ -1,5 +1,6 @@
 """Pruebas de la ingesta de documentos: capas y metadatos, sin servicios."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,8 +11,15 @@ from apps.api.document_formats import ExtractError, extract_markdown
 from apps.api.ingest_cli import main, run
 from apps.api.ingestion import IngestReport, UploadedDocument, ingest_uploads
 from carvajal.adapters.storage.import_corpus import load_document
+from carvajal.application.sync import SyncReport
 from carvajal.gold import merge_index
 from carvajal.infrastructure.settings import Settings
+
+
+def _temporales(directorio: Path) -> list[str]:
+    """Temporales que dejó una escritura de Gold, incluidos los ocultos."""
+
+    return sorted(path.name for path in directorio.iterdir() if path.name.endswith(".tmp"))
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -29,15 +37,10 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     settings = _settings(tmp_path)
     llamadas: list[tuple[str, Path]] = []
 
-    def importar(gold_dir: Path, only: set[str]) -> tuple[int, int]:
-        llamadas.append(("importar", gold_dir))
+    def sincronizar(gold_dir: Path, only: set[str]) -> SyncReport:
+        llamadas.append(("sincronizar", gold_dir))
         assert only
-        return 7, 21
-
-    def indexar(gold_dir: Path, only: set[str]) -> int:
-        llamadas.append(("indexar", gold_dir))
-        assert only
-        return 35
+        return SyncReport(documents=7, chunks=21, indexed=35)
 
     documento = UploadedDocument(
         filename="politica.md",
@@ -45,7 +48,7 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     )
 
     # Act
-    report = ingest_uploads([documento], settings=settings, importar=importar, indexar=indexar)
+    report = ingest_uploads([documento], settings=settings, sincronizar=sincronizar)
 
     # Assert
     assert report == IngestReport(
@@ -59,7 +62,7 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     )
     raw = next((settings.raw_dir / "uploads").glob("*.md"))
     silver = next((settings.processed_dir / "uploads").glob("*.md"))
-    gold = next(settings.gold_dir.glob("politica-*.md"))
+    gold = settings.gold_dir / "politica.md"
     assert raw.read_bytes().startswith(b"# Politica")
     assert "Contenido **util**" in silver.read_text(encoding="utf-8")
     gold_text = gold.read_text(encoding="utf-8")
@@ -70,7 +73,7 @@ def test_ingest_uploads_escribe_bronze_silver_gold_y_llama_las_etapas(
     assert cargado.section == "Cargas"
     assert cargado.source_type == "colaborador"
     assert (settings.gold_dir / "index.jsonl").is_file()
-    assert llamadas == [("importar", settings.gold_dir), ("indexar", settings.gold_dir)]
+    assert llamadas == [("sincronizar", settings.gold_dir)]
 
 
 def test_ingest_uploads_extrae_texto_de_html(tmp_path: Path) -> None:
@@ -85,13 +88,12 @@ def test_ingest_uploads_extrae_texto_de_html(tmp_path: Path) -> None:
     report = ingest_uploads(
         [documento],
         settings=settings,
-        importar=lambda gold_dir, only: (1, 1),
-        indexar=lambda gold_dir, only: 1,
+        sincronizar=lambda gold_dir, only: SyncReport(documents=1, chunks=1, indexed=1),
     )
 
     # Assert
     assert report.gold == 1
-    gold = next(settings.gold_dir.glob("aviso-*.md"))
+    gold = settings.gold_dir / "aviso.md"
     texto = gold.read_text(encoding="utf-8")
     assert "title: Aviso" in texto
     assert "Texto visible." in texto
@@ -241,8 +243,7 @@ def test_ingest_cli_solo_extraer_no_llama_a_postgres_ni_qdrant(
     def prohibido(*args: object, **kwargs: object) -> None:
         raise AssertionError("no debe tocar servicios con --solo-extraer")
 
-    monkeypatch.setattr("apps.api.ingestion.importar_gold", prohibido)
-    monkeypatch.setattr("apps.api.ingestion.indexar_gold", prohibido)
+    monkeypatch.setattr("apps.api.ingestion.sync_gold", prohibido)
 
     # Act
     report = run([tmp_path / "corpus"], settings=settings, solo_extraer=True)
@@ -387,3 +388,354 @@ def test_captura_y_carga_conservan_las_entradas_del_indice(tmp_path: Path) -> No
         for line in settings.index_file.read_text(encoding="utf-8").splitlines()
     }
     assert "capturado" in slugs and len(slugs) == 2
+
+
+def _entradas_index(settings: Settings) -> dict[str, dict[str, str | int]]:
+    """Lee el índice del corpus indexado por slug."""
+
+    return {
+        entrada["slug"]: entrada
+        for entrada in (
+            json.loads(linea)
+            for linea in settings.index_file.read_text(encoding="utf-8").splitlines()
+        )
+    }
+
+
+def test_ingest_uploads_descarta_una_copia_exacta_con_otro_nombre(tmp_path: Path) -> None:
+    """Una copia con otro nombre se reporta como duplicada y no escribe capas."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    original = UploadedDocument(filename="informe.md", data=b"# Informe\n\nContenido unico.")
+    copia = UploadedDocument(filename="copia.md", data=original.data)
+
+    # Act
+    report = ingest_uploads([original, copia], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 1
+    assert report.files == 1
+    assert len(report.duplicates) == 1 and "informe" in report.duplicates[0]
+    assert not (settings.gold_dir / "copia.md").exists()
+    assert not (settings.raw_dir / "uploads" / "copia.md").exists()
+    assert set(_entradas_index(settings)) == {"informe"}
+
+
+def test_ingest_uploads_no_reescribe_capas_si_no_cambia(tmp_path: Path) -> None:
+    """Reimportar el mismo archivo no escribe capas ni vuelve a embeber."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    documento = UploadedDocument(filename="informe.md", data=b"# Informe\n\nContenido estable.")
+    llamadas: list[str] = []
+    ingest_uploads([documento], settings=settings, solo_extraer=True)
+    antes = (settings.gold_dir / "informe.md").read_bytes()
+
+    def sincronizar(gold_dir: Path, only: set[str]) -> SyncReport:
+        llamadas.append("sincronizar")
+        return SyncReport(documents=1, chunks=1, indexed=1)
+
+    # Act
+    report = ingest_uploads([documento], settings=settings, sincronizar=sincronizar)
+
+    # Assert
+    assert report.gold == 0 and report.bronze == 0 and report.silver == 0
+    assert report.unchanged == ("informe.md",)
+    assert llamadas == []
+    assert (settings.gold_dir / "informe.md").read_bytes() == antes
+    assert list(_entradas_index(settings)) == ["informe"]
+
+
+def test_una_carga_que_falla_al_escribir_gold_conserva_la_version_anterior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La sincronización nunca ve un Gold truncado con la huella nueva."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    ingest_uploads(
+        [UploadedDocument(filename="informe.md", data=b"# Informe\n\nVersion uno.")],
+        settings=settings,
+        solo_extraer=True,
+    )
+    gold = settings.gold_dir / "informe.md"
+    completo = gold.read_bytes()
+    escribir = Path.write_text
+
+    def cortar(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if data.startswith("---"):
+            escribir(self, data[:20], encoding, errors, newline)
+            raise OSError("disco lleno")
+        return escribir(self, data, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "write_text", cortar)
+
+    # Act
+    with pytest.raises(OSError):
+        ingest_uploads(
+            [UploadedDocument(filename="informe.md", data=b"# Informe\n\nVersion dos.")],
+            settings=settings,
+            solo_extraer=True,
+        )
+
+    # Assert
+    assert gold.read_bytes() == completo
+    assert _temporales(settings.gold_dir) == []
+
+
+def test_ingest_uploads_actualiza_el_mismo_slug_cuando_cambia(tmp_path: Path) -> None:
+    """Un archivo modificado conserva su slug; la base archiva la versión anterior."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    ingest_uploads(
+        [UploadedDocument(filename="informe.md", data=b"# Informe\n\nVersion uno.")],
+        settings=settings,
+        solo_extraer=True,
+    )
+    primera = _entradas_index(settings)["informe"]
+
+    # Act
+    report = ingest_uploads(
+        [UploadedDocument(filename="informe.md", data=b"# Informe\n\nVersion dos.")],
+        settings=settings,
+        solo_extraer=True,
+    )
+
+    # Assert
+    assert report.updated == ("informe.md",) and report.gold == 1
+    assert sorted(path.name for path in settings.gold_dir.glob("*.md")) == ["informe.md"]
+    segunda = _entradas_index(settings)["informe"]
+    assert segunda["hash"] != primera["hash"]
+    assert segunda["source_key"] == primera["source_key"] == "upload:informe.md"
+
+
+def test_ingest_cli_da_identidad_distinta_a_dos_homonimos_en_carpetas(tmp_path: Path) -> None:
+    """Dos ``informe.md`` con contenido distinto no se pisan: cada uno tiene su fuente."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    carpeta = tmp_path / "corpus"
+    (carpeta / "uno").mkdir(parents=True)
+    (carpeta / "dos").mkdir(parents=True)
+    (carpeta / "uno" / "informe.md").write_text("# Uno\n\nContenido uno.", encoding="utf-8")
+    (carpeta / "dos" / "informe.md").write_text("# Dos\n\nContenido dos.", encoding="utf-8")
+
+    # Act
+    report = run([carpeta], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 2
+    entradas = _entradas_index(settings)
+    assert set(entradas) == {"informe", "informe-2"}
+    assert {entrada["source_key"] for entrada in entradas.values()} == {
+        "file:corpus/uno/informe.md",
+        "file:corpus/dos/informe.md",
+    }
+
+
+def test_ingest_uploads_detecta_duplicado_semantico_de_html(tmp_path: Path) -> None:
+    """Dos HTML con distinto contenedor y el mismo texto no crean dos documentos."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    uno = UploadedDocument(
+        filename="uno.html",
+        data=b"<html><body><div><p>Texto compartido.</p></div></body></html>",
+    )
+    dos = UploadedDocument(
+        filename="dos.html",
+        data=b"<html><body><section><p>Texto compartido.</p></section></body></html>",
+    )
+
+    # Act
+    report = ingest_uploads([uno, dos], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 1
+    assert len(report.duplicates) == 1 and "uno" in report.duplicates[0]
+    assert set(_entradas_index(settings)) == {"uno"}
+
+
+def test_ingest_uploads_detecta_pdf_recodificado(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un PDF re-guardado con los mismos bytes de texto es un duplicado semántico."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    monkeypatch.setattr(
+        "apps.api.document_formats.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=b"Contenido del informe\f"),
+    )
+    original = UploadedDocument(filename="informe.pdf", data=b"%PDF-1.7 original")
+    recodificado = UploadedDocument(filename="copia.pdf", data=b"%PDF-1.7 recodificado")
+
+    # Act
+    report = ingest_uploads([original, recodificado], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 1
+    assert len(report.duplicates) == 1 and "informe" in report.duplicates[0]
+    assert set(_entradas_index(settings)) == {"informe"}
+
+
+def test_ingest_cli_reporta_un_archivo_movido_como_duplicado(tmp_path: Path) -> None:
+    """Mover un archivo no crea documento: conserva la identidad anterior."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    carpeta = tmp_path / "corpus"
+    (carpeta / "uno").mkdir(parents=True)
+    origen = carpeta / "uno" / "informe.md"
+    origen.write_text("# Informe\n\nContenido.", encoding="utf-8")
+    run([carpeta], settings=settings, solo_extraer=True)
+    (carpeta / "dos").mkdir()
+    movido = origen.rename(carpeta / "dos" / "informe.md")
+
+    # Act
+    report = run([carpeta], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert movido.is_file()
+    assert report.gold == 0
+    assert len(report.duplicates) == 1 and "informe" in report.duplicates[0]
+    assert set(_entradas_index(settings)) == {"informe"}
+
+
+def test_ingest_uploads_rechaza_la_misma_fuente_con_otro_contenido(tmp_path: Path) -> None:
+    """Dos archivos homónimos en una carga web: el segundo se rechaza con su nombre."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    primero = UploadedDocument(filename="informe.md", data=b"# Primero\n\nContenido A.")
+    segundo = UploadedDocument(filename="informe.md", data=b"# Segundo\n\nContenido B.")
+
+    # Act
+    report = ingest_uploads([primero, segundo], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 1 and report.files == 1
+    assert any("informe.md" in error and "otro contenido" in error for error in report.errors)
+    gold = (settings.gold_dir / "informe.md").read_text(encoding="utf-8")
+    assert "Contenido A." in gold and "Contenido B." not in gold
+
+
+def test_ingest_uploads_conserva_el_primero_de_dos_homonimos_web(tmp_path: Path) -> None:
+    """En una carga web con dos homónimos, el primero llega a Gold."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    documentos = [
+        UploadedDocument(filename="aviso.md", data=b"# Aviso\n\nPrimera version."),
+        UploadedDocument(filename="aviso.md", data=b"# Aviso\n\nSegunda version."),
+    ]
+
+    # Act
+    report = ingest_uploads(documentos, settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 1
+    assert (settings.gold_dir / "aviso.md").exists()
+    assert "Primera version." in (settings.gold_dir / "aviso.md").read_text(encoding="utf-8")
+    assert _entradas_index(settings)["aviso"]["source_key"] == "upload:aviso.md"
+
+
+def test_limites_de_carga_web_y_consola_se_conservan(tmp_path: Path) -> None:
+    """La web mantiene 100 archivos y 5 MB; la consola, 100 MB por archivo."""
+
+    # Arrange
+    from apps.api.ingest_cli import DEFAULT_MAX_FILE_MB
+    from apps.api.ingestion import MAX_FILE_BYTES, MAX_FILES
+
+    assert MAX_FILES == 100
+    assert MAX_FILE_BYTES == 5 * 1024 * 1024
+    assert DEFAULT_MAX_FILE_MB == 100
+
+    settings = _settings(tmp_path)
+    documentos = [
+        UploadedDocument(
+            filename=f"doc-{numero}.md",
+            data=f"# Doc {numero}\n\nContenido {numero}.".encode(),
+        )
+        for numero in range(MAX_FILES + 1)
+    ]
+
+    # Act
+    report = ingest_uploads(documentos, settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.files == MAX_FILES
+    assert any("Solo se procesan 100 archivos" in error for error in report.errors)
+
+
+def test_la_carga_web_rechaza_un_archivo_mayor_de_cinco_mb(tmp_path: Path) -> None:
+    """Un archivo por encima del límite no se escribe ni se extrae."""
+
+    # Arrange
+    from apps.api.ingestion import MAX_FILE_BYTES
+
+    settings = _settings(tmp_path)
+    documento = UploadedDocument(
+        filename="grande.md",
+        data=b"x" * (MAX_FILE_BYTES + 1),
+    )
+
+    # Act
+    report = ingest_uploads([documento], settings=settings, solo_extraer=True)
+
+    # Assert
+    assert report.gold == 0
+    assert any("supera el límite" in error for error in report.errors)
+
+
+def test_la_consola_respeta_el_limite_por_archivo(tmp_path: Path) -> None:
+    """La consola aplica el ``max_file_bytes`` configurado a cada archivo."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    carpeta = tmp_path / "corpus"
+    carpeta.mkdir()
+    (carpeta / "grande.md").write_bytes(b"x" * 2048)
+
+    # Act
+    report = run(
+        [carpeta],
+        settings=settings,
+        solo_extraer=True,
+        max_file_bytes=1024,
+    )
+
+    # Assert
+    assert report.gold == 0
+    assert any("supera el límite" in error for error in report.errors)
+
+
+def test_el_informe_sanea_rutas_y_credenciales_de_la_sincronizacion(tmp_path: Path) -> None:
+    """La UI no publica rutas internas ni contraseñas del almacén."""
+
+    # Arrange: la sincronización devuelve un fallo con ruta y URL con contraseña.
+    settings = _settings(tmp_path)
+    documento = UploadedDocument(filename="informe.pdf", data=b"%PDF-1.4 texto")
+    error = (
+        "/srv/carvajal/data/gold/informe.md: connection to "
+        "postgresql://carvajal:s3creto@db:5432/carvajal failed"
+    )
+
+    def sincronizar(gold_dir: Path, only: set[str]) -> SyncReport:
+        return SyncReport(errors=(error,))
+
+    # Act
+    report = ingest_uploads([documento], settings=settings, sincronizar=sincronizar)
+
+    # Assert
+    assert report.errors
+    assert all("s3creto" not in mensaje for mensaje in report.errors)
+    assert all("/srv/carvajal" not in mensaje for mensaje in report.errors)

@@ -79,6 +79,17 @@ con asistente RAG.
   spec 036): referencias, reglas de material y distribuidores derivados del corpus
   externo, con validación técnica por material, cálculo de cajas y precio de referencia
   fechado donde exista. No se procesan pedidos ni pagos.
+- Monitorear el agente con **LangSmith** (spec 038, en borrador): una traza por turno con
+  ruta, enrutador, pasos, tokens y latencia. Desactivado por defecto y sin PII; en
+  producción solo metadatos, con el texto completo reservado a desarrollo y evaluación, y
+  sin afectar el chat si el servicio falla. Los experimentos de evaluación son opcionales.
+- Ampliar el catálogo a **Colombia** (spec 039, en borrador): referencias del portafolio CO
+  y precios de referencia en COP con IVA, fecha y fuente. Donde el distribuidor no publica
+  precio, se estima por conversión desde la referencia equivalente de México, siempre
+  rotulado como estimación y con tasa oficial fechada.
+- Ofrecer **chat por voz** (spec 040, en borrador): dictado revisable antes de enviar y
+  lectura de respuestas y tarjetas con las capacidades del navegador. El audio no llega al
+  servidor del proyecto ni se guarda; sin soporte del navegador, el chat sigue por escrito.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
 ### Fuera del alcance (por ahora)
@@ -86,7 +97,8 @@ con asistente RAG.
 - Rastrear el `sitemap.xml` completo del dominio (podcast, noticias, especialistas).
 - Vídeos, OCR de PDF escaneados y transcripciones.
 - Páginas tras autenticación o cualquier contenido no público.
-- Evaluación automatizada y benchmarking del asistente (fuera de la interfaz de pruebas).
+- Benchmarking de modelos de lenguaje como producto; la evaluación del enrutador, del
+  retrieval y de los experimentos del monitoreo se documenta en `specs/` y `docs/`.
 
 ### Fases
 
@@ -96,7 +108,7 @@ con asistente RAG.
 | 2. Ampliación de semillas | ✅ Hecha | 6 fuentes de terceros con indicadores financieros |
 | 3. Enriquecimiento (PDFs, vídeo) | ⬜ Pendiente | Nuevas semillas y extractores |
 | 4. Chunking y embeddings | ✅ Hecha | Chunking 1000/200 + FAISS con embeddings Ollama |
-| 5. Asistente RAG (LLM + prompt + UI) | 🚧 En curso | LangChain + FAISS + Ollama/DeepSeek/Claude + Streamlit |
+| 5. Asistente RAG (LLM + prompt + UI) | 🚧 En curso | LangChain + Qdrant/Ollama + interfaz única Jinja2/HTMX |
 | 6. Corpus externo (capa extendida) | ✅ Hecha | `carvajal import` + manifiesto + recuperación citada |
 
 ## 3. Stack técnico
@@ -111,7 +123,7 @@ con asistente RAG.
 | **Parseo HTML** | `beautifulsoup4` + `lxml` |
 | **RAG** | LangChain + FAISS + embeddings |
 | **LLM** | DeepSeek (`deepseek-chat`), Anthropic Claude u Ollama (`llama3.2`) |
-| **Interfaz de pruebas** | Streamlit |
+| **Interfaz web** | FastAPI + Jinja2 + HTMX (interfaz única en `:8000`) |
 | **Tipado estático** | [`ty`](https://github.com/astral-sh/ty) |
 | **Testing** | [`pytest`](https://docs.pytest.org/) |
 | **Linting / Formato** | [Ruff](https://docs.astral.sh/ruff/) |
@@ -144,7 +156,7 @@ se propone un stack distinto, documentado en
 | LLM | Puerto `LLMProvider`; LangChain como adaptador |
 | Ingesta | CLI, consola y web (Configuración); el rastreo periódico por cron es futuro |
 
-> ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector), W2.2
+> ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector, retirado en la spec 037), W2.2
 > (adaptadores de LLM), W2.3 (caso de uso `AskQuestion`), W2.4 (shell FastAPI) y
 > W2.5 (layout y tema) están en revisión. El resto del stack sigue vigente hasta
 > que el ADR pase a `aceptado` y la migración avance fase por fase.
@@ -155,15 +167,13 @@ se propone un stack distinto, documentado en
 carvajal/
 ├── apps/
 │   ├── api/                   # API FastAPI: /live, /health, /api, chat y pantallas
-│   │   ├── main.py            # create_app, CORS, /live y /health
+│   │   ├── main.py            # create_app, /live y /health
 │   │   ├── agent_runtime.py   # checkpointer, Store, Qdrant y grafo compilado
 │   │   ├── runtime.py         # templates, sesiones y clientes diferidos
 │   │   ├── views/             # routers: corpus, documentos, chat, stream y api
 │   │   ├── chat/              # identidad, servicio, adaptador del agente y streaming
 │   │   ├── static/            # CSS y JS del chat
 │   │   └── templates/         # Jinja2: base, chat, pantallas y parciales
-│   └── web/                   # frontend propio del M2 (:8001): shell SPA con
-│                              # pestañas FAQ · Corpus · Documento, sin RAG
 ├── packages/
 │   └── core/
 │       └── src/carvajal/    # código del paquete (src-layout, módulo uv_build)
@@ -174,6 +184,8 @@ carvajal/
 │           │   └── chunking.py  # división de documentos en chunks
 │           ├── application/   # casos de uso y puertos (Protocol)
 │           │   ├── ask.py       # caso de uso AskQuestion con citas y stream
+│           │   ├── retrieval.py # prioridad núcleo → capa extendida (spec 037)
+│           │   ├── sync.py      # reconciliación Gold → PostgreSQL → Qdrant (037)
 │           │   ├── errors.py    # errores de aplicación (LLMError)
 │           │   └── ports.py     # repositorios, vector store, LLM, embedder, fetcher
 │           ├── agent/         # router, herramienta, memoria y grafo LangGraph
@@ -188,7 +200,7 @@ carvajal/
 │           │   │   └── import_corpus.py # importador Gold idempotente
 │           │   ├── embeddings/  # Embedder: Ollama (nomic-embed-text)
 │           │   ├── llm/         # LLMProvider: DeepSeek y Ollama sobre LangChain
-│           │   └── vector/      # pgvector legado + QdrantVectorStore (M2)
+│           │   └── vector/      # QdrantVectorStore (M2; pgvector retirado en 037)
 │           ├── infrastructure/ # adaptadores y configuración tipada
 │           │   └── settings.py  # pydantic-settings (.env + entorno)
 │           ├── config.py      # fachada de compatibilidad de settings
@@ -198,9 +210,8 @@ carvajal/
 │           ├── pipeline.py    # orquestación de las tres capas
 │           ├── models.py      # reexporta el dominio (compatibilidad)
 │           ├── importer.py    # importación del corpus externo (capa extendida)
-│           ├── rag.py         # recuperación, prompt y generación (RAG)
-│           ├── ui.py          # interfaz web de pruebas (Streamlit)
-│           └── cli.py         # capture / import / ask / status / list
+│           ├── rag.py         # recuperación, prompt y generación (RAG, solo CLI)
+│           └── cli.py         # capture / sync / import / ask / status / list
 ├── data/                    # capas Medallion (raw y processed ignoradas)
 │   ├── raw/                 # bronze — HTML crudo
 │   ├── processed/           # silver — Markdown limpio
@@ -216,7 +227,6 @@ carvajal/
 ├── specs/                   # especificaciones (Spec Kit: spec / plan / tasks)
 ├── .specify/                # plantillas y constitución del flujo (Spec Kit)
 ├── tests/                   # pruebas (pytest, patrón AAA)
-├── app.py                   # entrada de la interfaz: streamlit run app.py
 ├── docs/                    # documentación, ADRs e investigación
 │   ├── decisions/           # ADRs: contexto, opciones y consecuencias
 │   ├── arquitectura.json    # fuente tipada del diagrama (Archify)
@@ -288,8 +298,9 @@ carvajal/
 - `make image` construye la imagen multi-etapa (`Dockerfile`) con las
   dependencias base y el extra `capture` (la captura web desde Configuración
   usa `requests`, `beautifulsoup4` y `lxml` en runtime); `legacy`
-  (Streamlit/FAISS) se queda fuera de la imagen y se instala en desarrollo con
-  `uv sync --all-extras`. La etapa de runtime instala `poppler-utils` porque
+  (FAISS para la CLI histórica) se queda fuera de la imagen y se instala en
+  desarrollo con `uv sync --all-extras`. La etapa de runtime instala
+  `poppler-utils` porque
   `pdftotext` extrae el texto de los PDF que llegan por la carga local.
 - `make prod-up` levanta app, Postgres, Qdrant y Ollama con
   `compose.prod.yml`; `make prod-down` los detiene conservando los volúmenes.
@@ -327,6 +338,13 @@ carvajal/
   `test/...`, `chore/...`; integración vía Pull Request a `dev`, y de `dev` a
   `main` en un PR de release. Los cambios de documentación y decisiones pueden ir
   directo a `main`.
+- **Método de fusión:** los PRs hacia `dev` se fusionan con **squash**, para que
+  `dev` tenga un commit por PR. Los PRs de release `dev → main` se fusionan con
+  **merge commit**: así `dev` queda como ancestro de `main` y el release
+  siguiente no parte de un ancestro viejo. Un squash de `dev → main` deja los
+  commits de `dev` fuera de `main` y el PR posterior aparece en conflicto con
+  contenido idéntico (pasó con #149 → #151, que obligó a reescribir `dev` y a
+  re-apuntar el tag). El tag del release se crea sobre el commit de merge.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) —
   `feat:`, `fix:`, `docs:`, `refactor:`, `style:`, `test:`, `chore:`.
 - **Etiquetas de PR:** toda Pull Request debe llevar al menos una etiqueta del
@@ -416,9 +434,9 @@ git push
 | 2026-11-13 | Evaluación de retrieval separada de la respuesta: 31 consultas, Recall@10=0.8000, nDCG@10=0.7791 | Permite inspeccionar el top-k y documentar una consulta sin evidencia sin depender del LLM |
 | 2026-11-13 | CSRF por doble cookie, cabeceras de seguridad con CSP sin `unsafe-inline`, HSTS solo sobre TLS y Swagger fuera | El POST sin token se rechaza con 403 antes de la cuota y del caso de uso; el script del formulario pasa a `/static/app.js` para que la CSP sea estricta; las cookies son `HttpOnly` y `SameSite=Lax` y el token se compara en bytes |
 | 2026-11-13 | Interfaz institucional con pestañas superiores en el frontend del M2: rutas SPA `/`, `/corpus`, `/documents` y `/documents/{id}`, y contrato JSON de lectura `/api/corpus` y `/api/documents/*` | Las tres pantallas comparten header, navegación y estado sin recargar el chat; el frontend consume JSON y reutiliza los proveedores y el Markdown saneado con `nh3` de las vistas HTML, que se conservan como compatibilidad |
-| 2026-11-14 | Chat HTMX con compositor inferior y panel lateral de hilos; pestaña Configuración para cargas | El hilo seleccionado se resuelve por `?thread=` y el compositor envía ese id al stream; la carga reutiliza Bronze → Silver → Gold, `migrate_gold` y `index_gold` para no duplicar el pipeline |
+| 2026-11-14 | Chat HTMX con compositor inferior y panel lateral de hilos; pestaña Configuración para cargas | El hilo seleccionado se resuelve por `?thread=` y el compositor envía ese id al stream; la carga reutiliza Bronze → Silver → Gold, `migrate_gold` y `index_gold` para no duplicar el pipeline (sustituido por `sync` en la spec 037) |
 | 2026-11-14 | El shell HTMX de compatibilidad (`apps/api`, :8000) adopta el sistema visual institucional del M2, fuentes plegables y un panel lateral de lectura | Cabecera, paleta y componentes unificados; el texto generado se formatea en servidor con Markdown saneado y en cliente para el stream, las fuentes quedan contraídas por defecto y el panel resuelve el documento con `/api/documents/by-slug` y resalta el fragmento citado, sin cambiar rutas ni contratos SSE/CSRF |
-| 2026-11-14 | Captura web pública desde Configuración: semillas + URLs, máximo de 24 por ejecución, guard SSRF, job en segundo plano y progreso SSE | La petición solo valida y crea el job; el cierre reutiliza `importar_gold` e `indexar_gold` con `only` y sin poda. Sin autenticación en esta fase: el límite por IP (5 capturas/hora), el máximo de 24 URLs, `robots.txt`, el timeout y el guard SSRF (IPs privadas, puertos 80/443, redirecciones revalidadas y DNS fijado a la IP validada) son la defensa; `CAPTURE_ALLOWED_DOMAINS` permite restringir dominios por entorno |
+| 2026-11-14 | Captura web pública desde Configuración: semillas + URLs, máximo de 24 por ejecución, guard SSRF, job en segundo plano y progreso SSE | La petición solo valida y crea el job; el cierre reutiliza `importar_gold` e `indexar_gold` con `only` y sin poda (sustituido por `sync` en la spec 037). Sin autenticación en esta fase: el límite por IP (5 capturas/hora), el máximo de 24 URLs, `robots.txt`, el timeout y el guard SSRF (IPs privadas, puertos 80/443, redirecciones revalidadas y DNS fijado a la IP validada) son la defensa; `CAPTURE_ALLOWED_DOMAINS` permite restringir dominios por entorno |
 | 2026-11-14 | Shell HTMX con escala accesible para adulto mayor: 18px base, controles de 54px, contenedores de 1360/1680px y navegación móvil 2×2 | Mejora lectura y precisión de clic sin cambiar contratos; solo CSS del shell `apps/api`. La SPA `apps/web` queda fuera |
 | 2026-11-14 | Carga de documentos pública en Configuración: se elimina `CONFIG_TOKEN` y el gate de loopback | La pestaña queda abierta a cualquier visitante, igual que la captura web; se conservan el CSRF, los límites de 100 archivos/5 MB y el pipeline Bronze → Silver → Gold → PostgreSQL → Qdrant. El riesgo de abuso se acepta por decisión del owner |
 | 2026-11-14 | FAQ en la SPA y el shell HTMX (`/faq`): lotes de hasta 10 preguntas, botón «Generar otras 10» y descarga Markdown | El caso de uso lee los documentos `core` de Postgres, excluye las preguntas ya mostradas y no persiste: el estado acumulado vive en la pestaña. Comparte CSRF y cuota diaria con el chat, genera por SSE sobre el corpus completo y advierte si el bloque se truncó por longitud; con Ollama se fija `num_ctx` (32 768) para que el prompt no se recorte en el servidor |
@@ -427,13 +445,20 @@ git push
 | 2026-11-16 | Ampliar el alcance a la carga local multiformato: PDF con texto por página y datos XML, JSON, JSONL, CSV y TSV | Se especifica antes de implementar en `specs/035-ingesta-multiformato` con el flujo de Spec Kit; la web conserva 100 archivos y 5 MB por archivo y la consola admite 100 MB por archivo. El OCR de PDF escaneados sigue fuera de alcance y se avisa al usuario en lugar de convertirlo |
 | 2026-11-16 | Añadir la capa de catálogo curado (`data/catalog/`) y la ruta comercial de empaques (spec 036) | Recomendar empaques exige filtros exactos (capacidad, material, temperatura) que la recuperación por similitud no garantiza. Son unas 230 filas de solo lectura: se versionan como CSV y se cargan en memoria, como `data/indicators.json`, sin migración. La capa extendida sigue siendo solo de recuperación; el catálogo es una capa distinta, derivada y revisada en PR |
 | 2026-11-16 | Corpus incremental: identidad estable por fuente, doble huella y sincronización única (spec 037) | El slug con hash convertía cada archivo modificado en un documento nuevo y cada copia en un duplicado. La identidad pasa a derivarse de la fuente (URL, ruta relativa o nombre), la huella del original deduplica antes de Bronze y la huella del texto decide actualización y reindexación. El registro vive en los `index.jsonl` para funcionar sin base; PostgreSQL y Qdrant se reconcilian con un solo `sync` idempotente y poda explícita |
+| 2026-11-17 | Recuperación con prioridad de capas y procedencia en la cita (spec 037, US4) | `LayerPriorityStore` vive en `application/retrieval.py` y no en el adaptador: la prioridad es política de producto. El chat busca primero `layer=core` y solo completa con `layer=extended` si el núcleo no llena el cupo o no supera `RAG_MIN_SCORE`. `origin`, `category` y `entity` viajan del front matter al payload de Qdrant y a la cita; no se persisten en PostgreSQL |
+| 2026-11-17 | Identidad estable, deduplicación por dos huellas y adopción del registro legado (spec 037, US1) | Cada documento se identifica por su fuente (`url:`, `file:` o `upload:`), el `raw_hash` corta la extracción de duplicados exactos y el `content_hash` detecta re-codificaciones. `carvajal sync --adopt` completa `source_key` y `raw_hash` en los índices anteriores sin renombrar slugs; si dos versiones legadas resuelven la misma subida, la más reciente conserva la fuente y el resto queda en `legacy:<slug>` |
+| 2026-11-17 | Un solo índice de respuestas: retirada de `/ask` y de pgvector (spec 037, US5) | Ningún flujo escribía vectores en PostgreSQL, así que el adaptador `PgVectorStore` y la columna `chunks.embedding` eran un índice vacío que aparentaba funcionar. Se eliminan la ruta, el adaptador y la dependencia, con la migración reversible `0006`; el chat es el único camino de respuesta y la FAQ y el explorador siguen leyendo PostgreSQL |
 | 2026-11-16 | Indexar la capa extendida con prioridad y retirar `/ask` y pgvector (spec 037) | La capa extendida suma cobertura si no desplaza al núcleo: se indexa en la misma colección con `layer` en el payload y el chat busca primero el núcleo. La FAQ sigue leyendo solo `core`. Ningún flujo escribe vectores en PostgreSQL, así que `/ask` respondía sin contexto y el adaptador pgvector era un índice vacío; el chat queda como único camino de respuesta y Qdrant como único índice vectorial |
+| 2026-11-17 | Sincronización única del corpus (spec 037, US2): `carvajal sync --layer core|extended|all [--prune] [--verify]` reconcilia Gold con PostgreSQL y Qdrant | Un solo camino incremental compara huellas y solo importa e indexa lo nuevo o cambiado; `--verify` no escribe y devuelve código distinto de cero si hay diferencias. La captura web y la carga desde Configuración cierran con la misma sincronización, que necesita PostgreSQL y Qdrant en marcha; `carvajal capture --solo-gold` conserva la corrida limitada a disco |
+| 2026-11-17 | Abrir en borrador las specs 038 (monitoreo con LangSmith), 039 (catálogo de Colombia con precios) y 040 (chat por voz) | Se especifican antes de implementar, con el flujo normal de Spec Kit. Decisiones tomadas en la clarificación: LangSmith en producción solo con metadatos; precios de Colombia desde las tiendas en línea de los distribuidores y, donde no haya, estimados por conversión desde México con tasa fechada y rotulados como estimación; la voz se procesa en el navegador. El alcance de §2 se enmienda en la misma PR, con las tres capacidades declaradas en borrador |
+| 2026-11-18 | Interfaz única: se retiran la SPA `apps/web` (:8001) y el prototipo Streamlit; quedan el shell Jinja2/HTMX y la API en un solo proceso (:8000) | Dos implementaciones completas de chat, FAQ y corpus sobre los mismos endpoints ya habían divergido: el chat quedó sin enlace en la SPA tras #120. El shell era un superconjunto funcional (incluye Configuración y captura), así que la convergencia es de borrado, no de reescritura. Desaparecen CORS, `FRONTEND_ORIGINS`, el extra `streamlit` y `app.py`; `rag.py` y el extra `legacy` se conservan porque la CLI (`ask`, `summarize`, `faq`, `eval`) sigue usándolos |
 
 ## 10. Notas y tareas pendientes
 
 - [x] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035, entregada el 2026-11-16).
 - [ ] Evaluar OCR para PDF escaneados sin capa de texto.
 - [ ] Rastrear el sitio de forma periódica (cron/crawler) sobre `carvajal capture` y `carvajal sync`; la spec 037 deja los contratos de identidad y sincronización.
+- [ ] Ejecutar `carvajal sync --adopt` y `carvajal sync --prune` en el VPS y registrar el antes/después de `/health` (spec 037, T056); requiere acceso al servidor.
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.

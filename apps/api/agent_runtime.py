@@ -20,6 +20,7 @@ from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.agent.graph import AgentDeps, build_agent
 from carvajal.agent.router import decide_route
 from carvajal.agent.routers import Router, build_router, router_name
+from carvajal.application.retrieval import LayerPriorityStore
 from carvajal.infrastructure.settings import Settings
 
 __all__ = ["AgentRuntime", "agent_runtime", "close_agent_runtime"]
@@ -101,7 +102,7 @@ def _build(settings: Settings) -> AgentRuntime:
         router = _router(settings)
         graph = build_agent(
             AgentDeps(
-                vector_store=qdrant,
+                vector_store=LayerPriorityStore(qdrant, min_score=settings.rag_min_score),
                 embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
                 settings=settings,
             ),

@@ -11,6 +11,7 @@ Este módulo solo transforma cadenas: no escribe archivos ni consulta el índice
 
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 from collections.abc import Mapping
@@ -40,6 +41,12 @@ def normalize_url(url: str) -> str:
     host = parts.netloc.lower().removeprefix("www.")
     path = parts.path.rstrip("/") or "/"
     return urlunsplit(("https", host, path, parts.query, ""))
+
+
+def raw_hash(data: bytes) -> str:
+    """Huella SHA-256 de los bytes originales, que decide si un archivo cambió."""
+
+    return hashlib.sha256(data).hexdigest()
 
 
 def source_key_for_url(url: str) -> str:

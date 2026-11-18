@@ -164,14 +164,6 @@ class Settings(BaseSettings):
     # Modelo de decisión para el enrutador «decision», como paquete.modulo:fabrica.
     decision_model: str = ""
 
-    # Frontend propio (proceso separado) y orígenes permitidos por CORS.
-    # NoDecode evita que pydantic-settings intente JSON antes del validador:
-    # se aceptan tanto `a,b` como una lista JSON, y también el valor vacío.
-    frontend_origins: Annotated[tuple[str, ...], NoDecode] = (
-        "http://localhost:8001",
-        "http://127.0.0.1:8001",
-    )
-
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
     # trazas es explícito y por defecto queda apagado.
@@ -179,15 +171,6 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
     sentry_environment: str = "local"
     sentry_traces_sample_rate: float = Field(default=0.0, ge=0, le=1)
-
-    @field_validator("frontend_origins", mode="before")
-    @classmethod
-    def _origenes_separados_por_coma(cls, value: Any) -> Any:
-        """Acepta ``a,b`` en el entorno además de una lista JSON."""
-
-        if isinstance(value, str):
-            return tuple(part.strip() for part in value.split(",") if part.strip())
-        return value
 
     @field_validator("capture_allowed_domains", mode="before")
     @classmethod

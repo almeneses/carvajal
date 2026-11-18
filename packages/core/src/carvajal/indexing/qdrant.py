@@ -12,10 +12,14 @@ reconstruye la colección desde cero para una demo o un cambio de modelo.
 """
 
 import json
-from collections.abc import Sequence
+import tempfile
+from array import array
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import IO
 
 import structlog
 
@@ -46,75 +50,149 @@ class IndexReport:
 
 def index_gold(
     *,
-    gold_dir: Path,
+    gold_dir: Path | None = None,
+    gold_dirs: Sequence[tuple[Path, str]] | None = None,
     store: QdrantVectorStore,
     embedder: Embedder,
     recreate: bool = False,
     prune: bool = True,
+    layer: str = "core",
     batch_size: int = 32,
     cards_path: Path | None = None,
     only: set[str] | None = None,
+    prune_layers: Sequence[str] | None = None,
 ) -> IndexReport:
-    """Indexa el corpus Gold y devuelve los conteos de la corrida.
+    """Indexa una o varias áreas Gold y devuelve los conteos de la corrida.
+
+    ``gold_dirs`` permite indexar el núcleo y las capas extendidas en la misma
+    corrida, cada directorio con su capa. ``gold_dir`` se conserva para los
+    llamadores de una sola área. Antes de insertar cada documento se borran sus
+    puntos anteriores: un documento acortado no deja fragmentos de la versión
+    vieja. La poda se limita a las capas de las áreas indexadas, comparando cada
+    una solo con sus puntos: el resto de la colección queda intacto.
+    ``prune_layers`` permite podar también una capa seleccionada sin directorios
+    (una capa vacía): sin ella, retirar la última fuente extendida dejaría sus
+    puntos en el índice.
 
     Raises:
-        FileNotFoundError: si ``gold_dir`` no existe.
-        ValueError: si no hay documentos o si un vector no tiene la dimensión
-            configurada.
+        FileNotFoundError: si algún directorio Gold no existe.
+        ValueError: si no hay documentos, si un slug se repite entre áreas o si
+            un vector no tiene la dimensión configurada.
     """
 
-    if not gold_dir.is_dir():
-        raise FileNotFoundError(f"{gold_dir}: el directorio Gold no existe.")
+    areas = list(gold_dirs) if gold_dirs is not None else []
+    if gold_dir is not None:
+        if areas:
+            raise ValueError("Usa gold_dir o gold_dirs, no ambos.")
+        areas = [(gold_dir, layer)]
+    if not areas:
+        raise ValueError("index_gold necesita gold_dir o gold_dirs.")
+
     started = perf_counter()
+    # Rutas, fichas, documentos y slugs se validan antes de tocar la colección: una
+    # entrada inválida no debe borrar el índice que ya funciona, ni con ``recreate``.
+    for directory, _ in areas:
+        if not directory.is_dir():
+            raise FileNotFoundError(f"{directory}: el directorio Gold no existe.")
+    cards: dict[str, str] = {}
+    documents = []
+    for directory, area_layer in areas:
+        for slug, card in _load_cards(
+            cards_path or directory.parent / "retrieval_cards.json"
+        ).items():
+            cards.setdefault(slug, card)
+        for path in sorted(directory.glob("*.md")):
+            document = load_document(path, layer=area_layer)
+            if only is None or document.id in only:
+                documents.append(document)
+    if not documents:
+        if only is not None:
+            # La sincronización incremental puede no tocar este directorio: no es un error.
+            return IndexReport(
+                collection=store.collection,
+                documents=0,
+                chunks=0,
+                indexed=0,
+                deleted=0,
+                points=store.count(),
+                dimensions=store.dimensions,
+                elapsed_ms=round((perf_counter() - started) * 1000),
+                recreated=recreate,
+            )
+        raise ValueError("No hay documentos Gold para indexar.")
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for document in documents:
+        if document.id in seen:
+            duplicates.add(document.id)
+        seen.add(document.id)
+    if duplicates:
+        raise ValueError(f"Slug repetido entre áreas Gold: {sorted(duplicates)[0]!r}.")
+    if only is not None:
+        prune = False
+
     if recreate and store.client.collection_exists(store.collection):
         store.client.delete_collection(store.collection)
         logger.info("qdrant.collection_recreated", collection=store.collection)
     store.ensure_collection()
 
-    cards = _load_cards(cards_path or gold_dir.parent / "retrieval_cards.json")
-    documents = []
-    for path in sorted(gold_dir.glob("*.md")):
-        document = load_document(path, layer="core")
-        if only is None or document.id in only:
-            documents.append(document)
-    if not documents:
-        raise ValueError(f"{gold_dir}: no hay documentos Gold para indexar.")
-    if only is not None:
-        prune = False
-
-    valid_ids: list[str] = []
+    # Los IDs válidos se agrupan por capa: cada capa se poda comparando solo sus
+    # puntos, y las capas que esta corrida no tocó quedan intactas.
+    valid_ids: dict[str, list[str]] = {}
     indexed = 0
     total_chunks = 0
     for document in documents:
         chunks = split_document(document)
         total_chunks += len(chunks)
+        card = cards.get(document.id, "")
         metadata = {
             "url": document.url,
             "title": document.title,
             "source_type": document.source_type,
             "content_hash": document.content_hash,
-            "abstract": cards.get(document.id, ""),
+            "abstract": card,
+            "chunks_total": str(len(chunks)),
+            "origin": document.origin,
+            "category": document.category,
+            "entity": document.entity,
         }
-        for start in range(0, len(chunks), batch_size):
-            batch = chunks[start : start + batch_size]
-            # El título y la sección no viven en el cuerpo Gold (están en el
-            # front matter); se anteponen al texto que se vectoriza para que
-            # una pregunta por el nombre del documento lo recupere. El payload
-            # conserva el texto original para la cita.
-            card = cards.get(document.id, "")
-            embeddings = [
-                embedder.embed(f"{document.title} · {document.section}. {card}\n{chunk.text}")
-                for chunk in batch
-            ]
-            index_batch(store, batch, embeddings, metadata)
-            indexed += len(batch)
-            valid_ids.extend(store.point_ids(batch, [metadata for _ in batch]))
-            logger.info(
-                "qdrant.document_progress",
-                document=document.id,
-                chunks=indexed,
-                total=total_chunks,
-            )
+        # Los vectores del documento se preparan antes de tocar el índice: si el
+        # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
+        # Qdrant y el documento no desaparece de la recuperación. Se preparan en un
+        # archivo temporal: un documento grande produce decenas de miles de vectores
+        # y retenerlos todos en memoria supera el límite del contenedor.
+        with _staged_vectors(store.dimensions) as prepared:
+            for start in range(0, len(chunks), batch_size):
+                batch = chunks[start : start + batch_size]
+                # El título y la sección no viven en el cuerpo Gold (están en el
+                # front matter); se anteponen al texto que se vectoriza para que
+                # una pregunta por el nombre del documento lo recupere. El payload
+                # conserva el texto original para la cita.
+                for chunk in batch:
+                    prepared.add(
+                        _vector(
+                            embedder,
+                            f"{document.title} · {document.section}. {card}\n{chunk.text}",
+                            store.dimensions,
+                        )
+                    )
+            if not recreate:
+                # Un documento acortado o reescrito no debe dejar fragmentos de la versión
+                # vieja: sus puntos se reemplazan en cada indexación.
+                store.delete_by_document(document.id)
+            for start in range(0, len(chunks), batch_size):
+                batch = chunks[start : start + batch_size]
+                index_batch(store, batch, prepared.take(len(batch)), metadata)
+                indexed += len(batch)
+                valid_ids.setdefault(document.layer, []).extend(
+                    store.point_ids(batch, [metadata for _ in batch])
+                )
+                logger.info(
+                    "qdrant.document_progress",
+                    document=document.id,
+                    chunks=indexed,
+                    total=total_chunks,
+                )
         logger.info(
             "qdrant.document_indexed",
             document=document.id,
@@ -122,7 +200,12 @@ def index_gold(
             url=document.url,
         )
 
-    deleted = store.prune(valid_ids) if prune else 0
+    deleted = 0
+    if prune:
+        layers_to_prune = set(prune_layers or ())
+        layers_to_prune.update(area_layer for _, area_layer in areas)
+        for name in sorted(layers_to_prune):
+            deleted += store.prune(valid_ids.get(name, []), layer=name)
     points = store.count()
     elapsed_ms = round((perf_counter() - started) * 1000)
     report = IndexReport(
@@ -176,3 +259,63 @@ def index_batch(
         embeddings,
         metadata=[metadata for _ in chunks],
     )
+
+
+def _vector(embedder: Embedder, text: str, dimensions: int) -> list[float]:
+    """Vector del texto; valida la dimensión antes de que se borre nada."""
+
+    vector = [float(value) for value in embedder.embed(text)]
+    if len(vector) != dimensions:
+        raise ValueError(f"El vector debe tener {dimensions} dimensiones; recibidas {len(vector)}.")
+    return vector
+
+
+@contextmanager
+def _staged_vectors(dimensions: int) -> Generator["_StagedVectors"]:
+    """Prepara los vectores de un documento en un archivo temporal.
+
+    El documento completo se embebe antes de borrar su versión anterior para que un
+    fallo del proveedor no lo saque de la recuperación. Guardar todos los vectores en
+    una lista rompe esa garantía de memoria: con 768 dimensiones y el chunking del
+    corpus, un documento grande acumula decenas de miles de vectores. El archivo
+    temporal deja un solo lote en memoria y conserva la versión anterior si la
+    preparación falla.
+    """
+
+    with tempfile.TemporaryFile() as file:
+        yield _StagedVectors(file, dimensions)
+
+
+class _StagedVectors:
+    """Vectores preparados en un archivo, en orden de preparación.
+
+    Se guardan como ``float64`` para devolver exactamente los valores del proveedor.
+    """
+
+    def __init__(self, file: IO[bytes], dimensions: int) -> None:
+        self._file = file
+        self._dimensions = dimensions
+        self._added = 0
+        self._taken = 0
+
+    def add(self, vector: Sequence[float]) -> None:
+        """Añade un vector ya validado al final del archivo."""
+
+        array("d", vector).tofile(self._file)
+        self._added += 1
+
+    def take(self, size: int) -> list[list[float]]:
+        """Devuelve los siguientes ``size`` vectores, en el orden en que se prepararon."""
+
+        count = min(size, self._added - self._taken)
+        if count <= 0:
+            return []
+        if self._taken == 0:
+            self._file.seek(0)
+        values = array("d")
+        values.fromfile(self._file, count * self._dimensions)
+        self._taken += count
+        return [
+            values[start : start + self._dimensions].tolist()
+            for start in range(0, len(values), self._dimensions)
+        ]

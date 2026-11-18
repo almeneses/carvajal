@@ -188,3 +188,13 @@ def test_split_document_chunks_contiguos_estables_y_cuerpo_vacio(tmp_path: Path)
     empty = tmp_path / "vacio.md"
     empty.write_text("---\ntitle: Vacío\n---\n", encoding="utf-8")
     assert split_document(load_document(empty, layer="core")) == []
+
+
+def test_una_seleccion_sin_coincidencias_no_es_un_error(tmp_path: Path) -> None:
+    """La capa extendida reparte sus documentos en varias fuentes y comparte ``only``."""
+
+    (tmp_path / "uno.md").write_text("---\ntitle: Uno\nhash: h1\n---\n\nCuerpo.", encoding="utf-8")
+
+    report = migrate_gold(cast(Session, None), gold_dir=tmp_path, only={"de-otra-fuente"})
+
+    assert (report.documents, report.chunks, report.removed) == (0, 0, 0)

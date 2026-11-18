@@ -532,3 +532,47 @@ def test_la_cookie_de_visitante_carga_los_hilos_del_hash() -> None:
     assert response.status_code == 200
     assert chat.history_calls == [esperado]
     assert "hilo del visitante" in response.text
+
+
+def test_la_cita_muestra_la_procedencia_del_documento_extendido() -> None:
+    # Arrange: una fuente extendida con origen, categoría y entidad.
+    fuente = Source(
+        "informe:0",
+        "informe-empaques",
+        "prensa",
+        "extended",
+        0.8,
+        "Informe de terceros.",
+        title="Informe de empaques",
+        source_type="tercero",
+        origin="Cámara de Comercio de Cali",
+        category="informe",
+        entity="Carvajal Empaques",
+    )
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [_message("assistant", "Respuesta [1].", sources=[asdict(fuente)])]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    assert response.status_code == 200
+    assert '<span class="procedencia">Procedencia:' in response.text
+    assert "Origen: Cámara de Comercio de Cali" in response.text
+    assert "Categoría: informe" in response.text
+    assert "Entidad: Carvajal Empaques" in response.text
+
+
+def test_una_cita_sin_procedencia_no_muestra_la_linea() -> None:
+    # Arrange: la fuente del chat no declara origen, categoría ni entidad.
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [_message("assistant", "Respuesta [1].", sources=[asdict(SOURCE)])]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    assert response.status_code == 200
+    assert '<span class="procedencia">' not in response.text

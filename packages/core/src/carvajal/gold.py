@@ -6,6 +6,7 @@ from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from carvajal.models import CapturedPage
 
@@ -69,13 +70,22 @@ def to_gold_markdown(page: CapturedPage, title: str) -> str:
     return f"{front_matter}\n{body}\n" if body else front_matter
 
 
-def index_entry(page: CapturedPage, title: str) -> dict[str, str | int]:
+def index_entry(
+    page: CapturedPage,
+    title: str,
+    *,
+    slug: str | None = None,
+    source_key: str = "",
+    raw_hash: str = "",
+    layer: str = "core",
+    updated_at: str = "",
+) -> dict[str, str | int]:
     """Construye la entrada del índice JSONL del corpus."""
 
-    return {
+    entry: dict[str, str | int] = {
         "url": page.url,
         "title": title,
-        "slug": page.slug,
+        "slug": slug or page.slug,
         "section": page.section,
         "domain": page.domain,
         "source_type": source_type(page.url),
@@ -84,6 +94,15 @@ def index_entry(page: CapturedPage, title: str) -> dict[str, str | int]:
         "chars": len(page.markdown),
         "tokens_estimate": page.tokens_estimate,
     }
+    if source_key:
+        entry["source_key"] = source_key
+    if raw_hash:
+        entry["raw_hash"] = raw_hash
+    if layer:
+        entry["layer"] = layer
+    if updated_at:
+        entry["updated_at"] = updated_at
+    return entry
 
 
 def to_jsonl(entries: list[dict[str, str | int]]) -> str:
@@ -92,33 +111,50 @@ def to_jsonl(entries: list[dict[str, str | int]]) -> str:
     return "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries)
 
 
-def write_bronze(page: CapturedPage, raw_dir: Path) -> Path:
+def write_bronze(page: CapturedPage, raw_dir: Path, *, slug: str | None = None) -> Path:
     """Guarda el HTML crudo de la página en la capa Bronze."""
 
     raw_dir.mkdir(parents=True, exist_ok=True)
-    target = raw_dir / f"{page.slug}.html"
+    target = raw_dir / f"{slug or page.slug}.html"
     target.write_text(page.html, encoding="utf-8")
     return target
 
 
-def write_silver(page: CapturedPage, processed_dir: Path) -> Path:
+def write_silver(page: CapturedPage, processed_dir: Path, *, slug: str | None = None) -> Path:
     """Guarda el Markdown limpio de la página en la capa Silver."""
 
     processed_dir.mkdir(parents=True, exist_ok=True)
-    target = processed_dir / f"{page.slug}.md"
+    target = processed_dir / f"{slug or page.slug}.md"
     body = page.markdown.strip()
     target.write_text(f"{body}\n" if body else "", encoding="utf-8")
     return target
 
 
-def write_gold(page: CapturedPage, title: str, gold_dir: Path) -> Path:
+def write_gold(page: CapturedPage, title: str, gold_dir: Path, *, slug: str | None = None) -> Path:
     """Escribe el entregable Gold (Markdown + front matter) en ``gold_dir``."""
 
-    gold_dir.mkdir(parents=True, exist_ok=True)
-    markdown = to_gold_markdown(page, title)
-    target = gold_dir / f"{page.slug}.md"
-    target.write_text(markdown, encoding="utf-8")
-    return target
+    return write_gold_file(gold_dir / f"{slug or page.slug}.md", to_gold_markdown(page, title))
+
+
+def write_gold_file(path: Path, markdown: str) -> Path:
+    """Escribe un Markdown de Gold con reemplazo atómico.
+
+    La sincronización lee Gold mientras una carga o una captura lo escriben. Un
+    ``write_text`` directo trunca el destino antes de escribir el cuerpo: el
+    lector puede llevarse la cabecera nueva —con su ``hash`` completa— y el
+    cuerpo a medias, y como las corridas siguientes solo comparan esa huella, la
+    copia truncada no se repararía nunca. El temporal y el ``rename`` final
+    garantizan que cada lectura vea una versión completa.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporal = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporal.write_text(markdown, encoding="utf-8")
+        temporal.replace(path)
+    finally:
+        temporal.unlink(missing_ok=True)
+    return path
 
 
 def write_index(entries: list[dict[str, str | int]], index_file: Path) -> Path:
@@ -170,6 +206,7 @@ def merge_index(
     entries: Sequence[Mapping[str, str | int]],
     *,
     gold_dir: Path | None = None,
+    patch: bool = False,
 ) -> Path:
     """Fusiona entradas en el índice bajo bloqueo y lo reemplaza de forma atómica.
 
@@ -179,6 +216,10 @@ def merge_index(
     La identidad y las huellas de una entrada existente se conservan cuando la
     entrada nueva no las declara (ver ``PRESERVED_FIELDS``); si las declara,
     mandan las nuevas.
+
+    Con ``patch=True`` la entrada se superpone a la anterior campo a campo, en
+    lugar de reemplazarla: sirve a la adopción, que solo cambia identidad y
+    huella y no debe pisar una actualización concurrente de título o cuerpo.
     """
 
     with _index_lock(index_file):
@@ -186,10 +227,12 @@ def merge_index(
         for entry in entries:
             slug = str(entry["slug"])
             previous = merged.get(slug, {})
-            merged[slug] = {
-                **{field: previous[field] for field in PRESERVED_FIELDS if field in previous},
-                **entry,
-            }
+            base = (
+                previous
+                if patch
+                else {field: previous[field] for field in PRESERVED_FIELDS if field in previous}
+            )
+            merged[slug] = {**base, **entry}
         if gold_dir is not None:
             merged = {
                 slug: entry for slug, entry in merged.items() if (gold_dir / f"{slug}.md").is_file()

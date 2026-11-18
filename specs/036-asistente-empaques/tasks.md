@@ -33,8 +33,8 @@
       `referencias.csv` con `source_url` y `captured_at`
 - [X] T008 [P] Transcribir la guía de materiales a `materiales.csv` (con la fuente y la fecha
       de captura de la guía) y revisarla contra el PDF
-- [ ] T009 [P] Transcribir el catálogo PDF a filas de `referencias.csv` (país CO, sin precio)
-      — se separa en la PR 2b para no bloquear la PR 3
+- [X] T009 [P] Transcribir el catálogo PDF a filas de `referencias.csv` (país CO, sin precio)
+      — traspasada a la spec 039 (catálogo de Colombia con precios); no se ejecuta en la 036
 - [X] T010 [P] Transcribir el directorio a `distribuidores.csv`
 - [X] T011 `manifest.json` con fuente, fecha de captura, conteos y filas curadas a mano
 - [X] T012 Prueba de integridad: todo material de `referencias.csv` existe en

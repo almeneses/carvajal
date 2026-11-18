@@ -17,6 +17,7 @@ from uuid import UUID, uuid5
 from qdrant_client import QdrantClient, models
 
 from carvajal.application.ports import ScoredChunk
+from carvajal.application.sync import sync_fingerprint
 from carvajal.domain.entities import Chunk
 
 __all__ = ["QdrantVectorStore", "fingerprint_for", "payload_for", "point_id"]
@@ -62,6 +63,10 @@ def payload_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> dict
         "source_type": extra.get("source_type", "oficial"),
         "content_hash": extra.get("content_hash", ""),
         "abstract": extra.get("abstract", ""),
+        "chunks_total": extra.get("chunks_total", ""),
+        "origin": extra.get("origin", ""),
+        "category": extra.get("category", ""),
+        "entity": extra.get("entity", ""),
     }
 
 
@@ -288,6 +293,9 @@ class QdrantVectorStore:
             "source_type": str(payload.get("source_type", "oficial")),
             "content_hash": str(payload.get("content_hash", "")),
             "abstract": str(payload.get("abstract", "")),
+            "origin": str(payload.get("origin", "")),
+            "category": str(payload.get("category", "")),
+            "entity": str(payload.get("entity", "")),
         }
         return ScoredChunk(chunk=chunk, score=float(point.score), metadata=metadata)
 
@@ -308,10 +316,20 @@ class QdrantVectorStore:
             wait=True,
         )
 
-    def prune(self, valid_ids: Iterable[str]) -> int:
-        """Elimina puntos que ya no pertenecen al corpus; devuelve cuántos borró."""
+    def prune(self, valid_ids: Iterable[str], *, layer: str | None = None) -> int:
+        """Elimina puntos que ya no pertenecen al corpus; devuelve cuántos borró.
+
+        ``layer`` limita la poda a esa capa. La colección es compartida: indexar
+        solo el núcleo (``carvajal index-qdrant``) no debe borrar los puntos de
+        la capa extendida.
+        """
 
         keep = set(valid_ids)
+        scroll_filter = None
+        if layer is not None:
+            scroll_filter = models.Filter(
+                must=[models.FieldCondition(key="layer", match=models.MatchValue(value=layer))]
+            )
         stale: list[str] = []
         offset = None
         while True:
@@ -319,6 +337,7 @@ class QdrantVectorStore:
                 collection_name=self._collection,
                 limit=256,
                 offset=offset,
+                scroll_filter=scroll_filter,
                 with_payload=False,
                 with_vectors=False,
             )
@@ -333,6 +352,100 @@ class QdrantVectorStore:
             wait=True,
         )
         return len(stale)
+
+    def document_hashes(self, layer: str | None = None) -> dict[str, str]:
+        """Huella de sincronización por documento, solo si están todos sus fragmentos.
+
+        La huella cubre el texto y los metadatos que el payload publica (título,
+        sección y tipo de fuente): corregir el título de un documento lo marca
+        como cambiado aunque su cuerpo no cambie. Un documento con menos puntos
+        que ``chunks_total`` quedó a medias (por ejemplo, una corrida interrumpida
+        a mitad de sus lotes): no se publica su huella para que la siguiente
+        sincronización lo reindexe en lugar de darlo por vigente.
+        """
+
+        hashes: dict[str, str] = {}
+        seen: dict[str, int] = {}
+        expected: dict[str, int] = {}
+        for payload in self._payloads(layer):
+            document_id = str(payload.get("document_id") or payload.get("slug") or "")
+            if not document_id:
+                continue
+            seen[document_id] = seen.get(document_id, 0) + 1
+            hashes[document_id] = sync_fingerprint(
+                content_hash=str(payload.get("content_hash") or ""),
+                title=str(payload.get("title") or ""),
+                section=str(payload.get("section") or ""),
+                source_type=str(payload.get("source_type") or ""),
+                origin=str(payload.get("origin") or ""),
+                category=str(payload.get("category") or ""),
+                entity=str(payload.get("entity") or ""),
+            )
+            total = str(payload.get("chunks_total") or "")
+            expected[document_id] = int(total) if total.isdigit() else 0
+        return {
+            document_id: fingerprint
+            for document_id, fingerprint in hashes.items()
+            if expected[document_id] and seen[document_id] == expected[document_id]
+        }
+
+    def document_ids(self, layer: str | None = None) -> set[str]:
+        """Documentos distintos presentes en el índice, filtrados por capa.
+
+        A diferencia de ``document_hashes``, incluye los documentos incompletos:
+        un documento con lotes pendientes no se publica como vigente, pero sus
+        fragmentos ya existen y la poda debe poder eliminarlos cuando su Markdown
+        desaparece de Gold.
+        """
+
+        ids: set[str] = set()
+        for payload in self._payloads(layer):
+            document_id = str(payload.get("document_id") or payload.get("slug") or "")
+            if document_id:
+                ids.add(document_id)
+        return ids
+
+    def prune_layer(self, layer: str, valid_documents: Iterable[str]) -> int:
+        """Elimina los documentos de una capa que ya no están en Gold.
+
+        Devuelve cuántos documentos podó. Solo toca la capa indicada: el resto
+        del corpus conserva sus puntos.
+        """
+
+        keep = set(valid_documents)
+        stale = sorted(self.document_ids(layer) - keep)
+        for document_id in stale:
+            self.delete_by_document(document_id)
+        return len(stale)
+
+    def _payloads(self, layer: str | None = None) -> Iterable[dict[str, object]]:
+        """Recorre los payloads de la colección, opcionalmente por capa.
+
+        Una colección que todavía no existe es un índice vacío: la etapa de escritura la
+        crea, así que la lectura no debe impedir la primera sincronización.
+        """
+
+        if not self._client.collection_exists(self._collection):
+            return
+        scroll_filter = None
+        if layer is not None:
+            scroll_filter = models.Filter(
+                must=[models.FieldCondition(key="layer", match=models.MatchValue(value=layer))]
+            )
+        offset = None
+        while True:
+            points, offset = self._client.scroll(
+                collection_name=self._collection,
+                limit=256,
+                offset=offset,
+                scroll_filter=scroll_filter,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for point in points:
+                yield dict(point.payload or {})
+            if offset is None:
+                break
 
     def all_point_ids(self) -> list[str]:
         """IDs actuales de la colección; la evaluación y la poda los usan."""
@@ -353,8 +466,10 @@ class QdrantVectorStore:
         return ids
 
     def count(self) -> int:
-        """Número de fragmentos indexados."""
+        """Número de fragmentos indexados; una colección ausente no tiene puntos."""
 
+        if not self._client.collection_exists(self._collection):
+            return 0
         return int(self._client.count(self._collection, exact=True).count)
 
     def health(self) -> dict[str, object]:

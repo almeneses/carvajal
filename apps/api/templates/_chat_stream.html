@@ -11,6 +11,7 @@
 
 <template id="plantilla-turno">
   <li class="turno">
+    <span class="turno-avatar" aria-hidden="true"></span>
     <p class="turno-rol"></p>
     <div class="burbuja">
       <div class="texto"></div>
@@ -37,6 +38,7 @@
       </span>
       <span>Sección: <span data-campo="section"></span></span>
       <span>Capa: <span data-campo="layer"></span></span>
+      <span data-campo="procedencia" hidden>Procedencia: <span data-campo="procedencia-texto"></span></span>
       <span class="puntuacion">Puntuación: <span data-campo="score"></span></span>
     </p>
     <p class="extracto" data-campo="excerpt"></p>

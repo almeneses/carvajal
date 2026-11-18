@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from carvajal.gold import (
     domain_of,
     merge_index,
@@ -12,6 +14,12 @@ from carvajal.gold import (
     write_gold,
 )
 from carvajal.models import CapturedPage
+
+
+def _temporales(directorio: Path) -> list[str]:
+    """Temporales que dejó una escritura de Gold, incluidos los ocultos."""
+
+    return sorted(path.name for path in directorio.iterdir() if path.name.endswith(".tmp"))
 
 
 def _page(url: str) -> CapturedPage:
@@ -88,6 +96,51 @@ def test_write_gold_pagina_vacia_no_deja_linea_en_blanco(tmp_path: Path) -> None
     target = write_gold(page, title="Sostenibilidad", gold_dir=tmp_path)
 
     assert target.read_text(encoding="utf-8").endswith("---\n")
+
+
+def test_write_gold_reemplaza_el_archivo_en_vez_de_truncarlo(tmp_path: Path) -> None:
+    """Reescribir un documento publica la versión nueva completa, nunca a medias."""
+
+    page = _page("https://www.carvajal.com/historia/")
+    target = write_gold(page, title="Historia", gold_dir=tmp_path)
+    anterior = target.stat().st_ino
+
+    write_gold(page, title="Historia renovada", gold_dir=tmp_path)
+
+    # El ``rename`` sustituye el archivo: quien lea durante la escritura ve la
+    # versión anterior completa, no la cabecera nueva con el cuerpo truncado.
+    assert target.stat().st_ino != anterior
+    assert "Historia renovada" in target.read_text(encoding="utf-8")
+    assert _temporales(tmp_path) == []
+
+
+def test_una_escritura_de_gold_interrumpida_conserva_la_version_anterior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si escribir Gold falla a medias, el documento publicado no se degrada."""
+
+    page = _page("https://www.carvajal.com/historia/")
+    target = write_gold(page, title="Historia", gold_dir=tmp_path)
+    completo = target.read_text(encoding="utf-8")
+    escribir = Path.write_text
+
+    def cortar(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        escribir(self, data[:20], encoding, errors, newline)
+        raise OSError("disco lleno")
+
+    monkeypatch.setattr(Path, "write_text", cortar)
+
+    with pytest.raises(OSError):
+        write_gold(page, title="Historia renovada", gold_dir=tmp_path)
+
+    assert target.read_text(encoding="utf-8") == completo
+    assert _temporales(tmp_path) == []
 
 
 def test_merge_index_conserva_identidad_y_huellas(tmp_path: Path) -> None:
@@ -171,3 +224,24 @@ def test_merge_index_escribe_ordenado_por_slug(tmp_path: Path) -> None:
     lineas = index_file.read_text(encoding="utf-8").splitlines()
     slugs = [json.loads(linea)["slug"] for linea in lineas]
     assert slugs == ["alfa", "zeta"]
+
+
+def test_merge_index_en_modo_parche_conserva_los_campos_no_enviados(tmp_path: Path) -> None:
+    """La adopción solo cambia identidad y huella, sin pisar el resto."""
+
+    # Arrange: una entrada con título y cuerpo ya publicados.
+    index_file = tmp_path / "index.jsonl"
+    merge_index(index_file, [{"slug": "historia", "title": "Historia", "hash": "h1"}])
+
+    # Act: llega solo la identidad nueva.
+    merge_index(
+        index_file,
+        [{"slug": "historia", "source_key": "url:https://carvajal.com/historia"}],
+        patch=True,
+    )
+
+    # Assert
+    entrada = read_index(index_file)["historia"]
+    assert entrada["title"] == "Historia"
+    assert entrada["hash"] == "h1"
+    assert entrada["source_key"] == "url:https://carvajal.com/historia"

@@ -248,7 +248,7 @@ def _sse(
 
 
 def _payload(batch: FaqBatch) -> dict[str, object]:
-    """Contrato JSON del lote que consume la SPA."""
+    """Contrato JSON del lote que consume la interfaz."""
 
     return {
         "entries": [asdict(entry) for entry in batch.entries],

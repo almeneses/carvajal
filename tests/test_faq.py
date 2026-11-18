@@ -426,3 +426,48 @@ def test_stream_delega_en_el_proveedor() -> None:
 
     # Assert
     assert chunks == ["## Empresa\n", "**P:** ¿Qué es Carvajal?\n"]
+
+
+def test_faq_topa_el_nucleo_de_forma_determinista() -> None:
+    """Con más de 500 documentos núcleo se usan los primeros por slug y se avisa."""
+
+    # Arrange
+    documentos = [
+        _document(f"doc-{numero:03}", "Contenido breve.")
+        for numero in reversed(range(MAX_CORPUS_DOCUMENTS + 1))
+    ]
+    service = GenerateFaq(FakeCorpus(documentos), FakeLLM(text=""))
+
+    # Act
+    prepared = service.prepare()
+    batch = service.finish(prepared, "## Empresa\n" + _entry("¿Qué es Carvajal?"))
+
+    # Assert
+    assert prepared.documents == MAX_CORPUS_DOCUMENTS + 1
+    assert "doc-000" in prepared.system
+    assert "doc-500" not in prepared.system
+    assert any(f"{MAX_CORPUS_DOCUMENTS} documentos" in warning for warning in batch.warnings)
+
+
+def test_generate_faq_no_envia_documentos_extendidos_al_modelo() -> None:
+    # Arrange: el corpus mezcla núcleo y capa extendida.
+    llm = FakeLLM(text="**P:** ¿Qué es Carvajal?\n**R:** Una empresa.\n_Fuente:_ historia\n")
+    service = GenerateFaq(
+        FakeCorpus(
+            [
+                _document("historia", "Carvajal nació en Cali."),
+                _document("prensa", "Contenido de terceros.", layer="extended"),
+            ]
+        ),
+        llm,
+    )
+
+    # Act
+    service.complete(service.prepare())
+
+    # Assert: el prompt del modelo solo contiene el núcleo.
+    system, _ = llm.calls[0]
+    assert "Carvajal nació en Cali." in system
+    assert "Contenido de terceros." not in system
+    assert "### Fuente: historia" in system
+    assert "### Fuente: prensa" not in system

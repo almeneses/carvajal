@@ -25,7 +25,7 @@ from carvajal.config import (
     LAYER_EXTENDED,
 )
 from carvajal.extracting import html_to_markdown
-from carvajal.gold import domain_of
+from carvajal.gold import domain_of, write_gold_file
 
 CATALOG_FILE = Path("data") / "gold" / "modulo_1" / "scraping_todos.jsonl"
 SOURCE_TYPE = "colaborador"
@@ -209,7 +209,7 @@ def _write(output_dir: Path, documents: list[tuple[dict, str]], source: str) -> 
             "hash": digest,
             "chars": len(body),
         }
-        (gold_dir / f"{slug}.md").write_text(_markdown(metadata, body), encoding="utf-8")
+        write_gold_file(gold_dir / f"{slug}.md", _markdown(metadata, body))
         entries.append({**metadata, "source_type": SOURCE_TYPE, "layer": LAYER_EXTENDED})
         by_category[metadata["category"]] = by_category.get(metadata["category"], 0) + 1
 

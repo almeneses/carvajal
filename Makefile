@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build app api web image prod-up prod-down db db-down qdrant qdrant-down index index-eval eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image prod-up prod-down db db-down qdrant qdrant-down index index-eval eval import clean
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -23,9 +23,7 @@ help: ## Muestra esta ayuda
 	@echo "  test-integration   Ejecuta las pruebas de integración (requiere Docker)"
 	@echo "  check              Verificación completa (lint + formato + tipos + pruebas)"
 	@echo "  build              Construye el paquete (sdist + wheel)"
-	@echo "  app                Lanza la interfaz web de prueba (Streamlit)"
-	@echo "  api                Lanza la API (FastAPI + uvicorn) en :8000"
-	@echo "  web                Lanza el frontend propio en :8001"
+	@echo "  api                Lanza la interfaz y la API (FastAPI + uvicorn) en :8000"
 	@echo "  qdrant             Levanta Qdrant con volumen persistente"
 	@echo "  qdrant-down        Detiene Qdrant (conserva el volumen)"
 	@echo "  index              Indexa data/gold en Qdrant"
@@ -77,14 +75,8 @@ check: lint format-check typecheck test ## Verificación completa (lint + format
 build: ## Construye el paquete (sdist + wheel)
 	uv build
 
-app: ## Lanza la interfaz web de prueba (Streamlit)
-	uv run streamlit run app.py
-
-api: ## Lanza la API en :8000
+api: ## Lanza la interfaz y la API (FastAPI + uvicorn) en :8000
 	uv run uvicorn apps.api.main:app --reload --port 8000
-
-web: ## Lanza el frontend propio en :8001
-	CARVAJAL_API_BASE=$${CARVAJAL_API_BASE:-http://localhost:8000} uv run uvicorn apps.web.main:app --reload --port 8001
 
 qdrant: ## Levanta Qdrant con volumen persistente
 	docker compose up -d --wait qdrant
@@ -92,11 +84,11 @@ qdrant: ## Levanta Qdrant con volumen persistente
 qdrant-down: ## Detiene Qdrant (conserva el volumen)
 	docker compose stop qdrant
 
-index: ## Indexa data/gold en Qdrant
-	uv run carvajal index-qdrant
+index: ## Indexa el núcleo y las capas extendidas en Qdrant
+	uv run carvajal index-qdrant --layer all
 
-index-eval: ## Indexa y evalúa el retrieval (Recall@10 y nDCG@10)
-	uv run carvajal index-qdrant
+index-eval: ## Indexa todas las capas y evalúa el retrieval (Recall@10 y nDCG@10)
+	uv run carvajal index-qdrant --layer all
 	uv run python scripts/eval_retrieval.py
 
 image: ## Construye la imagen Docker de la app web

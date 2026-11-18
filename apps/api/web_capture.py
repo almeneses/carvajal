@@ -8,18 +8,20 @@ URLs, el timeout y el guard SSRF de ``urlguard`` son su defensa.
 
 from __future__ import annotations
 
-import fcntl
+import sys
 import threading
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 import structlog
 
-from apps.api.ingestion import importar_gold, indexar_gold
+from apps.api.ingestion import sync_gold
 from apps.api.urlguard import SafeWebClient, UrlRejected, validate_capture_url
 from carvajal.application.ports import Fetcher
+from carvajal.application.sync import SyncReport
 from carvajal.domain.frontmatter import parse_front_matter
 from carvajal.domain.rules import slug_from_url
 from carvajal.infrastructure.settings import Settings
@@ -44,8 +46,7 @@ SCOPES = {
     "todo": "Todo el corpus",
 }
 
-Importar = Callable[[Path, set[str]], tuple[int, int]]
-Indexar = Callable[[Path, set[str]], int]
+Sincronizar = Callable[[Path, set[str]], SyncReport]
 EventHook = Callable[[CaptureEvent], None]
 
 
@@ -79,23 +80,45 @@ class CaptureOutcome:
     captured: tuple[str, ...] = ()
 
 
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock(handle: IO[str]) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock(handle: IO[str]) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _lock(handle: IO[str]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+    def _unlock(handle: IO[str]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 @contextmanager
 def _gold_lock(settings: Settings) -> Generator[None]:
     """Serializa comprobación y escritura de Gold entre hilos y procesos.
 
     ``CaptureJobs`` ya permite un solo job por proceso, pero la CLI u otra
     instancia podrían escribir a la vez. ``flock`` cubre ese caso en el
-    despliegue Linux; el archivo de bloqueo vive en Gold y no es un ``.md``.
+    despliegue Linux y ``msvcrt.locking`` en Windows (desarrollo local); el archivo
+    de bloqueo vive en Gold y no es un ``.md``.
     """
 
     lock_path = settings.gold_dir / ".capture.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with _GOLD_THREAD_LOCK, lock_path.open("a+") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _lock(handle)
         try:
             yield
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _unlock(handle)
 
 
 def _dedupe(items: Iterable[str]) -> list[str]:
@@ -234,7 +257,7 @@ def _outcome(
         errors=tuple(errors),
         robots_denied=tuple(report.robots_denied),
         duplicates=tuple(report.duplicates),
-        captured=tuple(page.slug for page in report.pages),
+        captured=tuple(report.slugs.values()),
     )
 
 
@@ -243,15 +266,14 @@ def ingest_urls(
     *,
     settings: Settings | None = None,
     client: Fetcher | None = None,
-    importar: Importar | None = None,
-    indexar: Indexar | None = None,
+    sincronizar: Sincronizar | None = None,
     on_event: EventHook | None = None,
 ) -> CaptureOutcome:
-    """Captura las URLs, importa los slugs nuevos y los indexa.
+    """Captura las URLs y sincroniza los slugs nuevos.
 
-    ``client``, ``importar`` e ``indexar`` se inyectan en las pruebas para no
-    tocar la red, PostgreSQL ni Qdrant. En la app real se usan
-    ``SafeWebClient``, ``importar_gold`` e ``indexar_gold``.
+    ``client`` y ``sincronizar`` se inyectan en las pruebas para no tocar la
+    red, PostgreSQL ni Qdrant. En la app real se usan ``SafeWebClient`` y
+    ``sync_gold``.
     """
 
     settings = settings or Settings()
@@ -287,20 +309,19 @@ def ingest_urls(
             on_event=on_event,
         )
     errors.extend(report.errors)
-    slugs = {page.slug for page in report.pages}
+    slugs = set(report.slugs.values())
     documents = chunks = indexed = 0
     if slugs:
         try:
-            documents, chunks = (importar or importar_gold)(settings.gold_dir, slugs)
+            sync_report = (sincronizar or sync_gold)(settings.gold_dir, slugs)
         except Exception as error:  # la UI informa el fallo de la etapa
-            logger.warning("capture.import_failed", error=str(error))
-            errors.append("No se pudo importar a PostgreSQL; revisa la conexión y los logs.")
+            logger.warning("capture.sync_failed", error=str(error))
+            errors.append("No se pudo sincronizar el corpus; revisa la conexión y los logs.")
         else:
-            try:
-                indexed = (indexar or indexar_gold)(settings.gold_dir, slugs)
-            except Exception as error:  # Ollama o Qdrant pueden no estar disponibles
-                logger.warning("capture.index_failed", error=str(error))
-                errors.append("No se pudo indexar en Qdrant; revisa Qdrant y Ollama.")
+            documents = sync_report.documents
+            chunks = sync_report.chunks
+            indexed = sync_report.indexed
+            errors.extend(sync_report.errors)
     return _outcome(
         report,
         requested=len(seeds),

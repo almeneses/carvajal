@@ -23,7 +23,8 @@ detrás de contadores JavaScript, y cualquier modelo sin contexto inventa cifras
 **Solución.** Un pipeline reproducible que captura el sitio oficial y fuentes de prensa,
 los normaliza en tres capas (bronze → silver → gold), los indexa con embeddings locales
 y responde con un LLM **citando la fuente y distinguiendo** lo oficial de lo publicado por
-terceros. Todo se demuestra en una interfaz con el scraping visible etapa por etapa.
+terceros. Todo se demuestra en una interfaz única: el chat con fuentes citadas, la FAQ
+generada, el explorador del corpus y la carga o captura de documentos.
 
 | Antes | Después |
 |---|---|
@@ -34,15 +35,13 @@ terceros. Todo se demuestra en una interfaz con el scraping visible etapa por et
 
 ## Entrega M2 — agente con Qdrant, memoria y herramienta
 
-La entrada oficial del Módulo 2 es el **frontend propio** en
-<http://localhost:8001>; la API vive en <http://localhost:8000>. Son dos
-procesos: el navegador habla HTTP/SSE con la API y esta concentra credenciales,
-modelo, ruta, memoria y herramientas.
+La entrada oficial del Módulo 2 es **una sola interfaz** en
+<http://localhost:8000>: el shell Jinja2/HTMX que la API sirve en el mismo
+proceso. La API concentra credenciales, modelo, ruta, memoria y herramientas.
 
 ```mermaid
 flowchart LR
-  U[Navegador / móvil] -->|HTML + JS| FE["Frontend :8001<br/>apps/web"]
-  FE -->|"JSON + SSE<br/>cookie firmada + CSRF"| API["API :8000<br/>FastAPI"]
+  U[Navegador / móvil] -->|HTML + HTMX| API["Interfaz + API :8000<br/>FastAPI + Jinja2"]
   API --> ROUTER["Router LangGraph<br/>direct | tool | rag | commercial"]
   ROUTER -->|direct| PROMPT[Prompt con historial y preferencias]
   ROUTER -->|rag| Q[("Qdrant<br/>125 fragmentos · 768 dims · coseno")]
@@ -56,7 +55,7 @@ flowchart LR
   API --> LOGS["structlog JSON<br/>request_id · thread_id · route · tool · sources"]
 ```
 
-### Arranque reproducible (dos terminales)
+### Arranque reproducible (una terminal)
 
 ```bash
 # Preparación única
@@ -69,11 +68,8 @@ ollama pull nomic-embed-text         # embeddings locales de 768 dimensiones
 uv run carvajal migrate-gold         # importa documentos y fragmentos a Postgres
 make index                           # indexa data/gold en Qdrant (idempotente)
 
-# Terminal 1: API
-make api                             # http://localhost:8000
-
-# Terminal 2: frontend propio
-make web                             # http://localhost:8001  ← entrada del M2
+# Arranque: interfaz y API en el mismo proceso
+make api                             # http://localhost:8000  ← entrada única
 ```
 
 `make index` reejecuta la indexación con IDs UUID5 estables y poda los puntos
@@ -140,6 +136,40 @@ Resultado de la última corrida (Qdrant, k=10): **Recall@10 = 0.8000**,
 **nDCG@10 = 0.7791**; la consulta sin evidencia (`q31`, teléfono en Tokio) se
 abstiene sin fuentes. La evaluación separa retrieval de calidad de respuesta:
 no llama al LLM.
+
+## Entrega M3 — asistente de empaques y corpus incremental
+
+La tercera entrega extiende el agente del M2 sin cambiar su contrato: el router suma la ruta
+`commercial` para recomendar y cotizar empaques de Carvajal Empaques (spec 036), el enrutador
+se vuelve intercambiable y medible, y el corpus pasa a sincronizarse de forma incremental entre
+Gold, PostgreSQL y Qdrant (spec 037).
+
+[![Arquitectura de la entrega M3 (tema oscuro)](docs/arquitectura-m3.visual-check.2048x1320.dark.png)](docs/arquitectura-m3.html)
+
+Diagrama interactivo generado con [Archify](https://github.com/tt-a1i/archify) 3.2:
+[`docs/arquitectura-m3.html`](docs/arquitectura-m3.html) (pan/zoom, búsqueda, rutas, tema
+claro/oscuro y exportación). La fuente versionada es
+[`docs/arquitectura-m3.json`](docs/arquitectura-m3.json): cada componente cita el archivo y las
+líneas del código que lo respaldan en el commit `a369705` de `dev`, y Archify verifica esas
+citas al generar el HTML.
+
+| Novedad | Qué hace | Dónde |
+|---|---|---|
+| Ruta `commercial` | Extrae uso, temperatura, capacidad, cantidad, país y ciudad; valida el material con la guía; calcula cajas y precio de referencia (México) o remite a distribuidores (Colombia). El LLM solo redacta. | [Catálogo de empaques](#catálogo-de-empaques-spec-036) |
+| Tarjetas en el chat | Cada referencia llega como tarjeta por el evento SSE `products`, con SKU, cajas, precio con fecha y enlace a la ficha. | `apps/api/templates/_productos.html` |
+| Enrutador intercambiable | `AGENT_ROUTER=rules` (por defecto), `llm` o `decision`; `carvajal eval-router` los compara sobre 110 preguntas. | [`docs/resultados-router.md`](docs/resultados-router.md) |
+| Corpus incremental | Solo importa e indexa lo nuevo o cambiado, por huella; `--verify` compara sin escribir. | [Corpus incremental](#corpus-incremental-spec-037) |
+
+```bash
+uv run carvajal sync --layer all          # Gold → PostgreSQL → Qdrant, incremental
+uv run carvajal sync --verify             # compara huellas y conteos sin escribir
+uv run carvajal eval-router               # precisión del enrutador por reglas
+```
+
+Para probarlo, levanta el entorno como en el M2 y abre el chat en
+<http://localhost:8000/chat>; el guion de la demo está en [`docs/demo-036.md`](docs/demo-036.md)
+y la evidencia de los criterios de éxito en
+[`specs/036-asistente-empaques/evidencia.md`](specs/036-asistente-empaques/evidencia.md).
 
 ## Stack
 
@@ -230,6 +260,43 @@ ya están en el núcleo y deduplica por URL normalizada y hash del texto. Escrib
 > La capa extendida es material de terceros: conserva la atribución y no se presenta como
 > comunicación oficial de Carvajal.
 
+## Corpus incremental (spec 037)
+
+Todo lo que entra al corpus pasa por el mismo camino: identidad estable, deduplicación
+por huellas, capas Bronze/Silver/Gold y una única sincronización con PostgreSQL y
+Qdrant.
+
+**Identidad.** Cada documento se identifica por su fuente, nunca por su texto:
+`url:<normalizada>` para capturas, `file:<raíz>/<ruta relativa>` para carpetas de la
+consola y `upload:<nombre>` para subidas web. El slug se asigna una vez y no se
+renombra. Un archivo movido conserva la identidad anterior y se reporta como duplicado.
+
+**Deduplicación.** Antes de escribir Bronze se compara el `raw_hash` (SHA-256 de los
+bytes): una copia exacta o un archivo movido no se procesa. Tras extraer se recalcula
+el `content_hash` del texto: una página con otro HTML pero el mismo texto, o un PDF
+re-codificado, se reporta con el documento existente sin reindexar. El informe separa
+nuevos, actualizados, idénticos y duplicados.
+
+**Sincronización.** `carvajal sync` es el único camino entre Gold y los almacenes:
+
+```bash
+uv run carvajal sync --layer all          # núcleo + cada fuente extendida
+uv run carvajal sync --layer all --prune  # además elimina lo que ya no está en Gold
+uv run carvajal sync --layer all --verify # no escribe; sale con 1 si hay diferencias
+uv run carvajal sync --adopt              # completa source_key/raw_hash en un registro legado
+```
+
+La corrida es incremental: compara huellas y solo importa e indexa lo nuevo o cambiado;
+la poda se limita a la capa sincronizada. La captura web y la carga desde Configuración
+terminan en la misma sincronización y comparten `data/.corpus.lock`, así que dos
+corridas no dejan el corpus a medio escribir.
+
+**Prioridad de capas.** El chat busca primero `layer=core` y solo completa con
+`layer=extended` si el núcleo no llena el cupo o queda por debajo de `RAG_MIN_SCORE`. La
+cita conserva `origin`, `category` y `entity` del front matter extendido. La FAQ sigue
+leyendo solo el núcleo, y `make index-eval` mide la misma política con
+`carvajal index-qdrant --layer all`.
+
 ## Catálogo de empaques (spec 036)
 
 El asistente comercial de empaques consulta un **catálogo curado** en `data/catalog/empaques/`
@@ -280,6 +347,10 @@ Resultados y análisis: [`docs/resultados-router.md`](docs/resultados-router.md)
 
 ## 🗺️ Arquitectura
 
+La arquitectura vigente, con el agente, la ruta `commercial` y la sincronización incremental,
+está en la [entrega M3](#entrega-m3--asistente-de-empaques-y-corpus-incremental). El diagrama de
+esta sección es el de la primera entrega: el pipeline de captura y el RAG original.
+
 Diagrama interactivo autocontenido (generado con [Archify](https://github.com/tt-a1i/archify)):
 pan/zoom, búsqueda de componentes, tema claro/oscuro y exportación. Ábrelo en el
 navegador: [`docs/arquitectura.html`](docs/arquitectura.html). La fuente tipada y
@@ -300,13 +371,14 @@ uv sync --all-extras
 ```
 
 > `--all-extras` instala también los extras `capture` (HTTP y extracción HTML
-> para la CLI) y `legacy` (Streamlit y FAISS). La app web y su imagen Docker
-> solo necesitan las dependencias base.
+> para la CLI) y `legacy` (FAISS para la CLI histórica). La app web y su imagen
+> Docker solo necesitan las dependencias base.
 
 ## Uso
 
-> El CLI (`carvajal capture`, `status`, `ask`, `eval`, `summarize`, `faq`,
-> `import`, `migrate-gold`) requiere los extras de captura y prototipo:
+> El CLI (`carvajal capture`, `sync`, `index-qdrant`, `status`, `ask`, `eval`,
+> `summarize`, `faq`, `import`, `migrate-gold`) requiere los extras de captura y
+> prototipo:
 > `uv sync --all-extras` en el repositorio, o
 > `uv tool install "carvajal[capture,legacy]"` fuera de él. La imagen Docker
 > solo instala el runtime web y no incluye el CLI.
@@ -338,8 +410,8 @@ uv run carvajal summarize            # resumen ejecutivo -> docs/resumen.md
 uv run carvajal summarize --focus empaques
 uv run carvajal faq                  # FAQ de cliente -> docs/faq.md
 
-# Interfaz web: pipeline visible + las tres tareas
-uv run streamlit run app.py     # o: make app
+# Interfaz web única: chat, FAQ, corpus y configuración
+make api                        # http://localhost:8000/chat
 
 # Evaluación: 25 preguntas de prueba -> docs/resultados.md
 make eval
@@ -347,16 +419,17 @@ make eval
 
 ### Interfaz web del M2
 
-La entrada oficial del Módulo 2 es <http://localhost:8001> (`make web`), con la
-API en <http://localhost:8000> (`make api`). El frontend ofrece tres pestañas
-superiores —**FAQ**, **Corpus** y **Documento**— con URLs estables
-(`/faq`, `/corpus` y `/documents/{id}`); `/` redirige a `/corpus` y conserva el
-hilo del chat al navegar.
+La entrada oficial del Módulo 2 es <http://localhost:8000> (`make api`): un
+único proceso sirve el shell Jinja2/HTMX y la API. La navegación superior
+ofrece **Chat**, **FAQ**, **Corpus** y **Configuración**, más la ficha
+`/documents/{id}`; `/` redirige a `/chat`.
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
-`nh3` de las vistas HTML. El shell Jinja2 sigue disponible en
-<http://localhost:8000/chat> para pruebas y mantiene el mismo contrato SSE; la
-pestaña **Asistente** ya no se muestra y `/` redirige a `/chat`. Su
+`nh3` de las vistas HTML. El chat emite SSE por `/chat/stream` (y conserva
+`/api/chat/stream` como contrato JSON equivalente). El chat es el
+**único camino de respuesta**: la ruta heredada `/ask` y el adaptador pgvector
+se retiraron en la spec 037 porque ningún flujo escribía vectores en Postgres.
+Su
 pestaña **FAQ** (`/faq`) consume el mismo endpoint `/api/faq` y ofrece la misma
 experiencia de lotes de 10. Sus pantallas comparten la cabecera, la paleta y los
 componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
@@ -417,51 +490,16 @@ cuando el corpus se truncó por longitud. Con Ollama, la ventana de contexto se
 configura con `OLLAMA_NUM_CTX` (32 768 tokens por defecto) para que el corpus
 completo quepa en el prompt.
 
-### Interfaz legada (Streamlit)
+### Módulo 1 (histórico)
 
-> El prototipo Streamlit conserva las tareas del Módulo 1 y no es la entrada del
-> M2.
+El prototipo Streamlit del Módulo 1 se retiró junto con la SPA duplicada: la
+interfaz única es el shell Jinja2/HTMX en :8000. Las tareas del M1 siguen
+disponibles por consola —`carvajal capture`, `summarize`, `faq`, `ask` y
+`eval`— y las capturas del prototipo quedan como evidencia en `docs/ui-*.png`.
 
-`uv run streamlit run app.py` abre cuatro pestañas:
-
-| Pestaña | Qué muestra |
-|---|---|
-| **Pipeline de scraping** | Ejecuta la captura en vivo con las 7 etapas (descubrir → `robots.txt` → descargar → extraer → deduplicar → enriquecer → indexar), el log por etapa y las métricas: descubiertas, descargadas, escritas, descartadas (con motivo), caracteres, tokens y duración. Arriba, el estado del corpus Gold. |
-| **Resumen** | Tarea de LLM: resumen ejecutivo del corpus completo (empresa, sectores, cifras con año y fuente, hitos, presencia). Opcional: enfocar en un tema. Descargable como `resumen.md`. |
-| **FAQ** | Tarea de LLM: 10-12 preguntas frecuentes de un cliente primerizo, con respuesta y fuente, agrupadas por tema, más una sección de **temas que el corpus no cubre**. Descargable como `faq.md`. |
-| **Asistente** | Tarea de LLM (Q&A): pregunta y respuesta RAG con **fuentes citadas**: dominio, tipo de fuente (oficial/tercero/colaborador), capa (núcleo/extendido), categoría y fragmento recuperado. Avisa si el índice vectorial está desactualizado. |
-
-La captura es idempotente: si el contenido de una página no cambia, su `hash` se repite y el
-índice FAISS **no se invalida**, así que se puede ejecutar la demo sin esperar la reconstrucción.
-
-### Capturas
-
-**Pipeline de scraping** — el diagrama de bloques se ilumina etapa por etapa mientras corre la
-captura (naranja = etapa activa, verde = completada, gris = pendiente):
-
-[![Pestaña Pipeline en ejecución](docs/ui-pipeline.png)](docs/ui-pipeline.png)
-
-**Métricas de la captura** — las siete etapas completadas y el resumen de la corrida:
-
-[![Métricas de la captura](docs/ui-metricas.png)](docs/ui-metricas.png)
-
-**Asistente** — respuesta con fuentes citadas y atribución oficial/tercero:
-
-[![Pestaña Asistente](docs/ui-asistente.png)](docs/ui-asistente.png)
-
-**Resumen ejecutivo** (tarea de LLM) — cinco bloques, cada cifra con su fuente y «no consta
-en el corpus» cuando falta el dato:
-
-[![Pestaña Resumen](docs/ui-resumen.png)](docs/ui-resumen.png)
-
-**FAQ** (tarea de LLM) — 12 preguntas con respuesta y fuente, más los temas que el corpus no
-cubre:
-
-[![Pestaña FAQ](docs/ui-faq.png)](docs/ui-faq.png)
-
-La identidad visual usa el **logo oficial en SVG** (`assets/carvajal-logo.svg`) y la paleta
-de marca del sitio (`#00B5E5`, `#80A41B`, `#ED7004`, `#62358C`, `#003A5D`, `#015625`),
-configurada en `.streamlit/config.toml` e inyectada como CSS en la app.
+La identidad visual usa el **logo oficial en SVG** (`assets/carvajal-logo.svg`)
+y la paleta de marca del sitio (`#00B5E5`, `#80A41B`, `#ED7004`, `#62358C`,
+`#003A5D`, `#015625`), definida en `apps/api/static/app.css`.
 
 ## Configuración del LLM
 
@@ -495,8 +533,6 @@ También puedes configurar las variables en la terminal:
 | `RAG_TOP_K` | Fragmentos que recibe el prompt. | `6` |
 | `RAG_MIN_SCORE` | Umbral mínimo de similitud. | `0.30` |
 | `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
-| `FRONTEND_ORIGINS` | Orígenes CORS del frontend separado. | `http://localhost:8001,...` |
-| `CARVAJAL_API_BASE` | URL de la API para `config.js` y la CSP del frontend; obligatoria fuera de `localhost`/`127.0.0.1`. | `http://localhost:8000` |
 | `CAPTURE_DEFAULT_URLS` | Valor inicial del máximo de URLs por captura. | `5` |
 | `CAPTURE_MAX_BYTES` | Tamaño máximo de una respuesta capturada. | `5000000` |
 | `CAPTURE_TIMEOUT_SECONDS` | Timeout por petición de la captura. | `30` |
@@ -583,7 +619,7 @@ despliegue, respaldos y rollback— está en
 |---|---|---|
 | `GET /live` | Que el proceso responde (liveness del contenedor). | No |
 | `GET /health` | Conteos de documentos/fragmentos y estado de Qdrant (readiness). | Sí |
-| `GET /api/health` | El mismo readiness para el frontend propio. | Sí |
+| `GET /api/health` | El mismo readiness en JSON para clientes automatizados. | Sí |
 
 La demo no lleva proxy TLS: la app se publica en `0.0.0.0:APP_PORT` (8080 por
 defecto) y se accede por `http://IP:8080`. Si más adelante pones un dominio, usa
@@ -596,12 +632,11 @@ HSTS y la cabecera CSRF cuando hay TLS.
 ```text
 carvajal/
 ├── apps/
-│   ├── api/        # FastAPI, contrato HTTP/SSE y shell Jinja2
-│   └── web/        # frontend propio del M2 (:8001)
+│   └── api/        # FastAPI, contrato HTTP/SSE, shell Jinja2/HTMX e interfaz única
 ├── packages/core/src/carvajal/
 │   ├── agent/      # router, herramienta, memoria y grafo LangGraph
 │   ├── indexing/   # Gold → Qdrant
-│   └── adapters/   # storage, embeddings, LLM y vector (pgvector/Qdrant)
+│   └── adapters/   # storage, embeddings, LLM y vector (Qdrant)
 ├── tests/
 ├── data/
 │   ├── gold/       # entregable versionado (capa gold)
