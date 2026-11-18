@@ -329,6 +329,13 @@ carvajal/
   `test/...`, `chore/...`; integración vía Pull Request a `dev`, y de `dev` a
   `main` en un PR de release. Los cambios de documentación y decisiones pueden ir
   directo a `main`.
+- **Método de fusión:** los PRs hacia `dev` se fusionan con **squash**, para que
+  `dev` tenga un commit por PR. Los PRs de release `dev → main` se fusionan con
+  **merge commit**: así `dev` queda como ancestro de `main` y el release
+  siguiente no parte de un ancestro viejo. Un squash de `dev → main` deja los
+  commits de `dev` fuera de `main` y el PR posterior aparece en conflicto con
+  contenido idéntico (pasó con #149 → #151, que obligó a reescribir `dev` y a
+  re-apuntar el tag). El tag del release se crea sobre el commit de merge.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) —
   `feat:`, `fix:`, `docs:`, `refactor:`, `style:`, `test:`, `chore:`.
 - **Etiquetas de PR:** toda Pull Request debe llevar al menos una etiqueta del
