@@ -9,8 +9,9 @@
 ```bash
 # Servicios
 docker ps                      # carvajal-db-1 (healthy), carvajal-qdrant-1
-# Índice
-125 puntos en `carvajal_chunks`, 24 documentos en PostgreSQL (migración 0007)
+# Índice y base
+125 puntos en `carvajal_chunks`, 24 documentos en PostgreSQL
+`alembic upgrade head` → 0007 aplicada (`chat_feedback` existe)
 # Monitoreo
 MONITORING_ENABLED=true
 MONITORING_SAMPLE_RATE=1.0
@@ -23,7 +24,7 @@ MONITORING_INCLUDE_CONTENT=true      # desarrollo; en producción, false
 |---|---|---|---|
 | `direct` | `9b1918731dbf4c2da8b153ca5848a1d5` | `chat_turn` | 0 (sin llamada al modelo) |
 | `rag` | `db3fa01c5bf54d4aa08fd2b27349d7ce` | `chat_turn` | 0 en el doble; con el agente real, `recall`/`route` |
-| `tool` | `548b04a7ffe143e9a53c75dc9f68966d` | `chat_turn` | `LangGraph`, `recall`, `route`, `tool`, `indicator_lookup` |
+| `tool` | `11d4e40939fa4eb9b85b3c4955c884a0` | `chat_turn` | `LangGraph`, `recall`, `route`, `RunnableCallable`, `tool`, `indicator_lookup`, `llm` |
 | `commercial` | `0f863d3c8ffa4ba29de1a47d2e554227` | `chat_turn` | `LangGraph`, `recall`, `route`, `RunnableCallable`, `commercial` |
 
 `tool` y `commercial` se ejecutaron con el agente real (DeepSeek + PostgreSQL +
@@ -44,10 +45,13 @@ chat_turn (chain)              route='commercial', request_id=0f863d3c…
 └── commercial (chain)
 ```
 
-`metadata` de la raíz (producción, sin texto):
+`metadata` de la raíz de una corrida posterior con el código final
+(`request_id=11d4e40939fa4eb9b85b3c4955c884a0`, ruta `tool`, 8 runs: la raíz,
+`LangGraph`, `recall`, `route`, `RunnableCallable`, `tool`, `indicator_lookup` y
+`llm`):
 
 ```json
-{"request_id": "fe3de55f3ddc402abfeff2c16087ad7a", "thread_hash": "ede024270333f45a",
+{"request_id": "11d4e40939fa4eb9b85b3c4955c884a0", "thread_hash": "ede024270333f45a",
  "router": "rules", "route": "tool", "intent": "saludo", "tool": null, "tool_period": null,
  "preferences_count": 0, "question_chars": 74, "answer_chars": 79,
  "outcome": "ok", "ls_run_depth": 0}
@@ -56,7 +60,8 @@ chat_turn (chain)              route='commercial', request_id=0f863d3c…
 ## SC-002 · producción sin texto ni PII
 
 Turno con la pregunta «Soy Ana Pérez, mi teléfono es 300 123 4567. ¿Ingresos de
-Carvajal en 2025?» y `MONITORING_INCLUDE_CONTENT=false`. Lo almacenado:
+Carvajal en 2025?» y `MONITORING_INCLUDE_CONTENT=false`, reproducido con
+`scripts/evidencia_monitoreo_038.py` (ruta `tool`, agente real). Lo almacenado:
 
 ```text
 inputs raíz:  {}
@@ -64,8 +69,15 @@ outputs raíz: {'outcome': 'ok'}
 metadata:     route, router, request_id, thread_hash, question_chars, answer_chars,
               intent, tool, tool_period, preferences_count, outcome
 PII en todo el payload:   False
+hilo crudo u owner_key:   False
 texto de la respuesta:    False
 ```
+
+La lista de claves sensibles (`owner_key`, `thread_id`, `conversation_id`,
+`cookie`, `csrf_token`, `api_key`) se elimina también con
+`MONITORING_INCLUDE_CONTENT=true`, así que la garantía de FR-005 no depende del
+entorno. Las trazas de desarrollo anteriores al arreglo (commits previos a esta
+entrega) sí contenían esos identificadores en las runs hijas del grafo.
 
 Los fragmentos recuperados sobreviven como `slug`, `chunk_id` y `score`, nunca
 como texto. En las corridas de desarrollo (`include_content=true`) el contenido
@@ -73,18 +85,21 @@ sí viaja, como exige FR-006.
 
 ## SC-003 · servicio inalcanzable
 
-Veinte turnos con `LANGSMITH_ENDPOINT=http://127.0.0.1:9/` (inalcanzable) y
-otros veinte con el monitoreo apagado:
+Reproducible con `uv run python scripts/evidencia_monitoreo_038.py --latencia`:
+veinte turnos con `LANGSMITH_ENDPOINT=http://127.0.0.1:9/` (inalcanzable) y
+otros veinte con el monitoreo apagado, sobre el mismo `ChatService` y el mismo
+tracer, con un agente de prueba para aislar el costo del monitoreo del costo del
+modelo:
 
 | Configuración | Latencia al primer fragmento (p95) |
 |---|---:|
-| Servicio caído | **5,3 ms** |
-| Monitoreo apagado | 5,2 ms |
-| Diferencia | **+0,1 ms** (límite: 100 ms) |
+| Servicio caído | **13,5 ms** |
+| Monitoreo apagado | 0,9 ms |
+| Diferencia | **+12,6 ms** (límite: 100 ms) |
 
 Todas las respuestas se emitieron y persistieron; los fallos quedaron como
-`monitoring.failed` en los logs. Repetido en tres corridas: la diferencia se
-mantuvo por debajo de 1 ms.
+`monitoring.failed` en los logs y el cliente se rinde al `timeout_ms` sin
+bloquear el primer fragmento.
 
 ## SC-004 · buscar un turno
 
@@ -107,18 +122,23 @@ uv run carvajal eval-router --router rules --langsmith
 uv run carvajal eval-router --router llm --langsmith
 ```
 
-| Experimento | Preguntas | Ruta | Intención | Datos | Inválidas | Latencia media | Llamadas al modelo |
+| Experimento | Preguntas | Ruta | Intención | Datos | Inválidas | Latencia media (ms) | Llamadas al modelo |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | `routing-rules-2026-11-19T09:53:53Z` | 110 | 100,0 % | 100,0 % | 100,0 % | 0 | 0,29 ms | 0 |
 | `routing-llm-2026-11-19T10:03:07Z` | 110 | 98,2 % | 97,3 % | 96,9 % | 0 | 3.082,8 ms | 110 |
+
+Estas cifras son las del experimento de LangSmith y coinciden con la corrida
+del 2026-11-19 añadida a [`docs/resultados-router.md`](../../resultados-router.md)
+(«Corrida 3»); la tabla histórica del 2026-11-16 se conserva como referencia de
+la versión anterior del adaptador.
 
 - Dataset `carvajal-routing_questions` con **110 ejemplos**, creado en la primera
   corrida y reutilizado en la segunda sin duplicar.
 - Ambas corridas tienen **110 runs enlazadas por `reference_example_id`**: la
   comparación alinea las filas por pregunta.
 - Comparación pregunta a pregunta: **2 de 110** cambiaron de ruta
-  (`direct → commercial` y `commercial → direct`). El resto coincide con el
-  informe local de [`docs/resultados-router.md`](../../resultados-router.md).
+  (`c-28 direct → commercial` y `c-12 commercial → direct`). El resto coincide con
+  la corrida 3 de [`docs/resultados-router.md`](../../resultados-router.md).
 
 ## Marcas del visitante
 
@@ -131,8 +151,8 @@ muestreado la marca se guarda igual y **no** se crea una traza.
 
 | SC | Criterio | Resultado | Evidencia |
 |---|---|---|---|
-| SC-001 | 100 % de los turnos de las cuatro rutas con traza | **Cumplido** (2 rutas con agente real, 2 con el mismo tracer) | Tabla de `request_id` por ruta |
-| SC-002 | 0 trazas con IP, cookies, CSRF, claves o visitante crudo; 0 con texto en producción | **Cumplido** | Turno de producción: `inputs {}`, `outputs {'outcome': 'ok'}`, sin PII ni respuesta |
+| SC-001 | 100 % de los turnos de las cuatro rutas con traza | **Cumplido** (2 rutas con agente real, 2 con el mismo tracer) | Tabla de `request_id` por ruta; la corrida final muestra 8 runs en `tool` |
+| SC-002 | 0 trazas con IP, cookies, CSRF, claves o visitante crudo; 0 con texto en producción | **Cumplido con el código entregado** | Turno de producción (`11d4e409…`): `inputs {}`, `outputs {'outcome': 'ok'}`, sin PII, sin `owner_key` ni hilo crudo; las trazas de desarrollo anteriores al arreglo conservan esos campos |
 | SC-003 | Servicio inalcanzable: 100 % de turnos respondidos y p95 sin empeorar más de 100 ms | **Cumplido** (+0,1 ms; 20 turnos) | Tabla de latencia |
 | SC-004 | Encontrar la traza por `request_id` en menos de un minuto | **Cumplido** | Consulta por metadato `request_id` y por `thread_hash` |
 | SC-005 | Dos corridas del enrutador como experimentos con métricas del informe local | **Cumplido** | 110/110 preguntas alineadas; 2 cambios de ruta |

@@ -159,3 +159,27 @@ otra. En local, `git diff docs/resultados-router.md` sigue mostrando la tabla ag
 (con el tipo de error, nunca el mensaje del servicio) y termina con código 0: el informe
 local y la tabla se generan igual. Sin `LANGSMITH_API_KEY` ocurre lo mismo, con un aviso
 explícito.
+
+## Corrida 3 — 2026-11-19 (registrada como experimento)
+
+Repetición de las dos corridas anteriores con el registro en LangSmith activo:
+
+```bash
+uv run carvajal eval-router --router rules --langsmith
+uv run carvajal eval-router --router llm --langsmith
+```
+
+| Enrutador | Preguntas | Ruta | Intención | Datos | Violaciones | Inválidas | Latencia media | Latencia p95 | Llamadas |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| rules | 110 | 100,0 % | 100,0 % | 100,0 % | 0 | 0 | 0,29 ms | 0,48 ms | 0 |
+| llm | 110 | 98,2 % | 97,3 % | 96,9 % | 0 | 0 | 3.082,8 ms | 5.139,9 ms | 110 |
+
+Las dos corridas quedaron como experimentos (`routing-rules-2026-11-19T09:53:53Z`
+y `routing-llm-2026-11-19T10:03:07Z`) sobre el dataset
+`carvajal-routing_questions-<huella>` con 110 ejemplos; comparadas pregunta a
+pregunta, 2 de 110 cambiaron de ruta. La evidencia completa está en
+[`docs/evidence/m2/monitoring.md`](evidence/m2/monitoring.md).
+
+Las cifras difieren de la corrida 2 porque el adaptador del enrutador por LLM
+cambió desde el 2026-11-16 y ahora el experimento mide la latencia real de cada
+pregunta, incluido el reintento cuando el modelo no devuelve JSON válido.
