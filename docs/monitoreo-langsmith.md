@@ -11,8 +11,10 @@
 | Desarrollo y evaluación | Pregunta, respuesta y fragmentos completos | `MONITORING_INCLUDE_CONTENT=true` |
 
 En ningún entorno viajan la IP, las cookies, los tokens CSRF, las claves de API,
-el `owner_key` ni el identificador crudo del visitante. El hilo se representa con
-`thread_hash`: los primeros 16 hex del SHA-256 de su identificador.
+el `owner_key` ni el identificador crudo del visitante: la lista de claves
+sensibles se filtra también con `MONITORING_INCLUDE_CONTENT=true`. El hilo se
+representa con `thread_hash`: los primeros 16 hex del SHA-256 de su
+identificador.
 
 Los errores se envían **solo como tipo** (`ValueError`, `TimeoutError`, …): el
 mensaje de una excepción puede arrastrar texto del visitante o cabeceras de una
@@ -92,4 +94,5 @@ igual. Con el monitoreo apagado los botones no se muestran.
 
 Nunca incluye la llave ni el endpoint. Si `enabled` es `false` con
 `MONITORING_ENABLED=true`, revisa `LANGSMITH_API_KEY` y el rango del muestreo:
-el arranque lo avisa en los logs.
+el aviso `monitoring.disabled` aparece en los logs al construir el cliente, en
+el primer turno muestreado.

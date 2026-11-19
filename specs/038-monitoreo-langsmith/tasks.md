@@ -1,6 +1,6 @@
 # Tasks: Monitoreo del agente con LangSmith
 
-**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: pendiente
+**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: entregada (PR1–PR6)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -137,11 +137,11 @@ que el primer cambio técnico.
 
 **PR 5 — Documentación**
 
-- [ ] T030 [P] Actualizar `docs/despliegue-ovh.md` y `README.md` con las variables, el modo
+- [X] T030 [P] Actualizar `docs/despliegue-ovh.md` y `README.md` con las variables, el modo
       metadata-only de producción y el presupuesto de 5.000 trazas/mes (20 % de muestreo);
       añadir el bloque `monitoring` a la explicación de `/health` y la derivación de
       `thread_hash` (16 hex) para buscar por hilo
-- [ ] T031 [P] Documentar en `docs/monitoreo-langsmith.md` el plan de LangSmith (límite
+- [X] T031 [P] Documentar en `docs/monitoreo-langsmith.md` el plan de LangSmith (límite
       mensual, muestreo recomendado) y el procedimiento para apagar el monitoreo sin tocar el
       chat
 
