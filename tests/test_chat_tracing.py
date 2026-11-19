@@ -312,6 +312,45 @@ def test_la_raiz_lleva_los_datos_extraidos(engine: Any) -> None:
     assert metadata["preferences_count"] == 2
 
 
+class LLMConLangChain(LLMFalso):
+    """LLM que ejecuta un paso de LangChain al generar (FR-003)."""
+
+    def stream(self, *, system: str, prompt: str) -> Iterator[str]:
+        from langchain_core.runnables import RunnableLambda
+
+        self.llamadas += 1
+        yield str(RunnableLambda(lambda texto: texto.lower()).invoke("CARVAJAL"))
+
+
+def test_el_modelo_real_se_traza_aunque_el_stream_cambie_de_hilo(engine: Any) -> None:
+    """El contexto se reabre en cada avance del generador (T011, FR-003)."""
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    cliente = ClienteFalso()
+    tracer = build_tracer(
+        Settings(_env_file=None, monitoring_enabled=True, langsmith_api_key="lsv2_pt_x"),
+        client=cliente,
+        random_fn=lambda: 0.0,
+    )
+    chat = servicio(engine, AgenteFalso(turno()), tracer, llm=LLMConLangChain())
+
+    generador = chat.stream("traza-hilos", PREGUNTA)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        eventos = []
+        while True:
+            try:
+                eventos.append(pool.submit(next, generador).result())
+            except StopIteration:
+                break
+        ejecutados = len(eventos)
+
+    nombres = [run.get("name") for run in cliente.runs]
+    assert ejecutados > 0
+    assert "llm" in nombres
+    assert any(nombre not in {"chat_turn", "llm"} for nombre in nombres)
+
+
 def test_la_llamada_al_modelo_es_un_hijo_de_la_raiz(engine: Any) -> None:
     """El LLM se traza como hijo explícito con proveedor y modelo (FR-003)."""
 
