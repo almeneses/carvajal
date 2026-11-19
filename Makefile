@@ -60,8 +60,14 @@ format-check: ## Verifica el formato sin modificarlo
 typecheck: ## Verifica los tipos con ty (Astral)
 	uv run ty check
 
-test: ## Ejecuta las pruebas (sin integración)
-	uv run pytest -m "not integration"
+test: ## Ejecuta las pruebas (sin integración, e2e ni smoke)
+	uv run pytest -m "not integration and not e2e and not smoke"
+
+smoke: ## Smoke tests del monitoreo (sin credenciales)
+	uv run pytest -m smoke
+
+e2e: ## End-to-end del monitoreo con servicios reales y LangSmith
+	uv run pytest -m e2e
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
 	@if grep -rq "pytest.mark.integration" tests; then \
