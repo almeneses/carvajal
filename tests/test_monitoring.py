@@ -242,7 +242,11 @@ class TestEstadoDelMonitoreo:
 
         assert redact_run({"error": error}, include_content=False) == {"error": "ValueError"}
         assert redact_run({"error": error}, include_content=True) == {"error": "ValueError"}
-        assert redact_run({"error": "boom"}, include_content=False) == {"error": "boom"}
+        # Sin delimitador reconocible no se arriesga: el mensaje se descarta.
+        assert redact_run({"error": "boom"}, include_content=False) == {"error": "Error"}
+        assert redact_run({"error": "Ana Pérez 300 123 4567"}, include_content=False) == {
+            "error": "Error"
+        }
         # Formato repr de LangChain: sin ':' el mensaje también se descarta.
         assert redact_run(
             {"error": "ValueError('Ana Pérez, 300 123 4567')"}, include_content=False

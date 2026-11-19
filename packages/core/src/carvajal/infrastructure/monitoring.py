@@ -203,7 +203,14 @@ def _tipo_de_error(error: Any) -> str:
     primera = texto.splitlines()[0].strip()
     for corte in ("(", ":", "\n"):
         primera = primera.split(corte, 1)[0]
-    return primera.strip() or "Error"
+    candidato = primera.strip()
+    # Solo un nombre de tipo sobrevive: un mensaje suelto («boom», con espacios
+    # o en minúsculas) se descarta para no arriesgar FR-005.
+    if not candidato or not all(caracter.isalnum() or caracter in "_." for caracter in candidato):
+        return "Error"
+    if not (candidato[0].isupper() or candidato.endswith(("Error", "Exception", "Warning"))):
+        return "Error"
+    return candidato
 
 
 def redact_run_ops(ops: Any, include_content: bool) -> Any:
@@ -366,6 +373,14 @@ class LangSmithTurn:
         if self._closed:
             return
         self._outputs.update(values)
+        # ``answer_chars`` sobrevive a la redacción: es el dato útil cuando el
+        # turno se cancela o falla a medias (T010).
+        respuesta = self._outputs.get("answer")
+        if isinstance(respuesta, str):
+            try:
+                self._root.add_metadata({"answer_chars": len(respuesta)})
+            except Exception as error:  # pragma: no cover - defensa ante SDK
+                _registrar_fallo(error)
 
     def finish(self, *, outcome: str = "ok", error: BaseException | None = None) -> None:
         """Cierra la raíz; idempotente ante ``close`` y ``finally``."""
