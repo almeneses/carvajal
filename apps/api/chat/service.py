@@ -139,6 +139,16 @@ class ChatService:
             self._settings = Settings()
         return self._settings
 
+    def _modelo(self) -> str:
+        """Modelo configurado, para los metadatos de la llamada al LLM."""
+
+        config = self._config()
+        if config.llm_provider == "deepseek":
+            return config.deepseek_model
+        if config.llm_provider == "claude":
+            return config.claude_model
+        return config.ollama_model
+
     def _monitoring(self) -> TurnTracer:
         """Tracer inyectado o el que dicta la configuración (apagado por defecto)."""
 
@@ -305,18 +315,40 @@ class ChatService:
                     yield ChatEvent("token", {"text": NO_CONTEXT_ANSWER})
                 else:
                     try:
-                        for fragment in self._llm.stream(system=turn.system, prompt=turn.prompt):
-                            fragments.append(fragment)
-                            # Lo generado queda en la traza: una cancelación
-                            # deja el texto parcial (edge case de US1).
-                            span.add_outputs(answer="".join(fragments))
-                            yield ChatEvent("token", {"text": fragment})
+                        # El hijo explícito no depende de los contextvars: el
+                        # generador SSE avanza en hilos del threadpool y ahí el
+                        # contexto de tracing no viaja (FR-003).
+                        with span.child(
+                            "llm",
+                            run_type="llm",
+                            metadata={
+                                "provider": self._config().llm_provider,
+                                "model": self._modelo(),
+                            },
+                        ) as llm_span:
+                            fragmentos = self._llm.stream(system=turn.system, prompt=turn.prompt)
+                            for fragment in fragmentos:
+                                fragments.append(fragment)
+                                # Lo generado queda en la traza: una cancelación
+                                # deja el texto parcial (edge case de US1).
+                                span.add_outputs(answer="".join(fragments))
+                                llm_span.add_outputs(answer_chars=len("".join(fragments)))
+                                yield ChatEvent("token", {"text": fragment})
                     except Exception as error:
                         if "".join(fragments).strip():
                             raise
                         logger.warning("chat.stream_fallback", error=str(error))
                     if not "".join(fragments).strip():
-                        answer = self._llm.complete(system=turn.system, prompt=turn.prompt)
+                        with span.child(
+                            "llm",
+                            run_type="llm",
+                            metadata={
+                                "provider": self._config().llm_provider,
+                                "model": self._modelo(),
+                            },
+                        ) as llm_span:
+                            answer = self._llm.complete(system=turn.system, prompt=turn.prompt)
+                            llm_span.add_outputs(answer_chars=len(answer))
                         fragments = [answer]
                         span.add_outputs(answer=answer)
                         yield ChatEvent(

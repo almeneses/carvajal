@@ -122,6 +122,20 @@ class TurnoFalso:
         self.metadata: dict[str, Any] = {}
         self.outputs: dict[str, Any] = {}
         self.outcomes: list[str] = []
+        self.hijos: list[tuple[str, str, dict[str, Any]]] = []
+        self.generaciones = 0
+
+    def generation(self) -> Any:
+        from contextlib import nullcontext
+
+        self.generaciones += 1
+        return nullcontext()
+
+    def child(self, name: str, *, run_type: str = "chain", metadata: Any = None) -> Any:
+        from contextlib import nullcontext
+
+        self.hijos.append((name, run_type, dict(metadata or {})))
+        return nullcontext(TurnoFalso())
 
     def add_metadata(self, **values: Any) -> None:
         self.metadata.update(values)
@@ -296,6 +310,17 @@ def test_la_raiz_lleva_los_datos_extraidos(engine: Any) -> None:
     assert metadata["tool"] == "indicator_lookup"
     assert metadata["tool_period"] == "2025"
     assert metadata["preferences_count"] == 2
+
+
+def test_la_llamada_al_modelo_es_un_hijo_de_la_raiz(engine: Any) -> None:
+    """El LLM se traza como hijo explícito con proveedor y modelo (FR-003)."""
+
+    tracer = TracerFalso()
+    chat = servicio(engine, AgenteFalso(turno()), tracer)
+
+    eventos(chat, "traza-llm")
+
+    assert ("llm", "llm", {"provider": "ollama", "model": "llama3.2"}) in tracer.turnos[0].hijos
 
 
 def test_el_done_publica_el_request_id_de_la_traza(engine: Any) -> None:
