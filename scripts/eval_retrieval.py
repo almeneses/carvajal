@@ -61,6 +61,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--json", type=Path, default=DEFAULT_JSON)
     parser.add_argument("--k", type=int, default=10)
+    parser.add_argument(
+        "--langsmith",
+        action="store_true",
+        help=(
+            "Registra la corrida como experimento en LangSmith (spec 038). Sin esta "
+            "bandera no se importa LangSmith ni se toca la red."
+        ),
+    )
     args = parser.parse_args(argv)
 
     settings = Settings()
@@ -151,6 +159,54 @@ def main(argv: list[str] | None = None) -> int:
         f"Recall@{args.k}={summary['recall_at_k']} nDCG@{args.k}={summary['ndcg_at_k']} "
         f"-> {args.output}"
     )
+    if args.langsmith:
+        from carvajal.infrastructure.monitoring import (
+            build_eval_client,
+            commit_sha,
+            register_experiment,
+        )
+
+        client = build_eval_client(settings)
+        if client is None:
+            print("Experimento no registrado: falta LANGSMITH_API_KEY.", file=sys.stderr)
+        else:
+            fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            filas = [
+                {
+                    "id": row["id"],
+                    "inputs": {"query": row["query"]},
+                    "outputs": {
+                        "retrieved": row["retrieved"],
+                        "scores": row["scores"],
+                        "recall_at_k": row.get("recall_at_k"),
+                        "ndcg_at_k": row.get("ndcg_at_k"),
+                        "abstained": row.get("abstained"),
+                    },
+                }
+                for row in summary["rows"]
+            ]
+            resultado = register_experiment(
+                client,
+                dataset="carvajal-retrieval",
+                experiment=f"retrieval-{fecha}",
+                rows=filas,
+                metrics={
+                    "k": args.k,
+                    "recall_at_k": summary["recall_at_k"],
+                    "ndcg_at_k": summary["ndcg_at_k"],
+                    "queries": summary["queries"],
+                    "labeled_queries": summary["labeled_queries"],
+                },
+                metadata={
+                    "commit": commit_sha(),
+                    "date": fecha,
+                    "collection": settings.qdrant_collection,
+                    "k": args.k,
+                    "min_score": settings.rag_min_score,
+                },
+                description="Evaluación de recuperación en Qdrant (spec 037/038).",
+            )
+            print(resultado.as_message())
     store.close()
     return 0
 

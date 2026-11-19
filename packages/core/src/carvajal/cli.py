@@ -237,6 +237,14 @@ def build_parser() -> argparse.ArgumentParser:
     router_parser.add_argument(
         "--output", type=Path, default=None, help="Archivo Markdown donde guardar la tabla."
     )
+    router_parser.add_argument(
+        "--langsmith",
+        action="store_true",
+        help=(
+            "Registra la corrida como experimento en LangSmith (spec 038). Sin esta "
+            "bandera no se importa LangSmith ni se toca la red."
+        ),
+    )
 
     catalog_parser = subparsers.add_parser(
         "catalog-build",
@@ -406,6 +414,64 @@ def main(argv: list[str] | None = None) -> int:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(table + "\n", encoding="utf-8")
             print(f"Tabla guardada en {args.output}")
+        if args.langsmith:
+            from carvajal.infrastructure.monitoring import (
+                build_eval_client,
+                commit_sha,
+                register_experiment,
+            )
+            from carvajal.infrastructure.settings import Settings
+
+            settings = Settings()
+            client = build_eval_client(settings)
+            if client is None:
+                print("Experimento no registrado: falta LANGSMITH_API_KEY.")
+            else:
+                fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                for report in reports:
+                    filas = [
+                        {
+                            "id": fila["id"],
+                            "inputs": {"question": fila["question"]},
+                            "outputs": {
+                                "route": fila["route"],
+                                "intent": fila["intent"],
+                                "invalid": fila["invalid"],
+                                "latency_ms": fila["latency_ms"],
+                                "expected_route": fila["expected_route"],
+                                "expected_intent": fila["expected_intent"],
+                            },
+                        }
+                        for fila in report.results
+                    ]
+                    metricas = {
+                        "route_accuracy": round(report.route_accuracy, 4),
+                        "intent_accuracy": round(report.intent_accuracy, 4),
+                        "field_accuracy": round(report.field_accuracy, 4),
+                        "material_violations": report.material_violations,
+                        "invalid_outputs": report.invalid_outputs,
+                        "latency_mean_ms": round(report.latency_mean_ms, 3),
+                        "latency_p95_ms": round(report.latency_p95_ms, 3),
+                        "model_calls": report.model_calls,
+                    }
+                    resultado = register_experiment(
+                        client,
+                        dataset="carvajal-routing",
+                        experiment=f"routing-{report.router}-{fecha}",
+                        rows=filas,
+                        metrics=metricas,
+                        metadata={
+                            "router": report.router,
+                            "commit": commit_sha(),
+                            "date": fecha,
+                            "questions": str(args.questions),
+                            "model": settings.deepseek_model
+                            if settings.llm_provider == "deepseek"
+                            else settings.ollama_model,
+                        },
+                        description="Evaluación del enrutador del agente (spec 036/038).",
+                    )
+                    print(resultado.as_message())
         return 0
 
     if args.command == "catalog-build":

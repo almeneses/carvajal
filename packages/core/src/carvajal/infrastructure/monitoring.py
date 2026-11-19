@@ -331,6 +331,117 @@ def _registrar_fallo(error: BaseException) -> None:
     log.warning("monitoring.failed", stage="tracing", error_type=type(error).__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class ExperimentOutcome:
+    """Resultado de intentar registrar una corrida de evaluación (FR-009)."""
+
+    registered: bool
+    dataset: str = ""
+    experiment: str = ""
+    detail: str = ""
+
+    def as_message(self) -> str:
+        if self.registered:
+            return f"Experimento {self.experiment} registrado sobre {self.dataset}."
+        return f"Experimento no registrado: {self.detail}"
+
+
+def build_eval_client(settings: Settings) -> Any | None:
+    """Cliente para registrar experimentos; ``None`` si no hay llave.
+
+    La evaluación es explícita (bandera ``--langsmith``), así que no depende de
+    ``MONITORING_ENABLED``: el contenido completo está permitido aquí, aunque
+    los errores se siguen reduciendo a su tipo.
+    """
+
+    if not settings.langsmith_api_key.strip():
+        return None
+    try:
+        from langsmith import Client
+
+        return Client(
+            api_url=settings.langsmith_endpoint or None,
+            api_key=settings.langsmith_api_key.strip(),
+            anonymizer=partial(redact_run, include_content=True),
+            timeout_ms=settings.monitoring_timeout_ms,
+            info={},
+        )
+    except Exception as error:
+        _registrar_fallo(error)
+        return None
+
+
+def commit_sha() -> str:
+    """Commit del código evaluado, para comparar corridas (FR-009)."""
+
+    from subprocess import CalledProcessError, run
+
+    try:
+        return run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (CalledProcessError, OSError):
+        return ""
+
+
+def register_experiment(
+    client: Any,
+    *,
+    dataset: str,
+    experiment: str,
+    rows: list[dict[str, Any]],
+    metrics: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    description: str = "",
+) -> ExperimentOutcome:
+    """Registra una corrida ya calculada como experimento de LangSmith.
+
+    El dataset se crea una sola vez y se reutiliza: las preguntas son las
+    mismas y así la interfaz puede comparar dos corridas pregunta a pregunta.
+    No se vuelve a llamar al modelo (T019).
+    """
+
+    try:
+        if client.has_dataset(dataset_name=dataset):
+            referencia = client.read_dataset(dataset_name=dataset)
+        else:
+            referencia = client.create_dataset(dataset_name=dataset, description=description)
+            client.create_examples(
+                inputs=[fila["inputs"] for fila in rows],
+                outputs=[fila.get("outputs") for fila in rows],
+                dataset_id=referencia.id,
+            )
+        proyecto = client.create_project(
+            experiment,
+            description=description,
+            reference_dataset_id=referencia.id,
+        )
+        for fila in rows:
+            client.create_run(
+                name=fila["id"],
+                run_type="chain",
+                inputs=fila["inputs"],
+                outputs=fila.get("outputs") or {},
+                project_name=proyecto.name,
+                extra={"metadata": metadata or {}},
+            )
+        client.create_run(
+            name="metricas",
+            run_type="chain",
+            inputs={"dataset": dataset},
+            outputs=metrics,
+            project_name=proyecto.name,
+            extra={"metadata": metadata or {}},
+        )
+    except Exception as error:
+        log.warning("monitoring.experiment_failed", error_type=type(error).__name__)
+        return ExperimentOutcome(False, dataset=dataset, experiment=experiment, detail=str(error))
+    return ExperimentOutcome(True, dataset=dataset, experiment=experiment)
+
+
 class Turn(Protocol):
     """Handle de un turno en curso; no hace nada si el turno no se muestra."""
 
