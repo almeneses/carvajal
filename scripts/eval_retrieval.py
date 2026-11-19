@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Registra la corrida como experimento en LangSmith (spec 038). Sin esta "
-            "bandera no se importa LangSmith ni se toca la red."
+            "bandera no se carga el módulo de monitoreo ni se toca la red."
         ),
     )
     args = parser.parse_args(argv)
@@ -171,34 +171,15 @@ def main(argv: list[str] | None = None) -> int:
             print("Experimento no registrado: falta LANGSMITH_API_KEY.", file=sys.stderr)
         else:
             fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-            filas = [
-                {
-                    "id": row["id"],
-                    "inputs": {"query": row["query"]},
-                    "outputs": {
-                        "retrieved": row["retrieved"],
-                        "scores": row["scores"],
-                        "recall_at_k": row.get("recall_at_k"),
-                        "ndcg_at_k": row.get("ndcg_at_k"),
-                        "abstained": row.get("abstained"),
-                    },
-                }
-                for row in summary["rows"]
-            ]
+            filas = experiment_rows(summary)
             resultado = register_experiment(
                 client,
-                dataset="carvajal-retrieval",
+                dataset=f"carvajal-{args.queries.stem}",
                 experiment=f"retrieval-{fecha}",
                 rows=filas,
-                metrics={
-                    "k": args.k,
-                    "recall_at_k": summary["recall_at_k"],
-                    "ndcg_at_k": summary["ndcg_at_k"],
-                    "queries": summary["queries"],
-                    "labeled_queries": summary["labeled_queries"],
-                },
+                metrics=experiment_metrics(summary),
                 metadata={
-                    "commit": commit_sha(),
+                    "commit": commit_sha() or "desconocido",
                     "date": fecha,
                     "collection": settings.qdrant_collection,
                     "k": args.k,
@@ -206,9 +187,46 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 description="Evaluación de recuperación en Qdrant (spec 037/038).",
             )
-            print(resultado.as_message())
+            print(resultado.as_message(), file=sys.stderr)
     store.close()
     return 0
+
+
+def experiment_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """Filas del experimento: verdad de referencia y predicción por consulta."""
+
+    filas: list[dict[str, Any]] = []
+    for row in summary["rows"]:
+        filas.append(
+            {
+                "id": row["id"],
+                "inputs": {"query": row["query"]},
+                "expected": {
+                    "relevant": row["relevant"],
+                    "expect_abstain": "recall_at_k" not in row,
+                },
+                "outputs": {
+                    "retrieved": row["retrieved"],
+                    "scores": row["scores"],
+                    "recall_at_k": row.get("recall_at_k"),
+                    "ndcg_at_k": row.get("ndcg_at_k"),
+                    "abstained": row.get("abstained"),
+                },
+            }
+        )
+    return filas
+
+
+def experiment_metrics(summary: dict[str, Any]) -> dict[str, Any]:
+    """Agregados del informe local, tal como se registran en el experimento."""
+
+    return {
+        "k": summary["k"],
+        "recall_at_k": summary["recall_at_k"],
+        "ndcg_at_k": summary["ndcg_at_k"],
+        "queries": summary["queries"],
+        "labeled_queries": summary["labeled_queries"],
+    }
 
 
 def render_markdown(summary: dict[str, Any]) -> str:

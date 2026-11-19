@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -242,7 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Registra la corrida como experimento en LangSmith (spec 038). Sin esta "
-            "bandera no se importa LangSmith ni se toca la red."
+            "bandera no se carga el módulo de monitoreo ni se toca la red."
         ),
     )
 
@@ -425,7 +426,10 @@ def main(argv: list[str] | None = None) -> int:
             settings = Settings()
             client = build_eval_client(settings)
             if client is None:
-                print("Experimento no registrado: falta LANGSMITH_API_KEY.")
+                print(
+                    "Experimento no registrado: falta LANGSMITH_API_KEY.",
+                    file=sys.stderr,
+                )
             else:
                 fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
                 for report in reports:
@@ -433,13 +437,17 @@ def main(argv: list[str] | None = None) -> int:
                         {
                             "id": fila["id"],
                             "inputs": {"question": fila["question"]},
+                            # La verdad de referencia va al ejemplo del dataset;
+                            # las predicciones, a la run del experimento.
+                            "expected": {
+                                "route": fila["expected_route"],
+                                "intent": fila["expected_intent"],
+                            },
                             "outputs": {
                                 "route": fila["route"],
                                 "intent": fila["intent"],
                                 "invalid": fila["invalid"],
                                 "latency_ms": fila["latency_ms"],
-                                "expected_route": fila["expected_route"],
-                                "expected_intent": fila["expected_intent"],
                             },
                         }
                         for fila in report.results
@@ -456,13 +464,13 @@ def main(argv: list[str] | None = None) -> int:
                     }
                     resultado = register_experiment(
                         client,
-                        dataset="carvajal-routing",
+                        dataset=f"carvajal-{args.questions.stem}",
                         experiment=f"routing-{report.router}-{fecha}",
                         rows=filas,
                         metrics=metricas,
                         metadata={
                             "router": report.router,
-                            "commit": commit_sha(),
+                            "commit": commit_sha() or "desconocido",
                             "date": fecha,
                             "questions": str(args.questions),
                             "model": settings.deepseek_model
@@ -471,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
                         },
                         description="Evaluación del enrutador del agente (spec 036/038).",
                     )
-                    print(resultado.as_message())
+                    print(resultado.as_message(), file=sys.stderr)
         return 0
 
     if args.command == "catalog-build":

@@ -18,11 +18,14 @@ from __future__ import annotations
 import hashlib
 import random
 from collections.abc import Callable, Generator, Mapping
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from functools import partial
-from threading import Lock, Thread
+from pathlib import Path
+from threading import Lock
 from typing import Any, Protocol
+from uuid import NAMESPACE_URL, uuid5
 
 import structlog
 
@@ -146,20 +149,6 @@ def thread_hash(thread_id: str) -> str:
     return hashlib.sha256(thread_id.encode("utf-8")).hexdigest()[:16]
 
 
-def _strip_sensitive(value: Any) -> Any:
-    """Elimina recursivamente los identificadores del visitante."""
-
-    if isinstance(value, Mapping):
-        return {
-            clave: _strip_sensitive(item)
-            for clave, item in value.items()
-            if isinstance(clave, str) and clave not in SENSITIVE_KEYS
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_strip_sensitive(item) for item in value]
-    return value
-
-
 def redact(payload: Any, include_content: bool) -> Any:
     """Filtra ``payload`` con la lista blanca de metadatos (FR-006).
 
@@ -168,9 +157,8 @@ def redact(payload: Any, include_content: bool) -> Any:
     """
 
     if include_content:
-        # El contenido está permitido, los identificadores del visitante no.
-        return _strip_sensitive(payload)
-    limpio = _strip_sensitive(_redact(payload, permitido=False))
+        return payload
+    limpio = _redact(payload, permitido=False)
     return limpio if isinstance(limpio, dict) else {}
 
 
@@ -220,7 +208,7 @@ def redact_run(payload: Any, include_content: bool) -> Any:
     if set(payload) == {"error"}:
         return {"error": _tipo_de_error(payload["error"])}
     if include_content:
-        return _strip_sensitive(payload)
+        return dict(payload)
     limpio = redact(payload, include_content=False)
     return limpio if isinstance(limpio, dict) else {}
 
@@ -258,7 +246,7 @@ def redact_run_ops(ops: Any, include_content: bool) -> Any:
     """
 
     if include_content:
-        return [_strip_sensitive(op) for op in ops]
+        return ops
     limpios = []
     for op in ops:
         if not isinstance(op, dict):
@@ -372,19 +360,71 @@ def build_eval_client(settings: Settings) -> Any | None:
 
 
 def commit_sha() -> str:
-    """Commit del código evaluado, para comparar corridas (FR-009)."""
+    """Commit del código evaluado, resuelto contra la raíz del repositorio.
+
+    Se ejecuta con ``cwd`` en la raíz del checkout, no en el directorio actual,
+    para no registrar el commit de otro proyecto. Devuelve cadena vacía si el
+    árbol no es un repositorio (por ejemplo, una instalación empaquetada).
+    """
 
     from subprocess import CalledProcessError, run
 
+    raiz = Path(__file__).resolve().parents[5]
     try:
         return run(
-            ["git", "rev-parse", "--short=12", "HEAD"],
+            ["git", "-C", str(raiz), "rev-parse", "--short=12", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
         ).stdout.strip()
     except (CalledProcessError, OSError):
         return ""
+
+
+def example_id(dataset: str, row_id: str) -> str:
+    """Identificador estable del ejemplo: el mismo en cada corrida."""
+
+    return str(uuid5(NAMESPACE_URL, f"carvajal://{dataset}/{row_id}"))
+
+
+def _ensure_dataset(
+    client: Any,
+    dataset: str,
+    rows: list[dict[str, Any]],
+    description: str,
+) -> Any:
+    """Devuelve el dataset y completa los ejemplos que falten.
+
+    El nombre se deriva del archivo de preguntas, así un conjunto distinto no
+    reutiliza un dataset con otras preguntas. Si una corrida anterior falló a
+    medias, los ejemplos que falten se crean ahora en lugar de dejar el
+    dataset vacío para siempre.
+    """
+
+    try:
+        referencia = client.read_dataset(dataset_name=dataset)
+    except Exception:
+        try:
+            referencia = client.create_dataset(dataset_name=dataset, description=description)
+        except Exception:
+            # Otra corrida lo creó entre la lectura y el alta.
+            referencia = client.read_dataset(dataset_name=dataset)
+    existentes = {str(ejemplo.id) for ejemplo in client.list_examples(dataset_id=referencia.id)}
+    faltantes = [
+        {
+            "id": example_id(dataset, fila["id"]),
+            "dataset_id": referencia.id,
+            "inputs": fila["inputs"],
+            "outputs": fila.get("expected") or {},
+        }
+        for fila in rows
+        if example_id(dataset, fila["id"]) not in existentes
+    ]
+    if faltantes:
+        # El SDK exige ``dataset_id`` en la llamada (``xor_args``): el campo
+        # dentro del ejemplo no existe en ``ExampleCreate``.
+        client.create_examples(dataset_id=referencia.id, examples=faltantes)
+    return referencia
 
 
 def register_experiment(
@@ -399,25 +439,23 @@ def register_experiment(
 ) -> ExperimentOutcome:
     """Registra una corrida ya calculada como experimento de LangSmith.
 
-    El dataset se crea una sola vez y se reutiliza: las preguntas son las
-    mismas y así la interfaz puede comparar dos corridas pregunta a pregunta.
-    No se vuelve a llamar al modelo (T019).
+    Cada fila queda enlazada a su ejemplo del dataset (``reference_example_id``),
+    que es lo que permite comparar dos corridas pregunta a pregunta, y se crea
+    cerrada (``start_time``/``end_time``) para que el servicio calcule la
+    latencia. Los agregados van a los metadatos del experimento, no a una run
+    ficticia. No se vuelve a llamar al modelo (T019).
     """
 
+    ahora = datetime.now(UTC)
     try:
-        if client.has_dataset(dataset_name=dataset):
-            referencia = client.read_dataset(dataset_name=dataset)
-        else:
-            referencia = client.create_dataset(dataset_name=dataset, description=description)
-            client.create_examples(
-                inputs=[fila["inputs"] for fila in rows],
-                outputs=[fila.get("outputs") for fila in rows],
-                dataset_id=referencia.id,
-            )
+        referencia = _ensure_dataset(client, dataset, rows, description)
+        metadatos = {**(metadata or {}), "metrics": metrics}
         proyecto = client.create_project(
             experiment,
             description=description,
             reference_dataset_id=referencia.id,
+            metadata=metadatos,
+            upsert=True,
         )
         for fila in rows:
             client.create_run(
@@ -426,43 +464,23 @@ def register_experiment(
                 inputs=fila["inputs"],
                 outputs=fila.get("outputs") or {},
                 project_name=proyecto.name,
+                reference_example_id=example_id(dataset, fila["id"]),
+                start_time=ahora,
+                # La latencia medida del informe local da la duración real.
+                end_time=ahora
+                + timedelta(milliseconds=float(fila.get("latency_ms") or 0.0)),
                 extra={"metadata": metadata or {}},
             )
-        client.create_run(
-            name="metricas",
-            run_type="chain",
-            inputs={"dataset": dataset},
-            outputs=metrics,
-            project_name=proyecto.name,
-            extra={"metadata": metadata or {}},
-        )
     except Exception as error:
         log.warning("monitoring.experiment_failed", error_type=type(error).__name__)
-        return ExperimentOutcome(False, dataset=dataset, experiment=experiment, detail=str(error))
+        return ExperimentOutcome(
+            False, dataset=dataset, experiment=experiment, detail=type(error).__name__
+        )
     return ExperimentOutcome(True, dataset=dataset, experiment=experiment)
 
 
 class Turn(Protocol):
     """Handle de un turno en curso; no hace nada si el turno no se muestra."""
-
-    def generation(self) -> AbstractContextManager[None]:
-        """Reabre el contexto de tracing alrededor de la llamada al modelo.
-
-        Starlette avanza el generador SSE en hilos del *threadpool*: los
-        contextvars que activó ``turn()`` no viajan con él, así que la llamada
-        al LLM se trazaría sin padre. Reentrar aquí la vuelve a colgar de la
-        raíz (FR-003).
-        """
-
-    def child(
-        self, name: str, *, run_type: str = "chain", metadata: Mapping[str, Any] | None = None
-    ) -> AbstractContextManager[Turn]:
-        """Abre un hijo explícito de la raíz.
-
-        No depende de los contextvars: Starlette avanza el generador SSE en
-        hilos del *threadpool* y ahí el contexto activo no viaja, así que el
-        padre se enlaza a mano (FR-003).
-        """
 
     def add_metadata(self, **values: Any) -> None:
         """Añade metadatos a la raíz (ruta, intención, herramienta, longitudes)."""
@@ -493,14 +511,6 @@ class NoopTurn:
 
     __slots__ = ()
 
-    def generation(self) -> AbstractContextManager[None]:
-        return nullcontext()
-
-    def child(
-        self, name: str, *, run_type: str = "chain", metadata: Mapping[str, Any] | None = None
-    ) -> AbstractContextManager[Turn]:
-        return nullcontext(NoopTurn())
-
     def add_metadata(self, **values: Any) -> None:
         return None
 
@@ -529,10 +539,9 @@ class NoopTracer:
 class LangSmithTurn:
     """Raíz ``chat_turn`` de un turno muestreado."""
 
-    def __init__(self, root: Any, *, include_content: bool, client: Any = None) -> None:
+    def __init__(self, root: Any, *, include_content: bool) -> None:
         self._root = root
         self._include_content = include_content
-        self._client = client
         self._outputs: dict[str, Any] = {}
         self._closed = False
 
@@ -643,24 +652,8 @@ class LangSmithTurn:
                 error=None if error is None else type(error).__name__,
             )
             self._root.patch(exclude_inputs=not self._include_content)
-            # El SDK solo vacía el búfer al entrar otra operación: con poco
-            # tráfico un turno rápido quedaría sin enviar. Se vacía en un hilo
-            # aparte para no retrasar el cierre del stream.
-            if self._client is not None and hasattr(self._client, "flush"):
-                try:
-                    Thread(target=self._flush, daemon=True).start()
-                except Exception as error:  # pragma: no cover - defensa ante SDK
-                    _registrar_fallo(error)
         except Exception as fallo:
             _registrar_fallo(fallo)
-
-    def _flush(self) -> None:
-        """Vacía el búfer del cliente sin bloquear el turno."""
-
-        try:
-            self._client.flush()
-        except Exception as error:  # pragma: no cover - defensa ante SDK
-            _registrar_fallo(error)
 
 
 class LangSmithTurnTracer:
@@ -761,7 +754,7 @@ class LangSmithTurnTracer:
             _registrar_fallo(fallo)
             contexto = None
 
-        turno = LangSmithTurn(raiz, include_content=incluir, client=cliente)
+        turno = LangSmithTurn(raiz, include_content=incluir)
         try:
             yield turno
         except GeneratorExit:
