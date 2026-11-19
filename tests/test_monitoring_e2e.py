@@ -171,7 +171,9 @@ def _sin_pii(runs: Sequence[Any], textos: Sequence[str] = ()) -> bool:
         ensure_ascii=False,
         default=str,
     )
-    marcas = (*PII, "owner_key", "thread_id", *textos)
+    # El hilo crudo no debe aparecer: se comprueba por su valor real, no por la
+    # clave, porque la traza publica ``thread_hash`` y no ``thread_id``.
+    marcas = (*PII, "owner_key", *textos)
     return not any(marca in volcado for marca in marcas)
 
 
@@ -202,7 +204,8 @@ def test_cuatro_rutas_registran_traza_y_metricas(
 
     for ruta, pregunta in PREGUNTAS.items():
         salida = _turno(cliente, pregunta)
-        request_id = (salida.get("done") or {}).get("request_id")
+        done = salida.get("done") or {}
+        request_id = done.get("request_id")
         assert request_id, f"la ruta {ruta} no publicó request_id: {salida}"
         raiz, runs = _traza(cliente_langsmith, request_id, proyecto)
         assert raiz is not None, f"la ruta {ruta} no dejó traza (request_id={request_id})"
@@ -211,7 +214,7 @@ def test_cuatro_rutas_registran_traza_y_metricas(
             "ruta_observada": (raiz.extra or {}).get("metadata", {}).get("route"),
             "hijos": len(runs) - 1,
             "tokens": _tokens(runs),
-            "pii_libre": _sin_pii(runs, (pregunta,)),
+            "pii_libre": _sin_pii(runs, (pregunta, done.get("thread_id") or "")),
             "ttft_ms": salida["ttft_ms"],
         }
         filas.append(
@@ -233,11 +236,12 @@ def test_cuatro_rutas_registran_traza_y_metricas(
     # Caso explícito con datos personales: sin él, la comprobación de PII sería
     # vacua (ninguna de las cuatro preguntas contiene nombre ni teléfono).
     salida_pii = _turno(cliente, PREGUNTA_PII)
-    request_id_pii = (salida_pii.get("done") or {}).get("request_id")
+    done_pii = salida_pii.get("done") or {}
+    request_id_pii = done_pii.get("request_id")
     assert request_id_pii, f"el turno con PII no publicó request_id: {salida_pii}"
     raiz_pii, runs_pii = _traza(cliente_langsmith, request_id_pii, proyecto)
     assert raiz_pii is not None, "el turno con PII no dejó traza"
-    pii_libre = _sin_pii(runs_pii, (PREGUNTA_PII,))
+    pii_libre = _sin_pii(runs_pii, (PREGUNTA_PII, done_pii.get("thread_id") or ""))
     assert pii_libre, "la traza de producción llevó texto o datos del visitante"
     filas.append(
         {
