@@ -188,3 +188,16 @@ def test_regla_de_material_exige_procedencia() -> None:
         sin_fuente = {key: value for key, value in fila.items() if key != faltante}
         with pytest.raises(ValueError, match=faltante):
             MaterialRule.model_validate(sin_fuente)
+
+
+def test_la_ruta_del_catalogo_se_puede_configurar(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """En la imagen el catálogo vive fuera del volumen del corpus (CATALOG_DIR)."""
+
+    destino = _copia(tmp_path)
+    monkeypatch.setenv("CATALOG_DIR", str(destino))
+
+    catalogo = load_catalog()
+
+    assert catalogo.references == load_catalog(str(destino)).references

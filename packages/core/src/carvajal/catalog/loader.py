@@ -6,6 +6,7 @@ línea exactos: un catálogo a medias recomendaría con datos incompletos.
 """
 
 import csv
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import cache
@@ -18,6 +19,9 @@ from carvajal.catalog.models import Distributor, MaterialRule, Reference
 __all__ = ["DEFAULT_DIR", "Catalog", "CatalogError", "load_catalog"]
 
 DEFAULT_DIR = Path("data") / "catalog" / "empaques"
+# En la imagen el catálogo curado vive fuera de `/app/data` (volumen escribible del
+# corpus); el despliegue fija CATALOG_DIR a esa ruta de solo lectura.
+CATALOG_DIR_ENV = "CATALOG_DIR"
 REFERENCES = "referencias.csv"
 MATERIALS = "materiales.csv"
 DISTRIBUTORS = "distribuidores.csv"
@@ -84,14 +88,15 @@ def _read[T: BaseModel](path: Path, model: type[T]) -> tuple[tuple[int, T], ...]
 
 
 @cache
-def load_catalog(directory: str = str(DEFAULT_DIR)) -> Catalog:
+def load_catalog(directory: str | None = None) -> Catalog:
     """Carga los tres CSV y verifica claves únicas.
 
-    El resultado se cachea por directorio durante la vida del proceso; las pruebas
-    limpian la caché con ``load_catalog.cache_clear()``.
+    La ruta sale de ``directory``, luego de ``CATALOG_DIR`` y por último de
+    ``data/catalog/empaques``. El resultado se cachea por directorio durante la vida
+    del proceso; las pruebas limpian la caché con ``load_catalog.cache_clear()``.
     """
 
-    base = Path(directory)
+    base = Path(directory or os.environ.get(CATALOG_DIR_ENV) or DEFAULT_DIR)
     references = _read(base / REFERENCES, Reference)
     materials = _read(base / MATERIALS, MaterialRule)
     distributors = _read(base / DISTRIBUTORS, Distributor)

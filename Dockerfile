@@ -67,6 +67,10 @@ COPY migrations ./migrations
 COPY apps ./apps
 # Extracto versionado de indicadores que `indicator_lookup` lee en runtime.
 COPY data/indicators.json ./data/indicators.json
+# Catálogo curado de empaques: datos de solo lectura. Vive fuera de `/app/data`
+# porque ese directorio es un volumen escribible que oculta lo que traiga la imagen.
+COPY data/catalog ./catalog
+ENV CATALOG_DIR=/app/catalog/empaques
 # Volumen persistente para Bronze, Silver, Gold e índice de cargas. El dueño
 # debe ser el usuario sin privilegios para poder escribir con read_only: true.
 RUN mkdir -p /app/data && chown -R app:app /app/data
