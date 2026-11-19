@@ -187,6 +187,7 @@ def test_registrar_crea_dataset_y_una_fila_por_pregunta() -> None:
     for run in cliente.runs:
         assert run["reference_example_id"] == example_id("carvajal-routing_questions", run["name"])
         assert run["start_time"] and run["end_time"]
+        assert run["end_time"] > run["start_time"]
     assert cliente.projects[0]["dataset"] == "dataset-1"
     assert cliente.projects[0]["metadata"]["metrics"] == {
         "route_accuracy": 1.0,

@@ -91,21 +91,21 @@ que el primer cambio técnico.
 
 **PR 3 — Experimentos de evaluación**
 
-- [ ] T017 [US3] Exponer en `agent/routers/evaluation.py` las salidas por pregunta que ya
+- [X] T017 [US3] Exponer en `agent/routers/evaluation.py` las salidas por pregunta que ya
       calcula `evaluate_router` (ruta, intención, datos, latencia, inválidas) sin cambiar el
       informe local
-- [ ] T018 [US3] Añadir `--langsmith` a `carvajal eval-router` (`packages/core/src/carvajal/cli.py`):
+- [X] T018 [US3] Añadir `--langsmith` a `carvajal eval-router` (`packages/core/src/carvajal/cli.py`):
       con el flag, registra el experimento; sin el flag, no importa LangSmith ni toca la red
-- [ ] T019 [US3] Crear el dataset de forma idempotente desde `data/eval/routing_questions.json`
+- [X] T019 [US3] Crear el dataset de forma idempotente desde `data/eval/routing_questions.json`
       y registrar un experimento con commit, fecha, enrutador, modelo, configuración,
       métricas agregadas y una salida por pregunta (ruta, intención, inválidas, latencia);
       reutilizar el dataset si ya existe
-- [ ] T020 [P] [US3] Añadir `--langsmith` a `scripts/eval_retrieval.py` con el mismo contrato
+- [X] T020 [P] [US3] Añadir `--langsmith` a `scripts/eval_retrieval.py` con el mismo contrato
       (Recall@10, nDCG@10, commit, fecha y configuración)
-- [ ] T021 [US3] `tests/test_eval_experiments.py`: el flag apagado no importa LangSmith; el flag
+- [X] T021 [US3] `tests/test_eval_experiments.py`: el flag apagado no importa LangSmith; el flag
       encendido usa un cliente falso y el experimento incluye una fila por pregunta; un fallo
       del servicio deja el informe local y no cambia el código de salida
-- [ ] T022 [P] [US3] Documentar en `docs/resultados-router.md` cómo repetir una corrida como
+- [X] T022 [P] [US3] Documentar en `docs/resultados-router.md` cómo repetir una corrida como
       experimento y cómo comparar dos corridas
 
 **Checkpoint**: las dos evaluaciones se registran sin volver a llamar al modelo.
