@@ -21,6 +21,7 @@ from collections.abc import Callable, Generator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from functools import partial
+from threading import Lock
 from typing import Any, Protocol
 
 import structlog
@@ -189,13 +190,46 @@ def redact_run(payload: Any, include_content: bool) -> Any:
 
 
 def _tipo_de_error(error: Any) -> str:
-    """Reduce un mensaje de excepción a su tipo (``ValueError: …`` → ``ValueError``)."""
+    """Reduce un mensaje de excepción a su tipo.
+
+    Cubre las dos formas habituales: ``ValueError: detalle`` y el ``repr``
+    ``ValueError('detalle')`` que produce LangChain. En ambos casos el texto
+    del visitante queda fuera.
+    """
 
     texto = str(error).strip()
     if not texto:
         return "Error"
     primera = texto.splitlines()[0].strip()
-    return primera.split(":", 1)[0].strip() or "Error"
+    for corte in ("(", ":", "\n"):
+        primera = primera.split(corte, 1)[0]
+    return primera.strip() or "Error"
+
+
+def redact_run_ops(ops: Any, include_content: bool) -> Any:
+    """Anonimizador de segundo nivel para los campos que el SDK no filtra.
+
+    El ``anonymizer`` del cliente cubre entradas, salidas, metadatos y errores,
+    pero no ``extra`` ni ``serialized``, donde un nodo puede dejar parámetros o
+    prompts. En producción se vacían; en desarrollo se respetan.
+    """
+
+    if include_content:
+        return ops
+    limpios = []
+    for op in ops:
+        if not isinstance(op, dict):
+            limpios.append(op)
+            continue
+        nuevo = dict(op)
+        if "extra" in nuevo:
+            extra = nuevo.get("extra")
+            metadatos = extra.get("metadata") if isinstance(extra, dict) else None
+            nuevo["extra"] = {"metadata": redact(metadatos, False)}
+        if "serialized" in nuevo:
+            nuevo["serialized"] = {}
+        limpios.append(nuevo)
+    return limpios
 
 
 def build_client(settings: Settings) -> Any | None:
@@ -227,6 +261,14 @@ def build_client(settings: Settings) -> Any | None:
             # ``error``; ``hide_inputs``/``hide_outputs`` no llegan al error de
             # una run hija, que puede arrastrar el texto de la conversación.
             anonymizer=anonimizador,
+            # ``extra``/``serialized`` quedan fuera del anonymizer: se filtran
+            # en el búfer antes de enviar (FR-006).
+            process_buffered_run_ops=partial(
+                redact_run_ops, include_content=settings.monitoring_include_content
+            ),
+            # El SDK exige un tamaño explícito cuando hay este callback.
+            run_ops_buffer_size=100,
+            run_ops_buffer_timeout_ms=settings.monitoring_timeout_ms,
             timeout_ms=settings.monitoring_timeout_ms,
             auto_batch_tracing=True,
             tracing_error_callback=_registrar_fallo,
@@ -364,14 +406,20 @@ class LangSmithTurnTracer:
         self._client_factory = client_factory or build_client
         self._random = random_fn or random.random
         self._cliente_resuelto = client is not None
+        self._lock = Lock()
 
     def _cliente(self) -> Any | None:
-        """Construye el cliente en el primer turno muestreado y lo reutiliza."""
+        """Construye el cliente la primera vez y lo reutiliza entre turnos.
 
-        if not self._cliente_resuelto:
-            self._client = self._client_factory(self._settings)
-            self._cliente_resuelto = True
-        return self._client
+        El lock evita que dos peticiones simultáneas construyan un cliente cada
+        una en el primer turno muestreado.
+        """
+
+        with self._lock:
+            if not self._cliente_resuelto:
+                self._client = self._client_factory(self._settings)
+                self._cliente_resuelto = True
+            return self._client
 
     @contextmanager
     def turn(

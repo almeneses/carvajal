@@ -243,6 +243,13 @@ class TestEstadoDelMonitoreo:
         assert redact_run({"error": error}, include_content=False) == {"error": "ValueError"}
         assert redact_run({"error": error}, include_content=True) == {"error": "ValueError"}
         assert redact_run({"error": "boom"}, include_content=False) == {"error": "boom"}
+        # Formato repr de LangChain: sin ':' el mensaje también se descarta.
+        assert redact_run(
+            {"error": "ValueError('Ana Pérez, 300 123 4567')"}, include_content=False
+        ) == {"error": "ValueError"}
+        assert redact_run(
+            {"error": "RuntimeError('fallo con 300 123 4567')"}, include_content=True
+        ) == {"error": "RuntimeError"}
         assert redact_run({"question": PREGUNTA_CON_PII, "score": 0.4}, False) == {"score": 0.4}
         assert redact_run({"question": PREGUNTA_CON_PII}, True) == {"question": PREGUNTA_CON_PII}
 
@@ -254,6 +261,31 @@ class TestEstadoDelMonitoreo:
         assert cliente is not None
         assert cliente._anonymizer is not None
         assert cliente._anonymizer({"answer": "Ana, tu teléfono es 300 123 4567"}) == {}
+
+    def test_los_campos_que_el_anonimizador_no_cubre_se_vacian(self) -> None:
+        """``extra`` y ``serialized`` no llevan contenido en producción (FR-006)."""
+
+        from carvajal.infrastructure.monitoring import redact_run_ops
+
+        ops = [
+            {
+                "inputs": {"question": PREGUNTA_CON_PII},
+                "extra": {
+                    "metadata": {"ls_provider": "openai", "prompt": "texto"},
+                    "invocation_params": {"responses": ["Ana Pérez"]},
+                },
+                "serialized": {"kwargs": {"content": "Ana Pérez"}},
+            }
+        ]
+
+        limpio = redact_run_ops(ops, include_content=False)[0]
+
+        # ``inputs`` lo filtra el anonymizer del cliente; aquí solo se vacían
+        # los campos que el SDK no le pasa por ese gancho.
+        assert limpio["extra"] == {"metadata": {"ls_provider": "openai"}}
+        assert limpio["serialized"] == {}
+        assert "Ana" not in repr(limpio["extra"]) + repr(limpio["serialized"])
+        assert redact_run_ops(ops, include_content=True) == ops
 
     def test_el_cliente_se_construye_sin_red(self) -> None:
         """El camino feliz de ``build_client`` no abre un socket (FR-010, SC-003)."""
@@ -376,6 +408,39 @@ class TestTrazas:
 
         assert construcciones == [1]
         assert len(cliente.runs) == 2
+
+    def test_el_cliente_se_construye_una_vez_con_concurrencia(self) -> None:
+        """Cinco turnos simultáneos comparten un solo cliente (T007)."""
+
+        from threading import Barrier, Thread
+
+        barrier = Barrier(5)
+        cliente = ClienteFalso()
+        construcciones: list[int] = []
+
+        def fabrica(_settings: Settings) -> Any:
+            construcciones.append(1)
+            return cliente
+
+        tracer = build_tracer(_settings(), client_factory=fabrica, random_fn=lambda: 0.0)
+
+        def turno() -> None:
+            barrier.wait()
+            with tracer.turn(
+                request_id="req-hilo",
+                thread_hash="0123456789abcdef",
+                router="rules",
+                question="hola",
+            ):
+                pass
+
+        hilos = [Thread(target=turno) for _ in range(5)]
+        for hilo in hilos:
+            hilo.start()
+        for hilo in hilos:
+            hilo.join()
+
+        assert construcciones == [1]
 
     def test_un_cliente_que_falla_no_rompe_el_turno(self) -> None:
         """Un servicio caído deja la respuesta intacta y el fallo en los logs (FR-008)."""
