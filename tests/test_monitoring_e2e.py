@@ -49,9 +49,12 @@ PREGUNTAS: dict[str, str] = {
     "tool": "¿Cuáles fueron los ingresos consolidados de Carvajal en 2024?",
     "commercial": "necesito vasos para café caliente de 12 oz",
 }
-PII = ("Ana Pérez", "300 123 4567")
+# Datos deliberadamente ficticios: no deben parecer de una persona real.
+PII = ("Nombre Ficticio Prueba", "000 000 0000")
 # Turno con datos personales: es el que hace que la comprobación de PII pueda fallar.
-PREGUNTA_PII = "Soy Ana Pérez, mi teléfono es 300 123 4567. ¿Ingresos de Carvajal 2024?"
+PREGUNTA_PII = (
+    "Soy Nombre Ficticio Prueba, mi teléfono es 000 000 0000. ¿Ingresos de Carvajal 2024?"
+)
 # Dataset propio del e2e: sus ejemplos son estas cuatro preguntas.
 DATASET = "carvajal-monitoreo-e2e"
 
