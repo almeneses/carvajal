@@ -328,6 +328,16 @@ class Turn(Protocol):
         raíz (FR-003).
         """
 
+    def child(
+        self, name: str, *, run_type: str = "chain", metadata: Mapping[str, Any] | None = None
+    ) -> AbstractContextManager[Turn]:
+        """Abre un hijo explícito de la raíz.
+
+        No depende de los contextvars: Starlette avanza el generador SSE en
+        hilos del *threadpool* y ahí el contexto activo no viaja, así que el
+        padre se enlaza a mano (FR-003).
+        """
+
     def add_metadata(self, **values: Any) -> None:
         """Añade metadatos a la raíz (ruta, intención, herramienta, longitudes)."""
 
@@ -359,6 +369,11 @@ class NoopTurn:
 
     def generation(self) -> AbstractContextManager[None]:
         return nullcontext()
+
+    def child(
+        self, name: str, *, run_type: str = "chain", metadata: Mapping[str, Any] | None = None
+    ) -> AbstractContextManager[Turn]:
+        return nullcontext(NoopTurn())
 
     def add_metadata(self, **values: Any) -> None:
         return None
@@ -394,6 +409,33 @@ class LangSmithTurn:
         self._client = client
         self._outputs: dict[str, Any] = {}
         self._closed = False
+
+    @contextmanager
+    def child(
+        self, name: str, *, run_type: str = "chain", metadata: Mapping[str, Any] | None = None
+    ) -> Generator[Turn]:
+        """Crea un hijo directo de la raíz, sin depender del contexto."""
+
+        if self._closed:
+            yield NoopTurn()
+            return
+        try:
+            hijo = self._root.create_child(name=name, run_type=run_type)
+            if metadata:
+                hijo.add_metadata(dict(metadata))
+            hijo.post()
+        except Exception as error:  # pragma: no cover - defensa ante SDK
+            _registrar_fallo(error)
+            yield NoopTurn()
+            return
+        interno = LangSmithTurn(hijo, include_content=self._include_content, client=self._client)
+        try:
+            yield interno
+        except BaseException as error:
+            interno.finish(outcome="failed", error=error)
+            raise
+        else:
+            interno.finish(outcome="ok")
 
     @contextmanager
     def generation(self) -> Generator[None]:
