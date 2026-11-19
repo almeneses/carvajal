@@ -140,6 +140,10 @@ class TestRedaccion:
         payload = {
             "owner_key": "owner-secreto",
             "thread_id": "hilo-crudo",
+            "ip": "192.0.2.1",
+            "cookies": {"sesion": "x"},
+            "authorization": "Bearer x",
+            "csrf": "token-csrf",
             "question": "hola",
             "steps": [{"conversation_id": "hilo-crudo", "score": 0.7}],
         }
@@ -330,6 +334,57 @@ class TestEstadoDelMonitoreo:
         assert "chat_turn" in nombres
         assert any(nombre not in {"chat_turn"} for nombre in nombres)
 
+    def test_el_cierre_publica_answer_chars_aunque_no_haya_texto(self) -> None:
+        """Un fallo sin tokens deja ``answer_chars`` en cero, no lo omite (T010)."""
+
+        cliente = ClienteFalso()
+        tracer = build_tracer(_settings(), client=cliente, random_fn=lambda: 0.0)
+
+        with (
+            pytest.raises(RuntimeError),
+            tracer.turn(
+                request_id="req-sin-texto",
+                thread_hash="0123456789abcdef",
+                router="rules",
+                question="hola",
+            ),
+        ):
+            raise RuntimeError("antes del primer token")
+
+        cierre = cliente.actualizaciones[0]
+        assert cierre["extra"]["metadata"]["answer_chars"] == 0
+        assert cierre["outputs"]["answer_chars"] == 0
+
+    def test_el_cierre_vacía_el_búfer_sin_bloquear(self) -> None:
+        """Al cerrar se lanza un vaciado en segundo plano (T009)."""
+
+        class ClienteConFlush(ClienteFalso):
+            def __init__(self) -> None:
+                super().__init__()
+                self.vaciados = 0
+
+            def flush(self) -> None:
+                self.vaciados += 1
+
+        cliente = ClienteConFlush()
+        tracer = build_tracer(_settings(), client=cliente, random_fn=lambda: 0.0)
+
+        with tracer.turn(
+            request_id="req-flush",
+            thread_hash="0123456789abcdef",
+            router="rules",
+            question="hola",
+        ):
+            pass
+
+        for _ in range(50):
+            if cliente.vaciados:
+                break
+            import time
+
+            time.sleep(0.02)
+        assert cliente.vaciados == 1
+
     def test_la_generacion_propaga_el_error_del_cuerpo(self) -> None:
         """Un fallo del modelo sale intacto, no como error de contextmanager."""
 
@@ -387,7 +442,7 @@ class TestTrazas:
         assert raiz["extra"]["metadata"]["request_id"] == "req-1"
         assert raiz["extra"]["metadata"]["thread_hash"] == "0123456789abcdef"
         assert raiz["extra"]["metadata"]["router"] == "rules"
-        assert cliente.actualizaciones[0]["outputs"] == {"outcome": "ok"}
+        assert cliente.actualizaciones[0]["outputs"] == {"outcome": "ok", "answer_chars": 0}
 
     def test_tasa_cero_no_crea_traza(self) -> None:
         """Con la tasa en 0 el turno se ejecuta sin cliente ni raíz."""

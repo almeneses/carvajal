@@ -38,7 +38,22 @@ _DESCARTAR = object()
 # Claves que nunca viajan, ni siquiera en desarrollo: identifican al visitante
 # (FR-005). El hilo se envía seudonimizado como ``thread_hash``.
 SENSITIVE_KEYS: frozenset[str] = frozenset(
-    {"owner_key", "thread_id", "conversation_id", "cookie", "csrf_token", "api_key"}
+    {
+        "owner_key",
+        "thread_id",
+        "conversation_id",
+        "cookie",
+        "cookies",
+        "csrf",
+        "csrf_token",
+        "api_key",
+        "authorization",
+        "password",
+        "secret",
+        "session",
+        "session_id",
+        "ip",
+    }
 )
 
 SAFE_KEYS: frozenset[str] = frozenset(
@@ -431,6 +446,10 @@ class LangSmithTurn:
         interno = LangSmithTurn(hijo, include_content=self._include_content, client=self._client)
         try:
             yield interno
+        except GeneratorExit:
+            # Cancelación del visitante: el paso queda cancelado, no fallido.
+            interno.finish(outcome="cancelled")
+            raise
         except BaseException as error:
             interno.finish(outcome="failed", error=error)
             raise
@@ -491,11 +510,20 @@ class LangSmithTurn:
         if self._closed:
             return
         self._closed = True
-        salidas = {"outcome": outcome, **self._outputs}
+        respuesta = self._outputs.get("answer")
+        salidas = {
+            "outcome": outcome,
+            "answer_chars": len(respuesta) if isinstance(respuesta, str) else 0,
+            **self._outputs,
+        }
         if error is not None:
             salidas["error_type"] = type(error).__name__
         try:
             cierre: dict[str, Any] = {"outcome": outcome}
+            # ``answer_chars`` también en un fallo sin tokens: es el único dato
+            # de la respuesta que sobrevive en producción (T010).
+            respuesta = self._outputs.get("answer")
+            cierre["answer_chars"] = len(respuesta) if isinstance(respuesta, str) else 0
             if error is not None:
                 cierre["error_type"] = type(error).__name__
             self._root.add_metadata(cierre)
