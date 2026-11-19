@@ -467,8 +467,7 @@ def register_experiment(
                 reference_example_id=example_id(dataset, fila["id"]),
                 start_time=ahora,
                 # La latencia medida del informe local da la duración real.
-                end_time=ahora
-                + timedelta(milliseconds=float(fila.get("latency_ms") or 0.0)),
+                end_time=ahora + timedelta(milliseconds=float(fila.get("latency_ms") or 0.0)),
                 extra={"metadata": metadata or {}},
             )
     except Exception as error:
