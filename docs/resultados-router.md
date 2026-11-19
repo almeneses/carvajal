@@ -176,8 +176,10 @@ uv run carvajal eval-router --router llm --langsmith
 
 Las dos corridas quedaron como experimentos (`routing-rules-2026-11-19T09:53:53Z`
 y `routing-llm-2026-11-19T10:03:07Z`) sobre el dataset
-`carvajal-routing_questions-<huella>` con 110 ejemplos; comparadas pregunta a
-pregunta, 2 de 110 cambiaron de ruta. La evidencia completa está en
+`carvajal-routing_questions` con 110 ejemplos; comparadas pregunta a pregunta,
+2 de 110 cambiaron de ruta. Desde entonces el nombre del dataset incorpora la
+huella del archivo, así que una corrida nueva con las mismas preguntas creará
+`carvajal-routing_questions-<8 hex>` y no reutilizará etiquetas viejas. La evidencia completa está en
 [`docs/evidence/m2/monitoring.md`](evidence/m2/monitoring.md).
 
 Las cifras difieren de la corrida 2 porque el adaptador del enrutador por LLM

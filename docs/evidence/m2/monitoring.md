@@ -51,9 +51,9 @@ chat_turn (chain)              route='commercial', request_id=0f863d3c…
 `llm`):
 
 ```json
-{"request_id": "11d4e40939fa4eb9b85b3c4955c884a0", "thread_hash": "ede024270333f45a",
- "router": "rules", "route": "tool", "intent": "saludo", "tool": null, "tool_period": null,
- "preferences_count": 0, "question_chars": 74, "answer_chars": 79,
+{"request_id": "11d4e40939fa4eb9b85b3c4955c884a0", "thread_hash": "6975c809c68ab277",
+ "router": "rules", "route": "tool", "intent": "indicator", "tool": "ingresos_consolidados",
+ "tool_period": "2025", "preferences_count": 0, "question_chars": 74, "answer_chars": 248,
  "outcome": "ok", "ls_run_depth": 0}
 ```
 
@@ -96,6 +96,10 @@ modelo:
 | Servicio caído | **13,5 ms** |
 | Monitoreo apagado | 0,9 ms |
 | Diferencia | **+12,6 ms** (límite: 100 ms) |
+
+La cifra es de una corrida; el p95 de 20 muestras varía entre repeticiones
+(otra corrida dio 39,1 ms frente a 0,9 ms). Lo que se sostiene en todas es el
+criterio: la diferencia se mantiene muy por debajo de 100 ms.
 
 Todas las respuestas se emitieron y persistieron; los fallos quedaron como
 `monitoring.failed` en los logs y el cliente se rinde al `timeout_ms` sin
@@ -153,7 +157,7 @@ muestreado la marca se guarda igual y **no** se crea una traza.
 |---|---|---|---|
 | SC-001 | 100 % de los turnos de las cuatro rutas con traza | **Cumplido** (2 rutas con agente real, 2 con el mismo tracer) | Tabla de `request_id` por ruta; la corrida final muestra 8 runs en `tool` |
 | SC-002 | 0 trazas con IP, cookies, CSRF, claves o visitante crudo; 0 con texto en producción | **Cumplido con el código entregado** | Turno de producción (`11d4e409…`): `inputs {}`, `outputs {'outcome': 'ok'}`, sin PII, sin `owner_key` ni hilo crudo; las trazas de desarrollo anteriores al arreglo conservan esos campos |
-| SC-003 | Servicio inalcanzable: 100 % de turnos respondidos y p95 sin empeorar más de 100 ms | **Cumplido** (+0,1 ms; 20 turnos) | Tabla de latencia |
+| SC-003 | Servicio inalcanzable: 100 % de turnos respondidos y p95 sin empeorar más de 100 ms | **Cumplido** (+12,6 ms en la corrida publicada; el criterio se mantiene entre repeticiones, con varianza de decenas de ms en el p95 de 20 muestras) | Tabla de latencia y `--latencia` |
 | SC-004 | Encontrar la traza por `request_id` en menos de un minuto | **Cumplido** | Consulta por metadato `request_id` y por `thread_hash` |
 | SC-005 | Dos corridas del enrutador como experimentos con métricas del informe local | **Cumplido** | 110/110 preguntas alineadas; 2 cambios de ruta |
 
