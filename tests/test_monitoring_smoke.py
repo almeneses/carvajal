@@ -18,7 +18,7 @@ from sqlalchemy.pool import StaticPool
 
 from apps.api.chat.agent import AgentTurn
 from apps.api.chat.service import ChatService
-from apps.api.main import HealthStatus, create_app
+from apps.api.main import Handlers, HealthStatus, create_app
 from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
@@ -107,6 +107,7 @@ def app(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, ClienteFa
     )
     tables.metadata.create_all(motor)
     cliente = ClienteFalso()
+    marcas: list[tuple[str, bool]] = []
     ajustes = Settings(
         _env_file=None,
         monitoring_enabled=True,
@@ -122,10 +123,11 @@ def app(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, ClienteFa
         tracer=build_tracer(ajustes, client=cliente, random_fn=lambda: 0.0),
         settings=ajustes,
     )
-    app = create_app()
+    # Sin base real: la salud y las marcas se inyectan, así el smoke corre en CI.
+    app = create_app(Handlers(health=lambda: HealthStatus(1, 2)))
     app.state.chat = chat
     app.state.quota = lambda owner: QuotaResult(allowed=True)
-    app.state.health = lambda: HealthStatus(1, 2)
+    app.state.feedback = lambda request_id, useful: marcas.append((request_id, useful))
     app.state.monitoring = monitoring_status(ajustes).enabled
     try:
         yield TestClient(app), cliente

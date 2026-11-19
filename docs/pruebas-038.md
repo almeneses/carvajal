@@ -12,8 +12,10 @@
 | **End-to-end** | `make e2e` | ~70 s | PostgreSQL + Qdrant + proveedor de LLM + LangSmith | Las cuatro rutas reales dejan traza, sin PII, con tokens, y **la corrida se registra como experimento** con métricas; además mide SC-003 con el servicio caído |
 
 Marcadores de pytest: `smoke` y `e2e`. `make test` y `make check` los excluyen
-(`-m "not integration and not e2e and not smoke"`), así que el CI y el flujo
-diario siguen sin credenciales.
+(`-m "not integration and not e2e and not smoke"`). El CI ejecuta las unitarias
+(`not integration and not e2e`) y **además el smoke** en un paso propio, porque
+es hermético y dura 3 s; el `e2e` nunca corre en CI (necesita credenciales y
+servicios reales).
 
 ## Smoke (`tests/test_monitoring_smoke.py`)
 
@@ -36,7 +38,9 @@ Qué valida, caso por caso:
    responde; si no hay llave, el caso se omite.
 
 El doble de cliente aplica `redact_run`, igual que el cliente real, para que la
-prueba de privacidad mida lo que realmente viaja.
+prueba de privacidad mida lo que realmente viaja. La salud y las marcas se
+inyectan (`Handlers` y `app.state.feedback`), así que no necesita PostgreSQL y
+puede correr en CI.
 
 ## End-to-end (`tests/test_monitoring_e2e.py`)
 
