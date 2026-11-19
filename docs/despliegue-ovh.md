@@ -123,6 +123,24 @@ Notas:
   primer arranque; el volumen ya quedó inicializado.
 - `SESSION_SECRET` debe mantenerse estable; si lo cambias, se invalidan las
   cookies de los visitantes.
+- **Monitoreo del agente (opcional)**: queda apagado si no defines nada. Para
+  encenderlo, añade al `.env` del VPS:
+
+  ```dotenv
+  MONITORING_ENABLED=true
+  LANGSMITH_API_KEY=lsv2_pt_…
+  LANGSMITH_PROJECT=carvajal
+  MONITORING_SAMPLE_RATE=0.2
+  MONITORING_INCLUDE_CONTENT=false
+  ```
+
+  En producción el contenido **no** se envía (`MONITORING_INCLUDE_CONTENT=false`):
+  solo metadatos, tokens, latencias y tipos de error. `compose.prod.yml` inyecta
+  las variables explícitas y fuerza `LANGSMITH_TRACING`/`LANGCHAIN_TRACING_V2` a
+  `false`. Presupuesto: 5.000 trazas al mes del plan gratuito; con 0,2 se cubren
+  hasta 25.000 turnos. Para apagarlo, `MONITORING_ENABLED=false` y reiniciar; el
+  chat no cambia. Detalle en
+  [`docs/monitoreo-langsmith.md`](monitoreo-langsmith.md).
 
 Comprueba permisos y variables sin imprimir secretos:
 
