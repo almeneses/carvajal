@@ -1,0 +1,82 @@
+[
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/vaso-termico/",
+    "item": "Vaso térmico 6 oz",
+    "reason": "entra sin paquete: la ficha da 1125 unidades por corrugado, que no es múltiplo de 20"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/vaso-rigido-pequeno/",
+    "item": "Vasos rígidos pequeños 3,3 a 7 oz",
+    "reason": "la ficha mezcla materiales (PP/PS) y corrugados (3000/5100/5250); solo entran las presentaciones con precio de EDEXA"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/tapa-vaso-rigido-mediano/",
+    "item": "Tapa vaso rígido mediano",
+    "reason": "corrugado ambiguo (3100/2500) y material mixto (PP/PS/RPET)"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/tapa-vaso-rigido-grande/",
+    "item": "Tapa vaso rígido grande",
+    "reason": "paquete ambiguo (50/25) y material mixto (PP/PS/RPET)"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/vaso-bioform/",
+    "item": "Vaso Bioform 7, 9 y 12 oz",
+    "reason": "paquete y corrugado ambiguos (48/50 y 960/1000)"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/vaso-gold/",
+    "item": "Vaso Gold 22 oz",
+    "reason": "paquete y corrugado ambiguos (50/32 y 1000/768)"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/domo-bandeja-25-1/",
+    "item": "Domo bandeja 25-1",
+    "reason": "corrugado ambiguo (100/200)"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/contenedor-rigido/",
+    "item": "Contenedor rígido 60 y 80 oz",
+    "reason": "la ficha repite las medidas del de 32 oz; no se pueden distinguir"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/plato-rectangular/",
+    "item": "Plato rectangular",
+    "reason": "datos incoherentes (diámetro de 1000 mm, corrugado 1000/200)"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/tapa-bioform-pitillera/",
+    "item": "Tapa Bioform pitillera",
+    "reason": "el corrugado (25) es menor que el paquete (100)"
+  },
+  {
+    "source": "https://colombia.carvajalempaques.com/producto/tapa-bioform-plana/",
+    "item": "Tapa Bioform plana",
+    "reason": "medidas de bandeja (248 x 326 mm) en una tapa de vaso; dato dudoso"
+  },
+  {
+    "source": "https://www.tiendaedexa.com/portacomidas-y-estuches/4818-vaso-imp-9-oz-lstidos-de-mi-tierra-pq-x-50.html",
+    "item": "Vaso impreso 9 oz",
+    "reason": "impresión a la medida de un cliente, no es catálogo estándar"
+  },
+  {
+    "source": "https://www.tiendaedexa.com/portacomidas-y-estuches/660-estuche-cuadrado-alto-x-250-und-ref-f2a-7701844000500.html",
+    "item": "Estuche cuadrado alto F2A",
+    "reason": "material no publicado y código fuera del prefijo de Carvajal"
+  },
+  {
+    "source": "https://www.tiendaedexa.com/portacomidas-y-estuches/661-estuche-triangular-alto-x-250-und-ref-p6-7701844000548.html",
+    "item": "Estuche triangular alto P6",
+    "reason": "material no publicado y código fuera del prefijo de Carvajal"
+  },
+  {
+    "source": "https://www.tiendaedexa.com/marca/29-carvajal-empaques-sa",
+    "item": "Productos «OUTLET … PAGUE 2 LLEVE 3»",
+    "reason": "promoción por volumen, no es un precio de referencia"
+  },
+  {
+    "source": "https://www.tiendaedexa.com/marca/29-carvajal-empaques-sa",
+    "item": "Blanqueadores y lavaplatos Berhlan",
+    "reason": "otra marca listada en la página de Carvajal"
+  }
+]
