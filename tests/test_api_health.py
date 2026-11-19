@@ -31,10 +31,16 @@ def _entorno_limpio(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "LANGSMITH_ENDPOINT",
         "MONITORING_SAMPLE_RATE",
         "MONITORING_INCLUDE_CONTENT",
+        "MONITORING_TIMEOUT_MS",
+        "LANGSMITH_PROJECT",
     ):
         monkeypatch.delenv(nombre, raising=False)
     monkeypatch.setenv("MONITORING_ENABLED", "false")
     monkeypatch.setenv("LANGSMITH_API_KEY", "")
+    # El .env del desarrollador puede tener el monitoreo a mano: estas pruebas
+    # fijan el modo por defecto para no depender de la configuración local.
+    monkeypatch.setenv("MONITORING_INCLUDE_CONTENT", "false")
+    monkeypatch.setenv("MONITORING_SAMPLE_RATE", "0.2")
     yield
 
 
