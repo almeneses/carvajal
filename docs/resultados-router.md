@@ -119,3 +119,43 @@ uv run carvajal eval-router --router rules --router llm --output docs/eval/route
 Para comparar la generalización hace falta un grupo de unas 30 preguntas redactadas por alguien
 que no haya visto las reglas (grupo `ciego` en `routing_questions.json`); la spec 041 lo
 incluye como requisito.
+
+## Registrar la corrida como experimento (spec 038)
+
+La corrida se puede guardar en LangSmith además del informe local. Es opcional:
+sin la bandera el comando se comporta igual que antes y no toca la red.
+
+```bash
+export LANGSMITH_API_KEY=...          # la misma llave del monitoreo del chat
+uv run carvajal eval-router --router rules --router llm --langsmith
+uv run python scripts/eval_retrieval.py --langsmith
+```
+
+Qué se registra:
+
+- un dataset `carvajal-<nombre-del-archivo>-<8 hex del SHA-256 del archivo>` con las preguntas de
+  `data/eval/routing_questions.json` y, como salida de referencia, la verdad esperada
+  (ruta e intención). Se crea la primera vez, se reutiliza después y solo completa los
+  ejemplos que falten, así que un fallo a medias no deja el dataset vacío;
+- un experimento `routing-<enrutador>-<fecha>` con **una fila por pregunta**, enlazada a su
+  ejemplo del dataset por `reference_example_id`, con la predicción (ruta, intención,
+  validez, latencia). Las filas se crean ya cerradas para que el servicio calcule la
+  duración;
+- los agregados del informe local (precisión de ruta, intención y datos, violaciones de
+  material, salidas inválidas, latencia media y p95, llamadas al modelo) como metadatos
+  del experimento, no como una fila suelta;
+- metadatos de la corrida: `commit` (resuelto contra la raíz de este repositorio), fecha,
+  enrutador, modelo y ruta del conjunto.
+
+La evaluación de recuperación hace lo mismo sobre `carvajal-retrieval_questions-<huella>`
+con Recall@10 y nDCG@10 por consulta.
+
+**Comparar dos corridas**: en LangSmith, abre el dataset y elige *Compare* con los dos
+experimentos. Las filas quedan alineadas por pregunta, así que la columna de diferencias
+muestra exactamente qué preguntas cambiaron de ruta o de intención entre una corrida y
+otra. En local, `git diff docs/resultados-router.md` sigue mostrando la tabla agregada.
+
+**Si el servicio falla**, el comando imprime «Experimento no registrado: …» en `stderr`
+(con el tipo de error, nunca el mensaje del servicio) y termina con código 0: el informe
+local y la tabla se generan igual. Sin `LANGSMITH_API_KEY` ocurre lo mismo, con un aviso
+explícito.

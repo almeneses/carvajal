@@ -41,6 +41,9 @@ class RouterReport:
     model_calls: int = 0
     latencies_ms: list[float] = field(default_factory=list)
     failures: list[dict[str, Any]] = field(default_factory=list)
+    # Salida por pregunta para registrarla como experimento (spec 038, T017);
+    # no interviene en la tabla del informe local.
+    results: list[dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
     def _rate(hits: int, total: int) -> float:
@@ -93,7 +96,8 @@ def evaluate_router(
     for item in items:
         started = time.perf_counter()
         decision = router(item["question"], item.get("turns"))
-        report.latencies_ms.append((time.perf_counter() - started) * 1000)
+        latency_ms = (time.perf_counter() - started) * 1000
+        report.latencies_ms.append(latency_ms)
         report.total += 1
         problems: list[str] = []
         if decision.reason.startswith(FALLBACK_PREFIX):
@@ -128,6 +132,24 @@ def evaluate_router(
                 report.material_violations += len(violations)
                 if violations:
                     problems.append(f"material prohibido en {', '.join(violations)}")
+        report.results.append(
+            {
+                "id": item["id"],
+                "question": item["question"],
+                "route": decision.route,
+                "expected_route": item["route"],
+                "intent": decision.intent,
+                "expected_intent": item["intent"],
+                "invalid": decision.reason.startswith(FALLBACK_PREFIX),
+                "latency_ms": round(latency_ms, 3),
+                "problems": problems,
+                # Extraído y esperado viajan al experimento: sin ellos dos
+                # enrutadores con la misma ruta parecerían equivalentes.
+                "extra": dict(decision.extra),
+                "expected": dict(item.get("expected", {})),
+                "turns": list(item.get("turns") or []),
+            }
+        )
         if problems:
             report.failures.append(
                 {"id": item["id"], "question": item["question"], "problems": problems}

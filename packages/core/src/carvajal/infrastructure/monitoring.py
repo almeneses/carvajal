@@ -20,9 +20,12 @@ import random
 from collections.abc import Callable, Generator, Mapping
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from functools import partial
+from pathlib import Path
 from threading import Lock, Thread
 from typing import Any, Protocol
+from uuid import NAMESPACE_URL, uuid5
 
 import structlog
 
@@ -329,6 +332,184 @@ def _registrar_fallo(error: BaseException) -> None:
     """Registra el fallo del monitoreo sin filtrar el mensaje ni la credencial."""
 
     log.warning("monitoring.failed", stage="tracing", error_type=type(error).__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentOutcome:
+    """Resultado de intentar registrar una corrida de evaluación (FR-009)."""
+
+    registered: bool
+    dataset: str = ""
+    experiment: str = ""
+    detail: str = ""
+
+    def as_message(self) -> str:
+        if self.registered:
+            return f"Experimento {self.experiment} registrado sobre {self.dataset}."
+        return f"Experimento no registrado: {self.detail}"
+
+
+def build_eval_client(settings: Settings) -> Any | None:
+    """Cliente para registrar experimentos; ``None`` si no hay llave.
+
+    La evaluación es explícita (bandera ``--langsmith``), así que no depende de
+    ``MONITORING_ENABLED``: el contenido completo está permitido aquí, aunque
+    los errores se siguen reduciendo a su tipo.
+    """
+
+    if not settings.langsmith_api_key.strip():
+        return None
+    try:
+        from langsmith import Client
+
+        return Client(
+            api_url=settings.langsmith_endpoint or None,
+            api_key=settings.langsmith_api_key.strip(),
+            anonymizer=partial(redact_run, include_content=True),
+            timeout_ms=settings.monitoring_timeout_ms,
+            info={},
+        )
+    except Exception as error:
+        _registrar_fallo(error)
+        return None
+
+
+def commit_sha() -> str:
+    """Commit del código evaluado, resuelto contra la raíz del repositorio.
+
+    Se ejecuta con ``cwd`` en la raíz del checkout, no en el directorio actual,
+    para no registrar el commit de otro proyecto. Devuelve cadena vacía si el
+    árbol no es un repositorio (por ejemplo, una instalación empaquetada).
+    """
+
+    from subprocess import CalledProcessError, run
+
+    raiz = Path(__file__).resolve().parents[5]
+    try:
+        return run(
+            ["git", "-C", str(raiz), "rev-parse", "--short=12", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (CalledProcessError, OSError):
+        return ""
+
+
+def dataset_de(questions: Path) -> str:
+    """Nombre del dataset derivado del archivo y de su contenido.
+
+    El hash corta la reutilización de un dataset con preguntas o etiquetas
+    distintas, y evita que dos archivos con el mismo nombre colisionen.
+    """
+
+    contenido = questions.read_bytes()
+    huella = hashlib.sha256(contenido).hexdigest()[:8]
+    return f"carvajal-{questions.stem}-{huella}"
+
+
+def example_id(dataset: str, row_id: str) -> str:
+    """Identificador estable del ejemplo: el mismo en cada corrida."""
+
+    return str(uuid5(NAMESPACE_URL, f"carvajal://{dataset}/{row_id}"))
+
+
+def _ensure_dataset(
+    client: Any,
+    dataset: str,
+    rows: list[dict[str, Any]],
+    description: str,
+) -> Any:
+    """Devuelve el dataset y completa los ejemplos que falten.
+
+    El nombre se deriva del archivo de preguntas, así un conjunto distinto no
+    reutiliza un dataset con otras preguntas. Si una corrida anterior falló a
+    medias, los ejemplos que falten se crean ahora en lugar de dejar el
+    dataset vacío para siempre.
+    """
+
+    try:
+        referencia = client.read_dataset(dataset_name=dataset)
+    except Exception:
+        try:
+            referencia = client.create_dataset(dataset_name=dataset, description=description)
+        except Exception:
+            # Otra corrida lo creó entre la lectura y el alta.
+            referencia = client.read_dataset(dataset_name=dataset)
+    existentes = {str(ejemplo.id) for ejemplo in client.list_examples(dataset_id=referencia.id)}
+    faltantes = [
+        {
+            "id": example_id(dataset, fila["id"]),
+            "dataset_id": referencia.id,
+            "inputs": fila["inputs"],
+            "outputs": fila.get("expected") or {},
+        }
+        for fila in rows
+        if example_id(dataset, fila["id"]) not in existentes
+    ]
+    if faltantes:
+        # El SDK exige ``dataset_id`` en la llamada (``xor_args``): el campo
+        # dentro del ejemplo no existe en ``ExampleCreate``.
+        client.create_examples(dataset_id=referencia.id, examples=faltantes)
+    return referencia
+
+
+def register_experiment(
+    client: Any,
+    *,
+    dataset: str,
+    experiment: str,
+    rows: list[dict[str, Any]],
+    metrics: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    description: str = "",
+) -> ExperimentOutcome:
+    """Registra una corrida ya calculada como experimento de LangSmith.
+
+    Cada fila queda enlazada a su ejemplo del dataset (``reference_example_id``),
+    que es lo que permite comparar dos corridas pregunta a pregunta, y se crea
+    cerrada (``start_time``/``end_time``) para que el servicio calcule la
+    latencia. Los agregados van a los metadatos del experimento, no a una run
+    ficticia. No se vuelve a llamar al modelo (T019).
+    """
+
+    ahora = datetime.now(UTC)
+    try:
+        referencia = _ensure_dataset(client, dataset, rows, description)
+        metadatos = {**(metadata or {}), "metrics": metrics}
+        proyecto = client.create_project(
+            experiment,
+            description=description,
+            reference_dataset_id=referencia.id,
+            metadata=metadatos,
+            upsert=True,
+        )
+        for fila in rows:
+            client.create_run(
+                name=fila["id"],
+                run_type="chain",
+                inputs=fila["inputs"],
+                outputs=fila.get("outputs") or {},
+                project_name=proyecto.name,
+                reference_example_id=example_id(dataset, fila["id"]),
+                start_time=ahora,
+                # La latencia medida del informe local da la duración real.
+                end_time=ahora
+                + timedelta(
+                    milliseconds=float(
+                        (fila.get("outputs") or {}).get("latency_ms")
+                        or fila.get("latency_ms")
+                        or 0.0
+                    )
+                ),
+                extra={"metadata": metadata or {}},
+            )
+    except Exception as error:
+        log.warning("monitoring.experiment_failed", error_type=type(error).__name__)
+        return ExperimentOutcome(
+            False, dataset=dataset, experiment=experiment, detail=type(error).__name__
+        )
+    return ExperimentOutcome(True, dataset=dataset, experiment=experiment)
 
 
 class Turn(Protocol):
