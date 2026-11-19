@@ -84,6 +84,9 @@ p95 al primer fragmento no empeore más de 100 ms.
   `carvajal-monitoreo-e2e` para comparar corridas del e2e.
 - **Si el e2e falla por timeout de ingesta**, sube `espera_s` en `_traza()`
   (por defecto 20 s); no es un fallo del monitoreo.
+- **Verás avisos `Failed to multipart ingest`** en la salida de la prueba de
+  SC-003: los escribe el SDK por cada envío al endpoint inalcanzable. Es
+  exactamente lo que la prueba provoca; no es un fallo.
 
 ## Por qué no están en `make check`
 

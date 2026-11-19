@@ -251,7 +251,11 @@ def test_cuatro_rutas_registran_traza_y_metricas(
 
 
 def test_servicio_caido_no_retrasa_el_primer_fragmento() -> None:
-    """SC-003: con el endpoint inalcanzable, el p95 no empeora más de 100 ms."""
+    """SC-003: con el endpoint inalcanzable, el p95 no empeora más de 100 ms.
+
+    El SDK escribe en stderr un aviso de ingesta por cada envío fallido: es el
+    comportamiento esperado y forma parte de lo que la prueba demuestra.
+    """
 
     from sqlalchemy import create_engine
     from sqlalchemy.pool import StaticPool
