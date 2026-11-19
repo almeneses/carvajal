@@ -444,14 +444,25 @@ class LangSmithTurn:
         if self._client is None:
             yield
             return
+        contexto: Any = None
         try:
             from langsmith.run_helpers import tracing_context
 
-            with tracing_context(parent=self._root, client=self._client, enabled=True):
-                yield
+            contexto = tracing_context(parent=self._root, client=self._client, enabled=True)
+            contexto.__enter__()
         except Exception as error:  # pragma: no cover - defensa ante SDK
             _registrar_fallo(error)
             yield
+            return
+        try:
+            yield
+        finally:
+            # El error del cuerpo no se captura aquí: debe propagarse tal cual
+            # (un segundo yield rompería el protocolo de contextmanager).
+            try:
+                contexto.__exit__(None, None, None)
+            except Exception as error:  # pragma: no cover - defensa ante SDK
+                _registrar_fallo(error)
 
     def add_metadata(self, **values: Any) -> None:
         if self._closed:

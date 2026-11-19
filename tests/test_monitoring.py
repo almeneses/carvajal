@@ -330,6 +330,23 @@ class TestEstadoDelMonitoreo:
         assert "chat_turn" in nombres
         assert any(nombre not in {"chat_turn"} for nombre in nombres)
 
+    def test_la_generacion_propaga_el_error_del_cuerpo(self) -> None:
+        """Un fallo del modelo sale intacto, no como error de contextmanager."""
+
+        tracer = build_tracer(_settings(), client=ClienteFalso(), random_fn=lambda: 0.0)
+
+        with (
+            pytest.raises(RuntimeError, match="modelo caído"),
+            tracer.turn(
+                request_id="req-error",
+                thread_hash="0123456789abcdef",
+                router="rules",
+                question="hola",
+            ) as turno,
+            turno.generation(),
+        ):
+            raise RuntimeError("modelo caído")
+
     def test_el_cliente_se_construye_sin_red(self) -> None:
         """El camino feliz de ``build_client`` no abre un socket (FR-010, SC-003)."""
 
