@@ -336,14 +336,14 @@ def test_el_modelo_real_se_traza_aunque_el_stream_cambie_de_hilo(engine: Any) ->
     chat = servicio(engine, AgenteFalso(turno()), tracer, llm=LLMConLangChain())
 
     generador = chat.stream("traza-hilos", PREGUNTA)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        eventos = []
-        while True:
-            try:
-                eventos.append(pool.submit(next, generador).result())
-            except StopIteration:
-                break
-        ejecutados = len(eventos)
+    eventos = []
+    while True:
+        # Un hilo nuevo por avance, como hace Starlette con el generador SSE.
+        try:
+            eventos.append(ThreadPoolExecutor(max_workers=1).submit(next, generador).result())
+        except StopIteration:
+            break
+    ejecutados = len(eventos)
 
     nombres = [run.get("name") for run in cliente.runs]
     assert ejecutados > 0

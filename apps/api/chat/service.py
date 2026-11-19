@@ -326,8 +326,18 @@ class ChatService:
                                 "model": self._modelo(),
                             },
                         ) as llm_span:
-                            fragmentos = self._llm.stream(system=turn.system, prompt=turn.prompt)
-                            for fragment in fragmentos:
+                            fragmentos = iter(
+                                self._llm.stream(system=turn.system, prompt=turn.prompt)
+                            )
+                            while True:
+                                # El contexto se reabre en cada avance: Starlette
+                                # mueve el generador SSE entre hilos y los
+                                # contextvars no viajan con él (FR-003).
+                                with span.generation():
+                                    try:
+                                        fragment = next(fragmentos)
+                                    except StopIteration:
+                                        break
                                 fragments.append(fragment)
                                 # Lo generado queda en la traza: una cancelación
                                 # deja el texto parcial (edge case de US1).
@@ -339,14 +349,17 @@ class ChatService:
                             raise
                         logger.warning("chat.stream_fallback", error=str(error))
                     if not "".join(fragments).strip():
-                        with span.child(
-                            "llm",
-                            run_type="llm",
-                            metadata={
-                                "provider": self._config().llm_provider,
-                                "model": self._modelo(),
-                            },
-                        ) as llm_span:
+                        with (
+                            span.child(
+                                "llm",
+                                run_type="llm",
+                                metadata={
+                                    "provider": self._config().llm_provider,
+                                    "model": self._modelo(),
+                                },
+                            ) as llm_span,
+                            span.generation(),
+                        ):
                             answer = self._llm.complete(system=turn.system, prompt=turn.prompt)
                             llm_span.add_outputs(answer_chars=len(answer))
                         fragments = [answer]
