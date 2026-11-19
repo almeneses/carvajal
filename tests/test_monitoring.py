@@ -128,11 +128,27 @@ class TestRedaccion:
             assert secreto not in serializado
 
     def test_con_contenido_activo_no_redacta(self) -> None:
-        """En desarrollo y evaluación el contenido viaja completo (FR-006)."""
+        """En desarrollo el contenido viaja, salvo los identificadores (FR-005)."""
 
         payload = {"question": PREGUNTA_CON_PII, "answer": "respuesta", "route": "rag"}
 
         assert redact(payload, include_content=True) == payload
+
+    def test_los_identificadores_del_visitante_nunca_viajan(self) -> None:
+        """``owner_key`` y el hilo crudo se eliminan también con contenido (FR-005)."""
+
+        payload = {
+            "owner_key": "owner-secreto",
+            "thread_id": "hilo-crudo",
+            "question": "hola",
+            "steps": [{"conversation_id": "hilo-crudo", "score": 0.7}],
+        }
+
+        limpio = redact(payload, include_content=True)
+
+        assert limpio == {"question": "hola", "steps": [{"score": 0.7}]}
+        assert "owner-secreto" not in repr(limpio)
+        assert "hilo-crudo" not in repr(limpio)
 
     def test_es_recursivo_en_listas_y_diccionarios(self) -> None:
         """La lista blanca se aplica sin importar la profundidad (FR-006)."""
@@ -290,6 +306,29 @@ class TestEstadoDelMonitoreo:
         assert limpio["serialized"] == {}
         assert "Ana" not in repr(limpio["extra"]) + repr(limpio["serialized"])
         assert redact_run_ops(ops, include_content=True) == ops
+
+    def test_la_generacion_hereda_el_contexto_de_la_raiz(self) -> None:
+        """``generation()`` vuelve a colgar la llamada al modelo de la raíz (FR-003)."""
+
+        from langchain_core.runnables import RunnableLambda
+
+        cliente = ClienteFalso()
+        tracer = build_tracer(_settings(), client=cliente, random_fn=lambda: 0.0)
+
+        with (
+            tracer.turn(
+                request_id="req-gen",
+                thread_hash="0123456789abcdef",
+                router="rules",
+                question="hola",
+            ) as turno,
+            turno.generation(),
+        ):
+            RunnableLambda(lambda texto: texto.upper()).invoke("hola")
+
+        nombres = [run.get("name") for run in cliente.runs]
+        assert "chat_turn" in nombres
+        assert any(nombre not in {"chat_turn"} for nombre in nombres)
 
     def test_el_cliente_se_construye_sin_red(self) -> None:
         """El camino feliz de ``build_client`` no abre un socket (FR-010, SC-003)."""
