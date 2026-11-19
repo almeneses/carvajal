@@ -2,7 +2,7 @@
 
 **Feature Branch**: `038-monitoreo-langsmith`
 **Created**: 2026-11-17
-**Status**: Draft
+**Status**: Implemented
 **Input**: User description: "Incluir el monitoreo con LangSmith."
 
 ## Clarifications

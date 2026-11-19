@@ -1,6 +1,6 @@
 # Tasks: Monitoreo del agente con LangSmith
 
-**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: en cierre (PR1–PR6)
+**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: entregada (35/35 tareas)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -147,15 +147,15 @@ que el primer cambio técnico.
 
 **PR 6 — Evidencia y cierre**
 
-- [ ] T032 Crear `docs/evidence/m2/monitoring.md` con: traza de ejemplo de un turno comercial,
+- [X] T032 Crear `docs/evidence/m2/monitoring.md` con: traza de ejemplo de un turno comercial,
       búsqueda por `request_id` y por `thread_hash`, prueba de que producción no lleva texto,
       medición de SC-003 y comparación de dos experimentos por pregunta
-- [ ] T033 Ejecutar `make check` y una corrida manual con `MONITORING_ENABLED=true`,
+- [X] T033 Ejecutar `make check` y una corrida manual con `MONITORING_ENABLED=true`,
       `MONITORING_INCLUDE_CONTENT=true` y `MONITORING_SAMPLE_RATE=1.0`; recorrer las cuatro
       rutas y comprobar que todas tienen traza; repetir con `LANGSMITH_ENDPOINT` inalcanzable
       y registrar el tiempo al primer fragmento (p95)
-- [ ] T034 Revisar cada SC de la spec contra la evidencia y anotar lo que quede pendiente
-- [ ] T035 Sincronizar `CONSTITUTION.md` §2 y §9 y la sección «Estado técnico» de
+- [X] T034 Revisar cada SC de la spec contra la evidencia y anotar lo que quede pendiente
+- [X] T035 Sincronizar `CONSTITUTION.md` §2 y §9 y la sección «Estado técnico» de
       `.specify/memory/constitution.md` al estado «entregado», con el modo de contenido, el
       muestreo 0.2 y la evidencia de los SC; dejar la fecha y la versión de la proyección
       sincronizadas

@@ -92,10 +92,9 @@ con `--admin`.
   PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.
   `carvajal sync --adopt` completa la identidad de los índices anteriores sin renombrar
   slugs ni reindexar.
-- El monitoreo del agente con LangSmith (spec 038) está en implementación desde el
-  2026-11-19: traza raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo
-  solo en desarrollo y evaluación. Se cerrará como entregado cuando la evidencia cubra sus
-  SC; hasta entonces el chat no cambia de comportamiento.
+- El monitoreo del agente con LangSmith (spec 038) quedó **entregado el 2026-11-19**: traza
+  raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo solo en desarrollo
+  y evaluación. La evidencia de SC-001…SC-005 está en `docs/evidence/m2/monitoring.md`.
 - Las specs 039 (catálogo de Colombia con precios en COP) y 040 (chat por voz) siguen en
   borrador; sus `plan.md` y `tasks.md` llegan antes de implementar.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
@@ -138,4 +137,4 @@ con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.3.0 - 2026-11-19, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.4.0 - 2026-11-19, sincronizada con `CONSTITUTION.md` del repositorio.
