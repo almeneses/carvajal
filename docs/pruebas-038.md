@@ -63,13 +63,18 @@ registra como «sin respuesta» y la prueba lo informa, sin ocultar el resto.
 - la traza completa no contiene nombre, teléfono, `owner_key` ni `thread_id`;
 - los tokens se cuentan en los runs del modelo (no en el marcador `llm`).
 
+Además envía un turno con nombre y teléfono inventados para que la comprobación
+de privacidad no sea vacua: verifica que la traza no contiene ni esos datos ni el
+texto de la pregunta.
+
 Después **registra un experimento** en el dataset `carvajal-monitoreo-e2e` con
-una fila por ruta (`route`, `trace`, `runs`, `tokens`, `pii_free`, latencia al
-primer fragmento) y estos agregados en los metadatos del experimento:
+una fila por ruta y otra para el caso de privacidad (`route`, `trace`, `runs`,
+`tokens`, `pii_free`, latencia al primer fragmento) y estos agregados en los
+metadatos del experimento:
 
 ```json
 {"rutas_con_traza": 4, "rutas_totales": 4, "trazas_con_pii": 0,
- "tokens_totales": 7033, "ttft_p95_ms": 59.1}
+ "casos_con_pii_sembrada": 1, "tokens_totales": 7033, "ttft_p95_ms": 59.1}
 ```
 
 Cada corrida crea un experimento `monitoreo-<fecha>` en el mismo dataset, así que

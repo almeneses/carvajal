@@ -50,6 +50,8 @@ PREGUNTAS: dict[str, str] = {
     "commercial": "necesito vasos para café caliente de 12 oz",
 }
 PII = ("Ana Pérez", "300 123 4567")
+# Turno con datos personales: es el que hace que la comprobación de PII pueda fallar.
+PREGUNTA_PII = "Soy Ana Pérez, mi teléfono es 300 123 4567. ¿Ingresos de Carvajal 2024?"
 # Dataset propio del e2e: sus ejemplos son estas cuatro preguntas.
 DATASET = "carvajal-monitoreo-e2e"
 
@@ -153,8 +155,8 @@ def _traza(
     return None, []
 
 
-def _sin_pii(runs: Sequence[Any]) -> bool:
-    """True si ningún run de la traza lleva nombre, teléfono, owner_key ni hilo."""
+def _sin_pii(runs: Sequence[Any], textos: Sequence[str] = ()) -> bool:
+    """True si la traza no lleva PII, identificadores ni los textos indicados."""
 
     volcado = json.dumps(
         [
@@ -169,7 +171,8 @@ def _sin_pii(runs: Sequence[Any]) -> bool:
         ensure_ascii=False,
         default=str,
     )
-    return not any(marca in volcado for marca in (*PII, "owner_key", "thread_id"))
+    marcas = (*PII, "owner_key", "thread_id", *textos)
+    return not any(marca in volcado for marca in marcas)
 
 
 def _p95(valores: Sequence[float]) -> float:
@@ -208,7 +211,7 @@ def test_cuatro_rutas_registran_traza_y_metricas(
             "ruta_observada": (raiz.extra or {}).get("metadata", {}).get("route"),
             "hijos": len(runs) - 1,
             "tokens": _tokens(runs),
-            "pii_libre": _sin_pii(runs),
+            "pii_libre": _sin_pii(runs, (pregunta,)),
             "ttft_ms": salida["ttft_ms"],
         }
         filas.append(
@@ -227,14 +230,41 @@ def test_cuatro_rutas_registran_traza_y_metricas(
             }
         )
 
-    # SC-001: las cuatro rutas tienen traza; SC-002: ninguna lleva PII.
+    # Caso explícito con datos personales: sin él, la comprobación de PII sería
+    # vacua (ninguna de las cuatro preguntas contiene nombre ni teléfono).
+    salida_pii = _turno(cliente, PREGUNTA_PII)
+    request_id_pii = (salida_pii.get("done") or {}).get("request_id")
+    assert request_id_pii, f"el turno con PII no publicó request_id: {salida_pii}"
+    raiz_pii, runs_pii = _traza(cliente_langsmith, request_id_pii, proyecto)
+    assert raiz_pii is not None, "el turno con PII no dejó traza"
+    pii_libre = _sin_pii(runs_pii, (PREGUNTA_PII,))
+    assert pii_libre, "la traza de producción llevó texto o datos del visitante"
+    filas.append(
+        {
+            "id": "monitoreo-privacidad",
+            "inputs": {"question": PREGUNTA_PII},
+            "expected": {"pii_free": True},
+            "outputs": {
+                "route": (raiz_pii.extra or {}).get("metadata", {}).get("route"),
+                "trace": True,
+                "runs": len(runs_pii) - 1,
+                "tokens": _tokens(runs_pii),
+                "pii_free": pii_libre,
+            },
+            "latency_ms": salida_pii["ttft_ms"],
+        }
+    )
+
+    # SC-001: las cuatro rutas tienen traza; SC-002: nada lleva PII.
     assert all(datos["ruta_observada"] for datos in resultados.values()), resultados
     assert all(datos["pii_libre"] for datos in resultados.values()), resultados
 
     metricas = {
         "rutas_con_traza": sum(1 for datos in resultados.values() if datos["ruta_observada"]),
         "rutas_totales": len(PREGUNTAS),
-        "trazas_con_pii": sum(1 for datos in resultados.values() if not datos["pii_libre"]),
+        "trazas_con_pii": sum(1 for datos in resultados.values() if not datos["pii_libre"])
+        + (0 if pii_libre else 1),
+        "casos_con_pii_sembrada": 1,
         "tokens_totales": sum(datos["tokens"] for datos in resultados.values()),
         "ttft_p95_ms": _p95([datos["ttft_ms"] for datos in resultados.values()]),
     }
