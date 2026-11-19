@@ -112,9 +112,10 @@ uv run carvajal eval-router --router rules --router llm --output docs/eval/route
   frente a menos de 1 ms de las reglas. La regla de material nunca depende del enrutador: la
   aplica `check_material`, pero un dato mal extraído (microondas, temperatura) sí cambia qué se
   valida, y por eso se mide.
-- **Modelo de decisión.** Pendiente de elegir el paquete (Jev, GLiNER2.5-Decide u otro). El
-  adaptador lo carga con `DECISION_MODEL=paquete.modulo:fabrica`; sin él, `eval-router`
-  termina con un error controlado y el agente sigue con reglas.
+- **Modelo de decisión.** Transferido a la spec 041: se eligió Jev cloud y allí se mide y se
+  decide si se enciende. El adaptador lo carga con `DECISION_MODEL=paquete.modulo:fabrica`;
+  sin él, `eval-router` termina con un error controlado y el agente sigue con reglas.
 
 Para comparar la generalización hace falta un grupo de unas 30 preguntas redactadas por alguien
-que no haya visto las reglas (grupo `ciego` en `routing_questions.json`).
+que no haya visto las reglas (grupo `ciego` en `routing_questions.json`); la spec 041 lo
+incluye como requisito.

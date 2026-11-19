@@ -85,7 +85,8 @@ con `--admin`.
   JSONL, CSV y TSV— para la web y la consola; el OCR de PDF escaneados sigue fuera de alcance.
   El código se implementa después de aprobar el contrato.
 - La spec 036 define el asistente comercial de empaques sobre la capa de catálogo, con una
-  ruta `commercial` en el agente y un router intercambiable para evaluación comparativa.
+  ruta `commercial` en el agente y un router intercambiable para evaluación comparativa;
+  quedó implementada el 2026-11-18 y transfirió su SC-006 a la spec 041 (Jev cloud).
 - La spec 037 define el corpus incremental: identidad estable por fuente, deduplicación por
   huella del original antes de Bronze, actualización con versiones, sincronización única con
   PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.

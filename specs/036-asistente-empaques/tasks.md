@@ -1,6 +1,7 @@
 # Tasks: Asistente comercial de empaques para foodservice
 
-**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: pendiente
+**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: implementada
+(as-built; aprobada y cerrada el 2026-11-18; SC-006 transferido a la spec 041)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -11,9 +12,10 @@
 
 ## Phase 1: Setup (infraestructura compartida)
 
-- [ ] T001 Aprobar la spec 036 y aplicar la enmienda de `CONSTITUTION.md` §2, §5 y §9 y de
+- [X] T001 Aprobar la spec 036 y aplicar la enmienda de `CONSTITUTION.md` §2, §5 y §9 y de
       `.specify/memory/constitution.md` después de que la 035 entre a `dev`
-- [ ] T002 Registrar la 036 en `specs/README.md` §7 (specs futuras)
+      (aprobada el 2026-11-18; enmienda aplicada en `4b96980`)
+- [X] T002 Registrar la 036 en `specs/README.md` §7 (specs futuras)
 - [X] T003 [P] Crear `tests/fixtures/catalog/` con 6 referencias, 5 materiales y 3
       distribuidores de prueba
 
@@ -118,8 +120,9 @@
 ## Phase 8: Pulido y transversal
 
 - [X] T042 Actualizar `README.md` y `docs/arquitectura.md` con la ruta `commercial`
-- [ ] T043 Ejecutar `make check` y el E2E del chat con tres conversaciones de ejemplo
-      (`make check` en verde; guion en `docs/demo-036.md`, pendiente la corrida con la app)
+- [X] T043 Ejecutar `make check` y el E2E del chat con tres conversaciones de ejemplo
+      (`make check` en verde el 2026-11-18; corrida por API registrada en
+      `docs/demo-036.md`; revisión visual en navegador pendiente del owner)
 - [X] T044 Revisar cada SC de la spec con evidencia en la PR de cierre
       (`specs/036-asistente-empaques/evidencia.md`)
 
