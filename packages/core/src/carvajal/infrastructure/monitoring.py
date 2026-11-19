@@ -865,6 +865,15 @@ def build_tracer(
     """
 
     if not monitoring_status(settings).enabled:
+        if settings.monitoring_enabled:
+            # Configuración incompleta: se avisa una vez al construir el tracer
+            # (es el punto por el que pasa siempre el servicio de chat).
+            log.warning(
+                "monitoring.disabled",
+                reason="missing_api_key"
+                if not settings.langsmith_api_key.strip()
+                else "sample_rate",
+            )
         return NoopTracer()
     return LangSmithTurnTracer(
         settings,

@@ -91,7 +91,7 @@ de Qdrant por separado.
 | `products` | Solo en la ruta `commercial`: `html` con las tarjetas de `_productos.html`, renderizadas y escapadas en la API. |
 | `token` | Fragmento incremental de la respuesta. |
 | `fallback` | Respuesta completa si el stream falla antes del primer token. |
-| `done` | `conversation_id`, `message_id`, `thread_id`, `route`, `elapsed_ms`. |
+| `done` | `conversation_id`, `message_id`, `thread_id`, `route`, `elapsed_ms`, `request_id`. |
 | `error` | Mensaje accionable e `incomplete`; un 4xx/5xx SSE no se reintenta solo. |
 
 El mismo contrato existe en el shell Jinja2 (`/chat/stream`) para compatibilidad,
@@ -618,8 +618,45 @@ despliegue, respaldos y rollback— está en
 | Ruta | Qué comprueba | Depende de Postgres |
 |---|---|---|
 | `GET /live` | Que el proceso responde (liveness del contenedor). | No |
-| `GET /health` | Conteos de documentos/fragmentos y estado de Qdrant (readiness). | Sí |
+| `GET /health` | Conteos de documentos/fragmentos, estado de Qdrant y bloque `monitoring` (readiness). | Sí |
 | `GET /api/health` | El mismo readiness en JSON para clientes automatizados. | Sí |
+
+### Monitoreo con LangSmith (opcional)
+
+El agente puede enviar una traza por turno a [LangSmith](https://smith.langchain.com).
+Está **apagado por defecto**: sin `MONITORING_ENABLED=true` y sin llave no se
+construye cliente ni sale un solo byte del proceso, y las pruebas no piden
+credenciales ni tocan la red.
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `MONITORING_ENABLED` | `false` | Enciende el monitoreo. Sin esto no hay traza. |
+| `LANGSMITH_API_KEY` | vacío | Obligatoria si se enciende; nunca se registra en logs ni en `/health`. |
+| `LANGSMITH_PROJECT` | `carvajal` | Proyecto de LangSmith. |
+| `LANGSMITH_ENDPOINT` | vacío | Solo para un servicio compatible o pruebas. |
+| `MONITORING_SAMPLE_RATE` | `0.2` | Fracción de turnos trazados (0..1); `0` equivale a apagado. |
+| `MONITORING_INCLUDE_CONTENT` | `false` | `true` solo en desarrollo y evaluación. |
+| `MONITORING_TIMEOUT_MS` | `2000` | Timeout del cliente; no bloquea el turno. |
+
+- **Producción solo con metadatos** (`MONITORING_INCLUDE_CONTENT=false`): la traza
+  lleva ruta, enrutador, pasos, tokens, latencias, `slug`/`chunk_id`/`score` y el
+  tipo de error, pero **no** el texto de preguntas, respuestas ni fragmentos.
+  En desarrollo y en las corridas de evaluación se envía el contenido completo.
+- `/health` publica `monitoring: {enabled, sample_rate, content}` sin llave ni
+  endpoint. El arranque fuerza `LANGSMITH_TRACING` y `LANGCHAIN_TRACING_V2` a
+  `false` para que una variable heredada no encienda el tracing global.
+- **Presupuesto**: el plan gratuito cubre 5.000 trazas al mes; con muestreo del
+  20 % son hasta 25.000 turnos. Si el uso se acerca a 4.000, baja el muestreo a
+  `0.1` o apaga `MONITORING_ENABLED`.
+- **Buscar un turno**: por el `request_id` que devuelve el evento `done` y los
+  logs JSON, o por hilo con `thread_hash`, los primeros 16 caracteres hex del
+  SHA-256 del identificador de la conversación:
+  `python -c "import hashlib;print(hashlib.sha256(b'<thread_id>').hexdigest()[:16])"`.
+- **Si el servicio falla** (caído, lento o sin cuota), el chat responde, persiste
+  y cobra la cuota igual; el fallo queda en los logs como `monitoring.failed`.
+
+La operación (plan, apagado, comparación de experimentos) está en
+[`docs/monitoreo-langsmith.md`](docs/monitoreo-langsmith.md).
 
 La demo no lleva proxy TLS: la app se publica en `0.0.0.0:APP_PORT` (8080 por
 defecto) y se accede por `http://IP:8080`. Si más adelante pones un dominio, usa

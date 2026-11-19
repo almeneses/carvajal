@@ -239,6 +239,15 @@ class TestEstadoDelMonitoreo:
         assert "langsmith.interno" not in repr(salud)
         assert "lsv2_pt_prueba" not in repr(salud)
 
+    def test_el_chat_avisa_si_el_monitoreo_esta_mal_configurado(self) -> None:
+        """``build_tracer`` registra el apagado por configuración incompleta."""
+
+        with capture_logs() as registros:
+            build_tracer(_settings(langsmith_api_key=""))
+
+        assert registros[0]["event"] == "monitoring.disabled"
+        assert registros[0]["reason"] == "missing_api_key"
+
     def test_modo_de_contenido(self) -> None:
         """``MONITORING_INCLUDE_CONTENT`` decide entre metadatos y contenido."""
 
