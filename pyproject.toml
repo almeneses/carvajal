@@ -108,6 +108,8 @@ pythonpath = ["."]
 addopts = "-q"
 markers = [
     "integration: requiere Postgres real vía testcontainers",
+    "smoke: comprobación rápida del monitoreo, sin credenciales ni red",
+    "e2e: extremo a extremo con servicios reales y LangSmith (excluido de make check)",
 ]
 
 [tool.ty.src]
