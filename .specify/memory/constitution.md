@@ -105,7 +105,7 @@ con `--admin`.
 
 - Python 3.13+, monorepo `uv` con el paquete en `packages/core/src/carvajal` (src-layout).
 - API FastAPI + Jinja2 + HTMX; sin framework de JavaScript en el cliente.
-- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0006).
+- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0007).
 - Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
 - Agente LangGraph con `PostgresSaver` y `PostgresStore`; router `direct`/`tool`/`rag`.
 - Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con

@@ -615,3 +615,26 @@
     padding: 16px;
   }
 }
+
+/* Marcas del visitante (spec 038, US4) */
+.marcas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.marcas-pregunta {
+  color: var(--color-texto-suave, #555);
+}
+
+.marcas-gracias {
+  color: var(--color-texto-suave, #555);
+}
+
+.marcas button[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}

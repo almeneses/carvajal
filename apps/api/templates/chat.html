@@ -7,7 +7,11 @@
 <script src="/static/chat-stream.js" defer></script>
 {% endblock %}
 {% block content %}
-<section class="seccion chat-seccion" aria-labelledby="titulo-chat">
+<section
+  class="seccion chat-seccion"
+  aria-labelledby="titulo-chat"
+  data-monitoring="{{ '1' if monitoring else '0' }}"
+>
   <div class="panel conversacion">
     <header class="cabecera-conversacion">
       <img class="carva" src="/static/carva.svg" alt="" width="88" height="88" />
