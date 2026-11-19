@@ -1,5 +1,6 @@
 """Vista del chat (W3.3): formulario, turnos e historial con cookie firmada."""
 
+import re
 from collections.abc import Sequence
 from urllib.parse import quote
 
@@ -28,6 +29,8 @@ from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
 from carvajal.application.ask import LLMError
 from carvajal.application.quota import QuotaResult
+from carvajal.infrastructure.monitoring import monitoring_status
+from carvajal.infrastructure.settings import Settings
 
 __all__ = [
     "CSRF_INVALIDO",
@@ -48,6 +51,16 @@ EMPTY_QUESTION = "La pregunta no puede estar vacía."
 TOO_LONG_QUESTION = f"La pregunta no puede superar los {MAX_QUESTION_CHARS} caracteres."
 LIMITE_ALCANZADO = "Has alcanzado el límite diario de preguntas. Vuelve a intentarlo mañana."
 CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
+REQUEST_ID_VALIDO = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+USEFUL_VALORES = {
+    "1": True,
+    "true": True,
+    "si": True,
+    "sí": True,
+    "0": False,
+    "false": False,
+    "no": False,
+}
 
 
 @router.get("/chat", response_class=HTMLResponse)
@@ -146,6 +159,51 @@ def new_chat(
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
     return response
+
+
+@router.post("/chat/feedback", status_code=204)
+def chat_feedback(
+    request: Request,
+    request_id: str = Form(default=""),
+    useful: str = Form(default=""),
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Guarda la marca útil / no útil de un turno (spec 038, US4).
+
+    Exige CSRF, no consume cuota y no guarda texto. La marca se identifica por
+    el ``request_id`` del evento ``done``; si el turno no se muestreó, la marca
+    se conserva igual y no se crea ninguna traza (FR-012).
+    """
+
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return Response(status_code=403)
+    if not REQUEST_ID_VALIDO.match(request_id.strip()):
+        return Response(status_code=400)
+    valor = USEFUL_VALORES.get(useful.strip().lower())
+    if valor is None:
+        return Response(status_code=400)
+    try:
+        _record_feedback(request, request_id.strip(), valor)
+    except SQLAlchemyError as error:
+        logger.warning("chat.feedback_failed", error=str(error))
+        return Response(status_code=503)
+    return Response(status_code=204)
+
+
+def _record_feedback(request: Request, request_id: str, useful: bool) -> None:
+    """Marca inyectada en ``app.state.feedback`` o la real sobre PostgreSQL."""
+
+    injected = getattr(request.app.state, "feedback", None)
+    if injected is not None:
+        injected(request_id, useful)
+        return
+    from apps.api import runtime
+    from apps.api.chat.feedback import SqlFeedbackRepository
+
+    with runtime.session_factory()() as session:
+        SqlFeedbackRepository(session).record(request_id, useful)
+        session.commit()
 
 
 @router.post("/chat")
@@ -327,6 +385,11 @@ def _page(
             "thread_id": thread_id or "",
             "conversations": conversations or [],
             "panel_hilos": panel_hilos,
+            "monitoring": getattr(
+                request.app.state,
+                "monitoring",
+                monitoring_status(Settings()).enabled,
+            ),
         },
         status_code=status_code,
         headers=headers,
