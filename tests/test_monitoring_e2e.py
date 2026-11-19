@@ -337,15 +337,16 @@ def test_servicio_caido_no_retrasa_el_primer_fragmento(ajustes: Settings) -> Non
         def record(self, *args: Any, **kwargs: Any) -> None:
             return None
 
-    motor = create_engine(
-        "sqlite+pysqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    tables.metadata.create_all(motor)
     base = Settings()
 
-    def medir(endpoint: str, activo: bool) -> list[float]:
+    def medir(endpoint: str, activo: bool, etiqueta: str) -> list[float]:
+        # Motor propio por escenario: ninguna fila del primero contamina al segundo.
+        motor_escenario = create_engine(
+            "sqlite+pysqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        tables.metadata.create_all(motor_escenario)
         ajustes_medicion = Settings(
             _env_file=None,
             monitoring_enabled=activo,
@@ -356,28 +357,29 @@ def test_servicio_caido_no_retrasa_el_primer_fragmento(ajustes: Settings) -> Non
             monitoring_timeout_ms=2000,
         )
         chat = ChatService(
-            build_session_factory(motor),
+            build_session_factory(motor_escenario),
             Embedder(),
             LLM(),
             agent=Agente(),
             tracer=build_tracer(ajustes_medicion),
             settings=ajustes_medicion,
         )
-        # Calentamiento: la primera llamada construye el cliente y el pool.
+        # Calentamiento: la primera llamada construye el cliente y el pool. El
+        # identificador del hilo no lleva el endpoint: es un dato interno del test.
         for caliente in range(3):
-            for _ in chat.stream(f"warm-{endpoint}-{caliente}", "¿Qué es Carvajal?"):
+            for _ in chat.stream(f"{etiqueta}-warm-{caliente}", "¿Qué es Carvajal?"):
                 pass
         tiempos: list[float] = []
         for indice in range(20):
             inicio = time.perf_counter()
-            for evento in chat.stream(f"e2e-{endpoint}-{indice}", "¿Qué es Carvajal?"):
+            for evento in chat.stream(f"{etiqueta}-{indice}", "¿Qué es Carvajal?"):
                 if evento.name == "token":
                     tiempos.append((time.perf_counter() - inicio) * 1000)
                     break
         return tiempos
 
-    caido = medir("http://127.0.0.1:9/", True)
-    apagado = medir("", False)
+    caido = medir("http://127.0.0.1:9/", True, "caido")
+    apagado = medir("", False, "apagado")
     assert len(caido) == 20, f"el servicio caído solo dio {len(caido)} muestras"
     assert len(apagado) == 20, f"sin monitoreo solo dio {len(apagado)} muestras"
     p95_caido = _p95(caido)
