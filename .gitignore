@@ -28,6 +28,10 @@ data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
+# Fuentes primarias del catálogo de Colombia: el PDF no se versiona por tamaño;
+# su ruta, fecha y hash quedan en data/catalog/empaques/manifest.json.
+data/catalog/empaques/fuentes/*.pdf
+
 # Corpus externo: derivados regenerables con `carvajal import`; solo se versiona
 # el manifiesto de cada fuente para dejar constancia de qué se importó.
 data/external/*/*

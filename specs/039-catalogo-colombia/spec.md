@@ -12,26 +12,28 @@ La spec 036 dejó el catálogo con 52 referencias de la tienda de México, con p
 directorio de 29 distribuidores de Colombia. Las referencias de Colombia quedaron pendientes
 (T009: el catálogo PDF, de unas 180 referencias, sin precio). Por eso hoy un restaurante de
 Bogotá recibe referencias mexicanas y ningún precio. El sitio de Carvajal Empaques Colombia
-no publica precios: la ampliación necesita una fuente de precios explícita y fechada.
+no publica precios: la ampliación necesita una fuente de precios colombiana explícita y
+fechada.
 
-Esta spec sustituye la regla de la 036 FR-006 («declarar la ausencia de precio en lugar de
-estimarlo»): declarar la ausencia sigue siendo el comportamiento por defecto y la estimación
-por conversión es la única excepción, definida aquí en FR-006a y FR-006b.
+Esta spec **mantiene** la regla de la 036 FR-006: si no hay precio publicado en Colombia, se
+declara la ausencia y se remite a los distribuidores. No se convierte ni se estima un precio
+desde México: cada país tiene sus propias referencias y sus propios precios.
 
 ## Clarifications
 
 ### Session 2026-11-17
 
 - Q: ¿De dónde salen los precios de Colombia? → A: De las tiendas en línea públicas de los
-  distribuidores del directorio. Para las referencias sin precio de distribuidor, se estima
-  convirtiendo a COP el precio de la referencia equivalente de México con una tasa de cambio
-  fechada.
+  distribuidores del directorio y de comercios que publiquen precio. Si no hay precio
+  colombiano, no se muestra precio.
 
 ### Session 2026-11-18
 
-- Q: ¿Qué hace equivalente a una referencia de México para estimar su precio? → A: La misma
-  familia, capacidad y material, comparando el precio por unidad y reescalándolo a las cajas
-  de la referencia colombiana. Las unidades por caja no son un requisito de equivalencia.
+- Q: ¿Se estima el precio de una referencia colombiana convirtiendo el de una mexicana? →
+  A: No. Se descarta la conversión entre países: una referencia de Colombia solo muestra
+  precios publicados para Colombia, con su fuente y su fecha. Sin precio colombiano, se
+  declara la ausencia y se listan los distribuidores. La regla de la 036 FR-006 queda
+  vigente sin excepciones.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -73,28 +75,24 @@ de su ciudad.
 **Why this priority**: el precio es lo que convierte la recomendación en una decisión de
 compra; es la razón principal de la ampliación.
 
-**Independent Test**: pedir 5.000 unidades de una referencia con precio en Colombia y
-comprobar el número de cajas, el total en COP, la nota de IVA, la fecha y la fuente; y
-pedir una referencia sin precio de distribuidor y comprobar que el total aparece como
-estimación convertida desde México, con la tasa y su fecha.
+**Independent Test**: pedir 5.000 unidades de una referencia con precio colombiano y comprobar
+el número de cajas, el total en COP, la nota de IVA, la fecha y la fuente; y pedir una
+referencia sin precio colombiano y comprobar que declara la ausencia, no convierte desde
+México y lista los distribuidores.
 
 **Acceptance Scenarios**:
 
 1. **Given** una referencia con precio en Colombia, **When** se cotiza, **Then** el total
    es cajas × precio por caja en COP, con nota de IVA, fecha y fuente del precio.
-2. **Given** una referencia sin precio de distribuidor pero con equivalente en México,
-   **When** se pide el costo, **Then** el asistente muestra un precio estimado en COP,
-   etiquetado como conversión del precio de México, con el precio original en MXN, la tasa
-   de cambio, su fuente y su fecha, y aclara que no es un precio publicado en Colombia.
-3. **Given** una referencia sin precio de distribuidor ni equivalente en México, **When**
-   se pide el costo, **Then** el asistente declara que no tiene precio, no lo estima y
-   lista los distribuidores de la ciudad.
-4. **Given** un precio publicado por un tercero (distribuidor o comercio), **When** se
+2. **Given** una referencia sin precio colombiano, **When** se pide el costo, **Then** el
+   asistente declara que no tiene precio, no lo estima ni lo convierte desde México y lista
+   los distribuidores de la ciudad.
+3. **Given** un precio publicado por un tercero (distribuidor o comercio), **When** se
    muestra, **Then** queda identificado como precio de ese tercero y no como precio de
    Carvajal.
-5. **Given** un precio con más de 90 días desde su captura, **When** se muestra, **Then** se
+4. **Given** un precio con más de 90 días desde su captura, **When** se muestra, **Then** se
    advierte que puede estar desactualizado.
-6. **Given** cualquier cotización, **When** se muestra, **Then** incluye el aviso de precio
+5. **Given** cualquier cotización, **When** se muestra, **Then** incluye el aviso de precio
    de referencia sin confirmación de existencias ni condiciones de venta.
 
 ---
@@ -148,6 +146,8 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
 
 - La misma referencia existe en México y Colombia con códigos distintos: se tratan como
   referencias separadas por país; no se cruzan precios.
+- Referencia colombiana sin precio colombiano: no se usa el precio de México aunque exista una
+  referencia parecida; se declara la ausencia y se listan los distribuidores.
 - Precio publicado por unidad, por paquete o por caja: se normaliza a precio por caja con
   las unidades de la ficha; si no se puede normalizar, no se muestra precio.
 - Varias fuentes con precios distintos para la misma referencia: se muestra cada precio con
@@ -158,14 +158,8 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
   antes de filtrar.
 - Página del catálogo PDF ilegible o sin capa de texto: se transcribe a mano y la fila queda
   marcada como curada a mano en el manifiesto.
-- Persona en Colombia que pide precio en dólares o pesos mexicanos: se responde en COP; la
-  única conversión es la estimación desde México descrita en US2.
-- Equivalencia dudosa entre una referencia de Colombia y una de México (misma familia y
-  capacidad, pero distinto material o línea): no se considera equivalente y no se estima.
-- Precio de México con IVA mexicano incluido: la estimación parte del precio sin IVA cuando
-  la ficha lo permite y aclara que no incluye el IVA de Colombia; si no se puede separar,
-  lo dice.
-- Tasa de cambio con más de 7 días: se actualiza al regenerar o se advierte su fecha.
+- Persona en Colombia que pide precio en dólares o pesos mexicanos: se responde en COP con el
+  precio colombiano si existe; no se convierte moneda.
 
 ## Requirements *(mandatory)*
 
@@ -180,15 +174,9 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
   captura, fuente identificada y aviso de precio de referencia.
 - **FR-005**: El sistema MUST distinguir la procedencia del precio: oficial de Carvajal o de
   un tercero, nombrando al tercero.
-- **FR-006**: El sistema MUST declarar la ausencia de precio cuando no hay precio de
-  distribuidor ni equivalente en México, y no MUST promediar precios entre fuentes.
-- **FR-006a**: La estimación por conversión MUST aplicarse solo a referencias con un
-  equivalente en México (misma familia, capacidad y material), comparando el precio por
-  unidad y reescalándolo a las cajas de la referencia colombiana, y MUST mostrarse como
-  estimación con el precio original en MXN, la tasa de cambio, su fuente y su fecha. Nunca
-  MUST presentarse como precio publicado en Colombia.
-- **FR-006b**: La tasa de cambio MUST provenir de una fuente oficial fechada y guardarse con
-  el catálogo para que la estimación sea reproducible.
+- **FR-006**: El sistema MUST declarar la ausencia de precio cuando no hay un precio
+  colombiano publicado, MUST NOT estimar ni convertir un precio desde México u otro país,
+  y MUST NOT promediar precios entre fuentes.
 - **FR-007**: Los precios con más de 90 días desde su captura MUST mostrarse con la
   advertencia de posible desactualización.
 - **FR-008**: El cálculo de cajas y totales MUST ser determinista, igual que en la spec 036.
@@ -207,9 +195,6 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
   catálogo o ficha de origen y fecha de captura.
 - **Precio de referencia**: valor por caja, moneda COP, IVA incluido / no incluido / no
   indicado, fuente (oficial o tercero con nombre), URL o documento, fecha de captura.
-- **Tasa de cambio**: MXN→COP con fuente oficial y fecha.
-- **Equivalencia MX–CO**: par de referencias con la misma familia, capacidad, material y
-  unidades por caja, usado solo para estimar precio.
 - **Fuente de precios**: origen publicado de precios para Colombia, con su tipo, su permiso
   de captura (robots.txt) y su frecuencia de actualización esperada.
 - **Manifiesto del catálogo**: filas agregadas, cambiadas, descartadas y curadas a mano,
@@ -226,8 +211,7 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
   una regla de material en el conjunto de evaluación.
 - **SC-003**: 100 % de los precios de Colombia mostrados llevan COP, nota de IVA, fecha y
   fuente.
-- **SC-003a**: 100 % de los precios estimados por conversión se muestran como estimación,
-  con el precio en MXN, la tasa, su fuente y su fecha.
+- **SC-003a**: 0 precios de Colombia estimados o convertidos desde México u otro país.
 - **SC-004**: 100 % de los totales coinciden con el cálculo esperado en las preguntas de
   evaluación de Colombia (al menos 20 preguntas nuevas).
 - **SC-005**: Ninguna regresión en las preguntas de México ni en las pruebas existentes del
@@ -239,10 +223,18 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
 - La fuente de productos es el catálogo PDF de Carvajal Empaques Colombia capturado en el
   corpus externo (T009 de la spec 036, que esta spec absorbe).
 - Los precios provienen de las tiendas en línea públicas de los distribuidores del
-  directorio, capturadas con las reglas de captura responsable; donde no hay precio de
-  distribuidor, se estima por conversión desde México (ver Clarifications). Si un
-  distribuidor no tiene tienda en línea o su `robots.txt` lo prohíbe, no se captura.
+  directorio y de comercios colombianos que publiquen precio, capturados con las reglas de
+  captura responsable. Si no hay precio colombiano, no se muestra precio y se listan los
+  distribuidores. No se convierte ni se estima desde México. Si un distribuidor no tiene
+  tienda en línea o su `robots.txt` lo prohíbe, no se captura.
 - Los precios son referencias fechadas; la actualización periódica automática queda fuera
   de alcance: se regenera con la orden de US4.
 - El asistente no procesa pedidos ni pagos y no vincula a Carvajal ni a los distribuidores
   con ningún precio.
+
+## Historial de cambios
+
+- 2026-11-18: se elimina la estimación por conversión desde México (FR-006a, FR-006b y
+  SC-003a). Una referencia colombiana solo muestra precios publicados para Colombia; si no
+  los hay, se declara la ausencia y se listan los distribuidores. La regla de la 036 FR-006
+  queda vigente sin excepciones.
