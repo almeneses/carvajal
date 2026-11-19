@@ -7,6 +7,7 @@ petición abre su propia sesión.
 """
 
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
@@ -106,6 +107,13 @@ def force_global_tracing_off() -> None:
         if os.environ.get(nombre, "").strip().lower() in {"1", "true", "yes", "on"}:
             logger.warning("monitoring.global_tracing_forced_off", variable=nombre)
         os.environ[nombre] = "false"
+    # LangSmith cachea la lectura del entorno (``get_env_var`` usa lru_cache):
+    # si alguien ya leyó el valor heredado, hay que invalidar la caché o el
+    # tracing seguiría activo pese a las variables (FR-001).
+    utilidades = sys.modules.get("langsmith.utils")
+    cache = getattr(utilidades, "get_env_var", None)
+    if cache is not None and hasattr(cache, "cache_clear"):
+        cache.cache_clear()
 
 
 def _default_quota(owner_key: str) -> QuotaResult:

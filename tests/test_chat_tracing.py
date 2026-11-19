@@ -349,18 +349,61 @@ def test_la_cancelacion_cierra_la_traza_como_cancelada(engine: Any) -> None:
     generador.close()
 
     assert tracer.turnos[0].outcomes == ["cancelled"]
+    assert tracer.turnos[0].metadata["route"] == "rag"
+
+
+def test_la_cancelacion_conserva_el_texto_parcial(engine: Any) -> None:
+    """Cortar tras el primer token deja lo generado en la traza (T012)."""
+
+    tracer = TracerFalso()
+    chat = servicio(engine, AgenteFalso(turno()), tracer)
+
+    generador = cast(Generator[ChatEvent], chat.stream("traza-parcial", PREGUNTA))
+    while next(generador).name != "token":
+        pass
+    generador.close()
+
+    assert tracer.turnos[0].outcomes == ["cancelled"]
+    assert "Carvajal" in str(tracer.turnos[0].outputs.get("answer", ""))
+
+
+def test_cerrar_tras_done_no_marca_cancelado(engine: Any) -> None:
+    """El turno completado sigue ``ok`` aunque el consumidor cierre después (T010)."""
+
+    tracer = TracerFalso()
+    chat = servicio(engine, AgenteFalso(turno()), tracer)
+
+    generador = cast(Generator[ChatEvent], chat.stream("traza-done", PREGUNTA))
+    while next(generador).name != "done":
+        pass
+    generador.close()
+
+    assert tracer.turnos[0].outcomes == ["ok"]
+
+
+class LLMQueFalla(LLMFalso):
+    """LLM que falla después de enrutar: la traza ya conoce la ruta."""
+
+    def stream(self, *, system: str, prompt: str) -> Iterator[str]:
+        self.llamadas += 1
+        raise RuntimeError("proveedor caído")
+
+    def complete(self, *, system: str, prompt: str) -> str:
+        self.llamadas += 1
+        raise RuntimeError("proveedor caído")
 
 
 def test_un_error_cierra_la_traza_una_sola_vez(engine: Any) -> None:
-    """El fallo del grafo se propaga como evento y la traza queda ``failed``."""
+    """El fallo después de enrutar deja ``failed`` y conserva la ruta."""
 
     tracer = TracerFalso()
-    chat = servicio(engine, AgenteFalso(turno(), error=RuntimeError("grafo roto")), tracer)
+    chat = servicio(engine, AgenteFalso(turno()), tracer, llm=LLMQueFalla())
 
     recibidos = eventos(chat, "traza-error")
 
     assert con_nombre(recibidos, "error")
     assert tracer.turnos[0].outcomes == ["failed"]
+    assert tracer.turnos[0].metadata["route"] == "rag"
 
 
 def test_el_primer_fragmento_no_espera_al_cierre_de_la_traza(engine: Any) -> None:
@@ -395,6 +438,7 @@ def test_el_replay_no_abre_traza(engine: Any) -> None:
 
     assert len(tracer.llamadas) == 1
     assert [evento.name for evento in segundo][-1] == "done"
+    assert con_nombre(segundo, "done").data["request_id"]
     assert (
         con_nombre(primero, "done").data["message_id"]
         == con_nombre(segundo, "done").data["message_id"]
@@ -446,6 +490,75 @@ def test_los_pasos_de_langchain_aparecen_como_hijos(engine: Any) -> None:
     raiz = next(run for run in cliente.runs if run["name"] == "chat_turn")
     hijo = next(run for run in cliente.runs if run["name"] == "RunnableLambda")
     assert hijo["parent_run_id"] == raiz["id"]
+
+
+class ClienteRedactor(ClienteFalso):
+    """Cliente falso que aplica la misma redacción que el cliente real."""
+
+    def create_run(self, **kwargs: Any) -> None:
+        from carvajal.infrastructure.monitoring import redact_run
+
+        if "inputs" in kwargs:
+            kwargs["inputs"] = redact_run(kwargs["inputs"], include_content=False)
+        if kwargs.get("error"):
+            kwargs["error"] = redact_run({"error": kwargs["error"]}, include_content=False)["error"]
+        super().create_run(**kwargs)
+
+    def update_run(self, **kwargs: Any) -> None:
+        from carvajal.infrastructure.monitoring import redact_run
+
+        if kwargs.get("error"):
+            kwargs["error"] = redact_run({"error": kwargs["error"]}, include_content=False)["error"]
+        super().update_run(**kwargs)
+
+
+class AgenteQueFallaEnLangChain:
+    """Runner cuya llamada de LangChain lanza con PII en el mensaje."""
+
+    def prepare(
+        self, owner_key: str, thread_id: str, question: str, seed_turns: Sequence[Turn]
+    ) -> AgentTurn:
+        from langchain_core.runnables import RunnableLambda
+
+        def revienta(_texto: str) -> str:
+            raise ValueError(f"fallo con {PREGUNTA_CON_PII}")
+
+        with pytest.raises(ValueError):
+            RunnableLambda(revienta).invoke(question)
+        return turno()
+
+    def record(
+        self,
+        thread_id: str,
+        *,
+        question: str,
+        answer: str,
+        incomplete: bool,
+        turns: Sequence[Turn],
+    ) -> None:
+        return None
+
+
+def test_el_error_de_una_run_hija_no_lleva_texto(engine: Any) -> None:
+    """Un paso de LangChain que falla con PII no filtra su mensaje (FR-005)."""
+
+    cliente = ClienteRedactor()
+    tracer = build_tracer(
+        Settings(_env_file=None, monitoring_enabled=True, langsmith_api_key="lsv2_pt_x"),
+        client=cliente,
+        random_fn=lambda: 0.0,
+    )
+    chat = servicio(engine, AgenteQueFallaEnLangChain(), tracer)
+
+    eventos(chat, "traza-error-hijo")
+
+    enviado = repr(cliente.runs) + repr(cliente.actualizaciones)
+    assert "300 123 4567" not in enviado
+    assert "Ana Pérez" not in enviado
+    hijo = next(run for run in cliente.runs if run["name"] != "chat_turn")
+    assert hijo["name"] == "revienta"
+    errores = [update.get("error") for update in cliente.actualizaciones if update.get("error")]
+    assert "ValueError" in errores
 
 
 def test_la_raiz_no_lleva_el_texto_en_produccion(engine: Any) -> None:
@@ -516,6 +629,31 @@ def test_un_monitoreo_caido_no_rompe_el_turno_ni_la_persistencia(engine: Any) ->
     eventos_registrados = [r["event"] for r in registros]
     assert "monitoring.failed" in eventos_registrados
     assert "chat.turn_completed" in eventos_registrados
+
+
+def test_un_fallo_al_cerrar_la_traza_tampoco_propaga(engine: Any) -> None:
+    """Si ``update_run``/``end`` falla, el turno responde y persiste igual (T016)."""
+
+    class ClienteQueFallaAlCerrar(ClienteFalso):
+        def create_run(self, **kwargs: Any) -> None:
+            self.runs.append(kwargs)
+
+        def update_run(self, **kwargs: Any) -> None:
+            raise RuntimeError("fallo al cerrar")
+
+    tracer = build_tracer(
+        Settings(_env_file=None, monitoring_enabled=True, langsmith_api_key="lsv2_pt_x"),
+        client=ClienteQueFallaAlCerrar(),
+        random_fn=lambda: 0.0,
+    )
+    chat = servicio(engine, AgenteFalso(turno()), tracer)
+
+    with capture_logs() as registros:
+        recibidos = eventos(chat, "traza-cierre")
+
+    assert con_nombre(recibidos, "done").data["route"] == "rag"
+    assert list(chat.history("traza-cierre"))
+    assert any(r["event"] == "monitoring.failed" for r in registros)
 
 
 def test_la_salud_del_monitoreo_no_expone_credenciales() -> None:

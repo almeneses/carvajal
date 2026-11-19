@@ -229,6 +229,7 @@ class ChatService:
         turn: AgentTurn | None = None
         runner: AgentRunner | None = None
         persisted = False
+        done_event: ChatEvent | None = None
         try:
             if not text:
                 raise ValueError("La pregunta no puede estar vacía.")
@@ -251,7 +252,7 @@ class ChatService:
                     else None
                 )
                 if replay is not None:
-                    yield from _replay(replay)
+                    yield from _replay(replay, request_id=_request_id())
                     return
                 # El hilo debe existir antes de generar; si el LLM falla, la UI
                 # puede seguir mostrando la conversación sin un turno a medias.
@@ -265,7 +266,10 @@ class ChatService:
                 question=text,
             ) as span:
                 turn = runner.prepare(owner_key, conversation.id, text, seed)
+                # La ruta ya se conoce aquí: registrarla ahora deja trazas
+                # útiles aunque el turno falle o se cancele después (T010).
                 span.add_metadata(
+                    route=turn.route,
                     question_chars=len(text),
                     intent=turn.intent,
                     tool=turn.tool or None,
@@ -297,11 +301,15 @@ class ChatService:
 
                 if turn.prompt is None:
                     fragments.append(NO_CONTEXT_ANSWER)
+                    span.add_outputs(answer=NO_CONTEXT_ANSWER)
                     yield ChatEvent("token", {"text": NO_CONTEXT_ANSWER})
                 else:
                     try:
                         for fragment in self._llm.stream(system=turn.system, prompt=turn.prompt):
                             fragments.append(fragment)
+                            # Lo generado queda en la traza: una cancelación
+                            # deja el texto parcial (edge case de US1).
+                            span.add_outputs(answer="".join(fragments))
                             yield ChatEvent("token", {"text": fragment})
                     except Exception as error:
                         if "".join(fragments).strip():
@@ -310,6 +318,7 @@ class ChatService:
                     if not "".join(fragments).strip():
                         answer = self._llm.complete(system=turn.system, prompt=turn.prompt)
                         fragments = [answer]
+                        span.add_outputs(answer=answer)
                         yield ChatEvent(
                             "fallback",
                             {"text": answer, "sources": _sources(turn.sources)},
@@ -349,8 +358,10 @@ class ChatService:
                     duration_ms=elapsed,
                     result="ok",
                 )
-                span.add_metadata(route=turn.route, answer_chars=len(answer_text))
-                yield ChatEvent(
+                span.add_metadata(answer_chars=len(answer_text))
+                # El ``done`` se emite ya cerrada la traza: si el consumidor
+                # cierra el generador justo después, el turno sigue siendo ok.
+                done_event = ChatEvent(
                     "done",
                     {
                         "conversation_id": conversation_id,
@@ -361,6 +372,7 @@ class ChatService:
                         "request_id": request_id,
                     },
                 )
+            yield done_event
         except Exception as error:
             partial = "".join(fragments).strip()
             logger.warning(
@@ -487,7 +499,11 @@ def _seed_turns(repository: SqlChatRepository, conversation_id: str) -> list[Tur
     return turns
 
 
-def _replay(turn: tuple[ChatMessage, ChatMessage | None]) -> Iterator[ChatEvent]:
+def _replay(
+    turn: tuple[ChatMessage, ChatMessage | None],
+    *,
+    request_id: str = "",
+) -> Iterator[ChatEvent]:
     """Reemite un turno ya persistido para un reintento idempotente."""
 
     user, assistant = turn
@@ -511,6 +527,7 @@ def _replay(turn: tuple[ChatMessage, ChatMessage | None]) -> Iterator[ChatEvent]
                 "thread_id": assistant.conversation_id,
                 "route": "replay",
                 "elapsed_ms": 0,
+                "request_id": request_id,
             },
         )
 

@@ -108,13 +108,19 @@ def test_health_degradado_tambien_publica_el_monitoreo(
 def test_el_arranque_fuerza_las_globales_a_false(monkeypatch: pytest.MonkeyPatch) -> None:
     """Una variable heredada no enciende el tracing global del proceso (FR-001)."""
 
+    from langsmith import utils
+
     monkeypatch.setenv("LANGSMITH_TRACING", "true")
-    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "1")
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    object.__getattribute__(utils.get_env_var, "cache_clear")()
+    # El SDK cachea la lectura del entorno: comprobamos el efecto real.
+    assert utils.tracing_is_enabled() is True
 
     create_app(_handlers())
 
     assert os.environ["LANGSMITH_TRACING"] == "false"
     assert os.environ["LANGCHAIN_TRACING_V2"] == "false"
+    assert utils.tracing_is_enabled() is False
 
 
 def test_forzar_las_globales_es_idempotente(monkeypatch: pytest.MonkeyPatch) -> None:
