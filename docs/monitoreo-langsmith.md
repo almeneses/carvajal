@@ -94,5 +94,5 @@ igual. Con el monitoreo apagado los botones no se muestran.
 
 Nunca incluye la llave ni el endpoint. Si `enabled` es `false` con
 `MONITORING_ENABLED=true`, revisa `LANGSMITH_API_KEY` y el rango del muestreo:
-el aviso `monitoring.disabled` aparece en los logs al construir el cliente, en
-el primer turno muestreado.
+el aviso `monitoring.disabled` aparece en los logs (con el motivo) al construir el
+tracer del chat, aunque el muestreo sea 0.

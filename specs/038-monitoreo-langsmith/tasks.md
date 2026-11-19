@@ -1,6 +1,6 @@
 # Tasks: Monitoreo del agente con LangSmith
 
-**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: entregada (PR1–PR6)
+**Spec**: [`spec.md`](./spec.md) · **Plan**: [`plan.md`](./plan.md) · **Estado**: en cierre (PR1–PR6)
 
 ## Format: `[ID] [P?] [Story] Description`
 
