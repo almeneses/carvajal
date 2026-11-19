@@ -233,6 +233,17 @@ class TestEstadoDelMonitoreo:
         assert monitoring_status(settings).enabled is False
         assert build_client(settings) is None
 
+    def test_el_cliente_se_construye_sin_red(self) -> None:
+        """El camino feliz de ``build_client`` no abre un socket (FR-010, SC-003)."""
+
+        settings = _settings(langsmith_endpoint="https://langsmith.interno/")
+
+        cliente = build_client(settings)
+
+        assert cliente is not None
+        # Sin ``info`` el SDK pediría /info al construir; aquí no hay versión.
+        assert not cliente.info.version
+
     def test_thread_hash_es_pseudonimo_y_estable(self) -> None:
         """El hilo se representa con 16 hex del SHA-256, nunca con el valor crudo."""
 

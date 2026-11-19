@@ -10,13 +10,13 @@
 
 ## Phase 1: Setup (infraestructura compartida)
 
-- [ ] T001 Declarar `langsmith>=0.14` como dependencia directa en `pyproject.toml` y actualizar
+- [X] T001 Declarar `langsmith>=0.14` como dependencia directa en `pyproject.toml` y actualizar
       `uv.lock` con `uv lock` (ya llega por LangChain; se evita depender de un transitivo)
-- [ ] T002 Añadir a `packages/core/src/carvajal/infrastructure/settings.py` las variables
+- [X] T002 Añadir a `packages/core/src/carvajal/infrastructure/settings.py` las variables
       `monitoring_enabled`, `langsmith_api_key`, `langsmith_project`, `langsmith_endpoint`,
       `monitoring_sample_rate` (0..1), `monitoring_include_content` y `monitoring_timeout_ms`;
       validar rangos y documentar que la llave nunca se registra
-- [ ] T003 [P] Documentar las variables en `.env.example` con valores seguros
+- [X] T003 [P] Documentar las variables en `.env.example` con valores seguros
       (`MONITORING_ENABLED=false`, `MONITORING_SAMPLE_RATE=0.2`,
       `MONITORING_INCLUDE_CONTENT=false`) y añadirlas a `compose.prod.yml` (inyección
       explícita, off por defecto); nota de que no se usan `LANGCHAIN_TRACING_V2` ni
@@ -26,22 +26,22 @@
 
 **PR 1 — Configuración, módulo y registro constitucional**
 
-- [ ] T004 Crear `packages/core/src/carvajal/infrastructure/monitoring.py` con
+- [X] T004 Crear `packages/core/src/carvajal/infrastructure/monitoring.py` con
       `MonitoringStatus`, `monitoring_status(settings)`, `build_client(settings)` y
       `redact(payload, include_content)`; sin efectos si `monitoring_enabled` es falso
-- [ ] T005 `tests/test_monitoring.py`: la lista blanca conserva ruta, intención, herramienta,
+- [X] T005 `tests/test_monitoring.py`: la lista blanca conserva ruta, intención, herramienta,
       modelo, tokens, `slug`, `chunk_id`, `score`/`scores`, `preferences_count`, longitudes y
       errores; elimina pregunta, respuesta, prompt, fragmentos, nombres, teléfonos, IP, cookies,
       CSRF, claves y `owner_key`; con contenido activo no redacta
-- [ ] T006 Implementar `build_client` con `Client(hide_inputs=redact, hide_outputs=redact)`,
+- [X] T006 Implementar `build_client` con `Client(hide_inputs=redact, hide_outputs=redact)`,
       `timeout_ms`, `auto_batch_tracing=True` y `tracing_error_callback` que solo registra en
       los logs; el endpoint es opcional y la llave sale del entorno
-- [ ] T007 Implementar `TurnTracer` (protocolo y `NoopTracer`): `turn(request_id, thread_hash,
+- [X] T007 Implementar `TurnTracer` (protocolo y `NoopTracer`): `turn(request_id, thread_hash,
       router, question)` como *context manager*, muestreo con `random()` inyectable y estado
       `ok`/`cancelled`/`failed`; sin muestreo no se importa ni se construye el cliente
-- [ ] T008 `tests/test_monitoring.py`: tasa 0 no crea traza, tasa 1 sí, el muestreo usa la
+- [X] T008 `tests/test_monitoring.py`: tasa 0 no crea traza, tasa 1 sí, el muestreo usa la
       función inyectada, y un cliente que lanza no propaga la excepción al turno
-- [ ] T029 Actualizar `CONSTITUTION.md` §2 y §9 y la sección «Estado técnico» de
+- [X] T029 Actualizar `CONSTITUTION.md` §2 y §9 y la sección «Estado técnico» de
       `.specify/memory/constitution.md`: §2 pasa de «en borrador» a «en implementación»; §9
       añade la fila de la decisión (modo de contenido, muestreo 0.2 y apagado por defecto); no
       declarar «entregado» hasta T035; actualizar la fecha y la versión de la proyección.
