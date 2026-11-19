@@ -242,7 +242,8 @@ def test_cuatro_rutas_registran_traza_y_metricas(
     filas.append(
         {
             "id": "monitoreo-privacidad",
-            "inputs": {"question": PREGUNTA_PII},
+            # No se sube la pregunta sembrada: sería enviar la PII que se verifica.
+            "inputs": {"question": "[pregunta con nombre y teléfono inventados]"},
             "expected": {"pii_free": True},
             "outputs": {
                 "route": (raiz_pii.extra or {}).get("metadata", {}).get("route"),
@@ -256,7 +257,7 @@ def test_cuatro_rutas_registran_traza_y_metricas(
     )
 
     # SC-001: las cuatro rutas tienen traza; SC-002: nada lleva PII.
-    assert all(datos["ruta_observada"] for datos in resultados.values()), resultados
+    assert all(datos["ruta_observada"] == ruta for ruta, datos in resultados.items()), resultados
     assert all(datos["pii_libre"] for datos in resultados.values()), resultados
 
     metricas = {
@@ -286,10 +287,12 @@ def test_cuatro_rutas_registran_traza_y_metricas(
     assert resultado.registered, resultado.detail
 
 
-def test_servicio_caido_no_retrasa_el_primer_fragmento() -> None:
+def test_servicio_caido_no_retrasa_el_primer_fragmento(ajustes: Settings) -> None:
     """SC-003: con el endpoint inalcanzable, el p95 no empeora más de 100 ms.
 
-    El SDK escribe en stderr un aviso de ingesta por cada envío fallido: es el
+    Depende de ``ajustes`` para omitirse sin llave: sin cliente real el tracer
+    no envía nada y las dos mediciones serían iguales por construcción. El SDK
+    escribe en stderr un aviso de ingesta por cada envío fallido: es el
     comportamiento esperado y forma parte de lo que la prueba demuestra.
     """
 
