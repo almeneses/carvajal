@@ -7,7 +7,11 @@
 <script src="/static/chat-stream.js" defer></script>
 {% endblock %}
 {% block content %}
-<section class="seccion chat-seccion" aria-labelledby="titulo-chat">
+<section
+  class="seccion chat-seccion"
+  aria-labelledby="titulo-chat"
+  data-monitoring="{{ '1' if monitoring else '0' }}"
+>
   <div class="panel conversacion">
     <header class="cabecera-conversacion">
       <img class="carva" src="/static/carva.svg" alt="" width="88" height="88" />
@@ -77,7 +81,6 @@
   id="panel-hilos"
   class="panel-hilos"
   data-abrir="{{ '1' if panel_hilos else '0' }}"
-  data-monitoring="{{ '1' if monitoring else '0' }}"
   aria-labelledby="panel-hilos-titulo"
 >
   <header class="panel-hilos-cabecera">

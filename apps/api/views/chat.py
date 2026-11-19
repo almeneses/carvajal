@@ -1,6 +1,5 @@
 """Vista del chat (W3.3): formulario, turnos e historial con cookie firmada."""
 
-import re
 from collections.abc import Sequence
 from urllib.parse import quote
 
@@ -22,7 +21,7 @@ from apps.api.chat.service import (
     ThreadAccessError,
     default_chat_service,
 )
-from apps.api.observability import capture_exception
+from apps.api.observability import REQUEST_ID_PATTERN, capture_exception
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
 from carvajal.adapters.embeddings import EmbeddingError
@@ -51,7 +50,7 @@ EMPTY_QUESTION = "La pregunta no puede estar vacía."
 TOO_LONG_QUESTION = f"La pregunta no puede superar los {MAX_QUESTION_CHARS} caracteres."
 LIMITE_ALCANZADO = "Has alcanzado el límite diario de preguntas. Vuelve a intentarlo mañana."
 CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
-REQUEST_ID_VALIDO = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+REQUEST_ID_VALIDO = REQUEST_ID_PATTERN
 USEFUL_VALORES = {
     "1": True,
     "true": True,
@@ -178,7 +177,7 @@ def chat_feedback(
     if not verify_csrf(request, csrf_token):
         logger.warning("csrf.rejected", path=request.url.path)
         return Response(status_code=403)
-    if not REQUEST_ID_VALIDO.match(request_id.strip()):
+    if REQUEST_ID_VALIDO.fullmatch(request_id.strip()) is None:
         return Response(status_code=400)
     valor = USEFUL_VALORES.get(useful.strip().lower())
     if valor is None:

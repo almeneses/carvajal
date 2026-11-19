@@ -121,6 +121,24 @@ def test_entradas_invalidas_responden_400(engine: Any, datos: dict[str, str]) ->
     assert filas(engine) == 0
 
 
+def test_acepta_el_request_id_del_middleware(engine: Any) -> None:
+    """El id que admite el middleware de logs también vale para la marca."""
+
+    from apps.api.observability import REQUEST_ID_PATTERN
+
+    cliente, _ = make_client(engine)
+    identificador = "req.2026.1119.abc"
+
+    assert REQUEST_ID_PATTERN.fullmatch(identificador) is not None
+    respuesta = cliente.post(
+        "/chat/feedback",
+        data={"request_id": identificador, "useful": "1", CSRF_FIELD: csrf(cliente)},
+    )
+
+    assert respuesta.status_code == 204
+    assert filas(engine) == 1
+
+
 def test_marcar_dos_veces_no_duplica_la_fila(engine: Any) -> None:
     """El upsert por ``request_id`` es idempotente (T024, T027)."""
 
@@ -149,6 +167,7 @@ def test_sin_monitoreo_los_botones_no_aparecen(engine: Any) -> None:
     html = cliente.get("/chat").text
 
     assert 'data-monitoring="0"' in html
+    assert "data-marcas hidden" in html
     assert "plantilla-turno" in html
 
 
@@ -169,11 +188,14 @@ def test_con_monitoreo_los_botones_estan_en_la_plantilla(engine: Any) -> None:
     assert "monitoreoActivo" in js
 
 
-def test_una_marca_no_fuerza_una_traza() -> None:
-    """T028: marcar un turno no muestreado no crea una raíz nueva (FR-012)."""
+def test_una_marca_no_fuerza_una_traza(engine: Any) -> None:
+    """T028: marcar un turno no muestreado no crea raíz y conserva la fila."""
+
+    from sqlalchemy.orm import Session
 
     from carvajal.infrastructure.monitoring import build_tracer
 
+    cliente, _ = make_client(engine)
     construcciones: list[int] = []
 
     def fabrica(_settings: Settings) -> Any:
@@ -190,7 +212,7 @@ def test_una_marca_no_fuerza_una_traza() -> None:
         client_factory=fabrica,
         random_fn=lambda: 0.0,
     )
-
+    # El turno real del chat con un tracer que no muestrea.
     with tracer.turn(
         request_id="req-sin-muestra",
         thread_hash="0123456789abcdef",
@@ -198,9 +220,16 @@ def test_una_marca_no_fuerza_una_traza() -> None:
         question="hola",
     ) as turno:
         turno.add_metadata(route="rag")
+    respuesta = cliente.post(
+        "/chat/feedback",
+        data={"request_id": "req-sin-muestra", "useful": "1", CSRF_FIELD: csrf(cliente)},
+    )
 
-    # La marca vive en la base, no en la traza: el muestreo no se fuerza.
+    assert respuesta.status_code == 204
     assert construcciones == []
+    with Session(bind=engine) as session:
+        guardada = SqlFeedbackRepository(session).get("req-sin-muestra")
+    assert guardada is not None and guardada.useful is True
 
 
 def test_la_marca_sobrevive_sin_traza(engine: Any) -> None:
