@@ -95,7 +95,7 @@ que el primer cambio técnico.
       calcula `evaluate_router` (ruta, intención, datos, latencia, inválidas) sin cambiar el
       informe local
 - [X] T018 [US3] Añadir `--langsmith` a `carvajal eval-router` (`packages/core/src/carvajal/cli.py`):
-      con el flag, registra el experimento; sin el flag, no importa LangSmith ni toca la red
+      con el flag, registra el experimento; sin el flag, no carga el módulo de monitoreo ni toca la red
 - [X] T019 [US3] Crear el dataset de forma idempotente desde `data/eval/routing_questions.json`
       y registrar un experimento con commit, fecha, enrutador, modelo, configuración,
       métricas agregadas y una salida por pregunta (ruta, intención, inválidas, latencia);

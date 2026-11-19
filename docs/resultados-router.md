@@ -133,7 +133,7 @@ uv run python scripts/eval_retrieval.py --langsmith
 
 Qué se registra:
 
-- un dataset `carvajal-<nombre-del-archivo>` con las preguntas de
+- un dataset `carvajal-<nombre-del-archivo>-<8 hex del SHA-256 del archivo>` con las preguntas de
   `data/eval/routing_questions.json` y, como salida de referencia, la verdad esperada
   (ruta e intención). Se crea la primera vez, se reutiliza después y solo completa los
   ejemplos que falten, así que un fallo a medias no deja el dataset vacío;
@@ -147,8 +147,8 @@ Qué se registra:
 - metadatos de la corrida: `commit` (resuelto contra la raíz de este repositorio), fecha,
   enrutador, modelo y ruta del conjunto.
 
-La evaluación de recuperación hace lo mismo sobre el dataset
-`carvajal-retrieval_questions` con Recall@10 y nDCG@10 por consulta.
+La evaluación de recuperación hace lo mismo sobre `carvajal-retrieval_questions-<huella>`
+con Recall@10 y nDCG@10 por consulta.
 
 **Comparar dos corridas**: en LangSmith, abre el dataset y elige *Compare* con los dos
 experimentos. Las filas quedan alineadas por pregunta, así que la columna de diferencias
