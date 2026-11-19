@@ -4,11 +4,13 @@ Cubren la redacción del contenido (FR-005, FR-006), el muestreo (FR-007) y la
 resistencia a fallos del servicio (FR-008) sin red ni credenciales (FR-010).
 """
 
-import logging
+import builtins
+import sys
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from structlog.testing import capture_logs
 
 from carvajal.infrastructure.monitoring import (
     NoopTracer,
@@ -171,19 +173,40 @@ class TestEstadoDelMonitoreo:
         assert build_client(settings) is None
         assert isinstance(build_tracer(settings), NoopTracer)
 
-    def test_sin_llave_no_se_activa(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_sin_llave_no_se_activa(self) -> None:
         """Encender el monitoreo sin llave es un error de despliegue, no una fuga."""
 
         settings = _settings(langsmith_api_key="")
 
         estado = monitoring_status(settings)
 
-        with caplog.at_level(logging.WARNING):
+        with capture_logs() as registros:
             cliente = build_client(settings)
 
         assert estado.enabled is False
         assert cliente is None
-        assert any("monitoring.disabled" in registro.message for registro in caplog.records)
+        assert [r["event"] for r in registros] == ["monitoring.disabled"]
+        assert registros[0]["reason"] == "missing_api_key"
+
+    def test_un_sdk_ausente_no_rompe_el_monitoreo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Si ``langsmith`` no se puede importar, el chat sigue sin traza (FR-008)."""
+
+        real = builtins.__import__
+
+        def importar(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "langsmith" or name.startswith("langsmith."):
+                raise ImportError("No module named 'langsmith'")
+            return real(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", importar)
+        monkeypatch.setitem(sys.modules, "langsmith", None)
+
+        with capture_logs() as registros:
+            cliente = build_client(_settings())
+
+        assert cliente is None
+        assert registros[0]["event"] == "monitoring.failed"
+        assert registros[0]["error_type"] == "ImportError"
 
     def test_la_salud_no_expone_credenciales(self) -> None:
         """El bloque de salud lleva solo activo, muestreo y modo de contenido."""
@@ -321,14 +344,14 @@ class TestTrazas:
         assert construcciones == [1]
         assert len(cliente.runs) == 2
 
-    def test_un_cliente_que_falla_no_rompe_el_turno(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_un_cliente_que_falla_no_rompe_el_turno(self) -> None:
         """Un servicio caído deja la respuesta intacta y el fallo en los logs (FR-008)."""
 
         cliente = ClienteFalso(falla=True)
         tracer = build_tracer(_settings(), client=cliente, random_fn=lambda: 0.0)
 
         with (
-            caplog.at_level(logging.WARNING),
+            capture_logs() as registros,
             tracer.turn(
                 request_id="req-6",
                 thread_hash="0123456789abcdef",
@@ -338,7 +361,53 @@ class TestTrazas:
         ):
             turno.add_metadata(route="direct")
 
-        assert any("monitoring.failed" in registro.message for registro in caplog.records)
+        assert [r["event"] for r in registros] == ["monitoring.failed"]
+
+    def test_una_fabrica_que_lanza_no_propaga(self) -> None:
+        """Una fábrica de cliente rota no sale del context manager (FR-008, T008)."""
+
+        def fabrica(_settings: Settings) -> Any:
+            raise RuntimeError("fábrica rota")
+
+        tracer = build_tracer(_settings(), client_factory=fabrica, random_fn=lambda: 0.0)
+
+        with (
+            capture_logs() as registros,
+            tracer.turn(
+                request_id="req-fabrica",
+                thread_hash="0123456789abcdef",
+                router="rules",
+                question="hola",
+            ) as turno,
+        ):
+            turno.add_metadata(route="direct")
+
+        assert registros[0]["event"] == "monitoring.failed"
+        assert registros[0]["error_type"] == "RuntimeError"
+
+    def test_un_contexto_de_tracing_roto_no_propaga(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Un ``tracing_context`` que falla al entrar degrada a turno sin traza (FR-008)."""
+
+        import langsmith.run_helpers as run_helpers
+
+        def roto(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("contexto roto")
+
+        monkeypatch.setattr(run_helpers, "tracing_context", roto)
+        tracer = build_tracer(_settings(), client=ClienteFalso(), random_fn=lambda: 0.0)
+
+        with (
+            capture_logs() as registros,
+            tracer.turn(
+                request_id="req-contexto",
+                thread_hash="0123456789abcdef",
+                router="rules",
+                question="hola",
+            ) as turno,
+        ):
+            turno.add_metadata(route="direct")
+
+        assert registros[0]["event"] == "monitoring.failed"
 
     def test_un_error_del_turno_marca_la_traza(self) -> None:
         """La excepción del turno se propaga y la traza queda como fallida."""

@@ -16,7 +16,6 @@ compartan sin acoplar el chat al servicio:
 from __future__ import annotations
 
 import hashlib
-import logging
 import random
 from collections.abc import Callable, Generator, Mapping
 from contextlib import AbstractContextManager, contextmanager
@@ -24,9 +23,11 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, Protocol
 
+import structlog
+
 from carvajal.infrastructure.settings import Settings
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 # Claves que sobreviven a la redacción en producción: metadatos del turno,
 # decisiones del enrutador, identificadores del corpus, métricas, tokens y el
@@ -179,15 +180,17 @@ def build_client(settings: Settings) -> Any | None:
     if not settings.monitoring_enabled:
         return None
     if not settings.langsmith_api_key.strip():
-        log.warning("monitoring.disabled", extra={"reason": "missing_api_key"})
+        log.warning("monitoring.disabled", reason="missing_api_key")
         return None
     if settings.monitoring_sample_rate <= 0:
         return None
 
-    from langsmith import Client  # importación perezosa: sin monitoreo no se carga el SDK
-
     redactor = partial(redact, include_content=settings.monitoring_include_content)
     try:
+        # Importación perezosa: sin monitoreo no se carga el SDK. Un SDK
+        # ausente o roto degrada a «sin monitoreo», nunca al chat (FR-008).
+        from langsmith import Client
+
         return Client(
             api_url=settings.langsmith_endpoint or None,
             api_key=settings.langsmith_api_key.strip(),
@@ -197,8 +200,12 @@ def build_client(settings: Settings) -> Any | None:
             timeout_ms=settings.monitoring_timeout_ms,
             auto_batch_tracing=True,
             tracing_error_callback=_registrar_fallo,
+            # Sin ``info`` el SDK consulta ``/info`` al construir el cliente y
+            # esa llamada bloquearía el primer fragmento del turno (SC-003).
+            # El precio es un aviso de compresión en el primer envío.
+            info={},
         )
-    except Exception as error:  # pragma: no cover - defensa ante un SDK roto
+    except Exception as error:  # SDK ausente, endpoint inválido o firma rota
         _registrar_fallo(error)
         return None
 
@@ -206,10 +213,7 @@ def build_client(settings: Settings) -> Any | None:
 def _registrar_fallo(error: BaseException) -> None:
     """Registra el fallo del monitoreo sin filtrar el mensaje ni la credencial."""
 
-    log.warning(
-        "monitoring.failed",
-        extra={"stage": "tracing", "error_type": type(error).__name__},
-    )
+    log.warning("monitoring.failed", stage="tracing", error_type=type(error).__name__)
 
 
 class Turn(Protocol):
@@ -353,7 +357,12 @@ class LangSmithTurnTracer:
             yield NoopTurn()
             return
 
-        cliente = self._cliente()
+        try:
+            cliente = self._cliente()
+        except Exception as fallo:  # fábrica rota: el turno sigue sin traza
+            _registrar_fallo(fallo)
+            yield NoopTurn()
+            return
         if cliente is None:
             yield NoopTurn()
             return
@@ -390,10 +399,20 @@ class LangSmithTurnTracer:
             yield NoopTurn()
             return
 
+        # El contexto de tracing se abre y cierra aparte: si el SDK falla al
+        # entrar o al salir, la traza se degrada pero el error del turno no se
+        # confunde con un fallo del monitoreo (FR-008).
+        contexto: Any = None
+        try:
+            contexto = tracing_context(parent=raiz, client=cliente, enabled=True)
+            contexto.__enter__()
+        except Exception as fallo:
+            _registrar_fallo(fallo)
+            contexto = None
+
         turno = LangSmithTurn(raiz, include_content=incluir)
         try:
-            with tracing_context(parent=raiz, client=cliente, enabled=True):
-                yield turno
+            yield turno
         except GeneratorExit:
             # Cancelación del visitante: se cierra con lo que alcanzó a generarse.
             turno.finish(outcome="cancelled")
@@ -403,6 +422,12 @@ class LangSmithTurnTracer:
             raise
         else:
             turno.finish(outcome="ok")
+        finally:
+            if contexto is not None:
+                try:
+                    contexto.__exit__(None, None, None)
+                except Exception as fallo:
+                    _registrar_fallo(fallo)
 
 
 def build_tracer(
