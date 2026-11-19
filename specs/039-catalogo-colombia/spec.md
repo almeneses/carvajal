@@ -2,7 +2,7 @@
 
 **Feature Branch**: `039-catalogo-colombia`
 **Created**: 2026-11-17
-**Status**: Draft
+**Status**: Implemented
 **Input**: User description: "Hacer la ampliación del catálogo para incluir productos y
 precios en Colombia."
 
@@ -220,8 +220,9 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
 ## Assumptions
 
 - El alcance sigue siendo foodservice y mesa, como en la spec 036.
-- La fuente de productos es el catálogo PDF de Carvajal Empaques Colombia capturado en el
-  corpus externo (T009 de la spec 036, que esta spec absorbe).
+- La fuente de productos son las fichas oficiales de Carvajal Empaques Colombia
+  (`colombia.carvajalempaques.com`), cruzadas con los productos de los distribuidores (T009 de
+  la spec 036, que esta spec absorbe).
 - Los precios provienen de las tiendas en línea públicas de los distribuidores del
   directorio y de comercios colombianos que publiquen precio, capturados con las reglas de
   captura responsable. Si no hay precio colombiano, no se muestra precio y se listan los
@@ -238,3 +239,8 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
   SC-003a). Una referencia colombiana solo muestra precios publicados para Colombia; si no
   los hay, se declara la ausencia y se listan los distribuidores. La regla de la 036 FR-006
   queda vigente sin excepciones.
+- 2026-11-18 (implementación): las referencias de Colombia salen de las fichas oficiales de
+  `colombia.carvajalempaques.com` y no del catálogo PDF, que no estaba disponible; los precios,
+  de la tienda de EDEXA, distribuidor del directorio. Se ajusta el supuesto de la fuente de
+  productos; los requisitos no cambian. A pedido del equipo, el catálogo de México se amplía de
+  52 a 98 referencias con las fichas de la tienda que no estaban en el corpus.

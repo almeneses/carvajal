@@ -60,7 +60,8 @@ FOLLOW_UP_DEPTH = 3
 _FAMILIES = {
     "vaso": r"vasos?",
     "tapa": r"tapas?|domos?",
-    "contenedor": r"contenedor(?:es)?|recipientes?|portacomidas?",
+    # «cazuela» y «bowl» son contenedores del catálogo de Colombia (spec 039).
+    "contenedor": r"contenedor(?:es)?|recipientes?|portacomidas?|cazuelas?|bowls?",
     "charola": r"charolas?|bandejas?",
     "cubierto": r"cubiertos?|tenedor(?:es)?|cucharas?|cucharitas?|cuchillos?",
     "envase": r"envases?",

@@ -28,8 +28,9 @@ Bronze (`data/raw/`) y silver (`data/processed/`) se regeneran y no se versionan
   antes de escribir capas y la huella del texto decide la versión.
 - La capa extendida (`data/external/`) es opcional y solo participa en recuperación y citación,
   con prioridad posterior al núcleo.
-- La capa de catálogo (`data/catalog/`, spec 036) guarda datos estructurados curados con
-  fuente y fecha por fila; sus precios son siempre referencias fechadas.
+- La capa de catálogo (`data/catalog/`, specs 036 y 039) guarda datos estructurados curados con
+  fuente y fecha por fila; sus precios son siempre referencias fechadas, una oferta por fuente,
+  y un tercero se nombra como tal.
 
 ### III. Sin fuentes no hay respuesta (NO NEGOCIABLE)
 
@@ -92,9 +93,9 @@ con `--admin`.
   PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.
   `carvajal sync --adopt` completa la identidad de los índices anteriores sin renombrar
   slugs ni reindexar.
-- Las specs 038, 039 y 040 abren, en borrador, el monitoreo del agente con LangSmith, el
-  catálogo de Colombia con precios en COP y el chat por voz. Sus `plan.md` y `tasks.md`
-  llegan antes de implementar; hasta entonces no cambian el comportamiento.
+- Las specs 038 y 040 abren, en borrador, el monitoreo del agente con LangSmith y el chat por
+  voz; hasta implementarlas no cambian el comportamiento. La 039 (catálogo de Colombia con
+  precios en COP) está implementada.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
@@ -107,8 +108,9 @@ con `--admin`.
 - Agente LangGraph con `PostgresSaver` y `PostgresStore`; router `direct`/`tool`/`rag`.
 - Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con
   LangSmith (spec 038) es opcional, sin PII y en producción solo con metadatos.
-- Precios del catálogo: referencias fechadas con moneda. Los de Colombia, en COP, pueden ser
-  estimados por conversión desde México (spec 039), siempre rotulados y con tasa fechada.
+- Precios del catálogo: referencias fechadas con moneda, una oferta por fuente. Los de
+  Colombia van en COP y solo si alguien los publica en Colombia; nunca se estiman ni se
+  convierten desde México (spec 039).
 - Voz en el chat (spec 040): dictado y lectura con las capacidades del navegador; el audio
   no llega al servidor ni se guarda.
 - LLM configurable: DeepSeek (por defecto) u Ollama; embeddings locales con

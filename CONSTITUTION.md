@@ -83,10 +83,11 @@ con asistente RAG.
   ruta, enrutador, pasos, tokens y latencia. Desactivado por defecto y sin PII; en
   producción solo metadatos, con el texto completo reservado a desarrollo y evaluación, y
   sin afectar el chat si el servicio falla. Los experimentos de evaluación son opcionales.
-- Ampliar el catálogo a **Colombia** (spec 039, en borrador): referencias del portafolio CO
-  y precios de referencia en COP con IVA, fecha y fuente. Donde el distribuidor no publica
-  precio, se estima por conversión desde la referencia equivalente de México, siempre
-  rotulado como estimación y con tasa oficial fechada.
+- Ampliar el catálogo a **Colombia** (spec 039): referencias del portafolio CO tomadas de las
+  fichas oficiales y cruzadas con la tienda en línea de un distribuidor del directorio, y
+  precios de referencia en COP con IVA, fecha y fuente. Cada precio es una oferta por fuente
+  (`precios.csv`); si nadie publica precio en Colombia, se declara la ausencia: no se estima,
+  no se convierte desde México y no se promedia entre fuentes.
 - Ofrecer **chat por voz** (spec 040, en borrador): dictado revisable antes de enviar y
   lectura de respuestas y tarjetas con las capacidades del navegador. El audio no llega al
   servidor del proyecto ni se guarda; sin soporte del navegador, el chat sigue por escrito.
@@ -272,6 +273,9 @@ carvajal/
   - La capa de catálogo (`data/catalog/`) contiene datos estructurados curados a partir
     del corpus; cada fila conserva `source_url` y `captured_at`, y los precios se
     presentan siempre como referencia fechada, nunca como oferta ni con disponibilidad.
+  - Un precio del catálogo puede venir de un tercero identificado (un distribuidor):
+    se muestra con su nombre, su página y su fecha, y nunca se presenta como precio de
+    Carvajal. Un precio ausente no se estima ni se convierte de otra moneda (spec 039).
 
 ## 6. Calidad y automatización
 
@@ -454,6 +458,7 @@ git push
 | 2026-11-17 | Abrir en borrador las specs 038 (monitoreo con LangSmith), 039 (catálogo de Colombia con precios) y 040 (chat por voz) | Se especifican antes de implementar, con el flujo normal de Spec Kit. Decisiones tomadas en la clarificación: LangSmith en producción solo con metadatos; precios de Colombia desde las tiendas en línea de los distribuidores y, donde no haya, estimados por conversión desde México con tasa fechada y rotulados como estimación; la voz se procesa en el navegador. El alcance de §2 se enmienda en la misma PR, con las tres capacidades declaradas en borrador |
 | 2026-11-18 | Interfaz única: se retiran la SPA `apps/web` (:8001) y el prototipo Streamlit; quedan el shell Jinja2/HTMX y la API en un solo proceso (:8000) | Dos implementaciones completas de chat, FAQ y corpus sobre los mismos endpoints ya habían divergido: el chat quedó sin enlace en la SPA tras #120. El shell era un superconjunto funcional (incluye Configuración y captura), así que la convergencia es de borrado, no de reescritura. Desaparecen CORS, `FRONTEND_ORIGINS`, el extra `streamlit` y `app.py`; `rag.py` y el extra `legacy` se conservan porque la CLI (`ask`, `summarize`, `faq`, `eval`) sigue usándolos |
 | 2026-11-18 | Cerrar la spec 036 como *as-built* y transferir su SC-006 (informe de los tres enrutadores) a la spec 041 | El asistente comercial se entregó y funciona con el enrutador por reglas, que es su valor por defecto; el modelo de decisión es opcional en su alcance. La elección de Jev cloud añade una dependencia externa, costo por llamada y una medición que depende del catálogo de Colombia (spec 039), así que se especifica aparte en la 041. La 036 cierra sin exigir un modelo de decisión y la 041 hereda el criterio como FR-013 y SC-005. T043 se ejecutó el 2026-11-18 (corrida por API registrada en `docs/demo-036.md`) |
+| 2026-11-18 | Implementar la spec 039: catálogo de Colombia con ofertas por fuente y ampliación del de México | Las fichas oficiales de Colombia publican medidas, material y unidades, pero no SKU ni precio; la tienda de EDEXA (distribuidor del directorio) publica precio con IVA. Se cruzan en `scripts/curar_catalogo_co.py` (102 referencias, 29 con precio) y `carvajal catalog-prices` normaliza a caja sin estimar ni convertir. El precio inline de México sigue en `referencias.csv` y se expone como oferta oficial, en lugar de migrarlo a `precios.csv`, para no tocar la regresión de la 036. La tienda de México tenía 102 productos y el corpus solo 55 fichas: `scripts/ampliar_catalogo_mx.py` suma 46 con el mismo `parse_mx_product` |
 
 ## 10. Notas y tareas pendientes
 
