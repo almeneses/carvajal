@@ -39,7 +39,7 @@ experimentos y el visitante puede marcar una respuesta como útil o no útil (P3
 | III. Sin fuentes no hay respuesta | La traza conserva `request_id` y documentos de origen (slug, puntuación) para cruzar la respuesta con el corpus |
 | IV. Calidad automatizada | Cada FR tiene prueba; las pruebas no salen a la red ni piden credenciales |
 | V. Captura responsable | No hay captura nueva |
-| VI. Cambios por PR | Seis PRs pequeños a `dev`, cada uno ≤300 líneas |
+| VI. Cambios por PR | Seis PRs pequeños a `dev`; el CI solo advierte por encima de 3.000 líneas |
 | §3 Stack | No hay dependencia nueva de instalación: `langsmith` ya está en el árbol por LangChain; se declara directa para no depender de un transitivo |
 | Privacidad | Producción sin texto; desarrollo y evaluación con contenido; nunca IP, cookies, CSRF, llaves ni `owner_key` |
 

@@ -6,7 +6,7 @@
 
 - **[P]**: puede ejecutarse en paralelo (archivos distintos)
 - **[USn]**: historia de usuario de la spec
-- **PR n**: agrupación sugerida en Pull Requests a `dev` (≤300 líneas)
+- **PR n**: agrupación sugerida en Pull Requests a `dev`
 
 ## Phase 1: Setup (infraestructura compartida)
 

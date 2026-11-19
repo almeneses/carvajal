@@ -174,8 +174,8 @@ escribir.
   Con 4 agentes en paralelo (archivos disjuntos) ≈ 3–4 h más revisión.
 - **Cupo**: 23 specs de prioridad alta y media cubren de sobra el mínimo de 20. Las 3
   de prioridad baja se pliegan en su vecina si se quiere reducir volumen.
-- **Presupuesto de cambios**: el CI advierte al superar 300 líneas por PR; por eso el
-  trabajo va en tandas y no en un solo diff.
+- **Presupuesto de cambios**: el CI advierte al superar 3.000 líneas por PR y no bloquea;
+  por eso el trabajo va en tandas y no en un solo diff.
 
 ## 9. Cómo añadir o actualizar una entrada
 
