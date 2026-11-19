@@ -1,0 +1,428 @@
+"""Monitoreo opcional del agente con LangSmith (spec 038).
+
+El módulo concentra la política del monitoreo para que la app y la CLI la
+compartan sin acoplar el chat al servicio:
+
+- ``monitoring_status`` resume la decisión de despliegue para ``/health``.
+- ``redact`` aplica la lista blanca de metadatos cuando el contenido no debe
+  salir del proceso (FR-006).
+- ``build_client`` construye el ``langsmith.Client`` de forma perezosa; sin
+  configuración devuelve ``None`` y no se importa el SDK.
+- ``TurnTracer``/``NoopTracer`` deciden el muestreo por turno y abren la traza
+  raíz. Cualquier fallo del servicio se registra en los logs y nunca se
+  propaga al chat (FR-008).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import random
+from collections.abc import Callable, Generator, Mapping
+from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
+from functools import partial
+from typing import Any, Protocol
+
+from carvajal.infrastructure.settings import Settings
+
+log = logging.getLogger(__name__)
+
+# Claves que sobreviven a la redacción en producción: metadatos del turno,
+# decisiones del enrutador, identificadores del corpus, métricas, tokens y el
+# tipo del error. Todo lo demás se elimina, sin importar la profundidad.
+_DESCARTAR = object()
+
+SAFE_KEYS: frozenset[str] = frozenset(
+    {
+        "route",
+        "intent",
+        "tool",
+        "tool_name",
+        "tool_period",
+        "preferences_count",
+        "product_count",
+        "slug",
+        "chunk_id",
+        "layer",
+        "source_type",
+        "score",
+        "scores",
+        "model",
+        "model_name",
+        "provider",
+        "token_usage",
+        "usage_metadata",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "duration_ms",
+        "latency_ms",
+        "question_chars",
+        "answer_chars",
+        "error_type",
+        "status",
+        "request_id",
+        "thread_hash",
+        "router",
+        "outcome",
+        "step",
+        # LangChain publica el modelo, el proveedor y el consumo bajo estas
+        # claves; conservarlas mantiene FR-003 sin arrastrar el texto.
+        "llm_output",
+        "ls_provider",
+        "ls_model_name",
+        "ls_model_type",
+        "ls_integration",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class MonitoringStatus:
+    """Estado efectivo del monitoreo para el diagnóstico de salud (FR-011)."""
+
+    enabled: bool
+    sample_rate: float
+    content: str
+    project: str
+
+    def as_health(self) -> dict[str, Any]:
+        """Bloque público de ``/health``: sin llave, sin endpoint (FR-005)."""
+
+        return {"enabled": self.enabled, "sample_rate": self.sample_rate, "content": self.content}
+
+
+def monitoring_status(settings: Settings) -> MonitoringStatus:
+    """Resume si el monitoreo está activo y con qué política.
+
+    Se considera activo solo si está encendido, hay llave y el muestreo es
+    mayor que cero; así ``/health`` no anuncia un monitoreo que no envía nada.
+    """
+
+    activo = (
+        settings.monitoring_enabled
+        and bool(settings.langsmith_api_key.strip())
+        and settings.monitoring_sample_rate > 0
+    )
+    return MonitoringStatus(
+        enabled=activo,
+        sample_rate=settings.monitoring_sample_rate,
+        content="full" if settings.monitoring_include_content else "metadata",
+        project=settings.langsmith_project,
+    )
+
+
+def thread_hash(thread_id: str) -> str:
+    """Identificador seudónimo del hilo: primeros 16 hex del SHA-256.
+
+    El hilo crudo nunca viaja a la traza (FR-005). Para buscar por hilo se
+    aplica la misma derivación al identificador guardado en la base.
+    """
+
+    return hashlib.sha256(thread_id.encode("utf-8")).hexdigest()[:16]
+
+
+def redact(payload: Any, include_content: bool) -> Any:
+    """Filtra ``payload`` con la lista blanca de metadatos (FR-006).
+
+    Con ``include_content`` activo devuelve el diccionario tal cual: solo se usa
+    en desarrollo y en las corridas de evaluación.
+    """
+
+    if include_content:
+        return payload
+    limpio = _redact(payload, permitido=False)
+    return limpio if isinstance(limpio, dict) else {}
+
+
+def _redact(value: Any, permitido: bool) -> Any:
+    """Recorre el payload conservando solo lo permitido.
+
+    Un escalar sobrevive únicamente bajo una clave de la lista blanca. Los
+    diccionarios se filtran por sus propias claves —así un fragmento conserva
+    ``slug`` y ``score`` aunque su contenedor no esté permitido— y una lista de
+    escalares solo sobrevive si su clave lo está (por ejemplo ``scores``).
+    """
+
+    if isinstance(value, Mapping):
+        limpio: dict[str, Any] = {}
+        for clave, item in value.items():
+            if not isinstance(clave, str):
+                continue
+            hijo = _redact(item, clave in SAFE_KEYS)
+            if hijo is _DESCARTAR:
+                continue
+            limpio[clave] = hijo
+        if not limpio and not permitido:
+            return _DESCARTAR
+        return limpio
+    if isinstance(value, (list, tuple, set)):
+        elementos = [
+            _redact(item, permitido if not isinstance(item, Mapping) else False) for item in value
+        ]
+        limpios = [item for item in elementos if item is not _DESCARTAR]
+        if not limpios and not permitido:
+            return _DESCARTAR
+        return limpios
+    return value if permitido else _DESCARTAR
+
+
+def build_client(settings: Settings) -> Any | None:
+    """Construye el cliente de LangSmith, o ``None`` si no hay monitoreo.
+
+    La llave se toma del entorno; el endpoint es opcional. El cliente redacta
+    entradas, salidas y metadatos de cada run con la lista blanca y reporta sus
+    fallos por el callback de errores, que solo escribe en los logs.
+    """
+
+    if not settings.monitoring_enabled:
+        return None
+    if not settings.langsmith_api_key.strip():
+        log.warning("monitoring.disabled", extra={"reason": "missing_api_key"})
+        return None
+    if settings.monitoring_sample_rate <= 0:
+        return None
+
+    from langsmith import Client  # importación perezosa: sin monitoreo no se carga el SDK
+
+    redactor = partial(redact, include_content=settings.monitoring_include_content)
+    try:
+        return Client(
+            api_url=settings.langsmith_endpoint or None,
+            api_key=settings.langsmith_api_key.strip(),
+            hide_inputs=redactor,
+            hide_outputs=redactor,
+            hide_metadata=redactor,
+            timeout_ms=settings.monitoring_timeout_ms,
+            auto_batch_tracing=True,
+            tracing_error_callback=_registrar_fallo,
+        )
+    except Exception as error:  # pragma: no cover - defensa ante un SDK roto
+        _registrar_fallo(error)
+        return None
+
+
+def _registrar_fallo(error: BaseException) -> None:
+    """Registra el fallo del monitoreo sin filtrar el mensaje ni la credencial."""
+
+    log.warning(
+        "monitoring.failed",
+        extra={"stage": "tracing", "error_type": type(error).__name__},
+    )
+
+
+class Turn(Protocol):
+    """Handle de un turno en curso; no hace nada si el turno no se muestra."""
+
+    def add_metadata(self, **values: Any) -> None:
+        """Añade metadatos a la raíz (ruta, intención, herramienta, longitudes)."""
+
+    def add_outputs(self, **values: Any) -> None:
+        """Añade salidas al cerrar la raíz."""
+
+    def finish(self, *, outcome: str = "ok", error: BaseException | None = None) -> None:
+        """Cierra la raíz una sola vez con ``ok``, ``cancelled`` o ``failed``."""
+
+
+class TurnTracer(Protocol):
+    """Abre la traza raíz de un turno si el muestreo lo decide."""
+
+    def turn(
+        self,
+        *,
+        request_id: str,
+        thread_hash: str,
+        router: str,
+        question: str = "",
+    ) -> AbstractContextManager[Turn]:
+        """Devuelve el *context manager* del turno."""
+
+
+class NoopTurn:
+    """Turno sin traza: la misma interfaz, sin efectos."""
+
+    __slots__ = ()
+
+    def add_metadata(self, **values: Any) -> None:
+        return None
+
+    def add_outputs(self, **values: Any) -> None:
+        return None
+
+    def finish(self, *, outcome: str = "ok", error: BaseException | None = None) -> None:
+        return None
+
+
+class NoopTracer:
+    """Tracer del monitoreo apagado: sin cliente, sin SDK y sin red."""
+
+    @contextmanager
+    def turn(
+        self,
+        *,
+        request_id: str,
+        thread_hash: str,
+        router: str,
+        question: str = "",
+    ) -> Generator[Turn]:
+        yield NoopTurn()
+
+
+class LangSmithTurn:
+    """Raíz ``chat_turn`` de un turno muestreado."""
+
+    def __init__(self, root: Any, *, include_content: bool) -> None:
+        self._root = root
+        self._include_content = include_content
+        self._outputs: dict[str, Any] = {}
+        self._closed = False
+
+    def add_metadata(self, **values: Any) -> None:
+        if self._closed:
+            return
+        try:
+            self._root.add_metadata(values)
+        except Exception as error:  # pragma: no cover - defensa ante un SDK roto
+            _registrar_fallo(error)
+
+    def add_outputs(self, **values: Any) -> None:
+        if self._closed:
+            return
+        self._outputs.update(values)
+
+    def finish(self, *, outcome: str = "ok", error: BaseException | None = None) -> None:
+        """Cierra la raíz; idempotente ante ``close`` y ``finally``."""
+
+        if self._closed:
+            return
+        self._closed = True
+        salidas = {"outcome": outcome, **self._outputs}
+        if error is not None:
+            salidas["error_type"] = type(error).__name__
+        try:
+            cierre: dict[str, Any] = {"outcome": outcome}
+            if error is not None:
+                cierre["error_type"] = type(error).__name__
+            self._root.add_metadata(cierre)
+            self._root.end(
+                outputs=salidas,
+                error=None if error is None else type(error).__name__,
+            )
+            self._root.patch(exclude_inputs=not self._include_content)
+        except Exception as fallo:
+            _registrar_fallo(fallo)
+
+
+class LangSmithTurnTracer:
+    """Tracer real: muestrea, construye el cliente una vez y abre la raíz."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        client: Any = None,
+        client_factory: Callable[[Settings], Any] | None = None,
+        random_fn: Callable[[], float] | None = None,
+    ) -> None:
+        self._settings = settings
+        self._client = client
+        self._client_factory = client_factory or build_client
+        self._random = random_fn or random.random
+        self._cliente_resuelto = client is not None
+
+    def _cliente(self) -> Any | None:
+        """Construye el cliente en el primer turno muestreado y lo reutiliza."""
+
+        if not self._cliente_resuelto:
+            self._client = self._client_factory(self._settings)
+            self._cliente_resuelto = True
+        return self._client
+
+    @contextmanager
+    def turn(
+        self,
+        *,
+        request_id: str,
+        thread_hash: str,
+        router: str,
+        question: str = "",
+    ) -> Generator[Turn]:
+        estado = monitoring_status(self._settings)
+        if not estado.enabled or self._random() >= estado.sample_rate:
+            yield NoopTurn()
+            return
+
+        cliente = self._cliente()
+        if cliente is None:
+            yield NoopTurn()
+            return
+
+        incluir = self._settings.monitoring_include_content
+        try:
+            from langsmith import RunTree
+            from langsmith.run_helpers import tracing_context
+        except Exception as error:  # pragma: no cover - SDK ausente o roto
+            _registrar_fallo(error)
+            yield NoopTurn()
+            return
+
+        raiz: Any
+        try:
+            raiz = RunTree(
+                name="chat_turn",
+                run_type="chain",
+                inputs={"question": question} if incluir else {},
+                session_name=self._settings.langsmith_project,
+                ls_client=cliente,
+            )
+            raiz.add_metadata(
+                {
+                    "request_id": request_id,
+                    "thread_hash": thread_hash,
+                    "router": router,
+                    "question_chars": len(question),
+                }
+            )
+            raiz.post()
+        except Exception as fallo:
+            _registrar_fallo(fallo)
+            yield NoopTurn()
+            return
+
+        turno = LangSmithTurn(raiz, include_content=incluir)
+        try:
+            with tracing_context(parent=raiz, client=cliente, enabled=True):
+                yield turno
+        except GeneratorExit:
+            # Cancelación del visitante: se cierra con lo que alcanzó a generarse.
+            turno.finish(outcome="cancelled")
+            raise
+        except BaseException as fallo:
+            turno.finish(outcome="failed", error=fallo)
+            raise
+        else:
+            turno.finish(outcome="ok")
+
+
+def build_tracer(
+    settings: Settings,
+    *,
+    client: Any = None,
+    client_factory: Callable[[Settings], Any] | None = None,
+    random_fn: Callable[[], float] | None = None,
+) -> TurnTracer:
+    """Devuelve el tracer que corresponde a la configuración.
+
+    Apagado no se construye el tracer real, de modo que ni siquiera se importa
+    el SDK. Las pruebas inyectan el cliente y la función de azar.
+    """
+
+    if not monitoring_status(settings).enabled:
+        return NoopTracer()
+    return LangSmithTurnTracer(
+        settings,
+        client=client,
+        client_factory=client_factory,
+        random_fn=random_fn,
+    )
