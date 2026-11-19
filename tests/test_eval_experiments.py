@@ -129,8 +129,16 @@ def filas(report: RouterReport) -> list[dict[str, Any]]:
         {
             "id": fila["id"],
             "inputs": {"question": fila["question"]},
-            "expected": {"route": fila["expected_route"], "intent": fila["expected_intent"]},
-            "outputs": {"route": fila["route"], "intent": fila["intent"]},
+            "expected": {
+                "route": fila["expected_route"],
+                "intent": fila["expected_intent"],
+                **fila["expected"],
+            },
+            "outputs": {
+                "route": fila["route"],
+                "intent": fila["intent"],
+                "extracted": fila["extra"],
+            },
             "latency_ms": fila["latency_ms"],
         }
         for fila in report.results
@@ -166,11 +174,12 @@ def test_registrar_crea_dataset_y_una_fila_por_pregunta() -> None:
     """T019: dataset con la verdad de referencia y un run por pregunta."""
 
     cliente = ClienteFalso()
+    dataset = "carvajal-routing_questions"
     report = evaluate_router(build_router("rules"), ITEMS)
 
     resultado = register_experiment(
         cliente,
-        dataset="carvajal-routing_questions",
+        dataset=dataset,
         experiment="routing-rules-2026-11-19",
         rows=filas(report),
         metrics={"route_accuracy": 1.0, "invalid_outputs": 0},
@@ -178,14 +187,14 @@ def test_registrar_crea_dataset_y_una_fila_por_pregunta() -> None:
     )
 
     assert resultado.registered is True
-    assert cliente.datasets[0]["name"] == "carvajal-routing_questions"
+    assert cliente.datasets[0]["name"] == dataset
     ejemplo = cliente.examples[0][0]
     assert ejemplo["outputs"] == {"route": "rag", "intent": "documental"}
-    assert ejemplo["id"] == example_id("carvajal-routing_questions", "q1")
+    assert ejemplo["id"] == example_id(dataset, "q1")
     # Una run por pregunta, sin filas ficticias, y cada una enlazada a su ejemplo.
     assert [run["name"] for run in cliente.runs] == ["q1", "q2"]
     for run in cliente.runs:
-        assert run["reference_example_id"] == example_id("carvajal-routing_questions", run["name"])
+        assert run["reference_example_id"] == example_id(dataset, run["name"])
         assert run["start_time"] and run["end_time"]
         assert run["end_time"] > run["start_time"]
     assert cliente.projects[0]["dataset"] == "dataset-1"
@@ -194,7 +203,41 @@ def test_registrar_crea_dataset_y_una_fila_por_pregunta() -> None:
         "invalid_outputs": 0,
     }
     assert cliente.projects[0]["upsert"] is True
+    # El extraído y el historial viajan con la corrida.
+    assert cliente.runs[0]["outputs"]["extracted"] == {}
+    assert cliente.examples[0][0]["inputs"] == {"question": "¿Qué es Carvajal?"}
     assert cliente.runs[0]["extra"]["metadata"]["commit"] == "abc123"
+
+
+def test_el_dataset_cambia_si_cambian_las_preguntas(tmp_path: Path) -> None:
+    """El nombre del dataset incorpora la huella del archivo (T019)."""
+
+    from carvajal.infrastructure.monitoring import dataset_de
+
+    preguntas = tmp_path / "conjunto.json"
+    preguntas.write_text('{"items": []}', encoding="utf-8")
+    primero = dataset_de(preguntas)
+    preguntas.write_text('{"items": [{"id": "q1"}]}', encoding="utf-8")
+
+    assert dataset_de(preguntas) != primero
+    assert primero.startswith("carvajal-conjunto-")
+
+
+def test_el_historial_de_una_pregunta_viaja_al_experimento() -> None:
+    """T019: las preguntas de seguimiento conservan sus turnos previos."""
+
+    items = [
+        {
+            "id": "n-17",
+            "question": "¿Y en qué año fue eso?",
+            "route": "rag",
+            "intent": "follow_up",
+            "turns": [{"question": "¿Cuándo se fundó?", "answer": "En 1904."}],
+        }
+    ]
+    report = evaluate_router(build_router("rules"), items)
+
+    assert report.results[0]["turns"] == items[0]["turns"]
 
 
 def test_registrar_reutiliza_el_dataset_existente() -> None:
@@ -223,11 +266,12 @@ def test_un_dataset_a_medias_se_completa() -> None:
 
     cliente = ClienteFalso(existe=True)
     cliente.sembrar(example_id("carvajal-routing_questions", "q1"))
+    dataset = "carvajal-routing_questions"
     report = evaluate_router(build_router("rules"), ITEMS)
 
     resultado = register_experiment(
         cliente,
-        dataset="carvajal-routing_questions",
+        dataset=dataset,
         experiment="routing-rules-3",
         rows=filas(report),
         metrics={},
@@ -248,11 +292,12 @@ def test_un_fallo_del_servicio_no_propaga(paso: str) -> None:
     """T021: el experimento falla, pero la corrida local sigue (FR-009)."""
 
     cliente = ClienteFalso(falla=paso)
+    dataset = "carvajal-routing_questions"
     report = evaluate_router(build_router("rules"), ITEMS)
 
     resultado = register_experiment(
         cliente,
-        dataset="carvajal-routing_questions",
+        dataset=dataset,
         experiment="routing-rules-4",
         rows=filas(report),
         metrics={},
@@ -344,7 +389,7 @@ def test_con_bandera_registra_un_experimento(tmp_path: Path, monkeypatch: Any) -
     assert metadata["commit"] and metadata["commit"] != "desconocido"
     assert "T" in metadata["date"]
     # El dataset se deriva del archivo de preguntas, no de un nombre fijo.
-    assert cliente.datasets[0]["name"] == f"carvajal-{_preguntas(tmp_path).stem}"
+    assert cliente.datasets[0]["name"].startswith(f"carvajal-{_preguntas(tmp_path).stem}-")
 
 
 def test_un_fallo_al_registrar_no_cambia_el_codigo_de_salida(

@@ -143,6 +143,11 @@ def evaluate_router(
                 "invalid": decision.reason.startswith(FALLBACK_PREFIX),
                 "latency_ms": round(latency_ms, 3),
                 "problems": problems,
+                # Extraído y esperado viajan al experimento: sin ellos dos
+                # enrutadores con la misma ruta parecerían equivalentes.
+                "extra": dict(decision.extra),
+                "expected": dict(item.get("expected", {})),
+                "turns": list(item.get("turns") or []),
             }
         )
         if problems:

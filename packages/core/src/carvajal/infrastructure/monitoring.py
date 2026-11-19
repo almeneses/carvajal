@@ -18,12 +18,12 @@ from __future__ import annotations
 import hashlib
 import random
 from collections.abc import Callable, Generator, Mapping
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
@@ -149,6 +149,20 @@ def thread_hash(thread_id: str) -> str:
     return hashlib.sha256(thread_id.encode("utf-8")).hexdigest()[:16]
 
 
+def _strip_sensitive(value: Any) -> Any:
+    """Elimina recursivamente los identificadores del visitante."""
+
+    if isinstance(value, Mapping):
+        return {
+            clave: _strip_sensitive(item)
+            for clave, item in value.items()
+            if isinstance(clave, str) and clave not in SENSITIVE_KEYS
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_strip_sensitive(item) for item in value]
+    return value
+
+
 def redact(payload: Any, include_content: bool) -> Any:
     """Filtra ``payload`` con la lista blanca de metadatos (FR-006).
 
@@ -157,8 +171,9 @@ def redact(payload: Any, include_content: bool) -> Any:
     """
 
     if include_content:
-        return payload
-    limpio = _redact(payload, permitido=False)
+        # El contenido está permitido, los identificadores del visitante no.
+        return _strip_sensitive(payload)
+    limpio = _strip_sensitive(_redact(payload, permitido=False))
     return limpio if isinstance(limpio, dict) else {}
 
 
@@ -208,7 +223,7 @@ def redact_run(payload: Any, include_content: bool) -> Any:
     if set(payload) == {"error"}:
         return {"error": _tipo_de_error(payload["error"])}
     if include_content:
-        return dict(payload)
+        return _strip_sensitive(payload)
     limpio = redact(payload, include_content=False)
     return limpio if isinstance(limpio, dict) else {}
 
@@ -246,7 +261,7 @@ def redact_run_ops(ops: Any, include_content: bool) -> Any:
     """
 
     if include_content:
-        return ops
+        return [_strip_sensitive(op) for op in ops]
     limpios = []
     for op in ops:
         if not isinstance(op, dict):
@@ -381,6 +396,18 @@ def commit_sha() -> str:
         return ""
 
 
+def dataset_de(questions: Path) -> str:
+    """Nombre del dataset derivado del archivo y de su contenido.
+
+    El hash corta la reutilización de un dataset con preguntas o etiquetas
+    distintas, y evita que dos archivos con el mismo nombre colisionen.
+    """
+
+    contenido = questions.read_bytes()
+    huella = hashlib.sha256(contenido).hexdigest()[:8]
+    return f"carvajal-{questions.stem}-{huella}"
+
+
 def example_id(dataset: str, row_id: str) -> str:
     """Identificador estable del ejemplo: el mismo en cada corrida."""
 
@@ -488,6 +515,25 @@ def register_experiment(
 class Turn(Protocol):
     """Handle de un turno en curso; no hace nada si el turno no se muestra."""
 
+    def generation(self) -> AbstractContextManager[None]:
+        """Reabre el contexto de tracing alrededor de la llamada al modelo.
+
+        Starlette avanza el generador SSE en hilos del *threadpool*: los
+        contextvars que activó ``turn()`` no viajan con él, así que la llamada
+        al LLM se trazaría sin padre. Reentrar aquí la vuelve a colgar de la
+        raíz (FR-003).
+        """
+
+    def child(
+        self, name: str, *, run_type: str = "chain", metadata: Mapping[str, Any] | None = None
+    ) -> AbstractContextManager[Turn]:
+        """Abre un hijo explícito de la raíz.
+
+        No depende de los contextvars: Starlette avanza el generador SSE en
+        hilos del *threadpool* y ahí el contexto activo no viaja, así que el
+        padre se enlaza a mano (FR-003).
+        """
+
     def add_metadata(self, **values: Any) -> None:
         """Añade metadatos a la raíz (ruta, intención, herramienta, longitudes)."""
 
@@ -517,6 +563,14 @@ class NoopTurn:
 
     __slots__ = ()
 
+    def generation(self) -> AbstractContextManager[None]:
+        return nullcontext()
+
+    def child(
+        self, name: str, *, run_type: str = "chain", metadata: Mapping[str, Any] | None = None
+    ) -> AbstractContextManager[Turn]:
+        return nullcontext(NoopTurn())
+
     def add_metadata(self, **values: Any) -> None:
         return None
 
@@ -545,9 +599,10 @@ class NoopTracer:
 class LangSmithTurn:
     """Raíz ``chat_turn`` de un turno muestreado."""
 
-    def __init__(self, root: Any, *, include_content: bool) -> None:
+    def __init__(self, root: Any, *, include_content: bool, client: Any = None) -> None:
         self._root = root
         self._include_content = include_content
+        self._client = client
         self._outputs: dict[str, Any] = {}
         self._closed = False
 
@@ -658,8 +713,24 @@ class LangSmithTurn:
                 error=None if error is None else type(error).__name__,
             )
             self._root.patch(exclude_inputs=not self._include_content)
+            # El SDK solo vacía el búfer al entrar otra operación: con poco
+            # tráfico un turno rápido quedaría sin enviar. Se vacía en un hilo
+            # aparte para no retrasar el cierre del stream.
+            if self._client is not None and hasattr(self._client, "flush"):
+                try:
+                    Thread(target=self._flush, daemon=True).start()
+                except Exception as error:  # pragma: no cover - defensa ante SDK
+                    _registrar_fallo(error)
         except Exception as fallo:
             _registrar_fallo(fallo)
+
+    def _flush(self) -> None:
+        """Vacía el búfer del cliente sin bloquear el turno."""
+
+        try:
+            self._client.flush()
+        except Exception as error:  # pragma: no cover - defensa ante SDK
+            _registrar_fallo(error)
 
 
 class LangSmithTurnTracer:
@@ -760,7 +831,7 @@ class LangSmithTurnTracer:
             _registrar_fallo(fallo)
             contexto = None
 
-        turno = LangSmithTurn(raiz, include_content=incluir)
+        turno = LangSmithTurn(raiz, include_content=incluir, client=cliente)
         try:
             yield turno
         except GeneratorExit:

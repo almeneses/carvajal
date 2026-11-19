@@ -419,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             from carvajal.infrastructure.monitoring import (
                 build_eval_client,
                 commit_sha,
+                dataset_de,
                 register_experiment,
             )
             from carvajal.infrastructure.settings import Settings
@@ -436,19 +437,26 @@ def main(argv: list[str] | None = None) -> int:
                     filas = [
                         {
                             "id": fila["id"],
-                            "inputs": {"question": fila["question"]},
+                            "inputs": {
+                                "question": fila["question"],
+                                # El historial forma parte de la entrada real.
+                                **({"turns": fila["turns"]} if fila["turns"] else {}),
+                            },
                             # La verdad de referencia va al ejemplo del dataset;
                             # las predicciones, a la run del experimento.
                             "expected": {
                                 "route": fila["expected_route"],
                                 "intent": fila["expected_intent"],
+                                **fila["expected"],
                             },
                             "outputs": {
                                 "route": fila["route"],
                                 "intent": fila["intent"],
                                 "invalid": fila["invalid"],
                                 "latency_ms": fila["latency_ms"],
+                                "extracted": fila["extra"],
                             },
+                            "latency_ms": fila["latency_ms"],
                         }
                         for fila in report.results
                     ]
@@ -464,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
                     }
                     resultado = register_experiment(
                         client,
-                        dataset=f"carvajal-{args.questions.stem}",
+                        dataset=dataset_de(args.questions),
                         experiment=f"routing-{report.router}-{fecha}",
                         rows=filas,
                         metrics=metricas,
@@ -473,9 +481,15 @@ def main(argv: list[str] | None = None) -> int:
                             "commit": commit_sha() or "desconocido",
                             "date": fecha,
                             "questions": str(args.questions),
-                            "model": settings.deepseek_model
-                            if settings.llm_provider == "deepseek"
-                            else settings.ollama_model,
+                            "model": (
+                                settings.decision_model
+                                if report.router == "decision"
+                                else settings.deepseek_model
+                                if settings.llm_provider == "deepseek"
+                                else settings.ollama_model
+                            )
+                            if report.router != "rules"
+                            else "",
                         },
                         description="Evaluación del enrutador del agente (spec 036/038).",
                     )

@@ -163,6 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         from carvajal.infrastructure.monitoring import (
             build_eval_client,
             commit_sha,
+            dataset_de,
             register_experiment,
         )
 
@@ -174,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             filas = experiment_rows(summary)
             resultado = register_experiment(
                 client,
-                dataset=f"carvajal-{args.queries.stem}",
+                dataset=dataset_de(args.queries),
                 experiment=f"retrieval-{fecha}",
                 rows=filas,
                 metrics=experiment_metrics(summary),
