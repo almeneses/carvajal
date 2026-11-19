@@ -6,8 +6,8 @@
 
 - **[P]**: puede ejecutarse en paralelo (archivos distintos)
 - **[USn]**: historia de usuario de la spec
-- **PR n**: agrupación sugerida en Pull Requests a `dev` (≤300 líneas; los CSV curados se
-  presupuestan aparte como datos)
+- **PR n**: agrupación sugerida en Pull Requests a `dev`; los CSV curados se presupuestan
+  aparte como datos
 
 ## Phase 1: Setup (infraestructura y fuentes)
 
@@ -170,4 +170,4 @@
 4. **Cierre**: PR 7 → evaluación, evidencia y constitución.
 
 Cada PR deja `make check` en verde; los PRs de datos se revisan con muestra cruzada contra el
-PDF y no cuentan contra el límite de 300 líneas de código.
+PDF y no cuentan contra el aviso de tamaño del CI.
