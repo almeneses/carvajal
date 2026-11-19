@@ -233,6 +233,28 @@ class TestEstadoDelMonitoreo:
         assert monitoring_status(settings).enabled is False
         assert build_client(settings) is None
 
+    def test_el_anonimizador_elimina_el_texto_de_los_errores(self) -> None:
+        """El error de una run hija se reduce a su tipo: nunca lleva texto (FR-005)."""
+
+        from carvajal.infrastructure.monitoring import redact_run
+
+        error = "ValueError: el teléfono 300 123 4567 no es válido para Ana Pérez"
+
+        assert redact_run({"error": error}, include_content=False) == {"error": "ValueError"}
+        assert redact_run({"error": error}, include_content=True) == {"error": "ValueError"}
+        assert redact_run({"error": "boom"}, include_content=False) == {"error": "boom"}
+        assert redact_run({"question": PREGUNTA_CON_PII, "score": 0.4}, False) == {"score": 0.4}
+        assert redact_run({"question": PREGUNTA_CON_PII}, True) == {"question": PREGUNTA_CON_PII}
+
+    def test_el_cliente_redacta_con_el_anonimizador(self) -> None:
+        """El cliente real cablea el anonimizador y no deja pasar el texto."""
+
+        cliente = build_client(_settings(langsmith_endpoint="https://langsmith.interno/"))
+
+        assert cliente is not None
+        assert cliente._anonymizer is not None
+        assert cliente._anonymizer({"answer": "Ana, tu teléfono es 300 123 4567"}) == {}
+
     def test_el_cliente_se_construye_sin_red(self) -> None:
         """El camino feliz de ``build_client`` no abre un socket (FR-010, SC-003)."""
 

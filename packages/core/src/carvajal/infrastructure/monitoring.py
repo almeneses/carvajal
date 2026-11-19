@@ -169,6 +169,35 @@ def _redact(value: Any, permitido: bool) -> Any:
     return value if permitido else _DESCARTAR
 
 
+def redact_run(payload: Any, include_content: bool) -> Any:
+    """Anonimizador del cliente: lista blanca y errores sin mensaje.
+
+    El SDK aplica este gancho a entradas, salidas, metadatos **y** al texto de
+    ``error`` de cada run, incluidas las hijas que instrumenta LangChain. Los
+    errores se reducen siempre a su tipo —ni en desarrollo viaja un mensaje que
+    pueda arrastrar datos del visitante o credenciales— (FR-005, FR-006).
+    """
+
+    if not isinstance(payload, Mapping):
+        return {}
+    if set(payload) == {"error"}:
+        return {"error": _tipo_de_error(payload["error"])}
+    if include_content:
+        return dict(payload)
+    limpio = redact(payload, include_content=False)
+    return limpio if isinstance(limpio, dict) else {}
+
+
+def _tipo_de_error(error: Any) -> str:
+    """Reduce un mensaje de excepción a su tipo (``ValueError: …`` → ``ValueError``)."""
+
+    texto = str(error).strip()
+    if not texto:
+        return "Error"
+    primera = texto.splitlines()[0].strip()
+    return primera.split(":", 1)[0].strip() or "Error"
+
+
 def build_client(settings: Settings) -> Any | None:
     """Construye el cliente de LangSmith, o ``None`` si no hay monitoreo.
 
@@ -185,7 +214,7 @@ def build_client(settings: Settings) -> Any | None:
     if settings.monitoring_sample_rate <= 0:
         return None
 
-    redactor = partial(redact, include_content=settings.monitoring_include_content)
+    anonimizador = partial(redact_run, include_content=settings.monitoring_include_content)
     try:
         # Importación perezosa: sin monitoreo no se carga el SDK. Un SDK
         # ausente o roto degrada a «sin monitoreo», nunca al chat (FR-008).
@@ -194,9 +223,10 @@ def build_client(settings: Settings) -> Any | None:
         return Client(
             api_url=settings.langsmith_endpoint or None,
             api_key=settings.langsmith_api_key.strip(),
-            hide_inputs=redactor,
-            hide_outputs=redactor,
-            hide_metadata=redactor,
+            # ``anonymizer`` cubre entradas, salidas, metadatos y el texto de
+            # ``error``; ``hide_inputs``/``hide_outputs`` no llegan al error de
+            # una run hija, que puede arrastrar el texto de la conversación.
+            anonymizer=anonimizador,
             timeout_ms=settings.monitoring_timeout_ms,
             auto_batch_tracing=True,
             tracing_error_callback=_registrar_fallo,
