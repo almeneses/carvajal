@@ -469,8 +469,8 @@ def test_la_raiz_no_lleva_el_texto_en_produccion(engine: Any) -> None:
     assert raiz["extra"]["metadata"]["question_chars"] == len(PREGUNTA_CON_PII)
 
 
-def test_el_cliente_redacta_entradas_salidas_y_metadatos() -> None:
-    """El cliente real lleva la lista blanca en los tres ganchos (FR-005, FR-006)."""
+def test_el_cliente_redacta_entradas_salidas_metadatos_y_errores() -> None:
+    """El anonimizador del cliente cubre los cuatro ganchos (FR-005, FR-006)."""
 
     from carvajal.infrastructure.monitoring import build_client
 
@@ -485,10 +485,13 @@ def test_el_cliente_redacta_entradas_salidas_y_metadatos() -> None:
     assert cliente is not None
     pii = {"question": PREGUNTA_CON_PII, "score": 0.9, "ip": "192.0.2.1"}
 
-    assert cliente._hide_inputs(pii) == {"score": 0.9}
-    assert cliente._hide_outputs({"answer": "Ana, te recomiendo…"}) == {}
-    assert cliente._hide_metadata({"ls_provider": "openai", "prompt": "texto"}) == {
+    assert cliente._anonymizer(pii) == {"score": 0.9}
+    assert cliente._anonymizer({"answer": "Ana, te recomiendo…"}) == {}
+    assert cliente._anonymizer({"ls_provider": "openai", "prompt": "texto"}) == {
         "ls_provider": "openai"
+    }
+    assert cliente._anonymizer({"error": "ValueError: Ana, 300 123 4567"}) == {
+        "error": "ValueError"
     }
 
 
