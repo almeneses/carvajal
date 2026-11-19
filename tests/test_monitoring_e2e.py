@@ -172,6 +172,15 @@ def _sin_pii(runs: Sequence[Any]) -> bool:
     return not any(marca in volcado for marca in (*PII, "owner_key", "thread_id"))
 
 
+def _p95(valores: Sequence[float]) -> float:
+    """p95 tolerante a listas cortas: con una sola muestra, ese valor."""
+
+    assert valores, "sin muestras para calcular el p95"
+    if len(valores) == 1:
+        return round(float(valores[0]), 1)
+    return round(statistics.quantiles(list(valores), n=20)[-1], 1)
+
+
 def _tokens(runs: Sequence[Any]) -> int:
     """Tokens facturados por el proveedor (runs del modelo, no el marcador)."""
 
@@ -227,10 +236,7 @@ def test_cuatro_rutas_registran_traza_y_metricas(
         "rutas_totales": len(PREGUNTAS),
         "trazas_con_pii": sum(1 for datos in resultados.values() if not datos["pii_libre"]),
         "tokens_totales": sum(datos["tokens"] for datos in resultados.values()),
-        "ttft_p95_ms": round(
-            statistics.quantiles([datos["ttft_ms"] for datos in resultados.values()], n=20)[-1],
-            1,
-        ),
+        "ttft_p95_ms": _p95([datos["ttft_ms"] for datos in resultados.values()]),
     }
     resultado = register_experiment(
         cliente_langsmith,
@@ -334,8 +340,10 @@ def test_servicio_caido_no_retrasa_el_primer_fragmento() -> None:
 
     caido = medir("http://127.0.0.1:9/", True)
     apagado = medir("", False)
-    p95_caido = statistics.quantiles(caido, n=20)[-1]
-    p95_apagado = statistics.quantiles(apagado, n=20)[-1]
+    assert len(caido) == 20, f"el servicio caído solo dio {len(caido)} muestras"
+    assert len(apagado) == 20, f"sin monitoreo solo dio {len(apagado)} muestras"
+    p95_caido = _p95(caido)
+    p95_apagado = _p95(apagado)
 
     assert p95_caido - p95_apagado < 100, (
         f"p95 caído={p95_caido:.1f} ms, apagado={p95_apagado:.1f} ms"
