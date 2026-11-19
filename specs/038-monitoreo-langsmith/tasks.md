@@ -114,21 +114,21 @@ que el primer cambio técnico.
 
 **PR 4 — Marcas del visitante**
 
-- [ ] T023 [US4] Migración `0007_chat_feedback.py`: tabla `chat_feedback` con `request_id`
+- [X] T023 [US4] Migración `0007_chat_feedback.py`: tabla `chat_feedback` con `request_id`
       único, `useful` booleano y `created_at`; reversible con `downgrade`; actualizar en la
       proyección la línea de migraciones a `0001–0007`
-- [ ] T024 [US4] Repositorio `apps/api/chat/feedback.py` con `record(request_id, useful)` como
+- [X] T024 [US4] Repositorio `apps/api/chat/feedback.py` con `record(request_id, useful)` como
       upsert idempotente y lectura por `request_id` para las pruebas
-- [ ] T025 [US4] `POST /chat/feedback` en `apps/api/views/chat.py`: CSRF obligatorio, sin cuota,
+- [X] T025 [US4] `POST /chat/feedback` en `apps/api/views/chat.py`: CSRF obligatorio, sin cuota,
       `request_id` válido, `useful` explícito; responde `204` y no guarda texto
-- [ ] T026 [US4] Botones «Útil / No útil» en `apps/api/templates/_chat_stream.html`
+- [X] T026 [US4] Botones «Útil / No útil» en `apps/api/templates/_chat_stream.html`
       (plantilla-turno) con `data-request-id`, y envío desde `apps/api/static/chat-stream.js`;
       la bandera `data-monitoring` de `chat.html` decide si se crean, sin recarga y
       deshabilitados tras marcar
-- [ ] T027 [US4] `tests/test_feedback.py`: sin CSRF `403`; con monitoreo apagado no se muestran
+- [X] T027 [US4] `tests/test_feedback.py`: sin CSRF `403`; con monitoreo apagado no se muestran
       los botones; el navegador recibe `request_id` en `done` y lo envía; doble marca del mismo
       `request_id` no duplica fila; turno sin traza conserva la marca
-- [ ] T028 [US4] `tests/test_feedback.py`: con tracer falso, marcar un turno no muestreado no
+- [X] T028 [US4] `tests/test_feedback.py`: con tracer falso, marcar un turno no muestreado no
       crea una raíz nueva y conserva la fila de `chat_feedback`
 
 **Checkpoint**: P3 se entrega en esta spec (PR4); el resto del monitoreo no depende de ella.
