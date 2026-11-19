@@ -107,6 +107,19 @@ services:
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-produccion}
       # Muestreo de trazas de Sentry entre 0 y 1; por defecto apagado.
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+      # Monitoreo del agente con LangSmith (spec 038): apagado por defecto y,
+      # en producción, solo metadatos. Se inyecta explícitamente para que una
+      # variable heredada del host no encienda el tracing global.
+      MONITORING_ENABLED: ${MONITORING_ENABLED:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-carvajal}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-}
+      MONITORING_SAMPLE_RATE: ${MONITORING_SAMPLE_RATE:-0.2}
+      MONITORING_INCLUDE_CONTENT: ${MONITORING_INCLUDE_CONTENT:-false}
+      MONITORING_TIMEOUT_MS: ${MONITORING_TIMEOUT_MS:-2000}
+      # El tracing global de LangChain queda apagado: el encendido es por turno.
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
       # Sin proxy delante, uvicorn no debe confiar en X-Forwarded-* de los
       # clientes. Si añades nginx/Caddy en el host o en un contenedor, ajusta
       # esta variable a su IP o subred.
