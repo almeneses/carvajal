@@ -18,6 +18,8 @@ from apps.api.main import (
 )
 from carvajal.application.ask import Answer, Source
 from carvajal.application.quota import QuotaResult
+from carvajal.infrastructure.monitoring import monitoring_status
+from carvajal.infrastructure.settings import Settings
 
 SOURCE = Source("historia-1", "historia", "historia", "core", 0.912, "Inició operaciones en 1904.")
 ANSWER = Answer(text="Carvajal nació en 1904 [1].", sources=(SOURCE,))
@@ -59,7 +61,9 @@ def test_health_devuelve_estado_y_conteos() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert response.json() == {
+    payload = response.json()
+    assert payload.pop("monitoring") == monitoring_status(Settings()).as_health()
+    assert payload == {
         "status": "ok",
         "documents": 12,
         "chunks": 34,
@@ -76,7 +80,9 @@ def test_health_degradado_no_filtra_detalles() -> None:
 
     # Assert
     assert response.status_code == 503
-    assert response.json() == {
+    payload = response.json()
+    payload.pop("monitoring")
+    assert payload == {
         "status": "degraded",
         "detail": DB_UNAVAILABLE,
         "index": {"status": "unknown"},
@@ -259,7 +265,9 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     # Assert
     assert response.status_code == 200
     assert calls == [1]
-    assert response.json() == {
+    payload = response.json()
+    payload.pop("monitoring")
+    assert payload == {
         "status": "ok",
         "documents": 1,
         "chunks": 2,

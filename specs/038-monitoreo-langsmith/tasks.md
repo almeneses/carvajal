@@ -54,35 +54,35 @@ que el primer cambio técnico.
 
 **PR 2 — Traza del turno y salud**
 
-- [ ] T009 [US1] Inyectar `TurnTracer` en `ChatService` (`apps/api/chat/service.py`) con valor
+- [X] T009 [US1] Inyectar `TurnTracer` en `ChatService` (`apps/api/chat/service.py`) con valor
       por defecto desde `Settings`; abrir la traza después de resolver el hilo, cerrarla en
       `finally` (cancelación y error) y publicar `request_id` en el evento `done`
-- [ ] T010 [US1] Pasar a la raíz `request_id` (contextvars de structlog), `thread_hash`
+- [X] T010 [US1] Pasar a la raíz `request_id` (contextvars de structlog), `thread_hash`
       (primeros 16 hex del SHA-256; derivación documentada), `router`
       (`settings.agent_router`), los datos extraídos (`intent`, `tool`, `tool_period`,
       `preferences_count`), las longitudes (`question_chars`, `answer_chars`) y, al cerrar,
       `route` y `outcome`; no usar `owner_key` ni el hilo crudo
-- [ ] T011 [US1] Añadir las llamadas al LLM y los nodos del grafo como hijos con
+- [X] T011 [US1] Añadir las llamadas al LLM y los nodos del grafo como hijos con
       `tracing_context(parent=raíz)`; si LangChain no hereda el contexto, instalar
       `LangChainTracer`/`tracing_v2_enabled` dentro del turno; verificar que
       `ChatOpenAI`/`ChatOllama` aparecen como hijos y que el replay no genera traza
-- [ ] T012 [US1] `tests/test_chat_tracing.py`: con tracer falso, un turno `direct`, uno `rag`,
+- [X] T012 [US1] `tests/test_chat_tracing.py`: con tracer falso, un turno `direct`, uno `rag`,
       uno `tool` y uno `commercial` abren una raíz con la ruta correcta, `request_id` y
       `thread_hash`, y runs hijos; cubre `commercial_clarify` y `rag` con abstención; la
       cancelación deja `cancelled` con el texto parcial y el error cierra la traza una sola vez
-- [ ] T013 [US1] `tests/test_chat_tracing.py`: el primer fragmento no espera al cierre de la
+- [X] T013 [US1] `tests/test_chat_tracing.py`: el primer fragmento no espera al cierre de la
       traza; con un tracer con envío diferido y un cliente que falla, el stream sigue
       emitiendo y el tiempo hasta el primer fragmento no supera 100 ms en la prueba (el p95
       se mide en T033)
-- [ ] T014 [US2] `apps/api/main.py`: `/health` incluye
+- [X] T014 [US2] `apps/api/main.py`: `/health` incluye
       `monitoring: {enabled, sample_rate, content}` sin llave ni endpoint; al arrancar fuerza
       `LANGSMITH_TRACING` y `LANGCHAIN_TRACING_V2` a `false`; `tests/test_api_health.py` cubre
       activo, apagado, sin credenciales y una variable global heredada activa
-- [ ] T015 [US2] `tests/test_chat_tracing.py`: una pregunta con nombre y teléfono no deja ese
+- [X] T015 [US2] `tests/test_chat_tracing.py`: una pregunta con nombre y teléfono no deja ese
       texto en el payload redactado ni en los metadatos de la raíz; con un cliente falso que
       captura todos los runs, ningún payload lleva IP, cookies, CSRF, claves ni texto de la
       conversación
-- [ ] T016 [US2] `tests/test_chat_tracing.py`: cliente que lanza en `post()` y en `end()`; el
+- [X] T016 [US2] `tests/test_chat_tracing.py`: cliente que lanza en `post()` y en `end()`; el
       turno responde, persiste y consume cuota igual, y el fallo queda en `monitoring.failed`
 
 **Checkpoint**: US1 y US2 funcionan con el monitoreo apagado y con un doble; sin red.
