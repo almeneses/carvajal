@@ -5,8 +5,10 @@ las herramientas deterministas de ``agent/commercial.py``; el LLM solo redacta c
 resultado estructurado y el prompt le prohíbe añadir referencias, cifras o disponibilidad
 (FR-004, FR-006, FR-007).
 
-El precio solo se muestra cuando el país es México: es el único catálogo con precio y
-mostrarlo sin saber el país sería cotizar a quien quizá compra en Colombia (FR-002).
+El precio solo se muestra cuando se conoce el país: mostrarlo sin saberlo sería cotizar a
+quien quizá compra en otro país (FR-002). Desde la spec 039 cada opción lista sus ofertas,
+una por fuente (Carvajal o un distribuidor), en la moneda del país; sin oferta publicada se
+declara la ausencia y no se estima ni se convierte desde otro país.
 """
 
 import json
@@ -19,11 +21,10 @@ from urllib.parse import SplitResult, urlsplit
 from carvajal.agent.commercial import (
     RENEWABLE,
     CommercialRequest,
-    NoPriceError,
     boxes_for,
     check_material,
     find_distributors,
-    quote,
+    quote_offer,
     search_packaging,
 )
 from carvajal.agent.commercial_intent import COMMERCIAL_KEYS
@@ -45,14 +46,21 @@ __all__ = [
 MAX_OPTIONS = 3
 MAX_DISCARDED = 5
 MAX_DISTRIBUTORS = 5
+MAX_OFFERS = 3
+NO_PRICE_NOTE = (
+    "{name}: ninguna fuente publica precio para esta referencia en {country}; no se estima ni "
+    "se convierte desde otro país. Consulta un distribuidor."
+)
+_COUNTRY_NAMES = {"MX": "México", "CO": "Colombia"}
 
 COMMERCIAL_INSTRUCTIONS = (
     "Eres el asesor comercial de Carvajal Empaques. Redacta la respuesta usando solo el "
     "resultado estructurado de abajo. No añadas referencias, materiales, cifras, precios, "
     "existencias ni plazos que no estén en él, y no calcules nada: las cajas y los totales ya "
     "vienen calculados. Para cada opción menciona el SKU, el material, las unidades por caja "
-    "y la ficha con su fecha de captura. Si hay precio, copia la moneda y el aviso tal cual. "
-    "Si una opción no tiene precio, dilo sin estimarlo. Si no hay opciones, dilo, resume los "
+    "y la ficha con su fecha de captura. Si hay precio, copia la moneda, quién lo publica y el "
+    "aviso tal cual; si lo publica un tercero, dilo. Si una opción no tiene precio, dilo sin "
+    "estimarlo ni convertirlo. Si no hay opciones, dilo, resume los "
     "descartes y no ofrezcas alternativas que incumplan la regla de material. Si hay datos "
     "pendientes, termina pidiéndolos. No tomes pedidos ni pidas datos de pago."
 )
@@ -71,7 +79,9 @@ def _request(extra: dict[str, Any]) -> CommercialRequest:
     return CommercialRequest(**values)
 
 
-def _option(reference: Reference, req: CommercialRequest, today: date | None) -> dict[str, Any]:
+def _option(
+    reference: Reference, req: CommercialRequest, today: date | None, catalog: Catalog
+) -> dict[str, Any]:
     option: dict[str, Any] = {
         "sku": reference.sku,
         "name": reference.name,
@@ -87,16 +97,32 @@ def _option(reference: Reference, req: CommercialRequest, today: date | None) ->
         count = boxes_for(reference, req.quantity)
         option.update(boxes=count.boxes, surplus_units=count.surplus)
         boxes = count.boxes
-    if req.country != "MX":
+    if req.country is None:
         return option
-    try:
-        result = quote(reference, boxes, today=today)
-    except NoPriceError as error:
-        option["price_note"] = str(error)
+    offers = catalog.offers(reference)[:MAX_OFFERS]
+    if not offers:
+        option["price_note"] = NO_PRICE_NOTE.format(
+            name=reference.name, country=_COUNTRY_NAMES.get(req.country, req.country)
+        )
         return option
     label = "total" if req.quantity else "price_per_box"
-    option[label] = f"{result.total} {result.currency}"
-    option["price_notice"] = result.notice
+    quotes = [quote_offer(offer, boxes, today=today) for offer in offers]
+    option["offers"] = [
+        {
+            label: f"{item.total} {item.currency}",
+            "tax_status": item.tax_status,
+            "source_type": item.source_type,
+            "source_name": item.source_name,
+            "source_city": item.source_city,
+            "source_url": item.source_url,
+            "captured_at": item.captured_at,
+            "notice": item.notice,
+        }
+        for item in quotes
+    ]
+    # Compatibilidad con la 036: la primera oferta también va en los campos planos.
+    option[label] = f"{quotes[0].total} {quotes[0].currency}"
+    option["price_notice"] = quotes[0].notice
     return option
 
 
@@ -136,7 +162,7 @@ def run_commercial(
         pending.append("cantidad en unidades, si quiere calcular cajas")
     result: dict[str, Any] = {
         "request": asdict(req),
-        "options": [_option(reference, req, today) for reference in chosen],
+        "options": [_option(reference, req, today, data) for reference in chosen],
         "discarded": [asdict(item) for item in discarded[:MAX_DISCARDED]],
         "discarded_total": len(discarded),
         "channel": _channel(req, data),
@@ -163,25 +189,52 @@ def commercial_prompt_block(
 
 
 def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Una cita por opción: la ficha de origen con su fecha de captura (FR-007)."""
+    """Una cita por opción (la ficha con su fecha) y una por cada precio de un tercero (FR-007).
 
-    return [
-        {
-            "chunk_id": f"catalogo:{option['sku']}",
-            "slug": option["sku"],
-            "section": "catalogo_empaques",
-            "layer": "core",
-            "score": 1.0,
-            "excerpt": (
-                f"{option['material']} · {option['units_per_box']} unidades por caja · "
-                f"ficha capturada el {option['captured_at']}"
-            ),
-            "url": option["source_url"],
-            "title": option["name"],
-            "source_type": "oficial",
-        }
-        for option in result["options"]
-    ]
+    El precio de un distribuidor se cita con su página y su fecha: el usuario debe poder ver
+    quién lo publica (spec 039, FR-005).
+    """
+
+    sources: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for option in result["options"]:
+        sources.append(
+            {
+                "chunk_id": f"catalogo:{option['sku']}",
+                "slug": option["sku"],
+                "section": "catalogo_empaques",
+                "layer": "core",
+                "score": 1.0,
+                "excerpt": (
+                    f"{option['material']} · {option['units_per_box']} unidades por caja · "
+                    f"ficha capturada el {option['captured_at']}"
+                ),
+                "url": option["source_url"],
+                "title": option["name"],
+                "source_type": "oficial",
+            }
+        )
+        for offer in option.get("offers", []):
+            if offer["source_type"] != "tercero" or offer["source_url"] in seen:
+                continue
+            seen.add(offer["source_url"])
+            sources.append(
+                {
+                    "chunk_id": f"precio:{option['sku']}:{len(seen)}",
+                    "slug": f"precio-{option['sku']}-{len(seen)}",
+                    "section": "catalogo_empaques",
+                    "layer": "core",
+                    "score": 1.0,
+                    "excerpt": (
+                        f"Precio publicado por {offer['source_name']} · "
+                        f"capturado el {offer['captured_at']}"
+                    ),
+                    "url": offer["source_url"],
+                    "title": f"{offer['source_name']}: {option['name']}",
+                    "source_type": "tercero",
+                }
+            )
+    return sources
 
 
 def _mx_store(data: Catalog) -> tuple[SplitResult, Reference] | None:

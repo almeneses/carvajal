@@ -1,8 +1,13 @@
-"""Modelos del catálogo curado de empaques (spec 036).
+"""Modelos del catálogo curado de empaques (specs 036 y 039).
 
 Cada fila conserva su procedencia (``source_url`` y ``captured_at``): el asistente
 cita la ficha de la que salió el dato y presenta los precios como referencia fechada.
 Las celdas vacías del CSV llegan como ``None``.
+
+Spec 039: un precio deja de ser un atributo único de la referencia y pasa a ser una
+**oferta por fuente** (``ReferencePrice``): quién lo publica, cuándo y cómo trata el IVA.
+El precio inline de ``referencias.csv`` (tienda de México) sigue siendo válido y se
+expone como la oferta oficial de esa referencia.
 """
 
 from datetime import date
@@ -11,11 +16,22 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-__all__ = ["Distributor", "Family", "MaterialRule", "Reference"]
+__all__ = [
+    "Distributor",
+    "Family",
+    "MaterialRule",
+    "PriceSource",
+    "Reference",
+    "ReferencePrice",
+    "TaxStatus",
+]
 
 Family = Literal["vaso", "tapa", "contenedor", "charola", "cubierto", "envase", "plato"]
 Country = Literal["MX", "CO"]
 Currency = Literal["MXN", "COP"]
+TaxStatus = Literal["incluido", "no_incluido", "no_indicado"]
+PriceSource = Literal["oficial", "tercero"]
+_CURRENCY_BY_COUNTRY: dict[str, str] = {"MX": "MXN", "CO": "COP"}
 
 
 class _Row(BaseModel):
@@ -147,3 +163,37 @@ class Distributor(_Sourced):
     city: str = Field(min_length=1)
     address: str | None = None
     phone: str | None = None
+
+
+class ReferencePrice(_Sourced):
+    """Precio de referencia de una referencia, publicado por una fuente concreta (spec 039).
+
+    ``amount`` es siempre por caja (``units_per_box`` de la referencia): la normalización
+    desde unidad o paquete ocurre antes, en ``carvajal catalog-prices``. Un precio nunca se
+    estima, se convierte de otra moneda ni se promedia entre fuentes (FR-006).
+    """
+
+    sku: str = Field(min_length=1)
+    country: Country
+    amount: Decimal = Field(ge=0, description="Precio por caja")
+    currency: Currency
+    tax_status: TaxStatus
+    source_type: PriceSource
+    source_name: str = Field(min_length=1)
+    source_city: str | None = Field(default=None, description="Ciudad del distribuidor, si aplica")
+    valid_until: date | None = None
+
+    @model_validator(mode="after")
+    def _moneda_del_pais(self) -> Self:
+        expected = _CURRENCY_BY_COUNTRY[self.country]
+        if self.currency != expected:
+            raise ValueError(
+                f"un precio de {self.country} va en {expected}; no se convierte de {self.currency}"
+            )
+        return self
+
+    @property
+    def tax_included(self) -> bool | None:
+        """``True``/``False`` si la fuente lo declara; ``None`` si no lo indica."""
+
+        return {"incluido": True, "no_incluido": False}.get(self.tax_status)

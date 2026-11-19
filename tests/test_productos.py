@@ -1,4 +1,4 @@
-"""Tarjetas de la ruta comercial: parcial ``_productos.html`` (spec 036, T028-T030)."""
+"""Tarjetas de la ruta comercial: parcial ``_productos.html`` (specs 036 y 039)."""
 
 from datetime import date
 from pathlib import Path
@@ -68,10 +68,70 @@ def test_la_tarjeta_sin_precio_de_colombia_no_estima_y_lista_distribuidores() ->
 
     assert "<code>FX-VASO-PS-12</code>" in html
     assert "MXN" not in html
-    assert "no publica precios" in html
+    assert "ninguna fuente publica precio" in html
+    assert "no se estima ni se convierte" in html
     assert "Distribuidores en Medellín" in html
     assert "Distribuidora Ejemplo Tres" in html
     assert "Carrera 4 # 5-6" in html
+
+
+def _con_ofertas(*ofertas: dict[str, Any]) -> dict[str, Any]:
+    resultado = _resultado(use="bebida_fria", temperature="fria", country="CO", city="Bogotá")
+    opcion = resultado["options"][0]
+    opcion.pop("price_note", None)
+    opcion["offers"] = list(ofertas)
+    opcion["price_per_box"] = ofertas[0]["price_per_box"]
+    opcion["price_notice"] = ofertas[0]["notice"]
+    return resultado
+
+
+def _oferta_tarjeta(**datos: Any) -> dict[str, Any]:
+    oferta: dict[str, Any] = {
+        "price_per_box": "54000 COP",
+        "tax_status": "incluido",
+        "source_type": "tercero",
+        "source_name": "Distribuidora Ejemplo Uno",
+        "source_city": "Bogotá",
+        "source_url": "https://ejemplo.test/tienda/vaso-12",
+        "captured_at": "2026-11-18",
+        "notice": "Precio de referencia con impuestos incluidos, publicado por Distribuidora "
+        "Ejemplo Uno (tercero, no es un precio de Carvajal) y capturado el 2026-11-18; no "
+        "confirma existencias ni condiciones de venta.",
+    }
+    oferta.update(datos)
+    return oferta
+
+
+def test_la_tarjeta_lista_cada_oferta_con_su_fuente() -> None:
+    html = render_products(
+        _con_ofertas(
+            _oferta_tarjeta(),
+            _oferta_tarjeta(
+                price_per_box="60000 COP",
+                tax_status="no_indicado",
+                source_name="Comercio Ejemplo",
+                source_city=None,
+                source_url="https://ejemplo.test/comercio/vaso-12",
+                notice="Precio de referencia sin que la fuente indique si incluye impuestos.",
+            ),
+        )
+    )
+
+    assert html.count('class="producto-oferta"') == 2
+    assert "<strong>54000 COP</strong>" in html
+    assert "<strong>60000 COP</strong>" in html
+    assert "Distribuidora Ejemplo Uno</a> (Bogotá)" in html
+    assert 'href="https://ejemplo.test/comercio/vaso-12"' in html
+    assert html.count("etiqueta-tercero") == 2
+    assert "sin que la fuente indique si incluye impuestos" in html
+
+
+def test_la_tarjeta_de_colombia_no_muestra_estimaciones_ni_pesos_mexicanos() -> None:
+    html = render_products(_con_ofertas(_oferta_tarjeta()))
+
+    assert "MXN" not in html
+    assert "estima" not in html.replace("no se estima", "")
+    assert "convert" not in html.replace("no se convierte", "")
 
 
 def test_sin_pais_la_tarjeta_pide_el_pais_para_cotizar() -> None:

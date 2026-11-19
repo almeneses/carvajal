@@ -2,7 +2,8 @@
     Recibe ``resultado``, la salida de ``run_commercial`` o de ``custom_need_result``. Todo el
     texto pasa por el autoescape de Jinja; las URL vienen del catálogo validado (http/https).
     El precio siempre va con su fecha de captura y el aviso de precio de referencia (FR-005,
-    FR-007); sin precio se dice por qué y no se estima (FR-006).
+    FR-007); sin precio se dice por qué y no se estima (FR-006). Spec 039: cada referencia
+    lista sus ofertas, una por fuente, y el precio de un tercero nombra a quien lo publica.
     Diseño «Asistente Carvajal» (Stitch): resumen de lo entendido, insignias de material,
     precio destacado y descartes con su motivo. Solo presentación: los datos son los mismos. -#}
 {%- set usos = {
@@ -91,7 +92,29 @@
         </div>
         {%- endif %}
       </dl>
-      {%- if precio %}
+      {%- if opcion.offers %}
+      <ul class="producto-ofertas">
+        {%- for oferta in opcion.offers %}
+        {%- set valor = oferta.total or oferta.price_per_box %}
+        <li class="producto-oferta">
+          <p class="producto-precio">
+            <strong>{{ valor }}</strong>
+            <span class="producto-precio-detalle">{{ "en total" if oferta.total else "por caja" }}</span>
+          </p>
+          <p class="producto-oferta-fuente">
+            {%- if oferta.source_type == "tercero" %}
+            Publicado por <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">{{ oferta.source_name }}</a>{% if oferta.source_city %} ({{ oferta.source_city }}){% endif %}
+            <span class="etiqueta-tercero">Tercero</span>
+            {%- else %}
+            Publicado por {{ oferta.source_name }}
+            {%- endif %}
+            · capturado el {{ oferta.captured_at }}
+          </p>
+          <p class="producto-aviso">{{ oferta.notice }}</p>
+        </li>
+        {%- endfor %}
+      </ul>
+      {%- elif precio %}
       <p class="producto-precio">
         <strong>{{ precio }}</strong>
         <span class="producto-precio-detalle">{{ "en total" if opcion.total else "por caja" }}</span>
