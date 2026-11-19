@@ -174,7 +174,8 @@ def _sin_pii(runs: Sequence[Any], textos: Sequence[str] = ()) -> bool:
     # El hilo crudo no debe aparecer: se comprueba por su valor real, no por la
     # clave, porque la traza publica ``thread_hash`` y no ``thread_id``.
     marcas = (*PII, "owner_key", *textos)
-    return not any(marca in volcado for marca in marcas)
+    # Una marca vacía siempre «está» en el volcado: se descarta.
+    return not any(marca in volcado for marca in marcas if marca)
 
 
 def _p95(valores: Sequence[float]) -> float:

@@ -229,7 +229,11 @@ def test_langsmith_responde_si_hay_llave() -> None:
 
     from langsmith import Client
 
-    cliente = Client(api_key=ajustes.langsmith_api_key, info={})
+    cliente = Client(
+        api_key=ajustes.langsmith_api_key,
+        api_url=ajustes.langsmith_endpoint or None,
+        info={},
+    )
     proyecto = cliente.read_project(project_name=ajustes.langsmith_project)
 
     assert proyecto.name == ajustes.langsmith_project
