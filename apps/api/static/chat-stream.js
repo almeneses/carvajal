@@ -284,9 +284,9 @@
       if (completado && !errorRecibido) {
         notificarTurnoCompleto(turnoAsistente, manosLibres);
       } else if (manosLibres) {
-        // Solo se devuelve el texto si el turno no llegó a persistirse; con
-        // contenido recibido, reenviarlo duplicaría la pregunta.
-        if (!recibioContenido && !input.value.trim()) input.value = pregunta;
+        // Sin `done` el servidor no persiste el turno: se devuelve siempre la
+        // pregunta para que la persona pueda revisarla y reenviarla.
+        if (!input.value.trim()) input.value = pregunta;
         notificarTurnoFallido(turnoAsistente, threadInput ? threadInput.value : "", true);
       }
     }
