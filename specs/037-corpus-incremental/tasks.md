@@ -154,12 +154,13 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 
 - [X] T054 [US1] Implementar `sync --adopt` para completar `source_key` y `raw_hash` en el registro existente sin reindexar, resolviendo las fuentes repetidas (vigente + `legacy:<slug>`)
 - [X] T055 [US1] Probar la adopción con un índice legado (URL, slug con hash, subidas homónimas que caen a `legacy:<slug>` y dos versiones legadas de la misma subida) en `tests/test_registry.py`
-- [ ] T056 Ejecutar la adopción y la poda en el VPS siguiendo `docs/despliegue-ovh.md` y registrar el antes/después de `/health` (manual: requiere acceso al servidor)
+- [X] T056 Ejecutar la adopción y la poda en el VPS siguiendo `docs/despliegue-ovh.md` (ejecución confirmada; evidencia posterior en seguimiento T075)
 - [X] T057 Documentar en `README.md` la identidad, la deduplicación, `carvajal sync` y la prioridad de capas
 - [X] T058 Registrar en `CONSTITUTION.md` §2, §9 y §10 las decisiones de identidad, dedupe, sincronización, prioridad y retiro de pgvector
 - [X] T059 [P] Añadir la fila de la 037 a `specs/README.md` y sincronizar `.specify/memory/constitution.md`
 - [X] T060 Ejecutar `make check` y anotar el número de pruebas en el PR
 - [X] T061 Revisar que los errores del informe no exponen rutas internas ni credenciales
+- [ ] T075 Recuperar de los registros la captura de `/health` posterior a T056 y comparar documentos, fragmentos y puntos con la línea base en [adopcion-vps.md](adopcion-vps.md); no repetir la poda para generar evidencia.
 
 ## Dependencies & Execution Order
 

@@ -461,7 +461,8 @@ git push
 - [x] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035, entregada el 2026-11-16).
 - [ ] Evaluar OCR para PDF escaneados sin capa de texto.
 - [ ] Rastrear el sitio de forma periódica (cron/crawler) sobre `carvajal capture` y `carvajal sync`; la spec 037 deja los contratos de identidad y sincronización.
-- [ ] Ejecutar `carvajal sync --adopt` y `carvajal sync --prune` en el VPS y registrar el antes/después de `/health` (spec 037, T056); requiere acceso al servidor.
+- [x] Ejecutar `carvajal sync --adopt` y `carvajal sync --prune` en el VPS (spec 037, T056). El owner confirmó la ejecución; ver [registro de adopción](specs/037-corpus-incremental/adopcion-vps.md).
+- [ ] Recuperar la evidencia de `/health` posterior a la poda sin repetirla (spec 037, T075).
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.
