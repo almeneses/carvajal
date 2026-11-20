@@ -286,6 +286,49 @@ def test_sentry_traces_sample_rate_invalido_falla(
         Settings(_env_file=None)
 
 
+def test_monitoreo_apagado_por_defecto() -> None:
+    """Sin configuración explícita, el monitoreo no se activa (FR-001)."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.monitoring_enabled is False
+    assert settings.monitoring_sample_rate == 0.2
+    assert settings.monitoring_include_content is False
+    assert settings.monitoring_timeout_ms == 2000
+    assert settings.langsmith_project == "carvajal"
+    assert settings.langsmith_endpoint == ""
+    assert settings.langsmith_api_key == ""
+
+
+@pytest.mark.parametrize("valor", ["-0.1", "1.1", "no-es-un-numero"])
+def test_monitoring_sample_rate_invalido_falla(monkeypatch: pytest.MonkeyPatch, valor: str) -> None:
+    """El muestreo del monitoreo debe quedar entre 0 y 1 (FR-007)."""
+
+    monkeypatch.setenv("MONITORING_SAMPLE_RATE", valor)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("valor", ["0", "-5", "70000", "no-es-un-numero"])
+def test_monitoring_timeout_invalido_falla(monkeypatch: pytest.MonkeyPatch, valor: str) -> None:
+    """El timeout del cliente debe ser positivo y breve."""
+
+    monkeypatch.setenv("MONITORING_TIMEOUT_MS", valor)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_la_llave_de_langsmith_no_se_expone_en_el_repr() -> None:
+    """La credencial queda fuera de cualquier ``repr`` accidental (FR-005)."""
+
+    settings = Settings(_env_file=None, langsmith_api_key="lsv2_pt_secreta")
+
+    assert "lsv2_pt_secreta" not in repr(settings)
+    assert settings.langsmith_api_key == "lsv2_pt_secreta"
+
+
 def test_capture_max_urls_es_el_total_de_semillas() -> None:
     """El máximo de la captura sigue al total de semillas configuradas."""
 

@@ -28,6 +28,9 @@ __all__ = [
 ]
 
 REQUEST_ID_HEADER = "X-Request-ID"
+# Un solo patrón para el middleware y para las marcas del chat: el request_id
+# que viaja en ``done`` debe poder enviarse a /chat/feedback (FR-012).
+REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _VALIDO = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 _ESTATICOS = "/static"
 

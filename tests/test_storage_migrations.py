@@ -17,6 +17,7 @@ _SCHEMA_TABLES = {
     "conversations",
     "messages",
     "usage_day",
+    "chat_feedback",
 }
 
 

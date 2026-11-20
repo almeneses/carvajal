@@ -7,6 +7,7 @@ vectores: el único índice de respuestas es Qdrant (spec 037, US5).
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -25,6 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 __all__ = [
+    "chat_feedback",
     "chunks",
     "conversations",
     "document_versions",
@@ -174,6 +176,22 @@ Index(
     messages.c.conversation_id,
     messages.c.created_at,
     messages.c.id,
+)
+
+# Marcas del visitante sobre una respuesta (spec 038, US4). La clave es el
+# ``request_id`` del turno: la marca se guarda aunque el turno no se haya
+# muestreado y nunca fuerza una traza. No se guarda texto.
+chat_feedback = Table(
+    "chat_feedback",
+    metadata,
+    Column("request_id", Text, primary_key=True),
+    Column("useful", Boolean, nullable=False),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
 )
 
 # Cupo diario por visitante anónimo (W4.2). La clave es el identificador de la

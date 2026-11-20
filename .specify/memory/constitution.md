@@ -5,7 +5,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-18, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-19, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -93,9 +93,12 @@ con `--admin`.
   PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.
   `carvajal sync --adopt` completa la identidad de los índices anteriores sin renombrar
   slugs ni reindexar.
-- Las specs 038 y 040 abren, en borrador, el monitoreo del agente con LangSmith y el chat por
-  voz; hasta implementarlas no cambian el comportamiento. La 039 (catálogo de Colombia con
-  precios en COP) está implementada.
+- El monitoreo del agente con LangSmith (spec 038) quedó **entregado el 2026-11-19**: traza
+  raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo solo en desarrollo
+  y evaluación. La evidencia de SC-001…SC-005 está en `docs/evidence/m2/monitoring.md`.
+  La raíz puede incluir `agent_id` y `agent_environment` como metadatos opcionales.
+- La spec 039 (catálogo de Colombia con precios en COP) está implementada. La 040 (chat por
+  voz) sigue en borrador; sus `plan.md` y `tasks.md` llegan antes de implementar.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
@@ -103,7 +106,7 @@ con `--admin`.
 
 - Python 3.13+, monorepo `uv` con el paquete en `packages/core/src/carvajal` (src-layout).
 - API FastAPI + Jinja2 + HTMX; sin framework de JavaScript en el cliente.
-- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0006).
+- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0007).
 - Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
 - Agente LangGraph con `PostgresSaver` y `PostgresStore`; router `direct`/`tool`/`rag`.
 - Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con
@@ -137,4 +140,4 @@ con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.2.0 - 2026-11-16, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.4.0 - 2026-11-19, sincronizada con `CONSTITUTION.md` del repositorio.

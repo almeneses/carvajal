@@ -1,10 +1,9 @@
 # Adopción y poda en el VPS (T056)
 
-> Estado: **bloqueada**. La adopción está implementada y probada, pero ejecutarla
-> en producción exige desplegar antes una release con la spec 037 y este goal no
-> toca `main`.
+> Estado: **ejecutada**, según confirmación del owner. Este registro no incluye
+> una captura del `/health` posterior a la ejecución.
 
-## Antes (medido el 2026-11-18)
+## Antes del despliegue de la 037 (medido el 2026-11-18)
 
 Producción en `144.217.80.136` (`/opt/carvajal`, `compose.prod.yml`):
 
@@ -14,19 +13,15 @@ Producción en `144.217.80.136` (`/opt/carvajal`, `compose.prod.yml`):
 | `GET /health` | `{"status":"ok","documents":1226,"chunks":41428,"index":{"status":"ok","collection":"carvajal_chunks","points":41295,"dimensions":768}}` |
 | `carvajal sync --help` | no conoce `--adopt` (código anterior a la 037) |
 
-## Por qué no se ejecutó
+## Antes de T056, ya con la 037 desplegada
 
-El procedimiento de T056 es `carvajal sync --adopt` y después
-`carvajal sync --prune`, pero la imagen desplegada no incluye la 037: el comando
-no existe. Publicar la imagen nueva requiere fusionar `dev` en `main` y esperar
-el flujo de release y despliegue, y este goal tiene prohibido tocar `main`.
+Tras la [release #165](https://github.com/almeneses/carvajal/pull/165), se registraron
+2.193 documentos, 77.581 fragmentos y 77.604 puntos en `/health`, con la imagen
+`sha-1976b1e…`.
 
-## Después (pendiente)
+## Después
 
-Cuando la release con la 037 esté desplegada:
-
-1. `carvajal sync --adopt` y guardar el conteo de adoptadas, archivadas y sin
-   cambios.
-2. `carvajal sync --layer all --verify` para ver las diferencias sin escribir.
-3. `carvajal sync --layer all --prune` y registrar el nuevo `/health`.
-4. Comparar documentos, fragmentos y puntos con la tabla de arriba.
+El owner confirmó que la adopción y la poda se ejecutaron. No se dispone de los
+conteos finales ni de la salida de `/health` inmediatamente posterior para
+compararlos con el estado anterior. [T075](tasks.md#phase-7-adopción-documentación-y-pulido)
+da seguimiento a esa evidencia histórica, sin repetir la poda.

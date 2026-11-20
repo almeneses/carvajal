@@ -16,8 +16,8 @@ def _unique_column_sets(table: Table) -> set[tuple[str, ...]]:
     }
 
 
-def test_exporta_las_seis_tablas_del_esquema() -> None:
-    """El metadata contiene el corpus, el chat de W3.3 y el cupo de W4.2."""
+def test_exporta_las_tablas_del_esquema() -> None:
+    """El metadata contiene el corpus, el chat, el cupo y las marcas (spec 038)."""
 
     assert set(tables.metadata.tables) == {
         "documents",
@@ -26,6 +26,7 @@ def test_exporta_las_seis_tablas_del_esquema() -> None:
         "conversations",
         "messages",
         "usage_day",
+        "chat_feedback",
     }
 
 
