@@ -151,6 +151,14 @@
     if (!raiz) return;
     const buscar = (selector) => raiz.querySelector(selector);
     const win = typeof window === "undefined" ? {} : window;
+    // Acceder a localStorage puede lanzar con el almacenamiento bloqueado; en
+    // ese caso el controlador conserva las preferencias solo en memoria.
+    let almacen = null;
+    try {
+      almacen = win.localStorage || null;
+    } catch {
+      almacen = null;
+    }
     const Reconocimiento = win.SpeechRecognition || win.webkitSpeechRecognition || null;
     const sintesis = win.speechSynthesis || null;
     const Utterance = win.SpeechSynthesisUtterance || null;
@@ -164,7 +172,7 @@
         autoLectura: buscar("[data-voz-autolectura]"),
       },
       documento: document,
-      almacen: win.localStorage,
+      almacen,
       reconocimiento: Reconocimiento,
       sintesis,
       Utterance,

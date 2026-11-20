@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
@@ -17,6 +18,7 @@ from apps.api.security import (
     HSTS,
     SecurityMiddleware,
     build_csrf_secret,
+    politica_permisos,
     valid_token,
 )
 from carvajal.application.ask import Answer
@@ -101,30 +103,29 @@ def test_las_cabeceras_de_seguridad_van_en_todas_las_respuestas() -> None:
     # Arrange
     client = _client()
 
-    # Act
-    portada = client.get("/")
+    # Act: sin seguir el 303 de la portada, que terminaría en el documento del chat.
+    portada = client.get("/", follow_redirects=False)
     rechazo = client.post("/chat", data={"question": "¿?"})
 
     # Assert
     for response in (portada, rechazo):
         for nombre, valor in CABECERAS.items():
-            if nombre == "Permissions-Policy":
-                # La spec 040 habilita el micrófono solo en el documento del
-                # chat; la portada redirige a /chat y esa respuesta sí lo lleva.
-                assert _politica_microfono(response) in {"()", "(self)"}
-                continue
             assert response.headers[nombre] == valor
         assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
-def _politica_microfono(response: Any) -> str:
+def _microfono(politica: str) -> str:
     """Extrae la directiva ``microphone`` de ``Permissions-Policy``."""
 
-    for directiva in response.headers["permissions-policy"].split(","):
+    for directiva in politica.split(","):
         nombre, _, valor = directiva.strip().partition("=")
         if nombre == "microphone":
             return valor
-    raise AssertionError("la respuesta no declara microphone en Permissions-Policy")
+    raise AssertionError("la política no declara microphone")
+
+
+def _politica_microfono(response: Any) -> str:
+    return _microfono(response.headers["permissions-policy"])
 
 
 def test_el_documento_del_chat_permite_su_propio_microfono() -> None:
@@ -141,19 +142,50 @@ def test_el_documento_del_chat_permite_su_propio_microfono() -> None:
     assert "camera=()" in politica
 
 
+@pytest.mark.parametrize(
+    ("ruta", "metodo", "esperado"),
+    [
+        ("/chat", "GET", "(self)"),
+        ("/chat", "HEAD", "(self)"),
+        ("/chat", "POST", "()"),
+        ("/chat/stream", "POST", "()"),
+        ("/chat", "PUT", "()"),
+        ("/chat/", "GET", "()"),
+        ("/faq", "GET", "()"),
+        ("/static/chat-voice.js", "GET", "()"),
+    ],
+)
+def test_la_politica_de_microfono_depende_de_ruta_y_metodo(
+    ruta: str, metodo: str, esperado: str
+) -> None:
+    """La excepción no se hereda por método ni por prefijo de ruta."""
+
+    # Act / Assert
+    assert _microfono(politica_permisos(ruta, metodo)) == esperado
+
+
 def test_el_microfono_sigue_denegado_en_las_demas_rutas() -> None:
-    """FAQ, historial no-HTML, SSE y estáticos no heredan la excepción."""
+    """FAQ, portada, POST del chat, SSE y estáticos no heredan la excepción."""
 
     # Arrange
     client = _client()
+    token = _token(client)
 
     # Act
     faq = client.get("/faq")
     estatico = client.get("/static/logo.svg")
-    sse = client.post("/chat/stream", data={"question": "¿Qué es Carvajal?"})
+    portada = client.get("/", follow_redirects=False)
+    post_chat = client.post("/chat", data={"question": "¿Qué es Carvajal?"})
+    sse_sin_token = client.post("/chat/stream", data={"question": "¿Qué es Carvajal?"})
+    sse = client.post(
+        "/chat/stream",
+        data={"question": "¿Qué es Carvajal?", CSRF_FIELD: token},
+    )
 
-    # Assert
-    for response in (faq, estatico, sse):
+    # Assert: el SSE válido responde 200 y aun así no recibe el micrófono.
+    assert sse.status_code == 200
+    assert "text/event-stream" in sse.headers["content-type"]
+    for response in (faq, estatico, portada, post_chat, sse_sin_token, sse):
         assert _politica_microfono(response) == "()"
 
 

@@ -93,6 +93,18 @@ function crearElemento(etiqueta = "div", props = {}) {
   return elemento;
 }
 
+function crearFormulario() {
+  const formulario = crearElemento("form");
+  formulario.enviados = 0;
+  formulario.requestSubmit = () => {
+    formulario.enviados += 1;
+  };
+  formulario.submit = () => {
+    formulario.enviados += 1;
+  };
+  return formulario;
+}
+
 function crearDocumento(consulta = {}) {
   const oyentes = new Map();
   return {
@@ -319,6 +331,7 @@ function cargarVoz({ documento, almacen, reconocimiento = true, sintesis = true 
     queueMicrotask,
     performance: { now: () => 0 },
     navigator: { language: "es-CO" },
+    isSecureContext: true,
   };
   sandbox.window = sandbox;
   if (reconocimiento) sandbox.SpeechRecognition = reconocimiento === true ? crearReconocimiento() : reconocimiento;
@@ -450,6 +463,45 @@ test("T002 la preferencia de lectura existe pero está apagada por defecto", () 
   // Assert
   assert.equal(vista.autoLectura.checked, false);
   assert.equal(controlador.preferencias.autoLectura, false);
+});
+
+test("T005 init monta los controles con los selectores reales del documento", () => {
+  // Arrange: raíz y formulario como los deja la plantilla.
+  const raiz = crearElemento("section", { hidden: true });
+  const boton = crearElemento("button", { hidden: true });
+  const etiqueta = crearElemento("span");
+  const estado = crearElemento("p");
+  const nota = crearElemento("p", { hidden: true });
+  const formulario = crearFormulario();
+  const hijos = {
+    "[data-voz-dictar]": boton,
+    "[data-voz-dictar-texto]": etiqueta,
+    "[data-voz-estado]": estado,
+    "[data-voz-nota]": nota,
+    "[data-voz-autolectura]": null,
+  };
+  raiz.querySelector = (selector) => hijos[selector] || null;
+  const documento = crearDocumento({
+    "[data-voz]": raiz,
+    "form[data-chat-stream]": formulario,
+    "[data-voz-aviso]": null,
+    "[data-voz-aviso-aceptar]": null,
+    "[data-voz-aviso-cancelar]": null,
+  });
+
+  // Act: el script se ejecuta al cargar y encuentra la raíz.
+  const sandbox = cargarVoz({ documento });
+
+  // Assert
+  assert.ok(sandbox.window.CarvajalVoz);
+  assert.equal(raiz.hidden, false);
+  assert.equal(boton.hidden, false);
+  assert.equal(boton.getAttribute("aria-label"), "Dictar una pregunta");
+  assert.equal(etiqueta.textContent, "Dictar");
+  assert.equal(documento.documentElement.dataset.voz, "1");
+  assert.equal(documento.documentElement.dataset.vozTts, "1");
+  assert.ok(raiz._controladorVoz);
+  assert.equal(formulario.enviados, 0);
 });
 
 test("T002 sin síntesis la preferencia de lectura no se ofrece", () => {
