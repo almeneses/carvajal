@@ -15,9 +15,16 @@ const fs = require("node:fs");
 const { chromium } = require("playwright-core");
 
 const URL_CHAT = process.env.CHAT_URL || "http://127.0.0.1:8123/chat";
+// `playwright-core` resuelve el navegador que espera su versión; si no está
+// instalado se usa un Chromium del sistema. CHROME_PATH fuerza uno concreto.
+const CANDIDATOS = [
+  chromium.executablePath(),
+  "/usr/bin/chromium-browser",
+  "/usr/bin/chromium",
+  "/usr/bin/google-chrome",
+];
 const CHROME =
-  process.env.CHROME_PATH ||
-  "/home/alejo/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome";
+  process.env.CHROME_PATH || CANDIDATOS.find((ruta) => ruta && fs.existsSync(ruta));
 const AXE_PATH = process.env.AXE_PATH || require.resolve("axe-core/axe.min.js");
 const AXE = fs.readFileSync(AXE_PATH, "utf8");
 
@@ -296,6 +303,9 @@ async function main() {
   const reconocimientosAntes = await pagina.evaluate(
     () => window.__vozE2E.reconocimientos.length,
   );
+  const turnosAntesManos = await pagina.evaluate(
+    () => document.querySelectorAll("#hilo .turno-assistant").length,
+  );
   const locucionesAntesManos = await pagina.evaluate(
     () => window.__vozE2E.locuciones.length,
   );
@@ -308,7 +318,7 @@ async function main() {
       pagina.evaluate(
         (antes) =>
           document.querySelectorAll("#hilo .turno-assistant").length >= antes + 1,
-        reconocimientosAntes,
+        turnosAntesManos,
       ),
     5000,
     "envío manos libres",

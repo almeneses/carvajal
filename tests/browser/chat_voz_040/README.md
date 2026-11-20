@@ -9,8 +9,8 @@ No sustituye la medición de SC-001–SC-003 con voces y micrófono reales.
 
 ## Requisitos
 
-- Chromium/Chrome instalado. Ruta en `CHROME_PATH` (por defecto, el navegador
-  de Playwright ya descargado en esta máquina).
+- Chromium/Chrome instalado. Ruta en `CHROME_PATH` (por defecto, el navegador que resuelve
+  `chromium.executablePath()` de Playwright).
 - `playwright-core` y `axe-core` en un directorio de dependencias temporal
   (no se añaden al proyecto):
 
