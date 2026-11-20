@@ -872,7 +872,11 @@
           ? ""
           : String(detalle.threadId);
       if (manosLibres.activo) {
-        if (detalle.handsFree !== true) return;
+        if (detalle.handsFree !== true) {
+          // Un turno ajeno deja el modo sin escucha ni temporizador: se apaga.
+          desactivarManosLibres("fallo");
+          return;
+        }
         if (hiloActual && hiloTurno && hiloActual !== hiloTurno) {
           desactivarManosLibres("hilo");
           return;
@@ -881,7 +885,7 @@
         manosLibres.reanudarTrasLeer = leido;
         if (!leido) {
           if (!hayVozEspanola()) desactivarManosLibres("error");
-          else comenzarDictado({ manosLibres: true });
+          else if (manosLibres.activo) comenzarDictado({ manosLibres: true });
         }
         return;
       }

@@ -252,7 +252,7 @@
         }
         avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
         formatearTurno(turnoAsistente, texto, true);
-        if (!texto.textContent) turnoAsistente.remove();
+        if (!turnoAsistente.textContent) turnoAsistente.remove();
       } else if (!recibioContenido && !cerrado) {
         // Falló antes del primer token y el servidor no persistió el turno:
         // restaura la pregunta y reintenta por el POST normal del formulario.
@@ -283,7 +283,9 @@
       if (completado && !errorRecibido) {
         notificarTurnoCompleto(turnoAsistente, manosLibres);
       } else if (manosLibres) {
-        if (!input.value.trim()) input.value = pregunta;
+        // Solo se devuelve el texto si el turno no llegó a persistirse; con
+        // contenido recibido, reenviarlo duplicaría la pregunta.
+        if (!recibioContenido && !input.value.trim()) input.value = pregunta;
         notificarTurnoFallido(turnoAsistente, threadInput ? threadInput.value : "", true);
       }
     }

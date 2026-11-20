@@ -1736,9 +1736,10 @@ test("T018 un turno completo que no es de manos libres no se lee solo", () => {
     },
   });
 
-  // Assert
+  // Assert: un turno ajeno no deja el modo colgado sin escucha.
   assert.equal(sintesis.locuciones.length, 0);
   assert.equal(montaje.reconocimiento.instancias.length, 1);
+  assert.equal(montaje.controlador.manosLibres.activo, false);
 });
 
 test("T018 un turno de otro hilo apaga el modo sin hablar", () => {

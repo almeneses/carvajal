@@ -772,3 +772,17 @@ def test_el_stream_distingue_manos_libres_solo_en_el_cliente() -> None:
     # El origen no se envía: sin campos nuevos en el cuerpo del POST.
     assert "vozOrigen:" not in stream
     assert 'name="voz' not in (APP_DIR / "templates" / "chat.html").read_text(encoding="utf-8")
+
+
+def test_el_fallo_tardio_de_manos_libres_no_duplica_la_pregunta() -> None:
+    """T021: con contenido recibido no se devuelve el texto al borrador."""
+
+    # Arrange
+    from apps.api.runtime import APP_DIR
+
+    # Act
+    stream = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
+
+    # Assert
+    assert "if (!recibioContenido && !input.value.trim()) input.value = pregunta;" in stream
+    assert "if (!turnoAsistente.textContent) turnoAsistente.remove();" in stream
