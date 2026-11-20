@@ -27,7 +27,7 @@ $ make check
 1634 passed, 46 deselected, 2 warnings
 
 $ node --test tests/js/test_chat_voice.cjs      # Node 24.16.0
-tests 65 / pass 65 / fail 0
+tests 68 / pass 68 / fail 0
 
 $ NODE_PATH=<deps> node tests/browser/chat_voz_040/validar.cjs
 36 pasos / 0 fallos / exit 0
