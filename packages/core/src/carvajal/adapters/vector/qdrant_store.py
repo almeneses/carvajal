@@ -60,7 +60,7 @@ def payload_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> dict
         "text": chunk.text,
         "position": chunk.position,
         "section": chunk.section,
-        "layer": chunk.layer,
+        "layer": extra.get("layer", chunk.layer),
         "url": extra.get("url", ""),
         "title": extra.get("title", ""),
         "source_type": extra.get("source_type", "oficial"),

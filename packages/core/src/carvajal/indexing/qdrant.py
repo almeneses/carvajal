@@ -230,6 +230,7 @@ def index_gold(
             "category": document.category,
             "entity": document.entity,
             "embedding_model": model,
+            "layer": document.layer,
         }
         ids = store.point_ids(chunks, [metadata for _ in chunks])
         if existing.get(document.id) == set(ids):

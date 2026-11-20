@@ -377,6 +377,35 @@ def test_un_cambio_solo_de_metadatos_actualiza_el_payload_sin_reembeder(tmp_path
     assert store.document_hashes("core") == gold_index_hashes(CorpusLayer("core", (nucleo,)))
 
 
+def test_un_cambio_de_capa_actualiza_el_payload_sin_reembeder(tmp_path: Path) -> None:
+    """Mover un documento de capa cambia el payload, no el texto vectorizado."""
+
+    # Arrange: el mismo documento indexado en la capa núcleo.
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "h1", cuerpo="Fundada en Cali.")
+    store = _store("payload_capa")
+    embedder = _Embedder()
+    index_gold(gold_dirs=[(nucleo, "core")], store=store, embedder=embedder, prune=False)
+    llamadas = embedder.llamadas
+
+    # Act: el directorio se indexa ahora como capa extendida.
+    report = index_gold(
+        gold_dirs=[(nucleo, "extended")],
+        store=store,
+        embedder=embedder,
+        only={"historia"},
+        prune=False,
+    )
+
+    # Assert
+    assert embedder.llamadas == llamadas
+    assert report.updated > 0
+    assert store.document_ids("extended") == {"historia"}
+    assert store.document_ids("core") == set()
+
+
 def test_un_cambio_de_texto_sigue_reembediendo(tmp_path: Path) -> None:
     """La optimización no puede saltarse un cambio real del cuerpo."""
 
