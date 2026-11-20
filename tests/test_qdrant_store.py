@@ -225,6 +225,17 @@ def test_payload_incluye_la_url_para_abrir_la_fuente() -> None:
     assert payload["text"] == CHUNK.text
 
 
+def test_metadata_keys_cubre_los_campos_mutables_del_payload() -> None:
+    """La firma del atajo debe cubrir todo lo que cambia sin tocar el texto."""
+
+    from carvajal.adapters.vector.qdrant_store import METADATA_KEYS
+
+    inmutables = {"chunk_id", "document_id", "slug", "text", "position", "section"}
+    mutables = set(payload_for(CHUNK, METADATA)) - inmutables
+
+    assert mutables <= set(METADATA_KEYS)
+
+
 def test_point_id_cambia_si_cambia_la_ficha() -> None:
     assert point_id(CHUNK, "ficha-a") != point_id(CHUNK, "ficha-b")
 
