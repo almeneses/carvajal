@@ -226,12 +226,15 @@ async function main() {
     5000,
     "turno del asistente",
   );
-  await esperar(
-    () => pagina.evaluate(() => window.__vozE2E.locuciones.length === 0),
-    500,
-    "sin autolectura",
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  const locucionesSinPreferencia = await pagina.evaluate(
+    () => window.__vozE2E.locuciones.length,
   );
-  paso("con autolectura apagada no suena el turno", true);
+  paso(
+    "con autolectura apagada no suena el turno",
+    locucionesSinPreferencia === 0,
+    String(locucionesSinPreferencia),
+  );
 
   // 4. Lectura manual con tarjetas y citas.
   await pagina.click("#hilo .turno-assistant [data-voz-accion='escuchar']");
@@ -363,7 +366,30 @@ async function main() {
   }
   paso("reescucha tras la lectura normal", true);
 
-  // 7b. Fallo del stream en manos libres: devuelve el borrador y no reenvía.
+  // 7a. Escribir apaga el modo y conserva el texto (con el modo aún activo).
+  await pagina.fill("#pregunta", "escribo yo");
+  const manosApagado = await pagina.evaluate(
+    () => document.querySelector("[data-voz-manos-libres]").getAttribute("aria-pressed"),
+  );
+  paso("escribir apaga el modo y conserva el texto", manosApagado === "false");
+  paso("el texto escrito sigue en el borrador", (await pagina.inputValue("#pregunta")) === "escribo yo");
+
+  // 7b. Reactivar con borrador vacío para probar el fallo del stream.
+  await pagina.fill("#pregunta", "");
+  const reconocimientosFallo = await pagina.evaluate(
+    () => window.__vozE2E.reconocimientos.length,
+  );
+  await pagina.click("[data-voz-manos-libres]");
+  await pagina.click("[data-voz-manos-aceptar]");
+  await esperar(
+    () =>
+      pagina.evaluate(
+        (antes) => window.__vozE2E.reconocimientos.length > antes,
+        reconocimientosFallo,
+      ),
+    3000,
+    "reactivación para el fallo",
+  );
   await pagina.route("**/chat/stream", (ruta) =>
     ruta.fulfill({ status: 500, contentType: "text/plain", body: "fallo simulado" }),
   );
@@ -404,12 +430,6 @@ async function main() {
   );
   paso("el fallo apaga manos libres con aviso", /fall|revis/i.test(trasFallo.estado), trasFallo.estado);
   await pagina.unroute("**/chat/stream");
-  await pagina.fill("#pregunta", "escribo yo");
-  const manosApagado = await pagina.evaluate(
-    () => document.querySelector("[data-voz-manos-libres]").getAttribute("aria-pressed"),
-  );
-  paso("escribir apaga el modo y conserva el texto", manosApagado === "false");
-  paso("el texto escrito sigue en el borrador", (await pagina.inputValue("#pregunta")) === "escribo yo");
 
   // 8. Privacidad: sin audio, solo dos booleanos y ningún blob.
   const almacen = await pagina.evaluate(() => Object.keys(window.localStorage).sort());
