@@ -665,7 +665,7 @@ def test_el_stream_notifica_el_turno_completo_solo_tras_done() -> None:
 
     # Assert
     assert 'new window.CustomEvent("chat:turn-complete"' in js
-    assert "completado && !errorRecibido" in js
+    assert "if (completado) {" in js
     assert "detail:" in js
     assert "threadId" in js
 
@@ -785,4 +785,4 @@ def test_el_fallo_tardio_de_manos_libres_no_duplica_la_pregunta() -> None:
 
     # Assert
     assert "if (!recibioContenido && !input.value.trim()) input.value = pregunta;" in stream
-    assert "if (!turnoAsistente.textContent) turnoAsistente.remove();" in stream
+    assert "if (!texto.textContent) turnoAsistente.remove();" in stream

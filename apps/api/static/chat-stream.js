@@ -280,7 +280,9 @@
       if (girando) girando.hidden = true;
       // Notificación interna (spec 040): solo tras un stream con done, con el
       // turno ya formateado y el formulario liberado. No hay audio ni red.
-      if (completado && !errorRecibido) {
+      // `done` es la señal autoritativa: si llegó, el turno se completó y se
+      // notifica como tal aunque antes hubiera un error transitorio.
+      if (completado) {
         notificarTurnoCompleto(turnoAsistente, manosLibres);
       } else if (manosLibres) {
         // Solo se devuelve el texto si el turno no llegó a persistirse; con

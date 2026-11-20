@@ -1032,9 +1032,16 @@
       estado.leyendo = false;
       if (turno) actualizarControles(turno, "detenido");
       avisar("");
-      if (manosLibres.activo && manosLibres.reanudarTrasLeer) {
+      if (
+        manosLibres.activo &&
+        manosLibres.reanudarTrasLeer &&
+        !estado.escuchando &&
+        documento.visibilityState !== "hidden"
+      ) {
         manosLibres.reanudarTrasLeer = false;
         comenzarDictado({ manosLibres: true });
+      } else if (documento.visibilityState === "hidden") {
+        manosLibres.reanudarTrasLeer = false;
       }
     }
 
