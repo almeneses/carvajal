@@ -377,6 +377,27 @@ def test_un_cambio_solo_de_metadatos_actualiza_el_payload_sin_reembeder(tmp_path
     assert store.document_hashes("core") == gold_index_hashes(CorpusLayer("core", (nucleo,)))
 
 
+def test_un_documento_sin_texto_no_entra_al_atajo(tmp_path: Path) -> None:
+    """Sin chunks no hay puntos ni actualización: el atajo no se aplica."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "vacio", "h1", cuerpo="   ")
+    store = _store("sin-texto")
+    embedder = _Embedder()
+
+    # Act
+    report = index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+
+    # Assert
+    assert store.count() == 0
+    assert embedder.llamadas == 0
+    assert report.updated == 0
+    assert report.indexed == 0
+
+
 def test_un_cambio_de_capa_actualiza_el_payload_sin_reembeder(tmp_path: Path) -> None:
     """Mover un documento de capa cambia el payload, no el texto vectorizado."""
 
