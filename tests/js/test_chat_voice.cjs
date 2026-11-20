@@ -863,6 +863,33 @@ test("T010 normaliza cantidades inequívocas y deja el texto ambiguo intacto", (
   assert.equal(normalizarCantidades("un vaso"), "un vaso");
 });
 
+test("T010 el dictado completo inserta la cantidad normalizada en el borrador", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  const instancia = iniciarDictado(montaje);
+
+  // Act: el reconocimiento entrega números con palabras.
+  instancia.resultado("necesito doce onzas de vasos");
+  instancia.fin();
+
+  // Assert: se aplica en el punto de inserción, no solo en la función aislada.
+  assert.equal(montaje.vista.entrada.value, "necesito 12 onzas de vasos");
+
+  // Act: otra pregunta con cantidad.
+  montaje.vista.entrada.value = "";
+  montaje.vista.entrada.selectionStart = 0;
+  montaje.vista.entrada.selectionEnd = 0;
+  const segunda = iniciarDictado(montaje);
+  segunda.resultado("necesito cinco mil vasos");
+  segunda.fin();
+
+  // Assert
+  assert.equal(montaje.vista.entrada.value, "necesito 5.000 vasos");
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
+
 test("T006 los callbacks tardíos de un ciclo cancelado no escriben ni hablan", () => {
   // Arrange
   const reconocimiento = crearReconocimiento();

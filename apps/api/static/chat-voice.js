@@ -342,7 +342,12 @@
       estado.ciclo += 1;
       const ciclo = estado.ciclo;
       estado.transcripcion = "";
-      reconocimiento = new Reconocimiento();
+      try {
+        reconocimiento = new Reconocimiento();
+      } catch {
+        fallar(ciclo, { error: "audio-capture" });
+        return;
+      }
       reconocimiento.lang = "es-CO";
       reconocimiento.continuous = false;
       reconocimiento.interimResults = true;

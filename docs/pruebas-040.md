@@ -91,7 +91,7 @@ mismos campos. No es la medición de SC-001 (esa exige voces reales).
 | `necesito vasos para café caliente de 12 oz` | `…de doce onzas` | `…de 12 onzas` | `commercial` | `bebida_caliente`, `vaso`, `capacity_oz=12` |
 | `vasos para chocolate de 8 oz` | `…de ocho onzas` | `…de 8 onzas` | `commercial` | `bebida_caliente`, `vaso`, `capacity_oz=8` |
 | `tapas para vasos de bebida caliente de 12 oz` | `…de doce onzas` | `…de 12 onzas` | `commercial` | `bebida_caliente`, `tapa`, `capacity_oz=12` |
-| `necesito 5.000 vasos para café caliente de 12 oz` | `necesito cinco mil vasos…` | `necesito 5.000 vasos…` | `commercial` | `vaso`, `quantity=5000`, `capacity_oz=12` |
+| `necesito 5.000 vasos para café caliente de 12 oz` (variante con cantidad de `Necesito 5.000 vasos de 12 oz para café en México`) | `necesito cinco mil vasos…` | `necesito 5.000 vasos…` | `commercial` | `vaso`, `quantity=5000`, `capacity_oz=12` |
 
 Comprobación local: `extract_commercial(normalizada) == extract_commercial(escrita)`
 en los cuatro pares (paridad `true`), y ninguna transcripción se envía sola: el
