@@ -179,8 +179,10 @@ class Settings(BaseSettings):
     monitoring_enabled: bool = False
     langsmith_api_key: str = Field(default="", repr=False)
     langsmith_project: str = "carvajal"
-    # Vacío usa el servicio público; se fija solo para pruebas o un endpoint
-    # compatible, y nunca se publica en /health.
+    # Identidad opcional para distinguir orígenes dentro del mismo proyecto.
+    langsmith_agent_id: str = ""
+    langsmith_agent_environment: str = ""
+    # Vacío usa el servicio público; el endpoint nunca se publica en /health.
     langsmith_endpoint: str = ""
     monitoring_sample_rate: float = Field(default=0.2, ge=0, le=1)
     # true solo en desarrollo y evaluación; en producción el contenido no sale.

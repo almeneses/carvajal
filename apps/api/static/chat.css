@@ -355,6 +355,47 @@
   font-weight: 700;
 }
 
+/* Spec 039: una oferta por fuente dentro de la tarjeta. */
+.producto-ofertas {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.producto-oferta {
+  display: grid;
+  gap: 0.2rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--borde, #e3e6ea);
+}
+
+.producto-oferta:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.producto-oferta-fuente {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.producto-oferta-fuente a {
+  font-weight: 700;
+}
+
+.etiqueta-tercero {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--etiqueta-fondo);
+  color: var(--etiqueta-texto);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .productos-descartes {
   padding: 12px 20px;
   background: var(--fondo);

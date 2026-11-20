@@ -36,12 +36,19 @@ class OllamaEmbedder:
         base_url: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
     ) -> None:
+        self._model = model
         self._base_url = base_url or DEFAULT_BASE_URL
         self._embeddings = OllamaEmbeddings(
             model=model,
             base_url=self._base_url,
             client_kwargs={"timeout": timeout},
         )
+
+    @property
+    def model(self) -> str:
+        """Modelo que produce los vectores; el índice lo registra en cada punto."""
+
+        return self._model
 
     def embed(self, text: str) -> list[float]:
         """Devuelve el vector del texto calculado por Ollama.

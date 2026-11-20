@@ -319,7 +319,7 @@ def test_la_evaluacion_cuenta_aciertos_fallos_y_salidas_invalidas() -> None:
     assert (fallido.invalid_outputs, fallido.model_calls) == (3, 3)
     assert all(failure["problems"][0].startswith(FALLBACK_PREFIX) for failure in fallido.failures)
     tabla = render_report([reglas, fallido])
-    assert "| rules | 110 | 100.0% |" in tabla
+    assert f"| rules | {len(items)} | 100.0% |" in tabla
     assert "| llm | 3 |" in tabla
 
 

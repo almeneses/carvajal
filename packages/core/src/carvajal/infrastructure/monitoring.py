@@ -90,6 +90,8 @@ SAFE_KEYS: frozenset[str] = frozenset(
         "status",
         "request_id",
         "thread_hash",
+        "agent_id",
+        "agent_environment",
         "router",
         "outcome",
         "step",
@@ -806,8 +808,13 @@ class LangSmithTurnTracer:
                 session_name=self._settings.langsmith_project,
                 ls_client=cliente,
             )
+            identidad = {
+                "agent_id": self._settings.langsmith_agent_id.strip(),
+                "agent_environment": self._settings.langsmith_agent_environment.strip(),
+            }
             raiz.add_metadata(
                 {
+                    **{clave: valor for clave, valor in identidad.items() if valor},
                     "request_id": request_id,
                     "thread_hash": thread_hash,
                     "router": router,

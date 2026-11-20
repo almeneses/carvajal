@@ -19,6 +19,7 @@ __all__ = [
     "Extractor",
     "Fetcher",
     "LLMProvider",
+    "ModelAwareEmbedder",
     "ScoredChunk",
     "UsageRepository",
     "VectorStore",
@@ -156,6 +157,19 @@ class Embedder(Protocol):
         """Devuelve el vector del texto."""
 
         ...
+
+
+@runtime_checkable
+class ModelAwareEmbedder(Protocol):
+    """Embedder que además declara el modelo que produce sus vectores.
+
+    El índice lo registra en cada punto para no mezclar modelos distintos. Los
+    dobles de prueba pueden implementar solo ``Embedder``.
+    """
+
+    @property
+    def model(self) -> str:
+        """Nombre del modelo de embeddings."""
 
 
 @runtime_checkable

@@ -80,13 +80,16 @@ con asistente RAG.
   externo, con validación técnica por material, cálculo de cajas y precio de referencia
   fechado donde exista. No se procesan pedidos ni pagos.
 - Monitorear el agente con **LangSmith** (spec 038, entregada el 2026-11-19): una traza por turno con
-  ruta, enrutador, pasos, tokens y latencia. Desactivado por defecto y sin PII; en
-  producción solo metadatos, con el texto completo reservado a desarrollo y evaluación, y
-  sin afectar el chat si el servicio falla. Los experimentos de evaluación son opcionales.
-- Ampliar el catálogo a **Colombia** (spec 039, en borrador): referencias del portafolio CO
-  y precios de referencia en COP con IVA, fecha y fuente. Donde el distribuidor no publica
-  precio, se estima por conversión desde la referencia equivalente de México, siempre
-  rotulado como estimación y con tasa oficial fechada.
+  ruta, enrutador, pasos, tokens, latencia e identidad opcional (`agent_id`,
+  `agent_environment`) para distinguir orígenes dentro del mismo proyecto. Desactivado por
+  defecto y sin PII; en producción solo metadatos, con el texto completo reservado a
+  desarrollo y evaluación. Si el servicio falla, el chat no se afecta. Los experimentos de
+  evaluación son opcionales.
+- Ampliar el catálogo a **Colombia** (spec 039): referencias del portafolio CO tomadas de las
+  fichas oficiales y cruzadas con la tienda en línea de un distribuidor del directorio, y
+  precios de referencia en COP con IVA, fecha y fuente. Cada precio es una oferta por fuente
+  (`precios.csv`); si nadie publica precio en Colombia, se declara la ausencia: no se estima,
+  no se convierte desde México y no se promedia entre fuentes.
 - Ofrecer **chat por voz** (spec 040, en borrador): dictado revisable antes de enviar y
   lectura de respuestas y tarjetas con las capacidades del navegador. El audio no llega al
   servidor del proyecto ni se guarda; sin soporte del navegador, el chat sigue por escrito.
@@ -272,6 +275,9 @@ carvajal/
   - La capa de catálogo (`data/catalog/`) contiene datos estructurados curados a partir
     del corpus; cada fila conserva `source_url` y `captured_at`, y los precios se
     presentan siempre como referencia fechada, nunca como oferta ni con disponibilidad.
+  - Un precio del catálogo puede venir de un tercero identificado (un distribuidor):
+    se muestra con su nombre, su página y su fecha, y nunca se presenta como precio de
+    Carvajal. Un precio ausente no se estima ni se convierte de otra moneda (spec 039).
 
 ## 6. Calidad y automatización
 
@@ -454,14 +460,17 @@ git push
 | 2026-11-17 | Abrir en borrador las specs 038 (monitoreo con LangSmith), 039 (catálogo de Colombia con precios) y 040 (chat por voz) | Se especifican antes de implementar, con el flujo normal de Spec Kit. Decisiones tomadas en la clarificación: LangSmith en producción solo con metadatos; precios de Colombia desde las tiendas en línea de los distribuidores y, donde no haya, estimados por conversión desde México con tasa fechada y rotulados como estimación; la voz se procesa en el navegador. El alcance de §2 se enmienda en la misma PR, con las tres capacidades declaradas en borrador |
 | 2026-11-18 | Interfaz única: se retiran la SPA `apps/web` (:8001) y el prototipo Streamlit; quedan el shell Jinja2/HTMX y la API en un solo proceso (:8000) | Dos implementaciones completas de chat, FAQ y corpus sobre los mismos endpoints ya habían divergido: el chat quedó sin enlace en la SPA tras #120. El shell era un superconjunto funcional (incluye Configuración y captura), así que la convergencia es de borrado, no de reescritura. Desaparecen CORS, `FRONTEND_ORIGINS`, el extra `streamlit` y `app.py`; `rag.py` y el extra `legacy` se conservan porque la CLI (`ask`, `summarize`, `faq`, `eval`) sigue usándolos |
 | 2026-11-18 | Cerrar la spec 036 como *as-built* y transferir su SC-006 (informe de los tres enrutadores) a la spec 041 | El asistente comercial se entregó y funciona con el enrutador por reglas, que es su valor por defecto; el modelo de decisión es opcional en su alcance. La elección de Jev cloud añade una dependencia externa, costo por llamada y una medición que depende del catálogo de Colombia (spec 039), así que se especifica aparte en la 041. La 036 cierra sin exigir un modelo de decisión y la 041 hereda el criterio como FR-013 y SC-005. T043 se ejecutó el 2026-11-18 (corrida por API registrada en `docs/demo-036.md`) |
+| 2026-11-18 | Implementar la spec 039: catálogo de Colombia con ofertas por fuente y ampliación del de México | Las fichas oficiales de Colombia publican medidas, material y unidades, pero no SKU ni precio; la tienda de EDEXA (distribuidor del directorio) publica precio con IVA. Se cruzan en `scripts/curar_catalogo_co.py` (102 referencias, 29 con precio) y `carvajal catalog-prices` normaliza a caja sin estimar ni convertir. El precio inline de México sigue en `referencias.csv` y se expone como oferta oficial, en lugar de migrarlo a `precios.csv`, para no tocar la regresión de la 036. La tienda de México tenía 102 productos y el corpus solo 55 fichas: `scripts/ampliar_catalogo_mx.py` suma 46 con el mismo `parse_mx_product` |
 | 2026-11-19 | Monitoreo del agente con LangSmith **entregado** (spec 038): traza raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo solo en desarrollo y evaluación | Diagnosticar una respuesta exigía reproducirla a mano sobre logs JSON dispersos. La traza se envía a LangSmith desde `infrastructure/monitoring.py`, con lista blanca de metadatos en producción (sin pregunta, respuesta ni fragmentos) y cliente perezoso: sin `MONITORING_ENABLED` no se importa el SDK ni sale un byte, `LANGSMITH_TRACING`/`LANGCHAIN_TRACING_V2` se fuerzan a `false` al arrancar y cualquier fallo del servicio queda en los logs sin tocar la respuesta, la persistencia ni la cuota. El muestreo de 0.2 mantiene el plan de 5.000 trazas/mes. Cerrada como entregada el 2026-11-19 con la evidencia de SC-001…SC-005 en `docs/evidence/m2/monitoring.md` (muestreo 0,2, producción solo metadatos) |
+| 2026-11-20 | Índice Qdrant: un cambio que no altera el texto vectorizado reescribe el payload y **no** reembebe (issue #185) | El ID del punto cubre título, sección, ficha y texto, que es todo lo que se vectoriza; cambiar la URL, la procedencia o el tipo de fuente marcaba el documento como cambiado y re-embebía todos sus fragmentos. En el corpus extendido (77.588 puntos) eso costaba unas 28 horas de CPU por pasada en el VPS compartido, que además compite con Odoo y nginx. `IndexReport.updated` cuenta los puntos actualizados sin embedding y el evento `qdrant.document_payload_updated` lo deja visible; un cambio real de texto sigue re-embebiendo solo ese documento. Cada fragmento registra en el payload el modelo de embeddings que produjo su vector y un índice con puntos de otro modelo se detiene antes de escribir, pidiendo `--recreate`: mezclar modelos recupera mal aunque las dimensiones coincidan; los índices anteriores al registro adoptan el modelo configurado una sola vez, sin reembeber |
 
 ## 10. Notas y tareas pendientes
 
 - [x] Extraer el texto de PDF (informes, memorias anuales) en la carga local de archivos (spec 035, entregada el 2026-11-16).
 - [ ] Evaluar OCR para PDF escaneados sin capa de texto.
 - [ ] Rastrear el sitio de forma periódica (cron/crawler) sobre `carvajal capture` y `carvajal sync`; la spec 037 deja los contratos de identidad y sincronización.
-- [ ] Ejecutar `carvajal sync --adopt` y `carvajal sync --prune` en el VPS y registrar el antes/después de `/health` (spec 037, T056); requiere acceso al servidor.
+- [x] Ejecutar `carvajal sync --adopt` y `carvajal sync --prune` en el VPS (spec 037, T056). El owner confirmó la ejecución; ver [registro de adopción](specs/037-corpus-incremental/adopcion-vps.md).
+- [ ] Recuperar la evidencia de `/health` posterior a la poda sin repetirla (spec 037, T075).
 - [ ] Añadir transcripciones de vídeo (`yt-dlp` / `youtube-transcript-api`).
 - [ ] Enriquecer el *front matter* con `entidades` y `especialidades` detectadas.
 - [ ] Evaluar *deduplicación* de *boilerplate* entre documentos por hash de bloque.

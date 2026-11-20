@@ -7,8 +7,10 @@ existen y escribe un reporte con conteos y huellas.
 
 Estrategia de actualización: reejecutar el comando. Cada fragmento tiene un ID
 estable derivado de documento, posición y hash del texto; los que no cambian se
-sobrescriben con el mismo ID y los obsoletos se eliminan. ``--recreate``
-reconstruye la colección desde cero para una demo o un cambio de modelo.
+sobrescriben con el mismo ID y los obsoletos se eliminan. Si el texto no cambió
+y solo cambiaron metadatos del payload, se reescribe el payload sin llamar al
+embedder. ``--recreate`` reconstruye la colección desde cero para una demo o un
+cambio de modelo.
 """
 
 import json
@@ -24,8 +26,12 @@ from typing import IO
 import structlog
 
 from carvajal.adapters.storage.import_corpus import load_document, split_document
-from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
-from carvajal.application.ports import Embedder
+from carvajal.adapters.vector.qdrant_store import (
+    ExistingPoints,
+    QdrantVectorStore,
+    metadata_signature,
+)
+from carvajal.application.ports import Embedder, ModelAwareEmbedder
 from carvajal.domain.entities import Chunk
 
 __all__ = ["IndexReport", "index_gold"]
@@ -46,6 +52,47 @@ class IndexReport:
     dimensions: int
     elapsed_ms: int
     recreated: bool = False
+    # Puntos cuyo payload se reescribió sin volver a embeberlos: el texto
+    # vectorizado no cambió, solo sus metadatos de procedencia.
+    updated: int = 0
+
+
+def _embedding_model(embedder: Embedder) -> str:
+    """Modelo declarado por el embedder, si lo declara.
+
+    El puerto ``Embedder`` solo exige ``embed``; los dobles de prueba no
+    declaran modelo y el índice omite la validación. El adaptador de Ollama
+    implementa ``ModelAwareEmbedder``.
+    """
+
+    if isinstance(embedder, ModelAwareEmbedder):
+        return str(embedder.model)
+    return ""
+
+
+def _check_embedding_model(store: QdrantVectorStore, model: str) -> None:
+    """Detiene la corrida si el índice tiene vectores de otro modelo.
+
+    Un índice creado antes del registro no dice qué modelo lo construyó: se
+    adopta el configurado ahora con una sola reescritura de payload, sin
+    reembeber. Si conviven puntos de un modelo anterior, reconstruir con
+    ``recreate`` es la única salida segura.
+    """
+
+    points = store.count()
+    if not points:
+        return
+    with_model = store.count_embedding_model(model)
+    if with_model == points:
+        return
+    if with_model < store.count_with_embedding_model():
+        raise ValueError(
+            "El índice tiene puntos de otro modelo de embeddings; mezclar modelos "
+            f"recupera mal aunque las dimensiones coincidan. Reconstruye con --recreate "
+            f"para usar {model!r}."
+        )
+    store.adopt_embedding_model(model)
+    logger.info("qdrant.embedding_model_adopted", model=model, points=points - with_model)
 
 
 def index_gold(
@@ -70,14 +117,33 @@ def index_gold(
     puntos anteriores: un documento acortado no deja fragmentos de la versión
     vieja. La poda se limita a las capas de las áreas indexadas, comparando cada
     una solo con sus puntos: el resto de la colección queda intacto.
+
+    Un documento cuyos puntos ya existen con exactamente los mismos IDs no
+    necesita vectores nuevos: el ID estable cubre título, sección, ficha y
+    texto, que es todo lo que se vectoriza. Si el texto no cambió y solo se
+    movieron metadatos del payload (URL, origen, categoría, entidad, tipo de
+    fuente), se reescribe el payload con ``update_payload`` y no se llama al
+    embedder. Sin esta distinción, corregir la procedencia de un corpus de
+    decenas de miles de fragmentos disparaba un re-embedding completo.
+
+    El atajo no consulta al embedder y por eso no valida su dimensión: no
+    escribe vectores y el guard de ``_vector`` protege la escritura, no el
+    reposo. Lo que sí se valida es el modelo: el payload de cada fragmento lo
+    registra y un índice con puntos de otro modelo se detiene antes de escribir
+    nada, porque mezclar modelos produce una recuperación silenciosamente mala
+    aunque las dimensiones coincidan. Reconstruir con ``recreate`` es la vía
+    para cambiar de modelo. Un índice anterior al registro adopta el modelo
+    configurado una sola vez, sin reembeber.
+
     ``prune_layers`` permite podar también una capa seleccionada sin directorios
     (una capa vacía): sin ella, retirar la última fuente extendida dejaría sus
     puntos en el índice.
 
     Raises:
         FileNotFoundError: si algún directorio Gold no existe.
-        ValueError: si no hay documentos, si un slug se repite entre áreas o si
-            un vector no tiene la dimensión configurada.
+        ValueError: si no hay documentos, si un slug se repite entre áreas, si
+            un vector no tiene la dimensión configurada o si el índice se
+            construyó con otro modelo de embeddings.
     """
 
     areas = list(gold_dirs) if gold_dirs is not None else []
@@ -136,11 +202,24 @@ def index_gold(
         logger.info("qdrant.collection_recreated", collection=store.collection)
     store.ensure_collection()
 
+    # El modelo se valida antes de tocar puntos: un índice que mezcla vectores de
+    # modelos distintos recupera mal aunque las dimensiones coincidan.
+    model = _embedding_model(embedder)
+    if model and not recreate:
+        _check_embedding_model(store, model)
+
     # Los IDs válidos se agrupan por capa: cada capa se poda comparando solo sus
     # puntos, y las capas que esta corrida no tocó quedan intactas.
     valid_ids: dict[str, list[str]] = {}
     indexed = 0
+    updated = 0
     total_chunks = 0
+    # IDs que hoy hay en el índice: la comparación con los del documento decide
+    # entre reembeder (el texto cambió) y reescribir el payload (solo metadatos).
+    # La firma del payload evita repetir un ``set_payload`` idéntico.
+    existing: dict[str, ExistingPoints] = (
+        {} if recreate else store.existing_points([document.id for document in documents])
+    )
     for document in documents:
         chunks = split_document(document)
         total_chunks += len(chunks)
@@ -155,7 +234,22 @@ def index_gold(
             "origin": document.origin,
             "category": document.category,
             "entity": document.entity,
+            "embedding_model": model,
+            "layer": document.layer,
         }
+        ids = store.point_ids(chunks, [metadata for _ in chunks])
+        current = existing.get(document.id)
+        if current is not None and current.ids == set(ids):
+            if current.payloads != {metadata_signature(metadata)}:
+                store.update_payload(ids, metadata)
+                updated += len(ids)
+                logger.info(
+                    "qdrant.document_payload_updated",
+                    document=document.id,
+                    chunks=len(ids),
+                )
+            valid_ids.setdefault(document.layer, []).extend(ids)
+            continue
         # Los vectores del documento se preparan antes de tocar el índice: si el
         # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
         # Qdrant y el documento no desaparece de la recuperación. Se preparan en un
@@ -218,6 +312,7 @@ def index_gold(
         dimensions=store.dimensions,
         elapsed_ms=elapsed_ms,
         recreated=recreate,
+        updated=updated,
     )
     logger.info(
         "qdrant.index_completed",
@@ -225,6 +320,7 @@ def index_gold(
         documents=report.documents,
         chunks=report.chunks,
         indexed=report.indexed,
+        updated=report.updated,
         deleted=report.deleted,
         points=report.points,
         dimensions=report.dimensions,
