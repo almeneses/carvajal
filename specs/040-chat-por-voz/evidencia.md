@@ -8,7 +8,7 @@ Fecha: 2026-11-20. Validación en **localhost** sobre Chrome **157.0.8103.78**
 
 | Criterio | Estado | Resultado |
 |---|---|---|
-| **SC-001** paridad de ruta/campos ≥90 % con 20 preguntas y 2 voces | **CUMPLE** | **36/40 = 90,0 %** (voz 1: 19/20; voz 2: 17/20). |
+| **SC-001** paridad de ruta/campos ≥90 % con 20 preguntas y 2 voces | **CUMPLE en Chrome 157/Linux; matriz pendiente** | **36/40 = 90,0 %** (voz 1: 19/20; voz 2: 17/20). |
 | **SC-002** texto visible <3 s tras hablar (p95) | **CUMPLE** | **40 intentos, 0 fallos, p95 = 231 ms** (voz 1: 108 ms; voz 2: 231 ms). |
 | **SC-003** lectura <2 s tras pulsar «Escuchar» (p95) | **CUMPLE** | **40/40, p95 = 36 ms** (mín. 30, máx. 37). |
 | **SC-004** 0 archivos de audio persistidos | **CUMPLE** | Sin peticiones de audio; POST solo con texto, CSRF e IDs; `localStorage` solo con preferencias booleanas; sin IndexedDB; esquema sin audio. |
@@ -114,6 +114,8 @@ estas mediciones.
 
 - Medición en **un** navegador (Chrome 157/Linux) y localhost; la matriz de
   otros navegadores sigue en [`docs/pruebas-040.md`](../../docs/pruebas-040.md).
+  Por eso T022 y T024 quedan abiertas: los criterios se cumplen en el navegador
+  medido, no en toda la matriz.
 - La voz de lectura es `espeak-ng` local; la latencia de SC-003 es real para esa
   voz, no para voces neuronales o en la nube.
 - SC-001 está justo en el umbral del 90 %; los fallos se concentran en siglas

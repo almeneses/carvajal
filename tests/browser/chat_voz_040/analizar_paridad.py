@@ -23,14 +23,22 @@ def cargar(ruta: Path) -> list[dict[str, Any]]:
     return [json.loads(linea) for linea in lineas if '"id"' in linea]
 
 
+def firma(decision: Any) -> dict[str, Any]:
+    """Datos extraídos que deben coincidir, sea commercial, tool o direct."""
+
+    return {
+        "extra": dict(decision.extra) if decision.extra else {},
+        "tool_name": decision.tool_name,
+        "tool_period": decision.tool_period,
+    }
+
+
 def analizar(intentos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     filas: list[dict[str, Any]] = []
     for intento in intentos:
         escrito = decide_route(intento["pregunta"])
         dictado = decide_route(intento["texto"])
-        campos = True
-        if escrito.route == "commercial":
-            campos = dict(escrito.extra) == dict(dictado.extra)
+        campos = firma(escrito) == firma(dictado)
         filas.append(
             {
                 "id": intento["id"],

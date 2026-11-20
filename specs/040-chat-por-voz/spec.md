@@ -2,8 +2,9 @@
 
 **Feature Branch**: `040-chat-por-voz`
 **Created**: 2026-11-17
-**Status**: Implementada y validada (US1–US3); SC-001–SC-005 verificados el
-2026-11-20 con dos voces y micrófono real. Ver [evidencia](evidencia.md).
+**Status**: Implementada y validada en Chrome 157/Linux (US1–US3); SC-001–SC-005
+verificados el 2026-11-20 con dos voces y micrófono real. La matriz de otros
+navegadores sigue pendiente. Ver [evidencia](evidencia.md).
 **Input**: User description: "Incluir el servicio para que se le pueda dictar al chat y que
 el chat le hable a uno también."
 

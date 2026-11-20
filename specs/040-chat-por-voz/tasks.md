@@ -51,13 +51,16 @@ hilo; comprobar salida por «terminar», silencio y error sin enviar esas señal
 
 ## Fase 6 — Validación y cierre
 
-- [X] T022 Medir SC-001…SC-003 como fija `specs/040-chat-por-voz/quickstart.md`: 40 intentos por navegador y flujo con marcas monotónicas, p95, fallos y proporción bajo umbral; registrar resultados y paridad en `specs/040-chat-por-voz/evidencia.md`.
+- [ ] T022 Medir SC-001…SC-003 como fija `specs/040-chat-por-voz/quickstart.md`: 40 intentos por navegador y flujo con marcas monotónicas, p95, fallos y proporción bajo umbral; registrar resultados y paridad en `specs/040-chat-por-voz/evidencia.md`.
 - [X] T023 Verificar SC-004/005 (sin audio persistido, axe y teclado); cubrir CSRF, CSP, longitud y cuota por visitante en `tests/test_security.py`, `tests/test_api_chat.py`, `tests/test_api_stream.py` y `tests/js/test_chat_voice.cjs`. Confirmar que dictar o escuchar sin enviar no cobra cuota, y que el texto de voz usa el mismo flujo que el escrito. Documentar en `specs/040-chat-por-voz/evidencia.md`.
-- [X] T024 Ejecutar `make check` y `node --test tests/js/test_chat_voice.cjs`, registrar resultados en `specs/040-chat-por-voz/evidencia.md` y actualizar `specs/040-chat-por-voz/spec.md`, `CONSTITUTION.md` y `.specify/memory/constitution.md` tras verificar los criterios de la entrega completa.
+- [ ] T024 Ejecutar `make check` y `node --test tests/js/test_chat_voice.cjs`, registrar resultados en `specs/040-chat-por-voz/evidencia.md` y actualizar `specs/040-chat-por-voz/spec.md`, `CONSTITUTION.md` y `.specify/memory/constitution.md` tras verificar los criterios de la entrega completa.
 
 ## Dependencias, paralelismo y entrega
 
 - T001 y T002 son independientes; T003 precede a T004. La base precede a US1/US2.
+- T022 y T024 quedan abiertas: SC-001–SC-003 se midieron en Chrome 157/Linux
+  (ver `evidencia.md`), pero falta repetir la matriz de navegadores. T024 espera
+  a que esa matriz esté completa.
 - Preparar pruebas de cliente y de servidor de US1 (T006/T007) en paralelo; conectar UI
   y lógica al integrarlas. En US2, T012/T013 pueden avanzar en paralelo; T016 depende de
   los marcadores y del evento T014/T015.

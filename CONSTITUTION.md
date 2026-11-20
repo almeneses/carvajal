@@ -90,7 +90,7 @@ con asistente RAG.
   precios de referencia en COP con IVA, fecha y fuente. Cada precio es una oferta por fuente
   (`precios.csv`); si nadie publica precio en Colombia, se declara la ausencia: no se estima,
   no se convierte desde México y no se promedia entre fuentes.
-- Ofrecer **chat por voz** (spec 040, implementada y validada el 2026-11-20): dictado
+- Ofrecer **chat por voz** (spec 040, implementada y validada en Chrome 157/Linux el 2026-11-20): dictado
   revisable antes de enviar y lectura de respuestas y tarjetas con las capacidades del
   navegador. SC-001–SC-005 medidos con dos voces y micrófono real. El audio no llega al
   servidor del proyecto ni se guarda; sin soporte del navegador, el chat sigue por escrito.

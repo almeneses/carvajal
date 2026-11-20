@@ -140,7 +140,7 @@
       "id": "r-q27",
       "escrito": "tool",
       "dictado": "rag",
-      "campos": true,
+      "campos": false,
       "ok": false,
       "texto": "Cuál fue la evita consolidado de Carvajal a septiembre 2025 Y qué"
     },
@@ -302,7 +302,7 @@
       "id": "r-q27",
       "escrito": "tool",
       "dictado": "rag",
-      "campos": true,
+      "campos": false,
       "ok": false,
       "texto": "Cuál fue el evita consolidado de Carvajal a septiembre de 2025 Y qué margen reportó"
     },
