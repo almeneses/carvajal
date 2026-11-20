@@ -360,7 +360,11 @@
       temporizador = reloj.setTimeout(() => {
         if (estado.ciclo !== ciclo || !reconocimiento) return;
         avisar(MENSAJES.limite);
-        reconocimiento.stop();
+        try {
+          reconocimiento.stop();
+        } catch {
+          finalizarCiclo(MENSAJES.error);
+        }
       }, MAX_GRABACION_MS);
       try {
         reconocimiento.start();
@@ -385,7 +389,14 @@
     function fallar(ciclo, evento) {
       if (ciclo !== estado.ciclo) return;
       const codigo = evento && evento.error ? String(evento.error) : "";
-      if (codigo === "aborted") return;
+      if (codigo === "aborted") {
+        // Un abort externo no debe dejar vivo el temporizador de 60 s.
+        if (temporizador !== null) {
+          reloj.clearTimeout(temporizador);
+          temporizador = null;
+        }
+        return;
+      }
       let mensaje = MENSAJES.error;
       if (codigo === "not-allowed" || codigo === "service-not-allowed") {
         mensaje = MENSAJES.permiso;
@@ -425,7 +436,11 @@
     function detenerDictado() {
       if (!estado.escuchando || !reconocimiento) return;
       avisar(MENSAJES.deteniendo);
-      reconocimiento.stop();
+      try {
+        reconocimiento.stop();
+      } catch {
+        finalizarCiclo(MENSAJES.error);
+      }
     }
 
     function cancelarDictado() {
