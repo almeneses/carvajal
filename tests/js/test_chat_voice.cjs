@@ -1932,3 +1932,22 @@ test("T012 la lectura manual deja el turno disponible para otra autolectura", ()
   });
   assert.equal(sintesis.locuciones.length, 3);
 });
+
+test("T019 cancelar el aviso del micrófono no deja manos libres colgado", () => {
+  // Arrange: primera visita, sin aviso de dictado aceptado.
+  const montaje = montarManos();
+  montaje.vista.entrada.value = "";
+
+  // Act: activar y cancelar el aviso de dictado.
+  clic(montaje.vista.botonManosLibres);
+  clic(montaje.vista.manosAceptar);
+  clic(montaje.vista.avisoCancelar);
+
+  // Assert: el modo se apaga y no hay micrófono abierto.
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.reconocimiento.instancias.length, 0);
+  assert.equal(
+    montaje.vista.botonManosLibres.getAttribute("aria-pressed"),
+    "false",
+  );
+});

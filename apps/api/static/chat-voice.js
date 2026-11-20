@@ -435,12 +435,16 @@
         vista.avisoCancelar.addEventListener("click", () => {
           cerrarAviso();
           avisar(MENSAJES.cancelado);
+          // Si se canceló el aviso del micrófono, el modo no puede quedar
+          // «activo» sin escucha ni temporizador.
+          if (manosLibres.activo && !estado.escuchando) desactivarManosLibres("manual");
         });
       }
       vista.aviso.addEventListener("cancel", (evento) => {
         if (evento && evento.preventDefault) evento.preventDefault();
         cerrarAviso();
         avisar(MENSAJES.cancelado);
+        if (manosLibres.activo && !estado.escuchando) desactivarManosLibres("manual");
       });
     }
 
