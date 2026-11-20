@@ -23,4 +23,5 @@ Tras la [release #165](https://github.com/almeneses/carvajal/pull/165), se regis
 
 El owner confirmó que la adopción y la poda se ejecutaron. No se dispone de los
 conteos finales ni de la salida de `/health` inmediatamente posterior para
-compararlos con el estado anterior.
+compararlos con el estado anterior. [T075](tasks.md#phase-7-adopción-documentación-y-pulido)
+da seguimiento a esa evidencia histórica, sin repetir la poda.
