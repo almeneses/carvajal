@@ -653,7 +653,9 @@
       if (opciones.automatico && !preferencias.autoLectura) return false;
       const voces = typeof sintesis.getVoices === "function" ? sintesis.getVoices() : [];
       const voz = elegirVoz(voces);
-      if (!voz) {
+      // Chrome llena la lista de voces de forma asíncrona: con la lista vacía
+      // se intenta la locución con lang es-CO para no dar un falso negativo.
+      if (!voz && Array.isArray(voces) && voces.length > 0) {
         avisar(MENSAJES.sinVoz);
         mostrarNota(MENSAJES.sinVoz);
         return false;
@@ -678,8 +680,8 @@
         return;
       }
       const locucion = new Utterance(texto);
-      locucion.lang = voz.lang || "es-CO";
-      locucion.voice = voz;
+      locucion.lang = (voz && voz.lang) || "es-CO";
+      locucion.voice = voz || null;
       locucion.onstart = () => {
         if (ciclo !== cicloLectura) return;
         estado.leyendo = true;

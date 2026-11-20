@@ -1038,6 +1038,21 @@ test("T012 una tarjeta sin precio no adquiere precio al leerla", () => {
   assert.equal(/MXN|COP/.test(tarjeta), false);
 });
 
+test("T012 con la lista de voces vacía se intenta es-CO sin bloquear", () => {
+  // Arrange: Chrome aún no cargó getVoices().
+  const sintesis = crearSintesis({ voces: [] });
+  const montaje = montar({ sintesis });
+
+  // Act
+  const ok = montaje.controlador.leerTurno(crearTurnoFalso({ texto: "Hola." }));
+
+  // Assert
+  assert.equal(ok, true);
+  assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(sintesis.locuciones[0].lang, "es-CO");
+  assert.equal(sintesis.locuciones[0].voice, null);
+});
+
 test("T012 sin voz en español se explica y no se reproduce nada", () => {
   // Arrange
   const sintesis = crearSintesis({ voces: [{ name: "Alex", lang: "en-US" }] });
