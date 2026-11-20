@@ -485,6 +485,14 @@ class _EmbedderOtraDimension:
         return [1.0, 0.0]
 
 
+class _EmbedderConModelo(_Embedder):
+    """Embedder que declara su modelo, como el adaptador de Ollama."""
+
+    def __init__(self, model: str) -> None:
+        super().__init__()
+        self.model = model
+
+
 def test_un_vector_de_otra_dimension_no_borra_la_version_indexada(tmp_path: Path) -> None:
     """Un proveedor mal configurado no debe dejar el documento sin ningún punto."""
 
@@ -844,6 +852,78 @@ def test_recreate_reembebe_aunque_el_texto_no_cambie(tmp_path: Path) -> None:
     assert report.indexed == report.chunks == 1
     assert report.updated == 0
     assert store.count() == report.points == 1
+
+
+def test_un_cambio_de_modelo_detiene_la_indexacion(tmp_path: Path) -> None:
+    """Un índice no mezcla vectores de modelos distintos aunque midan igual."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "v1", cuerpo="Fundada en Cali.")
+    store = _store("modelo-distinto")
+    index_gold(
+        gold_dir=nucleo,
+        store=store,
+        embedder=_EmbedderConModelo("nomic-embed-text"),
+        prune=False,
+    )
+    antes = store.count()
+    huellas = store.document_hashes("core")
+
+    # Act / Assert: el texto no cambió, pero el modelo es otro.
+    with pytest.raises(ValueError, match="otro modelo de embeddings"):
+        index_gold(
+            gold_dir=nucleo,
+            store=store,
+            embedder=_EmbedderConModelo("otro-modelo"),
+            prune=False,
+        )
+
+    assert store.count() == antes
+    assert store.document_hashes("core") == huellas
+
+    # ``--recreate`` es la vía: reconstruye con el modelo nuevo.
+    report = index_gold(
+        gold_dir=nucleo,
+        store=store,
+        embedder=_EmbedderConModelo("otro-modelo"),
+        prune=False,
+        recreate=True,
+    )
+
+    assert report.recreated is True
+    assert store.count_embedding_model("otro-modelo") == store.count() == 1
+
+
+def test_un_indice_sin_modelo_registrado_se_adopta(tmp_path: Path) -> None:
+    """Un índice anterior al registro adopta el modelo configurado sin reembeber."""
+
+    # Arrange: se indexa con un doble que no declara modelo.
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "h1", cuerpo="Fundada en Cali.")
+    store = _store("adopta-modelo")
+    index_gold(gold_dir=nucleo, store=store, embedder=_Embedder(), prune=False)
+    assert store.count_embedding_model("nomic-embed-text") == 0
+
+    # Act: solo cambia un metadato; el modelo se adopta y no se embebe.
+    _con_source_type(nucleo / "historia.md", "prensa")
+    embedder = _EmbedderConModelo("nomic-embed-text")
+    report = index_gold(
+        gold_dir=nucleo,
+        store=store,
+        embedder=embedder,
+        only={"historia"},
+        prune=False,
+    )
+
+    # Assert
+    assert embedder.llamadas == 0
+    assert report.updated > 0
+    assert store.count_embedding_model("nomic-embed-text") == store.count() == 1
 
 
 def test_la_procedencia_solo_cambia_la_huella_del_indice(tmp_path: Path) -> None:

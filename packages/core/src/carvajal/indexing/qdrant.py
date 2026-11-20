@@ -27,7 +27,7 @@ import structlog
 
 from carvajal.adapters.storage.import_corpus import load_document, split_document
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
-from carvajal.application.ports import Embedder
+from carvajal.application.ports import Embedder, ModelAwareEmbedder
 from carvajal.domain.entities import Chunk
 
 __all__ = ["IndexReport", "index_gold"]
@@ -51,6 +51,44 @@ class IndexReport:
     # Puntos cuyo payload se reescribió sin volver a embeberlos: el texto
     # vectorizado no cambió, solo sus metadatos de procedencia.
     updated: int = 0
+
+
+def _embedding_model(embedder: Embedder) -> str:
+    """Modelo declarado por el embedder, si lo declara.
+
+    El puerto ``Embedder`` solo exige ``embed``; los dobles de prueba no
+    declaran modelo y el índice omite la validación. El adaptador de Ollama
+    implementa ``ModelAwareEmbedder``.
+    """
+
+    if isinstance(embedder, ModelAwareEmbedder):
+        return str(embedder.model)
+    return ""
+
+
+def _check_embedding_model(store: QdrantVectorStore, model: str) -> None:
+    """Detiene la corrida si el índice tiene vectores de otro modelo.
+
+    Un índice creado antes del registro no dice qué modelo lo construyó: se
+    adopta el configurado ahora con una sola reescritura de payload, sin
+    reembeber. Si conviven puntos de un modelo anterior, reconstruir con
+    ``recreate`` es la única salida segura.
+    """
+
+    points = store.count()
+    if not points:
+        return
+    with_model = store.count_embedding_model(model)
+    if with_model == points:
+        return
+    if with_model < store.count_with_embedding_model():
+        raise ValueError(
+            "El índice tiene puntos de otro modelo de embeddings; mezclar modelos "
+            f"recupera mal aunque las dimensiones coincidan. Reconstruye con --recreate "
+            f"para usar {model!r}."
+        )
+    store.adopt_embedding_model(model)
+    logger.info("qdrant.embedding_model_adopted", model=model, points=points - with_model)
 
 
 def index_gold(
@@ -86,8 +124,12 @@ def index_gold(
 
     El atajo no consulta al embedder y por eso no valida su dimensión: no
     escribe vectores y el guard de ``_vector`` protege la escritura, no el
-    reposo. Al cambiar el modelo de embeddings hay que reconstruir con
-    ``recreate``; el índice no registra qué modelo produjo cada vector.
+    reposo. Lo que sí se valida es el modelo: el payload de cada fragmento lo
+    registra y un índice con puntos de otro modelo se detiene antes de escribir
+    nada, porque mezclar modelos produce una recuperación silenciosamente mala
+    aunque las dimensiones coincidan. Reconstruir con ``recreate`` es la vía
+    para cambiar de modelo. Un índice anterior al registro adopta el modelo
+    configurado una sola vez, sin reembeber.
 
     ``prune_layers`` permite podar también una capa seleccionada sin directorios
     (una capa vacía): sin ella, retirar la última fuente extendida dejaría sus
@@ -95,8 +137,9 @@ def index_gold(
 
     Raises:
         FileNotFoundError: si algún directorio Gold no existe.
-        ValueError: si no hay documentos, si un slug se repite entre áreas o si
-            un vector no tiene la dimensión configurada.
+        ValueError: si no hay documentos, si un slug se repite entre áreas, si
+            un vector no tiene la dimensión configurada o si el índice se
+            construyó con otro modelo de embeddings.
     """
 
     areas = list(gold_dirs) if gold_dirs is not None else []
@@ -155,6 +198,12 @@ def index_gold(
         logger.info("qdrant.collection_recreated", collection=store.collection)
     store.ensure_collection()
 
+    # El modelo se valida antes de tocar puntos: un índice que mezcla vectores de
+    # modelos distintos recupera mal aunque las dimensiones coincidan.
+    model = _embedding_model(embedder)
+    if model and not recreate:
+        _check_embedding_model(store, model)
+
     # Los IDs válidos se agrupan por capa: cada capa se poda comparando solo sus
     # puntos, y las capas que esta corrida no tocó quedan intactas.
     valid_ids: dict[str, list[str]] = {}
@@ -180,6 +229,7 @@ def index_gold(
             "origin": document.origin,
             "category": document.category,
             "entity": document.entity,
+            "embedding_model": model,
         }
         ids = store.point_ids(chunks, [metadata for _ in chunks])
         if existing.get(document.id) == set(ids):

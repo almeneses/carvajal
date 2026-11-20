@@ -53,7 +53,7 @@ def payload_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> dict
     """Payload que hace verificable una cita y permite filtrar por capa/sección."""
 
     extra = dict(metadata or {})
-    return {
+    payload: dict[str, object] = {
         "chunk_id": chunk.id,
         "document_id": chunk.document_id,
         "slug": chunk.document_id,
@@ -71,6 +71,12 @@ def payload_for(chunk: Chunk, metadata: Mapping[str, str] | None = None) -> dict
         "category": extra.get("category", ""),
         "entity": extra.get("entity", ""),
     }
+    # Solo se declara el modelo cuando el embedder lo dice: un doble de prueba
+    # no lo hace y su índice queda como los anteriores al registro.
+    model = extra.get("embedding_model", "")
+    if model:
+        payload["embedding_model"] = model
+    return payload
 
 
 class QdrantVectorStore:
@@ -252,6 +258,62 @@ class QdrantVectorStore:
             collection_name=self._collection,
             payload=dict(payload),
             points=list(point_ids),
+            wait=True,
+        )
+
+    def count_embedding_model(self, model: str) -> int:
+        """Puntos que registran ese modelo de embeddings en su payload.
+
+        Cada fragmento guarda el modelo que produjo su vector: mezclar vectores
+        de modelos distintos produce una recuperación silenciosamente mala,
+        aunque las dimensiones coincidan.
+        """
+
+        return self._count(
+            models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="embedding_model", match=models.MatchValue(value=model)
+                    )
+                ]
+            )
+        )
+
+    def count_with_embedding_model(self) -> int:
+        """Puntos que declaran un modelo; los índices viejos no lo hacían."""
+
+        return self._count(
+            models.Filter(
+                must_not=[
+                    models.IsEmptyCondition(is_empty=models.PayloadField(key="embedding_model"))
+                ]
+            )
+        )
+
+    def _count(self, count_filter: models.Filter) -> int:
+        if not self._client.collection_exists(self._collection):
+            return 0
+        return int(
+            self._client.count(self._collection, count_filter=count_filter, exact=True).count
+        )
+
+    def adopt_embedding_model(self, model: str) -> None:
+        """Registra el modelo actual en los puntos de un índice anterior al registro.
+
+        Los índices creados antes de este campo no dicen qué modelo produjo sus
+        vectores. Se adopta el configurado ahora —una sola operación de payload,
+        sin reembeber— y desde ahí un cambio de modelo sí se detecta.
+        """
+
+        if not self._client.collection_exists(self._collection):
+            return
+        missing = models.Filter(
+            must=[models.IsEmptyCondition(is_empty=models.PayloadField(key="embedding_model"))]
+        )
+        self._client.set_payload(
+            collection_name=self._collection,
+            payload={"embedding_model": model},
+            points=models.FilterSelector(filter=missing),
             wait=True,
         )
 
