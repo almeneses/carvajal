@@ -43,8 +43,8 @@ def test_la_tarjeta_con_precio_muestra_total_fecha_aviso_y_ficha() -> None:
     assert "<dd>PAPEL</dd>" in html
     assert "<dd>12 oz</dd>" in html
     assert "<dd>1000</dd>" in html  # unidades por caja
-    assert "<dd>5</dd>" in html  # cajas
-    assert "<strong>7250.00 MXN</strong>" in html
+    assert '<dd data-campo="producto-cajas">5</dd>' in html  # cajas
+    assert '<strong data-campo="producto-precio">7250.00 MXN</strong>' in html
     assert "en total" in html
     assert "no confirma existencias" in html
     assert 'href="https://ejemplo.test/mx/vaso-papel-12"' in html
@@ -57,7 +57,7 @@ def test_sin_cantidad_el_precio_es_por_caja() -> None:
         _resultado(use="bebida_caliente", temperature="caliente", family="vaso", country="MX")
     )
 
-    assert "<strong>1450.00 MXN</strong>" in html
+    assert '<strong data-campo="producto-precio">1450.00 MXN</strong>' in html
     assert "por caja" in html
 
 
@@ -118,8 +118,8 @@ def test_la_tarjeta_lista_cada_oferta_con_su_fuente() -> None:
     )
 
     assert html.count('class="producto-oferta"') == 2
-    assert "<strong>54000 COP</strong>" in html
-    assert "<strong>60000 COP</strong>" in html
+    assert '<strong data-campo="producto-precio">54000 COP</strong>' in html
+    assert '<strong data-campo="producto-precio">60000 COP</strong>' in html
     assert "Distribuidora Ejemplo Uno</a> (Bogotá)" in html
     assert 'href="https://ejemplo.test/comercio/vaso-12"' in html
     assert html.count("etiqueta-tercero") == 2
@@ -240,3 +240,41 @@ def test_un_turno_no_comercial_no_lleva_tarjetas() -> None:
     turno = _runner().prepare("dueño", "hilo-saludo", "hola", [])
 
     assert turno.products == {}
+
+
+def test_la_tarjeta_marca_los_datos_que_la_voz_debe_decir() -> None:
+    """T013: nombre, cajas, precio y fecha visibles llevan su marcador."""
+
+    # Act
+    html = render_products(
+        _resultado(
+            use="bebida_caliente",
+            temperature="caliente",
+            family="vaso",
+            capacity_oz=12.0,
+            quantity=5000,
+            country="MX",
+        )
+    )
+
+    # Assert
+    assert 'data-campo="producto-nombre"' in html
+    assert 'data-campo="producto-cajas"' in html
+    assert 'data-campo="producto-precio"' in html
+    assert 'data-campo="producto-fecha"' in html
+    assert '<strong data-campo="producto-precio">7250.00 MXN</strong>' in html
+    assert "capturada el 2026-10-23" in html
+
+
+def test_la_tarjeta_sin_precio_no_marca_un_precio_inexistente() -> None:
+    """T013: sin precio publicado no hay marcador que la voz pueda inventar."""
+
+    # Act
+    html = render_products(
+        _resultado(use="bebida_fria", temperature="fria", country="CO", city="Medellín")
+    )
+
+    # Assert
+    assert 'data-campo="producto-nombre"' in html
+    assert 'data-campo="producto-precio"' not in html
+    assert "MXN" not in html

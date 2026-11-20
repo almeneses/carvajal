@@ -364,6 +364,8 @@ function crearVista(extra = {}) {
     aviso: crearElemento("dialog"),
     avisoAceptar: crearElemento("button"),
     avisoCancelar: crearElemento("button"),
+    autoLectura: crearElemento("input"),
+    hilo: crearElemento("input", { value: "hilo-1" }),
     ...extra,
   };
   vista.formulario.enviados = 0;
@@ -583,19 +585,6 @@ test("T002 sin síntesis la preferencia de lectura no se ofrece", () => {
   // Assert
   assert.equal(vista.autoLectura.hidden, true);
 });
-
-test("T002 el script se carga sin window (SSR o runner) sin romper", () => {
-  // Arrange: contexto con document pero sin window.
-  const sandbox = { document: { querySelector: () => null }, console };
-  vm.createContext(sandbox);
-
-  // Act
-  assert.doesNotThrow(() => {
-    vm.runInContext(fs.readFileSync(FUENTE, "utf8"), sandbox, { filename: "chat-voice.js" });
-  });
-
-  // Assert
-  assert.equal(typeof sandbox.CarvajalVoz, "object");
 
 // ---------------------------------------------------------------------------
 // T006–T010 · US1: dictado con revisión
@@ -932,6 +921,463 @@ test("T006 un error de red se explica sin perder el borrador", () => {
   assert.equal(montaje.vista.entrada.value, "respaldo");
   assert.equal(montaje.vista.formulario.enviados, 0);
 });
+
+// ---------------------------------------------------------------------------
+// T012–T017 · US2: lectura de respuestas
+// ---------------------------------------------------------------------------
+
+function crearTarjetaFalsa({ nombre, cajas, precio, fecha } = {}) {
+  const campos = {
+    '[data-campo="producto-nombre"]': nombre,
+    '[data-campo="producto-cajas"]': cajas,
+    '[data-campo="producto-precio"]': precio,
+    '[data-campo="producto-fecha"]': fecha,
+  };
+  return {
+    querySelector(selector) {
+      return campos[selector] === undefined || campos[selector] === null
+        ? null
+        : { textContent: String(campos[selector]) };
+    },
+  };
+}
+
+function crearTurnoFalso({ texto = "", tarjetas = [], citas = [], rol = "assistant" } = {}) {
+  const botones = {
+    escuchar: crearElemento("button"),
+    pausar: crearElemento("button", { hidden: true }),
+    reanudar: crearElemento("button", { hidden: true }),
+    detener: crearElemento("button", { hidden: true }),
+  };
+  botones.escuchar.setAttribute("aria-pressed", "false");
+  return {
+    dataset: {},
+    className: `turno turno-${rol}`,
+    _botones: botones,
+    querySelector(selector) {
+      if (selector === ".texto") return { textContent: texto };
+      const accion = /^\[data-voz-accion="(\w+)"\]$/.exec(selector);
+      if (accion) return botones[accion[1]] || null;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".productos .producto") return tarjetas;
+      if (selector === '.citas [data-campo="title"]') {
+        return citas.map((cita) => ({ textContent: cita.titulo }));
+      }
+      return [];
+    },
+  };
+}
+
+function activarAutoLectura(montaje) {
+  montaje.vista.autoLectura.checked = true;
+  montaje.vista.autoLectura.dispatch("change", {});
+}
+
+test("T012 la lectura manual usa texto, tarjetas y citas visibles sin URLs ni SKU", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({
+    texto: "Tenemos vasos de papel [1] para café.",
+    tarjetas: [
+      crearTarjetaFalsa({
+        nombre: "Vaso papel 12 oz bebida caliente",
+        cajas: "5",
+        precio: "7250.00 MXN",
+        fecha: "capturada el 2026-10-23",
+      }),
+    ],
+    citas: [{ titulo: "Manual de empaques" }],
+  });
+
+  // Act
+  const ok = montaje.controlador.leerTurno(turno);
+
+  // Assert: la síntesis encadena los segmentos en orden.
+  assert.equal(ok, true);
+  assert.equal(sintesis.locuciones[0].text, "Tenemos vasos de papel para café.");
+  sintesis.terminar();
+  const tarjeta = sintesis.locuciones[1].text;
+  assert.match(tarjeta, /Vaso papel 12 oz bebida caliente/);
+  assert.match(tarjeta, /Cajas: 5/);
+  assert.match(tarjeta, /Precio: 7250\.00 MXN/);
+  assert.match(tarjeta, /capturada el 2026-10-23/);
+  sintesis.terminar();
+  assert.equal(sintesis.locuciones[2].text, "Según Manual de empaques.");
+  const textos = sintesis.locuciones.map((locucion) => locucion.text);
+  assert.equal(
+    textos.every((texto) => !/https?:|FX-|www\./.test(texto)),
+    true,
+  );
+  assert.equal(sintesis.locuciones[0].lang, "es-CO");
+  assert.equal(sintesis.locuciones[0].voice.lang, "es-CO");
+  assert.equal(turno._botones.escuchar.getAttribute("aria-pressed"), "true");
+  assert.equal(turno._botones.detener.hidden, false);
+});
+
+test("T012 una tarjeta sin precio no adquiere precio al leerla", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({
+    texto: "Referencias del catálogo.",
+    tarjetas: [crearTarjetaFalsa({ nombre: "Vaso PS 12 oz", cajas: "4" })],
+  });
+
+  // Act
+  montaje.controlador.leerTurno(turno);
+  sintesis.terminar();
+
+  // Assert
+  const tarjeta = sintesis.locuciones[1].text;
+  assert.match(tarjeta, /Vaso PS 12 oz/);
+  assert.match(tarjeta, /Cajas: 4/);
+  assert.equal(/Precio:/.test(tarjeta), false);
+  assert.equal(/MXN|COP/.test(tarjeta), false);
+});
+
+test("T012 sin voz en español se explica y no se reproduce nada", () => {
+  // Arrange
+  const sintesis = crearSintesis({ voces: [{ name: "Alex", lang: "en-US" }] });
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Hola." });
+
+  // Act
+  const ok = montaje.controlador.leerTurno(turno);
+
+  // Assert
+  assert.equal(ok, false);
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.match(montaje.vista.estado.textContent, /voz en español/i);
+  assert.equal(montaje.vista.nota.hidden, false);
+});
+
+test("T012 con autolectura apagada el turno completado no habla y «Escuchar» sigue", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Respuesta completa." });
+  assert.equal(montaje.vista.autoLectura.checked, false);
+
+  // Act: evento de fin de stream con la preferencia apagada.
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1" },
+  });
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 0);
+
+  // Act: lectura manual.
+  montaje.controlador.leerTurno(turno);
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 1);
+});
+
+test("T012 la autolectura solo suena tras done, una vez por turno y si el hilo es visible", () => {
+  // Arrange
+  const almacen = crearAlmacen();
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis, almacen });
+  activarAutoLectura(montaje);
+  assert.equal(almacen.getItem("carvajal_voz_autolectura"), "1");
+  const turno = crearTurnoFalso({ texto: "Listo." });
+
+  // Act: evento de un hilo distinto y de un turno de usuario.
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno: crearTurnoFalso({ texto: "Otro hilo." }), threadId: "hilo-2" },
+  });
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno: crearTurnoFalso({ texto: "Mío.", rol: "user" }), threadId: "hilo-1" },
+  });
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 0);
+
+  // Act: el turno visible termina.
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1" },
+  });
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(sintesis.locuciones[0].text, "Listo.");
+
+  // Act: el mismo turno vuelve a notificarse.
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1" },
+  });
+
+  // Assert: no se duplica la lectura automática.
+  assert.equal(sintesis.locuciones.length, 1);
+});
+
+test("T012 la autolectura no suena con la pestaña oculta ni al cargar el historial", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  activarAutoLectura(montaje);
+  montaje.documento.visibilityState = "hidden";
+
+  // Act: no hay evento de historial; solo se monta y se oculta la pestaña.
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno: crearTurnoFalso({ texto: "No debe sonar." }), threadId: "hilo-1" },
+  });
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.equal(montaje.documento.documentElement.dataset.vozTts, "1");
+});
+
+test("T012 pausar, reanudar y detener actualizan la síntesis y los controles", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Primera parte.", citas: [{ titulo: "Fuente" }] });
+  montaje.controlador.leerTurno(turno);
+  assert.equal(turno._botones.pausar.hidden, false);
+  assert.equal(turno._botones.reanudar.hidden, true);
+
+  // Act
+  montaje.controlador.pausarLectura();
+
+  // Assert
+  assert.equal(sintesis.paused, true);
+  assert.equal(turno._botones.pausar.hidden, true);
+  assert.equal(turno._botones.reanudar.hidden, false);
+  assert.match(montaje.vista.estado.textContent, /pausa/i);
+
+  // Act
+  montaje.controlador.reanudarLectura();
+
+  // Assert
+  assert.equal(sintesis.paused, false);
+  assert.equal(turno._botones.pausar.hidden, false);
+  assert.equal(turno._botones.reanudar.hidden, true);
+
+  // Act
+  montaje.controlador.detenerLectura();
+
+  // Assert
+  assert.equal(sintesis.cancelados, 1);
+  assert.equal(turno._botones.escuchar.getAttribute("aria-pressed"), "false");
+  assert.equal(turno._botones.detener.hidden, true);
+  assert.equal(montaje.controlador.estado.leyendo, false);
+});
+
+test("T012 dictar detiene la lectura y un callback tardío no avanza el segmento", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ sintesis, reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  const turno = crearTurnoFalso({ texto: "Uno.", citas: [{ titulo: "Dos" }] });
+  montaje.controlador.leerTurno(turno);
+  assert.equal(sintesis.locuciones.length, 1);
+
+  // Act: el micrófono se abre mientras se lee.
+  const instancia = iniciarDictado(montaje);
+
+  // Assert: la lectura se cancela y no arranca el segundo segmento.
+  assert.equal(sintesis.cancelados, 1);
+  assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(montaje.controlador.estado.leyendo, false);
+  assert.ok(instancia.iniciado === 1);
+});
+
+test("T012 ocultar la pestaña detiene la lectura sin reanudarla", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Leyendo." });
+  montaje.controlador.leerTurno(turno);
+
+  // Act
+  montaje.documento.visibilityState = "hidden";
+  montaje.documento.dispatch("visibilitychange", {});
+
+  // Assert
+  assert.equal(sintesis.cancelados, 1);
+  assert.equal(montaje.controlador.estado.leyendo, false);
+  assert.equal(turno._botones.detener.hidden, true);
+});
+
+test("T012 la preferencia de autolectura se recuerda entre páginas y sigue apagada sin tocar", () => {
+  // Arrange
+  const almacen = crearAlmacen();
+  const primero = montar({ almacen });
+  assert.equal(primero.vista.autoLectura.checked, false);
+
+  // Act: activar en la primera página.
+  activarAutoLectura(primero);
+  const segundo = montar({ almacen });
+
+  // Assert
+  assert.equal(segundo.vista.autoLectura.checked, true);
+  assert.equal(segundo.controlador.preferencias.autoLectura, true);
+});
+
+test("T012 si el navegador bloquea el audio, «Escuchar» sigue disponible", () => {
+  // Arrange: la síntesis acepta la locución pero nunca emite start.
+  const sintesis = crearSintesis();
+  sintesis.speak = function (locucion) {
+    this.locuciones.push(locucion);
+  };
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Sin reproducción automática." });
+
+  // Act
+  const ok = montaje.controlador.leerTurno(turno);
+
+  // Assert: no se marca como leyendo ni se oculta el botón manual.
+  assert.equal(ok, true);
+  assert.equal(montaje.controlador.estado.leyendo, false);
+  assert.equal(turno._botones.escuchar.getAttribute("aria-pressed"), "false");
+  assert.equal(turno._botones.detener.hidden, true);
+});
+
+test("T017 la lectura prefiere es-CO y cae a otra voz española", () => {
+  // Arrange
+  const { elegirVoz } = cargarVoz().window.CarvajalVoz;
+  const voces = [
+    { name: "Alex", lang: "en-US" },
+    { name: "Paulina", lang: "es-MX" },
+    { name: "Mónica", lang: "es-CO" },
+    { name: "Helena", lang: "es-ES" },
+  ];
+
+  // Act / Assert
+  assert.equal(elegirVoz(voces).name, "Mónica");
+  assert.equal(elegirVoz([voces[0], voces[1]]).name, "Paulina");
+  assert.equal(elegirVoz([voces[0], voces[3]]).name, "Helena");
+  assert.equal(elegirVoz([voces[0]]), null);
+});
+
+test("T017 el texto hablado omite SKU, URLs y códigos técnicas aunque estén visibles", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({
+    texto:
+      "Mira el SKU FX-VASO-PAPEL-12 en https://ejemplo.test/vaso y www.ejemplo.test. Tenemos vasos [1] de papel.",
+    citas: [{ titulo: "Manual de empaques" }],
+  });
+
+  // Act
+  montaje.controlador.leerTurno(turno);
+
+  // Assert: la prosa se conserva y los códigos desaparecen.
+  const prosa = sintesis.locuciones[0].text;
+  assert.equal(/FX-|https?:|www\.|SKU/i.test(prosa), false, prosa);
+  assert.match(prosa, /Tenemos vasos de papel/);
+  assert.equal(/\b\[1\]\b/.test(prosa), false);
+
+  // Act / Assert: la utilidad también limpia por sí sola.
+  const { limpiarTextoHablado } = cargarVoz().window.CarvajalVoz;
+  const limpio = limpiarTextoHablado("SKU: FX-TAPA-9 y https://x.test/a");
+  assert.equal(/SKU|FX-|https?:/i.test(limpio), false, limpio);
+});
+
+test("T017 la autolectura tiene un control visible y apagado en la plantilla", () => {
+  // Arrange: raíz como la deja chat.html, con la casilla y su etiqueta.
+  const raiz = crearElemento("section", { hidden: true });
+  const casilla = crearElemento("input", { checked: false });
+  const campo = crearElemento("label", { hidden: true });
+  const boton = crearElemento("button", { hidden: true });
+  const hijos = {
+    "[data-voz-dictar]": boton,
+    "[data-voz-dictar-texto]": crearElemento("span"),
+    "[data-voz-estado]": crearElemento("p"),
+    "[data-voz-nota]": crearElemento("p", { hidden: true }),
+    "[data-voz-autolectura]": casilla,
+    "[data-voz-autolectura-campo]": campo,
+  };
+  raiz.querySelector = (selector) => hijos[selector] || null;
+  const documento = crearDocumento({
+    "[data-voz]": raiz,
+    "form[data-chat-stream]": crearFormulario(),
+    "[data-voz-aviso]": null,
+    "[data-voz-aviso-aceptar]": null,
+    "[data-voz-aviso-cancelar]": null,
+  });
+
+  // Act
+  cargarVoz({ documento });
+
+  // Assert
+  assert.equal(campo.hidden, false);
+  assert.equal(casilla.checked, false);
+});
+
+test("T016 una tarjeta con varias ofertas lee cada precio con su calificador y fecha", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const oferta = (precio, detalle, fecha) => ({
+    querySelector(selector) {
+      if (selector === '[data-campo="producto-precio"]') return { textContent: precio };
+      if (selector === ".producto-precio-detalle") return { textContent: detalle };
+      if (selector === '[data-campo="producto-fecha"]') return { textContent: fecha };
+      return null;
+    },
+  });
+  const tarjeta = {
+    querySelector(selector) {
+      if (selector === '[data-campo="producto-nombre"]') return { textContent: "Vaso PS 12 oz" };
+      if (selector === '[data-campo="producto-cajas"]') return { textContent: "4" };
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".producto-oferta") {
+        return [
+          oferta("54000 COP", "por caja", "capturado el 2026-11-18"),
+          oferta("60000 COP", "por caja", "capturado el 2026-11-19"),
+        ];
+      }
+      return [];
+    },
+  };
+
+  // Act
+  montaje.controlador.leerTurno(crearTurnoFalso({ texto: "Dos ofertas.", tarjetas: [tarjeta] }));
+  sintesis.terminar();
+
+  // Assert
+  const primera = sintesis.locuciones[1].text;
+  sintesis.terminar();
+  const segunda = sintesis.locuciones[2].text;
+  assert.match(primera, /54000 COP, por caja/);
+  assert.match(primera, /2026-11-18/);
+  assert.match(segunda, /60000 COP, por caja/);
+  assert.match(segunda, /2026-11-19/);
+});
+
+test("T016 el filtro de códigos también cubre mayúsculas mezcladas", () => {
+  // Arrange
+  const { limpiarTextoHablado } = cargarVoz().window.CarvajalVoz;
+
+  // Act
+  const limpio = limpiarTextoHablado("sku: FX-Vaso-Papel-12 y código 3");
+
+  // Assert
+  assert.equal(/FX-Vaso|sku/i.test(limpio), false, limpio);
+  assert.match(limpio, /código 3/);
+});
+
+test("T002 el script se carga sin window (SSR o runner) sin romper", () => {
+  // Arrange: contexto con document pero sin window.
+  const sandbox = { document: { querySelector: () => null }, console };
+  vm.createContext(sandbox);
+
+  // Act
+  assert.doesNotThrow(() => {
+    vm.runInContext(fs.readFileSync(FUENTE, "utf8"), sandbox, { filename: "chat-voice.js" });
+  });
+
+  // Assert
+  assert.equal(typeof sandbox.CarvajalVoz, "object");
 });
 
 test("T002 montar dos veces no duplica listeners ni micrófonos", () => {
@@ -948,4 +1394,52 @@ test("T002 montar dos veces no duplica listeners ni micrófonos", () => {
   // Assert
   assert.equal(reconocimiento.instancias.length, 1);
   assert.equal(reconocimiento.ultima().iniciado, 1);
+});
+
+test("T012 sin voz el turno no queda marcado y se auto-lee cuando aparece", () => {
+  // Arrange: primero solo hay voz inglesa.
+  const sintesis = crearSintesis({ voces: [{ name: "Alex", lang: "en-US" }] });
+  const montaje = montar({ sintesis });
+  activarAutoLectura(montaje);
+  const turno = crearTurnoFalso({ texto: "Respuesta." });
+  const evento = { detail: { turno, threadId: "hilo-1" } };
+
+  // Act: primer intento sin voz española.
+  montaje.documento.dispatch("chat:turn-complete", evento);
+
+  // Assert: no habla y el turno queda reintentable.
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.equal(turno.dataset.vozAutoLeido, undefined);
+
+  // Act: el navegador carga las voces y el mismo turno se notifica otra vez.
+  sintesis.getVoices = () => [{ name: "Mónica", lang: "es-CO" }];
+  montaje.documento.dispatch("chat:turn-complete", evento);
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(turno.dataset.vozAutoLeido, "1");
+});
+
+test("T012 la lectura manual deja el turno disponible para otra autolectura", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  activarAutoLectura(montaje);
+  const turno = crearTurnoFalso({ texto: "Respuesta." });
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1" },
+  });
+  assert.equal(turno.dataset.vozAutoLeido, "1");
+  sintesis.terminar();
+
+  // Act: la persona vuelve a escuchar a mano.
+  montaje.controlador.leerTurno(turno);
+
+  // Assert: el marcador se limpia y una notificación posterior puede leerlo.
+  assert.equal(turno.dataset.vozAutoLeido, undefined);
+  sintesis.terminar();
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1" },
+  });
+  assert.equal(sintesis.locuciones.length, 3);
 });

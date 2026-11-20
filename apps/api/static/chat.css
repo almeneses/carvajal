@@ -720,6 +720,24 @@
   line-height: 1;
 }
 
+.voz-preferencia {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.95rem;
+  color: var(--secundario);
+}
+
+.voz-preferencia[hidden] {
+  display: none;
+}
+
+.voz-preferencia input {
+  min-height: auto;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
 .voz-estado {
   margin: 0;
   font-size: 0.95rem;
@@ -762,14 +780,24 @@ html[data-voz-escuchando="1"] .voz-estado::before {
   color: var(--secundario);
 }
 
-/* Los botones «Escuchar» de cada turno solo aparecen cuando la síntesis está
-   disponible; el JS marca el documento antes de revelarlos. */
-[data-escuchar] {
+/* Los controles «Escuchar/Pausar/Reanudar/Detener» de cada turno solo
+   aparecen cuando la síntesis está disponible; el JS marca el documento antes
+   de revelarlos. Los turnos del visitante nunca los muestran. */
+.turno-voz {
   display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
 }
 
-html[data-voz-tts="1"] [data-escuchar] {
-  display: inline-flex;
+html[data-voz-tts="1"] .turno-assistant .turno-voz {
+  display: flex;
+}
+
+.turno-voz-boton {
+  min-height: 40px;
+  padding: 0 0.9rem;
+  font-size: 0.95rem;
 }
 
 @media (max-width: 560px) {

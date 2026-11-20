@@ -16,6 +16,34 @@
     <div class="burbuja">
       <div class="texto texto-formateado">{{ message.content | respuesta((message.sources or []) | length) }}</div>
     </div>
+    {% if message.role != "user" %}
+    <div class="turno-voz" data-voz-turno>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="escuchar"
+        aria-pressed="false"
+      >Escuchar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="pausar"
+        hidden
+      >Pausar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="reanudar"
+        hidden
+      >Reanudar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="detener"
+        hidden
+      >Detener</button>
+    </div>
+    {% endif %}
     {% if message.sources %}
     <details class="citas">
       <summary>Fuentes citadas <span class="citas-conteo">({{ message.sources | length }})</span></summary>

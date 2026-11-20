@@ -65,6 +65,12 @@ partir de preferencias apagadas).
    comprobar que solo suena al completarse (`done`), no por token. Recargar el
    historial y usar el formulario sin streaming: no debe sonar solo.
 5. Cambiar de pestaña durante la lectura: se detiene y no se reanuda sola.
+6. Con lector de pantalla activo, comprobar que la autolectura sigue apagada por
+   defecto (no se duplica la voz) y que «Escuchar» está disponible.
+7. Simular bloqueo de reproducción automática (política del navegador): el
+   botón «Escuchar» debe quedar disponible y la interfaz no debe fingir que lee.
+8. Enviar con el formulario sin streaming (por ejemplo, sin el JS de stream) y
+   recargar el historial: no debe sonar solo; «Escuchar» debe seguir ahí.
 
 ### US3 · manos libres
 
