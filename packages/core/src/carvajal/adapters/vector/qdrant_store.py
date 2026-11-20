@@ -11,6 +11,7 @@ que ya no existen.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from hashlib import sha256
 from uuid import UUID, uuid5
 
@@ -20,12 +21,51 @@ from carvajal.application.ports import ScoredChunk
 from carvajal.application.sync import sync_fingerprint
 from carvajal.domain.entities import Chunk
 
-__all__ = ["QdrantVectorStore", "fingerprint_for", "payload_for", "point_id"]
+__all__ = [
+    "ExistingPoints",
+    "QdrantVectorStore",
+    "fingerprint_for",
+    "metadata_signature",
+    "payload_for",
+    "point_id",
+]
 
 _NAMESPACE = UUID("6f0b8d9a-3c2e-5a7b-9e4d-1f2a3b4c5d6e")
 # Documentos por consulta al buscar los IDs existentes: no existe una lista
 # vacía y un lote enorme tampoco cabe en una sola petición.
 _DOCUMENT_BATCH = 256
+METADATA_KEYS = (
+    "url",
+    "title",
+    "source_type",
+    "content_hash",
+    "abstract",
+    "chunks_total",
+    "origin",
+    "category",
+    "entity",
+    "embedding_model",
+    "layer",
+)
+"""Campos del payload que se corrigen sin volver a embeber el documento."""
+
+
+@dataclass(frozen=True)
+class ExistingPoints:
+    """Lo que el índice ya tiene de un documento: sus puntos y sus metadatos."""
+
+    ids: frozenset[str]
+    payloads: frozenset[tuple[tuple[str, str], ...]]
+
+
+def metadata_signature(metadata: Mapping[str, object]) -> tuple[tuple[str, str], ...]:
+    """Firma comparable de los metadatos de un documento.
+
+    Una corrida completa sin cambios no debe repetir ``set_payload``: comparar
+    la firma de lo que hay con la del Gold evita miles de escrituras idénticas.
+    """
+
+    return tuple((key, str(metadata.get(key) or "")) for key in METADATA_KEYS)
 
 
 def point_id(chunk: Chunk, fingerprint: str = "") -> str:
@@ -207,19 +247,19 @@ class QdrantVectorStore:
             for index, chunk in enumerate(chunks)
         ]
 
-    def existing_point_ids(self, document_ids: Sequence[str]) -> dict[str, set[str]]:
-        """IDs de punto que hoy tiene cada documento, en una sola pasada.
+    def existing_points(self, document_ids: Sequence[str]) -> dict[str, ExistingPoints]:
+        """Puntos y metadatos que hoy tiene cada documento, en una sola pasada.
 
         El indexador lo usa para distinguir un cambio de texto —que obliga a
         reembeber— de un cambio de metadatos, que solo exige reescribir el
-        payload. Consulta por ``document_id`` en lotes para no recorrer la
-        colección entera.
+        payload, y para no repetir escrituras idénticas. Consulta por
+        ``document_id`` en lotes para no recorrer la colección entera.
         """
 
-        found: dict[str, set[str]] = {}
+        found: dict[str, tuple[set[str], set[tuple[tuple[str, str], ...]]]] = {}
         unique = list(dict.fromkeys(document_ids))
         if not unique or not self._client.collection_exists(self._collection):
-            return found
+            return {}
         for start in range(0, len(unique), _DOCUMENT_BATCH):
             batch = unique[start : start + _DOCUMENT_BATCH]
             scroll_filter = models.Filter(
@@ -232,17 +272,22 @@ class QdrantVectorStore:
                     limit=512,
                     offset=offset,
                     scroll_filter=scroll_filter,
-                    with_payload=["document_id"],
+                    with_payload=["document_id", *METADATA_KEYS],
                     with_vectors=False,
                 )
                 for point in points:
                     payload = point.payload or {}
                     document_id = str(payload.get("document_id") or payload.get("slug") or "")
                     if document_id:
-                        found.setdefault(document_id, set()).add(str(point.id))
+                        ids, signatures = found.setdefault(document_id, (set(), set()))
+                        ids.add(str(point.id))
+                        signatures.add(metadata_signature(payload))
                 if offset is None:
                     break
-        return found
+        return {
+            document_id: ExistingPoints(ids=frozenset(ids), payloads=frozenset(signatures))
+            for document_id, (ids, signatures) in found.items()
+        }
 
     def update_payload(self, point_ids: Sequence[str], payload: Mapping[str, object]) -> None:
         """Reescribe el payload de puntos existentes sin tocar sus vectores.

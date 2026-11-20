@@ -398,6 +398,33 @@ def test_un_documento_sin_texto_no_entra_al_atajo(tmp_path: Path) -> None:
     assert report.indexed == 0
 
 
+def test_una_reindexacion_sin_cambios_no_reescribe_payloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sin cambios, el atajo no manda ningún ``set_payload``: la firma coincide."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "h1", cuerpo="Fundada en Cali.")
+    store = _store("payload_sin_cambios")
+    embedder = _EmbedderConModelo("nomic-embed-text")
+    index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+    llamadas = embedder.llamadas
+    escrituras: list[int] = []
+    monkeypatch.setattr(store, "update_payload", lambda ids, payload: escrituras.append(len(ids)))
+
+    # Act
+    report = index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+
+    # Assert
+    assert embedder.llamadas == llamadas
+    assert escrituras == []
+    assert report.updated == 0
+    assert report.indexed == 0
+
+
 def test_un_cambio_de_capa_actualiza_el_payload_sin_reembeder(tmp_path: Path) -> None:
     """Mover un documento de capa cambia el payload, no el texto vectorizado."""
 

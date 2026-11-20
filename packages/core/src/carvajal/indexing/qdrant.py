@@ -26,7 +26,11 @@ from typing import IO
 import structlog
 
 from carvajal.adapters.storage.import_corpus import load_document, split_document
-from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
+from carvajal.adapters.vector.qdrant_store import (
+    ExistingPoints,
+    QdrantVectorStore,
+    metadata_signature,
+)
 from carvajal.application.ports import Embedder, ModelAwareEmbedder
 from carvajal.domain.entities import Chunk
 
@@ -212,8 +216,9 @@ def index_gold(
     total_chunks = 0
     # IDs que hoy hay en el índice: la comparación con los del documento decide
     # entre reembeder (el texto cambió) y reescribir el payload (solo metadatos).
-    existing: dict[str, set[str]] = (
-        {} if recreate else store.existing_point_ids([document.id for document in documents])
+    # La firma del payload evita repetir un ``set_payload`` idéntico.
+    existing: dict[str, ExistingPoints] = (
+        {} if recreate else store.existing_points([document.id for document in documents])
     )
     for document in documents:
         chunks = split_document(document)
@@ -233,15 +238,17 @@ def index_gold(
             "layer": document.layer,
         }
         ids = store.point_ids(chunks, [metadata for _ in chunks])
-        if existing.get(document.id) == set(ids):
-            store.update_payload(ids, metadata)
-            updated += len(ids)
+        current = existing.get(document.id)
+        if current is not None and current.ids == set(ids):
+            if current.payloads != {metadata_signature(metadata)}:
+                store.update_payload(ids, metadata)
+                updated += len(ids)
+                logger.info(
+                    "qdrant.document_payload_updated",
+                    document=document.id,
+                    chunks=len(ids),
+                )
             valid_ids.setdefault(document.layer, []).extend(ids)
-            logger.info(
-                "qdrant.document_payload_updated",
-                document=document.id,
-                chunks=len(ids),
-            )
             continue
         # Los vectores del documento se preparan antes de tocar el índice: si el
         # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
