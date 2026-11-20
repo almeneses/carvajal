@@ -2,7 +2,8 @@
 
 **Feature Branch**: `040-chat-por-voz`
 **Created**: 2026-11-17
-**Status**: Draft
+**Status**: Implementada (US1–US3). SC-001–SC-003 pendientes de medición con
+voces y micrófono reales; ver [evidencia](evidencia.md).
 **Input**: User description: "Incluir el servicio para que se le pueda dictar al chat y que
 el chat le hable a uno también."
 
@@ -189,6 +190,18 @@ que el segundo turno conserva el contexto del primero.
   sesión de prueba.
 - **SC-005**: Los controles de voz pasan la revisión automática de accesibilidad del chat
   sin errores nuevos.
+
+## Estado de la entrega
+
+Dictado, lectura y manos libres están implementados y verificados con pruebas de
+servidor, dobles de voz y un recorrido de Chromium real
+([evidencia](evidencia.md)). SC-004 y SC-005 se cumplen. SC-001, SC-002 y
+SC-003 no se han medido: requieren micrófono, al menos dos voces y el servicio
+de reconocimiento/síntesis del navegador, ausentes en el entorno de validación.
+T017 mantiene pendiente la prueba con lector de pantalla real y la política de
+reproducción automática del navegador; el teclado y la estructura accesible ya
+se verificaron. En el despliegue por HTTP/IP no se ofrece dictado hasta
+publicar por HTTPS.
 
 ## Assumptions
 

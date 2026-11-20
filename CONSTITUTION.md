@@ -90,8 +90,9 @@ con asistente RAG.
   precios de referencia en COP con IVA, fecha y fuente. Cada precio es una oferta por fuente
   (`precios.csv`); si nadie publica precio en Colombia, se declara la ausencia: no se estima,
   no se convierte desde México y no se promedia entre fuentes.
-- Ofrecer **chat por voz** (spec 040, en borrador): dictado revisable antes de enviar y
-  lectura de respuestas y tarjetas con las capacidades del navegador. El audio no llega al
+- Ofrecer **chat por voz** (spec 040, implementada; SC-001–SC-003 pendientes de medir con
+  voces reales): dictado revisable antes de enviar y lectura de respuestas y tarjetas con
+  las capacidades del navegador. El audio no llega al
   servidor del proyecto ni se guarda; sin soporte del navegador, el chat sigue por escrito.
   El permiso `microphone=(self)` se declara **solo** en el documento HTML de `/chat`; el
   resto de rutas, los POST y el SSE conservan `microphone=()`. Dictar exige contexto
