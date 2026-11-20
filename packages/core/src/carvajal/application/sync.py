@@ -42,16 +42,17 @@ def sync_fingerprint(
     title: str,
     section: str,
     source_type: str,
+    url: str = "",
     origin: str = "",
     category: str = "",
     entity: str = "",
 ) -> str:
     """Huella de sincronización: el cuerpo y los metadatos que se persisten.
 
-    El título, la sección y el tipo de fuente no viven en el cuerpo Gold, pero se
-    guardan en PostgreSQL, viajan en el payload de Qdrant y se vectorizan con
-    cada fragmento. Comparar solo la huella del texto dejaría sin reparar para
-    siempre una corrección editorial de esos campos.
+    El título, la sección, el tipo de fuente y la URL no viven en el cuerpo Gold,
+    pero se guardan en PostgreSQL, viajan en el payload de Qdrant y alimentan la
+    cita. Comparar solo la huella del texto dejaría sin reparar para siempre una
+    corrección editorial de esos campos o un enlace corregido.
 
     ``origin``, ``category`` y ``entity`` solo los publica el índice vectorial:
     PostgreSQL no los persiste, así que sus llamadores los omiten y la huella
@@ -59,7 +60,7 @@ def sync_fingerprint(
     procedencia de un documento también fuerce su reindexación.
     """
 
-    raw = "\x1f".join((content_hash, title, section, source_type, origin, category, entity))
+    raw = "\x1f".join((content_hash, title, section, source_type, url, origin, category, entity))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -131,6 +132,11 @@ class SyncIndex(Protocol):
 
     def hashes(self, layer: str) -> Mapping[str, str]:
         """Huella de sincronización por documento de la capa en el índice."""
+
+        ...
+
+    def document_ids(self, layer: str) -> set[str]:
+        """Todos los documentos con puntos, incluidos los incompletos."""
 
         ...
 
@@ -238,12 +244,14 @@ def _gold_fingerprints(layer: CorpusLayer) -> tuple[dict[str, str], dict[str, st
                 title=document.title,
                 section=document.section,
                 source_type=document.source_type,
+                url=document.url,
             )
             indexed[document.id] = sync_fingerprint(
                 content_hash=document.content_hash,
                 title=document.title,
                 section=document.section,
                 source_type=document.source_type,
+                url=document.url,
                 origin=document.origin,
                 category=document.category,
                 entity=document.entity,
@@ -345,7 +353,12 @@ def _sync(
                     errors.append(f"{layer.name} (PostgreSQL): {error}")
             try:
                 differences.extend(
-                    _index_differences(layer, gold_index, dict(index.hashes(layer.name)))
+                    _index_differences(
+                        layer,
+                        gold_index,
+                        dict(index.hashes(layer.name)),
+                        index.document_ids(layer.name),
+                    )
                 )
             except Exception as error:  # Qdrant puede estar caído; Gold queda
                 errors.append(f"{layer.name} (Qdrant): {error}")
@@ -431,20 +444,24 @@ def _index_differences(
     layer: CorpusLayer,
     gold: Mapping[str, str],
     index_hashes: Mapping[str, str],
+    index_ids: Collection[str],
 ) -> list[str]:
-    """Compara Gold con las huellas del índice vectorial, sin escribir."""
+    """Compara Gold con las huellas y los documentos del índice, sin escribir."""
 
     differences: list[str] = []
-    for slug in sorted(set(gold) | set(index_hashes)):
-        if slug not in index_hashes:
+    ids = set(index_ids)
+    for slug in sorted(set(gold) | ids):
+        if slug not in ids:
             differences.append(f"{slug}: falta en Qdrant.")
         elif slug not in gold:
             differences.append(f"{slug}: sobra en Qdrant.")
+        elif slug not in index_hashes:
+            differences.append(f"{slug}: tiene puntos incompletos en Qdrant.")
         elif gold[slug] != index_hashes[slug]:
             differences.append(f"{slug}: Qdrant tiene otra huella de sincronización.")
 
     expected = len(gold)
-    index_count = len(index_hashes)
+    index_count = len(ids)
     if index_count != expected:
         differences.append(
             f"{layer.name}: Qdrant tiene {index_count} documentos y Gold {expected}."

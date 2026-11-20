@@ -38,7 +38,7 @@
   spec).
 - FR-012 se verifica con SC-004 (20 preguntas nuevas de Colombia) y FR-011 con US4.4 y el
   Principio V de la constitución.
-- Sustituye la regla de la 036 FR-006 (ver `## Contexto` de la spec).
-- La equivalencia MX–CO se decidió el 2026-11-18 (Clarifications): por unidad, no por
-  unidades por caja.
-- Lista para `/speckit.plan`.
+- Mantiene la regla de la 036 FR-006, sin excepción de estimación (ver `## Contexto`).
+- La conversión desde México se descartó el 2026-11-18 (Clarifications): solo precios
+  colombianos publicados; sin precio, se declara la ausencia.
+- Plan y tareas escritos el 2026-11-18 (`plan.md`, `tasks.md`).

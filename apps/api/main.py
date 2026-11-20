@@ -6,6 +6,8 @@ nunca al importar; el embedder y el LLM se crean en la primera pregunta y cada
 petición abre su propia sesión.
 """
 
+import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
@@ -29,6 +31,7 @@ from apps.api.views import api, chat, config, corpus, documents, faq, stream
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.application.quota import DailyQuota, QuotaResult
+from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 
 logger = structlog.get_logger(__name__)
@@ -92,6 +95,27 @@ def _default_handlers() -> Handlers:
     return Handlers(health=health, quota=quota)
 
 
+def force_global_tracing_off() -> None:
+    """Apaga el tracing global de LangChain al arrancar (FR-001, FR-006).
+
+    Una variable heredada del entorno encendería las trazas de todo el
+    proceso, sin muestreo y sin la redacción del monitoreo. El encendido es
+    explícito por turno, así que aquí se neutralizan ambas variables.
+    """
+
+    for nombre in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2"):
+        if os.environ.get(nombre, "").strip().lower() in {"1", "true", "yes", "on"}:
+            logger.warning("monitoring.global_tracing_forced_off", variable=nombre)
+        os.environ[nombre] = "false"
+    # LangSmith cachea la lectura del entorno (``get_env_var`` usa lru_cache):
+    # si alguien ya leyó el valor heredado, hay que invalidar la caché o el
+    # tracing seguiría activo pese a las variables (FR-001).
+    utilidades = sys.modules.get("langsmith.utils")
+    cache = getattr(utilidades, "get_env_var", None)
+    if cache is not None and hasattr(cache, "cache_clear"):
+        cache.cache_clear()
+
+
 def _default_quota(owner_key: str) -> QuotaResult:
     """Cuota real, diferida hasta la primera petición que la necesita."""
 
@@ -129,12 +153,15 @@ def _unhandled(request: Request, error: Exception) -> Response:
 def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
+    force_global_tracing_off()
     configure_observability()
     # Sin Swagger público: la interfaz de la app es el formulario HTML y el
     # esquema no aporta a un visitante anónimo.
     app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
     settings = Settings()
     app.state.quota = handlers.quota if handlers is not None else _default_quota
+    # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
+    app.state.monitoring = monitoring_status(settings).enabled
     # Captura web: un registro por app para que las pruebas inyecten su runner.
     app.state.captures = CaptureJobs(
         rate_limit=settings.capture_requests_limit,
@@ -165,7 +192,12 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         except (SQLAlchemyError, OSError) as error:  # la base no responde
             logger.warning("health.failed", error=str(error))
             return JSONResponse(
-                {"status": "degraded", "detail": DB_UNAVAILABLE, "index": {"status": "unknown"}},
+                {
+                    "status": "degraded",
+                    "detail": DB_UNAVAILABLE,
+                    "index": {"status": "unknown"},
+                    "monitoring": monitoring_status(settings).as_health(),
+                },
                 status_code=503,
             )
         index = status.index or {"status": "not_configured"}
@@ -176,6 +208,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 "documents": status.documents,
                 "chunks": status.chunks,
                 "index": index,
+                "monitoring": monitoring_status(settings).as_health(),
             },
             status_code=200 if healthy else 503,
         )

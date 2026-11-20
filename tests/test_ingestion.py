@@ -1,12 +1,15 @@
 """Pruebas de la ingesta de documentos: capas y metadatos, sin servicios."""
 
 import json
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import apps.api.ingestion as ingestion_module
 from apps.api.document_formats import ExtractError, extract_markdown
 from apps.api.ingest_cli import main, run
 from apps.api.ingestion import IngestReport, UploadedDocument, ingest_uploads
@@ -428,12 +431,12 @@ def test_ingest_uploads_no_reescribe_capas_si_no_cambia(tmp_path: Path) -> None:
     # Arrange
     settings = _settings(tmp_path)
     documento = UploadedDocument(filename="informe.md", data=b"# Informe\n\nContenido estable.")
-    llamadas: list[str] = []
+    llamadas: list[set[str]] = []
     ingest_uploads([documento], settings=settings, solo_extraer=True)
     antes = (settings.gold_dir / "informe.md").read_bytes()
 
     def sincronizar(gold_dir: Path, only: set[str]) -> SyncReport:
-        llamadas.append("sincronizar")
+        llamadas.append(set(only))
         return SyncReport(documents=1, chunks=1, indexed=1)
 
     # Act
@@ -442,7 +445,7 @@ def test_ingest_uploads_no_reescribe_capas_si_no_cambia(tmp_path: Path) -> None:
     # Assert
     assert report.gold == 0 and report.bronze == 0 and report.silver == 0
     assert report.unchanged == ("informe.md",)
-    assert llamadas == []
+    assert llamadas == [{"informe"}]
     assert (settings.gold_dir / "informe.md").read_bytes() == antes
     assert list(_entradas_index(settings)) == ["informe"]
 
@@ -739,3 +742,73 @@ def test_el_informe_sanea_rutas_y_credenciales_de_la_sincronizacion(tmp_path: Pa
     assert report.errors
     assert all("s3creto" not in mensaje for mensaje in report.errors)
     assert all("/srv/carvajal" not in mensaje for mensaje in report.errors)
+
+
+def test_ingest_uploads_serializa_registro_y_escritura(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dos cargas concurrentes no asignan el mismo slug ni se pisan."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    activos = 0
+    maximo = 0
+    candado = threading.Lock()
+    original = ingestion_module.load_registry
+
+    def lento(areas):
+        nonlocal activos, maximo
+        with candado:
+            activos += 1
+            maximo = max(maximo, activos)
+        time.sleep(0.1)
+        try:
+            return original(areas)
+        finally:
+            with candado:
+                activos -= 1
+
+    monkeypatch.setattr(ingestion_module, "load_registry", lento)
+    documentos = [
+        UploadedDocument(filename="mismo.txt", data=b"Contenido del txt."),
+        UploadedDocument(filename="mismo.md", data=b"Contenido del md."),
+    ]
+
+    # Act
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(
+            pool.map(
+                lambda documento: ingest_uploads([documento], settings=settings, solo_extraer=True),
+                documentos,
+            )
+        )
+
+    # Assert
+    assert maximo == 1
+    assert sorted(path.name for path in settings.gold_dir.glob("*.md")) == [
+        "mismo-2.md",
+        "mismo.md",
+    ]
+
+
+def test_ingest_uploads_reconoce_una_adopcion_con_otro_nombre_legado(tmp_path: Path) -> None:
+    """Un archivo con mayúsculas o espacios actualiza la entrada adoptada."""
+
+    # Arrange
+    settings = _settings(tmp_path)
+    ingest_uploads(
+        [UploadedDocument(filename="informe-anual.md", data=b"# Informe\n\nVersion uno.")],
+        settings=settings,
+        solo_extraer=True,
+    )
+
+    # Act
+    report = ingest_uploads(
+        [UploadedDocument(filename="Informe Anual.md", data=b"# Informe\n\nVersion dos.")],
+        settings=settings,
+        solo_extraer=True,
+    )
+
+    # Assert
+    assert report.updated == ("Informe Anual.md",)
+    assert sorted(path.name for path in settings.gold_dir.glob("*.md")) == ["informe-anual.md"]

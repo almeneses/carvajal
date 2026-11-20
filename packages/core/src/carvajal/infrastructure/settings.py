@@ -172,6 +172,21 @@ class Settings(BaseSettings):
     sentry_environment: str = "local"
     sentry_traces_sample_rate: float = Field(default=0.0, ge=0, le=1)
 
+    # Monitoreo del agente con LangSmith (spec 038). Apagado por defecto: sin
+    # MONITORING_ENABLED y sin llave no se construye cliente ni sale un byte
+    # del proceso. ``repr=False`` mantiene la credencial fuera de cualquier
+    # ``repr`` o log accidental de la configuración.
+    monitoring_enabled: bool = False
+    langsmith_api_key: str = Field(default="", repr=False)
+    langsmith_project: str = "carvajal"
+    # Vacío usa el servicio público; se fija solo para pruebas o un endpoint
+    # compatible, y nunca se publica en /health.
+    langsmith_endpoint: str = ""
+    monitoring_sample_rate: float = Field(default=0.2, ge=0, le=1)
+    # true solo en desarrollo y evaluación; en producción el contenido no sale.
+    monitoring_include_content: bool = False
+    monitoring_timeout_ms: int = Field(default=2000, ge=1, le=60_000)
+
     @field_validator("capture_allowed_domains", mode="before")
     @classmethod
     def _dominios_separados_por_coma(cls, value: Any) -> Any:

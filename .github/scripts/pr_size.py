@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Verifica el presupuesto de cambios de un pull request.
+"""Informa el presupuesto de cambios de un pull request.
 
 Compara el diff entre la base y la cabeza del PR, ignora artefactos generados y
-falla si se supera el límite duro. Entre el blando y el duro solo advierte.
+**solo advierte** cuando se supera el umbral. No falla: el tamaño es una señal
+para partir la revisión, no una puerta de merge.
 
 Uso:
     BASE_SHA=... HEAD_SHA=... python3 .github/scripts/pr_size.py
@@ -10,8 +11,7 @@ Uso:
 Variables de entorno:
     BASE_SHA        commit base del PR (github.event.pull_request.base.sha)
     HEAD_SHA        commit cabeza del PR (github.event.pull_request.head.sha)
-    SOFT_LIMIT      límite para advertir (por defecto 300)
-    HARD_LIMIT      límite que hace fallar el check (por defecto 2000)
+    WARN_LIMIT      umbral para advertir (por defecto 3000)
     GITHUB_STEP_SUMMARY  si existe, se escribe ahí el resumen
 """
 
@@ -101,8 +101,7 @@ def main() -> int:
     """Punto de entrada del script."""
     base = os.environ.get("BASE_SHA", "")
     head = os.environ.get("HEAD_SHA", "")
-    soft = int(os.environ.get("SOFT_LIMIT", "300"))
-    hard = int(os.environ.get("HARD_LIMIT", "2000"))
+    warn = int(os.environ.get("WARN_LIMIT", "3000"))
     if not base or not head:
         print("Faltan BASE_SHA o HEAD_SHA; se omite el presupuesto de cambios.")
         return 0
@@ -112,7 +111,7 @@ def main() -> int:
     summary = (
         f"**Presupuesto de cambios**: {total} líneas "
         f"(+{added}/-{deleted}) en {files} archivo(s). "
-        f"Límite blando {soft}, duro {hard}."
+        f"Aviso desde {warn}; no bloquea el merge."
     )
     print(summary)
 
@@ -121,13 +120,10 @@ def main() -> int:
         with open(step_summary, "a", encoding="utf-8") as handle:
             handle.write(summary + "\n")
 
-    if total > hard:
-        print(f"::error::El PR cambia {total} líneas y supera el límite duro de {hard}.")
-        return 1
-    if total > soft:
+    if total > warn:
         print(
-            f"::warning::El PR cambia {total} líneas; "
-            f"se recomienda partirlo (límite blando {soft})."
+            f"::warning::El PR cambia {total} líneas y supera el umbral de aviso "
+            f"de {warn}. Conviene partirlo, pero no se bloquea."
         )
     return 0
 

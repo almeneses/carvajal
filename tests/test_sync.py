@@ -23,14 +23,20 @@ def _con_titulo(path: Path, titulo: str) -> None:
     path.write_text(texto.replace(anterior, f"title: {titulo}"), encoding="utf-8")
 
 
-def _document(directorio: Path, slug: str, hash_texto: str, cuerpo: str = "Contenido.") -> None:
+def _document(
+    directorio: Path,
+    slug: str,
+    hash_texto: str,
+    cuerpo: str = "Contenido.",
+    url: str | None = None,
+) -> None:
     """Escribe un Markdown Gold mínimo con su huella en el front matter."""
 
     directorio.mkdir(parents=True, exist_ok=True)
     (directorio / f"{slug}.md").write_text(
         "---\n"
         f"title: {slug.title()}\n"
-        f"url: https://carvajal.com/{slug}\n"
+        f"url: {url or f'https://carvajal.com/{slug}'}\n"
         f"hash: {hash_texto}\n"
         "---\n\n"
         f"{cuerpo}\n",
@@ -98,11 +104,15 @@ class FakeIndex:
     def __init__(self, gold: dict[str, str]) -> None:
         self.gold = gold
         self.hashes_map: dict[str, str] = {}
+        self.extra_ids: set[str] = set()
         self.imports: list[tuple[set[str] | None, bool]] = []
         self.fail = False
 
     def hashes(self, layer: str) -> dict[str, str]:
         return dict(self.hashes_map)
+
+    def document_ids(self, layer: str) -> set[str]:
+        return set(self.hashes_map) | self.extra_ids
 
     def index_gold(
         self, layer: CorpusLayer, *, only: set[str] | None, prune: bool
@@ -765,3 +775,44 @@ def test_la_procedencia_solo_cambia_la_huella_del_indice(tmp_path: Path) -> None
     # Assert
     assert gold_hashes(layer) == base_antes
     assert gold_index_hashes(layer) != indice_antes
+
+
+def test_sync_corpus_detecta_un_cambio_solo_de_url(tmp_path: Path) -> None:
+    """Corregir la URL del front matter fuerza la actualización de ambos almacenes."""
+
+    # Arrange
+    layer, viejo = _layer(tmp_path, {"uno": "h1"})
+    db = FakeDatabase(viejo)
+    db.hashes_map = dict(viejo)
+    index = FakeIndex(viejo)
+    index.hashes_map = dict(viejo)
+    _document(tmp_path / "gold", "uno", "h1", url="https://carvajal.com/nuevo")
+    nuevo = gold_hashes(layer)
+    db.gold = nuevo
+    index.gold = nuevo
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index)
+
+    # Assert
+    assert (report.new, report.updated, report.unchanged) == (0, 1, 0)
+    assert db.imports == [({"uno"}, False)]
+    assert index.imports == [({"uno"}, False)]
+
+
+def test_sync_corpus_verify_detecta_puntos_incompletos(tmp_path: Path) -> None:
+    """Un documento con puntos a medias no se da por vigente en la verificación."""
+
+    # Arrange
+    layer, gold = _layer(tmp_path, {"uno": "h1"})
+    db = FakeDatabase(gold)
+    db.hashes_map = dict(gold)
+    index = FakeIndex(gold)
+    index.extra_ids = {"uno"}
+
+    # Act
+    report = sync_corpus([layer], database=db, index=index, verify=True)
+
+    # Assert
+    assert any("puntos incompletos" in difference for difference in report.differences)
+    assert report.ok is False

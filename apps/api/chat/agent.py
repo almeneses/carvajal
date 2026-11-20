@@ -32,6 +32,7 @@ class AgentTurn:
     turns: tuple[Turn, ...]
     preferences: tuple[str, ...] = ()
     tool: str = ""
+    tool_period: str = ""
     reason: str = ""
     query: str = ""
     # Resultado estructurado de la ruta comercial (spec 036): opciones, canal y contactos.
@@ -123,6 +124,7 @@ class GraphAgentRunner:
             turns=turns,
             preferences=tuple(state.get("preferences", [])),
             tool=str(state.get("tool_name", "")),
+            tool_period=str(state.get("tool_period", "")),
             reason=str(state.get("reason", "")),
             query=str(state.get("query", "")),
             products=dict(state.get("tool_result") or {}) if route == "commercial" else {},

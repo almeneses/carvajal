@@ -16,6 +16,7 @@ from dataclasses import asdict
 from functools import cache
 from time import perf_counter
 from typing import Any, Protocol, runtime_checkable
+from uuid import uuid4
 
 import structlog
 from sqlalchemy.orm import Session, sessionmaker
@@ -32,6 +33,8 @@ from carvajal.adapters.storage.chat import (
 from carvajal.agent.state import Turn
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
 from carvajal.application.ports import Embedder, LLMProvider
+from carvajal.infrastructure.monitoring import TurnTracer, build_tracer, thread_hash
+from carvajal.infrastructure.settings import Settings
 
 __all__ = [
     "ChatFailure",
@@ -111,16 +114,47 @@ class ChatService:
         embedder: Embedder,
         llm: LLMProvider,
         agent: AgentRunner | None = None,
+        *,
+        tracer: TurnTracer | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._embedder = embedder
         self._llm = llm
         self._agent = agent
+        # El tracer y la configuración se resuelven en el primer turno: importar
+        # el módulo no lee el entorno ni construye clientes.
+        self._tracer = tracer
+        self._settings = settings
 
     def _runner(self) -> AgentRunner:
         """Runner inyectado o el real, construido en la primera pregunta."""
 
         return self._agent or default_agent_runner()
+
+    def _config(self) -> Settings:
+        """Configuración del proceso, leída de forma perezosa una sola vez."""
+
+        if self._settings is None:
+            self._settings = Settings()
+        return self._settings
+
+    def _modelo(self) -> str:
+        """Modelo configurado, para los metadatos de la llamada al LLM."""
+
+        config = self._config()
+        if config.llm_provider == "deepseek":
+            return config.deepseek_model
+        if config.llm_provider == "claude":
+            return config.claude_model
+        return config.ollama_model
+
+    def _monitoring(self) -> TurnTracer:
+        """Tracer inyectado o el que dicta la configuración (apagado por defecto)."""
+
+        if self._tracer is None:
+            self._tracer = build_tracer(self._config())
+        return self._tracer
 
     def history(
         self,
@@ -205,6 +239,7 @@ class ChatService:
         turn: AgentTurn | None = None
         runner: AgentRunner | None = None
         persisted = False
+        done_event: ChatEvent | None = None
         try:
             if not text:
                 raise ValueError("La pregunta no puede estar vacía.")
@@ -227,99 +262,172 @@ class ChatService:
                     else None
                 )
                 if replay is not None:
-                    yield from _replay(replay)
+                    yield from _replay(replay, request_id=_request_id())
                     return
                 # El hilo debe existir antes de generar; si el LLM falla, la UI
                 # puede seguir mostrando la conversación sin un turno a medias.
                 session.commit()
-            turn = runner.prepare(owner_key, conversation.id, text, seed)
-            structlog.contextvars.bind_contextvars(
-                thread_id=conversation.id,
-                route=turn.route,
-                tool=turn.tool or None,
-            )
-            yield ChatEvent(
-                "trace",
-                {
-                    "thread_id": conversation.id,
-                    "route": turn.route,
-                    "intent": turn.intent,
-                    "tool": turn.tool,
-                    "reason": turn.reason,
-                    "memory": len(turn.preferences),
-                    "retrieved": len(turn.sources),
-                },
-            )
-            yield ChatEvent("meta", {"sources": _sources(turn.sources)})
-            if turn.products and has_cards(turn.products):
-                html = safe_render_products(turn.products)
-                if html:
-                    yield ChatEvent("products", {"html": html})
-
-            if turn.prompt is None:
-                fragments.append(NO_CONTEXT_ANSWER)
-                yield ChatEvent("token", {"text": NO_CONTEXT_ANSWER})
-            else:
-                try:
-                    for fragment in self._llm.stream(system=turn.system, prompt=turn.prompt):
-                        fragments.append(fragment)
-                        yield ChatEvent("token", {"text": fragment})
-                except Exception as error:
-                    if "".join(fragments).strip():
-                        raise
-                    logger.warning("chat.stream_fallback", error=str(error))
-                if not "".join(fragments).strip():
-                    answer = self._llm.complete(system=turn.system, prompt=turn.prompt)
-                    fragments = [answer]
-                    yield ChatEvent(
-                        "fallback",
-                        {"text": answer, "sources": _sources(turn.sources)},
-                    )
-
-            answer_text = "".join(fragments)
-            with self._session_factory() as session:
-                repository = SqlChatRepository(session)
-                current = repository.get_owned(conversation.id, owner_key)
-                if current is None:
-                    raise ThreadAccessError("El hilo dejó de pertenecer al visitante.")
-                conversation_id, message_id = self._persist(
-                    session,
-                    current,
-                    text,
-                    answer_text,
-                    turn.sources,
-                    status="complete",
-                    client_turn_id=client_turn_id,
-                )
-                persisted = True
-            runner.record(
-                conversation.id,
+            request_id = _request_id()
+            monitor = self._monitoring()
+            with monitor.turn(
+                request_id=request_id,
+                thread_hash=thread_hash(conversation.id),
+                router=self._config().agent_router,
                 question=text,
-                answer=answer_text,
-                incomplete=False,
-                turns=turn.turns,
-            )
-            elapsed = _milliseconds(started)
-            logger.info(
-                "chat.turn_completed",
-                thread_id=conversation.id,
-                route=turn.route,
-                tool=turn.tool or None,
-                sources=len(turn.sources),
-                retrieved=len(turn.sources),
-                duration_ms=elapsed,
-                result="ok",
-            )
-            yield ChatEvent(
-                "done",
-                {
-                    "conversation_id": conversation_id,
-                    "message_id": message_id,
-                    "thread_id": conversation.id,
-                    "route": turn.route,
-                    "elapsed_ms": elapsed,
-                },
-            )
+            ) as span:
+                turn = runner.prepare(owner_key, conversation.id, text, seed)
+                # La ruta ya se conoce aquí: registrarla ahora deja trazas
+                # útiles aunque el turno falle o se cancele después (T010).
+                span.add_metadata(
+                    route=turn.route,
+                    question_chars=len(text),
+                    intent=turn.intent,
+                    tool=turn.tool or None,
+                    tool_period=turn.tool_period or None,
+                    preferences_count=len(turn.preferences),
+                )
+                structlog.contextvars.bind_contextvars(
+                    thread_id=conversation.id,
+                    route=turn.route,
+                    tool=turn.tool or None,
+                )
+                yield ChatEvent(
+                    "trace",
+                    {
+                        "thread_id": conversation.id,
+                        "route": turn.route,
+                        "intent": turn.intent,
+                        "tool": turn.tool,
+                        "reason": turn.reason,
+                        "memory": len(turn.preferences),
+                        "retrieved": len(turn.sources),
+                    },
+                )
+                yield ChatEvent("meta", {"sources": _sources(turn.sources)})
+                if turn.products and has_cards(turn.products):
+                    html = safe_render_products(turn.products)
+                    if html:
+                        yield ChatEvent("products", {"html": html})
+
+                if turn.prompt is None:
+                    fragments.append(NO_CONTEXT_ANSWER)
+                    span.add_outputs(answer=NO_CONTEXT_ANSWER)
+                    yield ChatEvent("token", {"text": NO_CONTEXT_ANSWER})
+                else:
+                    try:
+                        # El hijo explícito no depende de los contextvars: el
+                        # generador SSE avanza en hilos del threadpool y ahí el
+                        # contexto de tracing no viaja (FR-003).
+                        with span.child(
+                            "llm",
+                            run_type="llm",
+                            metadata={
+                                "provider": self._config().llm_provider,
+                                "model": self._modelo(),
+                            },
+                        ) as llm_span:
+                            fragmentos = iter(
+                                self._llm.stream(system=turn.system, prompt=turn.prompt)
+                            )
+                            answer_chars = 0
+                            try:
+                                while True:
+                                    # El contexto se reabre en cada avance:
+                                    # Starlette mueve el generador SSE entre
+                                    # hilos y los contextvars no viajan con él
+                                    # (FR-003).
+                                    with span.generation():
+                                        try:
+                                            fragment = next(fragmentos)
+                                        except StopIteration:
+                                            break
+                                    fragments.append(fragment)
+                                    # El largo se acumula en O(1): unir la
+                                    # respuesta completa en cada token sería
+                                    # O(n²) sobre respuestas largas (T010).
+                                    answer_chars += len(fragment)
+                                    llm_span.add_outputs(answer_chars=answer_chars)
+                                    yield ChatEvent("token", {"text": fragment})
+                            except GeneratorExit:
+                                # Cancelación: lo generado queda en la traza con
+                                # una sola unión, no una por token (T012).
+                                span.add_outputs(answer="".join(fragments))
+                                raise
+                    except Exception as error:
+                        if "".join(fragments).strip():
+                            raise
+                        logger.warning("chat.stream_fallback", error=str(error))
+                    if not "".join(fragments).strip():
+                        with (
+                            span.child(
+                                "llm",
+                                run_type="llm",
+                                metadata={
+                                    "provider": self._config().llm_provider,
+                                    "model": self._modelo(),
+                                },
+                            ) as llm_span,
+                            span.generation(),
+                        ):
+                            answer = self._llm.complete(system=turn.system, prompt=turn.prompt)
+                            llm_span.add_outputs(answer_chars=len(answer))
+                        fragments = [answer]
+                        span.add_outputs(answer=answer)
+                        yield ChatEvent(
+                            "fallback",
+                            {"text": answer, "sources": _sources(turn.sources)},
+                        )
+
+                answer_text = "".join(fragments)
+                span.add_outputs(answer=answer_text)
+                with self._session_factory() as session:
+                    repository = SqlChatRepository(session)
+                    current = repository.get_owned(conversation.id, owner_key)
+                    if current is None:
+                        raise ThreadAccessError("El hilo dejó de pertenecer al visitante.")
+                    conversation_id, message_id = self._persist(
+                        session,
+                        current,
+                        text,
+                        answer_text,
+                        turn.sources,
+                        status="complete",
+                        client_turn_id=client_turn_id,
+                    )
+                    persisted = True
+                runner.record(
+                    conversation.id,
+                    question=text,
+                    answer=answer_text,
+                    incomplete=False,
+                    turns=turn.turns,
+                )
+                elapsed = _milliseconds(started)
+                logger.info(
+                    "chat.turn_completed",
+                    thread_id=conversation.id,
+                    route=turn.route,
+                    tool=turn.tool or None,
+                    sources=len(turn.sources),
+                    retrieved=len(turn.sources),
+                    duration_ms=elapsed,
+                    result="ok",
+                )
+                span.add_metadata(answer_chars=len(answer_text))
+                # El ``done`` se emite ya cerrada la traza: si el consumidor
+                # cierra el generador justo después, el turno sigue siendo ok.
+                done_event = ChatEvent(
+                    "done",
+                    {
+                        "conversation_id": conversation_id,
+                        "message_id": message_id,
+                        "thread_id": conversation.id,
+                        "route": turn.route,
+                        "elapsed_ms": elapsed,
+                        "request_id": request_id,
+                    },
+                )
+            yield done_event
         except Exception as error:
             partial = "".join(fragments).strip()
             logger.warning(
@@ -398,6 +506,18 @@ class ChatService:
             logger.warning("chat.incomplete_persist_failed", error=str(error))
 
 
+def _request_id() -> str:
+    """Identificador de la petición que ya fija el middleware de logs.
+
+    La traza usa el mismo valor para que una traza y sus líneas de log se
+    crucen por ``request_id`` (FR-004). Fuera de una petición HTTP se genera
+    uno propio, de modo que la CLI y las pruebas también puedan trazar.
+    """
+
+    actual = structlog.contextvars.get_contextvars().get("request_id")
+    return str(actual) if actual else uuid4().hex
+
+
 def _owned_conversation(
     repository: SqlChatRepository,
     owner_key: str,
@@ -434,7 +554,11 @@ def _seed_turns(repository: SqlChatRepository, conversation_id: str) -> list[Tur
     return turns
 
 
-def _replay(turn: tuple[ChatMessage, ChatMessage | None]) -> Iterator[ChatEvent]:
+def _replay(
+    turn: tuple[ChatMessage, ChatMessage | None],
+    *,
+    request_id: str = "",
+) -> Iterator[ChatEvent]:
     """Reemite un turno ya persistido para un reintento idempotente."""
 
     user, assistant = turn
@@ -458,6 +582,7 @@ def _replay(turn: tuple[ChatMessage, ChatMessage | None]) -> Iterator[ChatEvent]
                 "thread_id": assistant.conversation_id,
                 "route": "replay",
                 "elapsed_ms": 0,
+                "request_id": request_id,
             },
         )
 

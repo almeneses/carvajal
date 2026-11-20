@@ -26,6 +26,7 @@ dependencies = [
     "langgraph>=1.2",
     "langgraph-checkpoint-postgres>=3.0",
     "langgraph-checkpoint-sqlite>=3.0",
+    "langsmith>=0.14.14",
     "markdown>=3.11.3",
     "nh3>=0.3.7",
     "ollama>=0.6",
@@ -107,6 +108,8 @@ pythonpath = ["."]
 addopts = "-q"
 markers = [
     "integration: requiere Postgres real vía testcontainers",
+    "smoke: comprobación rápida del monitoreo, sin credenciales ni red",
+    "e2e: extremo a extremo con servicios reales y LangSmith (excluido de make check)",
 ]
 
 [tool.ty.src]

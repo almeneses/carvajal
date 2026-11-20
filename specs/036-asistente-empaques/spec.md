@@ -2,7 +2,11 @@
 
 **Feature Branch**: `036-asistente-empaques`
 **Created**: 2026-11-16
-**Status**: Draft
+**Status**: Implemented (as-built)
+**Implemented**: 2026-11-16 → 2026-11-18
+**Evidence**: `CONSTITUTION.md` §9 (2026-11-16 y 2026-11-18); PRs #132, #135, #139–#143, #145;
+[`evidencia.md`](./evidencia.md); `tests/test_sc_036.py`, `tests/test_commercial_tools.py`,
+`tests/test_agent_router.py`
 **Input**: User description: "Extender el asistente para que un restaurante, cafetería u
 organizador de eventos describa lo que necesita empacar y reciba referencias de Carvajal
 Empaques técnicamente válidas para ese uso, con cantidad en cajas, precio de referencia
