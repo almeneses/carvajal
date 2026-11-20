@@ -6,14 +6,14 @@
 
 ## Fase 1 — Preparación
 
-- [ ] T001 Definir la matriz reproducible de navegador con/sin STT, TTS y contexto seguro en `docs/pruebas-040.md`, siguiendo `specs/040-chat-por-voz/quickstart.md`.
-- [ ] T002 [P] Preparar dobles de voz, reloj y formulario y una prueba inicial en `tests/js/test_chat_voice.cjs`; en el mismo PR, fijar Node `24.16.0` y ejecutar `node --test tests/js/test_chat_voice.cjs` como paso obligatorio de `Calidad` en `.github/workflows/ci.yml`. Sin micrófono, red para las pruebas ni dependencias npm de runtime.
+- [X] T001 Definir la matriz reproducible de navegador con/sin STT, TTS y contexto seguro en `docs/pruebas-040.md`, siguiendo `specs/040-chat-por-voz/quickstart.md`.
+- [X] T002 [P] Preparar dobles de voz, reloj y formulario y una prueba inicial en `tests/js/test_chat_voice.cjs`; en el mismo PR, fijar Node `24.16.0` y ejecutar `node --test tests/js/test_chat_voice.cjs` como paso obligatorio de `Calidad` en `.github/workflows/ci.yml`. Sin micrófono, red para las pruebas ni dependencias npm de runtime.
 
 ## Fase 2 — Base común
 
-- [ ] T003 Añadir pruebas de permiso `microphone=(self)` solo al documento HTML de `/chat`, denegación en otras rutas (incluido SSE), y CSP y frame-ancestors intactos en `tests/test_security.py`.
-- [ ] T004 Implementar el permiso acotado de T003 en `apps/api/security.py` y documentar la excepción y el requisito de HTTPS en `CONSTITUTION.md`, `.specify/memory/constitution.md` y `docs/despliegue-ovh.md`.
-- [ ] T005 Cargar `apps/api/static/chat-voice.js` desde `apps/api/templates/chat.html`; armar los controles base que solo se activan con JS y un estado visible/accesible en `apps/api/static/chat.css`. Sin `unsafe-inline`.
+- [X] T003 Añadir pruebas de permiso `microphone=(self)` solo al documento HTML de `/chat`, denegación en otras rutas (incluido SSE), y CSP y frame-ancestors intactos en `tests/test_security.py`.
+- [X] T004 Implementar el permiso acotado de T003 en `apps/api/security.py` y documentar la excepción y el requisito de HTTPS en `CONSTITUTION.md`, `.specify/memory/constitution.md` y `docs/despliegue-ovh.md`.
+- [X] T005 Cargar `apps/api/static/chat-voice.js` desde `apps/api/templates/chat.html`; armar los controles base que solo se activan con JS y un estado visible/accesible en `apps/api/static/chat.css`. Sin `unsafe-inline`.
 
 ## Fase 3 — US1: dictar con revisión (P1)
 
