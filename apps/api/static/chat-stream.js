@@ -252,7 +252,7 @@
         }
         avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
         formatearTurno(turnoAsistente, texto, true);
-        if (!turnoAsistente.textContent) turnoAsistente.remove();
+        if (!texto.textContent) turnoAsistente.remove();
       } else if (!recibioContenido && !cerrado) {
         // Falló antes del primer token y el servidor no persistió el turno:
         // restaura la pregunta y reintenta por el POST normal del formulario.
