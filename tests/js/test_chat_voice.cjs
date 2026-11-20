@@ -218,7 +218,6 @@ function crearReconocimiento() {
       },
       stop() {
         this.detenido += 1;
-        this._emitir("end", {});
       },
       abort() {
         this.abortado += 1;
@@ -354,14 +353,32 @@ function cargarVoz({
 }
 
 function crearVista(extra = {}) {
-  return {
+  const vista = {
     raiz: crearElemento("section"),
     botonDictar: crearElemento("button", { hidden: true }),
     etiquetaDictar: crearElemento("span"),
     estado: crearElemento("p"),
     nota: crearElemento("p", { hidden: true }),
+    entrada: crearElemento("input"),
+    formulario: crearElemento("form"),
+    aviso: crearElemento("dialog"),
+    avisoAceptar: crearElemento("button"),
+    avisoCancelar: crearElemento("button"),
     ...extra,
   };
+  vista.formulario.enviados = 0;
+  vista.formulario.requestSubmit = () => {
+    vista.formulario.enviados += 1;
+  };
+  return vista;
+}
+
+function clic(elemento) {
+  elemento.dispatch("click", { preventDefault() {}, target: elemento });
+}
+
+function tecla(documento, key, extra = {}) {
+  documento.dispatch("keydown", { key, preventDefault() {}, ...extra });
 }
 
 function montar({
@@ -374,11 +391,12 @@ function montar({
   vista = crearVista(),
   reloj = crearReloj(),
 } = {}) {
-  const sandbox = cargarVoz({ documento, almacen, reconocimiento, sintesis });
+  const doc = documento || crearDocumento();
+  const sandbox = cargarVoz({ documento: doc, almacen, reconocimiento, sintesis });
   const api = sandbox.window.CarvajalVoz;
   const controlador = api.createVoiceController({
     vista,
-    documento: documento || crearDocumento(),
+    documento: doc,
     almacen: almacen || sandbox.localStorage,
     reconocimiento: reconocimiento || sandbox.SpeechRecognition || null,
     sintesis: sintesis === false ? null : sintesis || sandbox.speechSynthesis,
@@ -388,7 +406,7 @@ function montar({
     streaming,
   });
   controlador.mount();
-  return { sandbox, api, controlador, vista, reloj };
+  return { sandbox, api, controlador, vista, reloj, documento: doc };
 }
 
 // ---------------------------------------------------------------------------
@@ -578,4 +596,313 @@ test("T002 el script se carga sin window (SSR o runner) sin romper", () => {
 
   // Assert
   assert.equal(typeof sandbox.CarvajalVoz, "object");
+
+// ---------------------------------------------------------------------------
+// T006–T010 · US1: dictado con revisión
+// ---------------------------------------------------------------------------
+
+function iniciarDictado(montaje) {
+  clic(montaje.vista.botonDictar);
+  if (montaje.vista.aviso.open) clic(montaje.vista.avisoAceptar);
+  return montaje.reconocimiento.ultima();
+}
+
+test("T006 el primer dictado pide confirmación antes de abrir el micrófono", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+
+  // Act
+  clic(montaje.vista.botonDictar);
+
+  // Assert: aviso visible y ningún reconocimiento iniciado.
+  assert.equal(montaje.vista.aviso.open, true);
+  assert.equal(reconocimiento.instancias.length, 0);
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "false");
+
+  // Act: continuar.
+  clic(montaje.vista.avisoAceptar);
+  const instancia = reconocimiento.ultima();
+
+  // Assert: recién ahora escucha, en español y con estado accesible.
+  assert.equal(montaje.vista.aviso.open, false);
+  assert.equal(instancia.iniciado, 1);
+  assert.equal(instancia.lang, "es-CO");
+  assert.equal(instancia.continuous, false);
+  assert.equal(instancia.interimResults, true);
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "true");
+  assert.equal(montaje.vista.etiquetaDictar.textContent, "Detener dictado");
+  assert.match(montaje.vista.estado.textContent, /Escuchando/);
+  assert.equal(montaje.documento.documentElement.dataset.vozEscuchando, "1");
+});
+
+test("T006 cancelar el aviso no abre el micrófono ni recuerda la aceptación", () => {
+  // Arrange
+  const almacen = crearAlmacen();
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento, almacen });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "borrador intacto";
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  clic(montaje.vista.avisoCancelar);
+
+  // Assert
+  assert.equal(montaje.vista.aviso.open, false);
+  assert.equal(reconocimiento.instancias.length, 0);
+  assert.equal(montaje.vista.entrada.value, "borrador intacto");
+  assert.match(montaje.vista.estado.textContent, /cancelado/i);
+  assert.equal(almacen.getItem("carvajal_voz_aviso_dictado"), null);
+
+  // Act: el siguiente intento vuelve a avisar.
+  clic(montaje.vista.botonDictar);
+
+  // Assert
+  assert.equal(montaje.vista.aviso.open, true);
+});
+
+test("T006 la aceptación del aviso se recuerda en el navegador", () => {
+  // Arrange
+  const almacen = crearAlmacen();
+  const primero = montar({ almacen, reconocimiento: crearReconocimiento() });
+  primero.reconocimiento = primero.sandbox.SpeechRecognition;
+
+  // Act: aceptar en el primer controlador.
+  clic(primero.vista.botonDictar);
+  clic(primero.vista.avisoAceptar);
+
+  // Assert
+  assert.equal(almacen.getItem("carvajal_voz_aviso_dictado"), "1");
+
+  // Act: nueva página con el mismo almacenamiento.
+  const reconocimiento = crearReconocimiento();
+  const segundo = montar({ almacen, reconocimiento });
+  segundo.reconocimiento = reconocimiento;
+  clic(segundo.vista.botonDictar);
+
+  // Assert: sin aviso y con micrófono activo.
+  assert.equal(segundo.vista.aviso.open, false);
+  assert.equal(reconocimiento.instancias.length, 1);
+  assert.equal(reconocimiento.ultima().iniciado, 1);
+});
+
+test("T006 el aviso no se restaura como dictado al cargar la página", () => {
+  // Arrange: aviso aceptado de una visita anterior.
+  const almacen = crearAlmacen({ carvajal_voz_aviso_dictado: "1" });
+  const reconocimiento = crearReconocimiento();
+
+  // Act
+  const montaje = montar({ almacen, reconocimiento });
+
+  // Assert: cargar no inicia reconocimiento.
+  assert.equal(reconocimiento.instancias.length, 0);
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "false");
+});
+
+test("T006 el permiso denegado se explica, conserva el borrador y deja escribir", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "pregunta previa";
+  const instancia = iniciarDictado(montaje);
+
+  // Act
+  instancia.error("not-allowed");
+  instancia.fin();
+
+  // Assert
+  assert.match(montaje.vista.estado.textContent, /permiso/i);
+  assert.equal(montaje.vista.nota.hidden, false);
+  assert.match(montaje.vista.nota.textContent, /escribir/i);
+  assert.equal(montaje.vista.entrada.value, "pregunta previa");
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "false");
+  assert.equal(montaje.vista.etiquetaDictar.textContent, "Dictar");
+  assert.equal(montaje.documento.documentElement.dataset.vozEscuchando, undefined);
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
+
+test("T006 el silencio no envía nada, avisa y conserva el borrador", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "borrador";
+  const instancia = iniciarDictado(montaje);
+
+  // Act: solo resultados parciales y fin sin texto final.
+  instancia.resultado("vasos de", { final: false });
+  instancia.fin();
+
+  // Assert
+  assert.match(montaje.vista.estado.textContent, /voz|oír|silencio/i);
+  assert.equal(montaje.vista.entrada.value, "borrador");
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
+
+test("T006 el micrófono se detiene con stop() a los 60 segundos y aprovecha el final", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  const instancia = iniciarDictado(montaje);
+
+  // Act: antes del límite sigue escuchando.
+  montaje.reloj.avanzar(59999);
+  assert.equal(instancia.detenido, 0);
+
+  // Act: al límite se pide el final, no se descarta.
+  montaje.reloj.avanzar(1);
+  assert.equal(instancia.detenido, 1);
+  assert.equal(instancia.abortado, 0);
+  instancia.resultado("necesito vasos de café");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.vista.entrada.value, "necesito vasos de café");
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
+
+test("T006 el texto respeta el tope de 500 sin cortar un par sustituto", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "x".repeat(498);
+  montaje.vista.entrada.selectionStart = 498;
+  montaje.vista.entrada.selectionEnd = 498;
+  const instancia = iniciarDictado(montaje);
+
+  // Act: dos emojis (dos pares sustitutos de 2 unidades cada uno).
+  instancia.resultado("😀😀");
+  instancia.fin();
+
+  // Assert: entra un solo emoji completo, sin un sustituto suelto.
+  const valor = montaje.vista.entrada.value;
+  assert.equal(valor.length, 500);
+  assert.equal(valor.endsWith("😀"), true);
+  assert.equal(Array.from(valor.slice(498)).length, 1);
+  assert.match(montaje.vista.estado.textContent, /recort/i);
+});
+
+test("T006 con el borrador lleno no se inserta nada y se avisa", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "y".repeat(500);
+  const instancia = iniciarDictado(montaje);
+
+  // Act
+  instancia.resultado("texto nuevo");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.vista.entrada.value, "y".repeat(500));
+  assert.match(montaje.vista.estado.textContent, /500|recort/i);
+});
+
+test("T010 el dictado se inserta en el cursor y no envía el formulario", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "vasos  tapas";
+  montaje.vista.entrada.selectionStart = 6;
+  montaje.vista.entrada.selectionEnd = 6;
+  const instancia = iniciarDictado(montaje);
+
+  // Act: se inserta en el cursor, no al final del texto.
+  instancia.resultado("y");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.vista.entrada.value, "vasos y tapas");
+  assert.equal(montaje.vista.entrada.selectionStart, 7);
+  assert.equal(montaje.vista.formulario.enviados, 0);
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "false");
+});
+
+test("T010 reemplaza la selección en lugar de duplicarla", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "vasos de 12 oz";
+  montaje.vista.entrada.selectionStart = 9;
+  montaje.vista.entrada.selectionEnd = 14;
+  const instancia = iniciarDictado(montaje);
+
+  // Act
+  instancia.resultado("16 onzas");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.vista.entrada.value, "vasos de 16 onzas");
+});
+
+test("T010 normaliza cantidades inequívocas y deja el texto ambiguo intacto", () => {
+  // Arrange
+  const { normalizarCantidades } = cargarVoz().window.CarvajalVoz;
+
+  // Act / Assert: junto a unidades y productos comerciales.
+  assert.equal(
+    normalizarCantidades("necesito doce onzas para café"),
+    "necesito 12 onzas para café",
+  );
+  assert.equal(normalizarCantidades("cinco mil vasos"), "5.000 vasos");
+  assert.equal(normalizarCantidades("treinta y dos contenedores"), "32 contenedores");
+  assert.equal(normalizarCantidades("mil doscientos platos"), "1.200 platos");
+  assert.equal(normalizarCantidades("veintiún tapas"), "21 tapas");
+
+  // Assert: sin unidad comercial no se toca (fechas, años, lenguaje suelto).
+  assert.equal(normalizarCantidades("el doce de octubre"), "el doce de octubre");
+  assert.equal(normalizarCantidades("dos mil veinticuatro"), "dos mil veinticuatro");
+  assert.equal(normalizarCantidades("un vaso"), "un vaso");
+});
+
+test("T006 los callbacks tardíos de un ciclo cancelado no escriben ni hablan", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "";
+  const primera = iniciarDictado(montaje);
+
+  // Act: cancelar con Escape y abrir un ciclo nuevo.
+  tecla(montaje.documento, "Escape");
+  assert.equal(primera.abortado, 1);
+  assert.equal(montaje.vista.entrada.value, "");
+  const segunda = iniciarDictado(montaje);
+
+  // Act: el ciclo viejo responde tarde; el nuevo responde ahora.
+  primera.resultado("viejo");
+  primera.fin();
+  segunda.resultado("nuevo");
+  segunda.fin();
+
+  // Assert
+  assert.equal(montaje.vista.entrada.value, "nuevo");
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
+
+test("T006 un error de red se explica sin perder el borrador", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+  montaje.vista.entrada.value = "respaldo";
+  const instancia = iniciarDictado(montaje);
+
+  // Act
+  instancia.error("network");
+  instancia.fin();
+
+  // Assert
+  assert.match(montaje.vista.estado.textContent, /dictado|red|conexión|intenta/i);
+  assert.equal(montaje.vista.entrada.value, "respaldo");
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
 });

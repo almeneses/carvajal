@@ -78,6 +78,26 @@ partir de preferencias apagadas).
 4. Probar error de red, permiso revocado y cuota agotada: el modo termina y el
    chat escrito sigue disponible.
 
+## T011 · paridad de ruta y campos (validación local)
+
+Tres preguntas del conjunto de evaluación, con la forma dictada (números con
+palabras, como los devuelve el reconocimiento) y la forma escrita canónica. La
+normalización del borde de dictado (`normalizarCantidades` en
+`apps/api/static/chat-voice.js`) produce la forma escrita; el router extrae los
+mismos campos. No es la medición de SC-001 (esa exige voces reales).
+
+| Pregunta escrita | Forma dictada | Normalizada | Ruta | Campos extraídos |
+|---|---|---|---|---|
+| `necesito vasos para café caliente de 12 oz` | `…de doce onzas` | `…de 12 onzas` | `commercial` | `bebida_caliente`, `vaso`, `capacity_oz=12` |
+| `vasos para chocolate de 8 oz` | `…de ocho onzas` | `…de 8 onzas` | `commercial` | `bebida_caliente`, `vaso`, `capacity_oz=8` |
+| `tapas para vasos de bebida caliente de 12 oz` | `…de doce onzas` | `…de 12 onzas` | `commercial` | `bebida_caliente`, `tapa`, `capacity_oz=12` |
+| `necesito 5.000 vasos para café caliente de 12 oz` | `necesito cinco mil vasos…` | `necesito 5.000 vasos…` | `commercial` | `vaso`, `quantity=5000`, `capacity_oz=12` |
+
+Comprobación local: `extract_commercial(normalizada) == extract_commercial(escrita)`
+en los cuatro pares (paridad `true`), y ninguna transcripción se envía sola: el
+texto queda en `#pregunta` hasta que la persona pulsa «Enviar». Los navegadores
+sin STT o sin permiso muestran el motivo y conservan la escritura.
+
 ## Registro de intentos (SC-001–SC-003)
 
 | Campo | Cómo se registra |

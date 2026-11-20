@@ -778,3 +778,34 @@ html[data-voz-tts="1"] [data-escuchar] {
     justify-content: center;
   }
 }
+
+/* Aviso previo al primer dictado: explica el posible procesamiento del
+   navegador y deja continuar o cancelar sin abrir el micrófono. */
+.voz-aviso {
+  max-width: 32rem;
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+  padding: 20px;
+  color: var(--texto);
+}
+
+.voz-aviso::backdrop {
+  background: rgb(15 39 64 / 45%);
+}
+
+.voz-aviso-titulo {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+
+.voz-aviso-texto {
+  margin: 0 0 16px;
+  color: var(--secundario);
+}
+
+.voz-aviso-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
