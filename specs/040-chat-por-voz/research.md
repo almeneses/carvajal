@@ -10,7 +10,9 @@ limitación. Detectar capacidades, no marcas ni versiones de navegador.
 **Por qué:** el [reconocimiento tiene soporte limitado][stt]; puede usar un servidor
 del proveedor del navegador. La [síntesis][tts] tiene mayor alcance y admite pausar,
 reanudar y cancelar. `stop()` intenta devolver lo capturado; `abort()` lo descarta.
-Leer tras `done` evita reproducir fragmentos parciales o cortar frases en el MVP.
+Leer automáticamente tras `done` evita reproducir fragmentos parciales. El POST sin
+streaming redirige al historial y no distingue una respuesta nueva de una recarga,
+por lo que ese camino ofrece solo lectura manual.
 
 **Alternativas:** no usar STT/TTS del servidor, `MediaRecorder`, SDK externos ni exigir
 paquetes experimentales de reconocimiento local. No se promete funcionamiento offline.
@@ -38,7 +40,7 @@ en producción.
 cantidades comerciales en el borrador dictado; dejar intactos nombres, SKU y texto
 ambiguo. Utilizar el mismo input y envío de hoy. Guardar únicamente dos booleanos:
 aviso confirmado y lectura automática. Manos libres es temporal, no se reactiva al
-recargar.
+recargar y exige un borrador vacío. Escribir desactiva el modo sin alterar el texto.
 
 **Por qué:** el parser por reglas de `commercial_intent.py` usa patrones numéricos,
 no convierte «doce onzas» ni «cinco mil vasos». Normalizar en el borde del dictado

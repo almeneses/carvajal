@@ -17,9 +17,9 @@ sin alterar el flujo de seguridad del chat.
 | Servidor | FastAPI/Jinja2, formulario y SSE actuales (`POST /chat`, `POST /chat/stream`); sin contrato HTTP nuevo |
 | Micrófono | Contexto seguro: `localhost` para pruebas, HTTPS en despliegue y `microphone=(self)` solo para el documento del chat |
 | Almacenamiento | En `localStorage`, solo preferencias booleanas por navegador/origen; el historial guarda solo texto enviado, como hoy |
-| Pruebas | `pytest` para plantillas y seguridad, `node --test` con dobles de voz y pruebas reales de navegador para compatibilidad, accesibilidad y latencia |
+| Pruebas | `pytest` para plantillas y seguridad, `node --test` con dobles de voz en el check `Calidad` y pruebas reales de navegador para compatibilidad, accesibilidad y latencia |
 | Metas | Paridad de ruta y campos ≥90 %; dictado p95 <3 s, lectura p95 <2 s; ningún audio persistido; sin errores nuevos de accesibilidad |
-| Alcance | Español de Colombia y México, sin SDK de voz, cambios al enrutador, migraciones ni dependencia de la 039 |
+| Alcance | Español de Colombia y México, sin SDK de voz, cambios al enrutador, migraciones, límite nuevo por IP en el chat ni dependencia de la 039 |
 
 ## Constitution Check
 
@@ -28,7 +28,7 @@ sin alterar el flujo de seguridad del chat.
 | I. Constitución | §2 admite dictado y lectura desde el navegador sin guardar audio. El permiso se limita al documento de chat y se documentará al implementarlo. |
 | II. Corpus | No se modifica Gold, PostgreSQL, Qdrant ni el catálogo. |
 | III. Fuentes | Se leen títulos y datos renderizados; no se recalculan precios ni se generan citas extra. |
-| IV. Calidad | Se conserva `uv`/`make check`; los dobles de voz no requieren micrófono ni red. Las mediciones reales tienen protocolo separado. |
+| IV. Calidad | Se conserva `uv`/`make check`; `Calidad` ejecutará también los dobles de voz con la versión de Node fijada en T002. Los dobles no requieren micrófono ni red; las mediciones reales tienen protocolo separado. |
 | V. Captura responsable | No se añade captura web, se conservan CSRF y cuota; el visitante conoce el posible procesamiento externo del navegador antes de usar voz. |
 | VI. Pull Requests | Plan y tareas a `dev`; implementación por incrementos revisables. |
 
@@ -48,6 +48,7 @@ para planificar ni validar en `localhost`.
 - `apps/api/security.py`: política de micrófono acotada al documento del chat.
 - `tests/test_security.py`, `tests/test_api_chat.py`, `tests/test_productos.py` y
   `tests/js/test_chat_voice.cjs`: pruebas de servidor, render y cliente.
+- `.github/workflows/ci.yml`: integrar la suite JS en `Calidad` al introducirla.
 
 La lectura toma las tarjetas del DOM. Los marcadores se pactan con la 039 si cambia
 `_productos.html`; la voz no depende de que esa spec se fusione ni de su esquema de datos.
@@ -56,13 +57,15 @@ La lectura toma las tarjetas del DOM. Los marcadores se pactan con la 039 si cam
 
 1. **US1 — dictado**: detección de soporte, aviso previo, transcripción revisable y envío
    por el formulario normal. Normalización conservadora de cantidades/capacidades en la
-   transcripción, no en el enrutador.
+   transcripción, no en el enrutador. Se conservan la cuota por visitante, el límite de
+   longitud y los controles de seguridad en ambos POST.
 2. **US2 — lectura**: respuestas del historial y del stream, con pausa, reanudación y
-   parada; lectura automática opcional solo al finalizar un turno visible. Tarjetas y
-   citas leídas desde sus datos renderizados, no desde URLs o SKU.
+   parada; lectura automática opcional solo tras `done` del stream visible. El fallback
+   sin streaming y el historial conservan lectura manual. Tarjetas y citas leídas desde
+   sus datos renderizados, no desde URLs o SKU.
 3. **US3 — manos libres (posterior al MVP)**: reescucha tras síntesis normal, envío
-   explícitamente autorizado por ese modo, salida por silencio/comando y parada segura
-   si falla una capacidad o acaba la cuota.
+   solo de la transcripción del ciclo activo con borrador vacío, salida por escritura
+   manual (se conserva el borrador), silencio/comando, fallo o cuota agotada.
 
 Ver [investigación](research.md), [estados y datos](data-model.md),
 [contrato de interfaz](contracts/chat-voz.md) y [validación](quickstart.md).

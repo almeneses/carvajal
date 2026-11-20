@@ -14,6 +14,15 @@ el chat le hable a uno también."
   capacidades nativas. El audio no pasa por el servidor del proyecto; la calidad y el
   soporte dependen del navegador, y donde no hay soporte el chat sigue siendo escrito.
 
+### Decisiones de alcance tras la revisión del PR #184
+
+- El chat por voz conserva la cuota por visitante, el límite de longitud y las
+  protecciones actuales. Añadir un límite por IP al chat queda fuera de la 040.
+- La lectura automática se ofrece tras completar una respuesta recibida por
+  streaming. Sin streaming sigue disponible «Escuchar» manual.
+- Manos libres solo se activa con el borrador vacío. Si la persona escribe
+  durante el modo, se desactiva y conserva su borrador sin enviarlo.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Dictar una pregunta (Priority: P1)
@@ -52,8 +61,8 @@ misma ruta que con la pregunta escrita.
 ### User Story 2 - Escuchar la respuesta (Priority: P1)
 
 La persona puede oír cualquier respuesta del asistente con un botón «Escuchar», y puede
-activar la opción «Leer respuestas en voz alta» para que las siguientes se lean solas. Puede
-pausar o detener la lectura en cualquier momento.
+activar la opción «Leer respuestas en voz alta» para que las siguientes que lleguen por
+streaming se lean solas. Puede pausar o detener la lectura en cualquier momento.
 
 **Why this priority**: es la otra mitad pedida («que el chat le hable a uno») y aporta
 accesibilidad.
@@ -67,7 +76,8 @@ ven en pantalla.
 1. **Given** una respuesta del asistente, **When** se toca «Escuchar», **Then** se lee en
    voz en español y el botón cambia a «Detener».
 2. **Given** «Leer respuestas en voz alta» activado, **When** termina de llegar una
-   respuesta, **Then** se lee sin otra acción; la preferencia se recuerda para ese visitante.
+   respuesta por streaming, **Then** se lee sin otra acción; la preferencia se recuerda
+   para ese visitante.
 3. **Given** una respuesta con tarjetas de producto, **When** se lee, **Then** se dice el
    nombre, las cajas y el precio con su moneda y su fecha exactamente como en pantalla, y se
    omiten URLs y códigos técnicos.
@@ -75,6 +85,8 @@ ven en pantalla.
    de la fuente en lugar de leer los enlaces.
 5. **Given** que la persona empieza a dictar mientras se lee una respuesta, **When** toca el
    micrófono, **Then** la lectura se detiene.
+6. **Given** la lectura automática activada, **When** la respuesta llega sin streaming
+   o se abre de nuevo el historial, **Then** no se reproduce sola y «Escuchar» sigue disponible.
 
 ---
 
@@ -98,6 +110,9 @@ que el segundo turno conserva el contexto del primero.
    se envía sin revisión manual y se muestra en el hilo como un mensaje normal.
 3. **Given** 10 segundos sin voz o la palabra «terminar», **When** ocurre, **Then** el modo
    se apaga.
+4. **Given** un borrador no vacío, **When** la persona intenta activar manos libres,
+   **Then** el modo no se activa y el borrador queda intacto. Si escribe con el modo
+   activo, este se apaga y ningún resultado tardío se envía ni reemplaza lo escrito.
 
 ---
 
@@ -110,8 +125,8 @@ que el segundo turno conserva el contexto del primero.
   la escrita.
 - Lector de pantalla activo: la lectura automática queda apagada por defecto para no
   duplicar la voz; «Escuchar» sigue disponible.
-- Respuesta que todavía está llegando por streaming: se lee al completarse; en modo
-  automático puede empezar por frases completas.
+- Respuesta que todavía está llegando por streaming: se lee solo al completarse, incluso
+  en modo automático.
 - Varios hilos o pestañas: solo se lee la respuesta del hilo visible.
 - Cuota diaria agotada: el dictado funciona, pero el envío respeta la cuota como cualquier
   pregunta.
@@ -131,19 +146,21 @@ que el segundo turno conserva el contexto del primero.
   una pregunta escrita.
 - **FR-006**: Cada respuesta del asistente MUST poder escucharse con un control de lectura
   que permita pausar y detener.
-- **FR-007**: El visitante MUST poder activar la lectura automática de respuestas; la opción
-  MUST recordarse por visitante y estar apagada por defecto.
+- **FR-007**: El visitante MUST poder activar la lectura automática al completarse las
+  respuestas por streaming. La opción MUST recordarse por visitante y estar apagada por
+  defecto. Sin streaming y al abrir el historial, la lectura es solo manual.
 - **FR-008**: La lectura de tarjetas de producto MUST decir los mismos datos de cantidad,
   precio, moneda y fecha que se muestran, sin leer URLs ni códigos técnicos.
 - **FR-009**: Sin micrófono, sin permiso o sin soporte del navegador, el chat MUST seguir
   funcionando por escrito y explicar la limitación.
 - **FR-010**: Los controles de voz MUST operarse con teclado y tener nombres accesibles,
   conforme al nivel de accesibilidad del chat (spec 024).
-- **FR-011**: El envío del texto dictado MUST respetar la cuota diaria, los límites por IP y
-  la seguridad del chat (CSRF, CSP); el dictado y la lectura ocurren en el navegador y no
-  consumen cuota.
-- **FR-012**: El modo manos libres MUST poder activarse y desactivarse, y apagarse solo tras
-  10 segundos de silencio o con la palabra «terminar» (P3).
+- **FR-011**: El envío del texto dictado MUST respetar la cuota diaria por visitante,
+  el límite de longitud y la seguridad actual del chat (CSRF, CSP). Dictar o leer
+  sin enviar no consume cuota. La 040 no incorpora un límite nuevo por IP.
+- **FR-012**: El modo manos libres MUST poder activarse y desactivarse, y apagarse automáticamente tras
+  10 segundos de silencio o con la palabra «terminar» (P3). MUST exigir borrador vacío
+  para activarse, desactivarse ante escritura manual y conservar ese texto sin enviarlo.
 - **FR-013**: El audio MUST procesarse en el navegador y no MUST enviarse al servidor del
   proyecto. Antes del primer dictado, el chat MUST avisar que el navegador puede procesar
   la voz con su propio servicio.
