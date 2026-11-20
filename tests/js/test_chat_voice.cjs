@@ -933,3 +933,19 @@ test("T006 un error de red se explica sin perder el borrador", () => {
   assert.equal(montaje.vista.formulario.enviados, 0);
 });
 });
+
+test("T002 montar dos veces no duplica listeners ni micrófonos", () => {
+  // Arrange
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({ reconocimiento });
+  montaje.reconocimiento = reconocimiento;
+
+  // Act: un remontaje accidental.
+  montaje.controlador.mount();
+  clic(montaje.vista.botonDictar);
+  clic(montaje.vista.avisoAceptar);
+
+  // Assert
+  assert.equal(reconocimiento.instancias.length, 1);
+  assert.equal(reconocimiento.ultima().iniciado, 1);
+});
