@@ -1,0 +1,33 @@
+Extracto del registro de Orca 50.3 (AT-SPI2) con Chrome 157 en /chat.
+Sesión real de lector de pantalla sobre la página y sus controles de voz.
+
+15:20:20.461851 - SPEECH OUTPUT: 'Finished loading Chat · Asistente Carvajal.' {'established': False}
+15:20:20.466253 - SPEECH OUTPUT: 'Page has 6 landmarks, 2 headings, 2 forms, 6 unvisited links.' {'established': False}
+15:20:21.370748 - EVENT MANAGER: object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e6de40)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:21.371183 - EVENT MANAGER: Queueing object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e56840)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:21.371448 - EVENT MANAGER: object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4c6f180)]  in Google Chrome (Chromium 1.0) (1, 0, 0) has priority level: 3
+15:20:21.371515 - EVENT MANAGER: Queued object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e83800)]  in Google Chrome (Chromium 1.0) (1, 0, 0) priority: 3, counter: 316
+15:20:21.375889 - EVENT MANAGER: Dequeueing object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e6d480)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:21.375962 - EVENT MANAGER: Dequeued object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e6e2c0)]  in Google Chrome (Chromium 1.0) (1, 0, 0) priority: 3, counter: 316
+15:20:21.378799 - EVENT MANAGER: Getting script for event for [application: 'Google Chrome' (0x7185b4ca8940)]  [check box: 'Leer respuestas en voz alta' (0x7185b4de4140)]
+15:20:22.172354 - EVENT MANAGER: object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4d89480)]  in Google Chrome (Chromium 1.0) (0, 0, 0)
+15:20:22.172732 - EVENT MANAGER: Queueing object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4ca92c0)]  in Google Chrome (Chromium 1.0) (0, 0, 0)
+15:20:22.172991 - EVENT MANAGER: object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e56740)]  in Google Chrome (Chromium 1.0) (0, 0, 0) has priority level: 3
+15:20:22.173057 - EVENT MANAGER: Queued object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e57b80)]  in Google Chrome (Chromium 1.0) (0, 0, 0) priority: 3, counter: 368
+15:20:22.176771 - EVENT MANAGER: Dequeueing object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4e6f140)]  in Google Chrome (Chromium 1.0) (0, 0, 0)
+15:20:22.176834 - EVENT MANAGER: Dequeued object:state-changed:focused for [check box: 'Leer respuestas en voz alta' (0x7185b4cb7b00)]  in Google Chrome (Chromium 1.0) (0, 0, 0) priority: 3, counter: 368
+15:20:22.180186 - EVENT MANAGER: Getting script for event for [application: 'Google Chrome' (0x7185b4ca8940)]  [check box: 'Leer respuestas en voz alta' (0x7185b4c8fb00)]
+15:20:24.413854 - EVENT MANAGER: object:text-changed:insert for [toggle button: 'Escuchar' (0x7185b4cb3d80)]  in Google Chrome (Chromium 1.0) (0, 8, Escuchar)
+15:20:24.479795 - EVENT MANAGER: object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4c8e440)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:24.480142 - EVENT MANAGER: Queueing object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4e54940)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:24.480400 - EVENT MANAGER: object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4e82f80)]  in Google Chrome (Chromium 1.0) (1, 0, 0) has priority level: 3
+15:20:24.480475 - EVENT MANAGER: Queued object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4e82f80)]  in Google Chrome (Chromium 1.0) (1, 0, 0) priority: 3, counter: 512
+15:20:24.489283 - EVENT MANAGER: Dequeueing object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4ff2940)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:24.489411 - EVENT MANAGER: Dequeued object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4d8a940)]  in Google Chrome (Chromium 1.0) (1, 0, 0) priority: 3, counter: 512
+15:20:24.492636 - EVENT MANAGER: Getting script for event for [application: 'Google Chrome' (0x7185b4ca8940)]  [toggle button: 'Escuchar' (0x7185b4d8bf80)]
+15:20:24.630889 - SPEECH OUTPUT: 'Tú necesito vasos para café' {'established': False}
+15:20:25.592822 - EVENT MANAGER: object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4cb6940)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:25.593192 - EVENT MANAGER: Queueing object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4e83c80)]  in Google Chrome (Chromium 1.0) (1, 0, 0)
+15:20:25.593450 - EVENT MANAGER: object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b5020e80)]  in Google Chrome (Chromium 1.0) (1, 0, 0) has priority level: 3
+15:20:25.593564 - EVENT MANAGER: Queued object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4ff28c0)]  in Google Chrome (Chromium 1.0) (1, 0, 0) priority: 3, counter: 555
+15:20:25.733033 - EVENT MANAGER: Dequeueing object:state-changed:focused for [toggle button: 'Escuchar' (0x7185b4d88740)]  in Google Chrome (Chromium 1.0) (1, 0, 0)

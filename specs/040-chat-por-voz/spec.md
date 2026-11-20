@@ -2,8 +2,8 @@
 
 **Feature Branch**: `040-chat-por-voz`
 **Created**: 2026-11-17
-**Status**: Implementada (US1–US3). SC-001–SC-003 pendientes de medición con
-voces y micrófono reales; ver [evidencia](evidencia.md).
+**Status**: Implementada y validada (US1–US3); SC-001–SC-005 verificados el
+2026-11-20 con dos voces y micrófono real. Ver [evidencia](evidencia.md).
 **Input**: User description: "Incluir el servicio para que se le pueda dictar al chat y que
 el chat le hable a uno también."
 
@@ -193,15 +193,12 @@ que el segundo turno conserva el contexto del primero.
 
 ## Estado de la entrega
 
-Dictado, lectura y manos libres están implementados y verificados con pruebas de
-servidor, dobles de voz y un recorrido de Chromium real
-([evidencia](evidencia.md)). SC-004 y SC-005 se cumplen. SC-001, SC-002 y
-SC-003 no se han medido: requieren micrófono, al menos dos voces y el servicio
-de reconocimiento/síntesis del navegador, ausentes en el entorno de validación.
-T017 mantiene pendiente la prueba con lector de pantalla real y la política de
-reproducción automática del navegador; el teclado y la estructura accesible ya
-se verificaron. En el despliegue por HTTP/IP no se ofrece dictado hasta
-publicar por HTTPS.
+Dictado, lectura y manos libres están implementados y verificados. La medición
+real del 2026-11-20, con Chrome 157/Linux, micrófono AT2020USB+ y dos voces,
+dio SC-001 = 36/40 (90,0 %), SC-002 p95 = 231 ms, SC-003 p95 = 36 ms, SC-004 sin
+audio persistido y SC-005 sin errores nuevos de axe; el lector Orca anunció los
+controles y estados. Detalle y datos crudos en [evidencia](evidencia.md). En el
+despliegue por HTTP/IP no se ofrece dictado hasta publicar por HTTPS.
 
 ## Assumptions
 

@@ -37,6 +37,28 @@ La salida es un JSON con `pasos`, `errores`, `red` y `axe`; el código de salida
 es distinto de cero si algún paso falla. Registrar el resultado en
 [`specs/040-chat-por-voz/evidencia.md`](../../../specs/040-chat-por-voz/evidencia.md).
 
+## Medición real (SC-001–SC-003)
+
+Con micrófono y voces instaladas:
+
+```bash
+# Dictado: 20 preguntas por voz (dos ventanas, una por persona)
+NODE_PATH=/tmp/cv040/node_modules SALIDA=/tmp/voz1.jsonl VOZ="Voz 1 · " \
+  node tests/browser/chat_voz_040/medir_dictado.cjs
+NODE_PATH=/tmp/cv040/node_modules SALIDA=/tmp/voz2.jsonl VOZ="Voz 2 · " \
+  node tests/browser/chat_voz_040/medir_dictado.cjs
+
+# Lectura: 40 intentos
+NODE_PATH=/tmp/cv040/node_modules SALIDA=/tmp/sc003.json \
+  node tests/browser/chat_voz_040/medir_sc003.cjs
+
+# Paridad de ruta/campos y p95
+uv run python tests/browser/chat_voz_040/analizar_paridad.py /tmp/voz1.jsonl /tmp/voz2.jsonl
+```
+
+Requiere Chrome con reconocimiento en español y `speech-dispatcher` con voz
+`es-*`. No se ejecuta en CI.
+
 ## Límites
 
 - `speechSynthesis` y `SpeechRecognition` son dobles: miden el comportamiento

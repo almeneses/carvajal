@@ -98,8 +98,8 @@ con `--admin`.
   y evaluación. La evidencia de SC-001…SC-005 está en `docs/evidence/m2/monitoring.md`.
   La raíz puede incluir `agent_id` y `agent_environment` como metadatos opcionales.
 - La spec 039 (catálogo de Colombia con precios en COP) está implementada. La 040 (chat
-  por voz) está implementada (US1–US3); SC-001–SC-003 siguen pendientes de medir con voces
-  y micrófono reales, y T017 de un lector de pantalla real.
+  por voz) está implementada y validada el 2026-11-20: SC-001 = 36/40 (90,0 %), SC-002
+  p95 = 231 ms, SC-003 p95 = 36 ms, SC-004/005 cumplidos con micrófono y dos voces.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
