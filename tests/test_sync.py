@@ -822,6 +822,30 @@ def test_un_slug_repetido_no_borra_la_coleccion(tmp_path: Path) -> None:
     assert store.document_ids("core") == {"historia"}
 
 
+def test_recreate_reembebe_aunque_el_texto_no_cambie(tmp_path: Path) -> None:
+    """Cambiar de modelo exige ``--recreate``: el atajo de payload no valida el embedder."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "v1", cuerpo="Fundada en Cali.")
+    store = _store("recreate-modelo")
+    embedder = _Embedder()
+    index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+    llamadas = embedder.llamadas
+
+    # Act: el corpus no cambia, pero se pide reconstruir la colección.
+    report = index_gold(gold_dir=nucleo, store=store, embedder=embedder, recreate=True)
+
+    # Assert
+    assert embedder.llamadas > llamadas
+    assert report.recreated is True
+    assert report.indexed == report.chunks == 1
+    assert report.updated == 0
+    assert store.count() == report.points == 1
+
+
 def test_la_procedencia_solo_cambia_la_huella_del_indice(tmp_path: Path) -> None:
     """Corregir origin/category/entity fuerza reindexación sin tocar PostgreSQL."""
 

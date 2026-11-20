@@ -84,6 +84,11 @@ def index_gold(
     embedder. Sin esta distinción, corregir la procedencia de un corpus de
     decenas de miles de fragmentos disparaba un re-embedding completo.
 
+    El atajo no consulta al embedder y por eso no valida su dimensión: no
+    escribe vectores y el guard de ``_vector`` protege la escritura, no el
+    reposo. Al cambiar el modelo de embeddings hay que reconstruir con
+    ``recreate``; el índice no registra qué modelo produjo cada vector.
+
     ``prune_layers`` permite podar también una capa seleccionada sin directorios
     (una capa vacía): sin ella, retirar la última fuente extendida dejaría sus
     puntos en el índice.
