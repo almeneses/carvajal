@@ -30,7 +30,7 @@ $ node --test tests/js/test_chat_voice.cjs      # Node 24.16.0
 tests 65 / pass 65 / fail 0
 
 $ NODE_PATH=<deps> node tests/browser/chat_voz_040/validar.cjs
-32 pasos / 0 fallos / exit 0
+36 pasos / 0 fallos / exit 0
 axe: base 0, después 0, nuevos 0
 ```
 
@@ -38,7 +38,7 @@ El arnés de navegador (`tests/browser/chat_voz_040/`) usa Chromium real con
 dobles de `SpeechRecognition`/`speechSynthesis` y un SSE falso. **No corre en
 `make check` ni en CI**; instrucciones en su `README.md`.
 
-## Recorrido de navegador (32 comprobaciones)
+## Recorrido de navegador (36 comprobaciones)
 
 1. Controles visibles con STT, TTS y contexto seguro; autolectura apagada por
    defecto; botones `type="button"` con nombre accesible; estado `role="status"`.
@@ -55,7 +55,8 @@ dobles de `SpeechRecognition`/`speechSynthesis` y un SSE falso. **No corre en
 8. Fallo del stream en manos libres: **no hay POST de rescate**, el texto vuelve
    al borrador y el modo se apaga con aviso.
 9. Privacidad: sin peticiones de audio, sin IndexedDB, preferencias booleanas.
-10. axe sin violaciones nuevas.
+10. fallback sin `chat-stream.js`: POST normal, historial con «Escuchar» y lectura manual tras recargar; la política de autoplay (sin `onstart`) no finge que lee.
+11. axe sin violaciones nuevas.
 
 Cuerpo real de los POST observados (sin campos de voz):
 

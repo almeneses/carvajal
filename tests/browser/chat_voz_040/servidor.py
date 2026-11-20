@@ -13,7 +13,8 @@ import uvicorn
 from apps.api.chat.identity import SignedCookieIdentity
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import Handlers, HealthStatus, create_app
-from carvajal.application.ask import Source
+from carvajal.adapters.storage.chat import ChatMessage
+from carvajal.application.ask import Answer, Source
 from carvajal.application.quota import QuotaResult
 
 SOURCE = Source("manual", "Manual de empaques", "manual", "core", 0.9, "Fragmento del manual.")
@@ -42,8 +43,11 @@ PRODUCTOS = """
 
 
 class FakeChat:
+    def __init__(self) -> None:
+        self.mensajes: list[ChatMessage] = []
+
     def history(self, owner_key: str, thread_id: str | None = None) -> list[object]:
-        return []
+        return list(self.mensajes)
 
     def conversations(self, owner_key: str) -> list[object]:
         return []
@@ -61,8 +65,32 @@ class FakeChat:
             updated_at=ahora,
         )
 
-    def ask(self, owner_key: str, question: str, **kwargs: object) -> object:
-        raise AssertionError("el flujo de voz usa el stream")
+    def ask(self, owner_key: str, question: str, **kwargs: object) -> Answer:
+        """Ruta sin streaming (fallback): persiste y redirige al historial."""
+        from datetime import UTC, datetime
+
+        ahora = datetime(2026, 11, 20, tzinfo=UTC)
+        self.mensajes.append(
+            ChatMessage(
+                id="u-e2e",
+                conversation_id="hilo-e2e",
+                role="user",
+                content=question,
+                sources=None,
+                created_at=ahora,
+            )
+        )
+        self.mensajes.append(
+            ChatMessage(
+                id="a-e2e",
+                conversation_id="hilo-e2e",
+                role="assistant",
+                content="Respuesta sin streaming para la prueba.",
+                sources=[asdict(SOURCE)],
+                created_at=ahora,
+            )
+        )
+        return Answer("Respuesta sin streaming para la prueba.", (SOURCE,))
 
     def stream(self, owner_key: str, question: str, **kwargs: object) -> Iterator[ChatEvent]:
         yield ChatEvent("open", {"stream": "chat"})

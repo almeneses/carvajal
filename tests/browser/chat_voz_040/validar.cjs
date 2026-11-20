@@ -420,6 +420,55 @@ async function main() {
   );
   paso("sin IndexedDB", bases.length === 0, JSON.stringify(bases));
 
+  // 8a. Política de reproducción automática: sin onstart no se finge leer.
+  await pagina.evaluate(() => {
+    window.speechSynthesis.speak = function (locucion) {
+      window.__vozE2E.locuciones.push(locucion.text);
+    };
+  });
+  await pagina.click("#hilo .turno-assistant [data-voz-accion='escuchar']");
+  const autoplay = await pagina.evaluate(() => ({
+    leyendo: document.querySelector(".voz")._controladorVoz.estado.leyendo,
+    pulsado: document
+      .querySelector("#hilo .turno-assistant [data-voz-accion='escuchar']")
+      .getAttribute("aria-pressed"),
+  }));
+  paso(
+    "si el navegador bloquea el audio no se marca como leyendo",
+    autoplay.leyendo === false && autoplay.pulsado === "false",
+    JSON.stringify(autoplay),
+  );
+
+  // 8b. Fallback sin streaming: POST normal, historial y lectura manual.
+  const ctxSinStream = await navegador.newContext({ locale: "es-CO" });
+  const pSinStream = await ctxSinStream.newPage();
+  await pSinStream.addInitScript(INIT_FAKES);
+  await pSinStream.route("**/static/chat-stream.js", (ruta) => ruta.abort());
+  await pSinStream.goto(URL_CHAT, { waitUntil: "networkidle" });
+  await pSinStream.fill("#pregunta", "pregunta sin streaming");
+  await pSinStream.click('form[data-chat-stream] button[type="submit"]');
+  await pSinStream.waitForLoadState("networkidle");
+  const historial = await pSinStream.evaluate(() => ({
+    escuchar: document.querySelectorAll("#hilo .turno-assistant [data-voz-accion='escuchar']").length,
+    locuciones: window.__vozE2E.locuciones.length,
+  }));
+  paso(
+    "el fallback sin streaming deja «Escuchar» en el historial",
+    historial.escuchar >= 1,
+    JSON.stringify(historial),
+  );
+  paso("al recargar el historial no suena solo", historial.locuciones === 0);
+  await pSinStream.click("#hilo .turno-assistant [data-voz-accion='escuchar']");
+  const leidoSinStream = await pSinStream.evaluate(() =>
+    window.__vozE2E.locuciones.join(" "),
+  );
+  paso(
+    "la lectura manual funciona tras el POST sin streaming",
+    /Respuesta sin streaming/.test(leidoSinStream),
+    leidoSinStream,
+  );
+  await ctxSinStream.close();
+
   // 9. axe: antes (sin chat-voice.js) y después.
   async function escanear(bloquearVoz) {
     // bypassCSP solo para inyectar axe desde el runner local; la página real

@@ -3,7 +3,7 @@
 Arnés local, **fuera de `make check` y de CI**, para ejecutar el chat real en
 Chromium con dobles de `SpeechRecognition` y `speechSynthesis`. Comprueba
 avisos, dictado sin autoenvío, lectura de tarjetas y citas, autolectura tras
-`done`, manos libres, fallo del stream, privacidad y axe.
+`done`, manos libres, fallo del stream, privacidad, fallback sin streaming y axe.
 
 No sustituye la medición de SC-001–SC-003 con voces y micrófono reales.
 
