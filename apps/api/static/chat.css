@@ -786,7 +786,6 @@ html[data-voz-tts="1"] [data-escuchar] {
   border: 1px solid var(--borde);
   border-radius: 16px;
   padding: 20px;
-  color: var(--texto);
 }
 
 .voz-aviso::backdrop {
