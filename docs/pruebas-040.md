@@ -110,6 +110,15 @@ en los cuatro pares (paridad `true`), y ninguna transcripción se envía sola: e
 texto queda en `#pregunta` hasta que la persona pulsa «Enviar». Los navegadores
 sin STT o sin permiso muestran el motivo y conservan la escritura.
 
+## Arnés de navegador
+
+`tests/browser/chat_voz_040/` ejecuta un recorrido de Chromium con dobles de voz
+y un SSE falso (36 comprobaciones: dictado, lectura, manos libres, fallo del
+stream, fallback sin streaming, autoplay, privacidad y axe). Instrucciones en su `README.md`; **no** forma parte
+de `make check` ni de CI y no sustituye las mediciones con voces reales. El
+resultado de la última ejecución está en
+[`evidencia.md`](../specs/040-chat-por-voz/evidencia.md).
+
 ## Registro de intentos (SC-001–SC-003)
 
 | Campo | Cómo se registra |
