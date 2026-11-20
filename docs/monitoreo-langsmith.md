@@ -26,15 +26,23 @@ petición, así que no se sube.
 MONITORING_ENABLED=true
 LANGSMITH_API_KEY=lsv2_pt_…
 LANGSMITH_PROJECT=carvajal
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_AGENT_ID=carvajal-dev
+LANGSMITH_AGENT_ENVIRONMENT=local
 MONITORING_SAMPLE_RATE=0.2
 MONITORING_INCLUDE_CONTENT=false
 ```
+
+`LANGSMITH_AGENT_ID` y `LANGSMITH_AGENT_ENVIRONMENT` viajan como metadatos de la
+raíz `chat_turn` (`agent_id`, `agent_environment`): permiten filtrar en
+LangSmith por origen (local, CI, producción) sin abrir un proyecto por entorno
+y sobreviven a la redacción de producción. Vacíos no añaden la clave.
 
 - **Apagar sin tocar el chat**: `MONITORING_ENABLED=false` y reiniciar. No hay
   que cambiar código ni variables del agente; sin monitoreo no se construye
   cliente ni se abre un socket, y el chat responde igual.
 - `MONITORING_SAMPLE_RATE=0` equivale a apagado.
-- `LANGSMITH_ENDPOINT` solo se usa para un servicio compatible o pruebas.
+- Si `LANGSMITH_ENDPOINT` está vacío, se usa el servicio público por defecto.
 - El arranque fuerza `LANGSMITH_TRACING` y `LANGCHAIN_TRACING_V2` a `false`:
   el encendido es explícito y por turno, nunca global.
 

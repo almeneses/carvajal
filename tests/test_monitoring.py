@@ -91,6 +91,8 @@ class TestRedaccion:
             "status": "failed",
             "request_id": "req-1",
             "thread_hash": "0123456789abcdef",
+            "agent_id": "carvajal-dev",
+            "agent_environment": "local",
             "router": "rules",
             "outcome": "ok",
         }
@@ -452,6 +454,40 @@ class TestTrazas:
         assert raiz["extra"]["metadata"]["thread_hash"] == "0123456789abcdef"
         assert raiz["extra"]["metadata"]["router"] == "rules"
         assert cliente.actualizaciones[0]["outputs"] == {"outcome": "ok", "answer_chars": 0}
+
+    def test_la_raiz_lleva_la_identidad_del_agente(self) -> None:
+        """``agent_id`` y ``agent_environment`` identifican el origen de la traza."""
+
+        cliente = ClienteFalso()
+        tracer = build_tracer(
+            _settings(langsmith_agent_id="carvajal-dev", langsmith_agent_environment="local"),
+            client=cliente,
+            random_fn=lambda: 0.0,
+        )
+
+        with tracer.turn(
+            request_id="req-10", thread_hash="0123456789abcdef", router="rules", question="hola"
+        ):
+            pass
+
+        metadatos = cliente.runs[0]["extra"]["metadata"]
+        assert metadatos["agent_id"] == "carvajal-dev"
+        assert metadatos["agent_environment"] == "local"
+
+    def test_la_identidad_vacia_no_ensucia_la_traza(self) -> None:
+        """Sin identidad configurada la raíz no inventa claves."""
+
+        cliente = ClienteFalso()
+        tracer = build_tracer(_settings(), client=cliente, random_fn=lambda: 0.0)
+
+        with tracer.turn(
+            request_id="req-11", thread_hash="0123456789abcdef", router="rules", question="hola"
+        ):
+            pass
+
+        metadatos = cliente.runs[0]["extra"]["metadata"]
+        assert "agent_id" not in metadatos
+        assert "agent_environment" not in metadatos
 
     def test_tasa_cero_no_crea_traza(self) -> None:
         """Con la tasa en 0 el turno se ejecuta sin cliente ni raíz."""
