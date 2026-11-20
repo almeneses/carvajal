@@ -1383,6 +1383,7 @@ test("T016 el filtro de códigos también cubre mayúsculas mezcladas", () => {
   // Assert
   assert.equal(/FX-Vaso|sku/i.test(limpio), false, limpio);
   assert.match(limpio, /código 3/);
+});
 
 // ---------------------------------------------------------------------------
 // T018–T021 · US3: conversación manos libres
@@ -1798,6 +1799,40 @@ test("T018 activar manos libres mientras se dicta no deja dos micrófonos", () =
   assert.equal(montaje.controlador.estado.escuchando, true);
   assert.equal(/error/i.test(montaje.vista.estado.textContent), false);
 });
+
+
+test("T018 el reloj se invoca con el window del navegador, no como método ajeno", () => {
+  // Arrange: un setTimeout que solo acepta `this === window`, como Chrome.
+  const documento = crearDocumento();
+  const sandbox = cargarVoz({ documento });
+  sandbox.setTimeout = function () {
+    // El global del navegador tiene `document`; el objeto reloj no.
+    if (!this || this.document !== sandbox.document) throw new TypeError("Illegal invocation");
+    return 0;
+  };
+  const vista = crearVista();
+  const controlador = sandbox.window.CarvajalVoz.createVoiceController({
+    vista,
+    documento,
+    almacen: sandbox.localStorage,
+    reconocimiento: sandbox.SpeechRecognition,
+    sintesis: sandbox.speechSynthesis,
+    Utterance: sandbox.SpeechSynthesisUtterance,
+    segura: true,
+    streaming: true,
+    // Sin reloj explícito: debe usar el del navegador correctamente.
+  });
+  controlador.mount();
+  vista.entrada.value = "";
+
+  // Act / Assert: activar manos libres arranca el temporizador de silencio.
+  assert.doesNotThrow(() => {
+    clic(vista.botonManosLibres);
+    clic(vista.manosAceptar);
+    clic(vista.avisoAceptar);
+  });
+  assert.equal(controlador.manosLibres.activo, true);
+
 });
 
 test("T002 el script se carga sin window (SSR o runner) sin romper", () => {

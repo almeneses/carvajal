@@ -334,7 +334,13 @@
     const Reconocimiento = opciones.reconocimiento || null;
     const sintesis = opciones.sintesis || null;
     const Utterance = opciones.Utterance || null;
-    const reloj = opciones.reloj || { setTimeout, clearTimeout, now: () => Date.now() };
+    // Los timers del navegador exigen `this === window`: se envuelven para no
+    // invocarlos como método de otro objeto (TypeError: Illegal invocation).
+    const reloj = opciones.reloj || {
+      setTimeout: (funcion, ms) => window.setTimeout(funcion, ms),
+      clearTimeout: (id) => window.clearTimeout(id),
+      now: () => window.performance.now(),
+    };
     const segura = Boolean(opciones.segura);
 
     const soporte = {
