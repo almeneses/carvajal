@@ -192,9 +192,12 @@
     MENSAJES,
     createVoiceController,
   };
-  window.CarvajalVoz = api;
+  // El script puede cargarse en un runner o en SSR sin `window`; nunca debe
+  // romper la carga por publicar la API o inicializar.
+  const global = typeof window !== "undefined" ? window : globalThis;
+  global.CarvajalVoz = api;
 
-  if (typeof document !== "undefined") {
+  if (typeof window !== "undefined" && typeof document !== "undefined") {
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", init);
     } else {

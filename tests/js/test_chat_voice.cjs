@@ -565,3 +565,17 @@ test("T002 sin síntesis la preferencia de lectura no se ofrece", () => {
   // Assert
   assert.equal(vista.autoLectura.hidden, true);
 });
+
+test("T002 el script se carga sin window (SSR o runner) sin romper", () => {
+  // Arrange: contexto con document pero sin window.
+  const sandbox = { document: { querySelector: () => null }, console };
+  vm.createContext(sandbox);
+
+  // Act
+  assert.doesNotThrow(() => {
+    vm.runInContext(fs.readFileSync(FUENTE, "utf8"), sandbox, { filename: "chat-voice.js" });
+  });
+
+  // Assert
+  assert.equal(typeof sandbox.CarvajalVoz, "object");
+});
