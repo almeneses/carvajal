@@ -21,9 +21,9 @@
         {% if url %}data-documento-url="{{ url | forceescape }}"{% endif %}
         aria-haspopup="dialog"
         aria-controls="panel-documento"
-      ><strong>{{ titulo }}</strong></button>
+      ><strong data-campo="title">{{ titulo }}</strong></button>
       {% else %}
-      <strong>{{ titulo }}</strong>
+      <strong data-campo="title">{{ titulo }}</strong>
       {% endif %}
     </span>
     <span>Sección: {{ source.section or "" }}</span>

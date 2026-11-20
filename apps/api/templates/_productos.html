@@ -77,7 +77,7 @@
         {%- if destacado %}<span class="etiqueta-destacada">Menor precio de referencia</span>{% endif %}
         <span class="etiqueta-material">{{ materiales.get(opcion.material, opcion.material) }}</span>
       </p>
-      <h3 class="producto-nombre">{{ opcion.name }}</h3>
+      <h3 class="producto-nombre" data-campo="producto-nombre">{{ opcion.name }}</h3>
       <dl class="producto-datos">
         <div><dt>SKU</dt><dd><code>{{ opcion.sku }}</code></dd></div>
         <div><dt>Material</dt><dd>{{ opcion.material }}</dd></div>
@@ -88,7 +88,7 @@
         {%- if opcion.boxes %}
         <div>
           <dt>Cajas</dt>
-          <dd>{{ opcion.boxes }}{% if opcion.surplus_units %} (sobran {{ opcion.surplus_units }} unidades){% endif %}</dd>
+          <dd data-campo="producto-cajas">{{ opcion.boxes }}{% if opcion.surplus_units %} (sobran {{ opcion.surplus_units }} unidades){% endif %}</dd>
         </div>
         {%- endif %}
       </dl>
@@ -98,7 +98,7 @@
         {%- set valor = oferta.total or oferta.price_per_box %}
         <li class="producto-oferta">
           <p class="producto-precio">
-            <strong>{{ valor }}</strong>
+            <strong data-campo="producto-precio">{{ valor }}</strong>
             <span class="producto-precio-detalle">{{ "en total" if oferta.total else "por caja" }}</span>
           </p>
           <p class="producto-oferta-fuente">
@@ -108,7 +108,7 @@
             {%- else %}
             Publicado por {{ oferta.source_name }}
             {%- endif %}
-            · capturado el {{ oferta.captured_at }}
+            · <span data-campo="producto-fecha">capturado el {{ oferta.captured_at }}</span>
           </p>
           <p class="producto-aviso">{{ oferta.notice }}</p>
         </li>
@@ -116,7 +116,7 @@
       </ul>
       {%- elif precio %}
       <p class="producto-precio">
-        <strong>{{ precio }}</strong>
+        <strong data-campo="producto-precio">{{ precio }}</strong>
         <span class="producto-precio-detalle">{{ "en total" if opcion.total else "por caja" }}</span>
       </p>
       <p class="producto-aviso">{{ opcion.price_notice }}</p>
@@ -129,7 +129,7 @@
       {%- endif %}
       <p class="producto-fuente">
         <a href="{{ opcion.source_url }}" target="_blank" rel="noopener noreferrer">Ver ficha <span aria-hidden="true">↗</span></a>
-        · capturada el {{ opcion.captured_at }}
+        · <span data-campo="producto-fecha">capturada el {{ opcion.captured_at }}</span>
       </p>
     </li>
     {%- endfor %}

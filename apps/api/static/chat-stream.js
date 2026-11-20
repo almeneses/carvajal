@@ -32,6 +32,8 @@
   const INCOMPLETA = "La respuesta se interrumpió antes de completarse.";
   const SEPARADOR = /\r?\n\r?\n/;
   let enCurso = false;
+  let completado = false;
+  let errorRecibido = false;
 
   form.addEventListener("submit", (event) => {
     if (!soportaStreaming) return; // el navegador envía el POST de siempre
@@ -50,6 +52,8 @@
       return;
     }
     enCurso = true;
+    completado = false;
+    errorRecibido = false;
     const turnId = nuevoTurnoId();
     if (turnIdInput) turnIdInput.value = turnId;
     void responder(pregunta, turnId);
@@ -207,9 +211,11 @@
             formatearTurno(turnoAsistente, texto, false);
             crearMarcas(turnoAsistente, evento.datos.request_id);
             avisar("");
+            completado = true;
             break;
           case "error":
             cerrado = true;
+            errorRecibido = true;
             if (!texto.textContent) {
               texto.textContent = String(evento.datos.message ?? INCOMPLETA);
             }
@@ -254,7 +260,22 @@
       turnoAsistente.scrollIntoView({ block: "nearest" });
       enCurso = false;
       if (girando) girando.hidden = true;
+      // Notificación interna (spec 040): solo tras un stream con done, con el
+      // turno ya formateado y el formulario liberado. No hay audio ni red.
+      if (completado && !errorRecibido) notificarTurnoCompleto(turnoAsistente);
     }
+  }
+
+  function notificarTurnoCompleto(turno) {
+    if (typeof window.CustomEvent !== "function") return;
+    document.dispatchEvent(
+      new window.CustomEvent("chat:turn-complete", {
+        detail: {
+          turno,
+          threadId: threadInput ? String(threadInput.value || "") : "",
+        },
+      }),
+    );
   }
 
   function crearTurno(rol, contenido) {

@@ -26,6 +26,10 @@
     recortado: "Se recortó el dictado al límite de 500 caracteres.",
     deteniendo: "Procesando el dictado…",
     limite: "Se alcanzó el límite de 60 segundos.",
+    sinVoz: "No hay una voz en español instalada en este navegador. Puedes leer la respuesta en pantalla.",
+    leyendo: "Leyendo la respuesta…",
+    pausa: "Lectura en pausa.",
+    lecturaError: "No se pudo leer la respuesta. Inténtalo de nuevo.",
   };
 
   // --- Normalización conservadora de cantidades dictadas ---------------------
@@ -162,6 +166,91 @@
     return resultado;
   }
 
+  // --- Lectura: segmentos construidos desde el DOM renderizado --------------
+  /** Quita URLs, SKU y códigos técnicos antes de pronunciar la prosa. */
+  function limpiarTextoHablado(texto) {
+    return texto
+      .replace(/\bhttps?:\/\/\S+/gi, " ")
+      .replace(/\bwww\.\S+/gi, " ")
+      .replace(/\bsku\b\s*:?/gi, " ")
+      .replace(/\b(?=[A-Za-z0-9-]*\d)[A-Za-z]{2,}(?:-[A-Za-z0-9]+)+\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function textoVisible(nodo) {
+    if (!nodo || typeof nodo.textContent !== "string") return "";
+    return nodo.textContent
+      .replace(/\[\d+\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function listaDe(raiz, selector) {
+    if (!raiz || typeof raiz.querySelectorAll !== "function") return [];
+    return Array.from(raiz.querySelectorAll(selector) || []);
+  }
+
+  function campoDe(raiz, selector) {
+    if (!raiz || typeof raiz.querySelector !== "function") return "";
+    return textoVisible(raiz.querySelector(selector));
+  }
+
+  /** Texto y segmentos hablables: tarjetas y citas salen de datos visibles. */
+  function construirSegmentos(turno) {
+    if (!turno) return [];
+    const segmentos = [];
+    const texto = limpiarTextoHablado(textoVisible(turno.querySelector(".texto")));
+    if (texto) segmentos.push(texto);
+    for (const tarjeta of listaDe(turno, ".productos .producto")) {
+      const nombre = campoDe(tarjeta, '[data-campo="producto-nombre"]');
+      if (!nombre) continue;
+      const cajas = campoDe(tarjeta, '[data-campo="producto-cajas"]');
+      const base = [`${nombre}.`];
+      if (cajas) base.push(`Cajas: ${cajas}.`);
+      const ofertas = listaDe(tarjeta, ".producto-oferta");
+      if (ofertas.length === 0) {
+        const precio = campoDe(tarjeta, '[data-campo="producto-precio"]');
+        const detalle = campoDe(tarjeta, ".producto-precio-detalle");
+        if (precio) base.push(`Precio: ${precio}${detalle ? `, ${detalle}` : ""}.`);
+        const fecha = campoDe(tarjeta, '[data-campo="producto-fecha"]');
+        if (fecha) base.push(`${fecha}.`);
+        segmentos.push(base.join(" "));
+        continue;
+      }
+      // Una tarjeta puede publicar varias ofertas: se lee cada precio visible
+      // con su calificador y su fecha, sin inventar ni promediar.
+      for (const oferta of ofertas) {
+        const partes = base.slice();
+        const precio = campoDe(oferta, '[data-campo="producto-precio"]');
+        const detalle = campoDe(oferta, ".producto-precio-detalle");
+        if (precio) partes.push(`Precio: ${precio}${detalle ? `, ${detalle}` : ""}.`);
+        const fecha = campoDe(oferta, '[data-campo="producto-fecha"]');
+        if (fecha) partes.push(`${fecha}.`);
+        segmentos.push(partes.join(" "));
+      }
+    }
+    for (const nodoTitulo of listaDe(turno, '.citas [data-campo="title"]')) {
+      const titulo = textoVisible(nodoTitulo);
+      if (titulo) segmentos.push(`Según ${titulo}.`);
+    }
+    return segmentos;
+  }
+
+  /** Prefiere es-CO, luego es-MX y luego cualquier voz en español. */
+  function elegirVoz(voces) {
+    if (!Array.isArray(voces)) return null;
+    const espanolas = voces.filter(
+      (voz) => voz && typeof voz.lang === "string" && voz.lang.toLowerCase().startsWith("es"),
+    );
+    return (
+      espanolas.find((voz) => voz.lang.toLowerCase() === "es-co") ||
+      espanolas.find((voz) => voz.lang.toLowerCase() === "es-mx") ||
+      espanolas[0] ||
+      null
+    );
+  }
+
   /** Almacenamiento tolerante: si el navegador lo bloquea, solo hay memoria. */
   function crearAlmacenSeguro(almacen) {
     const memoria = new Map();
@@ -237,10 +326,14 @@
       sintesis: Boolean(sintesis && Utterance),
       streaming: Boolean(opciones.streaming),
     };
-    const estado = { ciclo: 0, escuchando: false, mensaje: "", transcripcion: "" };
+    const estado = { ciclo: 0, escuchando: false, leyendo: false, mensaje: "", transcripcion: "" };
     let reconocimiento = null;
     let temporizador = null;
     let montado = false;
+    let turnoLectura = null;
+    let segmentosLectura = [];
+    let indiceLectura = 0;
+    let cicloLectura = 0;
 
     function mount() {
       // Montar dos veces no debe duplicar listeners ni ciclos de voz.
@@ -282,13 +375,21 @@
 
     function prepararLectura() {
       const casilla = vista.autoLectura;
-      if (!casilla) return;
-      if (!soporte.sintesis) {
-        casilla.hidden = true;
-        return;
+      if (casilla) {
+        const campo = vista.autoLecturaCampo || casilla;
+        if (!soporte.sintesis) {
+          campo.hidden = true;
+        } else {
+          campo.hidden = false;
+          casilla.checked = preferencias.autoLectura;
+          casilla.addEventListener("change", () => {
+            preferencias.fijarAutoLectura(Boolean(casilla.checked));
+          });
+        }
       }
-      casilla.hidden = false;
-      casilla.checked = preferencias.autoLectura;
+      documento.addEventListener("chat:turn-complete", alCompletarTurno);
+      documento.addEventListener("visibilitychange", alCambiarVisibilidad);
+      documento.addEventListener("click", alClicTurno);
     }
 
     function prepararAviso() {
@@ -339,6 +440,7 @@
 
     function comenzarDictado() {
       if (!soporte.dictado) return;
+      detenerLectura();
       estado.ciclo += 1;
       const ciclo = estado.ciclo;
       estado.transcripcion = "";
@@ -506,6 +608,171 @@
       return { insertado: true, recortado };
     }
 
+    function alCompletarTurno(evento) {
+      if (!preferencias.autoLectura) return;
+      if (documento.visibilityState === "hidden") return;
+      if (estado.escuchando) return;
+      const detalle = (evento && evento.detail) || {};
+      const turno = detalle.turno;
+      if (!turno) return;
+      if (typeof turno.className === "string" && turno.className.includes("turno-user")) return;
+      const hiloActual = vista.hilo && vista.hilo.value ? String(vista.hilo.value) : "";
+      const hiloTurno =
+        detalle.threadId === undefined || detalle.threadId === null
+          ? ""
+          : String(detalle.threadId);
+      if (hiloActual && hiloTurno && hiloActual !== hiloTurno) return;
+      if (turno.dataset && turno.dataset.vozAutoLeido === "1") return;
+      if (turnoLectura === turno) return;
+      // Se marca al arrancar la primera locución: si el navegador bloquea el
+      // audio o faltan voces, el turno queda reintentable.
+      leerTurno(turno, {
+        automatico: true,
+        alEmpezar: () => {
+          if (turno.dataset) turno.dataset.vozAutoLeido = "1";
+        },
+      });
+    }
+
+    function alCambiarVisibilidad() {
+      if (documento.visibilityState === "hidden") detenerLectura();
+    }
+
+    function alClicTurno(evento) {
+      const objetivo = evento && evento.target;
+      if (!objetivo || typeof objetivo.closest !== "function") return;
+      const boton = objetivo.closest("[data-voz-accion]");
+      if (!boton) return;
+      const turno = boton.closest(".turno");
+      if (!turno) return;
+      const accion = boton.dataset ? boton.dataset.vozAccion : "";
+      if (accion === "escuchar") leerTurno(turno);
+      else if (accion === "pausar") pausarLectura();
+      else if (accion === "reanudar") reanudarLectura();
+      else if (accion === "detener") detenerLectura();
+    }
+
+    function leerTurno(turno, opciones = {}) {
+      if (!turno || !soporte.sintesis) return false;
+      if (opciones.automatico && !preferencias.autoLectura) return false;
+      const voces = typeof sintesis.getVoices === "function" ? sintesis.getVoices() : [];
+      const voz = elegirVoz(voces);
+      // Chrome llena la lista de voces de forma asíncrona: con la lista vacía
+      // se intenta la locución con lang es-CO para no dar un falso negativo.
+      if (!voz && Array.isArray(voces) && voces.length > 0) {
+        avisar(MENSAJES.sinVoz);
+        mostrarNota(MENSAJES.sinVoz);
+        return false;
+      }
+      const segmentos = construirSegmentos(turno);
+      if (segmentos.length === 0) return false;
+      if (!opciones.automatico && turno.dataset) delete turno.dataset.vozAutoLeido;
+      const alEmpezar = typeof opciones.alEmpezar === "function" ? opciones.alEmpezar : null;
+      detenerLectura();
+      turnoLectura = turno;
+      segmentosLectura = segmentos;
+      indiceLectura = 0;
+      cicloLectura += 1;
+      hablarSegmento(cicloLectura, voz, alEmpezar);
+      return true;
+    }
+
+    function hablarSegmento(ciclo, voz, alEmpezar) {
+      if (ciclo !== cicloLectura || !turnoLectura) return;
+      const texto = segmentosLectura[indiceLectura];
+      if (!texto) {
+        terminarLectura();
+        return;
+      }
+      const locucion = new Utterance(texto);
+      locucion.lang = (voz && voz.lang) || "es-CO";
+      locucion.voice = voz || null;
+      locucion.onstart = () => {
+        if (ciclo !== cicloLectura) return;
+        estado.leyendo = true;
+        if (indiceLectura === 0 && alEmpezar) alEmpezar();
+        avisar(MENSAJES.leyendo);
+        actualizarControles(turnoLectura, "leyendo");
+      };
+      locucion.onend = () => {
+        if (ciclo !== cicloLectura) return;
+        indiceLectura += 1;
+        if (indiceLectura < segmentosLectura.length) hablarSegmento(ciclo, voz, alEmpezar);
+        else terminarLectura();
+      };
+      locucion.onerror = () => {
+        if (ciclo !== cicloLectura) return;
+        terminarLectura();
+        avisar(MENSAJES.lecturaError);
+      };
+      sintesis.speak(locucion);
+    }
+
+    function pausarLectura() {
+      if (!turnoLectura || !estado.leyendo) return;
+      if (typeof sintesis.pause === "function") sintesis.pause();
+      estado.leyendo = false;
+      const turno = turnoLectura;
+      actualizarControles(turno, "pausado");
+      avisar(MENSAJES.pausa);
+    }
+
+    function reanudarLectura() {
+      if (!turnoLectura) return;
+      if (typeof sintesis.resume === "function") sintesis.resume();
+      estado.leyendo = true;
+      actualizarControles(turnoLectura, "leyendo");
+      avisar(MENSAJES.leyendo);
+    }
+
+    function detenerLectura() {
+      if (!turnoLectura) return;
+      const turno = turnoLectura;
+      cicloLectura += 1;
+      turnoLectura = null;
+      segmentosLectura = [];
+      indiceLectura = 0;
+      estado.leyendo = false;
+      if (typeof sintesis.cancel === "function") sintesis.cancel();
+      actualizarControles(turno, "detenido");
+      avisar("");
+    }
+
+    function terminarLectura() {
+      const turno = turnoLectura;
+      cicloLectura += 1;
+      turnoLectura = null;
+      segmentosLectura = [];
+      indiceLectura = 0;
+      estado.leyendo = false;
+      if (turno) actualizarControles(turno, "detenido");
+      avisar("");
+    }
+
+    function actualizarControles(turno, modo) {
+      if (!turno || typeof turno.querySelector !== "function") return;
+      // El foco se decide antes de ocultar botones: si estaba dentro del turno,
+      // pasa a uno visible en lugar de caer al body.
+      const activo = documento.activeElement;
+      const teniaFoco = Boolean(
+        activo && typeof turno.contains === "function" && turno.contains(activo),
+      );
+      const buscar = (accion) => turno.querySelector(`[data-voz-accion="${accion}"]`);
+      const escuchar = buscar("escuchar");
+      if (escuchar && typeof escuchar.setAttribute === "function") {
+        escuchar.setAttribute("aria-pressed", modo === "detenido" ? "false" : "true");
+      }
+      const pausar = buscar("pausar");
+      if (pausar) pausar.hidden = modo !== "leyendo";
+      const reanudar = buscar("reanudar");
+      if (reanudar) reanudar.hidden = modo !== "pausado";
+      const detener = buscar("detener");
+      if (detener) detener.hidden = modo === "detenido";
+      if (!teniaFoco) return;
+      const destino = modo === "pausado" ? reanudar : modo === "detenido" ? escuchar : null;
+      if (destino && typeof destino.focus === "function") destino.focus();
+    }
+
     function avisar(mensaje) {
       estado.mensaje = mensaje || "";
       if (vista.estado) vista.estado.textContent = estado.mensaje;
@@ -526,8 +793,17 @@
       detenerDictado,
       cancelarDictado,
       insertarBorrador,
+      leerTurno,
+      pausarLectura,
+      reanudarLectura,
+      detenerLectura,
+      manejarTurnoCompleto: alCompletarTurno,
       destruir() {
+        detenerLectura();
         documento.removeEventListener("keydown", alPulsarTecla);
+        documento.removeEventListener("click", alClicTurno);
+        documento.removeEventListener("chat:turn-complete", alCompletarTurno);
+        documento.removeEventListener("visibilitychange", alCambiarVisibilidad);
       },
     };
   }
@@ -556,6 +832,8 @@
         estado: buscar("[data-voz-estado]"),
         nota: buscar("[data-voz-nota]"),
         autoLectura: buscar("[data-voz-autolectura]"),
+        autoLecturaCampo: buscar("[data-voz-autolectura-campo]"),
+        hilo: document.querySelector("[data-thread-id]"),
         entrada: document.getElementById("pregunta"),
         formulario: document.querySelector("form[data-chat-stream]"),
         aviso: document.querySelector("[data-voz-aviso]"),
@@ -582,9 +860,10 @@
     createVoiceController,
     normalizarCantidades,
     recortarTexto,
+    construirSegmentos,
+    limpiarTextoHablado,
+    elegirVoz,
   };
-  // El script puede cargarse en un runner o en SSR sin `window`; nunca debe
-  // romper la carga por publicar la API o inicializar.
   const global = typeof window !== "undefined" ? window : globalThis;
   global.CarvajalVoz = api;
 
