@@ -1435,6 +1435,25 @@ test("T012 sin voz el turno no queda marcado y se auto-lee cuando aparece", () =
   assert.equal(turno.dataset.vozAutoLeido, "1");
 });
 
+test("T012 si el autoplay bloquea la locución el turno no queda marcado", () => {
+  // Arrange: speak no dispara onstart (política del navegador).
+  const sintesis = crearSintesis();
+  sintesis.speak = function (locucion) {
+    this.locuciones.push(locucion);
+  };
+  const montaje = montar({ sintesis });
+  activarAutoLectura(montaje);
+  const turno = crearTurnoFalso({ texto: "Respuesta." });
+
+  // Act
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1" },
+  });
+
+  // Assert
+  assert.equal(turno.dataset.vozAutoLeido, undefined);
+});
+
 test("T012 la lectura manual deja el turno disponible para otra autolectura", () => {
   // Arrange
   const sintesis = crearSintesis();

@@ -623,11 +623,15 @@
           : String(detalle.threadId);
       if (hiloActual && hiloTurno && hiloActual !== hiloTurno) return;
       if (turno.dataset && turno.dataset.vozAutoLeido === "1") return;
-      // Se marca solo si la lectura arrancó: sin voz o sin texto se reintenta
-      // cuando el navegador cargue voces o la persona active la preferencia.
-      if (leerTurno(turno, { automatico: true }) && turno.dataset) {
-        turno.dataset.vozAutoLeido = "1";
-      }
+      if (turnoLectura === turno) return;
+      // Se marca al arrancar la primera locución: si el navegador bloquea el
+      // audio o faltan voces, el turno queda reintentable.
+      leerTurno(turno, {
+        automatico: true,
+        alEmpezar: () => {
+          if (turno.dataset) turno.dataset.vozAutoLeido = "1";
+        },
+      });
     }
 
     function alCambiarVisibilidad() {
@@ -663,16 +667,17 @@
       const segmentos = construirSegmentos(turno);
       if (segmentos.length === 0) return false;
       if (!opciones.automatico && turno.dataset) delete turno.dataset.vozAutoLeido;
+      const alEmpezar = typeof opciones.alEmpezar === "function" ? opciones.alEmpezar : null;
       detenerLectura();
       turnoLectura = turno;
       segmentosLectura = segmentos;
       indiceLectura = 0;
       cicloLectura += 1;
-      hablarSegmento(cicloLectura, voz);
+      hablarSegmento(cicloLectura, voz, alEmpezar);
       return true;
     }
 
-    function hablarSegmento(ciclo, voz) {
+    function hablarSegmento(ciclo, voz, alEmpezar) {
       if (ciclo !== cicloLectura || !turnoLectura) return;
       const texto = segmentosLectura[indiceLectura];
       if (!texto) {
@@ -685,13 +690,14 @@
       locucion.onstart = () => {
         if (ciclo !== cicloLectura) return;
         estado.leyendo = true;
+        if (indiceLectura === 0 && alEmpezar) alEmpezar();
         avisar(MENSAJES.leyendo);
         actualizarControles(turnoLectura, "leyendo");
       };
       locucion.onend = () => {
         if (ciclo !== cicloLectura) return;
         indiceLectura += 1;
-        if (indiceLectura < segmentosLectura.length) hablarSegmento(ciclo, voz);
+        if (indiceLectura < segmentosLectura.length) hablarSegmento(ciclo, voz, alEmpezar);
         else terminarLectura();
       };
       locucion.onerror = () => {
@@ -793,6 +799,7 @@
       detenerLectura,
       manejarTurnoCompleto: alCompletarTurno,
       destruir() {
+        detenerLectura();
         documento.removeEventListener("keydown", alPulsarTecla);
         documento.removeEventListener("click", alClicTurno);
         documento.removeEventListener("chat:turn-complete", alCompletarTurno);
