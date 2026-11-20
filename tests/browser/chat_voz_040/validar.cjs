@@ -193,7 +193,8 @@ async function main() {
   paso("estado role=status", visibles.estado === "status");
 
   // 2. Dictado: aviso previo, transcripción editable y sin envío.
-  const enviosAntes = resultado.red.filter((r) => r.method === "POST" && r.url.endsWith("/chat")).length;
+  // Cualquier POST cuenta: el autoenvío usa /chat/stream, no solo /chat.
+  const enviosAntes = resultado.red.filter((r) => r.method === "POST").length;
   await pagina.click("[data-voz-dictar]");
   const avisoAbierto = await pagina.evaluate(
     () => document.querySelector("[data-voz-aviso]").open,
@@ -210,7 +211,7 @@ async function main() {
     window.__vozFin();
   });
   const borrador = await pagina.inputValue("#pregunta");
-  const enviosDespues = resultado.red.filter((r) => r.method === "POST" && r.url.endsWith("/chat")).length;
+  const enviosDespues = resultado.red.filter((r) => r.method === "POST").length;
   paso("transcripción normalizada en el campo", borrador === "necesito 12 onzas para café", borrador);
   paso("no se envió sola", enviosAntes === enviosDespues);
 
