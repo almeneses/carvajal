@@ -160,7 +160,7 @@ separado. La spec 035 es la base y debe estar fusionada antes de empezar.
 - [X] T059 [P] Añadir la fila de la 037 a `specs/README.md` y sincronizar `.specify/memory/constitution.md`
 - [X] T060 Ejecutar `make check` y anotar el número de pruebas en el PR
 - [X] T061 Revisar que los errores del informe no exponen rutas internas ni credenciales
-- [ ] T075 Recuperar de los registros la captura de `/health` posterior a T056 y comparar documentos, fragmentos y puntos con la línea base en [adopcion-vps.md](adopcion-vps.md); no repetir la poda para generar evidencia.
+- [X] T075 Recuperar de los registros la captura de `/health` posterior a T056 y comparar documentos, fragmentos y puntos con la línea base en [adopcion-vps.md](adopcion-vps.md); no repetir la poda para generar evidencia.
 
 ## Dependencies & Execution Order
 

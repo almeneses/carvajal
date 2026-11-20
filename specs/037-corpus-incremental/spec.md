@@ -2,7 +2,9 @@
 
 **Feature Branch**: `037-corpus-incremental`
 **Created**: 2026-11-16
-**Status**: Draft
+**Status**: Implemented (as-built)
+**Implemented**: 2026-11-16 → 2026-11-20
+**Evidence**: PRs #144, #148, #153–#158, #165, #166 y #183; `tests/test_identity.py`, `tests/test_registry.py`, `tests/test_sync.py`, `tests/test_retrieval.py`, `tests/test_ingestion.py`, `tests/test_pipeline.py`, `tests/test_faq.py`, `tests/test_qdrant_store.py`, `tests/test_api_m2.py`; `docs/eval/retrieval-report.md`; `specs/037-corpus-incremental/{eval-retrieval,adopcion-vps}.md`
 **Input**: User description: "El corpus que se captura del sitio y el que se agrega después por la web o la consola deben convivir en un solo corpus: reimportar no debe duplicar, un archivo modificado debe actualizar su documento, todo lo que está en Gold debe quedar disponible para el chat y el asistente, y la capa extendida debe recuperarse con prioridad sin desplazar al núcleo."
 
 ## Contexto
