@@ -321,7 +321,13 @@ function crearUtterance(texto) {
 // Carga del script real con un `window` aislado.
 // ---------------------------------------------------------------------------
 
-function cargarVoz({ documento, almacen, reconocimiento = true, sintesis = true } = {}) {
+function cargarVoz({
+  documento,
+  almacen,
+  reconocimiento = true,
+  sintesis = true,
+  ventana = null,
+} = {}) {
   const doc = documento || crearDocumento();
   const sandbox = {
     document: doc,
@@ -333,7 +339,9 @@ function cargarVoz({ documento, almacen, reconocimiento = true, sintesis = true 
     navigator: { language: "es-CO" },
     isSecureContext: true,
   };
-  sandbox.window = sandbox;
+  // El global del contexto y `window` pueden ser objetos distintos: así se
+  // prueba un navegador cuyo getter de localStorage lanza al accederse.
+  sandbox.window = ventana || sandbox;
   if (reconocimiento) sandbox.SpeechRecognition = reconocimiento === true ? crearReconocimiento() : reconocimiento;
   if (sintesis) {
     sandbox.speechSynthesis = sintesis === true ? crearSintesis() : sintesis;
@@ -502,6 +510,49 @@ test("T005 init monta los controles con los selectores reales del documento", ()
   assert.equal(documento.documentElement.dataset.vozTts, "1");
   assert.ok(raiz._controladorVoz);
   assert.equal(formulario.enviados, 0);
+});
+
+test("T005 init monta aunque localStorage lance al accederse", () => {
+  // Arrange: navegador con almacenamiento bloqueado (modo privado estricto).
+  const raiz = crearElemento("section", { hidden: true });
+  const boton = crearElemento("button", { hidden: true });
+  const hijos = {
+    "[data-voz-dictar]": boton,
+    "[data-voz-dictar-texto]": crearElemento("span"),
+    "[data-voz-estado]": crearElemento("p"),
+    "[data-voz-nota]": crearElemento("p", { hidden: true }),
+    "[data-voz-autolectura]": null,
+  };
+  raiz.querySelector = (selector) => hijos[selector] || null;
+  const documento = crearDocumento({
+    "[data-voz]": raiz,
+    "form[data-chat-stream]": crearFormulario(),
+    "[data-voz-aviso]": null,
+    "[data-voz-aviso-aceptar]": null,
+    "[data-voz-aviso-cancelar]": null,
+  });
+  const ventana = {
+    isSecureContext: true,
+    SpeechRecognition: crearReconocimiento(),
+    speechSynthesis: crearSintesis(),
+    SpeechSynthesisUtterance: crearUtterance,
+  };
+  Object.defineProperty(ventana, "localStorage", {
+    get() {
+      throw new Error("SecurityError: almacenamiento bloqueado");
+    },
+  });
+
+  // Act: cargar el script con ese window no debe abortar el montaje.
+  const sandbox = cargarVoz({ documento, ventana });
+
+  // Assert
+  assert.ok(sandbox.window.CarvajalVoz);
+  assert.equal(raiz.hidden, false);
+  assert.equal(boton.hidden, false);
+  assert.ok(raiz._controladorVoz);
+  raiz._controladorVoz.preferencias.aceptarAviso();
+  assert.equal(raiz._controladorVoz.preferencias.avisoAceptado, true);
 });
 
 test("T002 sin síntesis la preferencia de lectura no se ofrece", () => {

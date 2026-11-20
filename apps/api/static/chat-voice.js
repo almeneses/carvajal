@@ -60,8 +60,8 @@
   }
 
   function crearPreferencias(almacen) {
-    const aviso = almacen.get(CLAVES.aviso) === "1";
-    const autoLectura = almacen.get(CLAVES.autoLectura) === "1";
+    let aviso = almacen.get(CLAVES.aviso) === "1";
+    let autoLectura = almacen.get(CLAVES.autoLectura) === "1";
     return {
       get avisoAceptado() {
         return aviso;
@@ -71,10 +71,12 @@
       },
       aceptarAviso() {
         if (aviso) return;
+        aviso = true;
         almacen.set(CLAVES.aviso, "1");
       },
       fijarAutoLectura(valor) {
-        almacen.set(CLAVES.autoLectura, valor ? "1" : "0");
+        autoLectura = Boolean(valor);
+        almacen.set(CLAVES.autoLectura, autoLectura ? "1" : "0");
       },
     };
   }
