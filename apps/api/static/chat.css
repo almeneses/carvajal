@@ -679,3 +679,102 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* Chat por voz (spec 040). Los controles nacen ocultos y solo se muestran con
+   JavaScript; sin él, el formulario escrito sigue intacto. */
+.voz {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.voz[hidden],
+.voz-boton[hidden],
+.voz-nota[hidden] {
+  display: none;
+}
+
+.voz-controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.voz-boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.voz-boton[aria-pressed="true"] {
+  border-color: var(--azul);
+  color: var(--azul);
+  font-weight: 700;
+}
+
+.voz-icono {
+  font-size: 1.15em;
+  line-height: 1;
+}
+
+.voz-estado {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--secundario);
+}
+
+.voz-estado:empty {
+  display: none;
+}
+
+/* Mientras escucha, el estado no depende solo del color: hay punto animado y
+   el texto «Escuchando…». Con movimiento reducido, el punto queda fijo. */
+html[data-voz-escuchando="1"] .voz-estado::before {
+  content: "";
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.45em;
+  border-radius: 50%;
+  background: var(--rojo, #b3261e);
+  animation: voz-latido 1.2s ease-in-out infinite;
+}
+
+@keyframes voz-latido {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-voz-escuchando="1"] .voz-estado::before {
+    animation: none;
+  }
+}
+
+.voz-nota {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--secundario);
+}
+
+/* Los botones «Escuchar» de cada turno solo aparecen cuando la síntesis está
+   disponible; el JS marca el documento antes de revelarlos. */
+[data-escuchar] {
+  display: none;
+}
+
+html[data-voz-tts="1"] [data-escuchar] {
+  display: inline-flex;
+}
+
+@media (max-width: 560px) {
+  .voz-boton {
+    width: 100%;
+    justify-content: center;
+  }
+}
