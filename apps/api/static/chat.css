@@ -836,3 +836,18 @@ html[data-voz-tts="1"] .turno-assistant .turno-voz {
   gap: 8px;
   justify-content: flex-end;
 }
+
+
+/* Manos libres (spec 040, US3): el modo activo se distingue por el botón y
+   por el estado que anuncia cada ciclo. */
+.voz-boton[data-voz-manos-libres][aria-pressed="true"] {
+  background: var(--azul);
+  border-color: var(--azul);
+  color: var(--fondo);
+  font-weight: 700;
+}
+
+html[data-voz-manos="1"] .voz {
+  border-left: 3px solid var(--azul);
+  padding-left: 10px;
+}

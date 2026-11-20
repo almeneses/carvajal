@@ -30,6 +30,22 @@
     leyendo: "Leyendo la respuesta…",
     pausa: "Lectura en pausa.",
     lecturaError: "No se pudo leer la respuesta. Inténtalo de nuevo.",
+    borradorNoVacio: "Para activar manos libres, vacía el borrador. Tu texto no se ha borrado.",
+    manosListo: "Manos libres activo. Habla cuando quieras; lo que dictes se envía sin revisar.",
+    manosEnviado: "Enviado. Esperando la respuesta antes de volver a escuchar.",
+    manosCancelado: "Manos libres no se activó.",
+    manosApagado: "Manos libres desactivado.",
+    manosSilencio: "Manos libres se apagó tras 10 segundos sin voz.",
+    manosTerminar: "Manos libres se apagó con «terminar».",
+    manosEscritura: "Manos libres se apagó porque escribiste. Tu texto se conserva sin enviarse.",
+    manosFallo: "Manos libres se apagó: no se pudo completar el envío. Revisa el borrador.",
+    manosError: "Manos libres se apagó por un error del micrófono. Puedes escribir o dictar de nuevo.",
+    manosOculto: "Manos libres se apagó al ocultar la pestaña.",
+    manosLectura: "Manos libres se apagó al detener la lectura.",
+    manosHilo: "Manos libres se apagó porque cambió el hilo visible.",
+    manosSinSoporte: "Manos libres necesita dictado, lectura y streaming disponibles.",
+    manosOcupado: "Espera a que termine la respuesta en curso para activar manos libres.",
+    manosLeyendo: "Espera a que termine la lectura para activar manos libres.",
   };
 
   // --- Normalización conservadora de cantidades dictadas ---------------------
@@ -318,7 +334,13 @@
     const Reconocimiento = opciones.reconocimiento || null;
     const sintesis = opciones.sintesis || null;
     const Utterance = opciones.Utterance || null;
-    const reloj = opciones.reloj || { setTimeout, clearTimeout, now: () => Date.now() };
+    // Los timers del navegador exigen `this === window`: se envuelven para no
+    // invocarlos como método de otro objeto (TypeError: Illegal invocation).
+    const reloj = opciones.reloj || {
+      setTimeout: (funcion, ms) => window.setTimeout(funcion, ms),
+      clearTimeout: (id) => window.clearTimeout(id),
+      now: () => window.performance.now(),
+    };
     const segura = Boolean(opciones.segura);
 
     const soporte = {
@@ -326,6 +348,7 @@
       sintesis: Boolean(sintesis && Utterance),
       streaming: Boolean(opciones.streaming),
     };
+    soporte.manosLibres = soporte.dictado && soporte.sintesis && soporte.streaming;
     const estado = { ciclo: 0, escuchando: false, leyendo: false, mensaje: "", transcripcion: "" };
     let reconocimiento = null;
     let temporizador = null;
@@ -334,6 +357,10 @@
     let segmentosLectura = [];
     let indiceLectura = 0;
     let cicloLectura = 0;
+    const manosLibres = { activo: false, reanudarTrasLeer: false };
+    let cicloManosLibres = false;
+    let temporizadorSilencio = null;
+    let opcionesPendientes = null;
 
     function mount() {
       // Montar dos veces no debe duplicar listeners ni ciclos de voz.
@@ -347,6 +374,7 @@
       prepararBotonDictar();
       prepararLectura();
       prepararAviso();
+      prepararManosLibres();
       documento.addEventListener("keydown", alPulsarTecla);
     }
 
@@ -398,19 +426,25 @@
         vista.avisoAceptar.addEventListener("click", () => {
           preferencias.aceptarAviso();
           cerrarAviso();
-          comenzarDictado();
+          const pendientes = opcionesPendientes || {};
+          opcionesPendientes = null;
+          comenzarDictado(pendientes);
         });
       }
       if (vista.avisoCancelar) {
         vista.avisoCancelar.addEventListener("click", () => {
           cerrarAviso();
           avisar(MENSAJES.cancelado);
+          // Si se canceló el aviso del micrófono, el modo no puede quedar
+          // «activo» sin escucha ni temporizador.
+          if (manosLibres.activo && !estado.escuchando) desactivarManosLibres("manual");
         });
       }
       vista.aviso.addEventListener("cancel", (evento) => {
         if (evento && evento.preventDefault) evento.preventDefault();
         cerrarAviso();
         avisar(MENSAJES.cancelado);
+        if (manosLibres.activo && !estado.escuchando) desactivarManosLibres("manual");
       });
     }
 
@@ -420,15 +454,16 @@
       else vista.aviso.open = false;
     }
 
-    function iniciarDictado() {
+    function iniciarDictado(opciones = {}) {
       if (!soporte.dictado) {
         avisar(segura ? MENSAJES.sinSoporte : MENSAJES.sinContexto);
         return;
       }
       if (preferencias.avisoAceptado) {
-        comenzarDictado();
+        comenzarDictado(opciones);
         return;
       }
+      opcionesPendientes = opciones;
       if (vista.aviso) {
         if (typeof vista.aviso.showModal === "function") vista.aviso.showModal();
         else vista.aviso.open = true;
@@ -438,9 +473,22 @@
       }
     }
 
-    function comenzarDictado() {
+    function comenzarDictado(opciones = {}) {
       if (!soporte.dictado) return;
       detenerLectura();
+      // Un ciclo anterior nunca convive con el nuevo: se aborta y se limpia
+      // su temporizador para no dejar dos micrófonos ni callbacks vivos.
+      if (estado.escuchando) {
+        const anterior = reconocimiento;
+        estado.ciclo += 1;
+        if (temporizador !== null) {
+          reloj.clearTimeout(temporizador);
+          temporizador = null;
+        }
+        limpiarSilencio();
+        if (anterior && typeof anterior.abort === "function") anterior.abort();
+      }
+      cicloManosLibres = Boolean(opciones.manosLibres) && manosLibres.activo;
       estado.ciclo += 1;
       const ciclo = estado.ciclo;
       estado.transcripcion = "";
@@ -458,7 +506,9 @@
       reconocimiento.onerror = (evento) => fallar(ciclo, evento);
       reconocimiento.onend = () => finalizar(ciclo);
       marcarEscuchando(true);
-      avisar(MENSAJES.escuchando);
+      avisar(
+        cicloManosLibres ? `Manos libres · ${MENSAJES.escuchando}` : MENSAJES.escuchando,
+      );
       temporizador = reloj.setTimeout(() => {
         if (estado.ciclo !== ciclo || !reconocimiento) return;
         avisar(MENSAJES.limite);
@@ -468,6 +518,7 @@
           finalizarCiclo(MENSAJES.error);
         }
       }, MAX_GRABACION_MS);
+      if (cicloManosLibres) reiniciarSilencio(ciclo);
       try {
         reconocimiento.start();
       } catch {
@@ -477,6 +528,7 @@
 
     function acumular(ciclo, evento) {
       if (ciclo !== estado.ciclo) return;
+      if (cicloManosLibres) reiniciarSilencio(ciclo);
       const resultados = evento && evento.results ? evento.results : [];
       const inicio = Number(evento && evento.resultIndex) || 0;
       for (let indice = inicio; indice < resultados.length; indice += 1) {
@@ -509,21 +561,53 @@
         mensaje = MENSAJES.sinMicrofono;
         mostrarNota(MENSAJES.sinMicrofono);
       }
-      finalizarCiclo(mensaje);
+      const eraManos = cicloManosLibres;
+      cicloManosLibres = false;
+      limpiarSilencio();
+      cerrarCiclo();
+      if (eraManos) {
+        desactivarManosLibres("error");
+        return;
+      }
+      avisar(mensaje);
     }
 
     function finalizar(ciclo) {
       if (ciclo !== estado.ciclo || !reconocimiento) return;
-      const texto = estado.transcripcion.trim();
+      const texto = normalizarCantidades(estado.transcripcion.trim());
+      const eraManos = cicloManosLibres;
+      cicloManosLibres = false;
+      limpiarSilencio();
+      if (eraManos) {
+        cerrarCiclo();
+        if (!texto) {
+          desactivarManosLibres("silencio");
+          return;
+        }
+        if (/^terminar[.!]?$/i.test(texto)) {
+          desactivarManosLibres("terminar");
+          return;
+        }
+        if (!manosLibres.activo) return;
+        if (vista.entrada && String(vista.entrada.value || "").trim() !== "") {
+          desactivarManosLibres("escritura");
+          return;
+        }
+        const insertado = insertarBorrador(texto);
+        if (insertado.recortado) mostrarNota(MENSAJES.recortado);
+        enviarPorFormulario();
+        avisar(MENSAJES.manosEnviado);
+        return;
+      }
       if (!texto) {
         finalizarCiclo(MENSAJES.silencio);
         return;
       }
-      const resultado = insertarBorrador(normalizarCantidades(texto));
+      const resultado = insertarBorrador(texto);
       finalizarCiclo(resultado.recortado ? MENSAJES.recortado : MENSAJES.listo);
     }
 
-    function finalizarCiclo(mensaje) {
+    function cerrarCiclo() {
       if (temporizador !== null) {
         reloj.clearTimeout(temporizador);
         temporizador = null;
@@ -532,6 +616,10 @@
       estado.ciclo += 1;
       estado.transcripcion = "";
       marcarEscuchando(false);
+    }
+
+    function finalizarCiclo(mensaje) {
+      cerrarCiclo();
       avisar(mensaje);
     }
 
@@ -547,6 +635,8 @@
 
     function cancelarDictado() {
       if (!estado.escuchando) return;
+      cicloManosLibres = false;
+      limpiarSilencio();
       const anterior = reconocimiento;
       estado.ciclo += 1;
       reconocimiento = null;
@@ -558,6 +648,7 @@
       marcarEscuchando(false);
       avisar(MENSAJES.cancelado);
       if (anterior && typeof anterior.abort === "function") anterior.abort();
+      if (manosLibres.activo) desactivarManosLibres("manual");
     }
 
     function alPulsarTecla(evento) {
@@ -608,10 +699,173 @@
       return { insertado: true, recortado };
     }
 
+    function hayVozEspanola() {
+      const voces = typeof sintesis.getVoices === "function" ? sintesis.getVoices() : [];
+      return Boolean(elegirVoz(voces));
+    }
+
+    function abrirAvisoManos() {
+      if (!vista.avisoManos) {
+        activarManosLibres();
+        return;
+      }
+      if (typeof vista.avisoManos.showModal === "function") vista.avisoManos.showModal();
+      else vista.avisoManos.open = true;
+      if (vista.manosAceptar && typeof vista.manosAceptar.focus === "function") {
+        vista.manosAceptar.focus();
+      }
+    }
+
+    function cerrarAvisoManos() {
+      if (!vista.avisoManos || !vista.avisoManos.open) return;
+      if (typeof vista.avisoManos.close === "function") vista.avisoManos.close();
+      else vista.avisoManos.open = false;
+    }
+
+    function prepararManosLibres() {
+      const boton = vista.botonManosLibres;
+      if (boton) {
+        boton.hidden = !soporte.manosLibres;
+        if (soporte.manosLibres) {
+          boton.setAttribute("type", "button");
+          boton.setAttribute("aria-pressed", "false");
+          boton.setAttribute("aria-label", "Activar manos libres");
+          boton.addEventListener("click", () => {
+            if (manosLibres.activo) desactivarManosLibres("manual");
+            else intentarActivarManosLibres();
+          });
+        }
+      }
+      if (vista.manosAceptar) {
+        vista.manosAceptar.addEventListener("click", () => {
+          cerrarAvisoManos();
+          activarManosLibres();
+        });
+      }
+      if (vista.manosCancelar) {
+        vista.manosCancelar.addEventListener("click", () => {
+          cerrarAvisoManos();
+          avisar(MENSAJES.manosCancelado);
+        });
+      }
+      if (vista.avisoManos) {
+        vista.avisoManos.addEventListener("cancel", (evento) => {
+          if (evento && evento.preventDefault) evento.preventDefault();
+          cerrarAvisoManos();
+          avisar(MENSAJES.manosCancelado);
+        });
+      }
+      if (vista.entrada) {
+        vista.entrada.addEventListener("input", () => {
+          if (manosLibres.activo) desactivarManosLibres("escritura");
+        });
+      }
+      documento.addEventListener("chat:turn-failed", alFallarTurno);
+    }
+
+    function intentarActivarManosLibres() {
+      if (!soporte.manosLibres) {
+        avisar(MENSAJES.manosSinSoporte);
+        return;
+      }
+      if (!hayVozEspanola()) {
+        avisar(MENSAJES.sinVoz);
+        mostrarNota(MENSAJES.sinVoz);
+        return;
+      }
+      if (turnoLectura) {
+        avisar(MENSAJES.manosLeyendo);
+        return;
+      }
+      if (vista.entrada && String(vista.entrada.value || "").trim() !== "") {
+        avisar(MENSAJES.borradorNoVacio);
+        mostrarNota(MENSAJES.borradorNoVacio);
+        return;
+      }
+      if (
+        vista.formulario &&
+        typeof vista.formulario.getAttribute === "function" &&
+        vista.formulario.getAttribute("aria-busy") === "true"
+      ) {
+        avisar(MENSAJES.manosOcupado);
+        return;
+      }
+      abrirAvisoManos();
+    }
+
+    function activarManosLibres() {
+      if (!soporte.manosLibres) return;
+      manosLibres.activo = true;
+      manosLibres.reanudarTrasLeer = false;
+      actualizarBotonManos(true);
+      if (documento.documentElement) documento.documentElement.dataset.vozManos = "1";
+      avisar(MENSAJES.manosListo);
+      iniciarDictado({ manosLibres: true });
+    }
+
+    function actualizarBotonManos(activo) {
+      const boton = vista.botonManosLibres;
+      if (!boton) return;
+      boton.setAttribute("aria-pressed", activo ? "true" : "false");
+      boton.setAttribute("aria-label", activo ? "Desactivar manos libres" : "Activar manos libres");
+      boton.textContent = activo ? "Manos libres activo" : "Manos libres";
+    }
+
+    function desactivarManosLibres(motivo) {
+      if (!manosLibres.activo) return;
+      manosLibres.activo = false;
+      manosLibres.reanudarTrasLeer = false;
+      cicloManosLibres = false;
+      limpiarSilencio();
+      actualizarBotonManos(false);
+      if (documento.documentElement) delete documento.documentElement.dataset.vozManos;
+      if (estado.escuchando) cancelarDictado();
+      detenerLectura();
+      const mensajes = {
+        manual: MENSAJES.manosApagado,
+        silencio: MENSAJES.manosSilencio,
+        terminar: MENSAJES.manosTerminar,
+        escritura: MENSAJES.manosEscritura,
+        error: MENSAJES.manosError,
+        fallo: MENSAJES.manosFallo,
+        oculto: MENSAJES.manosOculto,
+        lectura: MENSAJES.manosLectura,
+        hilo: MENSAJES.manosHilo,
+      };
+      avisar(mensajes[motivo] || MENSAJES.manosApagado);
+    }
+
+    function reiniciarSilencio(ciclo) {
+      if (!manosLibres.activo) return;
+      limpiarSilencio();
+      temporizadorSilencio = reloj.setTimeout(() => {
+        if (!manosLibres.activo || estado.ciclo !== ciclo) return;
+        desactivarManosLibres("silencio");
+      }, SILENCIO_MANOS_LIBRES_MS);
+    }
+
+    function limpiarSilencio() {
+      if (temporizadorSilencio !== null) {
+        reloj.clearTimeout(temporizadorSilencio);
+        temporizadorSilencio = null;
+      }
+    }
+
+    function enviarPorFormulario() {
+      const formulario = vista.formulario;
+      if (!formulario) return;
+      formulario.dataset.vozOrigen = "manos-libres";
+      if (typeof formulario.requestSubmit === "function") formulario.requestSubmit();
+      else if (typeof formulario.submit === "function") formulario.submit();
+    }
+
+    function alFallarTurno(evento) {
+      if (!manosLibres.activo) return;
+      const detalle = (evento && evento.detail) || {};
+      if (detalle.handsFree === true) desactivarManosLibres("fallo");
+    }
+
     function alCompletarTurno(evento) {
-      if (!preferencias.autoLectura) return;
-      if (documento.visibilityState === "hidden") return;
-      if (estado.escuchando) return;
       const detalle = (evento && evento.detail) || {};
       const turno = detalle.turno;
       if (!turno) return;
@@ -621,6 +875,27 @@
         detalle.threadId === undefined || detalle.threadId === null
           ? ""
           : String(detalle.threadId);
+      if (manosLibres.activo) {
+        if (detalle.handsFree !== true) {
+          // Un turno ajeno deja el modo sin escucha ni temporizador: se apaga.
+          desactivarManosLibres("fallo");
+          return;
+        }
+        if (hiloActual && hiloTurno && hiloActual !== hiloTurno) {
+          desactivarManosLibres("hilo");
+          return;
+        }
+        const leido = leerTurno(turno, { automatico: true, manosLibres: true });
+        manosLibres.reanudarTrasLeer = leido;
+        if (!leido) {
+          if (!hayVozEspanola()) desactivarManosLibres("error");
+          else if (manosLibres.activo) comenzarDictado({ manosLibres: true });
+        }
+        return;
+      }
+      if (!preferencias.autoLectura) return;
+      if (documento.visibilityState === "hidden") return;
+      if (estado.escuchando) return;
       if (hiloActual && hiloTurno && hiloActual !== hiloTurno) return;
       if (turno.dataset && turno.dataset.vozAutoLeido === "1") return;
       if (turnoLectura === turno) return;
@@ -635,7 +910,12 @@
     }
 
     function alCambiarVisibilidad() {
-      if (documento.visibilityState === "hidden") detenerLectura();
+      if (documento.visibilityState !== "hidden") return;
+      if (manosLibres.activo) {
+        desactivarManosLibres("oculto");
+        return;
+      }
+      detenerLectura();
     }
 
     function alClicTurno(evento) {
@@ -654,7 +934,7 @@
 
     function leerTurno(turno, opciones = {}) {
       if (!turno || !soporte.sintesis) return false;
-      if (opciones.automatico && !preferencias.autoLectura) return false;
+      if (opciones.automatico && !opciones.manosLibres && !preferencias.autoLectura) return false;
       const voces = typeof sintesis.getVoices === "function" ? sintesis.getVoices() : [];
       const voz = elegirVoz(voces);
       // Chrome llena la lista de voces de forma asíncrona: con la lista vacía
@@ -702,8 +982,11 @@
       };
       locucion.onerror = () => {
         if (ciclo !== cicloLectura) return;
+        const eraManos = manosLibres.activo;
+        manosLibres.reanudarTrasLeer = false;
         terminarLectura();
         avisar(MENSAJES.lecturaError);
+        if (eraManos) desactivarManosLibres("error");
       };
       sintesis.speak(locucion);
     }
@@ -727,6 +1010,8 @@
 
     function detenerLectura() {
       if (!turnoLectura) return;
+      manosLibres.reanudarTrasLeer = false;
+      const manosActivas = manosLibres.activo;
       const turno = turnoLectura;
       cicloLectura += 1;
       turnoLectura = null;
@@ -736,6 +1021,7 @@
       if (typeof sintesis.cancel === "function") sintesis.cancel();
       actualizarControles(turno, "detenido");
       avisar("");
+      if (manosActivas) desactivarManosLibres("lectura");
     }
 
     function terminarLectura() {
@@ -747,6 +1033,20 @@
       estado.leyendo = false;
       if (turno) actualizarControles(turno, "detenido");
       avisar("");
+      const borradorVacio =
+        !vista.entrada || String(vista.entrada.value || "").trim() === "";
+      if (
+        manosLibres.activo &&
+        manosLibres.reanudarTrasLeer &&
+        borradorVacio &&
+        !estado.escuchando &&
+        documento.visibilityState !== "hidden"
+      ) {
+        manosLibres.reanudarTrasLeer = false;
+        comenzarDictado({ manosLibres: true });
+      } else if (documento.visibilityState === "hidden") {
+        manosLibres.reanudarTrasLeer = false;
+      }
     }
 
     function actualizarControles(turno, modo) {
@@ -798,11 +1098,15 @@
       reanudarLectura,
       detenerLectura,
       manejarTurnoCompleto: alCompletarTurno,
+      manosLibres,
+      activarManosLibres,
+      desactivarManosLibres,
       destruir() {
         detenerLectura();
         documento.removeEventListener("keydown", alPulsarTecla);
         documento.removeEventListener("click", alClicTurno);
         documento.removeEventListener("chat:turn-complete", alCompletarTurno);
+        documento.removeEventListener("chat:turn-failed", alFallarTurno);
         documento.removeEventListener("visibilitychange", alCambiarVisibilidad);
       },
     };
@@ -839,6 +1143,10 @@
         aviso: document.querySelector("[data-voz-aviso]"),
         avisoAceptar: document.querySelector("[data-voz-aviso-aceptar]"),
         avisoCancelar: document.querySelector("[data-voz-aviso-cancelar]"),
+        botonManosLibres: buscar("[data-voz-manos-libres]"),
+        avisoManos: document.querySelector("[data-voz-manos-aviso]"),
+        manosAceptar: document.querySelector("[data-voz-manos-aceptar]"),
+        manosCancelar: document.querySelector("[data-voz-manos-cancelar]"),
       },
       documento: document,
       almacen,
@@ -846,7 +1154,10 @@
       sintesis,
       Utterance,
       segura: Boolean(win.isSecureContext),
-      streaming: typeof win.fetch === "function" && typeof win.ReadableStream === "function",
+      streaming:
+        typeof win.fetch === "function" &&
+        typeof win.ReadableStream === "function" &&
+        typeof win.TextDecoder === "function",
     });
     controlador.mount();
     raiz._controladorVoz = controlador;

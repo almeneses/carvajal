@@ -83,6 +83,12 @@ partir de preferencias apagadas).
    transcripción tardía no lo reemplaza ni lo envía.
 4. Probar error de red, permiso revocado y cuota agotada: el modo termina y el
    chat escrito sigue disponible.
+5. En DevTools, confirmar que el POST conserva el mismo cuerpo y CSRF: el
+   origen «manos libres» es solo un marcador local, no un campo nuevo. Ante un
+   fallo del stream no debe haber un POST automático de rescate: el texto vuelve
+   al borrador y `chat:turn-failed` apaga el modo.
+6. Recargar la página con el modo activo: no se restaura; hay que activarlo otra
+   vez y el borrador debe estar vacío.
 
 ## T011 · paridad de ruta y campos (validación local)
 

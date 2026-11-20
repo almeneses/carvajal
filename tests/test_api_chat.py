@@ -728,3 +728,61 @@ def test_el_stream_no_notifica_turno_completo_en_la_rama_de_error() -> None:
     assert "completado = true" in bloque_done
     assert "notificarTurnoCompleto" not in bloque_error
     assert "errorRecibido = true" in bloque_error
+
+
+def test_manos_libres_se_ofrece_con_aviso_de_autoenvio_y_apagado() -> None:
+    """T019: activación explícita, aviso de autoenvío y estado apagado al cargar."""
+
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    assert response.status_code == 200
+    assert "data-voz-manos-libres" in html
+    assert 'aria-pressed="false"' in html
+    assert "data-voz-manos-aviso" in html
+    assert "data-voz-manos-aceptar" in html
+    assert "data-voz-manos-cancelar" in html
+    assert 'id="voz-manos-titulo"' in html
+    assert "sin que la revises" in html
+    assert "borrador vacío" in html
+
+
+def test_el_stream_distingue_manos_libres_solo_en_el_cliente() -> None:
+    """T021: marcador local, sin campos nuevos ni reenvío automático."""
+
+    # Arrange
+    from apps.api.runtime import APP_DIR
+
+    # Act
+    stream = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
+    voz = (APP_DIR / "static" / "chat-voice.js").read_text(encoding="utf-8")
+
+    # Assert
+    assert 'form.dataset.vozOrigen === "manos-libres"' in stream
+    assert "chat:turn-failed" in stream
+    assert "handsFree: Boolean(manosLibres)" in stream
+    assert "formulario.requestSubmit()" in voz
+    assert "chat:turn-failed" in voz
+    assert "vozOrigen" in voz
+    # El origen no se envía: sin campos nuevos en el cuerpo del POST.
+    assert "vozOrigen:" not in stream
+    assert 'name="voz' not in (APP_DIR / "templates" / "chat.html").read_text(encoding="utf-8")
+
+
+def test_el_fallo_tardio_de_manos_libres_no_duplica_la_pregunta() -> None:
+    """T021: con contenido recibido no se devuelve el texto al borrador."""
+
+    # Arrange
+    from apps.api.runtime import APP_DIR
+
+    # Act
+    stream = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
+
+    # Assert
+    assert "if (!recibioContenido && !input.value.trim()) input.value = pregunta;" in stream
+    assert "if (!texto.textContent) turnoAsistente.remove();" in stream
