@@ -1,0 +1,105 @@
+# Pruebas del chat por voz (spec 040)
+
+Protocolo reproducible para validar dictado, lectura y manos libres. Complementa
+[`specs/040-chat-por-voz/quickstart.md`](../specs/040-chat-por-voz/quickstart.md):
+aquí se fija la matriz de navegadores y cómo se registra cada intento. Los
+resultados de aceptación se guardan en
+[`specs/040-chat-por-voz/evidencia.md`](../specs/040-chat-por-voz/evidencia.md).
+
+## Preparación
+
+1. `uv sync --all-extras` y `make api`; abrir `http://localhost:8000/chat`.
+   `localhost` es contexto seguro, igual que HTTPS. Una IP remota por HTTP **no**
+   habilita el micrófono.
+2. `make check` y `node --test tests/js/test_chat_voice.cjs` con Node `24.16.0`
+   (los mismos comandos de `Calidad`). Los dobles de voz cubren el contrato; no
+   sustituyen la prueba con micrófono real.
+3. Antes de medir, anotar navegador, versión, sistema, idioma, si hay voz
+   española instalada y el tipo de conexión. No se sube audio ni eventos de voz
+   al servidor: las marcas se toman con `performance.now()` en la consola del
+   navegador.
+
+## Matriz de navegadores
+
+Cada fila se prueba en una ventana nueva (perfil limpio o ventana privada para
+partir de preferencias apagadas).
+
+| Navegador | Versión | Contexto | STT esperado | TTS esperado | Qué se valida |
+|---|---|---|---|---|---|
+| Chrome escritorio | estable de la fecha | `http://localhost:8000` | sí (servicio del navegador, requiere red) | sí, voces del sistema | US1, US2, US3, SC-001–SC-005 |
+| Chrome escritorio | estable de la fecha | HTTPS publicado | sí, si el servicio responde | sí | requisito de despliegue: sin HTTPS no se ofrece dictado |
+| Chrome escritorio | estable de la fecha | `http://<IP>:8080` | no (sin contexto seguro) | sí | el chat explica la limitación y sigue escribiéndose |
+| Edge escritorio | estable de la fecha | `http://localhost:8000` | sí | sí | US1, US2 |
+| Safari macOS | estable de la fecha | `http://localhost:8000` | sí (si el sistema lo permite) | sí | US2; US1 si hay STT |
+| Safari iOS | estable de la fecha | HTTPS | sí (dictado del sistema) | sí | US1, US2 en móvil |
+| Chrome Android | estable de la fecha | HTTPS | sí | sí | US1, US2 en móvil |
+| Firefox escritorio | estable de la fecha | `http://localhost:8000` | **no** | sí | FR-009: sin micrófono, se explica y se escribe; US2 completa |
+
+> Si un navegador no ofrece reinicio de manos libres tras la síntesis, se
+> registra como limitación de ese navegador; no se aprueba el escenario.
+
+## Guion por historia
+
+### US1 · dictado
+
+1. En una ventana nueva, tocar «Dictar». Antes de que el navegador pida permiso
+   debe aparecer el aviso de procesamiento por el navegador con «Continuar» y
+   «Cancelar»; cancelar no debe abrir el micrófono.
+2. Aceptar, conceder permiso y dictar tres preguntas de
+   `data/eval/routing_questions.json`, al menos una con capacidad («doce
+   onzas») y una con cantidad («cinco mil vasos»). Comprobar que el texto queda
+   en `#pregunta`, editable y **sin enviarse**.
+3. Editar una y enviarla. Comparar la ruta y los campos extraídos con la misma
+   pregunta escrita (traza del chat o `POST /chat` equivalente).
+4. Repetir denegando el permiso, en silencio, hablando más de 60 s y pegando
+   texto hasta superar 500 caracteres. El borrador previo nunca se pierde.
+
+### US2 · lectura
+
+1. Pedir una respuesta comercial con tarjetas y otra institucional con citas.
+2. Tocar «Escuchar»: debe oírse el texto visible, el nombre, las cajas y el
+   precio con moneda y fecha de cada tarjeta, y «según» + título en las citas.
+   No deben leerse URLs ni SKU.
+3. Probar «Pausar», «Reanudar» y «Detener» con teclado (Tab/Enter/Espacio).
+4. Activar «Leer respuestas en voz alta», pedir otra respuesta por streaming y
+   comprobar que solo suena al completarse (`done`), no por token. Recargar el
+   historial y usar el formulario sin streaming: no debe sonar solo.
+5. Cambiar de pestaña durante la lectura: se detiene y no se reanuda sola.
+
+### US3 · manos libres
+
+1. Con el borrador vacío, activar «Manos libres» y aceptar el aviso de envío
+   automático. Preguntar y hacer un seguimiento comercial sin tocar la pantalla.
+2. Repetir dejando 10 s de silencio y diciendo «terminar» como orden aislada: el
+   modo se apaga y la orden no se envía.
+3. Intentar activarlo con texto en el borrador: no se activa y el texto queda
+   intacto. Con el modo activo, escribir: se apaga, el texto se conserva y una
+   transcripción tardía no lo reemplaza ni lo envía.
+4. Probar error de red, permiso revocado y cuota agotada: el modo termina y el
+   chat escrito sigue disponible.
+
+## Registro de intentos (SC-001–SC-003)
+
+| Campo | Cómo se registra |
+|---|---|
+| `speechend` | `performance.now()` al recibir el último resultado final del reconocimiento |
+| `resultado visible` | primer `requestAnimationFrame` posterior a escribir el texto en `#pregunta` |
+| `clic Escuchar` | `performance.now()` en el manejador del clic |
+| `inicio de voz` | evento `start` de la primera `SpeechSynthesisUtterance` |
+| Fallo | falta un evento, hay error o pasan más de 10 s desde la marca inicial |
+
+Cada flujo se repite **40 veces** (20 preguntas por dos voces para dictado; 20
+respuestas leídas dos veces para síntesis). Se cuentan éxitos, fallos y la
+proporción bajo el umbral; el p95 se calcula por rango más cercano
+(`ceil(0.95 × n)`) sobre los éxitos ordenados. Con cero éxitos, el p95 no es
+calculable y se informa así.
+
+## Evidencia de privacidad y accesibilidad
+
+- **SC-004:** en DevTools → Network, filtrar por *Media* y revisar que ninguna
+  petición al origen del proyecto lleva audio; en un entorno limpio, comprobar
+  que la base y el historial no contienen archivos ni campos de audio.
+- **SC-005:** ejecutar axe sobre `/chat` antes y después de la 040 y comparar.
+  Recorrer con Tab/Enter/Espacio los controles de voz y sus estados
+  (`role="status"`), con lector de pantalla si está disponible. Sin errores
+  nuevos.

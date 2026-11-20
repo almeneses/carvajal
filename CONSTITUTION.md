@@ -93,6 +93,9 @@ con asistente RAG.
 - Ofrecer **chat por voz** (spec 040, en borrador): dictado revisable antes de enviar y
   lectura de respuestas y tarjetas con las capacidades del navegador. El audio no llega al
   servidor del proyecto ni se guarda; sin soporte del navegador, el chat sigue por escrito.
+  El permiso `microphone=(self)` se declara **solo** en el documento HTML de `/chat`; el
+  resto de rutas, los POST y el SSE conservan `microphone=()`. Dictar exige contexto
+  seguro: `localhost` en desarrollo y HTTPS en despliegue.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
 ### Fuera del alcance (por ahora)

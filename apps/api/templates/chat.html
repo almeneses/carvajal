@@ -5,6 +5,7 @@
 <link rel="stylesheet" href="/static/chat.css" />
 <script src="/static/hilos.js" defer></script>
 <script src="/static/chat-stream.js" defer></script>
+<script src="/static/chat-voice.js" defer></script>
 {% endblock %}
 {% block content %}
 <section
@@ -70,6 +71,22 @@
             Hasta 500 caracteres. Los precios son de referencia: no confirmo existencias ni
             tomo pedidos.
           </p>
+        </div>
+        <div class="voz" data-voz hidden>
+          <div class="voz-controles">
+            <button
+              type="button"
+              class="boton boton-fantasma voz-boton"
+              data-voz-dictar
+              aria-pressed="false"
+              hidden
+            >
+              <span class="voz-icono" aria-hidden="true">🎙︎</span>
+              <span data-voz-dictar-texto>Dictar</span>
+            </button>
+          </div>
+          <p class="voz-estado" data-voz-estado role="status" aria-live="polite"></p>
+          <p class="voz-nota" data-voz-nota role="note" hidden></p>
         </div>
         <button type="submit">Enviar</button>
       </form>

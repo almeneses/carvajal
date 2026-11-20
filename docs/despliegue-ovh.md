@@ -386,6 +386,13 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
 ## 9. Seguridad de la demo
 
 - La demo va por **HTTP**, sin TLS. No la uses para datos sensibles.
+- **Chat por voz (spec 040):** el dictado exige un contexto seguro del
+  navegador (`localhost` o HTTPS). Por la IP en HTTP, el micrófono no se
+  ofrece y el chat explica que se puede escribir. La lectura en voz alta sí
+  funciona. Para ofrecer dictado en producción hay que publicar el chat por
+  HTTPS (vhost con TLS delante); no se rebaja la política para la demo.
+  El permiso `microphone=(self)` se declara solo en el documento HTML de
+  `/chat`; el resto del sitio y el SSE lo mantienen denegado.
 - Si quieres limitar el acceso, restringe el puerto 8080 por IP en el firewall
   de OVH o en un proxy delante.
 - `.env` siempre en `600`.

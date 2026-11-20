@@ -115,7 +115,9 @@ con `--admin`.
   Colombia van en COP y solo si alguien los publica en Colombia; nunca se estiman ni se
   convierten desde México (spec 039).
 - Voz en el chat (spec 040): dictado y lectura con las capacidades del navegador; el audio
-  no llega al servidor ni se guarda.
+  no llega al servidor ni se guarda. `microphone=(self)` se declara solo en el documento
+  HTML de `/chat` (el SSE y el resto del sitio siguen con `microphone=()`); el dictado
+  requiere contexto seguro, `localhost` o HTTPS.
 - LLM configurable: DeepSeek (por defecto) u Ollama; embeddings locales con
   `nomic-embed-text` (768 dimensiones).
 - Streaming por SSE; CSRF por doble cookie, CSP sin `unsafe-inline` y cookies `HttpOnly`.
