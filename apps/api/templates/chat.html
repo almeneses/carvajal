@@ -79,6 +79,7 @@
               class="boton boton-fantasma voz-boton"
               data-voz-dictar
               aria-pressed="false"
+              aria-label="Dictar una pregunta"
               hidden
             >
               <span class="voz-icono" aria-hidden="true">🎙︎</span>
@@ -90,6 +91,26 @@
         </div>
         <button type="submit">Enviar</button>
       </form>
+
+      <dialog
+        class="voz-aviso"
+        data-voz-aviso
+        aria-labelledby="voz-aviso-titulo"
+        aria-describedby="voz-aviso-texto"
+      >
+        <h2 id="voz-aviso-titulo" class="voz-aviso-titulo">Antes de dictar</h2>
+        <p id="voz-aviso-texto" class="voz-aviso-texto">
+          El dictado usa el reconocimiento de voz de tu navegador. Algunos navegadores
+          envían el audio a su propio servicio para transcribirlo; este sitio no recibe ni
+          guarda el audio. También puedes escribir tu pregunta.
+        </p>
+        <div class="voz-aviso-acciones">
+          <button type="button" class="boton" data-voz-aviso-aceptar>Continuar</button>
+          <button type="button" class="boton boton-fantasma" data-voz-aviso-cancelar>
+            Cancelar
+          </button>
+        </div>
+      </dialog>
     </div>
   </div>
 </section>

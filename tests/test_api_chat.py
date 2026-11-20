@@ -576,3 +576,53 @@ def test_una_cita_sin_procedencia_no_muestra_la_linea() -> None:
     # Assert
     assert response.status_code == 200
     assert '<span class="procedencia">' not in response.text
+
+
+def test_el_boton_de_dictar_no_envia_y_conserva_el_formulario() -> None:
+    """T007: el micrófono es un control aparte del envío escrito."""
+
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    assert response.status_code == 200
+    inicio = html.index("data-voz-dictar")
+    fragmento = html[max(0, inicio - 220) : inicio + 220]
+    assert 'type="button"' in fragmento
+    assert 'action="/chat"' in html
+    assert 'method="post"' in html
+    assert f'name="{CSRF_FIELD}"' in html
+    assert 'name="question"' in html
+    assert 'maxlength="500"' in html
+    assert "data-chat-stream" in html
+    assert "/static/chat-voice.js" in html
+
+
+def test_el_estado_de_voz_y_el_aviso_son_accesibles() -> None:
+    """T007: nombre accesible, estado anunciado y aviso previo etiquetado."""
+
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    estado = html.index("data-voz-estado")
+    fragmento_estado = html[max(0, estado - 160) : estado + 120]
+    assert 'role="status"' in fragmento_estado
+    assert 'aria-live="polite"' in fragmento_estado
+    inicio = html.index("data-voz-aviso")
+    fragmento_aviso = html[max(0, inicio - 160) : inicio + 400]
+    assert "<dialog" in fragmento_aviso
+    assert 'aria-labelledby="voz-aviso-titulo"' in fragmento_aviso
+    assert 'id="voz-aviso-titulo"' in html
+    assert "data-voz-aviso-aceptar" in html
+    assert "data-voz-aviso-cancelar" in html
+    assert "escribir" in html
+    assert 'aria-label="Dictar una pregunta"' in html
