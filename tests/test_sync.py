@@ -23,12 +23,21 @@ def _con_titulo(path: Path, titulo: str) -> None:
     path.write_text(texto.replace(anterior, f"title: {titulo}"), encoding="utf-8")
 
 
+def _con_source_type(path: Path, source_type: str) -> None:
+    """Cambia el tipo de fuente: metadato de payload, no de vector."""
+
+    texto = path.read_text(encoding="utf-8")
+    anterior = next(line for line in texto.splitlines() if line.startswith("source_type: "))
+    path.write_text(texto.replace(anterior, f"source_type: {source_type}"), encoding="utf-8")
+
+
 def _document(
     directorio: Path,
     slug: str,
     hash_texto: str,
     cuerpo: str = "Contenido.",
     url: str | None = None,
+    source_type: str = "oficial",
 ) -> None:
     """Escribe un Markdown Gold mínimo con su huella en el front matter."""
 
@@ -37,6 +46,7 @@ def _document(
         "---\n"
         f"title: {slug.title()}\n"
         f"url: {url or f'https://carvajal.com/{slug}'}\n"
+        f"source_type: {source_type}\n"
         f"hash: {hash_texto}\n"
         "---\n\n"
         f"{cuerpo}\n",
@@ -335,6 +345,68 @@ def test_la_huella_de_qdrant_cubre_los_metadatos(tmp_path: Path) -> None:
     assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
 
 
+def test_un_cambio_solo_de_metadatos_actualiza_el_payload_sin_reembeder(tmp_path: Path) -> None:
+    """El tipo de fuente no entra en el vector: se reescribe el payload sin embeber."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "h1", cuerpo="Fundada en Cali.")
+    store = _store("payload")
+    embedder = _Embedder()
+    index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+    llamadas = embedder.llamadas
+    puntos = store.count()
+
+    # Act: cambia solo el tipo de fuente del front matter.
+    _con_source_type(nucleo / "historia.md", "prensa")
+    report = index_gold(
+        gold_dir=nucleo,
+        store=store,
+        embedder=embedder,
+        only={"historia"},
+        prune=False,
+    )
+
+    # Assert
+    assert embedder.llamadas == llamadas
+    assert report.indexed == 0
+    assert report.updated > 0
+    assert store.count() == puntos
+    assert store.document_hashes("core") == gold_index_hashes(CorpusLayer("core", (nucleo,)))
+
+
+def test_un_cambio_de_texto_sigue_reembediendo(tmp_path: Path) -> None:
+    """La optimización no puede saltarse un cambio real del cuerpo."""
+
+    # Arrange
+    from carvajal.indexing.qdrant import index_gold
+
+    nucleo = tmp_path / "gold"
+    _document(nucleo, "historia", "h1", cuerpo="Fundada en Cali.")
+    store = _store("payload_texto")
+    embedder = _Embedder()
+    index_gold(gold_dir=nucleo, store=store, embedder=embedder, prune=False)
+    llamadas = embedder.llamadas
+
+    # Act: el cuerpo cambia y con él la huella.
+    _document(nucleo, "historia", "h2", cuerpo="Ahora dice otra cosa.")
+    report = index_gold(
+        gold_dir=nucleo,
+        store=store,
+        embedder=embedder,
+        only={"historia"},
+        prune=False,
+    )
+
+    # Assert
+    assert embedder.llamadas > llamadas
+    assert report.updated == 0
+    assert report.indexed > 0
+    assert store.document_hashes("core") == gold_index_hashes(CorpusLayer("core", (nucleo,)))
+
+
 def test_sync_corpus_sin_cambios_no_vuelve_a_indexar(tmp_path: Path) -> None:
     """Una segunda sincronización sin cambios no indexa ni embebe nada."""
 
@@ -357,7 +429,11 @@ def test_sync_corpus_sin_cambios_no_vuelve_a_indexar(tmp_path: Path) -> None:
 class _Embedder:
     """Embedder de una dimensión: basta para contar puntos y podar."""
 
+    def __init__(self) -> None:
+        self.llamadas = 0
+
     def embed(self, text: str) -> list[float]:
+        self.llamadas += 1
         return [1.0]
 
 
@@ -420,9 +496,12 @@ def test_un_vector_de_otra_dimension_no_borra_la_version_indexada(tmp_path: Path
     store = _store("dimension_incorrecta")
     index_gold(gold_dir=nucleo, store=store, embedder=_Embedder(), prune=False)
     antes = store.count()
+    antes_hash = store.document_hashes("core")
     assert antes == 1
 
-    # Act / Assert
+    # Act / Assert: el cuerpo cambia, así que sí hay que reembeber y el
+    # proveedor mal configurado debe fallar antes de borrar la versión anterior.
+    _document(nucleo, "historia", "v2", cuerpo="Ahora dice otra cosa.")
     with pytest.raises(ValueError, match="dimensiones"):
         index_gold(
             gold_dir=nucleo,
@@ -432,7 +511,7 @@ def test_un_vector_de_otra_dimension_no_borra_la_version_indexada(tmp_path: Path
             prune=False,
         )
     assert store.count() == antes
-    assert store.document_hashes("core") == gold_hashes(CorpusLayer("core", (nucleo,)))
+    assert store.document_hashes("core") == antes_hash
 
 
 def test_corpus_layers_conserva_la_capa_extendida_sin_fuentes(tmp_path: Path) -> None:

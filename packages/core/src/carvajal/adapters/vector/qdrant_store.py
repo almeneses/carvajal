@@ -23,6 +23,9 @@ from carvajal.domain.entities import Chunk
 __all__ = ["QdrantVectorStore", "fingerprint_for", "payload_for", "point_id"]
 
 _NAMESPACE = UUID("6f0b8d9a-3c2e-5a7b-9e4d-1f2a3b4c5d6e")
+# Documentos por consulta al buscar los IDs existentes: no existe una lista
+# vacía y un lote enorme tampoco cabe en una sola petición.
+_DOCUMENT_BATCH = 256
 
 
 def point_id(chunk: Chunk, fingerprint: str = "") -> str:
@@ -197,6 +200,60 @@ class QdrantVectorStore:
             point_id(chunk, fingerprint_for(chunk, None if metadata is None else metadata[index]))
             for index, chunk in enumerate(chunks)
         ]
+
+    def existing_point_ids(self, document_ids: Sequence[str]) -> dict[str, set[str]]:
+        """IDs de punto que hoy tiene cada documento, en una sola pasada.
+
+        El indexador lo usa para distinguir un cambio de texto —que obliga a
+        reembeber— de un cambio de metadatos, que solo exige reescribir el
+        payload. Consulta por ``document_id`` en lotes para no recorrer la
+        colección entera.
+        """
+
+        found: dict[str, set[str]] = {}
+        unique = list(dict.fromkeys(document_ids))
+        if not unique or not self._client.collection_exists(self._collection):
+            return found
+        for start in range(0, len(unique), _DOCUMENT_BATCH):
+            batch = unique[start : start + _DOCUMENT_BATCH]
+            scroll_filter = models.Filter(
+                must=[models.FieldCondition(key="document_id", match=models.MatchAny(any=batch))]
+            )
+            offset = None
+            while True:
+                points, offset = self._client.scroll(
+                    collection_name=self._collection,
+                    limit=512,
+                    offset=offset,
+                    scroll_filter=scroll_filter,
+                    with_payload=["document_id"],
+                    with_vectors=False,
+                )
+                for point in points:
+                    payload = point.payload or {}
+                    document_id = str(payload.get("document_id") or payload.get("slug") or "")
+                    if document_id:
+                        found.setdefault(document_id, set()).add(str(point.id))
+                if offset is None:
+                    break
+        return found
+
+    def update_payload(self, point_ids: Sequence[str], payload: Mapping[str, object]) -> None:
+        """Reescribe el payload de puntos existentes sin tocar sus vectores.
+
+        Solo se usa cuando el ID del punto no cambió, es decir, cuando el texto
+        vectorizado es el mismo: los campos de ``payload`` son metadatos
+        compartidos por todos los fragmentos del documento.
+        """
+
+        if not point_ids:
+            return
+        self._client.set_payload(
+            collection_name=self._collection,
+            payload=dict(payload),
+            points=list(point_ids),
+            wait=True,
+        )
 
     def search(
         self,

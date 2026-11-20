@@ -7,8 +7,10 @@ existen y escribe un reporte con conteos y huellas.
 
 Estrategia de actualización: reejecutar el comando. Cada fragmento tiene un ID
 estable derivado de documento, posición y hash del texto; los que no cambian se
-sobrescriben con el mismo ID y los obsoletos se eliminan. ``--recreate``
-reconstruye la colección desde cero para una demo o un cambio de modelo.
+sobrescriben con el mismo ID y los obsoletos se eliminan. Si el texto no cambió
+y solo cambiaron metadatos del payload, se reescribe el payload sin llamar al
+embedder. ``--recreate`` reconstruye la colección desde cero para una demo o un
+cambio de modelo.
 """
 
 import json
@@ -46,6 +48,9 @@ class IndexReport:
     dimensions: int
     elapsed_ms: int
     recreated: bool = False
+    # Puntos cuyo payload se reescribió sin volver a embeberlos: el texto
+    # vectorizado no cambió, solo sus metadatos de procedencia.
+    updated: int = 0
 
 
 def index_gold(
@@ -70,6 +75,15 @@ def index_gold(
     puntos anteriores: un documento acortado no deja fragmentos de la versión
     vieja. La poda se limita a las capas de las áreas indexadas, comparando cada
     una solo con sus puntos: el resto de la colección queda intacto.
+
+    Un documento cuyos puntos ya existen con exactamente los mismos IDs no
+    necesita vectores nuevos: el ID estable cubre título, sección, ficha y
+    texto, que es todo lo que se vectoriza. Si el texto no cambió y solo se
+    movieron metadatos del payload (URL, origen, categoría, entidad, tipo de
+    fuente), se reescribe el payload con ``update_payload`` y no se llama al
+    embedder. Sin esta distinción, corregir la procedencia de un corpus de
+    decenas de miles de fragmentos disparaba un re-embedding completo.
+
     ``prune_layers`` permite podar también una capa seleccionada sin directorios
     (una capa vacía): sin ella, retirar la última fuente extendida dejaría sus
     puntos en el índice.
@@ -140,7 +154,13 @@ def index_gold(
     # puntos, y las capas que esta corrida no tocó quedan intactas.
     valid_ids: dict[str, list[str]] = {}
     indexed = 0
+    updated = 0
     total_chunks = 0
+    # IDs que hoy hay en el índice: la comparación con los del documento decide
+    # entre reembeder (el texto cambió) y reescribir el payload (solo metadatos).
+    existing: dict[str, set[str]] = (
+        {} if recreate else store.existing_point_ids([document.id for document in documents])
+    )
     for document in documents:
         chunks = split_document(document)
         total_chunks += len(chunks)
@@ -156,6 +176,17 @@ def index_gold(
             "category": document.category,
             "entity": document.entity,
         }
+        ids = store.point_ids(chunks, [metadata for _ in chunks])
+        if existing.get(document.id) == set(ids):
+            store.update_payload(ids, metadata)
+            updated += len(ids)
+            valid_ids.setdefault(document.layer, []).extend(ids)
+            logger.info(
+                "qdrant.document_payload_updated",
+                document=document.id,
+                chunks=len(ids),
+            )
+            continue
         # Los vectores del documento se preparan antes de tocar el índice: si el
         # proveedor falla o devuelve un vector inválido, la versión anterior sigue en
         # Qdrant y el documento no desaparece de la recuperación. Se preparan en un
@@ -218,6 +249,7 @@ def index_gold(
         dimensions=store.dimensions,
         elapsed_ms=elapsed_ms,
         recreated=recreate,
+        updated=updated,
     )
     logger.info(
         "qdrant.index_completed",
@@ -225,6 +257,7 @@ def index_gold(
         documents=report.documents,
         chunks=report.chunks,
         indexed=report.indexed,
+        updated=report.updated,
         deleted=report.deleted,
         points=report.points,
         dimensions=report.dimensions,
