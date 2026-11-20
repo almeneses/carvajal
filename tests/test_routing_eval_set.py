@@ -25,7 +25,7 @@ def _ids(items: list[dict[str, Any]]) -> list[str]:
 def test_el_conjunto_tiene_el_tamano_y_la_forma_esperados() -> None:
     assert len(ITEMS) >= 100
     assert len(set(_ids(ITEMS))) == len(ITEMS)
-    assert {item["group"] for item in ITEMS} == {"existente", "comercial"}
+    assert {item["group"] for item in ITEMS} == {"existente", "comercial", "colombia"}
     assert all(item["route"] in ROUTES and item["intent"] for item in ITEMS)
     existentes = [item for item in ITEMS if item["group"] == "existente"]
     retrieval = json.loads((EVAL_SET.parent / "retrieval_questions.json").read_text("utf-8"))
@@ -35,7 +35,8 @@ def test_el_conjunto_tiene_el_tamano_y_la_forma_esperados() -> None:
 
 
 EXISTENTES = [item for item in ITEMS if item["group"] == "existente"]
-COMERCIALES = [item for item in ITEMS if item["group"] == "comercial"]
+# El grupo «colombia» (spec 039) se evalúa igual que el comercial: ruta, datos y materiales.
+COMERCIALES = [item for item in ITEMS if item["group"] in {"comercial", "colombia"}]
 
 
 @pytest.mark.parametrize("item", EXISTENTES, ids=_ids(EXISTENTES))

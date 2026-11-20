@@ -38,13 +38,63 @@
         "Solo empresa, ciudad, dirección y un teléfono comercial; se omiten nombres de personas de contacto y correos.",
         "La capa de texto de la página 5 contiene entradas ocultas que no se ven en la página; solo se transcribe lo visible."
       ]
+    },
+    "precios_co": {
+      "origin": "Tiendas en línea de distribuidores del directorio oficial (precio publicado)",
+      "generated_by": "carvajal catalog-prices",
+      "raw": "fuentes/precios_co.csv",
+      "captured_at": "2026-11-18",
+      "rows": 29,
+      "sources": [
+        "EDEXA"
+      ],
+      "rule": "Solo precios publicados para el país; no se estima, no se convierte de moneda ni se promedia.",
+      "discarded": [],
+      "changes": {
+        "added": [],
+        "changed": [],
+        "removed": []
+      }
+    },
+    "referencias_mx_ampliacion": {
+      "origin": "Tienda en línea de Carvajal Empaques México (fichas no incluidas en el corpus)",
+      "generated_by": "scripts/ampliar_catalogo_mx.py con parse_mx_product",
+      "raw": "fuentes/mx_ampliacion.json",
+      "captured_at": "2026-11-18",
+      "pages_read": 50,
+      "rows": 46,
+      "notes": [
+        "https://mexico.carvajalempaques.com/producto/combo-plato-navidad/: no es una referencia por caja (combo o kit)",
+        "https://mexico.carvajalempaques.com/producto/combo-verano-platos-vasos-y-cubiertos/: no es una referencia por caja (combo o kit)",
+        "https://mexico.carvajalempaques.com/producto/plato-papel-9-y-7-1010-impreso-canatek/: sin unidades por caja",
+        "https://mexico.carvajalempaques.com/producto/plato-talavera-3/: material no reconocido",
+        "https://mexico.carvajalempaques.com/producto/vaso-papel-16_oz-90mm-2/: temperatura (-30.0, 40.0) contradice «bebida caliente»; se omite",
+        "https://mexico.carvajalempaques.com/producto/vaso-papel-20_oz-90mm/: temperatura (-30.0, 40.0) contradice «bebida caliente»; se omite"
+      ]
+    },
+    "referencias_co": {
+      "origin": "Fichas oficiales de Carvajal Empaques Colombia, cruzadas con la tienda en línea de EDEXA (distribuidor del directorio oficial)",
+      "source_urls": [
+        "https://colombia.carvajalempaques.com/",
+        "https://www.tiendaedexa.com/"
+      ],
+      "generated_by": "scripts/curar_catalogo_co.py",
+      "captured_at": "2026-11-18",
+      "rows": 102,
+      "from_official": 92,
+      "from_distributor": 10,
+      "curated": "transcrito a mano desde las fichas; ver el docstring del script para las reglas de cruce",
+      "discarded": "fuentes/descartes_co.json",
+      "notes": [
+        "Las fichas oficiales no publican SKU: se usa el GTIN de Carvajal (prefijo 7704918) cuando el distribuidor lo publica sin ambigüedad; si no, un código CO-… estable.",
+        "Las referencias del distribuidor que no están en las fichas entran en su presentación de venta (paquete o caja) y citan la página del distribuidor.",
+        "Las fichas oficiales no declaran temperatura: la validación usa la guía de materiales; para papel y pulpa, el uso declarado.",
+        "Donde la ficha dice «PP/PS» (vasos y tapas rígidos pequeños) se usa PS, la regla más estricta de la guía (sin microondas, hasta 60 °C)."
+      ]
     }
   },
   "materials_without_rule": [
     "PAPEL",
     "PULPA"
-  ],
-  "pending": [
-    "Catálogo PDF de Colombia (~180 referencias sin precio): T009, en una PR aparte."
   ]
 }

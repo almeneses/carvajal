@@ -99,6 +99,22 @@ fallos: los 4 del LLM y las 2 etiquetas discutibles.
 uv run carvajal eval-router --router rules --router llm --output docs/eval/router.md
 ```
 
+### Corrida 4 — 2026-11-18, grupo «colombia» de la spec 039
+
+La spec 039 añade 20 preguntas de Colombia (grupo `colombia`): 16 comerciales con la
+referencia esperada y su total en COP, o la ausencia de precio declarada, y 4 aclaraciones.
+Solo se corrió el enrutador por reglas, que no necesita LLM:
+
+| Enrutador | Preguntas | Ruta | Intención | Datos | Violaciones de material | Salidas inválidas | Latencia media (ms) | Latencia p95 (ms) | Llamadas al modelo |
+|---|---|---|---|---|---|---|---|---|---|
+| rules | 130 | 100.0% | 100.0% | 100.0% | 0 | 0 | 1.6 | 5.0 | 0 |
+
+Al redactar el grupo aparecieron dos huecos del router frente al catálogo nuevo: «cazuelas» y
+«bowls» no se reconocían como contenedores y esas preguntas iban a la ruta documental. Se
+añadieron como sinónimos de la familia `contenedor`; las 110 preguntas anteriores conservan
+su ruta. Los totales en COP se verifican en `tests/test_sc_039.py` (SC-004). La latencia sube
+respecto de las corridas 1 y 2 porque esta corrida se hizo en otro entorno.
+
 ### Lectura
 
 - **Reglas.** El 100 % no mide generalización: el conjunto se escribió junto con las reglas.

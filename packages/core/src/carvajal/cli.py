@@ -275,6 +275,25 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    prices_parser = subparsers.add_parser(
+        "catalog-prices",
+        help=(
+            "Normaliza a precio por caja las capturas de fuentes/precios_<país>.csv (spec 039) "
+            "y escribe precios.csv y el manifiesto; nunca estima ni convierte precios."
+        ),
+    )
+    prices_parser.add_argument(
+        "--country", choices=("CO", "MX"), required=True, help="País cuyas capturas se normalizan."
+    )
+    prices_parser.add_argument(
+        "--out", type=Path, default=None, help="Directorio del catálogo (data/catalog/empaques)."
+    )
+    prices_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Muestra las diferencias y los descartes sin escribir nada.",
+    )
+
     subparsers.add_parser(
         "status",
         help="Muestra el estado del corpus (semillas y entregables Gold).",
@@ -562,6 +581,35 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Referencias de México: {len(references)} (total en el archivo: {total}).")
         for note in notes:
             print(f"  - {note}")
+        return 0
+
+    if args.command == "catalog-prices":
+        from carvajal.catalog.loader import DEFAULT_DIR, CatalogError
+        from carvajal.catalog.prices import build_prices, write_prices
+
+        out = args.out or DEFAULT_DIR
+        try:
+            build = build_prices(out, args.country)
+        except (CatalogError, ValueError) as error:
+            print(f"No se pudieron leer los precios: {error}")
+            return 1
+        print(
+            f"Precios {args.country}: {len(build.offers)} publicables · "
+            f"{len(build.added)} nuevos · {len(build.changed)} cambiados · "
+            f"{len(build.removed)} retirados · {len(build.discarded)} descartados."
+        )
+        for item in build.discarded:
+            print(f"  - descartado {item['row']}: {item['reason']}")
+        for item in build.changed:
+            print(f"  - {item['sku']} ({item['source']}): {item['before']} → {item['after']}")
+        if args.dry_run:
+            return 0
+        try:
+            total = write_prices(out, build)
+        except (OSError, ValueError) as error:
+            print(f"No se reescribieron los precios: {error}")
+            return 1
+        print(f"precios.csv: {total} ofertas en total.")
         return 0
 
     if args.command == "migrate-gold":

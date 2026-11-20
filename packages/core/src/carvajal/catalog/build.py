@@ -45,7 +45,7 @@ _FAMILIES = (
 _MATERIALS = (
     ("EPS", ("expandido", "espumado", "eps", "foam", "unicel")),
     ("PULPA", ("pulpa", "fibra", "bagazo")),
-    ("PAPEL", ("papel", "cañatek", "canatek")),
+    ("PAPEL", ("papel", "cañatek", "canatek", "carton")),  # cartón = cartulina (spec 039)
     ("ALUMINIO", ("aluminio",)),
     ("PET", ("pet",)),
     ("PP", ("polipropileno", "pp")),

@@ -11,6 +11,9 @@ Validación de material (FR-003):
   declarada y sus usos.
 - En ambos casos, una ficha que se declara para el uso contrario (vaso «bebida fría» pedido
   para bebida caliente) se descarta.
+
+Precios (spec 039): cada referencia puede tener varias ofertas, una por fuente. ``quote_offer``
+calcula el total de una oferta; nunca se estima, se convierte ni se promedia un precio.
 """
 
 import unicodedata
@@ -18,13 +21,14 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-from carvajal.catalog.loader import Catalog, load_catalog
-from carvajal.catalog.models import Distributor, Family, MaterialRule, Reference
+from carvajal.catalog.loader import Catalog, inline_offer, load_catalog
+from carvajal.catalog.models import Distributor, Family, MaterialRule, Reference, ReferencePrice
 
 __all__ = [
     "BULK_BOXES",
     "HOT_MIN_C",
     "RENEWABLE",
+    "STALE_DAYS",
     "BoxCount",
     "CommercialRequest",
     "Discarded",
@@ -34,6 +38,7 @@ __all__ = [
     "check_material",
     "find_distributors",
     "quote",
+    "quote_offer",
     "search_packaging",
 ]
 
@@ -42,6 +47,8 @@ __all__ = [
 HOT_MIN_C = 60.0
 # A partir de este volumen se calcula igual, pero se sugiere contacto comercial (spec 036).
 BULK_BOXES = 100
+# Un precio capturado hace más de estos días se muestra con aviso de desactualización (FR-007).
+STALE_DAYS = 90
 RENEWABLE = frozenset({"PAPEL", "PULPA"})
 CAPACITY_TOLERANCE_OZ = 0.25
 _DRINK_FAMILY: dict[str, Family] = {"bebida_caliente": "vaso", "bebida_fria": "vaso"}
@@ -86,10 +93,15 @@ class Quote:
 
     total: str
     currency: str
-    tax_included: bool
+    tax_included: bool | None
     captured_at: str
     valid_until: str | None
     notice: str
+    tax_status: str = "incluido"
+    source_type: str = "oficial"
+    source_name: str = ""
+    source_url: str = ""
+    source_city: str | None = None
 
 
 class NoPriceError(ValueError):
@@ -203,37 +215,73 @@ def boxes_for(ref: Reference, units: int) -> BoxCount:
 
 
 def quote(ref: Reference, boxes: int, *, today: date | None = None) -> Quote:
-    """Total de referencia = cajas x precio por caja, con fecha y avisos (FR-005, FR-006)."""
+    """Total de referencia con el precio de la ficha (spec 036): envoltorio de ``quote_offer``."""
 
     if boxes <= 0:
         raise ValueError("El número de cajas debe ser positivo.")
-    if ref.price is None or ref.currency is None or ref.tax_included is None:
+    offer = inline_offer(ref)
+    if offer is None:
         raise NoPriceError(
             f"{ref.name}: el catálogo no publica precio para esta referencia; "
             "no se estima. Consulta un distribuidor."
         )
-    taxes = "con impuestos incluidos" if ref.tax_included else "sin impuestos"
+    return quote_offer(offer, boxes, today=today)
+
+
+_TAX_NOTES = {
+    "incluido": "con impuestos incluidos",
+    "no_incluido": "sin impuestos",
+    "no_indicado": "sin que la fuente indique si incluye impuestos",
+}
+
+
+def quote_offer(offer: ReferencePrice, boxes: int, *, today: date | None = None) -> Quote:
+    """Total = cajas x precio por caja de una oferta, con fuente, fecha y avisos (FR-004, FR-007).
+
+    El aviso nombra a quien publica el precio: si es un tercero (un distribuidor o un
+    comercio), queda dicho que no es un precio de Carvajal.
+    """
+
+    if boxes <= 0:
+        raise ValueError("El número de cajas debe ser positivo.")
+    taxes = _TAX_NOTES[offer.tax_status]
+    captured = offer.captured_at.isoformat()
+    if offer.source_type == "oficial":
+        origin = f"capturado el {captured} de la ficha publicada"
+    else:
+        origin = (
+            f"publicado por {offer.source_name} (tercero, no es un precio de Carvajal) "
+            f"y capturado el {captured}"
+        )
     notes = [
-        f"Precio de referencia {taxes}, capturado el {ref.captured_at.isoformat()} de la ficha "
-        "publicada; no confirma existencias ni condiciones de venta."
+        f"Precio de referencia {taxes}, {origin}; no confirma existencias ni condiciones de venta."
     ]
     current = today or date.today()
-    if ref.price_valid_until is not None and ref.price_valid_until < current:
+    if offer.valid_until is not None and offer.valid_until < current:
         notes.append(
-            f"La vigencia publicada del precio terminó el {ref.price_valid_until.isoformat()}; "
+            f"La vigencia publicada del precio terminó el {offer.valid_until.isoformat()}; "
             "puede haber cambiado."
+        )
+    if (current - offer.captured_at).days > STALE_DAYS:
+        notes.append(
+            f"El precio se capturó hace más de {STALE_DAYS} días; puede estar desactualizado."
         )
     if boxes > BULK_BOXES:
         notes.append(
             f"Para más de {BULK_BOXES} cajas conviene pedir una cotización comercial por volumen."
         )
     return Quote(
-        total=str(ref.price * boxes),
-        currency=ref.currency,
-        tax_included=ref.tax_included,
-        captured_at=ref.captured_at.isoformat(),
-        valid_until=ref.price_valid_until.isoformat() if ref.price_valid_until else None,
+        total=str(offer.amount * boxes),
+        currency=offer.currency,
+        tax_included=offer.tax_included,
+        captured_at=captured,
+        valid_until=offer.valid_until.isoformat() if offer.valid_until else None,
         notice=" ".join(notes),
+        tax_status=offer.tax_status,
+        source_type=offer.source_type,
+        source_name=offer.source_name,
+        source_url=offer.source_url,
+        source_city=offer.source_city,
     )
 
 
