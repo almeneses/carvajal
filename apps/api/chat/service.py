@@ -329,21 +329,30 @@ class ChatService:
                             fragmentos = iter(
                                 self._llm.stream(system=turn.system, prompt=turn.prompt)
                             )
-                            while True:
-                                # El contexto se reabre en cada avance: Starlette
-                                # mueve el generador SSE entre hilos y los
-                                # contextvars no viajan con él (FR-003).
-                                with span.generation():
-                                    try:
-                                        fragment = next(fragmentos)
-                                    except StopIteration:
-                                        break
-                                fragments.append(fragment)
-                                # Lo generado queda en la traza: una cancelación
-                                # deja el texto parcial (edge case de US1).
+                            answer_chars = 0
+                            try:
+                                while True:
+                                    # El contexto se reabre en cada avance:
+                                    # Starlette mueve el generador SSE entre
+                                    # hilos y los contextvars no viajan con él
+                                    # (FR-003).
+                                    with span.generation():
+                                        try:
+                                            fragment = next(fragmentos)
+                                        except StopIteration:
+                                            break
+                                    fragments.append(fragment)
+                                    # El largo se acumula en O(1): unir la
+                                    # respuesta completa en cada token sería
+                                    # O(n²) sobre respuestas largas (T010).
+                                    answer_chars += len(fragment)
+                                    llm_span.add_outputs(answer_chars=answer_chars)
+                                    yield ChatEvent("token", {"text": fragment})
+                            except GeneratorExit:
+                                # Cancelación: lo generado queda en la traza con
+                                # una sola unión, no una por token (T012).
                                 span.add_outputs(answer="".join(fragments))
-                                llm_span.add_outputs(answer_chars=len("".join(fragments)))
-                                yield ChatEvent("token", {"text": fragment})
+                                raise
                     except Exception as error:
                         if "".join(fragments).strip():
                             raise
@@ -370,6 +379,7 @@ class ChatService:
                         )
 
                 answer_text = "".join(fragments)
+                span.add_outputs(answer=answer_text)
                 with self._session_factory() as session:
                     repository = SqlChatRepository(session)
                     current = repository.get_owned(conversation.id, owner_key)
