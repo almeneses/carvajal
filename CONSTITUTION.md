@@ -80,9 +80,11 @@ con asistente RAG.
   externo, con validación técnica por material, cálculo de cajas y precio de referencia
   fechado donde exista. No se procesan pedidos ni pagos.
 - Monitorear el agente con **LangSmith** (spec 038, entregada el 2026-11-19): una traza por turno con
-  ruta, enrutador, pasos, tokens y latencia. Desactivado por defecto y sin PII; en
-  producción solo metadatos, con el texto completo reservado a desarrollo y evaluación, y
-  sin afectar el chat si el servicio falla. Los experimentos de evaluación son opcionales.
+  ruta, enrutador, pasos, tokens, latencia e identidad opcional (`agent_id`,
+  `agent_environment`) para distinguir orígenes dentro del mismo proyecto. Desactivado por
+  defecto y sin PII; en producción solo metadatos, con el texto completo reservado a
+  desarrollo y evaluación. Si el servicio falla, el chat no se afecta. Los experimentos de
+  evaluación son opcionales.
 - Ampliar el catálogo a **Colombia** (spec 039, en borrador): referencias del portafolio CO
   y precios de referencia en COP con IVA, fecha y fuente. Donde el distribuidor no publica
   precio, se estima por conversión desde la referencia equivalente de México, siempre

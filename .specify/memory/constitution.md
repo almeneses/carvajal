@@ -95,6 +95,7 @@ con `--admin`.
 - El monitoreo del agente con LangSmith (spec 038) quedó **entregado el 2026-11-19**: traza
   raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo solo en desarrollo
   y evaluación. La evidencia de SC-001…SC-005 está en `docs/evidence/m2/monitoring.md`.
+  La raíz puede incluir `agent_id` y `agent_environment` como metadatos opcionales.
 - Las specs 039 (catálogo de Colombia con precios en COP) y 040 (chat por voz) siguen en
   borrador; sus `plan.md` y `tasks.md` llegan antes de implementar.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
