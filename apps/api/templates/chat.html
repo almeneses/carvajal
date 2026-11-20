@@ -89,6 +89,16 @@
               <input type="checkbox" data-voz-autolectura />
               Leer respuestas en voz alta
             </label>
+            <button
+              type="button"
+              class="boton boton-fantasma voz-boton"
+              data-voz-manos-libres
+              aria-pressed="false"
+              aria-label="Activar manos libres"
+              hidden
+            >
+              Manos libres
+            </button>
           </div>
           <p class="voz-estado" data-voz-estado role="status" aria-live="polite"></p>
           <p class="voz-nota" data-voz-nota role="note" hidden></p>
@@ -111,6 +121,29 @@
         <div class="voz-aviso-acciones">
           <button type="button" class="boton" data-voz-aviso-aceptar>Continuar</button>
           <button type="button" class="boton boton-fantasma" data-voz-aviso-cancelar>
+            Cancelar
+          </button>
+        </div>
+      </dialog>
+
+      <dialog
+        class="voz-aviso"
+        data-voz-manos-aviso
+        aria-labelledby="voz-manos-titulo"
+        aria-describedby="voz-manos-texto"
+      >
+        <h2 id="voz-manos-titulo" class="voz-aviso-titulo">Manos libres</h2>
+        <p id="voz-manos-texto" class="voz-aviso-texto">
+          En este modo el chat escucha tu pregunta y la envía sin que la revises. La respuesta
+          se lee en voz alta y después vuelve a escuchar. Se apaga al escribir, al decir
+          «terminar», tras 10 segundos sin voz, si falla el envío o al ocultar la pestaña.
+          Necesita el borrador vacío y no se activa solo al cargar la página.
+        </p>
+        <div class="voz-aviso-acciones">
+          <button type="button" class="boton" data-voz-manos-aceptar>
+            Activar manos libres
+          </button>
+          <button type="button" class="boton boton-fantasma" data-voz-manos-cancelar>
             Cancelar
           </button>
         </div>

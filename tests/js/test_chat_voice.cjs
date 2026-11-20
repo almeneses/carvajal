@@ -366,6 +366,10 @@ function crearVista(extra = {}) {
     avisoCancelar: crearElemento("button"),
     autoLectura: crearElemento("input"),
     hilo: crearElemento("input", { value: "hilo-1" }),
+    botonManosLibres: crearElemento("button", { hidden: true }),
+    avisoManos: crearElemento("dialog"),
+    manosAceptar: crearElemento("button"),
+    manosCancelar: crearElemento("button"),
     ...extra,
   };
   vista.formulario.enviados = 0;
@@ -1379,6 +1383,421 @@ test("T016 el filtro de códigos también cubre mayúsculas mezcladas", () => {
   // Assert
   assert.equal(/FX-Vaso|sku/i.test(limpio), false, limpio);
   assert.match(limpio, /código 3/);
+
+// ---------------------------------------------------------------------------
+// T018–T021 · US3: conversación manos libres
+// ---------------------------------------------------------------------------
+
+function activarManosLibres(montaje) {
+  clic(montaje.vista.botonManosLibres);
+  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
+  if (montaje.vista.aviso.open) clic(montaje.vista.avisoAceptar);
+  return montaje.reconocimiento.ultima();
+}
+
+function montarManos({ almacen, sintesis, reloj, vistas } = {}) {
+  const reconocimiento = crearReconocimiento();
+  const montaje = montar({
+    reconocimiento,
+    almacen,
+    sintesis: sintesis || crearSintesis(),
+    reloj,
+    ...vistas,
+  });
+  montaje.reconocimiento = reconocimiento;
+  return montaje;
+}
+
+test("T018 manos libres no se activa con borrador previo y conserva el texto", () => {
+  // Arrange
+  const montaje = montarManos();
+  montaje.vista.entrada.value = "texto previo";
+
+  // Act
+  clic(montaje.vista.botonManosLibres);
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.avisoManos.open, false);
+  assert.equal(montaje.reconocimiento.instancias.length, 0);
+  assert.equal(montaje.vista.entrada.value, "texto previo");
+  assert.match(montaje.vista.nota.textContent, /vacía el borrador|borrador/i);
+});
+
+test("T019 la activación avisa del autoenvío, es temporal y exige las tres capacidades", () => {
+  // Arrange: sin streaming el botón ni se ofrece.
+  const sinStreaming = montarManos({ vistas: { streaming: false } });
+  assert.equal(sinStreaming.vista.botonManosLibres.hidden, true);
+  assert.equal(sinStreaming.controlador.soporte.manosLibres, false);
+
+  // Arrange: con las tres capacidades, el borrador está vacío.
+  const almacen = crearAlmacen();
+  const montaje = montarManos({ almacen });
+
+  // Act: activar y aceptar el aviso de autoenvío.
+  clic(montaje.vista.botonManosLibres);
+
+  // Assert: primero explica que enviará sin revisión.
+  assert.equal(montaje.vista.avisoManos.open, true);
+  assert.equal(montaje.reconocimiento.instancias.length, 0);
+  clic(montaje.vista.manosAceptar);
+  if (montaje.vista.aviso.open) clic(montaje.vista.avisoAceptar);
+
+  // Assert: activo, visible y con micrófono abierto.
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+  assert.equal(montaje.vista.botonManosLibres.getAttribute("aria-pressed"), "true");
+  assert.equal(montaje.documento.documentElement.dataset.vozManos, "1");
+  assert.match(montaje.vista.estado.textContent, /manos libres/i);
+  assert.equal(montaje.reconocimiento.ultima().iniciado, 1);
+  assert.equal(almacen.getItem("carvajal_voz_manos_libres"), null);
+
+  // Act: recargar la página con el mismo almacenamiento.
+  const recarga = montarManos({ almacen });
+
+  // Assert: el modo no se restaura.
+  assert.equal(recarga.controlador.manosLibres.activo, false);
+});
+
+test("T020 un resultado final se envía una sola vez y conserva el hilo", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+
+  // Act
+  instancia.resultado("necesito doce onzas de vasos");
+  instancia.fin();
+
+  // Assert: mismo formulario, mismo hilo y una sola petición.
+  assert.equal(montaje.vista.formulario.enviados, 1);
+  assert.equal(montaje.vista.entrada.value, "necesito 12 onzas de vasos");
+  assert.equal(montaje.vista.hilo.value, "hilo-1");
+  assert.equal(montaje.vista.formulario.dataset.vozOrigen, "manos-libres");
+
+  // Act: el navegador repite el fin del mismo ciclo.
+  instancia.fin();
+  instancia.resultado("otra vez", { indice: 1 });
+
+  // Assert: no hay segundo envío.
+  assert.equal(montaje.vista.formulario.enviados, 1);
+});
+
+test("T018 «terminar» como orden aislada apaga el modo sin enviarse", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+
+  // Act
+  instancia.resultado("terminar");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.vista.formulario.enviados, 0);
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.match(montaje.vista.estado.textContent, /terminar/i);
+});
+
+test("T018 diez segundos sin voz apagan el modo y descartan el micrófono", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+
+  // Act: un resultado intermedio reinicia la cuenta.
+  montaje.reloj.avanzar(9000);
+  instancia.resultado("necesito", { final: false });
+  montaje.reloj.avanzar(9000);
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+
+  // Act: sin más voz se cumple el silencio.
+  montaje.reloj.avanzar(1000);
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(instancia.abortado, 1);
+  assert.equal(montaje.vista.formulario.enviados, 0);
+  assert.match(montaje.vista.estado.textContent, /10 segundos|silencio/i);
+});
+
+test("T018 escribir desactiva el modo, conserva el borrador e ignora el resultado tardío", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+
+  // Act: la persona escribe con el modo activo.
+  montaje.vista.entrada.value = "lo escribo yo";
+  montaje.vista.entrada.dispatch("input", {});
+  instancia.resultado("texto tardío");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.entrada.value, "lo escribo yo");
+  assert.equal(montaje.vista.formulario.enviados, 0);
+  assert.match(montaje.vista.estado.textContent, /escribiste|escribir/i);
+});
+
+test("T018 un error de dictado apaga el modo sin reenviar ni hablar", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarManos({ sintesis });
+  const instancia = activarManosLibres(montaje);
+
+  // Act
+  instancia.error("network");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.formulario.enviados, 0);
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.equal(montaje.reconocimiento.instancias.length, 1);
+});
+
+test("T018 ocultar la pestaña apaga el modo y la lectura", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarManos({ sintesis });
+  activarManosLibres(montaje);
+
+  // Act
+  montaje.documento.visibilityState = "hidden";
+  montaje.documento.dispatch("visibilitychange", {});
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(sintesis.cancelados, 0);
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
+
+test("T018 tras leer la respuesta se vuelve a escuchar solo si la lectura termina normal", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarManos({ sintesis });
+  const instancia = activarManosLibres(montaje);
+  instancia.resultado("¿y si son 4500?");
+  instancia.fin();
+  assert.equal(montaje.vista.formulario.enviados, 1);
+
+  // Act: llega el turno completo del envío manos libres.
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: {
+      turno: crearTurnoFalso({ texto: "Con 4500 unidades…" }),
+      threadId: "hilo-1",
+      handsFree: true,
+    },
+  });
+
+  // Assert: se lee y no se abre el micrófono mientras lee.
+  assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(montaje.reconocimiento.instancias.length, 1);
+
+  // Act: la lectura termina normalmente.
+  sintesis.terminar();
+
+  // Assert: vuelve a escuchar en un ciclo nuevo.
+  assert.equal(montaje.reconocimiento.instancias.length, 2);
+  assert.equal(montaje.reconocimiento.ultima().iniciado, 1);
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+});
+
+test("T018 detener la lectura a mano apaga el modo sin reabrir el micrófono", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarManos({ sintesis });
+  const instancia = activarManosLibres(montaje);
+  instancia.resultado("pregunta");
+  instancia.fin();
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: {
+      turno: crearTurnoFalso({ texto: "respuesta" }),
+      threadId: "hilo-1",
+      handsFree: true,
+    },
+  });
+
+  // Act
+  montaje.controlador.detenerLectura();
+
+  // Assert
+  assert.equal(sintesis.cancelados, 1);
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.reconocimiento.instancias.length, 1);
+});
+
+test("T021 un fallo del stream apaga el modo y no reenvía el turno", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+  instancia.resultado("pregunta");
+  instancia.fin();
+
+  // Act: el adaptador de streaming devuelve el texto y notifica el fallo.
+  montaje.vista.entrada.value = "pregunta";
+  montaje.documento.dispatch("chat:turn-failed", {
+    detail: { handsFree: true, threadId: "hilo-1" },
+  });
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.formulario.enviados, 1);
+  assert.equal(montaje.vista.entrada.value, "pregunta");
+  assert.match(montaje.vista.estado.textContent, /fall|error|revis/i);
+});
+
+test("T018 sin voz española las manos libres no se activan", () => {
+  // Arrange
+  const sintesis = crearSintesis({ voces: [{ name: "Alex", lang: "en-US" }] });
+  const montaje = montarManos({ sintesis });
+
+  // Act
+  clic(montaje.vista.botonManosLibres);
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.avisoManos.open, false);
+  assert.equal(montaje.reconocimiento.instancias.length, 0);
+  assert.match(montaje.vista.nota.textContent, /voz en español/i);
+});
+
+test("T018 «quiero terminar» no es la orden aislada y se envía una vez", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+
+  // Act
+  instancia.resultado("quiero terminar con la compra");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.vista.formulario.enviados, 1);
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+  assert.equal(montaje.vista.entrada.value, "quiero terminar con la compra");
+});
+
+test("T019 manos libres no se ofrece sin síntesis", () => {
+  // Arrange
+  const montaje = montarManos({ vistas: { sintesis: false } });
+
+  // Act / Assert
+  assert.equal(montaje.vista.botonManosLibres.hidden, true);
+  assert.equal(montaje.controlador.soporte.manosLibres, false);
+  clic(montaje.vista.botonManosLibres);
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+});
+
+test("T018 Escape durante manos libres apaga el modo sin enviar", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+
+  // Act
+  tecla(montaje.documento, "Escape");
+  instancia.resultado("texto tardío");
+  instancia.fin();
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.formulario.enviados, 0);
+  assert.equal(montaje.vista.entrada.value, "");
+});
+
+test("T018 escribir mientras se espera la respuesta también apaga el modo", () => {
+  // Arrange
+  const montaje = montarManos();
+  const instancia = activarManosLibres(montaje);
+  instancia.resultado("primera pregunta");
+  instancia.fin();
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+
+  // Act: la persona escribe antes de que llegue la respuesta.
+  montaje.vista.entrada.value = "mejor lo escribo";
+  montaje.vista.entrada.dispatch("input", {});
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.entrada.value, "mejor lo escribo");
+  assert.equal(montaje.vista.formulario.enviados, 1);
+});
+
+test("T018 un turno completo que no es de manos libres no se lee solo", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarManos({ sintesis });
+  const instancia = activarManosLibres(montaje);
+  instancia.resultado("pregunta");
+  instancia.fin();
+
+  // Act
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: {
+      turno: crearTurnoFalso({ texto: "de un envío manual" }),
+      threadId: "hilo-1",
+      handsFree: false,
+    },
+  });
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.equal(montaje.reconocimiento.instancias.length, 1);
+});
+
+test("T018 un turno de otro hilo apaga el modo sin hablar", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarManos({ sintesis });
+  const instancia = activarManosLibres(montaje);
+  instancia.resultado("pregunta");
+  instancia.fin();
+
+  // Act
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: {
+      turno: crearTurnoFalso({ texto: "otro hilo" }),
+      threadId: "hilo-2",
+      handsFree: true,
+    },
+  });
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.match(montaje.vista.estado.textContent, /hilo/i);
+});
+
+test("T018 activar manos libres durante la lectura se rechaza con motivo", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarManos({ sintesis });
+  montaje.controlador.leerTurno(crearTurnoFalso({ texto: "leyendo" }));
+  assert.equal(montaje.controlador.estado.leyendo, true);
+
+  // Act
+  clic(montaje.vista.botonManosLibres);
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.avisoManos.open, false);
+  assert.equal(montaje.reconocimiento.instancias.length, 0);
+  assert.match(montaje.vista.estado.textContent, /lectura/i);
+});
+
+test("T018 activar manos libres mientras se dicta no deja dos micrófonos", () => {
+  // Arrange: dictado manual ya en curso.
+  const montaje = montarManos();
+  const manual = iniciarDictado(montaje);
+  assert.equal(manual.iniciado, 1);
+
+  // Act: activar manos libres con el borrador vacío.
+  clic(montaje.vista.botonManosLibres);
+  clic(montaje.vista.manosAceptar);
+
+  // Assert: el ciclo anterior se abortó y solo queda el nuevo.
+  assert.equal(manual.abortado, 1);
+  assert.equal(montaje.reconocimiento.instancias.length, 2);
+  assert.equal(montaje.reconocimiento.ultima().iniciado, 1);
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+  assert.equal(montaje.controlador.estado.escuchando, true);
+  assert.equal(/error/i.test(montaje.vista.estado.textContent), false);
+});
 });
 
 test("T002 el script se carga sin window (SSR o runner) sin romper", () => {

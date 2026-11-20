@@ -38,6 +38,10 @@
   form.addEventListener("submit", (event) => {
     if (!soportaStreaming) return; // el navegador envía el POST de siempre
     event.preventDefault();
+    // Origen solo en el cliente: se lee y se limpia antes de cualquier salida
+    // temprana para no tratar un envío manual posterior como manos libres.
+    const manosLibres = form.dataset.vozOrigen === "manos-libres";
+    delete form.dataset.vozOrigen;
     if (enCurso) return;
 
     const pregunta = input.value.trim();
@@ -56,7 +60,7 @@
     errorRecibido = false;
     const turnId = nuevoTurnoId();
     if (turnIdInput) turnIdInput.value = turnId;
-    void responder(pregunta, turnId);
+    void responder(pregunta, turnId, manosLibres);
   });
 
   // Marcas del visitante (spec 038, US4): solo con el monitoreo activo y con
@@ -115,7 +119,7 @@
     return `turno-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  async function responder(pregunta, turnId) {
+  async function responder(pregunta, turnId, manosLibres) {
     quitarVacio();
     const lista = asegurarLista();
     const turnoUsuario = crearTurno("user", pregunta);
@@ -236,7 +240,20 @@
       }
       formatearTurno(turnoAsistente, texto, false);
     } catch (error) {
-      if (!recibioContenido && !cerrado) {
+      if (manosLibres) {
+        // Manos libres nunca reenvía por el POST normal: devuelve el texto al
+        // formulario para revisión y deja que el controlador apague el modo.
+        if (!recibioContenido && !cerrado) {
+          input.value = pregunta;
+          turnoUsuario.remove();
+          turnoAsistente.remove();
+          avisar("La conexión falló; revisa el texto y envíalo cuando quieras.", true);
+          return;
+        }
+        avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
+        formatearTurno(turnoAsistente, texto, true);
+        if (!texto.textContent) turnoAsistente.remove();
+      } else if (!recibioContenido && !cerrado) {
         // Falló antes del primer token y el servidor no persistió el turno:
         // restaura la pregunta y reintenta por el POST normal del formulario.
         input.value = pregunta;
@@ -245,10 +262,11 @@
         avisar("La conexión falló; enviando la pregunta sin streaming…");
         form.submit(); // HTMLFormElement.submit() no dispara el listener de submit
         return;
+      } else {
+        avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
+        formatearTurno(turnoAsistente, texto, true);
+        if (!texto.textContent) turnoAsistente.remove();
       }
-      avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
-      formatearTurno(turnoAsistente, texto, true);
-      if (!texto.textContent) turnoAsistente.remove();
     } finally {
       if (texto.textContent.trim() && texto.dataset.formateado !== "1") {
         formatearTurno(turnoAsistente, texto, false);
@@ -262,17 +280,36 @@
       if (girando) girando.hidden = true;
       // Notificación interna (spec 040): solo tras un stream con done, con el
       // turno ya formateado y el formulario liberado. No hay audio ni red.
-      if (completado && !errorRecibido) notificarTurnoCompleto(turnoAsistente);
+      if (completado && !errorRecibido) {
+        notificarTurnoCompleto(turnoAsistente, manosLibres);
+      } else if (manosLibres) {
+        if (!input.value.trim()) input.value = pregunta;
+        notificarTurnoFallido(turnoAsistente, threadInput ? threadInput.value : "", true);
+      }
     }
   }
 
-  function notificarTurnoCompleto(turno) {
+  function notificarTurnoCompleto(turno, manosLibres) {
     if (typeof window.CustomEvent !== "function") return;
     document.dispatchEvent(
       new window.CustomEvent("chat:turn-complete", {
         detail: {
           turno,
           threadId: threadInput ? String(threadInput.value || "") : "",
+          handsFree: Boolean(manosLibres),
+        },
+      }),
+    );
+  }
+
+  function notificarTurnoFallido(turno, threadId, manosLibres) {
+    if (typeof window.CustomEvent !== "function") return;
+    document.dispatchEvent(
+      new window.CustomEvent("chat:turn-failed", {
+        detail: {
+          turno,
+          threadId: threadId === undefined || threadId === null ? "" : String(threadId),
+          handsFree: Boolean(manosLibres),
         },
       }),
     );
