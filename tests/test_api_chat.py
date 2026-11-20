@@ -665,7 +665,7 @@ def test_el_stream_notifica_el_turno_completo_solo_tras_done() -> None:
 
     # Assert
     assert 'new window.CustomEvent("chat:turn-complete"' in js
-    assert "if (completado) {" in js
+    assert "completado && !errorRecibido" in js
     assert "detail:" in js
     assert "threadId" in js
 

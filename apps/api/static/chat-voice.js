@@ -1010,6 +1010,7 @@
 
     function detenerLectura() {
       if (!turnoLectura) return;
+      manosLibres.reanudarTrasLeer = false;
       const manosActivas = manosLibres.activo;
       const turno = turnoLectura;
       cicloLectura += 1;
@@ -1032,9 +1033,12 @@
       estado.leyendo = false;
       if (turno) actualizarControles(turno, "detenido");
       avisar("");
+      const borradorVacio =
+        !vista.entrada || String(vista.entrada.value || "").trim() === "";
       if (
         manosLibres.activo &&
         manosLibres.reanudarTrasLeer &&
+        borradorVacio &&
         !estado.escuchando &&
         documento.visibilityState !== "hidden"
       ) {

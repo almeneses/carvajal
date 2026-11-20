@@ -1577,6 +1577,8 @@ test("T018 tras leer la respuesta se vuelve a escuchar solo si la lectura termin
   instancia.resultado("¿y si son 4500?");
   instancia.fin();
   assert.equal(montaje.vista.formulario.enviados, 1);
+  // El adaptador de streaming vacía el campo al iniciar el envío.
+  montaje.vista.entrada.value = "";
 
   // Act: llega el turno completo del envío manos libres.
   montaje.documento.dispatch("chat:turn-complete", {
@@ -1607,6 +1609,7 @@ test("T018 detener la lectura a mano apaga el modo sin reabrir el micrófono", (
   const instancia = activarManosLibres(montaje);
   instancia.resultado("pregunta");
   instancia.fin();
+  montaje.vista.entrada.value = "";
   montaje.documento.dispatch("chat:turn-complete", {
     detail: {
       turno: crearTurnoFalso({ texto: "respuesta" }),
