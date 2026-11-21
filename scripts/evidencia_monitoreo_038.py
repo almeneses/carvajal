@@ -54,10 +54,6 @@ def latencia(muestras: int = 20) -> int:
     from carvajal.application.ask import Source
     from carvajal.infrastructure.settings import Settings
 
-    class Embedder:
-        def embed(self, text: str) -> list[float]:
-            return [0.0] * 8
-
     class LLM:
         def stream(self, *, system: str, prompt: str) -> Iterator[str]:
             yield "Carvajal fue fundada en 1904."
@@ -103,7 +99,6 @@ def latencia(muestras: int = 20) -> int:
 
         chat = ChatService(
             build_session_factory(motor),
-            Embedder(),
             LLM(),
             agent=Agente(),
             tracer=build_tracer(ajustes),

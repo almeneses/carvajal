@@ -347,7 +347,7 @@ def test_record_añade_el_turno_sin_duplicar_los_previos(
     assert grafo.actualizaciones[0][0] == {"configurable": {"thread_id": "hilo-1"}}
 
     # Arrange: el mismo turno ya viene en la secuencia previa.
-    ya_presente = {"question": PREGUNTA, "answer": "Cali.", "incomplete": False}
+    ya_presente: Turn = {"question": PREGUNTA, "answer": "Cali.", "incomplete": False}
     otra_grafo = GrafoFalso({"turns": [ya_presente]})
     otro_runner = _runner_desde_grafo(monkeypatch, otra_grafo)
 
