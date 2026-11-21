@@ -955,7 +955,7 @@ function crearTurnoFalso({ texto = "", tarjetas = [], citas = [], rol = "assista
   };
   botones.escuchar.setAttribute("aria-pressed", "false");
   return {
-    dataset: {},
+    dataset: { vozFuentes: JSON.stringify(citas.map((cita) => cita.titulo)) },
     className: `turno turno-${rol}`,
     _botones: botones,
     querySelector(selector) {
@@ -966,9 +966,6 @@ function crearTurnoFalso({ texto = "", tarjetas = [], citas = [], rol = "assista
     },
     querySelectorAll(selector) {
       if (selector === ".productos .producto") return tarjetas;
-      if (selector === '.citas [data-campo="title"]') {
-        return citas.map((cita) => ({ textContent: cita.titulo }));
-      }
       return [];
     },
   };
@@ -979,7 +976,7 @@ function activarAutoLectura(montaje) {
   montaje.vista.autoLectura.dispatch("change", {});
 }
 
-test("T012 la lectura manual usa texto, tarjetas y citas visibles sin URLs ni SKU", () => {
+test("T012 la lectura manual usa texto, tarjetas y títulos de fuentes sin URLs ni SKU", () => {
   // Arrange
   const sintesis = crearSintesis();
   const montaje = montar({ sintesis });

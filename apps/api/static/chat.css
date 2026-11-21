@@ -201,10 +201,6 @@
   text-transform: none;
 }
 
-.citas {
-  margin-top: 2px;
-}
-
 /* Tarjetas de la ruta comercial (spec 036, _productos.html), con el diseño «Asistente
    Carvajal»: resumen de lo entendido, insignias de material y precio destacado. */
 .productos {
@@ -642,8 +638,7 @@
     height: 36px;
   }
 
-  .turno-assistant > .productos,
-  .turno-assistant > .citas {
+  .turno-assistant > .productos {
     grid-column: 1 / -1;
   }
 

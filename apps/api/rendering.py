@@ -5,8 +5,8 @@ Python-Markdown y después se sanea con ``nh3``. El resultado es el único HTML
 que las plantillas pueden insertar sin escapar.
 
 ``render_answer`` aplica el mismo saneamiento al texto generado por el modelo:
-admite énfasis, títulos, listas, citas textuales, enlaces y referencias ``[n]``
-convertidas en enlaces a la lista de fuentes.
+admite énfasis, títulos, listas, citas textuales y enlaces, sin pintar las
+referencias numéricas del chat.
 """
 
 import re
@@ -78,16 +78,14 @@ _ANSWER_TAGS = {
     "ol",
     "li",
     "a",
-    "sup",
     "code",
 }
 
 _ANSWER_ATTRIBUTES = {
-    "a": {"href", "title", "target", "class"},
-    "sup": set(),
+    "a": {"href", "title", "target"},
 }
 
-_CITATION_RE = re.compile(r"\[(\d{1,2})\]")
+_CITATION_RE = re.compile(r"[ \t]*\[(\d{1,2})\]")
 _URL_RE = re.compile(r"(?<![\w\"'=(<])(https?://[^\s<>\"']+)")
 _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
@@ -110,19 +108,6 @@ def render_markdown(text: str) -> str:
         attributes=_ALLOWED_ATTRIBUTES,
         url_schemes=_ALLOWED_URL_SCHEMES,
         link_rel="noopener noreferrer",
-    )
-
-
-def _cita(numero: int, source_count: int | None) -> str:
-    """Enlace de cita inline si el número corresponde a una fuente conocida."""
-
-    if numero < 1:
-        return f"[{numero}]"
-    if source_count is not None and numero > source_count:
-        return f"[{numero}]"
-    return (
-        f'<sup><a class="cita-inline" href="#cita-{numero}" '
-        f'aria-label="Abrir la fuente {numero}">[{numero}]</a></sup>'
     )
 
 
@@ -196,24 +181,25 @@ def _escapar_html(text: str) -> str:
     return "\n".join(lineas)
 
 
-def render_answer(text: str, source_count: int | None = None) -> Markup:
+def render_answer(text: str, source_count: int = 0) -> Markup:
     """Formatea una respuesta generada y devuelve HTML saneado.
 
-    ``source_count`` limita los enlaces ``[n]`` a las fuentes realmente
-    citadas; una referencia fuera de rango se conserva como texto.
+    ``source_count`` identifica qué marcadores ``[n]`` son citas que no deben
+    verse en el chat. Fuera de rango se conservan como texto.
 
     El HTML que venga en el texto generado se escapa antes de Markdown: se
-    muestra como texto, nunca se interpreta. Después se insertan los enlaces de
-    cita y las URL sueltas, que sí son marcado propio y controlado.
+    muestra como texto, nunca se interpreta. Los enlaces automáticos de URLs
+    sueltas sí son marcado propio y controlado.
     """
 
     preparado = _escapar_html(text)
     preparado, fragmentos = _proteger_fragmentos(preparado)
     preparado = _citas_enteras(preparado)
-    preparado = _CITATION_RE.sub(
-        lambda match: _cita(int(match.group(1)), source_count),
-        preparado,
-    )
+    if source_count:
+        preparado = _CITATION_RE.sub(
+            lambda match: "" if 1 <= int(match[1]) <= source_count else match[0],
+            preparado,
+        )
     preparado = _URL_RE.sub(_enlazar_url, preparado)
     preparado = _restaurar_fragmentos(preparado, fragmentos)
     html = markdown.markdown(

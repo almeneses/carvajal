@@ -212,7 +212,7 @@
     return textoVisible(raiz.querySelector(selector));
   }
 
-  /** Texto y segmentos hablables: tarjetas y citas salen de datos visibles. */
+  /** Las tarjetas se leen del DOM y las fuentes de los metadatos del turno. */
   function construirSegmentos(turno) {
     if (!turno) return [];
     const segmentos = [];
@@ -246,9 +246,10 @@
         segmentos.push(partes.join(" "));
       }
     }
-    for (const nodoTitulo of listaDe(turno, '.citas [data-campo="title"]')) {
-      const titulo = textoVisible(nodoTitulo);
-      if (titulo) segmentos.push(`Según ${titulo}.`);
+    const titulos = JSON.parse(turno.dataset.vozFuentes || "[]");
+    for (const titulo of titulos) {
+      const hablado = limpiarTextoHablado(String(titulo || ""));
+      if (hablado) segmentos.push(`Según ${hablado}.`);
     }
     return segmentos;
   }

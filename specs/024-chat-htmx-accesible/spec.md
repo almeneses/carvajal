@@ -6,6 +6,11 @@
 **Implemented**: 2026-11-14
 **Evidence**: `CONSTITUTION.md` §9 (2026-11-14); PRs #114, #117, #118, #120; `tests/test_api_m2.py`
 
+> **Cambio posterior (2026-11-21):** la vista del chat dejó de mostrar el contador,
+> el bloque de fuentes y sus referencias numéricas. US2, FR-004, FR-005 y SC-004
+> documentan la entrega histórica. El SSE y la API conservan las fuentes, y el
+> texto aparece en bloques ya formateados, no como Markdown crudo.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Conversar en un hilo y volver a él (Priority: P1)

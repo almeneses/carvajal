@@ -198,7 +198,7 @@ def test_get_con_cookie_muestra_el_historial_en_orden() -> None:
     client, chat = make_client()
     chat.by_owner["dueno-a"] = [
         _message("user", "primera pregunta", sources=None),
-        _message("assistant", "primera respuesta", sources=[asdict(SOURCE)]),
+        _message("assistant", "**primera respuesta** [1].", sources=[asdict(SOURCE)]),
         _message("user", "segunda pregunta", sources=None),
     ]
     client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
@@ -213,11 +213,10 @@ def test_get_con_cookie_muestra_el_historial_en_orden() -> None:
     respuesta = response.text.index("primera respuesta")
     segunda = response.text.index("segunda pregunta")
     assert primera < respuesta < segunda
-    assert "Fuentes citadas" in response.text
-    assert '<strong data-campo="title">historia</strong>' in response.text
-    assert '<details class="citas">' in response.text
-    assert 'class="cita-fuente"' in response.text
-    assert "texto-formateado" in response.text
+    assert "Fuentes citadas" not in response.text
+    assert "#cita-1" not in response.text
+    assert "<strong>primera respuesta</strong>." in response.text
+    assert """data-voz-fuentes='["historia"]'""" in response.text
 
 
 def test_get_con_cookie_manipulada_regenera_sin_romper() -> None:
@@ -534,8 +533,8 @@ def test_la_cookie_de_visitante_carga_los_hilos_del_hash() -> None:
     assert "hilo del visitante" in response.text
 
 
-def test_la_cita_muestra_la_procedencia_del_documento_extendido() -> None:
-    # Arrange: una fuente extendida con origen, categoría y entidad.
+def test_el_chat_reserva_el_titulo_de_la_fuente_extendida_para_voz() -> None:
+    # Arrange: los metadatos de una fuente extendida no son parte de la vista.
     fuente = Source(
         "informe:0",
         "informe-empaques",
@@ -543,7 +542,7 @@ def test_la_cita_muestra_la_procedencia_del_documento_extendido() -> None:
         "extended",
         0.8,
         "Informe de terceros.",
-        title="Informe de empaques",
+        title="Informe d'Empaques",
         source_type="tercero",
         origin="Cámara de Comercio de Cali",
         category="informe",
@@ -558,24 +557,10 @@ def test_la_cita_muestra_la_procedencia_del_documento_extendido() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert '<span class="procedencia">Procedencia:' in response.text
-    assert "Origen: Cámara de Comercio de Cali" in response.text
-    assert "Categoría: informe" in response.text
-    assert "Entidad: Carvajal Empaques" in response.text
-
-
-def test_una_cita_sin_procedencia_no_muestra_la_linea() -> None:
-    # Arrange: la fuente del chat no declara origen, categoría ni entidad.
-    client, chat = make_client()
-    chat.by_owner["dueno-a"] = [_message("assistant", "Respuesta [1].", sources=[asdict(SOURCE)])]
-    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
-
-    # Act
-    response = client.get("/chat")
-
-    # Assert
-    assert response.status_code == 200
-    assert '<span class="procedencia">' not in response.text
+    assert r"""data-voz-fuentes='["Informe d\u0027Empaques"]'""" in response.text
+    assert "Informe de terceros." not in response.text
+    assert "Cámara de Comercio de Cali" not in response.text
+    assert "<p>Respuesta.</p>" in response.text
 
 
 def test_el_boton_de_dictar_no_envia_y_conserva_el_formulario() -> None:

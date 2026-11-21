@@ -24,8 +24,8 @@
   const estadoTexto = estado ? estado.querySelector("[data-estado-texto]") : null;
   const girando = estado ? estado.querySelector("[data-girando]") : null;
   const plantillaTurno = document.getElementById("plantilla-turno");
-  const plantillaFuente = document.getElementById("plantilla-fuente");
-  if (!input || !hilo || !estado || !plantillaTurno || !plantillaFuente) return;
+  const formateador = window.CarvajalTexto;
+  if (!input || !hilo || !estado || !plantillaTurno || !formateador) return;
 
   const raizMonitoreo = document.querySelector("[data-monitoring]");
   const AVISO = "No se pudo completar la respuesta. Vuelve a intentarlo.";
@@ -124,9 +124,17 @@
     const lista = asegurarLista();
     const turnoUsuario = crearTurno("user", pregunta);
     const turnoAsistente = crearTurno("assistant", "");
-    turnoAsistente._fuentes = [];
     lista.append(turnoUsuario, turnoAsistente);
     const texto = turnoAsistente.querySelector(".texto");
+    const flujo = formateador.crearFlujo(texto);
+    let cantidadFuentes = 0;
+    const guardarFuentes = (fuentes) => {
+      const validas = Array.isArray(fuentes) ? fuentes : [];
+      cantidadFuentes = validas.length;
+      turnoAsistente.dataset.vozFuentes = JSON.stringify(
+        validas.map((fuente) => fuente?.title || fuente?.slug || ""),
+      );
+    };
     input.value = "";
     form.setAttribute("aria-busy", "true");
     if (boton) boton.disabled = true;
@@ -181,10 +189,7 @@
             );
             break;
           case "meta":
-            turnoAsistente._fuentes = Array.isArray(evento.datos.sources)
-              ? evento.datos.sources
-              : [];
-            pintarFuentes(turnoAsistente, evento.datos.sources);
+            guardarFuentes(evento.datos.sources);
             avisar("Redactando…");
             break;
           case "products":
@@ -192,18 +197,13 @@
             break;
           case "token": {
             const fragmento = String(evento.datos.text ?? "");
-            agregarFragmento(texto, fragmento);
+            flujo.agregar(fragmento, cantidadFuentes);
             if (fragmento) recibioContenido = true;
             break;
           }
           case "fallback":
-            delete texto.dataset.formateado;
-            texto.textContent = String(evento.datos.text ?? "");
-            turnoAsistente._fuentes = Array.isArray(evento.datos.sources)
-              ? evento.datos.sources
-              : [];
-            pintarFuentes(turnoAsistente, evento.datos.sources);
-            formatearTurno(turnoAsistente, texto, false);
+            guardarFuentes(evento.datos.sources);
+            flujo.reemplazar(String(evento.datos.text ?? ""), cantidadFuentes);
             recibioContenido = true;
             avisar("Respuesta completa sin streaming.");
             break;
@@ -212,7 +212,7 @@
             if (threadInput && evento.datos.thread_id) {
               threadInput.value = String(evento.datos.thread_id);
             }
-            formatearTurno(turnoAsistente, texto, false);
+            flujo.terminar(cantidadFuentes);
             crearMarcas(turnoAsistente, evento.datos.request_id);
             avisar("");
             completado = true;
@@ -220,10 +220,10 @@
           case "error":
             cerrado = true;
             errorRecibido = true;
+            flujo.terminar(cantidadFuentes);
             if (!texto.textContent) {
-              texto.textContent = String(evento.datos.message ?? INCOMPLETA);
+              flujo.reemplazar(String(evento.datos.message ?? INCOMPLETA));
             }
-            formatearTurno(turnoAsistente, texto, true);
             avisar(String(evento.datos.message ?? INCOMPLETA), true);
             break;
           default:
@@ -231,15 +231,16 @@
         }
       });
 
+      flujo.terminar(cantidadFuentes);
       if (!response.ok && !texto.textContent) {
-        texto.textContent = AVISO;
+        flujo.reemplazar(AVISO);
         avisar(AVISO, true);
       } else if (!cerrado) {
         avisar(INCOMPLETA, true);
-        if (!texto.textContent) texto.textContent = INCOMPLETA;
+        if (!texto.textContent) flujo.reemplazar(INCOMPLETA);
       }
-      formatearTurno(turnoAsistente, texto, false);
     } catch (error) {
+      flujo.terminar(cantidadFuentes);
       if (manosLibres) {
         // Manos libres nunca reenvía por el POST normal: devuelve el texto al
         // formulario para revisión y deja que el controlador apague el modo.
@@ -251,7 +252,6 @@
           return;
         }
         avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
-        formatearTurno(turnoAsistente, texto, true);
         if (!texto.textContent) turnoAsistente.remove();
       } else if (!recibioContenido && !cerrado) {
         // Falló antes del primer token y el servidor no persistió el turno:
@@ -264,13 +264,9 @@
         return;
       } else {
         avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
-        formatearTurno(turnoAsistente, texto, true);
         if (!texto.textContent) turnoAsistente.remove();
       }
     } finally {
-      if (texto.textContent.trim() && texto.dataset.formateado !== "1") {
-        formatearTurno(turnoAsistente, texto, false);
-      }
       clearTimeout(temporizador);
       form.removeAttribute("aria-busy");
       if (boton) boton.disabled = false;
@@ -324,27 +320,6 @@
     turno.querySelector(".turno-rol").textContent = rol === "user" ? "Tú" : "Carva";
     turno.querySelector(".texto").textContent = contenido;
     return turno;
-  }
-
-  function agregarFragmento(nodo, fragmento) {
-    if (!fragmento || nodo.dataset.formateado === "1") return;
-    const span = document.createElement("span");
-    span.className = "fragmento";
-    span.textContent = fragmento;
-    nodo.append(span);
-  }
-
-  function formatearTurno(turno, nodo, animar) {
-    if (!nodo || nodo.dataset.formateado === "1") return;
-    const contenido = nodo.textContent;
-    if (!contenido.trim()) return;
-    const formateador = window.CarvajalTexto;
-    if (!formateador) return;
-    const fragmento = formateador.formatear(contenido, turno._fuentes || []);
-    nodo.replaceChildren(fragmento);
-    nodo.classList.add("texto-formateado");
-    nodo.dataset.formateado = "1";
-    if (animar) formateador.animar(nodo, { forzar: true });
   }
 
   // Tarjetas de la ruta comercial (spec 036). El HTML llega renderizado y escapado por
@@ -408,104 +383,6 @@
     if (girando) girando.hidden = !ocupado;
     estado.classList.toggle("aviso", esError);
     estado.classList.toggle("ayuda", !esError);
-  }
-
-  function pintarFuentes(turno, fuentes) {
-    if (!Array.isArray(fuentes) || fuentes.length === 0) return;
-    const seccion = turno.querySelector(".citas");
-    if (!seccion) return;
-    const lista = seccion.querySelector(".fuentes");
-    if (!lista) return;
-    lista.textContent = "";
-    for (const fuente of fuentes) {
-      const item = plantillaFuente.content.firstElementChild.cloneNode(true);
-      const titulo = (fuente && (fuente.title || fuente.slug)) || "Fuente";
-      const excerpt = String((fuente && fuente.excerpt) || "");
-      const url = String((fuente && fuente.url) || "");
-      const campos = {
-        section: fuente && fuente.section,
-        excerpt,
-      };
-      for (const [campo, valor] of Object.entries(campos)) {
-        const nodo = item.querySelector(`[data-campo="${campo}"]`);
-        if (nodo) nodo.textContent = valor == null ? "" : String(valor);
-      }
-
-      const nodoTitulo = item.querySelector('[data-campo="title"]');
-      if (nodoTitulo) nodoTitulo.textContent = titulo;
-      const boton = item.querySelector('[data-campo="documento"]');
-      const slug = String((fuente && fuente.slug) || "").trim();
-      if (boton) {
-        if (slug) {
-          boton.dataset.documentoSlug = slug;
-          boton.dataset.documentoTitulo = titulo;
-          boton.dataset.documentoExcerpt = excerpt;
-          if (/^https?:\/\//.test(url)) boton.dataset.documentoUrl = url;
-          boton.setAttribute("aria-label", `Abrir el documento ${titulo} en el panel`);
-        } else {
-          boton.disabled = true;
-          boton.removeAttribute("aria-haspopup");
-        }
-      }
-
-      const capa = String((fuente && fuente.layer) || "");
-      const nodoCapa = item.querySelector('[data-campo="layer"]');
-      if (nodoCapa) {
-        nodoCapa.textContent =
-          capa === "core" ? "Núcleo" : capa === "extended" ? "Extendida" : capa;
-      }
-      const partesProcedencia = [];
-      for (const [campo, etiqueta] of [
-        ["origin", "Origen"],
-        ["category", "Categoría"],
-        ["entity", "Entidad"],
-      ]) {
-        const valor = String((fuente && fuente[campo]) || "").trim();
-        if (valor) partesProcedencia.push(`${etiqueta}: ${valor}`);
-      }
-      const nodoProcedencia = item.querySelector('[data-campo="procedencia"]');
-      const textoProcedencia = item.querySelector('[data-campo="procedencia-texto"]');
-      if (nodoProcedencia && textoProcedencia) {
-        textoProcedencia.textContent = partesProcedencia.join(" · ");
-        nodoProcedencia.hidden = partesProcedencia.length === 0;
-      }
-
-      const etiquetaTipo = item.querySelector('[data-campo="badge-tipo"]');
-      const textoTipo = item.querySelector('[data-campo="source_type"]');
-      if (etiquetaTipo && textoTipo) {
-        const tipo = String((fuente && fuente.source_type) || "oficial").toLowerCase();
-        const texto = tipo.charAt(0).toUpperCase() + tipo.slice(1);
-        textoTipo.textContent = texto;
-        etiquetaTipo.setAttribute("aria-label", `Tipo de fuente: ${texto}`);
-        const esOficial = tipo === "oficial" || tipo === "official";
-        etiquetaTipo.classList.toggle("etiqueta-oficial", esOficial);
-        etiquetaTipo.classList.toggle("etiqueta-externa", !esOficial);
-      }
-
-      const acciones = item.querySelector('[data-campo="acciones"]');
-      const enlace = item.querySelector('[data-campo="url"]');
-      if (acciones && enlace) {
-        if (/^https?:\/\//.test(url)) {
-          enlace.href = url;
-          enlace.title = "Abrir la fuente original";
-          acciones.hidden = false;
-        } else {
-          enlace.removeAttribute("href");
-          acciones.hidden = true;
-        }
-      }
-
-      const puntuacion = Number(fuente && fuente.score);
-      const nodoScore = item.querySelector('[data-campo="score"]');
-      if (nodoScore) nodoScore.textContent = Number.isFinite(puntuacion)
-        ? puntuacion.toFixed(3)
-        : "";
-      lista.append(item);
-    }
-    const conteo = seccion.querySelector(".citas-conteo");
-    if (conteo) conteo.textContent = `(${fuentes.length})`;
-    seccion.open = false;
-    seccion.hidden = false;
   }
 
   async function leerEventos(response, alEvento) {
