@@ -207,23 +207,32 @@ def test_los_assets_del_panel_y_del_formateador_se_sirven() -> None:
         "configuracion.css",
         "captura.js",
         "identidad.js",
+        "sse.js",
     ):
         response = client.get(f"/static/{nombre}")
         assert response.status_code == 200, nombre
         assert (main.APP_DIR / "static" / nombre).is_file(), nombre
 
 
-def test_chat_carga_htmx_local() -> None:
+def test_htmx_solo_se_carga_en_configuracion() -> None:
+    """Spec 044: la única pantalla que usa hx-* es Configuración (captura web)."""
+
     # Arrange
     client = make_client()
 
     # Act
-    response = client.get("/chat")
+    configuracion = client.get("/configuracion")
+    otras = {ruta: client.get(ruta) for ruta in ("/chat", "/faq")}
 
-    # Assert
-    assert response.status_code == 200
-    assert "/static/htmx.min.js" in response.text
+    # Assert: HTMX se sirve local y solo lo pide Configuración.
+    assert configuracion.status_code == 200
+    assert "/static/htmx.min.js" in configuracion.text
     assert (main.APP_DIR / "static" / "htmx.min.js").is_file()
+    for ruta, response in otras.items():
+        assert response.status_code == 200, ruta
+        assert "/static/htmx.min.js" not in response.text, ruta
+    assert "hx-post" in configuracion.text
+    assert "/static/captura.js" in configuracion.text
 
 
 def test_chat_muestra_indicadores_de_carga() -> None:

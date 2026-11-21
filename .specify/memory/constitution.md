@@ -102,6 +102,9 @@ con `--admin`.
   159/Linux (FR-009); alcance acordado: Chrome y Firefox de escritorio. SC-001 = 36/40
   (90,0 %), SC-002 p95 = 231 ms, SC-003 p95 = 36 ms, SC-004/005 cumplidos con micrófono
   y dos voces.
+- La spec 044 centraliza las reglas de validación, identidad y cuota de las tres entradas
+  del chat, comparte un único lector SSE entre chat y FAQ y carga HTMX solo en
+  Configuración, sin cambiar rutas, formatos ni orden de controles.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 

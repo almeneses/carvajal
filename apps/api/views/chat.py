@@ -8,48 +8,55 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.chat.identity import (
-    COOKIE_MAX_AGE,
-    COOKIE_NAME,
-    ChatIdentity,
-    default_identity,
-)
+from apps.api.chat.identity import ChatIdentity
 from apps.api.chat.service import (
     SERVICE_UNAVAILABLE,
     ChatFailure,
-    ChatProvider,
     ThreadAccessError,
-    default_chat_service,
 )
 from apps.api.observability import REQUEST_ID_PATTERN, capture_exception
 from apps.api.runtime import templates
-from apps.api.security import verify_csrf
+from apps.api.views.chat_rules import (
+    CSRF_INVALIDO,
+    EMPTY_QUESTION,
+    LIMITE_ALCANZADO,
+    MAX_QUESTION_CHARS,
+    TOO_LONG_QUESTION,
+    chat_provider,
+    consume_quota,
+    request_identity,
+    require_csrf,
+    resolve_visitor,
+    set_identity_cookie,
+    validate_question,
+)
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
 from carvajal.application.ask import LLMError
-from carvajal.application.quota import QuotaResult
 from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
     "CSRF_INVALIDO",
+    "EMPTY_QUESTION",
     "LIMITE_ALCANZADO",
+    "MAX_QUESTION_CHARS",
+    "SERVICE_UNAVAILABLE",
+    "TOO_LONG_QUESTION",
     "chat_provider",
     "consume_quota",
     "request_identity",
+    "require_csrf",
+    "resolve_visitor",
     "router",
     "set_identity_cookie",
+    "validate_question",
 ]
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
-MAX_QUESTION_CHARS = 500
-EMPTY_QUESTION = "La pregunta no puede estar vacía."
-TOO_LONG_QUESTION = f"La pregunta no puede superar los {MAX_QUESTION_CHARS} caracteres."
-LIMITE_ALCANZADO = "Has alcanzado el límite diario de preguntas. Vuelve a intentarlo mañana."
-CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
 REQUEST_ID_VALIDO = REQUEST_ID_PATTERN
 USEFUL_VALORES = {
     "1": True,
@@ -122,18 +129,17 @@ def new_chat(
     hilo nuevo demuestra que la preferencia se recupera entre hilos.
     """
 
-    identity = request_identity(request)
-    stored_owner = identity.read(request)
-    new_owner = stored_owner is None
-    owner_key = stored_owner or identity.new_owner_key()
+    visitor = resolve_visitor(request)
+    identity = visitor.identity
+    owner_key = visitor.owner_key
+    new_owner = visitor.new_owner
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
+    if not require_csrf(request, csrf_token):
         return _error_page(
             request,
             identity,
             owner_key,
-            new_owner=new_owner,
+            new_owner=visitor.new_owner,
             question="",
             message=CSRF_INVALIDO,
             status_code=403,
@@ -174,8 +180,7 @@ def chat_feedback(
     se conserva igual y no se crea ninguna traza (FR-012).
     """
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
+    if not require_csrf(request, csrf_token):
         return Response(status_code=403)
     if REQUEST_ID_VALIDO.fullmatch(request_id.strip()) is None:
         return Response(status_code=400)
@@ -214,18 +219,16 @@ def chat_turn(
 ) -> Response:
     """Responde un turno y redirige al hilo activo solo si se guardó."""
 
-    text = question.strip()
     hilo = thread_id.strip() or None
-    identity = request_identity(request)
-    stored_owner = identity.read(request)
-    new_owner = stored_owner is None
-    owner_key = stored_owner or identity.new_owner_key()
+    visitor = resolve_visitor(request)
+    identity = visitor.identity
+    owner_key = visitor.owner_key
+    new_owner = visitor.new_owner
     # Los tokens que genere el LLM quedan asociados a este visitante.
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
 
     # CSRF antes de la cuota y del caso de uso: un token ajeno no cobra cupo.
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
+    if not require_csrf(request, csrf_token):
         return _error_page(
             request,
             identity,
@@ -237,25 +240,15 @@ def chat_turn(
             thread_id=hilo,
         )
 
-    if not text:
+    text, invalida = validate_question(question)
+    if invalida is not None:
         return _error_page(
             request,
             identity,
             owner_key,
             new_owner=new_owner,
             question=question,
-            message=EMPTY_QUESTION,
-            status_code=422,
-            thread_id=hilo,
-        )
-    if len(text) > MAX_QUESTION_CHARS:
-        return _error_page(
-            request,
-            identity,
-            owner_key,
-            new_owner=new_owner,
-            question=question,
-            message=TOO_LONG_QUESTION,
+            message=invalida,
             status_code=422,
             thread_id=hilo,
         )
@@ -314,48 +307,6 @@ def chat_turn(
     response = RedirectResponse(url=destino, status_code=303)
     set_identity_cookie(response, request, identity, owner_key)
     return response
-
-
-def chat_provider(request: Request) -> ChatProvider:
-    """Devuelve el doble inyectado en ``app.state.chat`` o el servicio real."""
-
-    injected = getattr(request.app.state, "chat", None)
-    return injected if injected is not None else default_chat_service()
-
-
-def request_identity(request: Request) -> ChatIdentity:
-    """Devuelve la identidad inyectada en ``app.state.chat_identity`` o la del proceso."""
-
-    injected = getattr(request.app.state, "chat_identity", None)
-    return injected if injected is not None else default_identity()
-
-
-def consume_quota(request: Request, owner_key: str) -> QuotaResult:
-    """Cobra una petición de la cuota inyectada o de la real; nunca la duplica."""
-
-    quota = getattr(request.app.state, "quota", None)
-    if quota is None:
-        return QuotaResult(allowed=True)
-    return quota(owner_key)
-
-
-def set_identity_cookie(
-    response: Response,
-    request: Request,
-    identity: ChatIdentity,
-    owner_key: str,
-) -> None:
-    """Emite la cookie firmada, ``Secure`` solo cuando la petición es HTTPS."""
-
-    response.set_cookie(
-        COOKIE_NAME,
-        identity.issue(owner_key),
-        max_age=COOKIE_MAX_AGE,
-        httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
-        path="/",
-    )
 
 
 def _page(

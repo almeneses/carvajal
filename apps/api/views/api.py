@@ -7,7 +7,7 @@ tokens y citas. La cookie firmada y el CSRF son los mismos del shell, de modo
 que ambas entradas comparten identidad y cuota.
 """
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from typing import cast
 
 import structlog
@@ -15,24 +15,23 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider
-from apps.api.chat.streaming import ChatEvent
-from apps.api.observability import capture_exception
-from apps.api.security import verify_csrf
+from apps.api.chat.service import SERVICE_UNAVAILABLE
+from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE
 from apps.api.views import corpus as corpus_views
 from apps.api.views import documents as documents_views
-from apps.api.views.chat import (
+from apps.api.views.chat_rules import (
     CSRF_INVALIDO,
-    EMPTY_QUESTION,
     LIMITE_ALCANZADO,
-    MAX_QUESTION_CHARS,
-    TOO_LONG_QUESTION,
     chat_provider,
     consume_quota,
+    invalid_response,
     request_identity,
+    require_csrf,
+    resolve_visitor,
     set_identity_cookie,
+    stream_events,
+    validate_question,
 )
-from apps.api.views.stream import SSE_HEADERS, SSE_MEDIA_TYPE, _encode, _invalid
 from carvajal.domain.entities import Document, DocumentVersion
 
 __all__ = ["router"]
@@ -41,16 +40,6 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api")
 
 DB_UNAVAILABLE = "La base de datos no responde."
-
-
-def _owner(request: Request) -> tuple[str, bool]:
-    """Dueño de la cookie o uno nuevo; el segundo valor indica si es nuevo."""
-
-    identity = request_identity(request)
-    stored = identity.read(request)
-    if stored is None:
-        return identity.new_owner_key(), True
-    return stored, False
 
 
 @router.get("/csrf")
@@ -266,19 +255,17 @@ def new_thread(
 ) -> JSONResponse:
     """Crea un hilo nuevo del mismo dueño para demostrar la memoria del Store."""
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
+    if not require_csrf(request, csrf_token):
         return JSONResponse({"detail": CSRF_INVALIDO}, 403)
-    owner_key, new_owner = _owner(request)
-    identity = request_identity(request)
+    visitor = resolve_visitor(request)
     try:
-        conversation = chat_provider(request).new_conversation(owner_key)
+        conversation = chat_provider(request).new_conversation(visitor.owner_key)
     except SQLAlchemyError as error:
         logger.warning("api.new_thread_failed", error=str(error))
         return JSONResponse({"detail": SERVICE_UNAVAILABLE}, 503)
     response = JSONResponse({"thread_id": conversation.id})
-    if new_owner:
-        set_identity_cookie(response, request, identity, owner_key)
+    if visitor.new_owner:
+        set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
     return response
 
 
@@ -292,84 +279,46 @@ def chat_stream(
 ) -> Response:
     """SSE con el mismo contrato que el shell Jinja2."""
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        return _invalid(CSRF_INVALIDO, status_code=403)
+    if not require_csrf(request, csrf_token):
+        return invalid_response(CSRF_INVALIDO, status_code=403)
 
-    text = question.strip()
-    if not text:
-        return _invalid(EMPTY_QUESTION)
-    if len(text) > MAX_QUESTION_CHARS:
-        return _invalid(TOO_LONG_QUESTION)
+    text, invalida = validate_question(question)
+    if invalida is not None:
+        return invalid_response(invalida)
 
-    identity = request_identity(request)
-    owner_key = identity.read(request)
-    new_owner = owner_key is None
-    if owner_key is None:
-        owner_key = identity.new_owner_key()
-    structlog.contextvars.bind_contextvars(owner_key=owner_key)
+    visitor = resolve_visitor(request)
+    structlog.contextvars.bind_contextvars(owner_key=visitor.owner_key)
 
     try:
-        quota = consume_quota(request, owner_key)
+        quota = consume_quota(request, visitor.owner_key)
     except SQLAlchemyError as error:
         logger.warning("api.quota_failed", error=str(error))
-        response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
+        response = invalid_response(SERVICE_UNAVAILABLE, status_code=503)
+        if visitor.new_owner:
+            set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
         return response
     if not quota.allowed:
-        response = _invalid(
+        response = invalid_response(
             LIMITE_ALCANZADO,
             status_code=429,
             headers={"Retry-After": str(quota.retry_after)},
         )
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
+        if visitor.new_owner:
+            set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
         return response
 
     response = StreamingResponse(
-        _api_sse(
+        stream_events(
             chat_provider(request),
-            owner_key,
+            visitor.owner_key,
             text,
             client_turn_id=client_turn_id.strip() or None,
             thread_id=thread_id.strip() or None,
+            log_event="api.stream_failed",
         ),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
     )
-    if new_owner:
-        set_identity_cookie(response, request, identity, owner_key)
+    if visitor.new_owner:
+        set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
     return response
-
-
-def _api_sse(
-    provider: ChatProvider,
-    owner_key: str,
-    question: str,
-    *,
-    client_turn_id: str | None,
-    thread_id: str | None,
-) -> Iterator[str]:
-    """Igual que el stream Jinja2, pero reafirmando el contexto del visitante."""
-
-    structlog.contextvars.bind_contextvars(owner_key=owner_key)
-    saw_token = False
-    closed = False
-    try:
-        for event in provider.stream(
-            owner_key,
-            question,
-            client_turn_id=client_turn_id,
-            thread_id=thread_id,
-        ):
-            saw_token = saw_token or event.name == "token"
-            closed = event.name in {"done", "error"}
-            yield _encode(event)
-    except Exception as error:
-        logger.warning("api.stream_failed", error=str(error))
-        capture_exception(error)
-        if not closed:
-            yield _encode(
-                ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": saw_token})
-            )

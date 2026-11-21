@@ -5,6 +5,8 @@
   "use strict";
 
   const contenedor = document.querySelector("[data-faq]");
+  const lectorSse = window.CarvajalSSE;
+  if (!lectorSse || typeof lectorSse.leerEventos !== "function") return;
   const API = "";
   const MAX_PREVIOUS = 100;
   const TIMEOUT_MS = 300000;
@@ -104,7 +106,7 @@
       }
 
       let texto = "";
-      await leerEventos(response, (evento) => {
+      await lectorSse.leerEventos(response, (evento) => {
         switch (evento.nombre) {
           case "open":
             fijarEstado("Redactando la FAQ…");
@@ -320,46 +322,5 @@
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, " ")
       .trim();
-  }
-
-  async function leerEventos(response, alEvento) {
-    const lector = response.body.getReader();
-    const decodificador = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { value, done } = await lector.read();
-      if (done) break;
-      buffer += decodificador.decode(value, { stream: true });
-      buffer = vaciarBloques(buffer, alEvento);
-    }
-    buffer += decodificador.decode();
-    vaciarBloques(buffer, alEvento);
-  }
-
-  function vaciarBloques(buffer, alEvento) {
-    for (;;) {
-      const corte = /\r?\n\r?\n/.exec(buffer);
-      if (!corte) return buffer;
-      const bloque = buffer.slice(0, corte.index);
-      buffer = buffer.slice(corte.index + corte[0].length);
-      const evento = interpretar(bloque);
-      if (evento) alEvento(evento);
-    }
-  }
-
-  function interpretar(bloque) {
-    if (!bloque.trim()) return null;
-    let nombre = "message";
-    const datos = [];
-    for (const linea of bloque.split(/\r?\n/)) {
-      if (linea.startsWith("event:")) nombre = linea.slice(6).trim();
-      else if (linea.startsWith("data:")) datos.push(linea.slice(5).trimStart());
-    }
-    if (datos.length === 0) return null;
-    try {
-      return { nombre, datos: JSON.parse(datos.join("\n")) };
-    } catch {
-      return null;
-    }
   }
 })();

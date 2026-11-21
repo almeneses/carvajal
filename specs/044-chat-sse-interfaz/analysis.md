@@ -73,3 +73,17 @@
 - CRITICAL resueltos antes de implementar: ninguno pendiente.
 - Al cerrar la implementación, este archivo se actualiza con el resultado de las
   puertas y la evidencia (`analysis.md` es también registro de verificación).
+
+## Resultado de la ejecución (2026-11-20)
+
+| Artefacto | Estado | Evidencia |
+|---|---|---|
+| `spec.md`, `plan.md`, `tasks.md`, `checklists/requirements.md` | Completos | Sección de evidencia de `tasks.md`. |
+| Hallazgos CRITICAL | 0 | Tabla de hallazgos: C1 es HIGH y está justificado; no hay CRITICAL. |
+| Caracterización backend | Verde | `pytest tests/test_044_chat_contract.py` → 40 passed. |
+| Caracterización del lector | Verde | `node --test tests/js/test_044_chat_stream_reader.cjs` → 9 passed. |
+| Lector compartido | Verde | `node --test tests/js/test_044_sse_shared.cjs` → 13 passed. |
+| Puerta completa | Verde | `env -u OLLAMA_MODEL make check` → 1683 passed, 46 deselected. |
+| Paridad web/API | Verde | `test_web_y_api_emiten_la_misma_secuencia_observable` compara ambos cuerpos SSE. |
+| HTMX solo en Configuración | Verde | `test_htmx_solo_se_carga_en_configuracion` (1 passed) y prueba de plantillas del lector. |
+| `apps/api/chat/service.py` y `agent.py` | Sin tocar | `git diff --stat` no los lista. |

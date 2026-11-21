@@ -276,8 +276,9 @@ function cargarChatStream({ fetchFalso }) {
     crypto: null,
   };
 
+  const lector = fs.readFileSync(path.join(STATIC, "sse.js"), "utf8");
   const fuente = fs.readFileSync(path.join(STATIC, "chat-stream.js"), "utf8");
-  vm.runInNewContext(fuente, {
+  const contexto = vm.createContext({
     window: ventana,
     document: documento,
     fetch: ventana.fetch,
@@ -288,6 +289,8 @@ function cargarChatStream({ fetchFalso }) {
     clearTimeout,
     console,
   });
+  vm.runInContext(lector, contexto);
+  vm.runInContext(fuente, contexto);
 
   const enviar = () => {
     for (const manejador of form.oyentes.get("submit") || []) {
@@ -348,8 +351,9 @@ function cargarFaq({ chunks }) {
     },
     TextDecoder,
   };
+  const lector = fs.readFileSync(path.join(STATIC, "sse.js"), "utf8");
   const fuente = fs.readFileSync(path.join(STATIC, "faq.js"), "utf8");
-  vm.runInNewContext(fuente, {
+  const contexto = vm.createContext({
     window: ventana,
     document: documento,
     fetch: ventana.fetch,
@@ -362,6 +366,8 @@ function cargarFaq({ chunks }) {
     URL: { createObjectURL: () => "blob:x", revokeObjectURL: () => {} },
     console,
   });
+  vm.runInContext(lector, contexto);
+  vm.runInContext(fuente, contexto);
   return { boton, estado, aviso, lista, faltantes, preview, contenedor };
 }
 
@@ -546,7 +552,7 @@ test("caracterización FAQ: CRLF y varios data: se interpretan igual", async () 
   assert.match(arnes.estado.textContent, /2 preguntas nuevas/);
 });
 
-test("caracterización FAQ: hoy descarta el último bloque sin separador", async () => {
+test("el lector común procesa el último bloque sin separador también en la FAQ", async () => {
   // Arrange: el done llega sin la línea en blanco final.
   const arnes = cargarFaq({
     chunks: ['event: open\ndata: {"stream": "faq"}\n\n', `event: done\ndata: ${lote(1)}`],
@@ -554,11 +560,9 @@ test("caracterización FAQ: hoy descarta el último bloque sin separador", async
 
   // Act
   generarFaq(arnes);
-  await esperar(
-    () => arnes.estado.textContent.includes("interrumpió antes de completarse"),
-    "interrupción de la FAQ",
-  );
+  await esperar(() => arnes.lista.children.length > 0, "lote del último bloque");
 
-  // Assert: diferencia actual entre consumidores (el chat sí procesa el último bloque).
-  assert.equal(arnes.lista.children.length, 0);
+  // Assert: el chat ya lo procesaba; compartir el lector cierra la diferencia.
+  assert.equal(arnes.lista.children.length, 1);
+  assert.match(arnes.estado.textContent, /1 preguntas nuevas/);
 });

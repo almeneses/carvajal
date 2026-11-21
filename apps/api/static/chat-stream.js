@@ -13,6 +13,11 @@
     typeof window.ReadableStream === "function";
   if (!soportaStreaming) return;
 
+  // Lector SSE común (spec 044). Si no está disponible, el formulario conserva
+  // su POST normal sin streaming.
+  const lectorSse = window.CarvajalSSE;
+  if (!lectorSse || typeof lectorSse.leerEventos !== "function") return;
+
   const input = form.querySelector('input[name="question"]');
   const csrf = form.querySelector('input[name="csrf_token"]');
   const threadInput = form.querySelector("[data-thread-id]");
@@ -30,7 +35,6 @@
   const raizMonitoreo = document.querySelector("[data-monitoring]");
   const AVISO = "No se pudo completar la respuesta. Vuelve a intentarlo.";
   const INCOMPLETA = "La respuesta se interrumpió antes de completarse.";
-  const SEPARADOR = /\r?\n\r?\n/;
   let enCurso = false;
   let completado = false;
   let errorRecibido = false;
@@ -160,7 +164,7 @@
       }
       if (!response.ok) cerrado = true;
 
-      await leerEventos(response, (evento) => {
+      await lectorSse.leerEventos(response, (evento) => {
         switch (evento.nombre) {
           case "open":
             avisar("Recuperando fuentes…");
@@ -506,48 +510,5 @@
     if (conteo) conteo.textContent = `(${fuentes.length})`;
     seccion.open = false;
     seccion.hidden = false;
-  }
-
-  async function leerEventos(response, alEvento) {
-    const lector = response.body.getReader();
-    const decodificador = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { value, done } = await lector.read();
-      if (done) break;
-      buffer += decodificador.decode(value, { stream: true });
-      buffer = vaciarBloques(buffer, alEvento);
-    }
-    buffer += decodificador.decode();
-    buffer = vaciarBloques(buffer, alEvento);
-    const ultimo = interpretar(buffer);
-    if (ultimo) alEvento(ultimo);
-  }
-
-  function vaciarBloques(buffer, alEvento) {
-    for (;;) {
-      const corte = SEPARADOR.exec(buffer);
-      if (!corte) return buffer;
-      const bloque = buffer.slice(0, corte.index);
-      buffer = buffer.slice(corte.index + corte[0].length);
-      const evento = interpretar(bloque);
-      if (evento) alEvento(evento);
-    }
-  }
-
-  function interpretar(bloque) {
-    if (!bloque.trim()) return null;
-    let nombre = "message";
-    const datos = [];
-    for (const linea of bloque.split(/\r?\n/)) {
-      if (linea.startsWith("event:")) nombre = linea.slice(6).trim();
-      else if (linea.startsWith("data:")) datos.push(linea.slice(5).trimStart());
-    }
-    if (datos.length === 0) return null;
-    try {
-      return { nombre, datos: JSON.parse(datos.join("\n")) };
-    } catch {
-      return null;
-    }
   }
 })();

@@ -24,12 +24,13 @@ from apps.api import runtime
 from apps.api.chat.service import SERVICE_UNAVAILABLE
 from apps.api.observability import capture_exception
 from apps.api.runtime import templates
-from apps.api.security import verify_csrf
 from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE, encode
-from apps.api.views.chat import (
+from apps.api.views.chat_rules import (
     CSRF_INVALIDO,
     consume_quota,
-    request_identity,
+    invalid_response,
+    require_csrf,
+    resolve_visitor,
     set_identity_cookie,
 )
 from carvajal.adapters.storage.repositories import SqlDocumentRepository
@@ -115,65 +116,61 @@ def faq_stream(
 ) -> Response:
     """Genera un lote de hasta diez preguntas nuevas y lo emite por SSE."""
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        return _invalid(CSRF_INVALIDO, status_code=403)
+    if not require_csrf(request, csrf_token):
+        return invalid_response(CSRF_INVALIDO, status_code=403)
 
     try:
         previous = parse_exclude(exclude)
     except ValueError as error:
-        return _invalid(str(error), status_code=422)
+        return invalid_response(str(error), status_code=422)
 
-    identity = request_identity(request)
-    stored_owner = identity.read(request)
-    new_owner = stored_owner is None
-    owner_key = stored_owner or identity.new_owner_key()
+    visitor = resolve_visitor(request)
     # Los tokens del LLM quedan asociados a este visitante en los logs.
-    structlog.contextvars.bind_contextvars(owner_key=owner_key)
+    structlog.contextvars.bind_contextvars(owner_key=visitor.owner_key)
 
     try:
         service = faq_service(request)
         prepared = service.prepare(previous)
     except FAQError as error:
         logger.warning("faq.prepare_failed", error=str(error))
-        response = _invalid(str(error), status_code=422)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
+        response = invalid_response(str(error), status_code=422)
+        if visitor.new_owner:
+            set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
         return response
     except (SQLAlchemyError, OSError, ValueError) as error:
         logger.warning("faq.corpus_failed", error=str(error))
-        response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
+        response = invalid_response(SERVICE_UNAVAILABLE, status_code=503)
+        if visitor.new_owner:
+            set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
         return response
 
     # La cuota se cobra solo cuando el corpus y el prompt ya están listos: un
     # fallo de preparación no debe gastar una generación del visitante.
     try:
-        quota = consume_quota(request, owner_key)
+        quota = consume_quota(request, visitor.owner_key)
     except SQLAlchemyError as error:
         logger.warning("faq.quota_failed", error=str(error))
-        response = _invalid(SERVICE_UNAVAILABLE, status_code=503)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
+        response = invalid_response(SERVICE_UNAVAILABLE, status_code=503)
+        if visitor.new_owner:
+            set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
         return response
     if not quota.allowed:
-        response = _invalid(
+        response = invalid_response(
             LIMITE_ALCANZADO,
             status_code=429,
             headers={"Retry-After": str(quota.retry_after)},
         )
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
+        if visitor.new_owner:
+            set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
         return response
 
     response = StreamingResponse(
-        _sse(service, prepared, previous, owner_key),
+        _sse(service, prepared, previous, visitor.owner_key),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
     )
-    if new_owner:
-        set_identity_cookie(response, request, identity, owner_key)
+    if visitor.new_owner:
+        set_identity_cookie(response, request, visitor.identity, visitor.owner_key)
     return response
 
 
@@ -257,19 +254,3 @@ def _payload(batch: FaqBatch) -> dict[str, object]:
         "exhausted": batch.exhausted,
         "warnings": list(batch.warnings),
     }
-
-
-def _invalid(
-    message: str,
-    *,
-    status_code: int = 422,
-    headers: dict[str, str] | None = None,
-) -> Response:
-    """Respuesta SSE controlada para CSRF, cupo o corpus no disponible."""
-
-    return Response(
-        content=encode("error", {"message": message, "incomplete": False}),
-        status_code=status_code,
-        media_type=SSE_MEDIA_TYPE,
-        headers={"X-Carvajal-Error": "1", **SSE_HEADERS, **(headers or {})},
-    )
