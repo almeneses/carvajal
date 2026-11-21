@@ -113,7 +113,8 @@ dobles de prueba).
 
 ## Resultado de la implementación (T019)
 
-Comandos ejecutados en `.worktrees/043`, rama `refactor/043-codigo-dependencias`, con
+Comandos ejecutados en `.worktrees/043`, rama `refactor/043-codigo-dependencias`
+(PR [#203](https://github.com/almeneses/carvajal/pull/203)), con
 `UV_CACHE_DIR=<repo>/.uv-cache` y `env -u OLLAMA_MODEL` donde aplica.
 
 ### Caracterización antes y después

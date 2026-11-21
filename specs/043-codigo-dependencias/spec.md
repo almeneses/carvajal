@@ -2,7 +2,8 @@
 
 **Feature Branch**: `043-codigo-dependencias`
 **Created**: 2026-11-20
-**Status**: Draft
+**Status**: Implementada (fase 1 del goal 042–047); en revisión por PR #203 el
+2026-11-20. Ver [analysis](analysis.md) para la evidencia.
 **Input**: User description: "Retira `_safe_rollback`, el embedder sin uso de ChatService
 y la configuración no utilizada de GraphAgentRunner. Revisa consumidores antes de quitar
 símbolos públicos sin llamadas internas. Valida retirar las declaraciones directas de

@@ -90,7 +90,7 @@ histórica y la imagen funcionan; si no, la dependencia se conserva y se documen
   en el cuerpo del PR sin tocar el Dockerfile para sortearlo.
 - [X] T019 Repetir la caracterización sobre el árbol final y registrar en `analysis.md` el
   resumen de FR → tarea → evidencia y el resultado exacto de cada comando.
-- [ ] T020 Hacer commits convencionales (`test(043): ...` para la caracterización y
+- [X] T020 Hacer commits convencionales (`test(043): ...` para la caracterización y
   `refactor(043): ...` para cada retirada), `git push -u origin
   refactor/043-codigo-dependencias`, abrir el PR contra `dev` con el cuerpo en español,
   labels `refactor`, `backend` y `chore`, y assignee `@me`; no fusionar ni aprobar.
