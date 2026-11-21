@@ -224,8 +224,13 @@ services:
       - |
         set -e
         if [ -d /seed ] && [ -z "$$(ls -A /app/data/gold 2>/dev/null)" ]; then
-          echo "Copiando el corpus de referencia al volumen appdata"
-          cp -R /seed/. /app/data/
+          if [ -z "$$(ls -A /seed/gold 2>/dev/null)" ]; then
+            echo "Aviso: /seed no trae corpus Gold." >&2
+            echo "Sincroniza data/ al host (ver docs/despliegue-ovh.md) o usa el volumen." >&2
+          else
+            echo "Copiando el corpus de referencia al volumen appdata"
+            cp -R /seed/. /app/data/
+          fi
         fi
         alembic upgrade head
         carvajal migrate-gold
