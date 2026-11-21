@@ -149,6 +149,10 @@ cookies dejarían de validar entre procesos. El Compose ya lo exige obligatorio.
 - `sync --adopt --verify` juntos: **2** (opciones incompatibles).
 - El resto de comandos devuelve **1** ante error y **0** en éxito (tabla en
   [inventario §3](inventario.md#3-comandos-cli)).
+- El comando documentado `uv tool install "carvajal[capture,legacy]"` resuelve el paquete
+  homónimo de PyPI (`carvajal==0.2.1`, sin esos extras) y falla; la forma verificada en
+  esta entorno es `uv tool install ".[capture,legacy]"` desde la raíz del repositorio.
+  Queda anotado para corregir `AGENTS.md`/`README.md` en una PR de documentación.
 
 ### 4.5 Cuota, CSRF y orden de controles
 
@@ -171,6 +175,23 @@ la fase 045 antes de optimizar:
 
 La medición antes/después de la fase 045 se documentará en
 `specs/045-corpus-rendimiento/mediciones.md` con el mismo entorno y el mismo corpus.
+
+## 5.bis Smoke de arranque con 3 workers (solo mecanismo)
+
+Se verificó que el código de `8927ee7` arranca con Uvicorn nativo de 3 workers, sin
+cambiar nada:
+
+```bash
+.venv/bin/uvicorn apps.api.main:app --host 127.0.0.1 --port 8099 --workers 3 --no-access-log
+# INFO: Started parent process [5]
+# INFO: Started server process [8] / [9] / [10]
+# GET /live -> 200 {"status": "ok"}
+```
+
+Es solo la prueba del mecanismo: en esa versión el estado de captura sigue en memoria de
+cada worker, por eso la activación en el Compose depende de la fase 047 (coordinación
+compartida). La prueba real de 3 procesos se registra en
+`specs/047-captura-3-workers/evidencia-3-workers.md`.
 
 ## 6. Capacidad y presupuestos (para la fase 047)
 
