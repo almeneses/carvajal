@@ -102,6 +102,12 @@ con `--admin`.
   159/Linux (FR-009); alcance acordado: Chrome y Firefox de escritorio. SC-001 = 36/40
   (90,0 %), SC-002 p95 = 231 ms, SC-003 p95 = 36 ms, SC-004/005 cumplidos con micrófono
   y dos voces.
+- La spec 043 (fase 1 del goal de simplificación 042–047) retiró el código y las
+  dependencias sin consumidores: `_safe_rollback`, el embedder de `ChatService`, la
+  configuración de `GraphAgentRunner` y las declaraciones directas de `langchain` y
+  `python-dotenv`. FAISS, SQLite, Sentry y las referencias a pgvector de las migraciones
+  siguen en su sitio porque la CLI histórica, la demo local, la observabilidad opcional y
+  las migraciones los usan.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 

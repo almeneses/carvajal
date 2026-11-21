@@ -36,16 +36,16 @@
 **Prueba independiente:** la caracterización del chat, `test_chat_service`, `test_api_chat`,
 `test_api_stream` y la prueba de `default_chat_service` pasan antes y después.
 
-- [ ] T007 [US1] Retirar `_safe_rollback` de `apps/api/chat/service.py` (sin llamadas) y
+- [X] T007 [US1] Retirar `_safe_rollback` de `apps/api/chat/service.py` (sin llamadas) y
   simplificar el import de `Session` solo si deja de usarse.
-- [ ] T008 [US1] Retirar el parámetro `embedder` y el atributo `_embedder` de
+- [X] T008 [US1] Retirar el parámetro `embedder` y el atributo `_embedder` de
   `ChatService`, la clase `_DeferredEmbedder` y el argumento de `default_chat_service()`;
   conservar `_DeferredLLM` y `runtime.ask_components()` intactos.
-- [ ] T009 [P] [US1] Ajustar los dobles y constructores de prueba en
+- [X] T009 [P] [US1] Ajustar los dobles y constructores de prueba en
   `tests/test_chat_service.py`, `tests/test_chat_tracing.py`,
   `tests/test_monitoring_smoke.py` y `tests/test_monitoring_e2e.py`; retirar los embedders
   falsos que solo servían a `ChatService`.
-- [ ] T010 [US1] Ejecutar `env -u OLLAMA_MODEL uv run pytest tests/test_chat_service.py
+- [X] T010 [US1] Ejecutar `env -u OLLAMA_MODEL uv run pytest tests/test_chat_service.py
   tests/test_chat_tracing.py tests/test_api.py tests/test_api_chat.py
   tests/test_api_stream.py tests/test_characterization_043.py` y confirmar el mismo
   comportamiento.
@@ -55,12 +55,12 @@
 **Prueba independiente:** `test_agent_graph`, `test_productos` y la caracterización del
 runner pasan antes y después.
 
-- [ ] T011 [US2] Retirar el parámetro `settings`, el atributo `_settings` y el import de
+- [X] T011 [US2] Retirar el parámetro `settings`, el atributo `_settings` y el import de
   `Settings` de `apps/api/chat/agent.py`; `default_agent_runner()` pasa a construir
   `GraphAgentRunner(runtime.graph)`.
-- [ ] T012 [P] [US2] Ajustar las construcciones de `GraphAgentRunner` en
+- [X] T012 [P] [US2] Ajustar las construcciones de `GraphAgentRunner` en
   `tests/test_agent_graph.py` y `tests/test_productos.py`.
-- [ ] T013 [US2] Ejecutar `env -u OLLAMA_MODEL uv run pytest tests/test_agent_graph.py
+- [X] T013 [US2] Ejecutar `env -u OLLAMA_MODEL uv run pytest tests/test_agent_graph.py
   tests/test_productos.py tests/test_agent_routers.py
   tests/test_agent_commercial_flow.py tests/test_characterization_043.py`.
 
@@ -69,26 +69,26 @@ runner pasan antes y después.
 **Prueba independiente:** instalación completa, instalación base, import de la CLI
 histórica y la imagen funcionan; si no, la dependencia se conserva y se documenta.
 
-- [ ] T014 [US3] Retirar `langchain` del extra `legacy` en `pyproject.toml`, regenerar el
+- [X] T014 [US3] Retirar `langchain` del extra `legacy` en `pyproject.toml`, regenerar el
   lock con `uv lock` y verificar `uv sync --all-extras`, `uv run python -c "import
   carvajal.rag"`, `uv run carvajal --help`, `uv run carvajal ask --help` y
   `uv run carvajal faq --help`; si falla, restaurar y documentar el error.
-- [ ] T015 [US3] Retirar `python-dotenv` de las dependencias base en `pyproject.toml`,
+- [X] T015 [US3] Retirar `python-dotenv` de las dependencias base en `pyproject.toml`,
   regenerar el lock y verificar `uv sync` base en un venv desechable y que `Settings` lee
   `.env`; si falla, restaurar y documentar el error.
-- [ ] T016 [US3] Ejecutar `env -u OLLAMA_MODEL make check` completo, `uv run pytest
+- [X] T016 [US3] Ejecutar `env -u OLLAMA_MODEL make check` completo, `uv run pytest
   tests/test_rag.py tests/test_cli.py` y `node --test tests/js/test_chat_voice.cjs`.
 
 ## Fase 6 — US4 y cierre
 
-- [ ] T017 [US4] Comprobar que sobreviven FAISS y el extra `legacy`, el checkpointer SQLite,
+- [X] T017 [US4] Comprobar que sobreviven FAISS y el extra `legacy`, el checkpointer SQLite,
   Sentry y las referencias a pgvector de las migraciones; ejecutar sus pruebas
   (`tests/test_rag.py`, `tests/test_agent_graph.py`, `tests/test_observability.py`,
   `tests/test_storage_migrations.py`).
-- [ ] T018 [US4] Construir `docker build -t carvajal-api:043 .`; si termina, arrancar el
+- [X] T018 [US4] Construir `docker build -t carvajal-api:043 .`; si termina, arrancar el
   contenedor y comprobar `GET /live`; si no, registrar el motivo exacto en `analysis.md` y
   en el cuerpo del PR sin tocar el Dockerfile para sortearlo.
-- [ ] T019 Repetir la caracterización sobre el árbol final y registrar en `analysis.md` el
+- [X] T019 Repetir la caracterización sobre el árbol final y registrar en `analysis.md` el
   resumen de FR → tarea → evidencia y el resultado exacto de cada comando.
 - [ ] T020 Hacer commits convencionales (`test(043): ...` para la caracterización y
   `refactor(043): ...` para cada retirada), `git push -u origin
