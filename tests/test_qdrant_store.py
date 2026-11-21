@@ -36,6 +36,7 @@ class FakeClient:
         self.points: list[models.PointStruct] = []
         self.deleted: list[Any] = []
         self.records: list[models.Record] = []
+        self.scroll_calls = 0
         self.fail = False
         self.last_query: dict[str, Any] = {}
 
@@ -74,6 +75,7 @@ class FakeClient:
         )
 
     def scroll(self, **kwargs: Any) -> tuple[list[models.Record], None]:
+        self.scroll_calls += 1
         records = self.records
         query_filter = kwargs.get("scroll_filter")
         if query_filter is not None:
@@ -370,3 +372,40 @@ def test_document_hashes_y_ids_filtran_por_capa() -> None:
         "historia": sync_fingerprint(content_hash="h1", title="", section="", source_type="")
     }
     assert store.document_ids("core") == {"historia"}
+
+
+def test_snapshot_trae_huellas_e_ids_en_un_solo_recorrido() -> None:
+    """La verificación pide huellas y documentos sin recorrer la capa dos veces."""
+
+    # Arrange: un documento completo y otro a medias en la misma capa.
+    def registro(ident: int, document_id: str, total: str) -> models.Record:
+        return models.Record(
+            id=ident,
+            payload={
+                "document_id": document_id,
+                "layer": "core",
+                "content_hash": "h1",
+                "chunks_total": total,
+            },
+        )
+
+    client = FakeClient()
+    client.records = [
+        registro(1, "completo", "2"),
+        registro(2, "completo", "2"),
+        registro(3, "incompleto", "2"),
+    ]
+    store = QdrantVectorStore(cast(Any, client))
+
+    # Act
+    snapshot = store.snapshot("core")
+
+    # Assert
+    assert client.scroll_calls == 1
+    assert snapshot.document_ids == frozenset({"completo", "incompleto"})
+    assert snapshot.hashes == {
+        "completo": sync_fingerprint(content_hash="h1", title="", section="", source_type="")
+    }
+    # Las dos lecturas individuales siguen coincidiendo con la instantánea.
+    assert dict(snapshot.hashes) == store.document_hashes("core")
+    assert set(snapshot.document_ids) == store.document_ids("core")

@@ -21,16 +21,20 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from carvajal.config import LAYER_CORE, LAYER_EXTENDED
+from carvajal.domain.entities import Document
 from carvajal.gold import corpus_lock
 
 __all__ = [
     "CorpusLayer",
+    "GoldLayer",
+    "IndexSnapshot",
     "SyncDatabase",
     "SyncIndex",
     "SyncReport",
     "corpus_layers",
     "gold_hashes",
     "gold_index_hashes",
+    "read_gold_layer",
     "sync_corpus",
     "sync_fingerprint",
 ]
@@ -100,6 +104,35 @@ class SyncReport:
         return not self.errors and not self.differences
 
 
+@dataclass(frozen=True)
+class GoldLayer:
+    """Una lectura completa de Gold, reutilizada por los dos almacenes.
+
+    El servicio de sincronización lee los Markdown de la capa una sola vez y
+    entrega este lote a PostgreSQL y a Qdrant; así las relecturas no dependen
+    de cuántos almacenes haya que reparar. ``hashes`` es la huella base que
+    persiste PostgreSQL; ``index_hashes`` añade la procedencia que solo vive en
+    el payload del índice.
+    """
+
+    layer: CorpusLayer
+    documents: tuple[Document, ...]
+    hashes: Mapping[str, str]
+    index_hashes: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class IndexSnapshot:
+    """Huellas y documentos del índice por capa, leídos en un solo recorrido.
+
+    ``hashes`` publica solo los documentos completos; ``document_ids`` incluye
+    también los incompletos, que la poda necesita y la verificación distingue.
+    """
+
+    hashes: Mapping[str, str]
+    document_ids: Collection[str]
+
+
 @runtime_checkable
 class SyncDatabase(Protocol):
     """Lado PostgreSQL de la sincronización."""
@@ -111,12 +144,13 @@ class SyncDatabase(Protocol):
 
     def import_gold(
         self,
-        layer: CorpusLayer,
+        gold: GoldLayer,
+        /,
         *,
         only: set[str] | None,
         prune: bool,
     ) -> tuple[int, int, int]:
-        """Importa Gold y devuelve ``(documentos, fragmentos, podados)``."""
+        """Importa el lote Gold y devuelve ``(documentos, fragmentos, podados)``."""
 
         ...
 
@@ -135,6 +169,11 @@ class SyncIndex(Protocol):
 
         ...
 
+    def snapshot(self, layer: str) -> IndexSnapshot:
+        """Huellas y documentos de la capa en un solo recorrido del índice."""
+
+        ...
+
     def document_ids(self, layer: str) -> set[str]:
         """Todos los documentos con puntos, incluidos los incompletos."""
 
@@ -142,12 +181,13 @@ class SyncIndex(Protocol):
 
     def index_gold(
         self,
-        layer: CorpusLayer,
+        gold: GoldLayer,
+        /,
         *,
         only: set[str] | None,
         prune: bool,
     ) -> tuple[int, int]:
-        """Indexa Gold y devuelve ``(puntos indexados, documentos podados)``."""
+        """Indexa el lote Gold y devuelve ``(puntos indexados, documentos podados)``."""
 
         ...
 
@@ -208,7 +248,7 @@ def gold_hashes(layer: CorpusLayer) -> dict[str, str]:
         ValueError: si dos archivos de la capa publican el mismo slug.
     """
 
-    return _gold_fingerprints(layer)[0]
+    return dict(read_gold_layer(layer).hashes)
 
 
 def gold_index_hashes(layer: CorpusLayer) -> dict[str, str]:
@@ -218,16 +258,27 @@ def gold_index_hashes(layer: CorpusLayer) -> dict[str, str]:
     PostgreSQL; el índice usa esta huella para detectar también sus cambios.
     """
 
-    return _gold_fingerprints(layer)[1]
+    return dict(read_gold_layer(layer).index_hashes)
 
 
-def _gold_fingerprints(layer: CorpusLayer) -> tuple[dict[str, str], dict[str, str]]:
-    """Huellas de la capa para PostgreSQL y para Qdrant, en una sola lectura."""
+def read_gold_layer(layer: CorpusLayer) -> GoldLayer:
+    """Lee los Markdown de la capa una sola vez: documentos y sus dos huellas.
 
-    from carvajal.adapters.storage.import_corpus import load_document
+    La lectura se importa en diferido porque el módulo de fragmentación arrastra
+    la dependencia del *splitter*; la sincronización que no toca Gold (por
+    ejemplo, una verificación desde la web) no la necesita al importar el
+    módulo.
+
+    Raises:
+        FileNotFoundError: si la capa declara directorios y ninguno existe.
+        ValueError: si dos archivos de la capa publican el mismo slug.
+    """
+
+    from carvajal.gold_documents import load_document
 
     if not layer.directories:
-        return {}, {}
+        return GoldLayer(layer=layer, documents=(), hashes={}, index_hashes={})
+    documents: list[Document] = []
     base: dict[str, str] = {}
     indexed: dict[str, str] = {}
     found = False
@@ -239,6 +290,7 @@ def _gold_fingerprints(layer: CorpusLayer) -> tuple[dict[str, str], dict[str, st
             document = load_document(path, layer=layer.name)
             if document.id in base:
                 raise ValueError(f"{path}: el slug {document.id!r} ya existe en la capa.")
+            documents.append(document)
             base[document.id] = sync_fingerprint(
                 content_hash=document.content_hash,
                 title=document.title,
@@ -258,7 +310,12 @@ def _gold_fingerprints(layer: CorpusLayer) -> tuple[dict[str, str], dict[str, st
             )
     if not found:
         raise FileNotFoundError(f"{layer.name}: no existe ningún directorio Gold de la capa.")
-    return base, indexed
+    return GoldLayer(
+        layer=layer,
+        documents=tuple(documents),
+        hashes=base,
+        index_hashes=indexed,
+    )
 
 
 def sync_corpus(
@@ -313,7 +370,9 @@ def _sync(
 
     for layer in layers:
         try:
-            hashes, gold_index = _gold_fingerprints(layer)
+            gold = read_gold_layer(layer)
+            hashes = dict(gold.hashes)
+            gold_index = dict(gold.index_hashes)
             if selected is not None:
                 hashes = {slug: value for slug, value in hashes.items() if slug in selected}
                 gold_index = {slug: value for slug, value in gold_index.items() if slug in selected}
@@ -353,12 +412,7 @@ def _sync(
                     errors.append(f"{layer.name} (PostgreSQL): {error}")
             try:
                 differences.extend(
-                    _index_differences(
-                        layer,
-                        gold_index,
-                        dict(index.hashes(layer.name)),
-                        index.document_ids(layer.name),
-                    )
+                    _index_differences(layer, gold_index, index.snapshot(layer.name))
                 )
             except Exception as error:  # Qdrant puede estar caído; Gold queda
                 errors.append(f"{layer.name} (Qdrant): {error}")
@@ -368,15 +422,15 @@ def _sync(
         # corrida anterior, el siguiente sync vuelve a verlo pendiente.
         if store_hashes is not None:
             try:
-                # Con poda la base necesita ver el directorio completo para
-                # saber qué falta; sin poda basta con los cambiados.
+                # Con poda la base necesita ver la capa completa para saber qué
+                # falta; sin poda basta con los cambiados.
                 if prune:
                     layer_documents, layer_chunks, removed = database.import_gold(
-                        layer, only=None, prune=True
+                        gold, only=None, prune=True
                     )
                 elif changed:
                     layer_documents, layer_chunks, removed = database.import_gold(
-                        layer, only=changed, prune=False
+                        gold, only=changed, prune=False
                     )
                 else:
                     layer_documents = layer_chunks = removed = 0
@@ -392,7 +446,7 @@ def _sync(
                 slug for slug, value in gold_index.items() if store_index.get(slug) != value
             }
             if index_changed or prune:
-                layer_indexed, deleted = index.index_gold(layer, only=index_changed, prune=prune)
+                layer_indexed, deleted = index.index_gold(gold, only=index_changed, prune=prune)
             else:
                 layer_indexed = deleted = 0
             indexed += layer_indexed
@@ -443,13 +497,18 @@ def _database_differences(
 def _index_differences(
     layer: CorpusLayer,
     gold: Mapping[str, str],
-    index_hashes: Mapping[str, str],
-    index_ids: Collection[str],
+    snapshot: IndexSnapshot,
 ) -> list[str]:
-    """Compara Gold con las huellas y los documentos del índice, sin escribir."""
+    """Compara Gold con la instantánea del índice, sin escribir.
+
+    La instantánea trae huellas y documentos en un solo recorrido; el
+    diagnóstico no cambia: primero documento ausente o sobrante, después puntos
+    incompletos y por último huella distinta.
+    """
 
     differences: list[str] = []
-    ids = set(index_ids)
+    index_hashes = snapshot.hashes
+    ids = set(snapshot.document_ids)
     for slug in sorted(set(gold) | ids):
         if slug not in ids:
             differences.append(f"{slug}: falta en Qdrant.")

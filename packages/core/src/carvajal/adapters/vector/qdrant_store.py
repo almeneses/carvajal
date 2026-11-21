@@ -18,7 +18,7 @@ from uuid import UUID, uuid5
 from qdrant_client import QdrantClient, models
 
 from carvajal.application.ports import ScoredChunk
-from carvajal.application.sync import sync_fingerprint
+from carvajal.application.sync import IndexSnapshot, sync_fingerprint
 from carvajal.domain.entities import Chunk
 
 __all__ = [
@@ -517,24 +517,28 @@ class QdrantVectorStore:
         )
         return len(stale)
 
-    def document_hashes(self, layer: str | None = None) -> dict[str, str]:
-        """Huella de sincronización por documento, solo si están todos sus fragmentos.
+    def snapshot(self, layer: str | None = None) -> IndexSnapshot:
+        """Huellas publicadas y documentos presentes, en un solo recorrido.
 
-        La huella cubre el texto y los metadatos que el payload publica (título,
-        sección y tipo de fuente): corregir el título de un documento lo marca
-        como cambiado aunque su cuerpo no cambie. Un documento con menos puntos
-        que ``chunks_total`` quedó a medias (por ejemplo, una corrida interrumpida
-        a mitad de sus lotes): no se publica su huella para que la siguiente
-        sincronización lo reindexe en lugar de darlo por vigente.
+        La verificación necesita las dos cosas a la vez; pedirlas por separado
+        recorre la capa dos veces. La huella cubre el texto y los metadatos que
+        el payload publica (título, sección y tipo de fuente): corregir el
+        título de un documento lo marca como cambiado aunque su cuerpo no
+        cambie. Un documento con menos puntos que ``chunks_total`` quedó a
+        medias (por ejemplo, una corrida interrumpida a mitad de sus lotes): no
+        se publica su huella, pero sí su ID, para que la verificación lo
+        distinga de un documento modificado y la poda pueda limpiarlo.
         """
 
         hashes: dict[str, str] = {}
         seen: dict[str, int] = {}
         expected: dict[str, int] = {}
+        document_ids: set[str] = set()
         for payload in self._payloads(layer):
             document_id = str(payload.get("document_id") or payload.get("slug") or "")
             if not document_id:
                 continue
+            document_ids.add(document_id)
             seen[document_id] = seen.get(document_id, 0) + 1
             hashes[document_id] = sync_fingerprint(
                 content_hash=str(payload.get("content_hash") or ""),
@@ -548,11 +552,21 @@ class QdrantVectorStore:
             )
             total = str(payload.get("chunks_total") or "")
             expected[document_id] = int(total) if total.isdigit() else 0
-        return {
+        complete = {
             document_id: fingerprint
             for document_id, fingerprint in hashes.items()
             if expected[document_id] and seen[document_id] == expected[document_id]
         }
+        return IndexSnapshot(hashes=complete, document_ids=frozenset(document_ids))
+
+    def document_hashes(self, layer: str | None = None) -> dict[str, str]:
+        """Huella de sincronización por documento, solo si están todos sus fragmentos.
+
+        Delega en :meth:`snapshot` para que exista una sola definición de
+        completitud.
+        """
+
+        return dict(self.snapshot(layer).hashes)
 
     def document_ids(self, layer: str | None = None) -> set[str]:
         """Documentos distintos presentes en el índice, filtrados por capa.
@@ -560,15 +574,10 @@ class QdrantVectorStore:
         A diferencia de ``document_hashes``, incluye los documentos incompletos:
         un documento con lotes pendientes no se publica como vigente, pero sus
         fragmentos ya existen y la poda debe poder eliminarlos cuando su Markdown
-        desaparece de Gold.
+        desaparece de Gold. Delega en :meth:`snapshot`.
         """
 
-        ids: set[str] = set()
-        for payload in self._payloads(layer):
-            document_id = str(payload.get("document_id") or payload.get("slug") or "")
-            if document_id:
-                ids.add(document_id)
-        return ids
+        return set(self.snapshot(layer).document_ids)
 
     def prune_layer(self, layer: str, valid_documents: Iterable[str]) -> int:
         """Elimina los documentos de una capa que ya no están en Gold.

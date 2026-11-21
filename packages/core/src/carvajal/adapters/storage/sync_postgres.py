@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 
 from carvajal.adapters.storage import tables
-from carvajal.application.sync import CorpusLayer, gold_hashes, sync_fingerprint
+from carvajal.application.sync import GoldLayer, sync_fingerprint
 
 __all__ = ["PostgresSync"]
 
@@ -46,42 +46,30 @@ class PostgresSync:
 
     def import_gold(
         self,
-        layer: CorpusLayer,
+        gold: GoldLayer,
         *,
         only: set[str] | None,
         prune: bool,
     ) -> tuple[int, int, int]:
-        """Importa los directorios de la capa y suma sus conteos.
+        """Escribe el lote Gold ya leído y devuelve ``(documentos, fragmentos, podados)``.
 
-        La poda opera sobre la capa completa. Con un único directorio,
-        ``migrate_gold`` es autoritativo y poda por sí mismo. Con varias fuentes,
-        ningún directorio lo es: podar con la lista de uno borraría los
-        documentos de los otros, así que se importa sin poda y al terminar se
-        eliminan los slugs que no estén en la unión de todas las fuentes.
+        La lectura de Gold la hizo el servicio de sincronización una sola vez;
+        este adaptador no vuelve a tocar el disco. La poda opera sobre la capa
+        completa: los documentos del lote son la lista autoritativa de la capa,
+        así que una capa repartida en varias fuentes se poda con su unión.
         """
 
-        from carvajal.adapters.storage.import_corpus import migrate_gold, prune_layer
+        from carvajal.adapters.storage.import_corpus import import_documents
 
-        documents = chunks = removed = 0
-        single = len(layer.directories) == 1
         with self._session_factory.begin() as session:
-            for directory in layer.directories:
-                report = migrate_gold(
-                    session,
-                    gold_dir=directory,
-                    layer=layer.name,
-                    # Un directorio vacío solo es aceptable cuando hay una poda
-                    # autoritativa detrás que decide el estado de la capa.
-                    allow_empty=prune,
-                    only=only,
-                    prune=prune and single,
-                )
-                documents += report.documents
-                chunks += report.chunks
-                removed += report.removed
-            if prune and not single:
-                removed += prune_layer(session, layer=layer.name, keep=set(gold_hashes(layer)))
-        return documents, chunks, removed
+            report = import_documents(
+                session,
+                gold.documents,
+                layer=gold.layer.name,
+                only=only,
+                prune=prune,
+            )
+        return report.documents, report.chunks, report.removed
 
     def count(self, layer: str) -> int:
         """Cuenta los documentos de la capa."""

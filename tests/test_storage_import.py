@@ -166,3 +166,28 @@ def test_corpus_real_coincide_con_el_indice(session: Session) -> None:
         assert document.section == entry["section"]
         assert document.title == entry["title"]
         assert document.url == entry["url"]
+
+
+def test_import_documents_escribe_el_lote_leido_y_poda_la_capa(
+    tmp_path: Path, session: Session
+) -> None:
+    """La sincronización entrega documentos ya leídos; el importador no toca Gold."""
+
+    from carvajal.adapters.storage.import_corpus import import_documents
+    from carvajal.gold_documents import load_document
+
+    _write(tmp_path / "uno.md", slug="uno", body="Cuerpo uno.")
+    _write(tmp_path / "dos.md", slug="dos", body="Cuerpo dos.")
+    lote = [load_document(tmp_path / f"{slug}.md", layer=LAYER_CORE) for slug in ("uno", "dos")]
+
+    # Act: primer lote completo; segundo lote solo con "uno" y poda.
+    primero = import_documents(session, lote, layer=LAYER_CORE, prune=True)
+    segundo = import_documents(session, [lote[0]], layer=LAYER_CORE, prune=True)
+
+    # Assert
+    assert primero == GoldImportReport(documents=2, chunks=2, removed=0)
+    assert segundo == GoldImportReport(documents=1, chunks=1, removed=1)
+    repository = SqlDocumentRepository(session)
+    assert repository.count(layer=LAYER_CORE) == 1
+    assert repository.get("uno") is not None
+    assert repository.get("dos") is None

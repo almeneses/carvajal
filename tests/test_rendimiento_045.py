@@ -13,12 +13,14 @@ demuestra la mejora.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 from qdrant_client import QdrantClient
+from sqlalchemy import Engine
 
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.application.sync import CorpusLayer, gold_hashes, sync_corpus
@@ -90,16 +92,18 @@ def _contar_lecturas_gold(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
     from carvajal.adapters.storage import import_corpus
 
+    owner: Any
     try:
-        from carvajal import gold_documents as owner
+        from carvajal import gold_documents as gold_owner
 
-        original = owner.load_document
+        owner = gold_owner
+        original: Any = gold_owner.load_document
     except (ImportError, AttributeError):  # antes de mover la lectura al dominio
         owner = import_corpus
         original = import_corpus.load_document
     llamadas = [0]
 
-    def contado(*args: object, **kwargs: object) -> object:
+    def contado(*args: Any, **kwargs: Any) -> Any:
         llamadas[0] += 1
         return original(*args, **kwargs)
 
@@ -113,7 +117,7 @@ def _contar_lecturas_gold(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
 
 @contextmanager
-def _contar_pasadas_indice(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[int]]:
+def _contar_pasadas_indice(monkeypatch: pytest.MonkeyPatch) -> Generator[list[int]]:
     """Cuenta cada invocación de ``_payloads`` (una pasada completa del índice)."""
 
     original = QdrantVectorStore._payloads
@@ -135,10 +139,10 @@ def _indexar(store: QdrantVectorStore, gold: Path, embedder: EmbedderDeterminist
     index_gold(gold_dir=gold, store=store, embedder=embedder, prune=False)
 
 
-def test_verify_recorre_el_indice_dos_veces_en_la_linea_base(
+def test_verify_recorre_el_indice_una_vez_por_capa(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Línea base: huellas y documentos del índice son dos pasadas por capa."""
+    """La instantánea trae huellas y documentos en una sola pasada por capa."""
 
     # Arrange
     gold = tmp_path / "gold"
@@ -161,15 +165,15 @@ def test_verify_recorre_el_indice_dos_veces_en_la_linea_base(
             verify=True,
         )
 
-    # Assert: un corpus al día no tiene diferencias y el índice se recorre dos veces.
+    # Assert: un corpus al día no tiene diferencias y el índice se recorre una vez.
     assert report.differences == ()
-    assert pasadas[0] == 2
+    assert pasadas[0] == 1
 
 
-def test_sync_con_cambios_relee_gold_en_el_indice_en_la_linea_base(
+def test_sync_con_cambios_lee_gold_una_vez_por_capa(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Línea base: el indexado vuelve a leer todos los Markdown de la capa."""
+    """El servicio lee Gold una vez y entrega el mismo lote a los dos almacenes."""
 
     # Arrange
     gold = tmp_path / "gold"
@@ -189,9 +193,9 @@ def test_sync_con_cambios_relee_gold_en_el_indice_en_la_linea_base(
         index=index,
     )
 
-    # Assert: dos pasadas (huellas del servicio + relectura del indexador).
+    # Assert: una pasada (la lectura del servicio); el indexador recibe el lote.
     assert report.new == 2
-    assert lecturas[0] == 2 * len(DOCS)
+    assert lecturas[0] == len(DOCS)
 
 
 def test_verify_no_escribe_en_ningun_almacen(
@@ -233,7 +237,7 @@ def test_verify_no_escribe_en_ningun_almacen(
 
 @pytest.mark.integration
 def test_sync_completo_lee_gold_una_vez_por_capa_con_postgres_real(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engine: object
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engine: Engine
 ) -> None:
     """Con PostgreSQL real y poda, la capa se recorre una vez por corrida."""
 
@@ -250,16 +254,16 @@ def test_sync_completo_lee_gold_una_vez_por_capa_con_postgres_real(
     store = _store_memoria()
     embedder = EmbedderDeterminista()
     index = QdrantSync(store, embedder)  # type: ignore[arg-type]
-    database = PostgresSync(build_session_factory(engine))  # type: ignore[arg-type]
+    database = PostgresSync(build_session_factory(engine))
 
     # Act
     lecturas = _contar_lecturas_gold(monkeypatch)
     report = sync_corpus([layer], database=database, index=index, prune=True)
 
-    # Assert: línea base, cuatro pasadas por capa (huellas, importación,
-    # indexado y poda del índice). La fase 045 la reduce a una.
+    # Assert: una sola pasada por capa, antes 4 (huellas, importación, indexado
+    # y poda del índice).
     assert report.documents == len(DOCS)
-    assert lecturas[0] == 4 * len(DOCS)
+    assert lecturas[0] == len(DOCS)
     assert embedder.llamadas == len(DOCS)
-    with engine.begin() as connection:  # type: ignore[attr-defined]
+    with engine.begin() as connection:
         connection.execute(text("delete from documents where layer = 'core_med045'"))

@@ -143,7 +143,7 @@ def _instrument_load_document(counters: Counters) -> list[tuple[Any, str, Any]]:
     for module in candidates:
         if getattr(module, "load_document", None) is original:
             patched.append((module, "load_document", original))
-            module.load_document = wrapper  # type: ignore[attr-defined]
+            module.load_document = wrapper  # type: ignore
     return patched
 
 
@@ -211,7 +211,7 @@ def _create_database(database_url: str) -> str:
 
     url = make_url(database_url)
     database = url.database or "carvajal_045_medicion"
-    admin = psycopg.connect(
+    admin: Any = psycopg.connect(
         host=url.host,
         port=url.port,
         user=url.username,
@@ -250,7 +250,7 @@ def _drop_database(database_url: str) -> None:
 
     url = make_url(database_url)
     with suppress(Exception):
-        admin = psycopg.connect(
+        admin: Any = psycopg.connect(
             host=url.host,
             port=url.port,
             user=url.username,
@@ -391,7 +391,7 @@ def _micro_benchmark_traversal(
             pages["current"] = pages.get("current", 0) + 1
             return original_scroll(*args, **kwargs)
 
-        store.client.scroll = counted  # type: ignore[method-assign]
+        store.client.scroll = counted  # type: ignore
         try:
             pages["current"] = 0
             started = time.perf_counter()
@@ -411,7 +411,7 @@ def _micro_benchmark_traversal(
                 assert dict(snapshot.hashes) == hashes
                 assert set(snapshot.document_ids) == ids
         finally:
-            store.client.scroll = original_scroll  # type: ignore[method-assign]
+            store.client.scroll = original_scroll  # type: ignore
         return {
             "puntos": points,
             "documentos": math.ceil(points / per_document),

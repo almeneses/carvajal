@@ -7,16 +7,16 @@ from typing import cast
 import pytest
 from sqlalchemy.orm import Session
 
-from carvajal.adapters.storage.import_corpus import (
-    GoldImportError,
-    _load_documents,
-    load_document,
-    migrate_gold,
-    split_document,
-)
+from carvajal.adapters.storage.import_corpus import migrate_gold
 from carvajal.domain.chunking import CHUNK_SIZE
 from carvajal.domain.frontmatter import parse_front_matter, strip_front_matter
 from carvajal.domain.rules import content_hash
+from carvajal.gold_documents import (
+    GoldImportError,
+    load_document,
+    load_documents,
+    split_document,
+)
 
 COMPLETO = """---
 url: https://www.carvajal.com/historia/
@@ -142,14 +142,14 @@ def test_slugs_duplicados_abortan_antes_de_importar(tmp_path: Path) -> None:
     (tmp_path / "b.md").write_text("---\nslug: repetido\n---\n\nB", encoding="utf-8")
 
     with pytest.raises(GoldImportError, match=r"b\.md: el slug 'repetido' ya lo usa a\.md"):
-        _load_documents(tmp_path, layer="core")
+        load_documents(tmp_path, layer="core")
 
 
 def test_gold_dir_inexistente_falla(tmp_path: Path) -> None:
     """Una ruta Gold errónea no puede devolver un reporte vacío ni podar la capa."""
 
     with pytest.raises(GoldImportError, match="no existe o no es un directorio"):
-        _load_documents(tmp_path / "ausente", layer="core")
+        load_documents(tmp_path / "ausente", layer="core")
 
 
 def test_directorio_vacio_sin_allow_empty_falla(tmp_path: Path) -> None:

@@ -8,9 +8,12 @@ import pytest
 
 from carvajal.application.sync import (
     CorpusLayer,
+    GoldLayer,
+    IndexSnapshot,
     corpus_layers,
     gold_hashes,
     gold_index_hashes,
+    read_gold_layer,
     sync_corpus,
 )
 
@@ -67,7 +70,7 @@ class FakeDatabase:
         return dict(self.hashes_map)
 
     def import_gold(
-        self, layer: CorpusLayer, *, only: set[str] | None, prune: bool
+        self, gold: GoldLayer, *, only: set[str] | None, prune: bool
     ) -> tuple[int, int, int]:
         self.imports.append((set(only) if only is not None else None, prune))
         if self.fail:
@@ -95,14 +98,14 @@ class SlowDatabase(FakeDatabase):
         self._candado = threading.Lock()
 
     def import_gold(
-        self, layer: CorpusLayer, *, only: set[str] | None, prune: bool
+        self, gold: GoldLayer, *, only: set[str] | None, prune: bool
     ) -> tuple[int, int, int]:
         with self._candado:
             self.activos += 1
             self.maximo = max(self.maximo, self.activos)
         time.sleep(0.15)
         try:
-            return super().import_gold(layer, only=only, prune=prune)
+            return super().import_gold(gold, only=only, prune=prune)
         finally:
             with self._candado:
                 self.activos -= 1
@@ -121,12 +124,13 @@ class FakeIndex:
     def hashes(self, layer: str) -> dict[str, str]:
         return dict(self.hashes_map)
 
+    def snapshot(self, layer: str) -> IndexSnapshot:
+        return IndexSnapshot(hashes=self.hashes(layer), document_ids=self.document_ids(layer))
+
     def document_ids(self, layer: str) -> set[str]:
         return set(self.hashes_map) | self.extra_ids
 
-    def index_gold(
-        self, layer: CorpusLayer, *, only: set[str] | None, prune: bool
-    ) -> tuple[int, int]:
+    def index_gold(self, gold: GoldLayer, *, only: set[str] | None, prune: bool) -> tuple[int, int]:
         self.imports.append((set(only) if only is not None else None, prune))
         if self.fail:
             raise ConnectionError("Qdrant caído")
@@ -803,7 +807,7 @@ def test_podar_una_capa_no_toca_la_otra(tmp_path: Path) -> None:
     sync = QdrantSync(store, embedder)
 
     # Act
-    sync.index_gold(CorpusLayer("core", (nucleo,)), only=set(), prune=True)
+    sync.index_gold(read_gold_layer(CorpusLayer("core", (nucleo,))), only=set(), prune=True)
 
     # Assert
     assert store.document_ids("core") == {"nuevo"}

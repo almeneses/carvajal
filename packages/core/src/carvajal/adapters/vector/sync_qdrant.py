@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.application.ports import Embedder
-from carvajal.application.sync import CorpusLayer, gold_hashes
+from carvajal.application.sync import GoldLayer, IndexSnapshot
 from carvajal.indexing.qdrant import index_gold
 
 __all__ = ["QdrantSync"]
@@ -22,6 +22,11 @@ class QdrantSync:
 
         return self._store.document_hashes(layer)
 
+    def snapshot(self, layer: str) -> IndexSnapshot:
+        """Huellas y documentos de la capa en un solo recorrido del índice."""
+
+        return self._store.snapshot(layer)
+
     def document_ids(self, layer: str) -> set[str]:
         """Todos los documentos con puntos, incluidos los incompletos."""
 
@@ -29,31 +34,35 @@ class QdrantSync:
 
     def index_gold(
         self,
-        layer: CorpusLayer,
+        gold: GoldLayer,
         *,
         only: set[str] | None,
         prune: bool,
     ) -> tuple[int, int]:
-        """Indexa los documentos pedidos y poda los ausentes de la capa.
+        """Indexa el lote Gold pedido y poda los ausentes de la capa.
 
         ``only`` vacío significa que no hay documentos nuevos ni cambiados; la
-        poda, si se pidió, se ejecuta igual.
+        poda, si se pidió, se ejecuta igual. El lote ya leído evita que el
+        indexador vuelva a abrir los Markdown de la capa.
         """
 
         indexed = 0
         if only is None or only:
             report = index_gold(
-                gold_dirs=tuple((directory, layer.name) for directory in layer.directories),
+                gold_dirs=tuple(
+                    (directory, gold.layer.name) for directory in gold.layer.directories
+                ),
                 store=self._store,
                 embedder=self._embedder,
                 only=only,
                 prune=False,
+                documents=gold.documents,
             )
             indexed = report.indexed
 
         deleted = 0
         if prune:
-            deleted = self._store.prune_layer(layer.name, gold_hashes(layer))
+            deleted = self._store.prune_layer(gold.layer.name, gold.hashes)
         return indexed, deleted
 
     def count(self, layer: str) -> int:

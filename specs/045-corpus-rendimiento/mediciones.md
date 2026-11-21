@@ -80,7 +80,65 @@ vectoriza el índice (`título · sección. ficha\nfragmento`):
 se reembeben documentos cuyo texto vectorizado cambió. Cambiar la interfaz del embedder añadiría
 superficie sin una ganancia medida. Queda documentado como costo aceptado.
 
-## Después de la implementación
+## Después
 
-_(Se completa con la misma corrida una vez implementada la fase; el JSON queda en
-`medicion-despues.json`.)_
+Mismo comando, mismo entorno y mismo corpus, sobre la rama `perf/045-corpus-rendimiento`.
+Corrida representativa: [`medicion-despues.json`](./medicion-despues.json), también con
+tres ejecuciones y medianas de tiempo.
+
+### Conteos (deterministas)
+
+| Escenario | Pasadas Gold antes | Pasadas Gold después | Pasadas índice antes | Pasadas índice después | Páginas scroll antes | Páginas scroll después |
+|---|---:|---:|---:|---:|---:|---:|
+| `sync` inicial (todo nuevo, con poda) | 4 (96 lecturas) | **1** (24) | 2 | 2 | 2 | 2 |
+| `sync` sin cambios **con poda** | 4 (96) | **1** (24) | 2 | 2 | 3 | 3 |
+| `sync` sin cambios **sin poda** | 2 (48) | **1** (24) | 1 | 1 | 2 | 2 |
+| `sync --verify` | 1 (24) | 1 (24) | **2** | **1** | **2** | **1** |
+
+- Las llamadas al embedder no cambian: **125** en la primera indexación y **0** cuando no hay
+  texto nuevo; un cambio solo de metadatos sigue sin reembeber.
+- El diagnóstico de la verificación es idéntico: las mismas **2 diferencias preexistentes** del
+  documento vacío, con el mismo texto.
+- El camino de escritura conserva sus dos pasadas de índice (`hashes` para decidir y `snapshot`
+  dentro de la poda); la reducción a una pasada aplica a `--verify`, que es donde estaba el
+  doble recorrido.
+
+### Tiempos (mediana de tres ejecuciones, misma máquina y servicios)
+
+| Escenario | Antes (ms) | Después (ms) | Variación |
+|---|---:|---:|---:|
+| `sync` inicial (dominado por 125 escrituras y 24 documentos) | 446 | 462 | ruido de carga; el ahorro de lecturas es de milisegundos |
+| `sync` sin cambios **con poda** | 76 | 76 | sin cambio medible |
+| `sync` sin cambios **sin poda** | 18,5 | 18,1 | sin cambio medible |
+| `sync --verify` | 14,1 | **9,9** | −30 % |
+| Índice sintético de 5 000 puntos: recorrido doble (antes) vs. recorrido único (después) | 107,6 (2 pasadas) | **59,0 (1 pasada)** | −45 % en el recorrido |
+
+La ganancia de tiempo es pequeña en el corpus local porque la capa core son 24 documentos y 125
+puntos; el número que escala es el de recorridos, y el micro-banco de 5 000 puntos mide el
+recorrido único en la mitad del doble (una pasada de 20 páginas en vez de 40). Para la capa
+extendida de producción (≈77 588 puntos), la verificación pasaría de ~600 a ~300 páginas por
+capa; no se mide ese corpus aquí porque no está disponible en el entorno de desarrollo.
+
+### Costo de embeddings después
+
+La forma de pedir embeddings no se tocó; el código del indexador calcula el mismo texto y llama
+al embedder igual. Las corridas «después» (2026-11-20, Ollama reiniciado) dieron 216–238 ms por
+fragmento en una llamada y 191 ms por fragmento en lote, frente a 183–193 y 180–193 en la línea
+base: la variación es del mismo orden que la carga de la máquina y **el lote no muestra una
+mejora consistente**. Por eso se mantiene la decisión de la línea base: no se cambia la
+interfaz del embedder ni se reindexa nada; el costo aceptado es que una reindexación completa
+del núcleo (125 fragmentos) tarda ~24–29 s de CPU y una incremental solo paga los documentos
+cuyo texto cambió.
+
+## Conclusiones
+
+1. **Verificación**: un recorrido del índice por capa (antes dos), mismo diagnóstico y cero
+   escrituras. La prueba `test_verify_recorre_el_indice_una_vez_por_capa` y
+   `test_snapshot_trae_huellas_e_ids_en_un_solo_recorrido` lo fijan.
+2. **Lectura de Gold**: una pasada por capa en cualquier `sync` (antes 2–4), con el lote
+   reutilizado por PostgreSQL y Qdrant. Lo fijan
+   `test_sync_con_cambios_lee_gold_una_vez_por_capa` y la prueba de integración con PostgreSQL.
+3. **Invariantes**: documentos, fragmentos, huellas, IDs de punto, payloads y diagnósticos no
+   cambian; lo fijan `tests/test_corpus_caracterizacion.py` y las pruebas existentes de la 037.
+4. **Embeddings**: se midió el costo por fragmento y no se cambió el modelo ni la interfaz; el
+   lote no aportó una mejora consistente.

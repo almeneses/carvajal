@@ -13,9 +13,9 @@ import apps.api.ingestion as ingestion_module
 from apps.api.document_formats import ExtractError, extract_markdown
 from apps.api.ingest_cli import main, run
 from apps.api.ingestion import IngestReport, UploadedDocument, ingest_uploads
-from carvajal.adapters.storage.import_corpus import load_document
 from carvajal.application.sync import SyncReport
 from carvajal.gold import merge_index
+from carvajal.gold_documents import load_document
 from carvajal.infrastructure.settings import Settings
 
 

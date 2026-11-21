@@ -13,19 +13,27 @@ import hashlib
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 from qdrant_client import QdrantClient
 
-from carvajal.adapters.storage.import_corpus import load_document, split_document
 from carvajal.adapters.vector.qdrant_store import (
     QdrantVectorStore,
     fingerprint_for,
     payload_for,
     point_id,
 )
-from carvajal.application.sync import CorpusLayer, gold_hashes, gold_index_hashes
+from carvajal.application.sync import (
+    CorpusLayer,
+    SyncDatabase,
+    SyncIndex,
+    gold_hashes,
+    gold_index_hashes,
+)
 from carvajal.domain.chunking import CHUNK_SIZE
+from carvajal.domain.entities import Document
+from carvajal.gold_documents import load_document, split_document
 
 LARGO = "Carvajal Empaques produce soluciones de empaque sostenible. " * 40
 
@@ -91,20 +99,20 @@ def _write_gold(directory: Path) -> None:
         (directory / f"{slug}.md").write_text(content, encoding="utf-8")
 
 
-def _metadata(document: object, chunks: int) -> dict[str, str]:
+def _metadata(document: Document, chunks: int) -> dict[str, str]:
     """Metadatos que el índice guarda en el payload de cada fragmento."""
 
     return {
-        "url": document.url,  # type: ignore[attr-defined]
-        "title": document.title,  # type: ignore[attr-defined]
-        "source_type": document.source_type,  # type: ignore[attr-defined]
-        "content_hash": document.content_hash,  # type: ignore[attr-defined]
+        "url": document.url,
+        "title": document.title,
+        "source_type": document.source_type,
+        "content_hash": document.content_hash,
         "abstract": "",
         "chunks_total": str(chunks),
-        "origin": document.origin,  # type: ignore[attr-defined]
-        "category": document.category,  # type: ignore[attr-defined]
-        "entity": document.entity,  # type: ignore[attr-defined]
-        "layer": document.layer,  # type: ignore[attr-defined]
+        "origin": document.origin,
+        "category": document.category,
+        "entity": document.entity,
+        "layer": document.layer,
     }
 
 
@@ -279,7 +287,12 @@ def test_verify_conserva_el_texto_de_los_cuatro_diagnosticos(tmp_path: Path) -> 
     layer = CorpusLayer("core", (directorio,))
 
     # Act
-    report = sync_corpus([layer], database=Base(), index=Indice(), verify=True)  # type: ignore[arg-type]
+    report = sync_corpus(
+        [layer],
+        database=cast(SyncDatabase, Base()),
+        index=cast(SyncIndex, Indice()),
+        verify=True,
+    )
 
     # Assert
     assert report.verified is True

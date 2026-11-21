@@ -25,14 +25,14 @@ from typing import IO
 
 import structlog
 
-from carvajal.adapters.storage.import_corpus import load_document, split_document
 from carvajal.adapters.vector.qdrant_store import (
     ExistingPoints,
     QdrantVectorStore,
     metadata_signature,
 )
 from carvajal.application.ports import Embedder, ModelAwareEmbedder
-from carvajal.domain.entities import Chunk
+from carvajal.domain.entities import Chunk, Document
+from carvajal.gold_documents import load_document, split_document
 
 __all__ = ["IndexReport", "index_gold"]
 
@@ -99,6 +99,7 @@ def index_gold(
     *,
     gold_dir: Path | None = None,
     gold_dirs: Sequence[tuple[Path, str]] | None = None,
+    documents: Sequence[Document] | None = None,
     store: QdrantVectorStore,
     embedder: Embedder,
     recreate: bool = False,
@@ -113,10 +114,13 @@ def index_gold(
 
     ``gold_dirs`` permite indexar el núcleo y las capas extendidas en la misma
     corrida, cada directorio con su capa. ``gold_dir`` se conserva para los
-    llamadores de una sola área. Antes de insertar cada documento se borran sus
-    puntos anteriores: un documento acortado no deja fragmentos de la versión
-    vieja. La poda se limita a las capas de las áreas indexadas, comparando cada
-    una solo con sus puntos: el resto de la colección queda intacto.
+    llamadores de una sola área. ``documents`` permite reutilizar un lote Gold
+    ya leído por la sincronización: en ese caso no se vuelve a abrir ningún
+    Markdown y ``gold_dirs`` solo aporta las fichas y las capas que se podan.
+    Antes de insertar cada documento se borran sus puntos anteriores: un
+    documento acortado no deja fragmentos de la versión vieja. La poda se limita
+    a las capas de las áreas indexadas, comparando cada una solo con sus puntos:
+    el resto de la colección queda intacto.
 
     Un documento cuyos puntos ya existen con exactamente los mismos IDs no
     necesita vectores nuevos: el ID estable cubre título, sección, ficha y
@@ -161,17 +165,21 @@ def index_gold(
         if not directory.is_dir():
             raise FileNotFoundError(f"{directory}: el directorio Gold no existe.")
     cards: dict[str, str] = {}
-    documents = []
-    for directory, area_layer in areas:
+    loaded: list[Document] = list(documents or ())
+    if documents is None:
+        for directory, area_layer in areas:
+            for path in sorted(directory.glob("*.md")):
+                document = load_document(path, layer=area_layer)
+                if only is None or document.id in only:
+                    loaded.append(document)
+    elif only is not None:
+        loaded = [document for document in loaded if document.id in only]
+    for directory, _ in areas:
         for slug, card in _load_cards(
             cards_path or directory.parent / "retrieval_cards.json"
         ).items():
             cards.setdefault(slug, card)
-        for path in sorted(directory.glob("*.md")):
-            document = load_document(path, layer=area_layer)
-            if only is None or document.id in only:
-                documents.append(document)
-    if not documents:
+    if not loaded:
         if only is not None:
             # La sincronización incremental puede no tocar este directorio: no es un error.
             return IndexReport(
@@ -188,7 +196,7 @@ def index_gold(
         raise ValueError("No hay documentos Gold para indexar.")
     seen: set[str] = set()
     duplicates: set[str] = set()
-    for document in documents:
+    for document in loaded:
         if document.id in seen:
             duplicates.add(document.id)
         seen.add(document.id)
@@ -218,9 +226,9 @@ def index_gold(
     # entre reembeder (el texto cambió) y reescribir el payload (solo metadatos).
     # La firma del payload evita repetir un ``set_payload`` idéntico.
     existing: dict[str, ExistingPoints] = (
-        {} if recreate else store.existing_points([document.id for document in documents])
+        {} if recreate else store.existing_points([document.id for document in loaded])
     )
-    for document in documents:
+    for document in loaded:
         chunks = split_document(document)
         total_chunks += len(chunks)
         card = cards.get(document.id, "")
@@ -304,7 +312,7 @@ def index_gold(
     elapsed_ms = round((perf_counter() - started) * 1000)
     report = IndexReport(
         collection=store.collection,
-        documents=len(documents),
+        documents=len(loaded),
         chunks=total_chunks,
         indexed=indexed,
         deleted=deleted,

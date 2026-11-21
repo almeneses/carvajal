@@ -5,7 +5,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-19, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-20, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -102,6 +102,10 @@ con `--admin`.
   159/Linux (FR-009); alcance acordado: Chrome y Firefox de escritorio. SC-001 = 36/40
   (90,0 %), SC-002 p95 = 231 ms, SC-003 p95 = 36 ms, SC-004/005 cumplidos con micrófono
   y dos voces.
+- La spec 045 (rendimiento del corpus) está implementada: la lectura y fragmentación de Gold
+  viven en `carvajal/gold_documents.py`; `sync --verify` obtiene huellas e IDs en un solo
+  recorrido del índice por capa y un `sync` lee Gold una vez por capa y reutiliza el lote en
+  PostgreSQL y Qdrant, sin cambiar formatos, fragmentos, IDs, huellas, citas ni embeddings.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
