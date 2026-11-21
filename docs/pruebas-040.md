@@ -49,6 +49,7 @@ Para la fila Firefox, con el servidor del arnés en `:8123`:
 
 ```bash
 NODE_PATH=/tmp/cv040/node_modules \
+AXE_PATH=/tmp/cv040/node_modules/axe-core/axe.min.js \
   node tests/browser/chat_voz_040/verificar_firefox.cjs
 ```
 
