@@ -6,9 +6,11 @@ nunca al importar; el embedder y el LLM se crean en la primera pregunta y cada
 petición abre su propia sesión.
 """
 
+import asyncio
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import cache
 
@@ -19,13 +21,13 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.capture_jobs import CaptureJobs
+from apps.api.capture_jobs import CaptureJobs, PostgresCaptureBackend
 from apps.api.observability import (
     RequestContextMiddleware,
     UnhandledErrorMiddleware,
     configure_observability,
 )
-from apps.api.runtime import APP_DIR, session_factory, templates
+from apps.api.runtime import APP_DIR, close_runtime_engine, session_factory, templates
 from apps.api.security import SecurityMiddleware
 from apps.api.views import api, chat, config, corpus, documents, faq, stream
 from carvajal.adapters.storage import tables
@@ -150,6 +152,33 @@ def _unhandled(request: Request, error: Exception) -> Response:
     return _message(request, 500, SERVICE_UNAVAILABLE)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    """Recupera capturas interrumpidas al arrancar y cierra recursos al apagar.
+
+    La recuperación se ejecuta antes de que uvicorn empiece a servir tráfico:
+    si un worker murió a mitad de una captura, Gold se reconcilia con
+    PostgreSQL y Qdrant antes de aceptar la siguiente. Si la base no responde,
+    se registra el fallo y la app arranca igual: ``/live`` no depende de ella.
+    """
+
+    jobs = getattr(app.state, "captures", None)
+    if isinstance(jobs, CaptureJobs):
+        try:
+            await asyncio.to_thread(jobs.recover_interrupted)
+        except Exception as error:  # arrancar sin base es válido; /live no la toca
+            logger.warning("capture.recovery_failed", error=str(error))
+    try:
+        yield
+    finally:
+        if isinstance(jobs, CaptureJobs):
+            try:
+                await asyncio.to_thread(jobs.shutdown)
+            except Exception as error:  # el apagado no debe impedir cerrar el motor
+                logger.warning("capture.shutdown_failed", error=str(error))
+        close_runtime_engine()
+
+
 def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
@@ -157,15 +186,33 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     configure_observability()
     # Sin Swagger público: la interfaz de la app es el formulario HTML y el
     # esquema no aporta a un visitante anónimo.
-    app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(
+        title="Corpus Carvajal",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=_lifespan,
+    )
     settings = Settings()
     app.state.quota = handlers.quota if handlers is not None else _default_quota
     # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
     app.state.monitoring = monitoring_status(settings).enabled
-    # Captura web: un registro por app para que las pruebas inyecten su runner.
+    # Captura web con estado compartido en el PostgreSQL existente. La fábrica de
+    # sesiones es la del proceso; construir el backend no abre conexiones, así que
+    # importar el módulo y atender ``/live`` siguen sin tocar la base. Las pruebas
+    # siguen inyectando su doble en ``app.state.captures``.
     app.state.captures = CaptureJobs(
-        rate_limit=settings.capture_requests_limit,
-        window_seconds=settings.capture_window_seconds,
+        store=PostgresCaptureBackend(
+            session_factory,
+            rate_limit=settings.capture_requests_limit,
+            window_seconds=settings.capture_window_seconds,
+            lease_seconds=settings.capture_stale_seconds,
+            job_ttl_seconds=settings.capture_job_ttl_seconds,
+        ),
+        rate_limit_secret=settings.session_secret,
+        lease_seconds=settings.capture_stale_seconds,
+        heartbeat_seconds=settings.capture_heartbeat_seconds,
+        job_ttl_seconds=settings.capture_job_ttl_seconds,
     )
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.

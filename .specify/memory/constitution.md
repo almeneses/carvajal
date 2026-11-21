@@ -5,7 +5,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-19, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-20, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -88,6 +88,11 @@ con `--admin`.
 - La spec 036 define el asistente comercial de empaques sobre la capa de catálogo, con una
   ruta `commercial` en el agente y un router intercambiable para evaluación comparativa;
   quedó implementada el 2026-11-18 y transfirió su SC-006 a la spec 041 (Jev cloud).
+- La spec 047 define el estado duradero de la captura web en el PostgreSQL existente
+  (fase 047a): jobs, eventos de progreso, exclusión global con fila única y latido, cupo
+  por IP con resumen HMAC, recuperación idempotente desde Gold sin reanudar por URL y
+  tiempos configurables. La activación de tres workers en el despliegue es una fase
+  posterior.
 - La spec 037 define el corpus incremental: identidad estable por fuente, deduplicación por
   huella del original antes de Bronze, actualización con versiones, sincronización única con
   PostgreSQL y Qdrant, capa extendida con prioridad y retiro de `/ask` y pgvector.

@@ -72,3 +72,27 @@ workers en esta PR, sin infraestructura nueva).
 Los artefactos cumplen las comprobaciones de calidad y están listos para implementar. No
 quedan `[NEEDS CLARIFICATION]`. La verificación definitiva de SC-001…SC-007 depende de las
 pruebas de integración y de la puerta de calidad que lista T022.
+
+## 6. Resultado de la implementación y evidencias
+
+Estado a 2026-11-20: T001–T023 completadas; T024 (activación de tres workers) queda
+para `task-8` del Lead.
+
+| Evidencia | Comando / prueba | Resultado |
+|---|---|---|
+| Caracterización del contrato | `pytest tests/test_capture_jobs.py tests/test_api_capture.py` | 24 pruebas en verde sobre el comportamiento previo |
+| Calidad completa | `env -u OLLAMA_MODEL make check` | 1651 passed, 58 deselected; Ruff y ty en verde |
+| Integración con PostgreSQL real | `env -u OLLAMA_MODEL make test-integration` | 51 passed (12 de `test_capture_durable.py`) |
+| Migración arriba/abajo | `alembic upgrade head` + `alembic downgrade -1` + `upgrade head` | las 4 tablas de captura aparecen, desaparecen y vuelven; la fila de control queda en `1` |
+| Simulación de navegador | `node --test tests/js/test_chat_voice.cjs` | 68 pass, 0 fail |
+| Arranque simultáneo | `test_dos_solicitudes_simultaneas_solo_inician_una_captura` | un 200 y un 409; un solo job en la base |
+| Cupo compartido | `test_el_cupo_por_ip_es_compartido_y_no_guarda_la_ip` | 429 con `Retry-After` en la segunda instancia; la IP no aparece, solo resúmenes de 64 hex |
+| Progreso y reconexión | `test_el_progreso_se_sirve_desde_otra_instancia_y_respeta_last_event_id` | eventos 1–3 en orden desde la otra instancia; `after=1` devuelve 2–3; el final se reemite |
+| Caída y recuperación | `test_un_job_interrumpido_se_detecta_y_recupera_sin_duplicar` | antes 0 documentos/0 fragmentos; tras recuperar 1/≥1; repetir no cambia y Gold queda en un solo Markdown |
+| Transición única | `test_la_transicion_a_interrumpido_ocurre_una_sola_vez` | dos instancias recuperando a la vez: una sola transición y una sola sincronización |
+| `/live` y `/health` | `test_live_no_toca_la_base_y_health_conserva_el_contrato` | `/live` responde con el registro de captura roto; `/health` conserva claves y conteos |
+| Conexiones | `test_el_stream_no_retiene_conexiones` | ambos pools con `checkedout() == 0` tras estado y stream |
+
+Sin hallazgos bloqueantes nuevos. La reducción de tiempos por entorno
+(`CAPTURE_HEARTBEAT_SECONDS`, `CAPTURE_STALE_SECONDS`, `CAPTURE_JOB_TTL_SECONDS`) queda
+probada en `tests/test_settings.py` para que el ensayo de tres procesos sea rápido.

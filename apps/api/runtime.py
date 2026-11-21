@@ -4,12 +4,19 @@ Se construyen de forma diferida (``cache``) para que importar el módulo no abra
 conexiones ni lea el entorno: las pruebas inyectan dobles y no tocan la red.
 Los clientes de embeddings y LLM se crean además en la primera pregunta, nunca
 al arrancar ni al comprobar la vitalidad del contenedor.
+
+El motor conserva el ancho de pool por defecto de SQLAlchemy (5 + 10 de
+desborde): lo comparten chat, FAQ, captura y CLI. Con tres workers el
+presupuesto máximo teórico son 45 conexiones, por debajo del
+``max_connections`` por defecto de PostgreSQL; las consultas de estado y de
+stream usan sesiones breves y no retienen conexiones.
 """
 
 from functools import cache
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.rendering import render_answer
@@ -31,7 +38,9 @@ templates.env.filters["respuesta"] = render_answer
 __all__ = [
     "APP_DIR",
     "ask_components",
+    "close_runtime_engine",
     "embedder",
+    "engine",
     "llm_provider",
     "qdrant_store",
     "session_factory",
@@ -40,10 +49,17 @@ __all__ = [
 
 
 @cache
+def engine() -> Engine:
+    """Motor síncrono contra la base configurada; se crea al primer uso."""
+
+    return build_engine(Settings().database_url)
+
+
+@cache
 def session_factory() -> sessionmaker[Session]:
     """Fábrica de sesiones síncronas contra la base configurada."""
 
-    return build_session_factory(build_engine(Settings().database_url))
+    return build_session_factory(engine())
 
 
 @cache
@@ -84,3 +100,19 @@ def qdrant_store() -> QdrantVectorStore:
         dimensions=settings.qdrant_dimensions,
         distance=settings.qdrant_distance,
     )
+
+
+def close_runtime_engine() -> None:
+    """Cierra el motor al apagar el proceso y limpia las cachés diferidas.
+
+    Un worker no debe dejar conexiones abiertas al salir: el siguiente arranque
+    las necesitará y PostgreSQL tiene un límite global. La función es idempotente
+    y no falla si el motor nunca se construyó.
+    """
+
+    try:
+        if engine.cache_info().currsize:
+            engine().dispose()
+    finally:
+        engine.cache_clear()
+        session_factory.cache_clear()

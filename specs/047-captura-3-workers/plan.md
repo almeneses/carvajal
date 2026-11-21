@@ -37,6 +37,7 @@ captura por URL.
 | Recuperación | `sync` idempotente completo de la capa core (`only=None`, sin poda) antes de aceptar la siguiente captura; nunca captura reanudada |
 | Permisos | Sin cambios: `job_id` opaco como capacidad, sin cookie ni autenticación, sin exponer IP |
 | Recursos | Ancho de pool por defecto intacto (lo comparten chat, FAQ y CLI), presupuesto documentado y medido, inicialización diferida tolerante a base caída, `dispose()` en el apagado y jobs locales marcados interrumpidos |
+| Tiempos | Configurables por `Settings` con los valores actuales por defecto: `CAPTURE_HEARTBEAT_SECONDS` (15 s), `CAPTURE_STALE_SECONDS` (120 s) y `CAPTURE_JOB_TTL_SECONDS` (3600 s) |
 | Pruebas | Unitarias con doble en memoria; integración con PostgreSQL real (testcontainers) y dos instancias simuladas |
 | Contratos | `POST /configuracion/captura`, `GET …/{job_id}`, `GET …/{job_id}/eventos` con los mismos códigos, JSON y eventos; `/live` y `/health` intactos |
 
@@ -243,7 +244,32 @@ solo deja Gold, que es idempotente y la siguiente `sync` reconcilia.
   que solo hay un hilo de captura y uno de latido además de los workers; las colas en
   memoria del registro actual desaparecen.
 
-### 6. Compatibilidad y dobles de pruebas
+### 6. Configuración y wiring del camino de captura
+
+Todos los tiempos operativos del estado duradero se leen de `Settings` con los
+valores actuales como default, para que el ensayo de tres procesos pueda acortarlos por
+entorno sin tocar código:
+
+| Variable | Default | Uso |
+|---|---|---|
+| `CAPTURE_HEARTBEAT_SECONDS` | 15 s | intervalo del latido de una captura activa |
+| `CAPTURE_STALE_SECONDS` | 120 s | umbral de caducidad para declarar interrumpido un job |
+| `CAPTURE_JOB_TTL_SECONDS` | 3600 s | retención de jobs, eventos y marcas de cupo |
+
+En producción se usan los defaults; `main.py` los pasa a `PostgresCaptureBackend` y a
+`CaptureJobs`. El ensayo real de `task-8` solo necesita exportar valores pequeños.
+
+El camino de captura toma rutas y conexiones de `Settings()`, nunca de constantes
+fijas del módulo: `web_capture.ingest_urls` usa `settings.gold_dir`, `raw_dir`,
+`processed_dir`, `index_file`, `seeds`, `external_seeds` y los límites de captura;
+`ingestion.sync_gold` construye Qdrant con `settings.qdrant_*` y la sincronización usa
+`settings.gold_dir`; `runtime.session_factory` resuelve `settings.database_url` de forma
+diferida; `apps/api/urlguard` importa constantes de `carvajal.config`, que a su vez se
+derivan de `Settings()` al importar (mismo entorno). La capa extendida (`external_dir`)
+no participa en la captura web, que solo toca el núcleo, pero `carvajal sync` la resuelve
+también desde `Settings()`.
+
+### 7. Compatibilidad y dobles de pruebas
 
 - La API pública de `CaptureJobs` (`start`, `get`, `stream`, `stream_async`) y sus errores
   (`CaptureBusy`, `CaptureRateLimited`) no cambian; las vistas `views/config.py` solo añaden
@@ -256,7 +282,7 @@ solo deja Gold, que es idempotente y la siguiente `sync` reconcilia.
   cupo y la ventana de `Settings` y la política de latido; las pruebas de API inyectan el
   doble en `app.state.captures` como hoy.
 
-### 7. Contratos conservados
+### 8. Contratos conservados
 
 | Endpoint | Contrato |
 |---|---|
@@ -277,7 +303,8 @@ apps/api/views/config.py        # Last-Event-ID en el stream; resto del contrato
 migrations/versions/0008_capture_jobs.py
 tests/test_capture_jobs.py      # unitarias del registro (doble en memoria)
 tests/test_api_capture.py       # contrato HTTP y caracterización
-tests/test_capture_durable.py   # integración con PostgreSQL real
+tests/test_capture_durable.py   # integración con PostgreSQL real y dos instancias
+tests/test_settings.py          # defaults y overrides de los tiempos de captura
 specs/047-captura-3-workers/    # spec, plan, tasks, analysis y checklist
 CONSTITUTION.md                 # fila de la decisión en §9 (mínimo)
 .specify/memory/constitution.md # proyección sincronizada
@@ -292,7 +319,10 @@ No se tocan `compose.prod.yml`, el `CMD` del Dockerfile, `apps/api/chat/`,
 
 1. Caracterización del comportamiento actual (commit `test(047)`).
 2. Migración y backend PostgreSQL con su orquestación (commit `feat(047)`).
-3. Pruebas de integración con dos instancias y PostgreSQL real, dobles actualizados.
+3. Pruebas de integración con dos instancias y PostgreSQL real (base de `make
+   test-integration` para el ensayo real de `task-8`): arranque simultáneo → un 409 y un
+   solo job; cupo por IP compartido; progreso/estado desde la otra instancia; interrupción
+   transaccional única y recuperación sin duplicar; `/live` sin base. Dobles actualizados.
 4. Puerta verde: `make check`, `make test-integration`, `node --test
    tests/js/test_chat_voice.cjs`, `alembic upgrade head` y `alembic downgrade -1`.
 5. PR contra `dev` con evidencia, reversión y riesgos; `task-8` (tres workers) queda para

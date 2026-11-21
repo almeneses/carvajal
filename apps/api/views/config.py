@@ -155,16 +155,32 @@ def iniciar_captura(
 
 @router.get("/configuracion/captura/{job_id}/eventos")
 async def eventos_captura(request: Request, job_id: str) -> Response:
-    """Emite el progreso de una captura por SSE y corta si el cliente se va."""
+    """Emite el progreso de una captura por SSE y corta si el cliente se va.
+
+    Los eventos viven en la base, así que cualquier worker los sirve. Si el
+    navegador reconecta, EventSource reenvía ``Last-Event-ID`` y solo se
+    reproduce lo que falta; sin esa cabecera se reproduce el progreso completo
+    y, si el job ya terminó, su evento final.
+    """
 
     jobs = _captures(request)
     if jobs.get(job_id) is None:
         return JSONResponse({"error": "La captura no existe o expiró."}, status_code=404)
     return StreamingResponse(
-        jobs.stream_async(job_id, request.is_disconnected),
+        jobs.stream_async(job_id, request.is_disconnected, after=_last_event_id(request)),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
     )
+
+
+def _last_event_id(request: Request) -> int:
+    """Secuencia ya recibida por el navegador; 0 si falta o no es válida."""
+
+    raw = request.headers.get("Last-Event-ID", "").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
 
 
 @router.get("/configuracion/captura/{job_id}")

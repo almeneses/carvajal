@@ -132,6 +132,13 @@ class Settings(BaseSettings):
     # desactiva el límite (solo para desarrollo).
     capture_requests_limit: int = Field(default=5, ge=0)
     capture_window_seconds: int = Field(default=3600, ge=1)
+    # Estado duradero de la captura (spec 047). En producción se usan los
+    # valores por defecto: latido cada 15 s, caducidad del job tras 120 s sin
+    # latido y retención de una hora. El ensayo de tres procesos puede
+    # acortarlos por entorno para provocar y recuperar una caída en segundos.
+    capture_heartbeat_seconds: float = Field(default=15.0, gt=0)
+    capture_stale_seconds: float = Field(default=120.0, gt=0)
+    capture_job_ttl_seconds: float = Field(default=3600.0, gt=0)
     # Lista opcional de dominios permitidos (separados por coma). Vacía
     # significa cualquier host público que pase el guard SSRF.
     capture_allowed_domains: Annotated[tuple[str, ...], NoDecode] = ()

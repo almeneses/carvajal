@@ -351,3 +351,26 @@ def test_capture_allowed_domains_acepta_lista_separada_por_coma(
     settings = Settings(_env_file=None)
 
     assert settings.capture_allowed_domains == ("carvajal.com", "larepublica.co")
+
+
+def test_los_tiempos_del_estado_de_captura_son_configurables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Latido, caducidad y retención tienen default de producción y se ajustan."""
+
+    # Arrange: por defecto, los valores conservadores de producción.
+    por_defecto = Settings(_env_file=None)
+    assert por_defecto.capture_heartbeat_seconds == 15.0
+    assert por_defecto.capture_stale_seconds == 120.0
+    assert por_defecto.capture_job_ttl_seconds == 3600.0
+
+    # Act: el ensayo de tres procesos los acorta por entorno.
+    monkeypatch.setenv("CAPTURE_HEARTBEAT_SECONDS", "0.5")
+    monkeypatch.setenv("CAPTURE_STALE_SECONDS", "2")
+    monkeypatch.setenv("CAPTURE_JOB_TTL_SECONDS", "30")
+    ajustado = Settings(_env_file=None)
+
+    # Assert
+    assert ajustado.capture_heartbeat_seconds == 0.5
+    assert ajustado.capture_stale_seconds == 2.0
+    assert ajustado.capture_job_ttl_seconds == 30.0
