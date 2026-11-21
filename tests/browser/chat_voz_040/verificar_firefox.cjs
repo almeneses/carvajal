@@ -56,13 +56,31 @@ async function auditarAxe(navegador) {
   const pagina = await contexto.newPage();
   await pagina.goto(URL, { waitUntil: "networkidle" });
 
-  const capacidades = await pagina.evaluate(() => ({
-    stt: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
-    sintesis: Boolean(window.speechSynthesis),
-    segura: window.isSecureContext,
-    userAgent: navigator.userAgent,
-    voces: window.speechSynthesis ? window.speechSynthesis.getVoices().length : 0,
-  }));
+  const capacidades = await pagina.evaluate(async () => {
+    const sintesis = window.speechSynthesis;
+    if (sintesis) {
+      // El navegador llena la lista de voces de forma asíncrona; sin esperar
+      // `voiceschanged` un 0 puede ser un falso negativo.
+      await new Promise((ok) => {
+        let listo = false;
+        const fin = () => {
+          if (listo) return;
+          listo = true;
+          ok();
+        };
+        sintesis.addEventListener("voiceschanged", fin, { once: true });
+        setTimeout(fin, 5000);
+      });
+    }
+    const voces = sintesis ? sintesis.getVoices() : [];
+    return {
+      stt: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+      sintesis: Boolean(sintesis),
+      segura: window.isSecureContext,
+      userAgent: navigator.userAgent,
+      voces: voces.length,
+    };
+  });
 
   const interfaz = await pagina.evaluate(() => {
     const nota = document.querySelector("[data-voz-nota]");
