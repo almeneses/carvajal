@@ -53,7 +53,9 @@ jobs:
       - name: Validar compose de producción
         env:
           SESSION_SECRET: secreto-de-ci
-        run: docker compose -f compose.prod.yml config -q
+        run: |
+          docker compose -f compose.prod.yml config -q
+          docker compose -f compose.prod.yml --profile bootstrap config -q
 
       - name: Preparar Buildx
         uses: docker/setup-buildx-action@v3

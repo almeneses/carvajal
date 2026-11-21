@@ -105,7 +105,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Validar compose.yml
-        run: docker compose config -q
+        # Sin perfil: db + qdrant (flujo nativo). Con `full`: app, Ollama y
+        # bootstrap, que es lo que usa `make up`.
+        run: |
+          docker compose config -q
+          docker compose --profile full config -q
 
       - name: Levantar la base
         run: docker compose up -d --wait --wait-timeout 60 db
