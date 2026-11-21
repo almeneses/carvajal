@@ -2,9 +2,10 @@
 
 **Feature Branch**: `040-chat-por-voz`
 **Created**: 2026-11-17
-**Status**: Implementada y validada en Chrome 157/Linux (US1–US3); SC-001–SC-005
-verificados el 2026-11-20 con dos voces y micrófono real. La matriz de otros
-navegadores sigue pendiente. Ver [evidencia](evidencia.md).
+**Status**: Implementada y validada en **Chrome 157/Linux** (US1–US3;
+SC-001–SC-005) y **Firefox 159/Linux** (FR-009) el 2026-11-20. Alcance de la
+matriz acordado: Chrome y Firefox de escritorio; el resto queda fuera por ahora.
+Ver [evidencia](evidencia.md).
 **Input**: User description: "Incluir el servicio para que se le pueda dictar al chat y que
 el chat le hable a uno también."
 
@@ -198,8 +199,12 @@ Dictado, lectura y manos libres están implementados y verificados. La medición
 real del 2026-11-20, con Chrome 157/Linux, micrófono AT2020USB+ y dos voces,
 dio SC-001 = 36/40 (90,0 %), SC-002 p95 = 231 ms, SC-003 p95 = 36 ms, SC-004 sin
 audio persistido y SC-005 sin errores nuevos de axe; el lector Orca anunció los
-controles y estados. Detalle y datos crudos en [evidencia](evidencia.md). En el
-despliegue por HTTP/IP no se ofrece dictado hasta publicar por HTTPS.
+controles y estados. El 2026-11-20 se verificó Firefox 159/Linux para FR-009:
+sin STT ni voces TTS, explica la limitación, no ofrece dictado ni manos libres y
+mantiene el chat escrito; axe 0. Alcance acordado: **Chrome y Firefox de
+escritorio**; Edge, Safari y Android quedan fuera por ahora. Detalle y datos
+crudos en [evidencia](evidencia.md). En el despliegue por HTTP/IP no se ofrece
+dictado hasta publicar por HTTPS.
 
 ## Assumptions
 

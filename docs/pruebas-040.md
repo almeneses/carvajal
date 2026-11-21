@@ -21,29 +21,26 @@ resultados de aceptación se guardan en
 
 ## Matriz de navegadores
 
+> **Alcance acordado el 2026-11-20:** Chrome y Firefox de escritorio. Edge,
+> Safari, Android y las filas de despliegue quedan fuera por ahora.
+
 Cada fila se prueba en una ventana nueva (perfil limpio o ventana privada para
 partir de preferencias apagadas).
 
-| Navegador | Versión | Contexto | STT esperado | TTS esperado | Qué se valida |
+| Navegador | Versión | Contexto | STT | TTS | Qué se valida |
 |---|---|---|---|---|---|
-| Chrome escritorio | estable de la fecha | `http://localhost:8000` | sí (servicio del navegador, requiere red) | sí, voces del sistema | US1, US2, US3, SC-001–SC-005 |
-| Chrome escritorio | estable de la fecha | HTTPS publicado | sí, si el servicio responde | sí | requisito de despliegue: sin HTTPS no se ofrece dictado |
-| Chrome escritorio | estable de la fecha | `http://<IP>:8080` | no (sin contexto seguro) | sí | el chat explica la limitación y sigue escribiéndose |
-| Edge escritorio | estable de la fecha | `http://localhost:8000` | sí | sí | US1, US2 |
-| Safari macOS | estable de la fecha | `http://localhost:8000` | sí (si el sistema lo permite) | sí | US2; US1 si hay STT |
-| Safari iOS | estable de la fecha | HTTPS | sí (dictado del sistema) | sí | US1, US2 en móvil |
-| Chrome Android | estable de la fecha | HTTPS | sí | sí | US1, US2 en móvil |
-| Firefox escritorio | estable de la fecha | `http://localhost:8000` | **no** | sí | FR-009: sin micrófono, se explica y se escribe; US2 completa |
+| Chrome escritorio | 157.0.8103.78 | `http://localhost:8000` | sí (servicio del navegador, requiere red) | sí, voces del sistema | US1, US2, US3, SC-001–SC-005 |
+| Firefox escritorio | 159.0 | `http://localhost:8000` | **no** | **no** (0 voces en headless) | FR-009: sin micrófono, se explica y se escribe |
 
-### Estado de la matriz (2026-11-21)
+### Estado de la matriz (2026-11-20)
 
 | Fila | Estado | Evidencia |
 |---|---|---|
 | Chrome escritorio en localhost | **medida** | SC-001 36/40; SC-002 p95 231 ms; SC-003 p95 36 ms; SC-004/SC-005 en [`evidencia.md`](../specs/040-chat-por-voz/evidencia.md). |
-| Firefox escritorio en localhost | **medida para FR-009 y contrato de US2** | `verificar_firefox.cjs`: sin STT, nota visible, dictado y manos libres ocultos, chat escrito operativo, axe 0, sin peticiones de audio. SC-001/SC-002 no aplican; SC-003 no medible sin voces. |
-| Chrome por HTTPS publicado | pendiente | requiere el despliegue con TLS. |
-| Chrome por IP en HTTP | pendiente | validar que no se ofrece dictado y que el chat escrito sigue. |
-| Edge, Safari macOS/iOS y Chrome Android | pendiente | no disponibles en este entorno. |
+| Firefox escritorio en localhost | **medida para FR-009** | `verificar_firefox.cjs`: sin STT ni voces TTS, nota visible, dictado y manos libres ocultos, chat escrito operativo, axe 0, sin peticiones de audio. SC-001/SC-002 no aplican (sin STT) y SC-003 no es medible (sin voces). |
+| Chrome por HTTPS publicado | fuera de alcance por ahora | requiere el despliegue con TLS. |
+| Chrome por IP en HTTP | fuera de alcance por ahora | validar que no se ofrece dictado y que el chat escrito sigue. |
+| Edge, Safari macOS/iOS y Chrome Android | fuera de alcance por ahora | no disponibles en este entorno. |
 
 Para la fila Firefox, con el servidor del arnés en `:8123`:
 
