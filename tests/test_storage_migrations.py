@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine, inspect
+from sqlalchemy import Engine, create_engine, inspect, text
 
 pytestmark = pytest.mark.integration
 
@@ -18,6 +18,10 @@ _SCHEMA_TABLES = {
     "messages",
     "usage_day",
     "chat_feedback",
+    "capture_jobs",
+    "capture_events",
+    "capture_control",
+    "capture_rate_limit",
 }
 
 
@@ -111,6 +115,46 @@ def _assert_head_schema(engine: Engine) -> None:
 
     defaults = {column["name"]: column["default"] for column in inspector.get_columns("documents")}
     assert "oficial" in (defaults["source_type"] or "")
+
+    # Estado de la captura (spec 047): tablas, clave de control única y resumen
+    # de IP en lugar de la IP cruda.
+    assert columns["capture_jobs"] == {
+        "id",
+        "status",
+        "request",
+        "outcome",
+        "error",
+        "worker",
+        "lease_token",
+        "created_at",
+        "updated_at",
+        "started_at",
+        "finished_at",
+    }
+    assert columns["capture_events"] == {"seq", "job_id", "name", "data", "created_at"}
+    assert columns["capture_control"] == {"id", "job_id", "worker", "heartbeat_at", "updated_at"}
+    assert columns["capture_rate_limit"] == {"id", "owner_hash", "job_id", "created_at"}
+    assert "owner_key" not in columns["capture_rate_limit"]
+
+    control_pk = inspector.get_pk_constraint("capture_control")["constrained_columns"]
+    assert control_pk == ["id"]
+    assert "ix_capture_jobs_status_updated" in {
+        index["name"] for index in inspector.get_indexes("capture_jobs")
+    }
+    assert "ix_capture_events_job_seq" in {
+        index["name"] for index in inspector.get_indexes("capture_events")
+    }
+    assert "ix_capture_rate_limit_owner_created" in {
+        index["name"] for index in inspector.get_indexes("capture_rate_limit")
+    }
+    events_fks = inspector.get_foreign_keys("capture_events")
+    assert any(
+        fk["referred_table"] == "capture_jobs" and fk["options"].get("ondelete") == "CASCADE"
+        for fk in events_fks
+    )
+    with engine.connect() as connection:
+        control = connection.execute(text("SELECT id, job_id FROM capture_control")).all()
+    assert control == [(1, None)]
 
 
 def test_upgrade_y_downgrade_son_reversibles(

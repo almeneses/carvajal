@@ -197,7 +197,7 @@ def test_el_evento_final_done_lleva_el_resultado_completo() -> None:
     eventos = list(jobs.stream(job.id))
 
     # Assert
-    final = next(evento for evento in eventos if evento.startswith("event: done"))
+    final = next(evento for evento in eventos if "event: done\n" in evento)
     datos = json.loads(final.split("data: ", 1)[1])
     assert datos["written"] == OUTCOME.written
     assert datos["captured"] == list(OUTCOME.captured)
