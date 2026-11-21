@@ -246,12 +246,23 @@
         segmentos.push(partes.join(" "));
       }
     }
-    const titulos = JSON.parse(turno.dataset.vozFuentes || "[]");
+    const titulos = titulosDeFuentes(turno);
     for (const titulo of titulos) {
       const hablado = limpiarTextoHablado(String(titulo || ""));
       if (hablado) segmentos.push(`Según ${hablado}.`);
     }
     return segmentos;
+  }
+
+  /** Títulos de las fuentes del turno; un atributo roto no impide la lectura. */
+  function titulosDeFuentes(turno) {
+    if (!turno || !turno.dataset) return [];
+    try {
+      const titulos = JSON.parse(turno.dataset.vozFuentes || "[]");
+      return Array.isArray(titulos) ? titulos : [];
+    } catch {
+      return [];
+    }
   }
 
   /** Prefiere es-CO, luego es-MX y luego cualquier voz en español. */

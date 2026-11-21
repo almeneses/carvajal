@@ -1951,3 +1951,19 @@ test("T019 cancelar el aviso del micrófono no deja manos libres colgado", () =>
     "false",
   );
 });
+
+test("T017 un atributo de fuentes roto no impide la lectura", () => {
+  // Arrange: el turno trae los títulos mal formados (versión vieja o atributo alterado).
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Respuesta legible." });
+  turno.dataset.vozFuentes = '["sin cerrar';
+
+  // Act
+  const ok = montaje.controlador.leerTurno(turno);
+
+  // Assert: se lee el texto y se omiten los títulos.
+  assert.equal(ok, true);
+  assert.equal(sintesis.locuciones[0].text, "Respuesta legible.");
+  assert.equal(/Según/.test(sintesis.locuciones[0].text), false);
+});
