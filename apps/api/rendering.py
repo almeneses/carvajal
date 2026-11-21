@@ -85,7 +85,7 @@ _ANSWER_ATTRIBUTES = {
     "a": {"href", "title", "target"},
 }
 
-_CITATION_RE = re.compile(r"[ \t]*\[(\d{1,2})\]")
+_CITATION_RE = re.compile(r"https?://[^\s<>)]+|[ \t]*\[(\d{1,2})\]")
 _URL_RE = re.compile(r"(?<![\w\"'=(<])(https?://[^\s<>\"']+)")
 _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
@@ -117,6 +117,8 @@ def _enlazar_url(match: re.Match[str]) -> str:
     url = html_unescape(match.group(1))
     sufijo = ""
     while url and url[-1] in _TRAILING_PUNCTUATION:
+        if url.endswith("]") and re.search(r"\[[^\]]+\]$", url):
+            break
         sufijo = url[-1] + sufijo
         url = url[:-1]
     if not url:
@@ -197,7 +199,7 @@ def render_answer(text: str, source_count: int = 0) -> Markup:
     preparado = _citas_enteras(preparado)
     if source_count:
         preparado = _CITATION_RE.sub(
-            lambda match: "" if 1 <= int(match[1]) <= source_count else match[0],
+            lambda match: "" if match[1] and 1 <= int(match[1]) <= source_count else match[0],
             preparado,
         )
     preparado = _URL_RE.sub(_enlazar_url, preparado)

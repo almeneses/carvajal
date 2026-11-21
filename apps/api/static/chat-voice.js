@@ -1161,6 +1161,8 @@
         typeof win.TextDecoder === "function",
     });
     controlador.mount();
+    const opciones = buscar("[data-voz-opciones]");
+    if (opciones) opciones.hidden = !sintesis || !Utterance;
     raiz._controladorVoz = controlador;
   }
 

@@ -276,6 +276,7 @@ async function main() {
   paso("al detener el foco vuelve a Escuchar", focoTrasDetener === "escuchar", focoTrasDetener);
 
   // 6. Autolectura tras done (solo con la preferencia activa).
+  await pagina.click("[data-voz-opciones] > summary");
   await pagina.check("[data-voz-autolectura]");
   const locucionesAntes = await pagina.evaluate(() => window.__vozE2E.locuciones.length);
   await pagina.fill("#pregunta", "otra pregunta");

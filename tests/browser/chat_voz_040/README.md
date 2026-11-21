@@ -2,7 +2,7 @@
 
 Arnés local, **fuera de `make check` y de CI**, para ejecutar el chat real en
 Chromium con dobles de `SpeechRecognition` y `speechSynthesis`. Comprueba
-avisos, dictado sin autoenvío, lectura de tarjetas y citas, autolectura tras
+avisos, dictado sin autoenvío, lectura de tarjetas y atribuciones, autolectura tras
 `done`, manos libres, fallo del stream, privacidad, fallback sin streaming y axe.
 
 No sustituye la medición de SC-001–SC-003 con voces y micrófono reales.
@@ -28,6 +28,9 @@ PYTHONPATH="$PWD" uv run python tests/browser/chat_voz_040/servidor.py
 # Terminal 2: recorrido completo
 NODE_PATH=/tmp/cv040/node_modules \
   node tests/browser/chat_voz_040/validar.cjs
+
+# Streaming, scroll y compositor en escritorio y viewport móvil (mismo servidor)
+NODE_PATH=/tmp/cv040/node_modules node tests/browser/chat_stream.cjs
 ```
 
 Variables: `CHAT_URL` (por defecto `http://127.0.0.1:8123/chat`),

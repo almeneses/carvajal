@@ -159,6 +159,8 @@ def test_get_sin_cookie_muestra_el_estado_vacio_y_emite_cookie() -> None:
     # Assert
     assert response.status_code == 200
     assert "Todavía no hay mensajes" in response.text
+    assert "<textarea" in response.text
+    assert "data-chat-sugerencia" in response.text
     assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.history_calls == []
 
@@ -266,7 +268,7 @@ def test_post_demasiado_largo_devuelve_422_sin_persistir() -> None:
     assert 'id="pregunta"' in response.text
     assert TOO_LONG_QUESTION in response.text
     assert "500" in response.text
-    assert 'value="' + "x" * 501 + '"' in response.text
+    assert ">" + "x" * 501 + "</textarea>" in response.text
     assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.calls == []
     assert chat.by_owner == {}
@@ -358,7 +360,7 @@ def test_fallos_del_proveedor_devuelven_503_sin_filtrar_ni_persistir(error: Exce
     assert response.status_code == 503
     assert "<form" in response.text
     assert 'id="pregunta"' in response.text
-    assert 'value="¿Cuándo nació?"' in response.text
+    assert ">¿Cuándo nació?</textarea>" in response.text
     assert SERVICE_UNAVAILABLE in response.text
     assert str(error) not in response.text
     assert "Traceback" not in response.text
@@ -373,13 +375,13 @@ def test_el_error_503_conserva_el_historial_previo() -> None:
     chat.by_owner["dueno-a"] = [_message("user", "pregunta previa", sources=None)]
 
     # Act
-    response = _post(client, "/chat", {"question": "pregunta nueva"})
+    response = _post(client, "/chat", {"question": "pregunta nueva\n</textarea>"})
 
     # Assert
     assert response.status_code == 503
     assert "pregunta previa" in response.text
-    assert 'value="pregunta nueva"' in response.text
-    assert chat.calls == [("dueno-a", "pregunta nueva")]
+    assert ">pregunta nueva\n&lt;/textarea&gt;</textarea>" in response.text
+    assert chat.calls == [("dueno-a", "pregunta nueva\n</textarea>")]
     assert [message.content for message in chat.by_owner["dueno-a"]] == ["pregunta previa"]
 
 
@@ -397,7 +399,7 @@ def test_fallo_de_base_al_leer_el_historial_devuelve_503_generico() -> None:
     assert response.status_code == 503
     assert SERVICE_UNAVAILABLE in response.text
     assert "127.0.0.1" not in response.text
-    assert "5432" not in response.text
+    assert "rechazó la conexión" not in response.text
 
 
 def test_el_historial_escapa_html() -> None:

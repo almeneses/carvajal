@@ -228,6 +228,18 @@ def test_render_answer_preserva_literales_dentro_de_codigo_y_enlaces() -> None:
     assert html.endswith(" no son citas.</p>")
 
 
+def test_render_answer_no_quita_corchetes_de_una_url_suelta() -> None:
+    # Arrange
+    text = "Consulta https://example.com/?ref=[1]&lang=es [1]."
+
+    # Act
+    html = render_answer(text, source_count=1)
+
+    # Assert
+    assert 'href="https://example.com/?ref=[1]&amp;lang=es"' in html
+    assert html.endswith("</a>.</p>")
+
+
 def test_render_answer_no_anida_enlaces_markdown_y_urls() -> None:
     # Arrange
     text = "[Documento](https://example.com/a) y https://example.com/b."

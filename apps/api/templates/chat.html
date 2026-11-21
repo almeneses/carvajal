@@ -15,15 +15,10 @@
 >
   <div class="panel conversacion">
     <header class="cabecera-conversacion">
-      <img class="carva" src="/static/carva.svg" alt="" width="88" height="88" />
+      <img class="carva" src="/static/carva.svg" alt="" width="36" height="36" />
       <div class="cabecera-texto">
         <p class="sobrelinea">Asistente Carvajal</p>
-        <h1 id="titulo-chat">Hola, soy Carva</h1>
-        <p class="bajada">
-          Pregúntame por Carvajal y su historia, o por vasos, tapas, contenedores y cubiertos
-          de Carvajal Empaques: te digo qué material sirve y te calculo cajas y precio de
-          referencia.
-        </p>
+        <h1 id="titulo-chat">Carva</h1>
       </div>
       <div class="cabecera-acciones">
         <button type="button" class="boton boton-fantasma" data-abrir-hilos>
@@ -37,74 +32,81 @@
     </header>
 
     <div class="cuerpo-conversacion chat-cuerpo">
-      <p id="chat-cargando" class="cargando-chat" role="status" aria-live="polite">
-        <span class="girando" aria-hidden="true"></span>
-        <span>Cargando la conversación…</span>
-      </p>
       {% include "_chat_stream.html" %}
 
-      <section class="historial-chat" aria-labelledby="titulo-historial">
+      <section class="historial-chat" aria-labelledby="titulo-historial" tabindex="0">
         <h2 id="titulo-historial" class="sr-solo">Historial de la conversación</h2>
-        <div id="hilo" aria-live="polite">
+        <div id="hilo">
           {% include "_chat_thread.html" %}
         </div>
       </section>
 
+      <button type="button" class="boton secundario chat-final" data-chat-final aria-controls="hilo" hidden>
+        Ir al final
+      </button>
       <form class="formulario composer" method="post" action="/chat" data-chat-stream>
         {% include "_csrf.html" %}
         <input type="hidden" name="thread_id" value="{{ thread_id }}" data-thread-id />
         <input type="hidden" name="client_turn_id" value="" data-client-turn-id />
         <div class="campo">
-          <label for="pregunta">Escribe tu pregunta</label>
-          <input
+          <label for="pregunta" class="sr-solo">Escribe tu pregunta</label>
+          <textarea
             id="pregunta"
             name="question"
-            type="text"
+            rows="1"
             required
             maxlength="500"
             autocomplete="off"
-            placeholder="Por ejemplo: vasos para café de 12 oz en México"
+            enterkeyhint="send"
+            placeholder="Escribe tu pregunta"
             aria-describedby="ayuda-chat"
-            value="{{ question }}"
-          />
-          <p id="ayuda-chat" class="ayuda">
-            Hasta 500 caracteres. Los precios son de referencia: no confirmo existencias ni
-            tomo pedidos.
-          </p>
+          >{{ question }}</textarea>
+          <span id="ayuda-chat" class="sr-solo">Hasta 500 caracteres. Mayús + Enter añade una línea.</span>
         </div>
-        <div class="voz" data-voz hidden>
-          <div class="voz-controles">
-            <button
-              type="button"
-              class="boton boton-fantasma voz-boton"
-              data-voz-dictar
-              aria-pressed="false"
-              aria-label="Dictar una pregunta"
-              hidden
-            >
-              <span class="voz-icono" aria-hidden="true">🎙︎</span>
-              <span data-voz-dictar-texto>Dictar</span>
-            </button>
-            <label class="voz-preferencia" data-voz-autolectura-campo hidden>
-              <input type="checkbox" data-voz-autolectura />
-              Leer respuestas en voz alta
-            </label>
-            <button
-              type="button"
-              class="boton boton-fantasma voz-boton"
-              data-voz-manos-libres
-              aria-pressed="false"
-              aria-label="Activar manos libres"
-              hidden
-            >
-              Manos libres
-            </button>
+        <div class="composer-acciones">
+          <div class="voz" data-voz hidden>
+            <div class="voz-controles">
+              <button
+                type="button"
+                class="boton secundario voz-boton"
+                data-voz-dictar
+                aria-pressed="false"
+                aria-label="Dictar una pregunta"
+                hidden
+              >
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                  <rect x="9" y="2" width="6" height="13" rx="3" />
+                  <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M9 22h6" />
+                </svg>
+                <span data-voz-dictar-texto>Dictar</span>
+              </button>
+              <details class="voz-opciones" data-voz-opciones hidden>
+                <summary>Opciones de voz</summary>
+                <div class="voz-opciones-cuerpo">
+                  <label class="voz-preferencia" data-voz-autolectura-campo hidden>
+                    <input type="checkbox" data-voz-autolectura />
+                    Leer respuestas en voz alta
+                  </label>
+                  <button
+                    type="button"
+                    class="boton secundario voz-boton"
+                    data-voz-manos-libres
+                    aria-pressed="false"
+                    aria-label="Activar manos libres"
+                    hidden
+                  >Manos libres</button>
+                </div>
+              </details>
+            </div>
+            <p class="voz-estado" data-voz-estado role="status" aria-live="polite"></p>
+            <p class="voz-nota" data-voz-nota role="note" hidden></p>
           </div>
-          <p class="voz-estado" data-voz-estado role="status" aria-live="polite"></p>
-          <p class="voz-nota" data-voz-nota role="note" hidden></p>
+          <button type="submit">Enviar</button>
+          <button type="button" class="boton secundario" data-chat-detener aria-label="Detener respuesta" hidden>Detener</button>
         </div>
-        <button type="submit">Enviar</button>
       </form>
+      <p id="chat-stream-estado" class="estado-chat" role="status"></p>
 
       <dialog
         class="voz-aviso"

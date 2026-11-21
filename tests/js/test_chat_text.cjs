@@ -25,8 +25,16 @@ function nodo(tag, literal = "") {
     },
     append(...hijos) {
       for (const hijo of hijos) {
-        this.children.push(...(hijo.tag === "#fragment" ? hijo.children : [hijo]));
+        if (hijo.tag === "#fragment") this.append(...hijo.children);
+        else {
+          this.children.push(hijo);
+          hijo.padre = this;
+        }
       }
+    },
+    remove() {
+      const hermanos = this.padre.children;
+      hermanos.splice(hermanos.indexOf(this), 1);
     },
     replaceChildren() {
       this.children = [];
@@ -72,6 +80,7 @@ test("el stream pinta bloques formateados antes de terminar y no repinta lo ante
 test("el fallback descarta el borrador y formatea sin citas ni HTML ejecutable", () => {
   const { salida, flujo } = montar();
   flujo.agregar("Borrador parcial", 1);
+  flujo.adelantar(1);
 
   flujo.reemplazar("**Final** [1] con `[1]` y <img src=x>.", 1);
   flujo.terminar(1);
@@ -80,4 +89,46 @@ test("el fallback descarta el borrador y formatea sin citas ni HTML ejecutable",
   assert.deepEqual(salida.children[0].children.map((hijo) => hijo.tag), [
     "strong", "#text", "code", "#text",
   ]);
+});
+
+test("el párrafo activo aparece sin esperar una línea vacía ni mostrar delimitadores incompletos", () => {
+  const { salida, flujo } = montar();
+  flujo.agregar("**Carva*", 1);
+  flujo.adelantar(1);
+  assert.equal(salida.textContent, "Carva");
+  assert.equal(salida.children[0].children[0].tag, "#text");
+
+  flujo.agregar("* usa [1", 1);
+  flujo.adelantar(1);
+  assert.equal(salida.textContent.trimEnd(), "Carva usa");
+  assert.equal(salida.children[0].children[0].tag, "strong");
+
+  flujo.agregar("] el [catálogo](https://carvajal", 1);
+  flujo.adelantar(1);
+  assert.equal(salida.textContent, "Carva usa el catálogo");
+  assert.equal(salida.children[0].children.some((hijo) => hijo.tag === "a"), false);
+  flujo.agregar(".com) [9].", 1);
+  flujo.terminar(1);
+  assert.equal(salida.textContent, "Carva usa el catálogo [9].");
+  assert.equal(salida.children[0].children.find((hijo) => hijo.tag === "a").href, "https://carvajal.com");
+});
+
+test("al detener, conserva lo recibido de una vez sin mostrar Markdown incompleto", () => {
+  const { salida, flujo } = montar();
+  flujo.agregar("Listo.\n\n**Sigue", 1);
+  flujo.adelantar(1);
+  const [estable] = salida.children;
+
+  flujo.agregar(" aquí [1", 1);
+  flujo.terminar(1, true);
+  assert.equal(salida.children[0], estable);
+  assert.deepEqual(salida.children.map((hijo) => hijo.textContent.trimEnd()), ["Listo.", "Sigue aquí"]);
+});
+
+test("los corchetes dentro de una URL o literal de código no son citas", () => {
+  const { salida, flujo } = montar();
+  flujo.reemplazar("Consulta https://example.com/?ref=[1] y el código `[1]` [1].", 1);
+  const enlace = salida.children[0].children.find((hijo) => hijo.tag === "a");
+  assert.equal(enlace.href, "https://example.com/?ref=[1]");
+  assert.equal(salida.textContent, "Consulta https://example.com/?ref=[1] y el código [1].");
 });
