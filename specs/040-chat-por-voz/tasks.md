@@ -60,8 +60,8 @@ hilo; comprobar salida por «terminar», silencio y error sin enviar esas señal
 - T001 y T002 son independientes; T003 precede a T004. La base precede a US1/US2.
 - T022 y T024 se cierran el 2026-11-20 con el alcance acordado: **Chrome 157/Linux**
   (40 intentos para SC-001–SC-003) y **Firefox 159/Linux** (FR-009; sin STT ni
-  voces TTS, así que SC-001–SC-003 no aplican). Edge, Safari y Android quedan
-  fuera por ahora.
+  voces TTS: SC-001/SC-002 no aplican y SC-003 no es medible). Edge, Safari y
+  Android quedan fuera por ahora.
 - Preparar pruebas de cliente y de servidor de US1 (T006/T007) en paralelo; conectar UI
   y lógica al integrarlas. En US2, T012/T013 pueden avanzar en paralelo; T016 depende de
   los marcadores y del evento T014/T015.
