@@ -54,13 +54,9 @@ class AgenteFalso:
             prompt="contexto",
             system="sistema",
             sources=(),
-            turns=(),
             tool="indicator_lookup",
             tool_period="2025",
         )
-
-    def record(self, *args: Any, **kwargs: Any) -> None:
-        return None
 
 
 class ClienteFalso:

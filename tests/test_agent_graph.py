@@ -13,6 +13,7 @@ from apps.api.chat.agent import GraphAgentRunner
 from carvajal.adapters.vector.qdrant_store import point_id
 from carvajal.agent.graph import AgentDeps, build_agent, memory_namespace
 from carvajal.agent.router import decide_route
+from carvajal.agent.state import Turn
 from carvajal.agent.tools import IndicatorResult, indicator_lookup
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
@@ -267,39 +268,109 @@ def test_otro_dueno_no_hereda_la_preferencia() -> None:
     assert "respuestas breves" not in (otro.prompt or "")
 
 
-def test_el_checkpointer_recupera_el_turno_para_un_seguimiento() -> None:
-    # Arrange
+def test_la_semilla_de_postgres_alimenta_el_seguimiento() -> None:
+    # Arrange: el servicio siembra el turno anterior leído de PostgreSQL.
     settings = Settings()
-    agent = GraphAgentRunner(
-        build_agent(
-            AgentDeps(FakeVectorStore([HIT]), FakeEmbedder(), settings),
-            checkpointer=InMemorySaver(),
-            store=InMemoryStore(),
-        ),
-        settings,
+    graph = build_agent(
+        AgentDeps(FakeVectorStore([HIT]), FakeEmbedder(), settings),
+        checkpointer=InMemorySaver(),
+        store=InMemoryStore(),
     )
+    agent = GraphAgentRunner(graph, settings)
+    anterior: list[Turn] = [
+        {
+            "question": "¿En qué ciudad fue fundada Carvajal?",
+            "answer": "Fue fundada en Cali [1].",
+            "incomplete": False,
+        }
+    ]
 
-    # Act: primer turno y registro manual (el servicio lo hace al cerrar).
-    primero = agent.prepare("dueno-1", "hilo-a", "¿En qué ciudad fue fundada Carvajal?", [])
-    agent.record(
-        "hilo-a",
-        question="¿En qué ciudad fue fundada Carvajal?",
-        answer="Fue fundada en Cali [1].",
-        incomplete=False,
-        turns=primero.turns,
-    )
-    segundo = agent.prepare("dueno-1", "hilo-a", "¿Y en qué año ocurrió eso?", [])
+    # Act
+    segundo = agent.prepare("dueno-1", "hilo-a", "¿Y en qué año ocurrió eso?", anterior)
+    estado = graph.get_state({"configurable": {"thread_id": "hilo-a"}}).values
 
     # Assert
-    assert len(segundo.turns) == 1
+    assert len(estado.get("turns", [])) == 1
     assert segundo.intent == "follow_up"
     assert "ciudad fue fundada" in segundo.query
 
 
+def test_la_semilla_manda_sobre_la_copia_del_checkpoint() -> None:
+    # Arrange: el checkpoint quedó con un turno que no existe en PostgreSQL.
+    settings = Settings()
+    graph = build_agent(
+        AgentDeps(FakeVectorStore([HIT]), FakeEmbedder(), settings),
+        checkpointer=InMemorySaver(),
+        store=InMemoryStore(),
+    )
+    graph.update_state(
+        {"configurable": {"thread_id": "hilo-a"}},
+        {
+            "turns": [
+                {
+                    "question": "PREGUNTA ENVENENADA",
+                    "answer": "RESPUESTA ENVENENADA",
+                    "incomplete": False,
+                }
+            ]
+        },
+    )
+    agent = GraphAgentRunner(graph, settings)
+    anterior: list[Turn] = [
+        {
+            "question": "¿En qué ciudad fue fundada Carvajal?",
+            "answer": "Fue fundada en Cali [1].",
+            "incomplete": False,
+        }
+    ]
+
+    # Act
+    turn = agent.prepare("dueno-1", "hilo-a", "¿Y en qué año ocurrió eso?", anterior)
+
+    # Assert
+    assert turn.intent == "follow_up"
+    assert "ciudad fue fundada" in turn.query
+    assert "ENVENENADA" not in turn.query
+    assert "ENVENENADA" not in (turn.prompt or "")
+
+
+def test_el_checkpoint_no_es_historial_sin_semilla() -> None:
+    # Arrange: copia en el checkpoint y ninguna semilla de PostgreSQL.
+    settings = Settings()
+    graph = build_agent(
+        AgentDeps(FakeVectorStore([HIT]), FakeEmbedder(), settings),
+        checkpointer=InMemorySaver(),
+        store=InMemoryStore(),
+    )
+    graph.update_state(
+        {"configurable": {"thread_id": "hilo-a"}},
+        {
+            "turns": [
+                {
+                    "question": "PREGUNTA ENVENENADA",
+                    "answer": "RESPUESTA ENVENENADA",
+                    "incomplete": False,
+                }
+            ]
+        },
+    )
+    agent = GraphAgentRunner(graph, settings)
+
+    # Act
+    turn = agent.prepare("dueno-1", "hilo-a", "¿Y en qué año ocurrió eso?", [])
+    estado = graph.get_state({"configurable": {"thread_id": "hilo-a"}}).values
+
+    # Assert: sin semilla no hay historial; la copia técnica no se lee.
+    assert estado.get("turns", []) == []
+    assert turn.intent == "documental"
+    assert "ENVENENADA" not in (turn.prompt or "")
+
+
 @pytest.mark.integration
-def test_el_checkpointer_postgres_recupera_el_hilo_tras_reconectar(
+def test_el_checkpointer_postgres_arranca_tras_reconectar(
     migration_database_url: str,
 ) -> None:
+    # Arrange: primer proceso con su checkpointer; segundo proceso, checkpointer nuevo.
     settings = Settings()
     deps = AgentDeps(FakeVectorStore([HIT]), FakeEmbedder(), settings)
     url = _plain_postgres_url(migration_database_url)
@@ -308,24 +379,20 @@ def test_el_checkpointer_postgres_recupera_el_hilo_tras_reconectar(
     with PostgresSaver.from_conn_string(url) as saver:
         saver.setup()
         agent = GraphAgentRunner(build_agent(deps, checkpointer=saver), settings)
-        first = agent.prepare("dueno-1", "hilo-a", question, [])
-        agent.record(
-            "hilo-a",
-            question=question,
-            answer="Fue fundada en Cali [1].",
-            incomplete=False,
-            turns=first.turns,
-        )
+        agent.prepare("dueno-1", "hilo-a", question, [])
 
+    anterior: list[Turn] = [
+        {"question": question, "answer": "Fue fundada en Cali [1].", "incomplete": False}
+    ]
     with PostgresSaver.from_conn_string(url) as saver:
         restarted = GraphAgentRunner(build_agent(deps, checkpointer=saver), settings)
-        follow_up = restarted.prepare("dueno-1", "hilo-a", "¿Y en qué año ocurrió eso?", [])
+        follow_up = restarted.prepare("dueno-1", "hilo-a", "¿Y en qué año ocurrió eso?", anterior)
         other_thread = restarted.prepare("dueno-1", "hilo-b", "¿Y en qué año ocurrió eso?", [])
 
     assert follow_up.intent == "follow_up"
     assert question in follow_up.query
-    assert follow_up.turns[0]["answer"] == "Fue fundada en Cali [1]."
-    assert other_thread.turns == ()
+    assert "ciudad fue fundada" in follow_up.query
+    assert other_thread.intent == "documental"
 
 
 def test_point_id_es_estable_para_el_mismo_chunk() -> None:

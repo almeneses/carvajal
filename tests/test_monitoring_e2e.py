@@ -334,11 +334,7 @@ def test_servicio_caido_no_retrasa_el_primer_fragmento(ajustes: Settings) -> Non
                 prompt="contexto",
                 system="sistema",
                 sources=(Source("c1", "historia", "historia", "core", 0.9, "1904"),),
-                turns=(),
             )
-
-        def record(self, *args: Any, **kwargs: Any) -> None:
-            return None
 
     base = Settings()
 

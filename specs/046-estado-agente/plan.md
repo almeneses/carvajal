@@ -99,6 +99,28 @@ de ella, se conserva y este plan se actualiza con la razón.
   la misma base: la semilla viene de PostgreSQL. Se añade además una prueba que demuestra
   que la copia no se lee aunque exista.
 
+## Presupuesto de conexiones por worker (ensayo de la fase 047b)
+
+El ensayo de 3 workers puede correr con el `agent_runtime` cacheado por proceso
+(`@cache` en `apps/api/agent_runtime.py`): cada worker construye su propio grafo en la
+primera pregunta y comparte con los demás el checkpointer y el Store, que viven en
+PostgreSQL. Presupuesto por worker:
+
+| Recurso | Conexiones | Notas |
+|---|---|---|
+| `PostgresSaver` (checkpointer) | 1 conexión larga | Se abre una vez por proceso; `setup()` corre una vez por worker |
+| `PostgresStore` (preferencias) | 1 conexión larga | Se abre una vez por proceso; `setup()` corre una vez por worker |
+| Motor SQLAlchemy del chat | pool 5 + 10 de desborde | Sesiones cortas; se cierran antes de llamar al LLM |
+| **Total por worker (pico)** | **≤ 17** | 3 workers ≈ **≤ 51 conexiones**, dentro de `max_connections` 100 |
+
+Riesgos para el ensayo 047b: (a) los tres workers pueden ejecutar `PostgresSaver.setup()`
+y `PostgresStore.setup()` a la vez en su primera pregunta —son idempotentes y usan
+`IF NOT EXISTS`, pero conviene calentar el runtime de forma secuencial o en el arranque de
+cada worker para no competir por los índices—; (b) ningún estado del turno se comparte por
+memoria entre workers, porque la autoridad es PostgreSQL y el Store, así que una pregunta
+puede caer en cualquier worker; (c) el presupuesto asume `agent_runtime` cacheado, no
+reconstruido por petición.
+
 ## Phase 1: Diseño
 
 ### Matriz de caracterización (antes y después)
@@ -116,6 +138,19 @@ de ella, se conserva y este plan se actualiza con la razón.
 | C9 | La copia del checkpoint no se lee: checkpointer vacío + semilla de PostgreSQL | FR-003, FR-010 | `test_el_grafo_no_depende_de_la_copia_del_checkpointer` |
 | C10 | Checkpoint con copia envenenada + semilla: el resultado sale de la semilla | FR-003, FR-010 | `test_una_copia_envenenada_no_altera_el_turno` |
 | C11 | Checkpoint con copia de turnos y semilla vacía: el grafo no reutiliza la copia como historial (**prueba de la retirada**: falla antes, pasa después) | FR-003, FR-010, SC-002 | `test_el_checkpoint_no_es_historial_sin_semilla` |
+| C12 | Tras un turno, el estado técnico ya no guarda `answer` ni `incomplete` ni una copia acumulada de turnos | FR-003, SC-003 | `test_el_estado_tecnico_no_guarda_la_respuesta` |
+
+**Evidencia de la retirada**: C9 (`test_el_historial_de_postgres_basta_con_checkpoint_vacio`)
+prueba que el historial de PostgreSQL basta con un checkpointer distinto y vacío; C10
+(`test_la_semilla_manda_sobre_la_copia_del_checkpoint`) prueba que la semilla manda sobre
+una copia envenenada; C11 es la prueba roja→verde de que el grafo no lee la copia; C12
+comprueba que el estado técnico deja de guardar la respuesta.
+
+**Nota de integración con `main`**: esta rama parte de `origin/dev`, que aún no tiene los
+arreglos de trazas y manos libres de `main` (los sincroniza el PR #201). El diff de esta
+fase en `apps/api/chat/service.py` se limita a quitar las dos llamadas a `runner.record` y
+el párrafo del docstring; no toca el bloque de streaming, la acumulación de la traza ni la
+degradación a `fallback`. Si #200 o #201 entran antes, el rebase solo repone esas líneas.
 
 ### Cambios de código (posteriores a la caracterización)
 

@@ -48,13 +48,12 @@ class FakeLLM:
 
 
 class FakeAgent:
-    """Runner determinista: fija la ruta y registra lo que el servicio guarda."""
+    """Runner determinista: fija la ruta y cuenta las preparaciones."""
 
     def __init__(self, turn: AgentTurn, error: Exception | None = None) -> None:
         self.turn = turn
         self.error = error
         self.prepares = 0
-        self.records: list[dict[str, Any]] = []
 
     def prepare(
         self,
@@ -68,24 +67,6 @@ class FakeAgent:
             raise self.error
         return self.turn
 
-    def record(
-        self,
-        thread_id: str,
-        *,
-        question: str,
-        answer: str,
-        incomplete: bool,
-        turns: Sequence[Turn],
-    ) -> None:
-        self.records.append(
-            {
-                "thread_id": thread_id,
-                "question": question,
-                "answer": answer,
-                "incomplete": incomplete,
-            }
-        )
-
 
 def no_context_agent() -> FakeAgent:
     return FakeAgent(
@@ -95,7 +76,6 @@ def no_context_agent() -> FakeAgent:
             prompt=None,
             system="sistema",
             sources=(),
-            turns=(),
         )
     )
 
@@ -150,7 +130,6 @@ def test_stream_persiste_un_solo_turno_y_emite_trace(engine: Engine) -> None:
         done = events[4].data
         assert done["conversation_id"] == history[0].conversation_id
         assert done["message_id"] == history[1].id
-        assert agent.records[0]["answer"] == NO_CONTEXT_ANSWER
     finally:
         _delete_owner(engine, owner_key)
 
@@ -183,7 +162,6 @@ def rag_agent() -> FakeAgent:
             prompt="Contexto con [1].",
             system="sistema",
             sources=(SOURCE,),
-            turns=(),
         )
     )
 
@@ -250,7 +228,6 @@ def test_stream_comercial_emite_las_tarjetas_antes_de_los_tokens(engine: Engine)
             prompt="Contexto con [1].",
             system="sistema",
             sources=(SOURCE,),
-            turns=(),
             products=resultado,
         )
     )
@@ -356,7 +333,7 @@ def test_servicio_no_crea_hilo_si_la_preparacion_falla(engine: Engine) -> None:
         FakeEmbedder(),
         FakeLLM(),
         agent=FakeAgent(
-            AgentTurn("rag", "", None, "", (), ()),
+            AgentTurn("rag", "", None, "", ()),
             error=EmbeddingError("Ollama no responde."),
         ),
     )

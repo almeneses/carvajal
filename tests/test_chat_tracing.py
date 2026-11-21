@@ -70,7 +70,6 @@ class AgenteFalso:
     def __init__(self, turn: AgentTurn, error: Exception | None = None) -> None:
         self.turn = turn
         self.error = error
-        self.registros: list[dict[str, Any]] = []
 
     def prepare(
         self, owner_key: str, thread_id: str, question: str, seed_turns: Sequence[Turn]
@@ -78,17 +77,6 @@ class AgenteFalso:
         if self.error is not None:
             raise self.error
         return self.turn
-
-    def record(
-        self,
-        thread_id: str,
-        *,
-        question: str,
-        answer: str,
-        incomplete: bool,
-        turns: Sequence[Turn],
-    ) -> None:
-        self.registros.append({"question": question, "answer": answer, "incomplete": incomplete})
 
 
 def turno(
@@ -107,7 +95,6 @@ def turno(
         prompt=prompt,
         system="sistema",
         sources=(SOURCE,) if prompt else (),
-        turns=(),
         preferences=preferences,
         tool=tool,
         tool_period=tool_period,
@@ -523,17 +510,6 @@ class AgenteConLangChain:
         RunnableLambda(lambda texto: texto.upper()).invoke(question)
         return self.turn
 
-    def record(
-        self,
-        thread_id: str,
-        *,
-        question: str,
-        answer: str,
-        incomplete: bool,
-        turns: Sequence[Turn],
-    ) -> None:
-        return None
-
 
 def test_los_pasos_de_langchain_aparecen_como_hijos(engine: Any) -> None:
     """La raíz abierta por el tracer recibe los runs de LangChain como hijos (T011)."""
@@ -590,17 +566,6 @@ class AgenteQueFallaEnLangChain:
         with pytest.raises(ValueError):
             RunnableLambda(revienta).invoke(question)
         return turno()
-
-    def record(
-        self,
-        thread_id: str,
-        *,
-        question: str,
-        answer: str,
-        incomplete: bool,
-        turns: Sequence[Turn],
-    ) -> None:
-        return None
 
 
 def test_el_error_de_una_run_hija_no_lleva_texto(engine: Any) -> None:

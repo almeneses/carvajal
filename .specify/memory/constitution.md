@@ -5,7 +5,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-19, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-20, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -78,6 +78,10 @@ con `--admin`.
   mismo proceso (puerto 8000).
 - Gold es la fuente de verdad del corpus; PostgreSQL guarda el texto para la FAQ y el
   explorador y Qdrant es el índice vectorial del chat. Ambos se reconcilian con `sync`.
+- El chat separa tres capas de estado (spec 046): PostgreSQL es la autoridad del historial
+  visible, el `PostgresStore` del agente guarda las preferencias del visitante y el
+  checkpointer solo conserva estado técnico del grafo. Ningún turno se copia al
+  checkpoint para leerse después.
 - El prototipo Streamlit se retiró el 2026-11-18; FAISS sigue en el extra `legacy`
   porque la CLI histórica (`ask`, `summarize`, `faq`, `eval`) lo usa.
 - Pendientes vivos: autenticación y cuotas por usuario (ola 4), captura programada por cron y

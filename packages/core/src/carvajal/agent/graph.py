@@ -1,9 +1,11 @@
 """Grafo LangGraph del agente del M2.
 
 El grafo decide y prepara el turno; la generación se hace fuera para conservar
-el streaming SSE y la persistencia transaccional existente. El checkpointer
-guarda el estado del hilo (turnos y ruta) y el Store guarda preferencias
-declaradas por el dueño, en un namespace aislado.
+el streaming SSE y la persistencia transaccional existente. Las tres capas del
+estado están separadas (spec 046): el historial visible lo persiste PostgreSQL y
+el servicio lo siembra en cada turno; el Store guarda las preferencias
+declaradas por el dueño en un namespace aislado; el checkpointer conserva solo
+estado técnico de la ejecución y no es autoridad de ninguna de las otras dos.
 """
 
 from collections.abc import Iterator
@@ -215,9 +217,9 @@ def build_agent(
 
     def recall(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         owner_key = state["owner_key"]
-        # El historial de Postgres es la fuente de verdad de la UI; el
-        # checkpointer cubre el caso sin semilla (pruebas o primer turno).
-        turns = state.get("seed_turns") or state.get("turns", [])
+        # PostgreSQL es la autoridad del historial visible (spec 046): el
+        # servicio siembra cada turno y el checkpointer no se lee como historial.
+        turns = state.get("seed_turns", [])
         return {
             "turns": list(turns)[-deps.settings.agent_history_turns :],
             "preferences": _preferences(store, owner_key),

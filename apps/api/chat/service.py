@@ -7,8 +7,9 @@ Cada turno usa el id de la conversación como ``thread_id`` y verifica que el
 hilo pertenezca al dueño de la cookie.
 
 La sesión de base de datos se cierra antes de llamar al LLM: generar puede
-tardar minutos y no debe retener una conexión del pool. La persistencia y el
-checkpoint se escriben después, en transacciones cortas.
+tardar minutos y no debe retener una conexión del pool. La persistencia se
+escribe después, en transacciones cortas; el checkpointer del grafo solo guarda
+estado técnico y no recibe una copia del turno (spec 046).
 """
 
 from collections.abc import Iterator, Sequence
@@ -385,13 +386,6 @@ class ChatService:
                         client_turn_id=client_turn_id,
                     )
                     persisted = True
-                runner.record(
-                    conversation.id,
-                    question=text,
-                    answer=answer_text,
-                    incomplete=False,
-                    turns=turn.turns,
-                )
                 elapsed = _milliseconds(started)
                 logger.info(
                     "chat.turn_completed",
@@ -429,14 +423,6 @@ class ChatService:
             )
             if partial and conversation is not None and turn is not None and not persisted:
                 self._persist_partial(conversation, text, "".join(fragments), turn, client_turn_id)
-                if runner is not None:
-                    runner.record(
-                        conversation.id,
-                        question=text,
-                        answer="".join(fragments),
-                        incomplete=True,
-                        turns=turn.turns,
-                    )
             yield ChatEvent(
                 "error",
                 {"message": SERVICE_UNAVAILABLE, "incomplete": bool(partial)},

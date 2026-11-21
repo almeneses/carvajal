@@ -9,7 +9,7 @@ RouteName = Literal["direct", "rag", "tool", "commercial"]
 
 
 class Turn(TypedDict):
-    """Turno ya respondido, conservado por el checkpointer."""
+    """Turno ya respondido; PostgreSQL lo persiste y el servicio lo siembra."""
 
     question: str
     answer: str
@@ -17,7 +17,7 @@ class Turn(TypedDict):
 
 
 class AgentState(TypedDict, total=False):
-    """Canales que persiste el checkpointer entre turnos de un mismo hilo."""
+    """Canales del turno; el checkpointer conserva el estado técnico de la ejecución."""
 
     question: str
     owner_key: str
@@ -36,8 +36,6 @@ class AgentState(TypedDict, total=False):
     tool_period: str
     commercial: dict[str, Any]
     reason: str
-    answer: str
-    incomplete: bool
 
 
 @dataclass(frozen=True)

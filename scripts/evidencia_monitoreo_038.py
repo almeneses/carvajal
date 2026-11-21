@@ -75,11 +75,7 @@ def latencia(muestras: int = 20) -> int:
                 prompt="contexto",
                 system="sistema",
                 sources=(Source("c1", "historia", "historia", "core", 0.9, "1904"),),
-                turns=(),
             )
-
-        def record(self, *args: Any, **kwargs: Any) -> None:
-            return None
 
     motor = create_engine(
         "sqlite+pysqlite:///:memory:",

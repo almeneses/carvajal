@@ -412,3 +412,43 @@ def test_el_turno_incompleto_no_se_confunde_con_respuesta(
     assert semilla[0]["incomplete"] is True
     assert _trace(segundo)["intent"] == "follow_up"
     assert "ciudad fue fundada" in llm.prompts[-1]
+
+
+def test_el_historial_de_postgres_basta_con_checkpoint_vacio(
+    crear_base: Callable[[], str],
+) -> None:
+    """C9: el seguimiento sale de PostgreSQL aunque el checkpointer sea otro y esté vacío."""
+
+    # Arrange: primer proceso con su checkpointer.
+    chat_url, checkpoint_viejo = crear_base(), crear_base()
+    with chat_stack(chat_url, checkpoint_viejo, RecordingLLM()) as primero:
+        list(primero.service.stream("vis-1", HISTORIA))
+        hilo_id = primero.service.conversations("vis-1")[0].id
+
+    # Act: el runtime nuevo usa una base de checkpoints distinta y vacía.
+    checkpoint_nuevo = crear_base()
+    llm = RecordingLLM()
+    with chat_stack(chat_url, checkpoint_nuevo, llm) as reiniciado:
+        events = list(reiniciado.service.stream("vis-1", SEGUIMIENTO, thread_id=hilo_id))
+
+    # Assert
+    assert _trace(events)["intent"] == "follow_up"
+    assert "ciudad fue fundada" in llm.prompts[-1]
+
+
+def test_el_estado_tecnico_no_guarda_la_respuesta(crear_base: Callable[[], str]) -> None:
+    """C11: el checkpoint es estado técnico, no una copia acumulada del turno."""
+
+    # Arrange
+    chat_url, checkpoint_url = crear_base(), crear_base()
+
+    with chat_stack(chat_url, checkpoint_url, RecordingLLM()) as stack:
+        # Act
+        list(stack.service.stream("vis-1", HISTORIA))
+        hilo_id = stack.service.conversations("vis-1")[0].id
+        estado = stack.graph.get_state({"configurable": {"thread_id": hilo_id}}).values
+
+    # Assert
+    assert "answer" not in estado
+    assert "incomplete" not in estado
+    assert estado.get("turns", []) == []

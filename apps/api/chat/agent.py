@@ -1,23 +1,21 @@
 """Adaptador entre el grafo LangGraph y el servicio de chat.
 
-El servicio no conoce LangGraph: recibe un ``AgentRunner`` con dos operaciones
-—preparar el turno y registrar el resultado—. Las pruebas inyectan un doble y
-la app real usa el grafo con PostgresSaver/Store y Qdrant.
+El servicio no conoce LangGraph: recibe un ``AgentRunner`` con una sola
+operación —preparar el turno—. El historial visible lo persiste PostgreSQL y el
+servicio lo siembra en cada pregunta; el checkpointer solo conserva estado
+técnico de la ejecución (spec 046). Las pruebas inyectan un doble y la app real
+usa el grafo con PostgresSaver/Store y Qdrant.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-import structlog
-
 from carvajal.agent.state import Turn
 from carvajal.application.ask import Source
 from carvajal.application.ports import LLMProvider
 
 __all__ = ["AgentRunner", "AgentTurn", "GraphAgentRunner", "default_agent_runner"]
-
-logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -29,7 +27,6 @@ class AgentTurn:
     prompt: str | None
     system: str
     sources: tuple[Source, ...]
-    turns: tuple[Turn, ...]
     preferences: tuple[str, ...] = ()
     tool: str = ""
     tool_period: str = ""
@@ -51,19 +48,6 @@ class AgentRunner(Protocol):
         seed_turns: Sequence[Turn],
     ) -> AgentTurn:
         """Decide la ruta y prepara el prompt sin generar texto."""
-
-        ...
-
-    def record(
-        self,
-        thread_id: str,
-        *,
-        question: str,
-        answer: str,
-        incomplete: bool,
-        turns: Sequence[Turn],
-    ) -> None:
-        """Persiste el turno en el checkpointer del hilo."""
 
         ...
 
@@ -113,7 +97,6 @@ class GraphAgentRunner:
             config={"configurable": {"thread_id": thread_id}},
         )
         sources = tuple(_source(payload) for payload in state.get("sources", []))
-        turns = tuple(state.get("turns", []))
         route = str(state.get("route", "direct"))
         return AgentTurn(
             route=route,
@@ -121,7 +104,6 @@ class GraphAgentRunner:
             prompt=state.get("prompt"),
             system=str(state.get("system", "")),
             sources=sources,
-            turns=turns,
             preferences=tuple(state.get("preferences", [])),
             tool=str(state.get("tool_name", "")),
             tool_period=str(state.get("tool_period", "")),
@@ -129,30 +111,6 @@ class GraphAgentRunner:
             query=str(state.get("query", "")),
             products=dict(state.get("tool_result") or {}) if route == "commercial" else {},
         )
-
-    def record(
-        self,
-        thread_id: str,
-        *,
-        question: str,
-        answer: str,
-        incomplete: bool,
-        turns: Sequence[Turn],
-    ) -> None:
-        """Añade el turno al checkpoint; un fallo aquí no rompe la respuesta."""
-
-        updated = [*turns]
-        if not (
-            updated and updated[-1]["question"] == question and updated[-1]["answer"] == answer
-        ):
-            updated.append({"question": question, "answer": answer, "incomplete": incomplete})
-        try:
-            self._graph.update_state(
-                {"configurable": {"thread_id": thread_id}},
-                {"turns": updated, "answer": answer, "incomplete": incomplete},
-            )
-        except Exception as error:  # el checkpointer no debe tumbar la UI
-            logger.warning("agent.checkpoint_failed", error=str(error), thread_id=thread_id)
 
 
 def default_agent_runner() -> GraphAgentRunner:
