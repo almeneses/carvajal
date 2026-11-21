@@ -245,6 +245,30 @@ def test_chat_muestra_indicadores_de_carga() -> None:
     assert "@media (scripting: none)" in css.text
 
 
+def test_chat_carga_los_controles_de_voz_sin_estilos_inline() -> None:
+    """La base de la 040 se sirve desde archivos propios, bajo la CSP vigente."""
+
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/chat")
+    css = client.get("/static/chat.css")
+    js = client.get("/static/chat-voice.js")
+
+    # Assert
+    assert response.status_code == 200
+    assert "/static/chat-voice.js" in response.text
+    assert "data-voz hidden" in response.text
+    assert "data-voz-dictar" in response.text
+    assert 'type="button"' in response.text
+    assert 'style="' not in response.text
+    assert js.status_code == 200
+    assert "SpeechRecognition" in js.text
+    assert css.status_code == 200
+    assert ".voz-estado" in css.text
+
+
 def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

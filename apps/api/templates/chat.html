@@ -5,6 +5,7 @@
 <link rel="stylesheet" href="/static/chat.css" />
 <script src="/static/hilos.js" defer></script>
 <script src="/static/chat-stream.js" defer></script>
+<script src="/static/chat-voice.js" defer></script>
 {% endblock %}
 {% block content %}
 <section
@@ -71,8 +72,82 @@
             tomo pedidos.
           </p>
         </div>
+        <div class="voz" data-voz hidden>
+          <div class="voz-controles">
+            <button
+              type="button"
+              class="boton boton-fantasma voz-boton"
+              data-voz-dictar
+              aria-pressed="false"
+              aria-label="Dictar una pregunta"
+              hidden
+            >
+              <span class="voz-icono" aria-hidden="true">🎙︎</span>
+              <span data-voz-dictar-texto>Dictar</span>
+            </button>
+            <label class="voz-preferencia" data-voz-autolectura-campo hidden>
+              <input type="checkbox" data-voz-autolectura />
+              Leer respuestas en voz alta
+            </label>
+            <button
+              type="button"
+              class="boton boton-fantasma voz-boton"
+              data-voz-manos-libres
+              aria-pressed="false"
+              aria-label="Activar manos libres"
+              hidden
+            >
+              Manos libres
+            </button>
+          </div>
+          <p class="voz-estado" data-voz-estado role="status" aria-live="polite"></p>
+          <p class="voz-nota" data-voz-nota role="note" hidden></p>
+        </div>
         <button type="submit">Enviar</button>
       </form>
+
+      <dialog
+        class="voz-aviso"
+        data-voz-aviso
+        aria-labelledby="voz-aviso-titulo"
+        aria-describedby="voz-aviso-texto"
+      >
+        <h2 id="voz-aviso-titulo" class="voz-aviso-titulo">Antes de dictar</h2>
+        <p id="voz-aviso-texto" class="voz-aviso-texto">
+          El dictado usa el reconocimiento de voz de tu navegador. Algunos navegadores
+          envían el audio a su propio servicio para transcribirlo; este sitio no recibe ni
+          guarda el audio. También puedes escribir tu pregunta.
+        </p>
+        <div class="voz-aviso-acciones">
+          <button type="button" class="boton" data-voz-aviso-aceptar>Continuar</button>
+          <button type="button" class="boton boton-fantasma" data-voz-aviso-cancelar>
+            Cancelar
+          </button>
+        </div>
+      </dialog>
+
+      <dialog
+        class="voz-aviso"
+        data-voz-manos-aviso
+        aria-labelledby="voz-manos-titulo"
+        aria-describedby="voz-manos-texto"
+      >
+        <h2 id="voz-manos-titulo" class="voz-aviso-titulo">Manos libres</h2>
+        <p id="voz-manos-texto" class="voz-aviso-texto">
+          En este modo el chat escucha tu pregunta y la envía sin que la revises. La respuesta
+          se lee en voz alta y después vuelve a escuchar. Se apaga al escribir, al decir
+          «terminar», tras 10 segundos sin voz, si falla el envío o al ocultar la pestaña.
+          Necesita el borrador vacío y no se activa solo al cargar la página.
+        </p>
+        <div class="voz-aviso-acciones">
+          <button type="button" class="boton" data-voz-manos-aceptar>
+            Activar manos libres
+          </button>
+          <button type="button" class="boton boton-fantasma" data-voz-manos-cancelar>
+            Cancelar
+          </button>
+        </div>
+      </dialog>
     </div>
   </div>
 </section>

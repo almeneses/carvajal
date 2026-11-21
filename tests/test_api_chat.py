@@ -214,7 +214,7 @@ def test_get_con_cookie_muestra_el_historial_en_orden() -> None:
     segunda = response.text.index("segunda pregunta")
     assert primera < respuesta < segunda
     assert "Fuentes citadas" in response.text
-    assert "<strong>historia</strong>" in response.text
+    assert '<strong data-campo="title">historia</strong>' in response.text
     assert '<details class="citas">' in response.text
     assert 'class="cita-fuente"' in response.text
     assert "texto-formateado" in response.text
@@ -576,3 +576,213 @@ def test_una_cita_sin_procedencia_no_muestra_la_linea() -> None:
     # Assert
     assert response.status_code == 200
     assert '<span class="procedencia">' not in response.text
+
+
+def test_el_boton_de_dictar_no_envia_y_conserva_el_formulario() -> None:
+    """T007: el micrófono es un control aparte del envío escrito."""
+
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    assert response.status_code == 200
+    inicio = html.index("data-voz-dictar")
+    fragmento = html[max(0, inicio - 220) : inicio + 220]
+    assert 'type="button"' in fragmento
+    assert 'action="/chat"' in html
+    assert 'method="post"' in html
+    assert f'name="{CSRF_FIELD}"' in html
+    assert 'name="question"' in html
+    assert 'maxlength="500"' in html
+    assert "data-chat-stream" in html
+    assert "/static/chat-voice.js" in html
+
+
+def test_el_estado_de_voz_y_el_aviso_son_accesibles() -> None:
+    """T007: nombre accesible, estado anunciado y aviso previo etiquetado."""
+
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    estado = html.index("data-voz-estado")
+    fragmento_estado = html[max(0, estado - 160) : estado + 120]
+    assert 'role="status"' in fragmento_estado
+    assert 'aria-live="polite"' in fragmento_estado
+    inicio = html.index("data-voz-aviso")
+    fragmento_aviso = html[max(0, inicio - 160) : inicio + 400]
+    assert "<dialog" in fragmento_aviso
+    assert 'aria-labelledby="voz-aviso-titulo"' in fragmento_aviso
+    assert 'id="voz-aviso-titulo"' in html
+    assert "data-voz-aviso-aceptar" in html
+    assert "data-voz-aviso-cancelar" in html
+    assert "escribir" in html
+    assert 'aria-label="Dictar una pregunta"' in html
+
+
+def test_el_historial_ofrece_escuchar_solo_en_los_turnos_del_asistente() -> None:
+    """T013: control de lectura por turno, con pausa, reanudación y parada."""
+
+    # Arrange
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [
+        _message("user", "pregunta", sources=None),
+        _message("assistant", "respuesta", sources=None),
+    ]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    assert response.status_code == 200
+    assert html.count('data-voz-accion="escuchar"') == 2  # historial + plantilla del stream
+    for accion in ("pausar", "reanudar", "detener"):
+        assert f'data-voz-accion="{accion}"' in html
+    assert html.count('class="turno-voz"') == 2
+    inicio = html.index('data-voz-accion="escuchar"')
+    assert 'aria-pressed="false"' in html[inicio : inicio + 120]
+    assert "data-voz-turno" in html
+
+
+def test_el_stream_notifica_el_turno_completo_solo_tras_done() -> None:
+    """T015: el aviso interno no se emite por error ni sin completar."""
+
+    # Arrange
+    from apps.api.runtime import APP_DIR
+
+    # Act
+    js = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
+
+    # Assert
+    assert 'new window.CustomEvent("chat:turn-complete"' in js
+    assert "completado && !errorRecibido" in js
+    assert "detail:" in js
+    assert "threadId" in js
+
+
+def test_la_autolectura_tiene_control_etiquetado_y_oculto_sin_js() -> None:
+    """B1: FR-007 exige un control real, no solo lógica en el cliente."""
+
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    assert "data-voz-autolectura-campo" in html
+    assert 'type="checkbox"' in html
+    assert "data-voz-autolectura" in html
+    assert "Leer respuestas en voz alta" in html
+    inicio = html.index("data-voz-autolectura-campo")
+    assert "hidden" in html[max(0, inicio - 60) : inicio + 140]
+
+
+def test_el_historial_incluye_sus_propios_controles_de_lectura() -> None:
+    """T013: los controles se verifican dentro de #hilo, no por coincidencia global."""
+
+    # Arrange
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [
+        _message("user", "pregunta", sources=None),
+        _message("assistant", "respuesta", sources=None),
+    ]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    historial = html.split('id="hilo"', 1)[1].split("</section>", 1)[0]
+    for accion in ("escuchar", "pausar", "reanudar", "detener"):
+        assert f'data-voz-accion="{accion}"' in historial
+    assert historial.count("data-voz-turno") == 1
+    inicio = historial.index('data-voz-accion="escuchar"')
+    assert 'aria-pressed="false"' in historial[max(0, inicio - 160) : inicio + 120]
+
+
+def test_el_stream_no_notifica_turno_completo_en_la_rama_de_error() -> None:
+    """T015: la notificación nace solo del bloque done, nunca del error."""
+
+    # Arrange
+    from apps.api.runtime import APP_DIR
+
+    # Act
+    js = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
+
+    # Assert
+    bloque_done = js.split('case "done":', 1)[1].split("case ", 1)[0]
+    bloque_error = js.split('case "error":', 1)[1].split("default:", 1)[0]
+    assert "completado = true" in bloque_done
+    assert "notificarTurnoCompleto" not in bloque_error
+    assert "errorRecibido = true" in bloque_error
+
+
+def test_manos_libres_se_ofrece_con_aviso_de_autoenvio_y_apagado() -> None:
+    """T019: activación explícita, aviso de autoenvío y estado apagado al cargar."""
+
+    # Arrange
+    client, _ = make_client()
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert
+    html = response.text
+    assert response.status_code == 200
+    assert "data-voz-manos-libres" in html
+    assert 'aria-pressed="false"' in html
+    assert "data-voz-manos-aviso" in html
+    assert "data-voz-manos-aceptar" in html
+    assert "data-voz-manos-cancelar" in html
+    assert 'id="voz-manos-titulo"' in html
+    assert "sin que la revises" in html
+    assert "borrador vacío" in html
+
+
+def test_el_stream_distingue_manos_libres_solo_en_el_cliente() -> None:
+    """T021: marcador local, sin campos nuevos ni reenvío automático."""
+
+    # Arrange
+    from apps.api.runtime import APP_DIR
+
+    # Act
+    stream = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
+    voz = (APP_DIR / "static" / "chat-voice.js").read_text(encoding="utf-8")
+
+    # Assert
+    assert 'form.dataset.vozOrigen === "manos-libres"' in stream
+    assert "chat:turn-failed" in stream
+    assert "handsFree: Boolean(manosLibres)" in stream
+    assert "formulario.requestSubmit()" in voz
+    assert "chat:turn-failed" in voz
+    assert "vozOrigen" in voz
+    # El origen no se envía: sin campos nuevos en el cuerpo del POST.
+    assert "vozOrigen:" not in stream
+    assert 'name="voz' not in (APP_DIR / "templates" / "chat.html").read_text(encoding="utf-8")
+
+
+def test_el_fallo_de_manos_libres_devuelve_siempre_la_pregunta() -> None:
+    """T021: sin done el turno no se persiste y el borrador vuelve siempre."""
+
+    # Arrange
+    from apps.api.runtime import APP_DIR
+
+    # Act
+    stream = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
+
+    # Assert
+    assert "if (!input.value.trim()) input.value = pregunta;" in stream
+    assert "if (!texto.textContent) turnoAsistente.remove();" in stream

@@ -1,0 +1,102 @@
+[
+  {
+    "id": "c-01",
+    "question": "necesito vasos para café caliente de 12 oz",
+    "route": "commercial"
+  },
+  {
+    "id": "c-02",
+    "question": "vasos para chocolate de 8 oz",
+    "route": "commercial"
+  },
+  {
+    "id": "c-03",
+    "question": "busco vasos de papel para capuchino de 16 oz",
+    "route": "commercial"
+  },
+  {
+    "id": "c-08",
+    "question": "vasos para smoothies de 500 ml",
+    "route": "commercial"
+  },
+  {
+    "id": "c-09",
+    "question": "contenedores para sopa que se puedan calentar en microondas",
+    "route": "commercial"
+  },
+  {
+    "id": "c-17",
+    "question": "tapas para vasos de bebida caliente de 12 oz",
+    "route": "commercial"
+  },
+  {
+    "id": "c-18",
+    "question": "platos para comida caliente",
+    "route": "commercial"
+  },
+  {
+    "id": "c-22",
+    "question": "necesito contenedores para comida fría",
+    "route": "commercial"
+  },
+  {
+    "id": "c-24",
+    "question": "charolas para pan caliente",
+    "route": "commercial"
+  },
+  {
+    "id": "c-31",
+    "question": "Necesito 5.000 vasos de 12 oz para café en México",
+    "route": "commercial"
+  },
+  {
+    "id": "c-32",
+    "question": "cotiza 3 mil vasos para café de 8 oz en México",
+    "route": "commercial"
+  },
+  {
+    "id": "c-40",
+    "question": "necesito vasos para jugo en Bogotá",
+    "route": "commercial"
+  },
+  {
+    "id": "r-q01",
+    "question": "¿Qué es Carvajal y a qué sectores se dedica?",
+    "route": "rag"
+  },
+  {
+    "id": "r-q02",
+    "question": "¿En qué año y ciudad fue fundada Carvajal?",
+    "route": "rag"
+  },
+  {
+    "id": "r-q08",
+    "question": "¿Qué marca de educación tiene Carvajal y a quién se dirige?",
+    "route": "rag"
+  },
+  {
+    "id": "r-q16",
+    "question": "¿Qué iniciativas de sostenibilidad adelanta Carvajal?",
+    "route": "rag"
+  },
+  {
+    "id": "r-q26",
+    "question": "¿Cuáles fueron los ingresos consolidados de Carvajal en 2024?",
+    "route": "tool"
+  },
+  {
+    "id": "r-q27",
+    "question": "¿Cuál fue el EBITDA consolidado de Carvajal a septiembre de 2025 y qué margen reportó?",
+    "route": "tool"
+  },
+  {
+    "id": "n-01",
+    "question": "Hola",
+    "route": "direct"
+  },
+  {
+    "id": "n-02",
+    "question": "Buenos días, ¿qué puedes hacer?",
+    "route": "direct"
+  }
+]

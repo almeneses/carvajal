@@ -51,6 +51,16 @@ jobs:
       - name: Pruebas
         run: uv run pytest -m "not integration and not e2e and not smoke"
 
+      - name: Node 24.16.0
+        # Los dobles de voz (spec 040) usan el runner de Node y sus APIs del
+        # navegador simuladas; no instalan dependencias npm ni piden micrófono.
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.16.0"
+
+      - name: Pruebas de voz (dobles)
+        run: node --test tests/js/test_chat_voice.cjs
+
       - name: Smoke del monitoreo
         run: uv run pytest -m "smoke and not integration and not e2e"
 

@@ -16,6 +16,32 @@
     <div class="burbuja">
       <div class="texto"></div>
     </div>
+    <div class="turno-voz" data-voz-turno>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="escuchar"
+        aria-pressed="false"
+      >Escuchar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="pausar"
+        hidden
+      >Pausar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="reanudar"
+        hidden
+      >Reanudar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="detener"
+        hidden
+      >Detener</button>
+    </div>
     <div class="marcas" data-marcas hidden>
       <span class="marcas-pregunta">¿Te sirvió esta respuesta?</span>
       <button type="button" class="boton boton-fantasma" data-marca="1">Útil</button>

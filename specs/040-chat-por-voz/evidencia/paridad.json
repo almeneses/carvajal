@@ -1,0 +1,336 @@
+{
+  "voz1": [
+    {
+      "id": "c-01",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito vasos para café caliente de 12 onzas"
+    },
+    {
+      "id": "c-02",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "vasos para chocolate de 8 onzas"
+    },
+    {
+      "id": "c-03",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "Busco vasos de papel para capuchino de 16 onzas"
+    },
+    {
+      "id": "c-08",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "vasos para smoothies de 500 ML"
+    },
+    {
+      "id": "c-09",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "contenedores para sopa que se puedan calentar en microondas"
+    },
+    {
+      "id": "c-17",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "tapas de vasos de bebida caliente de 12 onzas"
+    },
+    {
+      "id": "c-18",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "platos para comida caliente"
+    },
+    {
+      "id": "c-22",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito contenedores para comida fría"
+    },
+    {
+      "id": "c-24",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "charolas para pan caliente"
+    },
+    {
+      "id": "c-31",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito 5000 vasos de 12 onzas para café en México"
+    },
+    {
+      "id": "c-32",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "cotiza 3000 vasos para café de 8 onzas en México"
+    },
+    {
+      "id": "c-40",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito vasos para jugó en Bogotá"
+    },
+    {
+      "id": "r-q01",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "Qué es Carvajal Y a qué sectores se dedica"
+    },
+    {
+      "id": "r-q02",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "En qué año y ciudad fue fundada Carbajal"
+    },
+    {
+      "id": "r-q08",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "Qué marca de Educación tiene Carvajal Y a quién se dirige"
+    },
+    {
+      "id": "r-q16",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "qué iniciativas de sostenibilidad del alta Carvajal"
+    },
+    {
+      "id": "r-q26",
+      "escrito": "tool",
+      "dictado": "tool",
+      "campos": true,
+      "ok": true,
+      "texto": "Cuáles fueron los ingresos consolidados de Carvajal en 2024"
+    },
+    {
+      "id": "r-q27",
+      "escrito": "tool",
+      "dictado": "rag",
+      "campos": false,
+      "ok": false,
+      "texto": "Cuál fue la evita consolidado de Carvajal a septiembre 2025 Y qué"
+    },
+    {
+      "id": "n-01",
+      "escrito": "direct",
+      "dictado": "direct",
+      "campos": true,
+      "ok": true,
+      "texto": "Hola"
+    },
+    {
+      "id": "n-02",
+      "escrito": "direct",
+      "dictado": "direct",
+      "campos": true,
+      "ok": true,
+      "texto": "buenos días Qué puedes hacer"
+    }
+  ],
+  "voz2": [
+    {
+      "id": "c-01",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito vasos para café caliente de 12 onzas"
+    },
+    {
+      "id": "c-02",
+      "escrito": "commercial",
+      "dictado": "rag",
+      "campos": false,
+      "ok": false,
+      "texto": "pasos para chocolate de 8 onzas"
+    },
+    {
+      "id": "c-03",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "Busco vasos de papel para capuchino de 16 onzas"
+    },
+    {
+      "id": "c-08",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "vasos para smoothies de 500 ML"
+    },
+    {
+      "id": "c-09",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "contenedores para sopa que se puedan calentar en microondas"
+    },
+    {
+      "id": "c-17",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "tapas para vasos de bebida caliente de 12 Oz"
+    },
+    {
+      "id": "c-18",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "platos para comida caliente"
+    },
+    {
+      "id": "c-22",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito contenedores para comida fría"
+    },
+    {
+      "id": "c-24",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "charolas para pan caliente"
+    },
+    {
+      "id": "c-31",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito 5000 vasos de 12 onzas para café en México"
+    },
+    {
+      "id": "c-32",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": false,
+      "ok": false,
+      "texto": "cotiza 3000 vasos de café para"
+    },
+    {
+      "id": "c-40",
+      "escrito": "commercial",
+      "dictado": "commercial",
+      "campos": true,
+      "ok": true,
+      "texto": "necesito vasos para jugó en Bogotá"
+    },
+    {
+      "id": "r-q01",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "Qué es Carbajal Y a qué sectores se dedica"
+    },
+    {
+      "id": "r-q02",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "En qué año y ciudad fue fundada Carbajal"
+    },
+    {
+      "id": "r-q08",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "Qué marca de Educación tiene Carvajal Y a quién se dirige"
+    },
+    {
+      "id": "r-q16",
+      "escrito": "rag",
+      "dictado": "rag",
+      "campos": true,
+      "ok": true,
+      "texto": "qué iniciativas de sostenibilidad del alta Carvajal"
+    },
+    {
+      "id": "r-q26",
+      "escrito": "tool",
+      "dictado": "tool",
+      "campos": true,
+      "ok": true,
+      "texto": "Cuáles fueron los ingresos consolidados de Carvajal en 2024"
+    },
+    {
+      "id": "r-q27",
+      "escrito": "tool",
+      "dictado": "rag",
+      "campos": false,
+      "ok": false,
+      "texto": "Cuál fue el evita consolidado de Carvajal a septiembre de 2025 Y qué margen reportó"
+    },
+    {
+      "id": "n-01",
+      "escrito": "direct",
+      "dictado": "direct",
+      "campos": true,
+      "ok": true,
+      "texto": "Hola"
+    },
+    {
+      "id": "n-02",
+      "escrito": "direct",
+      "dictado": "direct",
+      "campos": true,
+      "ok": true,
+      "texto": "buenos días Qué puedes hacer"
+    }
+  ],
+  "total": {
+    "aciertos": 36,
+    "intentos": 40
+  },
+  "sc002": {
+    "intentos": 40,
+    "p95_ms": 231,
+    "min": 10,
+    "max": 378
+  }
+}

@@ -679,3 +679,175 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* Chat por voz (spec 040). Los controles nacen ocultos y solo se muestran con
+   JavaScript; sin él, el formulario escrito sigue intacto. */
+.voz {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.voz[hidden],
+.voz-boton[hidden],
+.voz-nota[hidden] {
+  display: none;
+}
+
+.voz-controles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.voz-boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.voz-boton[aria-pressed="true"] {
+  border-color: var(--azul);
+  color: var(--azul);
+  font-weight: 700;
+}
+
+.voz-icono {
+  font-size: 1.15em;
+  line-height: 1;
+}
+
+.voz-preferencia {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.95rem;
+  color: var(--secundario);
+}
+
+.voz-preferencia[hidden] {
+  display: none;
+}
+
+.voz-preferencia input {
+  min-height: auto;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.voz-estado {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--secundario);
+}
+
+.voz-estado:empty {
+  display: none;
+}
+
+/* Mientras escucha, el estado no depende solo del color: hay punto animado y
+   el texto «Escuchando…». Con movimiento reducido, el punto queda fijo. */
+html[data-voz-escuchando="1"] .voz-estado::before {
+  content: "";
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.45em;
+  border-radius: 50%;
+  background: var(--rojo, #b3261e);
+  animation: voz-latido 1.2s ease-in-out infinite;
+}
+
+@keyframes voz-latido {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-voz-escuchando="1"] .voz-estado::before {
+    animation: none;
+  }
+}
+
+.voz-nota {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--secundario);
+}
+
+/* Los controles «Escuchar/Pausar/Reanudar/Detener» de cada turno solo
+   aparecen cuando la síntesis está disponible; el JS marca el documento antes
+   de revelarlos. Los turnos del visitante nunca los muestran. */
+.turno-voz {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+html[data-voz-tts="1"] .turno-assistant .turno-voz {
+  display: flex;
+}
+
+.turno-voz-boton {
+  min-height: 40px;
+  padding: 0 0.9rem;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 560px) {
+  .voz-boton {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Aviso previo al primer dictado: explica el posible procesamiento del
+   navegador y deja continuar o cancelar sin abrir el micrófono. */
+.voz-aviso {
+  max-width: 32rem;
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.voz-aviso::backdrop {
+  background: rgb(15 39 64 / 45%);
+}
+
+.voz-aviso-titulo {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+
+.voz-aviso-texto {
+  margin: 0 0 16px;
+  color: var(--secundario);
+}
+
+.voz-aviso-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+
+/* Manos libres (spec 040, US3): el modo activo se distingue por el botón y
+   por el estado que anuncia cada ciclo. */
+.voz-boton[data-voz-manos-libres][aria-pressed="true"] {
+  background: var(--azul);
+  border-color: var(--azul);
+  color: var(--fondo);
+  font-weight: 700;
+}
+
+html[data-voz-manos="1"] .voz {
+  border-left: 3px solid var(--azul);
+  padding-left: 10px;
+}

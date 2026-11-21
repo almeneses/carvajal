@@ -97,8 +97,9 @@ con `--admin`.
   raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo solo en desarrollo
   y evaluación. La evidencia de SC-001…SC-005 está en `docs/evidence/m2/monitoring.md`.
   La raíz puede incluir `agent_id` y `agent_environment` como metadatos opcionales.
-- La spec 039 (catálogo de Colombia con precios en COP) está implementada. La 040 (chat por
-  voz) sigue en borrador; sus `plan.md` y `tasks.md` llegan antes de implementar.
+- La spec 039 (catálogo de Colombia con precios en COP) está implementada. La 040 (chat
+  por voz) está implementada y validada en Chrome 157/Linux el 2026-11-20: SC-001 = 36/40 (90,0 %), SC-002
+  p95 = 231 ms, SC-003 p95 = 36 ms, SC-004/005 cumplidos con micrófono y dos voces.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
@@ -115,7 +116,9 @@ con `--admin`.
   Colombia van en COP y solo si alguien los publica en Colombia; nunca se estiman ni se
   convierten desde México (spec 039).
 - Voz en el chat (spec 040): dictado y lectura con las capacidades del navegador; el audio
-  no llega al servidor ni se guarda.
+  no llega al servidor ni se guarda. `microphone=(self)` se declara solo en el documento
+  HTML de `/chat` (el SSE y el resto del sitio siguen con `microphone=()`); el dictado
+  requiere contexto seguro, `localhost` o HTTPS.
 - LLM configurable: DeepSeek (por defecto) u Ollama; embeddings locales con
   `nomic-embed-text` (768 dimensiones).
 - Streaming por SSE; CSRF por doble cookie, CSP sin `unsafe-inline` y cookies `HttpOnly`.
