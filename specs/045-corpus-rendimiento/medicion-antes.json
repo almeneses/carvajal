@@ -1,0 +1,100 @@
+{
+  "label": "antes",
+  "entorno": {
+    "gold_dir": "/home/alejo/projects/DataScience/tecnicas_avanzadas/carvajal/.worktrees/045/data/gold",
+    "documentos": 24,
+    "database": "127.0.0.1:5433/carvajal_045_medicion",
+    "qdrant_url": "http://127.0.0.1:6333",
+    "collection": "carvajal_045_medicion"
+  },
+  "sincronizacion": [
+    {
+      "name": "sync inicial (todo nuevo, poda)",
+      "elapsed_ms": 446.3,
+      "counters": {
+        "gold_reads": 96,
+        "gold_passes": 4.0,
+        "payload_traversals": 2,
+        "payloads": 125,
+        "scroll_pages": 2,
+        "embed_calls": 125,
+        "embed_ms": 0.04782393807545304
+      },
+      "documents": 24,
+      "chunks": 125,
+      "indexed": 125,
+      "differences": 0
+    },
+    {
+      "name": "sync sin cambios con poda",
+      "elapsed_ms": 87.2,
+      "counters": {
+        "gold_reads": 96,
+        "gold_passes": 4.0,
+        "payload_traversals": 2,
+        "payloads": 250,
+        "scroll_pages": 3,
+        "embed_calls": 0,
+        "embed_ms": 0.0
+      },
+      "documents": 24,
+      "chunks": 125,
+      "indexed": 0,
+      "differences": 0
+    },
+    {
+      "name": "sync sin cambios sin poda",
+      "elapsed_ms": 21.2,
+      "counters": {
+        "gold_reads": 48,
+        "gold_passes": 2.0,
+        "payload_traversals": 1,
+        "payloads": 125,
+        "scroll_pages": 2,
+        "embed_calls": 0,
+        "embed_ms": 0.0
+      },
+      "documents": 0,
+      "chunks": 0,
+      "indexed": 0,
+      "differences": 0
+    },
+    {
+      "name": "verificación --verify",
+      "elapsed_ms": 16.0,
+      "counters": {
+        "gold_reads": 24,
+        "gold_passes": 1.0,
+        "payload_traversals": 2,
+        "payloads": 250,
+        "scroll_pages": 2,
+        "embed_calls": 0,
+        "embed_ms": 0.0
+      },
+      "documents": 0,
+      "chunks": 0,
+      "indexed": 0,
+      "differences": 2
+    }
+  ],
+  "indice_sintetico": {
+    "puntos": 5000,
+    "documentos": 500,
+    "dos_pasadas_ms": 105.8,
+    "dos_pasadas_paginas": 40,
+    "una_pasada_ms": null,
+    "una_pasada_paginas": 0,
+    "ahorro_ms": null
+  },
+  "embeddings": {
+    "modelo": "nomic-embed-text",
+    "fragmentos": 125,
+    "total_ms": 23540.7,
+    "media_ms": 188.32,
+    "p50_ms": 205.91,
+    "p95_ms": 269.12,
+    "llamadas": 125,
+    "lote_total_ms": 23204.9,
+    "lote_media_ms": 185.64
+  }
+}
