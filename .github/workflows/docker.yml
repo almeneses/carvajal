@@ -50,7 +50,9 @@ jobs:
       - name: Validar compose.prod.yml
         env:
           SESSION_SECRET: secreto-de-ci
-        run: docker compose -f compose.prod.yml config -q
+        run: |
+          docker compose -f compose.prod.yml config -q
+          docker compose -f compose.prod.yml --profile bootstrap config -q
 
       - name: Construir imagen
         uses: docker/build-push-action@v6
@@ -91,3 +93,15 @@ jobs:
       - name: Limpiar contenedor
         if: always()
         run: docker rm -f api 2>/dev/null || true
+
+      - name: Construir imagen de desarrollo
+        # `make up` usa la etapa `dev`; se valida aquí para que un cambio en el
+        # Dockerfile no rompa el stack local sin que CI lo note.
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: dev
+          load: true
+          tags: carvajal-api:dev-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -249,35 +249,43 @@ sudo ss -tulpn | grep ':8080'
 
 ## 6. Corpus e índice
 
-El corpus no viaja en la imagen. Cópialo y construye el índice una vez (o cuando
-cambie `data/gold`):
+El corpus no viaja en la imagen. Cópialo y construye el índice con el perfil
+`bootstrap`, que descarga el modelo de embeddings, copia el corpus al volumen
+solo si aún está vacío, aplica migraciones, importa Gold a Postgres y reindexa
+en Qdrant. Es idempotente.
 
 ```bash
-# LOCAL
-ssh -p 2422 deploy@144.217.80.136 "mkdir -p /opt/carvajal/data/gold"
-rsync -av data/gold/ deploy@144.217.80.136:/opt/carvajal/data/gold/
+# LOCAL: solo las capas que la demo necesita (núcleo, catálogo e indicadores).
+ssh -p 2422 deploy@144.217.80.136 "mkdir -p /opt/carvajal/data"
+rsync -av data/gold data/catalog data/indicators.json \
+  deploy@144.217.80.136:/opt/carvajal/data/
 ```
 
 ```bash
 # VPS
 cd /opt/carvajal
-
-docker compose -f compose.prod.yml exec ollama ollama pull nomic-embed-text
-
-# Copia el corpus Gold al volumen persistente de la app, cárgalo en Postgres
-# y reindexa en Qdrant.
-docker compose -f compose.prod.yml up -d app
-docker compose -f compose.prod.yml cp /opt/carvajal/data/. app:/app/data/
-docker compose -f compose.prod.yml exec app carvajal migrate-gold
-docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
-
+docker compose -f compose.prod.yml --profile bootstrap run --rm bootstrap
 curl -fsS http://144.217.80.136:8080/health
 ```
 
+Desde un clon del repositorio (no solo en el VPS) el mismo paso es:
+
+```bash
+make prod-bootstrap
+```
+
 > El volumen `appdata` es la fuente de verdad del corpus una vez que hay cargas
-> o recapturas: la copia de `/opt/carvajal/data` puede quedarse atrás. Antes de
-> volver a copiar, sincroniza el volumen hacia el host o vuelve a capturar; un
-> `docker compose cp` a ciegas sobrescribe los documentos más nuevos.
+> o recapturas: la copia de `/opt/carvajal/data` puede quedarse atrás. El
+> servicio `bootstrap` solo copia `./data` cuando el volumen no tiene Gold, así
+> que no pisa documentos más nuevos; si quieres refrescar el corpus, sincroniza
+> el volumen hacia el host o vuelve a capturar antes de reindexar.
+
+Para reindexar sin volver a importar (por ejemplo, tras cambiar el modelo de
+embeddings), usa `--recreate` en la app desplegada:
+
+```bash
+docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
+```
 
 El índice queda en el volumen `qdrantdata` y sobrevive a reinicios y despliegues.
 Las cargas de la pestaña Configuración escriben en el volumen `appdata`

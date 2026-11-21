@@ -247,9 +247,9 @@ carvajal/
 ├── CONTRIBUTING.md          # guía de contribución
 ├── CODE_OF_CONDUCT.md       # código de conducta
 ├── Makefile                 # automatización de tareas
-├── Dockerfile               # imagen multi-etapa de la app web (extras fuera)
-├── compose.yml              # Postgres 16 + pgvector para desarrollo local
-├── compose.prod.yml         # app + Postgres + Qdrant + Ollama (demo por IP)
+├── Dockerfile               # imagen multi-etapa: `dev` (recarga) y `runtime` (web)
+├── compose.yml              # local: db + qdrant; perfil `full` añade app, ollama y corpus
+├── compose.prod.yml         # app + Postgres + Qdrant + Ollama; perfil `bootstrap` prepara el servidor
 ├── scripts/deploy.sh        # despliegue/rollback que invoca GitHub Actions
 ├── .dockerignore            # contexto mínimo de la imagen
 ├── pyproject.toml           # metadatos y dependencias (uv)
@@ -319,6 +319,18 @@ carvajal/
   `0.0.0.0:APP_PORT` (8080 por defecto), corre sin privilegios, mantiene el
   sistema de archivos de solo lectura y monta el volumen `appdata` en
   `/app/data` para conservar Bronze, Silver, Gold y el índice de las cargas.
+- El stack local tiene dos niveles en `compose.yml`. Sin perfiles quedan `db` y
+  `qdrant` para el flujo nativo (`make db`, `make qdrant`, `make api`); el perfil
+  `full` añade `ollama`, la app en modo desarrollo (etapa `dev` del Dockerfile,
+  recarga y directorios del repo montados) y un `bootstrap` de una sola ejecución
+  que aplica migraciones, importa Gold e indexa. `make up`/`make down` son la
+  puerta a ese perfil y `LOCAL_UID`/`LOCAL_GID` evitan archivos de root en
+  `./data`. Ningún servicio publica el puerto de Ollama para no chocar con un
+  Ollama instalado en el host.
+- En producción el perfil `bootstrap` (`make prod-bootstrap`) descarga
+  `nomic-embed-text`, copia `./data` al volumen `appdata` solo si aún no tiene
+  Gold, aplica migraciones, importa Gold y reindexa. Es idempotente y no pisa
+  capturas ni cargas más nuevas; el volumen sigue siendo la fuente de verdad.
 - El despliegue de producción es automático: al fusionar el PR de release en
   `main`, CI debe terminar en verde; `.github/workflows/deploy.yml` publica la
   imagen en GHCR con un tag `sha-<commit>` y `scripts/deploy.sh` la descarga en
@@ -467,6 +479,7 @@ git push
 | 2026-11-18 | Implementar la spec 039: catálogo de Colombia con ofertas por fuente y ampliación del de México | Las fichas oficiales de Colombia publican medidas, material y unidades, pero no SKU ni precio; la tienda de EDEXA (distribuidor del directorio) publica precio con IVA. Se cruzan en `scripts/curar_catalogo_co.py` (102 referencias, 29 con precio) y `carvajal catalog-prices` normaliza a caja sin estimar ni convertir. El precio inline de México sigue en `referencias.csv` y se expone como oferta oficial, en lugar de migrarlo a `precios.csv`, para no tocar la regresión de la 036. La tienda de México tenía 102 productos y el corpus solo 55 fichas: `scripts/ampliar_catalogo_mx.py` suma 46 con el mismo `parse_mx_product` |
 | 2026-11-19 | Monitoreo del agente con LangSmith **entregado** (spec 038): traza raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo solo en desarrollo y evaluación | Diagnosticar una respuesta exigía reproducirla a mano sobre logs JSON dispersos. La traza se envía a LangSmith desde `infrastructure/monitoring.py`, con lista blanca de metadatos en producción (sin pregunta, respuesta ni fragmentos) y cliente perezoso: sin `MONITORING_ENABLED` no se importa el SDK ni sale un byte, `LANGSMITH_TRACING`/`LANGCHAIN_TRACING_V2` se fuerzan a `false` al arrancar y cualquier fallo del servicio queda en los logs sin tocar la respuesta, la persistencia ni la cuota. El muestreo de 0.2 mantiene el plan de 5.000 trazas/mes. Cerrada como entregada el 2026-11-19 con la evidencia de SC-001…SC-005 en `docs/evidence/m2/monitoring.md` (muestreo 0,2, producción solo metadatos) |
 | 2026-11-20 | Índice Qdrant: un cambio que no altera el texto vectorizado reescribe el payload y **no** reembebe (issue #185) | El ID del punto cubre título, sección, ficha y texto, que es todo lo que se vectoriza; cambiar la URL, la procedencia o el tipo de fuente marcaba el documento como cambiado y re-embebía todos sus fragmentos. En el corpus extendido (77.588 puntos) eso costaba unas 28 horas de CPU por pasada en el VPS compartido, que además compite con Odoo y nginx. `IndexReport.updated` cuenta los puntos actualizados sin embedding y el evento `qdrant.document_payload_updated` lo deja visible; un cambio real de texto sigue re-embebiendo solo ese documento. Cada fragmento registra en el payload el modelo de embeddings que produjo su vector y un índice con puntos de otro modelo se detiene antes de escribir, pidiendo `--recreate`: mezclar modelos recupera mal aunque las dimensiones coincidan; los índices anteriores al registro adoptan el modelo configurado una sola vez, sin reembeber |
+| 2026-11-21 | Stack reproducible en Docker con perfiles: `full` en local y `bootstrap` en producción | Clonar el repo en otra máquina exigía `uv`, Ollama y cinco comandos manuales (migraciones, `migrate-gold`, `index-qdrant`, `ollama pull`) antes de la primera pregunta. `compose.yml` conserva `db` y `qdrant` sin perfil para el flujo nativo y el perfil `full` añade la app en la etapa `dev` (recarga y directorios montados), Ollama y un `bootstrap` de una sola ejecución; `make up` es un solo comando. En producción el perfil `bootstrap` automatiza lo que el runbook hacía a mano y copia `./data` al volumen solo cuando no hay Gold, para no pisar capturas. Sin perfil nada cambia: `make db`, `make qdrant`, CI y `deploy.sh` siguen igual. Dockerizar `uv`/Ruff/pytest/Node queda fuera a propósito: el ciclo de desarrollo es más rápido en el host |
 
 ## 10. Notas y tareas pendientes
 
