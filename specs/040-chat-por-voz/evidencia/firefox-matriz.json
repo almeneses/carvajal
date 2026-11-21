@@ -1,0 +1,36 @@
+{
+  "navegador": "Firefox 159.0 (Playwright)",
+  "version": "159.0",
+  "capacidades": {
+    "stt": false,
+    "sintesis": true,
+    "segura": true,
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0",
+    "voces": 0
+  },
+  "interfaz": {
+    "dictarVisible": false,
+    "manosLibresVisible": false,
+    "notaVisible": true,
+    "notaTexto": "Tu navegador no permite dictar por voz. Puedes escribir tu pregunta."
+  },
+  "envio": {
+    "burbujas": 2,
+    "borrador": ""
+  },
+  "peticionesAudio": [],
+  "axe": {
+    "violaciones": []
+  },
+  "comprobaciones": {
+    "Firefox no expone STT": true,
+    "Firefox no expone voces TTS": true,
+    "el dictado no se ofrece": true,
+    "manos libres no se ofrece": true,
+    "se explica la limitación": true,
+    "el chat escrito sigue funcionando": true,
+    "axe sin violaciones nuevas": true,
+    "sin peticiones de audio": true
+  },
+  "fallos": []
+}

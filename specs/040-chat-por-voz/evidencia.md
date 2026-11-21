@@ -8,11 +8,33 @@ Fecha: 2026-11-20. Validación en **localhost** sobre Chrome **157.0.8103.78**
 
 | Criterio | Estado | Resultado |
 |---|---|---|
-| **SC-001** paridad de ruta/campos ≥90 % con 20 preguntas y 2 voces | **CUMPLE en Chrome 157/Linux; matriz pendiente** | **36/40 = 90,0 %** (voz 1: 19/20; voz 2: 17/20). |
-| **SC-002** texto visible <3 s tras hablar (p95) | **CUMPLE** | **40 intentos, 0 fallos, p95 = 231 ms** (voz 1: 108 ms; voz 2: 231 ms). |
-| **SC-003** lectura <2 s tras pulsar «Escuchar» (p95) | **CUMPLE** | **40/40, p95 = 36 ms** (mín. 30, máx. 37). |
+| **SC-001** paridad de ruta/campos ≥90 % con 20 preguntas y 2 voces | **CUMPLE en Chrome 157/Linux** (Firefox sin STT: no aplica) | **36/40 = 90,0 %** (voz 1: 19/20; voz 2: 17/20). |
+| **SC-002** texto visible <3 s tras hablar (p95) | **CUMPLE en Chrome 157/Linux** (Firefox sin STT: no aplica) | **40 intentos, 0 fallos, p95 = 231 ms** (voz 1: 108 ms; voz 2: 231 ms). |
+| **SC-003** lectura <2 s tras pulsar «Escuchar» (p95) | **CUMPLE en Chrome 157/Linux** (Firefox sin voces TTS: no medible) | **40/40, p95 = 36 ms** (mín. 30, máx. 37). |
 | **SC-004** 0 archivos de audio persistidos | **CUMPLE** | Sin peticiones de audio; POST solo con texto, CSRF e IDs; `localStorage` solo con preferencias booleanas; sin IndexedDB; esquema sin audio. |
 | **SC-005** sin errores nuevos de accesibilidad | **CUMPLE** | axe 0/0 (antes y después); teclado; Orca anuncia los controles. |
+
+## Matriz de navegadores
+
+Alcance acordado el **2026-11-20**: Chrome y Firefox de escritorio. El resto de
+navegadores queda fuera por ahora. La matriz completa está en
+[`docs/pruebas-040.md`](../../docs/pruebas-040.md).
+
+| Navegador | Versión | STT | TTS | Qué se verificó |
+|---|---|---|---|---|
+| Chrome Linux | 157.0.8103.78 | sí | sí (`es-419`) | SC-001 36/40; SC-002 p95 231 ms; SC-003 p95 36 ms; SC-004; SC-005 |
+| Firefox Linux | 159.0 | **no** | sin voces (0 en headless y headed) | FR-009; axe 0; sin peticiones de audio |
+| Edge, Safari macOS/iOS y Chrome Android | — | — | — | fuera de alcance por ahora |
+
+La fila Firefox se verificó con
+[`tests/browser/chat_voz_040/verificar_firefox.cjs`](../../tests/browser/chat_voz_040/verificar_firefox.cjs)
+en localhost; la salida cruda está en
+[`firefox-matriz.json`](evidencia/firefox-matriz.json). Firefox no expone
+`SpeechRecognition` ni voces TTS en este entorno: 0 voces tanto en headless
+([`firefox-matriz.json`](evidencia/firefox-matriz.json)) como en modo gráfico
+([`firefox-voces.json`](evidencia/firefox-voces.json)). Por eso SC-001 y SC-002
+**no aplican** y SC-003 **no es medible** allí. La fila cubre FR-009. T022 y
+T024 se cierran con este alcance.
 
 ## SC-001 y SC-002 · dictado real
 
@@ -112,10 +134,12 @@ estas mediciones.
 
 ## Condiciones y límites
 
-- Medición en **un** navegador (Chrome 157/Linux) y localhost; la matriz de
-  otros navegadores sigue en [`docs/pruebas-040.md`](../../docs/pruebas-040.md).
-  Por eso T022 y T024 quedan abiertas: los criterios se cumplen en el navegador
-  medido, no en toda la matriz.
+- SC-001–SC-003 están medidos de forma completa en **Chrome 157/Linux** con
+  micrófono y dos voces. **Firefox 159/Linux** se verificó para FR-009: no
+  expone STT ni voces TTS, así que SC-001 y SC-002 no aplican y SC-003 no es
+  medible allí. Alcance acordado: Chrome y Firefox de escritorio; Edge, Safari y
+  Android quedan fuera por ahora. La matriz está en
+  [`docs/pruebas-040.md`](../../docs/pruebas-040.md).
 - La voz de lectura es `espeak-ng` local; la latencia de SC-003 es real para esa
   voz, no para voces neuronales o en la nube.
 - SC-001 está justo en el umbral del 90 %; los fallos se concentran en siglas
@@ -125,3 +149,20 @@ estas mediciones.
   reconocimiento; la aplicación no lo recibe.
 - El despliegue por HTTP/IP no habilita el micrófono: HTTPS sigue siendo
   requisito para anunciar dictado en producción.
+
+## Verificación final (2026-11-20)
+
+Ejecutado en la rama de cierre, con Node **24.16.0**:
+
+```text
+$ make check
+1643 passed, 46 deselected, 2 warnings
+
+$ node --test tests/js/test_chat_voice.cjs
+ℹ tests 68
+ℹ pass 68
+ℹ fail 0
+```
+
+`make check` incluye Ruff, el chequeo de tipos y la suite de Python; `Calidad`
+ejecuta además la suite JS.

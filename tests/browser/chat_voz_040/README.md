@@ -59,6 +59,34 @@ uv run python tests/browser/chat_voz_040/analizar_paridad.py /tmp/voz1.jsonl /tm
 Requiere Chrome con reconocimiento en español y `speech-dispatcher` con voz
 `es-*`. No se ejecuta en CI.
 
+### Fila Firefox (FR-009)
+
+Firefox no implementa `SpeechRecognition`. Con el servidor del arnés levantado:
+
+```bash
+NODE_PATH=/tmp/cv040/node_modules AXE_PATH=/tmp/cv040/node_modules/axe-core/axe.min.js \
+  node tests/browser/chat_voz_040/verificar_firefox.cjs
+```
+
+Comprueba que el dictado y manos libres no se ofrecen, que la nota explica la
+limitación, que el chat escrito sigue operativo, que axe no reporta violaciones y
+que no hay peticiones de audio. `AXE_PATH` es obligatorio: sin él el script sale
+con código 2 en lugar de contar la auditoría como fallo. La salida se guarda en
+[`specs/040-chat-por-voz/evidencia/firefox-matriz.json`](../../../specs/040-chat-por-voz/evidencia/firefox-matriz.json).
+No mide SC-001 ni SC-002 (sin STT no aplican) ni sustituye SC-003 con voz real.
+
+Para comprobar si Firefox de escritorio expone voces del sistema (condición para
+medir SC-003), ejecuta en modo gráfico y guarda la salida:
+
+```bash
+NODE_PATH=/tmp/cv040/node_modules \
+  node tests/browser/chat_voz_040/medir_voces_firefox.cjs
+```
+
+El resultado de este entorno está en
+[`evidencia/firefox-voces.json`](../../../specs/040-chat-por-voz/evidencia/firefox-voces.json):
+`sintesis: true`, `voces: 0`, `sc003Medible: false`.
+
 ## Límites
 
 - `speechSynthesis` y `SpeechRecognition` son dobles: miden el comportamiento
