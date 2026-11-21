@@ -1,11 +1,16 @@
-{% from "_fuentes.html" import fuente %}
 {% if error %}
 <p class="aviso" role="alert">{{ error }}</p>
 {% endif %}
 {% if messages %}
 <ol class="hilo">
   {% for message in messages %}
-  <li class="turno turno-{{ message.role }}">
+  {% set fuentes = message.sources or [] %}
+  {% set titulos = [] %}
+  {% for fuente in fuentes %}
+    {% set _ = titulos.append(fuente.title or fuente.slug or "") %}
+  {% endfor %}
+  <li class="turno turno-{{ message.role }}"
+      {% if titulos %}data-voz-fuentes='{{ titulos | tojson }}'{% endif %}>
     <span class="turno-avatar" aria-hidden="true"></span>
     <p class="turno-rol">
       {{ "Tú" if message.role == "user" else "Carva" }}
@@ -14,7 +19,11 @@
       {% endif %}
     </p>
     <div class="burbuja">
-      <div class="texto texto-formateado">{{ message.content | respuesta((message.sources or []) | length) }}</div>
+      {% if message.role == "user" %}
+      <div class="texto">{{ message.content }}</div>
+      {% else %}
+      <div class="texto texto-formateado">{{ message.content | respuesta(fuentes | length) }}</div>
+      {% endif %}
     </div>
     {% if message.role != "user" %}
     <div class="turno-voz" data-voz-turno>
@@ -44,21 +53,17 @@
       >Detener</button>
     </div>
     {% endif %}
-    {% if message.sources %}
-    <details class="citas">
-      <summary>Fuentes citadas <span class="citas-conteo">({{ message.sources | length }})</span></summary>
-      <ol class="fuentes">
-        {% for source in message.sources %}
-        {{ fuente(source, loop.index) }}
-        {% endfor %}
-      </ol>
-    </details>
-    {% endif %}
   </li>
   {% endfor %}
 </ol>
 {% elif not error %}
-<p class="vacio">
-  Todavía no hay mensajes en esta conversación. Escribe tu primera pregunta para empezar.
-</p>
+<div class="vacio chat-bienvenida">
+  <h2>Hola, soy Carva</h2>
+  <p>Todavía no hay mensajes. Pregúntame por Carvajal o por sus empaques.</p>
+  <div class="chat-sugerencias" data-chat-sugerencias hidden>
+    <button type="button" class="boton secundario" data-chat-sugerencia>¿Cómo nació Carvajal?</button>
+    <button type="button" class="boton secundario" data-chat-sugerencia>¿Qué vasos sirven para café?</button>
+    <button type="button" class="boton secundario" data-chat-sugerencia>¿Dónde comprar empaques en Colombia?</button>
+  </div>
+</div>
 {% endif %}

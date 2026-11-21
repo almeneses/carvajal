@@ -37,6 +37,9 @@ Bronze (`data/raw/`) y silver (`data/processed/`) se regeneran y no se versionan
 Toda afirmación se sustenta en el corpus y se cita. El asistente debe distinguir fuente
 oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
 
+- Las referencias se conservan en la respuesta almacenada y en la API. La vista del
+  chat no muestra el bloque de fuentes ni los marcadores numéricos; la voz usa los
+  títulos como metadatos y no se reduce el contexto recuperado.
 - Los prompts prohíben explícitamente inventar datos y usar conocimiento externo.
 - La temperatura es `0`.
 - Cada variante de prompt se mide antes de adoptarla (`docs/prompts.md`,

@@ -140,20 +140,18 @@ def test_render_answer_formatea_titulos_negritas_y_cursivas() -> None:
     assert "<em>cursiva</em>" in html
 
 
-def test_render_answer_convierte_referencias_en_enlaces_de_fuente() -> None:
+def test_render_answer_oculta_referencias_validas_sin_estropear_la_puntuacion() -> None:
     # Arrange
-    text = "El dato aparece en la historia [1] y en prensa [2]."
+    text = "El dato aparece en **la historia [1]** y en prensa [2]."
 
     # Act
     html = str(render_answer(text, 2))
 
     # Assert
-    assert 'class="cita-inline" href="#cita-1"' in html
-    assert 'class="cita-inline" href="#cita-2"' in html
-    assert 'href="#cita-3"' not in html
+    assert html == "<p>El dato aparece en <strong>la historia</strong> y en prensa.</p>"
 
 
-def test_render_answer_no_enlaza_referencias_fuera_de_rango() -> None:
+def test_render_answer_conserva_numeros_entre_corchetes_ajenos_a_las_fuentes() -> None:
     # Arrange
     text = "Una referencia inventada [5]."
 
@@ -217,16 +215,29 @@ def test_render_answer_elimina_enlaces_javascript() -> None:
     assert "Clic" in html
 
 
-def test_render_answer_no_enlaza_citas_dentro_de_codigo() -> None:
+def test_render_answer_preserva_literales_dentro_de_codigo_y_enlaces() -> None:
     # Arrange
-    text = "El código `[1]` no es una cita, pero [1] sí."
+    text = "El código `[1]` y el [1](https://example.com) no son citas [1]."
 
     # Act
     html = str(render_answer(text, 1))
 
     # Assert
     assert "<code>[1]</code>" in html
-    assert html.count('href="#cita-1"') == 1
+    assert 'href="https://example.com" rel="noopener noreferrer">1</a>' in html
+    assert html.endswith(" no son citas.</p>")
+
+
+def test_render_answer_no_quita_corchetes_de_una_url_suelta() -> None:
+    # Arrange
+    text = "Consulta https://example.com/?ref=[1]&lang=es [1]."
+
+    # Act
+    html = render_answer(text, source_count=1)
+
+    # Assert
+    assert 'href="https://example.com/?ref=[1]&amp;lang=es"' in html
+    assert html.endswith("</a>.</p>")
 
 
 def test_render_answer_no_anida_enlaces_markdown_y_urls() -> None:
