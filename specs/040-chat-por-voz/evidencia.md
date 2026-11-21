@@ -14,6 +14,28 @@ Fecha: 2026-11-20. Validación en **localhost** sobre Chrome **157.0.8103.78**
 | **SC-004** 0 archivos de audio persistidos | **CUMPLE** | Sin peticiones de audio; POST solo con texto, CSRF e IDs; `localStorage` solo con preferencias booleanas; sin IndexedDB; esquema sin audio. |
 | **SC-005** sin errores nuevos de accesibilidad | **CUMPLE** | axe 0/0 (antes y después); teclado; Orca anuncia los controles. |
 
+## Matriz de navegadores
+
+Estado al 2026-11-21. La matriz completa está en
+[`docs/pruebas-040.md`](../../docs/pruebas-040.md).
+
+| Navegador | Versión | STT | TTS | Qué se verificó |
+|---|---|---|---|---|
+| Chrome Linux | 157.0.8103.78 | sí | sí (`es-419`) | SC-001 36/40; SC-002 p95 231 ms; SC-003 p95 36 ms; SC-004; SC-005 |
+| Firefox Linux | 159.0 | **no** | sí, 0 voces en headless | FR-009; axe 0; sin peticiones de audio |
+| Edge escritorio | — | — | — | no disponible en el entorno |
+| Safari macOS / iOS | — | — | — | no disponible en el entorno |
+| Chrome Android | — | — | — | no disponible en el entorno |
+
+La fila Firefox se verificó con
+[`tests/browser/chat_voz_040/verificar_firefox.cjs`](../../tests/browser/chat_voz_040/verificar_firefox.cjs)
+en localhost; la salida cruda está en
+[`firefox-matriz.json`](evidencia/firefox-matriz.json). Firefox no expone
+`SpeechRecognition`, así que SC-001 y SC-002 **no aplican** en ese navegador, y
+SC-003 no se puede medir sin voces instaladas (0 en headless). Las filas de
+Edge, Safari y Android siguen pendientes: requieren esos navegadores y, para
+SC-001/SC-002, dos personas dictando. T022 y T024 continúan abiertas.
+
 ## SC-001 y SC-002 · dictado real
 
 Protocolo de [quickstart](quickstart.md): 20 preguntas de
@@ -112,8 +134,10 @@ estas mediciones.
 
 ## Condiciones y límites
 
-- Medición en **un** navegador (Chrome 157/Linux) y localhost; la matriz de
-  otros navegadores sigue en [`docs/pruebas-040.md`](../../docs/pruebas-040.md).
+- SC-001–SC-003 están medidos de forma completa solo en **Chrome 157/Linux**
+  con micrófono y dos voces; Firefox se verificó para FR-009 y US2 de contrato,
+  sin STT ni voces TTS disponibles. La matriz de otros navegadores sigue en
+  [`docs/pruebas-040.md`](../../docs/pruebas-040.md).
   Por eso T022 y T024 quedan abiertas: los criterios se cumplen en el navegador
   medido, no en toda la matriz.
 - La voz de lectura es `espeak-ng` local; la latencia de SC-003 es real para esa

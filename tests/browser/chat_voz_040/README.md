@@ -59,6 +59,21 @@ uv run python tests/browser/chat_voz_040/analizar_paridad.py /tmp/voz1.jsonl /tm
 Requiere Chrome con reconocimiento en español y `speech-dispatcher` con voz
 `es-*`. No se ejecuta en CI.
 
+### Fila Firefox (FR-009)
+
+Firefox no implementa `SpeechRecognition`. Con el servidor del arnés levantado:
+
+```bash
+NODE_PATH=/tmp/cv040/node_modules AXE_PATH=/tmp/cv040/node_modules/axe-core/axe.min.js \
+  node tests/browser/chat_voz_040/verificar_firefox.cjs
+```
+
+Comprueba que el dictado y manos libres no se ofrecen, que la nota explica la
+limitación, que el chat escrito sigue operativo, que axe no reporta violaciones y
+que no hay peticiones de audio. La salida se guarda en
+[`specs/040-chat-por-voz/evidencia/firefox-matriz.json`](../../../specs/040-chat-por-voz/evidencia/firefox-matriz.json).
+No mide SC-001 ni SC-002 (sin STT no aplican) ni sustituye SC-003 con voz real.
+
 ## Límites
 
 - `speechSynthesis` y `SpeechRecognition` son dobles: miden el comportamiento

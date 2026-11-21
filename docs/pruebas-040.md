@@ -35,6 +35,24 @@ partir de preferencias apagadas).
 | Chrome Android | estable de la fecha | HTTPS | sí | sí | US1, US2 en móvil |
 | Firefox escritorio | estable de la fecha | `http://localhost:8000` | **no** | sí | FR-009: sin micrófono, se explica y se escribe; US2 completa |
 
+### Estado de la matriz (2026-11-21)
+
+| Fila | Estado | Evidencia |
+|---|---|---|
+| Chrome escritorio en localhost | **medida** | SC-001 36/40; SC-002 p95 231 ms; SC-003 p95 36 ms; SC-004/SC-005 en [`evidencia.md`](../specs/040-chat-por-voz/evidencia.md). |
+| Firefox escritorio en localhost | **medida para FR-009 y contrato de US2** | `verificar_firefox.cjs`: sin STT, nota visible, dictado y manos libres ocultos, chat escrito operativo, axe 0, sin peticiones de audio. SC-001/SC-002 no aplican; SC-003 no medible sin voces. |
+| Chrome por HTTPS publicado | pendiente | requiere el despliegue con TLS. |
+| Chrome por IP en HTTP | pendiente | validar que no se ofrece dictado y que el chat escrito sigue. |
+| Edge, Safari macOS/iOS y Chrome Android | pendiente | no disponibles en este entorno. |
+
+Para la fila Firefox, con el servidor del arnés en `:8123`:
+
+```bash
+NODE_PATH=/tmp/cv040/node_modules \
+  node tests/browser/chat_voz_040/verificar_firefox.cjs
+```
+
+
 > Si un navegador no ofrece reinicio de manos libres tras la síntesis, se
 > registra como limitación de ese navegador; no se aprueba el escenario.
 
