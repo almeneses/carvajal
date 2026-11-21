@@ -75,6 +75,18 @@ con código 2 en lugar de contar la auditoría como fallo. La salida se guarda e
 [`specs/040-chat-por-voz/evidencia/firefox-matriz.json`](../../../specs/040-chat-por-voz/evidencia/firefox-matriz.json).
 No mide SC-001 ni SC-002 (sin STT no aplican) ni sustituye SC-003 con voz real.
 
+Para comprobar si Firefox de escritorio expone voces del sistema (condición para
+medir SC-003), ejecuta en modo gráfico y guarda la salida:
+
+```bash
+NODE_PATH=/tmp/cv040/node_modules \
+  node tests/browser/chat_voz_040/medir_voces_firefox.cjs
+```
+
+El resultado de este entorno está en
+[`evidencia/firefox-voces.json`](../../../specs/040-chat-por-voz/evidencia/firefox-voces.json):
+`sintesis: true`, `voces: 0`, `sc003Medible: false`.
+
 ## Límites
 
 - `speechSynthesis` y `SpeechRecognition` son dobles: miden el comportamiento

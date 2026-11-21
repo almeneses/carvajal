@@ -23,16 +23,18 @@ navegadores queda fuera por ahora. La matriz completa está en
 | Navegador | Versión | STT | TTS | Qué se verificó |
 |---|---|---|---|---|
 | Chrome Linux | 157.0.8103.78 | sí | sí (`es-419`) | SC-001 36/40; SC-002 p95 231 ms; SC-003 p95 36 ms; SC-004; SC-005 |
-| Firefox Linux | 159.0 | **no** | **no** (0 voces en headless) | FR-009; axe 0; sin peticiones de audio |
+| Firefox Linux | 159.0 | **no** | sin voces (0 en headless y headed) | FR-009; axe 0; sin peticiones de audio |
 | Edge, Safari macOS/iOS y Chrome Android | — | — | — | fuera de alcance por ahora |
 
 La fila Firefox se verificó con
 [`tests/browser/chat_voz_040/verificar_firefox.cjs`](../../tests/browser/chat_voz_040/verificar_firefox.cjs)
 en localhost; la salida cruda está en
 [`firefox-matriz.json`](evidencia/firefox-matriz.json). Firefox no expone
-`SpeechRecognition` ni voces TTS en este entorno (0 en headless): SC-001 y
-SC-002 **no aplican** y SC-003 **no es medible** allí. La fila cubre FR-009.
-T022 y T024 se cierran con este alcance.
+`SpeechRecognition` ni voces TTS en este entorno: 0 voces tanto en headless
+([`firefox-matriz.json`](evidencia/firefox-matriz.json)) como en modo gráfico
+([`firefox-voces.json`](evidencia/firefox-voces.json)). Por eso SC-001 y SC-002
+**no aplican** y SC-003 **no es medible** allí. La fila cubre FR-009. T022 y
+T024 se cierran con este alcance.
 
 ## SC-001 y SC-002 · dictado real
 

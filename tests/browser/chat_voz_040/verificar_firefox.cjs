@@ -58,7 +58,7 @@ async function auditarAxe(navegador) {
 
   const capacidades = await pagina.evaluate(() => ({
     stt: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
-    tts: Boolean(window.speechSynthesis),
+    sintesis: Boolean(window.speechSynthesis),
     segura: window.isSecureContext,
     userAgent: navigator.userAgent,
     voces: window.speechSynthesis ? window.speechSynthesis.getVoices().length : 0,
@@ -101,6 +101,7 @@ async function auditarAxe(navegador) {
 
   const comprobaciones = {
     "Firefox no expone STT": capacidades.stt === false,
+    "Firefox no expone voces TTS": capacidades.voces === 0,
     "el dictado no se ofrece": interfaz.dictarVisible === false,
     "manos libres no se ofrece": interfaz.manosLibresVisible === false,
     "se explica la limitación": interfaz.notaVisible && /no permite dictar/i.test(interfaz.notaTexto || ""),

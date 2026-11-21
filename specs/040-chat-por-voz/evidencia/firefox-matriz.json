@@ -3,7 +3,7 @@
   "version": "159.0",
   "capacidades": {
     "stt": false,
-    "tts": true,
+    "sintesis": true,
     "segura": true,
     "userAgent": "Mozilla/5.0 (X11; Linux x86_64; rv:159.0) Gecko/20100101 Firefox/159.0",
     "voces": 0
@@ -24,6 +24,7 @@
   },
   "comprobaciones": {
     "Firefox no expone STT": true,
+    "Firefox no expone voces TTS": true,
     "el dictado no se ofrece": true,
     "manos libres no se ofrece": true,
     "se explica la limitación": true,

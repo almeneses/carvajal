@@ -30,7 +30,7 @@ partir de preferencias apagadas).
 | Navegador | Versión | Contexto | STT | TTS | Qué se valida |
 |---|---|---|---|---|---|
 | Chrome escritorio | 157.0.8103.78 | `http://localhost:8000` | sí (servicio del navegador, requiere red) | sí, voces del sistema | US1, US2, US3, SC-001–SC-005 |
-| Firefox escritorio | 159.0 | `http://localhost:8000` | **no** | **no** (0 voces en headless) | FR-009: sin micrófono, se explica y se escribe |
+| Firefox escritorio | 159.0 | `http://localhost:8000` | **no** | sin voces (0) | FR-009: sin micrófono, se explica y se escribe |
 
 ### Estado de la matriz (2026-11-20)
 
