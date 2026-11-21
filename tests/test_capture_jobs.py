@@ -161,3 +161,88 @@ def test_stream_async_corta_si_el_cliente_se_desconecta() -> None:
     # Assert
     assert eventos == []
     list(jobs.stream(job.id))
+
+
+def test_los_jobs_terminados_se_podan_cuando_vence_el_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Caracterización: pasado el TTL, el job deja de estar accesible."""
+
+    # Arrange
+    from apps.api import capture_jobs as modulo
+
+    monkeypatch.setattr(modulo, "_JOB_TTL_SECONDS", -1.0)
+    jobs = CaptureJobs(lambda request, on_event: OUTCOME)
+    primero = jobs.start(CaptureRequest(limit=1))
+    list(jobs.stream(primero.id))
+
+    # Act
+    segundo = jobs.start(CaptureRequest(limit=1))
+
+    # Assert
+    assert jobs.get(primero.id) is None
+    list(jobs.stream(segundo.id))
+
+
+def test_el_evento_final_done_lleva_el_resultado_completo() -> None:
+    """Caracterización: el evento ``done`` publica el mismo resumen que el estado."""
+
+    # Arrange
+    import json
+
+    jobs = CaptureJobs(lambda request, on_event: OUTCOME)
+
+    # Act
+    job = jobs.start(CaptureRequest(limit=1))
+    eventos = list(jobs.stream(job.id))
+
+    # Assert
+    final = next(evento for evento in eventos if evento.startswith("event: done"))
+    datos = json.loads(final.split("data: ", 1)[1])
+    assert datos["written"] == OUTCOME.written
+    assert datos["captured"] == list(OUTCOME.captured)
+    assert datos["documents"] == OUTCOME.documents
+    assert set(datos) == {
+        "requested",
+        "discovered",
+        "fetched",
+        "written",
+        "discarded",
+        "chars",
+        "documents",
+        "chunks",
+        "indexed",
+        "duration_seconds",
+        "errors",
+        "robots_denied",
+        "duplicates",
+        "captured",
+    }
+
+
+def test_las_etapas_se_emiten_antes_del_evento_final() -> None:
+    """Caracterización: el progreso conserva el orden etapa → cierre."""
+
+    # Arrange
+    def runner(
+        request: CaptureRequest,
+        on_event: Callable[[CaptureEvent], None],
+    ) -> CaptureOutcome:
+        on_event(CaptureEvent(stage="descubrir", detail="1 semilla"))
+        on_event(CaptureEvent(stage="indice", detail="1 documento"))
+        return OUTCOME
+
+    jobs = CaptureJobs(runner)
+
+    # Act
+    job = jobs.start(CaptureRequest(limit=1))
+    eventos = list(jobs.stream(job.id))
+
+    # Assert
+    nombres = [
+        linea.removeprefix("event: ")
+        for evento in eventos
+        for linea in evento.splitlines()
+        if linea.startswith("event: ")
+    ]
+    assert nombres == ["stage", "stage", "done"]

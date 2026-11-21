@@ -293,3 +293,118 @@ def test_el_limite_por_ip_devuelve_429_con_retry_after() -> None:
     assert segundo.status_code == 429
     assert "límite de capturas" in segundo.text
     assert int(segundo.headers["Retry-After"]) >= 1
+
+
+def test_el_estado_conserva_el_contrato_json_y_no_expone_el_owner() -> None:
+    """Caracterización: claves exactas del estado y sin datos del dueño."""
+
+    # Arrange
+    client = _client(_runner_ok)
+    token = _token(client)
+    respuesta = client.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+    job_id = _job_id(respuesta.text)
+    client.get(f"/configuracion/captura/{job_id}/eventos")
+
+    # Act
+    estado = client.get(f"/configuracion/captura/{job_id}")
+
+    # Assert
+    assert estado.status_code == 200
+    datos = estado.json()
+    assert set(datos) == {"id", "status", "error", "outcome"}
+    assert datos["id"] == job_id
+    assert datos["status"] == "done"
+    assert datos["error"] == ""
+    assert "owner" not in estado.text and "127.0.0.1" not in estado.text
+
+
+def test_el_stream_conserva_el_contrato_sse() -> None:
+    """Caracterización: tipo de contenido, cabeceras y formato de los eventos."""
+
+    # Arrange
+    client = _client(_runner_ok)
+    token = _token(client)
+    respuesta = client.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+    job_id = _job_id(respuesta.text)
+
+    # Act
+    stream = client.get(f"/configuracion/captura/{job_id}/eventos")
+
+    # Assert
+    assert stream.status_code == 200
+    assert stream.headers["content-type"].startswith("text/event-stream")
+    assert stream.headers["cache-control"] == "no-store"
+    assert stream.headers["x-accel-buffering"] == "no"
+    for evento in ("stage", "done"):
+        assert f"event: {evento}\n" in stream.text
+    assert "data: {" in stream.text
+    assert stream.text.endswith("\n\n")
+
+
+def test_el_progreso_es_accesible_por_job_id_desde_otro_cliente() -> None:
+    """Caracterización: el job_id es la capacidad; no hace falta cookie ni sesión."""
+
+    # Arrange
+    app = create_app()
+    app.state.captures = CaptureJobs(_runner_ok)
+    app.state.ingest = lambda documents: IngestReport(files=len(documents))
+    primero = TestClient(app)
+    token = _token(primero)
+    respuesta = primero.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+    job_id = _job_id(respuesta.text)
+
+    # Act
+    otro = TestClient(app)
+    estado = otro.get(f"/configuracion/captura/{job_id}")
+    stream = otro.get(f"/configuracion/captura/{job_id}/eventos")
+
+    # Assert
+    assert estado.status_code == 200
+    assert estado.json()["status"] in {"pending", "running", "done"}
+    assert stream.status_code == 200
+    assert "event: done" in stream.text
+
+
+def test_un_job_inexistente_conserva_el_mensaje_actual() -> None:
+    """Caracterización: 404 con el mismo cuerpo en estado y en stream."""
+
+    # Arrange
+    client = _client(_runner_ok)
+
+    # Act
+    estado = client.get("/configuracion/captura/no-existe")
+    stream = client.get("/configuracion/captura/no-existe/eventos")
+
+    # Assert
+    mensaje = {"error": "La captura no existe o expiró."}
+    assert estado.status_code == 404
+    assert estado.json() == mensaje
+    assert stream.status_code == 404
+    assert stream.json() == mensaje
