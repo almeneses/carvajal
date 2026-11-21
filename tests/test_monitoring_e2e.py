@@ -313,10 +313,6 @@ def test_servicio_caido_no_retrasa_el_primer_fragmento(ajustes: Settings) -> Non
     from carvajal.adapters.storage.database import build_session_factory
     from carvajal.application.ask import Source
 
-    class Embedder:
-        def embed(self, text: str) -> list[float]:
-            return [0.0] * 8
-
     class LLM:
         def stream(self, *, system: str, prompt: str) -> Iterator[str]:
             yield "Carvajal fue fundada en 1904."
@@ -361,7 +357,6 @@ def test_servicio_caido_no_retrasa_el_primer_fragmento(ajustes: Settings) -> Non
         )
         chat = ChatService(
             build_session_factory(motor_escenario),
-            Embedder(),
             LLM(),
             agent=Agente(),
             tracer=build_tracer(ajustes_medicion),

@@ -41,13 +41,6 @@ SOURCE = Source(
 )
 
 
-class EmbedderFalso:
-    """El servicio no usa el embedder en estas pruebas."""
-
-    def embed(self, text: str) -> list[float]:
-        return [0.0] * 8
-
-
 class LLMFalso:
     """LLM que emite dos fragmentos y registra las llamadas."""
 
@@ -242,7 +235,6 @@ def servicio(
 ) -> ChatService:
     return ChatService(
         build_session_factory(engine),
-        EmbedderFalso(),
         llm or LLMFalso(),
         agent=agente,
         tracer=tracer,

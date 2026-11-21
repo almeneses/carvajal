@@ -32,7 +32,7 @@ from carvajal.adapters.storage.chat import (
 )
 from carvajal.agent.state import Turn
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
-from carvajal.application.ports import Embedder, LLMProvider
+from carvajal.application.ports import LLMProvider
 from carvajal.infrastructure.monitoring import TurnTracer, build_tracer, thread_hash
 from carvajal.infrastructure.settings import Settings
 
@@ -111,7 +111,6 @@ class ChatService:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
-        embedder: Embedder,
         llm: LLMProvider,
         agent: AgentRunner | None = None,
         *,
@@ -119,7 +118,6 @@ class ChatService:
         settings: Settings | None = None,
     ) -> None:
         self._session_factory = session_factory
-        self._embedder = embedder
         self._llm = llm
         self._agent = agent
         # El tracer y la configuración se resuelven en el primer turno: importar
@@ -605,15 +603,6 @@ def _milliseconds(started: float) -> int:
     return round((perf_counter() - started) * 1000)
 
 
-class _DeferredEmbedder:
-    """Embedder que resuelve el cliente real en la primera llamada a ``embed``."""
-
-    def embed(self, text: str) -> Sequence[float]:
-        from apps.api import runtime
-
-        return runtime.ask_components()[0].embed(text)
-
-
 class _DeferredLLM:
     """LLM que resuelve el cliente real en la primera generación."""
 
@@ -634,4 +623,4 @@ def default_chat_service() -> ChatService:
 
     from apps.api import runtime
 
-    return ChatService(runtime.session_factory(), _DeferredEmbedder(), _DeferredLLM())
+    return ChatService(runtime.session_factory(), _DeferredLLM())

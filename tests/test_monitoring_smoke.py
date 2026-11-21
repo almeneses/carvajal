@@ -31,11 +31,6 @@ pytestmark = pytest.mark.smoke
 PREGUNTA = "¿Ingresos de Carvajal en 2025?"
 
 
-class EmbedderFalso:
-    def embed(self, text: str) -> list[float]:
-        return [0.0] * 8
-
-
 class LLMFalso:
     def stream(self, *, system: str, prompt: str) -> Iterator[str]:
         yield "Carvajal reportó ingresos. [1]"
@@ -117,7 +112,6 @@ def app(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, ClienteFa
     )
     chat = ChatService(
         build_session_factory(motor),
-        EmbedderFalso(),
         LLMFalso(),
         agent=AgenteFalso(),
         tracer=build_tracer(ajustes, client=cliente, random_fn=lambda: 0.0),

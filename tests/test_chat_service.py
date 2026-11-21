@@ -30,13 +30,6 @@ SOURCE = Source(
 )
 
 
-class FakeEmbedder:
-    """Embedder mínimo; el servicio no lo usa directamente en estas pruebas."""
-
-    def embed(self, text: str) -> list[float]:
-        return [0.0] * 768
-
-
 class FakeLLM:
     """LLM que no debería invocarse sin contexto."""
 
@@ -109,9 +102,7 @@ def _delete_owner(engine: Engine, owner_key: str) -> None:
 
 def test_servicio_persiste_usuario_y_asistente_al_terminar_bien(engine: Engine) -> None:
     # Arrange
-    service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
-    )
+    service = ChatService(build_session_factory(engine), FakeLLM(), agent=no_context_agent())
     owner_key = "servicio-ok"
 
     try:
@@ -133,7 +124,7 @@ def test_servicio_persiste_usuario_y_asistente_al_terminar_bien(engine: Engine) 
 def test_stream_persiste_un_solo_turno_y_emite_trace(engine: Engine) -> None:
     # Arrange
     agent = no_context_agent()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=agent)
+    service = ChatService(build_session_factory(engine), FakeLLM(), agent=agent)
     owner_key = "stream-ok"
 
     try:
@@ -191,7 +182,7 @@ def rag_agent() -> FakeAgent:
 def test_stream_exitoso_emite_tokens_y_persiste_el_turno(engine: Engine) -> None:
     # Arrange
     llm = StreamingLLM()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=rag_agent())
+    service = ChatService(build_session_factory(engine), llm, agent=rag_agent())
     owner_key = "stream-tokens"
 
     try:
@@ -254,9 +245,7 @@ def test_stream_comercial_emite_las_tarjetas_antes_de_los_tokens(engine: Engine)
             products=resultado,
         )
     )
-    service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), StreamingLLM(), agent=agent
-    )
+    service = ChatService(build_session_factory(engine), StreamingLLM(), agent=agent)
     owner_key = "stream-tarjetas"
 
     try:
@@ -290,7 +279,7 @@ class FailingStreamLLM:
 def test_stream_falla_antes_del_primer_token_y_persiste_el_fallback(engine: Engine) -> None:
     # Arrange
     llm = FailingStreamLLM()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=rag_agent())
+    service = ChatService(build_session_factory(engine), llm, agent=rag_agent())
     owner_key = "stream-fallback"
 
     try:
@@ -323,9 +312,7 @@ class BrokenAfterTokenLLM:
 
 def test_stream_falla_tras_un_token_persiste_incompleto(engine: Engine) -> None:
     # Arrange
-    service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), BrokenAfterTokenLLM(), agent=rag_agent()
-    )
+    service = ChatService(build_session_factory(engine), BrokenAfterTokenLLM(), agent=rag_agent())
     owner_key = "stream-incompleto"
 
     try:
@@ -353,7 +340,6 @@ def test_servicio_no_crea_hilo_si_la_preparacion_falla(engine: Engine) -> None:
     # Arrange
     service = ChatService(
         build_session_factory(engine),
-        FakeEmbedder(),
         FakeLLM(),
         agent=FakeAgent(
             AgentTurn("rag", "", None, "", (), ()),
@@ -372,7 +358,7 @@ def test_reintento_con_el_mismo_turno_no_duplica_ni_vuelve_al_llm(engine: Engine
     # Arrange
     agent = rag_agent()
     llm = StreamingLLM()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=agent)
+    service = ChatService(build_session_factory(engine), llm, agent=agent)
     owner_key = "stream-idempotente"
 
     try:
@@ -394,9 +380,7 @@ def test_reintento_con_el_mismo_turno_no_duplica_ni_vuelve_al_llm(engine: Engine
 
 def test_un_hilo_ajeno_no_se_puede_usar(engine: Engine) -> None:
     # Arrange
-    service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
-    )
+    service = ChatService(build_session_factory(engine), FakeLLM(), agent=no_context_agent())
     dueno = "dueno-a"
     intruso = "dueno-b"
 
@@ -433,7 +417,7 @@ class ConnectionCheckingLLM:
 def test_el_stream_libera_la_conexion_antes_de_llamar_al_llm(engine: Engine) -> None:
     # Arrange
     llm = ConnectionCheckingLLM(engine)
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=rag_agent())
+    service = ChatService(build_session_factory(engine), llm, agent=rag_agent())
     owner_key = "stream-sin-transaccion"
 
     try:

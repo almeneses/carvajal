@@ -6,16 +6,15 @@ contrato observable del servicio de chat, del runner del agente y de la CLI
 histórica, de modo que la refactorización se demuestre como cambio sin
 comportamiento nuevo.
 
-La construcción de ``ChatService`` se adapta a la firma vigente con
-``inspect.signature``: así el mismo archivo pasa en ``origin/dev`` y en la rama
-de la 043 mientras el embedder está (o deja de estar) en el constructor.
+Las pruebas se escribieron y se ejecutaron verdes en ``origin/dev`` antes de la
+refactorización; en la rama solo cambia la construcción del servicio (sin el
+embedder retirado), no las aserciones de comportamiento.
 """
 
-import inspect
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from sqlalchemy import create_engine
@@ -126,21 +125,10 @@ def _ajustes() -> Settings:
     return Settings(_env_file=None, monitoring_enabled=False, langsmith_api_key="")
 
 
-class _EmbedderInerte:
-    """Embedder mínimo solo para la firma anterior de ``ChatService``."""
-
-    def embed(self, text: str) -> list[float]:
-        return [0.0] * 8
-
-
 def _nuevo_servicio(factory: Any, llm: Any, agent: Any) -> ChatService:
-    """Construye ``ChatService`` adaptándose a la firma vigente (transición 043)."""
+    """Construye ``ChatService`` con los dobles y la configuración determinista."""
 
-    constructor = cast(Any, ChatService)
-    parametros = inspect.signature(ChatService.__init__).parameters
-    if "embedder" in parametros:
-        return constructor(factory, _EmbedderInerte(), llm, agent=agent, settings=_ajustes())
-    return constructor(factory, llm, agent=agent, settings=_ajustes())
+    return ChatService(factory, llm, agent=agent, settings=_ajustes())
 
 
 @pytest.fixture()
