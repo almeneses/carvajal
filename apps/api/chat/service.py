@@ -605,17 +605,6 @@ def _milliseconds(started: float) -> int:
     return round((perf_counter() - started) * 1000)
 
 
-def _safe_rollback(session: Session | None) -> None:
-    """Revierte sin enmascarar el error original si la conexión ya no responde."""
-
-    if session is None:
-        return
-    try:
-        session.rollback()
-    except Exception:
-        logger.warning("chat.rollback_failed", exc_info=True)
-
-
 class _DeferredEmbedder:
     """Embedder que resuelve el cliente real en la primera llamada a ``embed``."""
 
