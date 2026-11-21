@@ -379,6 +379,36 @@ APP_IMAGE=ghcr.io/almeneses/carvajal-api:sha-<tag-anterior> \
 Recuerda: el rollback cambia la imagen, **no revierte migraciones**. Mantén
 migraciones compatibles hacia atrás.
 
+### Uvicorn con 3 workers (spec 047)
+
+El despliegue objetivo arranca **exactamente tres workers** de uvicorn. El
+servicio `app` de `compose.prod.yml` fija `UVICORN_WORKERS` con valor por
+defecto 3 y ejecuta `uvicorn --workers 3`; el `CMD` de la imagen conserva un
+worker para que un `docker run` aislado siga siendo predecible.
+
+El estado que antes vivía en memoria del proceso —jobs de captura, progreso,
+exclusión de una captura activa y cupo por IP— vive ahora en el PostgreSQL
+existente, así que cualquier worker puede servir el progreso y una sola captura
+se ejecuta globalmente. Si un worker muere a mitad de una captura, el job queda
+`interrupted`, el siguiente arranque o el siguiente envío recupera Gold →
+PostgreSQL → Qdrant con la sincronización idempotente y no se duplican
+documentos. No se reanuda la captura por URL.
+
+Volver a **un worker** (sin perder el estado persistido):
+
+```bash
+cd /opt/carvajal
+UVICORN_WORKERS=1 docker compose -f compose.prod.yml up -d app
+# o deja UVICORN_WORKERS=1 en el .env del servidor y recrea el servicio
+docker compose -f compose.prod.yml ps    # un solo proceso `uvicorn`
+docker compose -f compose.prod.yml logs -f --tail=50 app
+```
+
+El cambio no toca la base, ni Qdrant, ni el volumen `appdata`: los jobs ya
+terminados y el corpus siguen ahí. Una captura en vuelo puede quedar
+interrumpida durante la recreación; se detecta y se recupera como arriba. Para
+volver a 3, quita la variable (o pon `UVICORN_WORKERS=3`) y recrea `app`.
+
 No uses `docker compose down -v`: borra los volúmenes de Postgres, Qdrant y
 las cargas de `appdata`. Incluye `appdata` en el respaldo si quieres conservar
 los archivos Bronze/Silver/Gold originales, además del `pg_dump`.

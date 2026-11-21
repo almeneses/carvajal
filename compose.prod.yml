@@ -127,6 +127,24 @@ services:
       # clientes. Si añades nginx/Caddy en el host o en un contenedor, ajusta
       # esta variable a su IP o subred.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      # Despliegue objetivo con exactamente 3 workers de uvicorn (spec 047).
+      # Volver a 1 worker: UVICORN_WORKERS=1 y recrear el servicio `app`; el
+      # estado persistido (PostgreSQL, Qdrant y el volumen appdata) no se toca.
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-3}
+    # El CMD de la imagen arranca 1 worker; este comando es el del despliegue
+    # objetivo y fija 3 por defecto. El estado compartido de la captura vive en
+    # PostgreSQL (spec 047), no en memoria de cada worker.
+    command:
+      - uvicorn
+      - apps.api.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --no-access-log
+      - --proxy-headers
+      - --workers
+      - ${UVICORN_WORKERS:-3}
     ports:
       # Demo por IP: la app se publica directamente en 0.0.0.0:APP_PORT.
       # Para TLS con dominio, publica solo en 127.0.0.1 y pon el proxy delante.

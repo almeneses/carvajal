@@ -327,3 +327,24 @@ No se tocan `compose.prod.yml`, el `CMD` del Dockerfile, `apps/api/chat/`,
    tests/js/test_chat_voice.cjs`, `alembic upgrade head` y `alembic downgrade -1`.
 5. PR contra `dev` con evidencia, reversión y riesgos; `task-8` (tres workers) queda para
    el Lead.
+
+
+## Fase 047b — activación en el despliegue objetivo
+
+La coordinación se verificó con **tres procesos uvicorn reales** contra PostgreSQL y
+Qdrant locales, con base, colección y `GOLD_DIR` temporales. Solo después:
+
+- `compose.prod.yml` fija `UVICORN_WORKERS` con valor por defecto **3** y ejecuta
+  `uvicorn --workers ${UVICORN_WORKERS:-3}` en el servicio `app`. No se añaden servicios.
+- El `CMD` del `Dockerfile` conserva **1 worker**: un `docker run` aislado sigue siendo
+  predecible y el Compose es el único que activa los tres.
+- Reversión a 1: `UVICORN_WORKERS=1 docker compose -f compose.prod.yml up -d app`. El
+  estado persistido (PostgreSQL, Qdrant y el volumen `appdata`) no se toca; una captura en
+  vuelo puede quedar `interrupted` y se recupera sola.
+- `setup()` de checkpointer y Store se serializa con un advisory lock de PostgreSQL
+  (`apps/api/agent_runtime.py`): con tres workers la primera pregunta de cada proceso puede
+  coincidir y las migraciones de LangGraph no son idempotentes entre procesos.
+- Presupuesto medido en el ensayo: RSS por worker, total y conexiones a PostgreSQL con los
+  tres procesos; el ancho de pool no se cambia (lo comparten chat, FAQ, captura y CLI).
+- La evidencia completa queda en `evidencia-3-workers.md`; la prueba del Compose en
+  `tests/test_compose_workers_047.py`.

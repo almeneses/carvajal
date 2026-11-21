@@ -6,12 +6,14 @@ vitalidad. ``PostgresSaver`` y ``PostgresStore`` usan el Postgres existente;
 """
 
 import atexit
-from contextlib import ExitStack
+from collections.abc import Generator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Any
 
+import psycopg
 import structlog
 from sqlalchemy.engine import make_url
 
@@ -57,6 +59,26 @@ def _plain_postgres_url(url: str) -> str:
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
+# Clave fija del advisory lock que serializa las migraciones de LangGraph.
+# Con tres workers, cada proceso construye su runtime en la primera pregunta y
+# `setup()` no es idempotente ante dos procesos a la vez (ambos leerían la
+# misma versión y podrían insertar la misma migración). El lock vive en una
+# conexión aparte y dura lo que dura el setup; no se retiene después.
+_SETUP_LOCK_KEY = 0x63617276  # "carv"
+
+
+@contextmanager
+def _setup_lock(url: str) -> Generator[None]:
+    """Serializa el setup de checkpointer y Store entre workers."""
+
+    with psycopg.connect(url, autocommit=True) as connection:
+        connection.execute("SELECT pg_advisory_lock(%s)", (_SETUP_LOCK_KEY,))
+        try:
+            yield
+        finally:
+            connection.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_LOCK_KEY,))
+
+
 def _router(settings: Settings) -> Router:
     """Construye el enrutador configurado; si no se puede, el agente sigue con reglas."""
 
@@ -96,9 +118,12 @@ def _build(settings: Settings) -> AgentRuntime:
 
             url = _plain_postgres_url(settings.database_url)
             checkpointer = stack.enter_context(PostgresSaver.from_conn_string(url))
-            checkpointer.setup()
             store = stack.enter_context(PostgresStore.from_conn_string(url))
-            store.setup()
+            # Con varios workers el setup puede coincidir en el arranque: se
+            # serializa para que solo un proceso aplique las migraciones.
+            with _setup_lock(url):
+                checkpointer.setup()
+                store.setup()
         router = _router(settings)
         graph = build_agent(
             AgentDeps(

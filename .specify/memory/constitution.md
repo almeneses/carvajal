@@ -88,6 +88,10 @@ con `--admin`.
 - La spec 036 define el asistente comercial de empaques sobre la capa de catálogo, con una
   ruta `commercial` en el agente y un router intercambiable para evaluación comparativa;
   quedó implementada el 2026-11-18 y transfirió su SC-006 a la spec 041 (Jev cloud).
+- El despliegue objetivo pasa a **exactamente 3 workers** de uvicorn (spec 047): el
+  estado de captura vive en PostgreSQL y el Compose fija `UVICORN_WORKERS=3`; volver a 1
+  es `UVICORN_WORKERS=1` sin tocar el estado persistido. La inicialización de LangGraph se
+  serializa entre workers con un advisory lock.
 - La spec 047 define el estado duradero de la captura web en el PostgreSQL existente
   (fase 047a): jobs, eventos de progreso, exclusión global con fila única y latido, cupo
   por IP con resumen HMAC, recuperación idempotente desde Gold sin reanudar por URL y

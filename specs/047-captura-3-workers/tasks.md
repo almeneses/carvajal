@@ -65,8 +65,10 @@ después de verificar la coordinación de esta entrega; no se ejecuta aquí.
 
 ## Fase 6 — Recursos, `/live` y `/health` (US4)
 
-- [X] T016 Acotar el pool en `apps/api/runtime.py` (3 + 2 por worker), mantener el motor
-      diferido y añadir el cierre (`dispose`) sin romper `@cache`.
+- [X] T016 Revisar el presupuesto de conexiones: conservar el ancho de pool por defecto
+      (5 + 10) porque lo comparten chat, FAQ, captura y CLI, documentar el techo con tres
+      workers, mantener el motor diferido y añadir el cierre (`dispose`) sin romper
+      `@cache`.
 - [X] T017 Añadir el `lifespan` en `apps/api/main.py`: recuperación best-effort al arrancar
       (tolera base caída) y apagado ordenado; confirmar que `/live` no consulta la base y
       que `/health` conserva su contrato.
@@ -89,9 +91,18 @@ después de verificar la coordinación de esta entrega; no se ejecuta aquí.
       `alembic upgrade head` + `alembic downgrade -1` en base de pruebas.
 - [X] T023 Abrir el PR contra `dev` con labels `enhancement`, `backend`, `infra`, assignee
       `@me`, cuerpo en español (qué/por qué/diseño/cómo probar/evidencia/reversión/riesgos).
-- [ ] T024 (Lead, `task-8`) Activar exactamente tres workers en `compose.prod.yml` y el
-      `CMD` del Dockerfile, y verificar `/live`, `/health`, exclusión y cupo en el
-      despliegue real. **No se ejecuta en esta PR.**
+- [X] T024 (Lead, `task-8`) Activar exactamente tres workers en el servicio `app` de
+      `compose.prod.yml` (`UVICORN_WORKERS`, por defecto 3); el `CMD` de la imagen conserva
+      1 worker y el Compose lo sobreescribe. Documentar el retorno a 1 sin perder estado.
+- [X] T025 Serializar el `setup()` de checkpointer y Store entre workers con un advisory
+      lock de PostgreSQL, porque con tres procesos la inicialización del runtime puede
+      coincidir.
+- [X] T026 Prueba real con tres procesos uvicorn (`scripts/verificar_3_workers.py`):
+      simultaneidad, cupo compartido, progreso y reconexión, caída de worker y
+      recuperación sin duplicados, retorno a 1.
+- [X] T027 Evidencia en `specs/047-captura-3-workers/evidencia-3-workers.md`, prueba del
+      Compose (`tests/test_compose_workers_047.py`), arranque de la imagen y actualización
+      de `CONSTITUTION.md` §9, `.specify/memory/constitution.md` y `specs/README.md`.
 
 ## Dependencias y paralelismo
 

@@ -1,0 +1,253 @@
+{
+  "ok": true,
+  "checks": [
+    {
+      "name": "app arranca con 3 procesos",
+      "passed": true,
+      "detail": {
+        "pids": [
+          8,
+          9,
+          10
+        ],
+        "rss_kb": {
+          "8": 203272,
+          "9": 203332,
+          "10": 204620
+        },
+        "rss_total_kb": 611224,
+        "conexiones_postgres": 4
+      }
+    },
+    {
+      "name": "/live responde sin base",
+      "passed": true,
+      "detail": {}
+    },
+    {
+      "name": "dos POST simultáneos: uno crea el job y el otro recibe 409",
+      "passed": true,
+      "detail": {
+        "statuses": [
+          200,
+          409
+        ],
+        "jobs": [
+          "fb25957a83654b25ba29a7d3db5deb21"
+        ],
+        "snippets": [
+          "<!doctype html>\n<html lang=\"es\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>Configuración · Asisten",
+          "<!doctype html>\n<html lang=\"es\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>Configuración · Asisten"
+        ]
+      }
+    },
+    {
+      "name": "el job simultáneo queda registrado en PostgreSQL",
+      "passed": true,
+      "detail": {
+        "row": [
+          "fb25957a83654b25ba29a7d3db5deb21",
+          "running",
+          "Sal:8",
+          null,
+          ""
+        ]
+      }
+    },
+    {
+      "name": "el SSE de progreso se sirve desde cualquier worker",
+      "passed": true,
+      "detail": {
+        "eventos": [
+          {
+            "id": "1",
+            "event": "stage",
+            "data": "{\"url\": \"\", \"stage\": \"descubrir\", \"detail\": \"3 semillas\"}"
+          },
+          {
+            "id": "2",
+            "event": "stage",
+            "data": "{\"url\": \"https://www.iana.org/\", \"stage\": \"robots\", \"detail\": \"permitida\"}"
+          },
+          {
+            "id": "3",
+            "event": "stage",
+            "data": "{\"url\": \"https://www.iana.org/\", \"stage\": \"descargar\", \"detail\": \"6,251 bytes\"}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "la reconexión SSE con Last-Event-ID no repite etapas",
+      "passed": true,
+      "detail": {
+        "last_id": "18",
+        "replay": [
+          {
+            "event": "done",
+            "data": "{\"requested\": 3, \"discovered\": 3, \"fetched\": 3, \"written\": 3, \"discarded\": 0, \"chars\": 2879, \"documents\": 3, \"chunks\": 4, \"indexed\": 4, \"duration_seconds\": 3.21, \"errors\": [], \"robots_denied\": [], \"duplicates\": [], \"captured\": [\"home\", \"domains\", \"example_domains\"]}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "la captura termina y converge",
+      "passed": true,
+      "detail": {
+        "final": {
+          "id": "fb25957a83654b25ba29a7d3db5deb21",
+          "status": "done",
+          "error": "",
+          "outcome": {
+            "requested": 3,
+            "discovered": 3,
+            "fetched": 3,
+            "written": 3,
+            "discarded": 0,
+            "chars": 2879,
+            "documents": 3,
+            "chunks": 4,
+            "indexed": 4,
+            "duration_seconds": 3.21,
+            "errors": [],
+            "robots_denied": [],
+            "duplicates": [],
+            "captured": [
+              "home",
+              "domains",
+              "example_domains"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "no hay documentos ni fragmentos duplicados tras la captura",
+      "passed": true,
+      "detail": {
+        "documents": 3,
+        "chunks": 4,
+        "distinct_documents": 3,
+        "distinct_chunks": 4
+      }
+    },
+    {
+      "name": "la captura de recuperación arranca",
+      "passed": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "el job de recuperación está en ejecución",
+      "passed": true,
+      "detail": {
+        "row": [
+          "2894779b2e8d4392bf32067d77a169ae",
+          "running",
+          "Sal:8"
+        ]
+      }
+    },
+    {
+      "name": "un nuevo worker puede iniciar la captura de recuperación",
+      "passed": true,
+      "detail": {
+        "status": 200,
+        "cuerpo": "<!doctype html>\n<html lang=\"es\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>Configuración · Asistente Carvajal</title>\n"
+      }
+    },
+    {
+      "name": "el worker caído deja el job detectado como interrumpido",
+      "passed": true,
+      "detail": {
+        "worker": "Sal:8",
+        "row": [
+          "2894779b2e8d4392bf32067d77a169ae",
+          "interrupted",
+          "Sal:8"
+        ]
+      }
+    },
+    {
+      "name": "la recuperación no duplica documentos ni fragmentos",
+      "passed": true,
+      "detail": {
+        "documents": 4,
+        "chunks": 7,
+        "distinct_documents": 4,
+        "distinct_chunks": 7
+      }
+    },
+    {
+      "name": "Gold no tiene archivos repetidos",
+      "passed": true,
+      "detail": {
+        "gold": [
+          "domains.md",
+          "example_domains.md",
+          "help.md",
+          "home.md"
+        ]
+      }
+    },
+    {
+      "name": "con cupo 1, la primera captura se acepta",
+      "passed": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "el cupo por IP se comparte y la segunda captura recibe 429 con Retry-After",
+      "passed": true,
+      "detail": {
+        "status": 429,
+        "retry_after": "3598"
+      }
+    },
+    {
+      "name": "la app vuelve a 1 worker",
+      "passed": true,
+      "detail": {
+        "padre": 122,
+        "workers": []
+      }
+    },
+    {
+      "name": "el estado persistido sigue disponible con 1 worker",
+      "passed": true,
+      "detail": {
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "documents": 5,
+          "chunks": 11,
+          "index": {
+            "status": "ok",
+            "collection": "carvajal_3w_4",
+            "points": 11,
+            "dimensions": 768
+          },
+          "monitoring": {
+            "enabled": false,
+            "sample_rate": 0.2,
+            "content": "metadata"
+          }
+        },
+        "job_persistido": [
+          "2894779b2e8d4392bf32067d77a169ae",
+          "interrupted"
+        ]
+      }
+    },
+    {
+      "name": "con 1 worker se puede iniciar una captura",
+      "passed": true,
+      "detail": {
+        "status": 200
+      }
+    }
+  ],
+  "failed": []
+}
