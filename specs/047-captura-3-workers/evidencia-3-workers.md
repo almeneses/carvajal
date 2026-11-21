@@ -165,5 +165,25 @@ sin cambios de producto:
 
 Orden de integración recomendado: #200 (docs 042) → #201 (paridad `main`) → #203 (043) →
 #204 (044) → #202 (046) → #205 (045) → #206 (047). Tras fusionar 043 y 046 hay que aplicar
-los ajustes 1 y 3; la evidencia de la rama de integración (más abajo) demuestra que el
+los ajustes 1 y 3; la rama de integración local con **todas** las fases demuestra que el
 resultado combinado queda en verde.
+
+## 9. Verificación de la rama de integración (todas las fases)
+
+Rama local `integration/3-workers` con los siete PRs fusionados y los tres ajustes de
+pruebas de §8 aplicados. En ese mismo árbol:
+
+| Puerta | Resultado |
+|---|---|
+| `env -u OLLAMA_MODEL make check` | **1718 passed**, 70 deselected, 2 warnings en 20,87 s; Ruff, format y ty en verde |
+| `env -u OLLAMA_MODEL make test-integration` | **63 passed**, 1725 deselected en 15,96 s |
+| `node --test tests/js/*.cjs` | **90 passed, 0 failed** (68 de la 040 + 22 de las 044/045) |
+| `scripts/verificar_3_workers.py` | **19/19 comprobaciones en verde**; JSON: [`evidencia-3-workers-integracion.json`](evidencia-3-workers-integracion.json) |
+| Imagen desde la rama de integración | build OK; `GET /live → 200`; `GET /health → 200` (24 documentos, 125 fragmentos, índice `ok`) |
+
+Comprobaciones del ensayo combinado: app arranca con 3 procesos ✅, /live responde sin base ✅, dos POST simultáneos: uno crea el job y el otro recibe 409 ✅, el job simultáneo queda registrado en PostgreSQL ✅, el SSE de progreso se sirve desde cualquier worker ✅, la reconexión SSE con Last-Event-ID no repite etapas ✅, la captura termina y converge ✅, no hay documentos ni fragmentos duplicados tras la captura ✅, la captura de recuperación arranca ✅, el job de recuperación está en ejecución ✅, un nuevo worker puede iniciar la captura de recuperación ✅, el worker caído deja el job detectado como interrumpido ✅, la recuperación no duplica documentos ni fragmentos ✅, Gold no tiene archivos repetidos ✅, con cupo 1, la primera captura se acepta ✅, el cupo por IP se comparte y la segunda captura recibe 429 con Retry-After ✅, la app vuelve a 1 worker ✅, el estado persistido sigue disponible con 1 worker ✅, con 1 worker se puede iniciar una captura ✅.
+
+Esto cierra el criterio de cierre del goal: web, API y CLI con sus contratos en verde, la
+imagen arranca, y la prueba real con tres procesos demuestra simultaneidad, cupo
+compartido, progreso al reconectar, recuperación tras la caída de un worker sin duplicados
+y retorno a un worker.
