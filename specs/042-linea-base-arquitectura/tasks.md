@@ -18,7 +18,7 @@
 - [X] T007 Escribir en `tests/test_api_chat.py` y `tests/test_chat_tracing.py` las pruebas que fijan la traza con largo acumulado y la devolución de la pregunta en manos libres (ya existentes en `main`; se conservan al cherry-pickear).
 - [X] T008 Crear `fix/042-sincroniza-arreglos-main` desde `origin/dev` y aplicar `5826114`, `9e5484f`, `9371268`; revisar que el diff no incluye documentos de la 040.
 - [X] T009 Ejecutar `pytest tests/test_chat_tracing.py tests/test_api_chat.py`, `node --test tests/js/test_chat_voice.cjs` y `make check` en la rama de paridad.
-- [ ] T010 Abrir PR a `dev` con labels `bug` y `backend`, assignee del autor y explicación de la brecha.
+- [X] T010 Abrir PR a `dev` con labels `bug` y `backend`, assignee del autor y explicación de la brecha.
 
 ## Fase 3 — Baseline y contratos
 
@@ -37,7 +37,7 @@
 
 ## Fase 5 — Publicación
 
-- [ ] T020 Abrir PR a `dev` con los documentos y la fila de la constitución; labels `documentation` y `refactor`, assignee del autor.
+- [X] T020 Abrir PR a `dev` con los documentos y la fila de la constitución; labels `documentation` y `refactor`, assignee del autor.
 - [ ] T021 Registrar en la PR la ruta de reversión (revertir el commit de documentos) y enlazar la spec 043.
 
 ## Dependencias
