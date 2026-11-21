@@ -32,7 +32,6 @@ dependencies = [
     "ollama>=0.6",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.7",
-    "python-dotenv>=1.2.4",
     "python-multipart>=0.0.32",
     "qdrant-client>=1.15,<1.16",
     "sentry-sdk>=2.75.0",
@@ -54,7 +53,6 @@ capture = [
 # instalan con `uv sync --all-extras`.
 legacy = [
     "faiss-cpu>=1.15.1",
-    "langchain>=1.4.7",
     "langchain-anthropic>=1.7.7",
     "langchain-community>=0.4.2",
 ]
