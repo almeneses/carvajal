@@ -223,7 +223,7 @@ def _runner() -> GraphAgentRunner:
         AgentDeps(vector_store=falso, embedder=falso, settings=settings),
         checkpointer=InMemorySaver(),
     )
-    return GraphAgentRunner(grafo, settings)
+    return GraphAgentRunner(grafo)
 
 
 def test_el_turno_comercial_lleva_el_resultado_para_las_tarjetas() -> None:

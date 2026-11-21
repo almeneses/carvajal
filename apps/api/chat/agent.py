@@ -90,9 +90,8 @@ def _source(payload: dict[str, Any]) -> Source:
 class GraphAgentRunner:
     """Runner real sobre el grafo compilado."""
 
-    def __init__(self, graph: Any, settings: Any) -> None:
+    def __init__(self, graph: Any) -> None:
         self._graph = graph
-        self._settings = settings
 
     def prepare(
         self,
@@ -159,10 +158,9 @@ def default_agent_runner() -> GraphAgentRunner:
     """Runner real; importa el runtime de forma diferida para no abrir conexiones."""
 
     from apps.api.agent_runtime import agent_runtime
-    from carvajal.infrastructure.settings import Settings
 
     runtime = agent_runtime()
-    return GraphAgentRunner(runtime.graph, Settings())
+    return GraphAgentRunner(runtime.graph)
 
 
 # ``LLMProvider`` se reexporta en el contrato para documentar que la generación

@@ -73,7 +73,7 @@ def runner(store: FakeVectorStore | None = None) -> GraphAgentRunner:
         checkpointer=InMemorySaver(),
         store=InMemoryStore(),
     )
-    return GraphAgentRunner(graph, settings)
+    return GraphAgentRunner(graph)
 
 
 def test_directo_no_consulta_qdrant() -> None:
@@ -230,7 +230,7 @@ def test_la_preferencia_se_recupera_en_otro_hilo_del_mismo_dueno() -> None:
         checkpointer=InMemorySaver(),
         store=store,
     )
-    agent = GraphAgentRunner(graph, settings)
+    agent = GraphAgentRunner(graph)
 
     # Act: el dueño declara una preferencia en el hilo A.
     primero = agent.prepare("dueno-1", "hilo-a", "Recuerda que prefiero respuestas breves", [])
@@ -254,8 +254,7 @@ def test_otro_dueno_no_hereda_la_preferencia() -> None:
             AgentDeps(FakeVectorStore([]), FakeEmbedder(), settings),
             checkpointer=InMemorySaver(),
             store=InMemoryStore(),
-        ),
-        settings,
+        )
     )
 
     # Act
@@ -275,8 +274,7 @@ def test_el_checkpointer_recupera_el_turno_para_un_seguimiento() -> None:
             AgentDeps(FakeVectorStore([HIT]), FakeEmbedder(), settings),
             checkpointer=InMemorySaver(),
             store=InMemoryStore(),
-        ),
-        settings,
+        )
     )
 
     # Act: primer turno y registro manual (el servicio lo hace al cerrar).
@@ -307,7 +305,7 @@ def test_el_checkpointer_postgres_recupera_el_hilo_tras_reconectar(
 
     with PostgresSaver.from_conn_string(url) as saver:
         saver.setup()
-        agent = GraphAgentRunner(build_agent(deps, checkpointer=saver), settings)
+        agent = GraphAgentRunner(build_agent(deps, checkpointer=saver))
         first = agent.prepare("dueno-1", "hilo-a", question, [])
         agent.record(
             "hilo-a",
@@ -318,7 +316,7 @@ def test_el_checkpointer_postgres_recupera_el_hilo_tras_reconectar(
         )
 
     with PostgresSaver.from_conn_string(url) as saver:
-        restarted = GraphAgentRunner(build_agent(deps, checkpointer=saver), settings)
+        restarted = GraphAgentRunner(build_agent(deps, checkpointer=saver))
         follow_up = restarted.prepare("dueno-1", "hilo-a", "¿Y en qué año ocurrió eso?", [])
         other_thread = restarted.prepare("dueno-1", "hilo-b", "¿Y en qué año ocurrió eso?", [])
 
