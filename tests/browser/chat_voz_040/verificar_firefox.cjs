@@ -9,9 +9,12 @@
 // proyecto, igual que `validar.cjs`):
 //
 //   NODE_PATH=/tmp/cv040/node_modules \
+//   AXE_PATH=/tmp/cv040/node_modules/axe-core/axe.min.js \
 //     node tests/browser/chat_voz_040/verificar_firefox.cjs
 //
-// Variables: CHAT_URL (por defecto http://127.0.0.1:8123/chat), AXE_PATH.
+// Variables: CHAT_URL (por defecto http://127.0.0.1:8123/chat), AXE_PATH
+// (obligatoria). Sin AXE_PATH el script sale con código 2: la auditoría de
+// accesibilidad es parte de la comprobación y no se confunde con una violación.
 
 const fs = require("fs");
 const { firefox } = require("playwright-core");
@@ -19,8 +22,14 @@ const { firefox } = require("playwright-core");
 const URL = process.env.CHAT_URL || "http://127.0.0.1:8123/chat";
 const AXE = process.env.AXE_PATH;
 
+if (!AXE || !fs.existsSync(AXE)) {
+  console.error(
+    "AXE_PATH es obligatorio y debe apuntar a axe.min.js de axe-core (código 2).",
+  );
+  process.exit(2);
+}
+
 async function auditarAxe(navegador) {
-  if (!AXE || !fs.existsSync(AXE)) return { omitido: "sin AXE_PATH" };
   // Solo la auditoría usa bypassCSP, como en validar.cjs; el recorrido
   // funcional conserva la CSP real.
   const contexto = await navegador.newContext({ bypassCSP: true });

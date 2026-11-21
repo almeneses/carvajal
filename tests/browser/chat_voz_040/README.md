@@ -70,7 +70,8 @@ NODE_PATH=/tmp/cv040/node_modules AXE_PATH=/tmp/cv040/node_modules/axe-core/axe.
 
 Comprueba que el dictado y manos libres no se ofrecen, que la nota explica la
 limitación, que el chat escrito sigue operativo, que axe no reporta violaciones y
-que no hay peticiones de audio. La salida se guarda en
+que no hay peticiones de audio. `AXE_PATH` es obligatorio: sin él el script sale
+con código 2 en lugar de contar la auditoría como fallo. La salida se guarda en
 [`specs/040-chat-por-voz/evidencia/firefox-matriz.json`](../../../specs/040-chat-por-voz/evidencia/firefox-matriz.json).
 No mide SC-001 ni SC-002 (sin STT no aplican) ni sustituye SC-003 con voz real.
 
