@@ -104,6 +104,13 @@ con `--admin`.
   y dos voces.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
+- El goal de simplificación (2026-11-20) se organiza en las specs 042–047 con PRs
+  independientes a `dev`. La fase 0 publica el inventario operativo
+  (`specs/042-linea-base-arquitectura/inventario.md`) y la línea base reproducible, y el
+  ADR 0002 decide operar con exactamente 3 workers de Uvicorn con reversión a 1
+  (`UVICORN_WORKERS`) sin perder el estado persistido. La activación en `compose.prod.yml`
+  queda condicionada a la verificación de coordinación de captura (fase 047). La 041 sigue
+  reservada para el informe de enrutadores.
 
 ## Restricciones técnicas
 
@@ -145,4 +152,4 @@ con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.4.0 - 2026-11-19, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.5.0 - 2026-11-20, sincronizada con `CONSTITUTION.md` del repositorio.

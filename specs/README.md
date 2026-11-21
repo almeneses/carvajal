@@ -197,3 +197,21 @@ para esos comandos es [`.specify/memory/constitution.md`](../.specify/memory/con
   y una capacidad puede cruzar olas.
 - No sustituye los ADR de [`docs/decisions/`](../docs/decisions/). Las specs dicen qué
   se necesita; los ADR dicen por qué se eligió así.
+
+## 11. Goal de simplificación en curso (042–047)
+
+**Iniciado**: 2026-11-20. **Estado**: en curso, con PRs independientes contra `dev`.
+La 041 sigue reservada (informe de los tres enrutadores, heredado de la 036).
+
+| # | Capacidad | Estado | PR / evidencia |
+|---|---|---|---|
+| [042](042-linea-base-arquitectura/spec.md) | Línea base y arquitectura: inventario, contratos, mediciones, ADR 0002 y paridad `dev`/`main` | En curso (fase 0) | `specs/042-linea-base-arquitectura/`; `docs/decisions/0002-arquitectura-objetivo-3-workers.md` |
+| 043 | Código y dependencias sin consumidores | Pendiente | Por escribir |
+| 044 | Chat, SSE e interfaz: reglas compartidas, lector SSE único y HTMX solo en Configuración | Pendiente | Por escribir |
+| 045 | Corpus y rendimiento: Gold fuera del adaptador SQL, `sync --verify` en un recorrido y medición | Pendiente | Por escribir |
+| 046 | Estado del agente: historial visible, preferencias y estado técnico | Pendiente | Por escribir |
+| 047 | Captura duradera y 3 workers en el Compose objetivo | Pendiente | Por escribir |
+
+Cada spec sigue el flujo `specify → plan → tasks → analyze` antes de implementar y escribe
+pruebas de caracterización antes de cambiar el código. El detalle del alcance por fase está
+en el goal del owner y en la [spec 042](042-linea-base-arquitectura/spec.md).

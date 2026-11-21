@@ -25,6 +25,7 @@ consecuencias.
 | ADR | Título | Estado | Fecha |
 |-----|--------|--------|-------|
 | [0001](0001-stack-app-chat.md) | Stack y arquitectura de la app de chat | propuesto | 2026-11-08 |
+| [0002](0002-arquitectura-objetivo-3-workers.md) | Una sola aplicación y paso a tres workers de Uvicorn | propuesto | 2026-11-20 |
 
 ## Plantilla
 
