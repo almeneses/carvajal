@@ -152,8 +152,8 @@ costo de embeddings por fragmento.
 - [x] T037 `env -u OLLAMA_MODEL make check`.
 - [x] T038 `env -u OLLAMA_MODEL make test-integration` (Docker/testcontainers).
 - [x] T039 `node --test tests/js/test_chat_voice.cjs`.
-- [ ] T040 Push de `perf/045-corpus-rendimiento`, PR a `dev` con labels `refactor,data,backend`,
-      assignee `@me`, cuerpo con medición antes/después, evidencia y reversión.
+- [x] T040 Push de `perf/045-corpus-rendimiento`, PR a `dev` con labels `refactor,data,backend`,
+      assignee `@me`, cuerpo con medición antes/después, evidencia y reversión. PR #205.
 
 ## Dependencies
 
