@@ -6,6 +6,7 @@ from starlette.types import Scope
 
 from apps.api.chat.identity import (
     COOKIE_NAME,
+    VISITOR_COOKIE,
     SignedCookieIdentity,
     build_identity,
 )
@@ -19,9 +20,14 @@ def _identity(secret: str = SECRET) -> SignedCookieIdentity:
 
 
 def _request_with(value: str) -> Request:
+    return _request_with_cookies({COOKIE_NAME: value})
+
+
+def _request_with_cookies(cookies: dict[str, str]) -> Request:
+    header = "; ".join(f"{name}={value}" for name, value in cookies.items())
     scope: Scope = {
         "type": "http",
-        "headers": [(b"cookie", f"{COOKIE_NAME}={value}".encode())],
+        "headers": [(b"cookie", header.encode())],
     }
     return Request(scope)
 
@@ -131,3 +137,47 @@ def test_una_firma_no_ascii_no_lanza_y_no_verifica() -> None:
 
     # Assert
     assert owner_key is None
+
+
+def test_la_identidad_de_localstorage_deriva_un_dueno_estable() -> None:
+    # Arrange
+    identity = _identity()
+    visitante = "a" * 64
+    request = _request_with_cookies({VISITOR_COOKIE: visitante})
+
+    # Act
+    primero = identity.read(request)
+    segundo = identity.read(_request_with_cookies({VISITOR_COOKIE: visitante.upper()}))
+
+    # Assert
+    assert primero is not None
+    assert primero == segundo
+    assert primero != visitante
+    assert len(primero) == 64
+
+
+def test_una_cookie_de_visitante_invalida_cae_a_la_cookie_firmada() -> None:
+    # Arrange
+    identity = _identity()
+    firmada = identity.issue("dueno-1")
+    request = _request_with_cookies({VISITOR_COOKIE: "no-es-un-hash", COOKIE_NAME: firmada})
+
+    # Act
+    owner_key = identity.read(request)
+
+    # Assert
+    assert owner_key == "dueno-1"
+
+
+def test_la_cookie_de_visitante_tiene_precedencia_sobre_la_firmada() -> None:
+    # Arrange
+    identity = _identity()
+    firmada = identity.issue("dueno-viejo")
+    request = _request_with_cookies({VISITOR_COOKIE: "b" * 64, COOKIE_NAME: firmada})
+
+    # Act
+    owner_key = identity.read(request)
+
+    # Assert
+    assert owner_key is not None
+    assert owner_key != "dueno-viejo"

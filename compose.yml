@@ -1,13 +1,90 @@
-# Postgres 16 con pgvector para el desarrollo local de la app web.
+# Stack local de Carvajal.
 #
-#   make db        levanta la base y espera al healthcheck
-#   make db-down   la detiene (los datos quedan en el volumen pgdata)
+# Dos formas de usarlo, sin perfiles de por medio para lo de siempre:
+#
+#   make db        Postgres 16 + pgvector (servicio db)
+#   make qdrant    Qdrant con volumen persistente (servicio qdrant)
+#   make api       app nativa con `uv` contra esos dos servicios
+#
+# y, para no instalar nada en el host más allá de Docker:
+#
+#   make up        stack completo: db + qdrant + ollama + app + corpus
+#   make down      lo detiene conservando los volúmenes
+#
+# `make up` activa el perfil `full`: la app en modo desarrollo (recarga y
+# directorios del repo montados), Ollama con los modelos descargados y un
+# servicio de preparación de una sola ejecución que aplica migraciones, importa
+# el corpus Gold a Postgres y lo indexa en Qdrant. Sin el perfil, el archivo se
+# comporta como antes: solo db y qdrant.
 #
 # La cadena de conexión se deriva de las variables POSTGRES_* (ver
 # .env.example): el puerto del host es POSTGRES_PORT y dentro del contenedor
 # Postgres siempre escucha en 5432.
 
 name: carvajal
+
+# Configuración compartida por la app de desarrollo y el servicio de arranque.
+x-dev-app: &dev-app
+  build:
+    context: .
+    # Etapa de desarrollo del Dockerfile: venv con el extra `capture`, recarga
+    # y sin usuario fijo (Compose lo baja al UID del host con LOCAL_UID).
+    target: dev
+  image: carvajal-api:dev
+  environment: &dev-environment
+    # Dentro de la red de Compose los hosts son los nombres de los servicios.
+    DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
+    QDRANT_URL: http://qdrant:6333
+    QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+    QDRANT_COLLECTION: ${QDRANT_COLLECTION:-carvajal_chunks}
+    QDRANT_DIMENSIONS: ${QDRANT_DIMENSIONS:-768}
+    QDRANT_DISTANCE: ${QDRANT_DISTANCE:-Cosine}
+    LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+    OLLAMA_BASE_URL: http://ollama:11434
+    OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+    OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
+    DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+    DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-5}
+    AGENT_CHECKPOINTER: ${AGENT_CHECKPOINTER:-postgres}
+    RAG_TOP_K: ${RAG_TOP_K:-6}
+    RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.30}
+    DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}
+    QUOTA_TIMEZONE: ${QUOTA_TIMEZONE:-America/Bogota}
+    CAPTURE_DEFAULT_URLS: ${CAPTURE_DEFAULT_URLS:-5}
+    CAPTURE_MAX_BYTES: ${CAPTURE_MAX_BYTES:-5000000}
+    CAPTURE_TIMEOUT_SECONDS: ${CAPTURE_TIMEOUT_SECONDS:-30}
+    CAPTURE_MAX_REDIRECTS: ${CAPTURE_MAX_REDIRECTS:-5}
+    CAPTURE_REQUESTS_LIMIT: ${CAPTURE_REQUESTS_LIMIT:-5}
+    CAPTURE_WINDOW_SECONDS: ${CAPTURE_WINDOW_SECONDS:-3600}
+    CAPTURE_ALLOWED_DOMAINS: ${CAPTURE_ALLOWED_DOMAINS:-}
+    # Determinista para que la recarga no invalide la cookie del visitante.
+    SESSION_SECRET: ${SESSION_SECRET:-dev-carvajal-inseguro-solo-local}
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # El perfil local no envía nada a Sentry ni a LangSmith salvo que se pida.
+    SENTRY_DSN: ${SENTRY_DSN:-}
+    SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-local}
+    SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
+    MONITORING_ENABLED: ${MONITORING_ENABLED:-false}
+    LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+    MONITORING_SAMPLE_RATE: ${MONITORING_SAMPLE_RATE:-0.2}
+    MONITORING_INCLUDE_CONTENT: ${MONITORING_INCLUDE_CONTENT:-false}
+    LANGSMITH_TRACING: "false"
+    LANGCHAIN_TRACING_V2: "false"
+  volumes: &dev-volumes
+    # El código se edita en el host y la app lo recarga; `data/` es el corpus.
+    - ./apps:/app/apps
+    - ./packages/core/src:/app/packages/core/src
+    - ./migrations:/app/migrations
+    - ./alembic.ini:/app/alembic.ini:ro
+    - ./data:/app/data
+  # Sin esto los archivos que escribe la app en `./data` quedarían de root.
+  # `make up` exporta los IDs reales; el valor por defecto cubre Linux.
+  user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+  init: true
+  stop_grace_period: 10s
 
 services:
   db:
@@ -47,6 +124,90 @@ services:
     volumes:
       - qdrantdata:/qdrant/storage
 
+  ollama:
+    # Solo dentro de `make up`: embeddings y, si LLM_PROVIDER=ollama, el chat.
+    # No publica el puerto: la app nativa (`make api`) sigue usando el Ollama
+    # del host en 127.0.0.1:11434, y publicarlo aquí chocaría con él. Para
+    # exponerlo, añade `ports: ["127.0.0.1:11434:11434"]` a este servicio.
+    profiles: ["full"]
+    image: ollama/ollama:0.40.16
+    restart: unless-stopped
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  ollama-pull:
+    # Descarga los modelos que el stack necesita. Es idempotente: si ya están
+    # en el volumen, la comprobación termina en segundos.
+    profiles: ["full"]
+    image: ollama/ollama:0.40.16
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - ollama pull nomic-embed-text && ollama pull "${OLLAMA_MODEL:-llama3.2}"
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  bootstrap:
+    # Una sola ejecución: deja Postgres con el esquema y el corpus, y Qdrant
+    # indexado. Es idempotente, así que repetir `make up` no duplica nada.
+    profiles: ["full"]
+    <<: *dev-app
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        alembic upgrade head
+        carvajal migrate-gold
+        carvajal index-qdrant
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+
+  app:
+    profiles: ["full"]
+    <<: *dev-app
+    restart: unless-stopped
+    ports:
+      # Loopback y puerto fijo: la app nativa también usa 8000.
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 volumes:
   pgdata:
   qdrantdata:
+  ollamadata:

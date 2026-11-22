@@ -7,6 +7,7 @@ wheels/
 *.egg-info
 
 # Virtual environments
+.venv
 .venv/
 
 # Testing / lint / type caches
@@ -28,10 +29,22 @@ data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
+# Fuentes primarias del catálogo de Colombia: el PDF no se versiona por tamaño;
+# su ruta, fecha y hash quedan en data/catalog/empaques/manifest.json.
+data/catalog/empaques/fuentes/*.pdf
+
 # Corpus externo: derivados regenerables con `carvajal import`; solo se versiona
 # el manifiesto de cada fuente para dejar constancia de qué se importó.
 data/external/*/*
 !data/external/*/manifest.json
+
+# Descarga del corpus externo en la raíz del repo: regenerable, pesa ~3,8 GB
+# y nunca se versiona (el manifiesto sí, en data/external/).
+external_corpus/
+external_corpus.zip
+
+# Bloqueo y temporal de la escritura atómica del índice del corpus.
+data/gold/.index.jsonl.*
 
 # Índice vectorial FAISS (se regenera desde data/gold/ con `make app` o `carvajal ask`)
 data/index/
@@ -42,6 +55,9 @@ data/index/
 # IDE
 .vscode/
 .idea/
+
+# Herramientas de agentes con entornos vendorizados (no se versiona)
+.dsh/
 
 # Artefactos generados de evaluación/evidencia (se regeneran con make index-eval / smoke_m2)
 docs/eval/retrieval-results.json

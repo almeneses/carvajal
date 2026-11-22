@@ -17,6 +17,7 @@ _SCHEMA_TABLES = {
     "conversations",
     "messages",
     "usage_day",
+    "chat_feedback",
 }
 
 
@@ -58,7 +59,6 @@ def _assert_head_schema(engine: Engine) -> None:
         "position",
         "section",
         "layer",
-        "embedding",
     }
     assert columns["document_versions"] == {
         "id",
@@ -89,10 +89,8 @@ def _assert_head_schema(engine: Engine) -> None:
     assert "ix_documents_layer_section" in document_indexes
     assert "ix_document_versions_document_created" in version_indexes
 
-    chunk_indexes = {index["name"]: index for index in inspector.get_indexes("chunks")}
-    hnsw = chunk_indexes["ix_chunks_embedding_hnsw"]["dialect_options"]
-    assert hnsw["postgresql_using"] == "hnsw"
-    assert hnsw["postgresql_ops"] == {"embedding": "vector_cosine_ops"}
+    chunk_indexes = {index["name"] for index in inspector.get_indexes("chunks")}
+    assert "ix_chunks_embedding_hnsw" not in chunk_indexes
 
     chunk_uniques = {
         tuple(unique["column_names"]) for unique in inspector.get_unique_constraints("chunks")
@@ -139,5 +137,35 @@ def test_upgrade_y_downgrade_son_reversibles(
         # Act / Assert: se puede volver a aplicar
         command.upgrade(config, "head")
         _assert_head_schema(engine)
+    finally:
+        engine.dispose()
+
+
+def test_0006_retira_y_restaura_la_columna_de_vectores(
+    migration_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El paso 0006 es reversible: baja a 0005 y vuelve a subir."""
+
+    # Arrange
+    monkeypatch.setenv("DATABASE_URL", migration_database_url)
+    config = _alembic_config(migration_database_url)
+    engine = create_engine(migration_database_url)
+
+    def columns() -> set[str]:
+        return {column["name"] for column in inspect(engine).get_columns("chunks")}
+
+    try:
+        # Act / Assert: en head no hay columna de vectores
+        command.upgrade(config, "head")
+        assert "embedding" not in columns()
+
+        # Act / Assert: el downgrade la restaura
+        command.downgrade(config, "0005")
+        assert "embedding" in columns()
+
+        # Act / Assert: volver a subir la retira otra vez
+        command.upgrade(config, "head")
+        assert "embedding" not in columns()
     finally:
         engine.dispose()

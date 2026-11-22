@@ -225,6 +225,53 @@ def test_stream_exitoso_emite_tokens_y_persiste_el_turno(engine: Engine) -> None
         _delete_owner(engine, owner_key)
 
 
+def test_stream_comercial_emite_las_tarjetas_antes_de_los_tokens(engine: Engine) -> None:
+    # Arrange: resultado mínimo de la ruta comercial (spec 036, T029).
+    resultado = {
+        "options": [
+            {
+                "sku": "SKU-1",
+                "name": "Vaso de prueba",
+                "material": "PAPEL",
+                "units_per_box": 1000,
+                "country": "MX",
+                "source_url": "https://ejemplo.test/vaso",
+                "captured_at": "2026-10-23",
+                "price_per_box": "1450.00 MXN",
+                "price_notice": "Precio de referencia.",
+            }
+        ],
+        "channel": {},
+    }
+    agent = FakeAgent(
+        AgentTurn(
+            route="commercial",
+            intent="commercial",
+            prompt="Contexto con [1].",
+            system="sistema",
+            sources=(SOURCE,),
+            turns=(),
+            products=resultado,
+        )
+    )
+    service = ChatService(
+        build_session_factory(engine), FakeEmbedder(), StreamingLLM(), agent=agent
+    )
+    owner_key = "stream-tarjetas"
+
+    try:
+        # Act
+        events = list(service.stream(owner_key, "Necesito vasos para café en México"))
+
+        # Assert
+        nombres = [event.name for event in events]
+        assert nombres[:4] == ["open", "trace", "meta", "products"]
+        assert "<code>SKU-1</code>" in events[3].data["html"]
+        assert nombres[-1] == "done"
+    finally:
+        _delete_owner(engine, owner_key)
+
+
 class FailingStreamLLM:
     """El stream falla antes del primer token; ``complete`` entrega el respaldo."""
 

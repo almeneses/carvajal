@@ -2,12 +2,12 @@
 
 from logging import getLevelNamesMapping
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -88,7 +88,16 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
+    # Tiempo máximo de espera por llamada al proveedor de LLM.
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
     ollama_model: str = "llama3.2"
+    # La FAQ y el chat envían prompts grandes: sin una ventana explícita,
+    # Ollama recorta el contexto y puede responder con datos incompletos.
+    ollama_num_ctx: int = Field(default=32768, ge=2048, le=131072)
+    # Los embeddings del corpus se calculan con Ollama. En local el valor por
+    # defecto apunta al Ollama del host; en compose.prod.yml se inyecta
+    # http://ollama:11434 para usar el servicio de la red de Compose.
+    ollama_base_url: str = "http://127.0.0.1:11434"
 
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
@@ -107,6 +116,25 @@ class Settings(BaseSettings):
     # se usa un secreto aleatorio por proceso; en producción debe fijarse para
     # que las cookies sobrevivan reinicios y compartan valor entre workers.
     session_secret: str = ""
+
+    # Captura web desde la pestaña Configuración. El máximo de URLs por
+    # ejecución sigue al de la primera versión (todas las semillas
+    # configuradas) y el valor inicial es de cinco. La captura es pública en
+    # esta fase; el límite, el timeout y el guard SSRF son su única defensa.
+    capture_default_urls: int = Field(default=5, ge=1)
+    capture_max_bytes: int = Field(default=5_000_000, ge=1)
+    capture_timeout_seconds: int = Field(default=30, ge=1)
+    capture_max_redirects: int = Field(default=5, ge=0, le=10)
+    # Solo para desarrollo y pruebas: permite capturar desde loopback y redes
+    # privadas. En producción debe quedar en False.
+    capture_allow_private_hosts: bool = False
+    # Límite por IP para el endpoint público: N capturas por ventana. Cero
+    # desactiva el límite (solo para desarrollo).
+    capture_requests_limit: int = Field(default=5, ge=0)
+    capture_window_seconds: int = Field(default=3600, ge=1)
+    # Lista opcional de dominios permitidos (separados por coma). Vacía
+    # significa cualquier host público que pase el guard SSRF.
+    capture_allowed_domains: Annotated[tuple[str, ...], NoDecode] = ()
 
     # Cupo diario de preguntas por visitante anónimo (W4.2). El límite es una
     # política de producto y la medianoche se calcula en la zona indicada, no
@@ -131,12 +159,10 @@ class Settings(BaseSettings):
     agent_checkpointer: str = "postgres"
     agent_sqlite_path: Path = Path("data") / "agent" / "checkpoints.sqlite"
     agent_history_turns: int = Field(default=8, ge=1, le=50)
-
-    # Frontend propio (proceso separado) y orígenes permitidos por CORS.
-    frontend_origins: tuple[str, ...] = (
-        "http://localhost:8001",
-        "http://127.0.0.1:8001",
-    )
+    # Enrutador del agente (spec 036, FR-013): rules (por defecto), llm o decision.
+    agent_router: str = "rules"
+    # Modelo de decisión para el enrutador «decision», como paquete.modulo:fabrica.
+    decision_model: str = ""
 
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
@@ -146,10 +172,27 @@ class Settings(BaseSettings):
     sentry_environment: str = "local"
     sentry_traces_sample_rate: float = Field(default=0.0, ge=0, le=1)
 
-    @field_validator("frontend_origins", mode="before")
+    # Monitoreo del agente con LangSmith (spec 038). Apagado por defecto: sin
+    # MONITORING_ENABLED y sin llave no se construye cliente ni sale un byte
+    # del proceso. ``repr=False`` mantiene la credencial fuera de cualquier
+    # ``repr`` o log accidental de la configuración.
+    monitoring_enabled: bool = False
+    langsmith_api_key: str = Field(default="", repr=False)
+    langsmith_project: str = "carvajal"
+    # Identidad opcional para distinguir orígenes dentro del mismo proyecto.
+    langsmith_agent_id: str = ""
+    langsmith_agent_environment: str = ""
+    # Vacío usa el servicio público; el endpoint nunca se publica en /health.
+    langsmith_endpoint: str = ""
+    monitoring_sample_rate: float = Field(default=0.2, ge=0, le=1)
+    # true solo en desarrollo y evaluación; en producción el contenido no sale.
+    monitoring_include_content: bool = False
+    monitoring_timeout_ms: int = Field(default=2000, ge=1, le=60_000)
+
+    @field_validator("capture_allowed_domains", mode="before")
     @classmethod
-    def _origenes_separados_por_coma(cls, value: Any) -> Any:
-        """Acepta ``a,b`` en el entorno además de una lista JSON."""
+    def _dominios_separados_por_coma(cls, value: Any) -> Any:
+        """Acepta ``a.com,b.com`` en el entorno además de una lista JSON."""
 
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
@@ -198,6 +241,16 @@ class Settings(BaseSettings):
         """Ruta del índice JSONL del corpus, derivada del directorio Gold."""
 
         return self.gold_dir / "index.jsonl"
+
+    @property
+    def capture_max_urls(self) -> int:
+        """Máximo de URLs por captura: todas las semillas configuradas.
+
+        Reproduce el límite de la primera interfaz, donde el control llegaba
+        hasta el total de semillas oficiales y de terceros.
+        """
+
+        return len(self.seeds) + len(self.external_seeds)
 
 
 def load_settings(**overrides: Any) -> Settings:

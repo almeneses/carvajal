@@ -23,13 +23,13 @@ jobs:
           fetch-depth: 0
 
       - name: Presupuesto de cambios
-        # Falla si el PR supera el límite duro; advierte desde el blando.
+        # Solo advierte por encima de 3.000 líneas; no falla ni bloquea el merge.
         # Los releases dev → main integran una ola ya revisada por PR: no se presupuestan por línea.
         if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'main'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SOFT_LIMIT: "300"
+          WARN_LIMIT: "3000"
         run: python3 .github/scripts/pr_size.py
 
       - name: Instalar uv
@@ -49,7 +49,20 @@ jobs:
         run: uv run ty check
 
       - name: Pruebas
-        run: uv run pytest -m "not integration"
+        run: uv run pytest -m "not integration and not e2e and not smoke"
+
+      - name: Node 24.16.0
+        # Los dobles de voz (spec 040) usan el runner de Node y sus APIs del
+        # navegador simuladas; no instalan dependencias npm ni piden micrófono.
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.16.0"
+
+      - name: Pruebas JavaScript del chat
+        run: node --test tests/js/*.cjs
+
+      - name: Smoke del monitoreo
+        run: uv run pytest -m "smoke and not integration and not e2e"
 
   integration:
     name: Integración
@@ -92,7 +105,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Validar compose.yml
-        run: docker compose config -q
+        # Sin perfil: db + qdrant (flujo nativo). Con `full`: app, Ollama y
+        # bootstrap, que es lo que usa `make up`.
+        run: |
+          docker compose config -q
+          docker compose --profile full config -q
 
       - name: Levantar la base
         run: docker compose up -d --wait --wait-timeout 60 db

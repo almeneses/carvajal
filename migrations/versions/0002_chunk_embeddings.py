@@ -8,9 +8,7 @@ Create Date: 2026-11-11
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
 from alembic import op
-from pgvector.sqlalchemy import Vector
 
 revision: str = "0002"
 down_revision: str | None = "0001"
@@ -26,7 +24,7 @@ def upgrade() -> None:
     """
 
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    op.add_column("chunks", sa.Column("embedding", Vector(768), nullable=True))
+    op.execute("ALTER TABLE chunks ADD COLUMN embedding vector(768)")
     op.create_index(
         "ix_chunks_embedding_hnsw",
         "chunks",
@@ -39,5 +37,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Quita el índice y la columna; la extensión se conserva por ser compartida."""
 
-    op.drop_index("ix_chunks_embedding_hnsw", table_name="chunks")
+    op.execute("DROP INDEX IF EXISTS ix_chunks_embedding_hnsw")
     op.drop_column("chunks", "embedding")

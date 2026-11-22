@@ -6,34 +6,32 @@ nunca al importar; el embedder y el LLM se crean en la primera pregunta y cada
 petición abre su propia sesión.
 """
 
+import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
 
 import structlog
-from fastapi import FastAPI, Form, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.chat.identity import ChatIdentity
+from apps.api.capture_jobs import CaptureJobs
 from apps.api.observability import (
     RequestContextMiddleware,
     UnhandledErrorMiddleware,
-    capture_exception,
     configure_observability,
 )
-from apps.api.runtime import APP_DIR, ask_components, session_factory, templates
-from apps.api.security import SecurityMiddleware, verify_csrf
-from apps.api.views import api, chat, corpus, documents, stream
-from carvajal.adapters.embeddings import EmbeddingError
+from apps.api.runtime import APP_DIR, session_factory, templates
+from apps.api.security import SecurityMiddleware
+from apps.api.views import api, chat, config, corpus, cotizador, documents, faq, stream
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
-from carvajal.adapters.vector.pgvector_store import PgVectorStore
-from carvajal.application.ask import Answer, AskQuestion, LLMError
 from carvajal.application.quota import DailyQuota, QuotaResult
+from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 
 logger = structlog.get_logger(__name__)
@@ -61,7 +59,6 @@ def _sin_limite(owner_key: str) -> QuotaResult:
 class Handlers:
     """Casos de uso que expone el shell, inyectables en las pruebas."""
 
-    ask: Callable[[str], Answer]
     health: Callable[[], HealthStatus]
     quota: Callable[[str], QuotaResult] = _sin_limite
 
@@ -70,9 +67,9 @@ class Handlers:
 def _default_handlers() -> Handlers:
     """Construye los handlers reales una sola vez, al primer uso.
 
-    Solo se crea la fábrica de sesiones: el embedder y el LLM se resuelven
-    dentro de ``ask``, de modo que ``/health`` no importa LangChain ni exige
-    credenciales del proveedor.
+    Solo se crea la fábrica de sesiones: el chat resuelve el embedder y el LLM
+    en su primera pregunta, de modo que ``/health`` no importa LangChain ni
+    exige credenciales del proveedor.
     """
 
     settings = Settings()
@@ -86,11 +83,6 @@ def _default_handlers() -> Handlers:
 
         return HealthStatus(documents or 0, chunks or 0, qdrant_store().health())
 
-    def ask(question: str) -> Answer:
-        embed, llm = ask_components()
-        with factory.begin() as session:
-            return AskQuestion(PgVectorStore(session), embed, llm).answer(question)
-
     def quota(owner_key: str) -> QuotaResult:
         with factory.begin() as session:
             uso = SqlUsageRepository(session)
@@ -100,7 +92,28 @@ def _default_handlers() -> Handlers:
                 timezone=settings.quota_timezone,
             ).consume(owner_key)
 
-    return Handlers(ask=ask, health=health, quota=quota)
+    return Handlers(health=health, quota=quota)
+
+
+def force_global_tracing_off() -> None:
+    """Apaga el tracing global de LangChain al arrancar (FR-001, FR-006).
+
+    Una variable heredada del entorno encendería las trazas de todo el
+    proceso, sin muestreo y sin la redacción del monitoreo. El encendido es
+    explícito por turno, así que aquí se neutralizan ambas variables.
+    """
+
+    for nombre in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2"):
+        if os.environ.get(nombre, "").strip().lower() in {"1", "true", "yes", "on"}:
+            logger.warning("monitoring.global_tracing_forced_off", variable=nombre)
+        os.environ[nombre] = "false"
+    # LangSmith cachea la lectura del entorno (``get_env_var`` usa lru_cache):
+    # si alguien ya leyó el valor heredado, hay que invalidar la caché o el
+    # tracing seguiría activo pese a las variables (FR-001).
+    utilidades = sys.modules.get("langsmith.utils")
+    cache = getattr(utilidades, "get_env_var", None)
+    if cache is not None and hasattr(cache, "cache_clear"):
+        cache.cache_clear()
 
 
 def _default_quota(owner_key: str) -> QuotaResult:
@@ -124,7 +137,7 @@ def _message(
 
     return templates.TemplateResponse(
         request,
-        "_answer.html",
+        "_aviso.html",
         {"error": message},
         status_code,
         headers={"X-Carvajal-Error": "1", **(headers or {})},
@@ -137,45 +150,32 @@ def _unhandled(request: Request, error: Exception) -> Response:
     return _message(request, 500, SERVICE_UNAVAILABLE)
 
 
-def _emit_identity(
-    response: Response,
-    request: Request,
-    identity: ChatIdentity,
-    owner_key: str,
-    *,
-    new_owner: bool,
-) -> Response:
-    """Emite la cookie de identidad si el visitante aún no tenía una."""
-
-    if new_owner:
-        chat.set_identity_cookie(response, request, identity, owner_key)
-    return response
-
-
 def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
+    force_global_tracing_off()
     configure_observability()
     # Sin Swagger público: la interfaz de la app es el formulario HTML y el
     # esquema no aporta a un visitante anónimo.
     app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
+    settings = Settings()
     app.state.quota = handlers.quota if handlers is not None else _default_quota
+    # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
+    app.state.monitoring = monitoring_status(settings).enabled
+    # Captura web: un registro por app para que las pruebas inyecten su runner.
+    app.state.captures = CaptureJobs(
+        rate_limit=settings.capture_requests_limit,
+        window_seconds=settings.capture_window_seconds,
+    )
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityMiddleware)
-    settings = Settings()
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(settings.frontend_origins),
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Accept", "Content-Type"],
-    )
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
-    for module in (corpus, documents, chat, stream, api):
+    for module in (corpus, documents, chat, stream, api, config, faq, cotizador):
         app.include_router(module.router)
+    app.include_router(faq.page_router)
 
     @app.get("/live")
     def live() -> JSONResponse:
@@ -192,7 +192,12 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         except (SQLAlchemyError, OSError) as error:  # la base no responde
             logger.warning("health.failed", error=str(error))
             return JSONResponse(
-                {"status": "degraded", "detail": DB_UNAVAILABLE, "index": {"status": "unknown"}},
+                {
+                    "status": "degraded",
+                    "detail": DB_UNAVAILABLE,
+                    "index": {"status": "unknown"},
+                    "monitoring": monitoring_status(settings).as_health(),
+                },
                 status_code=503,
             )
         index = status.index or {"status": "not_configured"}
@@ -203,65 +208,16 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 "documents": status.documents,
                 "chunks": status.chunks,
                 "index": index,
+                "monitoring": monitoring_status(settings).as_health(),
             },
             status_code=200 if healthy else 503,
         )
 
-    @app.get("/", response_class=HTMLResponse)
-    def index(request: Request) -> Response:
-        return templates.TemplateResponse(request, "index.html", {})
+    @app.get("/")
+    def index() -> RedirectResponse:
+        """La portada redirige al chat: la pestaña Asistente ya no se muestra."""
 
-    @app.post("/ask", response_class=HTMLResponse)
-    def ask(
-        request: Request,
-        question: str = Form(default=""),
-        csrf_token: str = Form(default=""),
-    ) -> Response:
-        # CSRF antes de cualquier efecto: sin token no se toca cuota ni LLM.
-        if not verify_csrf(request, csrf_token):
-            logger.warning("csrf.rejected", path=request.url.path)
-            return _message(request, 403, chat.CSRF_INVALIDO)
-
-        text = question.strip()
-        if not text:
-            return _message(request, 422, "La pregunta no puede estar vacía.")
-
-        identity = chat.request_identity(request)
-        stored_owner = identity.read(request)
-        new_owner = stored_owner is None
-        owner_key = stored_owner or identity.new_owner_key()
-        # A partir de aquí, todo log de la petición (incluido el consumo de
-        # tokens del adaptador) queda asociado al visitante anónimo.
-        structlog.contextvars.bind_contextvars(owner_key=owner_key)
-        current = handlers or _default_handlers()
-
-        try:
-            quota = current.quota(owner_key)
-        except SQLAlchemyError as error:
-            logger.warning("quota.failed", error=str(error))
-            unavailable = _message(request, 503, SERVICE_UNAVAILABLE)
-            return _emit_identity(unavailable, request, identity, owner_key, new_owner=new_owner)
-
-        if not quota.allowed:
-            limited = _message(
-                request,
-                429,
-                chat.LIMITE_ALCANZADO,
-                headers={"Retry-After": str(quota.retry_after)},
-            )
-            return _emit_identity(limited, request, identity, owner_key, new_owner=new_owner)
-
-        try:
-            answer = current.ask(text)
-        except (EmbeddingError, LLMError, SQLAlchemyError) as error:
-            logger.warning("ask.failed", error=str(error))
-            if isinstance(error, LLMError):
-                capture_exception(error)
-            unavailable = _message(request, 503, SERVICE_UNAVAILABLE)
-            return _emit_identity(unavailable, request, identity, owner_key, new_owner=new_owner)
-
-        response = templates.TemplateResponse(request, "_answer.html", {"answer": answer})
-        return _emit_identity(response, request, identity, owner_key, new_owner=new_owner)
+        return RedirectResponse(url="/chat", status_code=303)
 
     return app
 

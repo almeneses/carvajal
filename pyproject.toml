@@ -22,14 +22,15 @@ dependencies = [
     "jinja2>=3.1.6",
     "langchain-ollama>=1.1.0",
     "langchain-openai>=1.7.4",
-    "langgraph>=1.2",
+    "langchain-text-splitters>=0.3",
+    "langgraph>=1.2.22",
     "langgraph-checkpoint-postgres>=3.0",
     "langgraph-checkpoint-sqlite>=3.0",
+    "langsmith>=0.14.14",
     "markdown>=3.11.3",
     "nh3>=0.3.7",
     "ollama>=0.6",
-    "pgvector>=0.5.1",
-    "psycopg[binary]>=3.2",
+    "psycopg[binary]>=3.3.9",
     "pydantic-settings>=2.7",
     "python-dotenv>=1.2.4",
     "python-multipart>=0.0.32",
@@ -48,16 +49,14 @@ capture = [
     "lxml>=5.1",
     "requests>=2.32",
 ]
-# Prototipo Streamlit y consulta con FAISS. La app web no los importa; W7.1 los
-# retira. En desarrollo, CI y para usar la CLI completa se instalan con
-# `uv sync --all-extras`.
+# Consulta con FAISS que usa la CLI histórica (ask, summarize, faq, eval). La
+# app web no la importa. En desarrollo, CI y para usar la CLI completa se
+# instalan con `uv sync --all-extras`.
 legacy = [
     "faiss-cpu>=1.15.1",
-    "langchain>=1.4.7",
+    "langchain>=1.4.10",
     "langchain-anthropic>=1.7.7",
     "langchain-community>=0.4.2",
-    "langchain-text-splitters>=0.3",
-    "streamlit>=1.66.1",
 ]
 
 [project.urls]
@@ -69,7 +68,7 @@ Issues = "https://github.com/markodavid/carvajal/issues"
 carvajal = "carvajal.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.13.6,<0.14.0"]
+requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
@@ -84,13 +83,15 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8.0",
     "testcontainers>=4.9",
-    "ty>=0.0.95",
+    "ty>=0.0.100",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py313"
 src = ["packages/core/src", "apps", "tests"]
+# `.dsh/` lo crea la herramienta de agentes con sus propios repos vendorizados.
+extend-exclude = [".dsh"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4"]
@@ -107,4 +108,9 @@ pythonpath = ["."]
 addopts = "-q"
 markers = [
     "integration: requiere Postgres real vía testcontainers",
+    "smoke: comprobación rápida del monitoreo, sin credenciales ni red",
+    "e2e: extremo a extremo con servicios reales y LangSmith (excluido de make check)",
 ]
+
+[tool.ty.src]
+exclude = [".dsh"]

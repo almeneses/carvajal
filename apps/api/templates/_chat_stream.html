@@ -4,32 +4,49 @@
   <span class="traza-item" data-campo="memory-wrap" hidden>Memoria: <strong data-campo="memory"></strong> preferencia(s)</span>
   <span class="traza-item">Hilo: <code data-campo="thread"></code></span>
 </div>
-<p id="chat-stream-estado" class="ayuda" role="status" aria-live="polite"></p>
 
 <template id="plantilla-turno">
   <li class="turno">
-    <p class="turno-rol"></p>
-    <div class="burbuja">
-      <p class="texto"></p>
-    </div>
-    <section class="citas" aria-label="Fuentes de la respuesta" hidden>
-      <h3>Fuentes citadas</h3>
-      <ol class="fuentes"></ol>
-    </section>
-  </li>
-</template>
-
-<template id="plantilla-fuente">
-  <li class="fuente">
-    <p class="fuente-meta">
-      <span>Documento: <a data-campo="url" target="_blank" rel="noopener noreferrer"><strong data-campo="title"></strong></a></span>
-      <span>Sección: <span data-campo="section"></span></span>
-      <span>Capa: <span data-campo="layer"></span></span>
-      <span>Tipo: <span data-campo="source_type"></span></span>
-      <span class="puntuacion">Puntuación: <span data-campo="score"></span></span>
+    <span class="turno-avatar" aria-hidden="true"></span>
+    <p class="turno-rol">
+      <span data-turno-autor></span>
+      <span class="estado-incompleto" data-chat-detenido hidden>Respuesta detenida</span>
     </p>
-    <p class="extracto" data-campo="excerpt"></p>
-    <p class="chunk" data-campo="chunk_id"></p>
+    <div class="burbuja">
+      <div class="texto"></div>
+    </div>
+    <div class="turno-voz" data-voz-turno>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="escuchar"
+        aria-pressed="false"
+      >Escuchar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="pausar"
+        hidden
+      >Pausar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="reanudar"
+        hidden
+      >Reanudar</button>
+      <button
+        type="button"
+        class="boton boton-fantasma turno-voz-boton"
+        data-voz-accion="detener"
+        hidden
+      >Detener</button>
+    </div>
+    <div class="marcas" data-marcas hidden>
+      <span class="marcas-pregunta">¿Te sirvió esta respuesta?</span>
+      <button type="button" class="boton boton-fantasma" data-marca="1">Útil</button>
+      <button type="button" class="boton boton-fantasma" data-marca="0">No útil</button>
+      <span class="marcas-gracias" data-marcas-gracias hidden>Gracias por tu marca.</span>
+    </div>
   </li>
 </template>
 

@@ -113,15 +113,17 @@ make test      # pytest
 make import    # importa el corpus externo a la capa extendida
 make qdrant    # levanta Qdrant con volumen persistente
 make index     # indexa data/gold en Qdrant (M2)
-make web       # frontend propio del M2 en :8001
-make api       # API del M2 en :8000
+make api       # interfaz única + API en :8000
 make image     # construye la imagen Docker de la app web
-make prod-up   # levanta app + base con compose.prod.yml (requiere SESSION_SECRET)
-make prod-down # detiene app y base (conserva el volumen)
+make up        # stack completo en Docker (app, base, Qdrant, Ollama y corpus)
+make down      # detiene el stack completo (conserva los volúmenes)
+make prod-up   # levanta app, Postgres, Qdrant y Ollama en APP_PORT (SESSION_SECRET)
+make prod-down # detiene los servicios (conserva los volúmenes)
+make prod-bootstrap # prepara un servidor limpio (modelos, migraciones y corpus)
 ```
 
 > 📦 `uv sync --all-extras` instala también los extras `capture` (CLI de
-> captura) y `legacy` (Streamlit y FAISS). El CLI completo requiere ambos:
+> captura) y `legacy` (FAISS para la CLI histórica). El CLI completo requiere ambos:
 > `uv tool install "carvajal[capture,legacy]"`. La imagen Docker instala solo
 > el runtime web.
 >

@@ -18,6 +18,7 @@ from apps.api.security import (
     HSTS,
     SecurityMiddleware,
     build_csrf_secret,
+    politica_permisos,
     valid_token,
 )
 from carvajal.application.ask import Answer
@@ -46,13 +47,13 @@ class FakeChat:
 
 
 def _client(*, base_url: str = "http://testserver") -> TestClient:
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat_identity = IDENTITY
     return TestClient(app, base_url=base_url)
 
 
 def _token(client: TestClient) -> str:
-    client.get("/")
+    client.get("/chat")
     return client.cookies[CSRF_COOKIE]
 
 
@@ -72,85 +73,28 @@ def _parse_sse(body: str) -> list[tuple[str, dict[str, object]]]:
     return eventos
 
 
-def test_la_portada_emite_el_token_y_lo_incrusta_en_el_formulario() -> None:
-    """El token de la cookie viaja en el campo oculto del formulario."""
-
-    # Act
-    response = _client().get("/")
-
-    # Assert
-    token = response.cookies[CSRF_COOKIE]
-    assert f'name="csrf_token" value="{token}"' in response.text
-
-
 def test_el_chat_incrusta_el_token_en_su_formulario() -> None:
-    """La pantalla de chat también recibe el campo oculto."""
-
-    # Arrange
-    client = _client()
+    """La pantalla de chat recibe el token que emite el middleware."""
 
     # Act
-    response = client.get("/chat")
+    response = _client().get("/chat")
 
     # Assert
     token = response.cookies[CSRF_COOKIE]
     assert f'name="csrf_token" value="{token}"' in response.text
 
 
-def test_el_post_sin_token_se_rechaza_antes_de_llamar_al_caso_de_uso() -> None:
-    """Sin token CSRF no se ejecuta la pregunta."""
-
-    # Arrange
-    preguntas: list[str] = []
-
-    def ask(question: str) -> Answer:
-        preguntas.append(question)
-        return RESPUESTA
-
-    app = create_app(Handlers(ask=ask, health=lambda: HealthStatus(0, 0)))
-    client = TestClient(app)
+def test_la_portada_emite_el_token_aunque_redirija() -> None:
+    """El 303 no pierde la cookie: pasar por / sigue habilitando los POST."""
 
     # Act
-    response = client.post("/ask", data={"question": "¿Cuándo nació?"})
+    response = _client().get("/", follow_redirects=False)
 
     # Assert
-    assert response.status_code == 403
-    assert "sesión del formulario expiró" in response.text
-    assert response.headers["x-carvajal-error"] == "1"
-    assert preguntas == []
-
-
-@pytest.mark.parametrize("token", ["otro", "ñ", "token-con-ñ"])
-def test_el_post_con_un_token_ajeno_o_no_ascii_se_rechaza(token: str) -> None:
-    """Un token que no coincide —o que no es ASCII— se rechaza sin lanzar 500."""
-
-    # Arrange
-    client = _client()
-    client.get("/")
-
-    # Act
-    response = client.post(
-        "/ask",
-        data={"question": "¿Cuándo nació?", CSRF_FIELD: token},
-    )
-
-    # Assert
-    assert response.status_code == 403
-
-
-def test_el_post_con_el_token_de_la_cookie_pasa() -> None:
-    """El token emitido por la portada habilita el formulario."""
-
-    # Arrange
-    client = _client()
-    token = _token(client)
-
-    # Act
-    response = client.post("/ask", data={"question": "¿Cuándo nació?", CSRF_FIELD: token})
-
-    # Assert
-    assert response.status_code == 200
-    assert "ok" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/chat"
+    assert response.cookies[CSRF_COOKIE]
+    assert f"{CSRF_COOKIE}=" in response.headers["set-cookie"]
 
 
 def test_las_cabeceras_de_seguridad_van_en_todas_las_respuestas() -> None:
@@ -159,15 +103,106 @@ def test_las_cabeceras_de_seguridad_van_en_todas_las_respuestas() -> None:
     # Arrange
     client = _client()
 
-    # Act
-    portada = client.get("/")
-    rechazo = client.post("/ask", data={"question": "¿?"})
+    # Act: sin seguir el 303 de la portada, que terminaría en el documento del chat.
+    portada = client.get("/", follow_redirects=False)
+    rechazo = client.post("/chat", data={"question": "¿?"})
 
     # Assert
     for response in (portada, rechazo):
         for nombre, valor in CABECERAS.items():
             assert response.headers[nombre] == valor
         assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+
+
+def _microfono(politica: str) -> str:
+    """Extrae la directiva ``microphone`` de ``Permissions-Policy``."""
+
+    for directiva in politica.split(","):
+        nombre, _, valor = directiva.strip().partition("=")
+        if nombre == "microphone":
+            return valor
+    raise AssertionError("la política no declara microphone")
+
+
+def _politica_microfono(response: Any) -> str:
+    return _microfono(response.headers["permissions-policy"])
+
+
+def test_el_documento_del_chat_permite_su_propio_microfono() -> None:
+    """Solo la página HTML del chat puede pedir micrófono (spec 040, T003)."""
+
+    # Act
+    response = _client().get("/chat")
+
+    # Assert
+    assert response.status_code == 200
+    assert _politica_microfono(response) == "(self)"
+    politica = response.headers["permissions-policy"]
+    assert "geolocation=()" in politica
+    assert "camera=()" in politica
+
+
+@pytest.mark.parametrize(
+    ("ruta", "metodo", "esperado"),
+    [
+        ("/chat", "GET", "(self)"),
+        ("/chat", "HEAD", "(self)"),
+        ("/chat", "POST", "()"),
+        ("/chat/stream", "POST", "()"),
+        ("/chat", "PUT", "()"),
+        ("/chat/", "GET", "()"),
+        ("/faq", "GET", "()"),
+        ("/static/chat-voice.js", "GET", "()"),
+    ],
+)
+def test_la_politica_de_microfono_depende_de_ruta_y_metodo(
+    ruta: str, metodo: str, esperado: str
+) -> None:
+    """La excepción no se hereda por método ni por prefijo de ruta."""
+
+    # Act / Assert
+    assert _microfono(politica_permisos(ruta, metodo)) == esperado
+
+
+def test_el_microfono_sigue_denegado_en_las_demas_rutas() -> None:
+    """FAQ, portada, POST del chat, SSE y estáticos no heredan la excepción."""
+
+    # Arrange
+    client = _client()
+    token = _token(client)
+
+    # Act
+    faq = client.get("/faq")
+    estatico = client.get("/static/logo.svg")
+    portada = client.get("/", follow_redirects=False)
+    post_chat = client.post("/chat", data={"question": "¿Qué es Carvajal?"})
+    sse_sin_token = client.post("/chat/stream", data={"question": "¿Qué es Carvajal?"})
+    sse = client.post(
+        "/chat/stream",
+        data={"question": "¿Qué es Carvajal?", CSRF_FIELD: token},
+    )
+
+    # Assert: el SSE válido responde 200 y aun así no recibe el micrófono.
+    assert sse.status_code == 200
+    assert "text/event-stream" in sse.headers["content-type"]
+    for response in (faq, estatico, portada, post_chat, sse_sin_token, sse):
+        assert _politica_microfono(response) == "()"
+
+
+def test_la_excepcion_del_microfono_no_cambia_csp_ni_frame_ancestors() -> None:
+    """El permiso acotado no abre scripts, estilos, conexiones ni iframes."""
+
+    # Act
+    response = _client().get("/chat")
+
+    # Assert
+    csp = response.headers["content-security-policy"]
+    assert "script-src 'self'" in csp
+    assert "style-src 'self'" in csp
+    assert "connect-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "unsafe-inline" not in csp
+    assert response.headers["x-frame-options"] == "DENY"
 
 
 def test_hsts_solo_sobre_https() -> None:
@@ -204,7 +239,7 @@ def test_la_cookie_csrf_es_secure_sobre_tls() -> None:
     """La cookie del token no viaja en claro."""
 
     # Act
-    response = _client(base_url="https://testserver").get("/")
+    response = _client(base_url="https://testserver").get("/chat")
 
     # Assert
     csrf = next(
@@ -230,7 +265,7 @@ def test_una_cookie_csrf_fijada_por_tercero_se_reemplaza() -> None:
     client.cookies.set(CSRF_COOKIE, "token-elegido-por-el-atacante")
 
     # Act
-    response = client.get("/")
+    response = client.get("/chat")
 
     # Assert
     token = response.cookies[CSRF_COOKIE]
@@ -293,7 +328,7 @@ def test_post_chat_exige_csrf_antes_de_la_cuota_y_del_proveedor() -> None:
     # Arrange
     chat = FakeChat()
     cupos: list[str] = []
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = chat
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: cupos.append(owner) or QuotaResult(allowed=True)
@@ -315,7 +350,7 @@ def test_post_chat_stream_exige_csrf_antes_de_la_cuota_y_del_proveedor() -> None
     # Arrange
     chat = FakeChat()
     cupos: list[str] = []
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = chat
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: cupos.append(owner) or QuotaResult(allowed=True)
@@ -339,7 +374,7 @@ def test_post_chat_con_token_valido_pasa_cuota_y_proveedor() -> None:
     # Arrange
     chat = FakeChat()
     cupos: list[str] = []
-    app = create_app(Handlers(ask=lambda question: RESPUESTA, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=lambda: HealthStatus(0, 0)))
     app.state.chat = chat
     app.state.chat_identity = IDENTITY
     app.state.quota = lambda owner: cupos.append(owner) or QuotaResult(allowed=True)
@@ -363,15 +398,14 @@ def test_el_500_lleva_request_id_cabeceras_y_parcial() -> None:
     """Una excepción no controlada no se escapa del endurecimiento."""
 
     # Arrange
-    def explode(question: str) -> Answer:
+    def explode() -> HealthStatus:
         raise ValueError("detalle interno")
 
-    app = create_app(Handlers(ask=explode, health=lambda: HealthStatus(0, 0)))
+    app = create_app(Handlers(health=explode))
     client = TestClient(app, raise_server_exceptions=False)
-    token = _token(client)
 
     # Act
-    response = client.post("/ask", data={"question": "¿?", CSRF_FIELD: token})
+    response = client.get("/health")
 
     # Assert
     assert response.status_code == 500

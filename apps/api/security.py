@@ -22,10 +22,13 @@ __all__ = [
     "CSRF_COOKIE",
     "CSRF_FIELD",
     "HSTS",
+    "PERMISOS_CHAT",
+    "PERMISOS_POR_DEFECTO",
     "SecurityMiddleware",
     "build_csrf_secret",
     "csrf_context",
     "issue_token",
+    "politica_permisos",
     "valid_token",
     "verify_csrf",
 ]
@@ -34,6 +37,26 @@ CSRF_COOKIE = "carvajal_csrf"
 CSRF_FIELD = "csrf_token"
 CSRF_MAX_AGE = 60 * 60 * 12  # doce horas
 _STATIC_PREFIX = "/static"
+
+# El micrófono queda cerrado en todo el sitio; solo el documento HTML del chat
+# lo habilita para su propio origen (spec 040). La excepción no toca CSP ni
+# frame-ancestors, y exige contexto seguro en el navegador.
+PERMISOS_POR_DEFECTO = "geolocation=(), microphone=(), camera=()"
+PERMISOS_CHAT = "geolocation=(), microphone=(self), camera=()"
+
+
+def politica_permisos(ruta: str, metodo: str) -> str:
+    """Devuelve ``Permissions-Policy`` según la ruta y el método.
+
+    Se limita al documento navegable del chat (GET/HEAD ``/chat``). El SSE del
+    chat, sus POST, los parciales y el resto del sitio conservan el micrófono
+    denegado.
+    """
+
+    if ruta == "/chat" and metodo.upper() in {"GET", "HEAD"}:
+        return PERMISOS_CHAT
+    return PERMISOS_POR_DEFECTO
+
 
 # Secreto de reserva cuando no hay SESSION_SECRET (desarrollo y pruebas). El
 # token va firmado para que una cookie fijada por un tercero no sirva: sin la
@@ -44,10 +67,11 @@ CABECERAS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Permissions-Policy": PERMISOS_POR_DEFECTO,
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-        "connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        "connect-src 'self'; frame-src https://www.openstreetmap.org; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'"
     ),
 }
 HSTS = "max-age=31536000; includeSubDomains"
@@ -163,6 +187,9 @@ class SecurityMiddleware:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers.update(CABECERAS)
+                headers["Permissions-Policy"] = politica_permisos(
+                    str(scope.get("path", "")), str(scope.get("method", ""))
+                )
                 if secure:
                     headers["Strict-Transport-Security"] = HSTS
                 if not estatico:

@@ -1,6 +1,5 @@
 """Pruebas del esquema Core: tablas, claves foráneas y restricciones."""
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import CheckConstraint, Table, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -17,8 +16,8 @@ def _unique_column_sets(table: Table) -> set[tuple[str, ...]]:
     }
 
 
-def test_exporta_las_seis_tablas_del_esquema() -> None:
-    """El metadata contiene el corpus, el chat de W3.3 y el cupo de W4.2."""
+def test_exporta_las_tablas_del_esquema() -> None:
+    """El metadata contiene corpus, chat, cupo, marcas (038) y memoria (042)."""
 
     assert set(tables.metadata.tables) == {
         "documents",
@@ -27,6 +26,9 @@ def test_exporta_las_seis_tablas_del_esquema() -> None:
         "conversations",
         "messages",
         "usage_day",
+        "chat_feedback",
+        "visitor_memory",
+        "quotes",
     }
 
 
@@ -60,12 +62,10 @@ def test_indices_de_consulta_existen() -> None:
     }
 
 
-def test_el_vector_vive_solo_en_los_fragmentos() -> None:
-    """W2.1 añade ``embedding`` a ``chunks`` como vector de 768 dimensiones."""
+def test_los_fragmentos_no_guardan_vectores() -> None:
+    """US5 retira ``embedding``: el único índice de respuestas es Qdrant."""
 
-    assert isinstance(tables.chunks.c.embedding.type, Vector)
-    assert tables.chunks.c.embedding.type.dim == 768
-    assert tables.chunks.c.embedding.nullable is True
+    assert "embedding" not in tables.chunks.c
     assert "embedding" not in tables.documents.c
     assert "embedding" not in tables.document_versions.c
 

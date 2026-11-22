@@ -5,6 +5,7 @@ documento se identifica por su slug y cada fragmento por ``documento:posición``
 La función solo hace ``flush()``; la transacción la abre quien la invoca (la CLI).
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,8 +43,9 @@ def load_document(path: Path, *, layer: str) -> Document:
     """Construye el documento de dominio a partir de un Markdown Gold.
 
     El *front matter* manda: ``slug`` (o el nombre del archivo), ``hash``,
-    ``captured_at``, ``section`` y ``title``. La capa la impone el llamador. Un
-    ``captured_at`` ausente, inválido o sin zona horaria cae a la mtime en UTC;
+    ``captured_at``, ``section``, ``title`` y la procedencia ``origin``,
+    ``category`` y ``entity``. La capa la impone el llamador. Un ``captured_at``
+    ausente, inválido o sin zona horaria cae a la mtime en UTC;
     uno válido se normaliza a UTC. Un slug vacío cae al nombre del archivo y uno
     con separadores de ruta lanza ``GoldImportError``.
     """
@@ -65,6 +67,9 @@ def load_document(path: Path, *, layer: str) -> Document:
         content_hash=front_matter.get("hash") or content_hash(markdown),
         captured_at=_captured_at(front_matter, path),
         source_type=front_matter.get("source_type") or "oficial",
+        origin=front_matter.get("origin") or "",
+        category=front_matter.get("category") or "",
+        entity=front_matter.get("entity") or "",
     )
 
 
@@ -92,6 +97,8 @@ def migrate_gold(
     gold_dir: Path,
     layer: str = "core",
     allow_empty: bool = False,
+    prune: bool = True,
+    only: Collection[str] | None = None,
 ) -> GoldImportReport:
     """Importa los ``*.md`` de ``gold_dir`` y devuelve los totales.
 
@@ -105,10 +112,23 @@ def migrate_gold(
     Un directorio existente sin Markdown se rechaza con ``GoldImportError``
     salvo ``allow_empty=True``, que interpreta el vacío como una poda total de
     la capa. Un directorio inexistente se rechaza siempre.
+
+    Con ``prune=False`` solo se hace la importación incremental: útil para
+    cargas de documentos sobre un corpus cuya copia Gold no está en el mismo
+    contenedor, donde podar borraría documentos válidos. ``only`` limita la
+    importación a esos slugs y nunca poda el resto; si ninguno de los slugs
+    pedidos está en este directorio, la llamada no hace nada (una capa puede
+    repartir sus documentos en varias fuentes).
     """
 
     loaded = _load_documents(gold_dir, layer=layer)
-    if not loaded and not allow_empty:
+    seleccion: set[str] | None = None
+    if only is not None:
+        seleccion = set(only)
+        loaded = [document for document in loaded if document.id in seleccion]
+        prune = False
+    if not loaded and not allow_empty and seleccion is None:
+        # Una selección incremental puede no incluir este directorio; no es un error.
         raise GoldImportError(
             f"{gold_dir}: no hay documentos Gold; usa --allow-empty para vaciar la capa."
         )
@@ -123,8 +143,21 @@ def migrate_gold(
         chunks.replace(document.id, document_chunks)
         total_chunks += len(document_chunks)
 
-    removed = _prune(documents, layer=layer, keep={document.id for document in loaded})
+    removed = (
+        _prune(documents, layer=layer, keep={document.id for document in loaded}) if prune else 0
+    )
     return GoldImportReport(documents=len(loaded), chunks=total_chunks, removed=removed)
+
+
+def prune_layer(session: Session, *, layer: str, keep: Collection[str]) -> int:
+    """Borra de la capa los documentos cuyo slug no está en ``keep``.
+
+    La poda de una capa repartida en varias fuentes se hace con la unión de sus
+    slugs: ningún directorio es autoritativo por separado, así que borrar con la
+    lista de uno solo eliminaría los documentos de los demás.
+    """
+
+    return _prune(SqlDocumentRepository(session), layer=layer, keep=set(keep))
 
 
 def _load_documents(gold_dir: Path, *, layer: str) -> list[Document]:

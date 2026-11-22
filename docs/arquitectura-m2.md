@@ -1,8 +1,8 @@
 # Arquitectura del M2 — agente, Qdrant y memoria
 
-> Entrada oficial: **http://localhost:8001** (`make web`). API:
-> **http://localhost:8000** (`make api`). Postgres conserva chat, checkpoints y
-> preferencias; Qdrant es el índice vectorial evaluado.
+> **Histórico.** Documenta la entrega del 2026-11-13, con dos procesos y la SPA
+> en `:8001`. Desde el 2026-11-18 la interfaz es única en **http://localhost:8000**
+> (`make api`): ver `CONSTITUTION.md` §9.
 
 ## Flujo de un turno
 
@@ -15,6 +15,7 @@ sequenceDiagram
   participant R as Router LangGraph
   participant Q as Qdrant
   participant T as indicator_lookup
+  participant C as Catálogo de empaques
   participant P as Postgres
   participant L as LLM
 
@@ -34,9 +35,15 @@ sequenceDiagram
     R->>Q: embedding + top-k híbrido (ANN + léxico)
     Q-->>R: fragmentos con payload (URL, título, tipo)
     R->>R: abstención si falta evidencia
+  else commercial
+    R->>C: buscar → validar material → cajas y precio → canal
+    C-->>R: opciones, descartes y canal (sin LLM)
   end
-  R-->>API: route, prompt, sources
+  R-->>API: route, prompt, sources, tool_result
   API-->>FE: event: trace + event: meta
+  opt route = commercial
+    API-->>FE: event: products (tarjetas renderizadas)
+  end
   API->>L: stream(system, prompt)
   L-->>API: tokens
   API-->>FE: event: token (N veces)
@@ -58,6 +65,9 @@ sequenceDiagram
 | Índice | IDs UUID5, upsert idempotente, poda y payload | `packages/core/src/carvajal/adapters/vector/qdrant_store.py` |
 | Indexador | Gold → chunks → embeddings → Qdrant | `packages/core/src/carvajal/indexing/qdrant.py` |
 | Herramienta | indicadores verificables por nombre y período | `packages/core/src/carvajal/agent/tools.py` |
+| Ruta comercial | extracción de la solicitud, secuencia fija sobre el catálogo y tarjetas | `agent/commercial_intent.py`, `agent/commercial_flow.py`, `agent/commercial.py`, `apps/api/templates/_productos.html` |
+| Catálogo de empaques | CSV curados (referencias, materiales, distribuidores) cargados en memoria | `packages/core/src/carvajal/catalog/`, `data/catalog/empaques/` |
+| Enrutadores | reglas (por defecto), LLM y modelo de decisión con el mismo contrato | `packages/core/src/carvajal/agent/routers/` |
 | Observabilidad | JSON con `request_id`, `thread_id`, ruta, tool, fuentes y duración | `apps/api/observability.py`, `chat/service.py` |
 
 ## Pantallas de lectura
@@ -77,9 +87,10 @@ compatibilidad y comparten los mismos proveedores.
 
 ## Decisiones verificables
 
-1. **Qdrant es el RAG evaluado.** `PgVectorStore` sigue existiendo para el
-   prototipo y las pruebas históricas, pero el chat web usa
-   `QdrantVectorStore`.
+1. **Qdrant es el único índice vectorial.** El adaptador `PgVectorStore` y la
+   ruta heredada `/ask` se retiraron en la spec 037: ningún flujo escribía
+   vectores en PostgreSQL. El chat es el único camino de respuesta; Postgres
+   conserva documentos y fragmentos para la FAQ y el explorador.
 2. **Postgres sigue siendo fuente de verdad relacional.** Documentos, chat y
    memoria viven ahí; Qdrant es derivado y reconstruible.
 3. **El índice se prepara antes del arranque.** La web no indexa; `/health`

@@ -1,0 +1,107 @@
+{% if error and partial %}
+<p class="aviso" role="alert">{{ error }}</p>
+{% endif %}
+
+<form
+  class="panel config-formulario config-captura"
+  method="post"
+  action="/configuracion/captura"
+  hx-post="/configuracion/captura"
+  hx-target="#captura-panel"
+  hx-swap="innerHTML"
+  hx-disabled-elt="find button"
+  data-captura-form
+>
+  {% include "_csrf.html" %}
+  <div class="config-campo">
+    <label for="captura-urls">URLs a capturar</label>
+    <textarea
+      id="captura-urls"
+      name="urls"
+      rows="6"
+      maxlength="10000"
+      placeholder="https://www.carvajal.com/noticias/&#10;https://www.larepublica.co/empresas/..."
+      aria-describedby="ayuda-captura-urls"
+    >{{ form.urls }}</textarea>
+    <p id="ayuda-captura-urls" class="ayuda">
+      Una URL por línea. Solo se admiten páginas públicas por http o https.
+    </p>
+  </div>
+
+  <div class="config-captura-opciones">
+    <div class="config-campo">
+      <label for="captura-scope">Alcance</label>
+      <select id="captura-scope" name="scope">
+        {% for value, label in scopes %}
+        <option value="{{ value }}" {% if form.scope == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="config-campo">
+      <label for="captura-limit">Máximo de URLs</label>
+      <input
+        id="captura-limit"
+        name="limit"
+        type="number"
+        min="1"
+        max="{{ max_urls }}"
+        value="{{ form.limit }}"
+        required
+      />
+      <p class="ayuda">Hasta {{ max_urls }} por ejecución.</p>
+    </div>
+  </div>
+
+  <label class="config-check">
+    <input type="checkbox" name="respect_robots" {% if form.respect_robots %}checked{% endif %} />
+    Respetar <code>robots.txt</code> y el ritmo de un segundo por host
+  </label>
+
+  {% if capture_allowed_domains %}
+  <p class="ayuda">
+    Dominios permitidos:
+    {% for domain in capture_allowed_domains %}<code>{{ domain }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+  </p>
+  {% endif %}
+
+  <button type="submit" class="boton">Ejecutar captura</button>
+</form>
+
+{% if job %}
+<section
+  class="panel captura-progreso"
+  data-captura-job="{{ job.id }}"
+  data-captura-stream="{{ job.stream_url }}"
+  aria-labelledby="titulo-captura-progreso"
+>
+  <div class="captura-cabecera">
+    <div>
+      <p class="sobrelinea">Captura en curso</p>
+      <h2 id="titulo-captura-progreso">Progreso</h2>
+    </div>
+    <span class="etiqueta etiqueta-externa" data-captura-estado>Iniciando…</span>
+  </div>
+
+  <ol class="captura-etapas" aria-label="Etapas de la captura">
+    {% for etapa in ["descubrir", "robots", "descargar", "extraer", "deduplicar", "enriquecer", "indice"] %}
+    <li class="captura-etapa" data-etapa="{{ etapa }}">{{ etapa|capitalize }}</li>
+    {% endfor %}
+  </ol>
+
+  <pre
+    class="captura-log"
+    data-captura-log
+    aria-live="polite"
+    aria-label="Registro de la captura"
+  ></pre>
+
+  <div data-captura-resultado></div>
+  <noscript>
+    <p class="ayuda">
+      Activa JavaScript para ver el progreso en vivo. La captura continúa
+      ejecutándose en el servidor y el resultado queda guardado.
+    </p>
+  </noscript>
+</section>
+{% endif %}

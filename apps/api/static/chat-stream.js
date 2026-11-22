@@ -1,6 +1,6 @@
 // Stream SSE del chat (W3.4).
 // Degrada al POST normal si falta soporte de streaming o la conexión falla
-// antes del primer token; el servidor solo persiste el turno al recibir done.
+// antes del primer token. Detener interrumpe la recepción, no el historial.
 (() => {
   "use strict";
 
@@ -11,27 +11,71 @@
     typeof window.fetch === "function" &&
     typeof window.TextDecoder === "function" &&
     typeof window.ReadableStream === "function";
-  if (!soportaStreaming) return;
-
-  const input = form.querySelector('input[name="question"]');
+  const input = form.querySelector('[name="question"]');
   const csrf = form.querySelector('input[name="csrf_token"]');
+  const threadInput = form.querySelector("[data-thread-id]");
   const turnIdInput = form.querySelector("[data-client-turn-id]");
   const boton = form.querySelector('button[type="submit"]');
-  const traza = document.getElementById("chat-traza");
+  const detener = form.querySelector("[data-chat-detener]");
+  const traza = new URLSearchParams(window.location.search).get("debug") === "1"
+    ? document.getElementById("chat-traza")
+    : null;
   const hilo = document.getElementById("hilo");
+  const historial = document.querySelector(".historial-chat");
+  const irAlFinal = document.querySelector("[data-chat-final]");
   const estado = document.getElementById("chat-stream-estado");
   const plantillaTurno = document.getElementById("plantilla-turno");
-  const plantillaFuente = document.getElementById("plantilla-fuente");
-  if (!input || !hilo || !estado || !plantillaTurno || !plantillaFuente) return;
+  const formateador = window.CarvajalTexto;
+  if (!input || !hilo || !estado || !historial) return;
 
+  const raizMonitoreo = document.querySelector("[data-monitoring]");
   const AVISO = "No se pudo completar la respuesta. Vuelve a intentarlo.";
   const INCOMPLETA = "La respuesta se interrumpió antes de completarse.";
   const SEPARADOR = /\r?\n\r?\n/;
   let enCurso = false;
+  let seguir = true;
+  let detenerTurno = null;
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (!enCurso) form.requestSubmit();
+  });
+
+  const bienvenida = hilo.querySelector(".chat-bienvenida");
+  const sugerencias = hilo.querySelector("[data-chat-sugerencias]");
+  if (sugerencias) sugerencias.hidden = false;
+  hilo.addEventListener("click", (event) => {
+    const sugerencia = event.target.closest("[data-chat-sugerencia]");
+    if (!sugerencia || enCurso) return;
+    input.value = sugerencia.textContent.trim();
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus({ preventScroll: true });
+  });
+
+  historial.addEventListener("scroll", () => {
+    seguir = cercaDelFinal();
+    actualizarAccesoAlFinal();
+  }, { passive: true });
+  irAlFinal?.addEventListener("click", () => {
+    seguir = true;
+    historial.focus({ preventScroll: true });
+    ajustarHistorial();
+  });
+  if (typeof window.ResizeObserver === "function") {
+    new window.ResizeObserver(ajustarHistorial).observe(historial);
+  }
+  ajustarHistorial();
+
+  if (!soportaStreaming || !plantillaTurno || !formateador) return;
+  detener?.addEventListener("click", () => detenerTurno?.());
 
   form.addEventListener("submit", (event) => {
-    if (!soportaStreaming) return; // el navegador envía el POST de siempre
     event.preventDefault();
+    // Origen solo en el cliente: se lee y se limpia antes de cualquier salida
+    // temprana para no tratar un envío manual posterior como manos libres.
+    const manosLibres = form.dataset.vozOrigen === "manos-libres";
+    delete form.dataset.vozOrigen;
     if (enCurso) return;
 
     const pregunta = input.value.trim();
@@ -46,10 +90,60 @@
       return;
     }
     enCurso = true;
+    seguir = true;
     const turnId = nuevoTurnoId();
     if (turnIdInput) turnIdInput.value = turnId;
-    void responder(pregunta, turnId);
+    void responder(pregunta, turnId, manosLibres);
   });
+
+  // Marcas del visitante (spec 038, US4): solo con el monitoreo activo y con
+  // el request_id del turno. No recargan la página y no fuerzan una traza.
+  function monitoreoActivo() {
+    return Boolean(raizMonitoreo) && raizMonitoreo.dataset.monitoring === "1";
+  }
+
+  function crearMarcas(turno, requestId) {
+    if (!monitoreoActivo() || !requestId) return;
+    const contenedor = turno.querySelector("[data-marcas]");
+    if (!contenedor) return;
+    contenedor.dataset.requestId = String(requestId);
+    contenedor.hidden = false;
+    contenedor.querySelectorAll("button[data-marca]").forEach((boton) => {
+      boton.addEventListener("click", () => void marcar(contenedor, boton));
+    });
+  }
+
+  async function marcar(contenedor, boton) {
+    const requestId = contenedor.dataset.requestId || "";
+    if (!requestId || contenedor.dataset.enviada === "1") return;
+    const botones = contenedor.querySelectorAll("button[data-marca]");
+    botones.forEach((cada) => {
+      cada.disabled = true;
+    });
+    try {
+      const respuesta = await fetch("/chat/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          request_id: requestId,
+          useful: boton.dataset.marca === "1" ? "1" : "0",
+          csrf_token: csrf ? csrf.value : "",
+        }),
+      });
+      if (!respuesta.ok) throw new Error(`respuesta ${respuesta.status}`);
+      contenedor.dataset.enviada = "1";
+      const gracias = contenedor.querySelector("[data-marcas-gracias]");
+      if (gracias) gracias.hidden = false;
+      botones.forEach((cada) => {
+        cada.hidden = cada !== boton;
+      });
+    } catch {
+      botones.forEach((cada) => {
+        cada.disabled = false;
+      });
+      avisar("No se pudo guardar tu marca. Inténtalo de nuevo.", true);
+    }
+  }
 
   function nuevoTurnoId() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -58,18 +152,61 @@
     return `turno-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  async function responder(pregunta, turnId) {
+  async function responder(pregunta, turnId, manosLibres) {
     quitarVacio();
+    const lista = asegurarLista();
     const turnoUsuario = crearTurno("user", pregunta);
     const turnoAsistente = crearTurno("assistant", "");
-    hilo.append(turnoUsuario, turnoAsistente);
+    const controlesVoz = turnoAsistente.querySelector("[data-voz-turno]");
+    if (controlesVoz) controlesVoz.hidden = true;
+    lista.append(turnoUsuario, turnoAsistente);
     const texto = turnoAsistente.querySelector(".texto");
+    const flujo = formateador.crearFlujo(texto);
+    let cantidadFuentes = 0;
+    let lote = [];
+    let repintado;
+    let completado = false;
+    let errorRecibido = false;
+    let cancelado = false;
+    function pintarLote(provisional, interrumpido = false) {
+      clearTimeout(repintado);
+      repintado = undefined;
+      if (lote.length) flujo.agregar(lote.join(""), cantidadFuentes);
+      lote = [];
+      if (provisional) flujo.adelantar(cantidadFuentes);
+      else flujo.terminar(cantidadFuentes, interrumpido);
+      if (texto.textContent || !provisional) {
+        clearTimeout(espera);
+        if (estado.textContent === "Pensando…") avisar("");
+      }
+      ajustarHistorial();
+    }
+    const guardarFuentes = (fuentes) => {
+      const validas = Array.isArray(fuentes) ? fuentes : [];
+      cantidadFuentes = validas.length;
+      turnoAsistente.dataset.vozFuentes = JSON.stringify(
+        validas.map((fuente) => fuente?.title || fuente?.slug || ""),
+      );
+    };
     input.value = "";
     form.setAttribute("aria-busy", "true");
-    if (boton) boton.disabled = true;
-    avisar("Generando respuesta…");
+    const focoEnEnviar = document.activeElement === boton;
+    if (boton) boton.hidden = true;
+    if (detener) {
+      detener.disabled = false;
+      detener.hidden = false;
+      if (focoEnEnviar) detener.focus({ preventScroll: true });
+    }
+    ajustarHistorial();
+    avisar("");
 
     const control = new AbortController();
+    detenerTurno = () => {
+      if (control.signal.aborted || completado) return;
+      cancelado = true;
+      control.abort();
+    };
+    const espera = setTimeout(() => avisar("Pensando…"), 300);
     const temporizador = setTimeout(() => control.abort(), 120000);
     let cerrado = false;
     let recibioContenido = false;
@@ -84,6 +221,7 @@
           question: pregunta,
           csrf_token: csrf ? csrf.value : "",
           client_turn_id: turnId,
+          thread_id: threadInput ? threadInput.value : "",
         }),
         signal: control.signal,
       });
@@ -98,43 +236,55 @@
 
       await leerEventos(response, (evento) => {
         switch (evento.nombre) {
-          case "open":
-            avisar("Recuperando fuentes…");
-            break;
           case "trace":
+            if (threadInput && evento.datos.thread_id) {
+              threadInput.value = String(evento.datos.thread_id);
+            }
             pintarTraza(evento.datos);
-            avisar(
-              evento.datos.route === "tool"
-                ? "Consultando la herramienta…"
-                : evento.datos.route === "direct"
-                  ? "Respondiendo sin búsqueda…"
-                  : "Buscando en el corpus…",
-            );
             break;
           case "meta":
-            pintarFuentes(turnoAsistente, evento.datos.sources);
-            avisar("Redactando…");
+            guardarFuentes(evento.datos.sources);
+            break;
+          case "products":
+            pintarProductos(turnoAsistente, String(evento.datos.html ?? ""));
+            ajustarHistorial();
             break;
           case "token": {
             const fragmento = String(evento.datos.text ?? "");
-            texto.textContent += fragmento;
-            if (fragmento) recibioContenido = true;
+            if (!fragmento) break;
+            recibioContenido = true;
+            lote.push(fragmento);
+            if (repintado === undefined) repintado = setTimeout(() => pintarLote(true), 40);
             break;
           }
           case "fallback":
-            texto.textContent = String(evento.datos.text ?? "");
-            pintarFuentes(turnoAsistente, evento.datos.sources);
+            clearTimeout(espera);
+            avisar("");
+            clearTimeout(repintado);
+            repintado = undefined;
+            lote = [];
+            guardarFuentes(evento.datos.sources);
+            flujo.reemplazar(String(evento.datos.text ?? ""), cantidadFuentes);
             recibioContenido = true;
-            avisar("Respuesta completa sin streaming.");
+            ajustarHistorial();
             break;
           case "done":
             cerrado = true;
-            avisar("");
+            if (threadInput && evento.datos.thread_id) {
+              threadInput.value = String(evento.datos.thread_id);
+            }
+            pintarLote(false, errorRecibido);
+            crearMarcas(turnoAsistente, evento.datos.request_id);
+            completado = true;
+            if (detener) detener.disabled = true;
             break;
           case "error":
             cerrado = true;
+            errorRecibido = true;
+            clearTimeout(espera);
+            pintarLote(false, true);
             if (!texto.textContent) {
-              texto.textContent = String(evento.datos.message ?? INCOMPLETA);
+              flujo.reemplazar(String(evento.datos.message ?? INCOMPLETA));
             }
             avisar(String(evento.datos.message ?? INCOMPLETA), true);
             break;
@@ -143,15 +293,43 @@
         }
       });
 
+      if (cancelado) throw control.signal.reason;
+      pintarLote(false, !completado || errorRecibido);
       if (!response.ok && !texto.textContent) {
-        texto.textContent = AVISO;
+        flujo.reemplazar(AVISO);
         avisar(AVISO, true);
       } else if (!cerrado) {
         avisar(INCOMPLETA, true);
-        if (!texto.textContent) texto.textContent = INCOMPLETA;
+        if (!texto.textContent) flujo.reemplazar(INCOMPLETA);
       }
     } catch (error) {
-      if (!recibioContenido && !cerrado) {
+      pintarLote(false, true);
+      if (cancelado) {
+        if (texto.textContent || turnoAsistente.querySelector(".productos")) {
+          const marca = turnoAsistente.querySelector("[data-chat-detenido]");
+          if (marca) marca.hidden = false;
+        } else {
+          turnoUsuario.remove();
+          turnoAsistente.remove();
+          if (!lista.children.length && bienvenida) hilo.append(bienvenida);
+          if (!input.value) input.value = pregunta;
+        }
+        avisar("Respuesta detenida.");
+        return;
+      }
+      if (manosLibres) {
+        // Manos libres nunca reenvía por el POST normal: devuelve el texto al
+        // formulario para revisión y deja que el controlador apague el modo.
+        if (!recibioContenido && !cerrado) {
+          if (!input.value) input.value = pregunta;
+          turnoUsuario.remove();
+          turnoAsistente.remove();
+          avisar("La conexión falló; revisa el texto y envíalo cuando quieras.", true);
+          return;
+        }
+        avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
+        if (!texto.textContent) turnoAsistente.remove();
+      } else if (!recibioContenido && !cerrado && !input.value) {
         // Falló antes del primer token y el servidor no persistió el turno:
         // restaura la pregunta y reintenta por el POST normal del formulario.
         input.value = pregunta;
@@ -160,25 +338,85 @@
         avisar("La conexión falló; enviando la pregunta sin streaming…");
         form.submit(); // HTMLFormElement.submit() no dispara el listener de submit
         return;
+      } else {
+        avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
+        if (!texto.textContent) turnoAsistente.remove();
       }
-      avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
-      if (!texto.textContent) turnoAsistente.remove();
     } finally {
       clearTimeout(temporizador);
+      clearTimeout(espera);
+      clearTimeout(repintado);
+      detenerTurno = null;
       form.removeAttribute("aria-busy");
-      if (boton) boton.disabled = false;
-      input.focus();
-      turnoAsistente.scrollIntoView({ block: "nearest" });
+      if (boton) boton.hidden = false;
+      if (detener) {
+        const focoEnDetener = document.activeElement === detener;
+        detener.hidden = true;
+        if (focoEnDetener) input.focus({ preventScroll: true });
+      }
       enCurso = false;
+      if (controlesVoz && (texto.textContent || turnoAsistente.querySelector(".productos"))) {
+        controlesVoz.hidden = false;
+      }
+      ajustarHistorial();
+      // Notificación interna (spec 040): solo tras un stream con done, con el
+      // turno ya formateado y el formulario liberado. No hay audio ni red.
+      // El contrato no emite turno completo si hubo error, aunque llegue done.
+      if (completado && !errorRecibido && !cancelado) {
+        avisar("Respuesta lista.", false, true);
+        notificarTurnoCompleto(turnoAsistente, manosLibres);
+      } else if (manosLibres) {
+        // Sin `done` el servidor no persiste el turno: se devuelve siempre la
+        // pregunta para que la persona pueda revisarla y reenviarla.
+        if (!input.value.trim()) input.value = pregunta;
+        notificarTurnoFallido(turnoAsistente, threadInput ? threadInput.value : "", true);
+      }
     }
+  }
+
+  function notificarTurnoCompleto(turno, manosLibres) {
+    if (typeof window.CustomEvent !== "function") return;
+    document.dispatchEvent(
+      new window.CustomEvent("chat:turn-complete", {
+        detail: {
+          turno,
+          threadId: threadInput ? String(threadInput.value || "") : "",
+          handsFree: Boolean(manosLibres),
+        },
+      }),
+    );
+  }
+
+  function notificarTurnoFallido(turno, threadId, manosLibres) {
+    if (typeof window.CustomEvent !== "function") return;
+    document.dispatchEvent(
+      new window.CustomEvent("chat:turn-failed", {
+        detail: {
+          turno,
+          threadId: threadId === undefined || threadId === null ? "" : String(threadId),
+          handsFree: Boolean(manosLibres),
+        },
+      }),
+    );
   }
 
   function crearTurno(rol, contenido) {
     const turno = plantillaTurno.content.firstElementChild.cloneNode(true);
     turno.classList.add(`turno-${rol}`);
-    turno.querySelector(".turno-rol").textContent = rol === "user" ? "Tú" : "Asistente";
+    turno.querySelector("[data-turno-autor]").textContent = rol === "user" ? "Tú" : "Carva";
     turno.querySelector(".texto").textContent = contenido;
     return turno;
+  }
+
+  // Tarjetas de la ruta comercial (spec 036). El HTML llega renderizado y escapado por
+  // Jinja en el servidor (_productos.html), igual que los parciales que inserta app.js.
+  function pintarProductos(turno, html) {
+    turno.querySelector(".productos")?.remove();
+    if (!html) return;
+    const plantilla = document.createElement("template");
+    plantilla.innerHTML = html;
+    const tarjetas = plantilla.content.firstElementChild;
+    if (tarjetas) turno.querySelector(".burbuja")?.after(tarjetas);
   }
 
   function pintarTraza(datos) {
@@ -206,54 +444,38 @@
   }
 
   function quitarVacio() {
-    const vacio = hilo.querySelector(".vacio");
-    if (vacio) vacio.remove();
+    bienvenida?.remove();
   }
 
-  function avisar(mensaje, esError = false) {
+  function asegurarLista() {
+    let lista = hilo.querySelector("ol.hilo");
+    const sueltos = Array.from(hilo.querySelectorAll(":scope > li.turno"));
+    if (!lista) {
+      lista = document.createElement("ol");
+      lista.className = "hilo";
+      hilo.append(lista);
+    }
+    if (sueltos.length > 0) lista.append(...sueltos);
+    return lista;
+  }
+
+  function cercaDelFinal() {
+    return historial.scrollHeight - historial.clientHeight - historial.scrollTop <= 64;
+  }
+
+  function actualizarAccesoAlFinal() {
+    if (irAlFinal) irAlFinal.hidden = cercaDelFinal();
+  }
+
+  function ajustarHistorial() {
+    if (seguir) historial.scrollTop = historial.scrollHeight;
+    actualizarAccesoAlFinal();
+  }
+
+  function avisar(mensaje, esError = false, soloLector = false) {
     estado.textContent = mensaje;
     estado.classList.toggle("aviso", esError);
-    estado.classList.toggle("ayuda", !esError);
-  }
-
-  function pintarFuentes(turno, fuentes) {
-    if (!Array.isArray(fuentes) || fuentes.length === 0) return;
-    const seccion = turno.querySelector(".citas");
-    const lista = seccion.querySelector(".fuentes");
-    lista.textContent = "";
-    for (const fuente of fuentes) {
-      const item = plantillaFuente.content.firstElementChild.cloneNode(true);
-      const campos = {
-        title: (fuente && (fuente.title || fuente.slug)) || "",
-        section: fuente && fuente.section,
-        layer: fuente && fuente.layer,
-        source_type: fuente && fuente.source_type,
-        excerpt: fuente && fuente.excerpt,
-        chunk_id: fuente && fuente.chunk_id,
-      };
-      for (const [campo, valor] of Object.entries(campos)) {
-        const nodo = item.querySelector(`[data-campo="${campo}"]`);
-        if (nodo) nodo.textContent = valor == null ? "" : String(valor);
-      }
-      const enlace = item.querySelector('[data-campo="url"]');
-      const url = String((fuente && fuente.url) || "");
-      if (enlace) {
-        if (/^https?:\/\//.test(url)) {
-          enlace.href = url;
-          enlace.title = "Abrir la fuente original";
-        } else {
-          enlace.removeAttribute("href");
-          enlace.removeAttribute("target");
-        }
-      }
-      const puntuacion = Number(fuente && fuente.score);
-      const nodoScore = item.querySelector('[data-campo="score"]');
-      if (nodoScore) nodoScore.textContent = Number.isFinite(puntuacion)
-        ? puntuacion.toFixed(3)
-        : "";
-      lista.append(item);
-    }
-    seccion.hidden = false;
+    estado.classList.toggle("sr-solo", soloLector);
   }
 
   async function leerEventos(response, alEvento) {

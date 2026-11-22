@@ -9,6 +9,7 @@ sobrevivan reinicios y todos los workers compartan la misma clave.
 """
 
 import hmac
+import re
 import secrets
 from dataclasses import dataclass
 from functools import cache
@@ -23,6 +24,7 @@ from carvajal.infrastructure.settings import Settings
 __all__ = [
     "COOKIE_MAX_AGE",
     "COOKIE_NAME",
+    "VISITOR_COOKIE",
     "ChatIdentity",
     "SignedCookieIdentity",
     "build_identity",
@@ -30,7 +32,9 @@ __all__ = [
 ]
 
 COOKIE_NAME = "carvajal_sesion"
+VISITOR_COOKIE = "carvajal_visitante"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 180  # seis meses
+_VISITOR_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # Secreto de reserva cuando no hay SESSION_SECRET configurado. Es estable
 # mientras viva el proceso; no sirve para varias instancias ni para reinicios.
@@ -42,7 +46,7 @@ class ChatIdentity(Protocol):
     """Contrato mínimo que consume la vista para leer y emitir identidades."""
 
     def read(self, request: Request) -> str | None:
-        """Devuelve el dueño si la cookie existe y la firma es válida."""
+        """Devuelve el dueño del visitante o de la cookie firmada."""
 
         ...
 
@@ -63,13 +67,33 @@ class SignedCookieIdentity:
 
     secret: bytes
     cookie_name: str = COOKIE_NAME
+    visitor_cookie: str = VISITOR_COOKIE
     max_age: int = COOKIE_MAX_AGE
 
     def read(self, request: Request) -> str | None:
-        """Lee la cookie de la petición y devuelve el dueño si es válida."""
+        """Devuelve el dueño derivado del visitante o de la cookie firmada.
 
+        La identidad de localStorage se envía en ``carvajal_visitante``. El
+        dueño de la base no es ese valor: se deriva con HMAC para que el hash
+        del navegador no se use directamente como clave. Si la cookie de
+        visitante falta o no tiene el formato esperado, se conserva el
+        comportamiento histórico de la cookie firmada.
+        """
+
+        visitor = request.cookies.get(self.visitor_cookie, "").strip().lower()
+        if _VISITOR_RE.fullmatch(visitor):
+            return self._visitor_owner(visitor)
         raw = request.cookies.get(self.cookie_name)
         return None if raw is None else self.verify(raw)
+
+    def _visitor_owner(self, visitor: str) -> str:
+        """Deriva un dueño estable y opaco a partir del hash de localStorage."""
+
+        return hmac.new(
+            self.secret,
+            f"visitante:{visitor}".encode("ascii"),
+            sha256,
+        ).hexdigest()
 
     def issue(self, owner_key: str) -> str:
         """Construye el valor ``<owner_key>.<hmac_sha256>``."""

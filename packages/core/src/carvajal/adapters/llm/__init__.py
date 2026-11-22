@@ -20,7 +20,7 @@ def build_llm_provider(settings: Settings | None = None) -> LLMProvider:
 
     Raises:
         ValueError: si el proveedor no está soportado en esta ruta. ``claude``
-            sigue disponible solo en la interfaz Streamlit (``rag.build_llm``).
+            sigue disponible solo en la CLI histórica (``rag.build_llm``).
     """
 
     if settings is None:
@@ -32,6 +32,6 @@ def build_llm_provider(settings: Settings | None = None) -> LLMProvider:
         return OllamaProvider(settings)
     if provider == "claude":
         raise ValueError(
-            "El proveedor 'claude' solo está disponible en la interfaz Streamlit (rag.build_llm)."
+            "El proveedor 'claude' solo está disponible en la CLI histórica (rag.build_llm)."
         )
     raise ValueError(f"Proveedor de LLM no soportado: {provider!r}. Usa 'deepseek' u 'ollama'.")

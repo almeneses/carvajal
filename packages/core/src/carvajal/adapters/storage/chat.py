@@ -12,12 +12,18 @@ from time import time_ns
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage import tables
 
-__all__ = ["HISTORY_LIMIT", "ChatMessage", "Conversation", "SqlChatRepository"]
+__all__ = [
+    "HISTORY_LIMIT",
+    "ChatMessage",
+    "Conversation",
+    "ConversationSummary",
+    "SqlChatRepository",
+]
 
 HISTORY_LIMIT = 50
 
@@ -28,6 +34,16 @@ class Conversation:
 
     id: str
     owner_key: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ConversationSummary:
+    """Resumen de un hilo para el panel lateral de conversaciones."""
+
+    id: str
+    preview: str
     created_at: datetime
     updated_at: datetime
 
@@ -87,6 +103,62 @@ class SqlChatRepository:
         self._session.execute(insert(tables.conversations).values(asdict(conversation)))
         self._session.flush()
         return conversation
+
+    def summarize(self, owner_key: str, *, limit: int = 50) -> list[ConversationSummary]:
+        """Lista los hilos del dueño, del más reciente al más antiguo.
+
+        La vista previa es el último mensaje del hilo, recortado para el panel.
+        Un hilo recién creado se conserva con la vista previa vacía.
+        """
+
+        if limit < 1:
+            raise ValueError("limit debe ser mayor que cero.")
+        ultimo = select(
+            tables.messages.c.conversation_id,
+            tables.messages.c.content,
+            func.row_number()
+            .over(
+                partition_by=tables.messages.c.conversation_id,
+                order_by=(
+                    tables.messages.c.created_at.desc(),
+                    tables.messages.c.id.desc(),
+                ),
+            )
+            .label("posicion"),
+        ).subquery()
+        rows = (
+            self._session.execute(
+                select(
+                    tables.conversations.c.id,
+                    tables.conversations.c.created_at,
+                    tables.conversations.c.updated_at,
+                    ultimo.c.content,
+                )
+                .select_from(tables.conversations)
+                .outerjoin(
+                    ultimo,
+                    (ultimo.c.conversation_id == tables.conversations.c.id)
+                    & (ultimo.c.posicion == 1),
+                )
+                .where(tables.conversations.c.owner_key == owner_key)
+                .order_by(
+                    tables.conversations.c.updated_at.desc(),
+                    tables.conversations.c.id.desc(),
+                )
+                .limit(min(limit, 100))
+            )
+            .mappings()
+            .all()
+        )
+        return [
+            ConversationSummary(
+                id=row["id"],
+                preview=" ".join((row["content"] or "").split())[:160],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ]
 
     def get_or_create(self, owner_key: str) -> Conversation:
         """Devuelve la conversación activa o crea una si el dueño no tiene."""

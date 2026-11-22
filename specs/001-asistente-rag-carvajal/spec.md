@@ -2,7 +2,9 @@
 
 **Feature Branch**: `001-asistente-rag-carvajal`
 **Created**: 2026-11-03
-**Status**: Implemented (línea base documentada a posteriori)
+**Status**: Implemented (as-built; línea base documentada a posteriori)
+**Implemented**: 2026-10-27 → 2026-10-30
+**Evidence**: `CONSTITUTION.md` §9 (2026-10-21 → 2026-10-30); PRs #3–#13; `docs/resultados.md`
 **Input**: Sistema construido durante el Módulo 1: corpus web curado, tres tareas de LLM
 (Resumen, FAQ y Q&A) e interfaz de pruebas con el scraping visible.
 

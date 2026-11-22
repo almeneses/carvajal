@@ -175,3 +175,50 @@ uv run python scripts/experimentos_prompts.py --solo qa    # solo Q&A
 
 El script imprime, por variante: tiempo, caracteres, slugs citados, cifras y si declara
 ausencia, además del inicio y el cierre de la respuesta.
+
+## 8. Prompts unificados (2026-11-21)
+
+Los prompts de la app web viven ahora en
+[`packages/core/src/carvajal/prompts.py`](../packages/core/src/carvajal/prompts.py):
+
+- **Una identidad**: Carva, español de Colombia, tuteo, frases cortas.
+- **Tres sistemas**: `RAG_SYSTEM` (con contexto y citas), `STRUCTURED_SYSTEM` (herramienta y
+  cotización, sin prometer un contexto que no existe) y `DIRECT_SYSTEM` (saludos y
+  aclaraciones, sin fingir una búsqueda).
+- **Guiones de borde** por intención en `DIRECT_INSTRUCTIONS`.
+- **Router con ejemplos y desempate** entre documental y comercial.
+- **Historial y preferencias delimitados** como datos, nunca instrucciones.
+- **Una sola FAQ** para la web y la CLI heredada.
+
+Los contratos se verifican en `tests/test_prompts.py`. La calidad de la redacción sigue
+midiéndose con `scripts/experimentos_prompts.py` y revisión humana; el tono no se puede
+probar con aserciones de cadena.
+
+## 9. Política de ausencia y medición de huecos (2026-11-21)
+
+La respuesta cuando falta información vive en `ABSENCE_POLICY` (`carvajal/prompts.py`)
+con cinco casos. Cada uno declara cuándo aplica, qué se dice y qué se ofrece:
+
+| Caso | Cuándo | Qué se ofrece |
+|---|---|---|
+| `no_context` | no se recuperó nada | Contar lo que sí aparece o buscarlo con más contexto |
+| `partial` | hay contexto parcial | Responder lo que consta y marcar el hueco |
+| `unsupported_entity` | un nombre propio sin respaldo | Probar otro nombre o más contexto |
+| `structured_missing` | falta precio, existencia o plazo | No estimar; consultar al distribuidor |
+| `out_of_scope` | tema ajeno a la pantalla | Chat general o asesor |
+
+Reglas: una frase de contexto, sin disculpas largas; «no aparece en el corpus», nunca
+«no existe»; no estimar, convertir ni prometer disponibilidad; cerrar siempre con un
+siguiente paso; responder en el idioma del usuario.
+
+`NO_CONTEXT_ANSWER` se deriva del caso `no_context`, el Cotizador usa `out_of_scope` y
+`structured_missing`, y la FAQ mantiene su sección de temas sin información.
+
+**Medición.** Cuando el RAG se queda sin evidencia, el grafo registra
+`rag.no_context` con `reason` (`sin_resultados` o `entidad_sin_respaldo`) y un `topic`
+normalizado: minúsculas, sin tildes, sin correos, URLs, teléfonos ni números de seis o
+más cifras, y como máximo ocho palabras. Ese log alimenta el backlog del corpus sin
+guardar datos de contacto.
+
+Casos de prueba: `tests/test_absence.py`, `tests/test_prompts.py` y
+`tests/test_agent_graph.py` (evento y motivo).

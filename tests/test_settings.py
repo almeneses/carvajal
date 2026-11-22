@@ -20,6 +20,7 @@ def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
         "POSTGRES_PORT",
+        "OLLAMA_BASE_URL",
     ):
         monkeypatch.delenv(nombre, raising=False)
 
@@ -88,6 +89,34 @@ def test_tupla_desde_entorno_json(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(_env_file=None)
 
     assert settings.seeds == ("https://ejemplo.test/",)
+
+
+def test_ollama_base_url_por_defecto() -> None:
+    """Sin configuración, los embeddings apuntan al Ollama local."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ollama_base_url == "http://127.0.0.1:11434"
+
+
+def test_ollama_base_url_desde_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """En el compose de producción la URL apunta al servicio `ollama`."""
+
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ollama_base_url == "http://ollama:11434"
+
+
+def test_ollama_num_ctx_por_defecto_y_desde_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La ventana de contexto de Ollama debe caber el corpus completo."""
+
+    assert Settings(_env_file=None).ollama_num_ctx == 32768
+
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "16384")
+
+    assert Settings(_env_file=None).ollama_num_ctx == 16384
 
 
 def test_fachada_coincide_con_settings() -> None:
@@ -255,3 +284,70 @@ def test_sentry_traces_sample_rate_invalido_falla(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_monitoreo_apagado_por_defecto() -> None:
+    """Sin configuración explícita, el monitoreo no se activa (FR-001)."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.monitoring_enabled is False
+    assert settings.monitoring_sample_rate == 0.2
+    assert settings.monitoring_include_content is False
+    assert settings.monitoring_timeout_ms == 2000
+    assert settings.langsmith_project == "carvajal"
+    assert settings.langsmith_endpoint == ""
+    assert settings.langsmith_api_key == ""
+
+
+@pytest.mark.parametrize("valor", ["-0.1", "1.1", "no-es-un-numero"])
+def test_monitoring_sample_rate_invalido_falla(monkeypatch: pytest.MonkeyPatch, valor: str) -> None:
+    """El muestreo del monitoreo debe quedar entre 0 y 1 (FR-007)."""
+
+    monkeypatch.setenv("MONITORING_SAMPLE_RATE", valor)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("valor", ["0", "-5", "70000", "no-es-un-numero"])
+def test_monitoring_timeout_invalido_falla(monkeypatch: pytest.MonkeyPatch, valor: str) -> None:
+    """El timeout del cliente debe ser positivo y breve."""
+
+    monkeypatch.setenv("MONITORING_TIMEOUT_MS", valor)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_la_llave_de_langsmith_no_se_expone_en_el_repr() -> None:
+    """La credencial queda fuera de cualquier ``repr`` accidental (FR-005)."""
+
+    settings = Settings(_env_file=None, langsmith_api_key="lsv2_pt_secreta")
+
+    assert "lsv2_pt_secreta" not in repr(settings)
+    assert settings.langsmith_api_key == "lsv2_pt_secreta"
+
+
+def test_capture_max_urls_es_el_total_de_semillas() -> None:
+    """El máximo de la captura sigue al total de semillas configuradas."""
+
+    settings = Settings(
+        _env_file=None,
+        seeds=("https://example.com/a", "https://example.com/b"),
+        external_seeds=("https://example.org/c",),
+    )
+
+    assert settings.capture_max_urls == 3
+
+
+def test_capture_allowed_domains_acepta_lista_separada_por_coma(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La allowlist se puede definir como texto en el entorno."""
+
+    monkeypatch.setenv("CAPTURE_ALLOWED_DOMAINS", "carvajal.com, larepublica.co")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.capture_allowed_domains == ("carvajal.com", "larepublica.co")

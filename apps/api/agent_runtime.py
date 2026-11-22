@@ -18,6 +18,9 @@ from sqlalchemy.engine import make_url
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.agent.graph import AgentDeps, build_agent
+from carvajal.agent.router import decide_route
+from carvajal.agent.routers import Router, build_router, router_name
+from carvajal.application.retrieval import LayerPriorityStore
 from carvajal.infrastructure.settings import Settings
 
 __all__ = ["AgentRuntime", "agent_runtime", "close_agent_runtime"]
@@ -54,6 +57,21 @@ def _plain_postgres_url(url: str) -> str:
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
+def _router(settings: Settings) -> Router:
+    """Construye el enrutador configurado; si no se puede, el agente sigue con reglas."""
+
+    try:
+        return build_router(settings.agent_router, settings)
+    except Exception as error:
+        logger.warning(
+            "agent.router_fallback",
+            router=settings.agent_router,
+            error=str(error),
+            exc_info=True,
+        )
+        return decide_route
+
+
 def _build(settings: Settings) -> AgentRuntime:
     stack = ExitStack()
     qdrant = QdrantVectorStore(
@@ -81,13 +99,20 @@ def _build(settings: Settings) -> AgentRuntime:
             checkpointer.setup()
             store = stack.enter_context(PostgresStore.from_conn_string(url))
             store.setup()
+        router = _router(settings)
         graph = build_agent(
-            AgentDeps(vector_store=qdrant, embedder=OllamaEmbedder(), settings=settings),
+            AgentDeps(
+                vector_store=LayerPriorityStore(qdrant, min_score=settings.rag_min_score),
+                embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
+                settings=settings,
+            ),
             checkpointer=checkpointer,
             store=store,
+            router=router,
         )
         logger.info(
             "agent.runtime_ready",
+            router=router_name(router),
             checkpointer=settings.agent_checkpointer,
             collection=settings.qdrant_collection,
         )

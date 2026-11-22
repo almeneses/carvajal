@@ -21,6 +21,7 @@ document.addEventListener("submit", async (event) => {
     // también se pinta; el HTML ajeno de un proxy se sustituye por el aviso.
     if (tipo.includes("text/html") && (response.ok || propio)) {
       zona.innerHTML = await response.text();
+      if (window.CarvajalTexto) window.CarvajalTexto.animarDocumento(zona);
       return;
     }
     zona.innerHTML = aviso;

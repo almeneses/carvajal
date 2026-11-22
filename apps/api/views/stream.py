@@ -6,7 +6,6 @@ de 500 caracteres) responde **422** con el mismo formato SSE y un evento
 ``error``; se elige SSE, y no JSON, para que el cliente tenga un único parser.
 """
 
-import json
 from collections.abc import Iterator
 
 import structlog
@@ -18,6 +17,7 @@ from apps.api.chat.service import SERVICE_UNAVAILABLE, ChatProvider
 from apps.api.chat.streaming import ChatEvent
 from apps.api.observability import capture_exception
 from apps.api.security import verify_csrf
+from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE, encode
 from apps.api.views.chat import (
     CSRF_INVALIDO,
     EMPTY_QUESTION,
@@ -35,12 +35,6 @@ __all__ = ["router"]
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
-
-SSE_MEDIA_TYPE = "text/event-stream"
-SSE_HEADERS = {
-    "Cache-Control": "no-cache",
-    "X-Accel-Buffering": "no",
-}
 
 
 @router.post("/chat/stream")
@@ -150,8 +144,7 @@ def _sse(
 def _encode(event: ChatEvent) -> str:
     """Serializa un evento al formato SSE con nombres de evento."""
 
-    payload = json.dumps(dict(event.data), ensure_ascii=False)
-    return f"event: {event.name}\ndata: {payload}\n\n"
+    return encode(event.name, event.data)
 
 
 def _invalid(

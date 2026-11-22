@@ -272,13 +272,13 @@ def test_fabrica_rechaza_un_proveedor_desconocido(monkeypatch: pytest.MonkeyPatc
         build_llm_provider()
 
 
-def test_fabrica_remite_claude_a_streamlit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fabrica_remite_claude_a_la_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
     _limpia_entorno(monkeypatch)
     monkeypatch.setenv("LLM_PROVIDER", "claude")
 
     # Act / Assert
-    with pytest.raises(ValueError, match="Streamlit"):
+    with pytest.raises(ValueError, match="CLI histórica"):
         build_llm_provider()
 
 
@@ -300,6 +300,7 @@ def test_deepseek_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
         "api_key": "clave-de-prueba",
         "base_url": settings.deepseek_base_url,
         "temperature": 0,
+        "request_timeout": 60.0,
     }
     assert answer == "respuesta"
 
@@ -315,7 +316,12 @@ def test_ollama_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
     fragments = list(provider.stream(system="sistema", prompt="pregunta"))
 
     # Assert
-    assert creados[0].kwargs == {"model": "llama3.2", "temperature": 0}
+    assert creados[0].kwargs == {
+        "model": "llama3.2",
+        "temperature": 0,
+        "num_ctx": 32768,
+        "client_kwargs": {"timeout": 60.0},
+    }
     assert fragments == ["respuesta"]
 
 

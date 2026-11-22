@@ -1,0 +1,195 @@
+{#- Tarjetas de la ruta comercial (spec 036, T028).
+    Recibe ``resultado``, la salida de ``run_commercial`` o de ``custom_need_result``. Todo el
+    texto pasa por el autoescape de Jinja; las URL vienen del catálogo validado (http/https).
+    El precio siempre va con su fecha de captura y el aviso de precio de referencia (FR-005,
+    FR-007); sin precio se dice por qué y no se estima (FR-006). Spec 039: cada referencia
+    lista sus ofertas, una por fuente, y el precio de un tercero nombra a quien lo publica.
+    Diseño «Asistente Carvajal» (Stitch): resumen de lo entendido, insignias de material,
+    precio destacado y descartes con su motivo. Solo presentación: los datos son los mismos. -#}
+{%- set usos = {
+  "bebida_caliente": "Bebida caliente", "bebida_fria": "Bebida fría",
+  "comida_caliente": "Comida caliente", "comida_fria": "Comida fría", "sopas": "Sopas",
+  "frituras": "Frituras", "ensaladas": "Ensaladas", "sandwiches": "Sándwiches",
+  "salsas": "Salsas", "panaderia": "Panadería", "frutas": "Frutas"} %}
+{%- set familias = {
+  "vaso": "Vasos", "tapa": "Tapas", "contenedor": "Contenedores", "charola": "Charolas",
+  "cubierto": "Cubiertos", "envase": "Envases", "plato": "Platos"} %}
+{%- set paises = {"MX": "México", "CO": "Colombia"} %}
+{%- set materiales = {"PAPEL": "Papel", "PULPA": "Pulpa", "EPS": "Unicel (EPS)",
+  "PS": "Plástico PS", "PET": "Plástico PET", "PP": "Plástico PP", "ALUMINIO": "Aluminio"} %}
+{%- set pedido = resultado.request or {} %}
+{%- set opciones = resultado.options or [] %}
+{%- set ns = namespace(minimo=none, con_precio=0) %}
+{%- for opcion in opciones %}
+  {%- set precio = opcion.total or opcion.price_per_box %}
+  {%- if precio %}
+    {%- set valor = precio.split(" ")[0] | float %}
+    {%- set ns.con_precio = ns.con_precio + 1 %}
+    {%- if ns.minimo is none or valor < ns.minimo %}{% set ns.minimo = valor %}{% endif %}
+  {%- endif %}
+{%- endfor %}
+<section class="productos" aria-label="Referencias del catálogo de Carvajal Empaques">
+  {%- if pedido.family or pedido.use or pedido.quantity or pedido.country %}
+  <div class="productos-entendi">
+    <h3 class="productos-titulo">Tu solicitud</h3>
+    <dl class="entendi-lista">
+      {%- if pedido.family %}
+      <div>
+        <dt>Qué vas a empacar</dt>
+        <dd>{{ familias.get(pedido.family, pedido.family) }}{% if pedido.capacity_oz %} de {{ "%g" | format(pedido.capacity_oz) }} oz{% endif %}</dd>
+      </div>
+      {%- endif %}
+      {%- if pedido.use %}
+      <div>
+        <dt>Para qué es</dt>
+        <dd>{{ usos.get(pedido.use, pedido.use) }}{% if pedido.microwave %} · microondas{% endif %}</dd>
+      </div>
+      {%- endif %}
+      {%- if pedido.quantity %}
+      <div>
+        <dt>Cuántas unidades</dt>
+        <dd>{{ "{:,}".format(pedido.quantity) | replace(",", ".") }}</dd>
+      </div>
+      {%- endif %}
+      {%- if pedido.country or pedido.city %}
+      <div>
+        <dt>Dónde compras</dt>
+        <dd>{{ pedido.city ~ ", " if pedido.city }}{{ paises.get(pedido.country, "") }}</dd>
+      </div>
+      {%- endif %}
+    </dl>
+  </div>
+  {%- endif %}
+  {%- if resultado.catalog_note %}
+  {#- catalog_note es una instrucción para el LLM; al cliente se le explica con sus palabras. #}
+  <p class="productos-nota">
+    El catálogo de {{ "Colombia" if (resultado.request or {}).country == "CO" else "México" }}
+    todavía no tiene referencias cargadas; consulta a los distribuidores.
+  </p>
+  {%- endif %}
+  {%- if opciones %}
+  <ul class="productos-lista">
+    {%- for opcion in opciones %}
+    {%- set precio = opcion.total or opcion.price_per_box %}
+    {%- set destacado = precio and ns.con_precio > 1 and (precio.split(" ")[0] | float) == ns.minimo %}
+    <li class="producto{% if destacado %} producto-destacado{% endif %}">
+      <h3 class="producto-nombre" data-campo="producto-nombre">{{ opcion.name }}</h3>
+      <p class="producto-etiquetas">
+        {%- if destacado %}<span class="etiqueta-destacada">Menor precio de referencia</span>{% endif %}
+        <span class="etiqueta-material">{{ materiales.get(opcion.material, opcion.material) }}</span>
+      </p>
+      {%- if opcion.boxes %}
+      <dl class="producto-datos">
+        <div>
+          <dt>Cajas</dt>
+          <dd data-campo="producto-cajas">{{ opcion.boxes }}{% if opcion.surplus_units %} (sobran {{ opcion.surplus_units }} unidades){% endif %}</dd>
+        </div>
+      </dl>
+      {%- endif %}
+      {%- if opcion.offers %}
+      <ul class="producto-ofertas">
+        {%- for oferta in opcion.offers %}
+        {%- set valor = oferta.total or oferta.price_per_box %}
+        <li class="producto-oferta">
+          <p class="producto-precio">
+            <strong data-campo="producto-precio">{{ valor }}</strong>
+            <span class="producto-precio-detalle">{{ "en total" if oferta.total else "por caja" }}</span>
+          </p>
+          <p class="producto-oferta-fuente">
+            {%- if oferta.source_type == "tercero" %}
+            Publicado por <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">{{ oferta.source_name }}</a>{% if oferta.source_city %} ({{ oferta.source_city }}){% endif %}
+            <span class="etiqueta-tercero">Tercero</span>
+            {%- else %}
+            Publicado por {{ oferta.source_name }}
+            {%- endif %}
+            · <span data-campo="producto-fecha">capturado el {{ oferta.captured_at }}</span>
+          </p>
+          <p class="producto-aviso">{{ oferta.notice }}</p>
+        </li>
+        {%- endfor %}
+      </ul>
+      {%- elif precio %}
+      <p class="producto-precio">
+        <strong data-campo="producto-precio">{{ precio }}</strong>
+        <span class="producto-precio-detalle">{{ "en total" if opcion.total else "por caja" }}</span>
+      </p>
+      <p class="producto-aviso">{{ opcion.price_notice }}</p>
+      <p class="producto-aviso" data-campo="producto-fecha">capturado el {{ opcion.captured_at }}</p>
+      {%- elif opcion.price_note %}
+      <p class="producto-aviso">{{ opcion.price_note }}</p>
+      {%- elif opcion.country == "CO" %}
+      <p class="producto-aviso">El catálogo de Colombia no publica precios: consulta un distribuidor.</p>
+      {%- else %}
+      <p class="producto-aviso">Sin precio: indica el país (México o Colombia) para cotizar.</p>
+      {%- endif %}
+      <details class="producto-detalles">
+        <summary>Detalles de la ficha</summary>
+        <dl class="producto-datos">
+          <div><dt>SKU</dt><dd><code>{{ opcion.sku }}</code></dd></div>
+          <div><dt>Material</dt><dd>{{ opcion.material }}</dd></div>
+          {%- if opcion.capacity_oz %}
+          <div><dt>Capacidad</dt><dd>{{ "%g" | format(opcion.capacity_oz) }} oz</dd></div>
+          {%- endif %}
+          <div><dt>Unidades por caja</dt><dd>{{ opcion.units_per_box }}</dd></div>
+        </dl>
+        <p class="producto-fuente">
+          <a href="{{ opcion.source_url }}" target="_blank" rel="noopener noreferrer">Ver ficha <span aria-hidden="true">↗</span></a>
+          · <span data-campo="producto-fecha">capturada el {{ opcion.captured_at }}</span>
+        </p>
+      </details>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- if resultado.discarded %}
+  <details class="productos-descartes">
+    <summary>
+      {{ resultado.discarded_total or resultado.discarded | length }}
+      {{ "referencia descartada" if (resultado.discarded_total or resultado.discarded | length) == 1 else "referencias descartadas" }}
+      y por qué
+    </summary>
+    <ul>
+      {%- for descarte in resultado.discarded %}
+      <li>{{ descarte.reason }}</li>
+      {%- endfor %}
+    </ul>
+  </details>
+  {%- endif %}
+  {%- if resultado.contacts %}
+  <ul class="productos-canales">
+    {%- for contacto in resultado.contacts %}
+    <li>
+      <a href="{{ contacto.url }}" target="_blank" rel="noopener noreferrer">{{ contacto.channel }} <span aria-hidden="true">↗</span></a>
+      · capturado el {{ contacto.captured_at }}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- set canal = resultado.channel or {} %}
+  {%- if canal.type == "tienda_en_linea" and opciones %}
+  <p class="productos-canal">
+    Se compran en la <strong>tienda en línea de Carvajal Empaques México</strong>: cada tarjeta
+    enlaza a su ficha. Los precios son de referencia; no tomo pedidos ni datos de pago.
+  </p>
+  {%- endif %}
+  {%- if canal.distributors %}
+  <h3 class="productos-titulo">Distribuidores en {{ canal.city }}</h3>
+  <ul class="productos-distribuidores">
+    {%- for distribuidor in canal.distributors %}
+    <li>
+      <strong>{{ distribuidor.name }}</strong>
+      {%- if distribuidor.address %} · {{ distribuidor.address }}{% endif %}
+      {%- if distribuidor.phone %} · {{ distribuidor.phone }}{% endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  <p class="producto-fuente">
+    <a href="{{ canal.distributors[0].source_url }}" target="_blank" rel="noopener noreferrer">Directorio de distribuidores <span aria-hidden="true">↗</span></a>
+  </p>
+  {%- elif canal.cities_with_distributors %}
+  <p class="productos-nota">
+    {%- if canal.city %}No hay distribuidores publicados en {{ canal.city }}. {% endif -%}
+    Ciudades con distribuidores: {{ canal.cities_with_distributors | join(", ") }}.
+  </p>
+  {%- endif %}
+</section>

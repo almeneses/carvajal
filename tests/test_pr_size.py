@@ -58,6 +58,21 @@ def test_ignora_andamiaje_generado_por_spec_kit() -> None:
     assert (files, added, deleted) == (1, 20, 0)
 
 
+def test_ignora_html_generado_por_archify_pero_cuenta_su_fuente() -> None:
+    # Arrange
+    numstat = (
+        "14965\t0\tdocs/arquitectura-m3.html\n"
+        "92\t0\tdocs/arquitectura-m3.json\n"
+        "30\t0\tdocs/otra.html\n"
+    )
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (2, 122, 0)
+
+
 def test_lo_escrito_por_el_equipo_siempre_cuenta() -> None:
     # Arrange
     numstat = (
@@ -138,13 +153,30 @@ def test_lineas_malformadas_se_descartan() -> None:
     assert (files, added, deleted) == (1, 7, 3)
 
 
-@pytest.mark.parametrize(("total", "status"), [(701, 0), (2000, 0), (2001, 1)])
-def test_limite_duro_predeterminado(
-    total: int, status: int, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("total", [3000, 3001, 9000])
+def test_el_umbral_solo_advierte_y_nunca_falla(
+    total: int, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.delenv("HARD_LIMIT", raising=False)
+    monkeypatch.delenv("WARN_LIMIT", raising=False)
     monkeypatch.setenv("BASE_SHA", "base")
     monkeypatch.setenv("HEAD_SHA", "head")
     monkeypatch.setattr(pr_size, "read_numstat", lambda *_: f"{total - 1}\t1\ta.py\n")
 
-    assert pr_size.main() == status
+    assert pr_size.main() == 0
+    salida = capsys.readouterr().out
+    if total > 3000:
+        assert "::warning::" in salida
+    else:
+        assert "::warning::" not in salida
+
+
+def test_el_umbral_de_aviso_se_puede_configurar(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("WARN_LIMIT", "100")
+    monkeypatch.setenv("BASE_SHA", "base")
+    monkeypatch.setenv("HEAD_SHA", "head")
+    monkeypatch.setattr(pr_size, "read_numstat", lambda *_: "100\t1\ta.py\n")
+
+    assert pr_size.main() == 0
+    assert "::warning::" in capsys.readouterr().out

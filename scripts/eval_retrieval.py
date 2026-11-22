@@ -22,6 +22,7 @@ from typing import Any
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.application.evidence import proper_entities_supported
+from carvajal.application.retrieval import LayerPriorityStore
 from carvajal.infrastructure.settings import Settings
 
 DEFAULT_QUERIES = Path("data") / "eval" / "retrieval_questions.json"
@@ -60,6 +61,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--json", type=Path, default=DEFAULT_JSON)
     parser.add_argument("--k", type=int, default=10)
+    parser.add_argument(
+        "--langsmith",
+        action="store_true",
+        help=(
+            "Registra la corrida como experimento en LangSmith (spec 038). Sin esta "
+            "bandera no se carga el módulo de monitoreo ni se toca la red."
+        ),
+    )
     args = parser.parse_args(argv)
 
     settings = Settings()
@@ -74,6 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     if health.get("status") != "ok":
         print(f"Qdrant no está listo: {health}", file=sys.stderr)
         return 1
+    # La evaluación mide la misma política que el chat: núcleo primero y la
+    # capa extendida solo como complemento (spec 037, US4).
+    retrieval = LayerPriorityStore(store, min_score=settings.rag_min_score)
     embedder = OllamaEmbedder()
     payload = json.loads(args.queries.read_text(encoding="utf-8"))
     rows: list[dict[str, Any]] = []
@@ -83,7 +95,9 @@ def main(argv: list[str] | None = None) -> int:
 
     for item in payload["queries"]:
         vector = embedder.embed(item["query"])
-        results = store.search_text(item["query"], vector, limit=args.k)
+        results = retrieval.search_text(
+            item["query"], vector, limit=args.k, min_score=settings.rag_min_score
+        )
         retrieved = [result.chunk.document_id for result in results]
         # Para nDCG se cuenta cada documento una sola vez, aunque recupere
         # varios fragmentos suyos en el top-k.
@@ -145,8 +159,75 @@ def main(argv: list[str] | None = None) -> int:
         f"Recall@{args.k}={summary['recall_at_k']} nDCG@{args.k}={summary['ndcg_at_k']} "
         f"-> {args.output}"
     )
+    if args.langsmith:
+        from carvajal.infrastructure.monitoring import (
+            build_eval_client,
+            commit_sha,
+            dataset_de,
+            register_experiment,
+        )
+
+        client = build_eval_client(settings)
+        if client is None:
+            print("Experimento no registrado: falta LANGSMITH_API_KEY.", file=sys.stderr)
+        else:
+            fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            filas = experiment_rows(summary)
+            resultado = register_experiment(
+                client,
+                dataset=dataset_de(args.queries),
+                experiment=f"retrieval-{fecha}",
+                rows=filas,
+                metrics=experiment_metrics(summary),
+                metadata={
+                    "commit": commit_sha() or "desconocido",
+                    "date": fecha,
+                    "collection": settings.qdrant_collection,
+                    "k": args.k,
+                    "min_score": settings.rag_min_score,
+                },
+                description="Evaluación de recuperación en Qdrant (spec 037/038).",
+            )
+            print(resultado.as_message(), file=sys.stderr)
     store.close()
     return 0
+
+
+def experiment_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """Filas del experimento: verdad de referencia y predicción por consulta."""
+
+    filas: list[dict[str, Any]] = []
+    for row in summary["rows"]:
+        filas.append(
+            {
+                "id": row["id"],
+                "inputs": {"query": row["query"]},
+                "expected": {
+                    "relevant": row["relevant"],
+                    "expect_abstain": "recall_at_k" not in row,
+                },
+                "outputs": {
+                    "retrieved": row["retrieved"],
+                    "scores": row["scores"],
+                    "recall_at_k": row.get("recall_at_k"),
+                    "ndcg_at_k": row.get("ndcg_at_k"),
+                    "abstained": row.get("abstained"),
+                },
+            }
+        )
+    return filas
+
+
+def experiment_metrics(summary: dict[str, Any]) -> dict[str, Any]:
+    """Agregados del informe local, tal como se registran en el experimento."""
+
+    return {
+        "k": summary["k"],
+        "recall_at_k": summary["recall_at_k"],
+        "ndcg_at_k": summary["ndcg_at_k"],
+        "queries": summary["queries"],
+        "labeled_queries": summary["labeled_queries"],
+    }
 
 
 def render_markdown(summary: dict[str, Any]) -> str:

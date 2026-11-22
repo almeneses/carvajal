@@ -1,13 +1,13 @@
 """Esquema relacional del corpus, definido con SQLAlchemy Core.
 
 Sin ORM declarativo ni sesiones asíncronas: los repositorios de W1.3 operarán
-sobre estas ``Table`` con una ``Session`` síncrona. La columna ``embedding`` de
-``chunks`` es un ``Vector`` de pgvector y la administra ``PgVectorStore``.
+sobre estas ``Table`` con una ``Session`` síncrona. Los fragmentos no guardan
+vectores: el único índice de respuestas es Qdrant (spec 037, US5).
 """
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -16,6 +16,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    Numeric,
     String,
     Table,
     Text,
@@ -26,13 +27,16 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 
 __all__ = [
+    "chat_feedback",
     "chunks",
     "conversations",
     "document_versions",
     "documents",
     "messages",
     "metadata",
+    "quotes",
     "usage_day",
+    "visitor_memory",
 ]
 
 metadata = MetaData()
@@ -69,7 +73,6 @@ chunks = Table(
     Column("position", Integer, nullable=False),
     Column("section", String(64), nullable=False),
     Column("layer", String(32), nullable=False),
-    Column("embedding", Vector(768), nullable=True),
     UniqueConstraint("document_id", "position", name="uq_chunks_document_position"),
 )
 
@@ -178,6 +181,22 @@ Index(
     messages.c.id,
 )
 
+# Marcas del visitante sobre una respuesta (spec 038, US4). La clave es el
+# ``request_id`` del turno: la marca se guarda aunque el turno no se haya
+# muestreado y nunca fuerza una traza. No se guarda texto.
+chat_feedback = Table(
+    "chat_feedback",
+    metadata,
+    Column("request_id", Text, primary_key=True),
+    Column("useful", Boolean, nullable=False),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
+)
+
 # Cupo diario por visitante anónimo (W4.2). La clave es el identificador de la
 # cookie firmada, no un usuario: W4.1 añadirá `user_id` cuando exista OIDC.
 usage_day = Table(
@@ -188,3 +207,42 @@ usage_day = Table(
     Column("requests", Integer, nullable=False, server_default="0"),
     Column("tokens", BigInteger, nullable=False, server_default="0"),
 )
+
+
+# Memoria silenciosa del Cotizador (spec 042, FR-022). Guarda solo lo que la
+# persona contó de sí misma; caduca a los 180 días y se borra cuando lo pide.
+visitor_memory = Table(
+    "visitor_memory",
+    metadata,
+    Column("owner_key", Text, primary_key=True),
+    Column("name", Text, nullable=True),
+    Column("workplace", Text, nullable=True),
+    Column("city", Text, nullable=True),
+    Column("delivery", Boolean, nullable=False, server_default=text("false")),
+    Column("preferences", JSONB, nullable=True),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
+)
+
+# Cotización emitida (spec 042): identidad, vigencia, total y payload auditable.
+# El payload repite lo que se mostró; la fila es la fuente para reclamar o auditar.
+quotes = Table(
+    "quotes",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("owner_key", Text, nullable=False),
+    Column("conversation_id", Text, nullable=True),
+    Column("message_id", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("valid_until", Date, nullable=False),
+    Column("total", Numeric(14, 2), nullable=False),
+    Column("currency", String(3), nullable=False),
+    Column("status", String(16), nullable=False, server_default=text("'issued'")),
+    Column("payload", JSONB, nullable=False),
+)
+
+Index("ix_quotes_owner_created", quotes.c.owner_key, quotes.c.created_at.desc())

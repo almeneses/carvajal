@@ -1,9 +1,25 @@
-"""Pruebas del entregable Gold (front matter y procedencia)."""
+"""Pruebas del entregable Gold (front matter, procedencia e índice)."""
 
+import json
 from pathlib import Path
 
-from carvajal.gold import domain_of, source_type, to_gold_markdown, write_gold
+import pytest
+
+from carvajal.gold import (
+    domain_of,
+    merge_index,
+    read_index,
+    source_type,
+    to_gold_markdown,
+    write_gold,
+)
 from carvajal.models import CapturedPage
+
+
+def _temporales(directorio: Path) -> list[str]:
+    """Temporales que dejó una escritura de Gold, incluidos los ocultos."""
+
+    return sorted(path.name for path in directorio.iterdir() if path.name.endswith(".tmp"))
 
 
 def _page(url: str) -> CapturedPage:
@@ -80,3 +96,152 @@ def test_write_gold_pagina_vacia_no_deja_linea_en_blanco(tmp_path: Path) -> None
     target = write_gold(page, title="Sostenibilidad", gold_dir=tmp_path)
 
     assert target.read_text(encoding="utf-8").endswith("---\n")
+
+
+def test_write_gold_reemplaza_el_archivo_en_vez_de_truncarlo(tmp_path: Path) -> None:
+    """Reescribir un documento publica la versión nueva completa, nunca a medias."""
+
+    page = _page("https://www.carvajal.com/historia/")
+    target = write_gold(page, title="Historia", gold_dir=tmp_path)
+    anterior = target.stat().st_ino
+
+    write_gold(page, title="Historia renovada", gold_dir=tmp_path)
+
+    # El ``rename`` sustituye el archivo: quien lea durante la escritura ve la
+    # versión anterior completa, no la cabecera nueva con el cuerpo truncado.
+    assert target.stat().st_ino != anterior
+    assert "Historia renovada" in target.read_text(encoding="utf-8")
+    assert _temporales(tmp_path) == []
+
+
+def test_una_escritura_de_gold_interrumpida_conserva_la_version_anterior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si escribir Gold falla a medias, el documento publicado no se degrada."""
+
+    page = _page("https://www.carvajal.com/historia/")
+    target = write_gold(page, title="Historia", gold_dir=tmp_path)
+    completo = target.read_text(encoding="utf-8")
+    escribir = Path.write_text
+
+    def cortar(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        escribir(self, data[:20], encoding, errors, newline)
+        raise OSError("disco lleno")
+
+    monkeypatch.setattr(Path, "write_text", cortar)
+
+    with pytest.raises(OSError):
+        write_gold(page, title="Historia renovada", gold_dir=tmp_path)
+
+    assert target.read_text(encoding="utf-8") == completo
+    assert _temporales(tmp_path) == []
+
+
+def test_merge_index_conserva_identidad_y_huellas(tmp_path: Path) -> None:
+    """Una entrada nueva sin identidad no borra la que ya conocía el registro."""
+
+    # Arrange
+    index_file = tmp_path / "index.jsonl"
+    merge_index(
+        index_file,
+        [
+            {
+                "slug": "informe",
+                "source_key": "file:corpus/informe.pdf",
+                "raw_hash": "bytes",
+                "layer": "core",
+                "updated_at": "2026-11-16T12:00:00+00:00",
+            }
+        ],
+    )
+
+    # Act
+    merge_index(index_file, [{"slug": "informe", "title": "Informe actualizado"}])
+
+    # Assert
+    assert read_index(index_file)["informe"] == {
+        "slug": "informe",
+        "source_key": "file:corpus/informe.pdf",
+        "raw_hash": "bytes",
+        "layer": "core",
+        "updated_at": "2026-11-16T12:00:00+00:00",
+        "title": "Informe actualizado",
+    }
+
+
+def test_merge_index_deja_mandar_a_la_entrada_nueva(tmp_path: Path) -> None:
+    """Los campos que la entrada nueva declara sustituyen a los anteriores."""
+
+    # Arrange
+    index_file = tmp_path / "index.jsonl"
+    merge_index(index_file, [{"slug": "informe", "raw_hash": "viejo", "layer": "core"}])
+
+    # Act
+    merge_index(index_file, [{"slug": "informe", "raw_hash": "nuevo", "layer": "extended"}])
+
+    # Assert
+    entrada = read_index(index_file)["informe"]
+    assert entrada["raw_hash"] == "nuevo"
+    assert entrada["layer"] == "extended"
+
+
+def test_read_index_ignora_lineas_corruptas_y_entradas_sin_slug(tmp_path: Path) -> None:
+    # Arrange
+    index_file = tmp_path / "index.jsonl"
+    index_file.write_text(
+        '{"slug": "vigente", "hash": "a"}\n{roto}\n{"sin": "slug"}\n', encoding="utf-8"
+    )
+
+    # Act
+    entradas = read_index(index_file)
+
+    # Assert
+    assert list(entradas) == ["vigente"]
+
+
+def test_read_index_sin_archivo_devuelve_vacio(tmp_path: Path) -> None:
+    # Arrange / Act
+    entradas = read_index(tmp_path / "no-existe.jsonl")
+
+    # Assert
+    assert entradas == {}
+
+
+def test_merge_index_escribe_ordenado_por_slug(tmp_path: Path) -> None:
+    # Arrange
+    index_file = tmp_path / "index.jsonl"
+
+    # Act
+    merge_index(index_file, [{"slug": "zeta"}, {"slug": "alfa"}])
+
+    # Assert
+    lineas = index_file.read_text(encoding="utf-8").splitlines()
+    slugs = [json.loads(linea)["slug"] for linea in lineas]
+    assert slugs == ["alfa", "zeta"]
+
+
+def test_merge_index_en_modo_parche_conserva_los_campos_no_enviados(tmp_path: Path) -> None:
+    """La adopción solo cambia identidad y huella, sin pisar el resto."""
+
+    # Arrange: una entrada con título y cuerpo ya publicados.
+    index_file = tmp_path / "index.jsonl"
+    merge_index(index_file, [{"slug": "historia", "title": "Historia", "hash": "h1"}])
+
+    # Act: llega solo la identidad nueva.
+    merge_index(
+        index_file,
+        [{"slug": "historia", "source_key": "url:https://carvajal.com/historia"}],
+        patch=True,
+    )
+
+    # Assert
+    entrada = read_index(index_file)["historia"]
+    assert entrada["title"] == "Historia"
+    assert entrada["hash"] == "h1"
+    assert entrada["source_key"] == "url:https://carvajal.com/historia"

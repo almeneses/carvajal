@@ -1,16 +1,20 @@
-# App web + Postgres 16 con pgvector para una sola máquina (W6.1).
+# App web + Postgres 16 + Qdrant + Ollama para una sola máquina (demo por IP).
 #
-#   export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
-#   docker compose -f compose.prod.yml up -d --build
+#   cp .env.example .env   # edita SESSION_SECRET, POSTGRES_PASSWORD...
+#   APP_PORT=8080 docker compose -f compose.prod.yml up -d --build
+#   docker compose -f compose.prod.yml run --rm app alembic upgrade head
 #   docker compose -f compose.prod.yml logs -f app
 #
-# O define SESSION_SECRET en el `.env` del servidor. Compose falla si no está:
-# una clave HMAC conocida permitiría falsificar la cookie del visitante.
+# Compose falla si falta SESSION_SECRET: una clave HMAC conocida permitiría
+# falsificar la cookie del visitante. En producción no se construye la imagen
+# en el VPS: `scripts/deploy.sh` la descarga de GHCR con un tag inmutable.
 #
-# Las migraciones se aplican aparte, antes de la primera petición real:
-#   docker compose -f compose.prod.yml run --rm app alembic upgrade head
+# Este compose no incluye proxy TLS: publica la app en 0.0.0.0:APP_PORT
+# (8080 por defecto) para una demo por IP. Si más adelante pones un dominio,
+# añade nginx/Caddy delante y publica la app solo en 127.0.0.1.
 #
-# El proxy con TLS y el runbook completo llegan en W6.2.
+# El runbook completo (VPS, secretos, primer despliegue y rollback) está en
+# `docs/despliegue-ovh.md`.
 
 name: carvajal-prod
 
@@ -39,30 +43,61 @@ services:
   app:
     build:
       context: .
-    image: carvajal-api:local
+    # En producción `deploy.sh` exporta APP_IMAGE con el tag SHA de GHCR; en
+    # local se mantiene el nombre que construye `make prod-up`.
+    image: ${APP_IMAGE:-carvajal-api:local}
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
       qdrant:
         condition: service_started
-    environment:
+      ollama:
+        # El embedder se crea en la primera pregunta, no al arrancar: la app
+        # puede iniciar aunque Ollama aún esté calentando. Los modelos se
+        # descargan con `make prod-bootstrap` (perfil `bootstrap`).
+        condition: service_started
+    # Las variables se comparten con el servicio `bootstrap` de abajo.
+    environment: &app-environment
       # Dentro de la red de compose el host de la base es el servicio `db`,
       # no loopback: por eso la URL se compone aquí a partir de POSTGRES_*.
       DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      # La FAQ envía el corpus completo; sin esta ventana Ollama recorta el prompt.
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
+      # Los embeddings del RAG se calculan en el servicio `ollama`. Si usas un
+      # Ollama externo, define OLLAMA_BASE_URL en el .env del servidor.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       # El RAG evaluado del M2 consulta Qdrant; Postgres sigue siendo la
       # fuente de verdad relacional y el backend de memoria del agente.
       QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-carvajal_chunks}
+      QDRANT_DIMENSIONS: ${QDRANT_DIMENSIONS:-768}
+      QDRANT_DISTANCE: ${QDRANT_DISTANCE:-Cosine}
+      RAG_TOP_K: ${RAG_TOP_K:-6}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.30}
       AGENT_CHECKPOINTER: ${AGENT_CHECKPOINTER:-postgres}
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
+      # Captura web pública desde Configuración. El máximo por ejecución lo
+      # deriva Settings de las semillas (24 por defecto); aquí solo se ajustan
+      # el valor inicial, el tamaño y el timeout.
+      CAPTURE_DEFAULT_URLS: ${CAPTURE_DEFAULT_URLS:-5}
+      CAPTURE_MAX_BYTES: ${CAPTURE_MAX_BYTES:-5000000}
+      CAPTURE_TIMEOUT_SECONDS: ${CAPTURE_TIMEOUT_SECONDS:-30}
+      CAPTURE_MAX_REDIRECTS: ${CAPTURE_MAX_REDIRECTS:-5}
+      # Límite por IP del endpoint público de captura.
+      CAPTURE_REQUESTS_LIMIT: ${CAPTURE_REQUESTS_LIMIT:-5}
+      CAPTURE_WINDOW_SECONDS: ${CAPTURE_WINDOW_SECONDS:-3600}
+      # Allowlist opcional de dominios separados por coma. Vacía = cualquier
+      # host público que pase el guard SSRF.
+      CAPTURE_ALLOWED_DOMAINS: ${CAPTURE_ALLOWED_DOMAINS:-}
       # Cuota diaria por visitante (W4.2); la medianoche se calcula en la zona
       # indicada, no en el TZ del contenedor.
       DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}
@@ -73,16 +108,35 @@ services:
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-produccion}
       # Muestreo de trazas de Sentry entre 0 y 1; por defecto apagado.
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.0}
-      # W6.2 termina TLS en el proxy y reenvía X-Forwarded-Proto. Uvicorn solo
-      # confía en estas IPs (por defecto 127.0.0.1); si el proxy es otro
-      # contenedor de la red de compose, añade su dirección o la subred.
+      # Monitoreo del agente con LangSmith (spec 038): apagado por defecto y,
+      # en producción, solo metadatos. Se inyecta explícitamente para que una
+      # variable heredada del host no encienda el tracing global.
+      MONITORING_ENABLED: ${MONITORING_ENABLED:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-carvajal}
+      # Identidad del agente en la traza; vacío no añade la clave.
+      LANGSMITH_AGENT_ID: ${LANGSMITH_AGENT_ID:-}
+      LANGSMITH_AGENT_ENVIRONMENT: ${LANGSMITH_AGENT_ENVIRONMENT:-}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-}
+      MONITORING_SAMPLE_RATE: ${MONITORING_SAMPLE_RATE:-0.2}
+      MONITORING_INCLUDE_CONTENT: ${MONITORING_INCLUDE_CONTENT:-false}
+      MONITORING_TIMEOUT_MS: ${MONITORING_TIMEOUT_MS:-2000}
+      # El tracing global de LangChain queda apagado: el encendido es por turno.
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      # Sin proxy delante, uvicorn no debe confiar en X-Forwarded-* de los
+      # clientes. Si añades nginx/Caddy en el host o en un contenedor, ajusta
+      # esta variable a su IP o subred.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
-      # Solo loopback: el proxy de W6.2 es el que expone el puerto público.
-      - "127.0.0.1:${APP_PORT:-8000}:8000"
-    # La app solo lee código, plantillas y estáticos: no necesita escribir en
-    # el sistema de archivos ni privilegios adicionales.
+      # Demo por IP: la app se publica directamente en 0.0.0.0:APP_PORT.
+      # Para TLS con dominio, publica solo en 127.0.0.1 y pon el proxy delante.
+      - "0.0.0.0:${APP_PORT:-8080}:8000"
+    # El código y los estáticos son de solo lectura; /app/data es el volumen
+    # persistente donde viven Bronze, Silver, Gold y el índice de las cargas.
     read_only: true
+    volumes:
+      - appdata:/app/data
     tmpfs:
       - /tmp
     cap_drop:
@@ -112,6 +166,85 @@ services:
     volumes:
       - qdrantdata:/qdrant/storage
 
+  ollama:
+    # Solo se usa para embeddings (nomic-embed-text); el LLM puede ser DeepSeek.
+    # El modelo se descarga aparte: docker compose exec ollama ollama pull nomic-embed-text
+    image: ollama/ollama:0.40.16
+    restart: unless-stopped
+    volumes:
+      - ollamadata:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  ollama-pull:
+    # Perfil `bootstrap`: descarga el modelo de embeddings. Solo se ejecuta a
+    # demanda (`make prod-bootstrap`); con los modelos ya presentes termina en
+    # segundos. El LLM de chat, si LLM_PROVIDER=ollama, se descarga aparte
+    # (`docker compose -f compose.prod.yml exec ollama ollama pull <modelo>`).
+    profiles: ["bootstrap"]
+    image: ollama/ollama:0.40.16
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - ollama pull nomic-embed-text
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  bootstrap:
+    # Perfil `bootstrap`: prepara un servidor limpio. Copia `./data` al volumen
+    # solo si aún no hay corpus allí (nunca pisa capturas o cargas más nuevas),
+    # aplica migraciones, importa Gold a Postgres e indexa en Qdrant. Es
+    # idempotente y lo invoca `make prod-bootstrap`.
+    profiles: ["bootstrap"]
+    image: ${APP_IMAGE:-carvajal-api:local}
+    restart: "no"
+    environment: *app-environment
+    volumes:
+      - appdata:/app/data
+      # Corpus de referencia del despliegue; el volumen sigue siendo la fuente
+      # de verdad una vez que hay cargas o recapturas.
+      - ./data:/seed:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -d /seed ] && [ -z "$$(ls -A /app/data/gold 2>/dev/null)" ]; then
+          if [ -z "$$(ls -A /seed/gold 2>/dev/null)" ]; then
+            echo "Aviso: /seed no trae corpus Gold." >&2
+            echo "Sincroniza data/ al host (ver docs/despliegue-ovh.md) o usa el volumen." >&2
+          else
+            echo "Copiando el corpus de referencia al volumen appdata"
+            cp -R /seed/. /app/data/
+          fi
+        fi
+        alembic upgrade head
+        carvajal migrate-gold
+        carvajal index-qdrant
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+
 volumes:
+  appdata:
   pgdata:
   qdrantdata:
+  ollamadata:
