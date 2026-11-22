@@ -116,16 +116,24 @@
         return;
       }
       if (!respuesta.ok) {
-        estado.textContent = AVISO;
-        provisional.asistente.cuerpo.textContent = "";
-        marcarIncompleta(provisional.asistente.item);
+        await leer(respuesta, (nombre, evento) => {
+          if (nombre === "error") {
+            estado.textContent = String(evento.message || AVISO);
+          }
+        });
+        provisional.usuario.remove();
+        provisional.asistente.item.remove();
+        terminar(false);
         return;
       }
+      let mostrado = false;
       await leer(respuesta, (nombre, evento) => {
         if (nombre === "token") {
+          mostrado = true;
           provisional.asistente.cuerpo.textContent += String(evento.text ?? "");
           alFinal();
         } else if (nombre === "products") {
+          mostrado = true;
           bloques(provisional.asistente.item).innerHTML = String(evento.html ?? "");
           alFinal();
         } else if (nombre === "done") {
@@ -133,8 +141,14 @@
           if (hiloId && hiloInput) hiloInput.value = String(hiloId);
           terminar(true);
         } else if (nombre === "error") {
-          marcarIncompleta(provisional.asistente.item);
+          if (mostrado) {
+            marcarIncompleta(provisional.asistente.item);
+          } else {
+            provisional.usuario.remove();
+            provisional.asistente.item.remove();
+          }
           estado.textContent = String(evento.message || AVISO);
+          terminar(false);
         }
       });
     } catch (error) {
@@ -150,7 +164,7 @@
     if (ok) {
       campo.value = "";
       estado.textContent = "";
-    } else {
+    } else if (!estado.textContent || estado.textContent === "Cotizando…") {
       estado.textContent = AVISO;
     }
     alFinal();

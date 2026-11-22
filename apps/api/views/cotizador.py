@@ -420,16 +420,25 @@ def turn(
         return reject(EMPTY, 422)
     if len(text) > MAX_QUESTION_CHARS:
         return reject(f"El mensaje no puede superar los {MAX_QUESTION_CHARS} caracteres.", 422)
+
+    store = cotizador_store(request)
+    try:
+        # El hilo se resuelve antes de cobrar cupo: un 404 no gasta una petición.
+        current_id, history = store.history(owner_key, hilo)
+    except ThreadAccessError as error:
+        raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
+    except SQLAlchemyError as error:
+        logger.warning("cotizador.history_failed", error=str(error))
+        return reject(SERVICE_UNAVAILABLE, 503)
+
     blocked = _quota(request, owner_key)
     if blocked is not None:
         if new_owner:
             set_identity_cookie(blocked, request, identity, owner_key)
         return blocked
 
-    store = cotizador_store(request)
+    questions = [item.content for item in history if item.role == "user"][-HISTORY_QUESTIONS:]
     try:
-        current_id, history = store.history(owner_key, hilo)
-        questions = [item.content for item in history if item.role == "user"][-HISTORY_QUESTIONS:]
         profile, forgot = _profile(store, owner_key, text)
         result = quote(text, questions=questions, allow_demo=demo_enabled(), profile=profile)
         if forgot:
@@ -445,18 +454,12 @@ def turn(
             thread_id=current_id,
             quote=quote_record,
         )
-    except ThreadAccessError as error:
-        raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
     except DemoDataError as error:
         logger.warning("cotizador.demo_failed", error=str(error))
-        return _error_turno(
-            "El conjunto de demostración del Cotizador no está disponible.",
-            thread_id=hilo or "",
-            status_code=503,
-        )
+        return reject("El conjunto de demostración del Cotizador no está disponible.", 503)
     except SQLAlchemyError as error:
         logger.warning("cotizador.failed", error=str(error))
-        return _error_turno(SERVICE_UNAVAILABLE, thread_id=hilo or "", status_code=503)
+        return reject(SERVICE_UNAVAILABLE, 503)
 
     response = _turno(request, [user, assistant], thread_id=conversation_id)
     if new_owner:
@@ -522,23 +525,20 @@ def _stream(
     profile: Mapping[str, Any] | None = None,
     forgot: bool = False,
 ) -> Iterator[str]:
-    """Eventos del turno: apertura, texto, tarjetas, cierre y error controlado."""
+    """Eventos del turno: apertura, texto, tarjetas, cierre y error controlado.
+
+    El turno se persiste antes del primer evento: lo que el cliente ve ya quedó
+    en el historial y en ``quotes``, o no se muestra nada.
+    """
 
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
-    sent = False
     try:
         result = quote(question, questions=questions, allow_demo=demo_enabled(), profile=profile)
         if forgot:
             result["reply"] = f"{DELETED} {result['reply']}"
         payload = {key: value for key, value in result.items() if key != "reply"}
-        yield encode("open", {"stream": "cotizador"})
-        for piece in _pieces(result["reply"]):
-            sent = True
-            yield encode("token", {"text": piece})
         payload, quote_record = _issue_quote(payload)
         html = _cards(payload)
-        if html:
-            yield encode("products", {"html": html})
         conversation_id, user, assistant = store.append(
             owner_key,
             question=question,
@@ -547,30 +547,35 @@ def _stream(
             thread_id=thread_id,
             quote=quote_record,
         )
-        yield encode(
-            "done",
-            {
-                "conversation_id": conversation_id,
-                "message_id": assistant.id,
-                "user_message_id": user.id,
-                "thread_id": conversation_id,
-            },
-        )
     except DemoDataError as error:
         logger.warning("cotizador.demo_failed", error=str(error), stream=True)
         yield encode(
             "error",
             {
                 "message": "El conjunto de demostración del Cotizador no está disponible.",
-                "incomplete": sent,
+                "incomplete": False,
             },
         )
+        return
     except Exception as error:
         logger.warning("cotizador.stream_failed", error=str(error))
-        yield encode(
-            "error",
-            {"message": SERVICE_UNAVAILABLE, "incomplete": sent},
-        )
+        yield encode("error", {"message": SERVICE_UNAVAILABLE, "incomplete": False})
+        return
+
+    yield encode("open", {"stream": "cotizador"})
+    for piece in _pieces(result["reply"]):
+        yield encode("token", {"text": piece})
+    if html:
+        yield encode("products", {"html": html})
+    yield encode(
+        "done",
+        {
+            "conversation_id": conversation_id,
+            "message_id": assistant.id,
+            "user_message_id": user.id,
+            "thread_id": conversation_id,
+        },
+    )
 
 
 def _invalid_stream(
@@ -593,7 +598,7 @@ def stream_turn(
     csrf_token: str = Form(default=""),
     thread_id: str = Form(default=""),
 ) -> Response:
-    """Cotiza el turno como eventos SSE y persiste una sola vez al cerrar."""
+    """Cotiza el turno como eventos SSE y lo persiste antes de emitir."""
 
     if not verify_csrf(request, csrf_token):
         logger.warning("csrf.rejected", path=request.url.path)
@@ -615,6 +620,19 @@ def stream_turn(
     owner_key = stored_owner or identity.new_owner_key()
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
 
+    store = cotizador_store(request)
+    try:
+        # El hilo se resuelve antes de cobrar cupo: un 404 no gasta una petición.
+        current_id, history = store.history(owner_key, hilo)
+    except ThreadAccessError as error:
+        raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
+    except SQLAlchemyError as error:
+        logger.warning("cotizador.history_failed", error=str(error), stream=True)
+        response = _invalid_stream(SERVICE_UNAVAILABLE, status_code=503)
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
+
     try:
         quota = consume_quota(request, owner_key)
     except SQLAlchemyError as error:
@@ -629,18 +647,6 @@ def stream_turn(
             status_code=429,
             headers={"Retry-After": str(quota.retry_after)},
         )
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
-
-    store = cotizador_store(request)
-    try:
-        current_id, history = store.history(owner_key, hilo)
-    except ThreadAccessError as error:
-        raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
-    except SQLAlchemyError as error:
-        logger.warning("cotizador.history_failed", error=str(error), stream=True)
-        response = _invalid_stream(SERVICE_UNAVAILABLE, status_code=503)
         if new_owner:
             set_identity_cookie(response, request, identity, owner_key)
         return response

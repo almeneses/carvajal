@@ -440,7 +440,7 @@ def test_el_chat_conserva_su_navegacion_y_suma_el_cotizador() -> None:
     assert 'aria-current="page"' in respuesta.text
 
 
-def test_el_stream_avisa_si_la_persistencia_falla_a_mitad() -> None:
+def test_el_stream_no_muestra_nada_si_la_persistencia_falla() -> None:
     client, store = make_client()
     token = _token(client)
     store.fallar = True
@@ -451,10 +451,50 @@ def test_el_stream_avisa_si_la_persistencia_falla_a_mitad() -> None:
     )
 
     eventos = _eventos(respuesta.text)
-    nombre, datos = eventos[-1]
-    assert nombre == "error"
-    assert datos["incomplete"] is True
-    assert "token" in [n for n, _ in eventos]
+    assert [nombre for nombre, _ in eventos] == ["error"]
+    _, datos = eventos[0]
+    assert datos["incomplete"] is False
+    assert not store.messages
+
+
+def test_un_hilo_ajeno_no_gasta_cuota() -> None:
+    consumos: list[str] = []
+
+    def quota(owner: str) -> QuotaResult:
+        consumos.append(owner)
+        return QuotaResult(allowed=True)
+
+    client, store = make_client(quota=quota)
+    token = _token(client)
+    store.otros.add("ajeno")
+
+    respuesta = client.post(
+        "/cotizador",
+        data={"question": "cotiza 20 vasos", "thread_id": "ajeno", "csrf_token": token},
+    )
+
+    assert respuesta.status_code == 404
+    assert consumos == []
+
+
+def test_el_stream_de_un_hilo_ajeno_no_gasta_cuota() -> None:
+    consumos: list[str] = []
+
+    def quota(owner: str) -> QuotaResult:
+        consumos.append(owner)
+        return QuotaResult(allowed=True)
+
+    client, store = make_client(quota=quota)
+    token = _token(client)
+    store.otros.add("ajeno")
+
+    respuesta = client.post(
+        "/cotizador/stream",
+        data={"question": "cotiza 20 vasos", "thread_id": "ajeno", "csrf_token": token},
+    )
+
+    assert respuesta.status_code == 404
+    assert consumos == []
 
 
 def test_el_stream_tambien_olvida_y_no_usa_el_perfil() -> None:
