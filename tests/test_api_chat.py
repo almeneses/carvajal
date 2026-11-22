@@ -761,8 +761,8 @@ def test_el_stream_distingue_manos_libres_solo_en_el_cliente() -> None:
     assert 'name="voz' not in (APP_DIR / "templates" / "chat.html").read_text(encoding="utf-8")
 
 
-def test_el_fallo_tardio_de_manos_libres_no_duplica_la_pregunta() -> None:
-    """T021: con contenido recibido no se devuelve el texto al borrador."""
+def test_el_fallo_de_manos_libres_devuelve_siempre_la_pregunta() -> None:
+    """T021: sin done el turno no se persiste y el borrador vuelve siempre."""
 
     # Arrange
     from apps.api.runtime import APP_DIR
@@ -771,5 +771,5 @@ def test_el_fallo_tardio_de_manos_libres_no_duplica_la_pregunta() -> None:
     stream = (APP_DIR / "static" / "chat-stream.js").read_text(encoding="utf-8")
 
     # Assert
-    assert "if (!recibioContenido && !input.value.trim()) input.value = pregunta;" in stream
+    assert "if (!input.value.trim()) input.value = pregunta;" in stream
     assert "if (!texto.textContent) turnoAsistente.remove();" in stream
