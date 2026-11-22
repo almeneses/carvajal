@@ -304,10 +304,12 @@ def load_dataset(directory: str = str(DEFAULT_DIR)) -> Dataset:
             )
         )
     known_skus = {(product.sku, product.country) for product in products}
-    known_skus |= {(reference.sku, reference.country) for reference in catalog.references}
     for offer in offers:
         if (offer.sku, offer.country) not in known_skus:
-            raise DemoDataError(f"{OFFERS}: oferta huérfana de {offer.sku}.")
+            raise DemoDataError(
+                f"{OFFERS}: oferta huérfana de {offer.sku} ({offer.country}); "
+                "solo se cotizan productos de Colombia."
+            )
     known_providers = {provider.provider_id for provider in providers}
     for offer in offers:
         if offer.country == COUNTRY and offer.provider_id not in known_providers:

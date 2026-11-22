@@ -42,14 +42,15 @@ def test_los_simulados_declaran_su_origen_y_no_citan_ficha() -> None:
         assert "demostración" in row["note"]
 
 
-def test_ofertas_apuntan_al_catalogo_y_respetan_la_moneda() -> None:
+def test_ofertas_solo_cotizan_colombia_y_respetan_la_moneda() -> None:
     catalog = {(ref.sku, ref.country) for ref in load_catalog().references}
     extra = {(row["sku"], row["country"]) for row in _products()}
     offers = _rows("ofertas.csv")
-    currencies = {"CO": "COP", "MX": "MXN"}
 
+    # El Cotizador es solo de Colombia: una oferta en otra moneda nunca sería elegible.
+    assert {offer["country"] for offer in offers} == {"CO"}
+    assert all(offer["currency"] == "COP" for offer in offers)
     assert all((offer["sku"], offer["country"]) in catalog | extra for offer in offers)
-    assert all(offer["currency"] == currencies[offer["country"]] for offer in offers)
     assert {offer["sku"] for offer in offers if offer["country"] == "CO"} == {
         sku for sku, country in catalog if country == "CO"
     } | {sku for sku, _ in extra}

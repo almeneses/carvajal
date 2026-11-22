@@ -7,9 +7,9 @@ Combina lo que está publicado con lo que la demo necesita:
 - Productos simulados: 48 referencias equivalentes a las de México que Colombia no
   publica, para llegar a 150 productos colombianos de demostración. Cada una queda
   marcada con ``origin=simulada``.
-- Ofertas: el precio real cuando existe (EDEXA para Colombia, tienda oficial para
-  México) y un precio simulado cuando no. Existencias, plazo y envío son siempre
-  simulados en Colombia; México no declara existencias.
+- Ofertas: solo de Colombia, con el precio real cuando existe (EDEXA) y uno simulado
+  cuando no. Existencias, plazo y envío son siempre simulados. Las 98 referencias de
+  México no se cotizan: solo prestan ficha y capacidad a las 48 simuladas.
 - Sedes: el directorio real, con coordenadas aproximadas de OpenStreetMap.
 
 Los archivos se escriben en ``data/demo/cotizador/``. No son fuente de RAG ni se
@@ -93,7 +93,6 @@ PROVIDER_COLUMNS = (
     "simulated",
 )
 SIMULATED_TARGET = 48
-MX_STORE = "Carvajal Empaques México (tienda en línea)"
 SHIP_BY_CITY = {"Bogotá": 12000, "Medellín": 18000, "Cali": 18000}
 SHIP_OTHER = 25000
 LEAD_BY_CITY = {"Bogotá": (1, 2), "Medellín": (1, 3), "Cali": (2, 3)}
@@ -296,37 +295,6 @@ def _offer(
     }
 
 
-def _mx_offers(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Precio oficial de la tienda de México por caja; sin existencias declaradas."""
-
-    offers = []
-    for row in rows:
-        offers.append(
-            {
-                "sku": row["sku"],
-                "country": "MX",
-                "provider_id": "",
-                "provider": MX_STORE,
-                "city": "",
-                "basis": "caja",
-                "units_in_basis": row["units_per_box"],
-                "amount": str(int(Decimal(row["price"]))),
-                "currency": "MXN",
-                "tax_status": "incluido" if row["tax_included"] == "true" else "no_incluido",
-                "valid_until": row["price_valid_until"],
-                "stock_units": "",
-                "stock_status": "desconocido",
-                "lead_days_min": "",
-                "lead_days_max": "",
-                "ship_cost": "",
-                "simulated": "",
-                "source_url": row["source_url"],
-                "captured_at": row["captured_at"],
-            }
-        )
-    return offers
-
-
 def _ficha(offer: dict[str, str], product: dict[str, str], provider: dict[str, str]) -> str:
     """Documento citable de una oferta: procedencia, presentación y condiciones.
 
@@ -447,11 +415,11 @@ def main() -> None:
             offer["simulated"] = "price|" + offer["simulated"]
         offers.append(offer)
 
-    mx_offers = _mx_offers(mx_rows)
     # Solo la extensión simulada vive en la demo: los 102 productos reales se leen del
-    # catálogo curado y no se duplican aquí.
+    # catálogo curado y no se duplican aquí. Las ofertas son solo de Colombia: el motor
+    # no cotiza otros países y una fila en MXN nunca sería elegible.
     _write("productos.csv", PRODUCT_COLUMNS, co_simulated)
-    _write("ofertas.csv", OFFER_COLUMNS, offers + mx_offers)
+    _write("ofertas.csv", OFFER_COLUMNS, offers)
     _write("proveedores.csv", PROVIDER_COLUMNS, providers)
     fichas = _write_fichas(
         offers,
@@ -473,7 +441,6 @@ def main() -> None:
             "productos_co_simulados": len(co_simulated),
             "productos_mx": len(mx_rows),
             "ofertas_co": len(offers),
-            "ofertas_mx": len(mx_offers),
             "sedes": len(providers),
             "fichas": fichas,
         },
@@ -496,7 +463,10 @@ def main() -> None:
                 "origin": "data/catalog/empaques/referencias.csv",
                 "captured_at": "2026-10-23 / 2026-11-18",
                 "source": "Tienda en línea de Carvajal Empaques México",
-                "rule": "Precio oficial por caja en MXN; nunca se convierte a COP.",
+                "rule": (
+                    "Precio oficial por caja en MXN: solo documenta el origen de las 48 "
+                    "referencias simuladas. No se escribe en el dataset ni se convierte."
+                ),
             },
             "sedes": {
                 "origin": "data/catalog/empaques/distribuidores.csv",
@@ -515,7 +485,7 @@ def main() -> None:
             ),
             "precio": (
                 "Costo unitario base por familia (COP) por las unidades de la presentación, "
-                "redondeado a decenas. Los precios reales de EDEXA y México no se tocan."
+                "redondeado a decenas. El precio real de EDEXA no se toca."
             ),
             "stock": (
                 "Agotado cada 17 ofertas, insuficiente cada 11, desconocido cada 11, "
