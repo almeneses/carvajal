@@ -139,6 +139,11 @@
         } else if (nombre === "done") {
           const hiloId = evento.thread_id || evento.conversation_id;
           if (hiloId && hiloInput) hiloInput.value = String(hiloId);
+          if (evento.html) {
+            provisional.usuario.remove();
+            provisional.asistente.item.remove();
+            lista().insertAdjacentHTML("beforeend", String(evento.html));
+          }
           terminar(true);
         } else if (nombre === "error") {
           if (mostrado) {
@@ -154,6 +159,7 @@
     } catch (error) {
       marcarIncompleta(provisional.asistente.item);
       estado.textContent = "No se pudo cotizar. Revisa la conexión e inténtalo de nuevo.";
+      terminar(false);
     } finally {
       enCurso = false;
       boton.disabled = false;
