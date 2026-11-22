@@ -547,6 +547,9 @@ def _stream(
             thread_id=thread_id,
             quote=quote_record,
         )
+        turno_html = runtime.templates.env.get_template("_cotizador_turno.html").render(
+            messages=[user, assistant], thread_id=conversation_id
+        )
     except DemoDataError as error:
         logger.warning("cotizador.demo_failed", error=str(error), stream=True)
         yield encode(
@@ -574,6 +577,7 @@ def _stream(
             "message_id": assistant.id,
             "user_message_id": user.id,
             "thread_id": conversation_id,
+            "html": turno_html,
         },
     )
 

@@ -292,7 +292,22 @@ def test_stream_emite_texto_y_tarjetas_y_persiste_una_vez() -> None:
     assert "Bogotá" in texto
     html = next(datos["html"] for nombre, datos in eventos if nombre == "products")
     assert "Cotización para Bogotá" in html
+    assert "Cotización para Bogotá" in eventos[-1][1]["html"]
     assert len(store.messages) == 4  # dos turnos: aclaración y cotización
+
+
+def test_el_stream_cierra_con_el_turno_renderizado_por_el_servidor() -> None:
+    client, _ = make_client()
+    token = _token(client)
+
+    respuesta = client.post(
+        "/cotizador/stream",
+        data={"question": "cotiza 20 vasos calientes", "csrf_token": token},
+    )
+
+    _, cierre = _eventos(respuesta.text)[-1]
+    assert cierre["html"].count('class="turno turno-') == 2
+    assert "data-sugerencias" in cierre["html"]
 
 
 def test_stream_sin_csrf_responde_error_sse() -> None:

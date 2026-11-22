@@ -162,19 +162,24 @@
     lista.append(turnoUsuario, turnoAsistente);
     const texto = turnoAsistente.querySelector(".texto");
     const flujo = formateador.crearFlujo(texto);
+    const espera = setTimeout(() => avisar("Pensando…"), 300);
     let cantidadFuentes = 0;
     let lote = [];
     let repintado;
     let completado = false;
     let errorRecibido = false;
     let cancelado = false;
+    let finalizado = false;
     function pintarLote(provisional, interrumpido = false) {
       clearTimeout(repintado);
       repintado = undefined;
       if (lote.length) flujo.agregar(lote.join(""), cantidadFuentes);
       lote = [];
       if (provisional) flujo.adelantar(cantidadFuentes);
-      else flujo.terminar(cantidadFuentes, interrumpido);
+      else {
+        flujo.terminar(cantidadFuentes, interrumpido);
+        finalizado = true;
+      }
       if (texto.textContent || !provisional) {
         clearTimeout(espera);
         if (estado.textContent === "Pensando…") avisar("");
@@ -206,7 +211,6 @@
       cancelado = true;
       control.abort();
     };
-    const espera = setTimeout(() => avisar("Pensando…"), 300);
     const temporizador = setTimeout(() => control.abort(), 120000);
     let cerrado = false;
     let recibioContenido = false;
@@ -294,7 +298,7 @@
       });
 
       if (cancelado) throw control.signal.reason;
-      pintarLote(false, !completado || errorRecibido);
+      if (!finalizado) pintarLote(false, !completado || errorRecibido);
       if (!response.ok && !texto.textContent) {
         flujo.reemplazar(AVISO);
         avisar(AVISO, true);
@@ -303,7 +307,7 @@
         if (!texto.textContent) flujo.reemplazar(INCOMPLETA);
       }
     } catch (error) {
-      pintarLote(false, true);
+      if (!finalizado) pintarLote(false, true);
       if (cancelado) {
         if (texto.textContent || turnoAsistente.querySelector(".productos")) {
           const marca = turnoAsistente.querySelector("[data-chat-detenido]");
