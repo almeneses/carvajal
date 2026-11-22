@@ -180,10 +180,9 @@ class SqlCotizadorStore:
             return items
 
     def memory(self, owner_key: str) -> dict[str, Any]:
-        with self._factory() as session:
-            profile = SqlVisitorMemory(session).get(self._owner(owner_key))
-            session.rollback()
-            return profile
+        # La lectura puede borrar un perfil caducado: la transacción lo confirma.
+        with self._factory.begin() as session:
+            return SqlVisitorMemory(session).get(self._owner(owner_key))
 
     def remember(self, owner_key: str, profile: Mapping[str, Any]) -> dict[str, Any]:
         with self._factory.begin() as session:

@@ -2,7 +2,8 @@
 
 Una fila por dueño firmado. La lectura descarta los perfiles caducados y los borra;
 la escritura es un upsert idempotente y el olvido elimina la fila completa. Igual que
-el resto de repositorios, recibe una ``Session`` ajena y solo hace ``flush()``.
+el resto de repositorios, recibe una ``Session`` ajena y solo hace ``flush()``: quien
+lee debe abrir una transacción que confirme el borrado del perfil vencido.
 """
 
 from collections.abc import Mapping
