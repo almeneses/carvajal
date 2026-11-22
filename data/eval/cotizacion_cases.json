@@ -1,0 +1,141 @@
+[
+  {
+    "name": "20 vasos calientes en Bogotá",
+    "text": "cotiza 20 vasos para bebida caliente en Bogotá",
+    "expect": {
+      "kind": "cotizacion",
+      "city": "Bogotá",
+      "primary.sku": "7704918100199",
+      "primary.presentation.basis": "paquete",
+      "primary.presentation.units": "50",
+      "primary.presentation.units_bought": "50",
+      "primary.presentation.units_surplus": "30",
+      "primary.presentation.subtotal": "3751",
+      "total": "3751",
+      "primary.provider.name": "EDEXA"
+    }
+  },
+  {
+    "name": "domicilio suma envío y ventana",
+    "text": "con domicilio",
+    "questions": [
+      "cotízame 20 vasos para bebida caliente",
+      "en Bogotá"
+    ],
+    "expect": {
+      "kind": "cotizacion",
+      "delivery.ship_cost": "12000",
+      "delivery.window": "30 nov y 1 dic",
+      "total": "15751"
+    }
+  },
+  {
+    "name": "100 unidades recalculan paquetes",
+    "text": "mejor 100",
+    "questions": [
+      "cotízame 20 vasos para bebida caliente",
+      "en Bogotá"
+    ],
+    "expect": {
+      "kind": "cotizacion",
+      "primary.presentation.count": "2",
+      "primary.presentation.units_surplus": "0",
+      "primary.presentation.subtotal": "7502"
+    }
+  },
+  {
+    "name": "sin ciudad pide ciudad",
+    "text": "cotiza 20 vasos calientes",
+    "expect": {
+      "kind": "aclaracion"
+    }
+  },
+  {
+    "name": "pregunta institucional queda fuera",
+    "text": "¿cómo nació Carvajal?",
+    "expect": {
+      "kind": "fuera_de_alcance"
+    }
+  },
+  {
+    "name": "referencia simulada marcada",
+    "text": "cotiza 100 cucharas en Cali",
+    "expect": {
+      "kind": "cotizacion",
+      "primary.sku": "DEMO-CO-007",
+      "primary.simulated": "true",
+      "primary.price_simulated": "true"
+    }
+  },
+  {
+    "name": "talla agotada no se ofrece",
+    "text": "cotiza 20 vasos térmicos de 4 oz en Bogotá",
+    "expect": {
+      "kind": "sin_resultados"
+    }
+  },
+  {
+    "name": "sin modo demo no inventa oferta",
+    "text": "cotiza 100 cucharas en Cali",
+    "allow_demo": false,
+    "expect": {
+      "kind": "sin_resultados"
+    }
+  },
+  {
+    "name": "precio viejo se marca",
+    "text": "en Bogotá",
+    "questions": [
+      "cotízame 20 vasos para bebida caliente"
+    ],
+    "today": "2027-04-01",
+    "expect": {
+      "kind": "cotizacion",
+      "primary.stale": "true"
+    }
+  },
+  {
+    "name": "2000 unidades sin domicilio",
+    "text": "cotiza 2000 vasos calientes en Bogotá",
+    "expect": {
+      "kind": "cotizacion",
+      "primary.presentation.count": "40",
+      "primary.presentation.subtotal": "150040",
+      "delivery.requested": "false"
+    }
+  },
+  {
+    "name": "ciudad sin sede declara ausencia",
+    "text": "cotiza 20 vasos calientes en Leticia",
+    "expect": {
+      "kind": "sin_resultados"
+    }
+  },
+  {
+    "name": "perfil recordado evita preguntar",
+    "text": "cotiza 20 vasos para bebida caliente",
+    "profile": {
+      "name": "Ana",
+      "city": "Bogotá",
+      "delivery": true,
+      "preferences": []
+    },
+    "expect": {
+      "kind": "cotizacion",
+      "city": "Bogotá",
+      "delivery.requested": "true",
+      "reply_start": "Listo, Ana."
+    }
+  },
+  {
+    "name": "saludo no repite la última cotización",
+    "text": "hola",
+    "questions": [
+      "cotiza 20 vasos calientes en Bogotá"
+    ],
+    "expect": {
+      "kind": "aclaracion",
+      "reply_start": "Hola."
+    }
+  }
+]

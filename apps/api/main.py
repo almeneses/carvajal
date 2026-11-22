@@ -27,7 +27,7 @@ from apps.api.observability import (
 )
 from apps.api.runtime import APP_DIR, session_factory, templates
 from apps.api.security import SecurityMiddleware
-from apps.api.views import api, chat, config, corpus, documents, faq, stream
+from apps.api.views import api, chat, config, corpus, cotizador, documents, faq, stream
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.application.quota import DailyQuota, QuotaResult
@@ -173,7 +173,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityMiddleware)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
-    for module in (corpus, documents, chat, stream, api, config, faq):
+    for module in (corpus, documents, chat, stream, api, config, faq, cotizador):
         app.include_router(module.router)
     app.include_router(faq.page_router)
 

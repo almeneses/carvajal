@@ -66,6 +66,9 @@ typecheck: ## Verifica los tipos con ty (Astral)
 test: ## Ejecuta las pruebas (sin integración, e2e ni smoke)
 	uv run pytest -m "not integration and not e2e and not smoke"
 
+eval-cotizador: ## Casos dorados del Cotizador con totales esperados
+	uv run python scripts/evaluar_cotizador.py
+
 smoke: ## Smoke tests del monitoreo (sin credenciales)
 	uv run pytest -m smoke
 
