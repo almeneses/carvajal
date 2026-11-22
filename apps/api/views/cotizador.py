@@ -7,7 +7,7 @@ derivado del dueño firmado (``cot:<owner_key>``). El cliente nunca envía ese v
 import os
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from apps.api import runtime
 from apps.api.security import verify_csrf
@@ -73,8 +74,9 @@ class CotizadorStore(Protocol):
         answer: str,
         sources: Sequence[Mapping[str, Any]],
         thread_id: str | None,
+        quote: Mapping[str, Any] | None = None,
     ) -> tuple[str, ChatMessage, ChatMessage]:
-        """Guarda el turno y devuelve el hilo y los dos mensajes."""
+        """Guarda el turno, y la cotización si la hay, en una sola transacción."""
 
         ...
 
@@ -100,21 +102,6 @@ class CotizadorStore(Protocol):
 
     def forget(self, owner_key: str) -> None:
         """Borra lo recordado del visitante."""
-
-        ...
-
-    def issue_quote(
-        self,
-        owner_key: str,
-        *,
-        quote_id: str,
-        payload: Mapping[str, Any],
-        total: Decimal,
-        currency: str,
-        valid_until: Any,
-        conversation_id: str | None,
-    ) -> None:
-        """Registra la cotización emitida para auditoría."""
 
         ...
 
@@ -154,7 +141,9 @@ class SqlCotizadorStore:
         answer: str,
         sources: Sequence[Mapping[str, Any]],
         thread_id: str | None,
+        quote: Mapping[str, Any] | None = None,
     ) -> tuple[str, ChatMessage, ChatMessage]:
+        # El turno y su cotización comparten transacción: o quedan ambos o ninguno.
         with self._factory.begin() as session:
             repo = SqlChatRepository(session)
             owner = self._owner(owner_key)
@@ -167,7 +156,28 @@ class SqlCotizadorStore:
             user, assistant = repo.append_turn(
                 conversation.id, question=question, answer=answer, sources=sources
             )
+            if quote is not None:
+                self._record_quote(session, owner, quote, conversation.id)
             return conversation.id, user, assistant
+
+    @staticmethod
+    def _record_quote(
+        session: Session,
+        owner: str,
+        quote: Mapping[str, Any],
+        conversation_id: str,
+    ) -> None:
+        """Registra la cotización dentro de la transacción del turno."""
+
+        SqlQuoteRepository(session).record(
+            str(quote["id"]),
+            owner,
+            payload=quote["payload"],
+            total=Decimal(str(quote["total"])),
+            currency=str(quote["currency"]),
+            valid_until=date.fromisoformat(str(quote["valid_until"])),
+            conversation_id=conversation_id,
+        )
 
     def new(self, owner_key: str) -> str:
         with self._factory.begin() as session:
@@ -192,28 +202,6 @@ class SqlCotizadorStore:
         with self._factory.begin() as session:
             SqlVisitorMemory(session).forget(self._owner(owner_key))
 
-    def issue_quote(
-        self,
-        owner_key: str,
-        *,
-        quote_id: str,
-        payload: Mapping[str, Any],
-        total: Decimal,
-        currency: str,
-        valid_until: Any,
-        conversation_id: str | None,
-    ) -> None:
-        with self._factory.begin() as session:
-            SqlQuoteRepository(session).record(
-                quote_id,
-                self._owner(owner_key),
-                payload=payload,
-                total=total,
-                currency=currency,
-                valid_until=valid_until,
-                conversation_id=conversation_id,
-            )
-
 
 def cotizador_store(request: Request) -> CotizadorStore:
     """Doble inyectado en las pruebas o el almacén real sobre PostgreSQL."""
@@ -233,26 +221,28 @@ DELETED = "Listo, borré lo que tenía guardado de ti."
 
 
 def _issue_quote(
-    store: CotizadorStore, owner_key: str, payload: dict[str, Any], conversation_id: str | None
-) -> dict[str, Any]:
-    """Identifica y registra la cotización; solo aplica a cotizaciones completas."""
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Identifica la cotización y devuelve el payload y lo que se audita.
+
+    Solo aplica a cotizaciones completas. El registro se guarda junto con el
+    turno para que no queden cotizaciones sin mensaje si la persistencia falla.
+    """
 
     if payload.get("kind") != "cotizacion" or not payload.get("primary"):
-        return payload
+        return payload, None
     primary = payload["primary"]
     quote_id = uuid4().hex[:12]
     valid = (datetime.now(UTC).date() + timedelta(days=QUOTE_DAYS)).isoformat()
-    payload = {**payload, "quote": {"id": quote_id, "valid_until": valid, "days": QUOTE_DAYS}}
-    store.issue_quote(
-        owner_key,
-        quote_id=quote_id,
-        payload=payload,
-        total=Decimal(str(payload.get("total") or primary["presentation"]["subtotal"])),
-        currency=primary["currency"],
-        valid_until=datetime.fromisoformat(valid).date(),
-        conversation_id=conversation_id,
-    )
-    return payload
+    quoted = {**payload, "quote": {"id": quote_id, "valid_until": valid, "days": QUOTE_DAYS}}
+    record = {
+        "id": quote_id,
+        "payload": quoted,
+        "total": Decimal(str(payload.get("total") or primary["presentation"]["subtotal"])),
+        "currency": primary["currency"],
+        "valid_until": valid,
+    }
+    return quoted, record
 
 
 def _profile(store: CotizadorStore, owner_key: str, text: str) -> tuple[dict[str, Any], bool]:
@@ -358,12 +348,9 @@ def page(
             raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
         except SQLAlchemyError as error:
             logger.warning("cotizador.history_failed", error=str(error))
-            response = _page(
+            return _page(
                 request, [], error=SERVICE_UNAVAILABLE, status_code=503, thread_id=thread_id
             )
-            if new_owner:
-                set_identity_cookie(response, request, identity, owner_key)
-            return response
     response = _page(
         request,
         messages,
@@ -418,19 +405,25 @@ def turn(
     owner_key = stored_owner or identity.new_owner_key()
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
 
+    def reject(message: str, status_code: int) -> Response:
+        """Error del turno con la identidad recién emitida si hace falta."""
+
+        response = _error_turno(message, thread_id=hilo or "", status_code=status_code)
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
+
     if not verify_csrf(request, csrf_token):
         logger.warning("csrf.rejected", path=request.url.path)
-        return _error_turno(CSRF_INVALIDO, thread_id=hilo or "", status_code=403)
+        return reject(CSRF_INVALIDO, 403)
     if not text:
-        return _error_turno(EMPTY, thread_id=hilo or "", status_code=422)
+        return reject(EMPTY, 422)
     if len(text) > MAX_QUESTION_CHARS:
-        return _error_turno(
-            f"El mensaje no puede superar los {MAX_QUESTION_CHARS} caracteres.",
-            thread_id=hilo or "",
-            status_code=422,
-        )
+        return reject(f"El mensaje no puede superar los {MAX_QUESTION_CHARS} caracteres.", 422)
     blocked = _quota(request, owner_key)
     if blocked is not None:
+        if new_owner:
+            set_identity_cookie(blocked, request, identity, owner_key)
         return blocked
 
     store = cotizador_store(request)
@@ -443,13 +436,14 @@ def turn(
             result["reply"] = f"{DELETED} {result['reply']}"
         payload = {key: value for key, value in result.items() if key != "reply"}
         payload["kind"] = payload.get("kind", "cotizacion")
-        payload = _issue_quote(store, owner_key, payload, current_id)
+        payload, quote_record = _issue_quote(payload)
         conversation_id, user, assistant = store.append(
             owner_key,
             question=text,
             answer=result["reply"],
             sources=[payload],
             thread_id=current_id,
+            quote=quote_record,
         )
     except ThreadAccessError as error:
         raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
@@ -541,7 +535,7 @@ def _stream(
         for piece in _pieces(result["reply"]):
             sent = True
             yield encode("token", {"text": piece})
-        payload = _issue_quote(store, owner_key, payload, thread_id)
+        payload, quote_record = _issue_quote(payload)
         html = _cards(payload)
         if html:
             yield encode("products", {"html": html})
@@ -551,6 +545,7 @@ def _stream(
             answer=result["reply"],
             sources=[payload],
             thread_id=thread_id,
+            quote=quote_record,
         )
         yield encode(
             "done",
@@ -645,7 +640,10 @@ def stream_turn(
         raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
     except SQLAlchemyError as error:
         logger.warning("cotizador.history_failed", error=str(error), stream=True)
-        return _invalid_stream(SERVICE_UNAVAILABLE, status_code=503)
+        response = _invalid_stream(SERVICE_UNAVAILABLE, status_code=503)
+        if new_owner:
+            set_identity_cookie(response, request, identity, owner_key)
+        return response
 
     questions = [item.content for item in history if item.role == "user"][-HISTORY_QUESTIONS:]
     profile, forgot = _profile(store, owner_key, text)

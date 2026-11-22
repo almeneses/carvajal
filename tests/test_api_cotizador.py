@@ -9,7 +9,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.chat.identity import SignedCookieIdentity
+from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
 from apps.api.main import Handlers, HealthStatus, create_app
 from apps.api.views.cotizador import SqlCotizadorStore, ThreadAccessError
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
@@ -27,12 +27,15 @@ class FakeStore:
     otros: set[str] = field(default_factory=set)
     profile: dict[str, Any] = field(default_factory=dict)
     fallar: bool = False
+    historial_falla: bool = False
     quotes: list[dict[str, Any]] = field(default_factory=list)
 
     def history(
         self, owner_key: str, thread_id: str | None
     ) -> tuple[str | None, Sequence[ChatMessage]]:
         self.owners.append(owner_key)
+        if self.historial_falla:
+            raise SQLAlchemyError("fallo simulado del historial")
         if thread_id in self.otros:
             raise ThreadAccessError(thread_id)
         return ("hilo-1" if self.messages else None), self.messages
@@ -45,6 +48,7 @@ class FakeStore:
         answer: str,
         sources: Sequence[Mapping[str, Any]],
         thread_id: str | None,
+        quote: Mapping[str, Any] | None = None,
     ) -> tuple[str, ChatMessage, ChatMessage]:
         self.owners.append(owner_key)
         if thread_id in self.otros:
@@ -59,6 +63,18 @@ class FakeStore:
             "m-bot", "hilo-1", "assistant", answer, [dict(item) for item in sources], ahora
         )
         self.messages = [*self.messages, usuario, asistente]
+        if quote is not None:
+            self.quotes.append(
+                {
+                    "owner": owner_key,
+                    "id": quote["id"],
+                    "payload": dict(quote["payload"]),
+                    "total": quote["total"],
+                    "currency": quote["currency"],
+                    "valid_until": quote["valid_until"],
+                    "conversation_id": "hilo-1",
+                }
+            )
         return "hilo-1", usuario, asistente
 
     def new(self, owner_key: str) -> str:
@@ -82,29 +98,6 @@ class FakeStore:
         self.owners.append(owner_key)
         self.profile = {}
 
-    def issue_quote(
-        self,
-        owner_key: str,
-        *,
-        quote_id: str,
-        payload: Mapping[str, Any],
-        total: Any,
-        currency: str,
-        valid_until: Any,
-        conversation_id: str | None,
-    ) -> None:
-        self.quotes.append(
-            {
-                "owner": owner_key,
-                "id": quote_id,
-                "payload": dict(payload),
-                "total": total,
-                "currency": currency,
-                "valid_until": valid_until,
-                "conversation_id": conversation_id,
-            }
-        )
-
 
 def make_client(store: FakeStore | None = None, quota: Any = None) -> tuple[TestClient, FakeStore]:
     fake = store or FakeStore()
@@ -118,6 +111,22 @@ def make_client(store: FakeStore | None = None, quota: Any = None) -> tuple[Test
 def _token(client: TestClient) -> str:
     client.get("/cotizador")
     return client.get("/api/csrf").json()["token"]
+
+
+def test_el_turno_escapa_el_texto_del_visitante() -> None:
+    """El parcial se inserta como HTML: Jinja debe escapar el mensaje del visitante."""
+
+    client, _ = make_client()
+    token = _token(client)
+
+    respuesta = client.post(
+        "/cotizador",
+        data={"question": "<script>alert(1)</script>", "csrf_token": token},
+    )
+
+    assert respuesta.status_code == 200
+    assert "<script>alert(1)</script>" not in respuesta.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in respuesta.text
 
 
 def test_la_seccion_se_abre_sin_aviso_general_de_demo() -> None:
@@ -311,6 +320,46 @@ def test_stream_con_cuota_agotada_responde_429() -> None:
     assert respuesta.status_code == 429
     assert respuesta.headers["Retry-After"] == "60"
     assert not store.messages
+
+
+def test_el_turno_conserva_la_identidad_si_agota_la_cuota() -> None:
+    client, _ = make_client(quota=lambda owner: QuotaResult(allowed=False, retry_after=60))
+    token = client.get("/api/csrf").json()["token"]
+
+    respuesta = client.post(
+        "/cotizador",
+        data={"question": "cotiza 20 vasos en Bogotá", "csrf_token": token},
+    )
+
+    assert respuesta.status_code == 429
+    assert COOKIE_NAME in respuesta.headers.get("set-cookie", "")
+
+
+def test_el_stream_conserva_la_identidad_si_falla_el_historial() -> None:
+    client, _ = make_client(FakeStore(historial_falla=True))
+    token = client.get("/api/csrf").json()["token"]
+
+    respuesta = client.post(
+        "/cotizador/stream",
+        data={"question": "cotiza 20 vasos en Bogotá", "csrf_token": token},
+    )
+
+    assert respuesta.status_code == 503
+    assert COOKIE_NAME in respuesta.headers.get("set-cookie", "")
+
+
+def test_si_falla_el_turno_no_queda_una_cotizacion_huerfana() -> None:
+    client, store = make_client()
+    token = _token(client)
+    store.fallar = True
+
+    respuesta = client.post(
+        "/cotizador",
+        data={"question": "cotiza 20 vasos calientes en Bogotá", "csrf_token": token},
+    )
+
+    assert respuesta.status_code == 503
+    assert store.quotes == []
 
 
 def test_la_memoria_silenciosa_usa_ciudad_domicilio_y_nombre() -> None:
