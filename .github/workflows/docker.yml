@@ -55,7 +55,7 @@ jobs:
           docker compose -f compose.prod.yml --profile bootstrap config -q
 
       - name: Construir imagen
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
