@@ -42,8 +42,9 @@ git push
 
 ### Regla de merge (obligatoria para agentes)
 
-`main` está protegida con un ruleset: exige **1 aprobación de otra persona**, el
-check `Calidad` en verde y la rama al día.
+Toda Pull Request apunta a `main`; `dev` dejó de usarse el 2026-11-22. `main`
+está protegida con un ruleset: exige **1 aprobación de otra persona**, el check
+`Calidad` en verde y la rama al día.
 
 - Un agente **abre la PR y se detiene ahí**. No mergea, no aprueba y **no usa
   `--admin`** para saltarse la regla, ni siquiera cuando el autor es el propio

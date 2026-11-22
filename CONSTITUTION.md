@@ -368,20 +368,15 @@ carvajal/
 ## 7. Repositorio y Git
 
 - **Remoto (SSH):** `git@github.com:almeneses/carvajal.git`
-- **Rama principal:** `main` — solo recibe releases aprobados.
-- **Rama de integración:** `dev` — recibe todo el trabajo de la app web
-  (ver [`docs/plans/0001-migracion-app.md`](docs/plans/0001-migracion-app.md)).
+- **Rama principal:** `main` — única rama de integración y de producción; recibe
+  todo el trabajo por Pull Request.
 - **Estrategia de ramas:** `feat/...`, `fix/...`, `docs/...`, `refactor/...`,
-  `test/...`, `chore/...`; integración vía Pull Request a `dev`, y de `dev` a
-  `main` en un PR de release. Los cambios de documentación y decisiones pueden ir
-  directo a `main`.
-- **Método de fusión:** los PRs hacia `dev` se fusionan con **squash**, para que
-  `dev` tenga un commit por PR. Los PRs de release `dev → main` se fusionan con
-  **merge commit**: así `dev` queda como ancestro de `main` y el release
-  siguiente no parte de un ancestro viejo. Un squash de `dev → main` deja los
-  commits de `dev` fuera de `main` y el PR posterior aparece en conflicto con
-  contenido idéntico (pasó con #149 → #151, que obligó a reescribir `dev` y a
-  re-apuntar el tag). El tag del release se crea sobre el commit de merge.
+  `test/...`, `chore/...`; toda PR apunta a `main`. La rama `dev` deja de usarse
+  desde el 2026-11-22.
+- **Método de fusión:** los PRs hacia `main` se fusionan con **squash**, un
+  commit por PR. El release se marca con un tag anotado `spec-NNN` sobre el
+  commit de `main` (por ejemplo `spec-042`); el despliegue de producción se
+  dispara al pasar CI en `main`.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) —
   `feat:`, `fix:`, `docs:`, `refactor:`, `style:`, `test:`, `chore:`.
 - **Etiquetas de PR:** toda Pull Request debe llevar al menos una etiqueta del
@@ -497,6 +492,7 @@ git push
 | 2026-11-21 | Prompts unificados: identidad única, tres sistemas por ruta y datos delimitados | Había cuatro «Eres el asistente…» que divergían y el system del chat exigía «solo CONTEXTO» también en la ruta comercial, donde no existe. `carvajal/prompts.py` centraliza identidad, estilo, evidencia, guiones de borde, router con ejemplos y FAQ; el historial y las preferencias se delimitan como datos y nunca como instrucciones. El Cotizador adopta el mismo tono en sus plantillas. Los contratos se prueban en `tests/test_prompts.py`; la calidad de redacción se sigue midiendo con experimentos y revisión humana. |
 | 2026-11-21 | Cotizador defendible: catálogo único, ficha citable, cotización registrada y casos dorados | El prototipo tenía dos verdades (catálogo y CSV demo), no permitía auditar una cifra ni detectar regresiones de totales. El motor lee el catálogo curado; la demo solo añade la extensión simulada y las condiciones. Cada oferta publica una ficha Markdown con procedencia y campos simulados, enlazada desde la tarjeta. Cada cotización completa se guarda en `quotes` con `id`, vigencia de 7 días, total y payload mostrado; las aclaraciones no emiten registro. Doce casos dorados con totales esperados corren en CI (`SC-012`). |
 | 2026-11-21 | Cotizador: mapa incrustado y sin aviso general de demo | El esquema SVG no mostraba calles y el aviso general ocupaba la cabecera. Se incrusta OpenStreetMap con `frame-src` limitado a ese origen y se conserva la lista textual como respaldo; la simulación se marca en cada dato (precio, existencia, producto y entrega) y no con un banner. OpenStreetMap ve la IP del visitante pero no la conversación ni el perfil. |
+| 2026-11-22 | Rama única `main`: toda PR apunta a `main` y el release es un tag sobre `main` | `dev` duplicaba la integración y obligaba a un PR de release con merge commit para que `main` no quedara desincronizado; además, el retargeteo manual de los PRs de Dependabot añadía trabajo y errores. Desde esta fecha el trabajo entra por PR a `main` con squash, el despliegue se dispara al pasar CI en `main`, el release se marca con un tag anotado `spec-NNN` y Dependabot apunta a `main`. La rama `dev` queda retirada. |
 | 2026-11-21 | Prototipo del Cotizador en la rama `prototype`: motor determinista, cotización inline y demo marcada | El chat comercial respondía recomendaciones, pero no una cotización con presentaciones, totales, sedes y entrega. El motor reutiliza la extracción y la validación de la spec 036 y no llama al LLM: cantidades, `Decimal`, existencias y plazos son deterministas. La sección vive en `/cotizador`, con hilos aislados por `cot:<owner_key>` sin migración, streaming SSE del texto y las tarjetas, mapa incrustado de OpenStreetMap (`frame-src` acotado) e importes con su procedencia marcada dato por dato. La demo usa 150 productos de Colombia (102 reales y 48 simulados a partir de fichas de México, que no se cotizan), con precio real de EDEXA cuando existe y simulado cuando no; existencias, plazos y envíos son simulados y se marcan fila por fila. La memoria silenciosa guarda solo detalles con patrón conocido, no viaja en el payload ni en las trazas y caduca a los 180 días. Pendientes: dictado por voz (T039), verificación visual a 390 y 1440 px (T038) y revisión de la retención con el owner (T053). |
 | 2026-11-21 | Stack reproducible en Docker con perfiles: `full` en local y `bootstrap` en producción | Clonar el repo en otra máquina exigía `uv`, Ollama y cinco comandos manuales (migraciones, `migrate-gold`, `index-qdrant`, `ollama pull`) antes de la primera pregunta. `compose.yml` conserva `db` y `qdrant` sin perfil para el flujo nativo y el perfil `full` añade la app en la etapa `dev` (recarga y directorios montados), Ollama y un `bootstrap` de una sola ejecución; `make up` es un solo comando. En producción el perfil `bootstrap` automatiza lo que el runbook hacía a mano y copia `./data` al volumen solo cuando no hay Gold, para no pisar capturas. Sin perfil nada cambia: `make db`, `make qdrant`, CI y `deploy.sh` siguen igual. Dockerizar `uv`/Ruff/pytest/Node queda fuera a propósito: el ciclo de desarrollo es más rápido en el host |
 | 2026-11-21 | Simplificar la vista del chat: retirar el bloque y los marcadores visibles de fuentes, y formatear antes de pintar | El chat muestra bloques de Markdown ya formateados durante el stream, sin repintar los bloques previos. No cambia la fundamentación en el corpus ni el contrato de fuentes del SSE, del historial o de la API. La lectura en voz conserva los títulos como metadatos y las tarjetas mantienen la procedencia comercial. |

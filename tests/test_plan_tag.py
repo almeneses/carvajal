@@ -1,4 +1,4 @@
-"""Pruebas del cálculo de tags de versión para los merges en ``dev``."""
+"""Pruebas del cálculo de tags de versión para los merges en ``main``."""
 
 import importlib.util
 from pathlib import Path
@@ -52,7 +52,7 @@ def test_sin_id_no_genera_tag() -> None:
     assert tag == ""
 
 
-def test_solo_tags_de_merge_en_dev() -> None:
+def test_solo_tags_de_merge_en_main() -> None:
     # Arrange
     title = "feat: algo (W4.1)"
 
@@ -61,8 +61,8 @@ def test_solo_tags_de_merge_en_dev() -> None:
     en_dev = plan_tag.resolve_tag(title, base="dev", manual="")
 
     # Assert
-    assert en_main == ""
-    assert en_dev == "w4-1"
+    assert en_main == "w4-1"
+    assert en_dev == ""
 
 
 def test_tag_manual_gana_al_titulo() -> None:
@@ -70,7 +70,7 @@ def test_tag_manual_gana_al_titulo() -> None:
     title = "feat: algo (W4.1)"
 
     # Act
-    tag = plan_tag.resolve_tag(title, base="dev", manual="ola-0")
+    tag = plan_tag.resolve_tag(title, base="main", manual="ola-0")
 
     # Assert
     assert tag == "ola-0"
@@ -81,7 +81,7 @@ def test_tag_manual_invalido_no_genera_tag() -> None:
     manual = "Ola 0"
 
     # Act
-    tag = plan_tag.resolve_tag("", base="dev", manual=manual)
+    tag = plan_tag.resolve_tag("", base="main", manual=manual)
 
     # Assert
     assert tag == ""

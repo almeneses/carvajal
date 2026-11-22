@@ -82,9 +82,8 @@ Consulta **[`CONSTITUTION.md`](../CONSTITUTION.md)** para los estándares detall
 
 - [ ] El PR fue **revisado y aprobado**.
 - [ ] La **rama está actualizada** respecto a `main` (sin conflictos).
-- [ ] Fusionar con **Squash & Merge**; si este PR es un release `dev → main`, usar
-      **Create a merge commit** para que `dev` siga siendo ancestro de `main`
-      (`CONSTITUTION.md` § Repositorio y Git).
+- [ ] Fusionar con **Squash & Merge**. El release se marca después con un tag
+      anotado `spec-NNN` sobre `main` (`CONSTITUTION.md` § Repositorio y Git).
 - [ ] **Cerrar** el issue asociado (`Closes #`).
 - [ ] **Eliminar** la rama de trabajo.
 
