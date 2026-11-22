@@ -30,6 +30,7 @@ from carvajal.agent.commercial import (
 from carvajal.agent.commercial_intent import COMMERCIAL_KEYS
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import Reference
+from carvajal.prompts import COMMERCIAL_INSTRUCTIONS, CUSTOM_INSTRUCTIONS
 
 __all__ = [
     "COMMERCIAL_INSTRUCTIONS",
@@ -52,25 +53,6 @@ NO_PRICE_NOTE = (
     "se convierte desde otro país. Consulta un distribuidor."
 )
 _COUNTRY_NAMES = {"MX": "México", "CO": "Colombia"}
-
-COMMERCIAL_INSTRUCTIONS = (
-    "Eres el asesor comercial de Carvajal Empaques. Redacta la respuesta usando solo el "
-    "resultado estructurado de abajo. No añadas referencias, materiales, cifras, precios, "
-    "existencias ni plazos que no estén en él, y no calcules nada: las cajas y los totales ya "
-    "vienen calculados. Para cada opción menciona el SKU, el material, las unidades por caja "
-    "y la ficha con su fecha de captura. Si hay precio, copia la moneda, quién lo publica y el "
-    "aviso tal cual; si lo publica un tercero, dilo. Si una opción no tiene precio, dilo sin "
-    "estimarlo ni convertirlo. Si no hay opciones, dilo, resume los "
-    "descartes y no ofrezcas alternativas que incumplan la regla de material. Si hay datos "
-    "pendientes, termina pidiéndolos. No tomes pedidos ni pidas datos de pago."
-)
-
-CUSTOM_INSTRUCTIONS = (
-    "La necesidad es a la medida (uso industrial, agro, exportación, impresión personalizada "
-    "o similar) y no está en el catálogo estándar de Carvajal Empaques. No recomiendes "
-    "referencias, materiales ni cifras. Explica que la atiende un asesor comercial y entrega "
-    "solo los canales del resultado de abajo, sin inventar teléfonos, correos ni plazos."
-)
 
 
 def _request(extra: dict[str, Any]) -> CommercialRequest:

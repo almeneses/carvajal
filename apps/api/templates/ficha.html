@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Ficha de la oferta — Cotizador Carvajal{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/document.css" />
+{% endblock %}
+{% block content %}
+<article class="documento" aria-labelledby="titulo-ficha">
+  <header class="documento-cabecera panel">
+    <p class="sobrelinea">Cotizador · Ficha de la oferta</p>
+    <h1 id="titulo-ficha">Ficha citada</h1>
+    <p class="documento-volver">
+      <a href="/cotizador">← Volver al cotizador</a>
+    </p>
+  </header>
+  <section class="documento-cuerpo panel">
+    <div class="texto-formateado">{{ contenido | respuesta(0) }}</div>
+  </section>
+</article>
+{% endblock %}

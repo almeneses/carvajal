@@ -46,7 +46,7 @@ def test_build_system_prompt_restringe_respuesta() -> None:
 
     assert DEFAULT_SYSTEM_PROMPT in prompt
     assert "CORPUS CARVAJAL" in prompt
-    assert "no lo sabes" in prompt.lower()
+    assert "no contiene el dato" in prompt.lower()
 
 
 def test_ask_genera_respuesta_con_contexto() -> None:

@@ -663,7 +663,7 @@ body:has(> .ancho-chat) {
 
 @media (max-width: 560px) {
   .cabecera:has(+ .ancho-chat) .pestanas {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 2px;
   }
 
@@ -875,4 +875,212 @@ html[data-voz-tts="1"] .turno-assistant .turno-voz {
 html[data-voz-manos="1"] .voz {
   border-left: 3px solid var(--azul);
   padding-left: 10px;
+}
+
+/* Cotizador (spec 042): la cotización vive dentro del turno, sin panel aparte.
+   Tokens del mockup institucional: azul Carvajal, cian de acento y radios 14-17 px. */
+.coti-aviso {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--borde);
+  border-left: 4px solid var(--azul);
+  border-radius: 12px;
+  background: var(--fondo);
+  color: var(--tinta);
+  font-size: 0.9rem;
+}
+
+.coti {
+  display: grid;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+  background: var(--blanco, #fff);
+  max-width: var(--ancho-hilo);
+}
+
+.coti-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.coti-titulo {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--azul);
+}
+
+.coti-oferta h4,
+.coti-alternativas h4,
+.coti-sedes h4,
+.coti-entrega h4 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+}
+
+.coti-producto {
+  font-size: 1.1rem;
+  color: var(--tinta);
+}
+
+.coti-meta,
+.coti-nota,
+.coti-fuente,
+.coti-alt-detalle,
+.coti-alt-dif,
+.coti-sede-meta {
+  margin: 0;
+  color: var(--secundario);
+  font-size: 0.88rem;
+}
+
+.coti-cifras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.coti-cifras div {
+  padding: 8px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  background: var(--fondo);
+}
+
+.coti-cifras dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--secundario);
+}
+
+.coti-cifras dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  color: var(--tinta);
+}
+
+.coti-cifra-fuerte {
+  border-color: var(--azul) !important;
+}
+
+.coti-etiquetas,
+.coti-sugerencias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.coti-sello {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--etiqueta-fondo);
+  color: var(--azul);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.coti-sello-demo {
+  background: #fff0e3;
+  color: #844219;
+}
+
+.coti-sello-alerta {
+  background: #fdecec;
+  color: #8a1c1c;
+}
+
+.coti-sede {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--borde);
+  font-size: 0.92rem;
+}
+
+.coti-alternativas ul,
+.coti-descartes ul {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coti-alternativas li {
+  padding: 8px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+}
+
+.coti-alt-nombre,
+.coti-sede-nombre {
+  margin: 0;
+  font-weight: 700;
+}
+
+.coti-sedes-cuerpo {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.coti-sedes-lista {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.coti-sedes-lista li p {
+  margin: 0;
+}
+
+.coti-mapa {
+  margin: 0;
+}
+
+.coti-mapa-marco {
+  display: block;
+  width: 100%;
+  height: 15rem;
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  background: var(--fondo);
+}
+
+.coti-mapa figcaption {
+  margin-top: 4px;
+  color: var(--secundario);
+  font-size: 0.75rem;
+}
+
+.coti-mapa-enlace {
+  color: var(--azul);
+  font-size: 0.82rem;
+}
+
+.coti-descartes {
+  font-size: 0.85rem;
+  color: var(--secundario);
+}
+
+.coti-nota-final {
+  padding-top: 8px;
+  border-top: 1px solid var(--borde);
+}
+
+@media (max-width: 640px) {
+  .coti-sedes-cuerpo {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

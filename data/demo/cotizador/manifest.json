@@ -1,0 +1,53 @@
+{
+  "spec": "042-cotizador",
+  "generated_at": "2026-11-21T18:53:15+00:00",
+  "generated_by": "scripts/generar_demo_cotizador.py",
+  "banner": "Modo demo: existencias, plazos y entregas son simulados. Los productos marcados como simulados tampoco están publicados en Colombia.",
+  "counts": {
+    "productos_co": 150,
+    "productos_co_reales": 102,
+    "productos_co_simulados": 48,
+    "productos_mx": 98,
+    "ofertas_co": 160,
+    "sedes": 29,
+    "fichas": 160
+  },
+  "sources": {
+    "productos_reales": {
+      "origin": "data/catalog/empaques/referencias.csv (specs 036 y 039)",
+      "captured_at": "2026-11-18",
+      "rule": "No se copian: el Cotizador los lee del catálogo curado. Este archivo solo contiene las 48 referencias simuladas que Colombia no publica."
+    },
+    "precios_co": {
+      "origin": "data/catalog/empaques/fuentes/precios_co.csv",
+      "captured_at": "2026-11-18",
+      "source": "EDEXA (distribuidor del directorio oficial)",
+      "rule": "Precio por paquete o caja tal como lo publica la tienda; no se convierte."
+    },
+    "precios_mx": {
+      "origin": "data/catalog/empaques/referencias.csv",
+      "captured_at": "2026-10-23 / 2026-11-18",
+      "source": "Tienda en línea de Carvajal Empaques México",
+      "rule": "Precio oficial por caja en MXN: solo documenta el origen de las 48 referencias simuladas. No se escribe en el dataset ni se convierte a COP."
+    },
+    "sedes": {
+      "origin": "data/catalog/empaques/distribuidores.csv",
+      "captured_at": "2026-10-23",
+      "geocoding": "OpenStreetMap Nominatim, 2026-11-21",
+      "rule": "Dirección y teléfono son del directorio oficial; latitud y longitud son aproximadas y conservan su precisión (direccion, via, ciudad)."
+    }
+  },
+  "simulation_rules": {
+    "productos": "48 referencias equivalentes a fichas de México se presentan como oferta colombiana de demostración; no están publicadas en Colombia.",
+    "precio": "Costo unitario base por familia (COP) por las unidades de la presentación, redondeado a decenas. El precio real de EDEXA no se toca.",
+    "stock": "Agotado cada 17 ofertas, insuficiente cada 11, desconocido cada 11, disponible el resto; las unidades salen de un hash estable del SKU.",
+    "entrega": "Días hábiles con festivos de Colombia, corte a las 15:00, sin contar el día del pedido. Envío 12.000 COP en Bogotá, 18.000 en Medellín y Cali, 25.000 en el resto; gratis desde 500.000 COP (regla del motor, no de la fila)."
+  },
+  "limitations": [
+    "Las existencias y los plazos no provienen de ningún proveedor real.",
+    "Los productos simulados no existen en el portafolio publicado de Colombia.",
+    "Las coordenadas son aproximadas; 'ciudad' significa centroide y no una sede.",
+    "Los precios de EDEXA son de referencia y no confirman disponibilidad.",
+    "Este conjunto no se indexa en Qdrant ni se cita como fuente del corpus."
+  ]
+}

@@ -1,0 +1,202 @@
+{% set p = cotizacion.primary %}
+{% set d = cotizacion.delivery or {} %}
+{% set precision = {
+  "direccion": "dirección aproximada", "via": "nivel de vía",
+  "ciudad": "centro de la ciudad", "sin_coordenadas": "sin coordenadas"
+} %}
+{% set material = {
+  "PAPEL": "Papel", "PULPA": "Pulpa", "EPS": "Unicel (EPS)", "PS": "Plástico PS",
+  "PET": "Plástico PET", "PP": "Plástico PP", "ALUMINIO": "Aluminio"
+} %}
+<section class="coti" aria-label="Cotización">
+  <header class="coti-cabecera">
+    <h3 class="coti-titulo">Cotización para {{ cotizacion.city }}</h3>
+    {% if p.simulated %}
+    <span class="coti-sello coti-sello-demo">Producto de demostración</span>
+    {% endif %}
+    {% if cotizacion.quote %}
+    <span class="coti-sello">#{{ cotizacion.quote.id }} · válida hasta {{ cotizacion.quote.valid_until }}</span>
+    {% endif %}
+  </header>
+
+  <article class="coti-oferta">
+    <h4 class="coti-producto">{{ p.name }}</h4>
+    <p class="coti-meta">
+      {% if p.brand %}{{ p.brand }} · {% endif %}{{ material.get(p.material, p.material) }}
+      {%- if p.capacity_oz %} · {{ "%g" | format(p.capacity_oz) }} oz{% endif %}
+    </p>
+
+    <dl class="coti-cifras">
+      <div>
+        <dt>Pides</dt>
+        <dd>{{ "{:,}".format(p.units_requested) | replace(",", ".") }} unidades</dd>
+      </div>
+      <div>
+        <dt>Compras</dt>
+        <dd>
+          {{ p.presentation.count }} {{ p.presentation.basis }}
+          ({{ "{:,}".format(p.presentation.units_bought) | replace(",", ".") }} unidades)
+        </dd>
+      </div>
+      <div>
+        <dt>Sobrantes</dt>
+        <dd>{{ "{:,}".format(p.presentation.units_surplus) | replace(",", ".") }} unidades</dd>
+      </div>
+      <div>
+        <dt>Precio de la presentación</dt>
+        <dd>{{ p.presentation.subtotal }} COP</dd>
+      </div>
+      <div class="coti-cifra-fuerte">
+        <dt>Subtotal</dt>
+        <dd>{{ p.presentation.subtotal }} COP</dd>
+      </div>
+      {% if d.requested and d.ship_cost is not none %}
+      <div>
+        <dt>Envío</dt>
+        <dd>
+          {% if d.free %}Gratis (desde {{ d.free_from }} COP){% else %}{{ d.ship_cost }} COP{% endif %}
+        </dd>
+      </div>
+      {% if cotizacion.total %}
+      <div class="coti-cifra-fuerte">
+        <dt>Total conocido</dt>
+        <dd>{{ cotizacion.total }} COP</dd>
+      </div>
+      {% endif %}
+      {% endif %}
+    </dl>
+
+    <p class="coti-etiquetas">
+      {% if p.price_simulated %}
+      <span class="coti-sello coti-sello-demo">Precio simulado</span>
+      {% else %}
+      <span class="coti-sello">Precio de referencia · {{ p.captured_at }}</span>
+      {% endif %}
+      {% if p.stale %}
+      <span class="coti-sello coti-sello-alerta">Precio capturado hace más de 90 días</span>
+      {% endif %}
+      {% if p.stock.status == "insuficiente" %}
+      <span class="coti-sello coti-sello-alerta">Existencia insuficiente</span>
+      {% elif p.stock.status == "desconocido" %}
+      <span class="coti-sello coti-sello-alerta">Existencia sin confirmar</span>
+      {% else %}
+      <span class="coti-sello">Existencia simulada</span>
+      {% endif %}
+    </p>
+    {% if p.warning %}<p class="coti-nota">{{ p.warning }}</p>{% endif %}
+
+    <p class="coti-sede">
+      <strong>{{ p.provider.name }}</strong> · {{ p.provider.city }}
+      {%- if p.provider.address %}<br />{{ p.provider.address }}{% endif %}
+      {%- if p.provider.phone %}<br />
+      <a href="tel:{{ p.provider.phone | replace(' ', '') }}">{{ p.provider.phone }}</a>{% endif %}
+    </p>
+    <p class="coti-fuente">
+      <a href="/cotizador/ficha/{{ p.provider.ficha }}">Ver la ficha de la oferta</a>
+      {% if p.source_url %}
+      · <a href="{{ p.source_url }}" rel="noopener" target="_blank">Ver la fuente del precio</a>
+      {% endif %}
+    </p>
+  </article>
+
+  {% if cotizacion.alternatives %}
+  <section class="coti-alternativas" aria-label="Alternativas">
+    <h4>Alternativas similares</h4>
+    <ul>
+      {% for item in cotizacion.alternatives %}
+      <li>
+        <p class="coti-alt-nombre">{{ item.name }}</p>
+        <p class="coti-alt-detalle">
+          {{ item.presentation.count }} {{ item.presentation.basis }} de
+          {{ "{:,}".format(item.presentation.units) | replace(",", ".") }} ·
+          {{ item.presentation.subtotal }} COP · {{ item.provider.name }}
+        </p>
+        <p class="coti-alt-dif">{{ item.difference }}</p>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% set sedes = cotizacion.providers or [] %}
+  {% if sedes %}
+  <section class="coti-sedes" aria-label="Dónde comprar">
+    <h4>Dónde comprar en {{ cotizacion.city }}</h4>
+    <div class="coti-sedes-cuerpo">
+      <ol class="coti-sedes-lista">
+        {% for sede in sedes %}
+        <li>
+          <p class="coti-sede-nombre">{{ sede.name }}</p>
+          {% if sede.address %}<p>{{ sede.address }}</p>{% endif %}
+          <p class="coti-sede-meta">
+            {{ precision.get(sede.precision, sede.precision) }}
+            {% if sede.phone %} · <a href="tel:{{ sede.phone | replace(' ', '') }}">{{ sede.phone }}</a>{% endif %}
+          </p>
+          {% if sede.ficha %}
+          <a class="coti-mapa-enlace" href="/cotizador/ficha/{{ sede.ficha }}">Ver ficha de la sede</a>
+          {% endif %}
+          {% if sede.lat and sede.lon %}
+          <a
+            class="coti-mapa-enlace"
+            href="https://www.openstreetmap.org/?mlat={{ sede.lat }}&amp;mlon={{ sede.lon }}#map=17/{{ sede.lat }}/{{ sede.lon }}"
+            target="_blank"
+            rel="noopener"
+          >Abrir en OpenStreetMap</a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+      {% if p.provider.lat and p.provider.lon %}
+      <figure class="coti-mapa">
+        <iframe
+          class="coti-mapa-marco"
+          src="https://www.openstreetmap.org/export/embed.html?bbox={{ "%.5f" | format(p.provider.lon - 0.012) }}%2C{{ "%.5f" | format(p.provider.lat - 0.008) }}%2C{{ "%.5f" | format(p.provider.lon + 0.012) }}%2C{{ "%.5f" | format(p.provider.lat + 0.008) }}&layer=mapnik&marker={{ "%.5f" | format(p.provider.lat) }}%2C{{ "%.5f" | format(p.provider.lon) }}"
+          title="Ubicación aproximada de {{ p.provider.name }} en {{ p.provider.city }}"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+        ></iframe>
+        <figcaption>
+          {{ p.provider.name }} · {{ precision.get(p.provider.precision, p.provider.precision) }} ·
+          <a
+            href="https://www.openstreetmap.org/?mlat={{ p.provider.lat }}&amp;mlon={{ p.provider.lon }}#map=17/{{ p.provider.lat }}/{{ p.provider.lon }}"
+            target="_blank"
+            rel="noopener"
+          >Abrir el mapa completo</a>
+        </figcaption>
+      </figure>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if d.requested %}
+  <section class="coti-entrega" aria-label="Entrega">
+    <h4>Entrega a domicilio</h4>
+    {% if d.covered %}
+    <p>
+      Llega entre el <strong>{{ d.window }}</strong>
+      ({{ d.days_min }}–{{ d.days_max }} días hábiles, festivos colombianos excluidos).
+      Pedidos después de las {{ d.cutoff }}:00 pasan al siguiente día hábil.
+    </p>
+    <p class="coti-nota">
+      Es una estimación: no garantiza la entrega.
+    </p>
+    {% else %}
+    <p>
+      No hay cobertura de domicilio registrada para esta ciudad. Puedes retirar en la sede
+      o escribir al proveedor.
+    </p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if cotizacion.discarded %}
+  <details class="coti-descartes">
+    <summary>Por qué no ofrecí otras referencias</summary>
+    <ul>
+      {% for motivo in cotizacion.discarded %}<li>{{ motivo }}</li>{% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+
+</section>
