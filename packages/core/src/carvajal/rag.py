@@ -28,46 +28,23 @@ from carvajal.config import (
 )
 from carvajal.domain.chunking import CHUNK_OVERLAP, CHUNK_SIZE
 from carvajal.domain.frontmatter import strip_front_matter
+from carvajal.prompts import FAQ_INSTRUCTIONS
+from carvajal.prompts import RAG_SYSTEM as DEFAULT_SYSTEM_PROMPT
 
 EMBEDDINGS_MODEL = "nomic-embed-text"
 EMBEDDING_BATCH_SIZE = 32
 LLM_MODEL = "llama3.2"
 MAX_SYSTEM_PROMPT_CHARS = 120_000
 
-DEFAULT_SYSTEM_PROMPT = (
-    "Eres el asistente del corpus Carvajal. Tu fuente es el CORPUS CARVAJAL incluido en "
-    "este mensaje de sistema, complementado con los fragmentos recuperados que se "
-    "adjuntan. Responde únicamente con esa información. Sé completo: si la pregunta pide "
-    "una lista, cronología o explicación, incluye todos los elementos relevantes del "
-    "corpus. Si la respuesta no está en el corpus, di claramente que no lo sabes; si solo "
-    "hay información parcial, responde con lo disponible e indica qué falta. No inventes "
-    "datos ni uses conocimiento externo. Cita las fuentes consultadas. Distingue siempre "
-    "entre fuentes oficiales (carvajal.com) y de terceros (prensa, analistas): si una cifra "
-    "proviene de un tercero, dilo y menciona el medio y la fecha. Algunos fragmentos "
-    "provienen de una capa ampliada marcada como colaborador: cítalos con su URL y no los "
-    "presentes como comunicación oficial de la empresa."
-)
 
 SUMMARY_INSTRUCTIONS = (
-    "Eres el asistente del corpus Carvajal. Redacta un RESUMEN EJECUTIVO del corpus usando "
+    "Eres Carva, el asistente de Carvajal. Redacta un RESUMEN EJECUTIVO del corpus usando "
     "solo la información disponible en él. Estructura obligatoria, en este orden: "
     "(1) Qué es la empresa; (2) Sectores y empresas del grupo; (3) Cifras clave (ingresos, "
     "EBITDA, utilidad y empleo) indicando año y fuente; (4) Tres hitos de la historia; "
     "(5) Presencia geográfica. Reglas: no inventes cifras; si un dato no consta, escribe "
     "«no consta en el corpus»; cita el slug de la fuente entre paréntesis tras cada cifra; "
-    "máximo 400 palabras; español de Colombia."
-)
-
-FAQ_INSTRUCTIONS = (
-    "Eres el asistente del corpus Carvajal. Genera una FAQ para un cliente que contacta a "
-    "la empresa por primera vez. Incluye entre 10 y 12 preguntas agrupadas en: Empresa, "
-    "Productos y sectores, Historia, Inversión y Contacto. Formato de cada entrada:\n"
-    "**P:** pregunta\n**R:** respuesta breve (máximo 3 líneas)\n_Fuente:_ slug\n"
-    "Cada entrada lleva exactamente una línea **P:** y una **R:**; no agregues notas, "
-    "aclaraciones sueltas ni líneas R vacías. Reglas: responde solo con el corpus y cita el "
-    "slug; si un tema esperable no está (por ejemplo horarios, sedes o línea de atención), "
-    "agrégalo al final en la sección 'Temas sin información en el corpus' explicando qué "
-    "falta; no inventes datos."
+    "máximo 400 palabras; español de Colombia, frases cortas y sin jerga."
 )
 
 
