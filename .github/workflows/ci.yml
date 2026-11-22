@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -24,8 +24,7 @@ jobs:
 
       - name: Presupuesto de cambios
         # Solo advierte por encima de 3.000 líneas; no falla ni bloquea el merge.
-        # Los releases dev → main integran una ola ya revisada por PR: no se presupuestan por línea.
-        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'main'
+        if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

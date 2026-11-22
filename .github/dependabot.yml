@@ -4,6 +4,7 @@ updates:
   # Dependencias de Python / uv (pyproject.toml + uv.lock)
   - package-ecosystem: "uv"
     directory: "/"
+    target-branch: "main"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -17,6 +18,7 @@ updates:
   # Acciones de GitHub usadas en los workflows
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "main"
     schedule:
       interval: "weekly"
       day: "monday"

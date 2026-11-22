@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Calcula el tag de versión que corresponde a un merge en ``dev``.
+"""Calcula el tag de versión que corresponde a un merge en ``main``.
 
 El plan de migración identifica cada PR con un ID (``W0.1b``, ``W12.3``…). Al
-mergear un PR a ``dev`` se crea un tag con ese ID en minúsculas y con puntos
+mergear un PR a ``main`` se crea un tag con ese ID en minúsculas y con puntos
 convertidos en guiones (``w0-1b``), de modo que cualquier estado integrado se
 pueda recuperar con ``git checkout w0-1b``.
 
-También admite un tag manual (``workflow_dispatch``) para cerrar una ola:
-``ola-0``, ``ola-1``…
+También admite un tag manual (``workflow_dispatch``) para cerrar una ola o un
+release: ``ola-0``, ``spec-042``…
 
 Variables de entorno:
     PR_TITLE    título del PR (``github.event.pull_request.title``)
@@ -43,11 +43,11 @@ def tag_from_pr_title(title: str) -> str:
 
 
 def resolve_tag(title: str, base: str, manual: str) -> str:
-    """Decide el tag según el evento: manual, merge a ``dev`` o ninguno."""
+    """Decide el tag según el evento: manual, merge a ``main`` o ninguno."""
 
     if manual:
         return manual if MANUAL_TAG.match(manual) else ""
-    if base != "dev":
+    if base != "main":
         return ""
     return tag_from_pr_title(title)
 
