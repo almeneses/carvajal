@@ -12,7 +12,7 @@ vez por proceso y la base solo guarda el historial de la conversación.
 |---|---|---:|---|
 | Catálogo curado | `(sku, country)` | 102 CO + 98 MX | Única fuente de productos reales |
 | `productos.csv` | `(sku, country)` | 48 | Solo la extensión simulada de Colombia |
-| `ofertas.csv` | `(sku, provider_id)` | 258 | 160 CO y 98 MX |
+| `ofertas.csv` | `(sku, provider_id)` | 160 | Solo Colombia; el motor no cotiza otros países |
 | `proveedores.csv` | `provider_id` | 29 | sedes reales con coordenadas aproximadas |
 | `geocode_sedes.json` | `name + city + address` | 29 | caché de Nominatim, regenerable |
 | `fichas/*.md` | `sku-provider_id` | 160 | Documento citable por oferta |

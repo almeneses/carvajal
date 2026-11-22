@@ -145,11 +145,13 @@ antes de implementar: tres planes y tres listas de tareas no caben en la misma r
 agotar el presupuesto de cambios. La ampliación de alcance de §2, la decisión de §9 y la
 proyección de la constitución para Spec Kit se enmiendan en esta misma PR.
 
-La 042 sigue el mismo camino: `spec.md` y `checklists/requirements.md` en `Status: Draft`,
-con el [plan preliminar](../docs/plans/0002-cotizador-preliminar.md) como evidencia de la
-auditoría del catálogo. Las dos aclaraciones abiertas se cerraron el 2026-11-21: la ventana
-de entrega se cuenta en días hábiles con festivos de Colombia y el Cotizador pide la ciudad
-antes de mostrar precios y proveedores. Queda pendiente `/speckit.plan`. El número 041 queda
+La 042 siguió ese camino: `spec.md` y `checklists/requirements.md` se abrieron en
+`Status: Draft` con el [plan preliminar](../docs/plans/0002-cotizador-preliminar.md) como
+evidencia de la auditoría del catálogo, y hoy el prototipo está implementado en la rama
+`prototype`, con `plan.md`, `research.md`, `data-model.md`, `contracts/` y `tasks.md`
+escritos. Las dos aclaraciones abiertas se cerraron el 2026-11-21: la ventana de entrega
+se cuenta en días hábiles con festivos de Colombia y el Cotizador pide la ciudad antes de
+mostrar precios y proveedores. Quedan abiertas T038, T039 y T053. El número 041 queda
 reservado para la comparación de enrutadores que heredó SC-006 de la 036.
 
 ## 8. Orden de escritura y estimación

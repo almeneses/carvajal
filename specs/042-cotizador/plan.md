@@ -52,7 +52,7 @@ sin PII en trazas, fechas en días hábiles con festivos de Colombia.
 
 | Principio | Cumplimiento |
 |---|---|
-| Verdad en los datos | Los precios reales se copian de EDEXA y México; lo simulado se marca fila por fila (`simulated`, `origin`) y la sección avisa. No se convierte moneda ni se estima un precio ausente con otro país. |
+| Verdad en los datos | Los precios reales se copian de EDEXA; las 98 referencias de México solo documentan el origen de las 48 simuladas y no se cotizan. Lo simulado se marca fila por fila (`simulated`, `origin`) y la sección avisa. No se convierte moneda ni se estima un precio ausente con otro país. |
 | Cita y procedencia | Cada oferta enlaza su fuente; las sedes enlazan el directorio oficial y su precisión de geocodificación. |
 | Capas separadas | `data/demo/` no entra en Qdrant ni en el corpus; el motor comercial no escribe vectores. |
 | Sin LLM donde hay aritmética | La cotización no llama al modelo: cantidades, totales y plazos son deterministas. |

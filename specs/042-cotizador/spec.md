@@ -1,8 +1,8 @@
 # Feature Specification: Cotizador conversacional de productos Carvajal
 
-**Feature Branch**: `042-cotizador`
+**Feature Branch**: `prototype`
 **Created**: 2026-11-21
-**Status**: Prototipo implementado en la rama `prototype` (2026-11-21), con streaming SSE; pendientes T039, T040, T041 y T046 de [`tasks.md`](./tasks.md).
+**Status**: Prototipo implementado en la rama `prototype` (2026-11-21), con streaming SSE; pendientes T038, T039 y T053 de [`tasks.md`](./tasks.md).
 **Input**: User description: "Agregar una sección Cotizador con la misma interfaz del chat,
 dedicada solo a productos Carvajal: alguien escribe «cotízame 20 vasos para bebida
 caliente» y el chat responde si lo tiene, el precio, la cantidad solicitada, el costo
@@ -393,8 +393,9 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
 
 ## Assumptions
 
-- El alcance inicial son empaques de Colombia y precios en COP; el catálogo actual de
-  México se conserva sin convertir precios.
+- El alcance inicial son empaques de Colombia y precios en COP; las 98 referencias de
+  México del catálogo curado solo documentan el origen de las 48 simuladas y no se
+  cotizan ni se convierten.
 - La existencia y la entrega reales dependen de proveedores con los que todavía no hay
   integración; la demo los simula de forma explícita.
 - Las reglas de material y uso publicadas en el catálogo curado siguen siendo la autoridad

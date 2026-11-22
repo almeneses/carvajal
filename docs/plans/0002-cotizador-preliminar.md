@@ -1,7 +1,7 @@
 # Plan preliminar — Cotizador conversacional
 
 **Fecha:** 2026-11-21 · **Rama:** `prototype`, basada en `dev`.
-**Estado:** propuesta para revisión; todavía no es una especificación de Spec Kit.
+**Estado:** plan de referencia superado por [`specs/042-cotizador/`](../../specs/042-cotizador/spec.md); el prototipo está implementado en la rama `prototype`.
 
 ## 1. Objetivo
 
@@ -168,15 +168,16 @@ reproducible que no toca el catálogo curado ni se indexa como fuente del corpus
 | Archivo | Contenido |
 |---|---|
 | `productos.csv` | Solo las 48 referencias simuladas de Colombia; las 102 reales se leen del catálogo curado |
-| `ofertas.csv` | 160 ofertas de Colombia (29 con precio real de EDEXA) y 98 de México con precio oficial |
+| `ofertas.csv` | 160 ofertas de Colombia (29 con precio real de EDEXA); las 98 referencias de México no generan oferta |
 | `proveedores.csv` | Las 29 sedes del directorio oficial con coordenadas aproximadas |
 | `geocode_sedes.json` | Caché de la geocodificación, para regenerar sin red |
 | `fichas/*.md` | Una ficha citable por oferta, con procedencia y campos simulados |
 | `manifest.json` | Conteos, fuentes, reglas de simulación, aviso de demo y limitaciones |
 
 - **Qué es real:** los productos vienen del catálogo curado (una sola fuente), y también son
-  reales sus materiales, capacidades, unidades por presentación, precios
-  de EDEXA y de la tienda mexicana, y el directorio de sedes con su teléfono y dirección.
+  reales sus materiales, capacidades, unidades por presentación, precios de EDEXA y el
+  directorio de sedes con su teléfono y dirección. Las 98 referencias de México no se
+  cotizan; solo documentan el origen de las 48 simuladas.
 - **Qué es simulado:** los 48 productos colombianos que solo existen en México (marcados
   `origin=simulada` con nota), el precio cuando ninguna fuente publica uno, todas las
   existencias, los plazos y el costo de envío. Cada oferta declara sus campos simulados
