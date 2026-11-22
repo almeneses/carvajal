@@ -4,15 +4,14 @@
   <span class="traza-item" data-campo="memory-wrap" hidden>Memoria: <strong data-campo="memory"></strong> preferencia(s)</span>
   <span class="traza-item">Hilo: <code data-campo="thread"></code></span>
 </div>
-<p id="chat-stream-estado" class="ayuda estado-chat" role="status" aria-live="polite">
-  <span class="girando" data-girando aria-hidden="true" hidden></span>
-  <span data-estado-texto></span>
-</p>
 
 <template id="plantilla-turno">
   <li class="turno">
     <span class="turno-avatar" aria-hidden="true"></span>
-    <p class="turno-rol"></p>
+    <p class="turno-rol">
+      <span data-turno-autor></span>
+      <span class="estado-incompleto" data-chat-detenido hidden>Respuesta detenida</span>
+    </p>
     <div class="burbuja">
       <div class="texto"></div>
     </div>
@@ -48,35 +47,6 @@
       <button type="button" class="boton boton-fantasma" data-marca="0">No útil</button>
       <span class="marcas-gracias" data-marcas-gracias hidden>Gracias por tu marca.</span>
     </div>
-    <details class="citas" hidden>
-      <summary>Fuentes citadas <span class="citas-conteo"></span></summary>
-      <ol class="fuentes"></ol>
-    </details>
-  </li>
-</template>
-
-<template id="plantilla-fuente">
-  <li class="fuente">
-    <p class="fuente-meta">
-      <span class="etiqueta" data-campo="badge-tipo"><span class="sr-solo">Tipo de fuente: </span><span data-campo="source_type"></span></span>
-      <span>Documento:
-        <button
-          type="button"
-          class="cita-fuente"
-          data-campo="documento"
-          aria-haspopup="dialog"
-          aria-controls="panel-documento"
-        ><strong data-campo="title"></strong></button>
-      </span>
-      <span>Sección: <span data-campo="section"></span></span>
-      <span>Capa: <span data-campo="layer"></span></span>
-      <span data-campo="procedencia" hidden>Procedencia: <span data-campo="procedencia-texto"></span></span>
-      <span class="puntuacion">Puntuación: <span data-campo="score"></span></span>
-    </p>
-    <p class="extracto" data-campo="excerpt"></p>
-    <p class="fuente-acciones" data-campo="acciones" hidden>
-      <a class="fuente-origen" data-campo="url" target="_blank" rel="noopener noreferrer">Abrir fuente original <span aria-hidden="true">↗</span></a>
-    </p>
   </li>
 </template>
 

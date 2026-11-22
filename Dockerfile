@@ -35,6 +35,28 @@ COPY packages/core/src ./packages/core/src
 # para no pagar 23 MB en la imagen.
 RUN uv sync --frozen --no-dev --no-editable --no-install-package zstandard --extra capture
 
+FROM base AS dev
+# Etapa de desarrollo local (`compose.yml`, perfil `full`). No se publica: sirve
+# para arrancar la app con recarga y con los directorios del repo montados.
+# Se instala el extra `capture` (la captura web es runtime) y se deja fuera
+# `legacy` (FAISS): el CLI completo sigue siendo cosa de `uv sync --all-extras`.
+COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /uvx /bin/
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY packages/core/src ./packages/core/src
+RUN uv sync --frozen --no-dev --no-install-package zstandard --extra capture
+COPY alembic.ini ./
+COPY migrations ./migrations
+COPY apps ./apps
+RUN mkdir -p /app/data
+# HOME escribible: el contenedor corre con el UID del host y no es dueño de /app.
+ENV HOME=/tmp
+USER app
+EXPOSE 8000
+CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
 FROM base AS runtime
 # Extractores de PDF: pdftotext (poppler-utils) se usa en la carga local de
 # archivos; el OCR sigue fuera de alcance.

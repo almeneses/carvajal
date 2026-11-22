@@ -27,7 +27,8 @@
   `done`, se trata como cualquier otro turno SSE completado.
 - Se usa el texto visible de la respuesta y, si están presentes, nombres, cajas,
   cantidades, precios, moneda y fechas de tarjetas; una tarjeta sin precio no
-  adquiere uno al leerla. Las citas se leen como «según» seguido del título. No se
+  adquiere uno al leerla. Las citas se leen como «según» seguido del título,
+  obtenido de los metadatos del turno sin mostrar las fuentes en el chat. No se
   agregan URLs, SKU ni códigos técnicos. Coexistir con `aria-live` del chat no
   implica activación automática por defecto.
 

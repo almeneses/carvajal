@@ -31,7 +31,7 @@
 <section class="productos" aria-label="Referencias del catálogo de Carvajal Empaques">
   {%- if pedido.family or pedido.use or pedido.quantity or pedido.country %}
   <div class="productos-entendi">
-    <h3 class="productos-titulo">Esto es lo que entendí</h3>
+    <h3 class="productos-titulo">Tu solicitud</h3>
     <dl class="entendi-lista">
       {%- if pedido.family %}
       <div>
@@ -73,25 +73,19 @@
     {%- set precio = opcion.total or opcion.price_per_box %}
     {%- set destacado = precio and ns.con_precio > 1 and (precio.split(" ")[0] | float) == ns.minimo %}
     <li class="producto{% if destacado %} producto-destacado{% endif %}">
+      <h3 class="producto-nombre" data-campo="producto-nombre">{{ opcion.name }}</h3>
       <p class="producto-etiquetas">
         {%- if destacado %}<span class="etiqueta-destacada">Menor precio de referencia</span>{% endif %}
         <span class="etiqueta-material">{{ materiales.get(opcion.material, opcion.material) }}</span>
       </p>
-      <h3 class="producto-nombre" data-campo="producto-nombre">{{ opcion.name }}</h3>
+      {%- if opcion.boxes %}
       <dl class="producto-datos">
-        <div><dt>SKU</dt><dd><code>{{ opcion.sku }}</code></dd></div>
-        <div><dt>Material</dt><dd>{{ opcion.material }}</dd></div>
-        {%- if opcion.capacity_oz %}
-        <div><dt>Capacidad</dt><dd>{{ "%g" | format(opcion.capacity_oz) }} oz</dd></div>
-        {%- endif %}
-        <div><dt>Unidades por caja</dt><dd>{{ opcion.units_per_box }}</dd></div>
-        {%- if opcion.boxes %}
         <div>
           <dt>Cajas</dt>
           <dd data-campo="producto-cajas">{{ opcion.boxes }}{% if opcion.surplus_units %} (sobran {{ opcion.surplus_units }} unidades){% endif %}</dd>
         </div>
-        {%- endif %}
       </dl>
+      {%- endif %}
       {%- if opcion.offers %}
       <ul class="producto-ofertas">
         {%- for oferta in opcion.offers %}
@@ -120,6 +114,7 @@
         <span class="producto-precio-detalle">{{ "en total" if opcion.total else "por caja" }}</span>
       </p>
       <p class="producto-aviso">{{ opcion.price_notice }}</p>
+      <p class="producto-aviso" data-campo="producto-fecha">capturado el {{ opcion.captured_at }}</p>
       {%- elif opcion.price_note %}
       <p class="producto-aviso">{{ opcion.price_note }}</p>
       {%- elif opcion.country == "CO" %}
@@ -127,10 +122,21 @@
       {%- else %}
       <p class="producto-aviso">Sin precio: indica el país (México o Colombia) para cotizar.</p>
       {%- endif %}
-      <p class="producto-fuente">
-        <a href="{{ opcion.source_url }}" target="_blank" rel="noopener noreferrer">Ver ficha <span aria-hidden="true">↗</span></a>
-        · <span data-campo="producto-fecha">capturada el {{ opcion.captured_at }}</span>
-      </p>
+      <details class="producto-detalles">
+        <summary>Detalles de la ficha</summary>
+        <dl class="producto-datos">
+          <div><dt>SKU</dt><dd><code>{{ opcion.sku }}</code></dd></div>
+          <div><dt>Material</dt><dd>{{ opcion.material }}</dd></div>
+          {%- if opcion.capacity_oz %}
+          <div><dt>Capacidad</dt><dd>{{ "%g" | format(opcion.capacity_oz) }} oz</dd></div>
+          {%- endif %}
+          <div><dt>Unidades por caja</dt><dd>{{ opcion.units_per_box }}</dd></div>
+        </dl>
+        <p class="producto-fuente">
+          <a href="{{ opcion.source_url }}" target="_blank" rel="noopener noreferrer">Ver ficha <span aria-hidden="true">↗</span></a>
+          · <span data-campo="producto-fecha">capturada el {{ opcion.captured_at }}</span>
+        </p>
+      </details>
     </li>
     {%- endfor %}
   </ul>

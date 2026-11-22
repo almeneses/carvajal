@@ -55,7 +55,31 @@ flowchart LR
   API --> LOGS["structlog JSON<br/>request_id · thread_id · route · tool · sources"]
 ```
 
-### Arranque reproducible (una terminal)
+### Arranque reproducible
+
+Dos caminos equivalentes. El primero necesita `uv` y Ollama en el host; el
+segundo solo Docker.
+
+**Todo en Docker** (recomendado para clonar el repo en otra máquina):
+
+```bash
+cp .env.example .env                 # opcional; sin él se usa Ollama local
+make up                              # app + Postgres + Qdrant + Ollama + corpus
+                                     # http://localhost:8000  ← entrada única
+make down                            # lo detiene conservando los volúmenes
+```
+
+> Si copias `.env.example`, cambia `LLM_PROVIDER` a `ollama` o completa
+> `DEEPSEEK_API_KEY`. `make up` ya descarga `nomic-embed-text` y el modelo de
+> chat de Ollama, así que el stack responde sin claves externas.
+
+`make up` activa el perfil `full` de `compose.yml`: construye la imagen de
+desarrollo, descarga `nomic-embed-text` y el modelo de chat de Ollama, aplica
+migraciones, importa `data/gold` a Postgres e indexa en Qdrant antes de arrancar
+la app (recarga en caliente y `./data` montado). Sin el perfil, `make db` y
+`make qdrant` siguen levantando solo la infraestructura.
+
+**Con el host** (`uv` + Ollama instalados):
 
 ```bash
 # Preparación única
@@ -582,8 +606,11 @@ make typecheck  # ty
 make test       # pytest
 make build      # uv build
 make image      # imagen Docker de la app web
+make up         # stack completo en Docker: app + base + Qdrant + Ollama + corpus
+make down       # detiene el stack completo (conserva los volúmenes)
 make prod-up    # app + base + Qdrant + Ollama en APP_PORT (requiere SESSION_SECRET)
 make prod-down  # detiene los servicios (conserva los volúmenes)
+make prod-bootstrap  # servidor limpio: modelos, migraciones, Postgres y Qdrant
 make db         # Postgres 16 con pgvector (docker compose)
 make db-down    # detiene la base local
 make clean      # limpiar cachés y artefactos
@@ -596,7 +623,7 @@ make image                  # docker build -t carvajal-api:local .
 export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 export APP_PORT=8080        # puerto público de la demo
 make prod-up                # app + Postgres + Qdrant + Ollama
-docker compose -f compose.prod.yml run --rm app alembic upgrade head
+make prod-bootstrap         # modelos, migraciones, corpus e índice (una vez)
 ```
 
 La imagen es multi-etapa, corre con un usuario sin privilegios y solo instala

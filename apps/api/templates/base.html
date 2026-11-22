@@ -34,6 +34,11 @@
           >Chat</a>
           <a
             class="pestana"
+            href="/cotizador"
+            {% if ruta == "/cotizador" %}aria-current="page"{% endif %}
+          >Cotizador</a>
+          <a
+            class="pestana"
             href="/faq"
             {% if ruta == "/faq" %}aria-current="page"{% endif %}
           >FAQ</a>
@@ -56,7 +61,7 @@
     </main>
     <footer class="pie">
       <p>
-        Respuestas basadas únicamente en el corpus público de Carvajal; cada una cita su fuente.
+        Asistente basado en el corpus público de Carvajal.
       </p>
     </footer>
 

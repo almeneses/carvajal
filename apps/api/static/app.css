@@ -561,42 +561,11 @@ h2 {
   font-size: 0.86em;
 }
 
-.texto-formateado sup {
-  line-height: 0;
-}
-
-.texto-formateado .cita-inline {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.4rem;
-  padding: 0 0.3rem;
-  border-radius: 999px;
-  background: var(--etiqueta-fondo);
-  color: var(--etiqueta-texto);
-  font-size: 0.8rem;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.texto-formateado .cita-inline::after {
-  content: none;
-}
-
-.texto-formateado .cita-inline:hover {
-  background: var(--cian);
-  color: var(--azul);
-}
-
 .palabra {
   display: inline-block;
   opacity: 0;
   animation: palabra-entra 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   animation-delay: calc(var(--i, 0) * 14ms);
-}
-
-.fragmento {
-  opacity: 1;
-  animation: fragmento-entra 200ms ease both;
 }
 
 @keyframes palabra-entra {
@@ -608,16 +577,6 @@ h2 {
   to {
     opacity: 1;
     transform: none;
-  }
-}
-
-@keyframes fragmento-entra {
-  from {
-    opacity: 0.2;
-  }
-
-  to {
-    opacity: 1;
   }
 }
 
@@ -646,60 +605,6 @@ h2 {
 }
 
 /* Fuentes y etiquetas ----------------------------------------------------- */
-
-.citas {
-  margin-top: 8px;
-  overflow: hidden;
-  background: var(--panel);
-  border: 1px solid var(--borde);
-  border-radius: 12px;
-}
-
-.citas summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 52px;
-  padding: 10px 14px;
-  color: var(--etiqueta-texto);
-  font-size: 1rem;
-  font-weight: 700;
-  list-style: none;
-  cursor: pointer;
-  transition: background-color var(--transicion);
-}
-
-.citas summary::-webkit-details-marker {
-  display: none;
-}
-
-.citas summary::before {
-  color: var(--cian);
-  content: "▸";
-  font-size: 0.9rem;
-  transition: transform var(--transicion);
-}
-
-.citas[open] summary::before {
-  transform: rotate(90deg);
-}
-
-.citas summary:hover {
-  background: var(--fondo-suave);
-}
-
-.citas-conteo {
-  color: var(--secundario);
-  font-weight: 500;
-}
-
-.citas .fuentes {
-  padding: 0 14px 14px 30px;
-}
-
-.citas[open] .fuentes {
-  animation: aparecer 180ms ease both;
-}
 
 .fuentes {
   display: grid;
@@ -935,8 +840,7 @@ h2 {
     transition-duration: 0.01ms !important;
   }
 
-  .palabra,
-  .fragmento {
+  .palabra {
     opacity: 1 !important;
     transform: none !important;
   }

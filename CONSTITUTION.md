@@ -90,7 +90,7 @@ con asistente RAG.
   precios de referencia en COP con IVA, fecha y fuente. Cada precio es una oferta por fuente
   (`precios.csv`); si nadie publica precio en Colombia, se declara la ausencia: no se estima,
   no se convierte desde México y no se promedia entre fuentes.
-- Ofrecer **chat por voz** (spec 040, implementada y validada en Chrome 157/Linux el 2026-11-20): dictado
+- Ofrecer **chat por voz** (spec 040, implementada y validada en Chrome 157/Linux con SC-001–SC-005 y en Firefox 159/Linux con FR-009 el 2026-11-20; alcance Chrome y Firefox de escritorio): dictado
   revisable antes de enviar y lectura de respuestas y tarjetas con las capacidades del
   navegador. SC-001–SC-005 medidos con dos voces y micrófono real. El audio no llega al
   servidor del proyecto ni se guarda; sin soporte del navegador, el chat sigue por escrito.
@@ -98,6 +98,19 @@ con asistente RAG.
   resto de rutas, los POST y el SSE conservan `microphone=()`. Dictar exige contexto
   seguro: `localhost` en desarrollo y HTTPS en despliegue.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
+
+**Prototipo en la rama `prototype` (2026-11-21, sin fusionar):** sección Cotizador
+conversacional separada del chat general, con la cotización inline en el hilo y foco en
+empaques de Colombia. El [plan preliminar](docs/plans/0002-cotizador-preliminar.md) y la
+[spec 042](specs/042-cotizador/spec.md) registran la auditoría del catálogo, los datos
+faltantes y la demo con datos explícitamente marcados y separados del catálogo curado. El
+motor es determinista: los 102 productos reales de Colombia se leen del catálogo curado y
+la demo solo añade 48 referencias simuladas y las condiciones comerciales (ofertas,
+existencias, envío y sedes). Cada oferta tiene una ficha citable y cada cotización se
+registra en `quotes` con identificador y vigencia de 7 días. Recuerda en silencio lo que la persona cuenta de sí misma (nombre,
+trabajo, ciudad, gustos y domicilio) en la tabla `visitor_memory`, con caducidad de 180 días
+y borrado con «olvida mis datos». No cambia las reglas vigentes de precios de referencia ni
+acredita inventario o tiempos de entrega reales; la sección lo advierte.
 
 ### Fuera del alcance (por ahora)
 
@@ -210,6 +223,7 @@ carvajal/
 │           │   └── vector/      # QdrantVectorStore (M2; pgvector retirado en 037)
 │           ├── infrastructure/ # adaptadores y configuración tipada
 │           │   └── settings.py  # pydantic-settings (.env + entorno)
+│           ├── prompts.py     # fuente única de identidad y prompts por ruta
 │           ├── config.py      # fachada de compatibilidad de settings
 │           ├── fetching.py    # cliente HTTP educado (implementa Fetcher)
 │           ├── extracting.py  # HTML → Markdown
@@ -247,9 +261,9 @@ carvajal/
 ├── CONTRIBUTING.md          # guía de contribución
 ├── CODE_OF_CONDUCT.md       # código de conducta
 ├── Makefile                 # automatización de tareas
-├── Dockerfile               # imagen multi-etapa de la app web (extras fuera)
-├── compose.yml              # Postgres 16 + pgvector para desarrollo local
-├── compose.prod.yml         # app + Postgres + Qdrant + Ollama (demo por IP)
+├── Dockerfile               # imagen multi-etapa: `dev` (recarga) y `runtime` (web)
+├── compose.yml              # local: db + qdrant; perfil `full` añade app, ollama y corpus
+├── compose.prod.yml         # app + Postgres + Qdrant + Ollama; perfil `bootstrap` prepara el servidor
 ├── scripts/deploy.sh        # despliegue/rollback que invoca GitHub Actions
 ├── .dockerignore            # contexto mínimo de la imagen
 ├── pyproject.toml           # metadatos y dependencias (uv)
@@ -319,6 +333,18 @@ carvajal/
   `0.0.0.0:APP_PORT` (8080 por defecto), corre sin privilegios, mantiene el
   sistema de archivos de solo lectura y monta el volumen `appdata` en
   `/app/data` para conservar Bronze, Silver, Gold y el índice de las cargas.
+- El stack local tiene dos niveles en `compose.yml`. Sin perfiles quedan `db` y
+  `qdrant` para el flujo nativo (`make db`, `make qdrant`, `make api`); el perfil
+  `full` añade `ollama`, la app en modo desarrollo (etapa `dev` del Dockerfile,
+  recarga y directorios del repo montados) y un `bootstrap` de una sola ejecución
+  que aplica migraciones, importa Gold e indexa. `make up`/`make down` son la
+  puerta a ese perfil y `LOCAL_UID`/`LOCAL_GID` evitan archivos de root en
+  `./data`. Ningún servicio publica el puerto de Ollama para no chocar con un
+  Ollama instalado en el host.
+- En producción el perfil `bootstrap` (`make prod-bootstrap`) descarga
+  `nomic-embed-text`, copia `./data` al volumen `appdata` solo si aún no tiene
+  Gold, aplica migraciones, importa Gold y reindexa. Es idempotente y no pisa
+  capturas ni cargas más nuevas; el volumen sigue siendo la fuente de verdad.
 - El despliegue de producción es automático: al fusionar el PR de release en
   `main`, CI debe terminar en verde; `.github/workflows/deploy.yml` publica la
   imagen en GHCR con un tag `sha-<commit>` y `scripts/deploy.sh` la descarga en
@@ -467,6 +493,15 @@ git push
 | 2026-11-18 | Implementar la spec 039: catálogo de Colombia con ofertas por fuente y ampliación del de México | Las fichas oficiales de Colombia publican medidas, material y unidades, pero no SKU ni precio; la tienda de EDEXA (distribuidor del directorio) publica precio con IVA. Se cruzan en `scripts/curar_catalogo_co.py` (102 referencias, 29 con precio) y `carvajal catalog-prices` normaliza a caja sin estimar ni convertir. El precio inline de México sigue en `referencias.csv` y se expone como oferta oficial, en lugar de migrarlo a `precios.csv`, para no tocar la regresión de la 036. La tienda de México tenía 102 productos y el corpus solo 55 fichas: `scripts/ampliar_catalogo_mx.py` suma 46 con el mismo `parse_mx_product` |
 | 2026-11-19 | Monitoreo del agente con LangSmith **entregado** (spec 038): traza raíz por turno, apagado por defecto, muestreo 0.2 y contenido completo solo en desarrollo y evaluación | Diagnosticar una respuesta exigía reproducirla a mano sobre logs JSON dispersos. La traza se envía a LangSmith desde `infrastructure/monitoring.py`, con lista blanca de metadatos en producción (sin pregunta, respuesta ni fragmentos) y cliente perezoso: sin `MONITORING_ENABLED` no se importa el SDK ni sale un byte, `LANGSMITH_TRACING`/`LANGCHAIN_TRACING_V2` se fuerzan a `false` al arrancar y cualquier fallo del servicio queda en los logs sin tocar la respuesta, la persistencia ni la cuota. El muestreo de 0.2 mantiene el plan de 5.000 trazas/mes. Cerrada como entregada el 2026-11-19 con la evidencia de SC-001…SC-005 en `docs/evidence/m2/monitoring.md` (muestreo 0,2, producción solo metadatos) |
 | 2026-11-20 | Índice Qdrant: un cambio que no altera el texto vectorizado reescribe el payload y **no** reembebe (issue #185) | El ID del punto cubre título, sección, ficha y texto, que es todo lo que se vectoriza; cambiar la URL, la procedencia o el tipo de fuente marcaba el documento como cambiado y re-embebía todos sus fragmentos. En el corpus extendido (77.588 puntos) eso costaba unas 28 horas de CPU por pasada en el VPS compartido, que además compite con Odoo y nginx. `IndexReport.updated` cuenta los puntos actualizados sin embedding y el evento `qdrant.document_payload_updated` lo deja visible; un cambio real de texto sigue re-embebiendo solo ese documento. Cada fragmento registra en el payload el modelo de embeddings que produjo su vector y un índice con puntos de otro modelo se detiene antes de escribir, pidiendo `--recreate`: mezclar modelos recupera mal aunque las dimensiones coincidan; los índices anteriores al registro adoptan el modelo configurado una sola vez, sin reembeber |
+| 2026-11-21 | Política única de ausencia y registro de huecos del corpus | La falta de información se respondía con seis textos distintos y sin medición. `ABSENCE_POLICY` define cinco casos (sin contexto, parcial, entidad sin respaldo, dato estructurado, fuera de alcance) con qué se dice y qué se ofrece; `NO_CONTEXT_ANSWER` y el Cotizador la heredan. El grafo registra `rag.no_context` con motivo y tema normalizado (sin correos, URLs, teléfonos ni identificadores) para priorizar el corpus. |
+| 2026-11-21 | Prompts unificados: identidad única, tres sistemas por ruta y datos delimitados | Había cuatro «Eres el asistente…» que divergían y el system del chat exigía «solo CONTEXTO» también en la ruta comercial, donde no existe. `carvajal/prompts.py` centraliza identidad, estilo, evidencia, guiones de borde, router con ejemplos y FAQ; el historial y las preferencias se delimitan como datos y nunca como instrucciones. El Cotizador adopta el mismo tono en sus plantillas. Los contratos se prueban en `tests/test_prompts.py`; la calidad de redacción se sigue midiendo con experimentos y revisión humana. |
+| 2026-11-21 | Cotizador defendible: catálogo único, ficha citable, cotización registrada y casos dorados | El prototipo tenía dos verdades (catálogo y CSV demo), no permitía auditar una cifra ni detectar regresiones de totales. El motor lee el catálogo curado; la demo solo añade la extensión simulada y las condiciones. Cada oferta publica una ficha Markdown con procedencia y campos simulados, enlazada desde la tarjeta. Cada cotización completa se guarda en `quotes` con `id`, vigencia de 7 días, total y payload mostrado; las aclaraciones no emiten registro. Doce casos dorados con totales esperados corren en CI (`SC-012`). |
+| 2026-11-21 | Cotizador: mapa incrustado y sin aviso general de demo | El esquema SVG no mostraba calles y el aviso general ocupaba la cabecera. Se incrusta OpenStreetMap con `frame-src` limitado a ese origen y se conserva la lista textual como respaldo; la simulación se marca en cada dato (precio, existencia, producto y entrega) y no con un banner. OpenStreetMap ve la IP del visitante pero no la conversación ni el perfil. |
+| 2026-11-21 | Prototipo del Cotizador en la rama `prototype`: motor determinista, cotización inline y demo marcada | El chat comercial respondía recomendaciones, pero no una cotización con presentaciones, totales, sedes y entrega. El motor reutiliza la extracción y la validación de la spec 036 y no llama al LLM: cantidades, `Decimal`, existencias y plazos son deterministas. La sección vive en `/cotizador`, con hilos aislados por `cot:<owner_key>` sin migración, streaming SSE del texto y las tarjetas, mapa incrustado de OpenStreetMap (`frame-src` acotado) e importes con su procedencia marcada dato por dato. La demo usa 150 productos de Colombia (102 reales y 48 simulados a partir de fichas de México, que no se cotizan), con precio real de EDEXA cuando existe y simulado cuando no; existencias, plazos y envíos son simulados y se marcan fila por fila. La memoria silenciosa guarda solo detalles con patrón conocido, no viaja en el payload ni en las trazas y caduca a los 180 días. Pendientes: dictado por voz (T039), verificación visual a 390 y 1440 px (T038) y revisión de la retención con el owner (T053). |
+| 2026-11-21 | Stack reproducible en Docker con perfiles: `full` en local y `bootstrap` en producción | Clonar el repo en otra máquina exigía `uv`, Ollama y cinco comandos manuales (migraciones, `migrate-gold`, `index-qdrant`, `ollama pull`) antes de la primera pregunta. `compose.yml` conserva `db` y `qdrant` sin perfil para el flujo nativo y el perfil `full` añade la app en la etapa `dev` (recarga y directorios montados), Ollama y un `bootstrap` de una sola ejecución; `make up` es un solo comando. En producción el perfil `bootstrap` automatiza lo que el runbook hacía a mano y copia `./data` al volumen solo cuando no hay Gold, para no pisar capturas. Sin perfil nada cambia: `make db`, `make qdrant`, CI y `deploy.sh` siguen igual. Dockerizar `uv`/Ruff/pytest/Node queda fuera a propósito: el ciclo de desarrollo es más rápido en el host |
+| 2026-11-21 | Simplificar la vista del chat: retirar el bloque y los marcadores visibles de fuentes, y formatear antes de pintar | El chat muestra bloques de Markdown ya formateados durante el stream, sin repintar los bloques previos. No cambia la fundamentación en el corpus ni el contrato de fuentes del SSE, del historial o de la API. La lectura en voz conserva los títulos como metadatos y las tarjetas mantienen la procedencia comercial. |
+| 2026-11-21 | Hacer progresiva la lectura del bloque activo y simplificar la conversación | El cliente pinta el párrafo activo en lotes cortos de SSE, sella los bloques anteriores y sigue el final solo cuando el lector está cerca. El compositor multilínea queda fuera del área de scroll y permite detener la recepción, conservando el parcial en pantalla sin añadir un contrato nuevo de persistencia. Cabecera compacta, diagnóstico visual optativo (`/chat?debug=1`) y fichas comerciales desplegables. |
+| 2026-11-21 | Abrir en borrador la spec 042 (Cotizador conversacional) con un plan preliminar que audita el catálogo | La sección pide producto, cantidad, precio, total, proveedores, mapa, entrega y alternativas en un solo turno, y el catálogo actual no puede sostenerlo: 29 de 102 referencias CO tienen precio, todas de EDEXA, y no existen inventario, coordenadas ni plazos. El plan deja por escrito la brecha —incluido que el flujo vigente redondea a cajas de miles de unidades mientras las capturas conservan precios por paquete— y propone una demo con datos simulados explícitos, separados del catálogo y etiquetados donde aparecen. Se decide el mercado inicial (Colombia, empaques, COP), el alcance exclusivamente comercial de la sección y la prohibición de presentar stock o plazos ficticios como reales. La implementación espera `/speckit.clarify` y `/speckit.plan`. |
 
 ## 10. Notas y tareas pendientes
 

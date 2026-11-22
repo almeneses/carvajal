@@ -38,6 +38,11 @@ data/catalog/empaques/fuentes/*.pdf
 data/external/*/*
 !data/external/*/manifest.json
 
+# Descarga del corpus externo en la raíz del repo: regenerable, pesa ~3,8 GB
+# y nunca se versiona (el manifiesto sí, en data/external/).
+external_corpus/
+external_corpus.zip
+
 # Bloqueo y temporal de la escritura atómica del índice del corpus.
 data/gold/.index.jsonl.*
 

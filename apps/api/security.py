@@ -70,7 +70,8 @@ CABECERAS = {
     "Permissions-Policy": PERMISOS_POR_DEFECTO,
     "Content-Security-Policy": (
         "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-        "connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        "connect-src 'self'; frame-src https://www.openstreetmap.org; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'"
     ),
 }
 HSTS = "max-age=31536000; includeSubDomains"

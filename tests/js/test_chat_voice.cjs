@@ -955,7 +955,7 @@ function crearTurnoFalso({ texto = "", tarjetas = [], citas = [], rol = "assista
   };
   botones.escuchar.setAttribute("aria-pressed", "false");
   return {
-    dataset: {},
+    dataset: { vozFuentes: JSON.stringify(citas.map((cita) => cita.titulo)) },
     className: `turno turno-${rol}`,
     _botones: botones,
     querySelector(selector) {
@@ -966,9 +966,6 @@ function crearTurnoFalso({ texto = "", tarjetas = [], citas = [], rol = "assista
     },
     querySelectorAll(selector) {
       if (selector === ".productos .producto") return tarjetas;
-      if (selector === '.citas [data-campo="title"]') {
-        return citas.map((cita) => ({ textContent: cita.titulo }));
-      }
       return [];
     },
   };
@@ -979,7 +976,7 @@ function activarAutoLectura(montaje) {
   montaje.vista.autoLectura.dispatch("change", {});
 }
 
-test("T012 la lectura manual usa texto, tarjetas y citas visibles sin URLs ni SKU", () => {
+test("T012 la lectura manual usa texto, tarjetas y títulos de fuentes sin URLs ni SKU", () => {
   // Arrange
   const sintesis = crearSintesis();
   const montaje = montar({ sintesis });
@@ -1953,4 +1950,20 @@ test("T019 cancelar el aviso del micrófono no deja manos libres colgado", () =>
     montaje.vista.botonManosLibres.getAttribute("aria-pressed"),
     "false",
   );
+});
+
+test("T017 un atributo de fuentes roto no impide la lectura", () => {
+  // Arrange: el turno trae los títulos mal formados (versión vieja o atributo alterado).
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Respuesta legible." });
+  turno.dataset.vozFuentes = '["sin cerrar';
+
+  // Act
+  const ok = montaje.controlador.leerTurno(turno);
+
+  // Assert: se lee el texto y se omiten los títulos.
+  assert.equal(ok, true);
+  assert.equal(sintesis.locuciones[0].text, "Respuesta legible.");
+  assert.equal(/Según/.test(sintesis.locuciones[0].text), false);
 });

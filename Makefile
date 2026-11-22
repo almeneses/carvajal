@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image prod-up prod-down db db-down qdrant qdrant-down index index-eval eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval eval import clean
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -29,8 +29,11 @@ help: ## Muestra esta ayuda
 	@echo "  index              Indexa data/gold en Qdrant"
 	@echo "  index-eval         Indexa y ejecuta la evaluación de retrieval"
 	@echo "  image              Construye la imagen Docker de la app web"
+	@echo "  up                 Stack completo en Docker (app, base, Qdrant, Ollama y corpus)"
+	@echo "  down               Detiene el stack completo (conserva los volúmenes)"
 	@echo "  prod-up            Levanta app, Postgres, Qdrant y Ollama en APP_PORT"
 	@echo "  prod-down          Detiene los servicios (conserva los volúmenes)"
+	@echo "  prod-bootstrap     Prepara un servidor limpio: modelos, migraciones y corpus"
 	@echo "  db                 Levanta Postgres 16 con pgvector (docker compose)"
 	@echo "  db-down            Detiene la base de datos local"
 	@echo "  eval               Ejecuta las preguntas de prueba (genera docs/resultados.md)"
@@ -62,6 +65,9 @@ typecheck: ## Verifica los tipos con ty (Astral)
 
 test: ## Ejecuta las pruebas (sin integración, e2e ni smoke)
 	uv run pytest -m "not integration and not e2e and not smoke"
+
+eval-cotizador: ## Casos dorados del Cotizador con totales esperados
+	uv run python scripts/evaluar_cotizador.py
 
 smoke: ## Smoke tests del monitoreo (sin credenciales)
 	uv run pytest -m smoke
@@ -100,11 +106,27 @@ index-eval: ## Indexa todas las capas y evalúa el retrieval (Recall@10 y nDCG@1
 image: ## Construye la imagen Docker de la app web
 	docker build -t carvajal-api:local .
 
+up: ## Levanta el stack completo en Docker (app, base, Qdrant, Ollama y corpus)
+	# LOCAL_UID/LOCAL_GID hacen que la app escriba en ./data con el usuario del
+	# host, no como root. El perfil `full` añade app, Ollama y la preparación.
+	@echo "==> Levantando el stack; la primera vez descarga ~2,4 GB de modelos"
+	LOCAL_UID=$$(id -u) LOCAL_GID=$$(id -g) \
+		docker compose --profile full up -d --build --wait --wait-timeout 1800
+	@echo "==> Chat en http://localhost:8000"
+
+down: ## Detiene el stack completo (conserva los volúmenes)
+	docker compose --profile full down
+
 prod-up: ## Levanta app, Postgres, Qdrant y Ollama en APP_PORT (requiere SESSION_SECRET)
 	docker compose -f compose.prod.yml up -d --build
 
 prod-down: ## Detiene app, Postgres, Qdrant y Ollama (conserva los volúmenes)
 	docker compose -f compose.prod.yml down
+
+prod-bootstrap: ## Prepara un servidor limpio: modelos, migraciones, Postgres y Qdrant
+	# Descarga nomic-embed-text, copia ./data al volumen si está vacío, aplica
+	# migraciones, importa Gold y reindexa. Idempotente; el runbook lo detalla.
+	docker compose -f compose.prod.yml --profile bootstrap run --rm bootstrap
 
 # Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias
 # POSTGRES_PORT, ambos lo ven.

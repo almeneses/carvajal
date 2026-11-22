@@ -1,93 +1,131 @@
-/* Conversación y citas del shell HTMX con el sistema visual institucional. */
+/* Conversación de Carva, con el compositor fuera del historial desplazable. */
 
-.conversacion {
-  overflow: hidden;
+body:has(> .ancho-chat) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 27rem;
 }
 
-/* Diseño «Asistente Carvajal» (Stitch): cabecera clara con la mascota Carva, letra grande
-   y controles de al menos 48 px, pensado también para personas mayores. */
+.ancho-chat {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  max-width: 64rem;
+  padding: clamp(8px, 2vw, 24px);
+}
+
+.chat-seccion {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.ancho-chat + .pie {
+  padding-bottom: 8px;
+}
+
+.conversacion {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  --ancho-hilo: 47rem;
+}
+
 .cabecera-conversacion {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px 24px;
-  padding: clamp(22px, 3vw, 34px);
-  background: var(--fondo);
+  gap: 4px 10px;
+  padding: 8px clamp(10px, 2.5vw, 24px);
   border-bottom: 1px solid var(--borde);
   color: var(--tinta);
 }
 
-/* En la cabecera clara, los botones fantasma (pensados para fondo azul) van en azul. */
-.cabecera-conversacion .boton-fantasma {
+.cabecera-conversacion .boton {
+  width: auto;
+  min-height: 44px;
+  padding: 0.35rem 0.65rem;
   background: var(--fondo);
-  border: 2px solid var(--azul);
   color: var(--azul);
-  font-weight: 700;
+  font-size: 0.87rem;
 }
 
-.cabecera-conversacion .boton-fantasma:hover {
+.cabecera-conversacion .boton:hover {
   background: var(--etiqueta-fondo);
   border-color: var(--azul);
 }
 
 .cabecera-conversacion .carva {
   flex: 0 0 auto;
-  width: 88px;
-  height: 88px;
+  width: 36px;
+  height: 36px;
 }
 
 .cabecera-texto {
-  min-width: min(100%, 32rem);
-  flex: 1 1 24rem;
+  flex: 1;
 }
 
 .cabecera-acciones {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .cabecera-conversacion h1 {
   margin: 0;
   color: var(--tinta);
-  font-size: clamp(2rem, 3.2vw, 2.6rem);
-  letter-spacing: -0.02em;
+  font-size: 1.15rem;
 }
 
 .cabecera-conversacion .sobrelinea {
-  color: var(--etiqueta-texto);
-}
-
-.cabecera-conversacion .bajada {
-  max-width: 70ch;
-  margin: 8px 0 0;
+  margin: 0;
   color: var(--secundario);
-  font-size: 1.1rem;
-  line-height: 1.6;
-}
-
-.cuerpo-conversacion {
-  display: grid;
-  gap: 20px;
-  padding: clamp(20px, 2.6vw, 30px);
+  font-size: 0.65rem;
+  letter-spacing: 0.09em;
 }
 
 .chat-cuerpo {
+  position: relative;
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 18px;
-  min-height: min(70vh, 900px);
+  gap: 8px;
+  min-height: 0;
+  padding: 0 clamp(8px, 2vw, 20px) max(8px, env(safe-area-inset-bottom));
 }
 
 .historial-chat {
-  flex: 1 1 auto;
-  min-height: 280px;
-  max-height: calc(100vh - 380px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding-right: 6px;
+  padding: clamp(16px, 3vw, 36px) 6px;
+  overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
+}
+
+#hilo,
+.chat-cuerpo .composer,
+.estado-chat:not(.sr-solo) {
+  width: 100%;
+  max-width: var(--ancho-hilo);
+  margin-inline: auto;
+}
+
+.chat-final {
+  align-self: center;
+  z-index: 2;
+  width: auto;
+  margin-top: -3.1rem;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border-radius: 100px;
+  box-shadow: var(--sombra);
+  font-size: 0.85rem;
 }
 
 .cabecera-conversacion .formulario-nuevo-hilo {
@@ -98,23 +136,6 @@
   box-shadow: none;
 }
 
-.cuerpo-conversacion .formulario {
-  margin-top: 0;
-  background: var(--fondo-suave);
-  box-shadow: none;
-}
-
-.formulario-nuevo-hilo {
-  align-items: center;
-  justify-content: space-between;
-}
-
-.formulario-nuevo-hilo button {
-  flex: 0 0 auto;
-  min-height: var(--alto-control);
-  padding: 0.75rem 1.3rem;
-}
-
 .panel-historial h2 {
   margin: 0;
   font-size: 1.05rem;
@@ -122,7 +143,7 @@
 
 .hilo {
   display: grid;
-  gap: 18px;
+  gap: clamp(18px, 3vw, 32px);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -130,14 +151,13 @@
 
 .turno {
   display: grid;
-  gap: 8px;
-  animation: aparecer 220ms ease both;
+  gap: 4px;
 }
 
 /* Carva a la izquierda de sus respuestas; el resto del turno ocupa la segunda columna. */
 .turno-assistant {
-  grid-template-columns: 52px minmax(0, 1fr);
-  column-gap: 14px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: 10px;
 }
 
 .turno-assistant > :not(.turno-avatar) {
@@ -152,25 +172,16 @@
   display: block;
   grid-column: 1;
   grid-row: 1 / span 2;
-  width: 52px;
-  height: 52px;
+  width: 32px;
+  height: 32px;
   background: url("/static/carva.svg") center / contain no-repeat;
 }
 
 .turno-rol {
   margin: 0;
   color: var(--secundario);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 700;
-}
-
-.burbuja {
-  padding: 18px 22px;
-  background: var(--fondo);
-  border: 1px solid var(--borde);
-  border-radius: 6px 20px 20px 20px;
-  font-size: 1.15rem;
-  line-height: 1.65;
 }
 
 .turno-user {
@@ -182,15 +193,15 @@
 }
 
 .turno-user .burbuja {
-  max-width: min(90%, 40rem);
-  background: var(--azul);
-  border-color: transparent;
-  border-radius: 20px 20px 6px 20px;
-  color: #fff;
+  max-width: min(90%, 38rem);
+  padding: 8px 14px;
+  background: var(--fondo-suave);
+  border: 1px solid var(--borde);
+  border-radius: 16px 16px 4px 16px;
 }
 
-.turno-assistant .burbuja {
-  max-width: 84ch;
+.turno-assistant .texto {
+  max-width: 72ch;
 }
 
 .estado-incompleto {
@@ -201,36 +212,32 @@
   text-transform: none;
 }
 
-.citas {
-  margin-top: 2px;
-}
-
 /* Tarjetas de la ruta comercial (spec 036, _productos.html), con el diseño «Asistente
    Carvajal»: resumen de lo entendido, insignias de material y precio destacado. */
 .productos {
   display: grid;
-  gap: 16px;
-  margin-top: 4px;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .productos-entendi {
-  padding: 18px 22px;
+  padding: 12px 14px;
   background: var(--fondo);
   border: 1px solid var(--borde);
-  border-radius: 20px;
+  border-radius: 14px;
 }
 
 .entendi-lista {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-  gap: 10px;
-  margin: 12px 0 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr));
+  gap: 6px;
+  margin: 8px 0 0;
 }
 
 .entendi-lista div {
-  padding: 10px 16px;
+  padding: 5px 8px;
   background: var(--fondo-suave);
-  border-radius: 14px;
+  border-radius: 8px;
 }
 
 .entendi-lista dt {
@@ -240,7 +247,7 @@
 
 .entendi-lista dd {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
@@ -261,11 +268,11 @@
 .producto {
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 18px 20px;
+  gap: 6px;
+  padding: 12px 14px;
   background: var(--panel);
   border: 1px solid var(--borde);
-  border-radius: 20px;
+  border-radius: 14px;
 }
 
 .producto-destacado {
@@ -355,6 +362,13 @@
   font-weight: 700;
 }
 
+.producto-detalles summary {
+  padding-block: 8px;
+  color: var(--azul);
+  font-size: 0.87rem;
+  cursor: pointer;
+}
+
 /* Spec 039: una oferta por fuente dentro de la tarjeta. */
 .producto-ofertas {
   display: grid;
@@ -442,6 +456,37 @@
   color: var(--secundario);
 }
 
+.chat-bienvenida {
+  padding: clamp(14px, 5vh, 50px) 0;
+  border: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.chat-bienvenida h2 {
+  margin: 0;
+  color: var(--tinta);
+  font-size: clamp(1.45rem, 4vw, 2.25rem);
+  letter-spacing: -0.035em;
+}
+
+.chat-bienvenida p {
+  margin: 4px 0 16px;
+}
+
+.chat-sugerencias {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.chat-sugerencias .boton {
+  min-height: 44px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.88rem;
+}
+
 .hilos-lista {
   display: grid;
   gap: 8px;
@@ -514,52 +559,14 @@
   overflow-wrap: anywhere;
 }
 
-#chat-stream-estado {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  min-height: 1.4em;
-}
-
-/* Indicadores de carga: espera al entrar al chat y turno en curso. */
-.girando {
-  width: 1em;
-  height: 1em;
-  border: 2px solid var(--borde);
-  border-top-color: var(--azul);
-  border-radius: 50%;
-  animation: girar 700ms linear infinite;
-  flex: 0 0 auto;
-}
-
-.cargando-chat {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--borde);
-  border-radius: 12px;
-  background: var(--fondo-suave);
+.estado-chat {
+  margin-block: 0;
   color: var(--secundario);
-  font-weight: 600;
+  font-size: 0.85rem;
+  line-height: 1.35;
 }
 
-/* Sin JavaScript el chat se pintó completo en el servidor: no hay espera. */
-@media (scripting: none) {
-  .cargando-chat {
-    display: none;
-  }
-}
-
-@keyframes girar {
-  to {
-    transform: rotate(1turn);
-  }
-}
-
-#chat-stream-estado.aviso {
+.estado-chat.aviso {
   padding: 8px 10px;
   border-left-width: 3px;
   font-weight: 600;
@@ -569,91 +576,113 @@
   color: var(--azul);
 }
 
-@media (max-width: 760px) {
-  .cabecera-acciones {
-    width: 100%;
-  }
-
-  .cabecera-acciones .boton,
-  .cabecera-acciones .formulario-nuevo-hilo,
-  .cabecera-acciones .formulario-nuevo-hilo button {
-    flex: 1 1 auto;
-  }
-
-  .cabecera-acciones .formulario-nuevo-hilo button {
-    width: 100%;
-  }
-
-  .chat-cuerpo {
-    min-height: 0;
-  }
-
-  .historial-chat {
-    max-height: none;
-  }
-
-}
-
-@media (max-width: 560px) {
-  .cabecera-conversacion {
-    padding: 20px;
-  }
-
-  .cuerpo-conversacion {
-    padding: 18px;
-  }
-
-  .burbuja {
-    padding: 14px 16px;
-  }
-
-  .turno-user .burbuja {
-    max-width: 100%;
-  }
-}
-
-/* Caja de texto: más alta y con el botón Enviar en azul Carvajal. */
-.cuerpo-conversacion .composer {
+.chat-cuerpo .composer {
+  position: relative;
+  bottom: auto;
+  display: grid;
+  gap: 4px;
+  margin-block: 0;
+  padding: 6px;
   background: var(--fondo);
+  border: 1px solid var(--borde-control);
+  border-radius: 16px;
+  box-shadow: var(--sombra);
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 44px;
+  max-height: 6em;
+  padding: 7px 8px;
+  resize: none;
+  field-sizing: content;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fondo);
+  color: var(--tinta);
+  font: inherit;
+}
+
+.composer textarea::placeholder {
+  color: var(--secundario);
+}
+
+@supports not (field-sizing: content) {
+  .composer textarea {
+    resize: vertical;
+  }
+}
+
+.composer-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.composer-acciones .voz {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.composer-acciones button {
+  width: auto;
+  min-height: 44px;
+  padding: 0 0.6rem;
+  font-size: 0.88rem;
+}
+
+.voz-opciones {
+  position: relative;
+  font-size: 0.83rem;
+}
+
+.voz-opciones summary {
+  align-content: center;
+  min-height: 44px;
+  padding: 0 0.35rem;
+  color: var(--azul);
+  cursor: pointer;
+}
+
+.voz-opciones-cuerpo {
+  position: absolute;
+  inset: auto auto calc(100% + 5px) 0;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  max-width: min(48vw, 14rem);
+  padding: 8px;
   border: 1px solid var(--borde);
-  border-radius: 20px;
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--sombra);
 }
 
-.composer input {
-  min-height: 60px;
-  font-size: 1.15rem;
-}
-
-.composer button[type="submit"] {
-  min-height: 60px;
-  padding: 0 2rem;
-  font-size: 1.1rem;
-}
-
-/* En el móvil, Carva se achica y las tarjetas usan todo el ancho bajo la respuesta. */
 @media (max-width: 560px) {
-  .turno-assistant {
-    grid-template-columns: 36px minmax(0, 1fr);
-    column-gap: 10px;
+  .cabecera:has(+ .ancho-chat) .pestanas {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
   }
 
-  .turno-assistant .turno-avatar {
-    width: 36px;
-    height: 36px;
+  .cabecera:has(+ .ancho-chat) .pestana {
+    padding-inline: 0;
+    font-size: clamp(0.73rem, 3.6vw, 0.92rem);
   }
 
   .turno-assistant > .productos,
-  .turno-assistant > .citas {
+  .turno-assistant > .burbuja {
     grid-column: 1 / -1;
   }
 
-  .burbuja {
-    font-size: 1.05rem;
+  .turno-assistant .turno-avatar {
+    grid-row: 1;
   }
 
-  .productos-entendi,
-  .producto {
-    padding: 16px;
+  .turno-assistant .turno-rol {
+    align-self: center;
   }
 }
 
@@ -698,7 +727,7 @@
 .voz-controles {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 2px;
   align-items: center;
 }
 
@@ -715,11 +744,6 @@
   font-weight: 700;
 }
 
-.voz-icono {
-  font-size: 1.15em;
-  line-height: 1;
-}
-
 .voz-preferencia {
   display: inline-flex;
   gap: 8px;
@@ -733,6 +757,7 @@
 }
 
 .voz-preferencia input {
+  flex-shrink: 0;
   min-height: auto;
   width: 1.1rem;
   height: 1.1rem;
@@ -800,11 +825,11 @@ html[data-voz-tts="1"] .turno-assistant .turno-voz {
   font-size: 0.95rem;
 }
 
-@media (max-width: 560px) {
-  .voz-boton {
-    width: 100%;
-    justify-content: center;
-  }
+.turno-voz-boton.boton-fantasma,
+.marcas .boton-fantasma {
+  width: auto;
+  color: var(--azul);
+  border-color: var(--borde);
 }
 
 /* Aviso previo al primer dictado: explica el posible procesamiento del
@@ -850,4 +875,212 @@ html[data-voz-tts="1"] .turno-assistant .turno-voz {
 html[data-voz-manos="1"] .voz {
   border-left: 3px solid var(--azul);
   padding-left: 10px;
+}
+
+/* Cotizador (spec 042): la cotización vive dentro del turno, sin panel aparte.
+   Tokens del mockup institucional: azul Carvajal, cian de acento y radios 14-17 px. */
+.coti-aviso {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--borde);
+  border-left: 4px solid var(--azul);
+  border-radius: 12px;
+  background: var(--fondo);
+  color: var(--tinta);
+  font-size: 0.9rem;
+}
+
+.coti {
+  display: grid;
+  gap: 14px;
+  margin-top: 10px;
+  padding: 14px;
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+  background: var(--blanco, #fff);
+  max-width: var(--ancho-hilo);
+}
+
+.coti-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.coti-titulo {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--azul);
+}
+
+.coti-oferta h4,
+.coti-alternativas h4,
+.coti-sedes h4,
+.coti-entrega h4 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+}
+
+.coti-producto {
+  font-size: 1.1rem;
+  color: var(--tinta);
+}
+
+.coti-meta,
+.coti-nota,
+.coti-fuente,
+.coti-alt-detalle,
+.coti-alt-dif,
+.coti-sede-meta {
+  margin: 0;
+  color: var(--secundario);
+  font-size: 0.88rem;
+}
+
+.coti-cifras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.coti-cifras div {
+  padding: 8px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  background: var(--fondo);
+}
+
+.coti-cifras dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--secundario);
+}
+
+.coti-cifras dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  color: var(--tinta);
+}
+
+.coti-cifra-fuerte {
+  border-color: var(--azul) !important;
+}
+
+.coti-etiquetas,
+.coti-sugerencias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.coti-sello {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--etiqueta-fondo);
+  color: var(--azul);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.coti-sello-demo {
+  background: #fff0e3;
+  color: #844219;
+}
+
+.coti-sello-alerta {
+  background: #fdecec;
+  color: #8a1c1c;
+}
+
+.coti-sede {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--borde);
+  font-size: 0.92rem;
+}
+
+.coti-alternativas ul,
+.coti-descartes ul {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coti-alternativas li {
+  padding: 8px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+}
+
+.coti-alt-nombre,
+.coti-sede-nombre {
+  margin: 0;
+  font-weight: 700;
+}
+
+.coti-sedes-cuerpo {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.coti-sedes-lista {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.coti-sedes-lista li p {
+  margin: 0;
+}
+
+.coti-mapa {
+  margin: 0;
+}
+
+.coti-mapa-marco {
+  display: block;
+  width: 100%;
+  height: 15rem;
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  background: var(--fondo);
+}
+
+.coti-mapa figcaption {
+  margin-top: 4px;
+  color: var(--secundario);
+  font-size: 0.75rem;
+}
+
+.coti-mapa-enlace {
+  color: var(--azul);
+  font-size: 0.82rem;
+}
+
+.coti-descartes {
+  font-size: 0.85rem;
+  color: var(--secundario);
+}
+
+.coti-nota-final {
+  padding-top: 8px;
+  border-top: 1px solid var(--borde);
+}
+
+@media (max-width: 640px) {
+  .coti-sedes-cuerpo {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

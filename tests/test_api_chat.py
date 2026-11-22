@@ -159,6 +159,8 @@ def test_get_sin_cookie_muestra_el_estado_vacio_y_emite_cookie() -> None:
     # Assert
     assert response.status_code == 200
     assert "Todavía no hay mensajes" in response.text
+    assert "<textarea" in response.text
+    assert "data-chat-sugerencia" in response.text
     assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.history_calls == []
 
@@ -198,7 +200,7 @@ def test_get_con_cookie_muestra_el_historial_en_orden() -> None:
     client, chat = make_client()
     chat.by_owner["dueno-a"] = [
         _message("user", "primera pregunta", sources=None),
-        _message("assistant", "primera respuesta", sources=[asdict(SOURCE)]),
+        _message("assistant", "**primera respuesta** [1].", sources=[asdict(SOURCE)]),
         _message("user", "segunda pregunta", sources=None),
     ]
     client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
@@ -213,11 +215,10 @@ def test_get_con_cookie_muestra_el_historial_en_orden() -> None:
     respuesta = response.text.index("primera respuesta")
     segunda = response.text.index("segunda pregunta")
     assert primera < respuesta < segunda
-    assert "Fuentes citadas" in response.text
-    assert '<strong data-campo="title">historia</strong>' in response.text
-    assert '<details class="citas">' in response.text
-    assert 'class="cita-fuente"' in response.text
-    assert "texto-formateado" in response.text
+    assert "Fuentes citadas" not in response.text
+    assert "#cita-1" not in response.text
+    assert "<strong>primera respuesta</strong>." in response.text
+    assert """data-voz-fuentes='["historia"]'""" in response.text
 
 
 def test_get_con_cookie_manipulada_regenera_sin_romper() -> None:
@@ -267,7 +268,7 @@ def test_post_demasiado_largo_devuelve_422_sin_persistir() -> None:
     assert 'id="pregunta"' in response.text
     assert TOO_LONG_QUESTION in response.text
     assert "500" in response.text
-    assert 'value="' + "x" * 501 + '"' in response.text
+    assert ">" + "x" * 501 + "</textarea>" in response.text
     assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.calls == []
     assert chat.by_owner == {}
@@ -359,7 +360,7 @@ def test_fallos_del_proveedor_devuelven_503_sin_filtrar_ni_persistir(error: Exce
     assert response.status_code == 503
     assert "<form" in response.text
     assert 'id="pregunta"' in response.text
-    assert 'value="¿Cuándo nació?"' in response.text
+    assert ">¿Cuándo nació?</textarea>" in response.text
     assert SERVICE_UNAVAILABLE in response.text
     assert str(error) not in response.text
     assert "Traceback" not in response.text
@@ -374,13 +375,13 @@ def test_el_error_503_conserva_el_historial_previo() -> None:
     chat.by_owner["dueno-a"] = [_message("user", "pregunta previa", sources=None)]
 
     # Act
-    response = _post(client, "/chat", {"question": "pregunta nueva"})
+    response = _post(client, "/chat", {"question": "pregunta nueva\n</textarea>"})
 
     # Assert
     assert response.status_code == 503
     assert "pregunta previa" in response.text
-    assert 'value="pregunta nueva"' in response.text
-    assert chat.calls == [("dueno-a", "pregunta nueva")]
+    assert ">pregunta nueva\n&lt;/textarea&gt;</textarea>" in response.text
+    assert chat.calls == [("dueno-a", "pregunta nueva\n</textarea>")]
     assert [message.content for message in chat.by_owner["dueno-a"]] == ["pregunta previa"]
 
 
@@ -398,7 +399,7 @@ def test_fallo_de_base_al_leer_el_historial_devuelve_503_generico() -> None:
     assert response.status_code == 503
     assert SERVICE_UNAVAILABLE in response.text
     assert "127.0.0.1" not in response.text
-    assert "5432" not in response.text
+    assert "rechazó la conexión" not in response.text
 
 
 def test_el_historial_escapa_html() -> None:
@@ -534,8 +535,8 @@ def test_la_cookie_de_visitante_carga_los_hilos_del_hash() -> None:
     assert "hilo del visitante" in response.text
 
 
-def test_la_cita_muestra_la_procedencia_del_documento_extendido() -> None:
-    # Arrange: una fuente extendida con origen, categoría y entidad.
+def test_el_chat_reserva_el_titulo_de_la_fuente_extendida_para_voz() -> None:
+    # Arrange: los metadatos de una fuente extendida no son parte de la vista.
     fuente = Source(
         "informe:0",
         "informe-empaques",
@@ -543,7 +544,7 @@ def test_la_cita_muestra_la_procedencia_del_documento_extendido() -> None:
         "extended",
         0.8,
         "Informe de terceros.",
-        title="Informe de empaques",
+        title="Informe d'Empaques",
         source_type="tercero",
         origin="Cámara de Comercio de Cali",
         category="informe",
@@ -558,24 +559,10 @@ def test_la_cita_muestra_la_procedencia_del_documento_extendido() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert '<span class="procedencia">Procedencia:' in response.text
-    assert "Origen: Cámara de Comercio de Cali" in response.text
-    assert "Categoría: informe" in response.text
-    assert "Entidad: Carvajal Empaques" in response.text
-
-
-def test_una_cita_sin_procedencia_no_muestra_la_linea() -> None:
-    # Arrange: la fuente del chat no declara origen, categoría ni entidad.
-    client, chat = make_client()
-    chat.by_owner["dueno-a"] = [_message("assistant", "Respuesta [1].", sources=[asdict(SOURCE)])]
-    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
-
-    # Act
-    response = client.get("/chat")
-
-    # Assert
-    assert response.status_code == 200
-    assert '<span class="procedencia">' not in response.text
+    assert r"""data-voz-fuentes='["Informe d\u0027Empaques"]'""" in response.text
+    assert "Informe de terceros." not in response.text
+    assert "Cámara de Comercio de Cali" not in response.text
+    assert "<p>Respuesta.</p>" in response.text
 
 
 def test_el_boton_de_dictar_no_envia_y_conserva_el_formulario() -> None:

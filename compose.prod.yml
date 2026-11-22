@@ -54,10 +54,11 @@ services:
         condition: service_started
       ollama:
         # El embedder se crea en la primera pregunta, no al arrancar: la app
-        # puede iniciar aunque Ollama aún esté calentando. El modelo se
-        # descarga aparte (docs/despliegue-ovh.md).
+        # puede iniciar aunque Ollama aún esté calentando. Los modelos se
+        # descargan con `make prod-bootstrap` (perfil `bootstrap`).
         condition: service_started
-    environment:
+    # Las variables se comparten con el servicio `bootstrap` de abajo.
+    environment: &app-environment
       # Dentro de la red de compose el host de la base es el servicio `db`,
       # no loopback: por eso la URL se compone aquí a partir de POSTGRES_*.
       DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
@@ -178,6 +179,69 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+
+  ollama-pull:
+    # Perfil `bootstrap`: descarga el modelo de embeddings. Solo se ejecuta a
+    # demanda (`make prod-bootstrap`); con los modelos ya presentes termina en
+    # segundos. El LLM de chat, si LLM_PROVIDER=ollama, se descarga aparte
+    # (`docker compose -f compose.prod.yml exec ollama ollama pull <modelo>`).
+    profiles: ["bootstrap"]
+    image: ollama/ollama:0.40.16
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - ollama pull nomic-embed-text
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  bootstrap:
+    # Perfil `bootstrap`: prepara un servidor limpio. Copia `./data` al volumen
+    # solo si aún no hay corpus allí (nunca pisa capturas o cargas más nuevas),
+    # aplica migraciones, importa Gold a Postgres e indexa en Qdrant. Es
+    # idempotente y lo invoca `make prod-bootstrap`.
+    profiles: ["bootstrap"]
+    image: ${APP_IMAGE:-carvajal-api:local}
+    restart: "no"
+    environment: *app-environment
+    volumes:
+      - appdata:/app/data
+      # Corpus de referencia del despliegue; el volumen sigue siendo la fuente
+      # de verdad una vez que hay cargas o recapturas.
+      - ./data:/seed:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -d /seed ] && [ -z "$$(ls -A /app/data/gold 2>/dev/null)" ]; then
+          if [ -z "$$(ls -A /seed/gold 2>/dev/null)" ]; then
+            echo "Aviso: /seed no trae corpus Gold." >&2
+            echo "Sincroniza data/ al host (ver docs/despliegue-ovh.md) o usa el volumen." >&2
+          else
+            echo "Copiando el corpus de referencia al volumen appdata"
+            cp -R /seed/. /app/data/
+          fi
+        fi
+        alembic upgrade head
+        carvajal migrate-gold
+        carvajal index-qdrant
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
 
 volumes:
   appdata:

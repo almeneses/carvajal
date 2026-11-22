@@ -182,7 +182,7 @@ def test_prompt_incluye_contexto_numerado_y_reglas() -> None:
     assert "únicamente con el CONTEXTO" in system
     assert "[n]" in system
     assert "español" in system
-    assert "no dispones de esa información" in system
+    assert "Si el contexto no contiene el dato" in system
 
 
 def test_prompt_neutraliza_delimitadores_y_marca_la_capa() -> None:
@@ -218,7 +218,7 @@ def test_sin_resultados_declara_ausencia_sin_llamar_al_llm() -> None:
     answer = use_case.answer(QUESTION)
 
     # Assert
-    assert "No dispongo de información" in answer.text
+    assert "no está en el corpus público" in answer.text
     assert list(answer.sources) == []
     assert store.limits == [8]
     assert llm.calls == []

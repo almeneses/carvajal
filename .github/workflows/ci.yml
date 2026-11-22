@@ -58,8 +58,8 @@ jobs:
         with:
           node-version: "24.16.0"
 
-      - name: Pruebas de voz (dobles)
-        run: node --test tests/js/test_chat_voice.cjs
+      - name: Pruebas JavaScript del chat
+        run: node --test tests/js/*.cjs
 
       - name: Smoke del monitoreo
         run: uv run pytest -m "smoke and not integration and not e2e"
@@ -105,7 +105,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Validar compose.yml
-        run: docker compose config -q
+        # Sin perfil: db + qdrant (flujo nativo). Con `full`: app, Ollama y
+        # bootstrap, que es lo que usa `make up`.
+        run: |
+          docker compose config -q
+          docker compose --profile full config -q
 
       - name: Levantar la base
         run: docker compose up -d --wait --wait-timeout 60 db
