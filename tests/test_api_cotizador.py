@@ -398,7 +398,8 @@ def test_la_memoria_silenciosa_usa_ciudad_domicilio_y_nombre() -> None:
     assert respuesta.status_code == 200
     assert "Listo, Ana." in respuesta.text
     assert "Cotización para Bogotá" in respuesta.text
-    assert "Total conocido" in respuesta.text
+    assert "Total final" in respuesta.text
+    assert "Por confirmar" in respuesta.text
     assert store.profile["city"] == "Bogotá"
     assert store.profile["delivery"] is True
 
@@ -531,22 +532,13 @@ def test_el_stream_tambien_olvida_y_no_usa_el_perfil() -> None:
     assert store.profile == {}
 
 
-def test_la_ficha_de_la_oferta_es_citable() -> None:
+def test_la_ficha_generada_ya_no_se_sirve() -> None:
+    """Las fichas de la demo se retiraron: el acceso exclusivo responde 404."""
+
     client, _ = make_client()
 
-    respuesta = client.get("/cotizador/ficha/7704918100199-p06")
-
-    assert respuesta.status_code == 200
-    assert "Vaso rígido traslúcido 9 oz Wau" in respuesta.text
-    assert "EDEXA" in respuesta.text
-    assert "stock, lead_days, ship_cost" in respuesta.text
-
-
-def test_una_ficha_inexistente_o_invalida_responde_404() -> None:
-    client, _ = make_client()
-
+    assert client.get("/cotizador/ficha/7704918100199-p06").status_code == 404
     assert client.get("/cotizador/ficha/no-existe").status_code == 404
-    assert client.get("/cotizador/ficha/..%2F..%2Fetc%2Fpasswd").status_code == 404
 
 
 def test_cada_cotizacion_emite_un_registro_auditable() -> None:

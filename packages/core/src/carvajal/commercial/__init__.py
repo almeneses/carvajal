@@ -38,7 +38,6 @@ from carvajal.commercial.models import (
     MapView,
     NormalizedPrice,
     Offer,
-    Origin,
     ParityReport,
     Presentation,
     PriceBasis,
@@ -52,7 +51,6 @@ from carvajal.commercial.models import (
     SourceType,
     StockEvidence,
     TaxStatus,
-    evidence_age_limit,
 )
 from carvajal.commercial.parity import mexico_parity
 
@@ -92,7 +90,6 @@ __all__ = [
     "TaxStatus",
     "book_from_paths",
     "build_commercial_book",
-    "evidence_age_limit",
     "load_commercial_book",
     "mexico_parity",
     "offer_id_for",

@@ -3,8 +3,8 @@
 El contrato separa tres cosas que antes vivían mezcladas en los mismos diccionarios:
 
 - **Producto**: la referencia vendible del catálogo (SKU, país, nombre, unidades por caja).
-- **Oferta**: un precio publicado o de demostración para un producto, con su presentación,
-  moneda, impuestos, fuente y fecha. Un SKU admite varias ofertas.
+- **Oferta**: un precio publicado para un producto, con su presentación, moneda,
+  impuestos, fuente y fecha. Un SKU admite varias ofertas.
 - **Sede**: un punto de venta del directorio, con identificador estable, ciudad, dirección,
   teléfono, fuente, fecha y precisión de geocodificación.
 
@@ -16,7 +16,7 @@ El modelo es inmutable y estricto (``extra="forbid"``): una fila con campos de m
 falla en vez de perderse en silencio.
 """
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Any, Literal, Self
 
@@ -39,7 +39,6 @@ __all__ = [
     "MapView",
     "NormalizedPrice",
     "Offer",
-    "Origin",
     "ParityReport",
     "Presentation",
     "PriceBasis",
@@ -59,9 +58,8 @@ Country = Literal["CO", "MX"]
 Currency = Literal["COP", "MXN"]
 Basis = Literal["unidad", "paquete", "caja"]
 TaxStatus = Literal["incluido", "no_incluido", "no_indicado"]
-SourceType = Literal["oficial", "vendedor", "directorio", "demo"]
+SourceType = Literal["oficial", "vendedor", "directorio"]
 SellerKind = Literal["distribuidor", "tienda_en_linea", "fabricante"]
-Origin = Literal["publicada", "demo"]
 GeocodePrecision = Literal["direccion", "via", "ciudad", "desconocida"]
 MapMode = Literal["marcador", "zona", "sin_mapa"]
 AvailabilityStatus = Literal["verificado", "por_confirmar", "no_disponible", "desconocido"]
@@ -71,19 +69,16 @@ EvidenceKind = Literal[
     "confirmacion_vendedor",
     "integracion_pos",
     "pedido_confirmado",
-    "simulacion",
 ]
 RecordType = Literal[
     "contacto_directorio",
     "oferta_publicada",
-    "oferta_demo",
     "stock_verificado",
 ]
 
 _CURRENCY_BY_COUNTRY: dict[str, str] = {"CO": "COP", "MX": "MXN"}
 # Solo estas evidencias prueban existencias vigentes. Un pedido pasado no prueba stock actual.
 _STOCK_EVIDENCE = frozenset({"inventario_vendedor", "confirmacion_vendedor", "integracion_pos"})
-_MAX_EVIDENCE_AGE_DAYS = 7
 _ZOOM = {"direccion": 17, "via": 15, "ciudad": 11}
 
 
@@ -123,9 +118,7 @@ class SourceRef(_Frozen):
         return "" if value is None else str(value)
 
     @model_validator(mode="after")
-    def _demo_sin_url(self) -> Self:
-        if self.type == "demo" and self.url is not None:
-            raise ValueError("una fuente demo no puede citar una URL como si fuera publicada")
+    def _vigencia_coherente(self) -> Self:
         if self.valid_until is not None and self.valid_until < self.captured_at:
             raise ValueError("valid_until no puede ser anterior a captured_at")
         return self
@@ -139,16 +132,7 @@ class Product(_Frozen):
     name: str = Field(min_length=1)
     family: str = Field(min_length=1)
     units_per_box: int = Field(gt=0)
-    origin: Literal["real", "demo"]
     source: SourceRef
-
-    @model_validator(mode="after")
-    def _demo_sin_ficha(self) -> Self:
-        if self.origin == "demo" and self.source.type != "demo":
-            raise ValueError("un producto demo exige fuente demo")
-        if self.origin == "real" and self.source.type == "demo":
-            raise ValueError("un producto real no puede tener fuente demo")
-        return self
 
 
 class Seller(_Frozen):
@@ -332,16 +316,15 @@ class NormalizedPrice(_Frozen):
 
 
 class DeliveryTerms(_Frozen):
-    """Condiciones logísticas de la oferta, opcionales y marcadas como simuladas.
+    """Condiciones logísticas publicadas o confirmadas por el vendedor.
 
-    El contrato de producto/oferta/sede no las exige, pero el Cotizador ya las usa. Se
-    conservan para que una migración no pierda plazo ni costo de envío.
+    El contrato de producto/oferta/sede no las exige, pero el Cotizador las usa cuando
+    existe evidencia atribuible. Sin evidencia quedan vacías: el envío se muestra pendiente.
     """
 
     lead_days_min: int = Field(default=0, ge=0)
     lead_days_max: int = Field(default=0, ge=0)
     ship_cost: Decimal | None = Field(default=None, ge=0)
-    simulated: bool = False
     checked_at: date | None = None
     note: str = ""
 
@@ -405,7 +388,6 @@ class Availability(_Frozen):
     declared_status: AvailabilityClaim | None = None
     units: int | None = Field(default=None, ge=0)
     evidence: tuple[AvailabilityEvidence, ...] = ()
-    simulated: bool = False
     checked_at: date | None = None
     note: str = ""
 
@@ -416,14 +398,13 @@ class Availability(_Frozen):
 
     @model_validator(mode="after")
     def _evidencia_obligatoria(self) -> Self:
-        if self.status in {"verificado", "no_disponible"}:
-            if self.simulated:
-                raise ValueError("una simulación no puede afirmar disponibilidad ni agotado")
-            if not any(item.proves_stock for item in self.evidence):
-                raise ValueError(
-                    "verificado/no_disponible exige evidencia de inventario, confirmación "
-                    "del vendedor o integración POS"
-                )
+        if self.status in {"verificado", "no_disponible"} and not any(
+            item.proves_stock for item in self.evidence
+        ):
+            raise ValueError(
+                "verificado/no_disponible exige evidencia de inventario, confirmación "
+                "del vendedor o integración POS"
+            )
         if self.status == "verificado" and self.declared_status == "agotado":
             raise ValueError("verificado no puede declarar agotado")
         if self.status == "no_disponible" and self.declared_status not in {
@@ -432,8 +413,6 @@ class Availability(_Frozen):
             "desconocido",
         }:
             raise ValueError("no_disponible contradice declared_status")
-        if self.simulated and self.status in {"verificado", "no_disponible"}:
-            raise ValueError("lo simulado se queda en por_confirmar o desconocido")
         return self
 
     @classmethod
@@ -448,7 +427,6 @@ class Availability(_Frozen):
         declared: AvailabilityClaim | None,
         *,
         units: int | None = None,
-        simulated: bool = False,
         checked_at: date | None = None,
         evidence: tuple[AvailabilityEvidence, ...] = (),
         note: str = "",
@@ -456,13 +434,11 @@ class Availability(_Frozen):
         """Convierte una afirmación en el estado que el contrato permite sostener.
 
         Una afirmación sin evidencia admisible queda ``por_confirmar``; si la fuente no
-        afirmó nada, queda ``desconocido``. Lo simulado nunca asciende a ``verificado``.
+        afirmó nada, queda ``desconocido``.
         """
 
         if declared is None or declared == "desconocido":
             status: AvailabilityStatus = "desconocido"
-        elif simulated:
-            status = "por_confirmar"
         elif any(item.proves_stock for item in evidence):
             status = "no_disponible" if declared == "agotado" else "verificado"
         else:
@@ -472,7 +448,6 @@ class Availability(_Frozen):
             declared_status=declared,
             units=units,
             evidence=evidence,
-            simulated=simulated,
             checked_at=checked_at,
             note=note,
         )
@@ -500,27 +475,32 @@ class Availability(_Frozen):
             note=note,
         )
 
-    def effective(self, as_of: date, *, max_age_days: int = _MAX_EVIDENCE_AGE_DAYS) -> Self:
-        """Degrada a ``por_confirmar`` la evidencia vencida o demasiado vieja."""
+    def effective(self, as_of: date) -> Self:
+        """Degrada a ``por_confirmar`` la evidencia sin vigencia declarada o ya vencida.
+
+        Solo un dato con ``valid_until`` explícito y no vencido confirma existencias. La
+        antigüedad de la captura no basta: la fuente debe declarar hasta cuándo vale.
+        """
 
         if self.status not in {"verificado", "no_disponible"}:
             return self
-        latest = max(item.recorded_at for item in self.evidence)
-        expired = any(
-            item.valid_until is not None and item.valid_until < as_of for item in self.evidence
+        vigente = any(
+            item.proves_stock and item.valid_until is not None and item.valid_until >= as_of
+            for item in self.evidence
         )
-        if expired or (as_of - latest).days > max_age_days:
-            return self.model_validate(
-                {
-                    **self.model_dump(),
-                    "status": "por_confirmar",
-                    "note": (
-                        f"La evidencia más reciente es del {latest.isoformat()} o ya venció; "
-                        "hay que confirmar antes de prometer existencias."
-                    ),
-                }
-            )
-        return self
+        if vigente:
+            return self
+        latest = max(item.recorded_at for item in self.evidence)
+        return self.model_validate(
+            {
+                **self.model_dump(),
+                "status": "por_confirmar",
+                "note": (
+                    f"La evidencia del {latest.isoformat()} no declara vigencia o ya venció; "
+                    "hay que confirmar antes de prometer existencias."
+                ),
+            }
+        )
 
 
 class StockEvidence(_Frozen):
@@ -541,10 +521,10 @@ class Offer(_Frozen):
     """Precio de un producto en una presentación concreta, publicado por un vendedor.
 
     ``presentation`` y ``amount`` son la presentación que cobra el vendedor (la que publica
-    la fuente o la que simula la demo). ``normalized`` es una vista extra a caja, solo cuando
-    la caja contiene un número entero de esas presentaciones. Varias ofertas pueden compartir
-    SKU y país. ``site_id`` solo se llena cuando la oferta se puede atribuir a una sede del
-    directorio; una tienda en línea puede no tener sede.
+    la fuente). ``normalized`` es una vista extra a caja, solo cuando la caja contiene un
+    número entero de esas presentaciones. Varias ofertas pueden compartir SKU y país.
+    ``site_id`` solo se llena cuando la oferta se puede atribuir a una sede del directorio;
+    una tienda en línea puede no tener sede.
     """
 
     offer_id: str = Field(pattern=r"^[A-Z]{2}-OFERTA-[A-Z0-9-]+$")
@@ -558,10 +538,6 @@ class Offer(_Frozen):
     currency: Currency
     tax_status: TaxStatus
     tax_rate: Decimal | None = Field(default=None, ge=0, le=1, description="IVA declarado")
-    tax_simulated: bool = Field(
-        default=False, description="La demo declaró IVA sin fuente publicada"
-    )
-    origin: Origin
     source: SourceRef
     normalized: NormalizedPrice | None = None
     availability: Availability
@@ -574,20 +550,12 @@ class Offer(_Frozen):
         return "" if value is None else str(value)
 
     @model_validator(mode="after")
-    def _moneda_y_origen(self) -> Self:
+    def _moneda_del_pais(self) -> Self:
         expected = _CURRENCY_BY_COUNTRY[self.country]
         if self.currency != expected:
             raise ValueError(
                 f"una oferta de {self.country} va en {expected}, no en {self.currency}"
             )
-        if self.origin == "demo" and self.source.type != "demo":
-            raise ValueError("una oferta demo exige fuente demo")
-        if self.origin == "publicada" and self.source.type == "demo":
-            raise ValueError("una oferta publicada no puede tener fuente demo")
-        if self.origin == "demo" and self.availability.status in {"verificado", "no_disponible"}:
-            raise ValueError("una oferta demo no puede afirmar existencias verificadas")
-        if self.tax_simulated and self.origin != "demo":
-            raise ValueError("solo una oferta demo puede marcar el IVA como simulado")
         return self
 
     @model_validator(mode="after")
@@ -606,12 +574,6 @@ class Offer(_Frozen):
                 f"{self.amount} * {factor} = {expected}"
             )
         return self
-
-    @property
-    def published(self) -> bool:
-        """El precio lo publica una fuente real (no la demo)."""
-
-        return self.origin == "publicada"
 
 
 class CommercialRecord(BaseModel):
@@ -649,7 +611,7 @@ class CommercialRecord(BaseModel):
                 raise ValueError("el mapa del contacto debe derivarse de su sede")
             return self
 
-        if self.record_type in {"oferta_publicada", "oferta_demo"}:
+        if self.record_type == "oferta_publicada":
             if self.offer is None or self.availability is None:
                 raise ValueError("una oferta exige oferta y disponibilidad")
             if self.sku != self.offer.sku or self.country != self.offer.country:
@@ -661,9 +623,6 @@ class CommercialRecord(BaseModel):
                 or self.captured_at != self.offer.source.captured_at
             ):
                 raise ValueError("la procedencia del registro debe ser la de la oferta")
-            expected = "oferta_demo" if self.offer.origin == "demo" else "oferta_publicada"
-            if self.record_type != expected:
-                raise ValueError(f"el tipo de registro debe ser {expected}")
             if self.offer.site_id is not None and (
                 self.site is None or self.site.site_id != self.offer.site_id
             ):
@@ -698,7 +657,7 @@ class SiteLink(BaseModel):
 
     site_id: str
     sku: str
-    relationship: Literal["oferta_publicada", "oferta_demo", "stock_verificado"]
+    relationship: Literal["oferta_publicada", "stock_verificado"]
     offer_ids: tuple[str, ...] = ()
     availability: Availability
 
@@ -785,9 +744,3 @@ class ParityReport(BaseModel):
 
 
 ContractDocument.model_rebuild()
-
-
-def evidence_age_limit() -> timedelta:
-    """Antigüedad máxima admitida por defecto para una evidencia de existencias."""
-
-    return timedelta(days=_MAX_EVIDENCE_AGE_DAYS)

@@ -53,11 +53,6 @@
           "title": "Evidence",
           "type": "array"
         },
-        "simulated": {
-          "default": false,
-          "title": "Simulated",
-          "type": "boolean"
-        },
         "checked_at": {
           "anyOf": [
             {
@@ -92,8 +87,7 @@
             "inventario_vendedor",
             "confirmacion_vendedor",
             "integracion_pos",
-            "pedido_confirmado",
-            "simulacion"
+            "pedido_confirmado"
           ],
           "title": "Kind",
           "type": "string"
@@ -214,7 +208,6 @@
           "enum": [
             "contacto_directorio",
             "oferta_publicada",
-            "oferta_demo",
             "stock_verificado"
           ],
           "title": "Record Type",
@@ -307,7 +300,7 @@
     },
     "DeliveryTerms": {
       "additionalProperties": false,
-      "description": "Condiciones logísticas de la oferta, opcionales y marcadas como simuladas.\n\nEl contrato de producto/oferta/sede no las exige, pero el Cotizador ya las usa. Se\nconservan para que una migración no pierda plazo ni costo de envío.",
+      "description": "Condiciones logísticas publicadas o confirmadas por el vendedor.\n\nEl contrato de producto/oferta/sede no las exige, pero el Cotizador las usa cuando\nexiste evidencia atribuible. Sin evidencia quedan vacías: el envío se muestra pendiente.",
       "properties": {
         "lead_days_min": {
           "default": 0,
@@ -336,11 +329,6 @@
           ],
           "default": null,
           "title": "Ship Cost"
-        },
-        "simulated": {
-          "default": false,
-          "title": "Simulated",
-          "type": "boolean"
         },
         "checked_at": {
           "anyOf": [
@@ -528,7 +516,7 @@
     },
     "Offer": {
       "additionalProperties": false,
-      "description": "Precio de un producto en una presentación concreta, publicado por un vendedor.\n\n``presentation`` y ``amount`` son la presentación que cobra el vendedor (la que publica\nla fuente o la que simula la demo). ``normalized`` es una vista extra a caja, solo cuando\nla caja contiene un número entero de esas presentaciones. Varias ofertas pueden compartir\nSKU y país. ``site_id`` solo se llena cuando la oferta se puede atribuir a una sede del\ndirectorio; una tienda en línea puede no tener sede.",
+      "description": "Precio de un producto en una presentación concreta, publicado por un vendedor.\n\n``presentation`` y ``amount`` son la presentación que cobra el vendedor (la que publica\nla fuente). ``normalized`` es una vista extra a caja, solo cuando la caja contiene un\nnúmero entero de esas presentaciones. Varias ofertas pueden compartir SKU y país.\n``site_id`` solo se llena cuando la oferta se puede atribuir a una sede del directorio;\nuna tienda en línea puede no tener sede.",
       "properties": {
         "offer_id": {
           "pattern": "^[A-Z]{2}-OFERTA-[A-Z0-9-]+$",
@@ -629,20 +617,6 @@
           "description": "IVA declarado",
           "title": "Tax Rate"
         },
-        "tax_simulated": {
-          "default": false,
-          "description": "La demo declaró IVA sin fuente publicada",
-          "title": "Tax Simulated",
-          "type": "boolean"
-        },
-        "origin": {
-          "enum": [
-            "publicada",
-            "demo"
-          ],
-          "title": "Origin",
-          "type": "string"
-        },
         "source": {
           "$ref": "#/$defs/SourceRef"
         },
@@ -686,7 +660,6 @@
         "amount",
         "currency",
         "tax_status",
-        "origin",
         "source",
         "availability"
       ],
@@ -870,14 +843,6 @@
           "title": "Units Per Box",
           "type": "integer"
         },
-        "origin": {
-          "enum": [
-            "real",
-            "demo"
-          ],
-          "title": "Origin",
-          "type": "string"
-        },
         "source": {
           "$ref": "#/$defs/SourceRef"
         }
@@ -888,7 +853,6 @@
         "name",
         "family",
         "units_per_box",
-        "origin",
         "source"
       ],
       "title": "Product",
@@ -1036,8 +1000,7 @@
           "enum": [
             "oficial",
             "vendedor",
-            "directorio",
-            "demo"
+            "directorio"
           ],
           "title": "Type",
           "type": "string"

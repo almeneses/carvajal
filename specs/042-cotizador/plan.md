@@ -1,5 +1,7 @@
 # Implementation Plan: Cotizador conversacional de productos Carvajal
 
+> **Histórico:** la demo y sus archivos fueron retirados por la [spec 043](../043-chat-comercial-unificado/spec.md). Este plan describe la entrega original de la 042; las referencias a `data/demo/cotizador/` ya no existen en el árbol actual.
+
 **Branch**: `main` (integración histórica desde `prototype`) | **Date**: 2026-11-21 | **Updated**: 2026-11-23 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Spec 042 implementada, con aclaraciones cerradas el 2026-11-21 y el

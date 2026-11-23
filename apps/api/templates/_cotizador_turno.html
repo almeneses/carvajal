@@ -18,5 +18,23 @@
     {% endfor %}
   </div>
   {% endif %}
+  {% set sin_resultados = (fuentes | selectattr("kind", "equalto", "sin_resultados") | list | first) or none %}
+  {% if sin_resultados and sin_resultados.providers %}
+  <section class="coti-sedes" aria-label="Sedes del directorio">
+    <h4>Contactos del directorio</h4>
+    <ol class="coti-sedes-lista">
+      {% for sede in sin_resultados.providers %}
+      <li>
+        <p class="coti-sede-nombre">{{ sede.name }}</p>
+        {% if sede.address %}<p>{{ sede.address }}</p>{% endif %}
+        <p class="coti-sede-meta">
+          {{ sede.city }} · {{ sede.precision }}
+          {% if sede.phone %} · <a href="tel:{{ sede.phone | replace(' ', '') }}">{{ sede.phone }}</a>{% endif %}
+        </p>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
 </li>
 {% endfor %}

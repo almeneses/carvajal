@@ -4,8 +4,6 @@ Los hilos del Cotizador viven en las mismas tablas del chat, bajo un espacio de 
 derivado del dueño firmado (``cot:<owner_key>``). El cliente nunca envía ese valor.
 """
 
-import os
-import re
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -34,7 +32,7 @@ from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary, Sql
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.adapters.storage.visitor_memory import SqlVisitorMemory
 from carvajal.quotation import quote
-from carvajal.quotation.data import DEFAULT_DIR, DemoDataError
+from carvajal.quotation.data import CommercialDataError
 from carvajal.quotation.memory import extract, forget_requested, merge
 
 __all__ = ["CotizadorStore", "SqlCotizadorStore", "router"]
@@ -45,9 +43,6 @@ router = APIRouter()
 PREFIX = "cot:"
 EMPTY = "Escribe qué necesitas cotizar."
 HISTORY_QUESTIONS = 12
-DEMO_OFF = {"0", "false", "no"}
-FICHAS = DEFAULT_DIR / "fichas"
-SLUG = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 QUOTE_DAYS = 7
 
 
@@ -211,12 +206,6 @@ def cotizador_store(request: Request) -> CotizadorStore:
     return injected if injected is not None else SqlCotizadorStore(runtime.session_factory())
 
 
-def demo_enabled() -> bool:
-    """``COTIZADOR_DEMO=0`` apaga lo simulado y deja solo lo publicado."""
-
-    return os.environ.get("COTIZADOR_DEMO", "1").strip().lower() not in DEMO_OFF
-
-
 DELETED = "Listo, borré lo que tenía guardado de ti."
 
 
@@ -362,32 +351,6 @@ def page(
     return response
 
 
-def _cuerpo_ficha(text: str) -> str:
-    """Quita el front matter de la ficha; el cuerpo se pinta como Markdown saneado."""
-
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) == 3:
-            return parts[2].strip()
-    return text.strip()
-
-
-@router.get("/cotizador/ficha/{slug}", response_class=HTMLResponse)
-def ficha(request: Request, slug: str) -> Response:
-    """Ficha citable de una oferta, servida desde el conjunto de demostración."""
-
-    if SLUG.fullmatch(slug) is None:
-        raise HTTPException(status_code=404, detail="La ficha no existe.")
-    path = FICHAS / f"{slug}.md"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="La ficha no existe.")
-    return runtime.templates.TemplateResponse(
-        request,
-        "ficha.html",
-        {"slug": slug, "contenido": _cuerpo_ficha(path.read_text(encoding="utf-8"))},
-    )
-
-
 @router.post("/cotizador", response_class=HTMLResponse)
 def turn(
     request: Request,
@@ -440,7 +403,7 @@ def turn(
     questions = [item.content for item in history if item.role == "user"][-HISTORY_QUESTIONS:]
     try:
         profile, forgot = _profile(store, owner_key, text)
-        result = quote(text, questions=questions, allow_demo=demo_enabled(), profile=profile)
+        result = quote(text, questions=questions, profile=profile)
         if forgot:
             result["reply"] = f"{DELETED} {result['reply']}"
         payload = {key: value for key, value in result.items() if key != "reply"}
@@ -454,9 +417,9 @@ def turn(
             thread_id=current_id,
             quote=quote_record,
         )
-    except DemoDataError as error:
-        logger.warning("cotizador.demo_failed", error=str(error))
-        return reject("El conjunto de demostración del Cotizador no está disponible.", 503)
+    except CommercialDataError as error:
+        logger.warning("cotizador.data_failed", error=str(error))
+        return reject("El catálogo comercial del Cotizador no está disponible.", 503)
     except SQLAlchemyError as error:
         logger.warning("cotizador.failed", error=str(error))
         return reject(SERVICE_UNAVAILABLE, 503)
@@ -533,7 +496,7 @@ def _stream(
 
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
     try:
-        result = quote(question, questions=questions, allow_demo=demo_enabled(), profile=profile)
+        result = quote(question, questions=questions, profile=profile)
         if forgot:
             result["reply"] = f"{DELETED} {result['reply']}"
         payload = {key: value for key, value in result.items() if key != "reply"}
@@ -550,12 +513,12 @@ def _stream(
         turno_html = runtime.templates.env.get_template("_cotizador_turno.html").render(
             messages=[user, assistant], thread_id=conversation_id
         )
-    except DemoDataError as error:
-        logger.warning("cotizador.demo_failed", error=str(error), stream=True)
+    except CommercialDataError as error:
+        logger.warning("cotizador.data_failed", error=str(error), stream=True)
         yield encode(
             "error",
             {
-                "message": "El conjunto de demostración del Cotizador no está disponible.",
+                "message": "El catálogo comercial del Cotizador no está disponible.",
                 "incomplete": False,
             },
         )

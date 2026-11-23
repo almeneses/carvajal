@@ -11,7 +11,7 @@ Ejemplos::
     uv run python -m carvajal.commercial esquema \\
         --out docs/contratos/comerciales/contrato.schema.json
 
-No escribe datos: solo lee el catálogo, la demo y la evidencia versionada.
+No escribe datos: solo lee el catálogo, los precios publicados y la evidencia versionada.
 """
 
 import argparse
@@ -50,7 +50,6 @@ def _validar() -> int:
         print(
             f"  {city}: {directory.counts.get('contacto_directorio', 0)} sedes, "
             f"{directory.counts.get('oferta_publicada', 0)} ofertas publicadas, "
-            f"{directory.counts.get('oferta_demo', 0)} de demo, "
             f"{directory.counts.get('stock_verificado', 0)} con stock verificado"
         )
     return 0
@@ -73,7 +72,7 @@ def _sedes(book: CommercialBook, args: argparse.Namespace) -> int:
                 for item in directory.records
                 if item.site and item.site.site_id == site.site_id
             ]
-            kinds = ("oferta_publicada", "oferta_demo", "stock_verificado")
+            kinds = ("oferta_publicada", "stock_verificado")
             counts = {
                 kind: sum(1 for item in related if item.record_type == kind) for kind in kinds
             }
@@ -81,7 +80,7 @@ def _sedes(book: CommercialBook, args: argparse.Namespace) -> int:
             print(
                 f"  {site.site_id} · {site.name} · {site.address or '(sin dirección)'} · "
                 f"{site.phone} · mapa:{record.map.mode} ({precision}) · "
-                f"ofertas:{counts['oferta_publicada']}+{counts['oferta_demo']} demo · "
+                f"ofertas:{counts['oferta_publicada']} · "
                 f"stock verificado:{counts['stock_verificado']}"
             )
         return 0

@@ -23,9 +23,7 @@ __all__ = ["mexico_parity"]
 
 def _mx_offers(book: CommercialBook) -> list[Offer]:
     return [
-        offer
-        for offer in book.offers
-        if offer.country == "MX" and offer.published and offer.source.type == "oficial"
+        offer for offer in book.offers if offer.country == "MX" and offer.source.type == "oficial"
     ]
 
 

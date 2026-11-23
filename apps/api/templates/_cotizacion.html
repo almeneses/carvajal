@@ -2,7 +2,7 @@
 {% set d = cotizacion.delivery or {} %}
 {% set precision = {
   "direccion": "dirección aproximada", "via": "nivel de vía",
-  "ciudad": "centro de la ciudad", "sin_coordenadas": "sin coordenadas"
+  "ciudad": "centro de la ciudad", "desconocida": "sin coordenadas"
 } %}
 {% set material = {
   "PAPEL": "Papel", "PULPA": "Pulpa", "EPS": "Unicel (EPS)", "PS": "Plástico PS",
@@ -11,9 +11,6 @@
 <section class="coti" aria-label="Cotización">
   <header class="coti-cabecera">
     <h3 class="coti-titulo">Cotización para {{ cotizacion.city }}</h3>
-    {% if p.simulated %}
-    <span class="coti-sello coti-sello-demo">Producto de demostración</span>
-    {% endif %}
     {% if cotizacion.quote %}
     <span class="coti-sello">#{{ cotizacion.quote.id }} · válida hasta {{ cotizacion.quote.valid_until }}</span>
     {% endif %}
@@ -62,36 +59,37 @@
         <dt>Total conocido</dt>
         <dd>{{ cotizacion.total }} COP</dd>
       </div>
+      {% else %}
+      <div class="coti-cifra-fuerte">
+        <dt>Total final</dt>
+        <dd>Por confirmar: falta el costo de envío respaldado</dd>
+      </div>
       {% endif %}
       {% endif %}
     </dl>
 
     <p class="coti-etiquetas">
-      {% if p.price_simulated %}
-      <span class="coti-sello coti-sello-demo">Precio simulado</span>
-      {% else %}
       <span class="coti-sello">Precio de referencia · {{ p.captured_at }}</span>
-      {% endif %}
-      {% if p.stock.status == "insuficiente" %}
-      <span class="coti-sello coti-sello-alerta">Existencia insuficiente</span>
-      {% elif p.stock.status == "desconocido" %}
-      <span class="coti-sello coti-sello-alerta">Existencia sin confirmar</span>
+      <span class="coti-sello">IVA {{ p.tax_status | replace("_", " ") }}</span>
+      {% if p.stock.status == "verificado" %}
+      <span class="coti-sello">Existencia confirmada</span>
+      {% elif p.stock.status == "no_disponible" %}
+      <span class="coti-sello coti-sello-alerta">Sin existencias confirmadas</span>
       {% else %}
-      <span class="coti-sello">Existencia simulada</span>
+      <span class="coti-sello coti-sello-alerta">Disponibilidad por confirmar</span>
       {% endif %}
     </p>
     {% if p.warning %}<p class="coti-nota">{{ p.warning }}</p>{% endif %}
 
     <p class="coti-sede">
-      <strong>{{ p.provider.name }}</strong> · {{ p.provider.city }}
+      <strong>{{ p.seller or p.provider.name }}</strong> · {{ p.provider.city }}
       {%- if p.provider.address %}<br />{{ p.provider.address }}{% endif %}
       {%- if p.provider.phone %}<br />
       <a href="tel:{{ p.provider.phone | replace(' ', '') }}">{{ p.provider.phone }}</a>{% endif %}
     </p>
     <p class="coti-fuente">
-      <a href="/cotizador/ficha/{{ p.provider.ficha }}">Ver la ficha de la oferta</a>
       {% if p.source_url %}
-      · <a href="{{ p.source_url }}" rel="noopener" target="_blank">Ver la fuente del precio</a>
+      <a href="{{ p.source_url }}" rel="noopener" target="_blank">Ver la fuente del precio</a>
       {% endif %}
     </p>
   </article>
@@ -129,9 +127,6 @@
             {{ precision.get(sede.precision, sede.precision) }}
             {% if sede.phone %} · <a href="tel:{{ sede.phone | replace(' ', '') }}">{{ sede.phone }}</a>{% endif %}
           </p>
-          {% if sede.ficha %}
-          <a class="coti-mapa-enlace" href="/cotizador/ficha/{{ sede.ficha }}">Ver ficha de la sede</a>
-          {% endif %}
           {% if sede.lat and sede.lon %}
           <a
             class="coti-mapa-enlace"
@@ -180,8 +175,8 @@
     </p>
     {% else %}
     <p>
-      No hay cobertura de domicilio registrada para esta ciudad. Puedes retirar en la sede
-      o escribir al proveedor.
+      No hay costo ni plazo de envío publicados para esta sede. El subtotal queda visible y
+      el total final pendiente; puedes retirar en la sede o consultar al proveedor.
     </p>
     {% endif %}
   </section>

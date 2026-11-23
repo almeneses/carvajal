@@ -35,7 +35,6 @@ from carvajal.commercial import (
     MapView,
     NormalizedPrice,
     Offer,
-    Origin,
     Presentation,
     Product,
     Seller,
@@ -48,7 +47,7 @@ from carvajal.commercial import (
     mexico_parity,
     site_id_for,
 )
-from carvajal.commercial.loader import CATALOG_DIR, DEMO_DIR, EVIDENCE_PATH, book_from_paths
+from carvajal.commercial.loader import CATALOG_DIR, COMMERCIAL_DIR, EVIDENCE_PATH, book_from_paths
 
 TODAY = date(2026, 11, 22)
 YESTERDAY = TODAY - timedelta(days=1)
@@ -72,7 +71,6 @@ def _product(sku: str = "SKU-1", country: str = "CO") -> Product:
         name=f"Producto {sku}",
         family="vaso",
         units_per_box=100,
-        origin="real",
         source=_source("oficial", name="Carvajal", url="https://example.com/ficha"),
     )
 
@@ -127,7 +125,6 @@ def _offer(
     basis: str = "caja",
     units: int = 100,
     availability: Availability | None = None,
-    origin: str = "publicada",
     source: SourceRef | None = None,
     captured: date = TODAY,
 ) -> Offer:
@@ -143,7 +140,6 @@ def _offer(
         amount=amount,
         currency=cast(Currency, currency),
         tax_status="incluido",
-        origin=cast(Origin, origin),
         source=chosen_source,
         normalized=(
             NormalizedPrice(units_in_basis=units, amount=amount) if basis == "caja" else None
@@ -169,7 +165,7 @@ def _evidence(
     )
 
 
-def _verified_book(*, recorded: date = TODAY, valid_until: date | None = None):
+def _verified_book(*, recorded: date = TODAY, valid_until: date | None = TODAY + timedelta(days=3)):
     product = _product()
     seller = _seller()
     site = _site()
@@ -276,31 +272,73 @@ def test_identificador_de_sede_estable_y_sensible_a_la_identidad() -> None:
 
 
 def test_las_sedes_reales_conservan_sus_identificadores_entre_cargas() -> None:
-    first = book_from_paths(CATALOG_DIR, DEMO_DIR, EVIDENCE_PATH)
-    second = book_from_paths(CATALOG_DIR, DEMO_DIR, EVIDENCE_PATH)
+    first = book_from_paths(CATALOG_DIR, EVIDENCE_PATH)
+    second = book_from_paths(CATALOG_DIR, EVIDENCE_PATH)
 
     assert set(first.sites) == set(second.sites)
     assert len(first.sites) == 29
     assert len({site.legacy_provider_id for site in first.sites.values()}) == 29
 
 
-def test_el_contrato_sin_demo_conserva_publicados_y_paridad_mx() -> None:
-    """El cargador sin demo conserva las 29 ofertas CO y la paridad MX."""
+def test_el_contrato_publicado_conserva_29_ofertas_co_y_paridad_mx() -> None:
+    """El contrato público conserva las 29 ofertas CO y la paridad MX."""
 
-    book = book_from_paths(CATALOG_DIR, DEMO_DIR, EVIDENCE_PATH, include_demo=False)
+    book = book_from_paths(CATALOG_DIR, EVIDENCE_PATH)
     co = [offer for offer in book.offers if offer.country == "CO"]
     mx = [offer for offer in book.offers if offer.country == "MX"]
 
     assert len(book.sites) == 29
     assert len(co) == 29
     assert len(mx) == 98
-    assert all(offer.origin == "publicada" for offer in book.offers)
     assert {"CO-PPAN-12", "7704918105071", "7704918100816"} <= {offer.sku for offer in co}
+    assert all(offer.source.url is not None for offer in book.offers)
+    assert all(offer.source.captured_at for offer in book.offers)
+    assert all(offer.presentation.units_in_basis > 0 for offer in book.offers)
 
     parity = mexico_parity(book=book)
     assert parity.audited_references == 98
     assert parity.missing_skus == ()
     assert parity.amount_mismatches == ()
+
+
+def test_las_tres_ofertas_filtradas_tienen_vendedor_fuente_fecha_y_presentacion() -> None:
+    """Cada SKU de aceptación publica su vendedor, fuente, fecha y presentación."""
+
+    book = book_from_paths(CATALOG_DIR, EVIDENCE_PATH)
+    for sku in ("CO-PPAN-12", "7704918105071", "7704918100816"):
+        offer = next(item for item in book.offers if item.sku == sku and item.country == "CO")
+        seller = book.seller(offer.seller_id)
+        assert seller is not None and seller.name
+        assert offer.source.name == seller.name
+        assert offer.source.url is not None
+        assert offer.source.type == "vendedor"
+        assert offer.source.captured_at == date(2026, 11, 18)
+        assert offer.presentation.basis in {"unidad", "paquete", "caja"}
+        assert offer.amount > 0 and offer.currency == "COP"
+        assert offer.tax_status in {"incluido", "no_incluido", "no_indicado"}
+
+
+def test_cali_tiene_sedes_sin_precio_publicado() -> None:
+    """La consulta de sedes no exige precio: Cali devuelve contactos y cero ofertas."""
+
+    book = book_from_paths(CATALOG_DIR, EVIDENCE_PATH)
+    cali = book.city_directory("Cali")
+
+    assert cali.counts["contacto_directorio"] == 4
+    assert cali.counts.get("oferta_publicada", 0) == 0
+    assert all(record.offer is None for record in cali.records)
+
+
+def test_no_quedan_marcas_de_simulacion_en_el_contrato() -> None:
+    """El registro público no contiene tipos ni campos simulados."""
+
+    book = book_from_paths(CATALOG_DIR, EVIDENCE_PATH)
+    types = {
+        record.record_type for city in book.cities() for record in book.city_directory(city).records
+    }
+
+    assert types <= {"contacto_directorio", "oferta_publicada", "stock_verificado"}
+    assert not (COMMERCIAL_DIR.parent / "demo").exists()
 
 
 # ------------------------------------------------------------------------ ofertas
@@ -414,29 +452,17 @@ def test_oferta_conserva_presentacion_unidades_importe_iva_fuente_y_fecha() -> N
     assert offer.source.captured_at == date(2026, 11, 18)
 
 
-def test_logistica_del_cotizador_se_conserva_sin_volverse_real() -> None:
-    book = load_commercial_book()
-    published = next(
-        offer
-        for offer in book.offers
-        if offer.country == "CO" and offer.published and offer.delivery is not None
-    )
-    demo = next(offer for offer in book.offers if offer.origin == "demo")
+def test_ninguna_oferta_publica_logistica_sin_evidencia() -> None:
+    """Sin evidencia de entrega, el contrato no inventa plazo ni costo de envío."""
 
-    assert published.delivery is not None
-    assert published.delivery.lead_days_max >= published.delivery.lead_days_min
-    assert published.delivery.simulated is True
-    assert published.tax_simulated is False
-    assert demo.delivery is not None
-    assert demo.delivery.simulated is True
-    assert demo.tax_simulated is True
+    book = load_commercial_book()
+
+    assert all(offer.delivery is None for offer in book.offers)
 
 
 def test_presentacion_publicada_es_la_primaria_y_la_caja_es_derivada() -> None:
     book = load_commercial_book()
-    published = next(
-        item for item in book.offers if item.country == "CO" and item.origin == "publicada"
-    )
+    published = next(item for item in book.offers if item.country == "CO")
 
     assert published.presentation.basis in {"unidad", "paquete", "caja"}
     assert published.amount > 0
@@ -513,14 +539,6 @@ def test_afirmacion_sin_evidencia_queda_por_confirmar() -> None:
     assert available.evidence == ()
 
 
-def test_lo_simulado_nunca_es_verificado() -> None:
-    simulated = Availability.from_claim("disponible", simulated=True)
-
-    assert simulated.status == "por_confirmar"
-    assert simulated.simulated is True
-    assert simulated.evidence == ()
-
-
 def test_verificado_sin_evidencia_se_rechaza() -> None:
     with pytest.raises(ValidationError, match="exige evidencia"):
         Availability(status="verificado", declared_status="disponible")
@@ -536,7 +554,7 @@ def test_evidencia_sin_estado_declarado_queda_desconocida() -> None:
         sku="SKU-1",
         country="CO",
         site_id="CO-SEDE-AAAA",
-        evidence=_evidence(kind="simulacion"),
+        evidence=_evidence(kind="pedido_confirmado"),
     )
     book = build_commercial_book(
         products=[_product()],
@@ -575,7 +593,7 @@ def test_evidencia_de_agotado_cambia_la_oferta_a_no_disponible() -> None:
         country="CO",
         site_id="CO-SEDE-AAAA",
         declared_status="agotado",
-        evidence=_evidence(units=0),
+        evidence=_evidence(units=0, valid_until=TODAY + timedelta(days=3)),
     )
     book = build_commercial_book(
         products=[_product()],
@@ -594,16 +612,22 @@ def test_evidencia_de_agotado_cambia_la_oferta_a_no_disponible() -> None:
     assert book.city_directory("Bogotá", as_of=TODAY).counts.get("stock_verificado", 0) == 0
 
 
-def test_consulta_por_defecto_no_confia_en_evidencia_vieja() -> None:
-    book = _verified_book(recorded=date.today() - timedelta(days=30))
+def test_evidencia_sin_valid_until_no_confirma_stock() -> None:
+    """Solo una evidencia con vigencia explícita confirma existencias (FR-004)."""
 
-    directory = book.city_directory("Bogotá")
+    book = _verified_book(recorded=TODAY, valid_until=None)
+
+    directory = book.city_directory("Bogotá", as_of=TODAY)
+    links = book.sites_for_sku("SKU-1", as_of=TODAY)
 
     assert directory.counts.get("stock_verificado", 0) == 0
+    assert links[0].relationship == "oferta_publicada"
+    assert links[0].availability.status == "por_confirmar"
+    assert "no declara vigencia" in links[0].availability.note
 
 
 def test_evidencia_vencida_degrada_a_por_confirmar() -> None:
-    book = _verified_book(recorded=YESTERDAY - timedelta(days=10))
+    book = _verified_book(recorded=YESTERDAY - timedelta(days=10), valid_until=YESTERDAY)
 
     directory = book.city_directory("Bogotá", as_of=TODAY)
     links = book.sites_for_sku("SKU-1", as_of=TODAY)
@@ -613,26 +637,12 @@ def test_evidencia_vencida_degrada_a_por_confirmar() -> None:
     assert links[0].availability.status == "por_confirmar"
 
 
-def test_evidencia_de_simulacion_no_habilita_stock_verificado() -> None:
-    simulated = Availability.from_claim("disponible", simulated=True)
-    offer = _offer(availability=simulated)
-    stock = StockEvidence(
-        sku="SKU-1",
-        country="CO",
-        site_id="CO-SEDE-AAAA",
-        evidence=_evidence(kind="simulacion"),
-    )
-    book = build_commercial_book(
-        products=[_product()],
-        sellers=[_seller()],
-        sites=[_site()],
-        offers=[offer],
-        evidence=[stock],
-    )
+def test_evidencia_vigente_es_la_unica_que_confirma_stock() -> None:
+    vigente = _verified_book(valid_until=TODAY)
+    vencida = _verified_book(recorded=TODAY - timedelta(days=5), valid_until=YESTERDAY)
 
-    directory = book.city_directory("Bogotá")
-
-    assert directory.counts.get("stock_verificado", 0) == 0
+    assert vigente.city_directory("Bogotá", as_of=TODAY).counts["stock_verificado"] == 1
+    assert vencida.city_directory("Bogotá", as_of=TODAY).counts.get("stock_verificado", 0) == 0
 
 
 # ----------------------------------------------------------- discriminador común
@@ -645,19 +655,15 @@ def test_los_mismos_campos_distinguen_contacto_oferta_y_stock() -> None:
     bogota = book.city_directory("Bogotá")
     contact = bogota.of_type("contacto_directorio")[0]
     published = bogota.of_type("oferta_publicada")[0]
-    demo = bogota.of_type("oferta_demo")[0]
 
     fields = set(CommercialRecord.model_fields)
     assert set(contact.model_dump()) == fields
     assert set(published.model_dump()) == fields
-    assert set(demo.model_dump()) == fields
 
     assert contact.record_type == "contacto_directorio"
     assert contact.sku is None and contact.offer is None and contact.availability is None
     assert published.record_type == "oferta_publicada"
     assert published.offer is not None and published.availability is not None
-    assert demo.record_type == "oferta_demo"
-    assert demo.offer is not None and demo.offer.origin == "demo"
 
     verified = _verified_book().city_directory("Bogotá", as_of=TODAY).of_type("stock_verificado")[0]
     assert set(verified.model_dump()) == fields
@@ -674,19 +680,7 @@ def test_contacto_del_directorio_no_se_confunde_con_sede_que_vende() -> None:
 
     assert "EDEXA" in linked_names
     assert "Comercializadora de Desechables Sideral" not in linked_names
-    assert all(link.relationship in {"oferta_publicada", "oferta_demo"} for link in links)
-
-
-def test_oferta_demo_no_se_presenta_como_publicada() -> None:
-    book = load_commercial_book()
-    demo = next(item for item in book.offers if item.origin == "demo")
-    record = book.offer_record(demo)
-
-    assert record.record_type == "oferta_demo"
-    assert demo.source.type == "demo"
-    assert demo.source.url is None
-    assert demo.availability.status in {"por_confirmar", "desconocido"}
-    assert demo.availability.status != "verificado"
+    assert all(link.relationship == "oferta_publicada" for link in links)
 
 
 def test_numeros_de_la_auditoria_coinciden() -> None:
@@ -696,20 +690,19 @@ def test_numeros_de_la_auditoria_coinciden() -> None:
 
     assert summary["sedes"] == 29
     assert summary["ciudades"] == 10
-    assert summary["ofertas_co"] == 160
+    assert summary["ofertas_co"] == 29
     assert summary["ofertas_mx"] == 98
-    assert summary["ofertas_publicadas"] == 127
-    assert summary["ofertas_demo"] == 131
+    assert summary["ofertas"] == 127
 
 
-def test_disponibilidad_real_del_catalogo_es_por_confirmar_o_desconocida() -> None:
-    """Hoy no hay ninguna evidencia real: 145 por confirmar y 15 desconocidas."""
+def test_disponibilidad_publicada_sin_evidencia_queda_por_confirmar() -> None:
+    """Hoy no hay evidencia versionada: ninguna oferta CO confirma existencias."""
 
     book = load_commercial_book()
     co = [offer for offer in book.offers if offer.country == "CO"]
     statuses = Counter(offer.availability.status for offer in co)
 
-    assert statuses == {"por_confirmar": 145, "desconocido": 15}
+    assert statuses == {"desconocido": 29}
     assert all(offer.availability.status not in {"verificado", "no_disponible"} for offer in co)
     for city in book.cities():
         assert book.city_directory(city).counts.get("stock_verificado", 0) == 0
@@ -748,7 +741,6 @@ def test_oferta_mexicana_es_caja_en_mxn_con_iva_declarado() -> None:
     assert offer.tax_status == "incluido"
     assert offer.source.type == "oficial"
     assert offer.source.url is not None
-    assert offer.published
     assert offer.normalized is None
     assert offer.presentation.units_in_basis > 0
 
@@ -775,10 +767,14 @@ def test_ejemplos_validan_contra_el_contrato() -> None:
         ContractDocument.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
 
-def test_el_registro_marca_igual_que_la_oferta_si_el_stock_es_simulado() -> None:
+def test_el_registro_no_afirma_disponibilidad_sin_evidencia() -> None:
     book = load_commercial_book()
 
     for offer in book.offers:
         record = book.offer_record(offer, as_of=TODAY)
         assert record.availability is not None
-        assert record.availability.simulated == offer.availability.simulated
+        assert record.availability.status in {"por_confirmar", "desconocido"}
+        assert not any(
+            item.kind == "pedido_confirmado" and item.proves_stock
+            for item in record.availability.evidence
+        )

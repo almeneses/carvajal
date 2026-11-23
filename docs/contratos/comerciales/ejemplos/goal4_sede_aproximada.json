@@ -5,6 +5,8 @@
     "sku": "7704918100083",
     "as_of": "2026-11-22"
   },
+  "products": [],
+  "sellers": [],
   "sites": [
     {
       "site_id": "CO-SEDE-9F23E89A16",
@@ -48,8 +50,6 @@
       "currency": "COP",
       "tax_status": "incluido",
       "tax_rate": null,
-      "tax_simulated": false,
-      "origin": "publicada",
       "source": {
         "type": "vendedor",
         "name": "EDEXA",
@@ -64,25 +64,18 @@
         "amount": "2794"
       },
       "availability": {
-        "status": "por_confirmar",
-        "declared_status": "disponible",
-        "units": 600,
+        "status": "desconocido",
+        "declared_status": null,
+        "units": null,
         "evidence": [],
-        "simulated": true,
-        "checked_at": "2026-11-21",
-        "note": "Existencia simulada por la demo; no es inventario del vendedor."
+        "checked_at": null,
+        "note": "El precio se publica sin existencias verificadas."
       },
-      "delivery": {
-        "lead_days_min": 1,
-        "lead_days_max": 2,
-        "ship_cost": "12000",
-        "simulated": true,
-        "checked_at": "2026-11-21",
-        "note": "Plazo y envío simulados por la demo."
-      },
+      "delivery": null,
       "note": "La presentación y el importe son los publicados; `normalized` es la vista por caja."
     }
   ],
+  "evidence": [],
   "records": [
     {
       "record_type": "oferta_publicada",
@@ -143,8 +136,6 @@
         "currency": "COP",
         "tax_status": "incluido",
         "tax_rate": null,
-        "tax_simulated": false,
-        "origin": "publicada",
         "source": {
           "type": "vendedor",
           "name": "EDEXA",
@@ -159,43 +150,23 @@
           "amount": "2794"
         },
         "availability": {
-          "status": "por_confirmar",
-          "declared_status": "disponible",
-          "units": 600,
+          "status": "desconocido",
+          "declared_status": null,
+          "units": null,
           "evidence": [],
-          "simulated": true,
-          "checked_at": "2026-11-21",
-          "note": "Existencia simulada por la demo; no es inventario del vendedor."
+          "checked_at": null,
+          "note": "El precio se publica sin existencias verificadas."
         },
-        "delivery": {
-          "lead_days_min": 1,
-          "lead_days_max": 2,
-          "ship_cost": "12000",
-          "simulated": true,
-          "checked_at": "2026-11-21",
-          "note": "Plazo y envío simulados por la demo."
-        },
+        "delivery": null,
         "note": "La presentación y el importe son los publicados; `normalized` es la vista por caja."
       },
       "availability": {
-        "status": "por_confirmar",
-        "declared_status": "disponible",
-        "units": 600,
-        "evidence": [
-          {
-            "kind": "simulacion",
-            "recorded_by": "Generador de la demo",
-            "recorded_at": "2026-11-21",
-            "reference": "simulación estable del Cotizador",
-            "source_url": null,
-            "units": 600,
-            "valid_until": null,
-            "note": "No es evidencia real; no habilita stock verificado."
-          }
-        ],
-        "simulated": true,
-        "checked_at": "2026-11-21",
-        "note": "Afirmación sin evidencia admisible; queda por confirmar."
+        "status": "desconocido",
+        "declared_status": null,
+        "units": null,
+        "evidence": [],
+        "checked_at": null,
+        "note": "El precio se publica sin existencias verificadas."
       },
       "source": {
         "type": "vendedor",
@@ -216,5 +187,7 @@
         "note": "Solo se conoce la ciudad: el mapa muestra una zona aproximada, no la sede exacta."
       }
     }
-  ]
+  ],
+  "directory": null,
+  "parity": null
 }
