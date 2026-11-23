@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -40,6 +40,7 @@ help: ## Muestra esta ayuda
 	@echo "  db                 Levanta Postgres 16 con pgvector (docker compose)"
 	@echo "  db-down            Detiene la base de datos local"
 	@echo "  eval               Ejecuta las preguntas de prueba (genera docs/resultados.md)"
+	@echo "  eval-agent         Compara los modos routes y tools (gasta tokens; ARGS=...)"
 	@echo "  import             Importa el corpus externo a la capa extendida"
 	@echo "  clean              Limpia cachés y artefactos"
 
@@ -150,6 +151,13 @@ db-down: ## Detiene la base de datos local (conserva el volumen)
 
 eval: ## Ejecuta las preguntas de prueba y genera docs/resultados.md
 	uv run carvajal eval
+
+eval-agent: ## Compara routes y tools (spec 044); salida en un temporal o en ARGS="--output ... --json ..."
+	@out="$$(mktemp -d)"; \
+	uv run carvajal eval-agent --output "$$out/agent.md" --json "$$out/agent.json" $(ARGS); \
+	code=$$?; \
+	echo "Salida por defecto en $$out (un --output o --json de ARGS la reemplaza)"; \
+	exit $$code
 
 import: ## Importa el corpus externo a la capa extendida
 	uv run carvajal import

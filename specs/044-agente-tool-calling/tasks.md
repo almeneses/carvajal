@@ -159,13 +159,13 @@ de cada campo restringido.
 
 ### Tests for User Story 5
 
-- [ ] T045 [P] [US5] Pruebas sin red del runner en `tests/test_eval_agent.py`: verificaciones por ítem (`tools_any`, `tools_none`, `abstain`, `asks_for`, `forbidden_materials`, `total_pending`, `language`, `no_tool_allowed`), cifras de la respuesta presentes en resultados de herramientas, mapeo ruta→herramientas en modo `routes`, agregados de tokens y costo.
+- [X] T045 [P] [US5] Pruebas sin red del runner en `tests/test_eval_agent.py`: verificaciones por ítem (`tools_any`, `tools_none`, `abstain`, `asks_for`, `forbidden_materials`, `total_pending`, `language`, `no_tool_allowed`), cifras de la respuesta presentes en resultados de herramientas, mapeo ruta→herramientas en modo `routes`, agregados de tokens y costo.
 
 ### Implementation for User Story 5
 
-- [ ] T046 [US5] Implementar el runner en proceso (persistencia en memoria, ambos grafos construidos) en `packages/core/src/carvajal/agent/toolagent/evaluation.py`. Depende de T045.
-- [ ] T047 [US5] Añadir `carvajal eval-agent --mode … --questions … --output … [--langsmith]` en `packages/core/src/carvajal/cli.py` y objetivo `make eval-agent` en `Makefile`. Depende de T046. FR-017.
-- [ ] T048 [US5] Actualizar `.claude/skills/evaluar-agente/SKILL.md` para incluir `eval-agent` y los criterios SC-001…SC-008. Depende de T047.
+- [X] T046 [US5] Implementar el runner en proceso (persistencia en memoria, ambos grafos construidos) en `packages/core/src/carvajal/agent/toolagent/evaluation.py`. Depende de T045.
+- [X] T047 [US5] Añadir `carvajal eval-agent --mode … --questions … --output … [--langsmith]` en `packages/core/src/carvajal/cli.py` y objetivo `make eval-agent` en `Makefile`. Depende de T046. FR-017.
+- [X] T048 [US5] Actualizar `.claude/skills/evaluar-agente/SKILL.md` para incluir `eval-agent` y los criterios SC-001…SC-008. Depende de T047.
 - [ ] T049 [US5] Correr la evaluación completa (con permiso del owner por costo de DeepSeek) y guardar el informe en `specs/044-agente-tool-calling/evidencia.md`, con la limitación de origen del conjunto (FR-016) y la medición de SC-006/SC-006a en el chat real. Depende de T003 y de las fases 3–6.
 
 **Checkpoint**: el owner decide con el informe si `AGENT_MODE` pasa a `tools`.
