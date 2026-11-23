@@ -114,7 +114,7 @@ def test_subir_sin_csrf_devuelve_403() -> None:
     # Act
     response = client.post(
         "/configuracion",
-        data={CSRF_FIELD: "ajeno"},
+        data={CSRF_FIELD: "ajeno", "token_admin": OPERATOR_TOKEN},
         files={"archivos": ("nota.md", b"# Nota", "text/markdown")},
     )
 
@@ -372,7 +372,7 @@ def test_el_hook_inyectado_tambien_recibe_solo_extraer() -> None:
     assert capturado["solo_extraer"] is True
 
 
-def test_el_hook_inyectado_con_firma_antigua_sigue_funcionando() -> None:
+def test_el_hook_inyectado_con_firma_antigua_falla_cerrado() -> None:
     # Arrange
     llamadas: list[list[UploadedDocument]] = []
 
@@ -395,7 +395,8 @@ def test_el_hook_inyectado_con_firma_antigua_sigue_funcionando() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert llamadas and llamadas[0][0].filename == "nota.md"
+    assert llamadas == []
+    assert "no se procesó nada" in response.text
 
 
 def test_subir_sin_token_de_operador_no_ejecuta_ingesta() -> None:
@@ -451,15 +452,12 @@ def test_subir_con_token_incorrecto_no_ejecuta_ingesta() -> None:
     assert llamadas == []
 
 
-def test_configuracion_sin_operador_configurado_devuelve_403(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_configuracion_sin_operador_configurado_devuelve_403() -> None:
     # Arrange
-    monkeypatch.setattr(
-        "apps.api.views.config.Settings",
-        lambda: Settings(_env_file=None, operator_token=""),
-    )
-    client = make_client()
+    app = create_app()
+    app.state.settings = Settings(_env_file=None, operator_token="")
+    app.state.ingest = lambda documents, **kwargs: IngestReport(files=len(documents))
+    client = TestClient(app)
     client.get("/configuracion")
     token = client.cookies[CSRF_COOKIE]
 

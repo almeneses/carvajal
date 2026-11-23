@@ -285,9 +285,7 @@ def test_el_estado_y_el_stream_del_job_exigen_operador() -> None:
     assert stream.status_code == 403
 
 
-def test_la_captura_sin_operador_configurado_no_lanza_el_job(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_la_captura_sin_operador_configurado_no_lanza_el_job() -> None:
     # Arrange
     llamadas: list[CaptureRequest] = []
 
@@ -298,11 +296,11 @@ def test_la_captura_sin_operador_configurado_no_lanza_el_job(
         llamadas.append(request)
         return OUTCOME
 
-    monkeypatch.setattr(
-        "apps.api.views.config.Settings",
-        lambda: Settings(_env_file=None, operator_token=""),
-    )
-    client = _client(runner)
+    app = create_app()
+    app.state.settings = Settings(_env_file=None, operator_token="")
+    app.state.captures = CaptureJobs(runner)
+    app.state.ingest = lambda documents, **kwargs: IngestReport(files=len(documents))
+    client = TestClient(app)
     token = client.cookies.get(CSRF_COOKIE) or _token(client)
 
     # Act

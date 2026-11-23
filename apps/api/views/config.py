@@ -70,12 +70,13 @@ def configuracion(request: Request) -> Response:
     el despliegue no ofrece escritura web y solo queda la consola interna.
     """
 
-    settings = Settings()
+    settings = _settings(request)
     if not operator_configured(settings):
-        return _page(request, error=NO_CONFIGURADO, status_code=403)
+        return _page(request, error=NO_CONFIGURADO, status_code=403, settings=settings)
     return _page(
         request,
         operator_authorized=operator_authorized(request, settings=settings),
+        settings=settings,
     )
 
 
@@ -87,14 +88,14 @@ def iniciar_sesion(
 ) -> Response:
     """Valida el token y abre la consola; no revela los formularios sin sesión."""
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        return _page(request, error=CSRF_INVALIDO, status_code=403)
-    settings = Settings()
+    settings = _settings(request)
     if not operator_authorized(request, token_admin, settings=settings):
         logger.warning("config.login_failed", path=request.url.path)
         error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
-        return _page(request, error=error, status_code=403)
+        return _page(request, error=error, status_code=403, settings=settings)
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _page(request, error=CSRF_INVALIDO, status_code=403, settings=settings)
     response = RedirectResponse(url="/configuracion", status_code=303)
     set_operator_cookie(response, request, settings)
     return response
@@ -107,9 +108,10 @@ def cerrar_sesion(
 ) -> Response:
     """Cierra la sesión de operador; el CSRF evita un logout forzado."""
 
+    settings = _settings(request)
     if not verify_csrf(request, csrf_token):
         logger.warning("csrf.rejected", path=request.url.path)
-        return _page(request, error=CSRF_INVALIDO, status_code=403)
+        return _page(request, error=CSRF_INVALIDO, status_code=403, settings=settings)
     response = RedirectResponse(url="/chat", status_code=303)
     clear_operator_cookie(response)
     return response
@@ -131,24 +133,25 @@ async def subir_documentos(
     Qdrant se hace con la consola (``carvajal sync``).
     """
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        return _page(
-            request,
-            error=CSRF_INVALIDO,
-            status_code=403,
-        )
-
-    settings = Settings()
+    settings = _settings(request)
     if not operator_authorized(request, token_admin, settings=settings):
         logger.warning("config.unauthorized", path=request.url.path)
         error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
-        return _page(request, error=error, status_code=403)
+        return _page(request, error=error, status_code=403, settings=settings)
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _page(request, error=CSRF_INVALIDO, status_code=403, settings=settings)
 
     batch = await _leer_archivos(*(archivos or []), *(carpeta or []))
     if not batch.documents:
         detalle = [SIN_ARCHIVOS, *batch.errors]
-        return _page(request, error=" ".join(detalle), status_code=422, operator_authorized=True)
+        return _page(
+            request,
+            error=" ".join(detalle),
+            status_code=422,
+            operator_authorized=True,
+            settings=settings,
+        )
 
     ingestor = getattr(request.app.state, "ingest", None)
     try:
@@ -182,7 +185,13 @@ async def subir_documentos(
                 updated=report.updated,
                 errors=(*batch.errors, *report.errors),
             )
-    return _page(request, report=report, operator_authorized=True, staged=True)
+    return _page(
+        request,
+        report=report,
+        operator_authorized=True,
+        staged=True,
+        settings=settings,
+    )
 
 
 @router.post("/configuracion/captura", response_class=HTMLResponse)
@@ -202,15 +211,14 @@ def iniciar_captura(
     siendo una acción de la consola (``carvajal sync``).
     """
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        return _capture_response(request, error=CSRF_INVALIDO, status_code=403)
-
-    settings = Settings()
+    settings = _settings(request)
     if not operator_authorized(request, token_admin, settings=settings):
         logger.warning("config.capture_unauthorized", path=request.url.path)
         error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
-        return _capture_response(request, error=error, status_code=403)
+        return _capture_response(request, error=error, status_code=403, settings=settings)
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _capture_response(request, error=CSRF_INVALIDO, status_code=403, settings=settings)
 
     capture_request, errors, form = _parse_capture_form(
         urls=urls,
@@ -226,6 +234,7 @@ def iniciar_captura(
             form=form,
             status_code=422,
             operator_authorized=True,
+            settings=settings,
         )
     owner_key = request.client.host if request.client is not None else "desconocido"
     try:
@@ -237,6 +246,7 @@ def iniciar_captura(
             form=form,
             status_code=409,
             operator_authorized=True,
+            settings=settings,
         )
     except CaptureRateLimited as error:
         return _capture_response(
@@ -246,8 +256,15 @@ def iniciar_captura(
             status_code=429,
             headers={"Retry-After": str(error.retry_after)},
             operator_authorized=True,
+            settings=settings,
         )
-    return _capture_response(request, job=job, form=form, operator_authorized=True)
+    return _capture_response(
+        request,
+        job=job,
+        form=form,
+        operator_authorized=True,
+        settings=settings,
+    )
 
 
 @router.get("/configuracion/captura/{job_id}/eventos")
@@ -307,8 +324,15 @@ def _call_ingestor(
     )
     if "solo_extraer" in parameters or accepts_kwargs:
         return ingestor(documents, solo_extraer=True)
-    logger.warning("config.ingest_hook_legacy", hint="el hook debería aceptar solo_extraer")
-    return ingestor(documents)
+    # Fail closed: sin la bandera no se puede garantizar que el hook no publique.
+    logger.error("config.ingest_hook_legacy", hint="el hook debe aceptar solo_extraer")
+    return IngestReport(
+        files=len(documents),
+        errors=(
+            "El hook de ingesta no acepta solo_extraer; no se procesó nada para evitar "
+            "publicar documentos sin revisión.",
+        ),
+    )
 
 
 async def _leer_archivos(*subidas: UploadFile) -> _UploadBatch:
@@ -337,6 +361,12 @@ async def _leer_archivos(*subidas: UploadFile) -> _UploadBatch:
     return _UploadBatch(documents=documentos, errors=tuple(errores))
 
 
+def _settings(request: Request) -> Settings:
+    """Configuración fijada al arrancar; no relee el entorno por petición."""
+
+    return getattr(request.app.state, "settings", None) or Settings()
+
+
 def _captures(request: Request) -> CaptureJobs:
     """Registro de jobs de la app; se crea si una prueba no lo inyectó."""
 
@@ -351,7 +381,7 @@ def _captures(request: Request) -> CaptureJobs:
 def _operator_denied(request: Request) -> Response | None:
     """Rechaza la lectura de un job de captura si no hay operador autorizado."""
 
-    settings = getattr(request.app.state, "settings", None) or Settings()
+    settings = _settings(request)
     if operator_authorized(request, settings=settings):
         return None
     error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
@@ -445,10 +475,11 @@ def _capture_context(
     *,
     form: dict[str, Any] | None = None,
     operator_authorized: bool = False,
+    settings: Settings | None = None,
 ) -> dict[str, Any]:
     """Contexto compartido por la página y el parcial de captura."""
 
-    settings = Settings()
+    settings = settings or Settings()
     max_urls = max(1, settings.capture_max_urls)
     default_limit = min(settings.capture_default_urls, max_urls)
     values = form or {}
@@ -490,6 +521,7 @@ def _page(
     headers: dict[str, str] | None = None,
     operator_authorized: bool = False,
     staged: bool = False,
+    settings: Settings | None = None,
 ) -> Response:
     """Renderiza la configuración con formatos admitidos y resultado."""
 
@@ -507,13 +539,17 @@ def _page(
             "MAX_FILES": MAX_FILES,
             "MAX_FILE_MB": MAX_FILE_BYTES // 1024 // 1024,
             "formatos": sorted(ALLOWED_EXTENSIONS),
-            **_capture_context(form=form, operator_authorized=operator_authorized),
+            **_capture_context(
+                form=form,
+                operator_authorized=operator_authorized,
+                settings=settings,
+            ),
         },
         status_code=status_code,
         headers=merged,
     )
     if operator_authorized and status_code < 400:
-        set_operator_cookie(response, request)
+        set_operator_cookie(response, request, settings)
     return response
 
 
@@ -526,6 +562,7 @@ def _capture_partial(
     status_code: int = 200,
     headers: dict[str, str] | None = None,
     operator_authorized: bool = False,
+    settings: Settings | None = None,
 ) -> Response:
     """Parcial de HTMX con el formulario y el progreso de la captura."""
 
@@ -538,13 +575,17 @@ def _capture_partial(
             "job": _job_view(job),
             "error": error,
             "partial": True,
-            **_capture_context(form=form, operator_authorized=operator_authorized),
+            **_capture_context(
+                form=form,
+                operator_authorized=operator_authorized,
+                settings=settings,
+            ),
         },
         status_code=status_code,
         headers=merged,
     )
     if operator_authorized and status_code < 400:
-        set_operator_cookie(response, request)
+        set_operator_cookie(response, request, settings)
     return response
 
 
@@ -557,6 +598,7 @@ def _capture_response(
     status_code: int = 200,
     headers: dict[str, str] | None = None,
     operator_authorized: bool = False,
+    settings: Settings | None = None,
 ) -> Response:
     """Responde el parcial para HTMX o la página completa sin JavaScript."""
 
@@ -569,6 +611,7 @@ def _capture_response(
             status_code=status_code,
             headers=headers,
             operator_authorized=operator_authorized,
+            settings=settings,
         )
     return _page(
         request,
@@ -578,4 +621,5 @@ def _capture_response(
         form=form,
         headers=headers,
         operator_authorized=operator_authorized,
+        settings=settings,
     )
