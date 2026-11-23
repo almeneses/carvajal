@@ -192,3 +192,15 @@ def test_to_sources_tolerates_missing_and_extra_fields() -> None:
     assert source.score == 0.5
     assert source.slug == ""
     assert source.source_type == "oficial"
+
+
+def test_una_fuente_sin_puntaje_se_registra_con_cero() -> None:
+    # Arrange
+    sin_puntaje = {"chunk_id": "c-sin-score", "slug": "doc", "title": "Doc", "url": ""}
+
+    # Act
+    registrado = SourceRegistry.register([], [sin_puntaje])
+
+    # Assert
+    assert registrado.numbers == [1]
+    assert SourceRegistry.to_sources(registrado.sources)[0].score == 0.0

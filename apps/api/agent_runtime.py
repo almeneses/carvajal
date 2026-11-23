@@ -1,8 +1,12 @@
-"""Runtime del agente: checkpointer, Store, Qdrant y grafo compilado.
+"""Runtime del agente: checkpointer, Store, Qdrant y grafos compilados.
 
 Se construye en la primera pregunta, nunca al importar ni al comprobar la
 vitalidad. ``PostgresSaver`` y ``PostgresStore`` usan el Postgres existente;
 ``agent_checkpointer=sqlite`` deja una demo local con archivo persistente.
+
+``AGENT_MODE`` (spec 044, FR-015) elige qué grafo atiende los turnos. El grafo
+``routes`` se construye siempre: con ``tools`` activo sigue atendiendo el atajo
+(saludos, capacidad, preferencias) y el respaldo cuando DeepSeek falla.
 """
 
 import atexit
@@ -16,10 +20,14 @@ import structlog
 from sqlalchemy.engine import make_url
 
 from carvajal.adapters.embeddings import OllamaEmbedder
+from carvajal.adapters.llm.deepseek import build_deepseek_chat
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.agent.graph import AgentDeps, build_agent
 from carvajal.agent.router import decide_route
 from carvajal.agent.routers import Router, build_router, router_name
+from carvajal.agent.toolagent.graph import build_tool_agent
+from carvajal.agent.toolagent.tools import ToolDeps
+from carvajal.application.ports import Embedder, VectorStore
 from carvajal.application.retrieval import LayerPriorityStore
 from carvajal.infrastructure.settings import Settings
 
@@ -30,13 +38,24 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class AgentRuntime:
-    """Recursos vivos del agente; se cierran al terminar el proceso."""
+    """Recursos vivos del agente; se cierran al terminar el proceso.
+
+    ``graph`` es el grafo ``routes`` (siempre presente: atajo y respaldo);
+    ``tool_graph`` es el grafo ``tools`` y solo existe con ``AGENT_MODE=tools``.
+    """
 
     graph: Any
     qdrant: QdrantVectorStore
     checkpointer: Any
     store: Any
     _stack: ExitStack
+    tool_graph: Any = None
+
+    @property
+    def mode(self) -> str:
+        """Modo que atiende los turnos: ``tools`` solo si su grafo se construyó."""
+
+        return "tools" if self.tool_graph is not None else "routes"
 
     def health(self) -> dict[str, object]:
         """Estado del índice sin implicar la salud del proceso."""
@@ -72,6 +91,48 @@ def _router(settings: Settings) -> Router:
         return decide_route
 
 
+def _graphs(
+    settings: Settings,
+    *,
+    vector_store: VectorStore,
+    embedder: Embedder,
+    checkpointer: Any,
+    store: Any,
+    router: Router,
+) -> tuple[Any, Any | None]:
+    """Compila el grafo ``routes`` y, con ``AGENT_MODE=tools``, también el ``tools``.
+
+    Si el modo ``tools`` no puede arrancar (por ejemplo, sin ``DEEPSEEK_API_KEY``), se
+    registra el error y el proceso sigue con ``routes``, igual que con el enrutador.
+    """
+
+    graph = build_agent(
+        AgentDeps(vector_store=vector_store, embedder=embedder, settings=settings),
+        checkpointer=checkpointer,
+        store=store,
+        router=router,
+    )
+    if settings.agent_mode != "tools":
+        return graph, None
+    try:
+        chat = build_deepseek_chat(settings, stream_usage=True, for_tools=True)
+        tool_graph = build_tool_agent(
+            ToolDeps(vector_store=vector_store, embedder=embedder, settings=settings),
+            chat,
+            checkpointer=checkpointer,
+            store=store,
+        )
+    except Exception as error:
+        logger.error(
+            "agent.tools_mode_unavailable",
+            mode=settings.agent_mode,
+            error=str(error),
+            exc_info=True,
+        )
+        return graph, None
+    return graph, tool_graph
+
+
 def _build(settings: Settings) -> AgentRuntime:
     stack = ExitStack()
     qdrant = QdrantVectorStore(
@@ -100,29 +161,30 @@ def _build(settings: Settings) -> AgentRuntime:
             store = stack.enter_context(PostgresStore.from_conn_string(url))
             store.setup()
         router = _router(settings)
-        graph = build_agent(
-            AgentDeps(
-                vector_store=LayerPriorityStore(qdrant, min_score=settings.rag_min_score),
-                embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
-                settings=settings,
-            ),
+        graph, tool_graph = _graphs(
+            settings,
+            vector_store=LayerPriorityStore(qdrant, min_score=settings.rag_min_score),
+            embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
             checkpointer=checkpointer,
             store=store,
             router=router,
         )
-        logger.info(
-            "agent.runtime_ready",
-            router=router_name(router),
-            checkpointer=settings.agent_checkpointer,
-            collection=settings.qdrant_collection,
-        )
-        return AgentRuntime(
+        runtime = AgentRuntime(
             graph=graph,
             qdrant=qdrant,
             checkpointer=checkpointer,
             store=store,
             _stack=stack,
+            tool_graph=tool_graph,
         )
+        logger.info(
+            "agent.runtime_ready",
+            mode=runtime.mode,
+            router=router_name(router),
+            checkpointer=settings.agent_checkpointer,
+            collection=settings.qdrant_collection,
+        )
+        return runtime
     except Exception:
         qdrant.close()
         stack.close()

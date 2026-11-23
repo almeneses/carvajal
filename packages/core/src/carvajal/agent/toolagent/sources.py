@@ -91,7 +91,11 @@ def _source(payload: Mapping[str, Any]) -> Source:
         default = "" if field.default is MISSING else field.default
         raw = payload.get(field.name, default)
         if field.name == "score":
-            values[field.name] = float(raw if raw is not None else 0.0)
+            # Una fuente sin puntaje (o con uno ilegible) no debe tumbar el registro.
+            try:
+                values[field.name] = float(raw) if raw not in (None, "") else 0.0
+            except (TypeError, ValueError):
+                values[field.name] = 0.0
         else:
             values[field.name] = str(raw if raw is not None else default)
     return Source(**values)

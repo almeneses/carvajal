@@ -28,6 +28,12 @@ Plantillas (ejemplos; el texto final se revisa con el owner):
 | `buscar_sedes` | «Estoy buscando dónde comprar en {ciudad}…» |
 | `indicador_financiero` | «Estoy consultando las cifras de Carvajal…» |
 
+## `meta` en modo `tools`
+
+Se emite justo antes del primer `token` (vacío si hay abstención) y otra vez al final solo
+si las fuentes cambiaron o no hubo tokens. Orden típico: `open`, `status`…, `meta`,
+`token`…, `trace`, `products`, `done`.
+
 ## `trace` (solo cambia el contenido)
 
 Añade `mode: "routes" | "tools"` y `path: "shortcut" | "agent" | "fallback"`. En modo

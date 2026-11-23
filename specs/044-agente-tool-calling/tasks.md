@@ -64,23 +64,23 @@ de cada campo restringido.
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Pruebas de contrato de las seis herramientas (entradas válidas e inválidas, `status`, `n`, `missing`) según `contracts/agent-tools.md` en `tests/test_tool_agent_tools.py`.
-- [ ] T015 [P] [US1] Pruebas del bucle con `ScriptedToolChat` en `tests/test_tool_agent_graph.py`: llamadas agrupadas en un paso ejecutadas en serie en el orden pedido (research R12), reformulación tras `buscar_corpus` vacío (US1.4), y `tool_choice="required"` en el primer paso (research R3).
-- [ ] T016 [P] [US1] Pruebas del adaptador de streaming en `tests/test_tool_agent_stream.py`: retención de 48 caracteres, descarte del texto previo a una llamada (research R2), eventos `status` en orden y sin resultados (`contracts/sse-events.md`).
+- [X] T014 [P] [US1] Pruebas de contrato de las seis herramientas (entradas válidas e inválidas, `status`, `n`, `missing`) según `contracts/agent-tools.md` en `tests/test_tool_agent_tools.py`.
+- [X] T015 [P] [US1] Pruebas del bucle con `ScriptedToolChat` en `tests/test_tool_agent_graph.py`: llamadas agrupadas en un paso ejecutadas en serie en el orden pedido (research R12), reformulación tras `buscar_corpus` vacío (US1.4), y `tool_choice="required"` en el primer paso (research R3).
+- [X] T016 [P] [US1] Pruebas del adaptador de streaming en `tests/test_tool_agent_stream.py`: retención de 48 caracteres, descarte del texto previo a una llamada (research R2), eventos `status` en orden y sin resultados (`contracts/sse-events.md`).
 
 ### Implementation for User Story 1
 
-- [ ] T017 [P] [US1] Implementar `buscar_corpus` sobre `LayerPriorityStore`, `rag_min_score`, `proper_entities_supported` y neutralización de delimitadores en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-002, FR-003.
-- [ ] T018 [P] [US1] Implementar `buscar_producto` (`search_packaging` + `check_material`, descartadas con motivo, `needs_input` por temperatura) en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-002, FR-005.
-- [ ] T019 [US1] Implementar `cotizar` sobre `quote_request()` con relleno desde `data-model.md ToolAgentState.commercial_context` y lista `reutilizado` en `packages/core/src/carvajal/agent/toolagent/tools.py`. Depende de T008. FR-002, FR-003.
-- [ ] T020 [P] [US1] Implementar `buscar_sedes` (contrato comercial, disponibilidad solo con `valid_until` vigente) e `indicador_financiero` (envuelve `indicator_lookup`) en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-002.
-- [ ] T021 [P] [US1] Implementar `sin_consulta(motivo, dato)` sin evidencia y sin línea de estado en `packages/core/src/carvajal/agent/toolagent/tools.py` (`contracts/agent-tools.md`).
-- [ ] T022 [P] [US1] Implementar plantillas amigables por herramienta (sin nombres internos, resultados ni precios; dato principal escapado) y su publicación con `get_stream_writer()` en `packages/core/src/carvajal/agent/toolagent/status.py`; revisar textos con el owner. FR-018.
-- [ ] T023 [US1] Construir `build_tool_agent()` en `packages/core/src/carvajal/agent/toolagent/graph.py`: `recall → agent ⇄ tools → END`, `bind_tools` con llamadas múltiples permitidas y ejecución en serie, primer paso con `tool_choice="required"`, registro en `data-model.md ToolAgentState.results`, `ToolAgentState.sources` y `ToolAgentState.commercial_context`. Depende de T011, T017–T022. FR-001.
-- [ ] T024 [US1] Construir el grafo según `AGENT_MODE` en `apps/api/agent_runtime.py` (el de `routes` se construye siempre para atajo y respaldo). Depende de T023. FR-015.
-- [ ] T025 [US1] Implementar `ToolAgentRunner.stream()` en `apps/api/chat/agent.py`: consume `graph.stream(stream_mode=["messages", "custom"])`, aplica la retención de research R2 y produce eventos `status`, `token` y el resultado final (fuentes, tarjetas, cotizaciones). Depende de T023.
-- [ ] T026 [US1] Ramificar `ChatService.stream()` por modo en `apps/api/chat/service.py`: emitir `status`, tokens y `trace` con `mode`/`path`, conservar persistencia en una transacción y monitoreo existente. Depende de T025. FR-011, FR-012.
-- [ ] T027 [P] [US1] Manejar el evento `status` en `apps/api/static/chat-stream.js` (línea de estado `role=status`, reemplazo de «Pensando…», borrado con `token`/`fallback`/`error`) y prueba en `tests/browser/` o `tests/test_chat_stream_js.py`. FR-018, SC-006a.
+- [X] T017 [P] [US1] Implementar `buscar_corpus` sobre `LayerPriorityStore`, `rag_min_score`, `proper_entities_supported` y neutralización de delimitadores en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-002, FR-003.
+- [X] T018 [P] [US1] Implementar `buscar_producto` (`search_packaging` + `check_material`, descartadas con motivo, `needs_input` por temperatura) en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-002, FR-005.
+- [X] T019 [US1] Implementar `cotizar` sobre `quote_request()` con relleno desde `data-model.md ToolAgentState.commercial_context` y lista `reutilizado` en `packages/core/src/carvajal/agent/toolagent/tools.py`. Depende de T008. FR-002, FR-003.
+- [X] T020 [P] [US1] Implementar `buscar_sedes` (contrato comercial, disponibilidad solo con `valid_until` vigente) e `indicador_financiero` (envuelve `indicator_lookup`) en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-002.
+- [X] T021 [P] [US1] Implementar `sin_consulta(motivo, dato)` sin evidencia y sin línea de estado en `packages/core/src/carvajal/agent/toolagent/tools.py` (`contracts/agent-tools.md`).
+- [X] T022 [P] [US1] Implementar plantillas amigables por herramienta (sin nombres internos, resultados ni precios; dato principal escapado) y su publicación con `get_stream_writer()` en `packages/core/src/carvajal/agent/toolagent/status.py`; revisar textos con el owner. FR-018.
+- [X] T023 [US1] Construir `build_tool_agent()` en `packages/core/src/carvajal/agent/toolagent/graph.py`: `recall → agent ⇄ tools → END`, `bind_tools` con llamadas múltiples permitidas y ejecución en serie, primer paso con `tool_choice="required"`, registro en `data-model.md ToolAgentState.results`, `ToolAgentState.sources` y `ToolAgentState.commercial_context`. Depende de T011, T017–T022. FR-001.
+- [X] T024 [US1] Construir el grafo según `AGENT_MODE` en `apps/api/agent_runtime.py` (el de `routes` se construye siempre para atajo y respaldo). Depende de T023. FR-015.
+- [X] T025 [US1] Implementar `ToolAgentRunner.stream()` en `apps/api/chat/agent.py`: consume `graph.stream(stream_mode=["messages", "custom"])`, aplica la retención de research R2 y produce eventos `status`, `token` y el resultado final (fuentes, tarjetas, cotizaciones). Depende de T023.
+- [X] T026 [US1] Ramificar `ChatService.stream()` por modo en `apps/api/chat/service.py`: emitir `status`, tokens y `trace` con `mode`/`path`, conservar persistencia en una transacción y monitoreo existente. Depende de T025. FR-011, FR-012.
+- [X] T027 [P] [US1] Manejar el evento `status` en `apps/api/static/chat-stream.js` (línea de estado `role=status`, reemplazo de «Pensando…», borrado con `token`/`fallback`/`error`) y prueba en `tests/browser/` o `tests/test_chat_stream_js.py`. FR-018, SC-006a.
 
 **Checkpoint**: con `AGENT_MODE=tools` una necesidad compuesta se resuelve en un turno con estados y fuentes.
 
@@ -94,14 +94,14 @@ de cada campo restringido.
 
 ### Tests for User Story 2
 
-- [ ] T028 [P] [US2] Completar `tests/test_hard_rules_modes.py` (quitar `xfail` de `tools`): material prohibido pedido por nombre, precio ausente sin estimar, total pendiente, abstención sin evidencia, fuente de tercero etiquetada e instrucciones dentro de fragmentos. FR-002–FR-004, FR-007.
-- [ ] T029 [P] [US2] Pruebas de la compuerta en `tests/test_tool_agent_evidence.py`: sin evidencia + `buscar_corpus` → abstención sin generar; solo `sin_consulta` con cifras, fechas o nombres propios → abstención; solo `sin_consulta` limpio → texto completo emitido de una vez (research R2, R3).
+- [X] T028 [P] [US2] Completar `tests/test_hard_rules_modes.py` (quitar `xfail` de `tools`): material prohibido pedido por nombre, precio ausente sin estimar, total pendiente, abstención sin evidencia, fuente de tercero etiquetada e instrucciones dentro de fragmentos. FR-002–FR-004, FR-007.
+- [X] T029 [P] [US2] Pruebas de la compuerta en `tests/test_tool_agent_evidence.py`: sin evidencia + `buscar_corpus` → abstención sin generar; solo `sin_consulta` con cifras, fechas o nombres propios → abstención; solo `sin_consulta` limpio → texto completo emitido de una vez (research R2, R3).
 
 ### Implementation for User Story 2
 
-- [ ] T030 [US2] Implementar `evidence.gate()` y el filtro de `sin_consulta` (reutilizando el criterio de la ruta directa) en `packages/core/src/carvajal/agent/toolagent/evidence.py` sobre `data-model.md ToolOutcome.status` y `ToolOutcome.source_ids`. FR-004.
-- [ ] T031 [US2] Integrar la compuerta y la retención por camino (48 caracteres / completa / sin generar) en `apps/api/chat/agent.py`. Depende de T030. FR-004.
-- [ ] T032 [US2] Endurecer el formato que cada herramienta devuelve al modelo (bloques de datos delimitados y neutralizados, nunca órdenes) en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-007.
+- [X] T030 [US2] Implementar `evidence.gate()` y el filtro de `sin_consulta` (reutilizando el criterio de la ruta directa) en `packages/core/src/carvajal/agent/toolagent/evidence.py` sobre `data-model.md ToolOutcome.status` y `ToolOutcome.source_ids`. FR-004.
+- [X] T031 [US2] Integrar la compuerta y la retención por camino (48 caracteres / completa / sin generar) en `apps/api/chat/agent.py`. Depende de T030. FR-004.
+- [X] T032 [US2] Endurecer el formato que cada herramienta devuelve al modelo (bloques de datos delimitados y neutralizados, nunca órdenes) en `packages/core/src/carvajal/agent/toolagent/tools.py`. FR-007.
 
 **Checkpoint**: MVP (US1 + US2) — el modo `tools` es seguro de probar con personas internas.
 

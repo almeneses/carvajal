@@ -11,7 +11,10 @@ from typing import Any, Literal
 __all__ = ["ChatEvent", "EventName"]
 
 # ``products`` (spec 036) lleva las tarjetas de la ruta comercial, ya renderizadas y escapadas.
-EventName = Literal["open", "trace", "meta", "products", "token", "fallback", "done", "error"]
+# ``status`` (spec 044) es la línea de progreso de una herramienta del modo ``tools``.
+EventName = Literal[
+    "open", "trace", "status", "meta", "products", "token", "fallback", "done", "error"
+]
 
 
 @dataclass(frozen=True)

@@ -9,10 +9,15 @@ hilo pertenezca al dueño de la cookie.
 La sesión de base de datos se cierra antes de llamar al LLM: generar puede
 tardar minutos y no debe retener una conexión del pool. La persistencia y el
 checkpoint se escriben después, en transacciones cortas.
+
+``AGENT_MODE`` (spec 044) elige el camino del turno: ``routes`` prepara el turno con el
+grafo por rutas y genera con el LLM del servicio; ``tools`` transmite el grafo con
+herramientas (``ToolStreamRunner``), que emite estados, tokens y un cierre con fuentes,
+tarjetas y cotizaciones. La persistencia, el replay y el monitoreo son los mismos.
 """
 
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict, replace
+from collections.abc import Generator, Iterator, Mapping, Sequence
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from functools import cache
@@ -25,7 +30,17 @@ import structlog
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.api.chat.agent import AgentRunner, AgentTurn, default_agent_runner
+from apps.api.chat.agent import (
+    AgentRunner,
+    AgentTurn,
+    ToolAgentFinal,
+    ToolAgentSources,
+    ToolAgentStatus,
+    ToolAgentToken,
+    ToolStreamRunner,
+    default_agent_runner,
+    default_tool_agent_runner,
+)
 from apps.api.chat.products import has_cards, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from carvajal.adapters.storage.chat import (
@@ -63,6 +78,22 @@ class ThreadAccessError(PermissionError):
 
 class ChatFailure(RuntimeError):
     """Fallo de chat ya traducido; la vista lo convierte en 503."""
+
+
+@dataclass
+class _ToolTurn:
+    """Progreso de un turno del modo ``tools`` que el manejo de errores necesita leer.
+
+    ``fragments`` es la misma lista que acumula ``stream()``: lo ya enviado al cliente.
+    """
+
+    runner: ToolStreamRunner
+    fragments: list[str]
+    seed: tuple[Turn, ...]
+    route: str = "agent"
+    persist_attempted: bool = False
+    # Fuentes ya enviadas en ``meta`` antes del primer token; ``None`` si aún no.
+    announced: tuple[Source, ...] | None = None
 
 
 @runtime_checkable
@@ -123,6 +154,7 @@ class ChatService:
         llm: LLMProvider,
         agent: AgentRunner | None = None,
         *,
+        tool_agent: ToolStreamRunner | None = None,
         tracer: TurnTracer | None = None,
         settings: Settings | None = None,
     ) -> None:
@@ -130,6 +162,7 @@ class ChatService:
         self._embedder = embedder
         self._llm = llm
         self._agent = agent
+        self._tool_agent = tool_agent
         # El tracer y la configuración se resuelven en el primer turno: importar
         # el módulo no lee el entorno ni construye clientes.
         self._tracer = tracer
@@ -139,6 +172,23 @@ class ChatService:
         """Runner inyectado o el real, construido en la primera pregunta."""
 
         return self._agent or default_agent_runner()
+
+    def _tool_runner(self) -> ToolStreamRunner | None:
+        """Runner del modo ``tools`` o ``None`` si el turno va por ``routes``.
+
+        Con ``AGENT_MODE=tools`` se usa el inyectado o el del runtime. Si solo se inyectó
+        el runner ``routes`` (pruebas), no se construye el runtime real. Si el runtime no
+        pudo construir el grafo ``tools`` (por ejemplo, sin ``DEEPSEEK_API_KEY``), el
+        turno sigue por ``routes``.
+        """
+
+        if self._config().agent_mode != "tools":
+            return None
+        if self._tool_agent is not None:
+            return self._tool_agent
+        if self._agent is not None:
+            return None
+        return default_tool_agent_runner()
 
     def _config(self) -> Settings:
         """Configuración del proceso, leída de forma perezosa una sola vez."""
@@ -255,6 +305,7 @@ class ChatService:
         persisted = False
         persist_attempted = False
         done_event: ChatEvent | None = None
+        tools: _ToolTurn | None = None
         try:
             if not text:
                 raise ValueError("La pregunta no puede estar vacía.")
@@ -264,7 +315,9 @@ class ChatService:
             # El runtime del agente se inicializa antes de abrir una sesión:
             # PostgresSaver.setup() crea índices CONCURRENTLY y se bloquearía
             # si esta petición retuviera una transacción abierta.
-            runner = self._runner()
+            tool_runner = self._tool_runner()
+            if tool_runner is None:
+                runner = self._runner()
             # Fase de preparación: resolver el hilo y sembrar el checkpointer.
             # La sesión se cierra antes de decidir la ruta y de generar.
             with self._session_factory() as session:
@@ -284,6 +337,21 @@ class ChatService:
                 session.commit()
             request_id = _request_id()
             monitor = self._monitoring()
+            if tool_runner is not None:
+                tools = _ToolTurn(runner=tool_runner, fragments=fragments, seed=tuple(seed))
+                yield from self._stream_tools(
+                    tools,
+                    monitor,
+                    owner_key=owner_key,
+                    conversation=conversation,
+                    question=text,
+                    client_turn_id=client_turn_id,
+                    request_id=request_id,
+                    started=started,
+                )
+                return
+            if runner is None:  # el modo ``routes`` lo resolvió arriba; acota el tipo
+                raise RuntimeError("Sin runner para el turno.")
             with monitor.turn(
                 request_id=request_id,
                 thread_hash=thread_hash(conversation.id),
@@ -454,6 +522,19 @@ class ChatService:
                     },
                 )
             yield done_event
+        except GeneratorExit:
+            # «Detener» o desconexión (research R2): antes del primer token no se guarda
+            # nada; durante el texto, lo emitido queda como ``incomplete`` sin fuentes ni
+            # cotizaciones. El modo ``routes`` conserva su comportamiento.
+            if (
+                tools is not None
+                and conversation is not None
+                and not tools.persist_attempted
+                and "".join(fragments).strip()
+            ):
+                logger.info("chat.turn_cancelled", thread_id=conversation.id, mode="tools")
+                self._persist_tools_partial(tools, conversation, text, client_turn_id)
+            raise
         except IntegrityError as error:
             # Dos reenvíos simultáneos con el mismo ``client_turn_id``: el primero
             # confirmó; el segundo recupera ese turno en vez de duplicarlo. Otra
@@ -477,9 +558,19 @@ class ChatService:
                 "chat.stream_failed",
                 error=str(error),
                 thread_id=getattr(conversation, "id", None),
-                route=getattr(turn, "route", None),
+                route=getattr(turn, "route", None) or (tools.route if tools else None),
+                mode="tools" if tools is not None else "routes",
                 incomplete=bool(partial),
             )
+            if (
+                partial
+                and conversation is not None
+                and tools is not None
+                and not tools.persist_attempted
+            ):
+                # Corte durante el texto del modo ``tools``: se guarda lo emitido como
+                # ``incomplete``, sin fuentes ni cotizaciones (aún no hay cierre del agente).
+                self._persist_tools_partial(tools, conversation, text, client_turn_id)
             if (
                 partial
                 and conversation is not None
@@ -487,7 +578,14 @@ class ChatService:
                 and not persisted
                 and not persist_attempted
             ):
-                self._persist_partial(conversation, text, "".join(fragments), turn, client_turn_id)
+                self._persist_partial(
+                    conversation,
+                    text,
+                    "".join(fragments),
+                    client_turn_id,
+                    sources=turn.sources,
+                    products=turn.products,
+                )
                 if runner is not None:
                     runner.record(
                         conversation.id,
@@ -500,6 +598,246 @@ class ChatService:
                 "error",
                 {"message": SERVICE_UNAVAILABLE, "incomplete": bool(partial)},
             )
+
+    def _persist_tools_partial(
+        self,
+        tools: _ToolTurn,
+        conversation: Conversation,
+        question: str,
+        client_turn_id: str | None,
+    ) -> None:
+        """Guarda lo emitido del modo ``tools`` como ``incomplete``, sin fuentes ni folios."""
+
+        answer = "".join(tools.fragments)
+        self._persist_partial(
+            conversation,
+            question,
+            answer,
+            client_turn_id,
+            sources=(),
+            products=None,
+        )
+        tools.runner.record(
+            conversation.id,
+            question=question,
+            answer=answer,
+            incomplete=True,
+            turns=tools.seed,
+        )
+
+    def _stream_tools(
+        self,
+        tools: _ToolTurn,
+        monitor: TurnTracer,
+        *,
+        owner_key: str,
+        conversation: Conversation,
+        question: str,
+        client_turn_id: str | None,
+        request_id: str,
+        started: float,
+    ) -> Iterator[ChatEvent]:
+        """Turno del modo ``tools``: estados y tokens en vivo; cierre y persistencia al final.
+
+        ``meta`` sale antes del primer token, con las fuentes que el runner anuncia
+        (``ToolAgentSources``), como en ``routes``: el cliente sella cada párrafo con las
+        fuentes que conoce al recibirlo. Si el cierre trae otra lista (o no hubo tokens),
+        ``meta`` se reemite al final. ``trace`` y ``products`` dependen del
+        ``ToolAgentFinal`` y salen tras el último token, antes de ``done``. Los errores y la
+        cancelación los maneja ``stream()``.
+        """
+
+        config = self._config()
+        fragments = tools.fragments
+        with monitor.turn(
+            request_id=request_id,
+            thread_hash=thread_hash(conversation.id),
+            router=config.agent_router,
+            question=question,
+        ) as span:
+            span.add_metadata(mode="tools", question_chars=len(question))
+            structlog.contextvars.bind_contextvars(thread_id=conversation.id, mode="tools")
+            closing = yield from self._relay_tool_events(
+                tools,
+                span,
+                owner_key=owner_key,
+                thread_id=conversation.id,
+                question=question,
+            )
+            route = "shortcut" if closing.mode_path == "shortcut" else "agent"
+            tools.route = route
+            sources: tuple[Source, ...] = () if closing.abstained else closing.sources
+            empty = not "".join(fragments).strip()
+            if empty:
+                sources = ()
+            if tools.announced != sources:
+                tools.announced = sources
+                yield ChatEvent("meta", {"sources": _sources(sources)})
+            if empty:
+                # TODO(T041): sustituir por el respaldo determinista (aviso fijo + tarjetas).
+                logger.warning("chat.tool_agent_empty_answer", thread_id=conversation.id)
+                fragments.append(NO_CONTEXT_ANSWER)
+                yield ChatEvent("token", {"text": NO_CONTEXT_ANSWER})
+            # TODO(T042): una cotización por turno (la primera del agente) con el folio de
+            # hoy; varias cotizaciones con un folio cada una llegan con T042.
+            products, quote_record = _issue_quote(
+                closing.products,
+                conversation_id=conversation.id,
+                client_turn_id=client_turn_id,
+            )
+            products = _sync_first_quote(products, issued=quote_record is not None)
+            tool_names = [str(r["tool"]) for r in closing.results if r.get("tool")]
+            span.add_metadata(
+                route=route,
+                path=closing.mode_path,
+                gate=closing.gate,
+                abstained=closing.abstained,
+                tool_calls=len(tool_names),
+                tools=tool_names,
+                preferences_count=len(closing.preferences),
+                retrieved=len(sources),
+            )
+            structlog.contextvars.bind_contextvars(route=route)
+            yield ChatEvent(
+                "trace",
+                {
+                    "thread_id": conversation.id,
+                    "route": route,
+                    "intent": "",
+                    "tool": ",".join(tool_names),
+                    "reason": "",
+                    "memory": len(closing.preferences),
+                    "retrieved": len(sources),
+                    "mode": "tools",
+                    "path": closing.mode_path,
+                    "gate": closing.gate,
+                },
+            )
+            if products and has_cards(products):
+                html = safe_render_products(products)
+                if html:
+                    yield ChatEvent("products", {"html": html})
+
+            answer_text = "".join(fragments)
+            span.add_outputs(answer=answer_text)
+            tools.persist_attempted = True
+            with self._session_factory() as session:
+                repository = SqlChatRepository(session)
+                current = repository.get_owned(conversation.id, owner_key)
+                if current is None:
+                    raise ThreadAccessError("El hilo dejó de pertenecer al visitante.")
+                conversation_id, message_id = self._persist(
+                    session,
+                    current,
+                    question,
+                    answer_text,
+                    sources,
+                    status="complete",
+                    client_turn_id=client_turn_id,
+                    products=products,
+                    quote=quote_record,
+                )
+            tools.runner.record(
+                conversation.id,
+                question=question,
+                answer=answer_text,
+                incomplete=False,
+                turns=tools.seed,
+            )
+            elapsed = _milliseconds(started)
+            logger.info(
+                "chat.turn_completed",
+                thread_id=conversation.id,
+                mode="tools",
+                route=route,
+                path=closing.mode_path,
+                gate=closing.gate,
+                tool=",".join(tool_names) or None,
+                sources=len(sources),
+                retrieved=len(sources),
+                duration_ms=elapsed,
+                result="ok",
+            )
+            span.add_metadata(answer_chars=len(answer_text))
+            # Como en ``routes``: ``done`` sale ya cerrada la traza.
+            done_event = ChatEvent(
+                "done",
+                {
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "thread_id": conversation.id,
+                    "route": route,
+                    "elapsed_ms": elapsed,
+                    "request_id": request_id,
+                    "quote_id": quote_record["id"] if quote_record else None,
+                },
+            )
+        yield done_event
+
+    def _relay_tool_events(
+        self,
+        tools: _ToolTurn,
+        span: Any,
+        *,
+        owner_key: str,
+        thread_id: str,
+        question: str,
+    ) -> Generator[ChatEvent, None, ToolAgentFinal]:
+        """Traduce los eventos del runner a ``status`` y ``token``; devuelve el cierre.
+
+        El modelo corre dentro del grafo: el hijo ``llm`` cubre todo el bucle y registra
+        los caracteres emitidos y los tokens sumados (el detalle por herramienta es T044).
+        Al cancelar o fallar, se cierra el generador del runner: ``ToolAgentRunner`` activa
+        su ``TurnCancel`` y el grafo corta el trozo siguiente del modelo y las herramientas
+        pendientes, sin esperar a que termine el paso.
+        """
+
+        config = self._config()
+        fragments = tools.fragments
+        events = tools.runner.stream(owner_key, thread_id, question, tools.seed)
+        closing: ToolAgentFinal | None = None
+        try:
+            with span.child(
+                "llm",
+                run_type="llm",
+                metadata={"provider": "deepseek", "model": config.deepseek_model},
+            ) as llm_span:
+                answer_chars = 0
+                while True:
+                    # Igual que en ``routes``: el contexto se reabre en cada avance porque
+                    # Starlette mueve el generador SSE entre hilos (FR-003).
+                    with span.generation():
+                        try:
+                            event = next(events)
+                        except StopIteration:
+                            break
+                    if isinstance(event, ToolAgentStatus):
+                        yield ChatEvent("status", {"text": event.text, "step": event.step})
+                    elif isinstance(event, ToolAgentSources):
+                        tools.announced = event.sources
+                        yield ChatEvent("meta", {"sources": _sources(event.sources)})
+                    elif isinstance(event, ToolAgentToken):
+                        if not event.text:
+                            continue
+                        fragments.append(event.text)
+                        answer_chars += len(event.text)
+                        llm_span.add_outputs(answer_chars=answer_chars)
+                        yield ChatEvent("token", {"text": event.text})
+                    elif isinstance(event, ToolAgentFinal):
+                        closing = event
+                if closing is not None:
+                    llm_span.add_outputs(usage=dict(closing.usage))
+        except GeneratorExit:
+            # Cancelación: lo emitido queda en la traza con una sola unión (T012).
+            span.add_outputs(answer="".join(fragments))
+            raise
+        finally:
+            close = getattr(events, "close", None)
+            if callable(close):
+                close()
+        if closing is None:
+            raise RuntimeError("El agente terminó sin cierre del turno.")
+        return closing
 
     def _find_turn(
         self, conversation_id: str, client_turn_id: str
@@ -543,8 +881,10 @@ class ChatService:
         conversation: Conversation,
         question: str,
         answer: str,
-        turn: AgentTurn,
         client_turn_id: str | None,
+        *,
+        sources: Sequence[Source],
+        products: Mapping[str, Any] | None,
     ) -> None:
         """Guarda una respuesta interrumpida en una sesión nueva."""
 
@@ -559,10 +899,10 @@ class ChatService:
                     current,
                     question,
                     answer,
-                    turn.sources,
+                    sources,
                     status="incomplete",
                     client_turn_id=client_turn_id,
-                    products=turn.products,
+                    products=products,
                 )
         except Exception as error:  # la UI ya recibirá el evento de error
             logger.warning("chat.incomplete_persist_failed", error=str(error))
@@ -764,6 +1104,18 @@ def _issue_quote(
         "commercial_valid_until": commercial.get("valid_until"),
     }
     return {**products, "quote": payload}, record
+
+
+def _sync_first_quote(products: dict[str, Any], *, issued: bool) -> dict[str, Any]:
+    """Copia la cotización con folio en ``quotes[0]`` para que ambas claves coincidan.
+
+    TODO(T042): con varias cotizaciones cada elemento de ``quotes`` recibe su folio.
+    """
+
+    listed = products.get("quotes")
+    if not issued or not isinstance(listed, list) or not listed:
+        return products
+    return {**products, "quotes": [products["quote"], *listed[1:]]}
 
 
 def _record_quote(

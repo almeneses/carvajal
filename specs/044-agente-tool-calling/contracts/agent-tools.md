@@ -23,6 +23,10 @@ Cada herramienta, al empezar, publica un evento de estado (ver [sse-events.md](.
 - **Comportamiento**: embebe la consulta, busca con `LayerPriorityStore` (núcleo antes que
   extendida), aplica `rag_min_score` y `proper_entities_supported` contra la pregunta
   original del turno. Neutraliza delimitadores como `AskQuestion._build_prompt`.
+- **Nombres propios (implementado)**: toda entidad de la pregunta original debe aparecer en
+  los fragmentos, aunque la consulta del modelo la omita; se evalúa oración por oración y
+  una ciudad del directorio comercial queda exenta solo si la consulta no la nombra (para
+  que las preguntas compuestas con ciudad sigan buscando la parte institucional).
 - **Salida `ok`**: `fragmentos: [{n, titulo, seccion, tipo_fuente: "oficial"|"tercero",
   capa, texto}]` (máx. `rag_top_k`).
 - **Salida `empty`**: sin fragmentos sobre el umbral o entidad sin respaldo.

@@ -32,6 +32,13 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
   pedir el texto en streaming: duplica el costo del paso final (SC-008); un paso extra solo
   de redacción: añade una llamada por turno (SC-006, SC-008).
 
+**Ajuste de implementación (2026-11-23).** «Sin evidencia… no se genera» no es literal: el
+modelo tiene que empezar el paso final antes de poder distinguirlo de una nueva búsqueda. En
+el camino de abstención, el adaptador corta el paso y cancela el grafo en cuanto supera los
+48 caracteres retenidos sin llamar herramientas; se generan como mucho ~48 caracteres más un
+trozo, que nunca se muestran. Las fuentes (`meta`) se emiten justo antes del primer token
+(y otra vez al final solo si cambiaron), para que el cliente pueda limpiar `[n]` en vivo.
+
 ## R3. Compuerta de evidencia (FR-004)
 
 - **Decision**: antes de liberar el paso final, `evidence.gate(state)` comprueba si alguna
@@ -54,6 +61,17 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
 - **Alternatives considered**: confiar en el prompt: no es verificable; cortar el bucle tras
   la primera búsqueda vacía: impide la reformulación (US1.4); generar sin streaming y
   revisar antes de mostrar: rompe SC-006.
+
+**Ajustes de implementación (2026-11-23).** (a) Un `needs_input` sin evidencia toma el
+camino `no_query` filtrado (no la abstención), para no perder la petición del dato que
+falta. (b) El filtro permite los términos propios del asistente (Carva, Carvajal, Colombia,
+México, IVA, SKU) y bloquea cifras con dígitos y en palabras desde «once», ordinales,
+décadas, siglos, numerales romanos, empresas del grupo y ciudades; los números «dos»…«diez»
+se permiten a propósito para que pasen preguntas como «te pido dos datos». (c) Lo permitido
+se calcula solo con la pregunta, los datos devueltos por herramientas (sin `message`) y el
+contexto comercial con el que empezó el turno: los argumentos que escribe el modelo no
+respaldan sus propias cifras. Hueco conocido: el contexto de turnos previos puede traer
+argumentos inventados por el modelo en esos turnos.
 
 ## R4. Entrada estructurada del motor de cotización
 
@@ -125,6 +143,10 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
   el prompt recibe la lista de lo que faltó. Si vence el plazo antes del paso final, se usa
   el respaldo determinista con lo obtenido.
 - **Rationale**: FR-010 y SC-006 con comportamiento predecible.
+- **Ajuste de implementación (2026-11-23)**: `recursion_limit = 2·límite + 5` porque un paso
+  de `sin_consulta` es gratuito y no cuenta para el límite; el corte se aplica con
+  `usados ≥ límite`, `pasos reales ≥ límite` o `pasos > límite` (antibucle). «Detener»
+  cancela el grafo con un callback (`TurnCancel`) y no espera a que termine el paso.
 
 ## R10. Pruebas sin red
 
@@ -155,5 +177,11 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
   llamadas de a una, una necesidad compuesta cuesta ~4 decisiones (~6–7 s hasta el primer
   texto con la latencia medida en `docs/resultados-router.md`: 1,3 s media, 1,6 s p95) e
   incumple SC-006; agrupadas, ~2 decisiones (~3,5 s).
+- **Hallazgo en vivo (2026-11-23)**: el `.env` usa `DEEPSEEK_MODEL=deepseek-flash`, que
+  razona por defecto; en ese modo la API rechaza `tool_choice="required"` («Thinking mode
+  does not support this tool_choice»). `build_deepseek_chat(..., for_tools=True)` envía
+  `thinking: {"type": "disabled"}`; así además aplica la temperatura 0. `deepseek-chat` es
+  un alias del mismo modelo sin razonamiento. El proveedor de texto del modo `routes` no
+  cambia.
 - **Riesgo**: calidad del tool calling de DeepSeek en español; se mide en F4 y, si no
   alcanza SC-003, el modo `tools` no pasa a valor por defecto.

@@ -163,6 +163,17 @@
     const texto = turnoAsistente.querySelector(".texto");
     const flujo = formateador.crearFlujo(texto);
     const espera = setTimeout(() => avisar("Pensando…"), 300);
+    // Progreso del agente (evento status, spec 044): vive en la misma línea de
+    // estado que «Pensando…» y desaparece con el primer token, fallback o error.
+    let progreso = "";
+    let progresoCerrado = false;
+    function quitarProgreso() {
+      clearTimeout(espera);
+      progresoCerrado = true;
+      const vigente = estado.textContent;
+      if (vigente === "Pensando…" || (progreso && vigente === progreso)) avisar("");
+      progreso = "";
+    }
     let cantidadFuentes = 0;
     let lote = [];
     let repintado;
@@ -180,10 +191,7 @@
         flujo.terminar(cantidadFuentes, interrumpido);
         finalizado = true;
       }
-      if (texto.textContent || !provisional) {
-        clearTimeout(espera);
-        if (estado.textContent === "Pensando…") avisar("");
-      }
+      if (texto.textContent || !provisional) quitarProgreso();
       ajustarHistorial();
     }
     const guardarFuentes = (fuentes) => {
@@ -253,16 +261,27 @@
             pintarProductos(turnoAsistente, String(evento.datos.html ?? ""));
             ajustarHistorial();
             break;
+          case "status": {
+            // Solo texto: el mensaje sale de plantillas fijas, pero puede citar lo
+            // que escribió la persona. Nunca se persiste ni llega en el replay.
+            const aviso = String(evento.datos.text ?? "").trim();
+            if (!aviso || progresoCerrado) break;
+            clearTimeout(espera);
+            progreso = aviso;
+            avisar(aviso);
+            break;
+          }
           case "token": {
             const fragmento = String(evento.datos.text ?? "");
             if (!fragmento) break;
+            if (!progresoCerrado) quitarProgreso();
             recibioContenido = true;
             lote.push(fragmento);
             if (repintado === undefined) repintado = setTimeout(() => pintarLote(true), 40);
             break;
           }
           case "fallback":
-            clearTimeout(espera);
+            quitarProgreso();
             avisar("");
             clearTimeout(repintado);
             repintado = undefined;
@@ -288,7 +307,7 @@
           case "error":
             cerrado = true;
             errorRecibido = true;
-            clearTimeout(espera);
+            quitarProgreso();
             pintarLote(false, true);
             if (!texto.textContent) {
               flujo.reemplazar(String(evento.datos.message ?? INCOMPLETA));
