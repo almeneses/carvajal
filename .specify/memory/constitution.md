@@ -112,6 +112,9 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   identifican donde aparecen.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
+- La 043 está en borrador. Planifica un solo hilo comercial con datos publicados,
+  sobre la protección de ingesta de #222 y el contrato de #223. El alcance del
+  piloto y la transición desde la 042 se definen en la constitución raíz.
 
 ## Restricciones técnicas
 

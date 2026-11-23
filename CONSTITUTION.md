@@ -114,6 +114,14 @@ trabajo, ciudad, gustos y domicilio) en la tabla `visitor_memory`, con caducidad
 y borrado con «olvida mis datos». No cambia las reglas vigentes de precios de referencia ni
 acredita inventario o tiempos de entrega reales; la sección lo advierte.
 
+**Chat comercial unificado en borrador (spec 043):** [la especificación](specs/043-chat-comercial-unificado/spec.md)
+prevé un único hilo para consulta, cotización referencial y búsqueda de sedes.
+El piloto reutilizará la protección del corpus (#222) y el contrato comercial (#223).
+Trabajará con datos publicados y distinguirá precio, contacto y disponibilidad
+por sede. Se prevé retirar la simulación y el Cotizador separado tras el corte,
+conservando la lectura autorizada de históricos reales. El flujo vigente de la
+042 se conserva como referencia de la entrega original.
+
 ### Fuera del alcance (por ahora)
 
 - Rastrear el `sitemap.xml` completo del dominio (podcast, noticias, especialistas).
@@ -501,6 +509,7 @@ git push
 | 2026-11-21 | Hacer progresiva la lectura del bloque activo y simplificar la conversación | El cliente pinta el párrafo activo en lotes cortos de SSE, sella los bloques anteriores y sigue el final solo cuando el lector está cerca. El compositor multilínea queda fuera del área de scroll y permite detener la recepción, conservando el parcial en pantalla sin añadir un contrato nuevo de persistencia. Cabecera compacta, diagnóstico visual optativo (`/chat?debug=1`) y fichas comerciales desplegables. |
 | 2026-11-21 | Abrir en borrador la spec 042 (Cotizador conversacional) con un plan preliminar que audita el catálogo | La sección pide producto, cantidad, precio, total, proveedores, mapa, entrega y alternativas en un solo turno, y el catálogo actual no puede sostenerlo: 29 de 102 referencias CO tienen precio, todas de EDEXA, y no existen inventario, coordenadas ni plazos. El plan deja por escrito la brecha —incluido que el flujo vigente redondea a cajas de miles de unidades mientras las capturas conservan precios por paquete— y propone una demo con datos simulados explícitos, separados del catálogo y etiquetados donde aparecen. Se decide el mercado inicial (Colombia, empaques, COP), el alcance exclusivamente comercial de la sección y la prohibición de presentar stock o plazos ficticios como reales. La implementación espera `/speckit.clarify` y `/speckit.plan`. |
 | 2026-11-22 | Restringir la escritura del corpus a operadores: `OPERATOR_TOKEN` en la web, CLI para publicar y `Configuración` fuera de la navegación pública | La auditoría de `a21425c` confirmó que un visitante con el CSRF de su propia sesión podía cargar archivos y capturar web, escribiendo el núcleo que alimenta al chat. La autorización se evalúa en servidor antes de leer archivos o crear el job, con CSRF como control separado; el token es un secreto de despliegue, no un sistema de cuentas, y `CONFIG_TOKEN` queda como alias. La carga y la captura web solo escriben Gold: publicar a PostgreSQL y Qdrant sigue siendo el paso de curaduría `carvajal sync`. Sin token, la web queda cerrada y la consola conserva la operación. El procedimiento y las rutas cubiertas están en [`docs/seguridad-operacion-corpus.md`](docs/seguridad-operacion-corpus.md); la decisión, en [ADR-0003](docs/decisions/0003-escritura-corpus-operadores.md). |
+| 2026-11-22 | Abrir la spec 043 del chat comercial unificado | Planificar la retirada de la simulación, la integración en un solo hilo y el despliegue con catálogo verificable. #222 y #223 son la base entregada. |
 | 2026-11-23 | Cotizador integrado a `main`: precios con fecha visible pero sin caducidad ni sello de vencimiento, y sin aviso general de demo | La spec 042 se alinea con la entrega real en `main`: el mapa definitivo es OpenStreetMap, la ventana de entrega incluye los días de atención del proveedor y la regresión cubre chat/SSE y flujo comercial. Los precios antiguos se usan como precios de referencia normales, con su fecha, sin rotularlos como vencidos. Los datos simulados se marcan por campo; no hay aviso general. T039 (dictado por voz) queda diferida. |
 
 ## 10. Notas y tareas pendientes
