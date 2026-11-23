@@ -456,10 +456,11 @@ class ChatService:
             yield done_event
         except IntegrityError as error:
             # Dos reenvíos simultáneos con el mismo ``client_turn_id``: el primero
-            # confirmó; el segundo recupera ese turno en vez de duplicarlo.
+            # confirmó; el segundo recupera ese turno en vez de duplicarlo. Otra
+            # violación de integridad no se enmascara con un turno anterior.
             existing = (
                 self._find_turn(conversation.id, client_turn_id)
-                if conversation is not None and client_turn_id
+                if conversation is not None and client_turn_id and _is_duplicate_turn(error)
                 else None
             )
             if existing is not None:
@@ -565,6 +566,17 @@ class ChatService:
                 )
         except Exception as error:  # la UI ya recibirá el evento de error
             logger.warning("chat.incomplete_persist_failed", error=str(error))
+
+
+def _is_duplicate_turn(error: IntegrityError) -> bool:
+    """Solo la unicidad del turno habilita la reproducción idempotente."""
+
+    original = getattr(error, "orig", None)
+    diag = getattr(original, "diag", None)
+    constraint = getattr(diag, "constraint_name", None)
+    if constraint:
+        return str(constraint) in {"uq_messages_turn", "uq_messages_turn_user"}
+    return "uq_messages_turn" in str(original)
 
 
 def _request_id() -> str:

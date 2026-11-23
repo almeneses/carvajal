@@ -253,6 +253,27 @@ def test_el_emparejamiento_acepta_quote_record() -> None:
     assert [message.id for message in publicables] == ["u-folio-1", "a-folio-1"]
 
 
+def test_un_payload_042_con_fuente_sigue_siendo_real() -> None:
+    client, store = make_client()
+    store.messages = [
+        ChatMessage("u-042", "hilo-1", "user", "cotiza 20 vasos", None, WHEN),
+        ChatMessage(
+            "a-042",
+            "hilo-1",
+            "assistant",
+            "Cotización de la 042.",
+            [_payload(folio="folio-042")],
+            WHEN,
+        ),
+    ]
+
+    respuesta = _get(client, "/cotizador?thread=hilo-1")
+
+    assert respuesta.status_code == 200
+    assert "Cotización de la 042." in respuesta.text
+    assert "#folio-042" in respuesta.text
+
+
 def test_un_payload_de_aclaracion_no_rompe_el_historial() -> None:
     client, store = make_client()
     store.messages = [

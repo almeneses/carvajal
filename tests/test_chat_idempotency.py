@@ -2,7 +2,9 @@
 
 from dataclasses import asdict
 
-from apps.api.chat.service import _issue_quote, _sources_from_payload
+from sqlalchemy.exc import IntegrityError
+
+from apps.api.chat.service import _is_duplicate_turn, _issue_quote, _sources_from_payload
 from carvajal.application.ask import Source
 
 
@@ -54,6 +56,22 @@ def test_sin_client_turn_id_el_folio_no_se_reutiliza() -> None:
 
     # Assert
     assert _folio(primero) != _folio(segundo)
+
+
+def test_solo_el_duplicado_del_turno_habilita_la_reproduccion() -> None:
+    class Diag:
+        constraint_name = "uq_messages_turn"
+
+    class Orig(Exception):
+        diag = Diag()
+
+    duplicado = IntegrityError("INSERT", {}, Orig())
+    otra_integridad = IntegrityError(
+        "INSERT", {}, Exception('violates foreign key constraint "fk_quotes"')
+    )
+
+    assert _is_duplicate_turn(duplicado)
+    assert not _is_duplicate_turn(otra_integridad)
 
 
 def test_las_fuentes_ignoran_explicitamente_el_resultado_comercial() -> None:
