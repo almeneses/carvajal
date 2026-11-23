@@ -5,8 +5,11 @@ vitalidad. ``PostgresSaver`` y ``PostgresStore`` usan el Postgres existente;
 ``agent_checkpointer=sqlite`` deja una demo local con archivo persistente.
 
 ``AGENT_MODE`` (spec 044, FR-015) elige qué grafo atiende los turnos. El grafo
-``routes`` se construye siempre: con ``tools`` activo sigue atendiendo el atajo
-(saludos, capacidad, preferencias) y el respaldo cuando DeepSeek falla.
+``routes`` se construye siempre: con ``tools`` activo atiende el respaldo determinista
+cuando DeepSeek falla o vence el plazo (FR-009), y en ese caso se compila con el
+enrutador de reglas (``decide_route``) aunque ``AGENT_ROUTER`` pida otro: el respaldo no
+llama a ningún LLM. Sin grafo ``tools`` (por ejemplo, sin clave), ``routes`` atiende los
+turnos con el enrutador configurado.
 """
 
 import atexit
@@ -104,21 +107,26 @@ def _graphs(
 
     Si el modo ``tools`` no puede arrancar (por ejemplo, sin ``DEEPSEEK_API_KEY``), se
     registra el error y el proceso sigue con ``routes``, igual que con el enrutador.
+
+    Con el grafo ``tools`` activo, ``routes`` solo atiende el respaldo (FR-009, R8): se
+    compila con ``decide_route`` para que el respaldo no llame a un ``LLMRouter`` (a menudo
+    el mismo proveedor que acaba de fallar) ni sume su tiempo de espera.
     """
 
-    graph = build_agent(
-        AgentDeps(vector_store=vector_store, embedder=embedder, settings=settings),
-        checkpointer=checkpointer,
-        store=store,
-        router=router,
-    )
+    def routes_graph(selected: Router) -> Any:
+        return build_agent(
+            AgentDeps(vector_store=vector_store, embedder=embedder, settings=settings),
+            checkpointer=checkpointer,
+            store=store,
+            router=selected,
+        )
+
     if settings.agent_mode != "tools":
-        return graph, None
+        return routes_graph(router), None
     try:
-        chat = build_deepseek_chat(settings, stream_usage=True, for_tools=True)
         tool_graph = build_tool_agent(
             ToolDeps(vector_store=vector_store, embedder=embedder, settings=settings),
-            chat,
+            _tool_chat(settings),
             checkpointer=checkpointer,
             store=store,
         )
@@ -129,8 +137,27 @@ def _graphs(
             error=str(error),
             exc_info=True,
         )
-        return graph, None
-    return graph, tool_graph
+        return routes_graph(router), None
+    if router is not decide_route:
+        logger.info("agent.fallback_router", configured=router_name(router), fallback="rules")
+    return routes_graph(decide_route), tool_graph
+
+
+def _tool_chat(settings: Settings) -> Any:
+    """``ChatOpenAI`` de DeepSeek para el modo ``tools``, acotado al plazo del turno.
+
+    El plazo del turno (``agent_turn_timeout_s``, FR-010, R9) no espera al proveedor: el
+    runner lo vence aunque la petición siga en vuelo. Para que esa petición no siga
+    ocupando el hilo del grafo mucho después, el cliente espera como mucho
+    ``min(llm_timeout_seconds, agent_turn_timeout_s)`` y no reintenta (el cliente de
+    ``openai`` reintenta 2 veces por defecto): un reintento ya no llegaría a tiempo y el
+    respaldo determinista atiende el turno.
+    """
+
+    timeout = min(settings.llm_timeout_seconds, settings.agent_turn_timeout_s)
+    return build_deepseek_chat(
+        settings, stream_usage=True, for_tools=True, timeout_s=timeout, max_retries=0
+    )
 
 
 def _build(settings: Settings) -> AgentRuntime:

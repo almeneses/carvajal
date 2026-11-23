@@ -11,13 +11,15 @@ compartan sin acoplar el chat al servicio:
 - ``TurnTracer``/``NoopTracer`` deciden el muestreo por turno y abren la traza
   raíz. Cualquier fallo del servicio se registra en los logs y nunca se
   propaga al chat (FR-008).
+- ``record_tool_calls`` y ``token_metadata`` (spec 044, FR-014) describen el turno del
+  modo ``tools``: un hijo por herramienta y los tokens sumados en la raíz.
 """
 
 from __future__ import annotations
 
 import hashlib
 import random
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -102,8 +104,25 @@ SAFE_KEYS: frozenset[str] = frozenset(
         "ls_model_name",
         "ls_model_type",
         "ls_integration",
+        # Modo ``tools`` (spec 044, FR-014): camino del turno, herramientas y conteos. Solo
+        # nombres internos y números; los argumentos y resultados no entran en la lista.
+        "mode",
+        "path",
+        "gate",
+        "abstained",
+        "tools",
+        "tool_calls",
+        "no_query",
+        "source_count",
+        "quote_count",
+        "retrieved",
+        "fallback_reason",
+        "fallback_route",
     }
 )
+
+# Conteos de tokens que se suben a la raíz del turno (SC-008).
+TOKEN_KEYS: tuple[str, ...] = ("input_tokens", "output_tokens", "total_tokens")
 
 
 @dataclass(frozen=True, slots=True)
@@ -558,6 +577,62 @@ class TurnTracer(Protocol):
         question: str = "",
     ) -> AbstractContextManager[Turn]:
         """Devuelve el *context manager* del turno."""
+
+
+def token_metadata(usage: Mapping[str, Any] | None) -> dict[str, int]:
+    """Tokens de entrada, salida y total de ``usage_metadata``, solo los enteros."""
+
+    if not isinstance(usage, Mapping):
+        return {}
+    return {
+        clave: valor
+        for clave in TOKEN_KEYS
+        if isinstance(valor := usage.get(clave), int) and not isinstance(valor, bool)
+    }
+
+
+def record_tool_calls(
+    turn: Turn,
+    results: Sequence[Mapping[str, Any]],
+    *,
+    include_content: bool,
+) -> None:
+    """Abre un hijo ``tool`` por herramienta del turno, en el orden en que corrieron.
+
+    Metadatos (sobreviven a la redacción): ``tool``, ``step`` (orden, desde 1), ``status``
+    (``ok``, ``empty``, ``needs_input`` o ``error``: si tuvo resultado), ``latency_ms`` y
+    ``source_count``. Los argumentos y el resultado (``status`` y ``source_ids``) solo se
+    añaden como salidas con ``include_content``, y aun así sin los identificadores del
+    visitante. ``results`` son los ``ToolOutcome`` del estado del grafo, ya filtrados por
+    el servicio: sin ``sin_consulta`` (no es una consulta) y con los nombres fuera del
+    catálogo sustituidos por ``desconocida``, porque el nombre de la herramienta es el del
+    hijo y sobrevive a la redacción. Un fallo del SDK se registra y nunca llega al chat
+    (FR-008).
+    """
+
+    for step, result in enumerate(results, start=1):
+        name = str(result.get("tool") or "desconocida")
+        status = str(result.get("status") or "")
+        source_ids = [n for n in result.get("source_ids") or [] if isinstance(n, int)]
+        elapsed = result.get("elapsed_ms")
+        metadata = {
+            "tool": name,
+            "step": step,
+            "status": status,
+            "latency_ms": elapsed if isinstance(elapsed, int) else 0,
+            "source_count": len(source_ids),
+        }
+        try:
+            with turn.child(name, run_type="tool", metadata=metadata) as hijo:
+                if include_content:
+                    args = result.get("args")
+                    hijo.add_outputs(
+                        args=_strip_sensitive(dict(args) if isinstance(args, Mapping) else {}),
+                        status=status,
+                        source_ids=source_ids,
+                    )
+        except Exception as error:
+            _registrar_fallo(error)
 
 
 class NoopTurn:

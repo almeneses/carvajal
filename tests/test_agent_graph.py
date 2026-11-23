@@ -433,7 +433,9 @@ def test_el_runtime_en_modo_tools_construye_ambos_grafos(
     assert tool_graph is not None
     assert set(graph.nodes) >= {"route", "direct", "rag"}
     assert set(tool_graph.nodes) >= {"recall", "agent", "tools"}
-    assert opciones == [{"stream_usage": True, "for_tools": True}]
+    assert opciones == [
+        {"stream_usage": True, "for_tools": True, "timeout_s": 45.0, "max_retries": 0}
+    ]
 
 
 def test_el_runtime_en_modo_tools_sin_deepseek_sigue_con_routes(

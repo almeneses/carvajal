@@ -25,6 +25,7 @@ __all__ = [
     "TOOL_NAMES",
     "TOOL_SIN_CONSULTA",
     "TOOL_STATUSES",
+    "UNKNOWN_TOOL",
     "ModePath",
     "ToolAgentState",
     "ToolName",
@@ -54,6 +55,9 @@ TOOL_INDICADOR_FINANCIERO: Final = "indicador_financiero"
 TOOL_SIN_CONSULTA: Final = "sin_consulta"
 
 TOOL_NAMES: Final[tuple[str, ...]] = get_args(ToolName)
+# Nombre con el que se registra una llamada a una herramienta que no existe: el nombre que
+# escribió el modelo puede llevar datos de la persona y no se conserva (FR-014).
+UNKNOWN_TOOL: Final = "desconocida"
 TOOL_STATUSES: Final[tuple[str, ...]] = get_args(ToolStatus)
 MODE_PATHS: Final[tuple[str, ...]] = get_args(ModePath)
 

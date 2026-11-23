@@ -20,7 +20,7 @@ from tests.test_commercial_contract import TODAY as BOOK_TODAY
 from tests.test_commercial_contract import _verified_book
 
 from carvajal.agent.toolagent.sources import SourceRegistry
-from carvajal.agent.toolagent.state import TOOL_NAMES
+from carvajal.agent.toolagent.state import TOOL_NAMES, UNKNOWN_TOOL
 from carvajal.agent.toolagent.tools import (
     DATA_CLOSE,
     DATA_OPEN,
@@ -1048,3 +1048,15 @@ def test_build_tools_invocables_sin_estado_devuelven_el_contenido() -> None:
     assert isinstance(content, str)
     assert DATA_OPEN in content
     assert "Carvajal fue fundada" in content
+
+
+def test_run_tool_desconocida_no_conserva_el_nombre_que_escribio_el_modelo() -> None:
+    # Arrange: el nombre inventado puede llevar datos de la persona (FR-014).
+    invented = "cotizar_para_ana_perez_3001234567"
+
+    # Act
+    result = _run(invented, {})
+
+    # Assert
+    assert result.outcome["tool"] == UNKNOWN_TOOL
+    assert invented not in repr(result.outcome)

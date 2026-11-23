@@ -14,6 +14,13 @@ checkpoint se escriben después, en transacciones cortas.
 grafo por rutas y genera con el LLM del servicio; ``tools`` transmite el grafo con
 herramientas (``ToolStreamRunner``), que emite estados, tokens y un cierre con fuentes,
 tarjetas y cotizaciones. La persistencia, el replay y el monitoreo son los mismos.
+
+En modo ``tools``, si el proveedor falla, vence el plazo o devuelve una decisión inválida
+antes del primer token, el turno se atiende con el respaldo determinista (FR-009): el grafo
+``routes`` (con el enrutador de reglas) prepara el turno y ``fallback.render`` redacta sin
+LLM; si venció el plazo con resultados ya obtenidos, se redacta con ellos y se declara lo
+que faltó (R9, FR-010). Cada cotización mostrada recibe su folio y su fila ``quotes`` en la
+transacción del turno, que se guarda antes de mostrar los folios (FR-012a).
 """
 
 from collections.abc import Generator, Iterator, Mapping, Sequence
@@ -23,10 +30,13 @@ from decimal import Decimal
 from functools import cache
 from hashlib import sha256
 from time import perf_counter
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TypeGuard, runtime_checkable
 from uuid import uuid4
 
+import openai
 import structlog
+from langchain_core.exceptions import OutputParserException
+from langgraph.errors import GraphRecursionError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -38,10 +48,11 @@ from apps.api.chat.agent import (
     ToolAgentStatus,
     ToolAgentToken,
     ToolStreamRunner,
+    TurnTimeout,
     default_agent_runner,
     default_tool_agent_runner,
 )
-from apps.api.chat.products import has_cards, safe_render_products
+from apps.api.chat.products import has_cards, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from carvajal.adapters.storage.chat import (
     ChatMessage,
@@ -51,9 +62,18 @@ from carvajal.adapters.storage.chat import (
 )
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.agent.state import Turn
+from carvajal.agent.toolagent import fallback
+from carvajal.agent.toolagent.state import TOOL_NAMES, TOOL_SIN_CONSULTA, UNKNOWN_TOOL
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
+from carvajal.application.errors import LLMError
 from carvajal.application.ports import Embedder, LLMProvider
-from carvajal.infrastructure.monitoring import TurnTracer, build_tracer, thread_hash
+from carvajal.infrastructure.monitoring import (
+    TurnTracer,
+    build_tracer,
+    record_tool_calls,
+    thread_hash,
+    token_metadata,
+)
 from carvajal.infrastructure.settings import Settings
 from carvajal.quotation.engine import QUOTE_VERSION
 
@@ -70,6 +90,9 @@ logger = structlog.get_logger(__name__)
 SERVICE_UNAVAILABLE = "El servicio de chat no está disponible en este momento."
 MAX_CLIENT_TURN_ID = 64
 QUOTE_DAYS = 7
+
+# Motivo del respaldo (FR-009), para ``trace`` y el monitoreo.
+FallbackReason = Literal["provider", "timeout", "invalid_decision", "empty_answer"]
 
 
 class ThreadAccessError(PermissionError):
@@ -485,7 +508,7 @@ class ChatService:
                         status="complete",
                         client_turn_id=client_turn_id,
                         products=turn.products,
-                        quote=quote_record,
+                        quotes=[quote_record] if quote_record else (),
                     )
                     persisted = True
                 runner.record(
@@ -519,6 +542,7 @@ class ChatService:
                         "elapsed_ms": elapsed,
                         "request_id": request_id,
                         "quote_id": quote_record["id"] if quote_record else None,
+                        "quote_ids": [quote_record["id"]] if quote_record else [],
                     },
                 )
             yield done_event
@@ -643,8 +667,13 @@ class ChatService:
         (``ToolAgentSources``), como en ``routes``: el cliente sella cada párrafo con las
         fuentes que conoce al recibirlo. Si el cierre trae otra lista (o no hubo tokens),
         ``meta`` se reemite al final. ``trace`` y ``products`` dependen del
-        ``ToolAgentFinal`` y salen tras el último token, antes de ``done``. Los errores y la
-        cancelación los maneja ``stream()``.
+        ``ToolAgentFinal`` y salen tras el último token, antes de ``done``.
+
+        Respaldo (FR-009): si el proveedor falla, vence el plazo o devuelve una decisión
+        inválida (o un cierre sin texto) antes del primer token, el turno lo atiende
+        :meth:`_fallback_tools`. Después del primer token, el error sigue a ``stream()``,
+        que guarda lo emitido como ``incomplete``. Los demás errores y la cancelación los
+        maneja ``stream()``.
         """
 
         config = self._config()
@@ -657,122 +686,375 @@ class ChatService:
         ) as span:
             span.add_metadata(mode="tools", question_chars=len(question))
             structlog.contextvars.bind_contextvars(thread_id=conversation.id, mode="tools")
-            closing = yield from self._relay_tool_events(
-                tools,
-                span,
-                owner_key=owner_key,
-                thread_id=conversation.id,
-                question=question,
-            )
-            route = "shortcut" if closing.mode_path == "shortcut" else "agent"
-            tools.route = route
-            sources: tuple[Source, ...] = () if closing.abstained else closing.sources
-            empty = not "".join(fragments).strip()
-            if empty:
-                sources = ()
-            if tools.announced != sources:
-                tools.announced = sources
-                yield ChatEvent("meta", {"sources": _sources(sources)})
-            if empty:
-                # TODO(T041): sustituir por el respaldo determinista (aviso fijo + tarjetas).
-                logger.warning("chat.tool_agent_empty_answer", thread_id=conversation.id)
-                fragments.append(NO_CONTEXT_ANSWER)
-                yield ChatEvent("token", {"text": NO_CONTEXT_ANSWER})
-            # TODO(T042): una cotización por turno (la primera del agente) con el folio de
-            # hoy; varias cotizaciones con un folio cada una llegan con T042.
-            products, quote_record = _issue_quote(
-                closing.products,
+            closing: ToolAgentFinal | None = None
+            reason: FallbackReason | None = None
+            error: Exception | None = None
+            try:
+                closing = yield from self._relay_tool_events(
+                    tools,
+                    span,
+                    owner_key=owner_key,
+                    thread_id=conversation.id,
+                    question=question,
+                )
+            except Exception as failure:
+                reason = _fallback_reason(failure)
+                if reason is None or "".join(fragments).strip():
+                    raise
+                error = failure
+                closing = failure.final if isinstance(failure, TurnTimeout) else None
+            else:
+                if not "".join(fragments).strip():
+                    # Un cierre sin texto es una salida inválida del proveedor.
+                    reason = "empty_answer"
+            if reason is not None:
+                done_event = yield from self._fallback_tools(
+                    tools,
+                    span,
+                    owner_key=owner_key,
+                    conversation=conversation,
+                    question=question,
+                    client_turn_id=client_turn_id,
+                    request_id=request_id,
+                    started=started,
+                    reason=reason,
+                    error=error,
+                    obtained=closing,
+                )
+            else:
+                if closing is None:  # ``_relay_tool_events`` siempre devuelve un cierre
+                    raise RuntimeError("El agente terminó sin cierre del turno.")
+                done_event = yield from self._close_tools(
+                    tools,
+                    span,
+                    closing,
+                    owner_key=owner_key,
+                    conversation=conversation,
+                    question=question,
+                    client_turn_id=client_turn_id,
+                    request_id=request_id,
+                    started=started,
+                )
+        # Como en ``routes``: ``done`` sale ya cerrada la traza.
+        yield done_event
+
+    def _close_tools(
+        self,
+        tools: _ToolTurn,
+        span: Any,
+        closing: ToolAgentFinal,
+        *,
+        owner_key: str,
+        conversation: Conversation,
+        question: str,
+        client_turn_id: str | None,
+        request_id: str,
+        started: float,
+    ) -> Generator[ChatEvent, None, ChatEvent]:
+        """Cierre normal del modo ``tools``: guardado, ``meta`` si cambió, ``trace`` y tarjetas.
+
+        Cada cotización del cierre recibe su folio y su fila ``quotes`` en la transacción
+        del turno (FR-012a). El turno se guarda antes de emitir las tarjetas: si la persona
+        se desconecta tras ver un folio, ese folio ya tiene su fila y el turno queda
+        completo (no ``incomplete``). Devuelve el ``done`` para emitirlo fuera de la traza.
+        """
+
+        config = self._config()
+        fragments = tools.fragments
+        route = "shortcut" if closing.mode_path == "shortcut" else "agent"
+        tools.route = route
+        sources: tuple[Source, ...] = () if closing.abstained else closing.sources
+        products, quote_records = _issue_quotes(
+            closing.products,
+            conversation_id=conversation.id,
+            client_turn_id=client_turn_id,
+        )
+        monitored, no_query = _monitored_results(closing.results)
+        tool_names = [str(r["tool"]) for r in monitored]
+        span.add_metadata(
+            route=route,
+            path=closing.mode_path,
+            gate=closing.gate,
+            abstained=closing.abstained,
+            tool_calls=len(tool_names),
+            tools=tool_names,
+            no_query=no_query,
+            preferences_count=len(closing.preferences),
+            retrieved=len(sources),
+            quote_count=len(quote_records),
+            **token_metadata(closing.usage),
+        )
+        record_tool_calls(span, monitored, include_content=config.monitoring_include_content)
+        structlog.contextvars.bind_contextvars(route=route)
+
+        answer_text = "".join(fragments)
+        span.add_outputs(answer=answer_text)
+        tools.persist_attempted = True
+        conversation_id, message_id = self._persist_owned(
+            owner_key,
+            conversation,
+            question,
+            answer_text,
+            sources,
+            client_turn_id=client_turn_id,
+            products=products,
+            quotes=quote_records,
+        )
+        tools.runner.record(
+            conversation.id,
+            question=question,
+            answer=answer_text,
+            incomplete=False,
+            turns=tools.seed,
+        )
+
+        if tools.announced != sources:
+            tools.announced = sources
+            yield ChatEvent("meta", {"sources": _sources(sources)})
+        yield ChatEvent(
+            "trace",
+            {
+                "thread_id": conversation.id,
+                "route": route,
+                "intent": "",
+                "tool": ",".join(tool_names),
+                "reason": "",
+                "memory": len(closing.preferences),
+                "retrieved": len(sources),
+                "mode": "tools",
+                "path": closing.mode_path,
+                "gate": closing.gate,
+            },
+        )
+        if products and has_cards(products):
+            html = safe_render_products(products)
+            if html:
+                yield ChatEvent("products", {"html": html})
+        elapsed = _milliseconds(started)
+        logger.info(
+            "chat.turn_completed",
+            thread_id=conversation.id,
+            mode="tools",
+            route=route,
+            path=closing.mode_path,
+            gate=closing.gate,
+            tool=",".join(tool_names) or None,
+            sources=len(sources),
+            retrieved=len(sources),
+            quotes=len(quote_records),
+            duration_ms=elapsed,
+            result="ok",
+        )
+        span.add_metadata(answer_chars=len(answer_text))
+        return _done_event(
+            conversation_id,
+            message_id,
+            thread_id=conversation.id,
+            route=route,
+            elapsed=elapsed,
+            request_id=request_id,
+            folios=[str(record["id"]) for record in quote_records],
+        )
+
+    def _fallback_tools(
+        self,
+        tools: _ToolTurn,
+        span: Any,
+        *,
+        owner_key: str,
+        conversation: Conversation,
+        question: str,
+        client_turn_id: str | None,
+        request_id: str,
+        started: float,
+        reason: FallbackReason,
+        error: Exception | None,
+        obtained: ToolAgentFinal | None,
+    ) -> Generator[ChatEvent, None, ChatEvent]:
+        """Respaldo determinista del modo ``tools`` (FR-009, research R8 y R9).
+
+        Sin ningún LLM. Por defecto, el grafo ``routes`` prepara el turno en el mismo hilo
+        (mismo ``thread_id`` y checkpointer, así conserva el contexto comercial); en
+        producción ese grafo usa el enrutador de reglas (``agent_runtime``). Su ``prompt``
+        se descarta y ``fallback.render`` redacta el aviso fijo con sus tarjetas, su
+        cotización o hasta tres fragmentos citados.
+
+        Si venció el plazo (``reason == "timeout"``) y ``obtained`` (el ``final`` del
+        ``TurnTimeout``) ya trae resultados con fuentes o tarjetas, el respaldo redacta con
+        lo obtenido en vez de repetir el camino de reglas, y cierra con
+        :func:`fallback.timeout_note`, que declara lo que faltó (R9, FR-010); ``trace`` lo
+        marca con ``fallback_route: "tools"``. Si no, ``obtained`` solo alimenta el
+        monitoreo.
+
+        El turno se guarda (mensajes y cotizaciones en una transacción, FR-012a) antes de
+        emitir nada: el texto no depende del stream y lleva folios, así que una desconexión
+        tras el evento ``fallback`` nunca deja un folio sin su fila ni un turno
+        ``incomplete``. Se registra como ``complete`` con ``path: "fallback"`` en ``trace``
+        y en el monitoreo (no en el estado del grafo, ver ``data-model.md``). Devuelve el
+        ``done``.
+        """
+
+        config = self._config()
+        logger.warning(
+            "chat.tool_agent_fallback",
+            thread_id=conversation.id,
+            reason=reason,
+            error_type=type(error).__name__ if error is not None else None,
+            error=str(error) if error is not None else None,
+        )
+        tools.route = "agent"
+        monitored, no_query = _monitored_results(obtained.results if obtained else ())
+        tool_names = [str(r["tool"]) for r in monitored]
+        if reason == "timeout" and obtained is not None and _has_evidence(obtained):
+            products, quote_records = _issue_quotes(
+                obtained.products,
                 conversation_id=conversation.id,
                 client_turn_id=client_turn_id,
             )
-            products = _sync_first_quote(products, issued=quote_record is not None)
-            tool_names = [str(r["tool"]) for r in closing.results if r.get("tool")]
-            span.add_metadata(
-                route=route,
-                path=closing.mode_path,
-                gate=closing.gate,
-                abstained=closing.abstained,
-                tool_calls=len(tool_names),
-                tools=tool_names,
-                preferences_count=len(closing.preferences),
-                retrieved=len(sources),
+            sources = obtained.sources
+            answer_text = fallback.render(
+                products, sources, note=fallback.timeout_note(len(obtained.missing))
             )
-            structlog.contextvars.bind_contextvars(route=route)
-            yield ChatEvent(
-                "trace",
-                {
-                    "thread_id": conversation.id,
-                    "route": route,
-                    "intent": "",
-                    "tool": ",".join(tool_names),
-                    "reason": "",
-                    "memory": len(closing.preferences),
-                    "retrieved": len(sources),
-                    "mode": "tools",
-                    "path": closing.mode_path,
-                    "gate": closing.gate,
-                },
+            fallback_route, intent, preferences = "tools", "", obtained.preferences
+            tool = ",".join(tool_names)
+            recorder: ToolStreamRunner | AgentRunner = tools.runner
+            turns: Sequence[Turn] = tools.seed
+        else:
+            runner = self._runner()
+            turn = runner.prepare(owner_key, conversation.id, question, tools.seed)
+            products, quote_record = _issue_quote(
+                turn.products,
+                conversation_id=conversation.id,
+                client_turn_id=client_turn_id,
             )
-            if products and has_cards(products):
-                html = safe_render_products(products)
-                if html:
-                    yield ChatEvent("products", {"html": html})
+            quote_records = [quote_record] if quote_record else []
+            sources = turn.sources
+            answer_text = fallback.render(products, sources)
+            fallback_route, intent, tool, preferences = (
+                turn.route,
+                turn.intent,
+                turn.tool,
+                turn.preferences,
+            )
+            recorder, turns = runner, turn.turns
+        span.add_metadata(
+            route="agent",
+            path="fallback",
+            fallback_reason=reason,
+            fallback_route=fallback_route,
+            tool_calls=len(tool_names),
+            tools=tool_names,
+            no_query=no_query,
+            preferences_count=len(preferences),
+            retrieved=len(sources),
+            quote_count=len(quote_records),
+            **token_metadata(obtained.usage if obtained is not None else None),
+        )
+        if error is not None:
+            span.add_metadata(error_type=type(error).__name__)
+        record_tool_calls(span, monitored, include_content=config.monitoring_include_content)
+        structlog.contextvars.bind_contextvars(route="agent")
+        span.add_outputs(answer=answer_text)
 
-            answer_text = "".join(fragments)
-            span.add_outputs(answer=answer_text)
-            tools.persist_attempted = True
-            with self._session_factory() as session:
-                repository = SqlChatRepository(session)
-                current = repository.get_owned(conversation.id, owner_key)
-                if current is None:
-                    raise ThreadAccessError("El hilo dejó de pertenecer al visitante.")
-                conversation_id, message_id = self._persist(
-                    session,
-                    current,
-                    question,
-                    answer_text,
-                    sources,
-                    status="complete",
-                    client_turn_id=client_turn_id,
-                    products=products,
-                    quote=quote_record,
-                )
-            tools.runner.record(
-                conversation.id,
-                question=question,
-                answer=answer_text,
-                incomplete=False,
-                turns=tools.seed,
+        tools.persist_attempted = True
+        conversation_id, message_id = self._persist_owned(
+            owner_key,
+            conversation,
+            question,
+            answer_text,
+            sources,
+            client_turn_id=client_turn_id,
+            products=products,
+            quotes=quote_records,
+        )
+        recorder.record(
+            conversation.id,
+            question=question,
+            answer=answer_text,
+            incomplete=False,
+            turns=turns,
+        )
+        elapsed = _milliseconds(started)
+        logger.info(
+            "chat.turn_completed",
+            thread_id=conversation.id,
+            mode="tools",
+            route="agent",
+            path="fallback",
+            fallback_reason=reason,
+            fallback_route=fallback_route,
+            sources=len(sources),
+            retrieved=len(sources),
+            quotes=len(quote_records),
+            duration_ms=elapsed,
+            result="ok",
+        )
+        span.add_metadata(answer_chars=len(answer_text))
+
+        tools.announced = sources
+        yield ChatEvent("meta", {"sources": _sources(sources)})
+        tools.fragments.append(answer_text)
+        yield ChatEvent("fallback", {"text": answer_text, "sources": _sources(sources)})
+        yield ChatEvent(
+            "trace",
+            {
+                "thread_id": conversation.id,
+                "route": "agent",
+                "intent": intent,
+                "tool": tool,
+                "reason": reason,
+                "memory": len(preferences),
+                "retrieved": len(sources),
+                "mode": "tools",
+                "path": "fallback",
+                "gate": "",
+                "fallback_route": fallback_route,
+            },
+        )
+        if products and has_cards(products):
+            html = safe_render_products(products)
+            if html:
+                yield ChatEvent("products", {"html": html})
+        return _done_event(
+            conversation_id,
+            message_id,
+            thread_id=conversation.id,
+            route="agent",
+            elapsed=elapsed,
+            request_id=request_id,
+            folios=[str(record["id"]) for record in quote_records],
+        )
+
+    def _persist_owned(
+        self,
+        owner_key: str,
+        conversation: Conversation,
+        question: str,
+        answer: str,
+        sources: Sequence[Source],
+        *,
+        client_turn_id: str | None,
+        products: Mapping[str, Any] | None,
+        quotes: Sequence[Mapping[str, Any]],
+    ) -> tuple[str, str]:
+        """Guarda el turno completo si el hilo sigue siendo del dueño (una transacción)."""
+
+        with self._session_factory() as session:
+            repository = SqlChatRepository(session)
+            current = repository.get_owned(conversation.id, owner_key)
+            if current is None:
+                raise ThreadAccessError("El hilo dejó de pertenecer al visitante.")
+            return self._persist(
+                session,
+                current,
+                question,
+                answer,
+                sources,
+                status="complete",
+                client_turn_id=client_turn_id,
+                products=products,
+                quotes=quotes,
             )
-            elapsed = _milliseconds(started)
-            logger.info(
-                "chat.turn_completed",
-                thread_id=conversation.id,
-                mode="tools",
-                route=route,
-                path=closing.mode_path,
-                gate=closing.gate,
-                tool=",".join(tool_names) or None,
-                sources=len(sources),
-                retrieved=len(sources),
-                duration_ms=elapsed,
-                result="ok",
-            )
-            span.add_metadata(answer_chars=len(answer_text))
-            # Como en ``routes``: ``done`` sale ya cerrada la traza.
-            done_event = ChatEvent(
-                "done",
-                {
-                    "conversation_id": conversation_id,
-                    "message_id": message_id,
-                    "thread_id": conversation.id,
-                    "route": route,
-                    "elapsed_ms": elapsed,
-                    "request_id": request_id,
-                    "quote_id": quote_record["id"] if quote_record else None,
-                },
-            )
-        yield done_event
 
     def _relay_tool_events(
         self,
@@ -786,7 +1068,8 @@ class ChatService:
         """Traduce los eventos del runner a ``status`` y ``token``; devuelve el cierre.
 
         El modelo corre dentro del grafo: el hijo ``llm`` cubre todo el bucle y registra
-        los caracteres emitidos y los tokens sumados (el detalle por herramienta es T044).
+        los caracteres emitidos y los tokens sumados; el detalle por herramienta lo abre
+        ``record_tool_calls`` al cerrar el turno (T044).
         Al cancelar o fallar, se cierra el generador del runner: ``ToolAgentRunner`` activa
         su ``TurnCancel`` y el grafo corta el trozo siguiente del modelo y las herramientas
         pendientes, sin esperar a que termine el paso.
@@ -858,9 +1141,13 @@ class ChatService:
         status: str,
         client_turn_id: str | None,
         products: Mapping[str, Any] | None = None,
-        quote: Mapping[str, Any] | None = None,
+        quotes: Sequence[Mapping[str, Any]] = (),
     ) -> tuple[str, str]:
-        """Guarda mensajes, resultado comercial y cotización en una sola transacción."""
+        """Guarda mensajes, resultado comercial y cotizaciones en una sola transacción.
+
+        Todas las filas ``quotes`` del turno comparten ``message_id`` y se confirman con
+        los mensajes en el mismo ``commit`` (FR-012a): si una falla, no queda ninguna.
+        """
 
         repository = SqlChatRepository(session)
         _, assistant = repository.append_turn(
@@ -871,7 +1158,7 @@ class ChatService:
             status=status,
             client_turn_id=client_turn_id,
         )
-        if quote is not None:
+        for quote in quotes:
             _record_quote(session, conversation, quote, message_id=assistant.id)
         session.commit()
         return conversation.id, assistant.id
@@ -992,20 +1279,111 @@ def _replay(
     if assistant.status == "incomplete":
         yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": True})
     else:
-        quote = (result or {}).get("quote") or {}
-        folio = (quote.get("quote") or {}).get("id") if isinstance(quote, Mapping) else None
-        yield ChatEvent(
-            "done",
-            {
-                "conversation_id": assistant.conversation_id,
-                "message_id": assistant.id,
-                "thread_id": assistant.conversation_id,
-                "route": "replay",
-                "elapsed_ms": 0,
-                "request_id": request_id,
-                "quote_id": folio,
-            },
+        # Mismos folios y en el mismo orden que el turno original (FR-012a): ``quotes`` o,
+        # en resultados del modo ``routes``, ``[quote]``.
+        folios = [
+            str(issued["id"])
+            for quote in result_quotes(result)
+            if isinstance(issued := quote.get("quote"), Mapping) and issued.get("id")
+        ]
+        yield _done_event(
+            assistant.conversation_id,
+            assistant.id,
+            thread_id=assistant.conversation_id,
+            route="replay",
+            elapsed=0,
+            request_id=request_id,
+            folios=folios,
         )
+
+
+def _done_event(
+    conversation_id: str,
+    message_id: str,
+    *,
+    thread_id: str,
+    route: str,
+    elapsed: int,
+    request_id: str,
+    folios: Sequence[str],
+) -> ChatEvent:
+    """Evento ``done``: ``quote_ids`` con todos los folios y ``quote_id`` = el primero."""
+
+    return ChatEvent(
+        "done",
+        {
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "thread_id": thread_id,
+            "route": route,
+            "elapsed_ms": elapsed,
+            "request_id": request_id,
+            "quote_id": folios[0] if folios else None,
+            "quote_ids": list(folios),
+        },
+    )
+
+
+def _fallback_reason(error: BaseException) -> FallbackReason | None:
+    """Motivo del respaldo si ``error`` es del proveedor; ``None`` si es otro fallo.
+
+    - ``timeout``: el plazo del turno (``TurnTimeout``) o el del cliente del proveedor.
+    - ``provider``: ``LLMError`` o errores de la API de DeepSeek (cliente compatible con
+      OpenAI, que envuelve los de red: conexión, límite, 5xx, 4xx) o de conexión.
+    - ``invalid_decision``: un bucle de decisiones que agota el ``recursion_limit`` del
+      grafo. ``OutputParserException`` se mapea por defensa (parsers de LangChain que sí la
+      lanzan), pero ``ChatOpenAI`` con DeepSeek no la produce: unos argumentos rotos llegan
+      como ``invalid_tool_calls`` o, en streaming, como una ``tool_call`` con ``args={}``.
+      El grafo responde esas llamadas con un ``ToolMessage`` de error sin consultar nada,
+      las cuenta para el límite y la compuerta decide el texto (sin evidencia, abstención;
+      ver ``test_argumentos_rotos_en_streaming_no_consultan_ni_inventan``).
+
+    Un error de programación (``RuntimeError``, ``KeyError``…) no se enmascara con el
+    respaldo: sigue al manejo genérico de ``stream()``.
+    """
+
+    if isinstance(error, (TimeoutError, openai.APITimeoutError)):
+        return "timeout"
+    if isinstance(error, (LLMError, openai.APIError, ConnectionError)):
+        return "provider"
+    if isinstance(error, (OutputParserException, GraphRecursionError)):
+        return "invalid_decision"
+    return None
+
+
+def _has_evidence(obtained: ToolAgentFinal) -> bool:
+    """Lo obtenido antes del plazo alcanza para el respaldo: un resultado ``ok`` de una
+    consulta real y fuentes o tarjetas que mostrar."""
+
+    queried = any(
+        r.get("status") == "ok"
+        and r.get("tool") in TOOL_NAMES
+        and r.get("tool") != TOOL_SIN_CONSULTA
+        for r in obtained.results
+    )
+    return queried and (bool(obtained.sources) or has_cards(obtained.products))
+
+
+def _monitored_results(
+    results: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], bool]:
+    """Consultas del turno para el monitoreo (FR-014) y si hubo ``sin_consulta``.
+
+    ``sin_consulta`` no es una consulta (FR-004a): no entra en ``tool_calls``, ``tools`` ni
+    en los hijos ``tool``; se registra aparte como ``no_query``. Un nombre fuera del
+    catálogo se registra como ``UNKNOWN_TOOL``: lo escribió el modelo y puede llevar datos
+    de la persona.
+    """
+
+    monitored: list[dict[str, Any]] = []
+    no_query = False
+    for result in results:
+        name = str(result.get("tool") or "")
+        if name == TOOL_SIN_CONSULTA:
+            no_query = True
+            continue
+        monitored.append({**result, "tool": name if name in TOOL_NAMES else UNKNOWN_TOOL})
+    return monitored, no_query
 
 
 def _sources(sources: Sequence[Source]) -> list[dict[str, Any]]:
@@ -1041,13 +1419,30 @@ def _decimal(value: Any) -> Decimal | None:
     return None if value is None else Decimal(str(value))
 
 
-def _quote_folio(conversation_id: str, client_turn_id: str | None) -> str:
-    """Folio estable por turno; aleatorio cuando no hay identificador de reenvío."""
+def _quote_folio(conversation_id: str, client_turn_id: str | None, index: int = 0) -> str:
+    """Folio estable por turno y posición; aleatorio sin identificador de reenvío.
+
+    ``data-model.md`` (Quote): ``i = 0`` → ``sha256("{conversation_id}:{client_turn_id}")``
+    (el de siempre) e ``i ≥ 1`` → ``sha256("{conversation_id}:{client_turn_id}:{i}")``,
+    ambos recortados a 12 caracteres hexadecimales.
+    """
 
     if not client_turn_id:
         return uuid4().hex[:12]
-    seed = f"{conversation_id}:{client_turn_id}".encode()
-    return sha256(seed).hexdigest()[:12]
+    seed = f"{conversation_id}:{client_turn_id}"
+    if index:
+        seed = f"{seed}:{index}"
+    return sha256(seed.encode()).hexdigest()[:12]
+
+
+def _is_quotation(quoted: Any) -> TypeGuard[Mapping[str, Any]]:
+    """Cotización emitible: ``kind == "cotizacion"`` con producto principal."""
+
+    return (
+        isinstance(quoted, Mapping)
+        and quoted.get("kind") == "cotizacion"
+        and bool(quoted.get("primary"))
+    )
 
 
 def _issue_quote(
@@ -1058,23 +1453,63 @@ def _issue_quote(
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Añade folio y vigencia de emisión a la cotización comercial del turno.
 
-    El folio se deriva del hilo y del ``client_turn_id`` cuando existe: dos
-    reenvíos simultáneos del mismo turno emiten el mismo folio antes de que el
-    segundo detecte el duplicado y reproduzca el turno guardado.
+    Una sola cotización (``quote``): modo ``routes`` y respaldo del modo ``tools``; el
+    modo ``tools`` usa :func:`_issue_quotes`. El folio se deriva del hilo y del
+    ``client_turn_id`` cuando existe: dos reenvíos simultáneos del mismo turno emiten el
+    mismo folio antes de que el segundo detecte el duplicado y reproduzca el turno
+    guardado.
     """
 
     quoted = (products or {}).get("quote")
-    if (
-        not isinstance(quoted, Mapping)
-        or quoted.get("kind") != "cotizacion"
-        or not quoted.get("primary")
-    ):
+    if not _is_quotation(quoted):
         return dict(products or {}), None
+    payload, record = _stamp_quote(
+        quoted,
+        folio=_quote_folio(conversation_id, client_turn_id),
+        moment=datetime.now(UTC),
+    )
+    return {**products, "quote": payload}, record
+
+
+def _issue_quotes(
+    products: Mapping[str, Any],
+    *,
+    conversation_id: str,
+    client_turn_id: str | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Folio y vigencia para cada cotización del turno del modo ``tools`` (FR-012a).
+
+    Lee ``quotes`` (con caída a ``[quote]``) en el orden del grafo; la posición ``i`` entre
+    las cotizaciones emitidas fija el folio (:func:`_quote_folio`), así un reenvío con el
+    mismo ``client_turn_id`` repite folios y orden. Devuelve el resultado con ``quotes``
+    sellado y ``quote`` = el primero (lectores actuales) y un registro por fila.
+    """
+
+    listed = result_quotes(products)
+    if not any(_is_quotation(item) for item in listed):
+        return dict(products or {}), []
+    moment = datetime.now(UTC)
+    issued: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
+    for item in listed:
+        if not _is_quotation(item):
+            issued.append(item)
+            continue
+        folio = _quote_folio(conversation_id, client_turn_id, len(records))
+        payload, record = _stamp_quote(item, folio=folio, moment=moment)
+        issued.append(payload)
+        records.append(record)
+    return {**products, "quotes": issued, "quote": issued[0]}, records
+
+
+def _stamp_quote(
+    quoted: Mapping[str, Any], *, folio: str, moment: datetime
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Cotización con su sello de emisión y la fila de ``quotes`` que la registra."""
+
     primary = quoted["primary"]
     commercial = quoted.get("commercial") or {}
     shipping = commercial.get("shipping") or {}
-    moment = datetime.now(UTC)
-    folio = _quote_folio(conversation_id, client_turn_id)
     retention = (moment.date() + timedelta(days=QUOTE_DAYS)).isoformat()
     payload = {
         **quoted,
@@ -1103,19 +1538,7 @@ def _issue_quote(
         "valid_until": retention,
         "commercial_valid_until": commercial.get("valid_until"),
     }
-    return {**products, "quote": payload}, record
-
-
-def _sync_first_quote(products: dict[str, Any], *, issued: bool) -> dict[str, Any]:
-    """Copia la cotización con folio en ``quotes[0]`` para que ambas claves coincidan.
-
-    TODO(T042): con varias cotizaciones cada elemento de ``quotes`` recibe su folio.
-    """
-
-    listed = products.get("quotes")
-    if not issued or not isinstance(listed, list) or not listed:
-        return products
-    return {**products, "quotes": [products["quote"], *listed[1:]]}
+    return payload, record
 
 
 def _record_quote(

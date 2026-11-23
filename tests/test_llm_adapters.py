@@ -363,6 +363,23 @@ def test_build_deepseek_chat_para_herramientas_apaga_el_razonamiento(
     assert "extra_body" not in creados[1].kwargs
 
 
+def test_build_deepseek_chat_acota_plazo_y_reintentos(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    creados: list[ChatSpy] = []
+    monkeypatch.setattr("carvajal.adapters.llm.deepseek.ChatOpenAI", _espia(creados))
+    settings = Settings(_env_file=None, deepseek_api_key="clave", llm_timeout_seconds=60)
+
+    # Act
+    build_deepseek_chat(settings, timeout_s=10, max_retries=0)
+    build_deepseek_chat(settings)
+
+    # Assert
+    assert creados[0].kwargs["request_timeout"] == 10
+    assert creados[0].kwargs["max_retries"] == 0
+    assert creados[1].kwargs["request_timeout"] == 60
+    assert "max_retries" not in creados[1].kwargs
+
+
 def test_build_deepseek_chat_devuelve_un_chat_con_bind_tools() -> None:
     # Arrange
     settings = Settings(_env_file=None, deepseek_api_key="clave")

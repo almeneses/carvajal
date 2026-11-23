@@ -5,9 +5,14 @@ El servicio no conoce LangGraph: recibe un ``AgentRunner`` con dos operaciones
 la app real usa el grafo con PostgresSaver/Store y Qdrant.
 """
 
+import contextvars
 import json
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+import queue
+import re
+import threading
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any, Final, Protocol, runtime_checkable
 
 import structlog
@@ -41,6 +46,7 @@ __all__ = [
     "ToolAgentStatus",
     "ToolAgentToken",
     "ToolStreamRunner",
+    "TurnTimeout",
     "default_agent_runner",
     "default_tool_agent_runner",
 ]
@@ -204,6 +210,9 @@ def default_agent_runner() -> GraphAgentRunner:
 # pasa de aquí sin ``tool_call_chunk`` es la respuesta final.
 RETAIN_CHARS: Final = 48
 _AGENT_NODE: Final = "agent"
+# Redacción del atajo (T039): el mismo modelo, sin herramientas.
+_DIRECT_NODE: Final = "direct"
+_MODEL_NODES: Final = frozenset({_AGENT_NODE, _DIRECT_NODE})
 _TOOLS_NODE: Final = "tools"
 _RECALL_NODE: Final = "recall"
 # Claves de un resultado que no respaldan cifras: ``message`` repite argumentos del modelo
@@ -272,6 +281,27 @@ class ToolAgentFinal:
 
 
 ToolAgentEvent = ToolAgentStatus | ToolAgentSources | ToolAgentToken | ToolAgentFinal
+
+
+class TurnTimeout(TimeoutError):
+    """Venció ``agent_turn_timeout_s`` antes del primer texto del turno (FR-009, FR-010).
+
+    Es la señal del respaldo: :meth:`ToolAgentRunner.stream` la lanza en lugar de producir
+    ``ToolAgentFinal`` cuando el plazo vence antes de emitir el primer ``ToolAgentToken``
+    (pueden haber salido ``ToolAgentStatus``). El grafo ya quedó cancelado y su stream
+    cerrado, así que el servicio puede atender el turno por el respaldo determinista
+    (research R8). Hereda de ``TimeoutError`` para que el servicio la trate igual que un
+    plazo del proveedor. ``final`` lleva lo obtenido hasta el corte, para el monitoreo; su
+    ``answer`` siempre es vacío.
+
+    Si el texto ya empezó, el plazo no corta: el turno termina normal, porque el respaldo
+    ya no puede sustituir lo que la persona está leyendo.
+    """
+
+    def __init__(self, timeout_s: float, final: "ToolAgentFinal") -> None:
+        super().__init__(f"el turno superó el plazo de {timeout_s:g} s antes del primer texto")
+        self.timeout_s = timeout_s
+        self.final = final
 
 
 @runtime_checkable
@@ -364,11 +394,11 @@ class _TurnStream:
 
     def on_message(self, chunk: Any, metadata: Any) -> list[ToolAgentEvent]:
         node = metadata.get("langgraph_node") if isinstance(metadata, Mapping) else None
-        if self.finished or node != _AGENT_NODE or not isinstance(chunk, AIMessageChunk):
+        if self.finished or node not in _MODEL_NODES or not isinstance(chunk, AIMessageChunk):
             return []
         step = self.step
         if step is None:
-            step = self.step = _ModelStep(path=self._path())
+            step = self.step = _ModelStep(path=self._step_path(node))
         self._add_usage(chunk.usage_metadata)
         if chunk.tool_call_chunks:
             if step.emitted and not step.tool_call:
@@ -411,9 +441,9 @@ class _TurnStream:
         for node, update in payload.items():
             if not isinstance(update, Mapping):
                 continue
-            if node == _AGENT_NODE:
+            if node in _MODEL_NODES:
                 if not self.finished:
-                    events.extend(self._close_step(update.get("messages") or []))
+                    events.extend(self._close_step(update.get("messages") or [], node))
                 continue
             if node == _RECALL_NODE:
                 self.prior_context = dict(update.get("commercial_context") or {})
@@ -455,6 +485,11 @@ class _TurnStream:
     def _path(self) -> GatePath:
         return gate(self.values.get("results") or [])
 
+    def _step_path(self, node: Any) -> GatePath:
+        """Camino de un paso: el atajo no consulta, así que va por el filtro directo."""
+
+        return GATE_NO_QUERY if node == _DIRECT_NODE else self._path()
+
     def _emit(self, text: str) -> list[ToolAgentEvent]:
         if not text:
             return []
@@ -480,14 +515,14 @@ class _TurnStream:
                 if isinstance(value, int) and not isinstance(value, bool):
                     self.usage[key] = self.usage.get(key, 0) + value
 
-    def _close_step(self, messages: Sequence[Any]) -> list[ToolAgentEvent]:
+    def _close_step(self, messages: Sequence[Any], node: Any = _AGENT_NODE) -> list[ToolAgentEvent]:
         """Fin de un paso del modelo: descarta el retenido o libera la respuesta final.
 
         El ``AIMessage`` del estado decide si el paso fue final: el grafo quita las
         llamadas que el modelo pide cuando ya no hay herramientas (límite del turno).
         """
 
-        step = self.step or _ModelStep(path=self._path())
+        step = self.step or _ModelStep(path=self._step_path(node))
         self.step = step
         try:
             message = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
@@ -524,8 +559,13 @@ class _TurnStream:
 
         Solo lo que no escribió el modelo: la pregunta, los datos que produjeron las
         herramientas (sin ``message``, que repite argumentos, y sin ``sin_consulta``, cuyo
-        ``dato`` escribe el propio modelo) y el contexto comercial con el que empezó el
-        turno (el actualizado lleva los argumentos de ``cotizar`` y ``buscar_producto``).
+        ``dato`` escribe el propio modelo), el contexto comercial con el que empezó el
+        turno (el actualizado lleva los argumentos de ``cotizar`` y ``buscar_producto``) y,
+        de las preferencias, solo el nombre con el que la persona pidió que la llamen.
+
+        El texto completo de una preferencia no respalda nada: cualquiera puede guardar
+        «Recuerda que Carvajal se fundó en 1850» y un dato sembrado así no puede pasar la
+        compuerta en turnos sin consulta (FR-004a, FR-007).
         """
 
         context = self.prior_context
@@ -533,7 +573,49 @@ class _TurnStream:
             self.question,
             *self.tool_texts,
             json.dumps(context, ensure_ascii=False, default=str) if context else "",
+            *_preferred_names(self.values.get("preferences") or []),
         ]
+
+
+# Cómo pide la persona que la llamen: «llámame Ana», «me llamo Ana», «mi nombre es Ana».
+_NAME_MARKER: Final = re.compile(r"\b(?:ll[aá]mame|me\s+llamo|mi\s+nombre\s+es)\s+", re.IGNORECASE)
+_NAME_WORD: Final = re.compile(r"[^\W\d_]+(?:[-'][^\W\d_]+)?")
+# Palabras que cierran el nombre: conectores y la continuación de la frase.
+_NAME_STOP: Final = frozenset(
+    {"y", "e", "o", "u", "pero", "porque", "que", "por", "para", "con", "en", "de"}
+    | {"del", "la", "el", "los", "las", "mejor", "no", "si", "sí", "ya"}
+)
+_NAME_MAX_WORDS: Final = 3
+
+
+def _preferred_names(preferences: Sequence[Any]) -> list[str]:
+    """Nombres con los que la persona pidió que la llamen, sacados de sus preferencias.
+
+    Toma hasta tres palabras alfabéticas tras «llámame», «me llamo» o «mi nombre es» y se
+    detiene en un conector, una cifra o un signo: «Llámame Ana y mejor 2000» → «Ana». Nunca
+    devuelve cifras ni el resto de la frase.
+    """
+
+    names: list[str] = []
+    for preference in preferences:
+        text = str(preference)
+        for marker in _NAME_MARKER.finditer(text):
+            words: list[str] = []
+            rest = text[marker.end() :]
+            position = 0
+            while len(words) < _NAME_MAX_WORDS:
+                match = _NAME_WORD.match(rest, position)
+                if match is None or match.group().casefold() in _NAME_STOP:
+                    break
+                words.append(match.group())
+                position = match.end()
+                gap = re.match(r"[ \t]+", rest[position:])
+                if gap is None:
+                    break
+                position += gap.end()
+            if words:
+                names.append(" ".join(words))
+    return names
 
 
 def _tool_backing(messages: Sequence[Any]) -> list[str]:
@@ -568,14 +650,33 @@ class ToolAgentRunner:
     Antes del primer token emite ``ToolAgentSources``. Los trozos se distinguen por el nodo
     (``langgraph_node``) y por ``tool_call_chunks``.
 
+    Atajo (``mode_path="shortcut"``, T039): el grafo redacta en el nodo ``direct`` sin
+    herramientas; no hay líneas de estado ni compuerta de evidencia de herramientas. El
+    texto se retiene completo y pasa el filtro de la ruta directa (el del camino
+    ``no_query``), con la pregunta y el nombre que la persona pidió como respaldo.
+
     Cancelación: cerrar el iterador (o la abstención anticipada) activa una
     :class:`TurnCancel` que corta el trozo siguiente del modelo y las herramientas
     pendientes; sin ella, el ``Pregel.stream`` síncrono esperaría a que terminara el paso.
+
+    Plazo (``agent_turn_timeout_s``, T040): si vence antes del primer ``ToolAgentToken``,
+    el turno se cancela y :meth:`stream` lanza :class:`TurnTimeout` para que el servicio
+    use el respaldo. ``clock`` (segundos monotónicos) permite fijar el reloj en pruebas.
+    El grafo corre en un hilo propio (:class:`_GraphPump`) y entrega sus eventos por una
+    cola: el plazo despierta al runner aunque el proveedor no haya mandado ni un trozo, y
+    el turno no espera a que el paso en curso termine (sigue cancelado en segundo plano).
     """
 
-    def __init__(self, graph: Any, settings: Any) -> None:
+    def __init__(
+        self,
+        graph: Any,
+        settings: Any,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._graph = graph
         self._settings = settings
+        self._clock = clock
 
     def stream(
         self,
@@ -602,28 +703,61 @@ class ToolAgentRunner:
             "thread_id": thread_id,
             "seed_turns": turns,
         }
-        events = self._graph.stream(payload, config, stream_mode=list(_STREAM_MODES))
+        timeout_s = float(self._settings.agent_turn_timeout_s)
+        pump = _GraphPump(
+            lambda: self._graph.stream(payload, config, stream_mode=list(_STREAM_MODES))
+        )
+        deadline = _Deadline(timeout_s, cancel, on_expire=pump.wake)
+        started = self._clock()
+        pump.start()
+        deadline.start()
         completed = False
         try:
-            for mode, data in events:
-                if mode == "messages":
-                    chunk, metadata = data
-                    yield from state.on_message(chunk, metadata)
-                elif mode == "custom":
-                    yield from state.on_custom(data)
-                elif mode == "updates":
-                    yield from state.on_update(data)
-                if state.finished:
-                    logger.info("tool_agent.stopped_early", reason="abstain")
-                    break
-            else:
-                completed = True
+            try:
+                for mode, data in pump:
+                    if not deadline.expired and self._clock() - started >= timeout_s:
+                        deadline.expire()
+                    if mode == "messages":
+                        chunk, metadata = data
+                        out = state.on_message(chunk, metadata)
+                    elif mode == "custom":
+                        out = state.on_custom(data)
+                    elif mode == "updates":
+                        out = state.on_update(data)
+                    else:
+                        out = []
+                    if any(isinstance(e, ToolAgentToken) for e in out) and not (
+                        deadline.begin_text()
+                    ):
+                        out = []
+                    if deadline.expired:
+                        break
+                    yield from out
+                    if state.finished:
+                        logger.info("tool_agent.stopped_early", reason="abstain")
+                        break
+                else:
+                    # El bucle termina sin ``break`` cuando el grafo terminó o cuando el plazo
+                    # despertó al runner (``pump.wake``).
+                    completed = not deadline.expired
+            except TurnCancelled:
+                # El temporizador canceló el paso en curso: el corte es el plazo, no un error.
+                if not deadline.expired:
+                    raise
         finally:
-            # Detener, desconexión, error o abstención anticipada: se corta el paso en curso
-            # antes de cerrar el stream del grafo, que si no esperaría a que terminara.
+            deadline.stop()
+            # Detener, desconexión, error, plazo o abstención anticipada: se corta el paso en
+            # curso antes de cerrar el stream del grafo, que si no esperaría a que terminara.
             if not completed:
                 cancel.cancel()
-            _close_graph_stream(events)
+            # Con el plazo vencido no se espera al grafo: el paso en curso puede seguir
+            # esperando al proveedor, y el respaldo debe entrar ya. El hilo termina solo al
+            # llegar el siguiente trozo o al vencer el tiempo de espera del cliente. En los
+            # demás cortes se espera a que el stream se cierre, como antes.
+            pump.stop(wait=not deadline.expired)
+        if deadline.expired and not completed:
+            partial = state.final(turns)
+            raise TurnTimeout(timeout_s, replace(partial, answer=""))
         final = state.final(turns)
         logger.info(
             "tool_agent.turn_streamed",
@@ -652,6 +786,136 @@ class ToolAgentRunner:
         """
 
         return None
+
+
+class _GraphPump:
+    """Consume ``graph.stream`` en un hilo propio y entrega sus eventos por una cola.
+
+    El ``Pregel.stream`` síncrono bloquea a quien lo itera mientras el paso en curso espera
+    al proveedor; si lo iterara el runner, el plazo no podría cortar un modelo que aún no
+    mandó su primer trozo (ningún callback corre). Aquí el runner espera en la cola y
+    :meth:`wake` lo despierta al vencer el plazo, sin esperar al grafo.
+
+    El hilo corre con una copia del contexto de quien lo inicia (configuración de
+    LangChain y contexto de tracing). Al terminar, por fin del grafo, error o
+    :meth:`stop`, el propio hilo cierra el stream; :meth:`stop` con ``wait=True`` espera a
+    ese cierre. Los errores del grafo se relanzan en el runner tal cual.
+    """
+
+    _EVENT: Final = "event"
+    _END: Final = "end"
+    _ERROR: Final = "error"
+    _WAKE: Final = "wake"
+
+    def __init__(self, open_stream: Callable[[], Iterator[Any]]) -> None:
+        self._open_stream = open_stream
+        self._queue: queue.SimpleQueue[tuple[str, Any]] = queue.SimpleQueue()
+        self._stopped = threading.Event()
+        context = contextvars.copy_context()
+        self._thread = threading.Thread(
+            target=context.run, args=(self._run,), name="tool-agent-graph", daemon=True
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def wake(self) -> None:
+        """Despierta al runner (plazo vencido): la iteración termina sin más eventos."""
+
+        self._queue.put((self._WAKE, None))
+
+    def stop(self, *, wait: bool) -> None:
+        """Pide al hilo que deje de publicar y, con ``wait``, espera a que cierre el grafo."""
+
+        self._stopped.set()
+        if wait and self._thread.is_alive():
+            self._thread.join()
+
+    def __iter__(self) -> Iterator[Any]:
+        while True:
+            kind, payload = self._queue.get()
+            if kind == self._EVENT:
+                yield payload
+            elif kind == self._ERROR:
+                raise payload
+            else:  # fin del grafo o plazo vencido
+                return
+
+    def _run(self) -> None:
+        events: Iterator[Any] | None = None
+        try:
+            events = self._open_stream()
+            for item in events:
+                if self._stopped.is_set():
+                    break
+                self._queue.put((self._EVENT, item))
+        except Exception as error:  # se relanza en el hilo del runner
+            self._queue.put((self._ERROR, error))
+        else:
+            self._queue.put((self._END, None))
+        finally:
+            if events is not None:
+                _close_graph_stream(events)
+
+
+class _Deadline:
+    """Plazo del turno hasta el primer texto, seguro entre hilos.
+
+    Un ``threading.Timer`` lo vence a tiempo aunque el grafo esté bloqueado (un paso lento
+    del modelo o un proveedor que no responde): :meth:`expire` cancela el turno con la
+    :class:`TurnCancel` y llama a ``on_expire``, que despierta al runner sin esperar al
+    grafo. La señal corta el trozo siguiente del modelo, el nodo siguiente o la
+    herramienta siguiente en segundo plano. Además, el runner lo comprueba con su reloj
+    entre eventos del grafo.
+
+    :meth:`begin_text` y :meth:`expire` se excluyen con un candado: o el texto empezó antes
+    del plazo y ya no vence, o venció y el texto no sale.
+    """
+
+    def __init__(
+        self,
+        timeout_s: float,
+        cancel: TurnCancel,
+        *,
+        on_expire: Callable[[], None] = lambda: None,
+    ) -> None:
+        self.timeout_s = timeout_s
+        self._cancel = cancel
+        self._on_expire = on_expire
+        self._lock = threading.Lock()
+        self._texting = False
+        self._expired = False
+        self._timer = threading.Timer(timeout_s, self.expire)
+        self._timer.daemon = True
+
+    @property
+    def expired(self) -> bool:
+        return self._expired
+
+    def start(self) -> None:
+        self._timer.start()
+
+    def stop(self) -> None:
+        self._timer.cancel()
+
+    def expire(self) -> None:
+        """Vence el plazo si el texto aún no empezó y cancela el turno."""
+
+        with self._lock:
+            if self._texting or self._expired:
+                return
+            self._expired = True
+        logger.warning("tool_agent.turn_timeout", timeout_s=self.timeout_s)
+        self._cancel.cancel()
+        self._on_expire()
+
+    def begin_text(self) -> bool:
+        """Marca el inicio del texto; ``False`` si el plazo ya venció."""
+
+        with self._lock:
+            if not self._expired:
+                self._texting = True
+            return self._texting
 
 
 def _close_graph_stream(events: Any) -> None:

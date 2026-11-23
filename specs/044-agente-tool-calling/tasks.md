@@ -115,12 +115,12 @@ de cada campo restringido.
 
 ### Tests for User Story 3
 
-- [ ] T033 [P] [US3] Pruebas en `tests/test_tool_agent_history.py`: historial como `HumanMessage`/`AIMessage` limitado por `agent_history_turns`, sin `ToolMessage` de turnos previos, bloque `<contexto_comercial>` como datos, preferencias aplicadas como estilo (research R7).
+- [X] T033 [P] [US3] Pruebas en `tests/test_tool_agent_history.py`: historial como `HumanMessage`/`AIMessage` limitado por `agent_history_turns`, sin `ToolMessage` de turnos previos, bloque `<contexto_comercial>` como datos, preferencias aplicadas como estilo (research R7).
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] Construir los mensajes del turno desde `data-model.md ToolAgentState.seed_turns`, `ToolAgentState.preferences` y `ToolAgentState.commercial_context` en el nodo `recall` de `packages/core/src/carvajal/agent/toolagent/graph.py`. FR-006, FR-007.
-- [ ] T035 [US3] Persistir y recuperar `commercial_context` entre turnos (checkpointer) y actualizarlo con los argumentos de `buscar_producto`/`cotizar` en `packages/core/src/carvajal/agent/toolagent/graph.py`; la herramienta informa qué campos reutilizó. FR-006.
+- [X] T034 [US3] Construir los mensajes del turno desde `data-model.md ToolAgentState.seed_turns`, `ToolAgentState.preferences` y `ToolAgentState.commercial_context` en el nodo `recall` de `packages/core/src/carvajal/agent/toolagent/graph.py`. FR-006, FR-007.
+- [X] T035 [US3] Persistir y recuperar `commercial_context` entre turnos (checkpointer) y actualizarlo con los argumentos de `buscar_producto`/`cotizar` en `packages/core/src/carvajal/agent/toolagent/graph.py`; la herramienta informa qué campos reutilizó. FR-006.
 
 **Checkpoint**: «mejor en Cali», «¿y si son 500?» y «¿eso cuándo fue?» funcionan en el modo `tools`.
 
@@ -134,18 +134,18 @@ de cada campo restringido.
 
 ### Tests for User Story 4
 
-- [ ] T036 [P] [US4] Pruebas en `tests/test_tool_agent_graph.py`: atajo para saludo/capacidad/preferencia sin llamar al chat; límite de `data-model.md ToolAgentState.tool_calls_used` con redacción final sin herramientas y `ToolAgentState.missing` en el prompt; deduplicación por `ToolAgentState.seen_calls`. FR-008, FR-010.
-- [ ] T037 [P] [US4] Pruebas en `tests/test_tool_agent_stream.py`: respaldo determinista ante `LLMError`, plazo vencido y decisión inválida; «Detener» antes del primer token no persiste nada; durante el texto persiste `incomplete` sin cotizaciones (research R2, R8, R9). FR-009, FR-011.
-- [ ] T038 [P] [US4] Pruebas de folios en `tests/test_tool_agent_stream.py` y `tests/test_quotation_memory.py`: dos cotizaciones → dos tarjetas y dos filas `quotes` en una transacción; fórmula de `data-model.md Quote` (índice 0 igual que hoy, `:i` después); reemplazo cuando solo cambia `QuoteRequest.delivery`; máximo `agent_max_quotes`; reenvío → mismos folios y orden. FR-012a.
+- [X] T036 [P] [US4] Pruebas en `tests/test_tool_agent_graph.py`: atajo para saludo/capacidad/preferencia sin llamar al chat; límite de `data-model.md ToolAgentState.tool_calls_used` con redacción final sin herramientas y `ToolAgentState.missing` en el prompt; deduplicación por `ToolAgentState.seen_calls`. FR-008, FR-010.
+- [X] T037 [P] [US4] Pruebas en `tests/test_tool_agent_stream.py`: respaldo determinista ante `LLMError`, plazo vencido y decisión inválida; «Detener» antes del primer token no persiste nada; durante el texto persiste `incomplete` sin cotizaciones (research R2, R8, R9). FR-009, FR-011.
+- [X] T038 [P] [US4] Pruebas de folios en `tests/test_tool_agent_stream.py` y `tests/test_quotation_memory.py`: dos cotizaciones → dos tarjetas y dos filas `quotes` en una transacción; fórmula de `data-model.md Quote` (índice 0 igual que hoy, `:i` después); reemplazo cuando solo cambia `QuoteRequest.delivery`; máximo `agent_max_quotes`; reenvío → mismos folios y orden. FR-012a.
 
 ### Implementation for User Story 4
 
-- [ ] T039 [US4] Nodo `shortcut` con `decide_route` que reutiliza el nodo `direct` actual para saludo, capacidad y preferencia en `packages/core/src/carvajal/agent/toolagent/graph.py`; `ToolAgentState.mode_path = "shortcut"`. FR-008.
-- [ ] T040 [US4] Límites del turno: contador `ToolAgentState.tool_calls_used` (sin contar `sin_consulta`), registro de `data-model.md ToolAgentState.missing` para el paso final, `recursion_limit`, deduplicación `ToolAgentState.seen_calls` y paso final sin herramientas en `packages/core/src/carvajal/agent/toolagent/graph.py`; plazo de `agent_turn_timeout_s` en `apps/api/chat/agent.py`. FR-010.
-- [ ] T041 [US4] Respaldo determinista `fallback.render()` (tarjetas, cotización o hasta 3 fragmentos citados + aviso fijo; sin resultados → aviso e invitación a reintentar) en `packages/core/src/carvajal/agent/toolagent/fallback.py` e integración vía evento `fallback` en `apps/api/chat/service.py`; el servicio registra `path: "fallback"` en `trace` y en el monitoreo (no en el estado del grafo, ver `data-model.md ToolAgentState.mode_path`). FR-009.
-- [ ] T042 [US4] Varias cotizaciones: `ToolAgentState.quotes`, reemplazo por domicilio y tope en `packages/core/src/carvajal/agent/toolagent/tools.py`; `_issue_quote` → lista con folios de `data-model.md Quote` y `_persist` con varias filas en `apps/api/chat/service.py`; `done.quote_ids` y `quote_id` compatible (`contracts/sse-events.md`). FR-012a.
-- [ ] T043 [US4] Resultado comercial con `quotes` y `quote` compatible en `messages.sources`; iterar `quotes` (con caída a `[quote]`) en `apps/api/templates/_productos.html`, `apps/api/chat/products.py` y `_replay` de `apps/api/chat/service.py`. Depende de T042. FR-012.
-- [ ] T044 [US4] Monitoreo por turno: hijo por herramienta con nombre, orden, `status`, latencia; `mode`, `path`, tokens; argumentos y resultados solo con contenido completo, en `apps/api/chat/service.py` y `packages/core/src/carvajal/infrastructure/monitoring.py`; prueba en `tests/test_monitoring.py`. FR-014.
+- [X] T039 [US4] Nodo `shortcut` con `decide_route` que reutiliza el nodo `direct` actual para saludo, capacidad y preferencia en `packages/core/src/carvajal/agent/toolagent/graph.py`; `ToolAgentState.mode_path = "shortcut"`. FR-008.
+- [X] T040 [US4] Límites del turno: contador `ToolAgentState.tool_calls_used` (sin contar `sin_consulta`), registro de `data-model.md ToolAgentState.missing` para el paso final, `recursion_limit`, deduplicación `ToolAgentState.seen_calls` y paso final sin herramientas en `packages/core/src/carvajal/agent/toolagent/graph.py`; plazo de `agent_turn_timeout_s` en `apps/api/chat/agent.py`. FR-010.
+- [X] T041 [US4] Respaldo determinista `fallback.render()` (tarjetas, cotización o hasta 3 fragmentos citados + aviso fijo; sin resultados → aviso e invitación a reintentar) en `packages/core/src/carvajal/agent/toolagent/fallback.py` e integración vía evento `fallback` en `apps/api/chat/service.py`; el servicio registra `path: "fallback"` en `trace` y en el monitoreo (no en el estado del grafo, ver `data-model.md ToolAgentState.mode_path`). FR-009.
+- [X] T042 [US4] Varias cotizaciones: `ToolAgentState.quotes`, reemplazo por domicilio y tope en `packages/core/src/carvajal/agent/toolagent/tools.py`; `_issue_quote` → lista con folios de `data-model.md Quote` y `_persist` con varias filas en `apps/api/chat/service.py`; `done.quote_ids` y `quote_id` compatible (`contracts/sse-events.md`). FR-012a.
+- [X] T043 [US4] Resultado comercial con `quotes` y `quote` compatible en `messages.sources`; iterar `quotes` (con caída a `[quote]`) en `apps/api/templates/_productos.html`, `apps/api/chat/products.py` y `_replay` de `apps/api/chat/service.py`. Depende de T042. FR-012.
+- [X] T044 [US4] Monitoreo por turno: hijo por herramienta con nombre, orden, `status`, latencia; `mode`, `path`, tokens; argumentos y resultados solo con contenido completo, en `apps/api/chat/service.py` y `packages/core/src/carvajal/infrastructure/monitoring.py`; prueba en `tests/test_monitoring.py`. FR-014.
 
 **Checkpoint**: el modo `tools` no rompe nada de lo entregado en las specs 017, 038 y 043.
 
