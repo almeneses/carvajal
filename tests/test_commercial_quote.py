@@ -15,9 +15,11 @@ from carvajal.agent.commercial import (
 )
 from carvajal.catalog.loader import DEFAULT_DIR, Catalog, load_catalog
 from carvajal.catalog.models import Distributor, Reference
+from carvajal.quotation import quote as quote_engine
 
 CATALOGO_REAL = Path(__file__).resolve().parents[1] / DEFAULT_DIR
 HOY = date(2026, 11, 16)
+HOY_COTIZADOR = date(2026, 11, 27)
 
 
 def _ref(**extra: object) -> Reference:
@@ -173,3 +175,39 @@ def test_catalogo_real_de_punta_a_punta() -> None:
     assert Decimal(cotizacion.total) == vaso.price * 5
     assert cotizacion.currency == "MXN"
     assert len(en_cali) >= 1
+
+
+def test_trescientos_vasos_publicados_son_seis_paquetes() -> None:
+    resultado = quote_engine("cotiza 300 vasos para bebida caliente en Bogotá", today=HOY_COTIZADOR)
+
+    presentation = resultado["primary"]["presentation"]
+    assert presentation["basis"] == "paquete"
+    assert presentation["units"] == 50
+    assert presentation["units_bought"] == 300
+    assert presentation["units_surplus"] == 0
+    assert presentation["price_per_presentation"] == "3751"
+
+
+def test_trescientos_uno_vasos_publicados_sobran_49() -> None:
+    resultado = quote_engine("cotiza 301 vasos para bebida caliente en Bogotá", today=HOY_COTIZADOR)
+
+    presentation = resultado["primary"]["presentation"]
+    assert presentation["count"] == 7
+    assert presentation["units_bought"] == 350
+    assert presentation["units_surplus"] == 49
+    assert presentation["subtotal"] == "26257"
+
+
+def test_la_presentacion_publicada_manda_sobre_la_vista_a_caja() -> None:
+    resultado = quote_engine("cotiza 100 vasos para bebida caliente en Bogotá", today=HOY_COTIZADOR)
+
+    assert resultado["commercial"]["presentation"]["units"] == 50
+    assert resultado["commercial"]["presentation"]["price_per_presentation"] == "3751"
+    assert resultado["commercial"]["source"]["name"] == "EDEXA"
+
+
+def test_sin_vigencia_publicada_el_resultado_no_inventa_una_fecha() -> None:
+    resultado = quote_engine("cotiza 100 vasos para bebida caliente en Bogotá", today=HOY_COTIZADOR)
+
+    assert resultado["commercial"]["valid_until"] is None
+    assert resultado["primary"]["commercial_valid_until"] is None

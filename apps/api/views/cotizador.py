@@ -1,41 +1,31 @@
-"""Vista del Cotizador: conversación, motor determinista e historial aislado.
+"""Acceso heredado al Cotizador (spec 043): historial autorizado y redirecciones.
 
-Los hilos del Cotizador viven en las mismas tablas del chat, bajo un espacio de nombres
-derivado del dueño firmado (``cot:<owner_key>``). El cliente nunca envía ese valor.
+El compositor y la escritura pública del Cotizador se retiraron: la conversación
+continúa en el chat. Los enlaces antiguos se redirigen, salvo un hilo histórico,
+que se abre en una vista de solo lectura y únicamente si pertenece al dueño
+firmado y su contenido es publicable (real, no simulado ni ambiguo).
 """
 
-import os
-import re
-from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, date, datetime, timedelta
+from collections.abc import Mapping, Sequence
+from datetime import date
 from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
-from uuid import uuid4
 
 import structlog
-from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from apps.api import runtime
-from apps.api.security import verify_csrf
-from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE, encode
-from apps.api.views.chat import (
-    CSRF_INVALIDO,
-    LIMITE_ALCANZADO,
-    MAX_QUESTION_CHARS,
-    SERVICE_UNAVAILABLE,
-    consume_quota,
-    request_identity,
-    set_identity_cookie,
-)
+from apps.api.views.chat import request_identity
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary, SqlChatRepository
-from carvajal.adapters.storage.quotes import SqlQuoteRepository
+from carvajal.adapters.storage.quotes import (
+    QuoteRecord,
+    SqlQuoteRepository,
+    classify_quote_payload,
+)
 from carvajal.adapters.storage.visitor_memory import SqlVisitorMemory
-from carvajal.quotation import quote
-from carvajal.quotation.data import DEFAULT_DIR, DemoDataError
-from carvajal.quotation.memory import extract, forget_requested, merge
 
 __all__ = ["CotizadorStore", "SqlCotizadorStore", "router"]
 
@@ -43,12 +33,6 @@ logger = structlog.get_logger(__name__)
 router = APIRouter()
 
 PREFIX = "cot:"
-EMPTY = "Escribe qué necesitas cotizar."
-HISTORY_QUESTIONS = 12
-DEMO_OFF = {"0", "false", "no"}
-FICHAS = DEFAULT_DIR / "fichas"
-SLUG = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
-QUOTE_DAYS = 7
 
 
 class ThreadAccessError(PermissionError):
@@ -90,21 +74,6 @@ class CotizadorStore(Protocol):
 
         ...
 
-    def memory(self, owner_key: str) -> dict[str, Any]:
-        """Perfil recordado, vacío si no hay o caducó."""
-
-        ...
-
-    def remember(self, owner_key: str, profile: Mapping[str, Any]) -> dict[str, Any]:
-        """Guarda el perfil y devuelve lo que quedó."""
-
-        ...
-
-    def forget(self, owner_key: str) -> None:
-        """Borra lo recordado del visitante."""
-
-        ...
-
 
 class SqlCotizadorStore:
     """Implementación sobre PostgreSQL con el prefijo del Cotizador."""
@@ -129,9 +98,21 @@ class SqlCotizadorStore:
                 conversation = repo.active(owner)
                 if conversation is None:
                     return None, []
-            # Cierra la transacción de solo lectura antes de tocar el motor.
+            # Cierra la transacción de solo lectura antes de devolver el historial.
             session.rollback()
             return conversation.id, repo.history(conversation.id)
+
+    def quotes(self, owner_key: str, thread_id: str) -> list[QuoteRecord]:
+        """Cotizaciones versionadas del hilo, solo para su dueño."""
+
+        with self._factory() as session:
+            owner = self._owner(owner_key)
+            conversation = SqlChatRepository(session).get_owned(thread_id, owner)
+            if conversation is None:
+                raise ThreadAccessError(thread_id)
+            items = SqlQuoteRepository(session).for_conversation(conversation.id, owner)
+            session.rollback()
+            return items
 
     def append(
         self,
@@ -143,7 +124,8 @@ class SqlCotizadorStore:
         thread_id: str | None,
         quote: Mapping[str, Any] | None = None,
     ) -> tuple[str, ChatMessage, ChatMessage]:
-        # El turno y su cotización comparten transacción: o quedan ambos o ninguno.
+        # Se conserva para la lectura y las pruebas del almacén histórico; la
+        # escritura pública ya no se expone desde la vista.
         with self._factory.begin() as session:
             repo = SqlChatRepository(session)
             owner = self._owner(owner_key)
@@ -167,15 +149,31 @@ class SqlCotizadorStore:
         quote: Mapping[str, Any],
         conversation_id: str,
     ) -> None:
-        """Registra la cotización dentro de la transacción del turno."""
+        """Registra la cotización versionada dentro de la transacción del turno."""
 
+        total = quote.get("total")
+        subtotal = quote.get("subtotal")
+        tax_rate = quote.get("tax_rate")
+        shipping_cost = quote.get("shipping_cost")
+        commercial_valid_until = quote.get("commercial_valid_until")
         SqlQuoteRepository(session).record(
             str(quote["id"]),
             owner,
             payload=quote["payload"],
-            total=Decimal(str(quote["total"])),
+            total=None if total is None else Decimal(str(total)),
             currency=str(quote["currency"]),
             valid_until=date.fromisoformat(str(quote["valid_until"])),
+            version=int(quote.get("version", 1)),
+            issued_at=quote.get("issued_at"),
+            subtotal=None if subtotal is None else Decimal(str(subtotal)),
+            tax_status=quote.get("tax_status"),
+            tax_rate=None if tax_rate is None else Decimal(str(tax_rate)),
+            shipping_cost=None if shipping_cost is None else Decimal(str(shipping_cost)),
+            commercial_valid_until=(
+                None
+                if commercial_valid_until is None
+                else date.fromisoformat(str(commercial_valid_until))
+            ),
             conversation_id=conversation_id,
         )
 
@@ -211,465 +209,127 @@ def cotizador_store(request: Request) -> CotizadorStore:
     return injected if injected is not None else SqlCotizadorStore(runtime.session_factory())
 
 
-def demo_enabled() -> bool:
-    """``COTIZADOR_DEMO=0`` apaga lo simulado y deja solo lo publicado."""
+def _payload(message: ChatMessage) -> Mapping[str, Any] | None:
+    """Primer payload comercial del mensaje, si lo hay."""
 
-    return os.environ.get("COTIZADOR_DEMO", "1").strip().lower() not in DEMO_OFF
+    for item in message.sources or []:
+        if isinstance(item, Mapping) and "kind" in item:
+            return item
+    return None
 
 
-DELETED = "Listo, borré lo que tenía guardado de ti."
+def _readable(
+    messages: Sequence[ChatMessage],
+    owner_key: str,
+    quotes: Sequence[QuoteRecord] = (),
+) -> list[ChatMessage]:
+    """Turnos que se pueden publicar: solo la rama real de la matriz de procedencia.
 
-
-def _issue_quote(
-    payload: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Identifica la cotización y devuelve el payload y lo que se audita.
-
-    Solo aplica a cotizaciones completas. El registro se guarda junto con el
-    turno para que no queden cotizaciones sin mensaje si la persistencia falla.
+    Un turno simulado o ambiguo se excluye completo (texto, tarjeta y contexto);
+    el usuario no ve contenido contaminado ni siquiera como cita.
     """
 
-    if payload.get("kind") != "cotizacion" or not payload.get("primary"):
-        return payload, None
-    primary = payload["primary"]
-    quote_id = uuid4().hex[:12]
-    valid = (datetime.now(UTC).date() + timedelta(days=QUOTE_DAYS)).isoformat()
-    quoted = {**payload, "quote": {"id": quote_id, "valid_until": valid, "days": QUOTE_DAYS}}
-    record = {
-        "id": quote_id,
-        "payload": quoted,
-        "total": Decimal(str(payload.get("total") or primary["presentation"]["subtotal"])),
-        "currency": primary["currency"],
-        "valid_until": valid,
-    }
-    return quoted, record
+    by_message = {row.get("message_id"): row for row in quotes if row.get("message_id")}
+    by_folio = {row.folio: row for row in quotes if row.folio}
+    users_by_turn: dict[str, ChatMessage] = {}
+    pending_user: ChatMessage | None = None
+    emitted: set[str] = set()
+    result: list[ChatMessage] = []
+    for message in messages:
+        if message.role == "user":
+            pending_user = message
+            if message.client_turn_id:
+                users_by_turn[message.client_turn_id] = message
+            continue
+        if message.role != "assistant":
+            continue
+        user = users_by_turn.get(message.client_turn_id) if message.client_turn_id else None
+        if user is None:
+            user = pending_user
+        if user is None:
+            continue
+        payload = _payload(message)
+        quote = by_message.get(message.id)
+        if quote is None and payload is not None:
+            folio = (payload.get("quote") or {}).get("id")
+            quote = by_folio.get(folio or "")
+        if quote is not None:
+            provenance = quote.provenance
+        else:
+            provenance = classify_quote_payload(
+                payload,
+                owner_key=owner_key,
+                folio=((payload or {}).get("quote") or {}).get("id"),
+            )
+        if provenance == "real" and user.id not in emitted:
+            result.extend([user, message])
+            emitted.add(user.id)
+        if pending_user is user:
+            pending_user = None
+    return result
 
 
-def _profile(store: CotizadorStore, owner_key: str, text: str) -> tuple[dict[str, Any], bool]:
-    """Lee, actualiza o borra la memoria del visitante.
+def _history(
+    request: Request, owner_key: str, thread_id: str
+) -> tuple[str | None, list[ChatMessage]]:
+    """Historial autorizado del hilo, ya filtrado por procedencia."""
 
-    Un fallo de la base no impide cotizar: se sigue con memoria vacía.
-    """
-
-    try:
-        if forget_requested(text):
-            store.forget(owner_key)
-            return {}, True
-        updates = extract(text)
-        current = store.memory(owner_key)
-        if not updates:
-            return current, False
-        return store.remember(owner_key, merge(current, updates)), False
-    except SQLAlchemyError as error:
-        logger.warning("cotizador.memory_failed", error=str(error))
-        return {}, False
-
-
-def _page(
-    request: Request,
-    messages: Sequence[ChatMessage],
-    *,
-    thread_id: str | None = None,
-    conversations: Sequence[ConversationSummary] = (),
-    error: str = "",
-    status_code: int = 200,
-) -> HTMLResponse:
-    return runtime.templates.TemplateResponse(
-        request,
-        "cotizador.html",
-        {
-            "messages": messages,
-            "thread_id": thread_id or "",
-            "conversations": conversations,
-            "error": error,
-        },
-        status_code=status_code,
-    )
-
-
-def _turno(
-    request: Request,
-    messages: Sequence[ChatMessage],
-    *,
-    thread_id: str,
-    status_code: int = 200,
-) -> HTMLResponse:
-    return runtime.templates.TemplateResponse(
-        request,
-        "_cotizador_turno.html",
-        {"messages": messages, "thread_id": thread_id},
-        status_code=status_code,
-        headers={"X-Thread": thread_id},
-    )
-
-
-def _error_turno(message: str, *, thread_id: str, status_code: int) -> HTMLResponse:
-    html = (
-        '<li class="turno turno-assistant"><div class="burbuja"><p class="aviso" '
-        f'role="alert">{message}</p></div></li>'
-    )
-    return HTMLResponse(html, status_code=status_code, headers={"X-Thread": thread_id})
-
-
-def _quota(request: Request, owner_key: str) -> Response | None:
-    try:
-        result = consume_quota(request, owner_key)
-    except SQLAlchemyError as error:
-        logger.warning("cotizador.quota_failed", error=str(error))
-        return _error_turno(SERVICE_UNAVAILABLE, thread_id="", status_code=503)
-    if result.allowed:
-        return None
-    response = _error_turno(LIMITE_ALCANZADO, thread_id="", status_code=429)
-    response.headers["Retry-After"] = str(result.retry_after)
-    return response
+    store = cotizador_store(request)
+    current, messages = store.history(owner_key, thread_id)
+    loader: Any = getattr(store, "quotes", None)
+    quotes: Sequence[QuoteRecord] = loader(owner_key, thread_id) if callable(loader) else ()
+    return current, _readable(messages, owner_key, quotes)
 
 
 @router.get("/cotizador", response_class=HTMLResponse)
-def page(
-    request: Request,
-    thread: str | None = None,
-    panel: str | None = None,
-) -> Response:
-    """Muestra el hilo del Cotizador o su estado vacío."""
+def page(request: Request, thread: str | None = None, panel: str | None = None) -> Response:
+    """Redirige el acceso general o abre un histórico autorizado de solo lectura."""
 
-    identity = request_identity(request)
-    owner_key = identity.read(request)
-    new_owner = owner_key is None
-    owner_key = owner_key or identity.new_owner_key()
-    thread_id = (thread or "").strip() or None
-    messages: Sequence[ChatMessage] = []
-    conversations: Sequence[ConversationSummary] = []
-    if not new_owner:
-        try:
-            store = cotizador_store(request)
-            thread_id, messages = store.history(owner_key, thread_id)
-            conversations = store.conversations(owner_key)
-        except ThreadAccessError as error:
-            raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
-        except SQLAlchemyError as error:
-            logger.warning("cotizador.history_failed", error=str(error))
-            return _page(
-                request, [], error=SERVICE_UNAVAILABLE, status_code=503, thread_id=thread_id
-            )
-    response = _page(
-        request,
-        messages,
-        thread_id=thread_id,
-        conversations=conversations if panel == "hilos" else (),
-    )
-    if new_owner:
-        set_identity_cookie(response, request, identity, owner_key)
-    return response
-
-
-def _cuerpo_ficha(text: str) -> str:
-    """Quita el front matter de la ficha; el cuerpo se pinta como Markdown saneado."""
-
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) == 3:
-            return parts[2].strip()
-    return text.strip()
-
-
-@router.get("/cotizador/ficha/{slug}", response_class=HTMLResponse)
-def ficha(request: Request, slug: str) -> Response:
-    """Ficha citable de una oferta, servida desde el conjunto de demostración."""
-
-    if SLUG.fullmatch(slug) is None:
-        raise HTTPException(status_code=404, detail="La ficha no existe.")
-    path = FICHAS / f"{slug}.md"
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="La ficha no existe.")
-    return runtime.templates.TemplateResponse(
-        request,
-        "ficha.html",
-        {"slug": slug, "contenido": _cuerpo_ficha(path.read_text(encoding="utf-8"))},
-    )
-
-
-@router.post("/cotizador", response_class=HTMLResponse)
-def turn(
-    request: Request,
-    question: str = Form(default=""),
-    csrf_token: str = Form(default=""),
-    thread_id: str = Form(default=""),
-) -> Response:
-    """Cotiza el turno y devuelve los dos mensajes para añadirlos al hilo."""
-
-    text = question.strip()
-    hilo = thread_id.strip() or None
-    identity = request_identity(request)
-    stored_owner = identity.read(request)
-    new_owner = stored_owner is None
-    owner_key = stored_owner or identity.new_owner_key()
-    structlog.contextvars.bind_contextvars(owner_key=owner_key)
-
-    def reject(message: str, status_code: int) -> Response:
-        """Error del turno con la identidad recién emitida si hace falta."""
-
-        response = _error_turno(message, thread_id=hilo or "", status_code=status_code)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
-
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        return reject(CSRF_INVALIDO, 403)
-    if not text:
-        return reject(EMPTY, 422)
-    if len(text) > MAX_QUESTION_CHARS:
-        return reject(f"El mensaje no puede superar los {MAX_QUESTION_CHARS} caracteres.", 422)
-
-    store = cotizador_store(request)
+    owner_key = request_identity(request).read(request)
+    thread_id = (thread or "").strip()
+    if owner_key is None or not thread_id:
+        destino = "/chat?panel=hilos" if panel == "hilos" else "/chat"
+        return RedirectResponse(url=destino, status_code=303)
     try:
-        # El hilo se resuelve antes de cobrar cupo: un 404 no gasta una petición.
-        current_id, history = store.history(owner_key, hilo)
+        current, messages = _history(request, owner_key, thread_id)
     except ThreadAccessError as error:
         raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
     except SQLAlchemyError as error:
         logger.warning("cotizador.history_failed", error=str(error))
-        return reject(SERVICE_UNAVAILABLE, 503)
-
-    blocked = _quota(request, owner_key)
-    if blocked is not None:
-        if new_owner:
-            set_identity_cookie(blocked, request, identity, owner_key)
-        return blocked
-
-    questions = [item.content for item in history if item.role == "user"][-HISTORY_QUESTIONS:]
-    try:
-        profile, forgot = _profile(store, owner_key, text)
-        result = quote(text, questions=questions, allow_demo=demo_enabled(), profile=profile)
-        if forgot:
-            result["reply"] = f"{DELETED} {result['reply']}"
-        payload = {key: value for key, value in result.items() if key != "reply"}
-        payload["kind"] = payload.get("kind", "cotizacion")
-        payload, quote_record = _issue_quote(payload)
-        conversation_id, user, assistant = store.append(
-            owner_key,
-            question=text,
-            answer=result["reply"],
-            sources=[payload],
-            thread_id=current_id,
-            quote=quote_record,
+        return HTMLResponse(
+            "El histórico del Cotizador no está disponible en este momento.",
+            status_code=503,
         )
-    except DemoDataError as error:
-        logger.warning("cotizador.demo_failed", error=str(error))
-        return reject("El conjunto de demostración del Cotizador no está disponible.", 503)
-    except SQLAlchemyError as error:
-        logger.warning("cotizador.failed", error=str(error))
-        return reject(SERVICE_UNAVAILABLE, 503)
-
-    response = _turno(request, [user, assistant], thread_id=conversation_id)
-    if new_owner:
-        set_identity_cookie(response, request, identity, owner_key)
-    return response
-
-
-@router.post("/cotizador/nuevo")
-def new_thread(request: Request, csrf_token: str = Form(default="")) -> Response:
-    """Crea un hilo nuevo y vuelve a la vista."""
-
-    identity = request_identity(request)
-    stored_owner = identity.read(request)
-    new_owner = stored_owner is None
-    owner_key = stored_owner or identity.new_owner_key()
-    structlog.contextvars.bind_contextvars(owner_key=owner_key)
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        response = _page(request, [], error=CSRF_INVALIDO, status_code=403, thread_id="")
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
-    try:
-        conversation_id = cotizador_store(request).new(owner_key)
-    except SQLAlchemyError as error:
-        logger.warning("cotizador.new_failed", error=str(error))
-        response = _page(request, [], error=SERVICE_UNAVAILABLE, status_code=503, thread_id="")
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
-    response = RedirectResponse(
-        url=f"/cotizador?thread={conversation_id}&panel=hilos", status_code=303
-    )
-    if new_owner:
-        set_identity_cookie(response, request, identity, owner_key)
-    return response
-
-
-def _cards(payload: Mapping[str, Any]) -> str:
-    """Tarjetas de la cotización ya escapadas por Jinja; vacío si no hay oferta."""
-
-    if payload.get("kind") != "cotizacion":
-        return ""
-    return runtime.templates.env.get_template("_cotizacion.html").render(cotizacion=payload).strip()
-
-
-def _pieces(text: str, size: int = 4) -> Iterator[str]:
-    """Trozos de texto para que el cliente pinte la respuesta mientras llega."""
-
-    words = text.split()
-    for start in range(0, len(words), size):
-        chunk = " ".join(words[start : start + size])
-        yield chunk if start + size >= len(words) else f"{chunk} "
-
-
-def _stream(
-    store: CotizadorStore,
-    owner_key: str,
-    question: str,
-    *,
-    questions: list[str],
-    thread_id: str | None,
-    profile: Mapping[str, Any] | None = None,
-    forgot: bool = False,
-) -> Iterator[str]:
-    """Eventos del turno: apertura, texto, tarjetas, cierre y error controlado.
-
-    El turno se persiste antes del primer evento: lo que el cliente ve ya quedó
-    en el historial y en ``quotes``, o no se muestra nada.
-    """
-
-    structlog.contextvars.bind_contextvars(owner_key=owner_key)
-    try:
-        result = quote(question, questions=questions, allow_demo=demo_enabled(), profile=profile)
-        if forgot:
-            result["reply"] = f"{DELETED} {result['reply']}"
-        payload = {key: value for key, value in result.items() if key != "reply"}
-        payload, quote_record = _issue_quote(payload)
-        html = _cards(payload)
-        conversation_id, user, assistant = store.append(
-            owner_key,
-            question=question,
-            answer=result["reply"],
-            sources=[payload],
-            thread_id=thread_id,
-            quote=quote_record,
-        )
-        turno_html = runtime.templates.env.get_template("_cotizador_turno.html").render(
-            messages=[user, assistant], thread_id=conversation_id
-        )
-    except DemoDataError as error:
-        logger.warning("cotizador.demo_failed", error=str(error), stream=True)
-        yield encode(
-            "error",
-            {
-                "message": "El conjunto de demostración del Cotizador no está disponible.",
-                "incomplete": False,
-            },
-        )
-        return
-    except Exception as error:
-        logger.warning("cotizador.stream_failed", error=str(error))
-        yield encode("error", {"message": SERVICE_UNAVAILABLE, "incomplete": False})
-        return
-
-    yield encode("open", {"stream": "cotizador"})
-    for piece in _pieces(result["reply"]):
-        yield encode("token", {"text": piece})
-    if html:
-        yield encode("products", {"html": html})
-    yield encode(
-        "done",
-        {
-            "conversation_id": conversation_id,
-            "message_id": assistant.id,
-            "user_message_id": user.id,
-            "thread_id": conversation_id,
-            "html": turno_html,
-        },
+    return runtime.templates.TemplateResponse(
+        request,
+        "historial.html",
+        {"messages": messages, "thread_id": current or thread_id},
     )
 
 
-def _invalid_stream(
-    message: str, *, status_code: int, headers: Mapping[str, str] | None = None
-) -> Response:
-    """Error en el mismo formato SSE que el stream correcto."""
+@router.post("/cotizador")
+def turn() -> Response:
+    """El compositor anterior se retiró: la conversación sigue en el chat."""
 
-    return Response(
-        content=encode("error", {"message": message, "incomplete": False}),
-        status_code=status_code,
-        media_type=SSE_MEDIA_TYPE,
-        headers={"X-Carvajal-Error": "1", **SSE_HEADERS, **(headers or {})},
-    )
+    return RedirectResponse(url="/chat", status_code=303)
 
 
 @router.post("/cotizador/stream")
-def stream_turn(
-    request: Request,
-    question: str = Form(default=""),
-    csrf_token: str = Form(default=""),
-    thread_id: str = Form(default=""),
-) -> Response:
-    """Cotiza el turno como eventos SSE y lo persiste antes de emitir."""
+def stream_turn() -> Response:
+    """El SSE del compositor anterior se redirige al chat unificado."""
 
-    if not verify_csrf(request, csrf_token):
-        logger.warning("csrf.rejected", path=request.url.path)
-        return _invalid_stream(CSRF_INVALIDO, status_code=403)
+    return RedirectResponse(url="/chat", status_code=303)
 
-    text = question.strip()
-    hilo = thread_id.strip() or None
-    if not text:
-        return _invalid_stream(EMPTY, status_code=422)
-    if len(text) > MAX_QUESTION_CHARS:
-        return _invalid_stream(
-            f"El mensaje no puede superar los {MAX_QUESTION_CHARS} caracteres.",
-            status_code=422,
-        )
 
-    identity = request_identity(request)
-    stored_owner = identity.read(request)
-    new_owner = stored_owner is None
-    owner_key = stored_owner or identity.new_owner_key()
-    structlog.contextvars.bind_contextvars(owner_key=owner_key)
+@router.post("/cotizador/nuevo")
+def new_thread() -> Response:
+    """Los hilos nuevos se abren desde el chat."""
 
-    store = cotizador_store(request)
-    try:
-        # El hilo se resuelve antes de cobrar cupo: un 404 no gasta una petición.
-        current_id, history = store.history(owner_key, hilo)
-    except ThreadAccessError as error:
-        raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
-    except SQLAlchemyError as error:
-        logger.warning("cotizador.history_failed", error=str(error), stream=True)
-        response = _invalid_stream(SERVICE_UNAVAILABLE, status_code=503)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
+    return RedirectResponse(url="/chat", status_code=303)
 
-    try:
-        quota = consume_quota(request, owner_key)
-    except SQLAlchemyError as error:
-        logger.warning("cotizador.quota_failed", error=str(error), stream=True)
-        response = _invalid_stream(SERVICE_UNAVAILABLE, status_code=503)
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
-    if not quota.allowed:
-        response = _invalid_stream(
-            LIMITE_ALCANZADO,
-            status_code=429,
-            headers={"Retry-After": str(quota.retry_after)},
-        )
-        if new_owner:
-            set_identity_cookie(response, request, identity, owner_key)
-        return response
 
-    questions = [item.content for item in history if item.role == "user"][-HISTORY_QUESTIONS:]
-    profile, forgot = _profile(store, owner_key, text)
-    response = StreamingResponse(
-        _stream(
-            store,
-            owner_key,
-            text,
-            questions=questions,
-            thread_id=current_id,
-            profile=profile,
-            forgot=forgot,
-        ),
-        media_type=SSE_MEDIA_TYPE,
-        headers=SSE_HEADERS,
-    )
-    if new_owner:
-        set_identity_cookie(response, request, identity, owner_key)
-    return response
+@router.get("/cotizador/ficha/{slug}")
+def ficha(slug: str) -> Response:
+    """Las fichas generadas por la demo ya no se sirven."""
+
+    raise HTTPException(status_code=404, detail="La ficha no existe.")

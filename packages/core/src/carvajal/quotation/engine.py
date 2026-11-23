@@ -11,7 +11,7 @@ el payload que la plantilla pinta dentro del hilo.
 import re
 import unicodedata
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -20,16 +20,14 @@ from carvajal.agent.commercial import CAPACITY_TOLERANCE_OZ, CommercialRequest, 
 from carvajal.agent.commercial_intent import empty_request, extract_commercial
 from carvajal.agent.state import Turn
 from carvajal.catalog.loader import Catalog, load_catalog
-from carvajal.catalog.models import Reference
 from carvajal.prompts import ABSENCE_POLICY
-from carvajal.quotation.calendar import window
 from carvajal.quotation.data import COUNTRY, Dataset, Offer, Product, load_dataset
 
-__all__ = ["MAX_ALTERNATIVES", "OUT_OF_SCOPE", "quote"]
+__all__ = ["MAX_ALTERNATIVES", "OUT_OF_SCOPE", "QUOTE_VERSION", "quote"]
 
 MAX_ALTERNATIVES = 2
 MAX_DISCARDED = 3
-CUTOFF_HOUR = 15
+QUOTE_VERSION = 2
 BOGOTA = ZoneInfo("America/Bogota")
 COP = "COP"
 OUT_OF_SCOPE = f"{ABSENCE_POLICY['out_of_scope']['say']} {ABSENCE_POLICY['out_of_scope']['offer']}"
@@ -66,6 +64,32 @@ _FAMILIES_LABEL = {
     "envase": "envases",
     "plato": "platos",
 }
+_LINE_WORDS = {
+    "vaso": "vaso",
+    "vasos": "vaso",
+    "tapa": "tapa",
+    "tapas": "tapa",
+    "contenedor": "contenedor",
+    "contenedores": "contenedor",
+    "charola": "charola",
+    "charolas": "charola",
+    "cubierto": "cubierto",
+    "cubiertos": "cubierto",
+    "cuchara": "cubierto",
+    "cucharas": "cubierto",
+    "tenedor": "cubierto",
+    "tenedores": "cubierto",
+    "cuchillo": "cubierto",
+    "cuchillos": "cubierto",
+    "envase": "envase",
+    "envases": "envase",
+    "plato": "plato",
+    "platos": "plato",
+}
+_LINE = re.compile(
+    r"\b(" + "|".join(sorted(_LINE_WORDS, key=len, reverse=True)) + r")\b",
+    re.I,
+)
 _USE_FAMILIES = {
     "bebida_caliente": ("vaso",),
     "bebida_fria": ("vaso",),
@@ -79,20 +103,6 @@ _USE_FAMILIES = {
     "sandwiches": ("contenedor", "charola"),
     "frutas": ("contenedor", "plato"),
 }
-_MONTHS = (
-    "ene",
-    "feb",
-    "mar",
-    "abr",
-    "may",
-    "jun",
-    "jul",
-    "ago",
-    "sep",
-    "oct",
-    "nov",
-    "dic",
-)
 
 
 def _plain(value: str) -> str:
@@ -112,18 +122,6 @@ def _units(value: Decimal) -> str:
     """Unidades con separador de miles."""
 
     return f"{int(value):,}".replace(",", ".")
-
-
-def _short(moment: date) -> str:
-    return f"{moment.day} {_MONTHS[moment.month - 1]}"
-
-
-def _span(start: date, end: date) -> str:
-    if start == end:
-        return _short(start)
-    if start.month == end.month:
-        return f"{start.day} y {_short(end)}"
-    return f"{_short(start)} y {_short(end)}"
 
 
 def _turns(questions: list[str]) -> list[Turn]:
@@ -189,37 +187,16 @@ def _request(
     if city:
         merged["city"] = city
     quantity = _quantity(text)
+    if (
+        quantity is None
+        and _last_request(questions) is not None
+        and _BARE_NUMBER.fullmatch(text.strip()) is not None
+    ):
+        digits = text.strip().replace(".", "").replace(",", "")
+        quantity = int(digits) if digits.isdigit() else None
     if quantity is not None:
         merged["quantity"] = quantity
     return merged, _delivery([*questions, text]), city, current
-
-
-def _reference(product: Product) -> Reference:
-    """Referencia del catálogo para reutilizar la validación de material.
-
-    Las simuladas no tienen ficha colombiana; se valida con el material y el uso, y su
-    URL apunta a la raíz oficial para no inventar una ficha.
-    """
-
-    return Reference.model_validate(
-        {
-            "sku": product.sku,
-            "name": product.name,
-            "family": product.family,
-            "use": product.use,
-            "capacity_oz": product.capacity_oz,
-            "material": product.material,
-            "brand": product.brand,
-            "units_per_pack": product.units_per_pack,
-            "packs_per_box": product.packs_per_box,
-            "units_per_box": product.units_per_box,
-            "temp_min_c": product.temp_min_c,
-            "temp_max_c": product.temp_max_c,
-            "country": product.country,
-            "source_url": product.source_url or "https://colombia.carvajalempaques.com/",
-            "captured_at": product.captured_at,
-        }
-    )
 
 
 def _families(request: dict[str, Any]) -> tuple[str, ...]:
@@ -263,9 +240,7 @@ def _candidates(
         city=request.get("city"),
         prefers_renewable=bool(request.get("prefers_renewable")),
     )
-    valid, discarded = check_material(
-        [_reference(product) for product in possible], commercial, catalog=catalog
-    )
+    valid, discarded = check_material(list(possible), commercial, catalog=catalog)
     valid_skus = {reference.sku for reference in valid}
     reasons = [item.reason for item in discarded[:MAX_DISCARDED]]
     chosen = [product for product in possible if product.sku in valid_skus]
@@ -273,8 +248,45 @@ def _candidates(
     return chosen, reasons
 
 
+def _decimal_text(value: Decimal) -> str:
+    """Importe como texto exacto; JSON no admite ``Decimal`` y no se redondea."""
+
+    return str(value)
+
+
+def _mention_families(text: str) -> tuple[str, ...]:
+    """Familias nombradas en el mensaje, en el orden en que aparecen."""
+
+    found: list[str] = []
+    for match in _LINE.finditer(_plain(text)):
+        family = _LINE_WORDS[match.group(1)]
+        if family not in found:
+            found.append(family)
+    return tuple(found)
+
+
+def _pending_lines(text: str, quoted_family: str) -> list[dict[str, str]]:
+    """Líneas de una solicitud múltiple que quedan pendientes de elegir.
+
+    El piloto emite una cotización por solicitud. Las demás líneas se conservan con su
+    familia y estado, sin precio ni cantidad inventados.
+    """
+
+    families = _mention_families(text)
+    if len(families) < 2:
+        return []
+    return [
+        {"family": family, "label": _FAMILIES_LABEL.get(family, family), "status": "pendiente"}
+        for family in families
+        if family != quoted_family
+    ]
+
+
 def _offer_for(offer: Offer, quantity: int) -> dict[str, Any]:
-    """Presentación necesaria y totales de una oferta para la cantidad pedida."""
+    """Presentación necesaria y totales de una oferta para la cantidad pedida.
+
+    Todos los importes se calculan con ``Decimal`` y se publican como texto exacto.
+    """
 
     units = offer.units_in_basis
     count = max(1, -(-quantity // units))
@@ -284,11 +296,13 @@ def _offer_for(offer: Offer, quantity: int) -> dict[str, Any]:
     return {
         "basis": offer.basis,
         "units": units,
+        "units_requested": quantity,
         "count": count,
         "units_bought": bought,
         "units_surplus": bought - quantity,
-        "subtotal": str(int(subtotal)),
-        "unit_price": str(unit_price),
+        "price_per_presentation": _decimal_text(offer.amount),
+        "subtotal": _decimal_text(subtotal),
+        "unit_price": _decimal_text(unit_price),
     }
 
 
@@ -297,11 +311,8 @@ def _option(
     offer: Offer,
     quantity: int,
     provider: dict[str, Any],
-    *,
-    allow_demo: bool = True,
 ) -> dict[str, Any]:
     presentation = _offer_for(offer, quantity)
-    stock_status = offer.stock_status if allow_demo else "desconocido"
     return {
         "sku": product.sku,
         "name": product.name,
@@ -309,43 +320,108 @@ def _option(
         "brand": product.brand,
         "material": product.material,
         "capacity_oz": product.capacity_oz,
-        "origin": product.origin,
-        "simulated": product.simulated,
         "presentation": presentation,
         "units_requested": quantity,
         "currency": offer.currency,
         "tax_status": offer.tax_status,
-        "provider": provider,
-        "stock": {
-            "status": stock_status,
-            "units": offer.stock_units if allow_demo else None,
-            "simulated": offer.stock_simulated and allow_demo,
+        "tax": {
+            "status": offer.tax_status,
+            "rate": _decimal_text(offer.tax_rate) if offer.tax_rate is not None else None,
         },
-        "price_simulated": offer.price_simulated,
+        "source": {
+            "name": offer.source_name,
+            "url": offer.source_url,
+            "captured_at": offer.captured_at.isoformat(),
+        },
+        "commercial_valid_until": (
+            offer.source_valid_until.isoformat() if offer.source_valid_until else None
+        ),
+        "provider": provider,
+        "seller": offer.source_name,
+        "stock": {
+            "status": offer.stock_status,
+            "units": offer.stock_units,
+            "evidence": [
+                {
+                    "source_url": item.source_url,
+                    "observed_at": item.recorded_at.isoformat(),
+                    "valid_until": item.valid_until.isoformat() if item.valid_until else None,
+                }
+                for item in offer.evidence
+            ],
+        },
         "source_url": offer.source_url,
         "captured_at": offer.captured_at.isoformat(),
-        "warning": _stock_warning(offer, presentation["units_bought"])
-        if allow_demo
-        else "La existencia no se consulta sin el modo demo.",
+        "warning": _stock_warning(offer, presentation["units_bought"]),
     }
 
 
 def _stock_warning(offer: Offer, needed: int) -> str:
-    if offer.stock_status == "insuficiente":
-        available = offer.stock_units or 0
-        return (
-            f"La sede declara {_units(Decimal(available))} unidades y esta presentación "
-            f"necesita {_units(Decimal(needed))}. Conviene confirmar antes de pedir."
-        )
-    if offer.stock_status == "desconocido":
-        return "La sede no confirma existencia; se puede consultar al pedir."
-    return ""
+    if offer.stock_status == "verificado" and offer.stock_units is not None:
+        if offer.stock_units < needed:
+            return (
+                f"La sede confirma {_units(Decimal(offer.stock_units))} unidades y esta "
+                f"presentación necesita {_units(Decimal(needed))}. Conviene confirmar antes "
+                "de pedir."
+            )
+        return ""
+    return "La sede no confirma existencia vigente; se puede consultar al pedir."
 
 
-def _provider(provider: Any, sku: str) -> dict[str, Any]:
+def _shipping(offer: Offer, *, requested: bool, as_of: date) -> dict[str, Any]:
+    """Envío separado del precio; solo se confirma con evidencia vigente y costo declarado."""
+
+    empty = {
+        "requested": requested,
+        "status": "not_requested" if not requested else "pending",
+        "cost": None,
+        "free": False,
+        "source_url": None,
+        "observed_at": None,
+        "valid_until": None,
+        "note": "",
+    }
+    if not requested:
+        return empty
+    terms = offer.delivery
+    if terms is None:
+        return {**empty, "note": "La sede no publica condiciones de envío."}
+    evidence = (
+        terms.source_url is not None
+        and terms.checked_at is not None
+        and terms.valid_until is not None
+        and terms.valid_until >= as_of
+    )
+    if not evidence:
+        return {
+            **empty,
+            "note": "El envío no tiene evidencia vigente con fuente y fecha.",
+        }
+    if terms.ship_cost is None:
+        return {
+            **empty,
+            "source_url": terms.source_url,
+            "observed_at": terms.checked_at.isoformat() if terms.checked_at else None,
+            "valid_until": terms.valid_until.isoformat() if terms.valid_until else None,
+            "note": "La evidencia no declara costo de envío.",
+        }
+    return {
+        "requested": True,
+        "status": "confirmed",
+        "cost": _decimal_text(terms.ship_cost),
+        "free": terms.ship_cost == 0,
+        "days_min": terms.lead_days_min,
+        "days_max": terms.lead_days_max,
+        "source_url": terms.source_url,
+        "observed_at": terms.checked_at.isoformat() if terms.checked_at else None,
+        "valid_until": terms.valid_until.isoformat() if terms.valid_until else None,
+        "note": terms.note,
+    }
+
+
+def _provider(provider: Any) -> dict[str, Any]:
     return {
         "id": provider.provider_id,
-        "ficha": f"{sku}-{provider.provider_id}",
         "name": provider.name,
         "city": provider.city,
         "address": provider.address,
@@ -364,34 +440,7 @@ def _difference(primary: Product, other: Product, option: dict[str, Any]) -> str
         parts.append(f"material {other.material}")
     presentation = option["presentation"]
     parts.append(f"{presentation['count']} {presentation['basis']} de {presentation['units']}")
-    if other.simulated:
-        parts.append("referencia de demostración")
     return "; ".join(parts)
-
-
-def _delivery_block(
-    offer: Offer,
-    subtotal: Decimal,
-    dataset: Dataset,
-    *,
-    today: date,
-    now: datetime,
-) -> dict[str, Any]:
-    free = subtotal >= dataset.free_from
-    ship = Decimal(0) if free else offer.ship_cost
-    start = today if now.hour < CUTOFF_HOUR else today + timedelta(days=1)
-    first, last = window(start, offer.lead_days_min or 1, offer.lead_days_max or 1)
-    return {
-        "requested": True,
-        "window": _span(first, last),
-        "days_min": offer.lead_days_min,
-        "days_max": offer.lead_days_max,
-        "ship_cost": None if ship is None else str(int(ship)),
-        "free": free,
-        "free_from": str(int(dataset.free_from)),
-        "covered": True,
-        "cutoff": CUTOFF_HOUR,
-    }
 
 
 def _empty(kind: str, reply: str, **extra: Any) -> dict[str, Any]:
@@ -406,16 +455,15 @@ def quote(
     now: datetime | None = None,
     dataset: Dataset | None = None,
     catalog: Catalog | None = None,
-    allow_demo: bool = True,
     profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Cotiza el turno o devuelve el texto que pide el dato que falta."""
 
     questions = questions or []
-    dataset = dataset or load_dataset()
-    catalog = catalog or load_catalog()
     moment = now or datetime.now(BOGOTA)
     day = today or moment.date()
+    dataset = dataset or load_dataset(day.isoformat())
+    catalog = catalog or load_catalog()
     request, mentioned_delivery, city, current = _request(text, questions, dataset)
     remembered = profile or {}
     if city is None and remembered.get("city"):
@@ -463,8 +511,6 @@ def quote(
         )
 
     products, discarded = _candidates(request, dataset, catalog)
-    if not allow_demo:
-        products = [product for product in products if not product.simulated]
     if not products:
         return _empty(
             "sin_resultados",
@@ -478,37 +524,32 @@ def quote(
         offers = [
             offer
             for offer in dataset.offers_for(product.sku)
-            if offer.city == city
-            and offer.stock_status != "agotado"
-            and (allow_demo or not offer.price_simulated)
+            if offer.city == city and offer.stock_status != "no_disponible"
         ]
         if not offers:
             continue
         offer = min(offers, key=lambda item: _offer_for(item, quantity)["subtotal"])
-        provider = dataset.provider(offer.provider_id)
+        provider = dataset.provider(offer.site_id)
         if provider is None:
             continue
         options.append(
             (
                 product,
                 offer,
-                _option(
-                    product,
-                    offer,
-                    quantity,
-                    _provider(provider, product.sku),
-                    allow_demo=allow_demo,
-                ),
+                _option(product, offer, quantity, _provider(provider)),
             )
         )
-    options.sort(key=lambda item: int(item[2]["presentation"]["subtotal"]))
+    options.sort(key=lambda item: Decimal(item[2]["presentation"]["subtotal"]))
     if not options:
+        sedes = dataset.providers_in(city)
         return _empty(
             "sin_resultados",
-            f"Hoy no hay ofertas con existencia en {city}. Las sedes están en "
-            f"{', '.join(dataset.cities())}; puedo cotizar en otra ciudad.",
+            f"Hoy no hay precios publicados para esta búsqueda en {city}. "
+            f"Tengo {len(sedes)} sede(s) del directorio con contacto; "
+            "puedo cotizar en otra ciudad con precio publicado.",
             request=request,
             cities=list(dataset.cities()),
+            providers=[_provider(item) for item in sedes],
         )
 
     product, offer, primary = options[0]
@@ -524,22 +565,46 @@ def quote(
     for item in dataset.offers_for(product.sku):
         if item.city != city:
             continue
-        provider = dataset.provider(item.provider_id)
+        provider = dataset.provider(item.site_id)
         if provider is not None and provider.provider_id not in {p["id"] for p in providers}:
-            providers.append(_provider(provider, product.sku))
+            providers.append(_provider(provider))
 
     subtotal = Decimal(primary["presentation"]["subtotal"])
-    if wants_delivery and not allow_demo:
-        delivery = {"requested": True, "covered": False}
-    elif wants_delivery:
-        delivery = _delivery_block(offer, subtotal, dataset, today=day, now=moment)
+    shipping = _shipping(offer, requested=wants_delivery, as_of=day)
+    if not wants_delivery:
+        total: Decimal | None = subtotal
+    elif shipping["status"] == "confirmed" and shipping["cost"] is not None:
+        total = subtotal + Decimal(shipping["cost"])
     else:
-        delivery = {"requested": False}
-    total: Decimal | None = subtotal
-    if wants_delivery:
-        total = (
-            None if delivery.get("ship_cost") is None else subtotal + Decimal(delivery["ship_cost"])
-        )
+        total = None
+
+    commercial_valid_until = (
+        offer.source_valid_until.isoformat() if offer.source_valid_until else None
+    )
+    pending_lines = _pending_lines(text, product.family)
+    commercial = {
+        "version": QUOTE_VERSION,
+        "currency": offer.currency,
+        "presentation": primary["presentation"],
+        "tax": primary["tax"],
+        "shipping": shipping,
+        "subtotal": _decimal_text(subtotal),
+        "total": None if total is None else _decimal_text(total),
+        "valid_until": commercial_valid_until,
+        "source": primary["source"],
+        "pending_lines": pending_lines,
+    }
+    delivery = {
+        "requested": wants_delivery,
+        "covered": shipping["status"] == "confirmed",
+        "ship_cost": shipping["cost"],
+        "free": shipping["free"],
+        "days_min": shipping.get("days_min"),
+        "days_max": shipping.get("days_max"),
+        "source_url": shipping["source_url"],
+        "valid_until": shipping["valid_until"],
+        "note": shipping["note"],
+    }
 
     label = _FAMILIES_LABEL.get(product.family, product.family)
     greeting = f"Listo, {remembered['name']}. " if remembered.get("name") else ""
@@ -549,18 +614,38 @@ def quote(
         f"{primary['presentation']['count']} "
         f"{primary['presentation']['basis']} de "
         f"{_units(Decimal(primary['presentation']['units']))} unidades por "
-        f"{_money(subtotal)} COP."
+        f"{_money(Decimal(primary['presentation']['price_per_presentation']))} COP."
     )
+    if wants_delivery:
+        if shipping["status"] == "confirmed":
+            reply += (
+                " El envío tiene costo cero respaldado."
+                if shipping["free"]
+                else f" El envío cuesta {_money(Decimal(shipping['cost'] or '0'))} COP."
+            )
+        else:
+            reply += " El envío no tiene precio respaldado; el total final queda pendiente."
+    if total is not None:
+        reply += f" Total: {_money(total)} COP."
+    if commercial_valid_until:
+        reply += f" Vigencia publicada por el vendedor hasta {commercial_valid_until}."
+    if pending_lines:
+        reply += (
+            " Quedan líneas pendientes: " + ", ".join(item["label"] for item in pending_lines) + "."
+        )
+
     return {
         "kind": "cotizacion",
+        "version": QUOTE_VERSION,
         "reply": reply,
         "request": request,
         "primary": primary,
         "alternatives": alternatives,
         "providers": providers,
         "delivery": delivery,
-        "total": None if total is None else str(int(total)),
-        "demo": allow_demo,
+        "commercial": commercial,
+        "pending_lines": pending_lines,
+        "total": None if total is None else _decimal_text(total),
         "city": city,
         "discarded": discarded,
     }

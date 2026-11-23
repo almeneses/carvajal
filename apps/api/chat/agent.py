@@ -35,8 +35,11 @@ class AgentTurn:
     tool_period: str = ""
     reason: str = ""
     query: str = ""
-    # Resultado estructurado de la ruta comercial (spec 036): opciones, canal y contactos.
+    # Resultado estructurado de la ruta comercial (spec 036/043): opciones, ficha,
+    # ofertas, sedes, cotización y aclaraciones.
     products: dict[str, Any] = field(default_factory=dict)
+    # Contexto comercial persistido en el hilo (ciudad, cantidad, producto, entrega).
+    commercial_context: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -128,6 +131,7 @@ class GraphAgentRunner:
             reason=str(state.get("reason", "")),
             query=str(state.get("query", "")),
             products=dict(state.get("tool_result") or {}) if route == "commercial" else {},
+            commercial_context=dict(state.get("commercial_context") or {}),
         )
 
     def record(

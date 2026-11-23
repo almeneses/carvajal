@@ -1,8 +1,8 @@
-"""Carga del contrato comercial desde los datos ya versionados.
+"""Carga del contrato comercial desde los datos publicados y versionados.
 
 No crea un catálogo paralelo: reutiliza ``data/catalog/empaques`` para productos, precios y
-directorio, y ``data/demo/cotizador`` solo para la extensión simulada y la geocodificación.
-La evidencia de existencias vive en ``data/commercial/evidencia_disponibilidad.csv`` y es la
+directorio, y ``data/commercial/proveedores.csv`` para la geocodificación trazable. La
+evidencia de existencias vive en ``data/commercial/evidencia_disponibilidad.csv`` y es la
 única vía para que una sede pase de «por confirmar» a «verificado».
 
 Identificadores estables:
@@ -23,7 +23,6 @@ justamente lo que un consumidor necesita distinguir.
 import csv
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -40,8 +39,6 @@ from carvajal.commercial.models import (
     AvailabilityEvidence,
     Basis,
     Country,
-    Currency,
-    DeliveryTerms,
     EvidenceKind,
     GeocodePrecision,
     GeoPoint,
@@ -54,14 +51,15 @@ from carvajal.commercial.models import (
     Site,
     SourceRef,
     StockEvidence,
-    TaxStatus,
 )
 
 __all__ = [
     "CATALOG_DIR",
-    "DEMO_DIR",
+    "COMMERCIAL_DIR",
     "EVIDENCE_PATH",
+    "PROVIDERS_PATH",
     "book_from_paths",
+    "commercial_version",
     "load_commercial_book",
     "offer_id_for",
     "seller_id_for",
@@ -69,19 +67,44 @@ __all__ = [
 ]
 
 CATALOG_DIR = Path("data") / "catalog" / "empaques"
-DEMO_DIR = Path("data") / "demo" / "cotizador"
-EVIDENCE_PATH = Path("data") / "commercial" / "evidencia_disponibilidad.csv"
+COMMERCIAL_DIR = Path("data") / "commercial"
+PROVIDERS_PATH = COMMERCIAL_DIR / "proveedores.csv"
+EVIDENCE_PATH = COMMERCIAL_DIR / "evidencia_disponibilidad.csv"
 DEFAULT_GEOCODED_AT = date(2026, 11, 21)
 GEOCODER = "OpenStreetMap Nominatim"
 OFFICIAL_SELLER = {"MX": "Carvajal Empaques México", "CO": "Carvajal Empaques Colombia"}
-DEMO_SELLER_SOURCE = "Cotizador demo"
-_STOCK_STATUSES = {"disponible", "insuficiente", "agotado", "desconocido"}
+
+
+def commercial_version() -> str:
+    """Versión del aprovisionamiento publicado: la captura más reciente.
+
+    Es la misma fecha que compara el bootstrap contra ``EXPECTED_COMMERCIAL_VERSION``;
+    exponerla en ``/health`` permite verificar la versión desplegada sin entrar al
+    contenedor. Si no hay fechas legibles devuelve ``desconocida``.
+    """
+
+    dates: list[str] = []
+    manifest_path = CATALOG_DIR / "manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        dates.extend(
+            str(item.get("captured_at"))
+            for item in (manifest.get("sources") or {}).values()
+            if isinstance(item, dict) and item.get("captured_at")
+        )
+    if PROVIDERS_PATH.is_file():
+        with PROVIDERS_PATH.open(encoding="utf-8", newline="") as handle:
+            dates.extend(
+                row["captured_at"] for row in csv.DictReader(handle) if row.get("captured_at")
+            )
+    return max(dates) if dates else "desconocida"
+
+
 _EVIDENCE_KINDS = {
     "inventario_vendedor",
     "confirmacion_vendedor",
     "integracion_pos",
     "pedido_confirmado",
-    "simulacion",
 }
 
 
@@ -139,10 +162,13 @@ def offer_id_for(
     units: int,
     amount: Decimal,
     captured_at: date,
-    origin: str,
 ) -> str:
-    """Identificador estable de una observación de precio; dos ofertas del mismo SKU no
-    colisionan, y una recaptura con otro importe o fecha es una observación nueva."""
+    """Identificador estable de una observación publicada.
+
+    El sufijo ``publicada`` se conserva en el hash para que los identificadores emitidos
+    antes de retirar la demo sigan siendo válidos; dos ofertas del mismo SKU no colisionan y
+    una recaptura con otro importe o fecha es una observación nueva.
+    """
 
     return f"{country}-OFERTA-{
         _digest(
@@ -156,7 +182,7 @@ def offer_id_for(
                 str(units),
                 str(amount),
                 captured_at.isoformat(),
-                origin,
+                'publicada',
             ),
             12,
         )
@@ -201,43 +227,9 @@ def _date(raw: str | None, where: str) -> date:
         raise ContractError(f"{where}: fecha inválida {text!r}.") from error
 
 
-def _geocoded_at(demo_dir: Path) -> date:
-    """Fecha de geocodificación declarada en el manifiesto de la demo."""
-
-    path = demo_dir / "manifest.json"
-    if not path.is_file():
-        return DEFAULT_GEOCODED_AT
-    try:
-        text = str(
-            json.loads(path.read_text(encoding="utf-8"))
-            .get("sources", {})
-            .get("sedes", {})
-            .get("geocoding", "")
-        )
-    except (json.JSONDecodeError, AttributeError):
-        return DEFAULT_GEOCODED_AT
-    match = re.search(r"\d{4}-\d{2}-\d{2}", text)
-    return date.fromisoformat(match.group(0)) if match else DEFAULT_GEOCODED_AT
-
-
-def _generated_at(demo_dir: Path) -> date:
-    """Fecha en que se generó la simulación (no la fecha de captura del precio)."""
-
-    path = demo_dir / "manifest.json"
-    if not path.is_file():
-        return DEFAULT_GEOCODED_AT
-    try:
-        text = str(json.loads(path.read_text(encoding="utf-8")).get("generated_at", ""))
-    except (json.JSONDecodeError, AttributeError):
-        return DEFAULT_GEOCODED_AT
-    match = re.search(r"\d{4}-\d{2}-\d{2}", text)
-    return date.fromisoformat(match.group(0)) if match else DEFAULT_GEOCODED_AT
-
-
-def _providers(demo_dir: Path) -> tuple[list[_Provider], date]:
-    geocoded_at = _geocoded_at(demo_dir)
+def _providers(providers_path: Path) -> list[_Provider]:
     providers: list[_Provider] = []
-    for line, row in _read_rows(demo_dir / "proveedores.csv"):
+    for line, row in _read_rows(providers_path):
         where = f"proveedores.csv:{line}"
         providers.append(
             _Provider(
@@ -254,7 +246,7 @@ def _providers(demo_dir: Path) -> tuple[list[_Provider], date]:
                 line=line,
             )
         )
-    return providers, geocoded_at
+    return providers
 
 
 def _match_provider(
@@ -276,11 +268,12 @@ def _match_provider(
 
 
 def _site_candidates(
-    catalog_dir: Path, demo_dir: Path
+    catalog_dir: Path,
+    providers_path: Path,
 ) -> tuple[list[Site], dict[str, str], list[Seller]]:
     """Sedes del directorio, mapa provider_id→site_id y vendedores del directorio."""
 
-    providers, geocoded_at = _providers(demo_dir)
+    providers = _providers(providers_path)
     index: dict[tuple[str, ...], _Provider] = {}
     for provider in providers:
         name, city = plain(provider.name), plain(provider.city)
@@ -314,7 +307,7 @@ def _site_candidates(
                 longitude=provider.longitude,
                 precision=cast(GeocodePrecision, provider.precision),
                 geocoder=GEOCODER,
-                geocoded_at=geocoded_at,
+                geocoded_at=DEFAULT_GEOCODED_AT,
             )
         site = Site(
             site_id=base,
@@ -369,10 +362,6 @@ def _site_candidates(
     )
 
 
-def _natural_rows(path: Path) -> list[tuple[int, dict[str, str]]]:
-    return _read_rows(path)
-
-
 def _raw_presentations(path: Path) -> dict[tuple[str, str], PriceBasis]:
     """Precio tal como lo publica la fuente, para no perder paquete/unidad al normalizar."""
 
@@ -395,7 +384,6 @@ def _product_from_reference(reference: Reference) -> Product:
         name=reference.name,
         family=reference.family,
         units_per_box=reference.units_per_box,
-        origin="real",
         source=SourceRef(
             type="oficial",
             name=OFFICIAL_SELLER[reference.country],
@@ -404,60 +392,6 @@ def _product_from_reference(reference: Reference) -> Product:
             valid_until=reference.price_valid_until,
             note="Ficha del catálogo curado.",
         ),
-    )
-
-
-def _demo_product(row: dict[str, str], where: str, demo_dir: Path) -> Product:
-    return Product(
-        sku=row["sku"],
-        country=cast(Country, row["country"]),
-        name=row["name"],
-        family=row["family"],
-        units_per_box=int(row["units_per_box"]),
-        origin="demo",
-        source=SourceRef(
-            type="demo",
-            name=DEMO_SELLER_SOURCE,
-            captured_at=_date(row["captured_at"], where),
-            note="Referencia simulada: no está publicada en Colombia.",
-        ),
-    )
-
-
-def _delivery_from_demo(row: dict[str, str], *, generated_at: date) -> DeliveryTerms:
-    """Plazo y envío de la demo, siempre marcados como simulados."""
-
-    simulated_fields = {part for part in row.get("simulated", "").split("|") if part}
-    return DeliveryTerms(
-        lead_days_min=_int(row.get("lead_days_min")) or 0,
-        lead_days_max=_int(row.get("lead_days_max")) or 0,
-        ship_cost=_decimal(row.get("ship_cost")),
-        simulated=bool({"lead_days", "ship_cost"} & simulated_fields),
-        checked_at=generated_at,
-        note="Plazo y envío simulados por la demo." if simulated_fields else "",
-    )
-
-
-def _claim_from_demo(
-    row: dict[str, str], *, where: str, checked_at: date | None = None
-) -> Availability:
-    """Convierte el stock de la demo en una afirmación que nunca es verificada."""
-
-    declared = (row.get("stock_status") or "desconocido").strip()
-    if declared not in _STOCK_STATUSES:
-        raise ContractError(f"{where}: stock_status desconocido {declared!r}.")
-    simulated = "stock" in {part for part in row.get("simulated", "").split("|") if part}
-    note = (
-        "Existencia simulada por la demo; no es inventario del vendedor."
-        if simulated
-        else "Existencia declarada por la fuente, sin evidencia adjunta."
-    )
-    return Availability.from_claim(
-        cast(AvailabilityClaim, declared),
-        units=_int(row.get("stock_units")),
-        simulated=simulated,
-        checked_at=checked_at or _date(row.get("captured_at"), where),
-        note=note,
     )
 
 
@@ -493,7 +427,6 @@ def _inline_mx_offers(catalog) -> tuple[list[Offer], Seller]:
                     units=presentation.units_in_basis,
                     amount=amount,
                     captured_at=reference.captured_at,
-                    origin="publicada",
                 ),
                 sku=reference.sku,
                 country="MX",
@@ -504,7 +437,6 @@ def _inline_mx_offers(catalog) -> tuple[list[Offer], Seller]:
                 currency="MXN",
                 tax_status="incluido" if reference.tax_included else "no_incluido",
                 tax_rate=None,
-                origin="publicada",
                 source=source,
                 availability=Availability.unknown(
                     note="La ficha publica precio; no declara existencias."
@@ -533,22 +465,13 @@ def _published_co_offers(
     catalog,
     *,
     catalog_dir: Path,
-    demo_dir: Path,
     sites: list[Site],
     seller_map: dict[str, Seller],
-) -> tuple[list[Offer], list[StockEvidence]]:
-    """Ofertas de ``precios.csv`` con su presentación publicada y el stock de la demo."""
+) -> list[Offer]:
+    """Ofertas de ``precios_co.csv`` con la presentación que publicó el vendedor."""
 
     raw_by_url = _raw_presentations(catalog_dir / "fuentes" / "precios_co.csv")
-    generated_at = _generated_at(demo_dir)
-    demo_rows = _natural_rows(demo_dir / "ofertas.csv")
-    demo_real = {
-        (row["sku"], row["provider_id"]): (line, row)
-        for line, row in demo_rows
-        if "price" not in {part for part in row.get("simulated", "").split("|") if part}
-    }
     offers: list[Offer] = []
-    evidence: list[StockEvidence] = []
     for reference_price in sorted(
         (item for values in catalog.prices.values() for item in values),
         key=lambda item: (item.country, item.sku, item.source_name),
@@ -610,32 +533,6 @@ def _published_co_offers(
         availability = Availability.unknown(
             note="El precio se publica sin existencias verificadas."
         )
-        delivery = None
-        if site is not None and site.legacy_provider_id is not None:
-            matched = demo_real.get((reference_price.sku, site.legacy_provider_id))
-            if matched is not None:
-                line, row = matched
-                availability = _claim_from_demo(
-                    row, where=f"ofertas.csv:{line}", checked_at=generated_at
-                )
-                delivery = _delivery_from_demo(row, generated_at=generated_at)
-                if "stock" in {part for part in row["simulated"].split("|") if part}:
-                    evidence.append(
-                        StockEvidence(
-                            sku=reference_price.sku,
-                            country=reference_price.country,
-                            site_id=site.site_id,
-                            declared_status=cast(AvailabilityClaim, row["stock_status"]),
-                            evidence=AvailabilityEvidence(
-                                kind="simulacion",
-                                recorded_by="Generador de la demo",
-                                recorded_at=generated_at,
-                                reference="simulación estable del Cotizador",
-                                units=_int(row.get("stock_units")),
-                                note="No es evidencia real; no habilita stock verificado.",
-                            ),
-                        )
-                    )
         offers.append(
             Offer(
                 offer_id=offer_id_for(
@@ -648,7 +545,6 @@ def _published_co_offers(
                     units=presentation.units_in_basis,
                     amount=amount,
                     captured_at=reference_price.captured_at,
-                    origin="publicada",
                 ),
                 sku=reference_price.sku,
                 country=reference_price.country,
@@ -660,7 +556,6 @@ def _published_co_offers(
                 currency=reference_price.currency,
                 tax_status=reference_price.tax_status,
                 tax_rate=None,
-                origin="publicada",
                 source=SourceRef(
                     type="vendedor",
                     name=reference_price.source_name,
@@ -671,116 +566,13 @@ def _published_co_offers(
                 ),
                 normalized=normalized,
                 availability=availability,
-                delivery=delivery,
                 note=(
                     "La presentación y el importe son los publicados; "
                     "`normalized` es la vista por caja."
                 ),
             )
         )
-    return offers, evidence
-
-
-def _demo_offers(
-    *,
-    demo_dir: Path,
-    products: dict[tuple[str, str], Product],
-    providers: dict[str, str],
-    seller_map: dict[str, Seller],
-) -> tuple[list[Offer], list[StockEvidence]]:
-    rows = _natural_rows(demo_dir / "ofertas.csv")
-    generated_at = _generated_at(demo_dir)
-    site_by_provider = dict(providers.items())
-    offers: list[Offer] = []
-    evidence: list[StockEvidence] = []
-    for line, row in rows:
-        where = f"ofertas.csv:{line}"
-        simulated = {part for part in row.get("simulated", "").split("|") if part}
-        if "price" not in simulated:
-            continue  # la oferta canónica viene de precios.csv
-        key = (row["sku"], row["country"])
-        if key not in products:
-            raise ContractError(f"{where}: oferta huérfana de {row['sku']}")
-        site_id = site_by_provider.get(row["provider_id"])
-        if site_id is None:
-            raise ContractError(f"{where}: sede desconocida {row['provider_id']}")
-        seller_id = seller_id_for(row["country"], row["provider"])
-        if seller_id not in seller_map:
-            seller_map[seller_id] = Seller(
-                seller_id=seller_id,
-                name=row["provider"],
-                country=cast(Country, row["country"]),
-                kind="distribuidor",
-                source=SourceRef(
-                    type="demo",
-                    name=DEMO_SELLER_SOURCE,
-                    captured_at=_date(row["captured_at"], where),
-                ),
-            )
-        presentation = Presentation(
-            basis=cast(Basis, row["basis"]),
-            units_in_basis=int(row["units_in_basis"]),
-        )
-        amount = Decimal(row["amount"])
-        source = SourceRef(
-            type="demo",
-            name=DEMO_SELLER_SOURCE,
-            captured_at=_date(row["captured_at"], where),
-            note=(
-                "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
-            ),
-        )
-        availability = _claim_from_demo(row, where=where, checked_at=generated_at)
-        offers.append(
-            Offer(
-                offer_id=offer_id_for(
-                    country=row["country"],
-                    sku=row["sku"],
-                    seller_id=seller_id,
-                    site_id=site_id,
-                    source_url=None,
-                    basis=presentation.basis,
-                    units=presentation.units_in_basis,
-                    amount=amount,
-                    captured_at=source.captured_at,
-                    origin="demo",
-                ),
-                sku=row["sku"],
-                country=cast(Country, row["country"]),
-                seller_id=seller_id,
-                site_id=site_id,
-                city=row["city"],
-                presentation=presentation,
-                amount=amount,
-                currency=cast(Currency, row["currency"]),
-                tax_status=cast(TaxStatus, row["tax_status"]),
-                tax_rate=None,
-                tax_simulated=True,
-                origin="demo",
-                source=source,
-                availability=availability,
-                delivery=_delivery_from_demo(row, generated_at=generated_at),
-                note="Oferta de demostración: precio, IVA y existencia simulados.",
-            )
-        )
-        if "stock" in simulated:
-            evidence.append(
-                StockEvidence(
-                    sku=row["sku"],
-                    country=cast(Country, row["country"]),
-                    site_id=site_id,
-                    declared_status=cast(AvailabilityClaim, row["stock_status"]),
-                    evidence=AvailabilityEvidence(
-                        kind="simulacion",
-                        recorded_by="Generador de la demo",
-                        recorded_at=generated_at,
-                        reference="simulación estable del Cotizador",
-                        units=_int(row.get("stock_units")),
-                        note="No es evidencia real; no habilita stock verificado.",
-                    ),
-                )
-            )
-    return offers, evidence
+    return offers
 
 
 def _contract_evidence(path: Path, *, products, sites) -> list[StockEvidence]:
@@ -825,38 +617,33 @@ def _contract_evidence(path: Path, *, products, sites) -> list[StockEvidence]:
 
 def book_from_paths(
     catalog_dir: Path,
-    demo_dir: Path,
     evidence_path: Path | None = None,
+    *,
+    providers_path: Path | None = None,
 ) -> CommercialBook:
-    """Construye y valida el libro con los archivos indicados."""
+    """Construye y valida el libro con catálogo, precios, sedes y evidencia versionados.
+
+    El flujo público solo lee datos publicados: catálogo curado, ``proveedores.csv`` y la
+    evidencia de disponibilidad. No hay generación ni lectura de simulación.
+    """
 
     catalog = load_catalog(str(catalog_dir))
-    products: dict[tuple[str, str], Product] = {}
-    for reference in catalog.references:
-        products[(reference.sku, reference.country)] = _product_from_reference(reference)
-    for line, row in _read_rows(demo_dir / "productos.csv"):
-        product = _demo_product(row, f"productos.csv:{line}", demo_dir)
-        key = (product.sku, product.country)
-        if key in products:
-            raise ContractError(f"productos.csv:{line}: SKU repetido {product.sku}")
-        products[key] = product
+    products = {
+        (reference.sku, reference.country): _product_from_reference(reference)
+        for reference in catalog.references
+    }
 
-    sites, provider_to_site, directory_sellers = _site_candidates(catalog_dir, demo_dir)
+    sites, _provider_to_site, directory_sellers = _site_candidates(
+        catalog_dir, providers_path or PROVIDERS_PATH
+    )
     seller_map = {seller.seller_id: seller for seller in directory_sellers}
 
     mx_offers, mx_seller = _inline_mx_offers(catalog)
     seller_map[mx_seller.seller_id] = mx_seller
-    co_offers, co_stock = _published_co_offers(
+    co_offers = _published_co_offers(
         catalog,
         catalog_dir=catalog_dir,
-        demo_dir=demo_dir,
         sites=sites,
-        seller_map=seller_map,
-    )
-    demo_offers, demo_stock = _demo_offers(
-        demo_dir=demo_dir,
-        products=products,
-        providers=provider_to_site,
         seller_map=seller_map,
     )
     evidence = _contract_evidence(evidence_path or EVIDENCE_PATH, products=products, sites=sites)
@@ -864,17 +651,21 @@ def book_from_paths(
         products=products.values(),
         sellers=seller_map.values(),
         sites=sites,
-        offers=(*mx_offers, *co_offers, *demo_offers),
-        evidence=(*co_stock, *demo_stock, *evidence),
+        offers=(*mx_offers, *co_offers),
+        evidence=evidence,
     )
 
 
 @cache
 def load_commercial_book(
     catalog_dir: str = str(CATALOG_DIR),
-    demo_dir: str = str(DEMO_DIR),
     evidence_path: str = str(EVIDENCE_PATH),
+    providers_path: str | None = None,
 ) -> CommercialBook:
     """Libro comercial cacheado por rutas; las pruebas limpian la caché."""
 
-    return book_from_paths(Path(catalog_dir), Path(demo_dir), Path(evidence_path))
+    return book_from_paths(
+        Path(catalog_dir),
+        Path(evidence_path),
+        providers_path=Path(providers_path) if providers_path else None,
+    )

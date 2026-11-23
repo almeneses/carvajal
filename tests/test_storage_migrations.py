@@ -1,11 +1,17 @@
 """Pruebas de integración de las migraciones Alembic (ida y vuelta)."""
 
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine, inspect
+from sqlalchemy import Engine, create_engine, inspect, select
+from sqlalchemy.orm import Session
+
+from carvajal.adapters.storage import tables
+from carvajal.adapters.storage.quotes import SqlQuoteRepository
 
 pytestmark = pytest.mark.integration
 
@@ -137,6 +143,58 @@ def test_upgrade_y_downgrade_son_reversibles(
         # Act / Assert: se puede volver a aplicar
         command.upgrade(config, "head")
         _assert_head_schema(engine)
+    finally:
+        engine.dispose()
+
+
+def test_0010_conserva_y_lee_una_cotizacion_historica(
+    migration_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La migración versionada no borra ni reescribe las filas de la 042."""
+
+    # Arrange: base en 0009 con una fila histórica
+    monkeypatch.setenv("DATABASE_URL", migration_database_url)
+    config = _alembic_config(migration_database_url)
+    engine = create_engine(migration_database_url)
+    payload = {
+        "kind": "cotizacion",
+        "primary": {"currency": "COP", "presentation": {"subtotal": "3751"}},
+        "total": "3751",
+    }
+    try:
+        command.upgrade(config, "0009")
+        with engine.begin() as connection:
+            connection.execute(
+                tables.quotes.insert().values(
+                    id="q-history",
+                    owner_key="cot:ana",
+                    valid_until=date(2026, 11, 29),
+                    total=Decimal("3751"),
+                    currency="COP",
+                    payload=payload,
+                )
+            )
+
+        # Act: sube al contrato versionado
+        command.upgrade(config, "head")
+        with Session(engine) as session:
+            record = SqlQuoteRepository(session).resolve("q-history", "cot:ana")
+
+        # Assert: el histórico sigue legible con el contrato normalizado
+        assert record is not None
+        assert record.version == 1
+        assert record.total == Decimal("3751")
+        assert record.subtotal == Decimal("3751")
+        assert record.payload["total"] == "3751"
+
+        # Assert: la vuelta a 0009 conserva la fila
+        command.downgrade(config, "0009")
+        with engine.connect() as connection:
+            total = connection.execute(
+                select(tables.quotes.c.total).where(tables.quotes.c.id == "q-history")
+            ).scalar_one()
+        assert total == Decimal("3751")
     finally:
         engine.dispose()
 

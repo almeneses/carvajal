@@ -210,6 +210,7 @@ def chat_turn(
     request: Request,
     question: str = Form(default=""),
     csrf_token: str = Form(default=""),
+    client_turn_id: str = Form(default=""),
     thread_id: str = Form(default=""),
 ) -> Response:
     """Responde un turno y redirige al hilo activo solo si se guardó."""
@@ -289,10 +290,13 @@ def chat_turn(
 
     try:
         provider = chat_provider(request)
-        if hilo:
-            provider.ask(owner_key, text, thread_id=hilo)
-        else:
-            provider.ask(owner_key, text)
+        turn_id = client_turn_id.strip() or None
+        provider.ask(
+            owner_key,
+            text,
+            client_turn_id=turn_id,
+            thread_id=hilo,
+        )
     except ThreadAccessError as error:
         raise HTTPException(status_code=404, detail="El hilo solicitado no existe.") from error
     except (ChatFailure, EmbeddingError, LLMError, SQLAlchemyError) as error:

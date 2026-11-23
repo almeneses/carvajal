@@ -161,8 +161,18 @@ class SqlChatRepository:
         ]
 
     def get_or_create(self, owner_key: str) -> Conversation:
-        """Devuelve la conversación activa o crea una si el dueño no tiene."""
+        """Devuelve la conversación activa o crea una si el dueño no tiene.
 
+        El primer envío puede llegar dos veces en paralelo. Un lock de transacción
+        por dueño serializa la comprobación y la creación: la segunda petición ve
+        el hilo que confirmó la primera en vez de abrir otro.
+        """
+
+        bind = self._session.get_bind()
+        if getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
+            self._session.execute(
+                select(func.pg_advisory_xact_lock(func.hashtext(f"chat-thread:{owner_key}")))
+            )
         return self.active(owner_key) or self.create(owner_key)
 
     def get_owned(self, conversation_id: str, owner_key: str) -> Conversation | None:

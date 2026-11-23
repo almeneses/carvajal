@@ -1,5 +1,7 @@
 # Quickstart — Cotizador (demo)
 
+> **Histórico:** la demo y sus archivos fueron retirados por la [spec 043](../043-chat-comercial-unificado/spec.md). Los comandos que generan `data/demo/` ya no aplican; usa el flujo publicado de la 043.
+
 **Fecha**: 2026-11-21
 
 ## Requisitos

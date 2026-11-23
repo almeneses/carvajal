@@ -16,7 +16,7 @@
     }
   },
   {
-    "name": "domicilio suma envío y ventana",
+    "name": "domicilio sin envío respaldado deja el total pendiente",
     "text": "con domicilio",
     "questions": [
       "cotízame 20 vasos para bebida caliente",
@@ -24,9 +24,10 @@
     ],
     "expect": {
       "kind": "cotizacion",
-      "delivery.ship_cost": "12000",
-      "delivery.window": "30 nov y 1 dic",
-      "total": "15751"
+      "delivery.requested": "true",
+      "delivery.covered": "false",
+      "total": "none",
+      "primary.presentation.subtotal": "3751"
     }
   },
   {
@@ -58,26 +59,16 @@
     }
   },
   {
-    "name": "referencia simulada marcada",
-    "text": "cotiza 100 cucharas en Cali",
+    "name": "ciudad sin precio conserva sedes",
+    "text": "cotiza 100 vasos para bebida caliente en Cali",
     "expect": {
-      "kind": "cotizacion",
-      "primary.sku": "DEMO-CO-007",
-      "primary.simulated": "true",
-      "primary.price_simulated": "true"
+      "kind": "sin_resultados",
+      "providers.0.city": "Cali"
     }
   },
   {
     "name": "talla agotada no se ofrece",
     "text": "cotiza 20 vasos térmicos de 4 oz en Bogotá",
-    "expect": {
-      "kind": "sin_resultados"
-    }
-  },
-  {
-    "name": "sin modo demo no inventa oferta",
-    "text": "cotiza 100 cucharas en Cali",
-    "allow_demo": false,
     "expect": {
       "kind": "sin_resultados"
     }

@@ -4,6 +4,11 @@
     "sku": "CO-CTT-08",
     "country": "CO"
   },
+  "products": [],
+  "sellers": [],
+  "sites": [],
+  "offers": [],
+  "evidence": [],
   "records": [
     {
       "record_type": "oferta_publicada",
@@ -64,8 +69,6 @@
         "currency": "COP",
         "tax_status": "incluido",
         "tax_rate": null,
-        "tax_simulated": false,
-        "origin": "publicada",
         "source": {
           "type": "vendedor",
           "name": "EDEXA",
@@ -80,43 +83,23 @@
           "amount": "17642"
         },
         "availability": {
-          "status": "por_confirmar",
-          "declared_status": "disponible",
-          "units": 40,
+          "status": "desconocido",
+          "declared_status": null,
+          "units": null,
           "evidence": [],
-          "simulated": true,
-          "checked_at": "2026-11-21",
-          "note": "Existencia simulada por la demo; no es inventario del vendedor."
+          "checked_at": null,
+          "note": "El precio se publica sin existencias verificadas."
         },
-        "delivery": {
-          "lead_days_min": 1,
-          "lead_days_max": 2,
-          "ship_cost": "12000",
-          "simulated": true,
-          "checked_at": "2026-11-21",
-          "note": "Plazo y envío simulados por la demo."
-        },
+        "delivery": null,
         "note": "La presentación y el importe son los publicados; `normalized` es la vista por caja."
       },
       "availability": {
-        "status": "por_confirmar",
-        "declared_status": "disponible",
-        "units": 40,
-        "evidence": [
-          {
-            "kind": "simulacion",
-            "recorded_by": "Generador de la demo",
-            "recorded_at": "2026-11-21",
-            "reference": "simulación estable del Cotizador",
-            "source_url": null,
-            "units": 40,
-            "valid_until": null,
-            "note": "No es evidencia real; no habilita stock verificado."
-          }
-        ],
-        "simulated": true,
-        "checked_at": "2026-11-21",
-        "note": "Afirmación sin evidencia admisible; queda por confirmar."
+        "status": "desconocido",
+        "declared_status": null,
+        "units": null,
+        "evidence": [],
+        "checked_at": null,
+        "note": "El precio se publica sin existencias verificadas."
       },
       "source": {
         "type": "vendedor",
@@ -136,134 +119,8 @@
         "approximate": true,
         "note": "Solo se conoce la ciudad: el mapa muestra una zona aproximada, no la sede exacta."
       }
-    },
-    {
-      "record_type": "oferta_demo",
-      "record_id": "oferta:CO-OFERTA-1ABDA6851121",
-      "country": "CO",
-      "sku": "CO-CTT-08",
-      "seller": {
-        "seller_id": "CO-VEND-5E7878D9",
-        "name": "Sigmaplasticos",
-        "country": "CO",
-        "kind": "distribuidor",
-        "source": {
-          "type": "directorio",
-          "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
-          "url": "https://colombia.carvajalempaques.com/distribuidores",
-          "captured_at": "2026-10-23",
-          "valid_until": null,
-          "note": ""
-        }
-      },
-      "site": {
-        "site_id": "CO-SEDE-4A81932E7B",
-        "legacy_provider_id": "p17",
-        "seller_id": "CO-VEND-5E7878D9",
-        "country": "CO",
-        "name": "Sigmaplasticos",
-        "city": "Medellín",
-        "address": "Carrera 48 No. 47-50 Local 1, Central Mayorista, Itagüí",
-        "phone": "300 633 9180",
-        "source": {
-          "type": "directorio",
-          "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
-          "url": "https://colombia.carvajalempaques.com/distribuidores",
-          "captured_at": "2026-10-23",
-          "valid_until": null,
-          "note": ""
-        },
-        "location": {
-          "latitude": 6.2279691,
-          "longitude": -75.5747292,
-          "precision": "via",
-          "geocoder": "OpenStreetMap Nominatim",
-          "geocoded_at": "2026-11-21"
-        }
-      },
-      "offer": {
-        "offer_id": "CO-OFERTA-1ABDA6851121",
-        "sku": "CO-CTT-08",
-        "country": "CO",
-        "seller_id": "CO-VEND-5E7878D9",
-        "site_id": "CO-SEDE-4A81932E7B",
-        "city": "Medellín",
-        "presentation": {
-          "basis": "paquete",
-          "units_in_basis": 20
-        },
-        "amount": "16407",
-        "currency": "COP",
-        "tax_status": "incluido",
-        "tax_rate": null,
-        "tax_simulated": true,
-        "origin": "demo",
-        "source": {
-          "type": "demo",
-          "name": "Cotizador demo",
-          "url": null,
-          "captured_at": "2026-11-18",
-          "valid_until": null,
-          "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
-        },
-        "normalized": null,
-        "availability": {
-          "status": "desconocido",
-          "declared_status": "desconocido",
-          "units": null,
-          "evidence": [],
-          "simulated": true,
-          "checked_at": "2026-11-21",
-          "note": "Existencia simulada por la demo; no es inventario del vendedor."
-        },
-        "delivery": {
-          "lead_days_min": 1,
-          "lead_days_max": 3,
-          "ship_cost": "18000",
-          "simulated": true,
-          "checked_at": "2026-11-21",
-          "note": "Plazo y envío simulados por la demo."
-        },
-        "note": "Oferta de demostración: precio, IVA y existencia simulados."
-      },
-      "availability": {
-        "status": "desconocido",
-        "declared_status": "desconocido",
-        "units": null,
-        "evidence": [
-          {
-            "kind": "simulacion",
-            "recorded_by": "Generador de la demo",
-            "recorded_at": "2026-11-21",
-            "reference": "simulación estable del Cotizador",
-            "source_url": null,
-            "units": null,
-            "valid_until": null,
-            "note": "No es evidencia real; no habilita stock verificado."
-          }
-        ],
-        "simulated": true,
-        "checked_at": "2026-11-21",
-        "note": "Afirmación sin evidencia admisible; queda por confirmar."
-      },
-      "source": {
-        "type": "demo",
-        "name": "Cotizador demo",
-        "url": null,
-        "captured_at": "2026-11-18",
-        "valid_until": null,
-        "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
-      },
-      "captured_at": "2026-11-18",
-      "map": {
-        "available": true,
-        "mode": "marcador",
-        "latitude": 6.2279691,
-        "longitude": -75.5747292,
-        "zoom": 15,
-        "approximate": true,
-        "note": "Geocodificado a la vía; el número puede no ser exacto."
-      }
     }
-  ]
+  ],
+  "directory": null,
+  "parity": null
 }

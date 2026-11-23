@@ -60,6 +60,136 @@
     </dl>
   </div>
   {%- endif %}
+  {%- set ficha = resultado.ficha %}
+  {%- if ficha %}
+  <article class="producto producto-ficha">
+    <h3 class="producto-nombre" data-campo="ficha-nombre">{{ ficha.name }}</h3>
+    <p class="producto-etiquetas">
+      <span class="etiqueta-material">{{ materiales.get(ficha.material, ficha.material) }}</span>
+      {%- if ficha.capacity_oz %}<span>{{ "%g" | format(ficha.capacity_oz) }} oz</span>{% endif %}
+      <span>{{ "{:,}".format(ficha.units_per_box or 0) | replace(",", ".") }} unidades por caja</span>
+    </p>
+    {%- if ficha.uses %}
+    <p class="producto-aviso">Usos de la ficha: {{ ficha.uses | join(", ") }}.</p>
+    {%- endif %}
+    <p class="producto-fuente">
+      <a href="{{ ficha.source_url }}" target="_blank" rel="noopener noreferrer">Ver ficha publicada <span aria-hidden="true">↗</span></a>
+      · capturada el {{ ficha.captured_at }}
+    </p>
+  </article>
+  {%- endif %}
+  {%- if resultado.offers %}
+  <h3 class="productos-titulo">Ofertas publicadas</h3>
+  <ul class="producto-ofertas">
+    {%- for oferta in resultado.offers %}
+    <li class="producto-oferta">
+      <p class="producto-precio">
+        <strong>{{ oferta.amount }} {{ oferta.currency }}</strong>
+        <span class="producto-precio-detalle">por {{ oferta.presentation }}</span>
+      </p>
+      <p class="producto-oferta-fuente">
+        Vendedor <strong>{{ oferta.seller }}</strong>
+        {%- if oferta.source_url %}
+        · <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">fuente</a>
+        {%- endif %}
+        · capturado el {{ oferta.captured_at }}
+      </p>
+      <p class="producto-aviso">
+        IVA {{ oferta.tax_status | replace("_", " ") }}
+        {%- if oferta.tax_rate %} · tasa {{ oferta.tax_rate }}{% endif %}
+        · disponibilidad {{ "confirmada" if oferta.availability == "verificado" else "por confirmar" }}
+        {%- if oferta.valid_until %} · vigencia del vendedor hasta {{ oferta.valid_until }}{% endif %}
+      </p>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- set coti = resultado.quote %}
+  {%- if coti and coti.kind == "cotizacion" %}
+  {%- set cp = coti.primary.presentation %}
+  <section class="coti coti-resumen" aria-label="Cotización">
+    <header class="coti-cabecera">
+      <h4 class="coti-titulo">Cotización para {{ coti.city }}</h4>
+      {%- if coti.quote %}
+      <span class="coti-sello">
+        #{{ coti.quote.folio or coti.quote.id }}
+        {%- if coti.quote.issued_at %} · emitida el {{ coti.quote.issued_at[:10] }}{% endif %}
+      </span>
+      {%- endif %}
+      {%- if coti.commercial and coti.commercial.valid_until %}
+      <span class="coti-sello">Vigencia del vendedor hasta {{ coti.commercial.valid_until }}</span>
+      {%- endif %}
+    </header>
+    <dl class="coti-cifras">
+      <div><dt>Pides</dt><dd>{{ cp.units_requested or coti.primary.units_requested }} unidades</dd></div>
+      <div><dt>Compras</dt><dd>{{ cp.count }} {{ cp.basis }} ({{ cp.units_bought }} unidades)</dd></div>
+      <div><dt>Sobrantes</dt><dd>{{ cp.units_surplus }} unidades</dd></div>
+      <div><dt>Precio por {{ cp.basis }}</dt><dd>{{ cp.price_per_presentation or cp.subtotal }} COP</dd></div>
+      <div><dt>Subtotal</dt><dd>{{ cp.subtotal }} COP</dd></div>
+      {%- set envio = (coti.commercial.shipping if coti.commercial else {}) or {} %}
+      {%- if envio.requested %}
+      <div><dt>Envío</dt><dd>
+        {%- if envio.status == "confirmed" %}{{ "Gratis (costo cero)" if envio.free else envio.cost ~ " COP" }}
+        {%- else %}Por confirmar{% endif %}
+      </dd></div>
+      {%- endif %}
+      <div class="coti-cifra-fuerte"><dt>Total final</dt><dd>
+        {%- if coti.total %}{{ coti.total }} COP
+        {%- else %}Por confirmar{% endif %}
+      </dd></div>
+    </dl>
+    {%- if coti.pending_lines %}
+    <p class="coti-nota">Líneas pendientes:
+      {%- for linea in coti.pending_lines %} {{ linea.label }} ({{ linea.status }}){% if not loop.last %},{% endif %}{% endfor %}.
+    </p>
+    {%- endif %}
+  </section>
+  {%- elif coti and coti.reply %}
+  <p class="productos-nota">{{ coti.reply }}</p>
+  {%- endif %}
+  {%- if resultado.clarifications %}
+  <div class="productos-nota" data-campo="aclaraciones">
+    <p>Para completar la cotización:</p>
+    <ul>
+      {%- for item in resultado.clarifications %}
+      <li>{{ item.label ~ " (" ~ item.status ~ ")" if item is mapping else item }}</li>
+      {%- endfor %}
+    </ul>
+  </div>
+  {%- endif %}
+  {%- if resultado.sites %}
+  <h3 class="productos-titulo">Dónde comprar en {{ (resultado.request or {}).city or "" }}</h3>
+  <ul class="productos-distribuidores">
+    {%- for sede in resultado.sites %}
+    <li data-sede="{{ sede.site_id }}">
+      <strong>{{ sede.name }}</strong>
+      {%- if sede.linked %} <span class="etiqueta-destacada">vende este SKU</span>{% endif %}
+      {%- if sede.address %} · {{ sede.address }}{% endif %}
+      {%- if sede.phone %}
+      · <a href="tel:{{ sede.phone | replace(' ', '') }}" data-chat-contacto>{{ sede.phone }}</a>
+      {%- endif %}
+      <p class="producto-aviso">
+        {{ sede.precision }} · disponibilidad
+        {{ "confirmada" if sede.availability == "verificado" else "por confirmar" }}
+        {%- if sede.source_url %}
+        · <a href="{{ sede.source_url }}" target="_blank" rel="noopener noreferrer">directorio</a>
+        {%- endif %}
+      </p>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- if resultado.cities %}
+  <div class="chat-sugerencias" data-chat-sugerencias>
+    {%- for city in resultado.cities %}
+    <button type="button" class="boton secundario" data-chat-sugerencia data-ciudad="{{ city }}">En {{ city }}</button>
+    {%- endfor %}
+    {%- if coti and coti.kind == "cotizacion" %}
+    <button type="button" class="boton secundario" data-chat-sugerencia data-cantidad="100">100 unidades</button>
+    <button type="button" class="boton secundario" data-chat-sugerencia data-cantidad="500">500 unidades</button>
+    {%- endif %}
+  </div>
+  {%- endif %}
   {%- if resultado.catalog_note %}
   {#- catalog_note es una instrucción para el LLM; al cliente se le explica con sus palabras. #}
   <p class="productos-nota">
@@ -67,7 +197,7 @@
     todavía no tiene referencias cargadas; consulta a los distribuidores.
   </p>
   {%- endif %}
-  {%- if opciones %}
+  {%- if opciones and not ficha %}
   <ul class="productos-lista">
     {%- for opcion in opciones %}
     {%- set precio = opcion.total or opcion.price_per_box %}
@@ -172,7 +302,7 @@
     enlaza a su ficha. Los precios son de referencia; no tomo pedidos ni datos de pago.
   </p>
   {%- endif %}
-  {%- if canal.distributors %}
+  {%- if canal.distributors and not resultado.sites %}
   <h3 class="productos-titulo">Distribuidores en {{ canal.city }}</h3>
   <ul class="productos-distribuidores">
     {%- for distribuidor in canal.distributors %}
@@ -186,7 +316,7 @@
   <p class="producto-fuente">
     <a href="{{ canal.distributors[0].source_url }}" target="_blank" rel="noopener noreferrer">Directorio de distribuidores <span aria-hidden="true">↗</span></a>
   </p>
-  {%- elif canal.cities_with_distributors %}
+  {%- elif canal.cities_with_distributors and not resultado.sites %}
   <p class="productos-nota">
     {%- if canal.city %}No hay distribuidores publicados en {{ canal.city }}. {% endif -%}
     Ciudades con distribuidores: {{ canal.cities_with_distributors | join(", ") }}.

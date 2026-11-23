@@ -1,5 +1,10 @@
 # Feature Specification: Cotizador conversacional de productos Carvajal
 
+> Evolución propuesta en la [spec 043](../043-chat-comercial-unificado/spec.md).
+> La 042 conserva el comportamiento del Cotizador original. La 043 prevé
+> sustituir la sección y el hilo separados, retirar la simulación y mantener
+> la lectura autorizada del historial real.
+
 **Feature Branch**: `main` (integración histórica desde `prototype`)
 **Created**: 2026-11-21
 **Status**: Implementada en `main` (spec 042); pendientes T038, T053, T061 y T062 de [`tasks.md`](./tasks.md). El dictado por voz queda diferido a una spec posterior.

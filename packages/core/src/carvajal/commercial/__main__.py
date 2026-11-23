@@ -11,7 +11,7 @@ Ejemplos::
     uv run python -m carvajal.commercial esquema \\
         --out docs/contratos/comerciales/contrato.schema.json
 
-No escribe datos: solo lee el catálogo, la demo y la evidencia versionada.
+No escribe datos: solo lee el catálogo, los precios publicados y la evidencia versionada.
 """
 
 import argparse
@@ -27,6 +27,7 @@ from carvajal.commercial import (
     load_commercial_book,
     mexico_parity,
 )
+from carvajal.commercial.loader import CATALOG_DIR, COMMERCIAL_DIR, commercial_version
 
 __all__ = ["main"]
 
@@ -37,6 +38,22 @@ def _json(payload: object) -> None:
 
 def _as_of(raw: str | None) -> date | None:
     return date.fromisoformat(raw) if raw else None
+
+
+def _version(*, as_json: bool = False) -> int:
+    """Versión del aprovisionamiento comercial (fecha de captura más reciente)."""
+
+    version = commercial_version()
+    payload = {
+        "version": version,
+        "catalog": str(CATALOG_DIR),
+        "commercial": str(COMMERCIAL_DIR),
+    }
+    if as_json:
+        _json(payload)
+    else:
+        print(version)
+    return 0
 
 
 def _validar() -> int:
@@ -50,7 +67,6 @@ def _validar() -> int:
         print(
             f"  {city}: {directory.counts.get('contacto_directorio', 0)} sedes, "
             f"{directory.counts.get('oferta_publicada', 0)} ofertas publicadas, "
-            f"{directory.counts.get('oferta_demo', 0)} de demo, "
             f"{directory.counts.get('stock_verificado', 0)} con stock verificado"
         )
     return 0
@@ -73,7 +89,7 @@ def _sedes(book: CommercialBook, args: argparse.Namespace) -> int:
                 for item in directory.records
                 if item.site and item.site.site_id == site.site_id
             ]
-            kinds = ("oferta_publicada", "oferta_demo", "stock_verificado")
+            kinds = ("oferta_publicada", "stock_verificado")
             counts = {
                 kind: sum(1 for item in related if item.record_type == kind) for kind in kinds
             }
@@ -81,7 +97,7 @@ def _sedes(book: CommercialBook, args: argparse.Namespace) -> int:
             print(
                 f"  {site.site_id} · {site.name} · {site.address or '(sin dirección)'} · "
                 f"{site.phone} · mapa:{record.map.mode} ({precision}) · "
-                f"ofertas:{counts['oferta_publicada']}+{counts['oferta_demo']} demo · "
+                f"ofertas:{counts['oferta_publicada']} · "
                 f"stock verificado:{counts['stock_verificado']}"
             )
         return 0
@@ -178,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validar", help="carga el libro y muestra conteos por ciudad")
+    version = sub.add_parser("version", help="imprime la versión del aprovisionamiento")
+    version.add_argument("--json", action="store_true")
 
     sedes = sub.add_parser("sedes", help="lista el directorio por ciudad, sin exigir precios")
     sedes.add_argument("--ciudad")
@@ -204,6 +222,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validar":
             return _validar()
+        if args.command == "version":
+            return _version(as_json=args.json)
         book = load_commercial_book()
         if args.command == "sedes":
             return _sedes(book, args)

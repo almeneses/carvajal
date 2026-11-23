@@ -38,8 +38,7 @@ fi
 
 COMPOSE=(docker compose -f compose.prod.yml)
 STATE_FILE=".deployed_tag"
-HEALTH_FILE="$(mktemp)"
-trap 'rm -f "$HEALTH_FILE" "${DIR}"/.env.??????' EXIT
+trap 'rm -f "${DIR}"/.env.??????' EXIT
 
 # Tag anterior: el último despliegue sano o, en su defecto, el que ya estaba
 # en .env (por ejemplo, la imagen construida con `make prod-up`).
@@ -83,6 +82,32 @@ wait_live() {
   return 1
 }
 
+check_health() {
+  # 0 = sano; 2 = solo falta el índice inicial; 1 = catálogo inválido u otro 503.
+  local port="$1"
+  local attempts="${2:-30}"
+  local code body
+  for _ in $(seq 1 "$attempts"); do
+    body="$(mktemp)"
+    code="$(curl -s --max-time 5 --connect-timeout 2 \
+      -o "$body" -w '%{http_code}' \
+      "http://127.0.0.1:${port}/health" || true)"
+    if [[ "$code" == "200" ]]; then
+      rm -f "$body"
+      return 0
+    fi
+    if [[ "$code" == "503" ]] \
+      && grep -q '"status":"missing"' "$body" \
+      && ! grep -Eq '"catalog":\{[^}]*"status":"invalid"' "$body"; then
+      rm -f "$body"
+      return 2
+    fi
+    rm -f "$body"
+    sleep 2
+  done
+  return 1
+}
+
 published_port() {
   "${COMPOSE[@]}" port app 8000 2>/dev/null \
     | sed -nE 's/.*:([0-9]+)$/\1/p' \
@@ -120,7 +145,16 @@ rollback() {
       echo "    Revisa: docker compose -f compose.prod.yml logs app" >&2
       exit 1
     fi
-    echo "==> Rollback a ${PREV_TAG} verificado en /live" >&2
+    set +e
+    check_health "$port" 15
+    rollback_health=$?
+    set -e
+    if [[ "$rollback_health" -eq 1 ]]; then
+      echo "==> La versión anterior no es compatible: catálogo inválido o /health no responde." >&2
+      echo "    Las migraciones aplicadas no se revierten; revisa el runbook." >&2
+      exit 1
+    fi
+    echo "==> Rollback a ${PREV_TAG} verificado en /live y /health" >&2
   else
     echo "==> No hay versión anterior; revisa los logs:" >&2
     echo "    docker compose -f compose.prod.yml logs app" >&2
@@ -156,40 +190,25 @@ if ! wait_live "$HEALTH_PORT" 30; then
 fi
 
 echo "==> Comprobando /health"
-SALUD=0
-HEALTH_CODE=""
-for _ in $(seq 1 30); do
-  HEALTH_CODE="$(curl -s --max-time 5 --connect-timeout 2 \
-    -o "$HEALTH_FILE" -w '%{http_code}' \
-    "http://127.0.0.1:${HEALTH_PORT}/health" || true)"
-  if [[ "$HEALTH_CODE" == "200" ]]; then
-    SALUD=1
-    break
-  fi
-  # Solo se acepta el 503 de índice ausente (`index.status == missing`), que
-  # ocurre en el primer despliegue antes de indexar. El cuerpo solo contiene
-  # `"status":"missing"` en ese caso; Qdrant caído devuelve `"unavailable"`.
-  # Cualquier otro 503 se reintenta y, si persiste, revierte.
-  if [[ "$HEALTH_CODE" == "503" ]] \
-    && grep -q '"status":"missing"' "$HEALTH_FILE"; then
-    SALUD=2
-    break
-  fi
-  sleep 2
-done
+set +e
+check_health "$HEALTH_PORT" 30
+SALUD=$?
+set -e
 
 case "$SALUD" in
-  1)
-    echo "==> Salud OK"
+  0)
+    echo "==> Salud OK (base, catálogo comercial e índice)"
     ;;
   2)
-    # Primer despliegue: la app responde pero el índice aún no se ha construido.
-    # La indexación es un paso aparte (docs/despliegue-ovh.md).
+    # Primer despliegue: la app responde, el catálogo es válido y aún no hay
+    # índice. La indexación es un paso aparte (docs/despliegue-ovh.md).
     echo "==> Aviso: el índice de Qdrant no existe todavía; indexa el corpus." >&2
     ;;
   *)
-    echo "==> /health no quedó listo (último código: ${HEALTH_CODE:-sin respuesta}):" >&2
-    cat "$HEALTH_FILE" >&2 || true
+    # Un fallo de catálogo se distingue del índice ausente: `check_health`
+    # solo acepta el 503 con `"status":"missing"` y catálogo no inválido.
+    echo "==> /health no quedó listo (código ${SALUD}):" >&2
+    curl -s --max-time 5 "http://127.0.0.1:${HEALTH_PORT}/health" >&2 || true
     echo >&2
     rollback
     ;;

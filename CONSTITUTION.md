@@ -101,18 +101,22 @@ con asistente RAG.
   seguro: `localhost` en desarrollo y HTTPS en despliegue.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
-**Cotizador integrado a `main` (spec 042, 2026-11-23):** sección Cotizador
-conversacional separada del chat general, con la cotización inline en el hilo y foco en
-empaques de Colombia. El [plan preliminar](docs/plans/0002-cotizador-preliminar.md) y la
-[spec 042](specs/042-cotizador/spec.md) registran la auditoría del catálogo, los datos
-faltantes y la demo con datos explícitamente marcados y separados del catálogo curado. El
-motor es determinista: los 102 productos reales de Colombia se leen del catálogo curado y
-la demo solo añade 48 referencias simuladas y las condiciones comerciales (ofertas,
-existencias, envío y sedes). Cada oferta tiene una ficha citable y cada cotización se
-registra en `quotes` con identificador y vigencia de 7 días. Recuerda en silencio lo que la persona cuenta de sí misma (nombre,
-trabajo, ciudad, gustos y domicilio) en la tabla `visitor_memory`, con caducidad de 180 días
-y borrado con «olvida mis datos». No cambia las reglas vigentes de precios de referencia ni
-acredita inventario o tiempos de entrega reales; la sección lo advierte.
+**Chat comercial unificado (spec 043, 2026-11-23):** [la especificación](specs/043-chat-comercial-unificado/spec.md)
+sustituye el Cotizador separado de la 042 por un único hilo para consulta,
+cotización referencial y búsqueda de sedes. El flujo público usa solo datos
+publicados: catálogo curado, 29 precios CO con vendedor, presentación, fuente y
+fecha, 29 sedes en 10 ciudades y paridad de 98 referencias MX. La demo, sus CSV,
+fichas y banderas se retiraron. La disponibilidad solo se presenta como
+confirmada con evidencia vigente (`source_url`, `observed_at`, `valid_until` no
+vencido); sin ella queda «por confirmar». Cada cotización versionada separa
+presentación, unidades, subtotal, IVA, envío y total; si falta un componente, el
+total se conserva ausente. Se guardan mensajes, resultado comercial y
+cotización en una sola transacción, con folio y replay idempotente. `/cotizador`
+redirige al chat y conserva la lectura autorizada de históricos reales;
+`/faq` redirige al chat y `POST /api/faq` mantiene su contrato para
+consumidores. La memoria silenciosa (`visitor_memory`, 180 días, borrado con
+«olvida mis datos») se conserva. No se afirma inventario ni plazo sin la
+evidencia indicada.
 
 ### Fuera del alcance (por ahora)
 
@@ -501,7 +505,9 @@ git push
 | 2026-11-21 | Hacer progresiva la lectura del bloque activo y simplificar la conversación | El cliente pinta el párrafo activo en lotes cortos de SSE, sella los bloques anteriores y sigue el final solo cuando el lector está cerca. El compositor multilínea queda fuera del área de scroll y permite detener la recepción, conservando el parcial en pantalla sin añadir un contrato nuevo de persistencia. Cabecera compacta, diagnóstico visual optativo (`/chat?debug=1`) y fichas comerciales desplegables. |
 | 2026-11-21 | Abrir en borrador la spec 042 (Cotizador conversacional) con un plan preliminar que audita el catálogo | La sección pide producto, cantidad, precio, total, proveedores, mapa, entrega y alternativas en un solo turno, y el catálogo actual no puede sostenerlo: 29 de 102 referencias CO tienen precio, todas de EDEXA, y no existen inventario, coordenadas ni plazos. El plan deja por escrito la brecha —incluido que el flujo vigente redondea a cajas de miles de unidades mientras las capturas conservan precios por paquete— y propone una demo con datos simulados explícitos, separados del catálogo y etiquetados donde aparecen. Se decide el mercado inicial (Colombia, empaques, COP), el alcance exclusivamente comercial de la sección y la prohibición de presentar stock o plazos ficticios como reales. La implementación espera `/speckit.clarify` y `/speckit.plan`. |
 | 2026-11-22 | Restringir la escritura del corpus a operadores: `OPERATOR_TOKEN` en la web, CLI para publicar y `Configuración` fuera de la navegación pública | La auditoría de `a21425c` confirmó que un visitante con el CSRF de su propia sesión podía cargar archivos y capturar web, escribiendo el núcleo que alimenta al chat. La autorización se evalúa en servidor antes de leer archivos o crear el job, con CSRF como control separado; el token es un secreto de despliegue, no un sistema de cuentas, y `CONFIG_TOKEN` queda como alias. La carga y la captura web solo escriben Gold: publicar a PostgreSQL y Qdrant sigue siendo el paso de curaduría `carvajal sync`. Sin token, la web queda cerrada y la consola conserva la operación. El procedimiento y las rutas cubiertas están en [`docs/seguridad-operacion-corpus.md`](docs/seguridad-operacion-corpus.md); la decisión, en [ADR-0003](docs/decisions/0003-escritura-corpus-operadores.md). |
+| 2026-11-22 | Abrir la spec 043 del chat comercial unificado | Planificar la retirada de la simulación, la integración en un solo hilo y el despliegue con catálogo verificable. #222 y #223 son la base entregada. |
 | 2026-11-23 | Cotizador integrado a `main`: precios con fecha visible pero sin caducidad ni sello de vencimiento, y sin aviso general de demo | La spec 042 se alinea con la entrega real en `main`: el mapa definitivo es OpenStreetMap, la ventana de entrega incluye los días de atención del proveedor y la regresión cubre chat/SSE y flujo comercial. Los precios antiguos se usan como precios de referencia normales, con su fecha, sin rotularlos como vencidos. Los datos simulados se marcan por campo; no hay aviso general. T039 (dictado por voz) queda diferida. |
+| 2026-11-23 | Chat comercial unificado con datos publicados (spec 043) | El Cotizador separado y la demo simulada se retiraron: un solo hilo atiende información, oferta, sedes y cotización referencial con 29 precios CO y paridad MX 98. El envío y el stock solo se confirman con evidencia vigente; la cotización versionada separa importes y admite total ausente. `/cotizador` y `/faq` redirigen al chat; la lectura autorizada de históricos y `POST /api/faq` se conservan. |
 
 ## 10. Notas y tareas pendientes
 

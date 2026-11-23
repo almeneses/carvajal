@@ -5,7 +5,7 @@ ofertas y evidencia, y falla si una unión no cierra. Las consultas devuelven
 ``CommercialRecord`` con el mismo contrato para los dos consumidores:
 
 - ``city_directory`` lista sedes por ciudad sin exigir precio ni existencias.
-- ``offers_for_sku`` reúne todas las ofertas de un SKU, publicadas y de demo.
+- ``offers_for_sku`` reúne todas las ofertas publicadas de un SKU.
 - ``sites_for_sku`` solo devuelve sedes vinculadas al producto, nunca contactos generales.
 """
 
@@ -67,7 +67,6 @@ def _duplicate_offer_key(offer: Offer) -> tuple[str, ...]:
         str(offer.amount),
         offer.currency,
         offer.source.captured_at.isoformat(),
-        offer.origin,
     )
 
 
@@ -141,7 +140,7 @@ class CommercialBook:
     def offers_for_sku(
         self, sku: str, country: str | None = None, *, as_of: date | None = None
     ) -> tuple[CommercialRecord, ...]:
-        """Todas las ofertas de un SKU, publicadas y de demo, con su disponibilidad."""
+        """Todas las ofertas publicadas de un SKU, con su disponibilidad."""
 
         effective_as_of = as_of or date.today()
         found = [
@@ -175,13 +174,10 @@ class CommercialBook:
             current = links.get(offer.site_id)
             offer_ids = (*current.offer_ids, offer.offer_id) if current else (offer.offer_id,)
             availability = self._availability_for_offer(offer, as_of=effective_as_of)
-            relationship = "oferta_demo" if offer.origin == "demo" else "oferta_publicada"
-            if current and current.relationship == "oferta_publicada":
-                relationship = "oferta_publicada"
             links[offer.site_id] = SiteLink(
                 site_id=offer.site_id,
                 sku=sku,
-                relationship=relationship,
+                relationship="oferta_publicada",
                 offer_ids=offer_ids,
                 availability=availability,
             )
@@ -224,8 +220,6 @@ class CommercialBook:
             "sedes": len(self.sites),
             "ciudades": len(self.cities()),
             "ofertas": len(self.offers),
-            "ofertas_publicadas": sum(1 for item in self.offers if item.origin == "publicada"),
-            "ofertas_demo": sum(1 for item in self.offers if item.origin == "demo"),
             "ofertas_co": countries["CO"],
             "ofertas_mx": countries["MX"],
             "evidencias": len(self.evidence),
@@ -247,12 +241,12 @@ class CommercialBook:
         )
 
     def offer_record(self, offer: Offer, *, as_of: date | None = None) -> CommercialRecord:
-        """Oferta publicada o de demo con la misma forma para todos los consumidores."""
+        """Oferta publicada con la misma forma para todos los consumidores."""
 
         site = self.sites.get(offer.site_id) if offer.site_id else None
         availability = self._availability_for_offer(offer, as_of=as_of)
         return CommercialRecord(
-            record_type="oferta_demo" if offer.origin == "demo" else "oferta_publicada",
+            record_type="oferta_publicada",
             record_id=f"oferta:{offer.offer_id}",
             country=offer.country,
             sku=offer.sku,
@@ -296,13 +290,11 @@ class CommercialBook:
             if item.site_id == site_id and item.sku == sku
         )
         proves = any(item.proves_stock for item in items)
-        simulated = not proves and any(item.kind == "simulacion" for item in items)
         availability = Availability.from_claim(
             declared,
             units=items[0].units,
             checked_at=max(item.recorded_at for item in items),
             evidence=items,
-            simulated=simulated,
             note=(
                 "Existencia respaldada por evidencia registrada."
                 if proves
@@ -424,7 +416,7 @@ def build_commercial_book(
                 raise ContractError(
                     f"oferta {offer.offer_id}: ciudad {offer.city!r} no coincide con {site.city!r}"
                 )
-        if offer.published and offer.source.url is None:
+        if offer.source.url is None:
             raise ContractError(f"oferta publicada {offer.offer_id} sin URL de fuente")
         if offer.availability.status in {"verificado", "no_disponible"} and offer.site_id is None:
             raise ContractError(f"oferta {offer.offer_id}: existencias por sede sin site_id")

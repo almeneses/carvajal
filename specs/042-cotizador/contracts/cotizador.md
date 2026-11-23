@@ -1,5 +1,7 @@
 # Contrato — Cotizador
 
+> **Histórico:** la demo y sus archivos fueron retirados por la [spec 043](../043-chat-comercial-unificado/spec.md). Las rutas y payloads de demo ya no se sirven; el contrato vigente es el de la 043.
+
 **Fecha**: 2026-11-21 · **Plan**: [plan.md](./plan.md)
 
 ## Rutas

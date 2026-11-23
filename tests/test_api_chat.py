@@ -1,6 +1,6 @@
 """Pruebas HTTP del chat con un proveedor falso: sin red ni base de datos."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -15,6 +15,8 @@ from apps.api.chat.identity import (
     VISITOR_COOKIE,
     SignedCookieIdentity,
 )
+from apps.api.chat.service import ThreadAccessError
+from apps.api.chat.streaming import ChatEvent
 from apps.api.main import create_app
 from apps.api.security import CSRF_COOKIE, CSRF_FIELD
 from apps.api.views.chat import (
@@ -40,6 +42,7 @@ class FakeChat:
     by_thread: dict[str, list[ChatMessage]] = field(default_factory=dict)
     summaries: dict[str, list[ConversationSummary]] = field(default_factory=dict)
     calls: list[tuple[str, str]] = field(default_factory=list)
+    turn_calls: list[tuple[str, str | None, str | None]] = field(default_factory=list)
     history_calls: list[str] = field(default_factory=list)
     thread_calls: list[str | None] = field(default_factory=list)
     error: Exception | None = None
@@ -74,9 +77,11 @@ class FakeChat:
         owner_key: str,
         question: str,
         *,
+        client_turn_id: str | None = None,
         thread_id: str | None = None,
     ) -> Answer:
         self.calls.append((owner_key, question))
+        self.turn_calls.append((owner_key, client_turn_id, thread_id))
         if self.error is not None:
             raise self.error
         answer = Answer(text=f"Respuesta a: {question}", sources=(SOURCE,))
@@ -87,6 +92,29 @@ class FakeChat:
             ]
         )
         return answer
+
+    def stream(
+        self,
+        owner_key: str,
+        question: str,
+        *,
+        client_turn_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> Iterator[ChatEvent]:
+        self.calls.append((owner_key, question))
+        self.turn_calls.append((owner_key, client_turn_id, thread_id))
+        yield ChatEvent("meta", {"sources": []})
+        yield ChatEvent("token", {"text": f"Respuesta a: {question}"})
+        yield ChatEvent(
+            "done",
+            {
+                "conversation_id": thread_id or "conversacion",
+                "message_id": "m-bot",
+                "thread_id": thread_id or "conversacion",
+                "route": "replay",
+                "quote_id": None,
+            },
+        )
 
 
 @dataclass
@@ -141,7 +169,7 @@ def _post(client: TestClient, path: str, data: dict[str, str], **kwargs: Any) ->
     """Envía un POST con el token CSRF emitido por una página."""
 
     if CSRF_COOKIE not in client.cookies:
-        client.get("/faq")
+        client.get("/api/csrf")
     return client.post(
         path,
         data={**data, CSRF_FIELD: client.cookies[CSRF_COOKIE]},
@@ -319,6 +347,27 @@ def test_post_usa_el_dueno_de_la_cookie_valida() -> None:
     # Assert
     assert response.status_code == 303
     assert chat.calls == [("dueno-a", "¿Qué es Carvajal?")]
+
+
+def test_el_hilo_unificado_conserva_voz_y_consulta_institucional() -> None:
+    """T026: el chat único mantiene dictado/lectura y responde con fuentes."""
+
+    # Arrange
+    client, chat = make_client()
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+    portada = client.get("/chat")
+
+    # Act
+    respuesta = _post(client, "/chat", {"question": "¿Qué es Carvajal?"})
+
+    # Assert
+    assert portada.status_code == 200
+    assert "/static/chat-voice.js" in portada.text
+    assert "data-voz-dictar" in portada.text
+    assert respuesta.status_code == 200
+    assert chat.calls == [("dueno-a", "¿Qué es Carvajal?")]
+    assert "¿Qué es Carvajal?" in respuesta.text
+    assert """data-voz-fuentes='["historia"]'""" in respuesta.text
 
 
 def test_post_con_cookie_invalida_regenera_la_identidad() -> None:
@@ -773,3 +822,194 @@ def test_el_fallo_de_manos_libres_devuelve_siempre_la_pregunta() -> None:
     # Assert
     assert "if (!input.value.trim()) input.value = pregunta;" in stream
     assert "if (!texto.textContent) turnoAsistente.remove();" in stream
+
+
+def test_el_post_html_propaga_el_identificador_de_turno() -> None:
+    client, chat = make_client(identity=FakeIdentity(owner_key="dueno-fijo"))
+
+    respuesta = _post(
+        client,
+        "/chat",
+        {"question": "¿Cuándo nació?", "client_turn_id": "turno-html-1"},
+        follow_redirects=False,
+    )
+
+    assert respuesta.status_code == 303
+    assert chat.turn_calls == [("dueno-fijo", "turno-html-1", None)]
+
+
+def test_el_stream_html_propaga_el_identificador_de_turno() -> None:
+    client, chat = make_client(identity=FakeIdentity(owner_key="dueno-fijo"))
+
+    respuesta = _post(
+        client,
+        "/chat/stream",
+        {"question": "¿Cuándo nació?", "client_turn_id": "turno-sse-1"},
+    )
+
+    assert respuesta.status_code == 200
+    assert chat.turn_calls == [("dueno-fijo", "turno-sse-1", None)]
+    assert "event: done" in respuesta.text
+
+
+def test_el_stream_de_la_api_propaga_el_identificador_de_turno() -> None:
+    client, chat = make_client(identity=FakeIdentity(owner_key="dueno-fijo"))
+
+    respuesta = _post(
+        client,
+        "/api/chat/stream",
+        {"question": "¿Cuándo nació?", "client_turn_id": "turno-api-1"},
+    )
+
+    assert respuesta.status_code == 200
+    assert chat.turn_calls == [("dueno-fijo", "turno-api-1", None)]
+
+
+def _resultado_comercial() -> dict[str, Any]:
+    return {
+        "ficha": {
+            "sku": "7704918100199",
+            "name": "Vaso rígido traslúcido 9 oz Wau",
+            "material": "PP",
+            "capacity_oz": 9.0,
+            "units_per_box": 2750,
+            "uses": ["bebida_caliente"],
+            "source_url": "https://example.com/ficha",
+            "captured_at": "2026-11-18",
+        },
+        "offers": [
+            {
+                "offer_id": "CO-OFERTA-1",
+                "seller": "EDEXA",
+                "seller_kind": "distribuidor",
+                "presentation": "paquete de 50",
+                "amount": "3751",
+                "currency": "COP",
+                "tax_status": "incluido",
+                "tax_rate": None,
+                "source_url": "https://example.com/precio",
+                "captured_at": "2026-11-18",
+                "valid_until": None,
+                "availability": "desconocido",
+                "site_id": "CO-SEDE-1",
+            }
+        ],
+        "sites": [
+            {
+                "site_id": "CO-SEDE-1",
+                "name": "EDEXA",
+                "city": "Bogotá",
+                "address": "Km 1.3",
+                "phone": "601 000 0000",
+                "precision": "ciudad",
+                "source_url": "https://example.com/directorio",
+                "captured_at": "2026-10-23",
+                "linked": True,
+                "availability": "desconocido",
+            }
+        ],
+        "cities": ["Bogotá", "Cali"],
+        "quote": {
+            "kind": "cotizacion",
+            "city": "Bogotá",
+            "total": "3751",
+            "primary": {
+                "currency": "COP",
+                "units_requested": 20,
+                "presentation": {
+                    "basis": "paquete",
+                    "count": 1,
+                    "units_bought": 50,
+                    "units_surplus": 30,
+                    "price_per_presentation": "3751",
+                    "subtotal": "3751",
+                    "units_requested": 20,
+                },
+            },
+            "commercial": {
+                "subtotal": "3751",
+                "total": "3751",
+                "valid_until": None,
+                "shipping": {"requested": False, "status": "not_requested", "cost": None},
+            },
+            "quote": {
+                "id": "folio-abc",
+                "folio": "folio-abc",
+                "issued_at": "2026-11-23T10:00:00+00:00",
+            },
+            "pending_lines": [],
+        },
+        "clarifications": [],
+        "request": {"city": "Bogotá"},
+    }
+
+
+def test_el_conteo_de_citas_ignora_el_resultado_comercial() -> None:
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [
+        _message("user", "cotiza 20 vasos", sources=None),
+        _message(
+            "assistant",
+            "Subtotal [1] y cierre [2].",
+            sources=[
+                asdict(SOURCE),
+                {"result_type": "commercial", "result": _resultado_comercial()},
+            ],
+        ),
+    ]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    respuesta = client.get("/chat")
+
+    assert respuesta.status_code == 200
+    assert "[1]" not in respuesta.text
+    # Solo hay una cita real: [2] queda como texto y no se descarta por el
+    # resultado comercial sintético.
+    assert "[2]" in respuesta.text
+
+
+def test_la_recarga_restaura_ficha_oferta_sede_y_folio() -> None:
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [
+        _message("user", "cotiza 20 vasos", sources=None),
+        _message(
+            "assistant",
+            "Cotización lista.",
+            sources=[
+                asdict(SOURCE),
+                {"result_type": "commercial", "result": _resultado_comercial()},
+            ],
+        ),
+    ]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    respuesta = client.get("/chat")
+
+    assert respuesta.status_code == 200
+    assert "Vaso rígido traslúcido 9 oz Wau" in respuesta.text
+    assert "#folio-abc" in respuesta.text
+    assert "EDEXA" in respuesta.text
+    assert "vende este SKU" in respuesta.text
+    assert "En Cali" in respuesta.text
+    assert "data-chat-sugerencia" in respuesta.text
+    assert "¿Cuándo nació?" in respuesta.text or "cotiza 20 vasos" in respuesta.text
+
+
+class _Aislado(FakeChat):
+    def history(
+        self,
+        owner_key: str,
+        thread_id: str | None = None,
+    ) -> Sequence[ChatMessage]:
+        if thread_id is not None:
+            raise ThreadAccessError(thread_id)
+        return super().history(owner_key, thread_id)
+
+
+def test_un_hilo_ajeno_no_se_renderiza() -> None:
+    client, _ = make_client(chat=_Aislado())
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    respuesta = client.get("/chat?thread=ajeno")
+
+    assert respuesta.status_code == 404

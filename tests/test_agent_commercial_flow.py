@@ -1,5 +1,6 @@
 """Pruebas del nodo ``commercial``: secuencia fija y prompt acotado (spec 036, T019-T020)."""
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -18,7 +19,9 @@ from carvajal.agent.commercial_flow import (
 )
 from carvajal.agent.commercial_intent import COMMERCIAL_KEYS
 from carvajal.agent.graph import AgentDeps, build_agent
+from carvajal.application.ports import ScoredChunk
 from carvajal.catalog.loader import load_catalog
+from carvajal.domain.entities import Chunk
 from carvajal.infrastructure.settings import Settings
 
 FIXTURES = load_catalog(Path(__file__).parent / "fixtures" / "catalog")
@@ -284,3 +287,148 @@ def test_el_grafo_avisa_la_parte_no_comercial_de_una_pregunta_mixta() -> None:
     assert estado["intent"] == "commercial_mixed"
     assert estado["tool_result"]["options"]
     assert mixed_notice("Quién fundó Carvajal") in estado["prompt"]
+
+
+class _Embedder:
+    def embed(self, text: str) -> list[float]:
+        return [0.1] * 768
+
+
+class _Documentos:
+    def __init__(self, hits: Sequence[ScoredChunk]) -> None:
+        self.hits = list(hits)
+        self.calls = 0
+
+    def upsert(self, *args: Any, **kwargs: Any) -> None:
+        raise AssertionError("El grafo no indexa.")
+
+    def search(self, *args: Any, **kwargs: Any) -> Sequence[ScoredChunk]:
+        self.calls += 1
+        return self.hits
+
+    def delete_by_document(self, document_id: str) -> None:
+        raise AssertionError("El grafo no borra.")
+
+
+HIT = ScoredChunk(
+    chunk=Chunk(
+        id="historia:3",
+        document_id="historia",
+        text="Carvajal fue fundada en Cali en 1904.",
+        position=3,
+        section="historia",
+        layer="core",
+    ),
+    score=0.91,
+    metadata={
+        "url": "https://www.carvajal.com/historia/",
+        "title": "Historia",
+        "source_type": "oficial",
+        "content_hash": "abc",
+    },
+)
+
+
+def test_el_turno_mixto_cita_la_parte_documental_y_la_comercial() -> None:
+    documentos = _Documentos([HIT])
+    grafo = build_agent(
+        AgentDeps(
+            vector_store=documentos,
+            embedder=_Embedder(),
+            settings=Settings(),
+            catalog=FIXTURES,
+            today=HOY,
+        ),
+        checkpointer=InMemorySaver(),
+    )
+
+    estado = grafo.invoke(
+        {
+            "question": "Necesito vasos para café de 12 oz. ¿Quién fundó Carvajal?",
+            "owner_key": "dueño",
+            "thread_id": "hilo-mixto-citas",
+        },
+        config={"configurable": {"thread_id": "hilo-mixto-citas"}},
+    )
+
+    assert estado["route"] == "commercial"
+    assert estado["intent"] == "commercial_mixed"
+    assert documentos.calls == 1
+    assert any(source["slug"] == "historia" for source in estado["sources"])
+    assert "Contexto documental para la parte no comercial" in estado["prompt"]
+    assert "Carvajal fue fundada en Cali en 1904." in estado["prompt"]
+    assert mixed_notice("Quién fundó Carvajal") in estado["prompt"]
+
+
+def test_el_grafo_enriquece_el_turno_co_con_el_contrato_publicado() -> None:
+    falso = _SinRecuperacion()
+    grafo = build_agent(
+        AgentDeps(vector_store=falso, embedder=falso, settings=Settings(), today=HOY),
+        checkpointer=InMemorySaver(),
+    )
+
+    estado = grafo.invoke(
+        {
+            "question": "cotiza 300 vasos para bebida caliente en Bogotá",
+            "owner_key": "dueño",
+            "thread_id": "hilo-contrato",
+        },
+        config={"configurable": {"thread_id": "hilo-contrato"}},
+    )
+
+    resultado = estado["tool_result"]
+    assert resultado["ficha"]["sku"] == "7704918100199"
+    assert resultado["offers"][0]["seller"] == "EDEXA"
+    assert any(sede["linked"] for sede in resultado["sites"])
+    assert resultado["quote"]["kind"] == "cotizacion"
+    assert resultado["quote"]["primary"]["presentation"]["units_bought"] == 300
+    assert any(cita["slug"].startswith("sede-") for cita in estado["sources"])
+    assert estado["commercial_context"]["city"] == "Bogotá"
+    assert estado["commercial_context"]["quantity"] == 300
+
+
+def test_el_contexto_comercial_del_hilo_actualiza_la_cantidad() -> None:
+    falso = _SinRecuperacion()
+    grafo = build_agent(
+        AgentDeps(vector_store=falso, embedder=falso, settings=Settings(), today=HOY),
+        checkpointer=InMemorySaver(),
+    )
+    primera = "cotiza 300 vasos para bebida caliente en Bogotá"
+    grafo.invoke(
+        {"question": primera, "owner_key": "dueño", "thread_id": "hilo-contexto"},
+        config={"configurable": {"thread_id": "hilo-contexto"}},
+    )
+
+    estado = grafo.invoke(
+        {
+            "question": "mejor 100",
+            "owner_key": "dueño",
+            "thread_id": "hilo-contexto",
+            "seed_turns": [{"question": primera, "answer": "ok", "incomplete": False}],
+        },
+        config={"configurable": {"thread_id": "hilo-contexto"}},
+    )
+
+    assert estado["route"] == "commercial"
+    assert estado["commercial_context"]["quantity"] == 100
+    assert estado["tool_result"]["quote"]["primary"]["presentation"]["units_requested"] == 100
+
+
+def test_el_turno_co_conserva_las_lineas_pendientes() -> None:
+    falso = _SinRecuperacion()
+    grafo = build_agent(
+        AgentDeps(vector_store=falso, embedder=falso, settings=Settings(), today=HOY),
+        checkpointer=InMemorySaver(),
+    )
+
+    estado = grafo.invoke(
+        {
+            "question": "cotiza 20 vasos y 10 platos para comida caliente en Bogotá",
+            "owner_key": "dueño",
+            "thread_id": "hilo-lineas",
+        },
+        config={"configurable": {"thread_id": "hilo-lineas"}},
+    )
+
+    assert estado["tool_result"]["quote"]["pending_lines"][0]["family"] == "plato"
+    assert estado["tool_result"]["clarifications"][0]["status"] == "pendiente"

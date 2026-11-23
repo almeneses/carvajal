@@ -4,6 +4,11 @@
     "sku": "2864108000",
     "country": "MX"
   },
+  "products": [],
+  "sellers": [],
+  "sites": [],
+  "offers": [],
+  "evidence": [],
   "records": [
     {
       "record_type": "oferta_publicada",
@@ -40,8 +45,6 @@
         "currency": "MXN",
         "tax_status": "incluido",
         "tax_rate": null,
-        "tax_simulated": false,
-        "origin": "publicada",
         "source": {
           "type": "oficial",
           "name": "Carvajal Empaques México",
@@ -56,7 +59,6 @@
           "declared_status": null,
           "units": null,
           "evidence": [],
-          "simulated": false,
           "checked_at": null,
           "note": "La ficha publica precio; no declara existencias."
         },
@@ -68,7 +70,6 @@
         "declared_status": null,
         "units": null,
         "evidence": [],
-        "simulated": false,
         "checked_at": null,
         "note": "La ficha publica precio; no declara existencias."
       },
@@ -91,5 +92,7 @@
         "note": "Oferta sin sede física atribuible."
       }
     }
-  ]
+  ],
+  "directory": null,
+  "parity": null
 }

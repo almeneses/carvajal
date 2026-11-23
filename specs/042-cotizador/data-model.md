@@ -1,5 +1,7 @@
 # Data model — Cotizador conversacional
 
+> **Histórico:** la demo y sus archivos fueron retirados por la [spec 043](../043-chat-comercial-unificado/spec.md). Las rutas `data/demo/cotizador/` y `scripts/generar_demo_cotizador.py` ya no existen; este documento conserva el modelo de la entrega original.
+
 **Fecha**: 2026-11-21 · **Spec**: [spec.md](./spec.md) · **Plan**: [plan.md](./plan.md)
 
 Los datos comerciales viven en `data/demo/cotizador/` y se generan con

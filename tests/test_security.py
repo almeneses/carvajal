@@ -43,11 +43,11 @@ class FakeChat:
     def history(self, owner_key: str) -> list[Any]:
         return []
 
-    def ask(self, owner_key: str, question: str) -> Answer:
+    def ask(self, owner_key: str, question: str, **kwargs: Any) -> Answer:
         self.calls.append((owner_key, question))
         return RESPUESTA
 
-    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+    def stream(self, owner_key: str, question: str, **kwargs: Any) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
         yield ChatEvent("done", {})
 
@@ -178,7 +178,7 @@ def test_el_microfono_sigue_denegado_en_las_demas_rutas() -> None:
     token = _token(client)
 
     # Act
-    faq = client.get("/faq")
+    heredado = client.get("/cotizador", follow_redirects=False)
     estatico = client.get("/static/logo.svg")
     portada = client.get("/", follow_redirects=False)
     post_chat = client.post("/chat", data={"question": "¿Qué es Carvajal?"})
@@ -191,7 +191,7 @@ def test_el_microfono_sigue_denegado_en_las_demas_rutas() -> None:
     # Assert: el SSE válido responde 200 y aun así no recibe el micrófono.
     assert sse.status_code == 200
     assert "text/event-stream" in sse.headers["content-type"]
-    for response in (faq, estatico, portada, post_chat, sse_sin_token, sse):
+    for response in (heredado, estatico, portada, post_chat, sse_sin_token, sse):
         assert _politica_microfono(response) == "()"
 
 

@@ -62,6 +62,9 @@ services:
       # Dentro de la red de compose el host de la base es el servicio `db`,
       # no loopback: por eso la URL se compone aquí a partir de POSTGRES_*.
       DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
+      # Versión del aprovisionamiento comercial (captura más reciente del
+      # catálogo/precios). El bootstrap falla si no coincide con `version`.
+      EXPECTED_COMMERCIAL_VERSION: ${EXPECTED_COMMERCIAL_VERSION:-2026-11-18}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
       # La FAQ envía el corpus completo; sin esta ventana Ollama recorta el prompt.
@@ -202,10 +205,10 @@ services:
         condition: service_healthy
 
   bootstrap:
-    # Perfil `bootstrap`: prepara un servidor limpio. Copia `./data` al volumen
-    # solo si aún no hay corpus allí (nunca pisa capturas o cargas más nuevas),
-    # aplica migraciones, importa Gold a Postgres e indexa en Qdrant. Es
-    # idempotente y lo invoca `make prod-bootstrap`.
+    # Perfil `bootstrap`: prepara un servidor limpio o actualiza uno existente.
+    # Siembra los archivos ausentes de `./data` (catálogo, comercial y Gold) sin
+    # pisar los que ya viven en el volumen, aplica migraciones, importa Gold e
+    # indexa en Qdrant. Es idempotente y lo invoca `make prod-bootstrap`.
     profiles: ["bootstrap"]
     image: ${APP_IMAGE:-carvajal-api:local}
     restart: "no"
@@ -227,15 +230,42 @@ services:
       - -c
       - |
         set -e
-        if [ -d /seed ] && [ -z "$$(ls -A /app/data/gold 2>/dev/null)" ]; then
-          if [ -z "$$(ls -A /seed/gold 2>/dev/null)" ]; then
-            echo "Aviso: /seed no trae corpus Gold." >&2
-            echo "Sincroniza data/ al host (ver docs/despliegue-ovh.md) o usa el volumen." >&2
-          else
-            echo "Copiando el corpus de referencia al volumen appdata"
-            cp -R /seed/. /app/data/
+        seed_dir() {
+          src="$$1"; dest="$$2"
+          if [ -d "$$src" ]; then
+            mkdir -p "$$dest"
+            # Copia solo archivos ausentes: una actualización conserva lo que
+            # ya vive en el volumen y añade el aprovisionamiento nuevo.
+            find "$$src" -type f | while IFS= read -r file; do
+              rel="$${file#$$src/}"
+              target="$$dest/$$rel"
+              if [ ! -e "$$target" ]; then
+                mkdir -p "$$(dirname "$$target")"
+                cp "$$file" "$$target"
+              fi
+            done
           fi
+        }
+        mkdir -p /app/data
+        # Aprovisionamiento comercial y Gold son pasos separados: actualizar
+        # precios o sedes no reescribe el corpus y viceversa.
+        if [ -d /seed ]; then
+          seed_dir /seed/catalog /app/data/catalog
+          seed_dir /seed/commercial /app/data/commercial
+          seed_dir /seed/gold /app/data/gold
         fi
+        # El aprovisionamiento incluido en la imagen cubre actualizaciones
+        # desde volúmenes de la 042 que aún no tienen proveedores.csv.
+        if [ -d /app/seed-data ]; then
+          seed_dir /app/seed-data/catalog /app/data/catalog
+          seed_dir /app/seed-data/commercial /app/data/commercial
+        fi
+        ACTUAL="$$(python -m carvajal.commercial version)"
+        if [ -n "$${EXPECTED_COMMERCIAL_VERSION:-}" ] && [ "$$ACTUAL" != "$$EXPECTED_COMMERCIAL_VERSION" ]; then
+          echo "Catálogo comercial $$ACTUAL; se esperaba $$EXPECTED_COMMERCIAL_VERSION." >&2
+          exit 1
+        fi
+        python -m carvajal.commercial validar
         alembic upgrade head
         carvajal migrate-gold
         carvajal index-qdrant

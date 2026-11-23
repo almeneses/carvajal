@@ -23,8 +23,10 @@ detrás de contadores JavaScript, y cualquier modelo sin contexto inventa cifras
 **Solución.** Un pipeline reproducible que captura el sitio oficial y fuentes de prensa,
 los normaliza en tres capas (bronze → silver → gold), los indexa con embeddings locales
 y responde con un LLM **citando la fuente y distinguiendo** lo oficial de lo publicado por
-terceros. Todo se demuestra en una interfaz única: el chat con fuentes citadas, la FAQ
-generada, el explorador del corpus y la carga o captura de documentos.
+terceros. Todo se demuestra en una interfaz única: el chat con fuentes citadas,
+cotización comercial y sedes en el mismo hilo, el explorador del corpus y la carga o
+captura de documentos. `/api/faq` se conserva para consumidores, pero la navegación ya
+no ofrece el generador público de FAQ.
 
 | Antes | Después |
 |---|---|
@@ -434,7 +436,7 @@ uv run carvajal summarize            # resumen ejecutivo -> docs/resumen.md
 uv run carvajal summarize --focus empaques
 uv run carvajal faq                  # FAQ de cliente -> docs/faq.md
 
-# Interfaz web única: chat, FAQ, corpus y lectura
+# Interfaz web única: chat comercial, corpus y lectura
 make api                        # http://localhost:8000/chat
 
 # Evaluación: 25 preguntas de prueba -> docs/resultados.md
@@ -445,19 +447,22 @@ make eval
 
 La entrada oficial del Módulo 2 es <http://localhost:8000> (`make api`): un
 único proceso sirve el shell Jinja2/HTMX y la API. La navegación superior
-ofrece **Chat**, **Cotizador**, **FAQ** y **Corpus**, más la ficha
-`/documents/{id}`; `/` redirige a `/chat`. **Configuración** es una consola de
-operador y no se enlaza desde la navegación pública.
+ofrece **Chat** y **Corpus**, más la ficha `/documents/{id}`; `/` redirige a
+`/chat`. Los accesos antiguos `/cotizador` y `/faq` redirigen al chat; un hilo
+histórico autorizado del Cotizador se abre en solo lectura. El contrato
+`/api/faq` se conserva para consumidores aunque la generación pública de FAQ ya
+no esté en la navegación. **Configuración** es una consola de operador y no se
+enlaza desde la navegación pública.
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El chat emite SSE por `/chat/stream` (y conserva
 `/api/chat/stream` como contrato JSON equivalente). El chat es el
 **único camino de respuesta**: la ruta heredada `/ask` y el adaptador pgvector
 se retiraron en la spec 037 porque ningún flujo escribía vectores en Postgres.
-Su
-pestaña **FAQ** (`/faq`) consume el mismo endpoint `/api/faq` y ofrece la misma
-experiencia de lotes de 10. Sus pantallas comparten la cabecera, la paleta y los
-componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
+El endpoint `/api/faq` conserva el contrato SSE de lotes de 10 para clientes que
+ya lo consumen; la generación pública desde la navegación se retiró y esas
+preguntas se atienden en el chat. Sus pantallas comparten la cabecera, la paleta
+y los componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
 fuentes se pliegan por defecto y cada cita abre un panel lateral con el
 documento en el fragmento citado. El chat mantiene el compositor abajo y un
 panel de hilos anteriores. La antigua pestaña **Configuración** sigue existiendo
@@ -511,14 +516,13 @@ Los archivos de `/opt/carvajal/inbox` se leen en solo lectura; el original queda
 en el volumen (`appdata`) dentro de Bronze, así que la carpeta del host puede borrarse
 después.
 
-La pestaña **FAQ** genera hasta 10 preguntas frecuentes por lote con el corpus
-núcleo completo y las agrupa por tema con su fuente. El botón **Generar otras
-10** pide un lote nuevo, excluye las preguntas ya mostradas y acumula el
-resultado en la pestaña; **Descargar faq.md** produce el Markdown equivalente.
-La generación usa SSE, comparte el CSRF y la cuota diaria del chat y avisa
-cuando el corpus se truncó por longitud. Con Ollama, la ventana de contexto se
-configura con `OLLAMA_NUM_CTX` (32 768 tokens por defecto) para que el corpus
-completo quepa en el prompt.
+El contrato **`POST /api/faq`** sigue generando hasta 10 preguntas frecuentes
+por lote con el corpus núcleo completo, agrupadas por tema y con su fuente.
+Conserva SSE, CSRF y cuota, y sigue disponible para clientes automatizados; la
+pestaña pública y su compositor se retiraron. En el chat, la información
+institucional y las preguntas abiertas se responden con las mismas citas. Con
+Ollama, la ventana de contexto se configura con `OLLAMA_NUM_CTX` (32 768 tokens
+por defecto) para que el corpus completo quepa en el prompt.
 
 ### Módulo 1 (histórico)
 
@@ -652,7 +656,7 @@ despliegue, respaldos y rollback— está en
 | Ruta | Qué comprueba | Depende de Postgres |
 |---|---|---|
 | `GET /live` | Que el proceso responde (liveness del contenedor). | No |
-| `GET /health` | Conteos de documentos/fragmentos, estado de Qdrant y bloque `monitoring` (readiness). | Sí |
+| `GET /health` | Conteos de documentos/fragmentos, estado del catálogo comercial, estado de Qdrant y bloque `monitoring` (readiness). Un catálogo inválido se distingue de un índice ausente. | Sí |
 | `GET /api/health` | El mismo readiness en JSON para clientes automatizados. | Sí |
 
 ### Monitoreo con LangSmith (opcional)

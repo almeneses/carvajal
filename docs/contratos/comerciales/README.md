@@ -1,9 +1,9 @@
 # Contrato de datos comerciales v1.0
 
-**Estado:** implementado y validado como capa de referencia (`carvajal.commercial`). El chat
-general y el Cotizador todavía no se reescribieron para consumirlo; esta capa les ofrece el
-mismo contrato y adaptadores de lectura. La adopción por cada consumidor es un cambio
-posterior y localizado.
+**Estado:** implementado y validado como capa de referencia (`carvajal.commercial`). El
+Cotizador ya consume el contrato publicado; el chat general lo adopta en la spec 043. El
+contrato público solo contiene datos con fuente publicada: no hay ofertas ni disponibilidad
+simuladas.
 
 **Alcance inicial:** Empaques Colombia. **Paridad obligatoria:** las 98 referencias de México
 que hoy traen precio inline en `referencias.csv`.
@@ -20,8 +20,8 @@ La auditoría dejó tres datos que se confundían entre sí:
 
 Antes de este contrato, la demo usaba `p01…p29` (orden del archivo) como identificador de
 sede, la disponibilidad era 100 % simulada y algunas ofertas con precio simulado citaban una
-URL real de EDEXA. El contrato separa **producto**, **oferta** y **sede**, y trata la
-**disponibilidad** como un dato con evidencia propia.
+URL real de EDEXA. Esa demo se retiró: el contrato separa **producto**, **oferta** y **sede**,
+y trata la **disponibilidad** como un dato con evidencia propia.
 
 ## 2. Entidades
 
@@ -31,7 +31,6 @@ URL real de EDEXA. El contrato separa **producto**, **oferta** y **sede**, y tra
 |-------|-------|
 | `sku`, `country`, `name`, `family` | identidad vendible; `(sku, country)` es único |
 | `units_per_box` | unidades de la caja de referencia, usadas para normalizar |
-| `origin` | `real` (catálogo curado) o `demo` (extensión simulada) |
 | `source` | URL, fecha y tipo de la ficha |
 
 Un producto **no** tiene precio ni existencias.
@@ -51,7 +50,7 @@ Un vendedor puede tener varias sedes y una tienda en línea puede no tener sede 
 | Campo | Regla |
 |-------|-------|
 | `site_id` | estable, `CO-SEDE-…` / `MX-SEDE-…`; no depende del orden del archivo |
-| `legacy_provider_id` | `p01…p29` mientras dure la migración de la demo |
+| `legacy_provider_id` | `p01…p29`: identificador anterior conservado para migrar enlaces |
 | `seller_id`, `country`, `name`, `city` | identidad comercial |
 | `address`, `phone` | tal como los publica el directorio; la dirección puede faltar si la fuente no la trae |
 | `source` | URL del directorio y fecha de captura |
@@ -71,21 +70,17 @@ precio ni stock; el contacto del directorio tampoco.
 | `presentation` | presentación que **cobra el vendedor**: `unidad`, `paquete` o `caja` con `units_in_basis` |
 | `amount`, `currency` | importe de **esa presentación**; COP en Colombia, MXN en México |
 | `tax_status` | `incluido`, `no_incluido` o `no_indicado`; `tax_rate` solo si la fuente declara la tasa |
-| `tax_simulated` | `true` en la demo cuando el IVA no lo declara una fuente publicada |
 | `source` | nombre, URL, fecha y vigencia de la fuente |
 | `normalized` | vista adicional a caja: `{basis: "caja", units_in_basis, amount}`; el esquema fija `basis="caja"` y solo se admite si la caja contiene un número entero de presentaciones |
-| `origin` | `publicada` o `demo` |
 | `availability` | objeto independiente; ver §5 |
-| `delivery` | opcional: plazo mínimo/máximo, costo de envío, `simulated` y fecha de consulta |
+| `delivery` | opcional: plazo mínimo/máximo, costo de envío, `source_url`, `checked_at` y `valid_until`, solo con evidencia |
 
-`delivery` no forma parte del mínimo producto–oferta–sede, pero el Cotizador ya lo usa. Se
-conserva para que la migración no pierda plazo ni envío, siempre marcado como simulado cuando
-viene de la demo.
+`delivery` no forma parte del mínimo producto–oferta–sede. Sin evidencia de entrega queda
+vacío: el Cotizador muestra el subtotal y deja el total pendiente.
 
 Reglas duras:
 
-- una oferta `publicada` exige URL de fuente;
-- una oferta `demo` no puede citar una URL real y no puede afirmar stock verificado;
+- toda oferta exige URL de fuente;
 - la moneda debe ser la del país;
 - si hay `normalized`, su importe debe ser exactamente
   `amount × (normalized.units_in_basis / presentation.units_in_basis)` y su base debe ser
@@ -105,18 +100,18 @@ Reglas duras:
 | `desconocido` | la fuente no afirmó nada |
 
 `declared_status` conserva lo que dijo la fuente (`disponible`, `insuficiente`, `agotado`,
-`desconocido`). `simulated=True` nunca asciende a `verificado`.
+`desconocido`). Solo una evidencia con `valid_until` explícito y no vencido sostiene
+`verificado` o `no_disponible`.
 
 ### Registro para consumidores
 
-`CommercialRecord` es el sobre que consumen chat y Cotizador. Los cuatro tipos comparten
+`CommercialRecord` es el sobre que consumen chat y Cotizador. Los tres tipos comparten
 **exactamente los mismos campos**:
 
 | `record_type` | `sku` | `offer` | `availability` | Uso |
 |---------------|-------|---------|----------------|-----|
 | `contacto_directorio` | `null` | `null` | `null` | dónde comprar; no es una oferta |
-| `oferta_publicada` | SKU | oferta real | estado del stock | precio publicado, con o sin stock |
-| `oferta_demo` | SKU | oferta simulada | `por_confirmar`/`desconocido` | demo explícita, nunca real |
+| `oferta_publicada` | SKU | oferta publicada | estado del stock | precio publicado, con o sin stock |
 | `stock_verificado` | SKU | oferta opcional | `verificado` | existencia por sede con evidencia |
 
 Campos comunes: `record_id`, `country`, `seller`, `site`, `source`, `captured_at`, `map`.
@@ -126,7 +121,7 @@ Campos comunes: `record_id`, `country`, `seller`, `site`, `source`, `captured_at
 ```text
 CO-SEDE-<sha256(país|vendedor|nombre|ciudad|dirección_o_teléfono)[:10]>
 CO-VEND-<sha256(país|nombre_normalizado)[:8]>
-CO-OFERTA-<sha256(país|sku|vendedor|sede|url|presentación|unidades|importe|fecha|origen)[:12]>
+CO-OFERTA-<sha256(país|sku|vendedor|sede|url|presentación|unidades|importe|fecha)[:12]>
 ```
 
 - La normalización quita tildes, mayúsculas y espacios repetidos.
@@ -150,11 +145,10 @@ book = load_commercial_book()
 bogota = book.city_directory("Bogotá")
 contactos = bogota.of_type("contacto_directorio")  # 7 sedes
 publicadas = bogota.of_type("oferta_publicada")  # 29 ofertas EDEXA
-demo = bogota.of_type("oferta_demo")  # 29 ofertas simuladas
-verificadas = bogota.of_type("stock_verificado")  # 0: aún no hay evidencia real
+verificadas = bogota.of_type("stock_verificado")  # 0: aún no hay evidencia
 
-# Todas las ofertas de un SKU, publicadas y de demo.
-ofertas = book.offers_for_sku("CO-CTT-08", "CO")  # 2 ofertas
+# Todas las ofertas publicadas de un SKU.
+ofertas = book.offers_for_sku("CO-CTT-08", "CO")  # 1 oferta
 
 # Solo sedes vinculadas por oferta o stock; nunca contactos generales.
 sedes = book.sites_for_sku("CO-CTT-08", "CO")
@@ -164,20 +158,19 @@ Conteos reales del 2026-11-22:
 
 | Consulta | Resultado |
 |----------|-----------|
-| `city_directory("Cali")` | 4 contactos, 0 ofertas publicadas, 16 de demo |
-| `city_directory("Neiva")` | 1 contacto, 0 publicadas, 4 de demo |
-| `city_directory("Bogotá")` | 7 contactos, 29 publicadas, 29 de demo |
+| `city_directory("Cali")` | 4 contactos, 0 ofertas publicadas |
+| `city_directory("Neiva")` | 1 contacto, 0 publicadas |
+| `city_directory("Bogotá")` | 7 contactos, 29 publicadas |
 | `cities()` | 10 ciudades |
-| `offers_for_sku("CO-CTT-08", "CO")` | 2 ofertas: EDEXA publicada + Sigmaplasticos demo |
-| `sites_for_sku("CO-CTT-08", "CO")` | EDEXA y Sigmaplasticos; no Sideral, que solo es contacto |
+| `offers_for_sku("CO-CTT-08", "CO")` | 1 oferta: EDEXA publicada |
+| `sites_for_sku("CO-CTT-08", "CO")` | EDEXA; no Sideral, que solo es contacto |
 
 La consulta de ciudad nunca recibe precio, cantidad ni stock. Si la ciudad no existe,
 devuelve `records=()` y la lista de ciudades con sede para ofrecer alternativas.
 
-Estado real de la disponibilidad (2026-11-22): de las 160 ofertas colombianas, **145 quedan
-`por_confirmar` y 15 `desconocido`; ninguna `verificado`**. Las 160 evidencias registradas son
-`simulacion`, que no habilita stock. Es el resultado correcto: todavía no existe una fuente
-operativa de inventario.
+Estado real de la disponibilidad (2026-11-23): de las 29 ofertas colombianas, **29 quedan
+`desconocido`; ninguna `verificado`**. La evidencia versionada está vacía. Es el resultado
+correcto: todavía no existe una fuente operativa de inventario.
 
 ## 5. Disponibilidad: qué evidencia permite afirmarla
 
@@ -195,7 +188,6 @@ CO-CTT-08,CO,CO-SEDE-…,confirmacion_vendedor,disponible,120,Ana Pérez (EDEXA)
 | `confirmacion_vendedor` | sí | vendedor autorizado o curador | correo, acta o formulario con nombre y fecha | 7 días y `valid_until` |
 | `integracion_pos` | sí | operaciones / integración | job autenticado contra POS o ERP | 1 día |
 | `pedido_confirmado` | no | operaciones | comprobante de un pedido pasado | no prueba stock actual |
-| `simulacion` | no | generador de la demo | nunca se presenta como real | n/a |
 
 Si `declared_status` se omite en una fila de evidencia, se interpreta `desconocido`, no
 `disponible`: la ausencia de una afirmación no puede convertirse en una afirmación de stock.
@@ -204,14 +196,13 @@ Reglas:
 
 1. Sin evidencia admisible, `status` es `por_confirmar` (o `desconocido` si la fuente no
    afirmó nada). Nunca `verificado`.
-2. Una simulación se queda en `por_confirmar`; no habilita `stock_verificado`.
-3. `verificado` y `no_disponible` exigen al menos una evidencia de las tres primeras filas.
-4. La consulta usa la fecha de hoy por defecto (o `as_of` si se indica) y degrada a
-   `por_confirmar` si la evidencia tiene más de 7 días o si `valid_until` ya pasó. El dato no
-   se borra: se deja de afirmar.
-5. El stock es por **sede y SKU**. El inventario de una sede no prueba el de otra, aunque
+2. `verificado` y `no_disponible` exigen al menos una evidencia de las tres primeras filas.
+3. La consulta usa la fecha de hoy por defecto (o `as_of` si se indica). Solo una evidencia
+   con `valid_until` explícito y no vencido confirma stock; sin esa vigencia o con la fecha
+   pasada, se degrada a `por_confirmar`. El dato no se borra: se deja de afirmar.
+4. El stock es por **sede y SKU**. El inventario de una sede no prueba el de otra, aunque
    compartan vendedor.
-6. El chat y el Cotizador solo leen. No escriben evidencia, no la infieren del precio y no
+5. El chat y el Cotizador solo leen. No escriben evidencia, no la infieren del precio y no
    convierten una oferta publicada en stock.
 
 **Quién actualiza cuando exista la fuente**
@@ -282,7 +273,6 @@ uv run python -m carvajal.commercial paridad-mx
 - Para precio usa solo `oferta_publicada`; muestra fuente y fecha.
 - Para existencia usa `stock_verificado` **solo** si `availability.status == "verificado"`;
   en cualquier otro caso dice «por confirmar» o «no se conoce».
-- No presenta `oferta_demo` como real.
 
 ### Cotizador
 
@@ -299,8 +289,8 @@ Los archivos están en [`ejemplos/`](./ejemplos/):
 
 | Archivo | Goal | Entrada | Salida |
 |---------|------|---------|--------|
-| `goal2_ofertas_co-ctt-08.json` | 2 | `{"sku":"CO-CTT-08","country":"CO"}` | 2 ofertas: una publicada y una demo, con presentación, importe, IVA, fuente y disponibilidad |
-| `goal4_directorio_neiva.json` | 4 | `{"city":"Neiva"}` | 1 contacto y 4 ofertas demo; el contacto existe aunque no haya precio publicado |
+| `goal2_ofertas_co-ctt-08.json` | 2 | `{"sku":"CO-CTT-08","country":"CO"}` | 1 oferta publicada con presentación, importe, IVA, fuente y disponibilidad |
+| `goal4_directorio_neiva.json` | 4 | `{"city":"Neiva"}` | 1 contacto; el contacto existe aunque no haya precio publicado |
 | `goal4_sede_aproximada.json` | 4 | sede EDEXA | `sites`, `offers` y su registro con `map.mode="zona"` y `approximate=true` |
 | `goal5_paridad_mx.json` | 5 | `mexico_parity()` | 98/98, MXN, caja, sin diferencias |
 | `goal5_oferta_mx.json` | 5 | `{"sku":"2864108000","country":"MX"}` | oferta oficial por caja, MXN, IVA incluido |
@@ -323,7 +313,7 @@ Ejemplo mínimo de una oferta publicada:
     "tax_status": "incluido",
     "source": {"name": "EDEXA", "captured_at": "2026-11-18"}
   },
-  "availability": {"status": "por_confirmar", "declared_status": "disponible", "simulated": true}
+  "availability": {"status": "desconocido", "declared_status": null}
 }
 ```
 
@@ -345,15 +335,15 @@ Ejemplo mínimo de contacto del directorio:
 |---------|-----|
 | `packages/core/src/carvajal/commercial/models.py` | entidades, registros, validadores |
 | `packages/core/src/carvajal/commercial/book.py` | uniones, consultas, error de huérfanos |
-| `packages/core/src/carvajal/commercial/loader.py` | carga del catálogo, demo, IDs y evidencia |
+| `packages/core/src/carvajal/commercial/loader.py` | carga del catálogo, precios, sedes, IDs y evidencia |
 | `packages/core/src/carvajal/commercial/parity.py` | paridad MX |
 | `packages/core/src/carvajal/commercial/__main__.py` | consulta CLI y JSON Schema |
 | `data/commercial/evidencia_disponibilidad.csv` | evidencia versionada (hoy solo cabecera) |
 | `docs/contratos/comerciales/contrato.schema.json` | JSON Schema generado |
-| `tests/test_commercial_contract.py` | 39 pruebas de aceptación |
+| `tests/test_commercial_contract.py` | pruebas de aceptación del contrato publicado |
 
 ```bash
-uv run pytest tests/test_commercial_contract.py -q     # 39 passed
+uv run pytest tests/test_commercial_contract.py -q     # 41 passed
 uv run ruff check packages/core/src/carvajal/commercial tests/test_commercial_contract.py
 uv run python -m carvajal.commercial validar
 uv run python -m carvajal.commercial sedes --ciudad "Bogotá"
@@ -381,9 +371,7 @@ uv run python -m carvajal.commercial paridad-mx
 
 ## 12. Coordinación con otros agentes
 
-Esta capa se agregó como **archivos nuevos** para no interferir con las sesiones paralelas
-(`(G1)` y las demás del 2026-11-22). No se modificaron `CONSTITUTION.md`, `AGENTS.md`,
-`Makefile`, `pyproject.toml`, el chat ni el Cotizador. Los únicos archivos compartidos que se
-tocaron son nuevos: el paquete `carvajal.commercial`, sus datos, sus pruebas y esta
-documentación. La integración con cada consumidor queda como cambio localizado de ese
-consumidor.
+Esta capa se agregó originalmente como **archivos nuevos** para no interferir con las
+sesiones paralelas del 2026-11-22. La spec 043 adoptó el contrato en el Cotizador y retiró la
+demo; el chat general lo adopta en el mismo incremento. La integración con cada consumidor
+sigue siendo un cambio localizado de ese consumidor.

@@ -256,10 +256,13 @@ sudo ss -tulpn | grep ':8080'
 
 ## 6. Corpus e índice
 
-El corpus no viaja en la imagen. Cópialo y construye el índice con el perfil
-`bootstrap`, que descarga el modelo de embeddings, copia el corpus al volumen
-solo si aún está vacío, aplica migraciones, importa Gold a Postgres y reindexa
-en Qdrant. Es idempotente.
+El corpus Gold no viaja en la imagen: se copia al volumen desde el host. El
+catálogo de productos y el aprovisionamiento comercial sí vienen en la imagen
+para que el bootstrap pueda sembrar un volumen vacío o completar uno de la 042.
+Copia el corpus y construye el índice con el perfil `bootstrap`, que descarga
+el modelo de embeddings, copia el corpus al volumen solo si aún está vacío,
+aplica migraciones, importa Gold a Postgres y reindexa en Qdrant. Es
+idempotente.
 
 ```bash
 # LOCAL: solo las capas que la demo necesita (núcleo, catálogo e indicadores).
@@ -283,9 +286,67 @@ make prod-bootstrap
 
 > El volumen `appdata` es la fuente de verdad del corpus una vez que hay cargas
 > o recapturas: la copia de `/opt/carvajal/data` puede quedarse atrás. El
-> servicio `bootstrap` solo copia `./data` cuando el volumen no tiene Gold, así
-> que no pisa documentos más nuevos; si quieres refrescar el corpus, sincroniza
-> el volumen hacia el host o vuelve a capturar antes de reindexar.
+> servicio `bootstrap` solo copia `./data` cuando el volumen no tiene Gold, y
+> añade desde la imagen los archivos de catálogo y comercial que falten sin
+> pisar los existentes; si quieres refrescar el corpus, sincroniza el volumen
+> hacia el host o vuelve a capturar antes de reindexar.
+
+### Arranque nuevo y actualización (spec 043)
+
+El bootstrap compara la versión del aprovisionamiento con
+`EXPECTED_COMMERCIAL_VERSION` (por defecto `2026-11-18`); si no coincide,
+falla antes de tocar la base. En una actualización desde la 042 siembra
+`data/commercial/proveedores.csv` aunque el volumen ya exista, aplica la
+migración `0009 → 0010` y conserva Gold, conversaciones, mensajes y
+cotizaciones.
+
+`/health` publica la versión y los conteos que debe ver el despliegue:
+
+```bash
+curl -fsS http://127.0.0.1:8080/health | python -m json.tool
+```
+
+```json
+{
+  "status": "ok",
+  "catalog": {
+    "status": "ok",
+    "version": "2026-11-18",
+    "products": 200,
+    "offers_co": 29,
+    "offers_mx": 98,
+    "sites": 29
+  }
+}
+```
+
+Rutas y accesos que el despliegue debe conservar:
+
+| Ruta | Estado en la 043 |
+| --- | --- |
+| `/` | Redirige `303` a `/chat`. |
+| `/faq` | Redirige `303` a `/chat`; `POST /api/faq` sigue disponible para sus consumidores. |
+| `/cotizador` | Sin identidad redirige `303` a `/chat`; con `?thread=` abre el histórico autorizado. |
+| `/cotizador/stream` y `/cotizador/nuevo` | Redirigen `303` a `/chat`. |
+| `/cotizador/ficha/{slug}` | Responde `404`: las fichas de la demo se retiraron. |
+| Historial `cot:<owner_key>` | Solo lo lee su dueño; otro hilo responde `404` en `/chat` y `/cotizador`. |
+
+El arnés de navegador verifica ese contrato después de un arranque limpio o de
+una actualización:
+
+```bash
+mkdir -p /tmp/cv043 && cd /tmp/cv043
+npm init -y && npm install playwright-core
+cd -  # raíz del repo
+BASE_URL=http://127.0.0.1:8080 \
+EXPECTED_CATALOG_VERSION=2026-11-18 \
+NODE_PATH=/tmp/cv043/node_modules \
+  node tests/browser/arranque_043.cjs
+```
+
+Salta con código distinto de cero si falta la versión esperada, el índice, una
+redirección o el aislamiento del histórico. No se ejecuta en `make check` ni
+en CI porque requiere Chrome.
 
 Para reindexar sin volver a importar (por ejemplo, tras cambiar el modelo de
 embeddings), usa `--recreate` en la app desplegada:
@@ -379,6 +440,24 @@ cat .deployed_tag
 df -h
 docker system df
 ```
+
+Actualización desde la 042:
+
+```bash
+cd /opt/carvajal
+# 1. Respalda base y cargas antes de migrar.
+./backup.sh
+# 2. Cambia la imagen y aplica el bootstrap (migración 0010 y siembra).
+IMAGE_REPO=ghcr.io/almeneses/carvajal-api bash deploy.sh sha-<tag-043>
+docker compose -f compose.prod.yml --profile bootstrap run --rm bootstrap
+# 3. Verifica versión, conteos y rutas.
+curl -fsS http://127.0.0.1:8080/health | python -m json.tool
+```
+
+El bootstrap conserva los volúmenes; no uses `-v`. Después del arranque,
+ejecuta `tests/browser/arranque_043.cjs` como se describe en la sección 6 y
+confirma que las conversaciones y cotizaciones anteriores siguen abriendo con
+su identidad.
 
 Rollback manual:
 

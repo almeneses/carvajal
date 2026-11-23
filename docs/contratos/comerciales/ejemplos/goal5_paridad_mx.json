@@ -1,5 +1,13 @@
 {
   "contract_version": "1.0",
+  "query": null,
+  "products": [],
+  "sellers": [],
+  "sites": [],
+  "offers": [],
+  "evidence": [],
+  "records": [],
+  "directory": null,
   "parity": {
     "country": "MX",
     "audited_references": 98,

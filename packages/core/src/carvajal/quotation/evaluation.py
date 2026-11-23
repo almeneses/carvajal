@@ -51,7 +51,6 @@ def evaluate(cases: list[dict[str, Any]]) -> list[str]:
             questions=case.get("questions") or [],
             today=day,
             now=now,
-            allow_demo=bool(case.get("allow_demo", True)),
             profile=case.get("profile"),
         )
         for path, expected in (case.get("expect") or {}).items():

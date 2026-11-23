@@ -1,0 +1,401 @@
+{
+  "sc": "SC-005",
+  "spec": "043-chat-comercial-unificado",
+  "started_at": "2026-11-23T12:18:45.171483+00:00",
+  "finished_at": "2026-11-23T12:22:11.965899+00:00",
+  "base_url": "http://127.0.0.1:8013",
+  "sequential": {
+    "summary": {
+      "turns": 30,
+      "ok": 30,
+      "failed": 0,
+      "first_content_ms": {
+        "median": 33.8,
+        "p95": 2344.34
+      },
+      "close_ms": {
+        "median": 6222.57,
+        "p95": 12866.37
+      }
+    },
+    "turns": [
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 83.69,
+        "close_ms": 6056.5,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 35.97,
+        "close_ms": 4837.83,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 31.78,
+        "close_ms": 6205.83,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 1562.93,
+        "close_ms": 2238.33,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 31.98,
+        "close_ms": 7940.51,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 33.56,
+        "close_ms": 15544.46,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 33.71,
+        "close_ms": 6424.69,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 32.75,
+        "close_ms": 5230.12,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 2250.18,
+        "close_ms": 3152.56,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 31.46,
+        "close_ms": 6807.25,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 33.2,
+        "close_ms": 8038.28,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 32.67,
+        "close_ms": 4178.81,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 33.54,
+        "close_ms": 7493.45,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 2588.03,
+        "close_ms": 3585.08,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 31.31,
+        "close_ms": 6603.95,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 54.01,
+        "close_ms": 10330.09,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 35.45,
+        "close_ms": 5364.48,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 34.67,
+        "close_ms": 6239.31,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 2344.34,
+        "close_ms": 3891.67,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 32.13,
+        "close_ms": 8356.34,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 33.9,
+        "close_ms": 7489.73,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 35.23,
+        "close_ms": 4740.72,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 33.61,
+        "close_ms": 7598.84,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 1443.99,
+        "close_ms": 2272.78,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 31.93,
+        "close_ms": 5969.85,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 34.59,
+        "close_ms": 9592.63,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 35.5,
+        "close_ms": 12866.37,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 32.73,
+        "close_ms": 5639.09,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 1830.04,
+        "close_ms": 2512.52,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 32.34,
+        "close_ms": 7110.11,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      }
+    ]
+  },
+  "concurrent": {
+    "summary": {
+      "turns": 10,
+      "ok": 10,
+      "failed": 0,
+      "first_content_ms": {
+        "median": 1508.65,
+        "p95": 2564.8
+      },
+      "close_ms": {
+        "median": 3057.57,
+        "p95": 12382.15
+      }
+    },
+    "turns": [
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 1439.74,
+        "close_ms": 1926.65,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 1577.56,
+        "close_ms": 2116.47,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Dónde encuentro empaques en Cali?",
+        "first_content_ms": 1686.86,
+        "close_ms": 2310.79,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 2564.8,
+        "close_ms": 2975.71,
+        "route": "direct",
+        "sources": 0,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Cuál es el material adecuado para comida caliente?",
+        "first_content_ms": 2370.01,
+        "close_ms": 3007.44,
+        "route": "rag",
+        "sources": 6,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 300 vasos de 3,5 oz en Bogotá con domicilio",
+        "first_content_ms": 2405.59,
+        "close_ms": 3107.7,
+        "route": "direct",
+        "sources": 0,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 244.62,
+        "close_ms": 5912.64,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "Cotiza 20 vasos para bebida caliente en Bogotá",
+        "first_content_ms": 250.76,
+        "close_ms": 6175.2,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 242.16,
+        "close_ms": 6611.22,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      },
+      {
+        "question": "¿Qué es Carvajal y dónde puedo comprar vasos para bebida caliente en Bogotá?",
+        "first_content_ms": 262.94,
+        "close_ms": 12382.15,
+        "route": "commercial",
+        "sources": 7,
+        "error": "",
+        "ok": true
+      }
+    ]
+  }
+}

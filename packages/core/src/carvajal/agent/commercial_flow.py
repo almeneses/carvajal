@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import SplitResult, urlsplit
 
 from carvajal.agent.commercial import (
+    CAPACITY_TOLERANCE_OZ,
     RENEWABLE,
     CommercialRequest,
     boxes_for,
@@ -30,6 +31,8 @@ from carvajal.agent.commercial import (
 from carvajal.agent.commercial_intent import COMMERCIAL_KEYS
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import Reference
+from carvajal.commercial import load_commercial_book
+from carvajal.commercial.book import CommercialBook, plain
 from carvajal.prompts import COMMERCIAL_INSTRUCTIONS, CUSTOM_INSTRUCTIONS
 
 __all__ = [
@@ -38,6 +41,7 @@ __all__ = [
     "MAX_OPTIONS",
     "commercial_prompt_block",
     "commercial_sources",
+    "contract_result",
     "custom_need_result",
     "custom_sources",
     "mixed_notice",
@@ -126,12 +130,226 @@ def _channel(req: CommercialRequest, catalog: Catalog | None) -> dict[str, Any]:
     return channel
 
 
+def _contract_reference(
+    req: CommercialRequest, book: CommercialBook, catalog: Catalog, as_of: date
+) -> Reference | None:
+    """Referencia publicada que mejor responde a la solicitud, con oferta si existe."""
+
+    candidates = [
+        reference
+        for reference in catalog.references
+        if reference.country == "CO"
+        and (req.family is None or reference.family == req.family)
+        and (req.use is None or req.use in reference.uses)
+        and (
+            req.capacity_oz is None
+            or (
+                reference.capacity_oz is not None
+                and abs(reference.capacity_oz - req.capacity_oz) <= CAPACITY_TOLERANCE_OZ
+            )
+        )
+    ]
+    if not candidates:
+        return None
+
+    def priority(reference: Reference) -> tuple[int, float, str]:
+        offers = [
+            item
+            for item in book.offers_for_sku(reference.sku, "CO", as_of=as_of)
+            if item.offer is not None
+            and (req.city is None or plain(item.offer.city or "") == plain(req.city))
+        ]
+        if not offers:
+            return (1, 0.0, reference.sku)
+        cheapest = min(item.offer.amount for item in offers if item.offer is not None)
+        return (0, float(cheapest), reference.sku)
+
+    return min(candidates, key=priority)
+
+
+def _contract_ficha(reference: Reference) -> dict[str, Any]:
+    return {
+        "sku": reference.sku,
+        "name": reference.name,
+        "family": reference.family,
+        "material": reference.material,
+        "capacity_oz": reference.capacity_oz,
+        "uses": list(reference.uses),
+        "units_per_pack": reference.units_per_pack,
+        "packs_per_box": reference.packs_per_box,
+        "units_per_box": reference.units_per_box,
+        "source_url": reference.source_url,
+        "captured_at": reference.captured_at.isoformat(),
+    }
+
+
+def _contract_offers(
+    book: CommercialBook, sku: str, *, city: str | None, as_of: date
+) -> list[dict[str, Any]]:
+    offers: list[dict[str, Any]] = []
+    for record in book.offers_for_sku(sku, "CO", as_of=as_of):
+        offer = record.offer
+        if offer is None:
+            continue
+        site = record.site
+        offer_city = (site.city if site else None) or offer.city
+        if city is not None and plain(offer_city or "") != plain(city):
+            continue
+        offers.append(
+            {
+                "offer_id": offer.offer_id,
+                "seller": record.seller.name,
+                "seller_kind": record.seller.kind,
+                "city": offer_city,
+                "presentation": offer.presentation.label,
+                "units_in_basis": offer.presentation.units_in_basis,
+                "amount": str(offer.amount),
+                "currency": offer.currency,
+                "tax_status": offer.tax_status,
+                "tax_rate": str(offer.tax_rate) if offer.tax_rate is not None else None,
+                "source_url": offer.source.url,
+                "captured_at": offer.source.captured_at.isoformat(),
+                "valid_until": (
+                    offer.source.valid_until.isoformat() if offer.source.valid_until else None
+                ),
+                "availability": record.availability.status
+                if record.availability
+                else "desconocido",
+                "site_id": site.site_id if site else None,
+            }
+        )
+    return offers
+
+
+def _contract_sites(
+    book: CommercialBook, *, sku: str | None, city: str | None, as_of: date
+) -> list[dict[str, Any]]:
+    if city is None:
+        return []
+    links = (
+        {item.site_id: item for item in book.sites_for_sku(sku, "CO", as_of=as_of)} if sku else {}
+    )
+    directory = book.city_directory(city, as_of=as_of)
+    sites: list[dict[str, Any]] = []
+    for record in directory.of_type("contacto_directorio"):
+        site = record.site
+        if site is None:
+            continue
+        location = site.location
+        link = links.get(site.site_id)
+        sites.append(
+            {
+                "site_id": site.site_id,
+                "name": site.name,
+                "city": site.city,
+                "address": site.address,
+                "phone": site.phone,
+                "latitude": location.latitude if location else None,
+                "longitude": location.longitude if location else None,
+                "precision": location.precision if location else "desconocida",
+                "source_url": site.source.url,
+                "captured_at": site.source.captured_at.isoformat(),
+                "linked": link is not None,
+                "availability": link.availability.status if link else "desconocido",
+            }
+        )
+    return sites
+
+
+def contract_result(
+    question: str,
+    extra: dict[str, Any],
+    *,
+    book: CommercialBook | None = None,
+    catalog: Catalog | None = None,
+    today: date | None = None,
+    questions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Ficha, ofertas, sedes y cotización del contrato publicado para Colombia.
+
+    El resultado es JSON-safe y conserva los campos pendientes como ausencia. La
+    cotización la calcula el motor determinista con el texto del turno; si falta un
+    dato, la aclaración viaja aparte y no se inventa el importe.
+    """
+
+    req = _request(extra)
+    if req.country != "CO":
+        return {}
+    data = catalog or load_catalog()
+    commercial = book or load_commercial_book()
+    as_of = today or date.today()
+    reference = _contract_reference(req, commercial, data, as_of)
+    result: dict[str, Any] = {
+        "cities": list(commercial.cities()),
+        "ficha": _contract_ficha(reference) if reference is not None else None,
+        "offers": (
+            _contract_offers(commercial, reference.sku, city=req.city, as_of=as_of)
+            if reference is not None
+            else []
+        ),
+        "sites": _contract_sites(
+            commercial,
+            sku=reference.sku if reference is not None else None,
+            city=req.city,
+            as_of=as_of,
+        ),
+    }
+    # Import diferido: ``quotation`` importa ``agent.commercial``, que carga el
+    # paquete ``agent``; hacerlo en el módulo crearía un ciclo graph→flow→quotation.
+    from carvajal.quotation import quote as quote_engine
+
+    profile = {"city": req.city} if req.city else None
+    try:
+        quoted = quote_engine(
+            question,
+            questions=list(questions or []),
+            today=as_of,
+            profile=profile,
+        )
+    except Exception as error:  # la cotización no debe tumbar el turno comercial
+        result["quote_error"] = str(error)
+        return result
+    result["quote"] = quoted
+    if quoted.get("kind") == "cotizacion":
+        result["clarifications"] = list(quoted.get("pending_lines") or [])
+    else:
+        result["clarifications"] = [quoted.get("reply", "")]
+        if req.city is not None and quoted.get("providers"):
+            known = {item["site_id"] for item in result["sites"]}
+            for provider in quoted["providers"]:
+                if provider.get("id") in known:
+                    continue
+                result["sites"].append(
+                    {
+                        "site_id": provider.get("id"),
+                        "name": provider.get("name"),
+                        "city": provider.get("city"),
+                        "address": provider.get("address"),
+                        "phone": provider.get("phone"),
+                        "latitude": provider.get("lat"),
+                        "longitude": provider.get("lon"),
+                        "precision": provider.get("precision"),
+                        "source_url": None,
+                        "captured_at": None,
+                        "linked": False,
+                        "availability": "desconocido",
+                    }
+                )
+    return result
+
+
 def run_commercial(
-    extra: dict[str, Any], *, catalog: Catalog | None = None, today: date | None = None
+    extra: dict[str, Any],
+    *,
+    catalog: Catalog | None = None,
+    today: date | None = None,
+    question: str | None = None,
+    questions: list[str] | None = None,
 ) -> dict[str, Any]:
     """Ejecuta la secuencia fija y devuelve el resultado estructurado del turno."""
 
     req = _request(extra)
+    use_contract = catalog is None and req.country == "CO"
     data = catalog or load_catalog()
     valid, discarded = check_material(search_packaging(req, catalog=data), req, catalog=data)
     chosen = valid[:MAX_OPTIONS]
@@ -158,6 +376,22 @@ def run_commercial(
         )
     if req.prefers_renewable:
         result["renewable_available"] = any(ref.material in RENEWABLE for ref in chosen)
+    if use_contract:
+        try:
+            contract = contract_result(
+                question or "",
+                extra,
+                catalog=data,
+                today=today,
+                questions=questions,
+            )
+        except Exception as error:  # el contrato no debe tumbar la ruta comercial
+            result["contract_error"] = str(error)
+        else:
+            if contract:
+                # Se conservan las opciones de catálogo para compatibilidad de la API;
+                # la vista prioriza ficha, ofertas, sedes y cotización del contrato.
+                result.update(contract)
     return result
 
 
@@ -216,6 +450,68 @@ def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
                     "source_type": "tercero",
                 }
             )
+    ficha = result.get("ficha")
+    if ficha and ficha.get("source_url") and ficha["source_url"] not in seen:
+        seen.add(ficha["source_url"])
+        sources.append(
+            {
+                "chunk_id": f"catalogo:{ficha['sku']}",
+                "slug": ficha["sku"],
+                "section": "catalogo_empaques",
+                "layer": "core",
+                "score": 1.0,
+                "excerpt": (
+                    f"{ficha['material']} · {ficha['units_per_box']} unidades por caja · "
+                    f"ficha capturada el {ficha['captured_at']}"
+                ),
+                "url": ficha["source_url"],
+                "title": ficha["name"],
+                "source_type": "oficial",
+            }
+        )
+    for offer in result.get("offers") or []:
+        url = offer.get("source_url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        sources.append(
+            {
+                "chunk_id": f"precio:{offer['offer_id']}",
+                "slug": f"precio-{offer['offer_id']}",
+                "section": "catalogo_empaques",
+                "layer": "core",
+                "score": 1.0,
+                "excerpt": (
+                    f"Precio {offer['amount']} {offer['currency']} por "
+                    f"{offer['presentation']} · IVA {offer['tax_status']} · "
+                    f"publicado por {offer['seller']} · capturado el {offer['captured_at']}"
+                ),
+                "url": url,
+                "title": f"{offer['seller']}: {ficha['name'] if ficha else offer['offer_id']}",
+                "source_type": "tercero" if offer["seller_kind"] == "distribuidor" else "oficial",
+            }
+        )
+    for site in result.get("sites") or []:
+        url = site.get("source_url")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        sources.append(
+            {
+                "chunk_id": f"sede:{site['site_id']}",
+                "slug": f"sede-{site['site_id']}",
+                "section": "directorio_distribuidores",
+                "layer": "core",
+                "score": 1.0,
+                "excerpt": (
+                    f"{site['name']} · {site['city']} · {site.get('address') or 'sin dirección'} "
+                    f"· precisión {site['precision']}"
+                ),
+                "url": url,
+                "title": f"Sede {site['name']} ({site['city']})",
+                "source_type": "oficial",
+            }
+        )
     return sources
 
 
@@ -288,10 +584,11 @@ def custom_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def mixed_notice(other: str) -> str:
-    """Aviso para la parte no comercial de una pregunta mixta (T033)."""
+    """Aviso para la parte no comercial de una pregunta mixta (T033, spec 043)."""
 
     return (
-        f"La pregunta incluye también una parte que no es comercial: «{other}». No la "
-        "respondas aquí ni con datos de este resultado; al final dile al usuario que la haga "
-        "en un mensaje aparte para buscarla con sus fuentes."
+        f"La pregunta incluye también una parte que no es comercial: «{other}». "
+        "Responde esa parte solo con el contexto documental adjunto y sus citas; si ese "
+        "contexto falta o no alcanza, dilo sin inventar. Mantén separadas las cifras "
+        "comerciales de la información del corpus."
     )

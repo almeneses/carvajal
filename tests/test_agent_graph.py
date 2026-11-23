@@ -1,6 +1,8 @@
 """Pruebas del grafo: rutas, citas, abstención y memoria entre hilos."""
 
+import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch
 
 import pytest
@@ -9,6 +11,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.memory import InMemoryStore
 from structlog.testing import capture_logs
 
+from apps.api import agent_runtime as agent_runtime_module
 from apps.api.agent_runtime import _plain_postgres_url, _router
 from apps.api.chat.agent import GraphAgentRunner
 from carvajal.adapters.vector.qdrant_store import point_id
@@ -347,6 +350,36 @@ def test_el_runtime_cae_a_las_reglas_si_el_enrutador_no_arranca() -> None:
     # Assert
     assert router is decide_route
     assert router_sin_modelo is decide_route
+
+
+def test_agent_runtime_se_inicializa_una_sola_vez_bajo_concurrencia(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dos primeras preguntas simultáneas no construyen dos runtimes."""
+
+    # Arrange
+    llamadas: list[int] = []
+
+    class DummyRuntime:
+        def close(self) -> None:
+            pass
+
+    def fake_build(settings: Settings) -> DummyRuntime:
+        llamadas.append(1)
+        time.sleep(0.02)
+        return DummyRuntime()
+
+    monkeypatch.setattr(agent_runtime_module, "_build", fake_build)
+    monkeypatch.setattr(agent_runtime_module, "_runtime", None)
+
+    # Act
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        carreras = list(pool.map(lambda _: agent_runtime_module.agent_runtime(), range(10)))
+
+    # Assert
+    assert len(llamadas) == 1
+    assert all(item is carreras[0] for item in carreras)
+    agent_runtime_module.close_agent_runtime()
 
 
 def test_sin_evidencia_registra_el_tema_en_el_log() -> None:

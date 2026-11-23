@@ -6,8 +6,13 @@
   {% for message in messages %}
   {% set fuentes = message.sources or [] %}
   {% set titulos = [] %}
+  {% set resultado_comercial = namespace(valor=none) %}
   {% for fuente in fuentes %}
-    {% set _ = titulos.append(fuente.title or fuente.slug or "") %}
+    {% if fuente.result_type == "commercial" %}
+      {% set resultado_comercial.valor = fuente.result %}
+    {% else %}
+      {% set _ = titulos.append(fuente.title or fuente.slug or "") %}
+    {% endif %}
   {% endfor %}
   <li class="turno turno-{{ message.role }}"
       {% if titulos %}data-voz-fuentes='{{ titulos | tojson }}'{% endif %}>
@@ -22,9 +27,12 @@
       {% if message.role == "user" %}
       <div class="texto">{{ message.content }}</div>
       {% else %}
-      <div class="texto texto-formateado">{{ message.content | respuesta(fuentes | length) }}</div>
+      <div class="texto texto-formateado">{{ message.content | respuesta(titulos | length) }}</div>
       {% endif %}
     </div>
+    {% if message.role != "user" and resultado_comercial.valor %}
+    {% with resultado = resultado_comercial.valor %}{% include "_productos.html" %}{% endwith %}
+    {% endif %}
     {% if message.role != "user" %}
     <div class="turno-voz" data-voz-turno>
       <button

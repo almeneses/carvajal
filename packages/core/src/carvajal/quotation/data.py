@@ -1,86 +1,50 @@
-"""Carga del read model comercial del Cotizador (spec 042).
+"""Carga del read model comercial del Cotizador sobre el contrato publicado (spec 043).
 
-El catálogo curado (``data/catalog/empaques``) es la única fuente de productos; los CSV de
-``data/demo/cotizador/`` solo añaden la extensión simulada y las condiciones comerciales
-(ofertas, existencias, envío y sedes). Una fila inválida detiene la carga: cotizar con
-datos a medias es peor que no cotizar.
+El catálogo curado (``data/catalog/empaques``) aporta la ficha del producto;
+``carvajal.commercial`` aporta la oferta publicada, la sede y la disponibilidad. No se leen
+ni se generan datos simulados: una fila sin fuente publicada no entra al flujo público.
 """
 
-import csv
-import json
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from functools import cache
-from pathlib import Path
 
 from carvajal.catalog.loader import load_catalog
 from carvajal.catalog.models import Reference
+from carvajal.commercial import AvailabilityEvidence, DeliveryTerms
+from carvajal.commercial.book import CommercialBook
+from carvajal.commercial.loader import load_commercial_book
+from carvajal.commercial.models import Offer as ContractOffer
+from carvajal.commercial.models import Site
 
 __all__ = [
-    "DEFAULT_DIR",
+    "CommercialDataError",
     "Dataset",
-    "DemoDataError",
     "Offer",
     "Product",
     "Provider",
+    "dataset_from_book",
     "load_dataset",
 ]
 
-DEFAULT_DIR = Path("data") / "demo" / "cotizador"
-EXTRAS = "productos.csv"
-OFFERS = "ofertas.csv"
-PROVIDERS = "proveedores.csv"
-MANIFEST = "manifest.json"
 COUNTRY = "CO"
 
+# La ficha del producto es la referencia curada: no se duplica el catálogo.
+Product = Reference
 
-class DemoDataError(ValueError):
-    """El conjunto de demostración falta o está incompleto."""
 
-
-@dataclass(frozen=True)
-class Product:
-    """Referencia cotizable, real o de demostración."""
-
-    sku: str
-    country: str
-    name: str
-    family: str
-    brand: str | None
-    material: str
-    capacity_oz: float | None
-    units_per_pack: int | None
-    packs_per_box: int | None
-    units_per_box: int
-    temp_min_c: float | None
-    temp_max_c: float | None
-    use: str
-    origin: str
-    source_url: str
-    captured_at: date
-    note: str
-
-    @property
-    def uses(self) -> tuple[str, ...]:
-        """Usos declarados por la ficha, separados por «|»."""
-
-        return tuple(part.strip() for part in self.use.split("|") if part.strip())
-
-    @property
-    def simulated(self) -> bool:
-        """El producto no existe en el portafolio publicado de Colombia."""
-
-        return self.origin == "simulada"
+class CommercialDataError(ValueError):
+    """El contrato comercial falta, no cierra o no cubre el país del Cotizador."""
 
 
 @dataclass(frozen=True)
 class Offer:
-    """Precio y existencias de una sede para una referencia."""
+    """Precio publicado y disponibilidad de una sede para una referencia."""
 
     sku: str
     country: str
-    provider_id: str
+    site_id: str
     provider: str
     city: str
     basis: str
@@ -88,26 +52,21 @@ class Offer:
     amount: Decimal
     currency: str
     tax_status: str
-    stock_units: int | None
+    tax_rate: Decimal | None
     stock_status: str
-    lead_days_min: int
-    lead_days_max: int
-    ship_cost: Decimal | None
-    simulated_fields: frozenset[str]
+    stock_units: int | None
+    source_name: str
     source_url: str
+    source_valid_until: date | None
     captured_at: date
+    evidence: tuple[AvailabilityEvidence, ...] = ()
+    delivery: DeliveryTerms | None = None
 
     @property
-    def price_simulated(self) -> bool:
-        """El precio no lo publica ninguna fuente: lo pone la demo."""
+    def confirmed(self) -> bool:
+        """Solo una existencia con evidencia vigente se presenta como confirmada."""
 
-        return "price" in self.simulated_fields
-
-    @property
-    def stock_simulated(self) -> bool:
-        """La existencia es simulada (siempre lo es en Colombia)."""
-
-        return "stock" in self.simulated_fields
+        return self.stock_status in {"verificado", "no_disponible"}
 
 
 @dataclass(frozen=True)
@@ -133,10 +92,8 @@ class Dataset:
     products: tuple[Product, ...]
     offers: tuple[Offer, ...]
     providers: tuple[Provider, ...]
-    banner: str
-    free_from: Decimal
-    _by_sku: dict[str, "Product"] = field(init=False, repr=False, compare=False)
-    _by_provider: dict[str, "Provider"] = field(init=False, repr=False, compare=False)
+    _by_sku: dict[str, Product] = field(init=False, repr=False, compare=False)
+    _by_provider: dict[str, Provider] = field(init=False, repr=False, compare=False)
 
     def product(self, sku: str) -> Product | None:
         """Producto por SKU."""
@@ -158,6 +115,17 @@ class Dataset:
 
         return tuple(sorted({provider.city for provider in self.providers}))
 
+    def providers_in(self, city: str) -> tuple[Provider, ...]:
+        """Sedes del directorio en una ciudad, tengan o no precio publicado."""
+
+        wanted = city.strip().casefold()
+        return tuple(
+            sorted(
+                (provider for provider in self.providers if provider.city.casefold() == wanted),
+                key=lambda item: (item.name.casefold(), item.provider_id),
+            )
+        )
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "_by_sku", {product.sku: product for product in self.products})
         object.__setattr__(
@@ -165,161 +133,101 @@ class Dataset:
         )
 
 
-def _value(raw: str) -> str | None:
-    """Celda vacía como ``None``."""
-
-    text = raw.strip()
-    return text or None
-
-
-def _decimal(raw: str) -> Decimal | None:
-    text = _value(raw)
-    return None if text is None else Decimal(text)
-
-
-def _int(raw: str) -> int | None:
-    text = _value(raw)
-    return None if text is None else int(text)
-
-
-def _float(raw: str) -> float | None:
-    text = _value(raw)
-    return None if text is None else float(text)
-
-
-def _date(raw: str, where: str) -> date:
-    try:
-        return date.fromisoformat(raw)
-    except ValueError as error:
-        raise DemoDataError(f"{where}: fecha inválida {raw!r}.") from error
-
-
-def _product_from_reference(reference: Reference) -> Product:
-    """Referencia del catálogo curado como producto cotizable."""
-
-    return Product(
-        sku=reference.sku,
-        country=reference.country,
-        name=reference.name,
-        family=reference.family,
-        brand=reference.brand,
-        material=reference.material,
-        capacity_oz=reference.capacity_oz,
-        units_per_pack=reference.units_per_pack,
-        packs_per_box=reference.packs_per_box,
-        units_per_box=reference.units_per_box,
-        temp_min_c=reference.temp_min_c,
-        temp_max_c=reference.temp_max_c,
-        use=reference.use,
-        origin="real",
-        source_url=reference.source_url,
-        captured_at=reference.captured_at,
-        note="",
+def _provider_from_site(site: Site) -> Provider:
+    location = site.location
+    return Provider(
+        provider_id=site.site_id,
+        name=site.name,
+        city=site.city,
+        address=site.address,
+        phone=site.phone or None,
+        latitude=location.latitude if location else None,
+        longitude=location.longitude if location else None,
+        precision=location.precision if location else "desconocida",
+        source_url=site.source.url or "",
+        captured_at=site.source.captured_at,
     )
 
 
-def _read(directory: Path, name: str) -> list[dict[str, str]]:
-    path = directory / name
-    if not path.is_file():
-        raise DemoDataError(f"{path}: falta el archivo de la demo.")
-    with path.open(encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        raise DemoDataError(f"{path}: el archivo no tiene filas.")
-    return rows
+def _offer_from_contract(
+    offer: ContractOffer,
+    *,
+    site: Site,
+    availability_status: str,
+    stock_units: int | None,
+    evidence: tuple[AvailabilityEvidence, ...],
+) -> Offer:
+    return Offer(
+        sku=offer.sku,
+        country=offer.country,
+        site_id=site.site_id,
+        provider=site.name,
+        city=site.city,
+        basis=offer.presentation.basis,
+        units_in_basis=offer.presentation.units_in_basis,
+        amount=offer.amount,
+        currency=offer.currency,
+        tax_status=offer.tax_status,
+        tax_rate=offer.tax_rate,
+        stock_status=availability_status,
+        stock_units=stock_units,
+        source_name=offer.source.name,
+        source_url=offer.source.url or "",
+        source_valid_until=offer.source.valid_until,
+        captured_at=offer.source.captured_at,
+        evidence=evidence,
+        delivery=offer.delivery,
+    )
+
+
+def dataset_from_book(book: CommercialBook, *, as_of: date) -> Dataset:
+    """Adapta un libro comercial ya validado al read model del motor.
+
+    La fecha fija con la que se degrada la evidencia de stock vencida o sin vigencia.
+    """
+    catalog = load_catalog()
+    known = set(book.products)
+    products = tuple(
+        reference
+        for reference in catalog.references
+        if reference.country == COUNTRY and (reference.sku, reference.country) in known
+    )
+    providers = tuple(
+        _provider_from_site(site)
+        for site in sorted(book.sites.values(), key=lambda item: item.site_id)
+        if site.country == COUNTRY
+    )
+    offers: list[Offer] = []
+    for offer in book.offers:
+        if offer.country != COUNTRY or offer.site_id is None:
+            continue
+        site = book.site(offer.site_id)
+        if site is None:
+            raise CommercialDataError(f"la oferta {offer.offer_id} cita una sede inexistente")
+        record = book.offer_record(offer, as_of=as_of)
+        availability = record.availability
+        if availability is None:
+            raise CommercialDataError(f"la oferta {offer.offer_id} no declara disponibilidad")
+        offers.append(
+            _offer_from_contract(
+                offer,
+                site=site,
+                availability_status=availability.status,
+                stock_units=availability.units,
+                evidence=availability.evidence,
+            )
+        )
+    if not products:
+        raise CommercialDataError("el catálogo curado no tiene referencias de Colombia")
+    return Dataset(products=products, offers=tuple(offers), providers=providers)
 
 
 @cache
-def load_dataset(directory: str = str(DEFAULT_DIR)) -> Dataset:
-    """Carga productos, ofertas y sedes, y verifica sus uniones."""
+def load_dataset(as_of: str | None = None) -> Dataset:
+    """Carga el catálogo y las ofertas publicadas, y verifica sus uniones.
 
-    base = Path(directory)
-    catalog = load_catalog()
-    products = [
-        _product_from_reference(reference)
-        for reference in catalog.references
-        if reference.country == COUNTRY
-    ]
-    for index, row in enumerate(_read(base, EXTRAS), start=2):
-        where = f"{EXTRAS}:{index}"
-        products.append(
-            Product(
-                sku=row["sku"],
-                country=row["country"],
-                name=row["name"],
-                family=row["family"],
-                brand=_value(row["brand"]),
-                material=row["material"],
-                capacity_oz=_float(row["capacity_oz"]),
-                units_per_pack=_int(row["units_per_pack"]),
-                packs_per_box=_int(row["packs_per_box"]),
-                units_per_box=int(row["units_per_box"]),
-                temp_min_c=_float(row["temp_min_c"]),
-                temp_max_c=_float(row["temp_max_c"]),
-                use=row["use"],
-                origin=row["origin"] or "simulada",
-                source_url=row["source_url"],
-                captured_at=_date(row["captured_at"], where),
-                note=row["note"],
-            )
-        )
-    providers = [
-        Provider(
-            provider_id=row["provider_id"],
-            name=row["name"],
-            city=row["city"],
-            address=_value(row["address"]),
-            phone=_value(row["phone"]),
-            latitude=_float(row["latitude"]),
-            longitude=_float(row["longitude"]),
-            precision=row["precision"],
-            source_url=row["source_url"],
-            captured_at=_date(row["captured_at"], f"{PROVIDERS}:{index}"),
-        )
-        for index, row in enumerate(_read(base, PROVIDERS), start=2)
-    ]
-    offers = []
-    for index, row in enumerate(_read(base, OFFERS), start=2):
-        where = f"{OFFERS}:{index}"
-        offers.append(
-            Offer(
-                sku=row["sku"],
-                country=row["country"],
-                provider_id=row["provider_id"],
-                provider=row["provider"],
-                city=row["city"],
-                basis=row["basis"],
-                units_in_basis=int(row["units_in_basis"]),
-                amount=Decimal(row["amount"]),
-                currency=row["currency"],
-                tax_status=row["tax_status"],
-                stock_units=_int(row["stock_units"]),
-                stock_status=row["stock_status"],
-                lead_days_min=_int(row["lead_days_min"]) or 0,
-                lead_days_max=_int(row["lead_days_max"]) or 0,
-                ship_cost=_decimal(row["ship_cost"]),
-                simulated_fields=frozenset(field for field in row["simulated"].split("|") if field),
-                source_url=row["source_url"],
-                captured_at=_date(row["captured_at"], where),
-            )
-        )
-    known_skus = {(product.sku, product.country) for product in products}
-    for offer in offers:
-        if (offer.sku, offer.country) not in known_skus:
-            raise DemoDataError(
-                f"{OFFERS}: oferta huérfana de {offer.sku} ({offer.country}); "
-                "solo se cotizan productos de Colombia."
-            )
-    known_providers = {provider.provider_id for provider in providers}
-    for offer in offers:
-        if offer.country == COUNTRY and offer.provider_id not in known_providers:
-            raise DemoDataError(f"{OFFERS}: sede desconocida {offer.provider_id}.")
+    ``as_of`` fija la fecha con la que se evalúa la vigencia de la evidencia de stock.
+    """
 
-    manifest = json.loads((base / MANIFEST).read_text(encoding="utf-8"))
-    return Dataset(
-        products=tuple(products),
-        offers=tuple(offers),
-        providers=tuple(providers),
-        banner=str(manifest.get("banner", "")),
-        free_from=Decimal("500000"),
-    )
+    day = date.fromisoformat(as_of) if as_of else date.today()
+    return dataset_from_book(load_commercial_book(), as_of=day)
