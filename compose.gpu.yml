@@ -1,0 +1,23 @@
+# Override opcional para usar la GPU NVIDIA desde el Ollama de Docker.
+#
+# No se aplica por defecto: `make up`, `make prod-up` y `make prod-bootstrap`
+# lo añaden solo cuando detectan `nvidia-smi` y el runtime `nvidia` de Docker.
+# Si no hay GPU, o si se ejecuta `GPU=0 make up`, el stack arranca en CPU.
+#
+# Uso manual:
+#   docker compose -f compose.yml -f compose.gpu.yml --profile full up -d
+#   docker compose -f compose.prod.yml -f compose.gpu.yml up -d
+#
+# Requiere NVIDIA Container Toolkit y el runtime configurado:
+#   sudo apt-get install -y nvidia-container-toolkit
+#   sudo nvidia-ctk runtime configure --runtime=docker
+#   sudo systemctl restart docker
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

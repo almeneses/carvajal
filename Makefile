@@ -4,14 +4,30 @@
 
 SHELL := /bin/bash
 
+# GPU NVIDIA opcional para Ollama en Docker. `auto` la activa solo si el host
+# tiene `nvidia-smi` y Docker expone el runtime `nvidia`; sin eso usa CPU.
+# Fuerza un modo con `GPU=1 make up` o `GPU=0 make up`.
+GPU ?= auto
+GPU_SUPPORT = $(shell command -v nvidia-smi >/dev/null 2>&1 && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'nvidia' && echo 1 || echo 0)
+ifeq ($(GPU),1)
+GPU_OVERRIDE = -f compose.gpu.yml
+else ifeq ($(GPU),0)
+GPU_OVERRIDE =
+else
+GPU_OVERRIDE = $(if $(filter 1,$(GPU_SUPPORT)),-f compose.gpu.yml,)
+endif
+COMPOSE = docker compose $(GPU_OVERRIDE)
+PROD_COMPOSE = docker compose -f compose.prod.yml $(GPU_OVERRIDE)
+
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval import clean
+.PHONY: help gpu-check install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval import clean
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
 	@echo "Objetivos disponibles:"
 	@echo "  help               Muestra esta ayuda"
 	@echo "  install            Sincroniza el entorno e instala dependencias"
+	@echo "  gpu-check          Detecta GPU NVIDIA y el override de Ollama"
 	@echo "  dev                Prepara el entorno de desarrollo (sync + hooks)"
 	@echo "  pre-commit-install Instala los hooks de pre-commit"
 	@echo "  pre-commit         Ejecuta los hooks sobre todos los archivos"
@@ -42,6 +58,11 @@ help: ## Muestra esta ayuda
 	@echo "  eval               Ejecuta las preguntas de prueba (genera docs/resultados.md)"
 	@echo "  import             Importa el corpus externo a la capa extendida"
 	@echo "  clean              Limpia cachés y artefactos"
+
+gpu-check: ## Detecta GPU NVIDIA y muestra cómo se invocará Docker Compose
+	@echo "GPU mode: $(GPU)"
+	@echo "nvidia-smi + runtime nvidia: $(if $(filter 1,$(GPU_SUPPORT)),sí,no)"
+	@echo "Override: $(if $(GPU_OVERRIDE),$(GPU_OVERRIDE),ninguno (CPU))"
 
 install: ## Sincroniza el entorno virtual e instala dependencias (incluidos los extras)
 	uv sync --all-extras
@@ -122,23 +143,25 @@ up: ## Levanta el stack completo en Docker (app, base, Qdrant, Ollama y corpus)
 	# LOCAL_UID/LOCAL_GID hacen que la app escriba en ./data con el usuario del
 	# host, no como root. El perfil `full` añade app, Ollama y la preparación.
 	@echo "==> Levantando el stack; la primera vez descarga ~2,4 GB de modelos"
+	@echo "==> Ollama en $(if $(GPU_OVERRIDE),GPU,CPU)"
 	LOCAL_UID=$$(id -u) LOCAL_GID=$$(id -g) \
-		docker compose --profile full up -d --build --wait --wait-timeout 1800
+		$(COMPOSE) --profile full up -d --build --wait --wait-timeout 1800
 	@echo "==> Chat en http://localhost:8000"
 
 down: ## Detiene el stack completo (conserva los volúmenes)
-	docker compose --profile full down
+	$(COMPOSE) --profile full down
 
 prod-up: ## Levanta app, Postgres, Qdrant y Ollama en APP_PORT (requiere SESSION_SECRET)
-	docker compose -f compose.prod.yml up -d --build
+	@echo "==> Ollama en $(if $(GPU_OVERRIDE),GPU,CPU)"
+	$(PROD_COMPOSE) up -d --build
 
 prod-down: ## Detiene app, Postgres, Qdrant y Ollama (conserva los volúmenes)
-	docker compose -f compose.prod.yml down
+	$(PROD_COMPOSE) down
 
 prod-bootstrap: ## Prepara un servidor limpio: modelos, migraciones, Postgres y Qdrant
 	# Descarga nomic-embed-text, copia ./data al volumen si está vacío, aplica
 	# migraciones, importa Gold y reindexa. Idempotente; el runbook lo detalla.
-	docker compose -f compose.prod.yml --profile bootstrap run --rm bootstrap
+	$(PROD_COMPOSE) --profile bootstrap run --rm bootstrap
 
 # Compose y Settings leen el mismo `.env` (y el entorno del shell): si cambias
 # POSTGRES_PORT, ambos lo ven.
