@@ -517,6 +517,7 @@ def build_tool_agent(
             "cards": {},
             "missing": [],
             "mode_path": "agent",
+            "shortcut_intent": "",
         }
 
     def _recent_turns(state: ToolAgentState) -> list[Turn]:
@@ -549,6 +550,7 @@ def build_tool_agent(
         logger.info("tool_agent.shortcut_decided", intent=intent or None, shortcut=bool(intent))
         if intent:
             update["mode_path"] = "shortcut"
+            update["shortcut_intent"] = intent
         return update
 
     def after_shortcut(state: ToolAgentState) -> str:
@@ -560,7 +562,9 @@ def build_tool_agent(
         _check_cancel(config)
         question = state.get("question", "")
         turns = _recent_turns(state)
-        intent, _ = shortcut_intent(question, turns, state.get("commercial_context"))
+        # La intención ya la decidió ``shortcut``: recalcularla aquí duplicaría el
+        # enrutador y podría divergir si una de las dos llamadas cambiara de entradas.
+        intent = state.get("shortcut_intent", "")
         instructions = DIRECT_INSTRUCTIONS.get(intent, DIRECT_INSTRUCTIONS["default"])
         # Mismo prompt que la ruta ``direct``; historial y preferencias neutralizados para
         # que ninguno cierre su bloque (FR-007).

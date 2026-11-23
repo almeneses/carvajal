@@ -34,6 +34,7 @@ from langgraph.store.memory import InMemoryStore
 from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
 
 from carvajal.agent.graph import memory_namespace
+from carvajal.agent.toolagent import graph as graph_module
 from carvajal.agent.toolagent.graph import build_tool_agent, recursion_limit
 from carvajal.agent.toolagent.tools import ToolDeps
 from carvajal.application.ports import ScoredChunk
@@ -1001,8 +1002,19 @@ def _model_bindings(chat: ScriptedToolChat) -> list[dict[str, Any]]:
         pytest.param("Llámame Ana", "memory_write", id="preferencia"),
     ],
 )
-def test_el_atajo_atiende_sin_llamar_al_chat_con_herramientas(question: str, intent: str) -> None:
-    # Arrange
+def test_el_atajo_atiende_sin_llamar_al_chat_con_herramientas(
+    question: str, intent: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: se cuenta cuántas veces se decide la intención del atajo.
+    decided = 0
+    original = graph_module.shortcut_intent
+
+    def counting(*args: Any, **kwargs: Any) -> tuple[str, str]:
+        nonlocal decided
+        decided += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(graph_module, "shortcut_intent", counting)
     graph, chat, store = _build([ScriptStep(text="¡Hola! Soy Carva.")], memory=InMemoryStore())
 
     # Act
@@ -1018,10 +1030,30 @@ def test_el_atajo_atiende_sin_llamar_al_chat_con_herramientas(question: str, int
     assert DIRECT_INSTRUCTIONS[intent] in str(prompt.content)
     assert str(prompt.content).endswith(f"Pregunta actual:\n{question}")
     assert state["mode_path"] == "shortcut"
+    assert state["shortcut_intent"] == intent
+    # ``direct`` usa la intención de ``shortcut``: el enrutador se consulta una vez.
+    assert decided == 1
     assert state["results"] == []
     assert state["tool_calls_used"] == 0
     assert state["messages"][-1].content == "¡Hola! Soy Carva."
     assert store.calls == 0
+
+
+def test_la_intencion_del_atajo_no_se_arrastra_al_turno_siguiente() -> None:
+    # Arrange: mismo hilo (mismo checkpoint); el primer turno lo atiende el atajo.
+    graph, _, _ = _build(
+        [ScriptStep(text="¡Hola! Soy Carva."), ScriptStep(text="Respuesta del agente.")],
+        memory=InMemoryStore(),
+    )
+    first = graph.invoke(_input("hola"), _config())
+
+    # Act
+    second = graph.invoke(_input(QUESTION), _config())
+
+    # Assert
+    assert first["shortcut_intent"] == "greeting"
+    assert second["mode_path"] == "agent"
+    assert second["shortcut_intent"] == ""
 
 
 def test_el_atajo_de_preferencia_la_guarda_en_el_store_del_dueno() -> None:

@@ -85,6 +85,9 @@ class ToolAgentState(TypedDict, total=False):
     reductor ``add_messages`` (sistema, historial, pregunta y pasos del turno).
     ``seen_calls`` es una lista (no ``set``) de huellas ``nombre+args`` normalizados.
     ``results`` guarda un :class:`ToolOutcome` por herramienta, en orden.
+    ``shortcut_intent`` es la intención que decidió el nodo ``shortcut`` (``greeting`` o
+    ``memory_write``; vacía si el turno va al agente): ``direct`` la lee en vez de
+    recalcularla. ``recall`` la reinicia en cada turno, porque el checkpoint persiste.
     """
 
     question: str
@@ -101,6 +104,7 @@ class ToolAgentState(TypedDict, total=False):
     quotes: list[dict[str, Any]]
     cards: dict[str, Any]
     mode_path: ModePath
+    shortcut_intent: str
     missing: list[str]
 
 
