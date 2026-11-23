@@ -1114,7 +1114,7 @@
           "type": "string"
         },
         "declared_status": {
-          "default": "disponible",
+          "default": "desconocido",
           "enum": [
             "disponible",
             "insuficiente",

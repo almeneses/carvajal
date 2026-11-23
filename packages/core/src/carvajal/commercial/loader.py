@@ -804,7 +804,7 @@ def _contract_evidence(path: Path, *, products, sites) -> list[StockEvidence]:
                 country=cast(Country, row["country"].strip()),
                 site_id=site_id,
                 declared_status=cast(
-                    AvailabilityClaim, (row.get("declared_status") or "disponible").strip()
+                    AvailabilityClaim, (row.get("declared_status") or "desconocido").strip()
                 ),
                 evidence=AvailabilityEvidence(
                     kind=cast(EvidenceKind, kind),

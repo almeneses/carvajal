@@ -177,8 +177,15 @@ class MapView(BaseModel):
     @model_validator(mode="after")
     def _coherente(self) -> Self:
         if self.mode == "sin_mapa":
-            if self.available or self.latitude is not None or self.longitude is not None:
-                raise ValueError("sin_mapa no lleva coordenadas ni se marca disponible")
+            if (
+                self.available
+                or self.latitude is not None
+                or self.longitude is not None
+                or self.approximate
+            ):
+                raise ValueError(
+                    "sin_mapa no lleva coordenadas, no se marca disponible ni aproximado"
+                )
         elif not self.available or self.latitude is None or self.longitude is None:
             raise ValueError("un mapa visible exige coordenadas y available=True")
         return self
@@ -217,7 +224,7 @@ class GeoPoint(_Frozen):
             return MapView(
                 available=False,
                 mode="sin_mapa",
-                approximate=True,
+                approximate=False,
                 note="No hay coordenadas: se muestran ciudad, dirección y teléfono.",
             )
         assert self.latitude is not None and self.longitude is not None
@@ -279,7 +286,7 @@ class Site(_Frozen):
             return MapView(
                 available=False,
                 mode="sin_mapa",
-                approximate=True,
+                approximate=False,
                 note="Sede sin geocodificación registrada.",
             )
         return self.location.map_view
@@ -526,7 +533,7 @@ class StockEvidence(_Frozen):
     sku: str = Field(min_length=1)
     country: Country
     site_id: str = Field(pattern=r"^[A-Z]{2}-SEDE-[A-Z0-9-]+$")
-    declared_status: AvailabilityClaim = "disponible"
+    declared_status: AvailabilityClaim = "desconocido"
     evidence: AvailabilityEvidence
 
 

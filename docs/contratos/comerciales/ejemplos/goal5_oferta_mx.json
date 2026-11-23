@@ -87,7 +87,7 @@
         "latitude": null,
         "longitude": null,
         "zoom": 1,
-        "approximate": true,
+        "approximate": false,
         "note": "Oferta sin sede física atribuible."
       }
     }

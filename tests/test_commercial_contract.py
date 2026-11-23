@@ -32,6 +32,7 @@ from carvajal.commercial import (
     EvidenceKind,
     GeocodePrecision,
     GeoPoint,
+    MapView,
     NormalizedPrice,
     Offer,
     Origin,
@@ -469,9 +470,15 @@ def test_sede_sin_geocodificar_no_inventa_mapa() -> None:
 
     assert site.map_view.available is False
     assert site.map_view.mode == "sin_mapa"
+    assert site.map_view.approximate is False
 
 
 # --------------------------------------------------------------- disponibilidad
+
+
+def test_sin_mapa_no_se_marca_aproximado() -> None:
+    with pytest.raises(ValidationError, match="sin_mapa"):
+        MapView(available=False, mode="sin_mapa", approximate=True)
 
 
 def test_afirmacion_sin_evidencia_queda_por_confirmar() -> None:
@@ -503,6 +510,27 @@ def test_verificado_sin_evidencia_se_rechaza() -> None:
 def test_agotado_sin_evidencia_no_se_afirma() -> None:
     with pytest.raises(ValidationError, match="exige evidencia"):
         Availability(status="no_disponible", declared_status="agotado")
+
+
+def test_evidencia_sin_estado_declarado_queda_desconocida() -> None:
+    stock = StockEvidence(
+        sku="SKU-1",
+        country="CO",
+        site_id="CO-SEDE-AAAA",
+        evidence=_evidence(kind="simulacion"),
+    )
+    book = build_commercial_book(
+        products=[_product()],
+        sellers=[_seller()],
+        sites=[_site()],
+        offers=[_offer()],
+        evidence=[stock],
+    )
+
+    record = book.offer_record(book.offers[0], as_of=TODAY)
+
+    assert record.availability is not None
+    assert record.availability.status == "desconocido"
 
 
 def test_evidencia_admisible_permite_stock_verificado_en_la_sede() -> None:

@@ -197,6 +197,9 @@ CO-CTT-08,CO,CO-SEDE-…,confirmacion_vendedor,disponible,120,Ana Pérez (EDEXA)
 | `pedido_confirmado` | no | operaciones | comprobante de un pedido pasado | no prueba stock actual |
 | `simulacion` | no | generador de la demo | nunca se presenta como real | n/a |
 
+Si `declared_status` se omite en una fila de evidencia, se interpreta `desconocido`, no
+`disponible`: la ausencia de una afirmación no puede convertirse en una afirmación de stock.
+
 Reglas:
 
 1. Sin evidencia admisible, `status` es `por_confirmar` (o `desconocido` si la fuente no
@@ -229,7 +232,7 @@ Reglas:
 | `direccion` | `marcador` | 17 | no | punto de la dirección publicada |
 | `via` | `marcador` | 15 | sí | vía; el número puede no ser exacto |
 | `ciudad` | `zona` | 11 | sí | zona/centroide, nunca la sede exacta |
-| `desconocida` | `sin_mapa` | — | — | solo texto: ciudad, dirección y teléfono |
+| `desconocida` | `sin_mapa` | — | `false` | solo texto: ciudad, dirección y teléfono; no se marca como aproximado |
 
 Distribución real: 12 sedes `direccion`, 12 `via`, 5 `ciudad`. Ejemplo: EDEXA está en
 `ciudad`; su mapa es una zona y la nota dice «no la sede exacta». El mapa no reemplaza
@@ -347,10 +350,10 @@ Ejemplo mínimo de contacto del directorio:
 | `packages/core/src/carvajal/commercial/__main__.py` | consulta CLI y JSON Schema |
 | `data/commercial/evidencia_disponibilidad.csv` | evidencia versionada (hoy solo cabecera) |
 | `docs/contratos/comerciales/contrato.schema.json` | JSON Schema generado |
-| `tests/test_commercial_contract.py` | 37 pruebas de aceptación |
+| `tests/test_commercial_contract.py` | 39 pruebas de aceptación |
 
 ```bash
-uv run pytest tests/test_commercial_contract.py -q     # 37 passed
+uv run pytest tests/test_commercial_contract.py -q     # 39 passed
 uv run ruff check packages/core/src/carvajal/commercial tests/test_commercial_contract.py
 uv run python -m carvajal.commercial validar
 uv run python -m carvajal.commercial sedes --ciudad "Bogotá"

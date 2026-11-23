@@ -50,7 +50,7 @@ def plain(value: str) -> str:
 
 
 def _sin_mapa(note: str) -> MapView:
-    return MapView(available=False, mode="sin_mapa", approximate=True, note=note)
+    return MapView(available=False, mode="sin_mapa", approximate=False, note=note)
 
 
 def _duplicate_offer_key(offer: Offer) -> tuple[str, ...]:
