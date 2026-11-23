@@ -112,7 +112,7 @@ def test_sin_modo_demo_solo_cotiza_lo_publicado(monkeypatch: pytest.MonkeyPatch)
     assert resultado["kind"] == "sin_resultados"
 
 
-def test_el_precio_viejo_se_marca() -> None:
+def test_el_precio_viejo_se_usa_como_normal() -> None:
     from datetime import date as fecha
 
     resultado = quote(
@@ -122,7 +122,10 @@ def test_el_precio_viejo_se_marca() -> None:
         now=datetime(2027, 4, 1, 9, 0, tzinfo=ZoneInfo("America/Bogota")),
     )
 
-    assert resultado["primary"]["stale"] is True
+    assert resultado["kind"] == "cotizacion"
+    assert "stale" not in resultado["primary"]
+    assert resultado["primary"]["captured_at"]
+    assert resultado["primary"]["presentation"]["subtotal"]
 
 
 def test_el_perfil_recuerda_ciudad_domicilio_y_nombre() -> None:
