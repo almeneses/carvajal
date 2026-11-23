@@ -33,15 +33,14 @@
 
 Estos puntos no se presentan como aprobados. T021 se cierra con la actualización/rollback y la concurrencia en frío verificadas; la revisión visual queda como seguimiento aparte.
 
-## Umbral propuesto y resultado medido de SC-005 (T029, pendiente del owner)
+## Umbral y resultado de SC-005 (T029, aprobado por el owner)
 
-La muestra del 2026-11-23 está abajo. El umbral siguiente es la propuesta que
-el owner debe aceptar:
+La muestra del 2026-11-23 está abajo; el owner aprobó el umbral el mismo día.
 
 - **Primer contenido útil**: mediana ≤ 2.500 ms y p95 ≤ 6.000 ms.
 - **Cierre del turno**: p95 ≤ 20.000 ms.
 - **Muestra mínima**: 30 turnos mixtos y 10 sesiones concurrentes, registrando fecha, commit, modelo, proveedor y hardware.
-- Se aceptan valores distintos si el owner los fija antes de la medición; hasta entonces T029 queda pendiente.
+- El owner aprobó estos valores el 2026-11-23.
 
 ### Resultado medido de SC-005 (2026-11-23)
 
@@ -52,7 +51,15 @@ Medición local con la app de la 043 en `127.0.0.1:8013`, PostgreSQL de prueba, 
 | Secuencial | 30 | 30 | 33,80 ms | 2.344,34 ms | 6.222,57 ms | 12.866,37 ms |
 | 10 concurrentes | 10 | 10 | 1.508,65 ms | 2.564,80 ms | 3.057,57 ms | 12.382,15 ms |
 
-Los valores cumplen el umbral propuesto: primer contenido p95 < 6.000 ms y cierre p95 < 20.000 ms, con 40/40 turnos completados. Esta medición no sustituye la aprobación del owner: T029 sigue pendiente hasta que acepte el umbral y la muestra. T021 quedó cerrada con la actualización y el rollback verificados; la revisión visual queda como seguimiento aparte.
+Los valores cumplen el umbral aprobado: primer contenido p95 < 6.000 ms y cierre p95 < 20.000 ms, con 40/40 turnos completados. El owner aprobó el umbral y la muestra el 2026-11-23, por lo que T029 queda cerrada. T021 quedó cerrada con la actualización y el rollback verificados; la revisión visual queda como seguimiento aparte.
+
+### Aprobación del owner (T029)
+
+- **Fecha**: 2026-11-23
+- **Owner**: `@almeneses`
+- **Umbral aprobado**: primer contenido útil mediana ≤ 2.500 ms y p95 ≤ 6.000 ms; cierre del turno p95 ≤ 20.000 ms.
+- **Muestra aprobada**: 30 turnos secuenciales y 10 concurrentes, 40/40 completados; muestra del 2026-11-23 en [`medicion_sc005.json`](./medicion_sc005.json), añadida en el commit `374dd1c`.
+- **Resultado**: cumple el umbral en ambas tandas; ver la tabla anterior.
 
 ### Cómo medir SC-005
 
@@ -60,7 +67,7 @@ Los valores cumplen el umbral propuesto: primer contenido p95 < 6.000 ms y cierr
 2. Ejecutar al menos 30 turnos mixtos de `quickstart.md` y una tanda de 10 sesiones concurrentes.
 3. Medir por turno tres marcas: inicio de la petición, primer contenido útil (`token`/tarjeta) y cierre (`done`).
 4. Calcular mediana y p95 de las dos últimas; anotar fallos y descartes, no solo los éxitos.
-5. Pegar la tabla de resultados en esta evidencia; T029 se marca solo cuando el owner apruebe el umbral y la muestra.
+5. Pegar la tabla de resultados en esta evidencia y registrar la aprobación del owner del umbral y la muestra; T029 se cierra con ambas.
 
 ## Archivos de referencia
 

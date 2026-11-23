@@ -2,7 +2,7 @@
 
 - **Rama**: `feat/chat-comercial-unificado`
 - **Fecha**: 2026-11-22
-- **Estado**: Draft
+- **Estado**: Implementada (as-built) el 2026-11-23; T029 aprobada por el owner.
 - **Base de diseño**: `42a816c` en `main`, con #222–#226 incorporadas.
 
 ## Objetivo y alcance
