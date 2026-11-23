@@ -16,7 +16,7 @@ GPU_OVERRIDE =
 else
 GPU_OVERRIDE = $(if $(filter 1,$(GPU_SUPPORT)),-f compose.gpu.yml,)
 endif
-COMPOSE = docker compose $(GPU_OVERRIDE)
+COMPOSE = docker compose -f compose.yml $(GPU_OVERRIDE)
 PROD_COMPOSE = docker compose -f compose.prod.yml $(GPU_OVERRIDE)
 
 .DEFAULT_GOAL := help
