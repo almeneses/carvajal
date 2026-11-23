@@ -7,7 +7,12 @@
 | Producto | País, SKU, nombre, material, usos, presentación técnica y procedencia | El SKU se interpreta en su mercado. Conservar la diferencia entre fuente oficial y ficha de distribuidor. |
 | Vendedor y sede | IDs estables de #223, ciudad, dirección, teléfono, fuente, fecha, coordenadas y precisión cuando apliquen | Un contacto del directorio puede existir sin ofrecer el SKU. Una coordenada de ciudad identifica una zona. |
 | Oferta publicada | ID, SKU, vendedor, sede si está respaldada, moneda, importe, presentación, unidades, IVA declarado, URL, fecha y vigencia de vendedor cuando exista | Un precio de venta en línea puede no corresponder a inventario físico. La vista normalizada a caja no sustituye la presentación que vende el comercio. |
-| Evidencia de stock o entrega | Sede o canal, SKU y presentación o alcance de entrega, cantidad cuando corresponda, dato, fuente y observación | Confirmar solo con evidencia vigente aplicable. Diferenciar cero confirmado de dato desconocido. Si la evidencia vence, regresar a «por confirmar». |
+| Evidencia de stock o entrega | Sede o canal, SKU y presentación o alcance de entrega, cantidad cuando corresponda, dato, `source_url`, `observed_at` y `valid_until` | Confirmar solo si `valid_until >= hoy`. Sin `valid_until` o con evidencia vencida, el dato queda «por confirmar». Diferenciar cero confirmado de dato desconocido. |
+
+Regla de vigencia: la evidencia de stock o entrega solo se publica como
+confirmada cuando tiene `valid_until` explícito y no vencido. La fecha del
+precio se muestra como referencia y no caduca por antigüedad; la vigencia
+comercial del vendedor, si existe, se conserva aparte.
 
 ## Conversación y cotización
 
@@ -32,3 +37,14 @@ cotizaciones antiguas cuando falte `message_id`. Conservar el identificador
 original cuando se habilite la lectura compatible. Separar el estado de
 visibilidad de cualquier futura depuración de base. Los registros ambiguos
 requieren revisión antes de resolver su procedencia.
+
+### Clasificación determinista de históricos
+
+| Estado | Regla |
+| --- | --- |
+| Real verificable | El dueño coincide, no hay flags `simulated`, `origin` no es `demo` y cada campo comercial publicado tiene `source_url` y `captured_at`. |
+| Simulado | Cualquier campo o alternativa tiene `simulated`, `origin=demo` o procede de `COTIZADOR_DEMO`/`data/demo/cotizador`. |
+| Ambiguo | Falta dueño o folio, hay mezcla de campos reales y simulados sin marcas, o no se puede atribuir la fuente. Se excluye de lectura pública y del contexto del agente hasta revisión. |
+
+La clasificación se prueba por rama en T019; un registro ambiguo nunca se
+presenta como real ni se borra sin inventario y autorización.

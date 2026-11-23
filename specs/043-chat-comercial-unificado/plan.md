@@ -3,7 +3,7 @@
 - **Rama**: `feat/chat-comercial-unificado`
 - **Fecha**: 2026-11-22
 - **Spec**: [043](spec.md)
-- **Base**: `83e3b9e` con #222 y #223 en `main`.
+- **Base**: `42a816c` con #222–#226 en `main`.
 
 ## Resumen
 

@@ -11,7 +11,7 @@ existente equivalente cuando corresponda.
 
 ## Fase 0 · Base entregada y preparación
 
-- [x] T001 Confirmar que #222 y #223 pertenecen a la base y registrar las dependencias en `specs/043-chat-comercial-unificado/research.md`. Goals 1 y 3 entregados. FR-012.
+- [x] T001 Confirmar que #222–#226 pertenecen a la base `42a816c` y registrar las dependencias en `specs/043-chat-comercial-unificado/research.md`. Goals 1 y 3 entregados. FR-012.
 - [ ] T002 [P] Registrar la referencia de 29 publicaciones CO y la paridad MX sobre la captura auditada. Añadir primero la prueba del cargador sin demo en `tests/test_commercial_contract.py`. Incluir los tres SKU filtrados y la presentación que publicó el vendedor. SC-001.
 - [ ] T003 [P] Inventariar consumidores para el retiro y preparar prueba de arranque nuevo y actualización en `docs/despliegue-ovh.md`, `compose.prod.yml` y `tests/browser/`. Registrar las rutas de FAQ, el acceso a históricos y la versión del catálogo esperada. FR-009, FR-010, FR-011.
 
@@ -23,7 +23,7 @@ existente equivalente cuando corresponda.
 - [ ] T005 [US1] Retirar las lecturas y marcas de demo del contrato comercial en `packages/core/src/carvajal/commercial/loader.py`, `packages/core/src/carvajal/commercial/models.py` y `packages/core/src/carvajal/commercial/book.py`. Conservar identificadores, consultas por ciudad, procedencia, presentación original y paridad MX. Depende de T002, T004. FR-001–FR-004, FR-012.
 - [ ] T006 [US1] Adoptar el contrato publicado en `packages/core/src/carvajal/quotation/engine.py` y `apps/api/views/cotizador.py`. Mantener la búsqueda de sedes disponible sin precio y usar estados explícitos para los datos que falten. Depende de T005. FR-001, FR-003, FR-004.
 - [ ] T007 [US1] Eliminar `data/demo/cotizador/`, `scripts/generar_demo_cotizador.py`, `COTIZADOR_DEMO`, fichas generadas y sus accesos exclusivos. Actualizar `packages/core/src/carvajal/quotation/data.py`, `apps/api/views/cotizador.py`, `tests/test_demo_cotizador.py` y los consumidores de fixtures o ejemplos simulados. Depende de T005–T006. FR-001.
-- [ ] T008 [US1] Verificar sobre `tests/test_commercial_contract.py` y `tests/test_quotation_engine.py` la captura CO, la paridad MX, el vendedor de cada oferta y el caso de Cali sin precio. Depende de T005–T007. FR-002–FR-004, FR-012, SC-001, SC-002.
+- [ ] T008 [US1] Verificar sobre `tests/test_commercial_contract.py` y `tests/test_quotation_engine.py` la captura CO, la paridad MX, el vendedor de cada oferta, el caso de Cali sin precio y la vigencia `valid_until` de la evidencia. Depende de T005–T007. FR-002–FR-004, FR-012, SC-001, SC-002.
 
 ## Fase 2 · US2. Entender cuánto se conoce de una cotización
 
@@ -52,7 +52,7 @@ el contrato. La conexión completa depende del catálogo y la cotización reales
 **Goals 6 y 7**. Ensayar primero con ambos accesos en un entorno aislado. La
 retirada pública se realiza después de la validación integrada.
 
-- [ ] T019 [P] [US4] Implementar la lectura autorizada del historial en `apps/api/views/cotizador.py` y `packages/core/src/carvajal/adapters/storage/quotes.py` usando el contrato de T012. Inventariar históricos por procedencia y excluir texto, tarjetas y contexto comercial contaminados o ambiguos. Probar con dos identidades en `tests/test_api_cotizador.py`. FR-009, SC-004.
+- [ ] T019 [P] [US4] Implementar la lectura autorizada del historial en `apps/api/views/cotizador.py` y `packages/core/src/carvajal/adapters/storage/quotes.py` usando el contrato de T012. Aplicar la matriz real/simulado/ambiguo de `data-model.md`, excluir texto, tarjetas y contexto contaminados y probar cada rama con dos identidades en `tests/test_api_cotizador.py`. FR-009, SC-004.
 - [ ] T020 [P] [US4] Separar el aprovisionamiento comercial de la siembra de Gold en `Dockerfile`, `compose.prod.yml` y `scripts/deploy.sh`. Verificar versión y compatibilidad de rollback, y distinguir fallo de catálogo de un índice inicial ausente. Depende de T007 y T012. FR-010, SC-005.
 - [ ] T021 [US4] Ejecutar `specs/043-chat-comercial-unificado/quickstart.md` en arranque limpio y actualización. Registrar versiones, calidad, precisión comercial, conservación de datos y mediciones de primer contenido útil y cierre. Depende de T018–T020. SC-001–SC-005.
 - [ ] T022 [US4] Tras validar T021, retirar el segundo compositor y su escritura pública de `apps/api/views/cotizador.py`, `apps/api/templates/` y `apps/api/static/`. Conservar el acceso histórico autorizado y enlaces válidos o redirigidos. Aplicar el inventario de consumidores de T003. FR-009, FR-011.

@@ -3,7 +3,7 @@
 - **Rama**: `feat/chat-comercial-unificado`
 - **Fecha**: 2026-11-22
 - **Estado**: Draft
-- **Base de diseño**: `83e3b9e` en `main`, con #222 y #223 incorporadas.
+- **Base de diseño**: `42a816c` en `main`, con #222–#226 incorporadas.
 
 ## Objetivo y alcance
 
@@ -116,12 +116,12 @@ probar con dos identidades. Validar también una instalación limpia.
 | FR-001 | Retirar del producto y del repositorio el dataset comercial simulado, su generador, fichas, banderas y rutas exclusivas. Una instalación limpia deberá servir el flujo comercial a partir de las fuentes publicadas. |
 | FR-002 | Mostrar cada precio referencial con vendedor, SKU, presentación, moneda, IVA declarado, fuente y fecha. Distinguir origen oficial, distribuidor y directorio. |
 | FR-003 | Consultar sedes por ciudad con independencia de precio y cantidad. Mostrar contacto, precisión de ubicación y, cuando exista, evidencia de vínculo con el producto. |
-| FR-004 | Mostrar existencias, plazos y costo de envío como confirmados solo con evidencia atribuible y vigente para la sede, producto o pedido que corresponda. En ausencia de evidencia, mostrar el dato como pendiente. |
+| FR-004 | Mostrar existencias, plazos y costo de envío como confirmados solo con evidencia atribuible, con `source_url`, `observed_at` y `valid_until` no vencido, para la sede, producto o pedido que corresponda. Sin `valid_until` o con evidencia vencida, mostrar el dato como pendiente. La fecha del precio no caduca por antigüedad. |
 | FR-005 | Separar precio por presentación, unidades solicitadas y compradas, sobrantes, subtotal, IVA declarado, envío y total final. El total queda pendiente si falta un componente necesario. Registrar por separado generación y vigencia comercial. |
 | FR-006 | Conservar las líneas de una solicitud múltiple mientras el usuario elige cuál cotizar primero. En el piloto se emite una referencia por cotización. |
 | FR-007 | Resolver consulta informativa, recomendación, cotización y búsqueda de sedes en un mismo hilo, con las citas y la ficha aplicables. Mantener continuidad ante cambios de ciudad, cantidad y retiro o entrega. |
 | FR-008 | Reemitir el mismo resultado y folio ante reintentos de un envío, sin duplicar una cotización o el par de mensajes. Conservar streaming, dictado, lectura y aislamiento por dueño. |
-| FR-009 | Mantener acceso autorizado a las cotizaciones e hilos históricos reales, con lectura compatible y acceso desde las URLs anteriores. Clasificar los históricos simulados y ambiguos con evidencia, excluirlos del recorrido público y preparar su depuración con respaldo y aprobación previa para un borrado irreversible. |
+| FR-009 | Mantener acceso autorizado a las cotizaciones e hilos históricos reales, con lectura compatible y acceso desde `/cotizador`, `/cotizador/stream`, `/cotizador/nuevo` y `/cotizador/ficha/{slug}`. Clasificar cada histórico como real, simulado o ambiguo con la matriz de `data-model.md`, excluir los dos últimos del recorrido público y preparar su depuración con respaldo y aprobación previa para un borrado irreversible. |
 | FR-010 | Verificar versión y legibilidad del catálogo al desplegar en una instalación nueva y al actualizar un volumen existente. Conservar datos propios del usuario y cargas documentales. |
 | FR-011 | Retirar la sección y el flujo de escritura separados después de validar el chat integrado. Redirigir los accesos anteriores. Sustituir la generación pública de FAQ por accesos al chat y conservar los enlaces a fuentes. |
 | FR-012 | Mantener el comportamiento comercial de México, la lectura pública del corpus y el control de escritura para operadores entregado en #222. |
@@ -141,7 +141,7 @@ probar con dos identidades. Validar también una instalación limpia.
 | ID | Criterio |
 | --- | --- |
 | SC-001 | Cero datos comerciales simulados servidos en el flujo público. Las 29 observaciones de Colombia de la captura de aceptación permanecen consultables como precios fechados, incluidas las tres filtradas por la demo anterior. Se conserva paridad para 98 referencias de México de esa misma base. |
-| SC-002 | El 100 % de los precios de los casos de aceptación identifica vendedor, fuente y fecha. Cada caso de stock confirmado incluye evidencia vigente para la sede y presentación. |
+| SC-002 | El 100 % de los precios de los casos de aceptación identifica vendedor, fuente y fecha. Cada caso de stock confirmado incluye evidencia con `source_url`, `observed_at` y `valid_until` no vencido para la sede y presentación; sin esos campos queda «por confirmar». |
 | SC-003 | Los escenarios de consulta mixta, búsqueda sin precio, cambio de ciudad o cantidad y falta de cobertura se resuelven en el mismo hilo con los estados esperados. |
 | SC-004 | Reenvíos consecutivos y concurrentes del mismo envío generan una cotización y un turno. Los historiales reales probados conservan acceso para su dueño y cero acceso cruzado. |
 | SC-005 | Instalación limpia y actualización verifican catálogo y completan una cotización. Se registra mediana y p95 de primer contenido útil y cierre del turno con condiciones y tamaño de muestra. |

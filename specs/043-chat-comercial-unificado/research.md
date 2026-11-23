@@ -1,6 +1,6 @@
 # Investigación — Spec 043
 
-**Base revisada**: `83e3b9e`. Evidencia del repositorio local, complementada por
+**Base revisada**: `42a816c`. Evidencia del repositorio local, complementada por
 dos subagentes que revisaron datos comerciales y flujo de chat por separado.
 
 | Tema | Evidencia confirmada | Decisión y alternativa |
