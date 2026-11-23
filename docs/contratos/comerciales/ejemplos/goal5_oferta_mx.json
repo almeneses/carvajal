@@ -1,0 +1,95 @@
+{
+  "contract_version": "1.0",
+  "query": {
+    "sku": "2864108000",
+    "country": "MX"
+  },
+  "records": [
+    {
+      "record_type": "oferta_publicada",
+      "record_id": "oferta:MX-OFERTA-0BB062318539",
+      "country": "MX",
+      "sku": "2864108000",
+      "seller": {
+        "seller_id": "MX-VEND-C37F129F",
+        "name": "Carvajal Empaques México",
+        "country": "MX",
+        "kind": "fabricante",
+        "source": {
+          "type": "oficial",
+          "name": "Carvajal Empaques México",
+          "url": "https://mexico.carvajalempaques.com/producto/vaso-termico-8-oz/",
+          "captured_at": "2026-11-18",
+          "valid_until": "2027-12-31",
+          "note": "Precio por caja publicado en la ficha."
+        }
+      },
+      "site": null,
+      "offer": {
+        "offer_id": "MX-OFERTA-0BB062318539",
+        "sku": "2864108000",
+        "country": "MX",
+        "seller_id": "MX-VEND-C37F129F",
+        "site_id": null,
+        "city": null,
+        "presentation": {
+          "basis": "caja",
+          "units_in_basis": 1000
+        },
+        "amount": "482.00",
+        "currency": "MXN",
+        "tax_status": "incluido",
+        "tax_rate": null,
+        "tax_simulated": false,
+        "origin": "publicada",
+        "source": {
+          "type": "oficial",
+          "name": "Carvajal Empaques México",
+          "url": "https://mexico.carvajalempaques.com/producto/vaso-termico-8-oz/",
+          "captured_at": "2026-11-18",
+          "valid_until": "2027-12-31",
+          "note": "Precio por caja publicado en la ficha."
+        },
+        "normalized": null,
+        "availability": {
+          "status": "desconocido",
+          "declared_status": null,
+          "units": null,
+          "evidence": [],
+          "simulated": false,
+          "checked_at": null,
+          "note": "La ficha publica precio; no declara existencias."
+        },
+        "delivery": null,
+        "note": "Lectura inline de México conservada como oferta oficial."
+      },
+      "availability": {
+        "status": "desconocido",
+        "declared_status": null,
+        "units": null,
+        "evidence": [],
+        "simulated": false,
+        "checked_at": null,
+        "note": "La ficha publica precio; no declara existencias."
+      },
+      "source": {
+        "type": "oficial",
+        "name": "Carvajal Empaques México",
+        "url": "https://mexico.carvajalempaques.com/producto/vaso-termico-8-oz/",
+        "captured_at": "2026-11-18",
+        "valid_until": "2027-12-31",
+        "note": "Precio por caja publicado en la ficha."
+      },
+      "captured_at": "2026-11-18",
+      "map": {
+        "available": false,
+        "mode": "sin_mapa",
+        "latitude": null,
+        "longitude": null,
+        "zoom": 1,
+        "approximate": false,
+        "note": "Oferta sin sede física atribuible."
+      }
+    }
+  ]
+}

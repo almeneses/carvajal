@@ -1,0 +1,605 @@
+{
+  "contract_version": "1.0",
+  "query": {
+    "city": "Neiva",
+    "as_of": "2026-11-22"
+  },
+  "directory": {
+    "city": "Neiva",
+    "cities": [
+      "Barranquilla",
+      "Bogotá",
+      "Bucaramanga",
+      "Cali",
+      "Manizales",
+      "Medellín",
+      "Neiva",
+      "Pasto",
+      "Pereira",
+      "Villavicencio"
+    ],
+    "records": [
+      {
+        "record_type": "contacto_directorio",
+        "record_id": "directorio:CO-SEDE-4BCC2A37BE",
+        "country": "CO",
+        "sku": null,
+        "seller": {
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "name": "Representaciones Lastra Neiva",
+          "country": "CO",
+          "kind": "distribuidor",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          }
+        },
+        "site": {
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "legacy_provider_id": "p29",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "country": "CO",
+          "name": "Representaciones Lastra Neiva",
+          "city": "Neiva",
+          "address": "Carrera 5 No. 11-66 Sur",
+          "phone": "318 409 4338",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          },
+          "location": {
+            "latitude": 2.919862,
+            "longitude": -75.2861427,
+            "precision": "direccion",
+            "geocoder": "OpenStreetMap Nominatim",
+            "geocoded_at": "2026-11-21"
+          }
+        },
+        "offer": null,
+        "availability": null,
+        "source": {
+          "type": "directorio",
+          "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+          "url": "https://colombia.carvajalempaques.com/distribuidores",
+          "captured_at": "2026-10-23",
+          "valid_until": null,
+          "note": ""
+        },
+        "captured_at": "2026-10-23",
+        "map": {
+          "available": true,
+          "mode": "marcador",
+          "latitude": 2.919862,
+          "longitude": -75.2861427,
+          "zoom": 17,
+          "approximate": false,
+          "note": "Coordenada de la dirección publicada."
+        }
+      },
+      {
+        "record_type": "oferta_demo",
+        "record_id": "oferta:CO-OFERTA-37A9B5F43468",
+        "country": "CO",
+        "sku": "CO-CRIG-14",
+        "seller": {
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "name": "Representaciones Lastra Neiva",
+          "country": "CO",
+          "kind": "distribuidor",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          }
+        },
+        "site": {
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "legacy_provider_id": "p29",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "country": "CO",
+          "name": "Representaciones Lastra Neiva",
+          "city": "Neiva",
+          "address": "Carrera 5 No. 11-66 Sur",
+          "phone": "318 409 4338",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          },
+          "location": {
+            "latitude": 2.919862,
+            "longitude": -75.2861427,
+            "precision": "direccion",
+            "geocoder": "OpenStreetMap Nominatim",
+            "geocoded_at": "2026-11-21"
+          }
+        },
+        "offer": {
+          "offer_id": "CO-OFERTA-37A9B5F43468",
+          "sku": "CO-CRIG-14",
+          "country": "CO",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "city": "Neiva",
+          "presentation": {
+            "basis": "caja",
+            "units_in_basis": 375
+          },
+          "amount": "78000",
+          "currency": "COP",
+          "tax_status": "incluido",
+          "tax_rate": null,
+          "tax_simulated": true,
+          "origin": "demo",
+          "source": {
+            "type": "demo",
+            "name": "Cotizador demo",
+            "url": null,
+            "captured_at": "2026-11-21",
+            "valid_until": null,
+            "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+          },
+          "normalized": null,
+          "availability": {
+            "status": "por_confirmar",
+            "declared_status": "insuficiente",
+            "units": 187,
+            "evidence": [],
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Existencia simulada por la demo; no es inventario del vendedor."
+          },
+          "delivery": {
+            "lead_days_min": 2,
+            "lead_days_max": 4,
+            "ship_cost": "25000",
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Plazo y envío simulados por la demo."
+          },
+          "note": "Oferta de demostración: precio, IVA y existencia simulados."
+        },
+        "availability": {
+          "status": "por_confirmar",
+          "declared_status": "insuficiente",
+          "units": 187,
+          "evidence": [
+            {
+              "kind": "simulacion",
+              "recorded_by": "Generador de la demo",
+              "recorded_at": "2026-11-21",
+              "reference": "simulación estable del Cotizador",
+              "source_url": null,
+              "units": 187,
+              "valid_until": null,
+              "note": "No es evidencia real; no habilita stock verificado."
+            }
+          ],
+          "simulated": true,
+          "checked_at": "2026-11-21",
+          "note": "Afirmación sin evidencia admisible; queda por confirmar."
+        },
+        "source": {
+          "type": "demo",
+          "name": "Cotizador demo",
+          "url": null,
+          "captured_at": "2026-11-21",
+          "valid_until": null,
+          "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+        },
+        "captured_at": "2026-11-21",
+        "map": {
+          "available": true,
+          "mode": "marcador",
+          "latitude": 2.919862,
+          "longitude": -75.2861427,
+          "zoom": 17,
+          "approximate": false,
+          "note": "Coordenada de la dirección publicada."
+        }
+      },
+      {
+        "record_type": "oferta_demo",
+        "record_id": "oferta:CO-OFERTA-B1A264C05432",
+        "country": "CO",
+        "sku": "CO-TVIA-26",
+        "seller": {
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "name": "Representaciones Lastra Neiva",
+          "country": "CO",
+          "kind": "distribuidor",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          }
+        },
+        "site": {
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "legacy_provider_id": "p29",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "country": "CO",
+          "name": "Representaciones Lastra Neiva",
+          "city": "Neiva",
+          "address": "Carrera 5 No. 11-66 Sur",
+          "phone": "318 409 4338",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          },
+          "location": {
+            "latitude": 2.919862,
+            "longitude": -75.2861427,
+            "precision": "direccion",
+            "geocoder": "OpenStreetMap Nominatim",
+            "geocoded_at": "2026-11-21"
+          }
+        },
+        "offer": {
+          "offer_id": "CO-OFERTA-B1A264C05432",
+          "sku": "CO-TVIA-26",
+          "country": "CO",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "city": "Neiva",
+          "presentation": {
+            "basis": "caja",
+            "units_in_basis": 300
+          },
+          "amount": "21000",
+          "currency": "COP",
+          "tax_status": "incluido",
+          "tax_rate": null,
+          "tax_simulated": true,
+          "origin": "demo",
+          "source": {
+            "type": "demo",
+            "name": "Cotizador demo",
+            "url": null,
+            "captured_at": "2026-11-21",
+            "valid_until": null,
+            "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+          },
+          "normalized": null,
+          "availability": {
+            "status": "por_confirmar",
+            "declared_status": "disponible",
+            "units": 3000,
+            "evidence": [],
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Existencia simulada por la demo; no es inventario del vendedor."
+          },
+          "delivery": {
+            "lead_days_min": 2,
+            "lead_days_max": 4,
+            "ship_cost": "25000",
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Plazo y envío simulados por la demo."
+          },
+          "note": "Oferta de demostración: precio, IVA y existencia simulados."
+        },
+        "availability": {
+          "status": "por_confirmar",
+          "declared_status": "disponible",
+          "units": 3000,
+          "evidence": [
+            {
+              "kind": "simulacion",
+              "recorded_by": "Generador de la demo",
+              "recorded_at": "2026-11-21",
+              "reference": "simulación estable del Cotizador",
+              "source_url": null,
+              "units": 3000,
+              "valid_until": null,
+              "note": "No es evidencia real; no habilita stock verificado."
+            }
+          ],
+          "simulated": true,
+          "checked_at": "2026-11-21",
+          "note": "Afirmación sin evidencia admisible; queda por confirmar."
+        },
+        "source": {
+          "type": "demo",
+          "name": "Cotizador demo",
+          "url": null,
+          "captured_at": "2026-11-21",
+          "valid_until": null,
+          "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+        },
+        "captured_at": "2026-11-21",
+        "map": {
+          "available": true,
+          "mode": "marcador",
+          "latitude": 2.919862,
+          "longitude": -75.2861427,
+          "zoom": 17,
+          "approximate": false,
+          "note": "Coordenada de la dirección publicada."
+        }
+      },
+      {
+        "record_type": "oferta_demo",
+        "record_id": "oferta:CO-OFERTA-896BD8BFF7A7",
+        "country": "CO",
+        "sku": "DEMO-CO-010",
+        "seller": {
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "name": "Representaciones Lastra Neiva",
+          "country": "CO",
+          "kind": "distribuidor",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          }
+        },
+        "site": {
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "legacy_provider_id": "p29",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "country": "CO",
+          "name": "Representaciones Lastra Neiva",
+          "city": "Neiva",
+          "address": "Carrera 5 No. 11-66 Sur",
+          "phone": "318 409 4338",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          },
+          "location": {
+            "latitude": 2.919862,
+            "longitude": -75.2861427,
+            "precision": "direccion",
+            "geocoder": "OpenStreetMap Nominatim",
+            "geocoded_at": "2026-11-21"
+          }
+        },
+        "offer": {
+          "offer_id": "CO-OFERTA-896BD8BFF7A7",
+          "sku": "DEMO-CO-010",
+          "country": "CO",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "city": "Neiva",
+          "presentation": {
+            "basis": "caja",
+            "units_in_basis": 600
+          },
+          "amount": "88800",
+          "currency": "COP",
+          "tax_status": "incluido",
+          "tax_rate": null,
+          "tax_simulated": true,
+          "origin": "demo",
+          "source": {
+            "type": "demo",
+            "name": "Cotizador demo",
+            "url": null,
+            "captured_at": "2026-11-21",
+            "valid_until": null,
+            "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+          },
+          "normalized": null,
+          "availability": {
+            "status": "por_confirmar",
+            "declared_status": "disponible",
+            "units": 4200,
+            "evidence": [],
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Existencia simulada por la demo; no es inventario del vendedor."
+          },
+          "delivery": {
+            "lead_days_min": 2,
+            "lead_days_max": 4,
+            "ship_cost": "25000",
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Plazo y envío simulados por la demo."
+          },
+          "note": "Oferta de demostración: precio, IVA y existencia simulados."
+        },
+        "availability": {
+          "status": "por_confirmar",
+          "declared_status": "disponible",
+          "units": 4200,
+          "evidence": [
+            {
+              "kind": "simulacion",
+              "recorded_by": "Generador de la demo",
+              "recorded_at": "2026-11-21",
+              "reference": "simulación estable del Cotizador",
+              "source_url": null,
+              "units": 4200,
+              "valid_until": null,
+              "note": "No es evidencia real; no habilita stock verificado."
+            }
+          ],
+          "simulated": true,
+          "checked_at": "2026-11-21",
+          "note": "Afirmación sin evidencia admisible; queda por confirmar."
+        },
+        "source": {
+          "type": "demo",
+          "name": "Cotizador demo",
+          "url": null,
+          "captured_at": "2026-11-21",
+          "valid_until": null,
+          "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+        },
+        "captured_at": "2026-11-21",
+        "map": {
+          "available": true,
+          "mode": "marcador",
+          "latitude": 2.919862,
+          "longitude": -75.2861427,
+          "zoom": 17,
+          "approximate": false,
+          "note": "Coordenada de la dirección publicada."
+        }
+      },
+      {
+        "record_type": "oferta_demo",
+        "record_id": "oferta:CO-OFERTA-8D557AA2CF1D",
+        "country": "CO",
+        "sku": "DEMO-CO-038",
+        "seller": {
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "name": "Representaciones Lastra Neiva",
+          "country": "CO",
+          "kind": "distribuidor",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          }
+        },
+        "site": {
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "legacy_provider_id": "p29",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "country": "CO",
+          "name": "Representaciones Lastra Neiva",
+          "city": "Neiva",
+          "address": "Carrera 5 No. 11-66 Sur",
+          "phone": "318 409 4338",
+          "source": {
+            "type": "directorio",
+            "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+            "url": "https://colombia.carvajalempaques.com/distribuidores",
+            "captured_at": "2026-10-23",
+            "valid_until": null,
+            "note": ""
+          },
+          "location": {
+            "latitude": 2.919862,
+            "longitude": -75.2861427,
+            "precision": "direccion",
+            "geocoder": "OpenStreetMap Nominatim",
+            "geocoded_at": "2026-11-21"
+          }
+        },
+        "offer": {
+          "offer_id": "CO-OFERTA-8D557AA2CF1D",
+          "sku": "DEMO-CO-038",
+          "country": "CO",
+          "seller_id": "CO-VEND-3A4DFB8C",
+          "site_id": "CO-SEDE-4BCC2A37BE",
+          "city": "Neiva",
+          "presentation": {
+            "basis": "caja",
+            "units_in_basis": 200
+          },
+          "amount": "40000",
+          "currency": "COP",
+          "tax_status": "incluido",
+          "tax_rate": null,
+          "tax_simulated": true,
+          "origin": "demo",
+          "source": {
+            "type": "demo",
+            "name": "Cotizador demo",
+            "url": null,
+            "captured_at": "2026-11-21",
+            "valid_until": null,
+            "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+          },
+          "normalized": null,
+          "availability": {
+            "status": "por_confirmar",
+            "declared_status": "disponible",
+            "units": 800,
+            "evidence": [],
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Existencia simulada por la demo; no es inventario del vendedor."
+          },
+          "delivery": {
+            "lead_days_min": 2,
+            "lead_days_max": 4,
+            "ship_cost": "25000",
+            "simulated": true,
+            "checked_at": "2026-11-21",
+            "note": "Plazo y envío simulados por la demo."
+          },
+          "note": "Oferta de demostración: precio, IVA y existencia simulados."
+        },
+        "availability": {
+          "status": "por_confirmar",
+          "declared_status": "disponible",
+          "units": 800,
+          "evidence": [
+            {
+              "kind": "simulacion",
+              "recorded_by": "Generador de la demo",
+              "recorded_at": "2026-11-21",
+              "reference": "simulación estable del Cotizador",
+              "source_url": null,
+              "units": 800,
+              "valid_until": null,
+              "note": "No es evidencia real; no habilita stock verificado."
+            }
+          ],
+          "simulated": true,
+          "checked_at": "2026-11-21",
+          "note": "Afirmación sin evidencia admisible; queda por confirmar."
+        },
+        "source": {
+          "type": "demo",
+          "name": "Cotizador demo",
+          "url": null,
+          "captured_at": "2026-11-21",
+          "valid_until": null,
+          "note": "Precio simulado; la URL que traía el CSV no se cita porque no respalda el importe."
+        },
+        "captured_at": "2026-11-21",
+        "map": {
+          "available": true,
+          "mode": "marcador",
+          "latitude": 2.919862,
+          "longitude": -75.2861427,
+          "zoom": 17,
+          "approximate": false,
+          "note": "Coordenada de la dirección publicada."
+        }
+      }
+    ],
+    "counts": {
+      "contacto_directorio": 1,
+      "oferta_demo": 4
+    }
+  }
+}
