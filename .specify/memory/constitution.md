@@ -44,9 +44,14 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
 - La temperatura es `0`.
 - Cada variante de prompt se mide antes de adoptarla (`docs/prompts.md`,
   `scripts/experimentos_prompts.py`).
-- En la ruta documental (`rag`) sin contexto recuperado no se llama al LLM: la respuesta es
-  una abstención declarada. Las rutas `direct` (saludos) y `tool` (indicadores estructurados)
-  responden sin recuperación y no afirman hechos del corpus sin evidencia.
+- Sin evidencia recuperada, la respuesta documental es la abstención declarada y el modelo no
+  redacta afirmaciones del corpus. En el modo `routes`, la ruta `rag` sin contexto no llama
+  al LLM. En el modo `tools` (spec 044) el modelo decide qué consultar, pero el servidor
+  garantiza lo mismo de forma determinista: si ninguna consulta del turno devolvió
+  evidencia, sustituye la redacción por la abstención. El primer paso declara siempre una
+  consulta o que no consulta; una respuesta sin consulta no contiene cifras, fechas ni
+  nombres propios de Carvajal. Las rutas `direct` (saludos) y `tool` (indicadores
+  estructurados) responden sin recuperación y no afirman hechos del corpus sin evidencia.
 - El flujo comercial público (spec 043) sirve solo datos publicados. La simulación de la
   demo de la 042 se retiró y no puede reaparecer como fuente oficial, cita ni parte del
   corpus RAG.
@@ -121,7 +126,10 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 - API FastAPI + Jinja2 + HTMX; sin framework de JavaScript en el cliente.
 - Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0007).
 - Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
-- Agente LangGraph con `PostgresSaver` y `PostgresStore`; router `direct`/`tool`/`rag`.
+- Agente LangGraph con `PostgresSaver` y `PostgresStore`, en dos modos elegidos con
+  `AGENT_MODE`: `routes` (router `direct`/`tool`/`rag`/`commercial`, valor por defecto) y
+  `tools` (spec 044: el modelo encadena consultas tipadas y deterministas). El router por
+  reglas atiende en ambos el atajo de saludos y el respaldo cuando el proveedor falla.
 - Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con
   LangSmith (spec 038) es opcional, sin PII y en producción solo con metadatos.
 - Precios del catálogo: referencias fechadas con moneda, una oferta por fuente. Los de
@@ -157,4 +165,4 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.5.0 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.6.0 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.
