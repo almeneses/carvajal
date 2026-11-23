@@ -197,6 +197,10 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 - El asistente intenta responder un dato comercial o documental sin haber consultado.
 - Una consulta devuelve error (índice caído, catálogo no cargado): el turno sigue con las
   demás partes y declara la que falló.
+- Una bebida o comida se nombra sin decir la temperatura pero la implica («tinto»,
+  «aromática», «sopa»): se deduce la temperatura; si no se puede deducir, se pregunta antes
+  de cotizar. Nunca se cotiza un material de bebida fría para una bebida caliente (hallazgo
+  del 2026-11-23: «2.000 vasos de 7 onzas para tinto, Bogotá» cotizaba un vaso de PP).
 - El usuario pide explícitamente inventar, estimar o «suponer» un precio o plazo.
 - Pregunta en otro idioma: se responde en ese idioma con las mismas reglas.
 - Petición fuera de alcance (pedidos, pagos, facturas, temas ajenos a Carvajal).

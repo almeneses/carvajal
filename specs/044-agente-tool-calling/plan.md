@@ -139,7 +139,14 @@ no tocar el grafo actual, que sigue siendo el valor por defecto, el atajo y el r
 1. **F0 — Conjunto de generalización** (bloqueante): borrador ≥ 50 preguntas sin mirar las
    reglas → revisión y congelamiento del owner (FR-016).
 2. **F1 — Dominio**: `quote_request()` con paridad 12/12; herramientas con pruebas de
-   contrato y reglas duras (FR-002, FR-003).
+   contrato y reglas duras (FR-002, FR-003). Incluye la **corrección del caso «tinto»**
+   (hallado el 2026-11-23 durante el plan): «2.000 vasos de 7 onzas para tinto, Bogotá»
+   cotiza hoy CO-VRP-07, un vaso de PP para bebida fría, porque el regex no deduce que el
+   tinto es caliente y el motor no pregunta la temperatura. Se corrige en ambos modos:
+   (a) `quote_request()` devuelve `needs_input` si falta la temperatura y el uso no la
+   implica; (b) «tinto», «aromática», «chocolate» y afines implican bebida caliente en
+   `commercial_intent.py`; (c) las cinco frases del hallazgo entran como casos dorados en
+   `data/eval/cotizacion_cases.json`. Va primero dentro de F1 y en su propio commit `fix:`.
 3. **F2 — Grafo `tools`**: atajo, bucle, límites, deduplicación, compuerta de evidencia,
    numeración de fuentes, historial como mensajes (FR-001, 004–008, 010, 013).
 4. **F3 — Servicio y UI**: SSE `status`, varias cotizaciones con folio, respaldo

@@ -45,7 +45,10 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
   `quote_request()`; la herramienta `cotizar` llama directo a `quote_request()`.
 - **Rationale**: el modelo ya extrae los datos al llamar la herramienta; volver a parsear
   texto con regex reintroduce el problema que la spec resuelve. La paridad se prueba con
-  los 12 casos dorados (SC-002).
+  los 12 casos dorados (SC-002). `quote_request()` exige la temperatura cuando el uso no la
+  implica (`needs_input`): la regla vive en el motor y protege a ambos modos y al respaldo.
+  Motivo: con el texto «2.000 vasos de 7 onzas para tinto, Bogotá», `quote()` cotiza hoy un
+  vaso de PP para bebida fría (CO-VRP-07, $106.120) porque la temperatura queda vacía.
 - **Alternatives considered**: pasar al motor el texto original: el modelo no podría
   corregir cantidades o ciudades de forma estructurada.
 
