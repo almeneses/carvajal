@@ -159,7 +159,9 @@ argumentos inventados por el modelo en esos turnos.
   `TurnTimeout` sin esperar al proveedor, y el cliente de DeepSeek del modo `tools` usa
   `min(llm_timeout_seconds, agent_turn_timeout_s)` y `max_retries=0`. Con resultados ya
   obtenidos, el respaldo redacta con ellos y declara lo que faltó; sin resultados, usa el
-  camino de reglas (con `decide_route`, nunca el enrutador LLM).
+  camino de reglas (con `decide_route`, nunca el enrutador LLM). Un cierre sin texto
+  (`empty_answer`) que ya trae fuentes o tarjetas también redacta con lo obtenido, sin
+  repetir consultas ni descartar la cotización calculada, pero sin la nota del plazo.
 
 ## R10. Pruebas sin red
 

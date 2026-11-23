@@ -671,7 +671,8 @@ class ChatService:
 
         Respaldo (FR-009): si el proveedor falla, vence el plazo o devuelve una decisión
         inválida (o un cierre sin texto) antes del primer token, el turno lo atiende
-        :meth:`_fallback_tools`. Después del primer token, el error sigue a ``stream()``,
+        :meth:`_fallback_tools`; un cierre sin texto pero con evidencia redacta con lo que
+        trae, como el plazo vencido. Después del primer token, el error sigue a ``stream()``,
         que guarda lo emitido como ``incomplete``. Los demás errores y la cancelación los
         maneja ``stream()``.
         """
@@ -879,12 +880,13 @@ class ChatService:
         se descarta y ``fallback.render`` redacta el aviso fijo con sus tarjetas, su
         cotización o hasta tres fragmentos citados.
 
-        Si venció el plazo (``reason == "timeout"``) y ``obtained`` (el ``final`` del
-        ``TurnTimeout``) ya trae resultados con fuentes o tarjetas, el respaldo redacta con
-        lo obtenido en vez de repetir el camino de reglas, y cierra con
-        :func:`fallback.timeout_note`, que declara lo que faltó (R9, FR-010); ``trace`` lo
-        marca con ``fallback_route: "tools"``. Si no, ``obtained`` solo alimenta el
-        monitoreo.
+        Si venció el plazo (``reason == "timeout"``) o el cierre llegó sin texto
+        (``"empty_answer"``) y ``obtained`` (el ``final`` del ``TurnTimeout`` o el cierre
+        mismo) ya trae resultados con fuentes o tarjetas, el respaldo redacta con lo obtenido
+        en vez de repetir el camino de reglas, así no duplica consultas ni descarta la
+        cotización calculada; ``trace`` lo marca con ``fallback_route: "tools"``. Solo el
+        plazo vencido cierra con :func:`fallback.timeout_note`, que declara lo que faltó
+        (R9, FR-010). Si no, ``obtained`` solo alimenta el monitoreo.
 
         El turno se guarda (mensajes y cotizaciones en una transacción, FR-012a) antes de
         emitir nada: el texto no depende del stream y lleva folios, así que una desconexión
@@ -905,16 +907,20 @@ class ChatService:
         tools.route = "agent"
         monitored, no_query = _monitored_results(obtained.results if obtained else ())
         tool_names = [str(r["tool"]) for r in monitored]
-        if reason == "timeout" and obtained is not None and _has_evidence(obtained):
+        if (
+            reason in ("timeout", "empty_answer")
+            and obtained is not None
+            and _has_evidence(obtained)
+        ):
             products, quote_records = _issue_quotes(
                 obtained.products,
                 conversation_id=conversation.id,
                 client_turn_id=client_turn_id,
             )
             sources = obtained.sources
-            answer_text = fallback.render(
-                products, sources, note=fallback.timeout_note(len(obtained.missing))
-            )
+            # Solo el plazo vencido declara lo que faltó; un cierre vacío no venció nada.
+            note = fallback.timeout_note(len(obtained.missing)) if reason == "timeout" else ""
+            answer_text = fallback.render(products, sources, note=note)
             fallback_route, intent, preferences = "tools", "", obtained.preferences
             tool = ",".join(tool_names)
             recorder: ToolStreamRunner | AgentRunner = tools.runner

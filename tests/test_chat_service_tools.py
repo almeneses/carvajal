@@ -1633,6 +1633,46 @@ def test_el_plazo_vencido_sin_evidencia_usa_el_camino_de_reglas(engine: Any) -> 
     assert named(events, "trace").data["fallback_route"] == "rag"
 
 
+def test_un_cierre_sin_texto_con_evidencia_redacta_con_lo_obtenido(engine: Any) -> None:
+    # Arrange: el grafo ya buscó y cotizó, pero la redacción llegó vacía (FR-009, R9).
+    quote = quote_payload()
+    closing = final(
+        answer="",
+        sources=(SOURCE,),
+        products={"quote": quote, "quotes": [quote], "cities": ["Bogotá"]},
+        quotes=(quote,),
+        results=(
+            {"tool": "buscar_corpus", "status": "ok", "source_ids": [1], "elapsed_ms": 7},
+            {"tool": "cotizar", "status": "ok", "source_ids": [], "elapsed_ms": 3},
+        ),
+    )
+    agent = RoutesAgent(route="rag")
+    runner = FakeToolRunner([closing])
+    service = build_service(engine, runner, agent=agent)
+
+    # Act
+    events = list(service.stream("dueno-vacio-evidencia", QUESTION, client_turn_id="turno-ve"))
+
+    # Assert: no se repite el camino de reglas ni se descarta la cotización calculada.
+    assert agent.prepares == 0
+    done = named(events, "done").data
+    folio = folio_for(done["conversation_id"], "turno-ve", 0)
+    text = named(events, "fallback").data["text"]
+    assert text.startswith(fallback.FALLBACK_NOTICE)
+    assert f"Folio #{folio}" in text
+    assert "[1]" in text
+    assert fallback.TIMEOUT_NOTE not in text
+    assert done["quote_ids"] == [folio]
+    assert 'class="coti' in named(events, "products").data["html"]
+    assert [row["id"] for row in stored_quotes(engine)] == [folio]
+    trace = named(events, "trace").data
+    assert (trace["path"], trace["reason"], trace["fallback_route"]) == (
+        "fallback",
+        "empty_answer",
+        "tools",
+    )
+
+
 def test_el_monitoreo_no_cuenta_sin_consulta_como_consulta(engine: Any) -> None:
     # Arrange: un turno que solo declara que no consulta (FR-004a, FR-014).
     tracer = FakeTracer()
