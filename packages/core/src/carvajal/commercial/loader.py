@@ -59,8 +59,10 @@ from carvajal.commercial.models import (
 
 __all__ = [
     "CATALOG_DIR",
+    "COMMERCIAL_DIR",
     "DEMO_DIR",
     "EVIDENCE_PATH",
+    "PROVIDERS_PATH",
     "book_from_paths",
     "load_commercial_book",
     "offer_id_for",
@@ -70,7 +72,9 @@ __all__ = [
 
 CATALOG_DIR = Path("data") / "catalog" / "empaques"
 DEMO_DIR = Path("data") / "demo" / "cotizador"
-EVIDENCE_PATH = Path("data") / "commercial" / "evidencia_disponibilidad.csv"
+COMMERCIAL_DIR = Path("data") / "commercial"
+PROVIDERS_PATH = COMMERCIAL_DIR / "proveedores.csv"
+EVIDENCE_PATH = COMMERCIAL_DIR / "evidencia_disponibilidad.csv"
 DEFAULT_GEOCODED_AT = date(2026, 11, 21)
 GEOCODER = "OpenStreetMap Nominatim"
 OFFICIAL_SELLER = {"MX": "Carvajal Empaques México", "CO": "Carvajal Empaques Colombia"}
@@ -234,10 +238,9 @@ def _generated_at(demo_dir: Path) -> date:
     return date.fromisoformat(match.group(0)) if match else DEFAULT_GEOCODED_AT
 
 
-def _providers(demo_dir: Path) -> tuple[list[_Provider], date]:
-    geocoded_at = _geocoded_at(demo_dir)
+def _providers(providers_path: Path, geocoded_at: date) -> list[_Provider]:
     providers: list[_Provider] = []
-    for line, row in _read_rows(demo_dir / "proveedores.csv"):
+    for line, row in _read_rows(providers_path):
         where = f"proveedores.csv:{line}"
         providers.append(
             _Provider(
@@ -254,7 +257,7 @@ def _providers(demo_dir: Path) -> tuple[list[_Provider], date]:
                 line=line,
             )
         )
-    return providers, geocoded_at
+    return providers
 
 
 def _match_provider(
@@ -276,11 +279,13 @@ def _match_provider(
 
 
 def _site_candidates(
-    catalog_dir: Path, demo_dir: Path
+    catalog_dir: Path,
+    providers_path: Path,
+    geocoded_at: date,
 ) -> tuple[list[Site], dict[str, str], list[Seller]]:
     """Sedes del directorio, mapa provider_id→site_id y vendedores del directorio."""
 
-    providers, geocoded_at = _providers(demo_dir)
+    providers = _providers(providers_path, geocoded_at)
     index: dict[tuple[str, ...], _Provider] = {}
     for provider in providers:
         name, city = plain(provider.name), plain(provider.city)
@@ -536,12 +541,13 @@ def _published_co_offers(
     demo_dir: Path,
     sites: list[Site],
     seller_map: dict[str, Seller],
+    include_demo: bool = True,
 ) -> tuple[list[Offer], list[StockEvidence]]:
     """Ofertas de ``precios.csv`` con su presentación publicada y el stock de la demo."""
 
     raw_by_url = _raw_presentations(catalog_dir / "fuentes" / "precios_co.csv")
-    generated_at = _generated_at(demo_dir)
-    demo_rows = _natural_rows(demo_dir / "ofertas.csv")
+    generated_at = _generated_at(demo_dir) if include_demo else DEFAULT_GEOCODED_AT
+    demo_rows = _natural_rows(demo_dir / "ofertas.csv") if include_demo else []
     demo_real = {
         (row["sku"], row["provider_id"]): (line, row)
         for line, row in demo_rows
@@ -611,7 +617,7 @@ def _published_co_offers(
             note="El precio se publica sin existencias verificadas."
         )
         delivery = None
-        if site is not None and site.legacy_provider_id is not None:
+        if include_demo and site is not None and site.legacy_provider_id is not None:
             matched = demo_real.get((reference_price.sku, site.legacy_provider_id))
             if matched is not None:
                 line, row = matched
@@ -827,21 +833,36 @@ def book_from_paths(
     catalog_dir: Path,
     demo_dir: Path,
     evidence_path: Path | None = None,
+    *,
+    providers_path: Path | None = None,
+    include_demo: bool = True,
 ) -> CommercialBook:
-    """Construye y valida el libro con los archivos indicados."""
+    """Construye y valida el libro con los archivos indicados.
+
+    ``include_demo=False`` construye el contrato solo con catálogo, precios publicados,
+    sedes curadas y evidencia versionada. Es el modo que usará la 043; el valor por
+    defecto conserva la compatibilidad de la 042 mientras se retira la demo.
+    """
 
     catalog = load_catalog(str(catalog_dir))
     products: dict[tuple[str, str], Product] = {}
     for reference in catalog.references:
         products[(reference.sku, reference.country)] = _product_from_reference(reference)
-    for line, row in _read_rows(demo_dir / "productos.csv"):
-        product = _demo_product(row, f"productos.csv:{line}", demo_dir)
-        key = (product.sku, product.country)
-        if key in products:
-            raise ContractError(f"productos.csv:{line}: SKU repetido {product.sku}")
-        products[key] = product
+    if include_demo:
+        for line, row in _read_rows(demo_dir / "productos.csv"):
+            product = _demo_product(row, f"productos.csv:{line}", demo_dir)
+            key = (product.sku, product.country)
+            if key in products:
+                raise ContractError(f"productos.csv:{line}: SKU repetido {product.sku}")
+            products[key] = product
 
-    sites, provider_to_site, directory_sellers = _site_candidates(catalog_dir, demo_dir)
+    selected_providers = providers_path or (
+        demo_dir / "proveedores.csv" if include_demo else PROVIDERS_PATH
+    )
+    geocoded_at = _geocoded_at(demo_dir) if include_demo else DEFAULT_GEOCODED_AT
+    sites, provider_to_site, directory_sellers = _site_candidates(
+        catalog_dir, selected_providers, geocoded_at
+    )
     seller_map = {seller.seller_id: seller for seller in directory_sellers}
 
     mx_offers, mx_seller = _inline_mx_offers(catalog)
@@ -852,13 +873,17 @@ def book_from_paths(
         demo_dir=demo_dir,
         sites=sites,
         seller_map=seller_map,
+        include_demo=include_demo,
     )
-    demo_offers, demo_stock = _demo_offers(
-        demo_dir=demo_dir,
-        products=products,
-        providers=provider_to_site,
-        seller_map=seller_map,
-    )
+    if include_demo:
+        demo_offers, demo_stock = _demo_offers(
+            demo_dir=demo_dir,
+            products=products,
+            providers=provider_to_site,
+            seller_map=seller_map,
+        )
+    else:
+        demo_offers, demo_stock = [], []
     evidence = _contract_evidence(evidence_path or EVIDENCE_PATH, products=products, sites=sites)
     return build_commercial_book(
         products=products.values(),
@@ -874,7 +899,15 @@ def load_commercial_book(
     catalog_dir: str = str(CATALOG_DIR),
     demo_dir: str = str(DEMO_DIR),
     evidence_path: str = str(EVIDENCE_PATH),
+    providers_path: str | None = None,
+    include_demo: bool = True,
 ) -> CommercialBook:
     """Libro comercial cacheado por rutas; las pruebas limpian la caché."""
 
-    return book_from_paths(Path(catalog_dir), Path(demo_dir), Path(evidence_path))
+    return book_from_paths(
+        Path(catalog_dir),
+        Path(demo_dir),
+        Path(evidence_path),
+        providers_path=Path(providers_path) if providers_path else None,
+        include_demo=include_demo,
+    )

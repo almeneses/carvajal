@@ -28,6 +28,20 @@ dos subagentes que revisaron datos comerciales y flujo de chat por separado.
 - [Grafo del agente](../../packages/core/src/carvajal/agent/graph.py),
   [Compose de producción](../../compose.prod.yml) y [despliegue](../../scripts/deploy.sh).
 
+## Inventario de consumidores para el retiro (T003, parcial)
+
+| Ruta o contrato | Consumidores a revisar | Acción prevista |
+| --- | --- | --- |
+| `/cotizador` | Navegación de `apps/api/templates/base.html`, pruebas de `tests/test_api_cotizador.py`, enlaces de documentación | Redirigir al chat y conservar lectura histórica autorizada |
+| `/cotizador/stream` | `apps/api/static/cotizador.js`, pruebas de stream | Redirigir o devolver el evento de cierre compatible mientras se retira el compositor |
+| `/cotizador/nuevo` | `apps/api/templates/cotizador.html`, pruebas de hilos | Retirar junto con el compositor; conservar el acceso al historial |
+| `/cotizador/ficha/{slug}` | `_cotizacion.html`, pruebas de ficha, citas históricas | Mantener la ficha o redirigir a una ruta equivalente con el mismo folio |
+| `/faq` y `/api/faq` | `faq.js`, `tests/test_api_faq.py`, navegación | Conservar la API con consumidores; sustituir la generación pública por accesos al chat |
+| Historial `cot:<owner_key>` | `apps/api/views/cotizador.py`, `quotes`, mensajes | Aplicar la matriz real/simulado/ambiguo de `data-model.md` |
+
+La prueba de arranque limpio y actualización queda pendiente en T003; no se retira
+ninguna ruta hasta que T021 valide la transición.
+
 ## Comprobaciones que corresponden a implementación
 
 Confirmar qué coordenadas se pueden conciliar con el directorio. Medir la

@@ -12,14 +12,14 @@ existente equivalente cuando corresponda.
 ## Fase 0 · Base entregada y preparación
 
 - [x] T001 Confirmar que #222–#226 pertenecen a la base `42a816c` y registrar las dependencias en `specs/043-chat-comercial-unificado/research.md`. Goals 1 y 3 entregados. FR-012.
-- [ ] T002 [P] Registrar la referencia de 29 publicaciones CO y la paridad MX sobre la captura auditada. Añadir primero la prueba del cargador sin demo en `tests/test_commercial_contract.py`. Incluir los tres SKU filtrados y la presentación que publicó el vendedor. SC-001.
+- [x] T002 [P] Registrar la referencia de 29 publicaciones CO y la paridad MX sobre la captura auditada. Añadir primero la prueba del cargador sin demo en `tests/test_commercial_contract.py`. Incluir los tres SKU filtrados y la presentación que publicó el vendedor. SC-001.
 - [ ] T003 [P] Inventariar consumidores para el retiro y preparar prueba de arranque nuevo y actualización en `docs/despliegue-ovh.md`, `compose.prod.yml` y `tests/browser/`. Registrar las rutas de FAQ, el acceso a históricos y la versión del catálogo esperada. FR-009, FR-010, FR-011.
 
 ## Fase 1 · US1. Consultar productos y sedes con datos reales
 
 **Goal 2**. Debe pasar en una instalación sin los archivos de simulación.
 
-- [ ] T004 [US1] Curar la geocodificación trazable en `data/commercial/` y documentar la resolución de discrepancias con el directorio. Identificar ubicaciones sin precisión suficiente. FR-003.
+- [x] T004 [US1] Curar la geocodificación trazable en `data/commercial/` y documentar la resolución de discrepancias con el directorio. Identificar ubicaciones sin precisión suficiente. FR-003.
 - [ ] T005 [US1] Retirar las lecturas y marcas de demo del contrato comercial en `packages/core/src/carvajal/commercial/loader.py`, `packages/core/src/carvajal/commercial/models.py` y `packages/core/src/carvajal/commercial/book.py`. Conservar identificadores, consultas por ciudad, procedencia, presentación original y paridad MX. Depende de T002, T004. FR-001–FR-004, FR-012.
 - [ ] T006 [US1] Adoptar el contrato publicado en `packages/core/src/carvajal/quotation/engine.py` y `apps/api/views/cotizador.py`. Mantener la búsqueda de sedes disponible sin precio y usar estados explícitos para los datos que falten. Depende de T005. FR-001, FR-003, FR-004.
 - [ ] T007 [US1] Eliminar `data/demo/cotizador/`, `scripts/generar_demo_cotizador.py`, `COTIZADOR_DEMO`, fichas generadas y sus accesos exclusivos. Actualizar `packages/core/src/carvajal/quotation/data.py`, `apps/api/views/cotizador.py`, `tests/test_demo_cotizador.py` y los consumidores de fixtures o ejemplos simulados. Depende de T005–T006. FR-001.

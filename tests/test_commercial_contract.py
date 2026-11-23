@@ -284,6 +284,25 @@ def test_las_sedes_reales_conservan_sus_identificadores_entre_cargas() -> None:
     assert len({site.legacy_provider_id for site in first.sites.values()}) == 29
 
 
+def test_el_contrato_sin_demo_conserva_publicados_y_paridad_mx() -> None:
+    """El cargador sin demo conserva las 29 ofertas CO y la paridad MX."""
+
+    book = book_from_paths(CATALOG_DIR, DEMO_DIR, EVIDENCE_PATH, include_demo=False)
+    co = [offer for offer in book.offers if offer.country == "CO"]
+    mx = [offer for offer in book.offers if offer.country == "MX"]
+
+    assert len(book.sites) == 29
+    assert len(co) == 29
+    assert len(mx) == 98
+    assert all(offer.origin == "publicada" for offer in book.offers)
+    assert {"CO-PPAN-12", "7704918105071", "7704918100816"} <= {offer.sku for offer in co}
+
+    parity = mexico_parity(book=book)
+    assert parity.audited_references == 98
+    assert parity.missing_skus == ()
+    assert parity.amount_mismatches == ()
+
+
 # ------------------------------------------------------------------------ ofertas
 
 

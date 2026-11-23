@@ -1,4 +1,16 @@
-# Evidencia de disponibilidad
+# Datos comerciales curados
+
+## Sedes y geocodificación
+
+`proveedores.csv` conserva las 29 sedes del directorio oficial con su geocodificación
+trazable: `provider_id`, nombre, ciudad, dirección, teléfono, coordenadas, precisión,
+`source_url` y `captured_at`. La geocodificación se hizo con OpenStreetMap Nominatim el
+2026-11-21; las coordenadas son aproximadas y su precisión se conserva: 12 sedes a nivel
+`direccion`, 12 a nivel `via` y 5 a nivel `ciudad`. Las 29 tienen coordenadas y ninguna
+requiere un marcador exacto. Este archivo permite construir el contrato sin depender de
+`data/demo/cotizador/`.
+
+## Evidencia de disponibilidad
 
 `evidencia_disponibilidad.csv` es la única fuente que puede convertir una existencia en
 `stock_verificado`. Hoy tiene **solo cabecera**: no existe evidencia operativa y, por eso, las
