@@ -37,6 +37,7 @@ __all__ = [
     "EvidenceKind",
     "GeoPoint",
     "MapView",
+    "NormalizedPrice",
     "Offer",
     "Origin",
     "ParityReport",
@@ -315,6 +316,14 @@ class PriceBasis(_Frozen):
     amount: Decimal = Field(gt=0)
 
 
+class NormalizedPrice(_Frozen):
+    """Vista a caja de una oferta; el esquema no admite otra base."""
+
+    basis: Literal["caja"] = "caja"
+    units_in_basis: int = Field(gt=0)
+    amount: Decimal = Field(gt=0)
+
+
 class DeliveryTerms(_Frozen):
     """Condiciones logísticas de la oferta, opcionales y marcadas como simuladas.
 
@@ -547,7 +556,7 @@ class Offer(_Frozen):
     )
     origin: Origin
     source: SourceRef
-    normalized: PriceBasis | None = None
+    normalized: NormalizedPrice | None = None
     availability: Availability
     delivery: DeliveryTerms | None = None
     note: str = ""
@@ -578,8 +587,6 @@ class Offer(_Frozen):
     def _normalizacion_coherente(self) -> Self:
         if self.normalized is None:
             return self
-        if self.normalized.basis != "caja":
-            raise ValueError("la normalización del contrato solo se admite a caja")
         if self.normalized.units_in_basis % self.presentation.units_in_basis:
             raise ValueError(
                 "la caja normalizada no contiene un número entero de las presentaciones"

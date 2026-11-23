@@ -73,7 +73,7 @@ precio ni stock; el contacto del directorio tampoco.
 | `tax_status` | `incluido`, `no_incluido` o `no_indicado`; `tax_rate` solo si la fuente declara la tasa |
 | `tax_simulated` | `true` en la demo cuando el IVA no lo declara una fuente publicada |
 | `source` | nombre, URL, fecha y vigencia de la fuente |
-| `normalized` | vista adicional a caja: `{basis: "caja", units_in_basis, amount}`; solo si la caja contiene un número entero de presentaciones |
+| `normalized` | vista adicional a caja: `{basis: "caja", units_in_basis, amount}`; el esquema fija `basis="caja"` y solo se admite si la caja contiene un número entero de presentaciones |
 | `origin` | `publicada` o `demo` |
 | `availability` | objeto independiente; ver §5 |
 | `delivery` | opcional: plazo mínimo/máximo, costo de envío, `simulated` y fecha de consulta |
@@ -347,10 +347,10 @@ Ejemplo mínimo de contacto del directorio:
 | `packages/core/src/carvajal/commercial/__main__.py` | consulta CLI y JSON Schema |
 | `data/commercial/evidencia_disponibilidad.csv` | evidencia versionada (hoy solo cabecera) |
 | `docs/contratos/comerciales/contrato.schema.json` | JSON Schema generado |
-| `tests/test_commercial_contract.py` | 36 pruebas de aceptación |
+| `tests/test_commercial_contract.py` | 37 pruebas de aceptación |
 
 ```bash
-uv run pytest tests/test_commercial_contract.py -q     # 36 passed
+uv run pytest tests/test_commercial_contract.py -q     # 37 passed
 uv run ruff check packages/core/src/carvajal/commercial tests/test_commercial_contract.py
 uv run python -m carvajal.commercial validar
 uv run python -m carvajal.commercial sedes --ciudad "Bogotá"

@@ -32,10 +32,10 @@ from carvajal.commercial import (
     EvidenceKind,
     GeocodePrecision,
     GeoPoint,
+    NormalizedPrice,
     Offer,
     Origin,
     Presentation,
-    PriceBasis,
     Product,
     Seller,
     Site,
@@ -145,9 +145,7 @@ def _offer(
         origin=cast(Origin, origin),
         source=chosen_source,
         normalized=(
-            PriceBasis(basis="caja", units_in_basis=units, amount=amount)
-            if basis == "caja"
-            else None
+            NormalizedPrice(units_in_basis=units, amount=amount) if basis == "caja" else None
         ),
         availability=availability or Availability.from_claim("disponible"),
     )
@@ -714,6 +712,11 @@ def test_mexico_sin_precio_no_se_convierte_desde_colombia() -> None:
 
     assert {item.currency for item in mx} == {"MXN"}
     assert all(item.country == "MX" for item in mx)
+
+
+def test_el_esquema_solo_admite_normalizacion_a_caja() -> None:
+    basis = NormalizedPrice.model_json_schema()["properties"]["basis"]
+    assert basis.get("const") == "caja"
 
 
 def test_ejemplos_validan_contra_el_contrato() -> None:

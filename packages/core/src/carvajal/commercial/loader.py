@@ -45,6 +45,7 @@ from carvajal.commercial.models import (
     EvidenceKind,
     GeocodePrecision,
     GeoPoint,
+    NormalizedPrice,
     Offer,
     Presentation,
     PriceBasis,
@@ -599,8 +600,7 @@ def _published_co_offers(
             presentation = Presentation(basis="caja", units_in_basis=reference.units_per_box)
             amount = reference_price.amount
         normalized = (
-            PriceBasis(
-                basis="caja",
+            NormalizedPrice(
                 units_in_basis=reference.units_per_box,
                 amount=reference_price.amount,
             )

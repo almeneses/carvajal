@@ -491,6 +491,41 @@
       "title": "MapView",
       "type": "object"
     },
+    "NormalizedPrice": {
+      "additionalProperties": false,
+      "description": "Vista a caja de una oferta; el esquema no admite otra base.",
+      "properties": {
+        "basis": {
+          "const": "caja",
+          "default": "caja",
+          "title": "Basis",
+          "type": "string"
+        },
+        "units_in_basis": {
+          "exclusiveMinimum": 0,
+          "title": "Units In Basis",
+          "type": "integer"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Amount"
+        }
+      },
+      "required": [
+        "units_in_basis",
+        "amount"
+      ],
+      "title": "NormalizedPrice",
+      "type": "object"
+    },
     "Offer": {
       "additionalProperties": false,
       "description": "Precio de un producto en una presentación concreta, publicado por un vendedor.\n\n``presentation`` y ``amount`` son la presentación que cobra el vendedor (la que publica\nla fuente o la que simula la demo). ``normalized`` es una vista extra a caja, solo cuando\nla caja contiene un número entero de esas presentaciones. Varias ofertas pueden compartir\nSKU y país. ``site_id`` solo se llena cuando la oferta se puede atribuir a una sede del\ndirectorio; una tienda en línea puede no tener sede.",
@@ -614,7 +649,7 @@
         "normalized": {
           "anyOf": [
             {
-              "$ref": "#/$defs/PriceBasis"
+              "$ref": "#/$defs/NormalizedPrice"
             },
             {
               "type": "null"
@@ -801,45 +836,6 @@
         "units_in_basis"
       ],
       "title": "Presentation",
-      "type": "object"
-    },
-    "PriceBasis": {
-      "additionalProperties": false,
-      "description": "Importe de una presentación concreta, publicada o derivada.\n\n``Offer.presentation`` es la presentación comercial que cobra el vendedor; ``normalized``\nes una vista adicional a caja cuando la caja contiene un número entero de presentaciones.",
-      "properties": {
-        "basis": {
-          "enum": [
-            "unidad",
-            "paquete",
-            "caja"
-          ],
-          "title": "Basis",
-          "type": "string"
-        },
-        "units_in_basis": {
-          "exclusiveMinimum": 0,
-          "title": "Units In Basis",
-          "type": "integer"
-        },
-        "amount": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0.0,
-              "type": "number"
-            },
-            {
-              "type": "string"
-            }
-          ],
-          "title": "Amount"
-        }
-      },
-      "required": [
-        "basis",
-        "units_in_basis",
-        "amount"
-      ],
-      "title": "PriceBasis",
       "type": "object"
     },
     "Product": {
