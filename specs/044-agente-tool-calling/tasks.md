@@ -166,7 +166,7 @@ de cada campo restringido.
 - [X] T046 [US5] Implementar el runner en proceso (persistencia en memoria, ambos grafos construidos) en `packages/core/src/carvajal/agent/toolagent/evaluation.py`. Depende de T045.
 - [X] T047 [US5] Añadir `carvajal eval-agent --mode … --questions … --output … [--langsmith]` en `packages/core/src/carvajal/cli.py` y objetivo `make eval-agent` en `Makefile`. Depende de T046. FR-017.
 - [X] T048 [US5] Actualizar `.claude/skills/evaluar-agente/SKILL.md` para incluir `eval-agent` y los criterios SC-001…SC-008. Depende de T047.
-- [ ] T049 [US5] Correr la evaluación completa (con permiso del owner por costo de DeepSeek) y guardar el informe en `specs/044-agente-tool-calling/evidencia.md`, con la limitación de origen del conjunto (FR-016) y la medición de SC-006/SC-006a en el chat real. Depende de T003 y de las fases 3–6.
+- [X] T049 [US5] Correr la evaluación completa (con permiso del owner por costo de DeepSeek) y guardar el informe en `specs/044-agente-tool-calling/evidencia.md`, con la limitación de origen del conjunto (FR-016) y la medición de SC-006/SC-006a en el chat real. Depende de T003 y de las fases 3–6.
 
 **Checkpoint**: el owner decide con el informe si `AGENT_MODE` pasa a `tools`.
 
