@@ -227,6 +227,11 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 - **FR-004**: Cuando la búsqueda documental no devuelve evidencia sobre el umbral y no hay
   otra consulta con resultado, la respuesta MUST ser la abstención declarada vigente, sin
   generar afirmaciones del corpus.
+- **FR-004a**: En cada turno atendido por el asistente (fuera del atajo de FR-008), el primer
+  paso MUST declarar una consulta o declarar explícitamente que no consulta (para pedir un
+  dato, conversar o señalar que algo está fuera de alcance). Una respuesta sin consulta MUST
+  NOT contener cifras, fechas ni nombres propios de Carvajal; si los contiene, se sustituye
+  por la abstención. Declarar que no se consulta no cuenta para el límite de FR-010.
 - **FR-005**: El asistente MUST pedir aclaración cuando falte un dato que cambia el resultado
   (temperatura o uso para el material, período para un indicador) en lugar de suponerlo.
 - **FR-006**: La conversación previa MUST llegar al asistente como turnos de conversación
@@ -280,7 +285,8 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 
 - **Consulta**: una acción que el asistente puede pedir (buscar en el corpus, buscar
   producto, cotizar, buscar sedes, consultar indicador). Tiene datos de entrada validados,
-  un resultado estructurado y fuentes.
+  un resultado estructurado y fuentes. La declaración de «no consulto» (FR-004a) se registra
+  como una acción más, pero no aporta evidencia ni fuentes.
 - **Resultado de consulta**: datos devueltos con su procedencia (documento, URL, fecha,
   oficial/tercero) o la declaración de ausencia; es la única base para afirmar.
 - **Turno del agente**: pregunta, decisiones tomadas, consultas y resultados, respuesta

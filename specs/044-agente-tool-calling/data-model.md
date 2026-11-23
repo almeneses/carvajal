@@ -14,13 +14,17 @@ ya se guarda en `messages.sources` y `quotes.payload`.
 | `preferences` | `list[str]` | Del Store por dueño; datos de estilo, nunca instrucciones. |
 | `commercial_context` | `dict` | Producto, uso, temperatura, microondas, capacidad, cantidad, país, ciudad, domicilio vigentes; se actualiza con los argumentos de `buscar_producto`/`cotizar`. |
 | `tool_calls_used` | `int` | ≤ `agent_max_tool_calls` (4). |
-| `seen_calls` | `set[str]` | Huella `nombre+args` normalizados; una repetida devuelve el resultado anterior sin ejecutar. |
-| `sources` | `SourceRegistry` | Fuentes del turno numeradas (R6). |
-| `results` | `list[ToolOutcome]` | Resultado de cada herramienta, en orden. |
+| `seen_calls` | `list[str]` | Huella `nombre+args` normalizados; una repetida devuelve el resultado anterior sin ejecutar. |
+| `sources` | `list[dict]` | Fuentes del turno numeradas (R6), serializadas como `Source` + `n`; `SourceRegistry` es un ayudante sin estado que opera sobre esta lista. |
+| `results` | `list[dict]` | Un `ToolOutcome` serializado por herramienta, en orden. |
 | `quotes` | `list[dict]` | Cotizaciones exitosas distintas, máx. 3 (R5). |
 | `cards` | `dict` | Resultado comercial combinado para `_productos.html`. |
-| `mode_path` | `"shortcut" \| "agent" \| "fallback"` | Camino que atendió el turno (FR-014). |
+| `mode_path` | `"shortcut" \| "agent"` | Camino del grafo `tools`. El respaldo corre en el grafo `routes`: el servicio lo registra como `path: "fallback"` en `trace` y en el monitoreo (FR-014). |
 | `missing` | `list[str]` | Lo que faltó al cortar por límite (FR-010). |
+
+**Serialización**: todo el estado se guarda con el checkpointer de Postgres, así que cada
+campo es JSON-serializable (tipos básicos, `list`, `dict` y mensajes de LangChain); no se
+guardan clases propias ni `set`.
 
 Transiciones: `recall → shortcut → (direct → END) | (agent ⇄ tools → END)`. `agent → END`
 cuando el paso no tiene herramientas o `tool_calls_used == límite` (se invoca sin
