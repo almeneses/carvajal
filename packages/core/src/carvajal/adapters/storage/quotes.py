@@ -12,14 +12,78 @@ Igual que el resto de repositorios, recibe una ``Session`` ajena y solo hace
 from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage import tables
 
-__all__ = ["QuoteRecord", "SqlQuoteRepository"]
+__all__ = ["Provenance", "QuoteRecord", "SqlQuoteRepository", "classify_quote_payload"]
+
+Provenance = Literal["real", "simulado", "ambiguo"]
+_SIMULATED_FIELDS = frozenset({"simulated", "price_simulated", "stock_simulated", "tax_simulated"})
+_DEMO_MARKERS = ("data/demo/cotizador", "COTIZADOR_DEMO", "Cotizador demo")
+
+
+def _has_simulation(value: Any) -> bool:
+    """Cualquier marca de simulación en el payload, sin importar su profundidad."""
+
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key in _SIMULATED_FIELDS and item is True:
+                return True
+            if key == "origin" and item == "demo":
+                return True
+            if key in {"type", "source_type"} and item == "demo":
+                return True
+            if key == "kind" and item == "oferta_demo":
+                return True
+            if _has_simulation(item):
+                return True
+        return False
+    if isinstance(value, list | tuple):
+        return any(_has_simulation(item) for item in value)
+    if isinstance(value, str):
+        return any(marker in value for marker in _DEMO_MARKERS)
+    return False
+
+
+def _has_published_source(payload: Mapping[str, Any]) -> bool:
+    """Un precio publicado debe poder atribuirse a una URL y una fecha."""
+
+    primary = payload.get("primary") or {}
+    commercial = payload.get("commercial") or {}
+    source = commercial.get("source") or {}
+    return bool(
+        (primary.get("source_url") and primary.get("captured_at"))
+        or (source.get("url") and source.get("captured_at"))
+    )
+
+
+def classify_quote_payload(
+    payload: Mapping[str, Any] | None,
+    *,
+    owner_key: str | None,
+    folio: str | None = None,
+) -> Provenance:
+    """Clasifica una cotización histórica con la matriz de ``data-model.md``.
+
+    ``simulado`` gana si cualquier campo o alternativa lleva marca demo; ``ambiguo``
+    cubre la falta de dueño, folio o fuente; solo entonces el registro es ``real``.
+    """
+
+    if not isinstance(payload, Mapping):
+        return "ambiguo"
+    if _has_simulation(payload):
+        return "simulado"
+    quote = payload.get("quote") or {}
+    resolved = folio or quote.get("id") or quote.get("folio")
+    if not owner_key or not resolved:
+        return "ambiguo"
+    if payload.get("kind") == "cotizacion" and not _has_published_source(payload):
+        return "ambiguo"
+    return "real"
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -63,6 +127,22 @@ class QuoteRecord(dict):
         """Folio de la cotización."""
 
         return str(self.get("id") or "")
+
+    @property
+    def owner_key(self) -> str:
+        """Dueño firmado que emitió la cotización."""
+
+        return str(self.get("owner_key") or "")
+
+    @property
+    def provenance(self) -> Provenance:
+        """Estado real/simulado/ambiguo para la lectura autorizada."""
+
+        return classify_quote_payload(
+            self.payload,
+            owner_key=self.owner_key,
+            folio=self.folio,
+        )
 
     @property
     def commercial(self) -> Mapping[str, Any]:
@@ -219,6 +299,23 @@ class SqlQuoteRepository:
             tables.quotes.c.message_id == message_id,
             tables.quotes.c.owner_key == owner_key,
         )
+
+    def for_conversation(self, conversation_id: str, owner_key: str) -> list[QuoteRecord]:
+        """Todas las cotizaciones del hilo y dueño, para clasificar su historial."""
+
+        rows = (
+            self._session.execute(
+                select(tables.quotes)
+                .where(
+                    tables.quotes.c.conversation_id == conversation_id,
+                    tables.quotes.c.owner_key == owner_key,
+                )
+                .order_by(tables.quotes.c.created_at)
+            )
+            .mappings()
+            .all()
+        )
+        return [QuoteRecord(row) for row in rows]
 
     def resolve(
         self,

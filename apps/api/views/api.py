@@ -77,16 +77,37 @@ def health() -> JSONResponse:
         logger.warning("api.health_failed", error=str(error))
         return JSONResponse({"status": "degraded", "detail": "base de datos no disponible"}, 503)
     index = qdrant_store().health()
-    healthy = index.get("status") in {"ok", "not_configured"}
+    catalog = commercial_catalog_health()
+    healthy = index.get("status") in {"ok", "not_configured"} and catalog["status"] == "ok"
     return JSONResponse(
         {
             "status": "ok" if healthy else "degraded",
             "documents": documents or 0,
             "chunks": chunks or 0,
             "index": index,
+            "catalog": catalog,
         },
         status_code=200 if healthy else 503,
     )
+
+
+def commercial_catalog_health() -> dict[str, object]:
+    """Estado del contrato comercial publicado, separado del índice vectorial."""
+
+    from carvajal.commercial import load_commercial_book
+
+    try:
+        summary = load_commercial_book().summary()
+    except Exception as error:
+        logger.warning("api.catalog_invalid", error=str(error))
+        return {"status": "invalid", "detail": "catálogo comercial inválido"}
+    return {
+        "status": "ok",
+        "products": summary["productos"],
+        "offers_co": summary["ofertas_co"],
+        "offers_mx": summary["ofertas_mx"],
+        "sites": summary["sedes"],
+    }
 
 
 @router.get("/corpus")

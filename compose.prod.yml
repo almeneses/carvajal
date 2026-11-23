@@ -62,6 +62,9 @@ services:
       # Dentro de la red de compose el host de la base es el servicio `db`,
       # no loopback: por eso la URL se compone aquí a partir de POSTGRES_*.
       DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
+      # Versión del aprovisionamiento comercial (captura más reciente del
+      # catálogo/precios). El bootstrap falla si no coincide con `version`.
+      EXPECTED_COMMERCIAL_VERSION: ${EXPECTED_COMMERCIAL_VERSION:-2026-11-18}
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
       # La FAQ envía el corpus completo; sin esta ventana Ollama recorta el prompt.
@@ -227,15 +230,30 @@ services:
       - -c
       - |
         set -e
-        if [ -d /seed ] && [ -z "$$(ls -A /app/data/gold 2>/dev/null)" ]; then
-          if [ -z "$$(ls -A /seed/gold 2>/dev/null)" ]; then
-            echo "Aviso: /seed no trae corpus Gold." >&2
-            echo "Sincroniza data/ al host (ver docs/despliegue-ovh.md) o usa el volumen." >&2
-          else
-            echo "Copiando el corpus de referencia al volumen appdata"
-            cp -R /seed/. /app/data/
+        seed_dir() {
+          src="$$1"; dest="$$2"
+          if [ -d "$$src" ]; then
+            mkdir -p "$$dest"
+            if [ -z "$$(ls -A "$$dest" 2>/dev/null)" ]; then
+              echo "Copiando $$src a $$dest"
+              cp -R "$$src"/. "$$dest"/
+            fi
           fi
+        }
+        mkdir -p /app/data
+        # Aprovisionamiento comercial y Gold son pasos separados: actualizar
+        # precios o sedes no reescribe el corpus y viceversa.
+        if [ -d /seed ]; then
+          seed_dir /seed/catalog /app/data/catalog
+          seed_dir /seed/commercial /app/data/commercial
+          seed_dir /seed/gold /app/data/gold
         fi
+        ACTUAL="$$(python -m carvajal.commercial version)"
+        if [ -n "$${EXPECTED_COMMERCIAL_VERSION:-}" ] && [ "$$ACTUAL" != "$$EXPECTED_COMMERCIAL_VERSION" ]; then
+          echo "Catálogo comercial $$ACTUAL; se esperaba $$EXPECTED_COMMERCIAL_VERSION." >&2
+          exit 1
+        fi
+        python -m carvajal.commercial validar
         alembic upgrade head
         carvajal migrate-gold
         carvajal index-qdrant

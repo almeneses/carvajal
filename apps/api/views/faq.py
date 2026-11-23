@@ -16,14 +16,13 @@ from typing import cast
 
 import structlog
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api import runtime
 from apps.api.chat.service import SERVICE_UNAVAILABLE
 from apps.api.observability import capture_exception
-from apps.api.runtime import templates
 from apps.api.security import verify_csrf
 from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE, encode
 from apps.api.views.chat import (
@@ -102,9 +101,9 @@ def faq_service(request: Request) -> GenerateFaq:
 
 @page_router.get("/faq", response_class=HTMLResponse)
 def faq_page(request: Request) -> Response:
-    """Renderiza la pestaña FAQ del shell Jinja2 con su token CSRF."""
+    """La generación pública de FAQ se retiró: la navegación lleva al chat."""
 
-    return templates.TemplateResponse(request, "faq.html", {})
+    return RedirectResponse(url="/chat", status_code=303)
 
 
 @router.post("/faq")

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Historial del Cotizador · Carvajal Empaques{% endblock %}
+{% block main_class %}ancho-chat{% endblock %}
+{% block content %}
+<section class="seccion chat-seccion" aria-labelledby="titulo-historial">
+  <div class="panel conversacion">
+    <header class="cabecera-conversacion">
+      <div class="cabecera-texto">
+        <p class="sobrelinea">Acceso heredado</p>
+        <h1 id="titulo-historial">Historial del Cotizador</h1>
+      </div>
+      <div class="cabecera-acciones">
+        <a class="boton" href="/chat">Continuar en el chat</a>
+      </div>
+    </header>
+    <div class="cuerpo-conversacion chat-cuerpo">
+      <p class="productos-nota">
+        Este histórico es de solo lectura y muestra únicamente turnos publicables.
+        El compositor anterior se retiró; las cotizaciones nuevas se hacen en el chat.
+      </p>
+      {% if messages %}
+      <ol class="hilo">
+        {% for message in messages %}
+        {% set coti = namespace(valor=none) %}
+        {% for fuente in message.sources or [] %}
+          {% if fuente.kind %}{% set coti.valor = fuente %}{% endif %}
+        {% endfor %}
+        <li class="turno turno-{{ message.role }}">
+          <span class="turno-avatar" aria-hidden="true"></span>
+          <p class="turno-rol">{{ "Tú" if message.role == "user" else "Cotizador" }}</p>
+          <div class="burbuja">
+            <div class="texto">{{ message.content }}</div>
+            {% if message.role != "user" and coti.valor %}
+            <p class="coti-fuente">
+              {% if coti.valor.quote %}
+              Folio <strong>#{{ coti.valor.quote.folio or coti.valor.quote.id }}</strong>
+              {% if coti.valor.quote.issued_at %} · emitida el {{ coti.valor.quote.issued_at[:10] }}{% endif %}
+              {% endif %}
+              {% if coti.valor.total %} · total {{ coti.valor.total }} {{ coti.valor.primary.currency or "COP" }}{% endif %}
+              {% if coti.valor.primary.source_url %}
+              · <a href="{{ coti.valor.primary.source_url }}" rel="noopener" target="_blank">fuente del precio</a>
+              {% endif %}
+              {% if coti.valor.commercial and coti.valor.commercial.valid_until %}
+              · vigencia del vendedor hasta {{ coti.valor.commercial.valid_until }}
+              {% endif %}
+            </p>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="vacio">Este hilo no tiene contenido publicable.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

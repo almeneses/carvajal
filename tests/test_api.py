@@ -63,6 +63,7 @@ def test_health_devuelve_estado_y_conteos() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload.pop("monitoring") == monitoring_status(Settings()).as_health()
+    assert payload.pop("catalog")["status"] == "ok"
     assert payload == {
         "status": "ok",
         "documents": 12,
@@ -124,8 +125,9 @@ def test_la_lectura_publica_no_depende_del_token_de_operador(
     client = make_client()
 
     # Act / Assert
-    for ruta in ("/chat", "/faq", "/api/csrf", "/live"):
+    for ruta in ("/chat", "/api/csrf", "/live"):
         assert client.get(ruta).status_code == 200, ruta
+    assert client.get("/faq", follow_redirects=False).status_code == 303
     assert client.get("/configuracion").status_code == 200
     assert 'href="/configuracion"' not in client.get("/chat").text
 
@@ -193,8 +195,8 @@ def test_la_navegacion_enlaza_las_pantallas_y_oculta_el_asistente() -> None:
     assert 'id="preguntar"' not in response.text
     assert 'href="/corpus"' in response.text
     assert 'href="/chat"' in response.text
-    assert 'href="/faq"' in response.text
-    assert 'href="/cotizador"' in response.text
+    assert 'href="/faq"' not in response.text
+    assert 'href="/cotizador"' not in response.text
     assert 'href="/configuracion"' not in response.text
 
 
@@ -315,6 +317,7 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     assert calls == [1]
     payload = response.json()
     payload.pop("monitoring")
+    assert payload.pop("catalog")["status"] == "ok"
     assert payload == {
         "status": "ok",
         "documents": 1,

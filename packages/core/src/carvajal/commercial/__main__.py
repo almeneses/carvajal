@@ -15,6 +15,7 @@ No escribe datos: solo lee el catálogo, los precios publicados y la evidencia v
 """
 
 import argparse
+import csv
 import json
 import sys
 from datetime import date
@@ -27,6 +28,7 @@ from carvajal.commercial import (
     load_commercial_book,
     mexico_parity,
 )
+from carvajal.commercial.loader import CATALOG_DIR, COMMERCIAL_DIR
 
 __all__ = ["main"]
 
@@ -37,6 +39,34 @@ def _json(payload: object) -> None:
 
 def _as_of(raw: str | None) -> date | None:
     return date.fromisoformat(raw) if raw else None
+
+
+def _version(*, as_json: bool = False) -> int:
+    """Versión del aprovisionamiento comercial (fecha de captura más reciente)."""
+
+    manifest = json.loads((CATALOG_DIR / "manifest.json").read_text(encoding="utf-8"))
+    dates = [
+        str(item.get("captured_at"))
+        for item in (manifest.get("sources") or {}).values()
+        if isinstance(item, dict) and item.get("captured_at")
+    ]
+    providers = COMMERCIAL_DIR / "proveedores.csv"
+    if providers.is_file():
+        with providers.open(encoding="utf-8", newline="") as handle:
+            dates.extend(
+                row["captured_at"] for row in csv.DictReader(handle) if row.get("captured_at")
+            )
+    version = max(dates) if dates else "desconocida"
+    payload = {
+        "version": version,
+        "catalog": str(CATALOG_DIR),
+        "commercial": str(COMMERCIAL_DIR),
+    }
+    if as_json:
+        _json(payload)
+    else:
+        print(version)
+    return 0
 
 
 def _validar() -> int:
@@ -177,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("validar", help="carga el libro y muestra conteos por ciudad")
+    version = sub.add_parser("version", help="imprime la versión del aprovisionamiento")
+    version.add_argument("--json", action="store_true")
 
     sedes = sub.add_parser("sedes", help="lista el directorio por ciudad, sin exigir precios")
     sedes.add_argument("--ciudad")
@@ -203,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "validar":
             return _validar()
+        if args.command == "version":
+            return _version(as_json=args.json)
         book = load_commercial_book()
         if args.command == "sedes":
             return _sedes(book, args)

@@ -89,6 +89,11 @@ COPY migrations ./migrations
 COPY apps ./apps
 # Extracto versionado de indicadores que `indicator_lookup` lee en runtime.
 COPY data/indicators.json ./data/indicators.json
+# Aprovisionamiento comercial versionado: catálogo curado y sedes/precios
+# publicados. Se separa de la siembra de Gold; el volumen de compose lo
+# reemplaza solo cuando el bootstrap copia el corpus de referencia.
+COPY data/catalog ./data/catalog
+COPY data/commercial ./data/commercial
 # Volumen persistente para Bronze, Silver, Gold e índice de cargas. El dueño
 # debe ser el usuario sin privilegios para poder escribir con read_only: true.
 RUN mkdir -p /app/data && chown -R app:app /app/data

@@ -151,6 +151,8 @@ def _historic_payload(quote_id: str = "q-042") -> dict[str, Any]:
         "primary": {
             "currency": "COP",
             "tax_status": "incluido",
+            "source_url": "https://example.com/precio",
+            "captured_at": "2026-11-18",
             "presentation": {
                 "basis": "paquete",
                 "units": 50,
@@ -217,6 +219,48 @@ def test_un_historico_ajeno_no_se_lee(session: Session) -> None:
 
     assert repo.resolve("q-042", "cot:luis") is None
     assert repo.resolve("q-042", "cot:luis", message_id="m-042") is None
+
+
+def test_clasifica_real_simulado_y_ambiguo_para_la_lectura_publica(
+    session: Session,
+) -> None:
+    """La matriz de procedencia distingue las tres ramas del histórico."""
+
+    from carvajal.adapters.storage.quotes import QuoteRecord, classify_quote_payload
+
+    real = _historic_payload("q-real")
+    simulated = {
+        **_historic_payload("q-demo"),
+        "simulated": True,
+        "origin": "demo",
+    }
+    ambiguo = {"kind": "cotizacion", "primary": {"currency": "COP"}}
+
+    assert classify_quote_payload(real, owner_key="cot:ana") == "real"
+    assert classify_quote_payload(simulated, owner_key="cot:ana") == "simulado"
+    assert classify_quote_payload(ambiguo, owner_key="cot:ana") == "ambiguo"
+    assert (
+        QuoteRecord({"id": "q-demo", "owner_key": "cot:ana", "payload": simulated}).provenance
+        == "simulado"
+    )
+
+
+def test_for_conversation_no_cruza_al_dueno(session: Session) -> None:
+    session.execute(
+        insert(tables.quotes).values(
+            id="q-conv",
+            owner_key="cot:ana",
+            conversation_id="hilo-1",
+            valid_until=date(2026, 11, 29),
+            total=Decimal("3751"),
+            currency="COP",
+            payload=_historic_payload("q-conv"),
+        )
+    )
+    repo = SqlQuoteRepository(session)
+
+    assert [item.folio for item in repo.for_conversation("hilo-1", "cot:ana")] == ["q-conv"]
+    assert repo.for_conversation("hilo-1", "cot:luis") == []
 
 
 def test_persiste_y_lee_el_resultado_versionado_con_total_pendiente(session: Session) -> None:

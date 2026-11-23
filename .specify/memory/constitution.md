@@ -47,9 +47,9 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
 - En la ruta documental (`rag`) sin contexto recuperado no se llama al LLM: la respuesta es
   una abstención declarada. Las rutas `direct` (saludos) y `tool` (indicadores estructurados)
   responden sin recuperación y no afirman hechos del corpus sin evidencia.
-- El Cotizador (spec 042) puede usar datos comerciales simulados solo si los marca dato por
-  dato y no los presenta como fuente oficial ni como parte del corpus RAG. No sustituyen una
-  cita ni una fuente real.
+- El flujo comercial público (spec 043) sirve solo datos publicados. La simulación de la
+  demo de la 042 se retiró y no puede reaparecer como fuente oficial, cita ni parte del
+  corpus RAG.
 
 ### IV. Calidad automatizada y reproducible
 
@@ -107,14 +107,13 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   159/Linux (FR-009); alcance acordado: Chrome y Firefox de escritorio. SC-001 = 36/40
   (90,0 %), SC-002 p95 = 231 ms, SC-003 p95 = 36 ms, SC-004/005 cumplidos con micrófono
   y dos voces.
-- La spec 042 (Cotizador) está implementada en `main`; su motor es determinista, no llama
-  al LLM y separa el catálogo curado de la extensión simulada. Los datos simulados se
-  identifican donde aparecen.
+- La spec 042 (Cotizador) quedó sustituida por la 043: el compositor separado se retiró y
+  su histórico real se conserva en lectura autorizada. La demo simulada ya no se sirve.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
-- La 043 está en borrador. Planifica un solo hilo comercial con datos publicados,
-  sobre la protección de ingesta de #222 y el contrato de #223. El alcance del
-  piloto y la transición desde la 042 se definen en la constitución raíz.
+- La 043 está implementada: un solo hilo comercial con datos publicados sobre la
+  protección de ingesta de #222 y el contrato de #223. Retiró la demo y el compositor
+  separado; conserva el histórico real autorizado y el contrato `POST /api/faq`.
 
 ## Restricciones técnicas
 

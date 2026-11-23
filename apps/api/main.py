@@ -205,13 +205,15 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 status_code=503,
             )
         index = status.index or {"status": "not_configured"}
-        healthy = index.get("status") in {"ok", "not_configured"}
+        catalog = api.commercial_catalog_health()
+        healthy = index.get("status") in {"ok", "not_configured"} and catalog["status"] == "ok"
         return JSONResponse(
             {
                 "status": "ok" if healthy else "degraded",
                 "documents": status.documents,
                 "chunks": status.chunks,
                 "index": index,
+                "catalog": catalog,
                 "monitoring": monitoring_status(settings).as_health(),
             },
             status_code=200 if healthy else 503,

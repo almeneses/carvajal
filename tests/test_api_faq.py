@@ -96,7 +96,7 @@ def _data(client: TestClient, exclude: str = "[]") -> dict[str, str]:
     """Datos del POST con el token CSRF emitido por la portada."""
 
     if CSRF_COOKIE not in client.cookies:
-        client.get("/faq")
+        client.get("/api/csrf")
     return {CSRF_FIELD: client.cookies[CSRF_COOKIE], "exclude": exclude}
 
 
@@ -118,20 +118,23 @@ def parse_sse(body: str) -> list[tuple[str, dict[str, Any]]]:
     return events
 
 
-def test_pagina_faq_renderiza_y_comparte_csrf() -> None:
-    # Arrange
+def test_la_pagina_faq_retirada_redirige_al_chat_y_conserva_el_token() -> None:
+    """T023/T027: la navegación lleva al chat; el contrato `/api/faq` sigue vivo."""
+
     client, _ = make_client()
 
-    # Act
     response = client.get("/faq")
 
-    # Assert
-    assert response.status_code == 200
-    assert 'id="faq-generar"' in response.text
-    assert "data-faq" in response.text
-    assert 'data-csrf="' in response.text and 'data-csrf=""' not in response.text
-    assert 'href="/faq"' in response.text
-    assert 'aria-current="page"' in response.text
+    assert response.status_code == 200  # TestClient sigue el 303
+    assert 'action="/chat"' in response.text
+    assert "data-chat-stream" in response.text
+    assert 'href="/faq"' not in response.text
+    assert 'href="/cotizador"' not in response.text
+
+    contrato = client.post("/api/faq", data=_data(client))
+    assert contrato.status_code == 200
+    assert contrato.headers["content-type"].startswith("text/event-stream")
+    assert parse_sse(contrato.text)[-1][0] == "done"
 
 
 def test_faq_stream_emite_open_tokens_y_done() -> None:

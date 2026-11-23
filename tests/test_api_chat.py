@@ -169,7 +169,7 @@ def _post(client: TestClient, path: str, data: dict[str, str], **kwargs: Any) ->
     """Envía un POST con el token CSRF emitido por una página."""
 
     if CSRF_COOKIE not in client.cookies:
-        client.get("/faq")
+        client.get("/api/csrf")
     return client.post(
         path,
         data={**data, CSRF_FIELD: client.cookies[CSRF_COOKIE]},

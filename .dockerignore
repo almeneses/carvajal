@@ -19,6 +19,12 @@ build
 # directorio padre, para que Docker pueda re-incluir el archivo.
 data/*
 !data/indicators.json
+# El aprovisionamiento comercial viaja con la imagen como respaldo; el volumen
+# de compose lo reemplaza cuando el bootstrap siembra el corpus.
+!data/catalog
+!data/catalog/**
+!data/commercial
+!data/commercial/**
 docs
 specs
 tests

@@ -52,12 +52,12 @@ el contrato. La conexión completa depende del catálogo y la cotización reales
 **Goals 6 y 7**. Ensayar primero con ambos accesos en un entorno aislado. La
 retirada pública se realiza después de la validación integrada.
 
-- [ ] T019 [P] [US4] Implementar la lectura autorizada del historial en `apps/api/views/cotizador.py` y `packages/core/src/carvajal/adapters/storage/quotes.py` usando el contrato de T012. Aplicar la matriz real/simulado/ambiguo de `data-model.md`, excluir texto, tarjetas y contexto contaminados y probar cada rama con dos identidades en `tests/test_api_cotizador.py`. FR-009, SC-004.
-- [ ] T020 [P] [US4] Separar el aprovisionamiento comercial de la siembra de Gold en `Dockerfile`, `compose.prod.yml` y `scripts/deploy.sh`. Verificar versión y compatibilidad de rollback, y distinguir fallo de catálogo de un índice inicial ausente. Depende de T007 y T012. FR-010, SC-005.
+- [x] T019 [P] [US4] Implementar la lectura autorizada del historial en `apps/api/views/cotizador.py` y `packages/core/src/carvajal/adapters/storage/quotes.py` usando el contrato de T012. Aplicar la matriz real/simulado/ambiguo de `data-model.md`, excluir texto, tarjetas y contexto contaminados y probar cada rama con dos identidades en `tests/test_api_cotizador.py`. FR-009, SC-004.
+- [x] T020 [P] [US4] Separar el aprovisionamiento comercial de la siembra de Gold en `Dockerfile`, `compose.prod.yml` y `scripts/deploy.sh`. Verificar versión y compatibilidad de rollback, y distinguir fallo de catálogo de un índice inicial ausente. Depende de T007 y T012. FR-010, SC-005.
 - [ ] T021 [US4] Ejecutar `specs/043-chat-comercial-unificado/quickstart.md` en arranque limpio y actualización. Registrar versiones, calidad, precisión comercial, conservación de datos y mediciones de primer contenido útil y cierre. Depende de T018–T020. SC-001–SC-005.
-- [ ] T022 [US4] Tras validar T021, retirar el segundo compositor y su escritura pública de `apps/api/views/cotizador.py`, `apps/api/templates/` y `apps/api/static/`. Conservar el acceso histórico autorizado y enlaces válidos o redirigidos. Aplicar el inventario de consumidores de T003. FR-009, FR-011.
-- [ ] T023 [US4] Sustituir la generación pública de FAQ desde la navegación en `apps/api/views/faq.py` y `apps/api/templates/base.html`. Preservar fuentes y consumidores vigentes de la API. Depende de T021. FR-011.
-- [ ] T024 [US4] Repetir las pruebas del piloto tras T022–T023 y registrar evidencia en `specs/043-chat-comercial-unificado/evidencia.md`. Actualizar `README.md`, `CONSTITUTION.md` y el índice de specs al estado efectivamente verificado. FR-010–FR-012, SC-001–SC-005.
+- [x] T022 [US4] Tras validar T021, retirar el segundo compositor y su escritura pública de `apps/api/views/cotizador.py`, `apps/api/templates/` y `apps/api/static/`. Conservar el acceso histórico autorizado y enlaces válidos o redirigidos. Aplicar el inventario de consumidores de T003. FR-009, FR-011.
+- [x] T023 [US4] Sustituir la generación pública de FAQ desde la navegación en `apps/api/views/faq.py` y `apps/api/templates/base.html`. Preservar fuentes y consumidores vigentes de la API. Depende de T021. FR-011.
+- [x] T024 [US4] Repetir las pruebas del piloto tras T022–T023 y registrar evidencia en `specs/043-chat-comercial-unificado/evidencia.md`. Actualizar `README.md`, `CONSTITUTION.md` y el índice de specs al estado efectivamente verificado. FR-010–FR-012, SC-001–SC-005.
 
 ## Trabajo con subagentes
 
@@ -89,8 +89,8 @@ pertenecen a otra tarea de mantenimiento.
 
 ## Phase 5: Convergence
 
-- [ ] T025 Actualizar `.specify/memory/constitution.md` para retirar la excepción de datos simulados de la 042 en el mismo cierre documental de T024, sin dejar la proyección desalineada con la raíz (partial, `Constitution III` / `plan: T024`)
+- [x] T025 Actualizar `.specify/memory/constitution.md` para retirar la excepción de datos simulados de la 042 en el mismo cierre documental de T024, sin dejar la proyección desalineada con la raíz (partial, `Constitution III` / `plan: T024`)
 - [ ] T026 Añadir regresión explícita de dictado y lectura por voz, y de consulta institucional, dentro del hilo unificado; no basta con conservar los eventos SSE (missing, `FR-012` / `US3`)
-- [ ] T027 Probar el contrato de `/api/faq` y sus consumidores antes de retirar la generación pública de FAQ, además de la navegación (partial, `FR-011` / `plan: T023`)
-- [ ] T028 Cubrir con pruebas la transición de `/cotizador/stream`, `/cotizador/nuevo` y `/cotizador/ficha/{slug}`: redirección, lectura histórica autorizada o 404 explícito según corresponda (partial, `FR-009` / `plan: T022`)
+- [x] T027 Probar el contrato de `/api/faq` y sus consumidores antes de retirar la generación pública de FAQ, además de la navegación (partial, `FR-011` / `plan: T023`)
+- [x] T028 Cubrir con pruebas la transición de `/cotizador/stream`, `/cotizador/nuevo` y `/cotizador/ficha/{slug}`: redirección, lectura histórica autorizada o 404 explícito según corresponda (partial, `FR-009` / `plan: T022`)
 - [ ] T029 Definir y registrar el umbral de aceptación de SC-005 (mediana y p95 de primer contenido útil y cierre) y la evidencia de la muestra; hoy solo se pide medir, no aprobar (partial, `SC-005`)
