@@ -8,7 +8,7 @@ SHELL := /bin/bash
 # tiene `nvidia-smi` y Docker expone el runtime `nvidia`; sin eso usa CPU.
 # Fuerza un modo con `GPU=1 make up` o `GPU=0 make up`.
 GPU ?= auto
-GPU_SUPPORT = $(shell command -v nvidia-smi >/dev/null 2>&1 && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'nvidia' && echo 1 || echo 0)
+GPU_SUPPORT = $(shell nvidia-smi -L >/dev/null 2>&1 && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'nvidia' && echo 1 || echo 0)
 ifeq ($(GPU),1)
 GPU_OVERRIDE = -f compose.gpu.yml
 else ifeq ($(GPU),0)
