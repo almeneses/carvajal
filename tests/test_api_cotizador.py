@@ -174,6 +174,69 @@ def test_el_historial_ambiguo_sin_fuente_no_se_publica() -> None:
     assert "no tiene contenido publicable" in respuesta.text
 
 
+def test_el_emparejamiento_usa_el_ultimo_usuario_y_no_filtra_el_anterior() -> None:
+    client, store = make_client()
+    store.messages = [
+        ChatMessage("u-huerfano", "hilo-1", "user", "pregunta huérfana", None, WHEN),
+        ChatMessage("u-real", "hilo-1", "user", "pregunta respondida", None, WHEN),
+        ChatMessage(
+            "a-real",
+            "hilo-1",
+            "assistant",
+            "respuesta real",
+            [_payload(folio="folio-1")],
+            WHEN,
+        ),
+    ]
+
+    respuesta = _get(client, "/cotizador?thread=hilo-1")
+
+    assert respuesta.status_code == 200
+    assert "pregunta respondida" in respuesta.text
+    assert "respuesta real" in respuesta.text
+    assert "pregunta huérfana" not in respuesta.text
+
+
+def test_el_emparejamiento_por_client_turn_id_no_mezcla_turnos() -> None:
+    client, store = make_client()
+    store.messages = [
+        ChatMessage(
+            "u-a",
+            "hilo-1",
+            "user",
+            "pregunta A",
+            None,
+            WHEN,
+            client_turn_id="turno-a",
+        ),
+        ChatMessage(
+            "u-b",
+            "hilo-1",
+            "user",
+            "pregunta B",
+            None,
+            WHEN,
+            client_turn_id="turno-b",
+        ),
+        ChatMessage(
+            "a-a",
+            "hilo-1",
+            "assistant",
+            "respuesta A",
+            [_payload(folio="folio-a")],
+            WHEN,
+            client_turn_id="turno-a",
+        ),
+    ]
+
+    respuesta = _get(client, "/cotizador?thread=hilo-1")
+
+    assert respuesta.status_code == 200
+    assert "pregunta A" in respuesta.text
+    assert "respuesta A" in respuesta.text
+    assert "pregunta B" not in respuesta.text
+
+
 def test_un_hilo_mixto_publica_solo_los_turnos_reales() -> None:
     client, store = make_client()
     store.messages = [

@@ -231,16 +231,25 @@ def _readable(
 
     by_message = {row.get("message_id"): row for row in quotes if row.get("message_id")}
     by_folio = {row.folio: row for row in quotes if row.folio}
+    users_by_turn: dict[str, ChatMessage] = {}
+    pending_user: ChatMessage | None = None
+    emitted: set[str] = set()
     result: list[ChatMessage] = []
-    index = 0
-    while index < len(messages):
-        message = messages[index]
-        if message.role != "user" or index + 1 >= len(messages):
-            index += 1
+    for message in messages:
+        if message.role == "user":
+            pending_user = message
+            if message.client_turn_id:
+                users_by_turn[message.client_turn_id] = message
             continue
-        assistant = messages[index + 1]
-        payload = _payload(assistant)
-        quote = by_message.get(assistant.id)
+        if message.role != "assistant":
+            continue
+        user = users_by_turn.get(message.client_turn_id) if message.client_turn_id else None
+        if user is None:
+            user = pending_user
+        if user is None:
+            continue
+        payload = _payload(message)
+        quote = by_message.get(message.id)
         if quote is None and payload is not None:
             folio = (payload.get("quote") or {}).get("id")
             quote = by_folio.get(folio or "")
@@ -252,9 +261,11 @@ def _readable(
                 owner_key=owner_key,
                 folio=((payload or {}).get("quote") or {}).get("id"),
             )
-        if provenance == "real":
-            result.extend([message, assistant])
-        index += 2
+        if provenance == "real" and user.id not in emitted:
+            result.extend([user, message])
+            emitted.add(user.id)
+        if pending_user is user:
+            pending_user = None
     return result
 
 

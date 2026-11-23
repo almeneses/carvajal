@@ -16,6 +16,7 @@ from dataclasses import asdict, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from functools import cache
+from hashlib import sha256
 from time import perf_counter
 from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
@@ -290,7 +291,11 @@ class ChatService:
                 question=text,
             ) as span:
                 turn = runner.prepare(owner_key, conversation.id, text, seed)
-                products, quote_record = _issue_quote(turn.products)
+                products, quote_record = _issue_quote(
+                    turn.products,
+                    conversation_id=conversation.id,
+                    client_turn_id=client_turn_id,
+                )
                 if products is not turn.products:
                     turn = replace(turn, products=products)
                 # La ruta ya se conoce aquí: registrarla ahora deja trazas
@@ -684,10 +689,27 @@ def _decimal(value: Any) -> Decimal | None:
     return None if value is None else Decimal(str(value))
 
 
+def _quote_folio(conversation_id: str, client_turn_id: str | None) -> str:
+    """Folio estable por turno; aleatorio cuando no hay identificador de reenvío."""
+
+    if not client_turn_id:
+        return uuid4().hex[:12]
+    seed = f"{conversation_id}:{client_turn_id}".encode()
+    return sha256(seed).hexdigest()[:12]
+
+
 def _issue_quote(
     products: Mapping[str, Any],
+    *,
+    conversation_id: str,
+    client_turn_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Añade folio y vigencia de emisión a la cotización comercial del turno."""
+    """Añade folio y vigencia de emisión a la cotización comercial del turno.
+
+    El folio se deriva del hilo y del ``client_turn_id`` cuando existe: dos
+    reenvíos simultáneos del mismo turno emiten el mismo folio antes de que el
+    segundo detecte el duplicado y reproduzca el turno guardado.
+    """
 
     quoted = (products or {}).get("quote")
     if (
@@ -700,7 +722,7 @@ def _issue_quote(
     commercial = quoted.get("commercial") or {}
     shipping = commercial.get("shipping") or {}
     moment = datetime.now(UTC)
-    folio = uuid4().hex[:12]
+    folio = _quote_folio(conversation_id, client_turn_id)
     retention = (moment.date() + timedelta(days=QUOTE_DAYS)).isoformat()
     payload = {
         **quoted,
@@ -767,13 +789,15 @@ def _record_quote(
 
 
 def _sources_from_payload(payload: Any) -> tuple[Source, ...]:
-    """Reconstruye citas desde JSONB; ignora formas desconocidas."""
+    """Reconstruye citas desde JSONB; ignora el resultado comercial y formas desconocidas."""
 
     if not isinstance(payload, list):
         return ()
     result = []
     for item in payload:
         if not isinstance(item, dict):
+            continue
+        if item.get("result_type") == "commercial":
             continue
         try:
             result.append(Source(**item))
