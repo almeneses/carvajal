@@ -19,7 +19,8 @@
         "asks_for":    ["temperatura"],                   # needs_input esperado
         "forbidden_materials": ["EPS"],
         "total_pending": true,
-        "language": "es"
+        "language": "es",
+        "no_tool_allowed": false          # true solo si sin_consulta es aceptable
       }
     }
   ]
@@ -52,6 +53,7 @@ uv run carvajal eval-agent --mode tools --questions data/eval/routing_questions.
 | Compuestas con todas las partes | % | % |
 | Abstenciones correctas | % | % |
 | Violaciones de material / datos sin fuente | n | n |
+| Respuestas de memoria (`sin_consulta` en pregunta factual) | n | n |
 | Latencia primer texto p95 / fin p95 | s | s |
 | Tokens entrada / salida por turno | n | n |
 | Costo medio por turno | USD | USD |

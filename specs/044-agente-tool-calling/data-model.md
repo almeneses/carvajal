@@ -30,7 +30,7 @@ herramientas). La compuerta de evidencia (R3) actúa en el servicio sobre el est
 
 | Campo | Tipo | Regla |
 |---|---|---|
-| `tool` | `str` | Una de las 5 de [agent-tools.md](./contracts/agent-tools.md). |
+| `tool` | `str` | Una de las 6 de [agent-tools.md](./contracts/agent-tools.md). |
 | `args` | `dict` | Validados por el esquema Pydantic de la herramienta. |
 | `status` | `"ok" \| "empty" \| "needs_input" \| "error"` | `empty` = sin evidencia; `needs_input` = falta un dato (FR-005). |
 | `source_ids` | `list[int]` | Números `[n]` asignados en el registro. |

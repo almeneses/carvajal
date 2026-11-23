@@ -32,10 +32,21 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
   menos una `buscar_corpus`, el servicio descarta el paso y emite `NO_CONTEXT_ANSWER`. La
   comprobación de nombres propios (`proper_entities_supported`) se aplica dentro de
   `buscar_corpus`, como hoy en la ruta `rag`.
+  Ampliación acordada con el owner (2026-11-23):
+  1. El primer paso del bucle se invoca con `tool_choice="required"` (salvo el atajo) y se
+     añade la herramienta `sin_consulta(motivo: "pedir_dato" | "conversacion" |
+     "fuera_de_alcance")`: responder de memoria deja de ser invisible en trazas y evaluación.
+  2. Si el turno no tiene evidencia y la única herramienta fue `sin_consulta`, el texto
+     retenido pasa el filtro de la ruta directa: si contiene cifras, fechas o nombres
+     propios de Carvajal, se sustituye por la abstención.
+  3. Evidencia parcial: el prompt exige marcar la parte sin respaldo y la evaluación
+     verifica que toda cifra, precio o fecha de la respuesta aparezca en un resultado de
+     herramienta del turno (SC-001). No se reescribe texto ya transmitido.
 - **Rationale**: es la garantía equivalente al «no llamar al LLM sin contexto» y es
   determinista, así que es verificable y medible (SC-005).
 - **Alternatives considered**: confiar en el prompt: no es verificable; cortar el bucle tras
-  la primera búsqueda vacía: impide la reformulación (US1.4).
+  la primera búsqueda vacía: impide la reformulación (US1.4); generar sin streaming y
+  revisar antes de mostrar: rompe SC-006.
 
 ## R4. Entrada estructurada del motor de cotización
 

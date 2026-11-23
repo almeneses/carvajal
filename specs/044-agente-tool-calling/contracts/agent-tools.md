@@ -1,6 +1,6 @@
 # Contrato — Herramientas del agente
 
-Cinco herramientas, todas deterministas, sin efectos persistentes (la persistencia la hace
+Seis herramientas, todas deterministas, sin efectos persistentes (la persistencia la hace
 el servicio al final del turno). Esquemas Pydantic con descripciones en español; el modelo
 ve el nombre, la descripción y el esquema. Toda salida es JSON con `status` y, si hay datos,
 números de cita `n` ya asignados.
@@ -70,6 +70,18 @@ Cada herramienta, al empezar, publica un evento de estado (ver [sse-events.md](.
 - **Comportamiento**: `indicator_lookup` (sin cambios).
 - **Salida `ok`**: `{n, nombre, valor, unidad, periodo, cita, documento, url}`.
   **`empty`**: sin registro; nunca interpola. **`needs_input`**: falta el período.
+
+## sin_consulta
+
+- **Entrada**: `motivo: "pedir_dato" | "conversacion" | "fuera_de_alcance"`;
+  `dato: str | null` (qué falta, con `pedir_dato`).
+- **Comportamiento**: no consulta nada; declara que el turno se responde sin datos.
+  Disponible solo para que el primer paso (con `tool_choice="required"`) pueda no consultar
+  de forma explícita.
+- **Salida**: `status: "ok"` sin `n` (no aporta evidencia). Con este camino, el texto
+  retenido pasa el filtro de la ruta directa (sin cifras, fechas ni nombres propios de
+  Carvajal; si los trae, se sustituye por la abstención).
+- **Estado SSE**: no emite línea de estado.
 
 ## Reglas transversales
 

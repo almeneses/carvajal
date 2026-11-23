@@ -67,7 +67,9 @@ catálogo CO (29 precios, 29 sedes) y MX (98 referencias); ≥ 50 preguntas de g
 recuperado no se llama al LLM» por «Sin evidencia recuperada, la respuesta documental es la
 abstención declarada y el modelo no redacta afirmaciones del corpus; en el modo `tools` el
 modelo puede decidir qué consultar, pero una compuerta determinista sustituye su redacción
-por la abstención cuando ninguna consulta del turno devolvió evidencia».
+por la abstención cuando ninguna consulta del turno devolvió evidencia; el primer paso
+siempre declara una consulta, incluida `sin_consulta`, y el servidor impide afirmaciones
+del corpus sin resultado de una consulta».
 
 **Enmienda 2 (restricciones técnicas)**: «Agente LangGraph con `PostgresSaver` y
 `PostgresStore`; modo `routes` (router `direct`/`tool`/`rag`/`commercial`) y modo `tools`
@@ -88,7 +90,7 @@ specs/044-agente-tool-calling/
 ├── data-model.md        # Fase 1: estado del agente, resultados y cotizaciones
 ├── quickstart.md        # Fase 1: validación de punta a punta
 ├── contracts/
-│   ├── agent-tools.md   # esquema y semántica de las 5 herramientas
+│   ├── agent-tools.md   # esquema y semántica de las 6 herramientas
 │   ├── sse-events.md    # evento `status` nuevo y cambios a `done`/`products`
 │   └── eval-agent.md    # formato del conjunto de generalización y del informe
 └── tasks.md             # Fase 2 (/speckit.tasks)
