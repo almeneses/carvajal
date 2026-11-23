@@ -62,6 +62,8 @@ x-dev-app: &dev-app
     CAPTURE_ALLOWED_DOMAINS: ${CAPTURE_ALLOWED_DOMAINS:-}
     # Determinista para que la recarga no invalide la cookie del visitante.
     SESSION_SECRET: ${SESSION_SECRET:-dev-carvajal-inseguro-solo-local}
+    # Token de operador para la carga y captura web; vacío las deshabilita.
+    OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     # El perfil local no envía nada a Sentry ni a LangSmith salvo que se pida.
     SENTRY_DSN: ${SENTRY_DSN:-}

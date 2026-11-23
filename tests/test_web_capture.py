@@ -128,6 +128,31 @@ def test_ingest_urls_captura_importa_e_indexa_solo_los_slugs_nuevos(tmp_path: Pa
     assert client.urls == ["https://example.com/a"]
 
 
+def test_ingest_urls_sin_publicar_deja_gold_para_revision(tmp_path: Path) -> None:
+    # Arrange
+    settings = _settings(tmp_path)
+    sincronizar = Mock(return_value=SyncReport(documents=1, chunks=2, indexed=2))
+    request = CaptureRequest(urls=("https://example.com/a",), scope="manual", limit=5)
+
+    # Act
+    outcome = ingest_urls(
+        request,
+        settings=settings,
+        client=FakeClient(),
+        sincronizar=sincronizar,
+        publicar=False,
+    )
+
+    # Assert
+    assert outcome.written == 1
+    assert outcome.published is False
+    assert outcome.documents == 0
+    assert outcome.indexed == 0
+    assert outcome.captured == ("a",)
+    assert (settings.gold_dir / "a.md").is_file()
+    sincronizar.assert_not_called()
+
+
 def test_ingest_urls_omite_la_indexacion_si_falla_postgres(tmp_path: Path) -> None:
     # Arrange
     settings = _settings(tmp_path)

@@ -2,6 +2,11 @@
 <p class="aviso" role="alert">{{ error }}</p>
 {% endif %}
 
+<p class="ayuda">
+  La captura web deja las páginas en <strong>Gold</strong> para revisión. La
+  publicación al chat se hace después con <code>carvajal sync --layer core</code>.
+</p>
+
 <form
   class="panel config-formulario config-captura"
   method="post"
@@ -13,6 +18,22 @@
   data-captura-form
 >
   {% include "_csrf.html" %}
+  {% if not operator_authorized %}
+  <div class="config-campo">
+    <label for="captura-token">Token de operador</label>
+    <input
+      id="captura-token"
+      name="token_admin"
+      type="password"
+      autocomplete="current-password"
+      required
+      aria-describedby="ayuda-captura-token"
+    />
+    <p id="ayuda-captura-token" class="ayuda">
+      Token del despliegue (<code>OPERATOR_TOKEN</code>). Sin él no se inicia la captura.
+    </p>
+  </div>
+  {% endif %}
   <div class="config-campo">
     <label for="captura-urls">URLs a capturar</label>
     <textarea

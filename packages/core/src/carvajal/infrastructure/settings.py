@@ -6,7 +6,7 @@ from typing import Annotated, Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -18,6 +18,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        populate_by_name=True,
     )
 
     base_url: str = "https://www.carvajal.com"
@@ -117,10 +118,27 @@ class Settings(BaseSettings):
     # que las cookies sobrevivan reinicios y compartan valor entre workers.
     session_secret: str = ""
 
-    # Captura web desde la pestaña Configuración. El máximo de URLs por
-    # ejecución sigue al de la primera versión (todas las semillas
-    # configuradas) y el valor inicial es de cinco. La captura es pública en
-    # esta fase; el límite, el timeout y el guard SSRF son su única defensa.
+    # Token compartido de operador para la carga y la captura web. No es un
+    # sistema de cuentas: un solo secreto de despliegue, comparado en tiempo
+    # constante. Si queda vacío, la escritura web queda deshabilitada y el
+    # operador usa la CLI interna. ``CONFIG_TOKEN`` se conserva como alias del
+    # mecanismo anterior para no romper despliegues existentes.
+    operator_token: str = Field(
+        default="",
+        repr=False,
+        validation_alias=AliasChoices(
+            "operator_token",
+            "OPERATOR_TOKEN",
+            "config_token",
+            "CONFIG_TOKEN",
+        ),
+    )
+
+    # Captura web desde la consola de Configuración, solo para operadores
+    # autorizados con OPERATOR_TOKEN. El máximo de URLs por ejecución sigue al
+    # de la primera versión (todas las semillas configuradas) y el valor
+    # inicial es de cinco. El límite, el timeout y el guard SSRF son defensas
+    # adicionales, no autorización.
     capture_default_urls: int = Field(default=5, ge=1)
     capture_max_bytes: int = Field(default=5_000_000, ge=1)
     capture_timeout_seconds: int = Field(default=30, ge=1)
@@ -128,7 +146,7 @@ class Settings(BaseSettings):
     # Solo para desarrollo y pruebas: permite capturar desde loopback y redes
     # privadas. En producción debe quedar en False.
     capture_allow_private_hosts: bool = False
-    # Límite por IP para el endpoint público: N capturas por ventana. Cero
+    # Límite por IP para el endpoint de operador: N capturas por ventana. Cero
     # desactiva el límite (solo para desarrollo).
     capture_requests_limit: int = Field(default=5, ge=0)
     capture_window_seconds: int = Field(default=3600, ge=1)
@@ -235,6 +253,12 @@ class Settings(BaseSettings):
                 f"postgresql://{usuario}:{clave}@127.0.0.1:{self.postgres_port}/{base}"
             )
         return self
+
+    @property
+    def config_token(self) -> str:
+        """Alias del token de operador que usaba la Configuración anterior."""
+
+        return self.operator_token
 
     @property
     def index_file(self) -> Path:

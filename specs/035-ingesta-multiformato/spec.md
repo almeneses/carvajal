@@ -1,5 +1,11 @@
 # Feature Specification: Ingesta multiformato de archivos locales
 
+> **Revisión 2026-11-22:** la carga web es una consola de operador. Exige
+> `OPERATOR_TOKEN` y CSRF, no se enlaza desde la navegación y deja el lote en
+> Gold para revisión; la publicación se hace con `carvajal sync`. Los
+> escenarios de «visitante» se conservan como registro histórico. Ver
+> [`docs/seguridad-operacion-corpus.md`](../../docs/seguridad-operacion-corpus.md).
+
 **Feature Branch**: `035-ingesta-multiformato`
 **Created**: 2026-11-16
 **Status**: Implemented (2026-11-16)

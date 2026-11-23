@@ -110,6 +110,16 @@
     metricas.appendChild(tarjeta("Duración", texto(outcome.duration_seconds) + " s"));
     contenedor.appendChild(metricas);
 
+    if (outcome.published === false) {
+      contenedor.appendChild(
+        elemento(
+          "p",
+          "aviso",
+          "Páginas en Gold, pendientes de revisión. Publica con `carvajal sync --layer core`."
+        )
+      );
+    }
+
     var incidencias = [
       lista("Errores y descartes", outcome.errors),
       lista("Bloqueadas por robots.txt", outcome.robots_denied),

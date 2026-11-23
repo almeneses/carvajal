@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval eval import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval import clean
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -27,6 +27,9 @@ help: ## Muestra esta ayuda
 	@echo "  qdrant             Levanta Qdrant con volumen persistente"
 	@echo "  qdrant-down        Detiene Qdrant (conserva el volumen)"
 	@echo "  index              Indexa data/gold en Qdrant"
+	@echo "  sync               Publica el Gold revisado en PostgreSQL y Qdrant"
+	@echo "  sync-verify        Compara Gold con los almacenes sin escribir"
+	@echo "  ingest             Carga una carpeta en Gold para revisión (ARGS=...)"
 	@echo "  index-eval         Indexa y ejecuta la evaluación de retrieval"
 	@echo "  image              Construye la imagen Docker de la app web"
 	@echo "  up                 Stack completo en Docker (app, base, Qdrant, Ollama y corpus)"
@@ -98,6 +101,15 @@ qdrant-down: ## Detiene Qdrant (conserva el volumen)
 
 index: ## Indexa el núcleo y las capas extendidas en Qdrant
 	uv run carvajal index-qdrant --layer all
+
+sync: ## Publica el Gold revisado en PostgreSQL y Qdrant (operador)
+	uv run carvajal sync --layer core
+
+sync-verify: ## Compara Gold con PostgreSQL y Qdrant sin escribir (operador)
+	uv run carvajal sync --layer core --verify
+
+ingest: ## Carga una carpeta en Gold para revisión: make ingest ARGS="/ruta --solo-extraer"
+	uv run python -m apps.api.ingest_cli $(ARGS)
 
 index-eval: ## Indexa todas las capas y evalúa el retrieval (Recall@10 y nDCG@10)
 	uv run carvajal index-qdrant --layer all

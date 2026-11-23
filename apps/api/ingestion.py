@@ -1,10 +1,11 @@
-"""Ingesta de documentos subidos por la interfaz de configuración.
+"""Ingesta de documentos subidos por la consola de configuración.
 
 La carga reutiliza el pipeline del corpus: guarda el original en Bronze, el
-Markdown limpio en Silver y el documento con *front matter* en Gold; después
-importa Gold a PostgreSQL y reconstruye el índice de Qdrant. Todo se ejecuta
-con las mismas piezas de la CLI para que una carga y una captura produzcan el
-mismo formato.
+Markdown limpio en Silver y el documento con *front matter* en Gold. La consola
+web usa ``solo_extraer=True`` y deja el lote para revisión; la publicación a
+PostgreSQL y Qdrant se hace después con ``carvajal sync``. La consola de
+carpetas puede publicar en la misma pasada. Todo se ejecuta con las mismas
+piezas para que una carga y una captura produzcan el mismo formato.
 """
 
 from __future__ import annotations

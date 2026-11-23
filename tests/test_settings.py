@@ -21,6 +21,8 @@ def _sin_entorno_pg(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "POSTGRES_DB",
         "POSTGRES_PORT",
         "OLLAMA_BASE_URL",
+        "OPERATOR_TOKEN",
+        "CONFIG_TOKEN",
     ):
         monkeypatch.delenv(nombre, raising=False)
 
@@ -55,6 +57,35 @@ def test_proveedor_llm_por_defecto() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.llm_provider == "ollama"
+
+
+def test_operator_token_por_defecto_vacio_y_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sin token la escritura web queda cerrada; CONFIG_TOKEN sigue funcionando."""
+
+    assert Settings(_env_file=None).operator_token == ""
+
+    monkeypatch.setenv("CONFIG_TOKEN", "desde-config")
+    settings = Settings(_env_file=None)
+
+    assert settings.operator_token == "desde-config"
+    assert settings.config_token == "desde-config"
+
+
+def test_operator_token_acepta_el_nombre_nuevo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OPERATOR_TOKEN tiene prioridad sobre el alias histórico."""
+
+    monkeypatch.setenv("OPERATOR_TOKEN", "nuevo")
+    monkeypatch.setenv("CONFIG_TOKEN", "viejo")
+
+    assert Settings(_env_file=None).operator_token == "nuevo"
+
+
+def test_operator_token_no_aparece_en_repr() -> None:
+    """El secreto no se filtra si alguien registra la configuración."""
+
+    settings = Settings(_env_file=None, operator_token="secreto-muy-largo")
+
+    assert "secreto-muy-largo" not in repr(settings)
 
 
 def test_index_file_derivado() -> None:

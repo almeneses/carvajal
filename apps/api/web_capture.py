@@ -1,9 +1,10 @@
 """Captura web desde la pestaña Configuración.
 
-Reutiliza el pipeline de la CLI (``capture``) y el mismo cierre que la carga de
-archivos: Gold → PostgreSQL → Qdrant, limitado a los slugs capturados y sin
-podar el resto del corpus. La captura es pública en esta fase; el límite de
-URLs, el timeout y el guard SSRF de ``urlguard`` son su defensa.
+Reutiliza el pipeline de la CLI (``capture``). La captura web deja las páginas
+en Gold para revisión y, por defecto desde la app, no escribe PostgreSQL ni
+Qdrant: la publicación es una acción posterior de la consola
+(``carvajal sync``). La ruta exige el token de operador; el límite de URLs, el
+timeout y el guard SSRF de ``urlguard`` siguen siendo defensas adicionales.
 """
 
 from __future__ import annotations
@@ -78,6 +79,8 @@ class CaptureOutcome:
     robots_denied: tuple[str, ...] = ()
     duplicates: tuple[str, ...] = ()
     captured: tuple[str, ...] = ()
+    # False cuando la captura solo dejó Gold y queda pendiente `carvajal sync`.
+    published: bool = True
 
 
 if sys.platform == "win32":
@@ -238,11 +241,12 @@ def _outcome(
     documents: int = 0,
     chunks: int = 0,
     indexed: int = 0,
+    published: bool = True,
 ) -> CaptureOutcome:
     """Construye el resumen a partir del reporte del pipeline."""
 
     if report is None:
-        return CaptureOutcome(requested=requested, errors=tuple(errors))
+        return CaptureOutcome(requested=requested, errors=tuple(errors), published=published)
     return CaptureOutcome(
         requested=requested,
         discovered=report.discovered,
@@ -258,6 +262,7 @@ def _outcome(
         robots_denied=tuple(report.robots_denied),
         duplicates=tuple(report.duplicates),
         captured=tuple(report.slugs.values()),
+        published=published,
     )
 
 
@@ -268,12 +273,13 @@ def ingest_urls(
     client: Fetcher | None = None,
     sincronizar: Sincronizar | None = None,
     on_event: EventHook | None = None,
+    publicar: bool = True,
 ) -> CaptureOutcome:
-    """Captura las URLs y sincroniza los slugs nuevos.
+    """Captura las URLs y, si ``publicar``, sincroniza los slugs nuevos.
 
     ``client`` y ``sincronizar`` se inyectan en las pruebas para no tocar la
-    red, PostgreSQL ni Qdrant. En la app real se usan ``SafeWebClient`` y
-    ``sync_gold``.
+    red, PostgreSQL ni Qdrant. La app web usa ``publicar=False`` para que el
+    operador revise Gold antes de ejecutar ``carvajal sync``.
     """
 
     settings = settings or Settings()
@@ -282,7 +288,7 @@ def ingest_urls(
         seeds, invalid = _validate_seeds(seeds, settings)
         errors.extend(invalid)
         if not seeds:
-            return _outcome(None, requested=0, errors=errors)
+            return _outcome(None, requested=0, errors=errors, published=publicar)
         client = SafeWebClient(
             allowed_domains=settings.capture_allowed_domains,
             allow_private=settings.capture_allow_private_hosts,
@@ -298,7 +304,7 @@ def ingest_urls(
         seeds, collisions = _guard_slugs(seeds, settings)
         errors.extend(collisions)
         if not seeds:
-            return _outcome(None, requested=0, errors=errors)
+            return _outcome(None, requested=0, errors=errors, published=publicar)
         report = capture(
             seeds,
             client=client,
@@ -311,7 +317,7 @@ def ingest_urls(
     errors.extend(report.errors)
     slugs = set(report.slugs.values())
     documents = chunks = indexed = 0
-    if slugs:
+    if publicar and slugs:
         try:
             sync_report = (sincronizar or sync_gold)(settings.gold_dir, slugs)
         except Exception as error:  # la UI informa el fallo de la etapa
@@ -329,4 +335,5 @@ def ingest_urls(
         documents=documents,
         chunks=chunks,
         indexed=indexed,
+        published=publicar,
     )

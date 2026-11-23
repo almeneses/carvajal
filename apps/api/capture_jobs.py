@@ -45,7 +45,7 @@ class CaptureBusy(RuntimeError):
 
 
 class CaptureRateLimited(RuntimeError):
-    """El visitante superó el límite de capturas de su ventana."""
+    """El operador superó el límite de capturas de su ventana."""
 
     def __init__(self, retry_after: int) -> None:
         self.retry_after = max(1, retry_after)
@@ -71,9 +71,13 @@ class CaptureJob:
 
 
 def default_capture_runner(request: CaptureRequest, on_event: EventHook) -> CaptureOutcome:
-    """Runner real: captura, importa a PostgreSQL e indexa en Qdrant."""
+    """Runner real: captura a Gold para revisión, sin publicar todavía.
 
-    return ingest_urls(request, on_event=on_event)
+    La publicación a PostgreSQL y Qdrant la decide el operador después con
+    ``carvajal sync``; así una fuente nueva no entra al chat sin curaduría.
+    """
+
+    return ingest_urls(request, on_event=on_event, publicar=False)
 
 
 def _final_event(job: CaptureJob) -> str:
@@ -107,7 +111,7 @@ class CaptureJobs:
     def start(self, request: CaptureRequest, *, owner_key: str = "") -> CaptureJob:
         """Crea el job y lo ejecuta en un hilo; falla si ya hay uno activo.
 
-        ``owner_key`` es la IP del visitante para el límite de capturas. Un
+        ``owner_key`` es la IP del operador para el límite de capturas. Un
         segundo envío con un job en curso recibe ``CaptureBusy``; superar la
         ventana recibe ``CaptureRateLimited``.
         """

@@ -1,5 +1,11 @@
 # Feature Specification: Chat HTMX con hilos, configuración y escala accesible
 
+> **Revisión 2026-11-22:** Configuración dejó de ser una pestaña pública de la
+> navegación. Sigue existiendo en `/configuracion` como consola de operador con
+> `OPERATOR_TOKEN` y CSRF, y la carga/captura solo dejan Gold para revisión.
+> FR-006 y FR-007 se conservan como registro histórico de la entrega. Ver
+> [`docs/seguridad-operacion-corpus.md`](../../docs/seguridad-operacion-corpus.md).
+
 **Feature Branch**: `024-chat-htmx-accesible`
 **Created**: 2026-11-15
 **Status**: Implemented (as-built)

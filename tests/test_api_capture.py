@@ -3,17 +3,33 @@
 import threading
 from collections.abc import Callable
 
+import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.capture_jobs import CaptureJobs
 from apps.api.ingestion import IngestReport
 from apps.api.main import create_app
-from apps.api.security import CSRF_COOKIE, CSRF_FIELD
+from apps.api.security import (
+    CSRF_COOKIE,
+    CSRF_FIELD,
+    OPERATOR_COOKIE,
+    issue_operator_cookie,
+)
 from apps.api.web_capture import CaptureOutcome, CaptureRequest
 from carvajal.infrastructure.settings import Settings
 from carvajal.pipeline import CaptureEvent
 
 Runner = Callable[[CaptureRequest, Callable[[CaptureEvent], None]], CaptureOutcome]
+OPERATOR_TOKEN = "token-de-prueba"
+
+
+@pytest.fixture(autouse=True)
+def _operator_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Habilita la captura web con un token conocido en estas pruebas."""
+
+    monkeypatch.setenv("OPERATOR_TOKEN", OPERATOR_TOKEN)
+    monkeypatch.delenv("CONFIG_TOKEN", raising=False)
+
 
 OUTCOME = CaptureOutcome(
     requested=1,
@@ -54,6 +70,15 @@ def _job_id(html: str) -> str:
     return html[start:].split('"', 1)[0]
 
 
+def _login(client: TestClient) -> None:
+    """Instala la cookie firmada que emite un POST autorizado."""
+
+    client.cookies.set(
+        OPERATOR_COOKIE,
+        issue_operator_cookie(Settings()),
+    )
+
+
 def _runner_ok(
     request: CaptureRequest,
     on_event: Callable[[CaptureEvent], None],
@@ -67,7 +92,10 @@ def test_la_pagina_muestra_el_formulario_de_captura() -> None:
     client = _client(_runner_ok)
 
     # Act
-    response = client.get("/configuracion")
+    response = client.get(
+        "/configuracion",
+        headers={"X-Operator-Token": OPERATOR_TOKEN},
+    )
 
     # Assert
     assert response.status_code == 200
@@ -79,7 +107,7 @@ def test_la_pagina_muestra_el_formulario_de_captura() -> None:
     assert "Trae páginas nuevas al corpus" in response.text
 
 
-def test_la_captura_es_publica_y_emite_progreso_por_sse() -> None:
+def test_la_captura_autorizada_emite_progreso_por_sse() -> None:
     # Arrange
     client = _client(_runner_ok)
     token = _token(client)
@@ -89,6 +117,7 @@ def test_la_captura_es_publica_y_emite_progreso_por_sse() -> None:
         "/configuracion/captura",
         data={
             CSRF_FIELD: token,
+            "token_admin": OPERATOR_TOKEN,
             "urls": "http://8.8.8.8/",
             "scope": "manual",
             "limit": "5",
@@ -120,6 +149,7 @@ def test_sin_javascript_la_captura_devuelve_la_pagina_completa() -> None:
         "/configuracion/captura",
         data={
             CSRF_FIELD: token,
+            "token_admin": OPERATOR_TOKEN,
             "urls": "http://8.8.8.8/",
             "scope": "manual",
             "limit": "5",
@@ -134,20 +164,238 @@ def test_sin_javascript_la_captura_devuelve_la_pagina_completa() -> None:
     _stream = client.get(f"/configuracion/captura/{job_id}/eventos").text
 
 
-def test_la_captura_exige_csrf() -> None:
+def test_la_captura_exige_csrf_aunque_el_operador_sea_valido() -> None:
     # Arrange
-    client = _client(_runner_ok)
+    llamadas: list[CaptureRequest] = []
+
+    def runner(
+        request: CaptureRequest,
+        on_event: Callable[[CaptureEvent], None],
+    ) -> CaptureOutcome:
+        llamadas.append(request)
+        return OUTCOME
+
+    client = _client(runner)
 
     # Act
     response = client.post(
         "/configuracion/captura",
-        data={CSRF_FIELD: "ajeno", "urls": "http://8.8.8.8/"},
+        data={
+            CSRF_FIELD: "ajeno",
+            "token_admin": OPERATOR_TOKEN,
+            "urls": "http://8.8.8.8/",
+        },
         headers={"HX-Request": "true"},
     )
 
     # Assert
     assert response.status_code == 403
     assert "La sesión del formulario expiró" in response.text
+    assert llamadas == []
+
+
+def test_la_captura_sin_token_de_operador_no_lanza_el_job() -> None:
+    # Arrange
+    llamadas: list[CaptureRequest] = []
+
+    def runner(
+        request: CaptureRequest,
+        on_event: Callable[[CaptureEvent], None],
+    ) -> CaptureOutcome:
+        llamadas.append(request)
+        return OUTCOME
+
+    client = _client(runner)
+    token = _token(client)
+
+    # Act
+    response = client.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+
+    # Assert
+    assert response.status_code == 403
+    assert "token de operador" in response.text
+    assert llamadas == []
+
+
+def test_la_captura_con_token_incorrecto_no_lanza_el_job() -> None:
+    # Arrange
+    llamadas: list[CaptureRequest] = []
+
+    def runner(
+        request: CaptureRequest,
+        on_event: Callable[[CaptureEvent], None],
+    ) -> CaptureOutcome:
+        llamadas.append(request)
+        return OUTCOME
+
+    client = _client(runner)
+    token = _token(client)
+
+    # Act
+    response = client.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "token_admin": "otro-token",
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+
+    # Assert
+    assert response.status_code == 403
+    assert llamadas == []
+
+
+def test_el_estado_y_el_stream_del_job_exigen_operador() -> None:
+    # Arrange
+    client = _client(_runner_ok)
+    token = _token(client)
+    response = client.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "token_admin": OPERATOR_TOKEN,
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+    job_id = _job_id(response.text)
+    anonimo = TestClient(client.app)
+
+    # Act
+    estado = anonimo.get(f"/configuracion/captura/{job_id}")
+    stream = anonimo.get(f"/configuracion/captura/{job_id}/eventos")
+
+    # Assert
+    assert estado.status_code == 403
+    assert stream.status_code == 403
+
+
+def test_la_captura_sin_operador_configurado_no_lanza_el_job() -> None:
+    # Arrange
+    llamadas: list[CaptureRequest] = []
+
+    def runner(
+        request: CaptureRequest,
+        on_event: Callable[[CaptureEvent], None],
+    ) -> CaptureOutcome:
+        llamadas.append(request)
+        return OUTCOME
+
+    app = create_app()
+    app.state.settings = Settings(_env_file=None, operator_token="")
+    app.state.captures = CaptureJobs(runner)
+    app.state.ingest = lambda documents, **kwargs: IngestReport(files=len(documents))
+    client = TestClient(app)
+    token = client.cookies.get(CSRF_COOKIE) or _token(client)
+
+    # Act
+    response = client.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "token_admin": "cualquiera",
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+
+    # Assert
+    assert response.status_code == 403
+    assert "deshabilitadas" in response.text
+    assert llamadas == []
+
+
+def test_la_captura_desde_ip_remota_exige_y_acepta_operador() -> None:
+    # Arrange
+    def runner(
+        request: CaptureRequest,
+        on_event: Callable[[CaptureEvent], None],
+    ) -> CaptureOutcome:
+        return OUTCOME
+
+    app = create_app()
+    app.state.captures = CaptureJobs(runner)
+    client = TestClient(app, client=("203.0.113.10", 12345))
+    token = _token(client)
+    payload = {
+        CSRF_FIELD: token,
+        "urls": "http://8.8.8.8/",
+        "scope": "manual",
+        "limit": "5",
+    }
+
+    # Act
+    sin_token = client.post("/configuracion/captura", data=payload, headers={"HX-Request": "true"})
+    con_token = client.post(
+        "/configuracion/captura",
+        data={**payload, "token_admin": OPERATOR_TOKEN},
+        headers={"HX-Request": "true"},
+    )
+
+    # Assert
+    assert sin_token.status_code == 403
+    assert con_token.status_code == 200
+    _job_id(con_token.text)
+
+
+def test_un_anonimo_no_distingue_jobs_ni_drena_el_stream() -> None:
+    # Arrange
+    puerta = threading.Event()
+
+    def runner(
+        request: CaptureRequest,
+        on_event: Callable[[CaptureEvent], None],
+    ) -> CaptureOutcome:
+        on_event(CaptureEvent(stage="descubrir", detail="1 semilla"))
+        puerta.wait(timeout=5)
+        return OUTCOME
+
+    client = _client(runner)
+    token = _token(client)
+    response = client.post(
+        "/configuracion/captura",
+        data={
+            CSRF_FIELD: token,
+            "token_admin": OPERATOR_TOKEN,
+            "urls": "http://8.8.8.8/",
+            "scope": "manual",
+            "limit": "5",
+        },
+        headers={"HX-Request": "true"},
+    )
+    job_id = _job_id(response.text)
+    anonimo = TestClient(client.app)
+
+    # Act
+    estado_ajeno = anonimo.get(f"/configuracion/captura/{job_id}")
+    estado_inexistente = anonimo.get("/configuracion/captura/no-existe")
+    stream_ajeno = anonimo.get(f"/configuracion/captura/{job_id}/eventos")
+    puerta.set()
+    stream_autorizado = client.get(f"/configuracion/captura/{job_id}/eventos")
+
+    # Assert
+    assert estado_ajeno.status_code == 403
+    assert estado_inexistente.status_code == 403
+    assert stream_ajeno.status_code == 403
+    assert "event: stage" in stream_autorizado.text
+    assert "event: done" in stream_autorizado.text
 
 
 def test_una_url_privada_devuelve_422_sin_lanzar_el_job() -> None:
@@ -160,6 +408,7 @@ def test_una_url_privada_devuelve_422_sin_lanzar_el_job() -> None:
         "/configuracion/captura",
         data={
             CSRF_FIELD: token,
+            "token_admin": OPERATOR_TOKEN,
             "urls": "http://127.0.0.1/",
             "scope": "manual",
             "limit": "5",
@@ -180,7 +429,13 @@ def test_el_alcance_manual_exige_al_menos_una_url() -> None:
     # Act
     response = client.post(
         "/configuracion/captura",
-        data={CSRF_FIELD: token, "urls": "", "scope": "manual", "limit": "5"},
+        data={
+            CSRF_FIELD: token,
+            "token_admin": OPERATOR_TOKEN,
+            "urls": "",
+            "scope": "manual",
+            "limit": "5",
+        },
         headers={"HX-Request": "true"},
     )
 
@@ -199,6 +454,7 @@ def test_no_permite_mas_urls_que_el_maximo_de_la_ejecucion() -> None:
         "/configuracion/captura",
         data={
             CSRF_FIELD: token,
+            "token_admin": OPERATOR_TOKEN,
             "urls": "http://8.8.8.8/\nhttp://1.1.1.1/",
             "scope": "manual",
             "limit": "1",
@@ -226,6 +482,7 @@ def test_un_segundo_envio_mientras_corre_devuelve_409() -> None:
     token = _token(client)
     payload = {
         CSRF_FIELD: token,
+        "token_admin": OPERATOR_TOKEN,
         "urls": "http://8.8.8.8/",
         "scope": "manual",
         "limit": "5",
@@ -256,6 +513,7 @@ def test_un_segundo_envio_mientras_corre_devuelve_409() -> None:
 def test_un_job_inexistente_devuelve_404() -> None:
     # Arrange
     client = _client(_runner_ok)
+    _login(client)
 
     # Act / Assert
     assert client.get("/configuracion/captura/no-existe").status_code == 404
@@ -268,6 +526,7 @@ def test_el_limite_por_ip_devuelve_429_con_retry_after() -> None:
     token = _token(client)
     payload = {
         CSRF_FIELD: token,
+        "token_admin": OPERATOR_TOKEN,
         "urls": "http://8.8.8.8/",
         "scope": "manual",
         "limit": "5",

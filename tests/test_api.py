@@ -116,6 +116,35 @@ def test_la_portada_redirige_al_chat() -> None:
     assert response.headers["location"] == "/chat"
 
 
+def test_la_lectura_publica_no_depende_del_token_de_operador(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("OPERATOR_TOKEN", "token-de-prueba")
+    client = make_client()
+
+    # Act / Assert
+    for ruta in ("/chat", "/faq", "/api/csrf", "/live"):
+        assert client.get(ruta).status_code == 200, ruta
+    assert client.get("/configuracion").status_code == 200
+    assert 'href="/configuracion"' not in client.get("/chat").text
+
+
+def test_no_existen_endpoints_web_de_publicacion_del_corpus() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act / Assert: publicar sigue siendo un paso de la consola.
+    for ruta in (
+        "/configuracion/sync",
+        "/configuracion/index",
+        "/api/configuracion",
+        "/api/captura",
+        "/api/sync",
+    ):
+        assert client.post(ruta).status_code in {404, 405}, ruta
+
+
 def test_chat_renderiza_el_formulario_y_el_panel() -> None:
     # Arrange
     client = make_client()
@@ -131,7 +160,7 @@ def test_chat_renderiza_el_formulario_y_el_panel() -> None:
     assert "/static/texto.js" in response.text
     assert "/static/panel.js" in response.text
     assert "/static/panel.css" in response.text
-    assert 'href="/configuracion"' in response.text
+    assert 'href="/configuracion"' not in response.text
     assert response.text.index('id="hilo"') < response.text.index('class="formulario composer"')
 
 
@@ -165,7 +194,8 @@ def test_la_navegacion_enlaza_las_pantallas_y_oculta_el_asistente() -> None:
     assert 'href="/corpus"' in response.text
     assert 'href="/chat"' in response.text
     assert 'href="/faq"' in response.text
-    assert 'href="/configuracion"' in response.text
+    assert 'href="/cotizador"' in response.text
+    assert 'href="/configuracion"' not in response.text
 
 
 def test_las_pestanas_marcan_la_pantalla_activa() -> None:

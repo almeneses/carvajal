@@ -312,8 +312,8 @@ uv run carvajal sync --adopt              # completa source_key/raw_hash en un r
 
 La corrida es incremental: compara huellas y solo importa e indexa lo nuevo o cambiado;
 la poda se limita a la capa sincronizada. La captura web y la carga desde Configuración
-terminan en la misma sincronización y comparten `data/.corpus.lock`, así que dos
-corridas no dejan el corpus a medio escribir.
+solo escriben Gold para revisión; el operador publica después con `carvajal sync`, que
+comparte `data/.corpus.lock`, así que dos corridas no dejan el corpus a medio escribir.
 
 **Prioridad de capas.** El chat busca primero `layer=core` y solo completa con
 `layer=extended` si el núcleo no llena el cupo o queda por debajo de `RAG_MIN_SCORE`. La
@@ -434,7 +434,7 @@ uv run carvajal summarize            # resumen ejecutivo -> docs/resumen.md
 uv run carvajal summarize --focus empaques
 uv run carvajal faq                  # FAQ de cliente -> docs/faq.md
 
-# Interfaz web única: chat, FAQ, corpus y configuración
+# Interfaz web única: chat, FAQ, corpus y lectura
 make api                        # http://localhost:8000/chat
 
 # Evaluación: 25 preguntas de prueba -> docs/resultados.md
@@ -445,8 +445,9 @@ make eval
 
 La entrada oficial del Módulo 2 es <http://localhost:8000> (`make api`): un
 único proceso sirve el shell Jinja2/HTMX y la API. La navegación superior
-ofrece **Chat**, **FAQ**, **Corpus** y **Configuración**, más la ficha
-`/documents/{id}`; `/` redirige a `/chat`.
+ofrece **Chat**, **Cotizador**, **FAQ** y **Corpus**, más la ficha
+`/documents/{id}`; `/` redirige a `/chat`. **Configuración** es una consola de
+operador y no se enlaza desde la navegación pública.
 Corpus y Documento leen los endpoints JSON `/api/corpus` y
 `/api/documents/*`, que reutilizan los mismos proveedores y el saneamiento
 `nh3` de las vistas HTML. El chat emite SSE por `/chat/stream` (y conserva
@@ -458,23 +459,27 @@ pestaña **FAQ** (`/faq`) consume el mismo endpoint `/api/faq` y ofrece la misma
 experiencia de lotes de 10. Sus pantallas comparten la cabecera, la paleta y los
 componentes visuales del frontend del M2. El texto generado se formatea con Markdown saneado, las
 fuentes se pliegan por defecto y cada cita abre un panel lateral con el
-documento en el fragmento citado. El chat mantiene el compositor abajo, un
-panel de hilos anteriores y la pestaña **Configuración** para subir documentos
-o carpetas y para capturar páginas web por semillas o URLs: Bronze → Silver →
-Gold → PostgreSQL → Qdrant, reutilizando el pipeline del corpus y conservando
-los documentos ya indexados. La captura muestra el progreso por SSE, respeta
-`robots.txt` y valida las URLs contra un guard SSRF; en esta fase la carga y la
-captura son públicas y no exigen autenticación.
+documento en el fragmento citado. El chat mantiene el compositor abajo y un
+panel de hilos anteriores. La antigua pestaña **Configuración** sigue existiendo
+en `/configuracion` para el operador, pero no se enlaza desde la navegación y
+exige `OPERATOR_TOKEN`. La carga y la captura web solo escriben Gold para
+revisión: la publicación a PostgreSQL y Qdrant se hace después con
+`carvajal sync --layer core`. La captura muestra el progreso por SSE, respeta
+`robots.txt` y valida las URLs contra un guard SSRF.
 
 #### Carga local multiformato (web y consola)
 
-La pestaña Configuración y la consola aceptan `.pdf`, `.xml`, `.json`, `.jsonl`,
-`.csv`, `.tsv`, `.html`, `.txt`, `.md` y `.markdown`. Cada archivo deja el original en
-Bronze, el texto extraído en Silver y la ficha en Gold; los PDF conservan el número de
-página (`## Página N`) gracias a `pdftotext` (poppler-utils) y los escaneados se rechazan
-con un aviso de OCR. Los datos estructurados se validan (sin DTD ni entidades externas)
-y se conservan como texto íntegro delimitado por su formato. La web mantiene 100
-archivos por carga y 5 MB por archivo.
+La pestaña Configuración (solo operador) y la consola aceptan `.pdf`, `.xml`, `.json`,
+`.jsonl`, `.csv`, `.tsv`, `.html`, `.txt`, `.md` y `.markdown`. Cada archivo deja el
+original en Bronze, el texto extraído en Silver y la ficha en Gold; los PDF conservan el
+número de página (`## Página N`) gracias a `pdftotext` (poppler-utils) y los escaneados se
+rechazan con un aviso de OCR. Los datos estructurados se validan (sin DTD ni entidades
+externas) y se conservan como texto íntegro delimitado por su formato. La web mantiene
+100 archivos por carga y 5 MB por archivo, y deja el lote en Gold pendiente de revisión:
+la publicación al chat se hace con `carvajal sync --layer core`.
+
+La autorización, las rutas cubiertas y el procedimiento de revisión y publicación están
+en [`docs/seguridad-operacion-corpus.md`](docs/seguridad-operacion-corpus.md).
 
 Para volúmenes grandes, desde la consola:
 
@@ -486,10 +491,11 @@ Recorre carpetas y subcarpetas, ignora las extensiones no admitidas, procesa en 
 (`--lote`, 25 por defecto; `--max-batch-mb`, 256 MB por defecto), admite 100 MB por archivo
 (`--max-file-mb`) y al cerrar cada lote actualiza PostgreSQL y Qdrant. Cada lote se lee de
 disco al procesarlo, así que la memoria viva se acota al lote y no al tamaño del corpus.
-`--solo-extraer` se detiene en Gold para revisar la
-extracción antes de tocar la base y el índice. `--source-type` (`oficial`, `tercero` o
-`colaborador`) fija la procedencia que se escribe en el *front matter*: la procedencia es
-independiente de que el archivo se suba por la web o se importe por consola.
+Para fuentes nuevas, `--solo-extraer` se detiene en Gold para revisar la extracción antes de
+tocar la base y el índice; después publica con `carvajal sync --layer core`.
+`--source-type` (`oficial`, `tercero` o `colaborador`) fija la procedencia que se escribe
+en el *front matter*: la procedencia es independiente de que el archivo se suba por la web
+o se importe por consola.
 
 En el VPS se ejecuta dentro del contenedor, que es donde están la base, Qdrant y los
 volúmenes:
@@ -557,6 +563,7 @@ También puedes configurar las variables en la terminal:
 | `RAG_TOP_K` | Fragmentos que recibe el prompt. | `6` |
 | `RAG_MIN_SCORE` | Umbral mínimo de similitud. | `0.30` |
 | `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
+| `OPERATOR_TOKEN` | Token compartido para carga y captura web; vacío deshabilita la escritura web. `CONFIG_TOKEN` es alias. | `""` |
 | `CAPTURE_DEFAULT_URLS` | Valor inicial del máximo de URLs por captura. | `5` |
 | `CAPTURE_MAX_BYTES` | Tamaño máximo de una respuesta capturada. | `5000000` |
 | `CAPTURE_TIMEOUT_SECONDS` | Timeout por petición de la captura. | `30` |

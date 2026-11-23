@@ -5,7 +5,12 @@ from collections.abc import Callable
 
 import pytest
 
-from apps.api.capture_jobs import CaptureBusy, CaptureJobs, CaptureRateLimited
+from apps.api.capture_jobs import (
+    CaptureBusy,
+    CaptureJobs,
+    CaptureRateLimited,
+    default_capture_runner,
+)
 from apps.api.web_capture import CaptureOutcome, CaptureRequest
 from carvajal.pipeline import CaptureEvent
 
@@ -124,6 +129,30 @@ def test_stream_de_un_job_inexistente_falla() -> None:
     # Act / Assert
     with pytest.raises(KeyError):
         list(jobs.stream("no-existe"))
+
+
+def test_el_runner_real_deja_gold_sin_publicar(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    capturado: dict[str, object] = {}
+
+    def fake_ingest(
+        request: CaptureRequest,
+        *,
+        on_event: Callable[[CaptureEvent], None],
+        publicar: bool,
+    ) -> CaptureOutcome:
+        capturado["request"] = request
+        capturado["publicar"] = publicar
+        return OUTCOME
+
+    monkeypatch.setattr("apps.api.capture_jobs.ingest_urls", fake_ingest)
+
+    # Act
+    outcome = default_capture_runner(CaptureRequest(limit=1), lambda event: None)
+
+    # Assert
+    assert outcome == OUTCOME
+    assert capturado["publicar"] is False
 
 
 def test_el_limite_por_owner_bloquea_y_libera_a_otro_owner() -> None:
