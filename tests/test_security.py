@@ -476,6 +476,13 @@ def test_operator_authorized_acepta_formulario_bearer_basic_y_cookie() -> None:
         is True
     )
     assert (
+        operator_authorized(
+            _request({"Authorization": "Basic Y3VhbHF1aWVyYTpzZWNyZXRv"}),
+            settings=settings,
+        )
+        is False
+    )
+    assert (
         operator_authorized(_request({"Cookie": f"{OPERATOR_COOKIE}={cookie}"}), settings=settings)
         is True
     )

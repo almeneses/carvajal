@@ -25,6 +25,7 @@ __all__ = [
     "CSRF_COOKIE",
     "CSRF_FIELD",
     "HSTS",
+    "OPERATOR_BASIC_USER",
     "OPERATOR_COOKIE",
     "OPERATOR_COOKIE_MAX_AGE",
     "PERMISOS_CHAT",
@@ -49,6 +50,8 @@ CSRF_COOKIE = "carvajal_csrf"
 CSRF_FIELD = "csrf_token"
 CSRF_MAX_AGE = 60 * 60 * 12  # doce horas
 _STATIC_PREFIX = "/static"
+# Basic solo se acepta con este usuario fijo; la credencial es el token.
+OPERATOR_BASIC_USER = "operador"
 
 # Sesión corta del operador: el token de despliegue se cambia en el entorno y
 # la cookie firmada evita repetirlo en cada formulario y en el SSE de captura.
@@ -250,18 +253,18 @@ def valid_operator_cookie(
         return False
 
 
-def _basic_password(header: str) -> str:
-    """Extrae la contraseña de un ``Authorization: Basic`` bien formado."""
+def _basic_credentials(header: str) -> tuple[str, str]:
+    """Extrae usuario y contraseña de un ``Authorization: Basic`` válido."""
 
     scheme, _, encoded = header.partition(" ")
     if scheme.lower() != "basic" or not encoded.strip():
-        return ""
+        return "", ""
     try:
         decoded = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
     except (ValueError, UnicodeDecodeError):
-        return ""
-    _, _, password = decoded.partition(":")
-    return password
+        return "", ""
+    username, _, password = decoded.partition(":")
+    return username, password
 
 
 def operator_authorized(
@@ -290,7 +293,8 @@ def operator_authorized(
         scheme, _, value = authorization.partition(" ")
         if scheme.lower() == "bearer" and _secure_equal(expected, value.strip()):
             return True
-        if _secure_equal(expected, _basic_password(authorization)):
+        username, password = _basic_credentials(authorization)
+        if username == OPERATOR_BASIC_USER and _secure_equal(expected, password):
             return True
     return valid_operator_cookie(request.cookies.get(OPERATOR_COOKIE, ""), settings)
 

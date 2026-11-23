@@ -10,9 +10,9 @@
     <p class="sobrelinea">Configuración · Corpus</p>
     <h1 id="titulo-configuracion">Alimenta el corpus</h1>
     <p class="entradilla">
-      Sube documentos sueltos o una carpeta completa. Cada archivo pasa por Bronze,
-      Silver y Gold, se importa a PostgreSQL y se vuelve a indexar en Qdrant para que
-      forme parte del asistente.
+      Consola de operador para incorporar documentos y páginas al corpus. La
+      carga deja el lote en Gold; la publicación al chat se hace después con la
+      consola.
     </p>
   </header>
 
@@ -20,18 +20,41 @@
   <p class="aviso" role="alert">{{ error }}</p>
   {% endif %}
 
-  {% if operator_token_required %}
+  {% if operator_token_required and operator_authorized %}
   <p class="aviso">
     La carga y la captura dejan los documentos en <strong>Gold</strong> para
     revisión. La publicación al chat se hace después con
     <code>carvajal sync --layer core</code>.
   </p>
-  {% if operator_authorized %}
   <form class="config-salir" method="post" action="/configuracion/salir">
     {% include "_csrf.html" %}
     <button type="submit" class="boton boton-secundario">Cerrar sesión de operador</button>
   </form>
-  {% endif %}
+  {% elif operator_token_required %}
+  <section class="panel config-formulario" aria-labelledby="titulo-acceso">
+    <h2 id="titulo-acceso">Acceso de operador</h2>
+    <p class="ayuda">
+      Introduce el token del despliegue (<code>OPERATOR_TOKEN</code>) para
+      habilitar la carga y la captura. Los formularios no se muestran sin
+      sesión.
+    </p>
+    <form method="post" action="/configuracion/acceso">
+      {% include "_csrf.html" %}
+      <div class="config-campo">
+        <label for="token_admin">Token de operador</label>
+        <input
+          id="token_admin"
+          name="token_admin"
+          type="password"
+          autocomplete="current-password"
+          required
+          aria-describedby="ayuda-token-admin"
+        />
+        <p id="ayuda-token-admin" class="ayuda">Token del despliegue.</p>
+      </div>
+      <button type="submit" class="boton">Entrar</button>
+    </form>
+  </section>
   {% endif %}
 
   {% if report %}
@@ -99,7 +122,7 @@
   </section>
   {% endif %}
 
-  {% if operator_token_required %}
+  {% if operator_token_required and operator_authorized %}
   <div class="config-grid">
     <form
       class="panel config-formulario"

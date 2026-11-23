@@ -92,7 +92,10 @@ def test_la_pagina_muestra_el_formulario_de_captura() -> None:
     client = _client(_runner_ok)
 
     # Act
-    response = client.get("/configuracion")
+    response = client.get(
+        "/configuracion",
+        headers={"X-Operator-Token": OPERATOR_TOKEN},
+    )
 
     # Assert
     assert response.status_code == 200

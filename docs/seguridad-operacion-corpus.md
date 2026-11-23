@@ -18,7 +18,9 @@ fronteras explícitas:
 No se introdujo un sistema de cuentas. El token web es un único secreto de
 despliegue, comparado en tiempo constante, y la sesión del navegador es una
 cookie firmada de ocho horas (`carvajal_operator`). Cambiar `OPERATOR_TOKEN`
-invalida todas las sesiones emitidas.
+invalida todas las sesiones emitidas. Para automatización se acepta
+`X-Operator-Token`, `Authorization: Bearer <token>` y `Authorization: Basic`
+solo con el usuario fijo `operador` y el token como contraseña.
 
 `CONFIG_TOKEN` se acepta como alias del token para no romper despliegues que
 usaban el mecanismo anterior. Si no hay token configurado, la escritura web
@@ -34,14 +36,17 @@ antes de leer archivos, validar URLs o crear un job de captura.
 
 | Método y ruta | Control | Efecto |
 |---------------|---------|--------|
-| `GET /configuracion` | Página no enlazada; `403` si no hay `OPERATOR_TOKEN` | Muestra el formulario y pide el token si no hay cookie |
+| `GET /configuracion` | Página no enlazada; `403` si no hay `OPERATOR_TOKEN` | Con token y sin sesión muestra solo el acceso de operador; con sesión, la consola |
+| `POST /configuracion/acceso` | CSRF + token | Valida el token, emite la cookie y redirige a la consola |
+| `POST /configuracion/salir` | CSRF | Borra la cookie de operador |
 | `POST /configuracion` | CSRF + operador, antes de leer archivos | Bronze → Silver → Gold; **no** publica a PostgreSQL/Qdrant |
 | `POST /configuracion/captura` | CSRF + operador, antes de validar o crear el job | Captura a Gold; **no** publica a PostgreSQL/Qdrant |
 | `GET /configuracion/captura/{id}` | Operador | Estado del job |
 | `GET /configuracion/captura/{id}/eventos` | Operador | Progreso SSE del job |
 
 La pestaña **Configuración** ya no aparece en la navegación pública. El enlace
-directo sigue existiendo para el operador; sin token no se procesa nada.
+directo sigue existiendo para el operador; sin sesión solo se muestra el acceso
+de operador y sin token no se procesa nada.
 
 ### Lectura pública (sin cambios)
 

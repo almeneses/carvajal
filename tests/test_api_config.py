@@ -28,7 +28,7 @@ def make_client() -> TestClient:
     """Cliente de la app con la carga real desactivada por defecto."""
 
     app = create_app()
-    app.state.ingest = lambda documents: IngestReport(files=len(documents))
+    app.state.ingest = lambda documents, **kwargs: IngestReport(files=len(documents))
     return TestClient(app)
 
 
@@ -37,7 +37,10 @@ def test_configuracion_muestra_el_formulario_y_las_etapas() -> None:
     client = make_client()
 
     # Act
-    response = client.get("/configuracion")
+    response = client.get(
+        "/configuracion",
+        headers={"X-Operator-Token": OPERATOR_TOKEN},
+    )
 
     # Assert
     assert response.status_code == 200
@@ -47,7 +50,7 @@ def test_configuracion_muestra_el_formulario_y_las_etapas() -> None:
     assert "Bronze" in response.text and "Qdrant" in response.text
     assert "Configuración" in response.text
     assert 'href="/configuracion"' not in response.text
-    assert 'name="token_admin"' in response.text
+    assert 'name="token_admin"' not in response.text
     assert "carvajal sync --layer core" in response.text
 
 
@@ -55,7 +58,7 @@ def test_subir_documento_pasa_los_archivos_al_ingestor() -> None:
     # Arrange
     recibidos: list[UploadedDocument] = []
 
-    def ingestor(documents: list[UploadedDocument]) -> IngestReport:
+    def ingestor(documents: list[UploadedDocument], **kwargs: object) -> IngestReport:
         recibidos.extend(documents)
         return IngestReport(
             files=len(documents),
@@ -124,7 +127,7 @@ def test_subir_desde_una_ip_remota_sin_token_no_ejecuta_ingesta() -> None:
     # Arrange
     llamadas: list[list[UploadedDocument]] = []
     app = create_app()
-    app.state.ingest = lambda documents: (
+    app.state.ingest = lambda documents, **kwargs: (
         llamadas.append(list(documents)) or IngestReport(files=len(documents))
     )
     client = TestClient(app, client=("203.0.113.10", 12345))
@@ -147,7 +150,7 @@ def test_subir_desde_una_ip_remota_sin_token_no_ejecuta_ingesta() -> None:
 def test_subir_desde_una_ip_remota_con_token_funciona() -> None:
     # Arrange
     app = create_app()
-    app.state.ingest = lambda documents: IngestReport(
+    app.state.ingest = lambda documents, **kwargs: IngestReport(
         files=len(documents),
         bronze=1,
         silver=1,
@@ -178,7 +181,10 @@ def test_configuracion_anuncia_los_mismos_formatos_que_acepta_el_backend() -> No
     aceptados = ",".join(sorted(ALLOWED_EXTENSIONS))
 
     # Act
-    response = client.get("/configuracion")
+    response = client.get(
+        "/configuracion",
+        headers={"X-Operator-Token": OPERATOR_TOKEN},
+    )
 
     # Assert
     assert response.text.count(aceptados) == 2
@@ -188,7 +194,7 @@ def test_subir_un_json_llega_al_ingestor() -> None:
     # Arrange
     recibidos: list[UploadedDocument] = []
 
-    def ingestor(documents: list[UploadedDocument]) -> IngestReport:
+    def ingestor(documents: list[UploadedDocument], **kwargs: object) -> IngestReport:
         recibidos.extend(documents)
         return IngestReport(files=len(documents), gold=1, documents=1, chunks=1, indexed=1)
 
@@ -219,9 +225,35 @@ def test_configuracion_pide_token_y_no_filtra_su_valor() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert response.text.count('name="token_admin"') == 2
+    assert response.text.count('name="token_admin"') == 1
+    assert 'action="/configuracion/acceso"' in response.text
     assert 'type="password"' in response.text
+    assert 'name="archivos"' not in response.text
+    assert 'name="urls"' not in response.text
     assert OPERATOR_TOKEN not in response.text
+
+
+def test_acceso_con_token_abre_la_consola_y_emite_cookie() -> None:
+    # Arrange
+    client = make_client()
+    client.get("/configuracion")
+    token = client.cookies[CSRF_COOKIE]
+
+    # Act
+    response = client.post(
+        "/configuracion/acceso",
+        data={CSRF_FIELD: token, "token_admin": OPERATOR_TOKEN},
+        follow_redirects=False,
+    )
+    consola = client.get("/configuracion")
+
+    # Assert
+    assert response.status_code == 303
+    assert response.headers["location"] == "/configuracion"
+    assert "carvajal_operator=" in response.headers["set-cookie"]
+    assert consola.status_code == 200
+    assert 'name="archivos"' in consola.text
+    assert 'name="token_admin"' not in consola.text
 
 
 def test_operador_por_cabecera_abre_la_pagina_sin_pedir_token() -> None:
@@ -243,7 +275,7 @@ def test_operador_por_cabecera_abre_la_pagina_sin_pedir_token() -> None:
 def test_operador_valido_emite_cookie_y_oculta_el_campo() -> None:
     # Arrange
     app = create_app()
-    app.state.ingest = lambda documents: IngestReport(files=len(documents))
+    app.state.ingest = lambda documents, **kwargs: IngestReport(files=len(documents))
     client = TestClient(app)
     client.get("/configuracion")
     token = client.cookies[CSRF_COOKIE]
@@ -271,7 +303,7 @@ def test_operador_valido_con_csrf_invalido_no_ejecuta_ingesta() -> None:
     # Arrange
     llamadas: list[list[UploadedDocument]] = []
 
-    def ingestor(documents: list[UploadedDocument]) -> IngestReport:
+    def ingestor(documents: list[UploadedDocument], **kwargs: object) -> IngestReport:
         llamadas.append(list(documents))
         return IngestReport(files=len(documents))
 
@@ -314,11 +346,37 @@ def test_cerrar_sesion_de_operador_borra_la_cookie() -> None:
     assert "Max-Age=0" in response.headers["set-cookie"]
 
 
+def test_el_hook_inyectado_tambien_recibe_solo_extraer() -> None:
+    # Arrange
+    capturado: dict[str, object] = {}
+
+    def ingestor(documents: list[UploadedDocument], **kwargs: object) -> IngestReport:
+        capturado.update(kwargs)
+        return IngestReport(files=len(documents), gold=len(documents))
+
+    app = create_app()
+    app.state.ingest = ingestor
+    client = TestClient(app)
+    client.get("/configuracion")
+    token = client.cookies[CSRF_COOKIE]
+
+    # Act
+    response = client.post(
+        "/configuracion",
+        data={CSRF_FIELD: token, "token_admin": OPERATOR_TOKEN},
+        files={"archivos": ("nota.md", b"# Nota\n\nTexto.", "text/markdown")},
+    )
+
+    # Assert
+    assert response.status_code == 200
+    assert capturado["solo_extraer"] is True
+
+
 def test_subir_sin_token_de_operador_no_ejecuta_ingesta() -> None:
     # Arrange
     llamadas: list[list[UploadedDocument]] = []
 
-    def ingestor(documents: list[UploadedDocument]) -> IngestReport:
+    def ingestor(documents: list[UploadedDocument], **kwargs: object) -> IngestReport:
         llamadas.append(list(documents))
         return IngestReport(files=len(documents))
 
@@ -345,7 +403,7 @@ def test_subir_con_token_incorrecto_no_ejecuta_ingesta() -> None:
     # Arrange
     llamadas: list[list[UploadedDocument]] = []
 
-    def ingestor(documents: list[UploadedDocument]) -> IngestReport:
+    def ingestor(documents: list[UploadedDocument], **kwargs: object) -> IngestReport:
         llamadas.append(list(documents))
         return IngestReport(files=len(documents))
 
@@ -391,6 +449,7 @@ def test_configuracion_sin_operador_configurado_devuelve_403(
     assert response.status_code == 403
     assert "deshabilitadas" in response.text
     assert 'name="archivos"' not in response.text
+    assert 'name="token_admin"' not in response.text
     assert "carvajal capture" in response.text
     assert carga.status_code == 403
     assert "deshabilitadas" in carga.text

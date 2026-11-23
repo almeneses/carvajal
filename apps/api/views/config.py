@@ -78,6 +78,27 @@ def configuracion(request: Request) -> Response:
     )
 
 
+@router.post("/configuracion/acceso")
+def iniciar_sesion(
+    request: Request,
+    csrf_token: str = Form(default=""),
+    token_admin: str = Form(default=""),
+) -> Response:
+    """Valida el token y abre la consola; no revela los formularios sin sesión."""
+
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _page(request, error=CSRF_INVALIDO, status_code=403)
+    settings = Settings()
+    if not operator_authorized(request, token_admin, settings=settings):
+        logger.warning("config.login_failed", path=request.url.path)
+        error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
+        return _page(request, error=error, status_code=403)
+    response = RedirectResponse(url="/configuracion", status_code=303)
+    set_operator_cookie(response, request, settings)
+    return response
+
+
 @router.post("/configuracion/salir")
 def cerrar_sesion(
     request: Request,
@@ -138,7 +159,9 @@ async def subir_documentos(
                 solo_extraer=True,
             )
         else:
-            report = ingestor(batch.documents)
+            # El hook de pruebas/despliegue debe respetar el mismo contrato:
+            # la web nunca publica; solo deja el lote en Gold.
+            report = ingestor(batch.documents, solo_extraer=True)
     except Exception as error:  # el pipeline no debe tumbar la página
         logger.warning("config.ingest_failed", error=str(error))
         report = IngestReport(
