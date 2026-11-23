@@ -39,6 +39,17 @@ No se midió ninguna muestra; la siguiente es una propuesta de aceptación, no u
 - **Muestra mínima**: 30 turnos mixtos y 10 sesiones concurrentes, registrando fecha, commit, modelo, proveedor y hardware.
 - Se aceptan valores distintos si el owner los fija antes de la medición; hasta entonces T029 queda pendiente.
 
+### Resultado medido de SC-005 (2026-11-23)
+
+Medición local con la app de la 043 en `127.0.0.1:8013`, PostgreSQL de prueba, Qdrant `carvajal_chunks` (125 puntos) y Ollama `nomic-embed-text`; LLM `deepseek-flash`; monitoreo apagado. La muestra completa quedó en [`medicion_sc005.json`](./medicion_sc005.json).
+
+| Tanda | Turnos | OK | Primer contenido: mediana | Primer contenido: p95 | Cierre: mediana | Cierre: p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Secuencial | 30 | 30 | 33,80 ms | 2.344,34 ms | 6.222,57 ms | 12.866,37 ms |
+| 10 concurrentes | 10 | 10 | 1.508,65 ms | 2.564,80 ms | 3.057,57 ms | 12.382,15 ms |
+
+Los valores cumplen el umbral propuesto: primer contenido p95 < 6.000 ms y cierre p95 < 20.000 ms, con 40/40 turnos completados. Esta medición no sustituye la aprobación del owner: T029 sigue pendiente hasta que acepte el umbral y la muestra. T021 sigue parcial porque la actualización sobre un volumen real de la 042, el rollback y el recorrido de navegador no se validaron aquí.
+
 ### Cómo medir SC-005
 
 1. Levantar el stack autorizado con el runbook de despliegue y registrar commit, versión comercial, modelo/proveedor y hardware.
