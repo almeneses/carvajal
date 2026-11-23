@@ -91,7 +91,9 @@ def _sedes(book: CommercialBook, args: argparse.Namespace) -> int:
             {
                 "cities": book.cities(),
                 "sedes": {
-                    city: book.city_directory(city).model_dump(mode="json")
+                    city: book.city_directory(city, as_of=_as_of(args.as_of)).model_dump(
+                        mode="json"
+                    )
                     for city in book.cities()
                 },
             }

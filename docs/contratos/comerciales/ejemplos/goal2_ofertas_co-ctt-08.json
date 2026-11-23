@@ -114,7 +114,7 @@
             "note": "No es evidencia real; no habilita stock verificado."
           }
         ],
-        "simulated": false,
+        "simulated": true,
         "checked_at": "2026-11-21",
         "note": "Afirmación sin evidencia admisible; queda por confirmar."
       },
@@ -242,7 +242,7 @@
             "note": "No es evidencia real; no habilita stock verificado."
           }
         ],
-        "simulated": false,
+        "simulated": true,
         "checked_at": "2026-11-21",
         "note": "Afirmación sin evidencia admisible; queda por confirmar."
       },

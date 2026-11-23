@@ -18,7 +18,7 @@ falla en vez de perderse en silencio.
 
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -718,6 +718,9 @@ class ContractDocument(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     contract_version: Literal["1.0"] = "1.0"
+    query: dict[str, Any] | None = Field(
+        default=None, description="Consulta que produjo el documento, si aplica"
+    )
     products: tuple[Product, ...] = ()
     sellers: tuple[Seller, ...] = ()
     sites: tuple[Site, ...] = ()

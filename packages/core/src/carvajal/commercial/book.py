@@ -296,11 +296,13 @@ class CommercialBook:
             if item.site_id == site_id and item.sku == sku
         )
         proves = any(item.proves_stock for item in items)
+        simulated = not proves and any(item.kind == "simulacion" for item in items)
         availability = Availability.from_claim(
             declared,
             units=items[0].units,
             checked_at=max(item.recorded_at for item in items),
             evidence=items,
+            simulated=simulated,
             note=(
                 "Existencia respaldada por evidencia registrada."
                 if proves

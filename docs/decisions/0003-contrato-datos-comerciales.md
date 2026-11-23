@@ -70,7 +70,7 @@ Adoptar una capa de contrato versionada, `carvajal.commercial`, con:
 
 - `docs/contratos/comerciales/README.md` — contrato completo, ejemplos y actualización.
 - `docs/contratos/comerciales/contrato.schema.json` — JSON Schema generado.
-- `tests/test_commercial_contract.py` — 34 pruebas de aceptación.
+- `tests/test_commercial_contract.py` — 36 pruebas de aceptación.
 - `uv run python -m carvajal.commercial validar` — 248 productos, 29 sedes, 10 ciudades,
   258 ofertas, 0 stock verificado.
 - `uv run python -m carvajal.commercial paridad-mx` — `PARIDAD OK` (98/98).

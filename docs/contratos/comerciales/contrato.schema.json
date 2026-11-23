@@ -1151,6 +1151,20 @@
       "title": "Contract Version",
       "type": "string"
     },
+    "query": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Consulta que produjo el documento, si aplica",
+      "title": "Query"
+    },
     "products": {
       "default": [],
       "items": {

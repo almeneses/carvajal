@@ -10,9 +10,11 @@ Cubren los criterios de aceptación:
 - México conserva la paridad de las 98 referencias auditadas.
 """
 
+import json
 from collections import Counter
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -23,6 +25,7 @@ from carvajal.commercial import (
     AvailabilityEvidence,
     Basis,
     CommercialRecord,
+    ContractDocument,
     ContractError,
     Country,
     Currency,
@@ -48,6 +51,7 @@ from carvajal.commercial.loader import CATALOG_DIR, DEMO_DIR, EVIDENCE_PATH, boo
 
 TODAY = date(2026, 11, 22)
 YESTERDAY = TODAY - timedelta(days=1)
+EXAMPLES = Path(__file__).resolve().parents[1] / "docs" / "contratos" / "comerciales" / "ejemplos"
 
 
 def _source(
@@ -710,3 +714,21 @@ def test_mexico_sin_precio_no_se_convierte_desde_colombia() -> None:
 
     assert {item.currency for item in mx} == {"MXN"}
     assert all(item.country == "MX" for item in mx)
+
+
+def test_ejemplos_validan_contra_el_contrato() -> None:
+    """Los archivos de ejemplo son instancias reales de ContractDocument."""
+
+    files = sorted(EXAMPLES.glob("*.json"))
+    assert files
+    for path in files:
+        ContractDocument.model_validate(json.loads(path.read_text(encoding="utf-8")))
+
+
+def test_el_registro_marca_igual_que_la_oferta_si_el_stock_es_simulado() -> None:
+    book = load_commercial_book()
+
+    for offer in book.offers:
+        record = book.offer_record(offer, as_of=TODAY)
+        assert record.availability is not None
+        assert record.availability.simulated == offer.availability.simulated

@@ -298,10 +298,12 @@ Los archivos están en [`ejemplos/`](./ejemplos/):
 |---------|------|---------|--------|
 | `goal2_ofertas_co-ctt-08.json` | 2 | `{"sku":"CO-CTT-08","country":"CO"}` | 2 ofertas: una publicada y una demo, con presentación, importe, IVA, fuente y disponibilidad |
 | `goal4_directorio_neiva.json` | 4 | `{"city":"Neiva"}` | 1 contacto y 4 ofertas demo; el contacto existe aunque no haya precio publicado |
-| `goal4_sede_aproximada.json` | 4 | sede EDEXA | `map.mode="zona"`, `approximate=true`, nota de centroide |
+| `goal4_sede_aproximada.json` | 4 | sede EDEXA | `sites`, `offers` y su registro con `map.mode="zona"` y `approximate=true` |
 | `goal5_paridad_mx.json` | 5 | `mexico_parity()` | 98/98, MXN, caja, sin diferencias |
 | `goal5_oferta_mx.json` | 5 | `{"sku":"2864108000","country":"MX"}` | oferta oficial por caja, MXN, IVA incluido |
 
+Todos los ejemplos son instancias reales de `ContractDocument` y validan contra
+`contrato.schema.json`; el campo opcional `query` documenta la consulta que los produjo.
 Ejemplo mínimo de una oferta publicada:
 
 ```json
@@ -345,10 +347,10 @@ Ejemplo mínimo de contacto del directorio:
 | `packages/core/src/carvajal/commercial/__main__.py` | consulta CLI y JSON Schema |
 | `data/commercial/evidencia_disponibilidad.csv` | evidencia versionada (hoy solo cabecera) |
 | `docs/contratos/comerciales/contrato.schema.json` | JSON Schema generado |
-| `tests/test_commercial_contract.py` | 34 pruebas de aceptación |
+| `tests/test_commercial_contract.py` | 36 pruebas de aceptación |
 
 ```bash
-uv run pytest tests/test_commercial_contract.py -q     # 34 passed
+uv run pytest tests/test_commercial_contract.py -q     # 36 passed
 uv run ruff check packages/core/src/carvajal/commercial tests/test_commercial_contract.py
 uv run python -m carvajal.commercial validar
 uv run python -m carvajal.commercial sedes --ciudad "Bogotá"
