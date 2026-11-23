@@ -944,6 +944,30 @@ def _resultado_comercial() -> dict[str, Any]:
     }
 
 
+def test_el_conteo_de_citas_ignora_el_resultado_comercial() -> None:
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [
+        _message("user", "cotiza 20 vasos", sources=None),
+        _message(
+            "assistant",
+            "Subtotal [1] y cierre [2].",
+            sources=[
+                asdict(SOURCE),
+                {"result_type": "commercial", "result": _resultado_comercial()},
+            ],
+        ),
+    ]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    respuesta = client.get("/chat")
+
+    assert respuesta.status_code == 200
+    assert "[1]" not in respuesta.text
+    # Solo hay una cita real: [2] queda como texto y no se descarta por el
+    # resultado comercial sintético.
+    assert "[2]" in respuesta.text
+
+
 def test_la_recarga_restaura_ficha_oferta_sede_y_folio() -> None:
     client, chat = make_client()
     chat.by_owner["dueno-a"] = [

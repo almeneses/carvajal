@@ -10,8 +10,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
 from apps.api.main import Handlers, HealthStatus, create_app
-from apps.api.views.cotizador import SqlCotizadorStore, ThreadAccessError
+from apps.api.views.cotizador import SqlCotizadorStore, ThreadAccessError, _readable
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
+from carvajal.adapters.storage.quotes import QuoteRecord
 
 IDENTITY = SignedCookieIdentity(b"secreto-cotizador")
 WHEN = datetime(2026, 11, 23, tzinfo=UTC)
@@ -235,6 +236,40 @@ def test_el_emparejamiento_por_client_turn_id_no_mezcla_turnos() -> None:
     assert "pregunta A" in respuesta.text
     assert "respuesta A" in respuesta.text
     assert "pregunta B" not in respuesta.text
+
+
+def test_el_emparejamiento_acepta_quote_record() -> None:
+    record = QuoteRecord(
+        {
+            "id": "folio-1",
+            "owner_key": "cot:dueno-a",
+            "message_id": "a-folio-1",
+            "payload": _payload(),
+        }
+    )
+
+    publicables = _readable(_turno("cotiza 20 vasos", "respuesta"), "dueno-a", [record])
+
+    assert [message.id for message in publicables] == ["u-folio-1", "a-folio-1"]
+
+
+def test_un_payload_de_aclaracion_no_rompe_el_historial() -> None:
+    client, store = make_client()
+    store.messages = [
+        ChatMessage("u-1", "hilo-1", "user", "¿Qué material?", None, WHEN),
+        ChatMessage(
+            "a-1",
+            "hilo-1",
+            "assistant",
+            "Aclaración sin cotización.",
+            [{"kind": "aclaracion", "reply": "Indica la cantidad."}],
+            WHEN,
+        ),
+    ]
+
+    respuesta = _get(client, "/cotizador?thread=hilo-1")
+
+    assert respuesta.status_code == 200
 
 
 def test_un_hilo_mixto_publica_solo_los_turnos_reales() -> None:

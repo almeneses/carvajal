@@ -27,7 +27,7 @@
       {% if message.role == "user" %}
       <div class="texto">{{ message.content }}</div>
       {% else %}
-      <div class="texto texto-formateado">{{ message.content | respuesta(fuentes | length) }}</div>
+      <div class="texto texto-formateado">{{ message.content | respuesta(titulos | length) }}</div>
       {% endif %}
     </div>
     {% if message.role != "user" and resultado_comercial.valor %}

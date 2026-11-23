@@ -23,7 +23,7 @@
         {% for message in messages %}
         {% set coti = namespace(valor=none) %}
         {% for fuente in message.sources or [] %}
-          {% if fuente.kind %}{% set coti.valor = fuente %}{% endif %}
+          {% if fuente.kind == "cotizacion" %}{% set coti.valor = fuente %}{% endif %}
         {% endfor %}
         <li class="turno turno-{{ message.role }}">
           <span class="turno-avatar" aria-hidden="true"></span>
@@ -36,8 +36,8 @@
               Folio <strong>#{{ coti.valor.quote.folio or coti.valor.quote.id }}</strong>
               {% if coti.valor.quote.issued_at %} · emitida el {{ coti.valor.quote.issued_at[:10] }}{% endif %}
               {% endif %}
-              {% if coti.valor.total %} · total {{ coti.valor.total }} {{ coti.valor.primary.currency or "COP" }}{% endif %}
-              {% if coti.valor.primary.source_url %}
+              {% if coti.valor.total and coti.valor.primary %} · total {{ coti.valor.total }} {{ coti.valor.primary.currency or "COP" }}{% endif %}
+              {% if coti.valor.primary and coti.valor.primary.source_url %}
               · <a href="{{ coti.valor.primary.source_url }}" rel="noopener" target="_blank">fuente del precio</a>
               {% endif %}
               {% if coti.valor.commercial and coti.valor.commercial.valid_until %}
