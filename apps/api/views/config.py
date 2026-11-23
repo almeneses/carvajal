@@ -328,7 +328,7 @@ def _captures(request: Request) -> CaptureJobs:
 def _operator_denied(request: Request) -> Response | None:
     """Rechaza la lectura de un job de captura si no hay operador autorizado."""
 
-    settings = Settings()
+    settings = getattr(request.app.state, "settings", None) or Settings()
     if operator_authorized(request, settings=settings):
         return None
     error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
