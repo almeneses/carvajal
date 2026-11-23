@@ -372,6 +372,32 @@ def test_el_hook_inyectado_tambien_recibe_solo_extraer() -> None:
     assert capturado["solo_extraer"] is True
 
 
+def test_el_hook_inyectado_con_firma_antigua_sigue_funcionando() -> None:
+    # Arrange
+    llamadas: list[list[UploadedDocument]] = []
+
+    def ingestor(documents: list[UploadedDocument]) -> IngestReport:
+        llamadas.append(list(documents))
+        return IngestReport(files=len(documents), gold=len(documents))
+
+    app = create_app()
+    app.state.ingest = ingestor
+    client = TestClient(app)
+    client.get("/configuracion")
+    token = client.cookies[CSRF_COOKIE]
+
+    # Act
+    response = client.post(
+        "/configuracion",
+        data={CSRF_FIELD: token, "token_admin": OPERATOR_TOKEN},
+        files={"archivos": ("nota.md", b"# Nota\n\nTexto.", "text/markdown")},
+    )
+
+    # Assert
+    assert response.status_code == 200
+    assert llamadas and llamadas[0][0].filename == "nota.md"
+
+
 def test_subir_sin_token_de_operador_no_ejecuta_ingesta() -> None:
     # Arrange
     llamadas: list[list[UploadedDocument]] = []

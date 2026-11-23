@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import asdict, dataclass, field
 from typing import Annotated, Any
 
@@ -159,9 +160,7 @@ async def subir_documentos(
                 solo_extraer=True,
             )
         else:
-            # El hook de pruebas/despliegue debe respetar el mismo contrato:
-            # la web nunca publica; solo deja el lote en Gold.
-            report = ingestor(batch.documents, solo_extraer=True)
+            report = _call_ingestor(ingestor, batch.documents)
     except Exception as error:  # el pipeline no debe tumbar la página
         logger.warning("config.ingest_failed", error=str(error))
         report = IngestReport(
@@ -286,6 +285,30 @@ def estado_captura(request: Request, job_id: str) -> Response:
             "outcome": asdict(job.outcome) if job.outcome is not None else None,
         }
     )
+
+
+def _call_ingestor(
+    ingestor: Any,
+    documents: list[UploadedDocument],
+) -> IngestReport:
+    """Invoca el hook de ingesta sin romper firmas antiguas.
+
+    El contrato nuevo recibe ``solo_extraer=True`` para que la web nunca
+    publique. Un hook de una sola firma se sigue aceptando para no romper
+    despliegues o pruebas existentes, pero se advierte en los logs.
+    """
+
+    try:
+        parameters = inspect.signature(ingestor).parameters
+    except (TypeError, ValueError):
+        return ingestor(documents)
+    accepts_kwargs = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+    )
+    if "solo_extraer" in parameters or accepts_kwargs:
+        return ingestor(documents, solo_extraer=True)
+    logger.warning("config.ingest_hook_legacy", hint="el hook debería aceptar solo_extraer")
+    return ingestor(documents)
 
 
 async def _leer_archivos(*subidas: UploadFile) -> _UploadBatch:
@@ -489,7 +512,7 @@ def _page(
         status_code=status_code,
         headers=merged,
     )
-    if operator_authorized:
+    if operator_authorized and status_code < 400:
         set_operator_cookie(response, request)
     return response
 
@@ -520,7 +543,7 @@ def _capture_partial(
         status_code=status_code,
         headers=merged,
     )
-    if operator_authorized:
+    if operator_authorized and status_code < 400:
         set_operator_cookie(response, request)
     return response
 
