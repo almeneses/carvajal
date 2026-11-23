@@ -1,4 +1,4 @@
-# Crea un tag con el ID del plan (W0.1b → w0-1b) al mergear un PR en dev y
+# Crea un tag con el ID del plan (W0.1b → w0-1b) al mergear un PR en main y
 # permite tags de hito (ola-0, ola-1…) de forma manual.
 name: Etiquetar versiones
 
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag a crear sobre dev (por ejemplo ola-0)"
+        description: "Tag a crear sobre main (por ejemplo spec-042)"
         required: true
         type: string
 
@@ -27,7 +27,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          ref: dev
+          ref: main
           fetch-depth: 1
 
       - name: Calcular el tag
