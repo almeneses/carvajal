@@ -31,7 +31,7 @@ de cada campo restringido.
 - [ ] T003 Revisión y congelamiento del owner: ajustar el borrador de T002, fijar `frozen_at` y `origin`, y commitear. **Bloquea Phase 3 en adelante.** Depende de T002. FR-016.
 - [X] T004 [P] Añadir validador del formato de `contracts/eval-agent.md` (mínimos por grupo, ids únicos, `frozen_at` presente) en `tests/test_generalization_set.py`. Depende de T002.
 
-- [ ] T005 Enmiendas 1 y 2 del plan en `CONSTITUTION.md` y `.specify/memory/constitution.md` (principio III: abstención garantizada por el servidor y declaración obligatoria de consulta; restricciones técnicas: modos `routes` y `tools`), con versión nueva y en un PR propio `docs(constitution): …` abierto con la skill `abrir-pr`. **Bloquea el merge de cualquier PR con código del modo `tools`** (no su desarrollo). FR-004, FR-004a, FR-015.
+- [X] T005 Enmiendas 1 y 2 del plan en `CONSTITUTION.md` y `.specify/memory/constitution.md` (principio III: abstención garantizada por el servidor y declaración obligatoria de consulta; restricciones técnicas: modos `routes` y `tools`), con versión nueva y en un PR propio `docs(constitution): …` abierto con la skill `abrir-pr`. **Bloquea el merge de cualquier PR con código del modo `tools`** (no su desarrollo). FR-004, FR-004a, FR-015. PR #230 abierto el 2026-11-23.
 
 **Checkpoint**: conjunto congelado, configuración lista y enmiendas en revisión del owner.
 
