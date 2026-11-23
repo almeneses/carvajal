@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
@@ -16,13 +17,18 @@ from apps.api.security import (
     CSRF_COOKIE,
     CSRF_FIELD,
     HSTS,
+    OPERATOR_COOKIE,
     SecurityMiddleware,
     build_csrf_secret,
+    issue_operator_cookie,
+    operator_authorized,
     politica_permisos,
+    valid_operator_cookie,
     valid_token,
 )
 from carvajal.application.ask import Answer
 from carvajal.application.quota import QuotaResult
+from carvajal.infrastructure.settings import Settings
 
 RESPUESTA = Answer("ok", ())
 IDENTITY = SignedCookieIdentity(b"secreto-de-prueba")
@@ -428,3 +434,58 @@ def test_el_js_pinta_errores_propios_y_envia_el_token_del_stream() -> None:
     assert "x-carvajal-error" in app_js
     assert "response.ok || propio" in app_js
     assert "csrf_token" in stream_js
+
+
+def _request(headers: dict[str, str] | None = None) -> Request:
+    """Petición mínima para probar las credenciales de operador."""
+
+    raw = [(name.lower().encode(), value.encode()) for name, value in (headers or {}).items()]
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": raw})
+
+
+def test_la_cookie_de_operador_caduca_y_se_invalida_al_cambiar_el_token() -> None:
+    # Arrange
+    settings = Settings(_env_file=None, operator_token="secreto")
+    cookie = issue_operator_cookie(settings, now=1_000)
+
+    # Act / Assert
+    assert valid_operator_cookie(cookie, settings, now=1_001) is True
+    assert valid_operator_cookie(cookie, settings, now=1_000 + 8 * 3600) is False
+    assert valid_operator_cookie(cookie, Settings(_env_file=None, operator_token="otro")) is False
+    assert "secreto" not in cookie
+    with pytest.raises(ValueError):
+        issue_operator_cookie(Settings(_env_file=None, operator_token=""))
+
+
+def test_operator_authorized_acepta_formulario_bearer_basic_y_cookie() -> None:
+    # Arrange
+    settings = Settings(_env_file=None, operator_token="secreto")
+    cookie = issue_operator_cookie(settings)
+
+    # Act / Assert
+    assert operator_authorized(_request(), "secreto", settings=settings) is True
+    assert (
+        operator_authorized(_request({"Authorization": "Bearer secreto"}), settings=settings)
+        is True
+    )
+    assert (
+        operator_authorized(
+            _request({"Authorization": "Basic b3BlcmFkb3I6c2VjcmV0bw=="}),
+            settings=settings,
+        )
+        is True
+    )
+    assert (
+        operator_authorized(_request({"Cookie": f"{OPERATOR_COOKIE}={cookie}"}), settings=settings)
+        is True
+    )
+    assert operator_authorized(_request({"X-Operator-Token": "secreto"}), settings=settings) is True
+    assert operator_authorized(_request(), "otro", settings=settings) is False
+    assert (
+        operator_authorized(_request({"Authorization": "Basic no-es-base64"}), settings=settings)
+        is False
+    )
+    assert (
+        operator_authorized(_request({"Authorization": "Bearer otro"}), settings=settings) is False
+    )
+    assert operator_authorized(_request(), "secreto", settings=Settings(_env_file=None)) is False

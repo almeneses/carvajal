@@ -1,6 +1,6 @@
 """Validación de URLs y cliente HTTP seguro para la captura web.
 
-La captura la dispara cualquier visitante de la pestaña Configuración, así que
+La captura la dispara un operador autorizado desde la consola de Configuración, así que
 el servidor no puede pedir una URL arbitraria: sería un SSRF. Este módulo
 rechaza esquemas inusuales, credenciales embebidas, puertos fuera de 80/443 e
 IPs privadas, loopback, link-local o reservadas, y revalida cada salto de una

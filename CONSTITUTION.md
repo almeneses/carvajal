@@ -64,10 +64,12 @@ con asistente RAG.
   solo para recuperación y citación, con manifiesto, deduplicación por URL/hash
   (incluidas las URLs del núcleo) y procedencia explícita (`origin`, `category`,
   `entity`). Se importa solo HTML y esa capa nunca se consolida en el prompt.
-- Cargar archivos locales desde Configuración o desde la consola (spec 035). La carga
-  conserva el original en Bronze, el texto en Silver y la ficha en Gold, y admite PDF
-  con texto por página y datos XML, JSON, JSONL, CSV y TSV, además de HTML, Markdown y
-  TXT.
+- Cargar archivos locales desde Configuración o desde la consola (spec 035), solo para
+  operadores autorizados. La carga web exige `OPERATOR_TOKEN` y CSRF, y deja el lote en
+  Gold para revisión; la consola publica con `carvajal sync`. Conserva el original en
+  Bronze, el texto en Silver y la ficha en Gold, y admite PDF con texto por página y
+  datos XML, JSON, JSONL, CSV y TSV, además de HTML, Markdown y TXT. La lectura del
+  chat, el corpus y las citas sigue siendo pública.
 - Mantener un corpus incremental (spec 037): cada documento conserva una identidad
   estable derivada de su fuente (URL, ruta relativa o nombre de archivo), se deduplica
   por la huella del original antes de escribir Bronze, se actualiza en sitio con
@@ -174,7 +176,7 @@ se propone un stack distinto, documentado en
 | Autenticación | Authlib (OIDC) + sesiones de servidor en Postgres |
 | Streaming | SSE (`hx-ext="sse"`) |
 | LLM | Puerto `LLMProvider`; LangChain como adaptador |
-| Ingesta | CLI, consola y web (Configuración); el rastreo periódico por cron es futuro |
+| Ingesta | CLI, consola y web (Configuración, solo operador); el rastreo periódico por cron es futuro |
 
 > ⚠️ **Implementación parcial (2026-11-11)**: W2.1 (índice pgvector, retirado en la spec 037), W2.2
 > (adaptadores de LLM), W2.3 (caso de uso `AskQuestion`), W2.4 (shell FastAPI) y
@@ -502,6 +504,7 @@ git push
 | 2026-11-21 | Simplificar la vista del chat: retirar el bloque y los marcadores visibles de fuentes, y formatear antes de pintar | El chat muestra bloques de Markdown ya formateados durante el stream, sin repintar los bloques previos. No cambia la fundamentación en el corpus ni el contrato de fuentes del SSE, del historial o de la API. La lectura en voz conserva los títulos como metadatos y las tarjetas mantienen la procedencia comercial. |
 | 2026-11-21 | Hacer progresiva la lectura del bloque activo y simplificar la conversación | El cliente pinta el párrafo activo en lotes cortos de SSE, sella los bloques anteriores y sigue el final solo cuando el lector está cerca. El compositor multilínea queda fuera del área de scroll y permite detener la recepción, conservando el parcial en pantalla sin añadir un contrato nuevo de persistencia. Cabecera compacta, diagnóstico visual optativo (`/chat?debug=1`) y fichas comerciales desplegables. |
 | 2026-11-21 | Abrir en borrador la spec 042 (Cotizador conversacional) con un plan preliminar que audita el catálogo | La sección pide producto, cantidad, precio, total, proveedores, mapa, entrega y alternativas en un solo turno, y el catálogo actual no puede sostenerlo: 29 de 102 referencias CO tienen precio, todas de EDEXA, y no existen inventario, coordenadas ni plazos. El plan deja por escrito la brecha —incluido que el flujo vigente redondea a cajas de miles de unidades mientras las capturas conservan precios por paquete— y propone una demo con datos simulados explícitos, separados del catálogo y etiquetados donde aparecen. Se decide el mercado inicial (Colombia, empaques, COP), el alcance exclusivamente comercial de la sección y la prohibición de presentar stock o plazos ficticios como reales. La implementación espera `/speckit.clarify` y `/speckit.plan`. |
+| 2026-11-22 | Restringir la escritura del corpus a operadores: `OPERATOR_TOKEN` en la web, CLI para publicar y `Configuración` fuera de la navegación pública | La auditoría de `a21425c` confirmó que un visitante con el CSRF de su propia sesión podía cargar archivos y capturar web, escribiendo el núcleo que alimenta al chat. La autorización se evalúa en servidor antes de leer archivos o crear el job, con CSRF como control separado; el token es un secreto de despliegue, no un sistema de cuentas, y `CONFIG_TOKEN` queda como alias. La carga y la captura web solo escriben Gold: publicar a PostgreSQL y Qdrant sigue siendo el paso de curaduría `carvajal sync`. Sin token, la web queda cerrada y la consola conserva la operación. El procedimiento y las rutas cubiertas están en [`docs/seguridad-operacion-corpus.md`](docs/seguridad-operacion-corpus.md); la decisión, en [ADR-0003](docs/decisions/0003-escritura-corpus-operadores.md). |
 
 ## 10. Notas y tareas pendientes
 

@@ -160,6 +160,9 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
     settings = Settings()
     app.state.quota = handlers.quota if handlers is not None else _default_quota
+    if not settings.operator_token.strip():
+        # La lectura sigue abierta; la escritura web queda solo en la CLI.
+        logger.warning("operator.write_disabled", reason="missing_operator_token")
     # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
     app.state.monitoring = monitoring_status(settings).enabled
     # Captura web: un registro por app para que las pruebas inyecten su runner.

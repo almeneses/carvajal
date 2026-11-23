@@ -6,13 +6,16 @@ un formulario en nombre del visitante y evita que un token no ASCII rompa la
 comparación en tiempo constante.
 """
 
+import base64
 import hmac
 import secrets
+import time
 from hashlib import sha256
 from http.cookies import SimpleCookie
 
 from fastapi import Request
 from starlette.datastructures import MutableHeaders
+from starlette.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from carvajal.infrastructure.settings import Settings
@@ -22,13 +25,22 @@ __all__ = [
     "CSRF_COOKIE",
     "CSRF_FIELD",
     "HSTS",
+    "OPERATOR_COOKIE",
+    "OPERATOR_COOKIE_MAX_AGE",
     "PERMISOS_CHAT",
     "PERMISOS_POR_DEFECTO",
     "SecurityMiddleware",
     "build_csrf_secret",
+    "clear_operator_cookie",
     "csrf_context",
+    "issue_operator_cookie",
     "issue_token",
+    "operator_authorized",
+    "operator_configured",
+    "operator_token",
     "politica_permisos",
+    "set_operator_cookie",
+    "valid_operator_cookie",
     "valid_token",
     "verify_csrf",
 ]
@@ -37,6 +49,11 @@ CSRF_COOKIE = "carvajal_csrf"
 CSRF_FIELD = "csrf_token"
 CSRF_MAX_AGE = 60 * 60 * 12  # doce horas
 _STATIC_PREFIX = "/static"
+
+# Sesión corta del operador: el token de despliegue se cambia en el entorno y
+# la cookie firmada evita repetirlo en cada formulario y en el SSE de captura.
+OPERATOR_COOKIE = "carvajal_operator"
+OPERATOR_COOKIE_MAX_AGE = 60 * 60 * 8  # ocho horas
 
 # El micrófono queda cerrado en todo el sitio; solo el documento HTML del chat
 # lo habilita para su propio origen (spec 040). La excepción no toca CSP ni
@@ -154,6 +171,154 @@ def verify_csrf(request: Request, token: str) -> bool:
         return hmac.compare_digest(esperado.encode("ascii"), token.encode("ascii"))
     except UnicodeEncodeError:
         return False
+
+
+def operator_token(settings: Settings | None = None) -> str:
+    """Token compartido de operador; vacío deshabilita la escritura web."""
+
+    return (settings or Settings()).operator_token.strip()
+
+
+def operator_configured(settings: Settings | None = None) -> bool:
+    """Indica si el despliegue habilitó la carga y la captura web."""
+
+    return bool(operator_token(settings))
+
+
+def _secure_equal(expected: str, candidate: str) -> bool:
+    """Compara dos secretos en tiempo constante, sin romper con Unicode."""
+
+    if not expected or not candidate:
+        return False
+    try:
+        return hmac.compare_digest(expected.encode("utf-8"), candidate.encode("utf-8"))
+    except UnicodeEncodeError:
+        return False
+
+
+def issue_operator_cookie(
+    settings: Settings | None = None,
+    *,
+    now: int | None = None,
+) -> str:
+    """Firma una caducidad con el token de operador.
+
+    La cookie no contiene el token: solo ``<caducidad>.<firma>``. Cambiar el
+    token invalida todas las sesiones emitidas, sin tocar la base.
+    """
+
+    token = operator_token(settings)
+    if not token:
+        raise ValueError("No hay token de operador configurado.")
+    expiry = int(time.time() if now is None else now) + OPERATOR_COOKIE_MAX_AGE
+    signature = hmac.new(
+        token.encode("utf-8"),
+        f"operator:{expiry}".encode("ascii"),
+        sha256,
+    ).hexdigest()
+    return f"{expiry}.{signature}"
+
+
+def valid_operator_cookie(
+    value: str,
+    settings: Settings | None = None,
+    *,
+    now: int | None = None,
+) -> bool:
+    """Comprueba la firma y la vigencia de la cookie de operador."""
+
+    token = operator_token(settings)
+    if not token or not value:
+        return False
+    expiry_text, separator, signature = value.partition(".")
+    if not separator or not expiry_text or not signature:
+        return False
+    try:
+        expiry = int(expiry_text)
+    except ValueError:
+        return False
+    if expiry <= int(time.time() if now is None else now):
+        return False
+    expected = hmac.new(
+        token.encode("utf-8"),
+        f"operator:{expiry}".encode("ascii"),
+        sha256,
+    ).hexdigest()
+    try:
+        return hmac.compare_digest(expected, signature)
+    except UnicodeEncodeError:
+        return False
+
+
+def _basic_password(header: str) -> str:
+    """Extrae la contraseña de un ``Authorization: Basic`` bien formado."""
+
+    scheme, _, encoded = header.partition(" ")
+    if scheme.lower() != "basic" or not encoded.strip():
+        return ""
+    try:
+        decoded = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return ""
+    _, _, password = decoded.partition(":")
+    return password
+
+
+def operator_authorized(
+    request: Request,
+    token: str = "",
+    *,
+    settings: Settings | None = None,
+) -> bool:
+    """Autoriza al operador por formulario, cabecera o cookie firmada.
+
+    El token del formulario es el mecanismo histórico de Configuración. Las
+    cabeceras ``Authorization: Bearer``, ``Authorization: Basic`` y
+    ``X-Operator-Token`` permiten automatizar la operación sin acoplar la CLI
+    al HTML. La cookie firmada la emite un POST autorizado y sirve al SSE.
+    """
+
+    expected = operator_token(settings)
+    if not expected:
+        return False
+    if _secure_equal(expected, (token or "").strip()):
+        return True
+    if _secure_equal(expected, request.headers.get("x-operator-token", "").strip()):
+        return True
+    authorization = request.headers.get("authorization", "").strip()
+    if authorization:
+        scheme, _, value = authorization.partition(" ")
+        if scheme.lower() == "bearer" and _secure_equal(expected, value.strip()):
+            return True
+        if _secure_equal(expected, _basic_password(authorization)):
+            return True
+    return valid_operator_cookie(request.cookies.get(OPERATOR_COOKIE, ""), settings)
+
+
+def set_operator_cookie(
+    response: Response,
+    request: Request,
+    settings: Settings | None = None,
+) -> None:
+    """Renueva la sesión de operador tras una autenticación correcta."""
+
+    if not operator_configured(settings):
+        return
+    response.set_cookie(
+        OPERATOR_COOKIE,
+        issue_operator_cookie(settings),
+        max_age=OPERATOR_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="strict",
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+
+
+def clear_operator_cookie(response: Response) -> None:
+    """Cierra la sesión de operador en el navegador."""
+
+    response.delete_cookie(OPERATOR_COOKIE, path="/")
 
 
 class SecurityMiddleware:

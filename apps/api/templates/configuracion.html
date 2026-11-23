@@ -20,13 +20,29 @@
   <p class="aviso" role="alert">{{ error }}</p>
   {% endif %}
 
+  {% if operator_token_required %}
+  <p class="aviso">
+    La carga y la captura dejan los documentos en <strong>Gold</strong> para
+    revisión. La publicación al chat se hace después con
+    <code>carvajal sync --layer core</code>.
+  </p>
+  {% if operator_authorized %}
+  <form class="config-salir" method="post" action="/configuracion/salir">
+    {% include "_csrf.html" %}
+    <button type="submit" class="boton boton-secundario">Cerrar sesión de operador</button>
+  </form>
+  {% endif %}
+  {% endif %}
+
   {% if report %}
   <section class="panel config-resultado" aria-labelledby="titulo-resultado">
     <div class="config-resultado-cabecera">
       <div>
         <p class="sobrelinea">Resultado de la carga</p>
         <h2 id="titulo-resultado">
-          {% if report.ok %}Corpus actualizado{% else %}No se pudo procesar la carga{% endif %}
+          {% if report.ok and staged %}Documentos en Gold para revisión
+          {% elif report.ok %}Corpus actualizado
+          {% else %}No se pudo procesar la carga{% endif %}
         </h2>
       </div>
       <span class="etiqueta {{ 'etiqueta-oficial' if report.ok else 'etiqueta-externa' }}">
@@ -62,6 +78,14 @@
       </li>
     </ol>
 
+    {% if staged %}
+    <p class="aviso">
+      Publicación pendiente: revisa el Gold y ejecuta
+      <code>carvajal sync --layer core</code> para que el chat y el explorador
+      incorporen el lote. Hasta entonces no se consulta.
+    </p>
+    {% endif %}
+
     {% if report.errors %}
     <div class="config-errores">
       <h3>Incidencias</h3>
@@ -75,6 +99,7 @@
   </section>
   {% endif %}
 
+  {% if operator_token_required %}
   <div class="config-grid">
     <form
       class="panel config-formulario"
@@ -83,6 +108,23 @@
       enctype="multipart/form-data"
     >
       {% include "_csrf.html" %}
+      {% if not operator_authorized %}
+      <div class="config-campo">
+        <label for="token_admin">Token de operador</label>
+        <input
+          id="token_admin"
+          name="token_admin"
+          type="password"
+          autocomplete="current-password"
+          required
+          aria-describedby="ayuda-token-admin"
+        />
+        <p id="ayuda-token-admin" class="ayuda">
+          Token del despliegue (<code>OPERATOR_TOKEN</code>). Sin él no se
+          procesa ningún archivo.
+        </p>
+      </div>
+      {% endif %}
       <div class="config-campo">
         <label for="archivos">Documentos sueltos</label>
         <input
@@ -124,13 +166,14 @@
       </p>
       <p>
         Los documentos se incorporan con sección <strong>Cargas</strong> y origen
-        <strong>colaborador</strong>. El proceso actualiza PostgreSQL y Qdrant de
-        forma incremental, sin eliminar documentos ajenos a la carga.
+        <strong>colaborador</strong>. La carga web solo escribe Bronze, Silver y
+        Gold: no modifica PostgreSQL ni Qdrant hasta que el operador publique el
+        lote revisado.
       </p>
       <p class="ayuda">
-        La indexación usa el embedding configurado en Ollama. Si Qdrant u Ollama no
-        están disponibles, verás la incidencia y el resto del pipeline conservará los
-        archivos y la base de datos.
+        Para publicar, revisa el Gold y ejecuta
+        <code>carvajal sync --layer core</code>. Si Qdrant u Ollama no están
+        disponibles durante la publicación, el Gold y la base de datos se conservan.
       </p>
     </aside>
   </div>
@@ -141,9 +184,10 @@
     <p class="sobrelinea">Configuración · Captura web</p>
     <h2 id="titulo-captura">Trae páginas nuevas al corpus</h2>
     <p class="entradilla">
-      Captura una o varias URLs públicas y añádelas al núcleo del corpus. Cada
-      página pasa por las siete etapas del pipeline, se importa a PostgreSQL y
-      se indexa en Qdrant. También puedes ejecutar las semillas ya configuradas.
+      Captura una o varias URLs públicas y déjalas en Gold para revisión. Cada
+      página pasa por las siete etapas del pipeline; la publicación a PostgreSQL
+      y Qdrant se hace después con la consola. También puedes ejecutar las
+      semillas ya configuradas.
     </p>
   </header>
 
@@ -151,4 +195,5 @@
     {% include "_captura.html" %}
   </div>
 </section>
+{% endif %}
 {% endblock %}

@@ -1,5 +1,11 @@
 # Feature Specification: Captura web y carga de documentos desde la interfaz
 
+> **Revisión 2026-11-22:** la escritura web dejó de ser pública. `/configuracion`
+> exige `OPERATOR_TOKEN` y CSRF, no se enlaza desde la navegación y solo deja el
+> lote en Gold; la publicación se hace con `carvajal sync`. FR-001 y los
+> escenarios de «visitante» se conservan como registro histórico de la entrega
+> original. Ver [`docs/seguridad-operacion-corpus.md`](../../docs/seguridad-operacion-corpus.md).
+
 **Feature Branch**: `025-captura-carga-interfaz`
 **Created**: 2026-11-15
 **Status**: Implemented (as-built)
@@ -61,7 +67,7 @@ que se rechazan sin tocar la red.
 
 ### Functional Requirements
 
-- **FR-001**: La carga de documentos y la captura web deben ser públicas desde Configuración, sin autenticación ni clave, y exigir token de formulario frente a peticiones forjadas.
+- **FR-001 (histórico, sustituido el 2026-11-22)**: La carga de documentos y la captura web eran públicas desde Configuración, sin autenticación ni clave, y exigían token de formulario frente a peticiones forjadas. Hoy exigen `OPERATOR_TOKEN` además del CSRF y no se enlazan desde la navegación.
 - **FR-002**: La carga debe aceptar hasta 100 archivos de 5 MB como máximo, reconstruir Bronze, Silver y Gold, importar a PostgreSQL e indexar, e informar los conteos.
 - **FR-003**: La captura debe aceptar URLs explícitas o semillas del alcance, poner las explícitas primero y respetar un máximo de 24 URLs por ejecución.
 - **FR-004**: Antes de lanzar el trabajo, la captura debe validar esquema, IP pública, puertos 80 y 443, ausencia de credenciales y, si existe, la allowlist de dominios.
@@ -84,7 +90,9 @@ que se rechazan sin tocar la red.
 ## Assumptions
 
 Historial: hasta el 2026-11-14 existía un token de configuración y un gate de bucle
-local; se retiraron y hoy ambas acciones son públicas por decisión del owner. La
-autenticación por usuario es futura (spec 029). Convención as-built en
-[el inventario](../README.md) §3; detalles de operación en
-[`docs/despliegue-ovh.md`](../../docs/despliegue-ovh.md).
+local; se retiraron y las acciones quedaron públicas hasta el 2026-11-22. Desde esa
+fecha existe `OPERATOR_TOKEN` (con `CONFIG_TOKEN` como alias), la escritura web se
+rechaza sin él, la carga y la captura solo dejan Gold y la publicación se hace con
+`carvajal sync`. La autenticación por usuario sigue siendo futura (spec 029).
+Convención as-built en [el inventario](../README.md) §3; detalles de operación en
+[`docs/seguridad-operacion-corpus.md`](../../docs/seguridad-operacion-corpus.md).

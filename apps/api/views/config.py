@@ -8,7 +8,13 @@ from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 
 from apps.api.capture_jobs import CaptureBusy, CaptureJob, CaptureJobs, CaptureRateLimited
 from apps.api.ingestion import (
@@ -20,7 +26,13 @@ from apps.api.ingestion import (
     ingest_uploads,
 )
 from apps.api.runtime import templates
-from apps.api.security import verify_csrf
+from apps.api.security import (
+    clear_operator_cookie,
+    operator_authorized,
+    operator_configured,
+    set_operator_cookie,
+    verify_csrf,
+)
 from apps.api.sse import SSE_HEADERS, SSE_MEDIA_TYPE
 from apps.api.urlguard import UrlRejected, validate_capture_url
 from apps.api.web_capture import SCOPES, CaptureRequest
@@ -33,6 +45,11 @@ router = APIRouter()
 
 CSRF_INVALIDO = "La sesión del formulario expiró. Recarga la página e inténtalo de nuevo."
 SIN_ARCHIVOS = "Selecciona al menos un documento o una carpeta con archivos admitidos."
+NO_AUTORIZADO = "Esta acción requiere el token de operador del despliegue."
+NO_CONFIGURADO = (
+    "La carga y la captura web están deshabilitadas. Configura OPERATOR_TOKEN o usa la "
+    "consola interna: carvajal capture y python -m apps.api.ingest_cli."
+)
 MAX_CAPTURE_FORM_CHARS = 10_000
 
 
@@ -46,19 +63,51 @@ class _UploadBatch:
 
 @router.get("/configuracion", response_class=HTMLResponse)
 def configuracion(request: Request) -> Response:
-    """Muestra los formularios de carga y de captura web."""
+    """Muestra los formularios de carga y de captura a un operador.
 
-    return _page(request)
+    La página no se enlaza desde la navegación pública. Sin ``OPERATOR_TOKEN``
+    el despliegue no ofrece escritura web y solo queda la consola interna.
+    """
+
+    settings = Settings()
+    if not operator_configured(settings):
+        return _page(request, error=NO_CONFIGURADO, status_code=403)
+    return _page(
+        request,
+        operator_authorized=operator_authorized(request, settings=settings),
+    )
+
+
+@router.post("/configuracion/salir")
+def cerrar_sesion(
+    request: Request,
+    csrf_token: str = Form(default=""),
+) -> Response:
+    """Cierra la sesión de operador; el CSRF evita un logout forzado."""
+
+    if not verify_csrf(request, csrf_token):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _page(request, error=CSRF_INVALIDO, status_code=403)
+    response = RedirectResponse(url="/chat", status_code=303)
+    clear_operator_cookie(response)
+    return response
 
 
 @router.post("/configuracion", response_class=HTMLResponse)
 async def subir_documentos(
     request: Request,
     csrf_token: str = Form(default=""),
+    token_admin: str = Form(default=""),
     archivos: Annotated[list[UploadFile] | None, File()] = None,
     carpeta: Annotated[list[UploadFile] | None, File()] = None,
 ) -> Response:
-    """Procesa documentos sueltos o una carpeta y reconstruye el corpus."""
+    """Procesa documentos sueltos o una carpeta y los deja en Gold.
+
+    La autorización se comprueba antes de leer los archivos y antes de tocar
+    Bronze, Silver o Gold. El CSRF sigue siendo un control separado. La carga
+    web solo prepara el corpus para revisión; la publicación a PostgreSQL y
+    Qdrant se hace con la consola (``carvajal sync``).
+    """
 
     if not verify_csrf(request, csrf_token):
         logger.warning("csrf.rejected", path=request.url.path)
@@ -67,15 +116,27 @@ async def subir_documentos(
             error=CSRF_INVALIDO,
             status_code=403,
         )
+
+    settings = Settings()
+    if not operator_authorized(request, token_admin, settings=settings):
+        logger.warning("config.unauthorized", path=request.url.path)
+        error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
+        return _page(request, error=error, status_code=403)
+
     batch = await _leer_archivos(*(archivos or []), *(carpeta or []))
     if not batch.documents:
         detalle = [SIN_ARCHIVOS, *batch.errors]
-        return _page(request, error=" ".join(detalle), status_code=422)
+        return _page(request, error=" ".join(detalle), status_code=422, operator_authorized=True)
 
     ingestor = getattr(request.app.state, "ingest", None)
     try:
         if ingestor is None:
-            report = await asyncio.to_thread(ingest_uploads, batch.documents)
+            report = await asyncio.to_thread(
+                ingest_uploads,
+                batch.documents,
+                settings=settings,
+                solo_extraer=True,
+            )
         else:
             report = ingestor(batch.documents)
     except Exception as error:  # el pipeline no debe tumbar la página
@@ -99,13 +160,14 @@ async def subir_documentos(
                 updated=report.updated,
                 errors=(*batch.errors, *report.errors),
             )
-    return _page(request, report=report)
+    return _page(request, report=report, operator_authorized=True, staged=True)
 
 
 @router.post("/configuracion/captura", response_class=HTMLResponse)
 def iniciar_captura(
     request: Request,
     csrf_token: str = Form(default=""),
+    token_admin: str = Form(default=""),
     urls: str = Form(default=""),
     scope: str = Form(default="manual"),
     limit: str = Form(default=""),
@@ -113,9 +175,9 @@ def iniciar_captura(
 ) -> Response:
     """Valida el formulario y lanza la captura en segundo plano.
 
-    La captura es pública en esta fase: no exige el token de la carga de
-    archivos ni autenticación. El límite de URLs y el guard SSRF son la
-    defensa.
+    El operador se autoriza antes de validar URLs o crear el job. La captura
+    web solo escribe Gold para revisión; publicar a PostgreSQL y Qdrant sigue
+    siendo una acción de la consola (``carvajal sync``).
     """
 
     if not verify_csrf(request, csrf_token):
@@ -123,6 +185,11 @@ def iniciar_captura(
         return _capture_response(request, error=CSRF_INVALIDO, status_code=403)
 
     settings = Settings()
+    if not operator_authorized(request, token_admin, settings=settings):
+        logger.warning("config.capture_unauthorized", path=request.url.path)
+        error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
+        return _capture_response(request, error=error, status_code=403)
+
     capture_request, errors, form = _parse_capture_form(
         urls=urls,
         scope=scope,
@@ -136,12 +203,19 @@ def iniciar_captura(
             error=" ".join(errors),
             form=form,
             status_code=422,
+            operator_authorized=True,
         )
     owner_key = request.client.host if request.client is not None else "desconocido"
     try:
         job = _captures(request).start(capture_request, owner_key=owner_key)
     except CaptureBusy as error:
-        return _capture_response(request, error=str(error), form=form, status_code=409)
+        return _capture_response(
+            request,
+            error=str(error),
+            form=form,
+            status_code=409,
+            operator_authorized=True,
+        )
     except CaptureRateLimited as error:
         return _capture_response(
             request,
@@ -149,14 +223,18 @@ def iniciar_captura(
             form=form,
             status_code=429,
             headers={"Retry-After": str(error.retry_after)},
+            operator_authorized=True,
         )
-    return _capture_response(request, job=job, form=form)
+    return _capture_response(request, job=job, form=form, operator_authorized=True)
 
 
 @router.get("/configuracion/captura/{job_id}/eventos")
 async def eventos_captura(request: Request, job_id: str) -> Response:
     """Emite el progreso de una captura por SSE y corta si el cliente se va."""
 
+    denied = _operator_denied(request)
+    if denied is not None:
+        return denied
     jobs = _captures(request)
     if jobs.get(job_id) is None:
         return JSONResponse({"error": "La captura no existe o expiró."}, status_code=404)
@@ -171,6 +249,9 @@ async def eventos_captura(request: Request, job_id: str) -> Response:
 def estado_captura(request: Request, job_id: str) -> Response:
     """Expone el estado final por si el stream se corta o el navegador recarga."""
 
+    denied = _operator_denied(request)
+    if denied is not None:
+        return denied
     job = _captures(request).get(job_id)
     if job is None:
         return JSONResponse({"error": "La captura no existe o expiró."}, status_code=404)
@@ -219,6 +300,16 @@ def _captures(request: Request) -> CaptureJobs:
     registry = CaptureJobs()
     request.app.state.captures = registry
     return registry
+
+
+def _operator_denied(request: Request) -> Response | None:
+    """Rechaza la lectura de un job de captura si no hay operador autorizado."""
+
+    settings = Settings()
+    if operator_authorized(request, settings=settings):
+        return None
+    error = NO_AUTORIZADO if operator_configured(settings) else NO_CONFIGURADO
+    return JSONResponse({"error": error}, status_code=403)
 
 
 def _checked(value: str | None) -> bool:
@@ -307,6 +398,7 @@ def _scope_options(settings: Settings) -> list[tuple[str, str]]:
 def _capture_context(
     *,
     form: dict[str, Any] | None = None,
+    operator_authorized: bool = False,
 ) -> dict[str, Any]:
     """Contexto compartido por la página y el parcial de captura."""
 
@@ -318,6 +410,8 @@ def _capture_context(
         "max_urls": max_urls,
         "scopes": _scope_options(settings),
         "capture_allowed_domains": settings.capture_allowed_domains,
+        "operator_authorized": operator_authorized,
+        "operator_token_required": operator_configured(settings),
         "form": {
             "urls": values.get("urls", ""),
             "scope": values.get("scope", "manual"),
@@ -348,27 +442,33 @@ def _page(
     job: CaptureJob | None = None,
     form: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
+    operator_authorized: bool = False,
+    staged: bool = False,
 ) -> Response:
     """Renderiza la configuración con formatos admitidos y resultado."""
 
     merged = {"X-Carvajal-Error": "1"} if error is not None else {}
     merged.update(headers or {})
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "configuracion.html",
         {
             "report": report,
             "error": error,
+            "staged": staged,
             "partial": False,
             "job": _job_view(job),
             "MAX_FILES": MAX_FILES,
             "MAX_FILE_MB": MAX_FILE_BYTES // 1024 // 1024,
             "formatos": sorted(ALLOWED_EXTENSIONS),
-            **_capture_context(form=form),
+            **_capture_context(form=form, operator_authorized=operator_authorized),
         },
         status_code=status_code,
         headers=merged,
     )
+    if operator_authorized:
+        set_operator_cookie(response, request)
+    return response
 
 
 def _capture_partial(
@@ -379,23 +479,27 @@ def _capture_partial(
     form: dict[str, Any] | None = None,
     status_code: int = 200,
     headers: dict[str, str] | None = None,
+    operator_authorized: bool = False,
 ) -> Response:
     """Parcial de HTMX con el formulario y el progreso de la captura."""
 
     merged = {"X-Carvajal-Error": "1"} if error is not None else {}
     merged.update(headers or {})
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "_captura.html",
         {
             "job": _job_view(job),
             "error": error,
             "partial": True,
-            **_capture_context(form=form),
+            **_capture_context(form=form, operator_authorized=operator_authorized),
         },
         status_code=status_code,
         headers=merged,
     )
+    if operator_authorized:
+        set_operator_cookie(response, request)
+    return response
 
 
 def _capture_response(
@@ -406,6 +510,7 @@ def _capture_response(
     form: dict[str, Any] | None = None,
     status_code: int = 200,
     headers: dict[str, str] | None = None,
+    operator_authorized: bool = False,
 ) -> Response:
     """Responde el parcial para HTMX o la página completa sin JavaScript."""
 
@@ -417,6 +522,7 @@ def _capture_response(
             form=form,
             status_code=status_code,
             headers=headers,
+            operator_authorized=operator_authorized,
         )
     return _page(
         request,
@@ -425,4 +531,5 @@ def _capture_response(
         job=job,
         form=form,
         headers=headers,
+        operator_authorized=operator_authorized,
     )

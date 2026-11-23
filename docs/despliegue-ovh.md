@@ -97,6 +97,7 @@ cd /opt/carvajal
 chmod 600 .env
 
 openssl rand -hex 32   # SESSION_SECRET
+openssl rand -hex 32   # OPERATOR_TOKEN
 openssl rand -hex 24   # POSTGRES_PASSWORD
 nano .env
 ```
@@ -109,6 +110,7 @@ LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=tu_clave_de_deepseek
 
 SESSION_SECRET=pega_aqui_el_hex_de_32
+OPERATOR_TOKEN=pega_aqui_el_hex_de_32
 POSTGRES_USER=carvajal
 POSTGRES_PASSWORD=pega_aqui_el_hex_de_24
 POSTGRES_DB=carvajal
@@ -123,6 +125,10 @@ Notas:
   primer arranque; el volumen ya quedó inicializado.
 - `SESSION_SECRET` debe mantenerse estable; si lo cambias, se invalidan las
   cookies de los visitantes.
+- `OPERATOR_TOKEN` habilita la carga y la captura web para el operador. Si lo
+  dejas vacío, esas rutas rechazan toda escritura y solo queda la CLI interna.
+  `CONFIG_TOKEN` se acepta como alias. El procedimiento completo está en
+  [`seguridad-operacion-corpus.md`](seguridad-operacion-corpus.md).
 - **Monitoreo del agente (opcional)**: queda apagado si no defines nada. Para
   encenderlo, añade al `.env` del VPS:
 
@@ -209,7 +215,8 @@ termina en `main`, o a mano desde **Actions → Despliegue → Run workflow**
 (selecciona `main`).
 
 Antes de lanzarlo, verifica que `/opt/carvajal/.env` existe con
-`SESSION_SECRET`. El workflow comprueba ese archivo antes de desplegar.
+`SESSION_SECRET` y, si se usará la carga o la captura web, con
+`OPERATOR_TOKEN`. El workflow comprueba ese archivo antes de desplegar.
 
 ```bash
 # LOCAL
@@ -290,9 +297,11 @@ docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
 El índice queda en el volumen `qdrantdata` y sobrevive a reinicios y despliegues.
 Las cargas de la pestaña Configuración escriben en el volumen `appdata`
 montado en `/app/data`; también sobreviven a los reinicios y a los despliegues.
-La captura web usa el mismo volumen y el mismo cierre Gold → PostgreSQL →
-Qdrant; es pública en esta fase y se puede restringir con
-`CAPTURE_ALLOWED_DOMAINS` (lista separada por coma) en el `.env` del servidor.
+La carga y la captura web exigen `OPERATOR_TOKEN` y solo dejan documentos en
+Gold: la publicación a PostgreSQL y Qdrant es un paso posterior con
+`carvajal sync --layer core`, después de revisar el lote. Se puede restringir
+además el alcance de red con `CAPTURE_ALLOWED_DOMAINS` (lista separada por
+coma) en el `.env` del servidor.
 `deploy.sh` escribe `APP_IMAGE=ghcr.io/...:<tag>` en `.env`, así que los comandos
 manuales de `docker compose` usan la misma imagen que quedó desplegada.
 
@@ -318,8 +327,10 @@ docker compose -f compose.prod.yml run --rm --no-deps \
   archivos (100 MB por archivo, `--lote` y `--max-file-mb`; 256 MB por lote con
   `--max-batch-mb`). Cada lote se lee al procesarlo, así que la memoria se acota
   al lote y no al tamaño del corpus.
-- Al terminar cada lote actualiza PostgreSQL y Qdrant. `--solo-extraer` se
-  detiene en Gold para revisar la extracción antes de tocar la base y el índice.
+- Al terminar cada lote actualiza PostgreSQL y Qdrant. Para fuentes nuevas,
+  usa `--solo-extraer`: se detiene en Gold para revisar la extracción antes de
+  tocar la base y el índice; después publica con
+  `carvajal sync --layer core`.
 - `--source-type` fija la procedencia del *front matter*: `oficial` para el sitio
   y documentos de Carvajal, `tercero` para prensa o reguladores, `colaborador`
   para material de un tercero. No cambia la capa: todo entra al núcleo
@@ -404,9 +415,11 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
 - Si quieres limitar el acceso, restringe el puerto 8080 por IP en el firewall
   de OVH o en un proxy delante.
 - `.env` siempre en `600`.
-- La carga de documentos y la captura web de `/configuracion` son públicas: no
-  hay autenticación. Si no quieres que cualquiera escriba en el corpus,
-  restringe `/configuracion` por firewall o proxy.
+- La carga y la captura web de `/configuracion` exigen `OPERATOR_TOKEN`. La
+  página no está en la navegación pública y la escritura se rechaza si el
+  token falta. La publicación posterior se hace con la CLI, que requiere
+  acceso al servidor o al contenedor. Ver
+  [`seguridad-operacion-corpus.md`](seguridad-operacion-corpus.md).
 - No publiques 5432, 6333 ni 11434; el compose solo expone `APP_PORT`.
 - Pertenecer al grupo `docker` equivale a root en el host.
 - No detengas nginx para poner Caddy: este servidor sirve 538 sitios con nginx.
