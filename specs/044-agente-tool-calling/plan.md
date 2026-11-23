@@ -126,7 +126,8 @@ tests/
 ├── test_tool_agent_tools.py     # contrato de herramientas y reglas duras
 ├── test_tool_agent_stream.py    # SSE: status, tokens, respaldo, replay, folios
 ├── test_quotation_request.py    # paridad quote() ↔ quote_request()
-└── test_eval_agent.py           # runner de evaluación sin red
+├── test_eval_agent.py           # runner de evaluación sin red
+└── test_hard_rules_modes.py     # reglas duras parametrizadas en routes y tools
 ```
 
 **Structure Decision**: el modo `tools` vive en un subpaquete nuevo `agent/toolagent/` para
@@ -145,6 +146,48 @@ no tocar el grafo actual, que sigue siendo el valor por defecto, el atajo y el r
    determinista, replay, monitoreo (FR-009, 011, 012, 012a, 014, 018).
 5. **F4 — Evaluación**: `eval-agent` con ambos modos, informe comparativo con costo
    (FR-015, 017; SC-001…SC-008) y enmiendas a la constitución.
+6. **F5 — Retiro** (después de la entrega, con su propio PR): ver *Convivencia y retiro*.
+
+## Convivencia y retiro del modo `routes`
+
+**Qué convive.** `AGENT_MODE` (global, se lee al arrancar) elige qué grafo atiende los
+turnos. Con `tools` activo, el grafo `routes` sigue trabajando en dos casos: el atajo
+(saludos, capacidad, preferencias) y el respaldo cuando DeepSeek falla. `eval-agent`
+construye ambos grafos en el mismo proceso, sin importar `AGENT_MODE`.
+
+**Pruebas compartidas.** Toda prueba de reglas duras (materiales prohibidos, precio ausente
+sin estimar, total pendiente, abstención, fuente oficial/tercero, idempotencia y folios) se
+escribe una sola vez, parametrizada con `mode ∈ {routes, tools}`, en
+`tests/test_hard_rules_modes.py`. Una regla que pase en un modo y falle en el otro bloquea
+el PR. Mientras convivan, todo cambio en prompts, tarjetas o cotización corre ambos modos.
+
+**Criterio para cambiar el valor por defecto.** El informe de `eval-agent` cumple SC-001…
+SC-008 y el owner lo aprueba; entonces `AGENT_MODE` pasa a `tools` en `.env.example`,
+`compose.prod.yml` y `Settings`.
+
+**Observación.** Dos semanas con `tools` por defecto sin regresiones: cero violaciones de
+material o datos sin fuente en trazas revisadas, tasa de respaldo < 2 % de los turnos y sin
+aumento de «No útil» frente a las dos semanas previas.
+
+**Qué se retira (F5).**
+
+- Redacción por rutas: nodos `rag`, `tool` y `commercial` como caminos de respuesta del
+  grafo `routes`, el caso `commercial_mixed`, `mixed_notice` y `build_conversation_prompt`
+  como formato de historial.
+- `LLMRouter`, `DecisionRouter` y `agent_router`/`decision_model` en `Settings` (servían para
+  comparar enrutadores en la 036); `eval-router` pasa a evaluar solo el atajo.
+- La interpretación por regex que solo usaba la ruta comercial y no necesita el atajo ni el
+  respaldo, previa verificación con `tgrep` de que no tiene otros consumidores.
+
+**Qué se conserva.**
+
+- `decide_route`, reducido a atajo y respaldo.
+- El flujo comercial determinista (`run_commercial`, `quote()` sobre texto) que usa el
+  respaldo, y `quote_request()` que usan las herramientas.
+- `AGENT_MODE` como interruptor de emergencia, documentado en `docs/despliegue-ovh.md`.
+
+**Documentación del retiro.** El PR de F5 actualiza `CONSTITUTION.md` (estado técnico y
+restricciones), `specs/README.md` y deja la 044 como *Implemented (as-built)*.
 
 ## Complexity Tracking
 
