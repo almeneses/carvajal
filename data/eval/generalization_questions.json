@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "frozen_at": null,
-  "origin": "Borrador del asistente de desarrollo (Claude, 2026-11-23), revisado por el owner. Limitación: quien redactó el borrador ya había leído agent/router.py, el primer ítem de routing_questions.json y había probado frases contra el enrutador y el cotizador durante el plan (hallazgo «tinto»); no se consultó routing_questions.json para escribir los ítems.",
+  "frozen_at": "2026-11-23",
+  "origin": "Borrador del asistente de desarrollo (Claude, 2026-11-23), revisado y congelado por el owner sin cambios el 2026-11-23. Limitación: quien redactó el borrador ya había leído agent/router.py, el primer ítem de routing_questions.json y había probado frases contra el enrutador y el cotizador durante el plan (hallazgo «tinto»); no se consultó routing_questions.json para escribir los ítems.",
   "description": "Conjunto de generalización de la spec 044 (FR-016). No usar para ajustar reglas ni prompts.",
   "items": [
     {
