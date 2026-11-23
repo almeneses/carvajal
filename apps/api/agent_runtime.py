@@ -6,9 +6,9 @@ vitalidad. ``PostgresSaver`` y ``PostgresStore`` usan el Postgres existente;
 """
 
 import atexit
+import threading
 from contextlib import ExitStack
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -129,19 +129,34 @@ def _build(settings: Settings) -> AgentRuntime:
         raise
 
 
-@cache
-def agent_runtime() -> AgentRuntime:
-    """Runtime único por proceso; los fallos de arranque se reintentan."""
+_RUNTIME_LOCK = threading.Lock()
+_runtime: AgentRuntime | None = None
 
-    return _build(Settings())
+
+def agent_runtime() -> AgentRuntime:
+    """Runtime único por proceso, construido una sola vez aunque haya concurrencia.
+
+    ``functools.cache`` no impide que dos primeras preguntas simultáneas
+    construyan dos runtimes; el segundo cierra conexiones que el primero está
+    usando. El lock serializa la inicialización y los fallos se reintentan.
+    """
+
+    global _runtime
+    if _runtime is None:
+        with _RUNTIME_LOCK:
+            if _runtime is None:
+                _runtime = _build(Settings())
+    return _runtime
 
 
 def close_agent_runtime() -> None:
     """Cierra el runtime si llegó a construirse."""
 
-    if agent_runtime.cache_info().currsize:
-        agent_runtime().close()
-        agent_runtime.cache_clear()
+    global _runtime
+    with _RUNTIME_LOCK:
+        if _runtime is not None:
+            _runtime.close()
+            _runtime = None
 
 
 atexit.register(close_agent_runtime)

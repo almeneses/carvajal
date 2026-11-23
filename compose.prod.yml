@@ -234,10 +234,16 @@ services:
           src="$$1"; dest="$$2"
           if [ -d "$$src" ]; then
             mkdir -p "$$dest"
-            if [ -z "$$(ls -A "$$dest" 2>/dev/null)" ]; then
-              echo "Copiando $$src a $$dest"
-              cp -R "$$src"/. "$$dest"/
-            fi
+            # Copia solo archivos ausentes: una actualización conserva lo que
+            # ya vive en el volumen y añade el aprovisionamiento nuevo.
+            find "$$src" -type f | while IFS= read -r file; do
+              rel="$${file#$$src/}"
+              target="$$dest/$$rel"
+              if [ ! -e "$$target" ]; then
+                mkdir -p "$$(dirname "$$target")"
+                cp "$$file" "$$target"
+              fi
+            done
           fi
         }
         mkdir -p /app/data
@@ -247,6 +253,12 @@ services:
           seed_dir /seed/catalog /app/data/catalog
           seed_dir /seed/commercial /app/data/commercial
           seed_dir /seed/gold /app/data/gold
+        fi
+        # El aprovisionamiento incluido en la imagen cubre actualizaciones
+        # desde volúmenes de la 042 que aún no tienen proveedores.csv.
+        if [ -d /app/seed-data ]; then
+          seed_dir /app/seed-data/catalog /app/data/catalog
+          seed_dir /app/seed-data/commercial /app/data/commercial
         fi
         ACTUAL="$$(python -m carvajal.commercial version)"
         if [ -n "$${EXPECTED_COMMERCIAL_VERSION:-}" ] && [ "$$ACTUAL" != "$$EXPECTED_COMMERCIAL_VERSION" ]; then

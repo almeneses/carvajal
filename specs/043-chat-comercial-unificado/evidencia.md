@@ -18,17 +18,19 @@
 | Pruebas de histórico | Real, simulado y ambiguo con dos identidades; texto y tarjetas contaminados se excluyen. |
 | Voz e institucional | El hilo único conserva dictado/lectura y responde una consulta institucional con su fuente. |
 | Imagen Docker | `docker build -t carvajal-api:043-check .` termina correctamente. |
-| Arranque limpio parcial | Stack con Postgres/Qdrant/Ollama, migraciones a `0010`, catálogo copiado desde `/seed` y `/health` con `catalog.status=ok`; `/live` 200, `/chat` 200, `/cotizador` y `/faq` 303 al chat. El 503 restante es solo `index.status=missing`, que el despliegue distingue de un catálogo inválido. |
-| `docker compose -f compose.prod.yml config` | Válido con `SESSION_SECRET`; el comando de bootstrap muestra la separación catálogo/comercial/Gold. |
+| Arranque limpio | Stack con Postgres/Qdrant/Ollama, migraciones a `0010`, catálogo copiado desde `/seed`, `/health` 200 con `catalog.status=ok` e índice de 125 puntos; `/live` 200, `/chat` 200, `/cotizador` y `/faq` 303 al chat. |
+| Actualización 042 → 043 | Imagen `t021-old` (42a816c) → `t021-new`; migración `0009 → 0010`; 24 documentos, 125 fragmentos, 2 conversaciones, 4 mensajes y 1 cotización preservados; catálogo `2026-11-18` válido. |
+| Rollback | Imagen `t021-old` sobre el esquema `0010`: `/health`, `/live`, `/chat`, `/cotizador` y `/faq` responden; los datos siguen intactos. |
+| Concurrencia en frío | 10 sesiones simultáneas inmediatamente después de arrancar: 10/10, primer contenido p95 4.611,74 ms y cierre p95 12.148,53 ms. |
+| `docker compose -f compose.prod.yml config` | Válido con `SESSION_SECRET`; el bootstrap separa catálogo, comercial y Gold y siembra archivos ausentes del volumen. |
 
 ## No verificado en este entorno
 
-- Indexación completa en Qdrant con `nomic-embed-text` y recorridos de navegador del piloto.
-- Actualización sobre un volumen con datos reales de la 042 y rollback a una imagen anterior.
-- Diez sesiones concurrentes reales y medición de mediana/p95 del primer contenido útil y del cierre.
-- Disponibilidad externa de vendedores o proveedores.
+- Recorrido visual en navegador a 390 y 1440 px; corresponde a T038.
+- Despliegue sobre el VPS real y disponibilidad externa de vendedores o proveedores.
+- La corrección de concurrencia en frío se validó con un stack desechable, no con diez sesiones humanas reales.
 
-Estos puntos no se presentan como aprobados. La validación de T021 queda parcial y debe repetirse en el entorno autorizado con el runbook de despliegue.
+Estos puntos no se presentan como aprobados. T021 se cierra con la actualización/rollback y la concurrencia en frío verificadas; T038 conserva la revisión visual.
 
 ## Umbral propuesto para SC-005 (T029, pendiente del owner)
 
