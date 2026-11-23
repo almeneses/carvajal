@@ -1103,6 +1103,9 @@ def test_una_preferencia_con_pregunta_se_guarda_y_sigue_al_agente() -> None:
     assert system.startswith(AGENT_SYSTEM)
     assert "<preferencias>" in system
     assert "Recuerda que prefiero respuestas cortas" in system
+    # El reemplazo del sistema por id no borra el resto: la pregunta del turno sigue al final.
+    assert chat.calls[0][-1].type == "human"
+    assert chat.calls[0][-1].content == question
 
 
 def test_una_preferencia_con_pedido_comercial_sigue_al_agente() -> None:
