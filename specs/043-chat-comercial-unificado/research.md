@@ -28,7 +28,7 @@ dos subagentes que revisaron datos comerciales y flujo de chat por separado.
 - [Grafo del agente](../../packages/core/src/carvajal/agent/graph.py),
   [Compose de producción](../../compose.prod.yml) y [despliegue](../../scripts/deploy.sh).
 
-## Inventario de consumidores para el retiro (T003, parcial)
+## Inventario de consumidores para el retiro (T003)
 
 | Ruta o contrato | Consumidores a revisar | Acción prevista |
 | --- | --- | --- |
@@ -39,8 +39,12 @@ dos subagentes que revisaron datos comerciales y flujo de chat por separado.
 | `/faq` y `/api/faq` | `faq.js`, `tests/test_api_faq.py`, navegación | Conservar la API con consumidores; sustituir la generación pública por accesos al chat |
 | Historial `cot:<owner_key>` | `apps/api/views/cotizador.py`, `quotes`, mensajes | Aplicar la matriz real/simulado/ambiguo de `data-model.md` |
 
-La prueba de arranque limpio y actualización queda pendiente en T003; no se retira
-ninguna ruta hasta que T021 valide la transición.
+La prueba de arranque limpio y actualización vive en
+[`tests/browser/arranque_043.cjs`](../../tests/browser/arranque_043.cjs) y se
+documenta en [`docs/despliegue-ovh.md`](../../docs/despliegue-ovh.md). Verifica
+`/live`, `/health` con la versión y los conteos del catálogo, las redirecciones
+de las rutas retiradas y el rechazo de un histórico ajeno; el mismo arnés sirve
+tras un arranque limpio y tras actualizar un volumen existente.
 
 ## Comprobaciones que corresponden a implementación
 

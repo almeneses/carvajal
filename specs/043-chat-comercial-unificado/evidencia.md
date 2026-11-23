@@ -23,6 +23,7 @@
 | Rollback | Imagen `t021-old` sobre el esquema `0010`: `/health`, `/live`, `/chat`, `/cotizador` y `/faq` responden; los datos siguen intactos. |
 | Concurrencia en frío | 10 sesiones simultáneas inmediatamente después de arrancar: 10/10, primer contenido p95 4.611,74 ms y cierre p95 12.148,53 ms. |
 | `docker compose -f compose.prod.yml config` | Válido con `SESSION_SECRET`; el bootstrap separa catálogo, comercial y Gold y siembra archivos ausentes del volumen. |
+| Prueba de arranque/actualización (T003) | `tests/browser/arranque_043.cjs` ejecutado sobre un arranque limpio: 13/13 comprobaciones (vitalidad, versión y conteos, redirecciones, API de FAQ e histórico ajeno). El runbook queda en `docs/despliegue-ovh.md`. |
 
 ## No verificado en este entorno
 
@@ -32,9 +33,10 @@
 
 Estos puntos no se presentan como aprobados. T021 se cierra con la actualización/rollback y la concurrencia en frío verificadas; T038 conserva la revisión visual.
 
-## Umbral propuesto para SC-005 (T029, pendiente del owner)
+## Umbral propuesto y resultado medido de SC-005 (T029, pendiente del owner)
 
-No se midió ninguna muestra; la siguiente es una propuesta de aceptación, no un resultado:
+La muestra del 2026-11-23 está abajo. El umbral siguiente es la propuesta que
+el owner debe aceptar:
 
 - **Primer contenido útil**: mediana ≤ 2.500 ms y p95 ≤ 6.000 ms.
 - **Cierre del turno**: p95 ≤ 20.000 ms.
@@ -50,7 +52,7 @@ Medición local con la app de la 043 en `127.0.0.1:8013`, PostgreSQL de prueba, 
 | Secuencial | 30 | 30 | 33,80 ms | 2.344,34 ms | 6.222,57 ms | 12.866,37 ms |
 | 10 concurrentes | 10 | 10 | 1.508,65 ms | 2.564,80 ms | 3.057,57 ms | 12.382,15 ms |
 
-Los valores cumplen el umbral propuesto: primer contenido p95 < 6.000 ms y cierre p95 < 20.000 ms, con 40/40 turnos completados. Esta medición no sustituye la aprobación del owner: T029 sigue pendiente hasta que acepte el umbral y la muestra. T021 sigue parcial porque la actualización sobre un volumen real de la 042, el rollback y el recorrido de navegador no se validaron aquí.
+Los valores cumplen el umbral propuesto: primer contenido p95 < 6.000 ms y cierre p95 < 20.000 ms, con 40/40 turnos completados. Esta medición no sustituye la aprobación del owner: T029 sigue pendiente hasta que acepte el umbral y la muestra. T021 quedó cerrada con la actualización y el rollback verificados; T038 conserva la revisión visual.
 
 ### Cómo medir SC-005
 

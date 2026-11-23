@@ -22,6 +22,7 @@ justamente lo que un consumidor necesita distinguir.
 
 import csv
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -58,6 +59,7 @@ __all__ = [
     "EVIDENCE_PATH",
     "PROVIDERS_PATH",
     "book_from_paths",
+    "commercial_version",
     "load_commercial_book",
     "offer_id_for",
     "seller_id_for",
@@ -71,6 +73,33 @@ EVIDENCE_PATH = COMMERCIAL_DIR / "evidencia_disponibilidad.csv"
 DEFAULT_GEOCODED_AT = date(2026, 11, 21)
 GEOCODER = "OpenStreetMap Nominatim"
 OFFICIAL_SELLER = {"MX": "Carvajal Empaques México", "CO": "Carvajal Empaques Colombia"}
+
+
+def commercial_version() -> str:
+    """Versión del aprovisionamiento publicado: la captura más reciente.
+
+    Es la misma fecha que compara el bootstrap contra ``EXPECTED_COMMERCIAL_VERSION``;
+    exponerla en ``/health`` permite verificar la versión desplegada sin entrar al
+    contenedor. Si no hay fechas legibles devuelve ``desconocida``.
+    """
+
+    dates: list[str] = []
+    manifest_path = CATALOG_DIR / "manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        dates.extend(
+            str(item.get("captured_at"))
+            for item in (manifest.get("sources") or {}).values()
+            if isinstance(item, dict) and item.get("captured_at")
+        )
+    if PROVIDERS_PATH.is_file():
+        with PROVIDERS_PATH.open(encoding="utf-8", newline="") as handle:
+            dates.extend(
+                row["captured_at"] for row in csv.DictReader(handle) if row.get("captured_at")
+            )
+    return max(dates) if dates else "desconocida"
+
+
 _EVIDENCE_KINDS = {
     "inventario_vendedor",
     "confirmacion_vendedor",

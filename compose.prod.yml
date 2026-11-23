@@ -205,10 +205,10 @@ services:
         condition: service_healthy
 
   bootstrap:
-    # Perfil `bootstrap`: prepara un servidor limpio. Copia `./data` al volumen
-    # solo si aún no hay corpus allí (nunca pisa capturas o cargas más nuevas),
-    # aplica migraciones, importa Gold a Postgres e indexa en Qdrant. Es
-    # idempotente y lo invoca `make prod-bootstrap`.
+    # Perfil `bootstrap`: prepara un servidor limpio o actualiza uno existente.
+    # Siembra los archivos ausentes de `./data` (catálogo, comercial y Gold) sin
+    # pisar los que ya viven en el volumen, aplica migraciones, importa Gold e
+    # indexa en Qdrant. Es idempotente y lo invoca `make prod-bootstrap`.
     profiles: ["bootstrap"]
     image: ${APP_IMAGE:-carvajal-api:local}
     restart: "no"

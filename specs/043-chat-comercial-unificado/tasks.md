@@ -13,7 +13,8 @@ existente equivalente cuando corresponda.
 
 - [x] T001 Confirmar que #222–#226 pertenecen a la base `42a816c` y registrar las dependencias en `specs/043-chat-comercial-unificado/research.md`. Goals 1 y 3 entregados. FR-012.
 - [x] T002 [P] Registrar la referencia de 29 publicaciones CO y la paridad MX sobre la captura auditada. Añadir primero la prueba del cargador sin demo en `tests/test_commercial_contract.py`. Incluir los tres SKU filtrados y la presentación que publicó el vendedor. SC-001.
-- [ ] T003 [P] Inventariar consumidores para el retiro y preparar prueba de arranque nuevo y actualización en `docs/despliegue-ovh.md`, `compose.prod.yml` y `tests/browser/`. Registrar las rutas de FAQ, el acceso a históricos y la versión del catálogo esperada. FR-009, FR-010, FR-011.
+- [x] T003 [P] Inventariar consumidores para el retiro y preparar prueba de arranque nuevo y actualización en `docs/despliegue-ovh.md`, `compose.prod.yml` y `tests/browser/`. Registrar las rutas de FAQ, el acceso a históricos y la versión del catálogo esperada. FR-009, FR-010, FR-011.
+  - Inventario en `research.md`; arnés `tests/browser/arranque_043.cjs`; runbook y versión esperada en `docs/despliegue-ovh.md`; `/health` publica `catalog.version`.
 
 ## Fase 1 · US1. Consultar productos y sedes con datos reales
 

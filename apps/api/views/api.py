@@ -95,14 +95,17 @@ def commercial_catalog_health() -> dict[str, object]:
     """Estado del contrato comercial publicado, separado del índice vectorial."""
 
     from carvajal.commercial import load_commercial_book
+    from carvajal.commercial.loader import commercial_version
 
     try:
         summary = load_commercial_book().summary()
+        version = commercial_version()
     except Exception as error:
         logger.warning("api.catalog_invalid", error=str(error))
         return {"status": "invalid", "detail": "catálogo comercial inválido"}
     return {
         "status": "ok",
+        "version": version,
         "products": summary["productos"],
         "offers_co": summary["ofertas_co"],
         "offers_mx": summary["ofertas_mx"],

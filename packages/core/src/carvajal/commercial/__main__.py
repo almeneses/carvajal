@@ -15,7 +15,6 @@ No escribe datos: solo lee el catálogo, los precios publicados y la evidencia v
 """
 
 import argparse
-import csv
 import json
 import sys
 from datetime import date
@@ -28,7 +27,7 @@ from carvajal.commercial import (
     load_commercial_book,
     mexico_parity,
 )
-from carvajal.commercial.loader import CATALOG_DIR, COMMERCIAL_DIR
+from carvajal.commercial.loader import CATALOG_DIR, COMMERCIAL_DIR, commercial_version
 
 __all__ = ["main"]
 
@@ -44,19 +43,7 @@ def _as_of(raw: str | None) -> date | None:
 def _version(*, as_json: bool = False) -> int:
     """Versión del aprovisionamiento comercial (fecha de captura más reciente)."""
 
-    manifest = json.loads((CATALOG_DIR / "manifest.json").read_text(encoding="utf-8"))
-    dates = [
-        str(item.get("captured_at"))
-        for item in (manifest.get("sources") or {}).values()
-        if isinstance(item, dict) and item.get("captured_at")
-    ]
-    providers = COMMERCIAL_DIR / "proveedores.csv"
-    if providers.is_file():
-        with providers.open(encoding="utf-8", newline="") as handle:
-            dates.extend(
-                row["captured_at"] for row in csv.DictReader(handle) if row.get("captured_at")
-            )
-    version = max(dates) if dates else "desconocida"
+    version = commercial_version()
     payload = {
         "version": version,
         "catalog": str(CATALOG_DIR),

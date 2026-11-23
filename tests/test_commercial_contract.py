@@ -47,7 +47,13 @@ from carvajal.commercial import (
     mexico_parity,
     site_id_for,
 )
-from carvajal.commercial.loader import CATALOG_DIR, COMMERCIAL_DIR, EVIDENCE_PATH, book_from_paths
+from carvajal.commercial.loader import (
+    CATALOG_DIR,
+    COMMERCIAL_DIR,
+    EVIDENCE_PATH,
+    book_from_paths,
+    commercial_version,
+)
 
 TODAY = date(2026, 11, 22)
 YESTERDAY = TODAY - timedelta(days=1)
@@ -765,6 +771,12 @@ def test_ejemplos_validan_contra_el_contrato() -> None:
     assert files
     for path in files:
         ContractDocument.model_validate(json.loads(path.read_text(encoding="utf-8")))
+
+
+def test_la_version_del_aprovisionamiento_es_la_captura_mas_reciente() -> None:
+    """La versión que compara el despliegue es la fecha de captura más reciente."""
+
+    assert commercial_version() == "2026-11-18"
 
 
 def test_el_registro_no_afirma_disponibilidad_sin_evidencia() -> None:

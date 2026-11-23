@@ -63,7 +63,9 @@ def test_health_devuelve_estado_y_conteos() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload.pop("monitoring") == monitoring_status(Settings()).as_health()
-    assert payload.pop("catalog")["status"] == "ok"
+    catalog = payload.pop("catalog")
+    assert catalog["status"] == "ok"
+    assert catalog["version"] == "2026-11-18"
     assert payload == {
         "status": "ok",
         "documents": 12,
@@ -317,7 +319,9 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     assert calls == [1]
     payload = response.json()
     payload.pop("monitoring")
-    assert payload.pop("catalog")["status"] == "ok"
+    catalog = payload.pop("catalog")
+    assert catalog["status"] == "ok"
+    assert catalog["version"] == "2026-11-18"
     assert payload == {
         "status": "ok",
         "documents": 1,
