@@ -207,6 +207,56 @@ def test_historial_se_repinta_con_la_cotizacion() -> None:
     assert store.messages
 
 
+def test_un_payload_historico_de_la_042_sigue_renderizando() -> None:
+    """La lectura compatible no rompe la tarjeta de una cotización anterior."""
+
+    client, store = make_client()
+    _token(client)
+    ahora = datetime.now(UTC)
+    legado = {
+        "kind": "cotizacion",
+        "city": "Bogotá",
+        "primary": {
+            "name": "Vaso histórico",
+            "sku": "7704918100199",
+            "family": "vaso",
+            "material": "PAPEL",
+            "units_requested": 20,
+            "currency": "COP",
+            "tax_status": "incluido",
+            "presentation": {
+                "basis": "paquete",
+                "units": 50,
+                "count": 1,
+                "units_bought": 50,
+                "units_surplus": 30,
+                "subtotal": "3751",
+            },
+            "provider": {"name": "EDEXA", "city": "Bogotá"},
+            "captured_at": "2026-11-18",
+            "source_url": "https://example.com/precio",
+            "stock": {"status": "desconocido"},
+        },
+        "delivery": {"requested": False},
+        "total": "3751",
+        "quote": {"id": "q-042", "valid_until": "2026-11-29"},
+    }
+    store.messages = [
+        ChatMessage(
+            "m-user", "hilo-1", "user", "cotiza 20 vasos", None, ahora, client_turn_id=None
+        ),
+        ChatMessage("m-bot", "hilo-1", "assistant", "Son 3751 COP.", [legado], ahora),
+    ]
+
+    respuesta = client.get("/cotizador?thread=hilo-1")
+
+    assert respuesta.status_code == 200
+    assert "Cotización para Bogotá" in respuesta.text
+    assert "#q-042" in respuesta.text
+    assert "3751 COP" in respuesta.text
+    assert "Total final" in respuesta.text
+
+
 def test_el_almacen_sql_usa_un_espacio_propio_para_el_cotizador() -> None:
     almacen = SqlCotizadorStore(factory=None)
 
@@ -556,7 +606,47 @@ def test_cada_cotizacion_emite_un_registro_auditable() -> None:
     assert registro["currency"] == "COP"
     assert registro["total"] == 3751
     assert registro["payload"]["quote"]["id"] == registro["id"]
+    assert registro["payload"]["quote"]["folio"] == registro["id"]
+    assert registro["payload"]["quote"]["issued_at"]
+    assert registro["payload"]["version"] == 2
+    assert registro["payload"]["commercial"]["subtotal"] == "3751"
     assert registro["owner"] and ":" not in registro["owner"]
+
+
+def test_la_cotizacion_con_domicilio_persiste_el_total_pendiente() -> None:
+    client, store = make_client()
+    token = _token(client)
+    store.profile = {"name": None, "city": "Bogotá", "delivery": True, "preferences": []}
+
+    respuesta = client.post(
+        "/cotizador",
+        data={"question": "cotiza 20 vasos para bebida caliente", "csrf_token": token},
+    )
+
+    assert respuesta.status_code == 200
+    assert "Total final" in respuesta.text
+    assert "Por confirmar" in respuesta.text
+    registro = store.quotes[0]
+    assert registro["total"] is None
+    assert registro["payload"]["commercial"]["total"] is None
+    assert registro["payload"]["commercial"]["shipping"]["status"] == "pending"
+
+
+def test_el_turno_muestra_las_lineas_pendientes() -> None:
+    client, _ = make_client()
+    token = _token(client)
+
+    respuesta = client.post(
+        "/cotizador",
+        data={
+            "question": "cotiza 20 vasos y 10 platos para comida caliente en Bogotá",
+            "csrf_token": token,
+        },
+    )
+
+    assert respuesta.status_code == 200
+    assert "Líneas pendientes" in respuesta.text
+    assert "platos · pendiente" in respuesta.text
 
 
 def test_una_aclaracion_no_emite_cotizacion() -> None:

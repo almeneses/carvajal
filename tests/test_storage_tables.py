@@ -92,6 +92,22 @@ def test_el_esquema_del_chat_tiene_cascada_rol_e_indices() -> None:
     assert "ix_messages_conversation_created" in {index.name for index in tables.messages.indexes}
 
 
+def test_la_cotizacion_versionada_admite_total_ausente() -> None:
+    """El contrato de la 043 separa importes y deja el total nulo si falta un componente."""
+
+    assert tables.quotes.c.total.nullable is True
+    assert tables.quotes.c.valid_until.nullable is False
+    assert {
+        "version",
+        "issued_at",
+        "subtotal",
+        "tax_status",
+        "tax_rate",
+        "shipping_cost",
+        "commercial_valid_until",
+    } <= set(tables.quotes.c.keys())
+
+
 def test_el_cupo_se_identifica_por_visitante_y_dia() -> None:
     """``usage_day`` usa (``owner_key``, ``day``) como clave primaria."""
 

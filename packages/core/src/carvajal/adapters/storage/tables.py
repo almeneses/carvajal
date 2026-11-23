@@ -228,8 +228,10 @@ visitor_memory = Table(
     ),
 )
 
-# Cotización emitida (spec 042): identidad, vigencia, total y payload auditable.
-# El payload repite lo que se mostró; la fila es la fuente para reclamar o auditar.
+# Cotización emitida (spec 042, contrato versionado en la 043): identidad, importes
+# separados, vigencias y payload auditable. ``total`` admite ausencia cuando falta un
+# componente; ``valid_until`` es la retención de la emisión y ``commercial_valid_until``
+# la vigencia que publicó el vendedor, que puede no existir.
 quotes = Table(
     "quotes",
     metadata,
@@ -237,9 +239,16 @@ quotes = Table(
     Column("owner_key", Text, nullable=False),
     Column("conversation_id", Text, nullable=True),
     Column("message_id", Text, nullable=True),
+    Column("version", Integer, nullable=False, server_default=text("1")),
+    Column("issued_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("valid_until", Date, nullable=False),
-    Column("total", Numeric(14, 2), nullable=False),
+    Column("commercial_valid_until", Date, nullable=True),
+    Column("subtotal", Numeric(14, 2), nullable=True),
+    Column("tax_status", String(16), nullable=True),
+    Column("tax_rate", Numeric(5, 4), nullable=True),
+    Column("shipping_cost", Numeric(14, 2), nullable=True),
+    Column("total", Numeric(14, 2), nullable=True),
     Column("currency", String(3), nullable=False),
     Column("status", String(16), nullable=False, server_default=text("'issued'")),
     Column("payload", JSONB, nullable=False),

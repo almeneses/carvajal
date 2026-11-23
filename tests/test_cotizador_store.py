@@ -1,6 +1,7 @@
-"""Pruebas de integración del almacén SQL del Cotizador (spec 042, FR-022)."""
+"""Pruebas de integración del almacén SQL del Cotizador (specs 042 y 043)."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.views.cotizador import SqlCotizadorStore
 from carvajal.adapters.storage import tables
+from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.quotation.memory import EMPTY, MEMORY_DAYS
 
 pytestmark = pytest.mark.integration
@@ -139,3 +141,134 @@ def test_si_falla_la_cotizacion_no_queda_el_turno(session: Session) -> None:
         )
 
     assert _count(session, tables.messages, "conversation_id", conversation_id) == 0
+
+
+def _historic_payload(quote_id: str = "q-042") -> dict[str, Any]:
+    """Payload de la 042: importes anidados y sin contrato versionado."""
+
+    return {
+        "kind": "cotizacion",
+        "primary": {
+            "currency": "COP",
+            "tax_status": "incluido",
+            "presentation": {
+                "basis": "paquete",
+                "units": 50,
+                "count": 1,
+                "units_bought": 50,
+                "units_surplus": 30,
+                "subtotal": "3751",
+            },
+        },
+        "delivery": {"requested": False},
+        "total": "3751",
+        "quote": {"id": quote_id, "valid_until": "2026-11-29", "days": 7},
+    }
+
+
+def _insert_historic(session: Session, *, message_id: str | None = None) -> None:
+    session.execute(
+        insert(tables.quotes).values(
+            id="q-042",
+            owner_key="cot:ana",
+            message_id=message_id,
+            valid_until=date(2026, 11, 29),
+            total=Decimal("3751"),
+            currency="COP",
+            payload=_historic_payload(),
+        )
+    )
+
+
+def test_lee_importes_historicos_por_folio_y_dueno_sin_message_id(session: Session) -> None:
+    """Una fila de la 042 sin ``message_id`` se resuelve por folio y dueño."""
+
+    _insert_historic(session)
+    repo = SqlQuoteRepository(session)
+
+    record = repo.resolve("q-042", "cot:ana")
+
+    assert record is not None
+    assert record.version == 1
+    assert record.folio == "q-042"
+    assert record.subtotal == Decimal("3751")
+    assert record.total == Decimal("3751")
+    assert record.currency == "COP"
+    assert record.tax_status == "incluido"
+    assert record.shipping_cost is None
+    assert record.commercial_valid_until is None
+    assert record.presentation["subtotal"] == "3751"
+
+
+def test_lee_por_message_id_y_cae_al_folio_si_falta(session: Session) -> None:
+    _insert_historic(session, message_id="m-042")
+    repo = SqlQuoteRepository(session)
+
+    por_mensaje = repo.resolve("q-042", "cot:ana", message_id="m-042")
+    por_folio = repo.resolve("q-042", "cot:ana", message_id="m-inexistente")
+
+    assert por_mensaje is not None and por_mensaje.folio == "q-042"
+    assert por_folio is not None and por_folio.folio == "q-042"
+
+
+def test_un_historico_ajeno_no_se_lee(session: Session) -> None:
+    _insert_historic(session)
+    repo = SqlQuoteRepository(session)
+
+    assert repo.resolve("q-042", "cot:luis") is None
+    assert repo.resolve("q-042", "cot:luis", message_id="m-042") is None
+
+
+def test_persiste_y_lee_el_resultado_versionado_con_total_pendiente(session: Session) -> None:
+    """La 043 separa importes y admite total ausente; la lectura los devuelve igual."""
+
+    payload = {
+        "version": 2,
+        "kind": "cotizacion",
+        "commercial": {
+            "version": 2,
+            "presentation": {
+                "basis": "paquete",
+                "units": 50,
+                "count": 6,
+                "units_bought": 300,
+                "units_surplus": 0,
+                "price_per_presentation": "3751",
+                "subtotal": "22506",
+            },
+            "tax": {"status": "incluido", "rate": None},
+            "shipping": {"requested": True, "status": "pending", "cost": None},
+            "subtotal": "22506",
+            "total": None,
+            "valid_until": None,
+        },
+        "primary": {"currency": "COP", "presentation": {"subtotal": "22506"}},
+        "quote": {"id": "q-043", "issued_at": "2026-11-23T10:00:00+00:00"},
+    }
+    repo = SqlQuoteRepository(session)
+
+    repo.record(
+        "q-043",
+        "cot:ana",
+        payload=payload,
+        total=None,
+        currency="COP",
+        valid_until=date(2026, 11, 30),
+        version=2,
+        issued_at=datetime(2026, 11, 23, 10, 0, tzinfo=UTC),
+        subtotal=Decimal("22506"),
+        tax_status="incluido",
+        shipping_cost=None,
+        commercial_valid_until=None,
+    )
+
+    record = repo.get("q-043", "cot:ana")
+
+    assert record is not None
+    assert record.version == 2
+    assert record.subtotal == Decimal("22506")
+    assert record.shipping_cost is None
+    assert record.total is None
+    assert record.commercial_valid_until is None
+    assert record.issued_at == datetime(2026, 11, 23, 10, 0, tzinfo=UTC)
+    assert record.presentation["price_per_presentation"] == "3751"

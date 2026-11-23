@@ -326,6 +326,8 @@ class DeliveryTerms(_Frozen):
     lead_days_max: int = Field(default=0, ge=0)
     ship_cost: Decimal | None = Field(default=None, ge=0)
     checked_at: date | None = None
+    valid_until: date | None = None
+    source_url: str | None = None
     note: str = ""
 
     @field_validator("note", mode="before")
@@ -333,10 +335,23 @@ class DeliveryTerms(_Frozen):
     def _nota_texto(cls, value: object) -> str:
         return "" if value is None else str(value)
 
+    @field_validator("source_url")
+    @classmethod
+    def _url_http(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(("http://", "https://")):
+            raise ValueError("source_url debe ser http(s) o quedar vacía")
+        return value
+
     @model_validator(mode="after")
     def _rango(self) -> Self:
         if self.lead_days_max < self.lead_days_min:
             raise ValueError("lead_days_max no puede ser menor que lead_days_min")
+        if (
+            self.valid_until is not None
+            and self.checked_at is not None
+            and self.valid_until < self.checked_at
+        ):
+            raise ValueError("valid_until no puede ser anterior a checked_at")
         return self
 
 

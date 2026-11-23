@@ -33,6 +33,7 @@ from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.adapters.storage.visitor_memory import SqlVisitorMemory
 from carvajal.quotation import quote
 from carvajal.quotation.data import CommercialDataError
+from carvajal.quotation.engine import QUOTE_VERSION
 from carvajal.quotation.memory import extract, forget_requested, merge
 
 __all__ = ["CotizadorStore", "SqlCotizadorStore", "router"]
@@ -162,15 +163,31 @@ class SqlCotizadorStore:
         quote: Mapping[str, Any],
         conversation_id: str,
     ) -> None:
-        """Registra la cotización dentro de la transacción del turno."""
+        """Registra la cotización versionada dentro de la transacción del turno."""
 
+        total = quote.get("total")
+        subtotal = quote.get("subtotal")
+        tax_rate = quote.get("tax_rate")
+        shipping_cost = quote.get("shipping_cost")
+        commercial_valid_until = quote.get("commercial_valid_until")
         SqlQuoteRepository(session).record(
             str(quote["id"]),
             owner,
             payload=quote["payload"],
-            total=Decimal(str(quote["total"])),
+            total=None if total is None else Decimal(str(total)),
             currency=str(quote["currency"]),
             valid_until=date.fromisoformat(str(quote["valid_until"])),
+            version=int(quote.get("version", 1)),
+            issued_at=quote.get("issued_at"),
+            subtotal=None if subtotal is None else Decimal(str(subtotal)),
+            tax_status=quote.get("tax_status"),
+            tax_rate=None if tax_rate is None else Decimal(str(tax_rate)),
+            shipping_cost=None if shipping_cost is None else Decimal(str(shipping_cost)),
+            commercial_valid_until=(
+                None
+                if commercial_valid_until is None
+                else date.fromisoformat(str(commercial_valid_until))
+            ),
             conversation_id=conversation_id,
         )
 
@@ -221,15 +238,41 @@ def _issue_quote(
     if payload.get("kind") != "cotizacion" or not payload.get("primary"):
         return payload, None
     primary = payload["primary"]
+    commercial = payload.get("commercial") or {}
+    shipping = commercial.get("shipping") or {}
+    moment = datetime.now(UTC)
     quote_id = uuid4().hex[:12]
-    valid = (datetime.now(UTC).date() + timedelta(days=QUOTE_DAYS)).isoformat()
-    quoted = {**payload, "quote": {"id": quote_id, "valid_until": valid, "days": QUOTE_DAYS}}
+    retention = (moment.date() + timedelta(days=QUOTE_DAYS)).isoformat()
+    quote_meta = {
+        "id": quote_id,
+        "folio": quote_id,
+        "issued_at": moment.isoformat(),
+        "retention_until": retention,
+        "valid_until": retention,
+        "days": QUOTE_DAYS,
+    }
+    quoted = {
+        **payload,
+        "version": QUOTE_VERSION,
+        "quote": quote_meta,
+    }
+    total = payload.get("total")
+    subtotal = commercial.get("subtotal")
+    shipping_cost = shipping.get("cost")
+    tax_rate = (commercial.get("tax") or {}).get("rate")
     record = {
         "id": quote_id,
         "payload": quoted,
-        "total": Decimal(str(payload.get("total") or primary["presentation"]["subtotal"])),
+        "version": QUOTE_VERSION,
+        "issued_at": moment,
+        "subtotal": None if subtotal is None else Decimal(str(subtotal)),
+        "tax_status": (commercial.get("tax") or {}).get("status"),
+        "tax_rate": None if tax_rate is None else Decimal(str(tax_rate)),
+        "shipping_cost": None if shipping_cost is None else Decimal(str(shipping_cost)),
+        "total": None if total is None else Decimal(str(total)),
         "currency": primary["currency"],
-        "valid_until": valid,
+        "valid_until": retention,
+        "commercial_valid_until": commercial.get("valid_until"),
     }
     return quoted, record
 

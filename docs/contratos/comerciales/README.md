@@ -73,7 +73,7 @@ precio ni stock; el contacto del directorio tampoco.
 | `source` | nombre, URL, fecha y vigencia de la fuente |
 | `normalized` | vista adicional a caja: `{basis: "caja", units_in_basis, amount}`; el esquema fija `basis="caja"` y solo se admite si la caja contiene un número entero de presentaciones |
 | `availability` | objeto independiente; ver §5 |
-| `delivery` | opcional: plazo mínimo/máximo, costo de envío y fecha de consulta, solo con evidencia |
+| `delivery` | opcional: plazo mínimo/máximo, costo de envío, `source_url`, `checked_at` y `valid_until`, solo con evidencia |
 
 `delivery` no forma parte del mínimo producto–oferta–sede. Sin evidencia de entrega queda
 vacío: el Cotizador muestra el subtotal y deja el total pendiente.

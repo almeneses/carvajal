@@ -1,5 +1,11 @@
 {% set p = cotizacion.primary %}
 {% set d = cotizacion.delivery or {} %}
+{% set c = cotizacion.commercial or {} %}
+{% set q = cotizacion.quote or {} %}
+{% set pres = p.presentation %}
+{% set tax = p.tax or {"status": p.tax_status, "rate": none} %}
+{% set shipping = c.shipping or d %}
+{% set ship_status = shipping.status or ("confirmed" if d.covered else "pending") %}
 {% set precision = {
   "direccion": "dirección aproximada", "via": "nivel de vía",
   "ciudad": "centro de la ciudad", "desconocida": "sin coordenadas"
@@ -11,8 +17,14 @@
 <section class="coti" aria-label="Cotización">
   <header class="coti-cabecera">
     <h3 class="coti-titulo">Cotización para {{ cotizacion.city }}</h3>
-    {% if cotizacion.quote %}
-    <span class="coti-sello">#{{ cotizacion.quote.id }} · válida hasta {{ cotizacion.quote.valid_until }}</span>
+    {% if q %}
+    <span class="coti-sello">
+      #{{ q.folio or q.id }}
+      {%- if q.issued_at %} · emitida el {{ q.issued_at[:10] }}{% endif %}
+    </span>
+    {% endif %}
+    {% if c.valid_until %}
+    <span class="coti-sello">Vigencia del vendedor hasta {{ c.valid_until }}</span>
     {% endif %}
   </header>
 
@@ -26,51 +38,64 @@
     <dl class="coti-cifras">
       <div>
         <dt>Pides</dt>
-        <dd>{{ "{:,}".format(p.units_requested) | replace(",", ".") }} unidades</dd>
+        <dd>
+          {{ "{:,}".format(pres.units_requested or p.units_requested) | replace(",", ".") }}
+          unidades
+        </dd>
       </div>
       <div>
         <dt>Compras</dt>
         <dd>
-          {{ p.presentation.count }} {{ p.presentation.basis }}
-          ({{ "{:,}".format(p.presentation.units_bought) | replace(",", ".") }} unidades)
+          {{ pres.count }} {{ pres.basis }}
+          ({{ "{:,}".format(pres.units_bought) | replace(",", ".") }} unidades)
         </dd>
       </div>
       <div>
         <dt>Sobrantes</dt>
-        <dd>{{ "{:,}".format(p.presentation.units_surplus) | replace(",", ".") }} unidades</dd>
+        <dd>{{ "{:,}".format(pres.units_surplus) | replace(",", ".") }} unidades</dd>
       </div>
       <div>
-        <dt>Precio de la presentación</dt>
-        <dd>{{ p.presentation.subtotal }} COP</dd>
+        <dt>Precio por {{ pres.basis }}</dt>
+        <dd>{{ pres.price_per_presentation or pres.subtotal }} COP</dd>
       </div>
       <div class="coti-cifra-fuerte">
         <dt>Subtotal</dt>
-        <dd>{{ p.presentation.subtotal }} COP</dd>
+        <dd>{{ pres.subtotal }} COP</dd>
       </div>
-      {% if d.requested and d.ship_cost is not none %}
+      <div>
+        <dt>IVA</dt>
+        <dd>
+          {% if tax.status == "incluido" %}Incluido
+          {% elif tax.status == "no_incluido" %}No incluido
+          {% else %}No indicado{% endif %}
+          {%- if tax.rate %} · {{ tax.rate }}{% endif %}
+        </dd>
+      </div>
+      {% if shipping.requested %}
       <div>
         <dt>Envío</dt>
         <dd>
-          {% if d.free %}Gratis (desde {{ d.free_from }} COP){% else %}{{ d.ship_cost }} COP{% endif %}
+          {% if ship_status == "confirmed" %}
+            {% if shipping.free %}Gratis (costo cero respaldado)
+            {% else %}{{ shipping.cost }} COP{% endif %}
+          {% else %}Por confirmar{% endif %}
         </dd>
       </div>
-      {% if cotizacion.total %}
-      <div class="coti-cifra-fuerte">
-        <dt>Total conocido</dt>
-        <dd>{{ cotizacion.total }} COP</dd>
-      </div>
-      {% else %}
+      {% endif %}
       <div class="coti-cifra-fuerte">
         <dt>Total final</dt>
-        <dd>Por confirmar: falta el costo de envío respaldado</dd>
+        <dd>
+          {% if cotizacion.total %}{{ cotizacion.total }} COP
+          {% else %}Por confirmar: falta un componente necesario{% endif %}
+        </dd>
       </div>
-      {% endif %}
-      {% endif %}
     </dl>
 
     <p class="coti-etiquetas">
       <span class="coti-sello">Precio de referencia · {{ p.captured_at }}</span>
-      <span class="coti-sello">IVA {{ p.tax_status | replace("_", " ") }}</span>
+      {% if c.valid_until %}
+      <span class="coti-sello">Vigencia publicada hasta {{ c.valid_until }}</span>
+      {% endif %}
       {% if p.stock.status == "verificado" %}
       <span class="coti-sello">Existencia confirmada</span>
       {% elif p.stock.status == "no_disponible" %}
@@ -161,24 +186,43 @@
   </section>
   {% endif %}
 
-  {% if d.requested %}
+  {% if shipping.requested %}
   <section class="coti-entrega" aria-label="Entrega">
     <h4>Entrega a domicilio</h4>
-    {% if d.covered %}
+    {% if ship_status == "confirmed" %}
     <p>
-      Llega entre el <strong>{{ d.window }}</strong>
-      ({{ d.days_min }}–{{ d.days_max }} días hábiles, festivos colombianos excluidos).
-      Pedidos después de las {{ d.cutoff }}:00 pasan al siguiente día hábil.
+      {% if shipping.free %}Envío gratis con costo cero respaldado.
+      {% else %}Envío: <strong>{{ shipping.cost }} COP</strong>.{% endif %}
+      {% if shipping.days_max %}Plazo declarado: {{ shipping.days_min }}–{{ shipping.days_max }}
+      días hábiles.{% endif %}
     </p>
+    {% if shipping.valid_until %}
     <p class="coti-nota">
-      Es una estimación: no garantiza la entrega.
-    </p>
-    {% else %}
-    <p>
-      No hay costo ni plazo de envío publicados para esta sede. El subtotal queda visible y
-      el total final pendiente; puedes retirar en la sede o consultar al proveedor.
+      Evidencia vigente hasta {{ shipping.valid_until }}.
+      {% if shipping.source_url %}
+      <a href="{{ shipping.source_url }}" rel="noopener" target="_blank">Ver la fuente</a>.
+      {% endif %}
     </p>
     {% endif %}
+    {% else %}
+    <p>
+      El envío no tiene precio respaldado con evidencia vigente. El subtotal queda visible y
+      el total final pendiente; puedes retirar en la sede o consultar al proveedor.
+    </p>
+    {% if shipping.note %}<p class="coti-nota">{{ shipping.note }}</p>{% endif %}
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if cotizacion.pending_lines %}
+  <section class="coti-pendientes" aria-label="Líneas pendientes">
+    <h4>Líneas pendientes</h4>
+    <ul>
+      {% for linea in cotizacion.pending_lines %}
+      <li>{{ linea.label }} · {{ linea.status }}</li>
+      {% endfor %}
+    </ul>
+    <p class="coti-nota">Elegí cuál cotizar primero; conservo las demás líneas.</p>
   </section>
   {% endif %}
 

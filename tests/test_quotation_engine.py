@@ -10,6 +10,7 @@ from carvajal.catalog.loader import load_catalog
 from carvajal.commercial import (
     Availability,
     AvailabilityEvidence,
+    DeliveryTerms,
     Presentation,
     Seller,
     Site,
@@ -44,16 +45,17 @@ def test_cotiza_20_vasos_con_presentacion_y_sobrantes() -> None:
 
     assert resultado["kind"] == "cotizacion"
     principal = resultado["primary"]
+    presentation = principal["presentation"]
     assert principal["sku"] == "7704918100199"
-    assert principal["presentation"] == {
-        "basis": "paquete",
-        "units": 50,
-        "count": 1,
-        "units_bought": 50,
-        "units_surplus": 30,
-        "subtotal": "3751",
-        "unit_price": "75.02",
-    }
+    assert presentation["basis"] == "paquete"
+    assert presentation["units"] == 50
+    assert presentation["units_requested"] == 20
+    assert presentation["count"] == 1
+    assert presentation["units_bought"] == 50
+    assert presentation["units_surplus"] == 30
+    assert presentation["price_per_presentation"] == "3751"
+    assert presentation["subtotal"] == "3751"
+    assert presentation["unit_price"] == "75.02"
     assert principal["provider"]["name"] == "EDEXA"
     assert principal["seller"] == "EDEXA"
     assert principal["source_url"].startswith("https://")
@@ -67,8 +69,11 @@ def test_domicilio_sin_envio_respaldado_deja_el_total_pendiente() -> None:
     resultado = quote("con domicilio", questions=[*HISTORIAL, "en Bogotá"], today=HOY, now=MANANA)
 
     entrega = resultado["delivery"]
-    assert entrega == {"requested": True, "covered": False}
+    assert entrega["requested"] is True
+    assert entrega["covered"] is False
+    assert entrega["ship_cost"] is None
     assert resultado["total"] is None
+    assert resultado["commercial"]["shipping"]["status"] == "pending"
     assert resultado["primary"]["presentation"]["subtotal"] == "3751"
 
 
@@ -134,7 +139,9 @@ def test_el_flujo_publico_no_sirve_datos_simulados() -> None:
     assert not hasattr(dataset.offers[0], "stock_simulated")
 
 
-def _dataset_with_evidence(valid_until: date | None) -> Dataset:
+def _dataset_with_evidence(
+    valid_until: date | None, *, delivery: DeliveryTerms | None = None
+) -> Dataset:
     reference = next(
         item
         for item in load_catalog().references
@@ -207,6 +214,7 @@ def _dataset_with_evidence(valid_until: date | None) -> Dataset:
         tax_status="incluido",
         source=source,
         availability=Availability.verified((evidence,), units=10_000),
+        delivery=delivery,
     )
     book = build_commercial_book(
         products=[product],
@@ -241,6 +249,132 @@ def test_la_evidencia_con_valid_until_no_vencido_es_la_unica_que_confirma_stock(
 
     assert confirmada["primary"]["stock"]["status"] == "verificado"
     assert pendiente["primary"]["stock"]["status"] == "por_confirmar"
+
+
+def test_300_vasos_son_seis_paquetes_sin_sobrante() -> None:
+    resultado = quote("cotiza 300 vasos para bebida caliente en Bogotá", today=HOY, now=MANANA)
+
+    presentation = resultado["primary"]["presentation"]
+    assert presentation["count"] == 6
+    assert presentation["units_bought"] == 300
+    assert presentation["units_surplus"] == 0
+    assert presentation["price_per_presentation"] == "3751"
+    assert presentation["subtotal"] == "22506"
+
+
+def test_301_vasos_son_siete_paquetes_con_49_de_sobrante() -> None:
+    resultado = quote("cotiza 301 vasos para bebida caliente en Bogotá", today=HOY, now=MANANA)
+
+    presentation = resultado["primary"]["presentation"]
+    assert presentation["count"] == 7
+    assert presentation["units_bought"] == 350
+    assert presentation["units_surplus"] == 49
+    assert presentation["subtotal"] == "26257"
+
+
+def test_el_precio_por_presentacion_se_conserva_separado_del_subtotal() -> None:
+    resultado = quote("en Bogotá", questions=HISTORIAL, today=HOY, now=MANANA)
+
+    commercial = resultado["commercial"]
+    assert commercial["presentation"]["price_per_presentation"] == "3751"
+    assert commercial["presentation"]["subtotal"] == "3751"
+    assert commercial["subtotal"] == "3751"
+    assert Decimal(commercial["total"]) == Decimal(commercial["subtotal"])
+
+
+def test_sin_vigencia_comercial_no_se_inventa_fecha() -> None:
+    resultado = quote("en Bogotá", questions=HISTORIAL, today=HOY, now=MANANA)
+
+    assert resultado["primary"]["commercial_valid_until"] is None
+    assert resultado["commercial"]["valid_until"] is None
+    assert "Vigencia publicada" not in resultado["reply"]
+
+
+def test_envio_con_costo_cero_respaldado_cierra_el_total() -> None:
+    delivery = DeliveryTerms(
+        lead_days_min=1,
+        lead_days_max=2,
+        ship_cost=Decimal("0"),
+        checked_at=HOY - timedelta(days=1),
+        valid_until=HOY + timedelta(days=7),
+        source_url="https://example.com/envio",
+    )
+    dataset = _dataset_with_evidence(None, delivery=delivery)
+
+    resultado = quote(
+        "cotiza 100 vasos para bebida caliente en Bogotá con domicilio",
+        today=HOY,
+        now=MANANA,
+        dataset=dataset,
+    )
+
+    shipping = resultado["commercial"]["shipping"]
+    assert shipping["status"] == "confirmed"
+    assert shipping["cost"] == "0"
+    assert shipping["free"] is True
+    assert Decimal(resultado["commercial"]["total"]) == Decimal(resultado["commercial"]["subtotal"])
+    assert resultado["delivery"]["covered"] is True
+
+
+def test_envio_sin_precio_deja_el_total_pendiente() -> None:
+    delivery = DeliveryTerms(
+        lead_days_min=1,
+        lead_days_max=2,
+        ship_cost=None,
+        checked_at=HOY - timedelta(days=1),
+        valid_until=HOY + timedelta(days=7),
+        source_url="https://example.com/envio",
+    )
+    dataset = _dataset_with_evidence(None, delivery=delivery)
+
+    resultado = quote(
+        "cotiza 100 vasos para bebida caliente en Bogotá con domicilio",
+        today=HOY,
+        now=MANANA,
+        dataset=dataset,
+    )
+
+    shipping = resultado["commercial"]["shipping"]
+    assert shipping["status"] == "pending"
+    assert shipping["cost"] is None
+    assert shipping["source_url"] == "https://example.com/envio"
+    assert resultado["commercial"]["total"] is None
+    assert resultado["total"] is None
+
+
+def test_envio_con_evidencia_vencida_no_confirma_costo() -> None:
+    delivery = DeliveryTerms(
+        lead_days_min=1,
+        lead_days_max=2,
+        ship_cost=Decimal("12000"),
+        checked_at=HOY - timedelta(days=10),
+        valid_until=HOY - timedelta(days=1),
+        source_url="https://example.com/envio",
+    )
+    dataset = _dataset_with_evidence(None, delivery=delivery)
+
+    resultado = quote(
+        "cotiza 100 vasos para bebida caliente en Bogotá con domicilio",
+        today=HOY,
+        now=MANANA,
+        dataset=dataset,
+    )
+
+    assert resultado["commercial"]["shipping"]["status"] == "pending"
+    assert resultado["commercial"]["total"] is None
+
+
+def test_una_solicitud_de_varias_lineas_conserva_las_pendientes() -> None:
+    resultado = quote(
+        "cotiza 20 vasos y 10 platos para comida caliente en Bogotá",
+        today=HOY,
+        now=MANANA,
+    )
+
+    assert resultado["kind"] == "cotizacion"
+    assert [item["family"] for item in resultado["pending_lines"]] == ["plato"]
+    assert resultado["pending_lines"][0]["status"] == "pendiente"
+    assert "Quedan líneas pendientes" in resultado["reply"]
 
 
 def test_el_precio_viejo_se_usa_como_normal() -> None:

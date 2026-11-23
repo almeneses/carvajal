@@ -12,7 +12,7 @@ from functools import cache
 
 from carvajal.catalog.loader import load_catalog
 from carvajal.catalog.models import Reference
-from carvajal.commercial import AvailabilityEvidence
+from carvajal.commercial import AvailabilityEvidence, DeliveryTerms
 from carvajal.commercial.book import CommercialBook
 from carvajal.commercial.loader import load_commercial_book
 from carvajal.commercial.models import Offer as ContractOffer
@@ -52,12 +52,15 @@ class Offer:
     amount: Decimal
     currency: str
     tax_status: str
+    tax_rate: Decimal | None
     stock_status: str
     stock_units: int | None
     source_name: str
     source_url: str
+    source_valid_until: date | None
     captured_at: date
     evidence: tuple[AvailabilityEvidence, ...] = ()
+    delivery: DeliveryTerms | None = None
 
     @property
     def confirmed(self) -> bool:
@@ -165,12 +168,15 @@ def _offer_from_contract(
         amount=offer.amount,
         currency=offer.currency,
         tax_status=offer.tax_status,
+        tax_rate=offer.tax_rate,
         stock_status=availability_status,
         stock_units=stock_units,
         source_name=offer.source.name,
         source_url=offer.source.url or "",
+        source_valid_until=offer.source.valid_until,
         captured_at=offer.source.captured_at,
         evidence=evidence,
+        delivery=offer.delivery,
     )
 
 

@@ -30,11 +30,11 @@ existente equivalente cuando corresponda.
 **Goal 5**. Prueba independiente con envío desconocido, paquetes y solicitud
 de dos productos. Inicia tras T006. Una sola persona modifica el motor.
 
-- [ ] T009 [P] [US2] Especificar y probar lectura compatible de importes históricos y del resultado versionado en `tests/test_cotizador_store.py`. Usar folio y dueño cuando la relación con el mensaje falte. FR-005, FR-009.
-- [ ] T010 [P] [US2] Definir en `tests/test_quotation_engine.py` y `tests/test_commercial_quote.py` casos de 300 y 301 vasos, envío con costo cero respaldado, envío sin precio, precio por presentación y vigencia ausente. FR-005.
-- [ ] T011 [US2] Calcular y ordenar con Decimal en `packages/core/src/carvajal/quotation/engine.py`. Separar costo por presentación, subtotal, IVA declarado, envío, total y vigencias. Depende de T010. FR-005.
-- [ ] T012 [US2] Persistir y leer el contrato versionado en `packages/core/src/carvajal/adapters/storage/quotes.py` y `packages/core/src/carvajal/adapters/storage/tables.py`, con migración Alembic si corresponde. Comprobar lectura y escritura durante la transición. Depende de T009, T011. FR-005, FR-009.
-- [ ] T013 [US2] Renderizar los campos correctos y tratar solicitud de varias líneas desde `apps/api/templates/_cotizacion.html` y el motor. Conservar las otras líneas como pendientes. Depende de T011–T012. FR-005, FR-006.
+- [x] T009 [P] [US2] Especificar y probar lectura compatible de importes históricos y del resultado versionado en `tests/test_cotizador_store.py`. Usar folio y dueño cuando la relación con el mensaje falte. FR-005, FR-009.
+- [x] T010 [P] [US2] Definir en `tests/test_quotation_engine.py` y `tests/test_commercial_quote.py` casos de 300 y 301 vasos, envío con costo cero respaldado, envío sin precio, precio por presentación y vigencia ausente. FR-005.
+- [x] T011 [US2] Calcular y ordenar con Decimal en `packages/core/src/carvajal/quotation/engine.py`. Separar costo por presentación, subtotal, IVA declarado, envío, total y vigencias. Depende de T010. FR-005.
+- [x] T012 [US2] Persistir y leer el contrato versionado en `packages/core/src/carvajal/adapters/storage/quotes.py` y `packages/core/src/carvajal/adapters/storage/tables.py`, con migración Alembic si corresponde. Comprobar lectura y escritura durante la transición. Depende de T009, T011. FR-005, FR-009.
+- [x] T013 [US2] Renderizar los campos correctos y tratar solicitud de varias líneas desde `apps/api/templates/_cotizacion.html` y el motor. Conservar las otras líneas como pendientes. Depende de T011–T012. FR-005, FR-006.
 
 ## Fase 3 · US3. Continuar la compra en el mismo chat
 
