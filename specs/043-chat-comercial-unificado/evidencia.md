@@ -27,11 +27,11 @@
 
 ## No verificado en este entorno
 
-- Recorrido visual en navegador a 390 y 1440 px; corresponde a T038.
+- Recorrido visual en navegador a 390 y 1440 px; no es una tarea de `tasks.md` y queda fuera de T003/T021.
 - Despliegue sobre el VPS real y disponibilidad externa de vendedores o proveedores.
 - La corrección de concurrencia en frío se validó con un stack desechable, no con diez sesiones humanas reales.
 
-Estos puntos no se presentan como aprobados. T021 se cierra con la actualización/rollback y la concurrencia en frío verificadas; T038 conserva la revisión visual.
+Estos puntos no se presentan como aprobados. T021 se cierra con la actualización/rollback y la concurrencia en frío verificadas; la revisión visual queda como seguimiento aparte.
 
 ## Umbral propuesto y resultado medido de SC-005 (T029, pendiente del owner)
 
@@ -52,7 +52,7 @@ Medición local con la app de la 043 en `127.0.0.1:8013`, PostgreSQL de prueba, 
 | Secuencial | 30 | 30 | 33,80 ms | 2.344,34 ms | 6.222,57 ms | 12.866,37 ms |
 | 10 concurrentes | 10 | 10 | 1.508,65 ms | 2.564,80 ms | 3.057,57 ms | 12.382,15 ms |
 
-Los valores cumplen el umbral propuesto: primer contenido p95 < 6.000 ms y cierre p95 < 20.000 ms, con 40/40 turnos completados. Esta medición no sustituye la aprobación del owner: T029 sigue pendiente hasta que acepte el umbral y la muestra. T021 quedó cerrada con la actualización y el rollback verificados; T038 conserva la revisión visual.
+Los valores cumplen el umbral propuesto: primer contenido p95 < 6.000 ms y cierre p95 < 20.000 ms, con 40/40 turnos completados. Esta medición no sustituye la aprobación del owner: T029 sigue pendiente hasta que acepte el umbral y la muestra. T021 quedó cerrada con la actualización y el rollback verificados; la revisión visual queda como seguimiento aparte.
 
 ### Cómo medir SC-005
 
