@@ -20,10 +20,17 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
   hasta ver un `tool_call_chunk` (paso con herramientas: se descarta el texto retenido) o
   hasta acumular 48 caracteres o el fin del paso sin herramientas (paso final: se libera y
   se sigue transmitiendo).
+  Retención por camino (acordado con el owner, 2026-11-23): con evidencia, 48 caracteres;
+  con `sin_consulta`, la respuesta completa se retiene, se filtra y se emite de una vez
+  (respuestas cortas); sin evidencia tras `buscar_corpus`, no se genera: la compuerta emite
+  la abstención antes del paso final. «Detener» antes del primer token no persiste nada;
+  durante el texto persiste el turno como `incomplete` y sin cotizaciones (prueba
+  explícita).
 - **Rationale**: DeepSeek emite las llamadas a herramientas en los primeros deltas; el
   retenido es imperceptible y evita mostrar «pensamientos» previos a una llamada.
 - **Alternatives considered**: invocar sin streaming hasta el paso final y luego volver a
-  pedir el texto en streaming: duplica el costo del paso final (SC-008).
+  pedir el texto en streaming: duplica el costo del paso final (SC-008); un paso extra solo
+  de redacción: añade una llamada por turno (SC-006, SC-008).
 
 ## R3. Compuerta de evidencia (FR-004)
 
@@ -139,9 +146,14 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
 
 ## R12. DeepSeek y tool calling
 
-- **Decision**: `ChatOpenAI(model="deepseek-chat", base_url=…).bind_tools(tools,
-  parallel_tool_calls=False)`; esquemas Pydantic con descripciones en español; temperatura
-  0. Llamadas en serie para que los estados y el orden de fuentes sean deterministas.
-- **Rationale**: soportado por el adaptador existente sin dependencias nuevas.
+- **Decision**: `ChatOpenAI(model="deepseek-chat", base_url=…).bind_tools(tools)` con
+  llamadas múltiples permitidas en un mismo paso; el nodo `tools` las **ejecuta en serie en
+  el orden pedido**, cada una con su línea de estado, de modo que la numeración `[n]` y los
+  folios siguen siendo deterministas. Esquemas Pydantic con descripciones en español;
+  temperatura 0. Cada llamada cuenta para el límite de 4.
+- **Rationale**: soportado por el adaptador existente sin dependencias nuevas. Con
+  llamadas de a una, una necesidad compuesta cuesta ~4 decisiones (~6–7 s hasta el primer
+  texto con la latencia medida en `docs/resultados-router.md`: 1,3 s media, 1,6 s p95) e
+  incumple SC-006; agrupadas, ~2 decisiones (~3,5 s).
 - **Riesgo**: calidad del tool calling de DeepSeek en español; se mide en F4 y, si no
   alcanza SC-003, el modo `tools` no pasa a valor por defecto.
