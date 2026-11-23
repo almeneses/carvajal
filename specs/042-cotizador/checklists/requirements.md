@@ -9,8 +9,8 @@
 - [x] Centrada en el valor para el usuario y el negocio
 - [x] Escrita para personas no técnicas
 - [x] Todas las secciones obligatorias completas
-- [x] Decisiones tecnológicas acotadas: mapa SVG propio (sin teselas), SSE sobre el
-  formato de cable existente y tabla propia para la memoria
+- [x] Decisiones tecnológicas acotadas: mapa OSM incrustado con `frame-src` acotado, SSE
+  sobre el formato de cable existente y tabla propia para la memoria
 
 ## Requirement Completeness
 
@@ -18,7 +18,7 @@
 - [x] Requisitos verificables y sin ambigüedad
 - [x] Criterios de éxito medibles
 - [x] Criterios de éxito sin detalles de implementación
-- [x] Escenarios de aceptación definidos para las seis historias
+- [x] Escenarios de aceptación definidos para las siete historias
 - [x] Casos borde identificados (cantidades, stock, ciudad, festivos, mapa, memoria, saludos)
 - [x] Alcance acotado (Colombia, empaques, COP; sin pedidos ni pagos)
 - [x] Dependencias y supuestos identificados
@@ -48,5 +48,6 @@
   patrón y nunca se escriben correos, teléfonos ni texto libre.
 - El checklist se revisó el 2026-11-21 después de implementar SSE y la memoria: los dos
   requisitos nuevos entraron en spec, plan, contrato, tareas y pruebas.
-- Pendientes reales: revisión de retención (T053), dictado por voz (T039) y verificación
-  visual móvil (T038).
+- Pendientes reales: revisión de retención (T053), verificación SC-007 (T061), regresión
+  explícita de chat/comercial (T062) y verificación visual móvil (T038). El dictado por voz
+  (T039) queda diferido a una spec posterior.

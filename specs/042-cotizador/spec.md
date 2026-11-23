@@ -1,8 +1,8 @@
 # Feature Specification: Cotizador conversacional de productos Carvajal
 
-**Feature Branch**: `prototype`
+**Feature Branch**: `main` (integración histórica desde `prototype`)
 **Created**: 2026-11-21
-**Status**: Prototipo implementado en la rama `prototype` (2026-11-21), con streaming SSE; pendientes T038, T039 y T053 de [`tasks.md`](./tasks.md).
+**Status**: Implementada en `main` (spec 042); pendientes T038 y T053 de [`tasks.md`](./tasks.md). El dictado por voz queda diferido a una spec posterior.
 **Input**: User description: "Agregar una sección Cotizador con la misma interfaz del chat,
 dedicada solo a productos Carvajal: alguien escribe «cotízame 20 vasos para bebida
 caliente» y el chat responde si lo tiene, el precio, la cantidad solicitada, el costo
@@ -13,7 +13,7 @@ alternativas similares si las hay." Plan de referencia:
 
 ## Clarifications
 
-### Sesión 2026-11-21 (preliminar, a confirmar en `/speckit.clarify`)
+### Sesión 2026-11-21 (cerrada)
 
 - Mercado inicial: **Colombia, precios en COP y línea de empaques**. Otras líneas de
   Carvajal y otros países quedan fuera hasta que exista un catálogo curado.
@@ -28,7 +28,7 @@ alternativas similares si las hay." Plan de referencia:
 - La cotización completa exige **ciudad**: sin ella el Cotizador la pide antes de mostrar
   precios y proveedores.
 - Las ventanas de entrega de la demo se calculan en **días hábiles con los festivos de
-  Colombia**, además del horario de corte del proveedor.
+  Colombia**, el horario de corte y los días de atención declarados por el proveedor.
 - El mapa se incrusta en el hilo (OpenStreetMap) centrado en la sede de la oferta y no
   reemplaza dirección ni teléfono. Sin conexión o sin coordenadas, la respuesta conserva
   esos datos en texto.
@@ -263,7 +263,8 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
 - Producto sin precio, sin stock conocido, agotado o con stock menor a la cantidad
   comprable.
 - Producto alternativo con capacidad o material distintos: la diferencia debe ser explícita.
-- Precio desactualizado o con vigencia vencida: se muestra con aviso, no se corrige.
+- Precio con fecha antigua: se muestra como precio de referencia normal, con su fecha; no se
+  rotula como vencido ni se corrige.
 - Varias ofertas del mismo proveedor en sedes distintas o con monedas distintas.
 - Ciudad escrita con o sin tildes, con error de ortografía o fuera del país.
 - Domicilio sin zona, zona ambigua, pedido en día no hábil o después del corte.
@@ -285,6 +286,8 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
 - **FR-003**: El sistema MUST interpretar producto, uso, cantidad, capacidad, país, ciudad y
   solicitud de domicilio, y conservarlos durante el hilo mientras sigan siendo válidos.
   MUST pedir la ciudad antes de presentar precios, totales y proveedores cuando falte.
+  Si el país no es Colombia, MUST derivar la consulta al chat general y explicar que el
+  Cotizador solo opera con el catálogo colombiano.
 - **FR-004**: El sistema MUST validar la compatibilidad técnica de cada referencia con el
   uso pedido con las reglas vigentes y MUST no relajarlas para completar una cotización.
 - **FR-005**: El sistema MUST cotizar en presentaciones comerciales conocidas de cada
@@ -304,9 +307,10 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
   uso y explicar en qué se diferencian de la opción principal.
 - **FR-011**: El sistema MUST listar los proveedores asociados a la opción con nombre, sede,
   dirección, teléfono y fuente del dato cuando existan.
-- **FR-012**: El sistema MUST mostrar un mapa incrustado con la ubicación del proveedor de
-  la oferta y MUST conservar la lista textual de sedes con su dirección, teléfono y enlace
-  de respaldo cuando el mapa no cargue.
+- **FR-012**: El sistema MUST mostrar un mapa incrustado con un marcador por sede de las
+  ofertas mostradas que tenga coordenadas conocidas, y MUST conservar la lista textual de
+  todas las sedes con su dirección, teléfono y enlace de respaldo cuando el mapa no cargue.
+  Si una sede no tiene coordenadas, MUST listarla sin marcador y explicar por qué.
 - **FR-013**: El sistema MUST pedir el destino cuando se solicite domicilio y MUST mostrar
   cobertura, costo de envío y ventana estimada cuando existan datos, aclarando que la
   estimación no garantiza la entrega. La ventana MUST contarse en días hábiles y excluir
@@ -322,10 +326,19 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
   CSRF, cuota diaria, límite de longitud, saneamiento de respuestas y manejo de errores.
 - **FR-018**: El sistema MUST soportar seguimientos que cambien cantidad, ciudad, domicilio
   o preferencia de alternativa sin repetir la solicitud completa.
-- **FR-019**: El sistema MUST registrar la fecha del dato comercial que muestra y avisar
-  cuando supere la antigüedad admitida.
+- **FR-019**: El sistema MUST registrar y mostrar la fecha del dato comercial como referencia.
+  MUST NOT rotular un precio como vencido, descartarlo ni cambiar su uso por su antigüedad;
+  un precio con fecha antigua se muestra como un precio de referencia normal.
 - **FR-020**: El sistema MUST conservar el comportamiento actual del chat general y del
   flujo comercial existente, o documentar y probar cualquier cambio de contrato.
+- **FR-021**: El sistema MUST presentar la cotización, las alternativas, los proveedores, el
+  mapa y el domicilio **dentro del hilo de la conversación**, con los tokens visuales del
+  mockup institucional vigente, legibles en escritorio y móvil, y MUST no exigir salir del
+  chat para completar el flujo.
+- **FR-022**: El sistema MUST recordar en silencio los detalles personales que la persona
+  cuente (nombre, lugar de trabajo, ciudad, preferencias y domicilio), aplicarlos en turnos
+  e hilos siguientes y MUST no escribirlos en las trazas ni en el payload persistido de la
+  cotización. MUST borrarlos cuando la persona lo pida y descartarlos tras 180 días sin uso.
 - **FR-023**: El catálogo curado MUST ser la única fuente de productos; la demo solo MAY
   añadir una extensión simulada y las condiciones comerciales, sin duplicar los productos
   reales en otro archivo.
@@ -333,14 +346,6 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
   precio, procedencia, fecha y campos simulados, enlazada desde la cotización.
 - **FR-025**: El sistema MUST registrar cada cotización completa con identificador,
   vigencia, total, moneda, dueño e hilo, y MUST no emitir registro para aclaraciones.
-- **FR-022**: El sistema MUST recordar en silencio los detalles personales que la persona
-  cuente (nombre, lugar de trabajo, ciudad, preferencias y domicilio), aplicarlos en turnos
-  e hilos siguientes y MUST no escribirlos en las trazas ni en el payload persistido de la
-  cotización. MUST borrarlos cuando la persona lo pida y descartarlos tras 180 días sin uso.
-- **FR-021**: El sistema MUST presentar la cotización, las alternativas, los proveedores, el
-  mapa y el domicilio **dentro del hilo de la conversación**, con los tokens visuales del
-  mockup institucional vigente, legibles en escritorio y móvil, y MUST no exigir salir del
-  chat para completar el flujo.
 
 ### Key Entities
 
@@ -357,7 +362,11 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
 - **Zona de entrega**: destino con cobertura, costo de envío y ventana estimada, con su
   calendario y horario de corte.
 - **Cotización**: producto, cantidad solicitada, presentación elegida, cantidades y
-  sobrantes, precios, proveedores, domicilio y alternativas de un turno.
+  sobrantes, precios, proveedores, domicilio y alternativas de un turno; para auditoría
+  conserva `id`, vigencia, dueño, hilo y el payload mostrado.
+- **Perfil del visitante**: nombre, lugar de trabajo, ciudad, preferencia de entrega y
+  preferencias renovables, asociado al dueño anónimo, con caducidad de 180 días y borrado
+  a pedido. Nunca se escribe en las trazas ni en el payload de la cotización.
 
 ## Success Criteria *(mandatory)*
 
@@ -380,16 +389,16 @@ ficha enlazada y encontrar la fuente, la fecha y los campos simulados.
   y total) en menos de 3 minutos y sin instrucciones externas.
 - **SC-008**: La regresión del chat general, del flujo comercial existente y de los
   contratos de seguridad y streaming queda en verde.
+- **SC-009**: Una persona completa la cotización de ejemplo sin abandonar el hilo: producto,
+  cantidad, proveedor, mapa y domicilio se ven en la misma conversación, a 390 px y a
+  1440 px.
+- **SC-010**: En una prueba con nombre, ciudad y domicilio recordados, el 100 % de los
+  turnos siguientes los aplica sin preguntar; tras «olvida mis datos», ninguna cotización
+  vuelve a usar el perfil.
 - **SC-011**: El 100 % de las cotizaciones completas queda registrada con identificador y
   vigencia, y el 100 % de sus ofertas enlaza una ficha que responde 200.
 - **SC-012**: Los casos dorados de cotización (13 escenarios con totales y presentaciones
   esperados) se ejecutan en CI y fallan ante cualquier diferencia.
-- **SC-010**: En una prueba con nombre, ciudad y domicilio recordados, el 100 % de los
-  turnos siguientes los aplica sin preguntar; tras «olvida mis datos», ninguna cotización
-  vuelve a usar el perfil.
-- **SC-009**: Una persona completa la cotización de ejemplo sin abandonar el hilo: producto,
-  cantidad, proveedor, mapa y domicilio se ven en la misma conversación, a 390 px y a
-  1440 px.
 
 ## Assumptions
 

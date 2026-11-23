@@ -56,7 +56,7 @@ Regla: `simulated` siempre incluye `stock`, `lead_days` y `ship_cost` en Colombi
 
 `provider_id`, `name`, `city`, `address`, `phone`, `latitude`, `longitude`, `precision`
 (`direccion` | `via` | `ciudad` | `sin_coordenadas`), `source_url`, `captured_at`,
-`simulated`.
+`simulated`, `service_days` (días de atención para la ventana de entrega).
 
 Regla: el `provider_id` es la clave de unión con la oferta; hay empresas con dos sedes en
 la misma ciudad.
@@ -84,7 +84,7 @@ la misma ciudad.
   "alternatives": [{"sku": "…", "difference": "caja de 1.000 unidades"}],
   "delivery": {"requested": true, "window": "26–27 nov", "days_min": 1, "days_max": 2,
                "ship_cost": "12000", "free_from": "500000", "coverage": true},
-  "notice": "Modo demo: existencias y plazos simulados.",
+  "simulated_fields": ["stock", "delivery"],
   "pending": []
 }
 ```
