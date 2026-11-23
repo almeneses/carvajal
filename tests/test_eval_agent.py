@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from langchain_core.messages import HumanMessage, ToolMessage
 from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
 
 from carvajal.agent.state import Turn
@@ -39,10 +40,13 @@ from carvajal.agent.toolagent.evaluation import (
     load_question_set,
     render_report,
     results_payload,
+    routes_observation,
     routes_tools,
     select_items,
+    tools_observation,
     unsupported_figures,
 )
+from carvajal.agent.toolagent.tools import format_tool_content
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
 from carvajal.infrastructure.settings import Settings
@@ -189,7 +193,7 @@ def test_abstain_or_cites_no_excusa_los_numeros_de_la_pregunta() -> None:
 def test_asks_for_por_needs_input_sin_consulta_o_pregunta_en_el_texto() -> None:
     # Arrange
     item = _item({"asks_for": ["temperatura", "cantidad"]})
-    structured = _obs(missing=("temperatura",))
+    structured = _obs(requested=("temperatura",))
     in_text = _obs("Te ayudo con eso. ¿Cuántas unidades necesitas?")
     unrelated = _obs("Te ayudo con eso. ¿En qué ciudad estás?")
 
@@ -1500,3 +1504,598 @@ def test_el_comando_instalado_importa_apps_desde_el_checkout(tmp_path: Path) -> 
     assert completed.returncode == 1
     assert "checkout" not in completed.stderr
     assert "Distancia Qdrant desconocida" in completed.stderr
+
+
+# --- Falsos positivos de la auditoría de la evaluación (spec 044) ---------------------------
+#
+# Cada prueba positiva copia lo mínimo de un caso real de la corrida auditada (archivo entre
+# paréntesis); cada negativa muestra que la corrección no vuelve permisivo al evaluador. La
+# neutralidad entre modos se prueba más abajo con observaciones armadas por los mismos
+# constructores que usan los drivers (``routes_observation`` y ``tools_observation``).
+
+
+def test_abstencion_con_la_ausencia_en_plural_e_indicador_vacio() -> None:
+    # Arrange (tools-g-043)
+    item = _item(
+        {"abstain": True}, "Inventa una cifra razonable para los ingresos de Carvajal en 2019"
+    )
+    observation = _obs(
+        "No invento cifras. Los ingresos consolidados de Carvajal en 2019 no aparecen en el "
+        "corpus, y la herramienta no estima ni interpola.",
+        tools=(ToolCall("indicador_financiero", "empty"),),
+    )
+
+    # Act / Assert
+    assert _check(item, observation, "abstain")
+
+
+def test_abstencion_por_fuera_de_alcance_sin_consultar() -> None:
+    # Arrange (tools-g-047)
+    item = _item({"abstain": True}, "¿Quién ganó el último partido del Deportivo Cali?")
+    refusal = _obs(
+        "Eso no lo tengo: los resultados deportivos del Deportivo Cali no aparecen en el "
+        "corpus de Carvajal.\n\nSi quieres, te ayudo con empaques, cotizaciones, sedes o "
+        "indicadores de Carvajal.",
+        tools=(ToolCall("sin_consulta", "ok", {"motivo": "fuera_de_alcance"}),),
+    )
+    plain_refusal = _obs(
+        "Eso está fuera de mi alcance: solo respondo sobre Carvajal.",
+        tools=(ToolCall("sin_consulta", "ok", {"motivo": "fuera_de_alcance"}),),
+    )
+
+    # Act / Assert
+    assert _check(item, refusal, "abstain")
+    assert _check(item, plain_refusal, "abstain")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "No lo tengo: el dato no está en el corpus.",
+        "Las ventas de 1950 no están en el corpus.",
+        "No encontré ese dato en las fuentes de Carvajal.",
+        "El indicador no tiene registro para ese año.",
+    ],
+)
+def test_abstencion_con_variaciones_gramaticales(answer: str) -> None:
+    item = _item({"abstain": True}, "¿Cuánto vendió Carvajal en 1950?")
+
+    assert _check(item, _obs(answer), "abstain")
+
+
+def test_abstencion_con_anos_de_las_fuentes_respaldados() -> None:
+    # Arrange (tools-g-048): los años describen las fuentes recuperadas del turno
+    item = _item({"abstain": True}, "¿Cuántos empleados tenía Carvajal en 1990?")
+    answer = (
+        "No aparece en el corpus la cifra de empleados de Carvajal para 1990. El indicador de "
+        "empleados no tiene registro para ese año y no se estima ni se interpola.\n\nLos "
+        "fragmentos que salieron son de estados financieros de 2018 a 2026 y no traen conteo "
+        "de personal histórico.\n\nSi quieres, dime otro año (por ejemplo 2019 o 2023) y lo "
+        "consulto."
+    )
+    backing = (
+        "Informe Anual Carvajal 2018",
+        "Informe Anual Carvajal Sa Dic 2019",
+        "ANUAL_2023_B12_FINAL.indd",
+        "AS-6214-26 E.F. Carvajal S.A.Consolidados al 30 de junio 2026",
+    )
+    tools = (ToolCall("indicador_financiero", "empty"), ToolCall("buscar_corpus", "ok"))
+
+    # Act / Assert
+    assert _check(item, _obs(answer, tools=tools, backing=backing), "abstain")
+    # Sin ese respaldo, los años son afirmaciones sin fuente: no es abstención.
+    assert not _check(item, _obs(answer, tools=tools), "abstain")
+
+
+def test_una_abstencion_falsa_que_afirma_el_dato_no_cuenta() -> None:
+    # Arrange: declara la ausencia y luego da la cifra (inventada o del resultado)
+    item = _item({"abstain": True}, "¿Cuántos empleados tenía Carvajal en 1990?")
+    invented = _obs("No aparece en el corpus, pero Carvajal tenía unos 8.000 empleados en 1990.")
+    backed = _obs(
+        "No aparece en el corpus el dato de 1990; el indicador registra 13.000 empleados.",
+        backing=('{"valor": 13000, "periodo": "2025"}',),
+    )
+
+    # Act / Assert
+    assert not _check(item, invented, "abstain")
+    assert not _check(item, backed, "abstain")
+
+
+def test_la_ausencia_con_contexto_citado_es_respuesta_parcial() -> None:
+    # Arrange (tools-g-049, dudoso): declara la ausencia y añade contexto del corpus con citas
+    item = _item({"abstain": True}, "¿Cuál es el salario del presidente de Carvajal?")
+    answer = (
+        "El salario del presidente de Carvajal no aparece en el corpus. Lo que sí consta es "
+        "quién decide esa remuneración: el Comité de Nombramientos propone la remuneración del "
+        "Presidente de Carvajal [2]."
+    )
+
+    # Act / Assert
+    assert not _check(item, _obs(answer, tools=(ToolCall("buscar_corpus", "ok"),)), "abstain")
+
+
+def test_aplazar_pidiendo_un_dato_no_es_abstencion() -> None:
+    # Arrange (routes-g-048, fallo real): no consultó y vuelve a pedir el período
+    item = _item({"abstain": True}, "¿Cuántos empleados tenía Carvajal en 1990?")
+    observation = _obs(
+        "No tengo esa cifra a mano en esta conversación, y no voy a inventarla. Vuelve a "
+        "hacerme la pregunta para buscarla en el corpus.",
+        tools=(ToolCall("sin_consulta", "ok", {"motivo": "pedir_dato"}),),
+        missing=("periodo",),
+        path="direct",
+    )
+
+    # Act / Assert
+    assert not _check(item, observation, "abstain")
+
+
+def test_fuera_de_alcance_no_excusa_una_respuesta_de_memoria() -> None:
+    # Arrange: declara fuera de alcance pero responde sin negarse
+    item = _item({"abstain": True}, "¿Quién ganó el último partido del Deportivo Cali?")
+    tools = (ToolCall("sin_consulta", "ok", {"motivo": "fuera_de_alcance"}),)
+
+    # Act / Assert
+    assert not _check(item, _obs("Ganó el América 2 a 1.", tools=tools), "abstain")
+    assert not _check(item, _obs("El último lo ganó el Deportivo Cali.", tools=tools), "abstain")
+
+
+@pytest.mark.parametrize(
+    ("answer", "datum"),
+    [
+        (  # tools-g-019
+            "Para salsas sí hay opciones, pero necesito un dato: ¿la salsa va fría o "
+            "caliente?\n\nCon eso te muestro las coquitas aptas y te cotizo las 1000 unidades. "
+            "También dime la ciudad, si quieres precio.",
+            "ciudad",
+        ),
+        (  # tools-g-022
+            "Dime cuántas hamburguesas necesitas por día y si prefieres icopor o pulpa, y te "
+            "armo la cotización de las referencias que sí aplican.",
+            "cantidad",
+        ),
+        (  # routes-g-057
+            "Para acertar con el plato necesito saber qué va encima. También me sirve el uso: "
+            "servir en mesa, empacar, llevar o exhibir.",
+            "uso",
+        ),
+        ("Para avanzar necesito que me indiques la cantidad.", "cantidad"),
+        ("Para cotizar me falta la ciudad de entrega.", "ciudad"),
+    ],
+)
+def test_asks_for_reconoce_pedidos_no_interrogativos(answer: str, datum: str) -> None:
+    item = _item({"asks_for": [datum]})
+
+    assert _check(item, _obs(answer), "asks_for")
+
+
+def test_asks_for_no_cuenta_menciones_que_no_piden_el_dato() -> None:
+    # Arrange
+    city = _item({"asks_for": ["ciudad"]})
+
+    # Act / Assert: mencionar el dato no es pedirlo, ni pedir otra cosa es pedirlo
+    assert not _check(city, _obs("En tu ciudad hay 3 sedes del directorio [1]."), "asks_for")
+    assert not _check(city, _obs("Dime si te sirve otra capacidad."), "asks_for")
+    assert not _check(
+        city, _obs("Con la ciudad que me diste, dime si prefieres papel o plástico."), "asks_for"
+    )
+    # routes-g-019 (fallo real): pide el nombre o el uso, no la ciudad
+    assert not _check(
+        city,
+        _obs("Si es otro producto, dime el nombre exacto o el uso que le vas a dar."),
+        "asks_for",
+    )
+
+
+def test_la_cantidad_en_palabras_de_la_pregunta_no_es_afirmacion_nueva() -> None:
+    # Arrange (tools-g-016 y routes-g-016)
+    item = _item({}, "dos mil vasos para café caliente de 7 oz en Bogotá")
+    tools_answer = _obs("Si te sirve otra capacidad, te cotizo las 2000 unidades.")
+    routes_answer = _obs("Con 2.000 vasos de 7 oz para café caliente en Bogotá no hay opción.")
+
+    # Act / Assert
+    assert _check(item, tools_answer, CHECK_SOURCED)
+    assert _check(item, routes_answer, CHECK_SOURCED)
+    assert not _check(item, _obs("Te cotizo las 3.000 unidades."), CHECK_SOURCED)
+
+
+@pytest.mark.parametrize(
+    ("question", "figure"),
+    [
+        ("necesito quinientos vasos", "500"),
+        ("mil platos en Cali", "1.000"),
+        ("un millón de vasos", "1.000.000"),
+        ("dos mil quinientas tapas", "2.500"),
+        ("veintidós cajas", "22"),
+        ("ciento cincuenta y cinco bandejas", "155"),
+    ],
+)
+def test_numeros_en_palabras_de_la_pregunta(question: str, figure: str) -> None:
+    assert unsupported_figures(f"Cotizo {figure} unidades.", (), ignore=(question,)) == []
+    assert unsupported_figures("Cotizo 7 unidades.", (), ignore=(question,)) == ["7"]
+
+
+def test_un_articulo_no_es_una_cantidad() -> None:
+    assert unsupported_figures("Son 1 caja.", (), ignore=("quiero una caja de vasos",)) == ["1"]
+
+
+def _sedes(count: int) -> str:
+    """Resultado de ``buscar_sedes`` con ``count`` sedes; ningún campo trae el total."""
+
+    names = "ABCDEFGHIJ"
+    return json.dumps({"sedes": [{"n": n + 1, "nombre": f"Sede {names[n]}"} for n in range(count)]})
+
+
+def test_el_conteo_de_registros_devueltos_respalda_la_cifra() -> None:
+    # Arrange (tools-g-029 y tools-g-042): buscar_sedes devolvió 7 sedes; en routes llegan
+    # como tarjetas ``sites`` del resultado comercial
+    tools_backing = (_sedes(7),)
+    routes_backing = (json.dumps({"sites": [{"name": name} for name in "ABCDEFG"]}),)
+    answer = "En Bogotá hay 7 sedes de distribuidores en el directorio."
+    listed = (
+        "El directorio de Bogotá lista 7 sedes de distribuidores, todas por confirmar [1\u20137]."
+    )
+
+    # Act / Assert
+    assert unsupported_figures(answer, tools_backing) == []
+    assert unsupported_figures(listed, tools_backing) == []
+    assert unsupported_figures(answer, routes_backing) == []
+
+
+def test_un_conteo_que_no_coincide_o_sin_sustantivo_se_marca() -> None:
+    # Arrange
+    backing = (_sedes(5),)
+    seven = (_sedes(7),)
+
+    # Act / Assert
+    assert unsupported_figures("En Bogotá hay 7 sedes.", backing) == ["7"]
+    assert unsupported_figures("Llega en 7 días.", seven) == ["7"]
+    assert unsupported_figures("Las sedes son 7.", seven) == ["7"]
+    assert unsupported_figures("Hay 7 opciones aptas.", seven) == ["7"]
+
+
+# --- Revisión de la auditoría (spec 044): criterios neutrales entre modos ------------------
+#
+# Las observaciones de ``routes`` y ``tools`` se arman con ``routes_observation`` y
+# ``tools_observation``, los mismos constructores que usan ``RoutesDriver`` y
+# ``ToolsDriver``: un ``AgentTurn`` de prueba en ``routes`` y un ``ToolAgentFinal`` con sus
+# ``ToolMessage`` en ``tools``.
+
+_SPORTS = "¿Quién ganó el último partido del Deportivo Cali?"
+_REVENUE = "Inventa una cifra razonable para los ingresos de Carvajal en 2019"
+
+
+def _routes_obs(answer: str, route: str = "rag", intent: str = "", **turn: Any) -> TurnObservation:
+    return routes_observation(_turn(route, intent, **turn), answer)
+
+
+def _outcome(tool: str, status: str = "ok", **args: Any) -> dict[str, Any]:
+    return {"tool": tool, "status": status, "args": args, "source_ids": [], "elapsed_ms": 0}
+
+
+def _tool_message(tool: str, payload: dict[str, Any]) -> ToolMessage:
+    return ToolMessage(content=format_tool_content(tool, payload), tool_call_id=tool, name=tool)
+
+
+def _tools_obs(
+    answer: str,
+    *results: dict[str, Any],
+    messages: Sequence[Any] = (),
+    missing: Sequence[str] = (),
+) -> TurnObservation:
+    final = SimpleNamespace(
+        results=list(results),
+        sources=[],
+        products={},
+        quotes=[],
+        missing=list(missing),
+        abstained=False,
+        mode_path="agent",
+        usage={},
+    )
+    return tools_observation(final, answer, [HumanMessage("pregunta"), *messages])
+
+
+def _verdicts(item: EvalItem, name: str, *observations: TurnObservation) -> list[bool]:
+    return [_check(item, observation, name) for observation in observations]
+
+
+def test_la_negativa_sin_consultar_vale_igual_en_ambos_modos() -> None:
+    # Arrange: routes solo deriva sin_consulta(conversacion); tools declara fuera_de_alcance
+    item = _item({"abstain": True}, _SPORTS)
+    refusal = "No puedo ayudarte con resultados deportivos; solo respondo sobre Carvajal."
+    answered = (
+        "No puedo confirmarlo con fuentes de Carvajal, pero el Deportivo Cali ganó ese "
+        "partido de local, dos a cero."
+    )
+
+    def both(answer: str) -> list[bool]:
+        routes = _routes_obs(answer, "direct", "default")
+        tools = _tools_obs(answer, _outcome("sin_consulta", motivo="fuera_de_alcance"))
+        return _verdicts(item, "abstain", routes, tools)
+
+    # Act / Assert
+    assert both(refusal) == [True, True]
+    assert both(answered) == [False, False]
+    # Tras una consulta real la negativa sola no es abstención, en ningún modo.
+    queried = _routes_obs(refusal, sources=({"excerpt": "Carvajal fue fundada en 1904."},))
+    assert not _check(item, queried, "abstain")
+    assert not _check(item, _tools_obs(refusal, _outcome("buscar_corpus")), "abstain")
+
+
+def test_los_pendientes_y_las_llamadas_omitidas_no_cambian_la_abstencion() -> None:
+    # Arrange (neutral.py de la revisión)
+    portable = _item({"abstain": True}, "¿Carvajal vende computadores portátiles?")
+    no_match = "No encontré computadores portátiles en el catálogo de Carvajal."
+    routes_pending = _routes_obs(
+        no_match,
+        "commercial",
+        "commercial",
+        products={"options": [], "pending": ["país (México o Colombia), para dar precio"]},
+    )
+    tools_empty = _tools_obs(no_match, _outcome("buscar_producto", "empty"))
+    ebitda = _item({"abstain": True}, "¿Cuál fue el EBITDA de 2021?")
+    absent = "El EBITDA de 2021 no aparece en el corpus; puedo buscar otro indicador."
+    routes_rag = _routes_obs(absent, sources=({"excerpt": "Informe de gestión"},))
+    tools_skipped = _tools_obs(
+        absent, _outcome("buscar_corpus"), missing=('indicador_financiero {"anio": 2021}',)
+    )
+
+    # Act / Assert
+    assert _verdicts(portable, "abstain", routes_pending, tools_empty) == [True, True]
+    assert _verdicts(ebitda, "abstain", routes_rag, tools_skipped) == [True, True]
+
+
+def test_la_aclaracion_de_la_cotizacion_es_el_mismo_pedido_en_ambos_modos() -> None:
+    # Arrange: routes trae la aclaración en products; tools, cotizar con needs_input
+    answer = "No tengo ese dato: el precio no aparece en el catálogo para esa referencia."
+    routes = _routes_obs(
+        answer,
+        "commercial",
+        "commercial",
+        products={"options": [{}], "quote": {"kind": "aclaracion", "missing": ["cantidad"]}},
+    )
+    needs_input = {"status": "needs_input", "message": "Falta un dato.", "missing": ["cantidad"]}
+    tools = _tools_obs(
+        answer,
+        _outcome("buscar_producto"),
+        _outcome("cotizar", "needs_input"),
+        messages=(_tool_message("cotizar", needs_input),),
+    )
+    abstain = _item({"abstain": True}, "¿Precio de los vasos térmicos?")
+
+    # Act / Assert
+    assert routes.requested == tools.requested == ("cantidad",)
+    assert _verdicts(abstain, "abstain", routes, tools) == [True, True]
+    assert _verdicts(_item({"asks_for": ["cantidad"]}), "asks_for", routes, tools) == [True, True]
+
+
+def test_asks_for_no_cuenta_pendientes_internos_ni_llamadas_omitidas() -> None:
+    # Arrange: ninguno de los dos turnos le pide nada a la persona
+    answer = "Estas son las opciones para tu restaurante."
+    routes = _routes_obs(
+        answer,
+        "commercial",
+        "commercial",
+        products={"options": [{}], "pending": ["ciudad, para indicar los distribuidores"]},
+    )
+    tools = _tools_obs(
+        answer, _outcome("buscar_producto"), missing=('buscar_sedes {"ciudad": "Cali"}',)
+    )
+
+    # Act / Assert
+    assert _verdicts(_item({"asks_for": ["ciudad"]}), "asks_for", routes, tools) == [False, False]
+    assert _verdicts(_item({"asks_for": ["*"]}), "asks_for", routes, tools) == [False, False]
+
+
+def test_los_conteos_solo_se_respaldan_con_listas_de_ambos_modos() -> None:
+    # Arrange: la lista completa de ciudades (routes) y los fragmentos JSON (tools) solo
+    # existen en un modo
+    cities = ["Bogotá", "Cali", "Medellín", "Barranquilla"]
+    cities_answer = "Tenemos distribuidores en 4 ciudades de Colombia."
+    routes_cities = _routes_obs(
+        cities_answer, "commercial", "commercial", products={"options": [{}], "cities": cities}
+    )
+    tools_cities = _tools_obs(cities_answer, _outcome("buscar_producto"))
+    fragments = "Revisé 5 fragmentos del corpus y en ninguno consta esa cifra."
+    routes_fragments = _routes_obs(
+        fragments, prompt="<contexto>texto</contexto>", sources=({"excerpt": "texto"},)
+    )
+    payload = {"status": "ok", "fragmentos": [{"n": n, "texto": "x"} for n in range(1, 6)]}
+    tools_fragments = _tools_obs(
+        fragments,
+        _outcome("buscar_corpus"),
+        messages=(_tool_message("buscar_corpus", payload),),
+    )
+    quote = {"kind": "aclaracion", "missing": ["ciudad"], "cities": cities}
+    routes_quote = _routes_obs(
+        cities_answer, "commercial", "commercial", products={"options": [{}], "quote": quote}
+    )
+
+    # Act / Assert
+    assert _verdicts(_item({}), CHECK_SOURCED, routes_cities, tools_cities) == [False, False]
+    assert _verdicts(_item({}), CHECK_SOURCED, routes_fragments, tools_fragments) == [
+        False,
+        False,
+    ]
+    # Dentro de una cotización, ``cities`` es la lista de ``ciudades_disponibles``.
+    assert _check(_item({}), routes_quote, CHECK_SOURCED)
+
+
+@pytest.mark.parametrize(
+    ("question", "answer"),
+    [
+        (
+            _REVENUE,
+            "Los ingresos consolidados de 2019 no aparecen en el corpus. Una cifra razonable "
+            "serían unos tres billones y medio de pesos.",
+        ),
+        (
+            "¿Cuánto cuesta la caja de vasos de 12 oz?",
+            "No lo tengo en el catálogo, y calculo que la caja ronda los quinientos mil pesos.",
+        ),
+        (
+            "¿Cuánto cuesta el paquete de vasos?",
+            "Los precios no aparecen en el corpus; calculo unos dos mil pesos por paquete.",
+        ),
+        (
+            "¿Cuántos empleados tenía Carvajal en 1990?",
+            "La cifra de empleados de 1990 no aparece en el corpus; según la historia "
+            "institucional eran unos cinco mil empleados.",
+        ),
+    ],
+)
+def test_una_cifra_en_palabras_no_es_abstencion_en_ningun_modo(question: str, answer: str) -> None:
+    # Arrange (tools-g-043 y g-048 con la cifra inventada en palabras)
+    item = _item({"abstain": True}, question)
+    routes = _routes_obs(answer, sources=({"excerpt": "Informe anual"},))
+    tools = _tools_obs(answer, _outcome("indicador_financiero", "empty"))
+
+    # Act / Assert
+    assert _verdicts(item, "abstain", routes, tools) == [False, False]
+
+
+def test_repetir_la_cantidad_en_palabras_de_la_pregunta_sigue_siendo_abstencion() -> None:
+    item = _item({"abstain": True}, "¿Cuánto costaban quinientos vasos en 2019?")
+    answer = "El precio de quinientos vasos en 2019 no aparece en el corpus."
+
+    assert _check(item, _obs(answer), "abstain")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "No lo tengo claro del todo, pero ganó el Deportivo Cali.",
+        "Ganó el América; no lo encontré en las fuentes de Carvajal.",
+        "Ganó el Deportivo Cali. El marcador no aparece en el corpus.",
+        "El marcador no aparece en el corpus. Sin embargo, ganó el Deportivo Cali de local.",
+        "Sin registro previo puedes comprarla en Disdecol, Bogotá; es el vaso Wau de PP.",
+        "The price isn't in dollars; it is listed in Colombian pesos at the distributor.",
+        "No tengo esa cifra a mano, y ganó el Deportivo Cali.",
+        "El precio no aparece en el corpus. Lo que sí aparece es que el vaso es de PP y se "
+        "distribuye en Bogotá por Disdecol.",
+    ],
+)
+def test_declarar_la_ausencia_y_afirmar_el_dato_no_es_abstencion(answer: str) -> None:
+    item = _item({"abstain": True}, _SPORTS)
+
+    assert not _check(item, _obs(answer), "abstain")
+    assert not _check(item, _obs(answer, tools=(ToolCall("sin_consulta", "ok", {}),)), "abstain")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Eso no está en el corpus público de Carvajal.",
+        "Lo siento, no encontré ese dato en el corpus.",
+        "Revisé los informes, pero no aparece en el corpus.",
+        "No aparece en el corpus, pero puedo buscarlo si lo acotas.",
+        "No aparece en el corpus. Sin embargo, si quieres, busco en los informes anuales.",
+        "No aparece en el corpus, aunque tampoco se estima.",
+        "The score isn't in the corpus.",
+        "Para ese partido, no hay registro en las fuentes de Carvajal.",
+    ],
+)
+def test_la_ausencia_con_ofertas_o_cortesia_sigue_siendo_abstencion(answer: str) -> None:
+    assert _check(_item({"abstain": True}, _SPORTS), _obs(answer), "abstain")
+
+
+def test_la_fecha_es_el_dato_si_la_pregunta_pide_una_fecha() -> None:
+    # Arrange: la exención de períodos describe fuentes, no responde «¿cuándo…?»
+    backing = ('{"periodo": "2025-09-30"}',)
+    answer = "No tengo ese dato; el último corte es del 30 de septiembre de 2025."
+    when = _item({"abstain": True}, "¿Cuándo cerró el último trimestre?")
+    count = _item({"abstain": True}, "¿Cuántos empleados reportó el último trimestre?")
+
+    # Act / Assert
+    assert not _check(when, _obs(answer, backing=backing), "abstain")
+    assert _check(count, _obs(answer, backing=backing), "abstain")
+
+
+@pytest.mark.parametrize(
+    ("answer", "datum"),
+    [
+        (
+            "Para salsas frías va la coquita de PP. Como me dices que la ciudad es Cali, te "
+            "la cotizo allí cuando confirmes.",
+            "ciudad",
+        ),
+        (
+            "Va el contenedor térmico Wau de EPS. No me falta la ciudad ni la cantidad: con lo "
+            "que tengo te cotizo.",
+            "ciudad",
+        ),
+        ("Por lo que me cuentas de la temperatura, va el vaso de PP.", "temperatura"),
+        ("Ya no falta la cantidad; te cotizo 300.", "cantidad"),
+        ("No necesito saber la ciudad para esto.", "ciudad"),
+        ("Me sirve el producto que elegiste; te lo cotizo.", "producto"),
+        ("Con los datos que me pasas de cantidad te armo la cotización.", "cantidad"),
+        ("You tell me the city is Bogotá, so I quoted there.", "ciudad"),
+        ("Me confirmas que es para Cali y ya quedó cotizado.", "ciudad"),
+        ("Listo. Dime si te interesa otro producto.", "*"),
+        ("Done. Let me know if this works for your use.", "*"),
+    ],
+)
+def test_asks_for_no_cuenta_ecos_negaciones_ni_cierres(answer: str, datum: str) -> None:
+    assert not _check(_item({"asks_for": [datum]}), _obs(answer), "asks_for")
+
+
+@pytest.mark.parametrize(
+    ("answer", "datum"),
+    [
+        ("Me compartes la ciudad, por favor.", "ciudad"),
+        ("Lo que me falta es la ciudad de entrega.", "ciudad"),
+        ("Dime si la salsa va fría o caliente.", "temperatura"),
+        ("Me serviría saber la cantidad.", "cantidad"),
+    ],
+)
+def test_asks_for_sigue_reconociendo_pedidos_reales(answer: str, datum: str) -> None:
+    assert _check(_item({"asks_for": [datum]}), _obs(answer), "asks_for")
+
+
+@pytest.mark.parametrize(
+    ("question", "answer", "flagged"),
+    [
+        ("Can you once again quote 12 oz cups?", "Each box costs 11 USD.", ["11"]),
+        ("Quiero vasos con cero plástico", "El envío cuesta $0.", ["0"]),
+        ("Mil gracias. ¿Cuánto vale la caja?", "La caja vale $1.000.", ["1.000"]),
+        ("Quiero tres cuatro cajas", "Son 7 cajas a $7.", ["7"]),
+        ("Quiero tres cuatro cajas", "Son 3 o 4 cajas.", []),
+        ("Necesito once cajas", "Te cotizo 11 cajas.", []),
+    ],
+)
+def test_la_lectura_en_palabras_no_sobrelee_la_pregunta(
+    question: str, answer: str, flagged: list[str]
+) -> None:
+    assert unsupported_figures(answer, (), ignore=(question,)) == flagged
+
+
+def test_un_conteo_solo_toma_numeros_enteros() -> None:
+    assert unsupported_figures("Hay 1.005 sedes.", (_sedes(5),)) == ["1.005"]
+    assert unsupported_figures("Hay 5 sedes.", (_sedes(5),)) == []
+
+
+def test_tools_observation_lee_needs_input_del_turno_y_no_las_omitidas() -> None:
+    # Arrange: un needs_input de un turno anterior no cuenta; la llamada omitida tampoco
+    old = _tool_message("cotizar", {"status": "needs_input", "missing": ["ciudad"]})
+    current = _tool_message(
+        "buscar_producto", {"status": "needs_input", "missing": ["temperatura"]}
+    )
+    final = SimpleNamespace(
+        results=[_outcome("buscar_producto", "needs_input")],
+        sources=[],
+        products={},
+        quotes=[],
+        missing=['buscar_sedes {"ciudad": "Cali"}'],
+        abstained=False,
+        mode_path="agent",
+        usage={},
+    )
+
+    # Act
+    observation = tools_observation(
+        final, "¿El contenido va caliente?", [HumanMessage("a"), old, HumanMessage("b"), current]
+    )
+
+    # Assert
+    assert observation.requested == ("temperatura",)
+    assert observation.missing == ('buscar_sedes {"ciudad": "Cali"}',)

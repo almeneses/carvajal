@@ -36,13 +36,13 @@ import sys
 import time
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Final, Protocol
 
 import structlog
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
@@ -296,8 +296,12 @@ class TurnObservation:
     """Lo que produjo un turno, con lo necesario para puntuarlo.
 
     - ``backing``: textos que respaldan cifras (resultados de herramientas y fuentes).
-    - ``missing``: datos que el turno pidió de forma estructurada (``needs_input``,
-      ``sin_consulta(pedir_dato)``, pendientes del resultado comercial).
+    - ``missing``: lo que el turno dejó pendiente, informativo y distinto por modo
+      (pendientes internos del resultado comercial en ``routes``, llamadas omitidas por el
+      límite en ``tools``). Ninguna verificación lo usa.
+    - ``requested``: datos que el turno pidió de forma estructurada, con el mismo criterio
+      en ambos modos: ``needs_input`` de una herramienta (cotización por aclarar, período
+      del indicador, temperatura) y el ``dato`` de ``sin_consulta(pedir_dato)``.
     - ``quotes``: cotizaciones mostradas como tarjeta (el ``quoted`` del motor).
     - ``path``: ``agent``, ``shortcut`` o ``fallback`` en ``tools``; en ``routes``, la ruta
       (``shortcut`` para el saludo y la preferencia declarada).
@@ -312,6 +316,7 @@ class TurnObservation:
     quotes: tuple[Mapping[str, Any], ...] = ()
     backing: tuple[str, ...] = ()
     missing: tuple[str, ...] = ()
+    requested: tuple[str, ...] = ()
     abstained: bool = False
     path: str = "agent"
     usage: Mapping[str, int] | None = None
@@ -449,15 +454,56 @@ def routes_tools(turn: Any) -> tuple[tuple[ToolCall, ...], bool]:
     return (ToolCall(TOOL_SIN_CONSULTA, "ok", {"motivo": motivo}),), False
 
 
-def _routes_missing(turn: Any) -> list[str]:
+def _routes_requested(turn: Any) -> list[str]:
+    """Datos pedidos de forma estructurada en ``routes``: los equivalentes de ``needs_input``.
+
+    La aclaración de la cotización (``cotizar`` con ``needs_input`` en ``tools``) y el
+    período que falta (``indicador_financiero`` con ``needs_input``). Los ``pending`` del
+    resultado comercial son notas internas, no un pedido a la persona.
+    """
+
     products: Mapping[str, Any] = getattr(turn, "products", None) or {}
-    missing = [str(item) for item in products.get("pending") or []]
+    requested: list[str] = []
     quote = products.get("quote")
     if isinstance(quote, Mapping) and quote.get("kind") == "aclaracion":
-        missing.extend(str(item) for item in quote.get("missing") or [])
+        requested.extend(str(item) for item in quote.get("missing") or [])
     if str(getattr(turn, "intent", "")) == "missing_period":
-        missing.append("periodo")
-    return missing
+        requested.append("periodo")
+    return requested
+
+
+def _routes_missing(turn: Any) -> list[str]:
+    products: Mapping[str, Any] = getattr(turn, "products", None) or {}
+    return [*(str(item) for item in products.get("pending") or []), *_routes_requested(turn)]
+
+
+def routes_observation(
+    turn: Any, answer: str, *, tool_result: Mapping[str, Any] | None = None
+) -> TurnObservation:
+    """Observación de un turno ``routes`` (sin tiempos ni uso), como la arma el driver.
+
+    ``turn`` es el ``AgentTurn`` del grafo y ``tool_result``, el resultado del indicador
+    (ruta ``tool``). Abstención estructural: sin contexto (RAG) o indicador sin registro,
+    como la compuerta de ``tools``.
+    """
+
+    tools, shortcut = routes_tools(turn)
+    products = dict(getattr(turn, "products", None) or {})
+    sources = tuple(_plain(source) for source in getattr(turn, "sources", ()) or ())
+    result = dict(tool_result or {})
+    abstained = getattr(turn, "prompt", None) is None or (bool(result) and not result.get("found"))
+    return TurnObservation(
+        answer=answer,
+        tools=tools,
+        sources=sources,
+        products=products,
+        quotes=tuple(_shown_quotes(products)),
+        backing=_routes_backing(turn, result),
+        missing=tuple(_routes_missing(turn)),
+        requested=tuple(_routes_requested(turn)),
+        abstained=abstained,
+        path="shortcut" if shortcut else str(getattr(turn, "route", "")),
+    )
 
 
 # --- Uso de tokens del proveedor de texto ----------------------------------------------------
@@ -621,23 +667,11 @@ class RoutesDriver:
         self._runner.record(
             thread_id, question=question, answer=answer, incomplete=False, turns=turn.turns
         )
-        tools, shortcut = routes_tools(turn)
-        products = dict(turn.products or {})
-        sources = tuple(_plain(source) for source in turn.sources)
-        tool_result = self._tool_result(turn, thread_id)
-        # Abstención estructural: sin contexto (RAG) o indicador sin registro, como la
-        # compuerta de ``tools``.
-        abstained = turn.prompt is None or (bool(tool_result) and not tool_result.get("found"))
-        return TurnObservation(
-            answer=answer,
-            tools=tools,
-            sources=sources,
-            products=products,
-            quotes=tuple(_shown_quotes(products)),
-            backing=_routes_backing(turn, tool_result),
-            missing=tuple(_routes_missing(turn)),
-            abstained=abstained,
-            path="shortcut" if shortcut else str(turn.route),
+        observation = routes_observation(
+            turn, answer, tool_result=self._tool_result(turn, thread_id)
+        )
+        return replace(
+            observation,
             usage=self._usage.take() if self._usage is not None else None,
             first_text_s=(first - started) if first is not None else None,
             total_s=total,
@@ -704,13 +738,73 @@ def _calls(results: Iterable[Mapping[str, Any]]) -> tuple[ToolCall, ...]:
     )
 
 
-def _tool_missing(final: Any) -> list[str]:
-    missing = [str(item) for item in final.missing]
-    for result in final.results:
+def _asked_data(results: Iterable[Mapping[str, Any]]) -> list[str]:
+    """El ``dato`` de cada ``sin_consulta(pedir_dato)`` del turno."""
+
+    asked: list[str] = []
+    for result in results:
         args = result.get("args") or {}
         if result.get("tool") == TOOL_SIN_CONSULTA and args.get("motivo") == "pedir_dato":
-            missing.append(str(args.get("dato") or "dato"))
-    return missing
+            asked.append(str(args.get("dato") or "dato"))
+    return asked
+
+
+def _tool_missing(final: Any) -> list[str]:
+    return [*(str(item) for item in final.missing), *_asked_data(final.results)]
+
+
+def _turn_messages(messages: Sequence[Any]) -> list[Any]:
+    """Mensajes del último turno: los posteriores a la última pregunta de la persona."""
+
+    starts = [i for i, message in enumerate(messages) if isinstance(message, HumanMessage)]
+    return list(messages[starts[-1] + 1 :] if starts else messages)
+
+
+def _tool_requested(final: Any, messages: Sequence[Any]) -> list[str]:
+    """Datos pedidos de forma estructurada en ``tools``: ``needs_input`` y ``pedir_dato``.
+
+    Las llamadas omitidas por el límite (``final.missing``) no piden nada a la persona.
+    """
+
+    requested: list[str] = []
+    for message in _turn_messages(messages):
+        if not isinstance(message, ToolMessage) or message.name == TOOL_SIN_CONSULTA:
+            continue
+        content = message.content if isinstance(message.content, str) else _dumps(message.content)
+        data = content_data(content) or {}
+        if data.get("status") == "needs_input":
+            requested.extend(str(item) for item in data.get("missing") or [])
+    return [*requested, *_asked_data(final.results)]
+
+
+def tools_observation(final: Any, answer: str, messages: Sequence[Any] = ()) -> TurnObservation:
+    """Observación de un turno ``tools`` (sin tiempos), como la arma el driver.
+
+    ``final`` es el ``ToolAgentFinal`` del turno y ``messages``, los del checkpoint (de ahí
+    salen el respaldo y los ``needs_input``).
+    """
+
+    products = dict(final.products or {})
+    sources = tuple(_plain(source) for source in final.sources)
+    quotes = tuple(dict(q) for q in final.quotes) or tuple(_shown_quotes(products))
+    return TurnObservation(
+        answer=answer,
+        tools=_calls(final.results),
+        sources=sources,
+        products=products,
+        quotes=quotes,
+        backing=(
+            *_tool_backing(messages),
+            *_source_texts(sources),
+            _dumps(products) if products else "",
+            _dumps(list(quotes)) if quotes else "",
+        ),
+        missing=tuple(_tool_missing(final)),
+        requested=tuple(_tool_requested(final, messages)),
+        abstained=bool(final.abstained),
+        path=str(final.mode_path or "agent"),
+        usage=dict(final.usage) or None,
+    )
 
 
 class ToolsDriver:
@@ -787,32 +881,15 @@ class ToolsDriver:
                 first_status=first_status,
             )
         total = self._clock() - started
-        products = dict(final.products or {})
-        sources = tuple(_plain(source) for source in final.sources)
-        quotes = tuple(dict(q) for q in final.quotes) or tuple(_shown_quotes(products))
-        return TurnObservation(
-            answer=answer,
-            tools=_calls(final.results),
-            sources=sources,
-            products=products,
-            quotes=quotes,
-            backing=(
-                *self._state_backing(thread_id),
-                *_source_texts(sources),
-                _dumps(products) if products else "",
-                _dumps(list(quotes)) if quotes else "",
-            ),
-            missing=tuple(_tool_missing(final)),
-            abstained=bool(final.abstained),
-            path=str(final.mode_path or "agent"),
-            usage=dict(final.usage) or None,
+        return replace(
+            tools_observation(final, answer, self._state_messages(thread_id)),
             first_status_s=(first_status - started) if first_status is not None else None,
             first_text_s=(first_text - started) if first_text is not None else None,
             total_s=total,
         )
 
-    def _state_backing(self, thread_id: str) -> list[str]:
-        """Resultados de las herramientas del turno, leídos del checkpoint en memoria."""
+    def _state_messages(self, thread_id: str) -> list[Any]:
+        """Mensajes del hilo (resultados de las herramientas), leídos del checkpoint."""
 
         if self._graph is None:
             return []
@@ -822,7 +899,7 @@ class ToolsDriver:
             logger.warning("eval_agent.state_unavailable", error=str(error))
             return []
         values = getattr(snapshot, "values", None) or {}
-        return _tool_backing(values.get("messages") or [])
+        return list(values.get("messages") or [])
 
     def _fallback_turn(
         self,
@@ -847,6 +924,7 @@ class ToolsDriver:
             )
             tools = attempted
             missing = tuple(_tool_missing(obtained))
+            requested = tuple(_asked_data(obtained.results))
             # Como el servicio: el turno se cierra en el runner de herramientas.
             self._runner.record(
                 thread_id,
@@ -863,6 +941,7 @@ class ToolsDriver:
             derived, _ = routes_tools(turn)
             tools = (*attempted, *derived)
             missing = tuple(_routes_missing(turn))
+            requested = tuple(_routes_requested(turn))
             self._fallback.record(
                 thread_id, question=question, answer=answer, incomplete=False, turns=turn.turns
             )
@@ -875,6 +954,7 @@ class ToolsDriver:
             quotes=tuple(_shown_quotes(products)),
             backing=(*_source_texts(sources), _dumps(products) if products else ""),
             missing=missing,
+            requested=requested,
             path="fallback",
             usage=usage,
             first_status_s=(first_status - started) if first_status is not None else None,
@@ -1085,6 +1165,238 @@ def _clean(text: str) -> str:
     return _CODE.sub(" ", _LIST_MARKER.sub("", text))
 
 
+# Cardinales en palabras (plegados): «dos mil vasos» es 2000. En la pregunta respaldan la
+# cifra que la repite; en una abstención, una cantidad en palabras es un dato aportado.
+# «cero» no se lee: casi nunca es una cantidad («cero plástico»).
+_WORD_VALUES: Final[dict[str, int]] = {
+    "un": 1,
+    "una": 1,
+    "uno": 1,
+    "dos": 2,
+    "tres": 3,
+    "cuatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "siete": 7,
+    "ocho": 8,
+    "nueve": 9,
+    "diez": 10,
+    "once": 11,
+    "doce": 12,
+    "trece": 13,
+    "catorce": 14,
+    "quince": 15,
+    "dieciseis": 16,
+    "diecisiete": 17,
+    "dieciocho": 18,
+    "diecinueve": 19,
+    "veinte": 20,
+    "veintiun": 21,
+    "veintiuno": 21,
+    "veintiuna": 21,
+    "veintidos": 22,
+    "veintitres": 23,
+    "veinticuatro": 24,
+    "veinticinco": 25,
+    "veintiseis": 26,
+    "veintisiete": 27,
+    "veintiocho": 28,
+    "veintinueve": 29,
+    "treinta": 30,
+    "cuarenta": 40,
+    "cincuenta": 50,
+    "sesenta": 60,
+    "setenta": 70,
+    "ochenta": 80,
+    "noventa": 90,
+    "cien": 100,
+    "ciento": 100,
+    **{
+        f"{stem}ient{ending}": value
+        for stem, value in (
+            ("dosc", 200),
+            ("tresc", 300),
+            ("cuatroc", 400),
+            ("seisc", 600),
+            ("setec", 700),
+            ("ochoc", 800),
+            ("novec", 900),
+        )
+        for ending in ("os", "as")
+    },
+    "quinientos": 500,
+    "quinientas": 500,
+}
+_WORD_SCALES: Final[dict[str, int]] = {
+    "mil": 10**3,
+    "millon": 10**6,
+    "millones": 10**6,
+    "billon": 10**12,
+    "billones": 10**12,
+}
+# Solos, «un», «una» y «uno» son artículos o pronombres («una caja»), no cantidades.
+_ARTICLES: Final = frozenset({"un", "una", "uno"})
+# «mil» solo cuenta si cuantifica un sustantivo, no en frases hechas («mil gracias»).
+_IDIOMATIC_MIL: Final = frozenset({"gracias", "disculpas", "perdones", "veces", "besos"})
+_WORD_TOKEN: Final = re.compile(r"[a-z]+|[^a-z\s]+")
+
+
+def _spoken_value(words: Sequence[str]) -> int:
+    """Valor de una secuencia de cardinales («dos mil quinientos» → 2500)."""
+
+    total = current = 0
+    for word in words:
+        if word == "y":
+            continue
+        if word == "mil":
+            current = (current or 1) * 10**3
+        elif word in _WORD_SCALES:
+            total += (current or 1) * _WORD_SCALES[word]
+            current = 0
+        else:
+            current += _WORD_VALUES[word]
+    return total + current
+
+
+def _joins(run: Sequence[str], token: str) -> bool:
+    """``token`` continúa la secuencia ``run`` según la gramática de los cardinales.
+
+    Tras una centena va una cifra menor («ciento cincuenta»); tras «y», una unidad que
+    sigue a una decena («treinta y cinco»); tras una escala, cualquier cardinal («mil
+    dos»); una escala sigue a un cardinal o a otra escala («dos mil millones»). Dos
+    unidades seguidas («tres cuatro») son dos cantidades, no una suma.
+    """
+
+    if not run:
+        return token != "y"
+    last = run[-1]
+    if token == "y":
+        return last in _WORD_VALUES and _WORD_VALUES[last] in range(30, 100, 10)
+    if token in _WORD_SCALES:
+        return last != "y"
+    value = _WORD_VALUES[token]
+    if last == "y":
+        return value < 10
+    if last in _WORD_SCALES:
+        return True
+    previous = _WORD_VALUES[last]
+    return previous >= 100 and previous % 100 == 0 and value < 100
+
+
+def _spoken_numbers(text: str) -> list[Decimal]:
+    """Cantidades escritas en palabras en español («quinientos», «dos mil», «un millón»).
+
+    Una secuencia son cardinales seguidos según :func:`_joins`; la puntuación o cualquier
+    otra palabra la corta. Un texto en inglés no se lee («once again» no es 11), un
+    artículo suelto no es cantidad y «mil» suelto solo cuenta si cuantifica algo.
+    """
+
+    if detect_language(text) == "en":
+        return []
+    found: list[Decimal] = []
+    run: list[str] = []
+
+    def close(following: str) -> None:
+        while run and run[-1] == "y":
+            run.pop()
+        bare_mil = run == ["mil"] and (not following.isalpha() or following in _IDIOMATIC_MIL)
+        if run and not set(run) <= _ARTICLES and not bare_mil:
+            found.append(Decimal(_spoken_value(run)))
+        run.clear()
+
+    for token in _WORD_TOKEN.findall(_fold(text)):
+        if token in _WORD_VALUES or token in _WORD_SCALES or token == "y":
+            if not _joins(run, token):
+                close(token)
+            if token != "y" or run:
+                run.append(token)
+        else:
+            close(token)
+    close("")
+    return found
+
+
+# Conteos de registros: «7 sedes» se respalda si una herramienta del turno devolvió una lista
+# de 7 sedes, aunque ningún campo traiga el total. Clave de la lista en el resultado (de la
+# herramienta o de las tarjetas) → sustantivos con los que la respuesta la cuenta. Solo
+# claves que ambos modos producen: los fragmentos del corpus van como JSON en ``tools`` y
+# como texto en ``routes``, y la lista completa de ciudades del catálogo (``cities`` del
+# resultado comercial, ``ciudades_con_cobertura``) la trae ``routes`` en todo turno
+# comercial; ninguna de las dos respalda un conteo.
+_COUNT_NOUNS: Final[dict[str, str]] = {
+    "sedes": r"sedes?|sites?",
+    "sites": r"sedes?|sites?",
+    "opciones": r"opci[oó]n(?:es)?|options?",
+    "options": r"opci[oó]n(?:es)?|options?",
+    "descartadas": r"descartadas?",
+    "discarded": r"descartadas?",
+    "ciudades_disponibles": r"ciudad(?:es)?|cit(?:y|ies)",
+    "cities": r"ciudad(?:es)?|cit(?:y|ies)",
+    "cities_with_distributors": r"ciudad(?:es)?|cit(?:y|ies)",
+    "contacts": r"contactos?|contacts?",
+    "distributors": r"distribuidor(?:es)?|distributors?",
+    "offers": r"ofertas?|offers?",
+    "quotes": r"cotizaci[oó]n(?:es)?|quotes?",
+}
+# ``cities`` solo cuenta dentro de una cotización (``kind``): es la misma lista que
+# ``ciudades_disponibles`` de ``cotizar`` en ``tools``.
+_QUOTE_ONLY_KEYS: Final = frozenset({"cities"})
+# Solo números enteros: «1.005 sedes» no es un conteo de 5.
+_COUNTED: Final = {
+    noun: re.compile(rf"(?<![\d.,])\b(?P<count>\d+)(?![.,]\d)\s+(?P<noun>{noun})\b", re.IGNORECASE)
+    for noun in set(_COUNT_NOUNS.values())
+}
+
+
+def _record_lists(value: Any) -> Iterator[tuple[str, int]]:
+    """``(sustantivos, tamaño)`` de cada lista no vacía con clave conocida de un JSON."""
+
+    if isinstance(value, Mapping):
+        quote = "kind" in value
+        for key, item in value.items():
+            known = str(key) in _COUNT_NOUNS and (quote or str(key) not in _QUOTE_ONLY_KEYS)
+            if isinstance(item, list) and item and known:
+                yield _COUNT_NOUNS[str(key)], len(item)
+            yield from _record_lists(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _record_lists(item)
+
+
+def _record_counts(backing: Iterable[str]) -> set[tuple[str, int]]:
+    """Conteos de los registros que devolvieron las herramientas del turno (JSON)."""
+
+    counts: set[tuple[str, int]] = set()
+    for text in backing:
+        stripped = text.strip()
+        if stripped[:1] not in "{[":
+            continue
+        try:
+            data = json.loads(stripped)
+        except ValueError:
+            continue
+        counts.update(_record_lists(data))
+    return counts
+
+
+def _drop_counts(answer: str, counts: set[tuple[str, int]]) -> str:
+    """Quita de la respuesta los conteos respaldados («7 sedes» → «sedes»).
+
+    Solo vale el número pegado al sustantivo contado y con el tamaño exacto de una lista
+    devuelta: «7 días», «las sedes son 7» o «7 sedes» con 5 devueltas siguen siendo cifras.
+    """
+
+    for noun, pattern in _COUNTED.items():
+
+        def drop(match: re.Match[str], noun: str = noun) -> str:
+            if (noun, int(match.group("count"))) in counts:
+                return match.group("noun")
+            return match.group()
+
+        answer = pattern.sub(drop, answer)
+    return answer
+
+
 def _json_leaves(value: Any) -> Iterator[str]:
     """Hojas de un resultado JSON sin los campos técnicos (puntajes, ids, URLs)."""
 
@@ -1154,11 +1466,13 @@ def unsupported_figures(
     ambiguo. «mil» y «millón» multiplican. Las fechas se comparan completas («23 de
     noviembre de 2026», «23/11/2026» y «2026-11-23» son la misma). Los campos técnicos
     del JSON (``score``, ``chunk_id``, URLs) y los códigos de referencia no respaldan
-    nada. Los números de ``ignore`` (las preguntas del ítem) no cuentan como afirmación
-    nueva.
+    nada. Los números de ``ignore`` (las preguntas del ítem), también los escritos en
+    palabras («dos mil»), no cuentan como afirmación nueva. Un conteo pegado a su
+    sustantivo («7 sedes») se respalda si una lista del respaldo tiene ese tamaño exacto.
     """
 
-    values: set[str] = set()
+    backing = list(backing)
+    values: set[str] = {_key(value) for text in ignore for value in _spoken_numbers(text)}
     dates: set[DateKey] = set()
     known = [
         *(
@@ -1174,6 +1488,7 @@ def unsupported_figures(
         if claim.date is not None:
             dates |= _implied_dates(claim.date)
     flagged: list[str] = []
+    answer = _drop_counts(answer, _record_counts(backing))
     for claim in _claims(answer, strict=True, keep_year=False):
         supported = claim.date in dates if claim.date is not None else bool(claim.values & values)
         if not supported and claim.raw not in flagged:
@@ -1185,46 +1500,225 @@ _ABSENCE_SENTENCES: Final = tuple(
     _fold(case["say"]).rstrip(".") for key, case in ABSENCE_POLICY.items() if key != "partial"
 )
 # La evidencia parcial responde algo: no es abstención aunque declare un hueco.
-_PARTIAL_MARKERS: Final = tuple(
-    _fold(ABSENCE_POLICY["partial"][key]).rstrip(".") for key in ("say", "offer")
+_PARTIAL_MARKERS: Final = (
+    *(_fold(ABSENCE_POLICY["partial"][key]).rstrip(".") for key in ("say", "offer")),
+    "lo que si consta",
+    "lo que si tengo es",
+    "lo que si encontre",
+    "what i did find",
 )
-# Frases que solo cuentan como abstención si la respuesta no afirma cifras propias ni cita.
-_WEAK_ABSTENTION: Final = (
-    "no aparece en el corpus",
-    "no encontre",
-    "no tengo ese dato",
-    "no tengo registro",
-    "no tengo informacion",
-    "no hay registro",
-    "no hay informacion",
-    "isn't in carvajal's public corpus",
-    "not in the public corpus",
-    "i couldn't find",
-    "i could not find",
+# «Lo que sí aparece es…» o «lo que sí aparece en el corpus:» afirma contenido; la oferta de
+# ``no_context`` («puedo contarte lo que sí aparece sobre el tema») no.
+_PARTIAL_CLAIM: Final = re.compile(
+    r"\blo que si (?:aparecen?|constan?|figuran?)"
+    r"(?: (?:en|el|la|los|las|corpus|fuentes|catalogo|resultados|registros?)){0,3}"
+    r"\s*(?:\b(?:es|son)\b|:)"
 )
+# «No lo tengo claro», «no tengo esa cifra a mano»: duda o aplazamiento, no ausencia.
+_NOT_ABSENT: Final = r"(?! (?:claro|clara|a mano|en stock|en inventario|seguro|segura|presente))"
+# Declaración de ausencia del dato (texto plegado): las frases de :data:`ABSENCE_POLICY` y
+# sus variaciones gramaticales (singular o plural, con o sin pronombre), atadas al lugar
+# donde el dato no está cuando la frase sola es ambigua («sin registro en…», «isn't in the
+# corpus»).
+_ABSENCE: Final = re.compile(
+    "|".join(re.escape(sentence) for sentence in _ABSENCE_SENTENCES)
+    + r"|\bno (?:(?:lo|la|los|las) )?(?:aparecen?|figuran?|constan?|estan?) en "
+    r"(?:(?:el|la|los|las|mis|sus) )?(?:corpus|fuentes?|resultados?|registros?|catalogo"
+    r"|indicador(?:es)?|documentos?|directorio|datos)\b"
+    rf"|\bno (?:lo|la|los|las) tengo\b{_NOT_ABSENT}"
+    rf"|\bno tengo (?:ese|esa|esos|esas) (?:datos?|cifras?|informacion|registros?)\b{_NOT_ABSENT}"
+    r"|\bno (?:tengo|hay|tiene|tienen) (?:registros?|informacion|datos?)\b"
+    r"|\bsin registros? (?:en|para)\b"
+    r"|\bno (?:lo |la |los |las )?(?:encontre|encontramos|se encontr\w*)\b"
+    r"|\b(?:isn['\u2019]t|is not|aren['\u2019]t|are not) in "
+    r"(?:the |carvajal['\u2019]s |our |my )?(?:public )?"
+    r"(?:corpus|sources?|catalog(?:ue)?|records?|data|documents?|results?)\b"
+    r"|\bnot in the (?:public )?corpus\b"
+    r"|\bi (?:couldn['\u2019]t|could not|didn['\u2019]t|did not) find\b"
+    r"|\bi (?:don['\u2019]t|do not) have (?:that|this|those|any|the) "
+    r"(?:data|figures?|information|records?|numbers?)\b"
+)
+# Negativa por fuera de alcance; solo cuenta en un turno que no consultó herramientas.
+_REFUSAL: Final = re.compile(
+    r"\bno (?:puedo|hago|manejo|resuelvo|respondo|atiendo|ofrezco)\b"
+    r"|\bfuera de (?:mi |nuestro |su )?alcance\b|\bsolo respondo\b"
+    r"|\bi (?:can['\u2019]t|cannot) help\b|\bout of scope\b|\boutside (?:my|the) scope\b"
+)
+# Tramos que pueden ir antes de la declaración sin afirmar nada: cortesía, el relato de la
+# búsqueda («revisé el corpus») o un marco breve («para 1990»).
+_COURTESY: Final = re.compile(
+    r"(?:hola|buenas|buenos dias|buenas (?:tardes|noches)|lo siento|lo lamento|disculpa"
+    r"|disculpame|perdon|gracias(?: por (?:preguntar|tu pregunta|escribir))?|entiendo"
+    r"|buena pregunta|lamentablemente|por ahora|de momento|por el momento|en este momento"
+    r"|sinceramente|honestamente|sorry|hi|hello|thanks|i'm sorry|unfortunately|for now)"
+)
+_SEARCH_META: Final = re.compile(
+    r"\b(?:busque|buscamos|revise|revisamos|consulte|consultamos|mire|verifique|explore"
+    r"|lo busque|searched|checked|looked|reviewed)\b"
+)
+_FRAME: Final = re.compile(
+    r"(?:para|en|sobre|de|del|respecto a|acerca de|con respecto a|about|for|in|on|regarding"
+    r"|as for)\b"
+)
+_FRAME_WORDS: Final = 5
+_CONNECTOR: Final = re.compile(r"^(?:y|e|pero|aunque|so|and|but)\s+")
+_PREAMBLE_BREAK: Final = re.compile(r"[,;:]")
+# Una cláusula adversativa tras la declaración responde de todos modos, salvo que ofrezca
+# un siguiente paso o vuelva a negar («pero puedo buscar…», «aunque no se estima»).
+_ADVERSATIVE: Final = re.compile(
+    r"\b(?:pero|aunque|sin embargo|no obstante|but|however|though|although)\b"
+)
+_HEDGED: Final = re.compile(
+    r"\W*(?:(?:si|tambien) (?:quieres|deseas|gustas|prefieres|me (?:dices|das|indicas))"
+    r"|si (?:puedo|podemos|te puedo)|puedo|podemos|podria|te (?:puedo|ayudo|ofrezco|sugiero)"
+    r"|lo (?:puedo|busco|consulto)|no\b|tampoco|ni\b|nada|ningun|i can|we can|i could"
+    r"|if you|not\b|there is no|nothing)"
+)
+_OUT_OF_SCOPE: Final = "fuera_de_alcance"
+_PERIOD: Final = re.compile(r"(?:19|20)\d{2}")
+# La pregunta pide una fecha: entonces un período en la respuesta es el dato, no el de las
+# fuentes.
+_ASKS_DATE: Final = re.compile(
+    r"\bcuando\b|\bque (?:ano|fecha|dia|mes)\b|\bfecha\b"
+    r"|\bwhen\b|\bwhat (?:year|date|day|month)\b|\bwhich (?:year|date)\b"
+)
+
+
+def _is_period(raw: str) -> bool:
+    """Un año o una fecha: describe un período (de una fuente o de una sugerencia)."""
+
+    return bool(_PERIOD.fullmatch(raw)) or any(pattern.fullmatch(raw) for pattern in _DATES)
+
+
+def _defers(observation: TurnObservation) -> bool:
+    """El turno aplaza pidiendo un dato: ``sin_consulta(pedir_dato)``.
+
+    Es la señal explícita que ambos modos producen (``routes`` la deriva de
+    ``commercial_clarify`` y ``missing_period``). ``missing`` no sirve: en ``routes`` trae
+    pendientes internos del resultado comercial y en ``tools``, llamadas omitidas por el
+    límite.
+    """
+
+    return any(
+        call.name == TOOL_SIN_CONSULTA and call.args.get("motivo") == "pedir_dato"
+        for call in observation.tools
+    )
+
+
+def _no_real_query(observation: TurnObservation) -> bool:
+    """El turno no consultó: ninguna llamada o solo ``sin_consulta`` (cualquier motivo).
+
+    Mismo criterio en ambos modos: ``routes`` nunca deriva ``fuera_de_alcance`` (su ruta
+    directa es ``conversacion``), así que el motivo no puede decidir.
+    """
+
+    return all(call.name == TOOL_SIN_CONSULTA for call in observation.tools)
+
+
+def _declaration(folded: str, *, refusal: bool) -> re.Match[str] | None:
+    """La primera declaración de ausencia (o de negativa, si ``refusal``) del texto."""
+
+    found = [_ABSENCE.search(folded), _REFUSAL.search(folded) if refusal else None]
+    return min((m for m in found if m is not None), key=lambda m: m.start(), default=None)
+
+
+def _bare(clause: str) -> bool:
+    """Un tramo previo a la declaración que no afirma nada."""
+
+    words = re.findall(r"[\w'\u2019]+", _CONNECTOR.sub("", clause.strip()))
+    if not words:
+        return True
+    plain = " ".join(words)
+    return bool(
+        _COURTESY.fullmatch(plain)
+        or _NEGATION.search(plain)
+        or _SEARCH_META.search(plain)
+        or (len(words) <= _FRAME_WORDS and _FRAME.match(plain))
+    )
+
+
+def _answers_anyway(folded: str, declaration: re.Match[str]) -> bool:
+    """La respuesta afirma algo además de declarar la ausencia o negarse.
+
+    Afirma si antes de la declaración hay una frase o una cláusula que dice algo («Ganó el
+    América; no lo encontré…») o si en el resto de su frase o en la siguiente sigue una
+    adversativa con contenido («no puedo confirmarlo, pero ganó el Cali»).
+    """
+
+    sentences = _SENTENCE_BREAK.split(folded[: declaration.start()])
+    clauses = [*sentences[:-1], *_PREAMBLE_BREAK.split(sentences[-1])[:-1]]
+    if not all(_bare(clause) for clause in clauses):
+        return True
+    window = " ".join(_SENTENCE_BREAK.split(folded[declaration.end() :], maxsplit=2)[:2])
+    return any(not _HEDGED.match(window[match.end() :]) for match in _ADVERSATIVE.finditer(window))
+
+
+def _question_values(ignore: Iterable[str]) -> set[str]:
+    """Valores de las cifras de la pregunta, en dígitos o en palabras."""
+
+    return {
+        *(_key(value) for text in ignore for value in _spoken_numbers(text)),
+        *(value for text in ignore for c in _claims(text, strict=True) for value in c.values),
+    }
+
+
+def _adds_data(observation: TurnObservation, ignore: Sequence[str]) -> bool:
+    """La respuesta aporta datos además de declarar la ausencia.
+
+    Aporta datos si cita el corpus (``[n]``: es una respuesta parcial), si afirma evidencia
+    parcial («lo que sí consta…», «lo que sí aparece es…»), si trae una cifra sin respaldo
+    en el turno, si da una cifra que no es de la pregunta ni un período, o una cantidad en
+    palabras que no es de la pregunta («unos tres billones»). Un año o una fecha
+    respaldados («fragmentos de 2018 a 2026») describen las fuentes, salvo que la pregunta
+    pida una fecha: entonces son el dato.
+    """
+
+    answer = observation.answer
+    folded = _fold(answer)
+    if _CITATION.search(answer) or _PARTIAL_CLAIM.search(folded):
+        return True
+    if any(marker in folded for marker in _PARTIAL_MARKERS):
+        return True
+    if unsupported_figures(answer, observation.backing, ignore=ignore):
+        return True
+    periods = not any(_ASKS_DATE.search(_fold(text)) for text in ignore)
+    loose = unsupported_figures(answer, (), ignore=ignore)
+    if any(not (periods and _is_period(raw)) for raw in loose):
+        return True
+    asked = _question_values(ignore)
+    return any(_key(value) not in asked for value in _spoken_numbers(answer))
 
 
 def is_abstention(observation: TurnObservation, *, ignore: Iterable[str] = ()) -> bool:
-    """La respuesta es una abstención: estructural, la política de ausencia o una negativa.
+    """La respuesta es una abstención: la marca estructural o una ausencia declarada.
 
-    Cuenta la marca estructural (compuerta de ``tools``, ruta sin contexto o indicador sin
-    registro en ``routes``) o una frase completa de :data:`ABSENCE_POLICY` (salvo
-    ``partial``, que sí responde). Una negativa suelta («no encontré…», «no tengo
-    registro…») solo cuenta si la respuesta no cita fuentes ni afirma cifras fuera de las
-    de ``ignore`` (las preguntas del ítem).
+    Criterio (el mismo en ``routes`` y ``tools``; nada depende del camino ni de
+    ``missing``):
+
+    - Cuenta la marca estructural del driver: compuerta de ``tools``, ruta sin contexto o
+      indicador sin registro en ``routes``.
+    - Aplazar pidiendo un dato (``sin_consulta(pedir_dato)``) no es abstenerse.
+    - Si no, la respuesta declara que el dato pedido no está (una frase de
+      :data:`ABSENCE_POLICY` salvo ``partial``, o :data:`_ABSENCE` con sus variaciones). En
+      un turno que no consultó herramientas (ninguna o solo ``sin_consulta``) también vale
+      una negativa («no puedo…», «fuera de mi alcance»).
+    - La declaración no puede ir acompañada de una afirmación (:func:`_answers_anyway`): ni
+      una frase previa que dice algo ni una adversativa con contenido («…, pero ganó el
+      Cali»).
+    - Y la respuesta no aporta datos (:func:`_adds_data`): ni citas, ni cifras sin respaldo,
+      ni cifras o cantidades en palabras que no sean de la pregunta o un período.
     """
 
     if observation.abstained:
         return True
-    answer = observation.answer
-    folded = _fold(answer)
-    if any(marker in folded for marker in _PARTIAL_MARKERS):
+    if _defers(observation):
         return False
-    if any(sentence in folded for sentence in _ABSENCE_SENTENCES):
-        return True
-    if not any(marker in folded for marker in _WEAK_ABSTENTION):
+    ignore = tuple(ignore)
+    folded = _fold(observation.answer)
+    declaration = _declaration(folded, refusal=_no_real_query(observation))
+    if declaration is None or _answers_anyway(folded, declaration):
         return False
-    return not _CITATION.search(answer) and not unsupported_figures(answer, (), ignore=ignore)
+    return not _adds_data(observation, ignore)
 
 
 _ES_WORDS: Final = frozenset(
@@ -1390,24 +1884,90 @@ def _questions_asked(answer: str) -> list[str]:
     return [s for s in _split_sentences(answer) if s.endswith("?") or s.startswith("¿")]
 
 
+# Pedido de un dato en una frase no interrogativa (texto plegado): imperativo («dime la
+# ciudad»), necesidad («necesito que me indiques…»), falta («para cotizar me falta…») o
+# utilidad («también me sirve el uso»). «Me sirve el producto» a secas afirma, no pide.
+_REQUEST: Final = re.compile(
+    r"\b(?:dime|digame|diganme|indicame|indiqueme|cuentame|cuenteme|confirmame|confirmeme"
+    r"|precisame|especificame|aclarame|pasame|comparteme|enviame|escribeme"
+    r"|necesito (?:saber|conocer|que me|el dato|un dato|los datos)"
+    r"|me falta(?:n|ria|rian)?|falta(?:n)? (?:el|la|los|las|un|una|saber|conocer|definir)"
+    r"|me (?:sirve|serviria)n? (?:saber|conocer|que me)|tambien me (?:sirve|serviria)n?"
+    r"|me serviria(?:n)? (?:el|la|los|las)"
+    r"|tell me|let me know|i need (?:to know|the|your)|please (?:share|provide|confirm|tell))\b"
+)
+# El indicativo («me dices», «me confirmas») también narra lo ya dicho («como me dices que
+# la ciudad es Cali»): solo pide en una pregunta (ya cubierta) o con «por favor».
+_POLITE_REQUEST: Final = re.compile(
+    r"\bme (?:dices|dirias|indicas|confirmas|cuentas|compartes|pasas)\b"
+)
+_PLEASE: Final = re.compile(r"\b(?:por favor|porfa|please)\b")
+# Antes del verbo, estas palabras lo vuelven eco de un dato ya dado («you tell me…»,
+# «por lo que me falta…»).
+_ECHO_BEFORE: Final = re.compile(
+    r"\b(?:you|como|segun|por lo que|con lo que|con los datos que)\s*$"
+)
+# «Dime si te interesa otro producto», «let me know if this works»: cierres genéricos.
+_GENERIC_CLOSER: Final = re.compile(
+    r"\s*(?:si|if)\b(?:\s+\S+){0,2}?\s+(?:te |le )?(?:interesa|quieres|deseas|gustaria"
+    r"|necesitas|sirve|prefieres|works|need|want|would like|'d like|have any)\b"
+)
+
+
+def _requests_made(answer: str) -> list[str]:
+    """Pedidos no interrogativos: el tramo de la frase desde el verbo de pedido.
+
+    El dato tiene que nombrarse después del pedido: en «con la ciudad que me diste, dime si
+    prefieres papel» la ciudad no se pide. No piden un verbo negado («no me falta la
+    ciudad»), el eco de lo dicho («como me dices…») ni un cierre genérico («dime si te
+    interesa otro producto»).
+    """
+
+    spans: list[str] = []
+    for sentence in _split_sentences(answer):
+        folded = _fold(sentence)
+        matches = list(_REQUEST.finditer(folded))
+        if _PLEASE.search(folded):
+            matches.extend(_POLITE_REQUEST.finditer(folded))
+        for match in matches:
+            before = folded[: match.start()]
+            if _negated(folded, match.start()) or _ECHO_BEFORE.search(before):
+                continue
+            if _GENERIC_CLOSER.match(folded[match.end() :]):
+                continue
+            spans.append(folded[match.start() :])
+    return spans
+
+
 def _mentions(text: str, term: str) -> bool:
     folded = _fold(text)
     return any(re.search(rf"\b{re.escape(word)}", folded) for word in _ASK_TERMS.get(term, (term,)))
 
 
 def _asks_for(observation: TurnObservation, expected: Sequence[str]) -> bool:
-    """El turno pide un dato: estructurado (``missing``) o en una pregunta que lo nombra.
+    """El turno pide un dato: estructurado (``requested``) o en el texto, nombrándolo.
 
-    Con el comodín, basta un pedido estructurado o una pregunta que nombre algún dato
-    conocido; un cierre genérico («¿Te ayudo con algo más?») no pide nada.
+    Lo estructurado es ``requested`` (``needs_input`` o ``sin_consulta(pedir_dato)``, igual
+    en ambos modos), nunca ``missing``: los pendientes internos del resultado comercial o
+    las llamadas omitidas por el límite no le piden nada a la persona. En el texto cuenta
+    una pregunta que nombra el dato o un pedido no interrogativo (:data:`_REQUEST`) que lo
+    nombra después del verbo («también dime la ciudad»). Con el comodín, basta un pedido
+    estructurado o un pedido en texto que nombre algún dato conocido; un cierre genérico
+    («¿Te ayudo con algo más?») no pide nada, y mencionar el dato sin pedirlo («en tu ciudad
+    hay 3 sedes») tampoco.
     """
 
-    questions = _questions_asked(observation.answer)
+    questions = [
+        *_questions_asked(observation.answer),
+        *_requests_made(observation.answer),
+    ]
     if ANY_DATUM in expected:
-        return bool(observation.missing) or any(
-            _mentions(text, term) for term in _ASK_TERMS for text in questions
+        return (
+            bool(observation.requested)
+            or _defers(observation)
+            or any(_mentions(text, term) for term in _ASK_TERMS for text in questions)
         )
-    asked = [*observation.missing, *questions]
+    asked = [*observation.requested, *questions]
     return any(_mentions(text, _fold(term)) for term in expected for text in asked)
 
 
@@ -1699,6 +2259,7 @@ class ItemResult:
             "sources": [dict(s) for s in observation.sources] if observation else [],
             "quotes": len(observation.quotes) if observation else 0,
             "missing": list(observation.missing) if observation else [],
+            "requested": list(observation.requested) if observation else [],
             "usage": dict(observation.usage or {}) if observation else {},
             "first_status_s": observation.first_status_s if observation else None,
             "first_text_s": observation.first_text_s if observation else None,
