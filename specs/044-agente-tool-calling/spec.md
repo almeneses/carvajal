@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-23
 
-**Status**: Draft
+**Status**: Implemented (2026-11-23), detrás de `AGENT_MODE=tools`; valor por defecto pendiente de decisión del owner ([evidencia](./evidencia.md))
 
 **Input**: User description: "Agente con tool calling para el chat de Carvajal (spec 044).
 Sustituir el enrutador determinista por regex + una sola llamada al LLM por un agente

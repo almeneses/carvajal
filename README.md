@@ -371,6 +371,32 @@ uv run carvajal eval-router --router rules --router llm  # comparación con el L
 
 Resultados y análisis: [`docs/resultados-router.md`](docs/resultados-router.md).
 
+### Agente con herramientas (spec 044)
+
+Con `AGENT_MODE=tools`, DeepSeek decide qué consultar y encadena seis herramientas
+deterministas: `buscar_corpus`, `buscar_producto`, `cotizar`, `buscar_sedes`,
+`indicador_financiero` y `sin_consulta`. Las reglas duras siguen en las herramientas, y el
+servidor aplica una compuerta de evidencia: sin resultado de una consulta, abstención. El
+chat muestra líneas de estado («Estoy calculando cuánto te salen 2.000 vasos en Bogotá…»)
+mientras consulta. Saludos y preferencias van por un atajo sin decisión del modelo; si
+DeepSeek falla o vence el plazo, responde un respaldo determinista sin LLM.
+
+| Variable | Por defecto | Qué controla |
+|---|---|---|
+| `AGENT_MODE` | `routes` | `routes` (enrutador por reglas) o `tools` (agente con herramientas) |
+| `AGENT_MAX_TOOL_CALLS` | `4` | Consultas por turno (`sin_consulta` no cuenta) |
+| `AGENT_TURN_TIMEOUT_S` | `45` | Plazo hasta el primer token; después responde el respaldo |
+| `AGENT_MAX_QUOTES` | `3` | Cotizaciones con folio por turno |
+
+```bash
+AGENT_MODE=tools make api                          # probar el modo nuevo en local
+uv run carvajal eval-agent --ids g-001,g-052       # corrida parcial (gasta tokens)
+make eval-agent                                    # 57 preguntas en ambos modos
+```
+
+Resultados, criterios y decisiones pendientes:
+[`specs/044-agente-tool-calling/evidencia.md`](specs/044-agente-tool-calling/evidencia.md).
+
 ## 🗺️ Arquitectura
 
 La arquitectura vigente, con el agente, la ruta `commercial` y la sincronización incremental,

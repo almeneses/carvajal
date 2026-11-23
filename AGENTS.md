@@ -121,7 +121,12 @@ make down      # detiene el stack completo (conserva los volúmenes)
 make prod-up   # levanta app, Postgres, Qdrant y Ollama en APP_PORT (SESSION_SECRET)
 make prod-down # detiene los servicios (conserva los volúmenes)
 make prod-bootstrap # prepara un servidor limpio (modelos, migraciones y corpus)
+make eval-agent # compara los modos routes y tools (spec 044; gasta tokens de DeepSeek)
 ```
+
+> 🤖 `AGENT_MODE=routes` (por defecto) usa el enrutador por reglas; `AGENT_MODE=tools`
+> activa el agente con herramientas de la spec 044. El cambio de valor por defecto lo
+> decide el owner con el informe `specs/044-agente-tool-calling/evidencia.md`.
 
 > 📦 `uv sync --all-extras` instala también los extras `capture` (CLI de
 > captura) y `legacy` (FAISS para la CLI histórica). El CLI completo requiere ambos:

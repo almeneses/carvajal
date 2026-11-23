@@ -119,6 +119,12 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 - La 043 está implementada: un solo hilo comercial con datos publicados sobre la
   protección de ingesta de #222 y el contrato de #223. Retiró la demo y el compositor
   separado; conserva el histórico real autorizado y el contrato `POST /api/faq`.
+- La 044 (agente con herramientas) está implementada detrás de `AGENT_MODE=tools`, con
+  `routes` como valor por defecto, atajo y respaldo. El informe comparativo
+  (`specs/044-agente-tool-calling/evidencia.md`) da 89,5 % de ítems resueltos frente a 54,4 %
+  de `routes`; el cambio de valor por defecto queda a decisión del owner. El índice de
+  Qdrant creció a ~40 800 puntos con el corpus ampliado y el retrieval cayó a
+  Recall@10 = 0,578 frente a la línea base: pendiente de una spec aparte.
 
 ## Restricciones técnicas
 
@@ -165,4 +171,4 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.6.0 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.6.1 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.

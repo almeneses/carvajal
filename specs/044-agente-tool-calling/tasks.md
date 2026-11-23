@@ -174,10 +174,10 @@ de cada campo restringido.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T050 [P] Verificar que `CONSTITUTION.md` refleja lo entregado (estado técnico y spec 044, §3 stack si aplica); las enmiendas de principio ya entraron con T005.
-- [ ] T051 [P] Documentar `AGENT_MODE`, límites y respaldo en `docs/despliegue-ovh.md`, `README.md` y `AGENTS.md` (sección de comandos).
-- [ ] T052 [P] Actualizar `specs/README.md` y el estado de `specs/044-agente-tool-calling/spec.md` con la evidencia.
-- [ ] T053 Ejecutar `specs/044-agente-tool-calling/quickstart.md` completo y `make check`; registrar resultados en `specs/044-agente-tool-calling/evidencia.md`.
+- [X] T050 [P] Verificar que `CONSTITUTION.md` refleja lo entregado (estado técnico y spec 044, §3 stack si aplica); las enmiendas de principio ya entraron con T005.
+- [X] T051 [P] Documentar `AGENT_MODE`, límites y respaldo en `docs/despliegue-ovh.md`, `README.md` y `AGENTS.md` (sección de comandos).
+- [X] T052 [P] Actualizar `specs/README.md` y el estado de `specs/044-agente-tool-calling/spec.md` con la evidencia.
+- [X] T053 Ejecutar `specs/044-agente-tool-calling/quickstart.md` completo y `make check`; registrar resultados en `specs/044-agente-tool-calling/evidencia.md`.
 - [ ] T054 Abrir las PRs por fase con la skill `abrir-pr` (sin merge).
 - [ ] T055 F5 — Retiro (diferido, PR propio tras el cambio de valor por defecto y dos semanas de observación según el plan): retirar redacción por rutas, `commercial_mixed`, `LLMRouter`, `DecisionRouter` y regex sin consumidores en `packages/core/src/carvajal/agent/`; reducir `decide_route` a atajo y respaldo; actualizar `CONSTITUTION.md`.
 

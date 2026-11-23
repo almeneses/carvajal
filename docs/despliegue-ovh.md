@@ -431,6 +431,26 @@ Copia los backups fuera del VPS (restic, rclone o `scp` a otra máquina).
 
 ## 8. Operación y rollback
 
+### Modo del agente (spec 044)
+
+`AGENT_MODE` elige el agente del chat: `routes` (por defecto) o `tools` (agente con
+herramientas). Para activarlo, o para volver atrás, edita el `.env` del servidor y
+recrea la app; no hay migraciones ni cambios de datos:
+
+```bash
+cd /opt/carvajal
+sed -i 's/^AGENT_MODE=.*/AGENT_MODE=tools/' .env   # o routes para volver atrás
+docker compose -f compose.prod.yml up -d app
+docker compose -f compose.prod.yml logs app | grep -E "agent.runtime_ready|tools_mode_unavailable"
+```
+
+- Si falta `DEEPSEEK_API_KEY`, el modo `tools` no arranca: el log muestra
+  `agent.tools_mode_unavailable` y el chat sigue en `routes`.
+- Límites: `AGENT_MAX_TOOL_CALLS` (4), `AGENT_TURN_TIMEOUT_S` (45) y `AGENT_MAX_QUOTES` (3).
+- El cambio de valor por defecto lo decide el owner con
+  `specs/044-agente-tool-calling/evidencia.md`.
+
+
 ```bash
 cd /opt/carvajal
 docker compose -f compose.prod.yml ps

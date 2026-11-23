@@ -111,6 +111,20 @@ del owner.
   pruebas sin red (`tests/test_tool_agent_*`, `tests/test_chat_service_tools.py`). No se
   provocó una caída real del proveedor en la evaluación.
 - Reglas duras en ambos modos: `tests/test_hard_rules_modes.py` en verde.
+- **Quickstart (T053)**, paso 2 contra `ChatService` real (Postgres con migración 0010,
+  Qdrant, DeepSeek, `AGENT_MODE=tools`, dueño de prueba aislado):
+
+  | Turno | Eventos | Resultado |
+  |---|---|---|
+  | «hola» | `open, meta, token, trace, done` | Atajo (`path=shortcut`), 1,2 s, sin líneas de estado |
+  | «2 mil vasitos para tinto en Bogotá…» | `open, status×3, meta, token, trace, products, done` | Cotización con folio `b0db4f8b308f` guardada, sedes, 4,2 s |
+  | «mejor en Cali» | `status×2 … products` | Conserva producto y cantidad; sin precio en Cali se declara y ofrece sedes |
+  | Reenvío del turno 2 (mismo `client_turn_id`) | `trace(route=replay) …` | Mismo texto, tarjetas y folio `b0db4f8b308f`, sin llamar al modelo |
+  | «teléfono de Carvajal en Tokio» | `status, meta, token …` | Abstención |
+  | «vasos de icopor para café caliente para microondas» | `status, … products` | Descarta el EPS y ofrece PP apto |
+
+  `make check` (2512 pruebas), `node --test tests/js/*.cjs` (81/81) y `make eval-cotizador`
+  (18/18) en verde.
 
 ## 6. Retrieval: regresión por el índice ampliado, no por la spec 044
 
