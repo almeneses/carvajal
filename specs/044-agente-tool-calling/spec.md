@@ -153,11 +153,16 @@ réplica idéntica y cero consultas al proveedor para los saludos.
 1. **Given** un saludo, agradecimiento o pregunta de capacidades, **When** se envía, **Then**
    se responde sin decisión del proveedor de lenguaje.
 2. **Given** que el proveedor no responde o devuelve una salida inválida al decidir, **When**
-   ocurre, **Then** el turno se atiende por el camino de reglas y queda registrado como respaldo.
+   ocurre, **Then** el turno se atiende por el camino de reglas sin redacción libre (tarjetas,
+   cotización o fragmentos citados con un aviso fijo) y queda registrado como respaldo.
 3. **Given** un reintento con el mismo identificador de turno, **When** llega, **Then** se
    devuelve la misma respuesta, fuentes, tarjetas y folio, sin volver a consultar.
 4. **Given** una respuesta en curso, **When** se genera, **Then** el texto llega
    progresivamente y la persona puede detenerla.
+4a. **Given** que el asistente está consultando antes de escribir, **When** empieza cada
+   consulta, **Then** la persona ve una línea de estado amigable con el paso en curso
+   («Estoy buscando en la información de Carvajal…», «Estoy calculando cuánto te salen
+   2.000 vasos…»), que se reemplaza al llegar el texto y que el lector de pantalla anuncia.
 5. **Given** un turno que excede el límite de consultas o de tiempo, **When** ocurre, **Then**
    el asistente responde con lo obtenido hasta ese momento y declara lo que faltó.
 
@@ -196,8 +201,10 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 - Pregunta en otro idioma: se responde en ese idioma con las mismas reglas.
 - Petición fuera de alcance (pedidos, pagos, facturas, temas ajenos a Carvajal).
 - Un reintento llega mientras el turno original sigue generando.
-- Dos productos en la misma petición (vasos y platos): se pide elegir cuál cotizar primero,
-  como en la 043, o se cotizan ambos si la evidencia lo permite.
+- Dos productos o dos cantidades en la misma petición (vasos y platos; 300 frente a 500):
+  se cotizan ambos si la evidencia lo permite, cada uno con su tarjeta y su folio (FR-012a);
+  si falta un dato para alguno, se cotiza el que tiene respaldo y se pide el dato del otro.
+  Sustituye para este caso el escenario 3 de la US2 de la 043.
 
 ## Requirements *(mandatory)*
 
@@ -226,14 +233,22 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 - **FR-008**: Saludos, agradecimientos, preguntas de capacidad y preferencias declaradas MUST
   atenderse por el camino de reglas sin decisión del proveedor de lenguaje.
 - **FR-009**: Si el proveedor falla, excede el tiempo o devuelve una decisión inválida, el
-  turno MUST atenderse por el camino de reglas actual y registrarse como respaldo.
+  turno MUST atenderse por el camino de reglas actual, sin redacción libre: se muestran las
+  tarjetas, la cotización o los fragmentos citados que ese camino obtenga, con un aviso fijo
+  («No pude redactar la respuesta; esto es lo que encontré»). Si el camino de reglas no
+  obtiene resultados, se muestra el aviso con una invitación a reintentar. El turno se
+  registra como respaldo.
 - **FR-010**: Cada turno MUST tener un límite de consultas y de tiempo; al alcanzarlo, la
   respuesta MUST entregar lo obtenido y declarar lo que faltó. Una consulta repetida con los
   mismos datos en el mismo turno no se vuelve a ejecutar.
 - **FR-011**: La respuesta final MUST llegar progresivamente, como hoy, y poder detenerse.
 - **FR-012**: Se MUST conservar sin cambios de contrato: la persistencia del turno en una sola
-  transacción, la réplica idempotente por identificador de turno, el folio de cotización, la
-  memoria de preferencias por dueño, las citas numeradas y las tarjetas de producto.
+  transacción, la réplica idempotente por identificador de turno, la memoria de
+  preferencias por dueño, las citas numeradas y las tarjetas de producto.
+- **FR-012a**: Cada cotización que aparece en la respuesta final como tarjeta MUST recibir su
+  propio folio; las cotizaciones calculadas durante el turno que no se muestran no se
+  registran. Todas las cotizaciones mostradas se guardan en la misma transacción del turno y
+  la réplica idempotente devuelve los mismos folios.
 - **FR-013**: Las fuentes de todas las consultas del turno MUST conservarse con la respuesta
   almacenada y en la API, numeradas de forma consistente con las citas del texto.
 - **FR-014**: El monitoreo MUST registrar por turno las consultas hechas, su orden, si
@@ -250,6 +265,12 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
   (posible sesgo del modelo que redactó las preguntas).
 - **FR-017**: Las evaluaciones existentes (enrutamiento, cotizador, recuperación) MUST poder
   correrse contra el asistente nuevo y producir un informe comparable con la línea base.
+- **FR-018**: Mientras el asistente consulta, la interfaz MUST mostrar una línea de estado con
+  el paso en curso, redactada en lenguaje cercano, en el tono del asistente y sin jerga
+  técnica (nunca nombres internos de consultas). Puede incluir el dato principal que la
+  persona aportó (producto, cantidad, ciudad), pero nunca resultados, precios ni fuentes.
+  La línea se reemplaza al empezar el texto de la respuesta, se anuncia de forma accesible y
+  no se guarda en el historial.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -259,7 +280,7 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 - **Resultado de consulta**: datos devueltos con su procedencia (documento, URL, fecha,
   oficial/tercero) o la declaración de ausencia; es la única base para afirmar.
 - **Turno del agente**: pregunta, decisiones tomadas, consultas y resultados, respuesta
-  final, fuentes, tarjetas y folio si hubo cotización; se persiste completo.
+  final, fuentes, tarjetas y un folio por cada cotización mostrada; se persiste completo.
 - **Contexto comercial del hilo**: producto, uso, temperatura, cantidad, ciudad y entrega
   vigentes, que sobreviven entre turnos y se actualizan con las correcciones.
 - **Conjunto de generalización**: preguntas congeladas con resultado esperado, separadas del
@@ -281,6 +302,8 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
   los casos.
 - **SC-006**: El 95 % de los turnos muestran el primer texto en menos de 5 segundos y terminan
   en menos de 20 segundos con el proveedor configurado.
+- **SC-006a**: En el 95 % de los turnos con consultas, la línea de estado aparece en menos de
+  1 segundo desde el envío.
 - **SC-007**: Los saludos y preferencias declaradas consumen cero decisiones del proveedor, y
   una caída del proveedor produce una respuesta de respaldo en el 100 % de los casos probados.
 - **SC-008**: El costo medio por turno se reporta en el informe de evaluación y no supera el
@@ -292,6 +315,14 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 
 - Q: ¿Quién escribe el conjunto de generalización? → A: el asistente de desarrollo propone
   un borrador y el owner lo revisa, ajusta y congela; el sesgo se declara en el informe.
+- Q: Cuando el proveedor no responde, ¿con qué se redacta la respuesta de respaldo? → A:
+  sin redacción libre; camino de reglas con tarjetas, cotización o fragmentos citados y un
+  aviso fijo (FR-009).
+- Q: Si el agente cotiza varias veces en un turno, ¿cuántas cotizaciones con folio se
+  registran? → A: una por cada cotización mostrada como tarjeta en la respuesta final; las
+  intermedias no se registran; todas en la misma transacción (FR-012a).
+- Q: Mientras el agente consulta, ¿la persona ve en qué paso va? → A: sí, una línea de estado
+  con mensajes amigables que se reemplaza al empezar el texto (FR-018).
 
 ## Assumptions
 
@@ -302,8 +333,9 @@ mismo corpus y catálogo, y obtener un informe con las métricas de ambos lado a
 - La temperatura del proveedor sigue en 0, como exige la constitución.
 - El conjunto de generalización se congela en `data/eval/` antes de la implementación y no
   se usa para ajustar reglas ni instrucciones; si se ajustan, se crea uno nuevo.
-- La interfaz del chat no cambia en esta spec; mostrar al usuario los pasos del asistente o
-  las fuentes en pantalla queda para una spec de interfaz posterior.
+- El único cambio de interfaz de esta spec es la línea de estado de FR-018. Mostrar las
+  fuentes en pantalla o conservar los pasos desplegables sobre la respuesta queda para una
+  spec de interfaz posterior.
 - El asistente actual sigue siendo el valor por defecto hasta que el owner apruebe el cambio
   con el informe de SC-001 a SC-008.
 - La constitución hoy dice que en la ruta documental sin contexto «no se llama al LLM» y que
