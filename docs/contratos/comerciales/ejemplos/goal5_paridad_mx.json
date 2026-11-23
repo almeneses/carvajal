@@ -1,0 +1,26 @@
+{
+  "contract_version": "1.0",
+  "parity": {
+    "country": "MX",
+    "audited_references": 98,
+    "inline_offers": 98,
+    "contract_offers": 98,
+    "missing_skus": [],
+    "extra_skus": [],
+    "duplicate_skus": [],
+    "currency_mismatches": [],
+    "presentation_mismatches": [],
+    "amount_mismatches": [],
+    "tax_mismatches": [],
+    "source_mismatches": [],
+    "date_mismatches": [],
+    "valid_until_mismatches": [],
+    "details": [
+      "La lectura inline de referencias.csv se conserva; el contrato la expone como oferta oficial por caja.",
+      "Referencias MX auditadas: 98.",
+      "Referencias MX con precio inline: 98.",
+      "Ofertas MX oficiales en el contrato: 98 (SKU únicos: 98).",
+      "La comparación exige moneda MXN, presentación caja con las unidades de la referencia, importe idéntico, IVA declarado, URL de fuente, fecha de captura y vigencia idénticas."
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "contract_version": "1.0",
+  "site": {
+    "site_id": "CO-SEDE-9F23E89A16",
+    "legacy_provider_id": "p06",
+    "seller_id": "CO-VEND-8F8DA1A5",
+    "country": "CO",
+    "name": "EDEXA",
+    "city": "Bogotá",
+    "address": "Km 1.3 vía Parcelas de Cota, Conjunto AEPI bodega No. 11",
+    "phone": "+57 (1) 747 0260 ext. 4103",
+    "source": {
+      "type": "directorio",
+      "name": "Directorio de Distribuidores Carvajal Empaques Colombia",
+      "url": "https://colombia.carvajalempaques.com/distribuidores",
+      "captured_at": "2026-10-23",
+      "valid_until": null,
+      "note": ""
+    },
+    "location": {
+      "latitude": 4.6533817,
+      "longitude": -74.0836331,
+      "precision": "ciudad",
+      "geocoder": "OpenStreetMap Nominatim",
+      "geocoded_at": "2026-11-21"
+    }
+  },
+  "map": {
+    "available": true,
+    "mode": "zona",
+    "latitude": 4.6533817,
+    "longitude": -74.0836331,
+    "zoom": 11,
+    "approximate": true,
+    "note": "Solo se conoce la ciudad: el mapa muestra una zona aproximada, no la sede exacta."
+  },
+  "offer": {
+    "offer_id": "CO-OFERTA-19BBD50875D0",
+    "sku": "7704918100083",
+    "country": "CO",
+    "seller_id": "CO-VEND-8F8DA1A5",
+    "site_id": "CO-SEDE-9F23E89A16",
+    "city": "Bogotá",
+    "presentation": {
+      "basis": "paquete",
+      "units_in_basis": 50
+    },
+    "amount": "2794",
+    "currency": "COP",
+    "tax_status": "incluido",
+    "tax_rate": null,
+    "tax_simulated": false,
+    "origin": "publicada",
+    "source": {
+      "type": "vendedor",
+      "name": "EDEXA",
+      "url": "https://www.tiendaedexa.com/vasos/1653-vaso-traslucido-35-oz-x-50-und-7704918100083.html",
+      "captured_at": "2026-11-18",
+      "valid_until": null,
+      "note": "Precio publicado por un tercero; no es precio de Carvajal."
+    },
+    "normalized": {
+      "basis": "caja",
+      "units_in_basis": 50,
+      "amount": "2794"
+    },
+    "availability": {
+      "status": "por_confirmar",
+      "declared_status": "disponible",
+      "units": 600,
+      "evidence": [],
+      "simulated": true,
+      "checked_at": "2026-11-21",
+      "note": "Existencia simulada por la demo; no es inventario del vendedor."
+    },
+    "delivery": {
+      "lead_days_min": 1,
+      "lead_days_max": 2,
+      "ship_cost": "12000",
+      "simulated": true,
+      "checked_at": "2026-11-21",
+      "note": "Plazo y envío simulados por la demo."
+    },
+    "note": "La presentación y el importe son los publicados; `normalized` es la vista por caja."
+  }
+}

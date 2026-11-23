@@ -1,0 +1,1227 @@
+{
+  "$defs": {
+    "Availability": {
+      "additionalProperties": false,
+      "description": "Existencia de un SKU en una sede, separada del precio y de la ficha del directorio.\n\n``declared_status`` conserva lo que dijo la fuente; ``status`` es lo que el contrato\npermite afirmar. Sin evidencia admisible, ``status`` nunca es ``verificado``.",
+      "properties": {
+        "status": {
+          "enum": [
+            "verificado",
+            "por_confirmar",
+            "no_disponible",
+            "desconocido"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "declared_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "disponible",
+                "insuficiente",
+                "agotado",
+                "desconocido"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Declared Status"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AvailabilityEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "simulated": {
+          "default": false,
+          "title": "Simulated",
+          "type": "boolean"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Availability",
+      "type": "object"
+    },
+    "AvailabilityEvidence": {
+      "additionalProperties": false,
+      "description": "Prueba concreta de existencias, con quién la registró y de dónde salió.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "inventario_vendedor",
+            "confirmacion_vendedor",
+            "integracion_pos",
+            "pedido_confirmado",
+            "simulacion"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "recorded_by": {
+          "description": "Persona o rol que la registró",
+          "minLength": 1,
+          "title": "Recorded By",
+          "type": "string"
+        },
+        "recorded_at": {
+          "format": "date",
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "reference": {
+          "description": "Correo, acta, folio o consulta",
+          "minLength": 1,
+          "title": "Reference",
+          "type": "string"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid Until"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "recorded_by",
+        "recorded_at",
+        "reference"
+      ],
+      "title": "AvailabilityEvidence",
+      "type": "object"
+    },
+    "CityDirectory": {
+      "additionalProperties": false,
+      "description": "Consulta de sedes por ciudad, independiente de precio y cantidad.\n\nSiempre incluye un ``contacto_directorio`` por sede, aunque no haya ofertas ni stock.",
+      "properties": {
+        "city": {
+          "title": "City",
+          "type": "string"
+        },
+        "cities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cities",
+          "type": "array"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/CommercialRecord"
+          },
+          "title": "Records",
+          "type": "array"
+        },
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        }
+      },
+      "required": [
+        "city",
+        "cities",
+        "records"
+      ],
+      "title": "CityDirectory",
+      "type": "object"
+    },
+    "CommercialRecord": {
+      "additionalProperties": false,
+      "description": "Registro que consumen chat y Cotizador con un discriminador estable.\n\nLos cuatro tipos comparten los mismos campos. Un consumidor decide con ``record_type``\ny nunca tiene que adivinar si un precio es una oferta, si un contacto es una sede que\nvende el SKU o si una existencia está verificada.",
+      "properties": {
+        "record_type": {
+          "enum": [
+            "contacto_directorio",
+            "oferta_publicada",
+            "oferta_demo",
+            "stock_verificado"
+          ],
+          "title": "Record Type",
+          "type": "string"
+        },
+        "record_id": {
+          "minLength": 1,
+          "title": "Record Id",
+          "type": "string"
+        },
+        "country": {
+          "enum": [
+            "CO",
+            "MX"
+          ],
+          "title": "Country",
+          "type": "string"
+        },
+        "sku": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sku"
+        },
+        "seller": {
+          "$ref": "#/$defs/Seller"
+        },
+        "site": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Site"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "offer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Offer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "availability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Availability"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "captured_at": {
+          "format": "date",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "map": {
+          "$ref": "#/$defs/MapView"
+        }
+      },
+      "required": [
+        "record_type",
+        "record_id",
+        "country",
+        "seller",
+        "source",
+        "captured_at",
+        "map"
+      ],
+      "title": "CommercialRecord",
+      "type": "object"
+    },
+    "DeliveryTerms": {
+      "additionalProperties": false,
+      "description": "Condiciones logísticas de la oferta, opcionales y marcadas como simuladas.\n\nEl contrato de producto/oferta/sede no las exige, pero el Cotizador ya las usa. Se\nconservan para que una migración no pierda plazo ni costo de envío.",
+      "properties": {
+        "lead_days_min": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Lead Days Min",
+          "type": "integer"
+        },
+        "lead_days_max": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Lead Days Max",
+          "type": "integer"
+        },
+        "ship_cost": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ship Cost"
+        },
+        "simulated": {
+          "default": false,
+          "title": "Simulated",
+          "type": "boolean"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "title": "DeliveryTerms",
+      "type": "object"
+    },
+    "GeoPoint": {
+      "additionalProperties": false,
+      "description": "Coordenada con la precisión declarada por el geocodificador.\n\n``direccion`` es un punto de la dirección; ``via`` llega a la vía y puede caer en otro\nnúmero; ``ciudad`` es un centroide y nunca debe presentarse como la sede exacta.",
+      "properties": {
+        "latitude": {
+          "anyOf": [
+            {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latitude"
+        },
+        "longitude": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Longitude"
+        },
+        "precision": {
+          "enum": [
+            "direccion",
+            "via",
+            "ciudad",
+            "desconocida"
+          ],
+          "title": "Precision",
+          "type": "string"
+        },
+        "geocoder": {
+          "minLength": 1,
+          "title": "Geocoder",
+          "type": "string"
+        },
+        "geocoded_at": {
+          "format": "date",
+          "title": "Geocoded At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "precision",
+        "geocoder",
+        "geocoded_at"
+      ],
+      "title": "GeoPoint",
+      "type": "object"
+    },
+    "MapView": {
+      "additionalProperties": false,
+      "description": "Lo que un consumidor puede pintar según la precisión de la ubicación.",
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "mode": {
+          "enum": [
+            "marcador",
+            "zona",
+            "sin_mapa"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "latitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latitude"
+        },
+        "longitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Longitude"
+        },
+        "zoom": {
+          "default": 1,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Zoom",
+          "type": "integer"
+        },
+        "approximate": {
+          "default": false,
+          "title": "Approximate",
+          "type": "boolean"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "available",
+        "mode"
+      ],
+      "title": "MapView",
+      "type": "object"
+    },
+    "Offer": {
+      "additionalProperties": false,
+      "description": "Precio de un producto en una presentación concreta, publicado por un vendedor.\n\n``presentation`` y ``amount`` son la presentación que cobra el vendedor (la que publica\nla fuente o la que simula la demo). ``normalized`` es una vista extra a caja, solo cuando\nla caja contiene un número entero de esas presentaciones. Varias ofertas pueden compartir\nSKU y país. ``site_id`` solo se llena cuando la oferta se puede atribuir a una sede del\ndirectorio; una tienda en línea puede no tener sede.",
+      "properties": {
+        "offer_id": {
+          "pattern": "^[A-Z]{2}-OFERTA-[A-Z0-9-]+$",
+          "title": "Offer Id",
+          "type": "string"
+        },
+        "sku": {
+          "minLength": 1,
+          "title": "Sku",
+          "type": "string"
+        },
+        "country": {
+          "enum": [
+            "CO",
+            "MX"
+          ],
+          "title": "Country",
+          "type": "string"
+        },
+        "seller_id": {
+          "pattern": "^[A-Z]{2}-VEND-[A-Z0-9-]+$",
+          "title": "Seller Id",
+          "type": "string"
+        },
+        "site_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{2}-SEDE-[A-Z0-9-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Site Id"
+        },
+        "city": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "City"
+        },
+        "presentation": {
+          "$ref": "#/$defs/Presentation"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Importe de una presentación completa",
+          "title": "Amount"
+        },
+        "currency": {
+          "enum": [
+            "COP",
+            "MXN"
+          ],
+          "title": "Currency",
+          "type": "string"
+        },
+        "tax_status": {
+          "enum": [
+            "incluido",
+            "no_incluido",
+            "no_indicado"
+          ],
+          "title": "Tax Status",
+          "type": "string"
+        },
+        "tax_rate": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "IVA declarado",
+          "title": "Tax Rate"
+        },
+        "tax_simulated": {
+          "default": false,
+          "description": "La demo declaró IVA sin fuente publicada",
+          "title": "Tax Simulated",
+          "type": "boolean"
+        },
+        "origin": {
+          "enum": [
+            "publicada",
+            "demo"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "normalized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PriceBasis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "availability": {
+          "$ref": "#/$defs/Availability"
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeliveryTerms"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "offer_id",
+        "sku",
+        "country",
+        "seller_id",
+        "presentation",
+        "amount",
+        "currency",
+        "tax_status",
+        "origin",
+        "source",
+        "availability"
+      ],
+      "title": "Offer",
+      "type": "object"
+    },
+    "ParityReport": {
+      "additionalProperties": false,
+      "description": "Comparación de la lectura de precios de México antes de retirarla.",
+      "properties": {
+        "country": {
+          "const": "MX",
+          "default": "MX",
+          "title": "Country",
+          "type": "string"
+        },
+        "audited_references": {
+          "title": "Audited References",
+          "type": "integer"
+        },
+        "inline_offers": {
+          "title": "Inline Offers",
+          "type": "integer"
+        },
+        "contract_offers": {
+          "title": "Contract Offers",
+          "type": "integer"
+        },
+        "missing_skus": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Skus",
+          "type": "array"
+        },
+        "extra_skus": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Extra Skus",
+          "type": "array"
+        },
+        "duplicate_skus": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Duplicate Skus",
+          "type": "array"
+        },
+        "currency_mismatches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Currency Mismatches",
+          "type": "array"
+        },
+        "presentation_mismatches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Presentation Mismatches",
+          "type": "array"
+        },
+        "amount_mismatches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Amount Mismatches",
+          "type": "array"
+        },
+        "tax_mismatches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Tax Mismatches",
+          "type": "array"
+        },
+        "source_mismatches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Mismatches",
+          "type": "array"
+        },
+        "date_mismatches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Date Mismatches",
+          "type": "array"
+        },
+        "valid_until_mismatches": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Valid Until Mismatches",
+          "type": "array"
+        },
+        "details": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Details",
+          "type": "array"
+        }
+      },
+      "required": [
+        "audited_references",
+        "inline_offers",
+        "contract_offers"
+      ],
+      "title": "ParityReport",
+      "type": "object"
+    },
+    "Presentation": {
+      "additionalProperties": false,
+      "description": "Presentación comercial que se cobra: una unidad, un paquete o una caja.",
+      "properties": {
+        "basis": {
+          "enum": [
+            "unidad",
+            "paquete",
+            "caja"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "units_in_basis": {
+          "exclusiveMinimum": 0,
+          "title": "Units In Basis",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "basis",
+        "units_in_basis"
+      ],
+      "title": "Presentation",
+      "type": "object"
+    },
+    "PriceBasis": {
+      "additionalProperties": false,
+      "description": "Importe de una presentación concreta, publicada o derivada.\n\n``Offer.presentation`` es la presentación comercial que cobra el vendedor; ``normalized``\nes una vista adicional a caja cuando la caja contiene un número entero de presentaciones.",
+      "properties": {
+        "basis": {
+          "enum": [
+            "unidad",
+            "paquete",
+            "caja"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "units_in_basis": {
+          "exclusiveMinimum": 0,
+          "title": "Units In Basis",
+          "type": "integer"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Amount"
+        }
+      },
+      "required": [
+        "basis",
+        "units_in_basis",
+        "amount"
+      ],
+      "title": "PriceBasis",
+      "type": "object"
+    },
+    "Product": {
+      "additionalProperties": false,
+      "description": "Referencia vendible. No contiene precio ni existencias.",
+      "properties": {
+        "sku": {
+          "minLength": 1,
+          "title": "Sku",
+          "type": "string"
+        },
+        "country": {
+          "enum": [
+            "CO",
+            "MX"
+          ],
+          "title": "Country",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "family": {
+          "minLength": 1,
+          "title": "Family",
+          "type": "string"
+        },
+        "units_per_box": {
+          "exclusiveMinimum": 0,
+          "title": "Units Per Box",
+          "type": "integer"
+        },
+        "origin": {
+          "enum": [
+            "real",
+            "demo"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        }
+      },
+      "required": [
+        "sku",
+        "country",
+        "name",
+        "family",
+        "units_per_box",
+        "origin",
+        "source"
+      ],
+      "title": "Product",
+      "type": "object"
+    },
+    "Seller": {
+      "additionalProperties": false,
+      "description": "Quién vende o publica: un distribuidor, una tienda o el fabricante.",
+      "properties": {
+        "seller_id": {
+          "pattern": "^[A-Z]{2}-VEND-[A-Z0-9-]+$",
+          "title": "Seller Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "country": {
+          "enum": [
+            "CO",
+            "MX"
+          ],
+          "title": "Country",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "distribuidor",
+            "tienda_en_linea",
+            "fabricante"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        }
+      },
+      "required": [
+        "seller_id",
+        "name",
+        "country",
+        "kind",
+        "source"
+      ],
+      "title": "Seller",
+      "type": "object"
+    },
+    "Site": {
+      "additionalProperties": false,
+      "description": "Sede del directorio con identificador estable e independiente del orden del archivo.",
+      "properties": {
+        "site_id": {
+          "pattern": "^[A-Z]{2}-SEDE-[A-Z0-9-]+$",
+          "title": "Site Id",
+          "type": "string"
+        },
+        "legacy_provider_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identificador anterior de la demo (p01…p29)",
+          "title": "Legacy Provider Id"
+        },
+        "seller_id": {
+          "pattern": "^[A-Z]{2}-VEND-[A-Z0-9-]+$",
+          "title": "Seller Id",
+          "type": "string"
+        },
+        "country": {
+          "enum": [
+            "CO",
+            "MX"
+          ],
+          "title": "Country",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "city": {
+          "minLength": 1,
+          "title": "City",
+          "type": "string"
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Address"
+        },
+        "phone": {
+          "minLength": 1,
+          "title": "Phone",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceRef"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GeoPoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "site_id",
+        "seller_id",
+        "country",
+        "name",
+        "city",
+        "phone",
+        "source"
+      ],
+      "title": "Site",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "Procedencia de una fila: quién la publica, cuándo y dónde verificarla.",
+      "properties": {
+        "type": {
+          "enum": [
+            "oficial",
+            "vendedor",
+            "directorio",
+            "demo"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "captured_at": {
+          "format": "date",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid Until"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "captured_at"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "StockEvidence": {
+      "additionalProperties": false,
+      "description": "Evidencia dirigida a un SKU de una sede concreta.\n\nLa misma evidencia no se comparte entre sedes: el inventario de una sede no prueba el\nde otra, aunque tengan el mismo vendedor.",
+      "properties": {
+        "sku": {
+          "minLength": 1,
+          "title": "Sku",
+          "type": "string"
+        },
+        "country": {
+          "enum": [
+            "CO",
+            "MX"
+          ],
+          "title": "Country",
+          "type": "string"
+        },
+        "site_id": {
+          "pattern": "^[A-Z]{2}-SEDE-[A-Z0-9-]+$",
+          "title": "Site Id",
+          "type": "string"
+        },
+        "declared_status": {
+          "default": "disponible",
+          "enum": [
+            "disponible",
+            "insuficiente",
+            "agotado",
+            "desconocido"
+          ],
+          "title": "Declared Status",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/AvailabilityEvidence"
+        }
+      },
+      "required": [
+        "sku",
+        "country",
+        "site_id",
+        "evidence"
+      ],
+      "title": "StockEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Documento completo del contrato para esquema, ejemplos e intercambio.\n\nUn consumidor puede recibir solo ``records``; las entidades van completas para que la\ncontraparte pueda resolver cualquier referencia sin otra consulta.",
+  "properties": {
+    "contract_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "products": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Product"
+      },
+      "title": "Products",
+      "type": "array"
+    },
+    "sellers": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Seller"
+      },
+      "title": "Sellers",
+      "type": "array"
+    },
+    "sites": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Site"
+      },
+      "title": "Sites",
+      "type": "array"
+    },
+    "offers": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Offer"
+      },
+      "title": "Offers",
+      "type": "array"
+    },
+    "evidence": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/StockEvidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "records": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CommercialRecord"
+      },
+      "title": "Records",
+      "type": "array"
+    },
+    "directory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CityDirectory"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "parity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ParityReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "title": "ContractDocument",
+  "type": "object"
+}
