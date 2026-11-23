@@ -52,6 +52,9 @@ Cada herramienta, al empezar, publica un evento de estado (ver [sse-events.md](.
 - **`empty`**: sin precio publicado para esa ciudad; incluye sedes del directorio.
 - Máximo 3 cotizaciones exitosas distintas por turno; la cuarta devuelve `error` con
   `message` explicativo.
+- Si una cotización exitosa coincide con otra del turno en producto, ciudad y cantidad y
+  solo cambia `delivery`, reemplaza a la anterior (una sola tarjeta y un solo folio).
+- Los folios se asignan en el orden de las llamadas exitosas.
 
 ## buscar_sedes
 

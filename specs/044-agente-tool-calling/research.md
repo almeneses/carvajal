@@ -59,6 +59,11 @@ Decisiones técnicas de la Fase 0. Cada una resuelve una incógnita del contexto
   turno. El prompt indica llamar a `cotizar` solo para lo que se va a presentar; para
   explorar se usa `buscar_producto`, que no emite totales. Folio: el primero conserva la
   fórmula actual (`sha256(conversación:client_turn_id)`); los siguientes añaden `:i`.
+  Ajustes acordados con el owner (2026-11-23): (1) el prompt indica cotizar solo las
+  combinaciones de producto y cantidad que la persona pidió y usar `buscar_producto` para
+  comparar tamaños; (2) si dos cotizaciones del turno comparten producto, ciudad y cantidad
+  y difieren solo en el domicilio, se conserva la última; (3) los folios siguen el orden de
+  las llamadas y una prueba de reenvío verifica mismos folios y mismo orden.
 - **Rationale**: cumple la aclaración sin que el servicio adivine qué mostró el texto; la
   réplica conserva los mismos folios.
 - **Alternatives considered**: que el modelo marque qué tarjetas mostrar (frágil); un solo
