@@ -90,7 +90,7 @@ pertenecen a otra tarea de mantenimiento.
 ## Phase 5: Convergence
 
 - [x] T025 Actualizar `.specify/memory/constitution.md` para retirar la excepción de datos simulados de la 042 en el mismo cierre documental de T024, sin dejar la proyección desalineada con la raíz (partial, `Constitution III` / `plan: T024`)
-- [ ] T026 Añadir regresión explícita de dictado y lectura por voz, y de consulta institucional, dentro del hilo unificado; no basta con conservar los eventos SSE (missing, `FR-012` / `US3`)
+- [x] T026 Añadir regresión explícita de dictado y lectura por voz, y de consulta institucional, dentro del hilo unificado; no basta con conservar los eventos SSE (missing, `FR-012` / `US3`)
 - [x] T027 Probar el contrato de `/api/faq` y sus consumidores antes de retirar la generación pública de FAQ, además de la navegación (partial, `FR-011` / `plan: T023`)
 - [x] T028 Cubrir con pruebas la transición de `/cotizador/stream`, `/cotizador/nuevo` y `/cotizador/ficha/{slug}`: redirección, lectura histórica autorizada o 404 explícito según corresponda (partial, `FR-009` / `plan: T022`)
 - [ ] T029 Definir y registrar el umbral de aceptación de SC-005 (mediana y p95 de primer contenido útil y cierre) y la evidencia de la muestra; hoy solo se pide medir, no aprobar (partial, `SC-005`)

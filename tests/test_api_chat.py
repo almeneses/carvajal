@@ -349,6 +349,27 @@ def test_post_usa_el_dueno_de_la_cookie_valida() -> None:
     assert chat.calls == [("dueno-a", "¿Qué es Carvajal?")]
 
 
+def test_el_hilo_unificado_conserva_voz_y_consulta_institucional() -> None:
+    """T026: el chat único mantiene dictado/lectura y responde con fuentes."""
+
+    # Arrange
+    client, chat = make_client()
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+    portada = client.get("/chat")
+
+    # Act
+    respuesta = _post(client, "/chat", {"question": "¿Qué es Carvajal?"})
+
+    # Assert
+    assert portada.status_code == 200
+    assert "/static/chat-voice.js" in portada.text
+    assert "data-voz-dictar" in portada.text
+    assert respuesta.status_code == 200
+    assert chat.calls == [("dueno-a", "¿Qué es Carvajal?")]
+    assert "¿Qué es Carvajal?" in respuesta.text
+    assert """data-voz-fuentes='["historia"]'""" in respuesta.text
+
+
 def test_post_con_cookie_invalida_regenera_la_identidad() -> None:
     # Arrange
     client, chat = make_client()
