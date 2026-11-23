@@ -6,6 +6,7 @@ guarda el estado del hilo (turnos y ruta) y el Store guarda preferencias
 declaradas por el dueño, en un namespace aislado.
 """
 
+import re
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import date
@@ -26,7 +27,7 @@ from carvajal.agent.commercial_flow import (
 )
 from carvajal.agent.router import decide_route
 from carvajal.agent.routers import Router, router_name
-from carvajal.agent.state import AgentState, Turn
+from carvajal.agent.state import AgentState, RouteDecision, Turn
 from carvajal.agent.tools import indicator_lookup
 from carvajal.application.absence import normalize_topic
 from carvajal.application.ask import NO_CONTEXT_ANSWER, AskQuestion, Source
@@ -109,6 +110,47 @@ def _remember(store: Any, owner_key: str, preference: str) -> list[str]:
     except Exception:
         return current
     return updated
+
+
+_FOLLOW_QUANTITY = re.compile(
+    r"\b(?:mejor|sean|son|unidades?|para)\s+(\d{1,3}(?:[.,]\d{3})+|\d+)\b",
+    re.I,
+)
+_FOLLOW_BARE = re.compile(r"\d{1,3}(?:[.,]\d{3})*|\d+")
+_FOLLOW_DELIVERY = re.compile(
+    r"\b(domicilio|env[ií]o|env[ií]os|entrega|retiro|recojo|paso por)\b", re.I
+)
+
+
+def _follow_up_quantity(text: str) -> int | None:
+    match = _FOLLOW_QUANTITY.search(text)
+    raw = match.group(1) if match else None
+    if raw is None and _FOLLOW_BARE.fullmatch(text.strip()):
+        raw = text.strip()
+    if raw is None:
+        return None
+    return int(raw.replace(".", "").replace(",", ""))
+
+
+def _commercial_follow_up(text: str, context: dict[str, Any]) -> RouteDecision | None:
+    """Corrección de cantidad o entrega sobre el contexto comercial del hilo."""
+
+    if not context or not (context.get("family") or context.get("use")):
+        return None
+    quantity = _follow_up_quantity(text)
+    delivery = _FOLLOW_DELIVERY.search(text) is not None
+    if quantity is None and not delivery:
+        return None
+    extra = dict(context)
+    if quantity is not None:
+        extra["quantity"] = quantity
+    return RouteDecision(
+        route="commercial",
+        intent="commercial",
+        query=text,
+        reason="seguimiento comercial: se conserva el contexto del hilo",
+        extra=extra,
+    )
 
 
 def build_conversation_prompt(
@@ -227,6 +269,11 @@ def build_agent(
 
     def route(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         decision = router(state["question"], state.get("turns", []))
+        previous = state.get("commercial_context") or {}
+        if decision.route != "commercial":
+            follow = _commercial_follow_up(state["question"], previous)
+            if follow is not None:
+                decision = follow
         # FR-012: ruta, datos extraídos y enrutador quedan en el log de cada turno.
         logger.info(
             "agent.route_decided",
@@ -239,6 +286,12 @@ def build_agent(
         preferences = state.get("preferences", [])
         if decision.preference:
             preferences = _remember(store, state["owner_key"], decision.preference)
+        # El contexto comercial del hilo sobrevive entre turnos: una corrección
+        # («en Cali», «mejor 100») conserva ciudad, cantidad y producto anteriores.
+        context = dict(state.get("commercial_context") or {})
+        context.update(
+            {key: value for key, value in decision.extra.items() if value not in (None, "", False)}
+        )
         return {
             "route": decision.route,
             "intent": decision.intent,
@@ -248,6 +301,7 @@ def build_agent(
             "tool_period": decision.tool_period,
             "reason": decision.reason,
             "commercial": decision.extra,
+            "commercial_context": context,
         }
 
     def direct(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
@@ -354,13 +408,31 @@ def build_agent(
             instructions = commercial_prompt_block(result, instructions=CUSTOM_INSTRUCTIONS)
             sources = custom_sources(result)
         else:
+            context = state.get("commercial_context") or state.get("commercial", {})
             result = run_commercial(
-                state.get("commercial", {}), catalog=deps.catalog, today=deps.today
+                context,
+                catalog=deps.catalog,
+                today=deps.today,
+                question=state["question"],
+                questions=[turn["question"] for turn in state.get("turns", [])],
             )
             instructions = commercial_prompt_block(result)
+            sources = commercial_sources(result)
             if intent == "commercial_mixed":
                 instructions += "\n\n" + mixed_notice(state.get("query", ""))
-            sources = commercial_sources(result)
+                # Turno mixto: se recupera la parte documental y se citan sus fuentes
+                # junto a la oferta. Si la recuperación falla, la parte comercial sigue.
+                try:
+                    prepared = ask.prepare(state.get("query", ""))
+                except Exception as error:
+                    logger.warning("agent.mixed_retrieval_failed", error=str(error))
+                else:
+                    if prepared.prompt is not None:
+                        instructions += (
+                            "\n\nContexto documental para la parte no comercial:\n"
+                            f"{prepared.prompt}"
+                        )
+                        sources.extend(_source_dict(item) for item in prepared.sources)
         return {
             "prompt": build_conversation_prompt(
                 state["question"],
@@ -372,6 +444,7 @@ def build_agent(
             "sources": sources,
             "tool_name": "catalogo_empaques",
             "tool_result": result,
+            "commercial_context": state.get("commercial_context", {}),
         }
 
     workflow = StateGraph(cast(Any, AgentState))

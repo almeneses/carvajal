@@ -286,7 +286,7 @@ class _ChatDoble:
     def history(self, owner_key: str) -> list[Any]:
         return []
 
-    def ask(self, owner_key: str, question: str) -> Answer:
+    def ask(self, owner_key: str, question: str, **kwargs: object) -> Answer:
         self.contextos.append(dict(structlog.contextvars.get_contextvars()))
         return RESPUESTA
 

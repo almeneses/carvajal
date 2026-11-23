@@ -1,11 +1,12 @@
 """Pruebas de integración del servicio de chat contra un Postgres real."""
 
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from typing import Any, cast
 
 import pytest
-from sqlalchemy import Engine, delete
+from sqlalchemy import Engine, delete, func, select
 
 from apps.api.chat.agent import AgentTurn
 from apps.api.chat.service import ChatFailure, ChatService
@@ -443,5 +444,207 @@ def test_el_stream_libera_la_conexion_antes_de_llamar_al_llm(engine: Engine) -> 
         # Assert
         assert llm.calls == 1
         assert len(service.history(owner_key)) == 2
+    finally:
+        _delete_owner(engine, owner_key)
+
+
+def test_el_primer_envio_concurrente_comparte_un_solo_hilo(engine: Engine) -> None:
+    """Dos peticiones sin hilo no abren dos conversaciones para el mismo dueño."""
+
+    service = ChatService(
+        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
+    )
+    owner_key = "primer-hilo-concurrente"
+
+    def enviar(turn_id: str) -> list[str]:
+        return [event.name for event in service.stream(owner_key, "¿Dato?", client_turn_id=turn_id)]
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            resultados = list(pool.map(enviar, ["turno-a", "turno-b"]))
+
+        assert all(nombres[-1] == "done" for nombres in resultados)
+        with engine.connect() as connection:
+            conversaciones = connection.execute(
+                select(func.count())
+                .select_from(tables.conversations)
+                .where(tables.conversations.c.owner_key == owner_key)
+            ).scalar_one()
+        assert conversaciones == 1
+        assert len(list(service.history(owner_key))) == 4
+    finally:
+        _delete_owner(engine, owner_key)
+
+
+def test_dos_reenvios_simultaneos_del_mismo_turno_persisten_uno(engine: Engine) -> None:
+    """El mismo ``client_turn_id`` concurrente no duplica mensajes."""
+
+    service = ChatService(
+        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
+    )
+    owner_key = "mismo-turno-concurrente"
+
+    def enviar(_: int) -> list[str]:
+        return [
+            event.name for event in service.stream(owner_key, "¿Dato?", client_turn_id="turno-1")
+        ]
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            resultados = list(pool.map(enviar, [0, 1]))
+
+        assert all(nombres[-1] in {"done", "error"} for nombres in resultados)
+        assert len([item for item in service.history(owner_key) if item.role == "user"]) == 1
+    finally:
+        _delete_owner(engine, owner_key)
+
+
+def _quote_payload() -> dict[str, Any]:
+    return {
+        "kind": "cotizacion",
+        "version": 2,
+        "city": "Bogotá",
+        "reply": "Son 3.751 COP.",
+        "primary": {
+            "sku": "7704918100199",
+            "name": "Vaso rígido",
+            "currency": "COP",
+            "units_requested": 20,
+            "presentation": {
+                "basis": "paquete",
+                "units": 50,
+                "count": 1,
+                "units_bought": 50,
+                "units_surplus": 30,
+                "price_per_presentation": "3751",
+                "subtotal": "3751",
+            },
+        },
+        "commercial": {
+            "subtotal": "3751",
+            "total": "3751",
+            "valid_until": None,
+            "shipping": {"requested": False, "status": "not_requested", "cost": None},
+            "tax": {"status": "incluido", "rate": None},
+        },
+        "total": "3751",
+        "pending_lines": [],
+    }
+
+
+def _commercial_turn() -> AgentTurn:
+    return AgentTurn(
+        route="commercial",
+        intent="commercial",
+        prompt="Contexto comercial.",
+        system="sistema",
+        sources=(SOURCE,),
+        turns=(),
+        products={
+            "ficha": {
+                "sku": "7704918100199",
+                "name": "Vaso rígido",
+                "material": "PP",
+                "units_per_box": 2750,
+                "source_url": "https://example.com/ficha",
+                "captured_at": "2026-11-18",
+            },
+            "quote": _quote_payload(),
+            "cities": ["Bogotá"],
+        },
+    )
+
+
+def test_el_turno_comercial_guarda_cotizacion_y_resultado_junto(engine: Engine) -> None:
+    """Mensajes, resultado y cotización se confirman en una transacción."""
+
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        StreamingLLM(),
+        agent=FakeAgent(_commercial_turn()),
+    )
+    owner_key = "comercial-cotiza"
+
+    try:
+        events = list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-1"))
+        done = events[-1].data
+        folio = done["quote_id"]
+
+        with engine.connect() as connection:
+            filas = (
+                connection.execute(
+                    select(tables.quotes).where(tables.quotes.c.owner_key == owner_key)
+                )
+                .mappings()
+                .all()
+            )
+        history = list(service.history(owner_key))
+
+        assert folio and len(filas) == 1
+        assert filas[0]["id"] == folio
+        assert filas[0]["conversation_id"] == history[0].conversation_id
+        fuentes = history[1].sources or []
+        assert fuentes[-1]["result_type"] == "commercial"
+        assert fuentes[-1]["result"]["quote"]["quote"]["id"] == folio
+
+        replay = list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-1"))
+        assert [event.name for event in replay[1:5]] == ["trace", "meta", "products", "token"]
+        assert replay[-1].data["quote_id"] == folio
+    finally:
+        _delete_owner(engine, owner_key)
+
+
+def test_si_falla_la_cotizacion_no_quedan_mensajes(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La cotización y el turno comparten transacción; sin una, no queda el otro."""
+
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        StreamingLLM(),
+        agent=FakeAgent(_commercial_turn()),
+    )
+    owner_key = "comercial-rollback"
+
+    def fallar(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("no se pudo guardar la cotización")
+
+    monkeypatch.setattr("apps.api.chat.service._record_quote", fallar)
+
+    try:
+        events = list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-2"))
+
+        assert events[-1].name == "error"
+        assert list(service.history(owner_key)) == []
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    select(func.count())
+                    .select_from(tables.quotes)
+                    .where(tables.quotes.c.owner_key == owner_key)
+                ).scalar_one()
+                == 0
+            )
+    finally:
+        _delete_owner(engine, owner_key)
+
+
+def test_el_mismo_turno_html_no_duplica_ni_vuelve_al_llm(engine: Engine) -> None:
+    """El POST HTML propaga ``client_turn_id`` y reutiliza el turno ya guardado."""
+
+    agent = rag_agent()
+    llm = StreamingLLM()
+    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=agent)
+    owner_key = "html-idempotente"
+
+    try:
+        service.ask(owner_key, "¿Cuándo nació?", client_turn_id="html-1")
+        service.ask(owner_key, "¿Cuándo nació?", client_turn_id="html-1")
+
+        assert agent.prepares == 1
+        assert llm.stream_calls == 1
+        assert len(list(service.history(owner_key))) == 2
     finally:
         _delete_owner(engine, owner_key)

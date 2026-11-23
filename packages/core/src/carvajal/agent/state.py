@@ -35,6 +35,7 @@ class AgentState(TypedDict, total=False):
     tool_name: str
     tool_period: str
     commercial: dict[str, Any]
+    commercial_context: dict[str, Any]
     reason: str
     answer: str
     incomplete: bool

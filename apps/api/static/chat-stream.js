@@ -277,6 +277,9 @@
             if (threadInput && evento.datos.thread_id) {
               threadInput.value = String(evento.datos.thread_id);
             }
+            if (evento.datos.quote_id) {
+              turnoAsistente.dataset.quoteId = String(evento.datos.quote_id);
+            }
             pintarLote(false, errorRecibido);
             crearMarcas(turnoAsistente, evento.datos.request_id);
             completado = true;

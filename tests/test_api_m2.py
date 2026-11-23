@@ -45,7 +45,7 @@ class FakeChat:
     def history(self, owner_key: str) -> Sequence[ChatMessage]:
         return self.messages
 
-    def ask(self, owner_key: str, question: str) -> Answer:
+    def ask(self, owner_key: str, question: str, **kwargs: Any) -> Answer:
         return RESPUESTA
 
     def stream(

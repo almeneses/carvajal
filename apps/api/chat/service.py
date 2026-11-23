@@ -11,14 +11,17 @@ tardar minutos y no debe retener una conexión del pool. La persistencia y el
 checkpoint se escriben después, en transacciones cortas.
 """
 
-from collections.abc import Iterator, Sequence
-from dataclasses import asdict
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import asdict, replace
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from functools import cache
 from time import perf_counter
 from typing import Any, Protocol, runtime_checkable
 from uuid import uuid4
 
 import structlog
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.chat.agent import AgentRunner, AgentTurn, default_agent_runner
@@ -30,11 +33,13 @@ from carvajal.adapters.storage.chat import (
     ConversationSummary,
     SqlChatRepository,
 )
+from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.agent.state import Turn
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
 from carvajal.application.ports import Embedder, LLMProvider
 from carvajal.infrastructure.monitoring import TurnTracer, build_tracer, thread_hash
 from carvajal.infrastructure.settings import Settings
+from carvajal.quotation.engine import QUOTE_VERSION
 
 __all__ = [
     "ChatFailure",
@@ -48,6 +53,7 @@ logger = structlog.get_logger(__name__)
 
 SERVICE_UNAVAILABLE = "El servicio de chat no está disponible en este momento."
 MAX_CLIENT_TURN_ID = 64
+QUOTE_DAYS = 7
 
 
 class ThreadAccessError(PermissionError):
@@ -81,6 +87,7 @@ class ChatProvider(Protocol):
         owner_key: str,
         question: str,
         *,
+        client_turn_id: str | None = None,
         thread_id: str | None = None,
     ) -> Answer:
         """Responde la pregunta y persiste el turno completo."""
@@ -195,6 +202,7 @@ class ChatService:
         owner_key: str,
         question: str,
         *,
+        client_turn_id: str | None = None,
         thread_id: str | None = None,
     ) -> Answer:
         """Responde y persiste el turno; los errores se elevan para el 503."""
@@ -202,7 +210,12 @@ class ChatService:
         text = ""
         sources: tuple[Source, ...] = ()
         error: str | None = None
-        for event in self.stream(owner_key, question, thread_id=thread_id):
+        for event in self.stream(
+            owner_key,
+            question,
+            client_turn_id=client_turn_id,
+            thread_id=thread_id,
+        ):
             if event.name == "meta":
                 sources = _sources_from_payload(event.data.get("sources", []))
             elif event.name in {"token", "fallback"}:
@@ -239,6 +252,7 @@ class ChatService:
         turn: AgentTurn | None = None
         runner: AgentRunner | None = None
         persisted = False
+        persist_attempted = False
         done_event: ChatEvent | None = None
         try:
             if not text:
@@ -276,6 +290,9 @@ class ChatService:
                 question=text,
             ) as span:
                 turn = runner.prepare(owner_key, conversation.id, text, seed)
+                products, quote_record = _issue_quote(turn.products)
+                if products is not turn.products:
+                    turn = replace(turn, products=products)
                 # La ruta ya se conoce aquí: registrarla ahora deja trazas
                 # útiles aunque el turno falle o se cancele después (T010).
                 span.add_metadata(
@@ -380,6 +397,7 @@ class ChatService:
 
                 answer_text = "".join(fragments)
                 span.add_outputs(answer=answer_text)
+                persist_attempted = True
                 with self._session_factory() as session:
                     repository = SqlChatRepository(session)
                     current = repository.get_owned(conversation.id, owner_key)
@@ -393,6 +411,8 @@ class ChatService:
                         turn.sources,
                         status="complete",
                         client_turn_id=client_turn_id,
+                        products=turn.products,
+                        quote=quote_record,
                     )
                     persisted = True
                 runner.record(
@@ -425,9 +445,26 @@ class ChatService:
                         "route": turn.route,
                         "elapsed_ms": elapsed,
                         "request_id": request_id,
+                        "quote_id": quote_record["id"] if quote_record else None,
                     },
                 )
             yield done_event
+        except IntegrityError as error:
+            # Dos reenvíos simultáneos con el mismo ``client_turn_id``: el primero
+            # confirmó; el segundo recupera ese turno en vez de duplicarlo.
+            existing = (
+                self._find_turn(conversation.id, client_turn_id)
+                if conversation is not None and client_turn_id
+                else None
+            )
+            if existing is not None:
+                yield from _replay(existing, request_id=_request_id())
+                return
+            logger.warning("chat.duplicate_turn_failed", error=str(error))
+            yield ChatEvent(
+                "error",
+                {"message": SERVICE_UNAVAILABLE, "incomplete": bool("".join(fragments).strip())},
+            )
         except Exception as error:
             partial = "".join(fragments).strip()
             logger.warning(
@@ -437,7 +474,13 @@ class ChatService:
                 route=getattr(turn, "route", None),
                 incomplete=bool(partial),
             )
-            if partial and conversation is not None and turn is not None and not persisted:
+            if (
+                partial
+                and conversation is not None
+                and turn is not None
+                and not persisted
+                and not persist_attempted
+            ):
                 self._persist_partial(conversation, text, "".join(fragments), turn, client_turn_id)
                 if runner is not None:
                     runner.record(
@@ -452,6 +495,14 @@ class ChatService:
                 {"message": SERVICE_UNAVAILABLE, "incomplete": bool(partial)},
             )
 
+    def _find_turn(
+        self, conversation_id: str, client_turn_id: str
+    ) -> tuple[ChatMessage, ChatMessage | None] | None:
+        """Lee un turno ya confirmado en una transacción corta y nueva."""
+
+        with self._session_factory() as session:
+            return SqlChatRepository(session).find_turn(conversation_id, client_turn_id)
+
     def _persist(
         self,
         session: Session,
@@ -462,18 +513,22 @@ class ChatService:
         *,
         status: str,
         client_turn_id: str | None,
+        products: Mapping[str, Any] | None = None,
+        quote: Mapping[str, Any] | None = None,
     ) -> tuple[str, str]:
-        """Guarda el turno y confirma una sola vez."""
+        """Guarda mensajes, resultado comercial y cotización en una sola transacción."""
 
         repository = SqlChatRepository(session)
         _, assistant = repository.append_turn(
             conversation.id,
             question=question,
             answer=answer,
-            sources=_sources(sources),
+            sources=_message_sources(sources, products),
             status=status,
             client_turn_id=client_turn_id,
         )
+        if quote is not None:
+            _record_quote(session, conversation, quote, message_id=assistant.id)
         session.commit()
         return conversation.id, assistant.id
 
@@ -501,6 +556,7 @@ class ChatService:
                     turn.sources,
                     status="incomplete",
                     client_turn_id=client_turn_id,
+                    products=turn.products,
                 )
         except Exception as error:  # la UI ya recibirá el evento de error
             logger.warning("chat.incomplete_persist_failed", error=str(error))
@@ -567,13 +623,20 @@ def _replay(
         yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": True})
         return
     sources = () if assistant.sources is None else _sources_from_payload(assistant.sources)
+    result = _result_from_payload(assistant.sources)
     yield ChatEvent("trace", {"thread_id": assistant.conversation_id, "route": "replay"})
     yield ChatEvent("meta", {"sources": _sources(sources)})
+    if result and has_cards(result):
+        html = safe_render_products(result)
+        if html:
+            yield ChatEvent("products", {"html": html})
     if assistant.content:
         yield ChatEvent("token", {"text": assistant.content})
     if assistant.status == "incomplete":
         yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": True})
     else:
+        quote = (result or {}).get("quote") or {}
+        folio = (quote.get("quote") or {}).get("id") if isinstance(quote, Mapping) else None
         yield ChatEvent(
             "done",
             {
@@ -583,6 +646,7 @@ def _replay(
                 "route": "replay",
                 "elapsed_ms": 0,
                 "request_id": request_id,
+                "quote_id": folio,
             },
         )
 
@@ -591,6 +655,115 @@ def _sources(sources: Sequence[Source]) -> list[dict[str, Any]]:
     """Serializa las fuentes para la columna JSONB y para los eventos."""
 
     return [asdict(source) for source in sources]
+
+
+def _message_sources(
+    sources: Sequence[Source], products: Mapping[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Citas más el resultado comercial, para reconstruir las tarjetas al recargar."""
+
+    payload = _sources(sources)
+    if products:
+        payload.append({"result_type": "commercial", "result": dict(products)})
+    return payload
+
+
+def _result_from_payload(payload: Any) -> dict[str, Any]:
+    """Extrae el resultado comercial guardado junto a las citas, si existe."""
+
+    if not isinstance(payload, list):
+        return {}
+    for item in payload:
+        if isinstance(item, dict) and item.get("result_type") == "commercial":
+            result = item.get("result")
+            return dict(result) if isinstance(result, dict) else {}
+    return {}
+
+
+def _decimal(value: Any) -> Decimal | None:
+    return None if value is None else Decimal(str(value))
+
+
+def _issue_quote(
+    products: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Añade folio y vigencia de emisión a la cotización comercial del turno."""
+
+    quoted = (products or {}).get("quote")
+    if (
+        not isinstance(quoted, Mapping)
+        or quoted.get("kind") != "cotizacion"
+        or not quoted.get("primary")
+    ):
+        return dict(products or {}), None
+    primary = quoted["primary"]
+    commercial = quoted.get("commercial") or {}
+    shipping = commercial.get("shipping") or {}
+    moment = datetime.now(UTC)
+    folio = uuid4().hex[:12]
+    retention = (moment.date() + timedelta(days=QUOTE_DAYS)).isoformat()
+    payload = {
+        **quoted,
+        "version": QUOTE_VERSION,
+        "quote": {
+            "id": folio,
+            "folio": folio,
+            "issued_at": moment.isoformat(),
+            "retention_until": retention,
+            "valid_until": retention,
+            "days": QUOTE_DAYS,
+        },
+    }
+    tax = commercial.get("tax") or {}
+    record = {
+        "id": folio,
+        "payload": payload,
+        "version": QUOTE_VERSION,
+        "issued_at": moment,
+        "subtotal": _decimal(commercial.get("subtotal")),
+        "tax_status": tax.get("status"),
+        "tax_rate": _decimal(tax.get("rate")),
+        "shipping_cost": _decimal(shipping.get("cost")),
+        "total": _decimal(payload.get("total")),
+        "currency": primary.get("currency", "COP"),
+        "valid_until": retention,
+        "commercial_valid_until": commercial.get("valid_until"),
+    }
+    return {**products, "quote": payload}, record
+
+
+def _record_quote(
+    session: Session,
+    conversation: Conversation,
+    quote: Mapping[str, Any],
+    *,
+    message_id: str,
+) -> None:
+    """Guarda la cotización en la misma transacción del turno."""
+
+    valid_until = quote.get("valid_until")
+    commercial_valid_until = quote.get("commercial_valid_until")
+    SqlQuoteRepository(session).record(
+        str(quote["id"]),
+        conversation.owner_key,
+        payload=quote["payload"],
+        total=quote.get("total"),
+        currency=str(quote["currency"]),
+        valid_until=date.fromisoformat(str(valid_until)),
+        version=int(quote.get("version", 1)),
+        issued_at=quote.get("issued_at"),
+        subtotal=quote.get("subtotal"),
+        tax_status=quote.get("tax_status"),
+        tax_rate=quote.get("tax_rate"),
+        shipping_cost=quote.get("shipping_cost"),
+        commercial_valid_until=(
+            None
+            if commercial_valid_until is None
+            else date.fromisoformat(str(commercial_valid_until))
+        ),
+        conversation_id=conversation.id,
+        message_id=message_id,
+    )
 
 
 def _sources_from_payload(payload: Any) -> tuple[Source, ...]:

@@ -41,11 +41,11 @@ de dos productos. Inicia tras T006. Una sola persona modifica el motor.
 **Goal 4**. La interfaz y los casos de navegador pueden adelantarse tras acordar
 el contrato. La conexión completa depende del catálogo y la cotización reales.
 
-- [ ] T014 [P] [US3] Preparar ficha, sedes y controles de ciudad, cantidad y contacto en `apps/api/templates/_productos.html` y `apps/api/templates/chat.html` a partir de `specs/043-chat-comercial-unificado/contracts/chat-comercial.md`. FR-003, FR-007.
-- [ ] T015 [P] [US3] Preparar pruebas de concurrencia, primer envío sin hilo, reenvío HTML/SSE, recarga y aislamiento en `tests/test_chat_service.py` y `tests/test_api_chat.py`. FR-008, SC-004.
-- [ ] T016 [US3] Resolver el turno mixto y persistir el contexto comercial del hilo desde `packages/core/src/carvajal/agent/graph.py`, `packages/core/src/carvajal/agent/commercial_flow.py` y `apps/api/chat/agent.py`. Conectar citas documentales, oferta, sede y aclaración por líneas. Depende de T005–T013. FR-006, FR-007.
-- [ ] T017 [US3] Unificar propagación de `client_turn_id` en `apps/api/views/chat.py`, `apps/api/views/stream.py` y `apps/api/views/api.py`, y resolver la concurrencia del primer hilo en `apps/api/chat/service.py` y `packages/core/src/carvajal/adapters/storage/chat.py`. Confirmar mensajes, resultado y cotización juntos. Depende de T012, T015. FR-008, SC-004.
-- [ ] T018 [US3] Restaurar ficha y folio al reintentar o recargar desde `apps/api/templates/_chat_thread.html`, `apps/api/static/chat-stream.js` y `apps/api/chat/service.py`, conservando los eventos SSE y de voz. Depende de T014, T016–T017. FR-007, FR-008, SC-003.
+- [x] T014 [P] [US3] Preparar ficha, sedes y controles de ciudad, cantidad y contacto en `apps/api/templates/_productos.html` y `apps/api/templates/chat.html` a partir de `specs/043-chat-comercial-unificado/contracts/chat-comercial.md`. FR-003, FR-007.
+- [x] T015 [P] [US3] Preparar pruebas de concurrencia, primer envío sin hilo, reenvío HTML/SSE, recarga y aislamiento en `tests/test_chat_service.py` y `tests/test_api_chat.py`. FR-008, SC-004.
+- [x] T016 [US3] Resolver el turno mixto y persistir el contexto comercial del hilo desde `packages/core/src/carvajal/agent/graph.py`, `packages/core/src/carvajal/agent/commercial_flow.py` y `apps/api/chat/agent.py`. Conectar citas documentales, oferta, sede y aclaración por líneas. Depende de T005–T013. FR-006, FR-007.
+- [x] T017 [US3] Unificar propagación de `client_turn_id` en `apps/api/views/chat.py`, `apps/api/views/stream.py` y `apps/api/views/api.py`, y resolver la concurrencia del primer hilo en `apps/api/chat/service.py` y `packages/core/src/carvajal/adapters/storage/chat.py`. Confirmar mensajes, resultado y cotización juntos. Depende de T012, T015. FR-008, SC-004.
+- [x] T018 [US3] Restaurar ficha y folio al reintentar o recargar desde `apps/api/templates/_chat_thread.html`, `apps/api/static/chat-stream.js` y `apps/api/chat/service.py`, conservando los eventos SSE y de voz. Depende de T014, T016–T017. FR-007, FR-008, SC-003.
 
 ## Fase 4 · US4. Validar la transición y retirar el recorrido separado
 

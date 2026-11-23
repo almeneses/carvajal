@@ -187,6 +187,13 @@ def _request(
     if city:
         merged["city"] = city
     quantity = _quantity(text)
+    if (
+        quantity is None
+        and _last_request(questions) is not None
+        and _BARE_NUMBER.fullmatch(text.strip()) is not None
+    ):
+        digits = text.strip().replace(".", "").replace(",", "")
+        quantity = int(digits) if digits.isdigit() else None
     if quantity is not None:
         merged["quantity"] = quantity
     return merged, _delivery([*questions, text]), city, current

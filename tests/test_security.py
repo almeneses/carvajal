@@ -43,11 +43,11 @@ class FakeChat:
     def history(self, owner_key: str) -> list[Any]:
         return []
 
-    def ask(self, owner_key: str, question: str) -> Answer:
+    def ask(self, owner_key: str, question: str, **kwargs: Any) -> Answer:
         self.calls.append((owner_key, question))
         return RESPUESTA
 
-    def stream(self, owner_key: str, question: str) -> Iterator[ChatEvent]:
+    def stream(self, owner_key: str, question: str, **kwargs: Any) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
         yield ChatEvent("done", {})
 
