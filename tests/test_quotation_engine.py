@@ -25,6 +25,7 @@ from carvajal.quotation.data import (
     dataset_from_book,
     load_dataset,
 )
+from carvajal.quotation.engine import OUT_OF_SCOPE
 
 HOY = date(2026, 11, 27)
 MANANA = datetime(2026, 11, 27, 9, 0, tzinfo=ZoneInfo("America/Bogota"))
@@ -110,7 +111,7 @@ def test_pregunta_ajena_al_catalogo_queda_fuera_de_alcance() -> None:
     resultado = quote("¿cómo nació Carvajal?", today=HOY, now=MANANA)
 
     assert resultado["kind"] == "fuera_de_alcance"
-    assert "chat general" in resultado["reply"]
+    assert resultado["reply"] == OUT_OF_SCOPE
 
 
 @pytest.mark.parametrize("texto", ["cotiza 0 vasos en Bogotá", "cotiza -5 vasos en Bogotá"])
@@ -467,3 +468,59 @@ def test_un_seguimiento_sigue_cotizando() -> None:
     )
     assert sin_precio["kind"] == "sin_resultados"
     assert sin_precio["providers"]
+
+
+# Corrección «tinto» (spec 044, T006): las bebidas calientes por nombre implican temperatura.
+BEBIDAS_CALIENTES = [
+    "2.000 vasos de 7 onzas para tinto, Bogotá",
+    "necesito unos 2 mil vasitos para tinto en Bogotá",
+    "dos mil vasos para café caliente de 7 oz en Bogotá",
+    "vasos para aromática, 300, Cali",
+    "chocolate caliente, 200 vasos en Pasto",
+]
+
+
+@pytest.mark.parametrize("texto", BEBIDAS_CALIENTES)
+def test_una_bebida_caliente_nunca_cotiza_un_vaso_para_frio(texto: str) -> None:
+    catalogo = {item.sku: item for item in load_dataset(HOY.isoformat()).products}
+
+    resultado = quote(texto, today=HOY, now=MANANA)
+
+    assert resultado["kind"] in {"cotizacion", "sin_resultados", "aclaracion"}
+    if resultado["kind"] == "cotizacion":
+        assert resultado["primary"]["sku"] != "CO-VRP-07"
+        assert "bebida_caliente" in catalogo[resultado["primary"]["sku"]].uses
+    assert resultado["request"]["temperature"] == "caliente"
+
+
+def test_el_tinto_de_7_onzas_no_cotiza_el_vaso_de_pp_para_frio() -> None:
+    resultado = quote("2.000 vasos de 7 onzas para tinto, Bogotá", today=HOY, now=MANANA)
+
+    assert resultado["kind"] == "sin_resultados"
+    assert resultado["request"]["use"] == "bebida_caliente"
+    assert "primary" not in resultado
+
+
+@pytest.mark.parametrize(
+    ("texto", "temperatura"),
+    [
+        ("cotiza 20 vasos para tinto en Bogotá", "caliente"),
+        ("cotiza 20 vasos para tintos en Bogotá", "caliente"),
+        ("cotiza 20 vasitos para aromáticas en Bogotá", "caliente"),
+        ("cotiza 20 vasos para chocolate en Bogotá", "caliente"),
+        ("cotiza 20 vasos para cafecito en Bogotá", "caliente"),
+        ("cotiza 20 vasos para capuchino en Bogotá", "caliente"),
+        ("cotiza 20 vasos para cappuccino en Bogotá", "caliente"),
+        ("cotiza 20 vasos para espresso en Bogotá", "caliente"),
+        ("cotiza 20 vasos para té de hierbas en Bogotá", "caliente"),
+        ("cotiza 20 vasos para té caliente en Bogotá", "caliente"),
+        ("cotiza 20 vasos para chocolate frío en Bogotá", "fria"),
+        ("cotiza 20 vasos para vino tinto en Bogotá", None),
+        ("cotiza 20 vasos para vinos tintos en Bogotá", None),
+        ("cotiza 20 vasos para vino  tinto en Bogotá", None),
+    ],
+)
+def test_la_bebida_nombrada_deduce_la_temperatura(texto: str, temperatura: str | None) -> None:
+    resultado = quote(texto, today=HOY, now=MANANA)
+
+    assert resultado["request"]["temperature"] == temperatura
