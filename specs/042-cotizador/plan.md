@@ -1,8 +1,8 @@
 # Implementation Plan: Cotizador conversacional de productos Carvajal
 
-**Branch**: `prototype` (spec `042-cotizador`) | **Date**: 2026-11-21 | **Spec**: [spec.md](./spec.md)
+**Branch**: `main` (integración histórica desde `prototype`) | **Date**: 2026-11-21 | **Updated**: 2026-11-23 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Spec 042 en `Status: Draft`, con aclaraciones cerradas el 2026-11-21 y el
+**Input**: Spec 042 implementada, con aclaraciones cerradas el 2026-11-21 y el
 conjunto de demostración de [`docs/plans/0002-cotizador-preliminar.md`](../../docs/plans/0002-cotizador-preliminar.md).
 
 ## Summary
@@ -21,8 +21,8 @@ modelo.
 **Language/Version**: Python 3.13 (proyecto con `uv`).
 
 **Primary Dependencies**: FastAPI + Jinja2 + HTMX (ya instalados), SQLAlchemy Core con
-PostgreSQL para el historial, `pytest` para pruebas. Sin dependencias nuevas: el mapa es
-SVG generado en servidor y las fechas usan `datetime`/`zoneinfo`.
+PostgreSQL para el historial, `pytest` para pruebas. Sin dependencias nuevas: el mapa es un
+iframe de OpenStreetMap y las fechas usan `datetime`/`zoneinfo`.
 
 **Storage**: PostgreSQL para conversaciones y mensajes, reutilizando las tablas actuales
 con un espacio de nombres propio del dueño (`cot:<owner_key>`), sin migración. El
@@ -40,8 +40,9 @@ aislamiento de hilos).
 **Performance Goals**: una cotización se resuelve en memoria sobre 150 productos y 160
 ofertas; no hay red ni LLM en el camino. El cálculo queda por debajo de 50 ms en el VPS.
 
-**Constraints**: CSP `self` (sin teselas externas), CSRF por doble cookie, cuota diaria,
-sin PII en trazas, fechas en días hábiles con festivos de Colombia.
+**Constraints**: CSP `self` con `frame-src` limitado a `https://www.openstreetmap.org`,
+CSRF por doble cookie, cuota diaria, sin PII en trazas, fechas en días hábiles con festivos
+de Colombia.
 
 **Scale/Scope**: 150 productos CO, 160 ofertas, 29 sedes; un hilo con historial de hasta
 50 mensajes como el chat.
@@ -95,7 +96,7 @@ apps/api/views/cotizador.py     # GET /cotizador, POST /cotizador
 apps/api/templates/
 ├── cotizador.html              # shell del chat en modo cotización
 ├── _cotizador_turno.html       # dos mensajes del turno (historial y respuesta)
-├── _cotizacion.html            # tarjetas, sedes, mapa SVG y entrega (inline)
+├── _cotizacion.html            # tarjetas, sedes, mapa OSM y entrega (inline)
 └── base.html                   # pestaña nueva en la navegación
 apps/api/static/cotizador.js    # envía el turno y añade el bloque al hilo
 packages/core/src/carvajal/adapters/storage/visitor_memory.py  # perfil por visitante
@@ -122,8 +123,9 @@ Ver [research.md](./research.md). Decisiones que fijan el resto del plan:
    ni geolocalización del visitante.
 3. **Hilos aislados por nombre de dueño.** `cot:<owner_key>` reutiliza tablas y repositorio
    sin migración; el servidor deriva el dueño, no el cliente.
-4. **Interacción con HTMX.** El compositor del Cotizador envía por HTMX y añade el bloque
-   al final del hilo; el chat general conserva su SSE intacto.
+4. **Interacción con SSE.** El compositor del Cotizador envía por SSE, recibe el texto por
+   `token` y las tarjetas por `products`; el POST normal queda como respaldo sin streaming.
+   El chat general conserva su SSE intacto.
 5. **Calendario calculado.** Pascua por algoritmo y los 18 festivos colombianos por año;
    ventana en días hábiles con corte a las 15:00.
 
@@ -154,11 +156,13 @@ POST /cotizador
 - **Presentaciones:** `presentaciones = ceil(solicitadas / unidades_presentación)`;
   unidades comprables = presentaciones × unidades; sobrantes = comprables − solicitadas.
 - **Dinero:** `Decimal`, totales en COP sin decimales; nunca se suman monedas distintas;
-  sin envío conocido, el subtotal no se rotula como total final.
+  sin envío conocido, el subtotal no se rotula como total final. La fecha del precio se
+  muestra como referencia y no se rotula como vencida ni se descarta por antigüedad.
 - **Existencias:** `agotado` excluye la oferta; `insuficiente` compara con las unidades
   comprables; `desconocido` se muestra como no confirmado.
 - **Entrega:** solo si se pidió domicilio; ventana = días hábiles desde el siguiente día
-  con corte a las 15:00; festivos y fines de semana no cuentan.
+  con corte a las 15:00; no cuentan festivos, fines de semana ni días sin atención del
+  proveedor.
 - **Alternativas:** hasta dos productos compatibles distintos, con su diferencia de
   capacidad, material o presentación.
 
@@ -197,16 +201,16 @@ POST /cotizador
 | FR-008 | T015 | `test_sin_modo_demo_solo_cotiza_lo_publicado` |
 | FR-009 | T013, T014 | sellos de existencia simulada y producto demo |
 | FR-010 | T009 | alternativas con `difference` |
-| FR-011 | T017, T018 | sedes con `provider_id`, dirección y teléfono |
-| FR-012 | T019, T020 | `coti-mapa` y enlaces a OpenStreetMap |
-| FR-013 | T021–T024 | `test_quotation_calendar.py`, `test_domicilio_suma_envio_y_ventana_habil` |
-| FR-014 | T013 | aviso «Modo demo» en vista y payload |
+| FR-011 | T017, T018 | sedes con `provider_id`, dirección, teléfono, `source_url` y fecha |
+| FR-012 | T019, T020, T055 | iframe OSM, un marcador por sede geolocalizada y lista textual |
+| FR-013 | T021–T024 | `test_quotation_calendar.py`, `test_domicilio_suma_envio_y_ventana_habil` y día sin atención |
+| FR-014 | T013, T014, T054 | sellos por dato en las tarjetas; sin aviso general |
 | FR-015 | T015 | `COTIZADOR_DEMO=0` y `allow_demo=False` |
 | FR-016 | T031 | `test_el_almacen_sql_usa_un_espacio_propio_para_el_cotizador` |
 | FR-017 | T029 | `test_post_sin_csrf_se_rechaza_antes_del_motor`, `test_cuota_agotada_responde_429` |
 | FR-018 | T025, T026 | `test_cantidad_seguida_recalcula_presentaciones` |
-| FR-019 | T008, T016 | `test_el_precio_viejo_se_marca` |
-| FR-020 | T011, T012, T036 | suite completa en verde |
+| FR-019 | T008, T016 | fecha visible como referencia; sin sello de vencimiento |
+| FR-020 | T011, T012, T036, T062 | suite completa y regresión explícita de chat/SSE/comercial |
 | FR-021 | T032, T034 | `_cotizacion.html` y estilos `.coti*` |
 | FR-022 | T047–T052 | `test_quotation_memory.py`, `test_la_memoria_silenciosa_usa_ciudad_domicilio_y_nombre` |
 | FR-023 | T056 | `data.py` lee el catálogo; `test_colombia_llega_a_150_con_el_catalogo_y_48_simulados` |
@@ -232,7 +236,9 @@ POST /cotizador
 2. `make check` (Ruff, `ty`, suite completa).
 3. Recorrido manual a 390 px y 1440 px: cotizar, cambiar cantidad, pedir domicilio,
    ver mapa y lista de sedes, alternativas, producto agotado y modo demo.
-4. Regresión del chat general: hilos, streaming y tarjetas de la spec 036.
+4. SC-007: una persona completa la cotización de ejemplo en menos de 3 minutos sin ayuda.
+5. Regresión explícita del chat general (hilos, SSE y cuota) y del flujo comercial de la
+   spec 036.
 
 ## Análisis de consistencia (2026-11-21)
 
@@ -242,14 +248,24 @@ checklist después de implementar SSE y la memoria:
 | Hallazgo | Resolución |
 |---|---|
 | FR-001 prometía streaming y el primer corte no lo tenía | SSE implementado; FR-001 vuelve a exigirlo |
-| FR-015 (apagar la simulación) y FR-019 (precio viejo) no tenían código | `COTIZADOR_DEMO=0` y sello de antigüedad |
+| FR-015 (apagar la simulación) y FR-019 (fecha del precio) no tenían código | `COTIZADOR_DEMO=0` y fecha visible sin caducidad ni sello |
 | El checklist no mencionaba memoria ni SSE | Secciones «Memory and privacy» y notas actualizadas |
 | El contrato no describía el stream | Tabla de eventos `open/token/products/done/error` |
 | El aviso general de demo tapaba la sección | Se retira; la procedencia se marca dato por dato |
 | El Cotizador leía un CSV con productos duplicados del catálogo | El catálogo curado es la fuente; la demo solo añade 48 simuladas y ofertas |
 | No había identidad ni vigencia de cotización | Tabla `quotes`, `#id` y vigencia de 7 días |
-| No había evaluación de totales | 12 casos dorados en CI (`SC-012`) |
+| No había evaluación de totales | 13 casos dorados en CI (`SC-012`) |
 | El mapa era un esquema abstracto | Iframe de OpenStreetMap y `frame-src` acotado |
 | La memoria podía filtrarse al payload | Prueba que comprueba que el perfil no viaja en `sources` |
 | `sessionmaker()().begin()` devolvía una transacción | Corregido a `sessionmaker.begin()`; verificado contra Postgres real |
 | T040 suponía que la imagen debía llevar la demo | El bootstrap ya copia `./data` al volumen; tarea cerrada con la razón |
+
+### Remediación 2026-11-23
+
+- Estado y rama alineados con la entrega en `main`.
+- Conteo único de 13 casos dorados.
+- Sin aviso general de demo: solo sellos por dato.
+- Mapa definitivo: iframe de OpenStreetMap, no SVG.
+- Ventana de entrega con días de atención del proveedor.
+- Precio con fecha visible como referencia; sin caducidad ni sello de vencimiento.
+- Regresión explícita del chat/SSE y del flujo comercial.

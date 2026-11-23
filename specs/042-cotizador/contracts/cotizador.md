@@ -36,7 +36,7 @@ cabecera `X-Thread` con el hilo usado, para que el compositor lo reutilice.
 ```
 
 - La sección `cotizacion` incluye: resumen de lo entendido, oferta principal, alternativas,
-  sedes con mapa esquemático, entrega y aviso de demo.
+  sedes con mapa OSM incrustado, entrega y sellos de datos simulados.
 - Los importes van en el texto, nunca en atributos interpretados por scripts.
 - El HTML se genera en servidor con autoescape de Jinja; no llega Markdown del LLM.
 
