@@ -75,10 +75,12 @@ make down                            # lo detiene conservando los volúmenes
 > `DEEPSEEK_API_KEY`. `make up` ya descarga `nomic-embed-text` y el modelo de
 > chat de Ollama, así que el stack responde sin claves externas.
 >
-> **GPU opcional:** si el host tiene `nvidia-smi` y Docker expone el runtime
-> `nvidia`, `make up`/`make prod-up` añaden `compose.gpu.yml` y Ollama usa la
-> GPU. Sin GPU arranca en CPU. Comprueba con `make gpu-check`; fuerza el modo
-> con `GPU=1 make up` o `GPU=0 make up`.
+> **GPU opcional:** si el host tiene driver NVIDIA (`nvidia-smi`) y NVIDIA
+> Container Toolkit, `make up`, `make prod-up` y el despliegue por CD añaden
+> `compose.gpu.yml` y Ollama usa la GPU; si falta algo, arranca en CPU.
+> Comprueba con `make gpu-check` y fuerza el modo con `OLLAMA_GPU=1|0` (en el
+> entorno o en `.env`). Verifica dentro del contenedor con
+> `docker compose exec ollama ollama ps` (columna `PROCESSOR`).
 
 `make up` activa el perfil `full` de `compose.yml`: construye la imagen de
 desarrollo, descarga `nomic-embed-text` y el modelo de chat de Ollama, aplica

@@ -56,6 +56,8 @@ jobs:
         run: |
           docker compose -f compose.prod.yml config -q
           docker compose -f compose.prod.yml --profile bootstrap config -q
+          docker compose -f compose.prod.yml -f compose.gpu.yml config -q
+          bash -n scripts/gpu-detect.sh
 
       - name: Preparar Buildx
         uses: docker/setup-buildx-action@v4
@@ -117,11 +119,11 @@ jobs:
           # Se copia a un directorio temporal y se renombra en el VPS: si el
           # scp se corta, no deja deploy.sh truncado para el siguiente intento.
           scp -P "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
-            compose.prod.yml scripts/deploy.sh \
+            compose.prod.yml compose.gpu.yml scripts/deploy.sh scripts/gpu-detect.sh \
             "$VPS_USER@$VPS_HOST:/opt/carvajal/.incoming/"
           ssh -p "$VPS_PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
-            "cd /opt/carvajal && mv .incoming/compose.prod.yml .incoming/deploy.sh . && rmdir .incoming"
+            "cd /opt/carvajal && mv .incoming/compose.prod.yml .incoming/compose.gpu.yml .incoming/deploy.sh .incoming/gpu-detect.sh . && rmdir .incoming"
 
       - name: Desplegar en el VPS
         env:

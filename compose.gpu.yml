@@ -1,8 +1,9 @@
 # Override opcional para usar la GPU NVIDIA desde el Ollama de Docker.
 #
-# No se aplica por defecto: `make up`, `make prod-up` y `make prod-bootstrap`
-# lo añaden solo cuando detectan `nvidia-smi` y el runtime `nvidia` de Docker.
-# Si no hay GPU, o si se ejecuta `GPU=0 make up`, el stack arranca en CPU.
+# No se aplica por defecto: `make up`, `make prod-up`, `make prod-bootstrap` y
+# `deploy.sh` (CD) lo añaden cuando `scripts/gpu-detect.sh` encuentra driver
+# NVIDIA y NVIDIA Container Toolkit. Si falta algo, o con `OLLAMA_GPU=0`, el
+# stack arranca en CPU. `make gpu-check` muestra la decisión.
 #
 # Uso manual:
 #   docker compose -f compose.yml -f compose.gpu.yml --profile full up -d

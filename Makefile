@@ -4,18 +4,12 @@
 
 SHELL := /bin/bash
 
-# GPU NVIDIA opcional para Ollama en Docker. `auto` la activa solo si el host
-# tiene `nvidia-smi` y Docker expone el runtime `nvidia`; sin eso usa CPU.
-# Fuerza un modo con `GPU=1 make up` o `GPU=0 make up`.
-GPU ?= auto
-GPU_SUPPORT = $(shell nvidia-smi -L >/dev/null 2>&1 && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q 'nvidia' && echo 1 || echo 0)
-ifeq ($(GPU),1)
-GPU_OVERRIDE = -f compose.gpu.yml
-else ifeq ($(GPU),0)
-GPU_OVERRIDE =
-else
-GPU_OVERRIDE = $(if $(filter 1,$(GPU_SUPPORT)),-f compose.gpu.yml,)
-endif
+# GPU NVIDIA opcional para Ollama en Docker. `scripts/gpu-detect.sh` decide (lo
+# comparte `deploy.sh`): con `auto` usa GPU solo si hay driver y NVIDIA
+# Container Toolkit; si falta algo, CPU. Fuerza con `OLLAMA_GPU=1|0 make up` o
+# con OLLAMA_GPU en `.env`. Se evalúa una vez y solo en los objetivos que la usan.
+GPU_ENABLED = $(eval GPU_ENABLED := $$(shell $(if $(OLLAMA_GPU),OLLAMA_GPU='$(OLLAMA_GPU)') bash scripts/gpu-detect.sh))$(GPU_ENABLED)
+GPU_OVERRIDE = $(if $(filter 1,$(GPU_ENABLED)),-f compose.gpu.yml,$(if $(filter 0,$(GPU_ENABLED)),,$(error OLLAMA_GPU debe ser auto, 1 o 0)))
 COMPOSE = docker compose -f compose.yml $(GPU_OVERRIDE)
 PROD_COMPOSE = docker compose -f compose.prod.yml $(GPU_OVERRIDE)
 
@@ -59,10 +53,12 @@ help: ## Muestra esta ayuda
 	@echo "  import             Importa el corpus externo a la capa extendida"
 	@echo "  clean              Limpia cachés y artefactos"
 
-gpu-check: ## Detecta GPU NVIDIA y muestra cómo se invocará Docker Compose
-	@echo "GPU mode: $(GPU)"
-	@echo "nvidia-smi + runtime nvidia: $(if $(filter 1,$(GPU_SUPPORT)),sí,no)"
-	@echo "Override: $(if $(GPU_OVERRIDE),$(GPU_OVERRIDE),ninguno (CPU))"
+gpu-check: ## Muestra si Ollama en Docker usará GPU o CPU y por qué
+	@v='$(OLLAMA_GPU)'; [ -n "$$v" ] || v=$$(sed -nE 's/^OLLAMA_GPU=(.*)/\1/p' .env 2>/dev/null | tail -n 1); \
+		echo "OLLAMA_GPU: $${v:-auto}"
+	@echo "nvidia-smi: $$(nvidia-smi -L 2>/dev/null | head -n 1 || true)"
+	@echo "Detección automática: $$(OLLAMA_GPU=auto bash scripts/gpu-detect.sh | sed 's/1/GPU (driver y toolkit)/;s/0/CPU (falta driver o toolkit)/')"
+	@echo "Ollama en: $(if $(GPU_OVERRIDE),GPU ($(GPU_OVERRIDE)),CPU)"
 
 install: ## Sincroniza el entorno virtual e instala dependencias (incluidos los extras)
 	uv sync --all-extras

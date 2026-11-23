@@ -119,6 +119,11 @@ POSTGRES_DB=carvajal
 Notas:
 
 - No definas `OLLAMA_BASE_URL`: el compose usa `http://ollama:11434`.
+- `OLLAMA_GPU` es opcional (`auto` por defecto): `deploy.sh` añade
+  `compose.gpu.yml` si el VPS tiene driver NVIDIA y NVIDIA Container Toolkit, y
+  usa CPU si no. Pon `OLLAMA_GPU=0` para forzar CPU. Si activas la GPU a mano,
+  usa `docker compose -f compose.prod.yml -f compose.gpu.yml` en los comandos
+  manuales que recreen `ollama`, o volverá a CPU.
 - No definas `FORWARDED_ALLOW_IPS`: el compose usa `127.0.0.1` porque no hay
   proxy delante.
 - No cambies `POSTGRES_USER`, `POSTGRES_PASSWORD` ni `POSTGRES_DB` después del

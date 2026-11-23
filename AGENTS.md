@@ -116,6 +116,7 @@ make qdrant    # levanta Qdrant con volumen persistente
 make index     # indexa data/gold en Qdrant (M2)
 make api       # interfaz única + API en :8000
 make image     # construye la imagen Docker de la app web
+make gpu-check # dice si Ollama en Docker usará GPU o CPU
 make up        # stack completo en Docker (app, base, Qdrant, Ollama y corpus)
 make down      # detiene el stack completo (conserva los volúmenes)
 make prod-up   # levanta app, Postgres, Qdrant y Ollama en APP_PORT (SESSION_SECRET)

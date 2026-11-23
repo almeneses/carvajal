@@ -37,6 +37,19 @@ if [[ "$(stat -c '%a' .env 2>/dev/null || true)" != "600" ]]; then
 fi
 
 COMPOSE=(docker compose -f compose.prod.yml)
+
+# GPU opcional para Ollama: misma decisión que `make prod-up` (OLLAMA_GPU del
+# entorno o del .env del servidor: auto, 1 o 0). Si se omitiera aquí, cada
+# despliegue recrearía Ollama sin GPU aunque el host la tenga.
+if [[ -f gpu-detect.sh && -f compose.gpu.yml ]]; then
+  GPU_ENABLED="$(bash gpu-detect.sh)"
+  if [[ "$GPU_ENABLED" == "1" ]]; then
+    COMPOSE+=(-f compose.gpu.yml)
+  fi
+  echo "==> Ollama en $([[ "$GPU_ENABLED" == "1" ]] && echo GPU || echo CPU)"
+else
+  echo "==> Falta gpu-detect.sh o compose.gpu.yml; Ollama en CPU" >&2
+fi
 STATE_FILE=".deployed_tag"
 trap 'rm -f "${DIR}"/.env.??????' EXIT
 
