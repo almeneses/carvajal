@@ -83,7 +83,7 @@
     }
   },
   {
-    "name": "precio viejo se marca",
+    "name": "precio viejo se usa como normal",
     "text": "en Bogotá",
     "questions": [
       "cotízame 20 vasos para bebida caliente"
@@ -91,7 +91,7 @@
     "today": "2027-04-01",
     "expect": {
       "kind": "cotizacion",
-      "primary.stale": "true"
+      "primary.units_requested": "20"
     }
   },
   {

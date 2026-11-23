@@ -292,16 +292,12 @@ def _offer_for(offer: Offer, quantity: int) -> dict[str, Any]:
     }
 
 
-STALE_DAYS = 90
-
-
 def _option(
     product: Product,
     offer: Offer,
     quantity: int,
     provider: dict[str, Any],
     *,
-    today: date,
     allow_demo: bool = True,
 ) -> dict[str, Any]:
     presentation = _offer_for(offer, quantity)
@@ -325,7 +321,6 @@ def _option(
             "units": offer.stock_units if allow_demo else None,
             "simulated": offer.stock_simulated and allow_demo,
         },
-        "stale": (today - offer.captured_at).days > STALE_DAYS,
         "price_simulated": offer.price_simulated,
         "source_url": offer.source_url,
         "captured_at": offer.captured_at.isoformat(),
@@ -502,7 +497,6 @@ def quote(
                     offer,
                     quantity,
                     _provider(provider, product.sku),
-                    today=day,
                     allow_demo=allow_demo,
                 ),
             )

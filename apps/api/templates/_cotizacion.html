@@ -72,9 +72,6 @@
       {% else %}
       <span class="coti-sello">Precio de referencia · {{ p.captured_at }}</span>
       {% endif %}
-      {% if p.stale %}
-      <span class="coti-sello coti-sello-alerta">Precio capturado hace más de 90 días</span>
-      {% endif %}
       {% if p.stock.status == "insuficiente" %}
       <span class="coti-sello coti-sello-alerta">Existencia insuficiente</span>
       {% elif p.stock.status == "desconocido" %}
