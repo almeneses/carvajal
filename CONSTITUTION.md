@@ -261,6 +261,7 @@ carvajal/
 │   └── arquitectura.md      # versión Mermaid del mismo pipeline
 ├── .github/                 # gobernanza (PR/issue templates, CI, Dependabot, labels)
 ├── .opencode/rules/         # reglas para agentes (tgrep)
+├── .claude/skills/          # skills de agentes: abrir-pr y evaluar-agente
 ├── AGENTS.md                # contexto para agentes LLM
 ├── CONSTITUTION.md          # este archivo — verdad central
 ├── README.md                # puerta de entrada pública
