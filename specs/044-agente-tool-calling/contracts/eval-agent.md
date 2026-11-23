@@ -21,11 +21,33 @@
         "total_pending": true,
         "language": "es",
         "no_tool_allowed": false          # true solo si sin_consulta es aceptable
+        # … más claves opcionales: ver la tabla de abajo
       }
     }
   ]
 }
 ```
+
+Claves de `expect` (todas opcionales; una ausente no se verifica):
+
+| Clave | Verificación |
+|---|---|
+| `tools_any` | Cada grupo interno debe tener al menos una herramienta llamada en el turno. |
+| `tools_none` | Ninguna de estas herramientas se llama. |
+| `abstain` | La respuesta es la abstención declarada. |
+| `abstain_or_cites` | Abstención, o toda cifra de la respuesta aparece en un resultado de herramienta. |
+| `asks_for` | El turno pide al menos uno de estos datos (`needs_input` o `sin_consulta(pedir_dato)`). |
+| `forbidden_materials` | Ninguna tarjeta ni opción recomendada tiene estos materiales. |
+| `total_pending` | Toda cotización mostrada tiene el total ausente. |
+| `max_quote_cards` | Número máximo de tarjetas de cotización. |
+| `no_invented_terms` | No afirma plazos ni inventario sin evidencia vigente. |
+| `no_currency_conversion` | No presenta precios convertidos entre monedas. |
+| `shortcut` | El turno lo atiende el atajo, sin decisión del proveedor. |
+| `language` | Idioma de la respuesta (`es` por defecto). |
+| `no_tool_allowed` | `sin_consulta` es aceptable como única herramienta. |
+
+Además, en todos los ítems: toda cifra, precio o fecha de la respuesta debe aparecer en un
+resultado de herramienta del turno (SC-001).
 
 Reglas: ≥ 50 ítems; ≥ 10 compuestos, ≥ 10 coloquiales, ≥ 10 de seguimiento, ≥ 8
 adversariales, ≥ 5 de abstención. Redactado sin consultar `routing_questions.json` ni las

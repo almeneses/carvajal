@@ -382,3 +382,41 @@ def test_capture_allowed_domains_acepta_lista_separada_por_coma(
     settings = Settings(_env_file=None)
 
     assert settings.capture_allowed_domains == ("carvajal.com", "larepublica.co")
+
+
+def test_modo_del_agente_por_defecto_y_limites() -> None:
+    """Spec 044: el modo nuevo queda apagado y los límites del turno tienen defaults."""
+
+    settings = Settings(_env_file=None)
+
+    assert settings.agent_mode == "routes"
+    assert settings.agent_max_tool_calls == 4
+    assert settings.agent_turn_timeout_s == 45
+    assert settings.agent_max_quotes == 3
+
+
+def test_modo_del_agente_desde_el_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``AGENT_MODE=tools`` activa el agente con herramientas."""
+
+    monkeypatch.setenv("AGENT_MODE", "tools")
+
+    assert Settings(_env_file=None).agent_mode == "tools"
+
+
+@pytest.mark.parametrize(
+    ("nombre", "valor"),
+    [
+        ("AGENT_MODE", "agente"),
+        ("AGENT_MAX_TOOL_CALLS", "0"),
+        ("AGENT_MAX_TOOL_CALLS", "9"),
+        ("AGENT_TURN_TIMEOUT_S", "0"),
+        ("AGENT_MAX_QUOTES", "0"),
+    ],
+)
+def test_modo_y_limites_invalidos(monkeypatch: pytest.MonkeyPatch, nombre: str, valor: str) -> None:
+    """Un modo desconocido o un límite fuera de rango falla al arrancar."""
+
+    monkeypatch.setenv(nombre, valor)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
