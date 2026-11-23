@@ -10,6 +10,7 @@ from ollama import ResponseError
 
 from carvajal.adapters.llm import DeepSeekProvider, OllamaProvider, build_llm_provider
 from carvajal.adapters.llm._chat import _LangChainChat
+from carvajal.adapters.llm.deepseek import build_deepseek_chat
 from carvajal.application.errors import LLMError
 from carvajal.application.ports import LLMProvider
 from carvajal.infrastructure.settings import Settings
@@ -303,6 +304,94 @@ def test_deepseek_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
         "request_timeout": 60.0,
     }
     assert answer == "respuesta"
+
+
+def test_build_deepseek_chat_reutiliza_la_configuracion_del_proveedor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    creados: list[ChatSpy] = []
+    monkeypatch.setattr("carvajal.adapters.llm.deepseek.ChatOpenAI", _espia(creados))
+    settings = Settings(_env_file=None, deepseek_api_key="  clave-de-prueba  ")
+
+    # Act
+    chat = build_deepseek_chat(settings)
+
+    # Assert
+    assert chat is creados[0]
+    assert creados[0].kwargs == {
+        "model": settings.deepseek_model,
+        "api_key": "clave-de-prueba",
+        "base_url": settings.deepseek_base_url,
+        "temperature": 0,
+        "request_timeout": 60.0,
+    }
+
+
+def test_build_deepseek_chat_puede_pedir_el_uso_en_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    creados: list[ChatSpy] = []
+    monkeypatch.setattr("carvajal.adapters.llm.deepseek.ChatOpenAI", _espia(creados))
+    settings = Settings(_env_file=None, deepseek_api_key="clave")
+
+    # Act
+    build_deepseek_chat(settings, stream_usage=True)
+
+    # Assert
+    assert creados[0].kwargs["stream_usage"] is True
+    assert creados[0].kwargs["temperature"] == 0
+
+
+def test_build_deepseek_chat_para_herramientas_apaga_el_razonamiento(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``deepseek-flash`` razona por defecto y así rechaza ``tool_choice="required"``."""
+
+    # Arrange
+    creados: list[ChatSpy] = []
+    monkeypatch.setattr("carvajal.adapters.llm.deepseek.ChatOpenAI", _espia(creados))
+    settings = Settings(_env_file=None, deepseek_api_key="clave")
+
+    # Act
+    build_deepseek_chat(settings, for_tools=True)
+    build_deepseek_chat(settings)
+
+    # Assert
+    assert creados[0].kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "extra_body" not in creados[1].kwargs
+
+
+def test_build_deepseek_chat_devuelve_un_chat_con_bind_tools() -> None:
+    # Arrange
+    settings = Settings(_env_file=None, deepseek_api_key="clave")
+
+    # Act
+    chat = build_deepseek_chat(settings)
+
+    # Assert
+    assert callable(getattr(chat, "bind_tools", None))
+    assert chat.temperature == 0
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"deepseek_api_key": " "}, "DEEPSEEK_API_KEY"),
+        ({"deepseek_api_key": "x", "deepseek_model": " "}, "DEEPSEEK_MODEL"),
+        ({"deepseek_api_key": "x", "deepseek_base_url": " "}, "DEEPSEEK_BASE_URL"),
+    ],
+)
+def test_build_deepseek_chat_valida_la_configuracion(
+    overrides: dict[str, str], message: str
+) -> None:
+    # Arrange
+    settings = Settings(_env_file=None).model_copy(update=overrides)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=message):
+        build_deepseek_chat(settings)
 
 
 def test_ollama_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:

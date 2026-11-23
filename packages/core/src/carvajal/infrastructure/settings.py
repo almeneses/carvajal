@@ -2,7 +2,7 @@
 
 from logging import getLevelNamesMapping
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -181,6 +181,13 @@ class Settings(BaseSettings):
     agent_router: str = "rules"
     # Modelo de decisión para el enrutador «decision», como paquete.modulo:fabrica.
     decision_model: str = ""
+    # Spec 044: «routes» es el agente por rutas (por defecto); «tools» activa el agente
+    # con herramientas. El modo «routes» se construye siempre: atiende el atajo de
+    # saludos y el respaldo cuando el proveedor falla.
+    agent_mode: Literal["routes", "tools"] = "routes"
+    agent_max_tool_calls: int = Field(default=4, ge=1, le=8)
+    agent_turn_timeout_s: float = Field(default=45, gt=0, le=300)
+    agent_max_quotes: int = Field(default=3, ge=1, le=10)
 
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de

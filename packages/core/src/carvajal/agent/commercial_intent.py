@@ -9,8 +9,11 @@ Reglas deterministas, como el resto del router:
 - Una respuesta corta a una aclaración («caliente», «en Cali», «5.000 unidades») hereda la
   solicitud de los turnos anteriores que sí nombraban el producto.
 - La temperatura es el dato que decide el material (FR-002): se toma de la pregunta o del
-  uso («café» → caliente; «calentar en microondas» → caliente). Si falta, el router pide
-  aclaración. El uso se deduce de la familia y la temperatura cuando la pregunta no lo dice.
+  uso («café» → caliente; «calentar en microondas» → caliente). Las bebidas que se sirven
+  calientes por costumbre también la implican: «tinto», «aromática», «chocolate»,
+  «capuchino», «té de hierbas» (spec 044, corrección «tinto»); «vino tinto» no. Si falta,
+  el router pide aclaración. El uso se deduce de la familia y la temperatura cuando la
+  pregunta no lo dice.
 - La capacidad en ml o litros se convierte a onzas líquidas.
 
 Casos límite (T031-T033):
@@ -36,6 +39,7 @@ from carvajal.agent.state import Turn
 __all__ = [
     "COMMERCIAL_KEYS",
     "USES",
+    "USE_TEMPERATURE",
     "empty_request",
     "extract_commercial",
     "is_custom_need",
@@ -58,7 +62,7 @@ FOLLOW_UP_MAX_WORDS = 8
 FOLLOW_UP_DEPTH = 3
 
 _FAMILIES = {
-    "vaso": r"vasos?",
+    "vaso": r"vasos?|vasitos?",
     "tapa": r"tapas?|domos?",
     # «cazuela» y «bowl» son contenedores del catálogo de Colombia (spec 039).
     "contenedor": r"contenedor(?:es)?|recipientes?|portacomidas?|cazuelas?|bowls?",
@@ -72,14 +76,16 @@ _GENERIC_PRODUCT = r"desechables?|empaques? (?:para|de) (?:llevar|comida|domicil
 _USES = (
     (
         "bebida_fria",
-        r"cafe (?:frio|helado)|te helado|jugos?|refrescos?|gaseosas?|limonadas?"
-        r"|malteadas?|smoothies?|frappes?|granizados?|bebidas? frias?",
+        r"cafe (?:frio|helado)|te (?:frio|helado)|chocolate (?:frio|helado)|jugos?|refrescos?"
+        r"|gaseosas?|limonadas?|malteadas?|smoothies?|frappes?|granizados?|bebidas? frias?",
     ),
     # «te» suelto es también pronombre («¿qué te sirve?»): solo cuenta con su apellido.
+    # «tinto» es el café negro colombiano, salvo en «vino tinto» (``_WINE`` lo aparta antes).
     (
         "bebida_caliente",
-        r"cafe|capuchinos?|lattes?|te (?:caliente|negro|verde)|infusion(?:es)?"
-        r"|chocolate|aromaticas?|bebidas? calientes?",
+        r"cafe|cafecitos?|tint(?:os?|icos?)|capuchinos?|cappuccinos?|lattes?"
+        r"|expresos?|espressos?|te (?:caliente|negro|verde|de hierbas|chai)|infusion(?:es)?"
+        r"|chocolates?|chocolatitos?|aromaticas?|aromatiquitas?|bebidas? calientes?",
     ),
     ("sopas", r"sopas?|caldos?|consomes?"),
     ("frituras", r"frituras?|papas fritas|fritos?"),
@@ -92,7 +98,10 @@ _USES = (
     ("comida_caliente", r"comidas? calientes?|almuerzos?"),
 )
 USES = frozenset(name for name, _ in _USES)
-_USE_TEMPERATURE = {
+# «vino tinto», «vinos tintos» o «vino  tinto» no son café: se quitan antes de buscar el uso.
+_WINE = re.compile(r"\bvinos?\s+tint\w*")
+# Usos que implican la temperatura; el motor de cotización no la pregunta para ellos.
+USE_TEMPERATURE = {
     "bebida_caliente": "caliente",
     "comida_caliente": "caliente",
     "sopas": "caliente",
@@ -226,7 +235,8 @@ def _extract(question: str) -> tuple[bool, dict[str, Any]]:
 
     text = _plain(question)
     family = _family(text)
-    use = next((name for name, pattern in _USES if _search(pattern, text)), None)
+    without_wine = _WINE.sub(" ", text)
+    use = next((name for name, pattern in _USES if _search(pattern, without_wine)), None)
     microwave = True if "microondas" in text else None
     temperature: str | None = None
     if _COLD.search(text):
@@ -263,8 +273,8 @@ def _complete(data: dict[str, Any]) -> dict[str, Any]:
     """Deduce temperatura y uso a partir de lo dicho, sin inventar datos nuevos."""
 
     result = {key: data.get(key) for key in COMMERCIAL_KEYS}
-    if result["temperature"] is None and result["use"] in _USE_TEMPERATURE:
-        result["temperature"] = _USE_TEMPERATURE[result["use"]]
+    if result["temperature"] is None and result["use"] in USE_TEMPERATURE:
+        result["temperature"] = USE_TEMPERATURE[result["use"]]
     if result["use"] is None and result["temperature"] in ("caliente", "fria"):
         if result["family"] == "vaso":
             result["use"] = f"bebida_{result['temperature']}"

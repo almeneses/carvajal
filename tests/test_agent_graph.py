@@ -3,6 +3,7 @@
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,9 +11,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.store.memory import InMemoryStore
 from structlog.testing import capture_logs
+from tests.fakes.tool_chat import ScriptedToolChat
 
 from apps.api import agent_runtime as agent_runtime_module
-from apps.api.agent_runtime import _plain_postgres_url, _router
+from apps.api.agent_runtime import AgentRuntime, _graphs, _plain_postgres_url, _router
 from apps.api.chat.agent import GraphAgentRunner
 from carvajal.adapters.vector.qdrant_store import point_id
 from carvajal.agent.graph import AgentDeps, build_agent, memory_namespace
@@ -380,6 +382,91 @@ def test_agent_runtime_se_inicializa_una_sola_vez_bajo_concurrencia(
     assert len(llamadas) == 1
     assert all(item is carreras[0] for item in carreras)
     agent_runtime_module.close_agent_runtime()
+
+
+def _runtime_graphs(settings: Settings) -> tuple[Any, Any]:
+    return _graphs(
+        settings,
+        vector_store=FakeVectorStore([]),
+        embedder=FakeEmbedder(),
+        checkpointer=InMemorySaver(),
+        store=InMemoryStore(),
+        router=decide_route,
+    )
+
+
+def test_el_runtime_en_modo_routes_no_construye_el_grafo_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    settings = Settings(agent_mode="routes")
+    chats: list[Settings] = []
+    monkeypatch.setattr(agent_runtime_module, "build_deepseek_chat", lambda s, **_: chats.append(s))
+
+    # Act
+    graph, tool_graph = _runtime_graphs(settings)
+
+    # Assert
+    assert graph is not None
+    assert tool_graph is None
+    assert chats == []
+
+
+def test_el_runtime_en_modo_tools_construye_ambos_grafos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    settings = Settings(agent_mode="tools")
+    opciones: list[dict[str, object]] = []
+
+    def fake_chat(received: Settings, **kwargs: object) -> ScriptedToolChat:
+        opciones.append(kwargs)
+        return ScriptedToolChat(steps=[])
+
+    monkeypatch.setattr(agent_runtime_module, "build_deepseek_chat", fake_chat)
+
+    # Act
+    graph, tool_graph = _runtime_graphs(settings)
+
+    # Assert: el grafo routes sigue para el atajo y el respaldo.
+    assert graph is not None
+    assert tool_graph is not None
+    assert set(graph.nodes) >= {"route", "direct", "rag"}
+    assert set(tool_graph.nodes) >= {"recall", "agent", "tools"}
+    assert opciones == [{"stream_usage": True, "for_tools": True}]
+
+
+def test_el_runtime_en_modo_tools_sin_deepseek_sigue_con_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    settings = Settings(agent_mode="tools", deepseek_api_key="")
+
+    # Act
+    with capture_logs() as logs:
+        graph, tool_graph = _runtime_graphs(settings)
+
+    # Assert
+    assert graph is not None
+    assert tool_graph is None
+    evento = next(item for item in logs if item["event"] == "agent.tools_mode_unavailable")
+    assert "DEEPSEEK_API_KEY" in evento["error"]
+
+
+@pytest.mark.parametrize(("tool_graph", "mode"), [(None, "routes"), (object(), "tools")])
+def test_agent_runtime_informa_el_modo_efectivo(tool_graph: object, mode: str) -> None:
+    # Arrange
+    runtime = AgentRuntime(
+        graph=object(),
+        qdrant=Mock(),
+        checkpointer=None,
+        store=None,
+        _stack=Mock(),
+        tool_graph=tool_graph,
+    )
+
+    # Act / Assert
+    assert runtime.mode == mode
 
 
 def test_sin_evidencia_registra_el_tema_en_el_log() -> None:

@@ -128,5 +128,64 @@
       "kind": "aclaracion",
       "reply_start": "Hola."
     }
+  },
+  {
+    "name": "tinto de 7 onzas no cotiza el vaso de PP para frío",
+    "text": "2.000 vasos de 7 onzas para tinto, Bogotá",
+    "expect": {
+      "kind": "sin_resultados",
+      "request.use": "bebida_caliente",
+      "request.temperature": "caliente",
+      "primary": "none"
+    }
+  },
+  {
+    "name": "vasitos para tinto cotizan un vaso apto para caliente",
+    "text": "necesito unos 2 mil vasitos para tinto en Bogotá",
+    "expect": {
+      "kind": "cotizacion",
+      "request.temperature": "caliente",
+      "primary.sku": "7704918100199",
+      "primary.presentation.count": "40",
+      "primary.presentation.subtotal": "150040",
+      "total": "150040"
+    }
+  },
+  {
+    "name": "dos mil en letras pide la cantidad sin perder lo caliente",
+    "text": "dos mil vasos para café caliente de 7 oz en Bogotá",
+    "expect": {
+      "kind": "aclaracion",
+      "request.temperature": "caliente",
+      "primary": "none"
+    }
+  },
+  {
+    "name": "aromática deduce caliente y pide la cantidad",
+    "text": "vasos para aromática, 300, Cali",
+    "expect": {
+      "kind": "aclaracion",
+      "request.use": "bebida_caliente",
+      "request.temperature": "caliente",
+      "primary": "none"
+    }
+  },
+  {
+    "name": "chocolate caliente en Pasto sin precio publicado",
+    "text": "chocolate caliente, 200 vasos en Pasto",
+    "expect": {
+      "kind": "sin_resultados",
+      "request.temperature": "caliente",
+      "primary": "none"
+    }
+  },
+  {
+    "name": "vaso sin temperatura pregunta antes de cotizar",
+    "text": "cotiza 20 vasos de 7 oz en Bogotá",
+    "expect": {
+      "kind": "aclaracion",
+      "missing.0": "temperatura",
+      "primary": "none"
+    }
   }
 ]
