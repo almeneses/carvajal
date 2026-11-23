@@ -123,9 +123,10 @@ def test_el_precio_viejo_se_usa_como_normal() -> None:
     )
 
     assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "7704918100199"
+    assert resultado["primary"]["captured_at"] == "2026-11-18"
     assert "stale" not in resultado["primary"]
-    assert resultado["primary"]["captured_at"]
-    assert resultado["primary"]["presentation"]["subtotal"]
+    assert resultado["primary"]["presentation"]["subtotal"] == "3751"
 
 
 def test_el_perfil_recuerda_ciudad_domicilio_y_nombre() -> None:
