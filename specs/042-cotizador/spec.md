@@ -2,7 +2,7 @@
 
 **Feature Branch**: `main` (integración histórica desde `prototype`)
 **Created**: 2026-11-21
-**Status**: Implementada en `main` (spec 042); pendientes T038 y T053 de [`tasks.md`](./tasks.md). El dictado por voz queda diferido a una spec posterior.
+**Status**: Implementada en `main` (spec 042); pendientes T038, T053, T061 y T062 de [`tasks.md`](./tasks.md). El dictado por voz queda diferido a una spec posterior.
 **Input**: User description: "Agregar una sección Cotizador con la misma interfaz del chat,
 dedicada solo a productos Carvajal: alguien escribe «cotízame 20 vasos para bebida
 caliente» y el chat responde si lo tiene, el precio, la cantidad solicitada, el costo
