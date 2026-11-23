@@ -5,7 +5,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-19, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-23, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -47,6 +47,9 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
 - En la ruta documental (`rag`) sin contexto recuperado no se llama al LLM: la respuesta es
   una abstención declarada. Las rutas `direct` (saludos) y `tool` (indicadores estructurados)
   responden sin recuperación y no afirman hechos del corpus sin evidencia.
+- El Cotizador (spec 042) puede usar datos comerciales simulados solo si los marca dato por
+  dato y no los presenta como fuente oficial ni como parte del corpus RAG. No sustituyen una
+  cita ni una fuente real.
 
 ### IV. Calidad automatizada y reproducible
 
@@ -67,10 +70,9 @@ red se registran como descartes, no como excepciones.
 ### VI. Cambios por Pull Request
 
 Los cambios grandes van en rama (`feat/…`, `fix/…`, `docs/…`, `chore/…`), con Conventional
-Commits, y entran por Pull Request con descripción y checks verdes. El trabajo de producto se
-integra a `dev`; la documentación y las decisiones pueden ir directo a `main`, que solo recibe
-releases aprobados. Los agentes abren el PR y se detienen: no mergean ni aprueban, ni siquiera
-con `--admin`.
+Commits, y entran por Pull Request a `main` con descripción y checks verdes. `main` es la
+única rama de integración y producción; `dev` se retiró el 2026-11-22. Los agentes abren el
+PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 
 ## Estado técnico
 
@@ -105,6 +107,9 @@ con `--admin`.
   159/Linux (FR-009); alcance acordado: Chrome y Firefox de escritorio. SC-001 = 36/40
   (90,0 %), SC-002 p95 = 231 ms, SC-003 p95 = 36 ms, SC-004/005 cumplidos con micrófono
   y dos voces.
+- La spec 042 (Cotizador) está implementada en `main`; su motor es determinista, no llama
+  al LLM y separa el catálogo curado de la extensión simulada. Los datos simulados se
+  identifican donde aparecen.
 - Las capacidades ya entregadas están documentadas como *as-built* en `specs/`; el índice y la
   convención viven en `specs/README.md`. Lo no entregado se especifica antes de implementar.
 
@@ -120,6 +125,8 @@ con `--admin`.
 - Precios del catálogo: referencias fechadas con moneda, una oferta por fuente. Los de
   Colombia van en COP y solo si alguien los publica en Colombia; nunca se estiman ni se
   convierten desde México (spec 039).
+- Cotizador (spec 042): motor determinista sin LLM; el catálogo curado es la única fuente
+  de productos reales y la demo solo añade una extensión simulada marcada por campo.
 - Voz en el chat (spec 040): dictado y lectura con las capacidades del navegador; el audio
   no llega al servidor ni se guarda. `microphone=(self)` se declara solo en el documento
   HTML de `/chat` (el SSE y el resto del sitio siguen con `microphone=()`); el dictado
@@ -148,4 +155,4 @@ con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.4.0 - 2026-11-19, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.5.0 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.
