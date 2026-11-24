@@ -10,7 +10,13 @@ Contrato: ``specs/044-agente-tool-calling/contracts/agent-tools.md`` y
   cotizaciones (:func:`merge_quote`, :func:`quote_key`).
 - ``builtin.py``: las seis herramientas de la 044 con sus esquemas y ayudantes compartidos.
 - ``runner.py``: :func:`run_tool` (valida, ejecuta y nunca lanza), :func:`call_fingerprint`
-  y :func:`build_tools` (``StructuredTool`` para ``bind_tools``).
+  y :func:`build_tools` (``@tool`` para ``bind_tools``).
+- ``registry.py``: :class:`ToolSpec` y la tupla ordenada :data:`TOOLS`, única fuente de
+  verdad de nombres, esquemas, descripciones, líneas de estado, cupo, papel ante la
+  compuerta y claves de ciudad (spec 045, research R9). Las vistas derivadas
+  (:data:`TOOL_NAMES`, :data:`TOOL_SCHEMAS`, :data:`TOOL_DESCRIPTIONS`, ...) son de solo
+  lectura.
+- Un módulo por herramienta nueva de la 045 (``ficha_producto.py``, ...).
 
 Diseño (sin cambios desde la 044):
 
@@ -38,8 +44,6 @@ from carvajal.agent.toolagent.tools._base import (
     quote_key,
 )
 from carvajal.agent.toolagent.tools.builtin import (
-    TOOL_DESCRIPTIONS,
-    TOOL_SCHEMAS,
     BuscarCorpusArgs,
     BuscarProductoArgs,
     BuscarSedesArgs,
@@ -47,23 +51,52 @@ from carvajal.agent.toolagent.tools.builtin import (
     IndicadorFinancieroArgs,
     SinConsultaArgs,
 )
+from carvajal.agent.toolagent.tools.registry import (
+    BUDGET_FREE,
+    CITY_KEYS,
+    CORPUS_TOOLS,
+    DECLARATION_TOOLS,
+    EVIDENCE_ROLES,
+    MEMORY_TOOLS,
+    STATUS_TEMPLATES,
+    TOOL_DESCRIPTIONS,
+    TOOL_NAMES,
+    TOOL_SCHEMAS,
+    TOOLS,
+    EvidenceRole,
+    ToolSpec,
+    spec_for,
+)
+from carvajal.agent.toolagent.tools.registry import IMPLEMENTATIONS as _IMPLEMENTATIONS
 from carvajal.agent.toolagent.tools.runner import build_tools, call_fingerprint, run_tool
 
 __all__ = [
+    "BUDGET_FREE",
+    "CITY_KEYS",
+    "CORPUS_TOOLS",
     "DATA_CLOSE",
     "DATA_OPEN",
+    "DECLARATION_TOOLS",
+    "EVIDENCE_ROLES",
+    "MEMORY_TOOLS",
+    "STATUS_TEMPLATES",
+    "TOOLS",
     "TOOL_DESCRIPTIONS",
+    "TOOL_NAMES",
     "TOOL_SCHEMAS",
+    "_IMPLEMENTATIONS",
     "BuscarCorpusArgs",
     "BuscarProductoArgs",
     "BuscarSedesArgs",
     "CotizarArgs",
+    "EvidenceRole",
     "IndicadorFinancieroArgs",
     "QuoteMerge",
     "SinConsultaArgs",
     "ToolCallResult",
     "ToolContext",
     "ToolDeps",
+    "ToolSpec",
     "build_tools",
     "call_fingerprint",
     "content_data",
@@ -72,4 +105,5 @@ __all__ = [
     "merge_quote",
     "quote_key",
     "run_tool",
+    "spec_for",
 ]

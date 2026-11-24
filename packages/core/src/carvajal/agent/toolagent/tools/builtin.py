@@ -8,7 +8,7 @@ R9); las herramientas nuevas de la 045 viven cada una en su propio módulo.
 
 import json
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from typing import Annotated, Any, Literal, cast
@@ -287,16 +287,9 @@ class SinConsultaArgs(BaseModel):
     _dato = field_validator("dato", mode="before")(_optional_text)
 
 
-TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
-    TOOL_BUSCAR_CORPUS: BuscarCorpusArgs,
-    TOOL_BUSCAR_PRODUCTO: BuscarProductoArgs,
-    TOOL_COTIZAR: CotizarArgs,
-    TOOL_BUSCAR_SEDES: BuscarSedesArgs,
-    TOOL_INDICADOR_FINANCIERO: IndicadorFinancieroArgs,
-    TOOL_SIN_CONSULTA: SinConsultaArgs,
-}
-
-TOOL_DESCRIPTIONS: dict[str, str] = {
+# Descripciones de la 044 que ve el modelo; el registro (``registry.py``) las expone como
+# ``TOOL_DESCRIPTIONS``. Cualquier cambio actualiza el *golden* (FR-027).
+DESCRIPTIONS: dict[str, str] = {
     TOOL_BUSCAR_CORPUS: (
         "Busca en los documentos públicos de Carvajal (historia, empresas, sostenibilidad, "
         "noticias, sedes institucionales). Devuelve fragmentos numerados [n] con su fuente."
@@ -1578,14 +1571,3 @@ def _sin_consulta(
     if args.dato:
         data["dato"] = args.dato
     return _Draft("ok", _SIN_CONSULTA_MESSAGES[args.motivo], data=data)
-
-
-_Impl = Callable[[Any, ToolDeps, ToolContext, _Sources], _Draft]
-_IMPLEMENTATIONS: dict[str, _Impl] = {
-    TOOL_BUSCAR_CORPUS: _buscar_corpus,
-    TOOL_BUSCAR_PRODUCTO: _buscar_producto,
-    TOOL_COTIZAR: _cotizar,
-    TOOL_BUSCAR_SEDES: _buscar_sedes,
-    TOOL_INDICADOR_FINANCIERO: _indicador_financiero,
-    TOOL_SIN_CONSULTA: _sin_consulta,
-}

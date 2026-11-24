@@ -14,11 +14,10 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 import structlog
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import BaseTool, tool
 from pydantic import ValidationError
 
 from carvajal.agent.toolagent.state import (
-    TOOL_NAMES,
     TOOL_SIN_CONSULTA,
     UNKNOWN_TOOL,
     ToolOutcome,
@@ -33,9 +32,17 @@ from carvajal.agent.toolagent.tools._base import (
     _Sources,
     format_tool_content,
 )
-from carvajal.agent.toolagent.tools.builtin import (
-    _IMPLEMENTATIONS,
+from carvajal.agent.toolagent.tools.registry import (
+    BUDGET_FREE,
+    CITY_KEYS,
+    CORPUS_TOOLS,
+    DECLARATION_TOOLS,
+    EVIDENCE_ROLES,
+    IMPLEMENTATIONS,
+    MEMORY_TOOLS,
+    STATUS_TEMPLATES,
     TOOL_DESCRIPTIONS,
+    TOOL_NAMES,
     TOOL_SCHEMAS,
 )
 
@@ -178,7 +185,7 @@ def _execute(
     raw_args: dict[str, Any],
 ) -> tuple[_Draft, dict[str, Any]]:
     schema = TOOL_SCHEMAS.get(name)
-    implementation = _IMPLEMENTATIONS.get(name)
+    implementation = IMPLEMENTATIONS.get(name)
     if schema is None or implementation is None:
         return _Draft("error", "Herramienta desconocida; no se consultó nada."), raw_args
     try:
@@ -195,21 +202,38 @@ def _execute(
 
 
 def build_tools(deps: ToolDeps) -> list[BaseTool]:
-    """Las seis herramientas como ``StructuredTool`` para ``bind_tools``.
+    """Las herramientas del registro como ``BaseTool`` para ``bind_tools``, en su orden.
 
-    Invocadas sueltas corren con un ``ToolContext`` vacío y devuelven el contenido para el
-    modelo; dentro del grafo, el nodo ``tools`` llama a :func:`run_tool` con el estado.
+    Cada una se declara con ``@tool(name, description=..., args_schema=...)`` dentro de la
+    fábrica (necesita ``deps``): la descripción va explícita para que el modelo nunca vea el
+    docstring del esquema (FR-021). Invocadas sueltas corren con un ``ToolContext`` vacío y
+    devuelven el contenido para el modelo; dentro del grafo, el nodo ``tools`` llama a
+    :func:`run_tool` con el estado.
     """
 
     def make(name: str) -> BaseTool:
+        @tool(name, description=TOOL_DESCRIPTIONS[name], args_schema=TOOL_SCHEMAS[name])
         def call(**kwargs: Any) -> str:
             return run_tool(name, kwargs, deps, ToolContext()).content
 
-        return StructuredTool.from_function(
-            func=call,
-            name=name,
-            description=TOOL_DESCRIPTIONS[name],
-            args_schema=TOOL_SCHEMAS[name],
-        )
+        return call
 
     return [make(name) for name in TOOL_NAMES]
+
+
+__all__ = [
+    "BUDGET_FREE",
+    "CITY_KEYS",
+    "CORPUS_TOOLS",
+    "DECLARATION_TOOLS",
+    "EVIDENCE_ROLES",
+    "IMPLEMENTATIONS",
+    "MEMORY_TOOLS",
+    "STATUS_TEMPLATES",
+    "TOOL_DESCRIPTIONS",
+    "TOOL_NAMES",
+    "TOOL_SCHEMAS",
+    "build_tools",
+    "call_fingerprint",
+    "run_tool",
+]
