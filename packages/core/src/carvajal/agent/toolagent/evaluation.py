@@ -35,6 +35,7 @@ import re
 import sys
 import time
 import unicodedata
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from decimal import Decimal, InvalidOperation
@@ -394,6 +395,8 @@ class TurnObservation:
       (``shortcut`` para el saludo y la preferencia declarada).
     - ``usage``: tokens del turno; ``None`` si el proveedor no los publica.
     - Latencias en segundos desde el envío: primer estado, primer texto y fin.
+    - ``gatekeeper`` y ``claims`` (spec 046): decisión del gatekeeper y veredicto de la
+      compuerta del turno (solo metadatos; vacíos en ``routes``).
     """
 
     answer: str
@@ -411,14 +414,24 @@ class TurnObservation:
     first_text_s: float | None = None
     total_s: float = 0.0
     fallback_reason: str = ""
+    gatekeeper: Mapping[str, Any] = field(default_factory=dict)
+    claims: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def tool_names(self) -> list[str]:
         return [call.name for call in self.tools]
 
     @property
+    def jev_direct(self) -> bool:
+        """Respuesta directa por decisión de Jev (spec 046): mismo camino que el atajo."""
+
+        return self.path == "shortcut" and self.gatekeeper.get("source") == "jev"
+
+    @property
     def shortcut(self) -> bool:
-        return self.path == "shortcut"
+        """Atajo por reglas (044); la respuesta directa de Jev no cuenta (spec 046, R15)."""
+
+        return self.path == "shortcut" and not self.jev_direct
 
 
 def _plain(value: Any) -> Any:
@@ -906,6 +919,8 @@ def tools_observation(final: Any, answer: str, messages: Sequence[Any] = ()) -> 
         abstained=bool(final.abstained),
         path=str(final.mode_path or "agent"),
         usage=dict(final.usage) or None,
+        gatekeeper=dict(getattr(final, "gatekeeper", None) or {}),
+        claims=dict(getattr(final, "claims", None) or {}),
     )
 
 
@@ -1063,6 +1078,8 @@ class ToolsDriver:
             first_text_s=now - started,
             total_s=now - started,
             fallback_reason=reason,
+            # Spec 046: la decisión del intento, si la hubo; el respaldo no se juzga.
+            gatekeeper=dict(getattr(obtained, "gatekeeper", None) or {}),
         )
 
 
@@ -2408,8 +2425,46 @@ class ItemResult:
             "first_text_s": observation.first_text_s if observation else None,
             "total_s": observation.total_s if observation else None,
             "elapsed_s": self.elapsed_s,
+            "gatekeeper": _gate_summary(observation.gatekeeper) if observation else {},
+            "claims": _claims_summary(observation.claims) if observation else {},
         }
 
+
+# Campos de la decisión y del veredicto que van al JSON (sin texto; spec 046).
+_GATE_KEYS: Final = (
+    "gate_class",
+    "scope",
+    "source",
+    "confidence",
+    "cautious",
+    "rule",
+    "reason",
+    "jev_status",
+    "llm_class",
+)
+_CLAIMS_KEYS: Final = ("status", "p", "reason", "substituted")
+
+
+def _gate_summary(gatekeeper: Mapping[str, Any]) -> dict[str, Any]:
+    if not gatekeeper:
+        return {}
+    summary = {key: gatekeeper.get(key) for key in _GATE_KEYS}
+    jev = gatekeeper.get("jev")
+    summary["jev"] = dict(jev) if isinstance(jev, Mapping) else None
+    return summary
+
+
+def _claims_summary(claims: Mapping[str, Any]) -> dict[str, Any]:
+    if not claims:
+        return {}
+    summary = {key: claims.get(key) for key in _CLAIMS_KEYS}
+    jev = claims.get("jev")
+    summary["jev"] = dict(jev) if isinstance(jev, Mapping) else None
+    return summary
+
+
+# Motivo de una llamada a Jev no hecha por la cuota de la corrida (spec 046, data-model).
+QUOTA_REASON: Final = "cuota"
 
 # Latencias en las que un ítem con error cuenta como infinito.
 _CENSORED_LATENCIES: Final = frozenset({"first_text_s", "total_s"})
@@ -2631,6 +2686,94 @@ class ModeReport:
             "degraded_turns": self.degraded_turns,
             "degraded": self.degraded,
             "errors": self.errors,
+            "jev": self.jev_metrics(),
+        }
+
+    @property
+    def has_gatekeeper(self) -> bool:
+        return any(o.gatekeeper for o in self._observed())
+
+    def jev_metrics(self) -> dict[str, Any]:
+        """Gatekeeper y compuerta del modo ``tools`` (spec 046, FR-027, SC-004, SC-006).
+
+        Llamadas, latencias p50/p95 (ms), tokens y estados de Jev; decisiones por alcance y
+        fuente; cautelas y sustituciones; el atajo por reglas frente a la respuesta directa
+        de Jev (un ítem con datos enviado a la directa es un error del gatekeeper); los
+        turnos sin decisión por la cuota de la corrida (fuera del denominador de SC-004).
+        """
+
+        calls: list[Mapping[str, Any]] = []
+        router_calls = claims_calls = 0
+        scopes: Counter[str] = Counter()
+        sources: Counter[str] = Counter()
+        claims_statuses: Counter[str] = Counter()
+        cautious: list[str] = []
+        substituted: list[str] = []
+        direct_errors: list[str] = []
+        rules_shortcut = jev_direct = quota_router = quota_claims = 0
+        eligible = decided = 0
+        for result in self.results:
+            observation = result.observation
+            if observation is None:
+                continue
+            gate, claims = observation.gatekeeper, observation.claims
+            router = gate.get("jev") if gate else None
+            judged = claims.get("jev") if claims else None
+            if isinstance(router, Mapping):
+                router_calls += 1
+                calls.append(router)
+            if isinstance(judged, Mapping):
+                claims_calls += 1
+                calls.append(judged)
+            if claims.get("status"):
+                claims_statuses[str(claims["status"])] += 1
+            if claims.get("substituted"):
+                substituted.append(result.item.id)
+            if claims.get("reason") == QUOTA_REASON:
+                quota_claims += 1
+            if observation.shortcut and gate.get("source") != "jev":
+                rules_shortcut += 1
+            if not gate:
+                continue
+            scopes[str(gate.get("scope") or "")] += 1
+            source = str(gate.get("source") or "")
+            sources[source] += 1
+            if gate.get("cautious"):
+                cautious.append(result.item.id)
+            if observation.jev_direct:
+                jev_direct += 1
+                expect = result.item.expect
+                if not (expect.get("no_tool_allowed") or expect.get("shortcut")):
+                    direct_errors.append(result.item.id)
+            if gate.get("reason") == f"sin_jev:{QUOTA_REASON}":
+                quota_router += 1
+            elif source != "reglas":
+                eligible += 1
+                decided += source == "jev"
+        latencies = [float(c.get("latency_ms") or 0) for c in calls]
+        p50, p95 = _percentile(latencies, 0.5), _percentile(latencies, 0.95)
+        return {
+            "router_calls": router_calls,
+            "claims_calls": claims_calls,
+            "latency_p50_ms": round(p50) if p50 is not None else None,
+            "latency_p95_ms": round(p95) if p95 is not None else None,
+            "input_tokens": sum(int(c.get("input_tokens") or 0) for c in calls),
+            "output_tokens": sum(int(c.get("output_tokens") or 0) for c in calls),
+            "statuses": dict(Counter(str(c.get("status") or "") for c in calls)),
+            "scopes": dict(scopes),
+            "sources": dict(sources),
+            "cautious": len(cautious),
+            "cautious_items": cautious,
+            "substituted": len(substituted),
+            "substituted_items": substituted,
+            "claims_statuses": dict(claims_statuses),
+            "rules_shortcut": rules_shortcut,
+            "jev_direct": jev_direct,
+            "jev_direct_errors": direct_errors,
+            "quota_router": quota_router,
+            "quota_claims": quota_claims,
+            "jev_decided": decided,
+            "jev_eligible": eligible,
         }
 
 
@@ -2847,6 +2990,7 @@ def render_report(
         "en el primer texto y el fin. Un turno por respaldo no cuenta como resuelto ni como "
         "compuesta completa.",
     ]
+    lines += _jev_section(reports)
     failures = [r for report in reports for r in report.results if not r.passed]
     lines += ["", "## Fallos por ítem", ""]
     if not failures:
@@ -2877,6 +3021,74 @@ def render_report(
 
 def _cell(text: str) -> str:
     return " ".join(text.replace("|", "\\|").split())[:200]
+
+
+def _counts(values: Mapping[str, int]) -> str:
+    return ", ".join(f"{name or '—'} {count}" for name, count in sorted(values.items())) or "—"
+
+
+def _jev_section(reports: Sequence[ModeReport]) -> list[str]:
+    """Tabla del gatekeeper y de la compuerta (spec 046), solo si algún modo los trae."""
+
+    shown = [report for report in reports if report.has_gatekeeper]
+    if not shown:
+        return []
+    metrics = {report.mode: report.jev_metrics() for report in shown}
+    rows: list[tuple[str, Callable[[dict[str, Any]], str]]] = [
+        (
+            "Llamadas a Jev (gatekeeper / compuerta)",
+            lambda m: f"{m['router_calls']} / {m['claims_calls']}",
+        ),
+        (
+            "Latencia por llamada p50 / p95 (ms)",
+            lambda m: f"{m['latency_p50_ms'] or '—'} / {m['latency_p95_ms'] or '—'}",
+        ),
+        ("Tokens de Jev entrada / salida", lambda m: f"{m['input_tokens']} / {m['output_tokens']}"),
+        ("Estados de Jev", lambda m: _counts(m["statuses"])),
+        ("Decisiones por alcance", lambda m: _counts(m["scopes"])),
+        ("Fuente de la decisión", lambda m: _counts(m["sources"])),
+        (
+            "Turnos con decisión de Jev (sin reglas ni cuota)",
+            lambda m: _pct(m["jev_decided"], m["jev_eligible"]),
+        ),
+        (
+            "Turnos con cautela",
+            lambda m: f"{m['cautious']} ({', '.join(m['cautious_items']) or '—'})",
+        ),
+        ("Estados de la compuerta", lambda m: _counts(m["claims_statuses"])),
+        (
+            "Sustituciones de la compuerta",
+            lambda m: f"{m['substituted']} ({', '.join(m['substituted_items']) or '—'})",
+        ),
+        (
+            "Atajo por reglas / respuesta directa de Jev",
+            lambda m: f"{m['rules_shortcut']} / {m['jev_direct']}",
+        ),
+        (
+            "Errores del gatekeeper (pregunta con datos a la directa)",
+            lambda m: ", ".join(m["jev_direct_errors"]) or "ninguno",
+        ),
+        (
+            "Turnos sin decisión por cuota (gatekeeper / compuerta)",
+            lambda m: f"{m['quota_router']} / {m['quota_claims']}",
+        ),
+    ]
+    lines = [
+        "",
+        "## Gatekeeper y compuerta (spec 046)",
+        "",
+        "| Métrica | " + " | ".join(metrics) + " |",
+        "|---|" + "---|" * len(metrics),
+    ]
+    for label, cell in rows:
+        lines.append(f"| {label} | " + " | ".join(_cell(cell(m)) for m in metrics.values()) + " |")
+    lines += [
+        "",
+        "Los turnos sin decisión por la cuota de la corrida se declaran y no cuentan en el "
+        "denominador de los turnos con decisión de Jev (SC-004). La respuesta directa de Jev no "
+        "cuenta como atajo de las reglas.",
+    ]
+    return lines
 
 
 def results_payload(
@@ -3051,12 +3263,15 @@ def build_runtime(
     router: Any = None,
     clock: Callable[[], float] = time.perf_counter,
     judge: Any = None,
+    claims_judge: Any = ...,
 ) -> EvalRuntime:
     """Construye los modos pedidos sobre el mismo índice, embedder y catálogo.
 
     ``judge`` (spec 046) es el juez de Jev del gatekeeper y de la compuerta de afirmaciones,
     el mismo que usa producción. ``carvajal eval-agent`` solo lo construye con
     ``--jev-ledger`` (FR-031); sin él, el modo ``tools`` corre sin Jev aunque haya clave.
+    ``claims_judge`` es el de la compuerta (por defecto, el mismo ``judge``; la reproducción
+    de ``eval-gatekeeper`` pasa ``None`` porque no hay veredictos grabados de Noul).
 
     Persistencia en memoria (``InMemorySaver``/``InMemoryStore``, una pareja por modo). Sin
     dobles, usa Qdrant (envuelto en ``LayerPriorityStore``), Ollama y DeepSeek con la
@@ -3152,7 +3367,11 @@ def build_runtime(
             fallback_graph = routes_graph(decide_route, checkpointer, store)
             drivers["tools"] = ToolsDriver(
                 # Spec 046: la compuerta de afirmaciones usa el mismo juez que el gatekeeper.
-                ToolAgentRunner(tool_graph, settings, claims_judge=judge),
+                ToolAgentRunner(
+                    tool_graph,
+                    settings,
+                    claims_judge=judge if claims_judge is ... else claims_judge,
+                ),
                 graph=tool_graph,
                 fallback_runner=GraphAgentRunner(fallback_graph, settings),
                 clock=clock,

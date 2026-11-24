@@ -129,7 +129,8 @@ def _decide(
     try:
         verdict = judge.classify(query)
     except JudgeUnavailable as error:
-        decision = _without_jev(error.status, rules)
+        # ``reason`` distingue la cuota de una corrida de evaluación (``cuota``) del estado.
+        decision = _without_jev(error.reason or error.status, rules)
         if error.call is not None:
             return replace(decision, jev=error.call.to_value())
         return decision

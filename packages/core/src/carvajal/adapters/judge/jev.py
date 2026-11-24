@@ -299,23 +299,92 @@ class JevClient:
 
         if self.ledger is None:
             return
+        self._write(
+            {
+                "ts": self._now().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "run": self.run,
+                "item": self.item,
+                **call.to_value(),
+                **dict(extras),
+            }
+        )
+
+    def smoke(self, *, timeout_s: float = 5.0) -> dict[str, Any]:
+        """Humo de la medición (research R11): ``GET {base}/models`` con la clave.
+
+        Una llamada, anotada en el libro como ``run="smoke"`` y ``kind="smoke"``; cuenta para
+        el tope del día. Devuelve el estado, la latencia y si el modelo fijado aparece en la
+        lista. Sin reintentos; nunca lanza.
+        """
+
+        blocked = self.unavailable_status()
+        if blocked is not None:
+            return {"status": blocked, "latency_ms": 0, "model_listed": False}
+        with self._lock:
+            self.calls_today += 1
+        started = self._clock()
+        try:
+            response = self._http.get(
+                f"{self.base_url}/models",
+                headers={"Authorization": f"Bearer {self._key}"},
+                timeout=timeout_s,
+            )
+            outcome = _Outcome(response.status_code, _json_or_none(response))
+        except httpx.TimeoutException:
+            outcome = _Outcome(None, None, "timeout")
+        except httpx.HTTPError:
+            outcome = _Outcome(None, None, "red")
+        latency_ms = max(0, round((self._clock() - started) * 1000))
+        status, category = self._classify(outcome)
+        listed = status == "ok" and self.model in _strings(outcome.payload)
+        self._after(status, category, self.model if listed else "")
         line = {
             "ts": self._now().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "run": self.run,
-            "item": self.item,
-            **call.to_value(),
-            **dict(extras),
+            "run": "smoke",
+            "item": "",
+            "kind": "smoke",
+            "status": status,
+            "latency_ms": latency_ms,
+            "model": self.model if listed else "",
+            "input_tokens": 0,
+            "output_tokens": 0,
         }
+        self._write(line)
+        logger.info("jev.smoke", status=status, latency_ms=latency_ms, model_listed=listed)
+        return {"status": status, "latency_ms": latency_ms, "model_listed": listed}
+
+    def _write(self, line: Mapping[str, Any]) -> None:
+        if self.ledger is None:
+            return
         try:
             self.ledger.parent.mkdir(parents=True, exist_ok=True)
             with self._lock, self.ledger.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+                handle.write(json.dumps(dict(line), ensure_ascii=False) + "\n")
         except OSError as error:
             logger.warning("jev.ledger_failed", error_type=type(error).__name__)
 
     def close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
         self._http.close()
+
+
+def _json_or_none(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def _strings(value: Any) -> set[str]:
+    """Todas las cadenas de una respuesta JSON (para buscar el modelo en ``/models``)."""
+
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, Mapping):
+        return {text for item in value.values() for text in _strings(item)}
+    if isinstance(value, list):
+        return {text for item in value for text in _strings(item)}
+    return set()
 
 
 def _usage(value: Any) -> tuple[int, int]:

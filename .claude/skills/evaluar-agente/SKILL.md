@@ -110,6 +110,43 @@ make eval-agent ARGS="--limit 5"
 - Al leer el informe: un turno por respaldo no cuenta como resuelto ni como compuesta
   completa, y un ítem con error cuenta como latencia `∞` en los p95.
 
+### Jev (TypeSafe): gatekeeper y compuerta de afirmaciones (spec 046)
+
+**Jev está apagado por defecto en toda evaluación local**: `eval-agent` no construye el
+juez aunque `TYPESAFE_API_KEY` esté en el `.env`, y las pruebas fijan `JEV_ENABLED=false`
+y bloquean la red a `api.typesafe.ai`. Cada llamada gasta créditos de TypeSafe y la
+medición completa tiene un presupuesto de **≤ 120 llamadas** (research R11 de la spec 046).
+Solo con permiso explícito del owner, y dentro de ese presupuesto:
+
+```bash
+LEDGER=specs/046-jev-router/evaluacion/jev-calls.jsonl   # libro sin texto, una línea por llamada
+
+# Gatekeeper: reglas (0 llamadas), LLM (DeepSeek) y Jev (Choice + Score), con humo.
+uv run carvajal eval-gatekeeper --smoke --judge rules --judge llm --judge jev \
+  --ledger "$LEDGER" --max-jev-calls 21 --output "$OUT/gatekeeper.md"
+
+# Compuerta de afirmaciones sobre data/eval/claims_046.json (16 llamadas).
+uv run carvajal eval-claims --ledger "$LEDGER" --max-jev-calls 16 --output "$OUT/claims.md"
+
+# Modo tools con Jev, como producción, con cuotas separadas.
+uv run carvajal eval-agent --mode tools --jev-ledger "$LEDGER" \
+  --max-jev-router-calls 45 --max-jev-claims-calls 30 --output "$OUT/agent-jev.md"
+
+# Sin créditos de Jev: reproduce los veredictos grabados y corre el agente (solo DeepSeek)
+# sobre los ítems que terminaron en cautela o en respuesta directa.
+uv run carvajal eval-gatekeeper --replay-ledger "$LEDGER" --agent --only cautious,direct \
+  --output "$OUT/gatekeeper-replay.md"
+```
+
+- `eval-gatekeeper --judge jev`, `--smoke` y `eval-claims` se niegan a correr sin
+  `--ledger`; `eval-agent` solo usa Jev con `--jev-ledger`. Sin esas banderas: 0 llamadas.
+- `--max-jev-calls` y las cuotas de `eval-agent` cortan la corrida antes del tope diario;
+  los ítems o turnos sin llamada se declaran (`cuota`) y no cuentan en los denominadores.
+- `wc -l "$LEDGER"` es el gasto: compáralo con el presupuesto antes y después.
+- La sección «Gatekeeper y compuerta» de `eval-agent` distingue el atajo por reglas de la
+  respuesta directa de Jev: una pregunta con datos enviada a la directa es un error del
+  gatekeeper.
+
 ## 4. Compara contra la línea base
 
 La línea base es `main`. Usa primero los informes versionados:
