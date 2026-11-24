@@ -591,3 +591,45 @@ def test_las_herramientas_no_nombran_casos_concretos_salvo_los_ejemplos_de_forma
     # Assert
     assert (skus | codigos) <= EJEMPLOS_DE_FORMATO
     assert not nombradas
+
+
+def test_el_agente_responde_en_el_idioma_de_la_persona() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    plano = _plano(AGENT_SYSTEM)
+
+    # Assert: los datos de las herramientas vienen en español; la respuesta no los sigue.
+    assert (
+        "Responde siempre en el idioma en que escribe la persona, aunque los datos de las "
+        "herramientas estén en español." in plano
+    )
+    assert plano.index("Responde siempre en el idioma") < plano.index("Datos y evidencia:")
+
+
+def test_un_seguimiento_de_iva_envio_o_total_vuelve_a_cotizar() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "Si un seguimiento pregunta por el IVA")
+
+    # Assert: esos datos los trae cotizar, no el corpus.
+    assert "el IVA, el envío, el domicilio o el total de una cotización anterior" in regla
+    assert "vuelve a llamar a cotizar con los datos del hilo" in regla
+    assert "no lo busques en el corpus" in regla
+
+
+def test_una_referencia_nombrada_se_cotiza_con_sku_o_nombre() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools import CotizarArgs
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "Si la persona nombró una referencia concreta")
+
+    # Assert: el prompt nombra los argumentos que existen en el esquema de cotizar.
+    assert {"sku", "nombre"} <= set(CotizarArgs.model_fields)
+    assert "pásala a cotizar en sku o nombre: se cotiza exactamente esa" in regla
+    assert "Si cotizar devuelve candidatas, pregunta cuál quiere" in regla

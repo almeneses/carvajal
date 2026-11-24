@@ -36,6 +36,25 @@ caliente o para frío difiere del que se cotizaría sin temperatura, cotizar ser
 material. Si no difiere (vasos térmicos que sirven para ambos, platos de EPS, salseras), la
 temperatura no cambia nada y no se pregunta. Así la regla cubre vasos, tapas, contenedores
 y platos sin una lista fija de familias y sigue al catálogo cuando cambie.
+
+Referencia nombrada (spec 044, ronda 4): ``QuoteRequest.sku`` o ``QuoteRequest.name`` fijan
+la referencia que nombró la persona («P1», «J2», «CO-CTT-16», «Vaso Gold de 14 oz») con la
+misma búsqueda por nombre de ``buscar_producto`` (``carvajal.agent.reference_names``). Si
+identifica una sola, se cotiza exactamente esa (presentación, unidad, conversión, IVA, envío
+y total) sin alternativas y sin preguntar la temperatura; si la persona dijo un uso, una
+temperatura o el microondas, ``check_material`` sigue mandando y una referencia no apta no
+se cotiza (``reason: "referencia_no_apta"``). Un nombre que coincide con varias pide cuál
+(``missing: ["referencia"]`` con ``candidates``); uno que no coincide con ninguna, o una
+referencia sin precio publicado en la ciudad, devuelve ``sin_resultados`` con su ``reason``
+y nunca se sustituye por otra referencia.
+
+``sku`` solo cuenta como SKU exacto: si no lo es, manda ``name`` (y el texto del SKU se
+busca como nombre solo cuando no hay ``name``); si los dos fijan referencias distintas, se
+pregunta cuál (``conflict``). Si el nombre o la familia pedida dicen otra familia que la de
+la referencia («vaso P1» es un contenedor), se cotiza la nombrada y el resultado lo avisa
+(``family_mismatch``). Un nombre que solo describe un tipo de producto («vaso de icopor»,
+``is_generic_name``) no nombra una referencia: se cotiza como la búsqueda por familia
+(temperatura, la más económica y alternativas) entre las referencias que coinciden.
 """
 
 import re
@@ -49,6 +68,12 @@ from zoneinfo import ZoneInfo
 
 from carvajal.agent.commercial import CAPACITY_TOLERANCE_OZ, CommercialRequest, check_material
 from carvajal.agent.commercial_intent import USE_TEMPERATURE, empty_request, extract_commercial
+from carvajal.agent.reference_names import (
+    exact_sku,
+    is_generic_name,
+    name_family,
+    resolve_reference,
+)
 from carvajal.agent.state import Turn
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.prompts import ABSENCE_POLICY
@@ -66,6 +91,7 @@ __all__ = [
 
 MAX_ALTERNATIVES = 2
 MAX_DISCARDED = 3
+MAX_CANDIDATES = 5  # candidatas de un nombre ambiguo que se listan
 QUOTE_VERSION = 2
 BOGOTA = ZoneInfo("America/Bogota")
 COP = "COP"
@@ -170,7 +196,7 @@ class QuoteRequest:
     Ningún campo se deduce de texto libre. ``temperature`` se completa con el uso cuando
     este la implica («bebida_caliente» → caliente); ``city`` se normaliza contra el
     dataset; ``delivery = None`` significa que no se sabe si va con domicilio, y el total
-    queda pendiente.
+    queda pendiente. ``sku`` o ``name`` fijan la referencia nombrada (ver el módulo).
     """
 
     family: str | None = None
@@ -184,6 +210,9 @@ class QuoteRequest:
     delivery: bool | None = None
     # Unidad en que viene ``quantity`` (``UNITS``); ``None`` equivale a ``unidad``.
     unit: str | None = None
+    # Referencia que nombró la persona: SKU exacto o nombre/código («P1», «Vaso Gold 14 oz»).
+    sku: str | None = None
+    name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,8 +399,13 @@ def _families(request: dict[str, Any]) -> tuple[str, ...]:
     return _USE_FAMILIES.get(request.get("use") or "", tuple(_FAMILIES_LABEL))
 
 
-def _possible(request: dict[str, Any], dataset: Dataset) -> list[Product]:
-    """Productos de la familia y la capacidad pedidas, antes de validar el material."""
+def _possible(
+    request: dict[str, Any], dataset: Dataset, skus: frozenset[str] | None = None
+) -> list[Product]:
+    """Productos de la familia y la capacidad pedidas, antes de validar el material.
+
+    ``skus`` limita la búsqueda a las referencias de un nombre genérico («vaso de icopor»).
+    """
 
     families = _families(request)
     capacity = request.get("capacity_oz")
@@ -379,6 +413,7 @@ def _possible(request: dict[str, Any], dataset: Dataset) -> list[Product]:
         product
         for product in dataset.products
         if product.country == COUNTRY
+        and (skus is None or product.sku in skus)
         and product.use
         and product.family in families
         and (
@@ -405,7 +440,12 @@ def _commercial(request: dict[str, Any]) -> CommercialRequest:
     )
 
 
-def _temperature_missing(request: dict[str, Any], dataset: Dataset, catalog: Catalog) -> bool:
+def _temperature_missing(
+    request: dict[str, Any],
+    dataset: Dataset,
+    catalog: Catalog,
+    skus: frozenset[str] | None = None,
+) -> bool:
     """Falta la temperatura y de ella depende qué referencias son aptas.
 
     Se compara lo que ``check_material`` aceptaría sin temperatura con lo que aceptaría
@@ -414,7 +454,7 @@ def _temperature_missing(request: dict[str, Any], dataset: Dataset, catalog: Cat
 
     if request.get("temperature") or request.get("microwave"):
         return False
-    possible = _possible(request, dataset)
+    possible = _possible(request, dataset, skus)
     if not possible:
         return False
 
@@ -428,11 +468,14 @@ def _temperature_missing(request: dict[str, Any], dataset: Dataset, catalog: Cat
 
 
 def _candidates(
-    request: dict[str, Any], dataset: Dataset, catalog: Catalog
+    request: dict[str, Any],
+    dataset: Dataset,
+    catalog: Catalog,
+    skus: frozenset[str] | None = None,
 ) -> tuple[list[Product], list[str]]:
     """Productos compatibles con la solicitud y motivos de descarte."""
 
-    possible = _possible(request, dataset)
+    possible = _possible(request, dataset, skus)
     if not possible:
         return [], []
     valid, discarded = check_material(list(possible), _commercial(request), catalog=catalog)
@@ -674,6 +717,231 @@ def _needs(missing: str, reply: str, **extra: Any) -> dict[str, Any]:
     return _empty("aclaracion", reply, missing=[missing], **extra)
 
 
+def _candidate(reference: Product) -> dict[str, Any]:
+    return {
+        "sku": reference.sku,
+        "name": reference.name,
+        "family": reference.family,
+        "material": reference.material,
+        "capacity_oz": reference.capacity_oz,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class _Named:
+    """Referencia nombrada que se cotiza; ``asked_family``, la familia que dijo la persona
+    cuando la referencia es de otra («vaso P1»: el P1 es un contenedor)."""
+
+    reference: Product
+    asked_family: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _GenericName:
+    """Nombre que solo describe un tipo de producto: se cotiza como búsqueda por familia
+    entre las referencias que coinciden con él."""
+
+    skus: frozenset[str]
+
+
+def _not_found(data: dict[str, Any]) -> dict[str, Any]:
+    return _empty(
+        "sin_resultados",
+        "No encontré en el catálogo de Colombia una referencia con ese nombre o código, y "
+        "no cotizo otra en su lugar. Puedo buscarla por uso, familia o capacidad.",
+        request=data,
+        reason="referencia_no_encontrada",
+    )
+
+
+def _ask_which(
+    named: list[Product],
+    data: dict[str, Any],
+    *,
+    partial: bool = False,
+    conflict: bool = False,
+) -> dict[str, Any]:
+    """Aclaración con las candidatas: nombre ambiguo, parcial o en conflicto con el SKU."""
+
+    listed = "; ".join(f"{item.name} ({item.sku})" for item in named[:MAX_CANDIDATES])
+    if conflict:
+        lead = "El SKU y el nombre que diste corresponden a referencias distintas"
+    elif partial:
+        lead = "No encontré una referencia con exactamente ese nombre; las más parecidas son"
+    else:
+        lead = "Ese nombre coincide con varias referencias"
+    extra: dict[str, Any] = {"conflict": True} if conflict else {}
+    return _needs(
+        "referencia",
+        f"{lead}: {listed}. ¿Cuál cotizo?",
+        request=data,
+        candidates=[_candidate(item) for item in named[:MAX_CANDIDATES]],
+        candidates_total=len(named),
+        partial=partial,
+        **extra,
+    )
+
+
+def _generic_name(
+    found: list[Product], name: str, request: QuoteRequest, data: dict[str, Any], catalog: Catalog
+) -> _GenericName:
+    """Limita la búsqueda por familia a las referencias del nombre genérico.
+
+    La familia es la pedida si está entre las del nombre; si no, la que dice el sustantivo
+    del nombre («vaso» también coincide con las tapas «para vaso») o la única que hay. Si
+    el nombre abarca varias familias y no dice cuál («icopor»), queda sin familia.
+    """
+
+    families = {reference.family for reference in found}
+    said = name_family(name, catalog)
+    if request.family in families:
+        family: str | None = request.family
+    elif said in families:
+        family = said
+    elif len(families) == 1:
+        family = next(iter(families))
+    else:
+        family = None
+    if family is not None:
+        found = [reference for reference in found if reference.family == family]
+    data["family"] = family
+    return _GenericName(skus=frozenset(reference.sku for reference in found))
+
+
+def _asked_family(
+    name: str, reference: Product, request: QuoteRequest, catalog: Catalog
+) -> str | None:
+    """Familia que dijo la persona si no es la de la referencia, o ``None``.
+
+    Manda el sustantivo de tipo del nombre («vaso P1» → vaso); si el nombre no trae uno
+    («P1», un SKU), la familia que pasó la llamada. «Portacomidas J2» con ``family="vaso"``
+    no avisa nada: el nombre dice portacomidas y el J2 lo es.
+    """
+
+    said = name_family(name, catalog) if name else None
+    asked = said if said is not None else request.family
+    return asked if asked and asked != reference.family else None
+
+
+def _named_reference(
+    request: QuoteRequest, data: dict[str, Any], dataset: Dataset, catalog: Catalog
+) -> _Named | _GenericName | dict[str, Any]:
+    """Referencia que fijan ``sku`` o ``name``, o la respuesta si no se puede cotizar.
+
+    Devuelve la ficha si identifica exactamente una referencia apta para lo que dijo la
+    persona; el conjunto de referencias si el nombre es genérico; si no, la aclaración
+    (varias candidatas, coincidencia parcial o SKU y nombre en conflicto) o el
+    ``sin_resultados`` (no existe, no es apta o no tiene ningún precio publicado).
+    """
+
+    pool = [reference for reference in catalog.references if reference.country == COUNTRY]
+    sku_text = (request.sku or "").strip()
+    name = (request.name or "").strip()
+    by_sku = exact_sku(sku_text, pool) if sku_text else None
+    if by_sku is None and not name:
+        # Sin nombre, el texto del SKU se busca como nombre («P1» pasado en ``sku``).
+        name = sku_text
+    narrow = {"family": request.family, "capacity_oz": request.capacity_oz}
+    if by_sku is None and is_generic_name(name, catalog):
+        generic = resolve_reference(name, pool, catalog, family=request.family)
+        if generic.named and not generic.partial:
+            return _generic_name(generic.named, name, request, data, catalog)
+    if by_sku is not None:
+        named, partial = [by_sku], False
+        if name and name != sku_text:
+            by_name = resolve_reference(name, pool, catalog, **narrow)
+            skus_by_name = {item.sku for item in by_name.named}
+            if by_name.named and not by_name.partial and by_sku.sku not in skus_by_name:
+                # El SKU y el nombre fijan referencias distintas: no gana ninguno en silencio.
+                return _ask_which([by_sku, *by_name.named], data, conflict=True)
+    elif name:
+        match = resolve_reference(name, pool, catalog, **narrow)
+        named, partial = match.named, match.partial
+    else:
+        named, partial = [], False
+    if not named:
+        return _not_found(data)
+    if len(named) > 1 or partial:
+        return _ask_which(named, data, partial=partial)
+    [reference] = named
+    data["family"] = reference.family
+    if data.get("use") or data.get("temperature") or data.get("microwave"):
+        # La persona dijo para qué es: la guía de materiales sigue mandando.
+        _, discarded = check_material([reference], _commercial(data), catalog=catalog)
+        if discarded:
+            reason = discarded[0].reason
+            # Sin ``request.sku``: una referencia no apta no queda fijada para el seguimiento.
+            return _empty(
+                "sin_resultados",
+                f"{reason} No la cotizo para ese uso; puedo buscar una referencia que sí sirva.",
+                request=data,
+                reason="referencia_no_apta",
+                sku=reference.sku,
+                discarded=[reason],
+            )
+    data["sku"] = reference.sku
+    if not _priced_cities(reference, dataset):
+        return _without_price(reference, data, dataset)
+    return _Named(reference, _asked_family(name, reference, request, catalog))
+
+
+def _published_presentations(product: Product, dataset: Dataset, city: str) -> list[str]:
+    """Presentación publicada de la referencia: la del nombre («paca x 200») o, si el nombre
+    no declara ninguna, las de sus ofertas en la ciudad («caja de 1000»)."""
+
+    found = [
+        f"{_plain(match.group(1))} de {match.group(2)}"
+        for match in _NAME_PRESENTATION.finditer(product.name)
+    ]
+    if found:
+        return found
+    return sorted(
+        {
+            f"{offer.basis} de {offer.units_in_basis}"
+            for offer in dataset.offers_for(product.sku)
+            if offer.city == city
+        }
+    )
+
+
+def _priced_cities(reference: Product, dataset: Dataset) -> list[str]:
+    """Ciudades donde la referencia tiene un precio publicado que se puede cotizar."""
+
+    return sorted(
+        {
+            offer.city
+            for offer in dataset.offers_for(reference.sku)
+            if offer.stock_status != "no_disponible"
+        }
+    )
+
+
+def _without_price(reference: Product, data: dict[str, Any], dataset: Dataset) -> dict[str, Any]:
+    """La referencia nombrada no tiene precio en la ciudad: sedes, sin sustituirla."""
+
+    city = data.get("city")
+    priced = _priced_cities(reference, dataset)
+    sedes = dataset.providers_in(city) if city else ()
+    reply = f"Hoy no hay precio publicado de {reference.name}" + (f" en {city}." if city else ".")
+    if priced:
+        reply += f" Tiene precio publicado en {', '.join(priced)}."
+    if sedes:
+        reply += f" Tengo {len(sedes)} sede(s) del directorio con contacto en {city}."
+    reply += " No la sustituyo por otra referencia."
+    return _empty(
+        "sin_resultados",
+        reply,
+        request=data,
+        reason="sin_precio",
+        sku=reference.sku,
+        name=reference.name,
+        reference=_candidate(reference),
+        cities=list(dataset.cities()),
+        providers=[_provider(item) for item in sedes],
+        priced_cities=priced,
+    )
+
+
 def quote_request(
     request: QuoteRequest,
     *,
@@ -701,10 +969,22 @@ def quote_request(
         "prefers_renewable": bool(request.prefers_renewable),
     }
 
-    if not request.family and not request.use:
+    named: Product | None = None
+    asked_family: str | None = None
+    skus: frozenset[str] | None = None
+    if request.sku or request.name:
+        resolved = _named_reference(request, data, dataset, catalog)
+        if isinstance(resolved, dict):
+            return resolved
+        if isinstance(resolved, _GenericName):
+            skus = resolved.skus
+        else:
+            named, asked_family = resolved.reference, resolved.asked_family
+    if named is None and not data["family"] and not data["use"]:
         return _needs("producto", ASK_PRODUCT, request=data)
-    if _temperature_missing(data, dataset, catalog):
-        reply = ASK_DRINK_TEMPERATURE if request.family == "vaso" else ASK_TEMPERATURE
+    # Con la referencia fijada la temperatura no cambia qué se cotiza: no se pregunta.
+    if named is None and _temperature_missing(data, dataset, catalog, skus):
+        reply = ASK_DRINK_TEMPERATURE if data["family"] == "vaso" else ASK_TEMPERATURE
         return _needs("temperatura", reply, request=data)
     quantity = request.quantity
     if quantity is None or quantity < 1:
@@ -723,7 +1003,17 @@ def quote_request(
             cities=list(dataset.cities()),
         )
 
-    products, discarded = _candidates(data, dataset, catalog)
+    if named is not None:
+        here = [
+            offer
+            for offer in dataset.offers_for(named.sku)
+            if offer.city == city and offer.stock_status != "no_disponible"
+        ]
+        if not here:
+            return _without_price(named, data, dataset)
+        products, discarded = [named], []
+    else:
+        products, discarded = _candidates(data, dataset, catalog, skus)
     if not products:
         return _empty(
             "sin_resultados",
@@ -779,6 +1069,23 @@ def quote_request(
             ),
             *discarded,
         ][:MAX_DISCARDED]
+    if not options and unconvertible and named is not None:
+        # La referencia nombrada: su nombre y su presentación publicada, no «esas cajas».
+        published = _published_presentations(named, dataset, city)
+        shown = f" Su presentación publicada es {', '.join(published)}." if published else ""
+        bases = [_UNIT_PLURAL.get(item.split()[0]) for item in published]
+        other = next((item for item in bases if item and item != _UNIT_PLURAL[unit]), None)
+        ask = f"en unidades o en {other}" if other else "en unidades"
+        return _needs(
+            "cantidad",
+            f"No sé con certeza cuántas unidades trae {_UNIT_ARTICLE[unit]} {unit} de "
+            f"{named.name}: el catálogo y el contrato no declaran esa presentación para esta "
+            f"referencia.{shown} ¿Me das la cantidad {ask}?",
+            request=data,
+            unit=unit,
+            unconvertible=[named.sku],
+            presentations=published,
+        )
     if not options and unconvertible:
         plural = _UNIT_PLURAL[unit]
         return _needs(
@@ -862,7 +1169,16 @@ def quote_request(
         if "conversion" not in primary
         else f"{label} ({primary['conversion']['text']})"
     )
-    cheapest = "La de menor precio por unidad es" if mixed else "La más económica es"
+    if named is not None and asked_family:
+        # Ni el nombre ni la familia pedida son la de la referencia: se dice, no se calla.
+        cheapest = (
+            f"La referencia que nombraste es de {_FAMILIES_LABEL.get(named.family, named.family)}"
+            f" y no de {_FAMILIES_LABEL.get(asked_family, asked_family)}; cotizo esa,"
+        )
+    elif named is not None:
+        cheapest = "Cotizo la referencia que pediste,"
+    else:
+        cheapest = "La de menor precio por unidad es" if mixed else "La más económica es"
     reply = (
         f"Cotización para {asked} en {city}. "
         f"{cheapest} {product.name}: "
@@ -911,6 +1227,11 @@ def quote_request(
         "total": None if total is None else _decimal_text(total),
         "city": city,
         "discarded": discarded,
+        **(
+            {"family_mismatch": {"asked": asked_family, "family": product.family}}
+            if asked_family
+            else {}
+        ),
     }
 
 

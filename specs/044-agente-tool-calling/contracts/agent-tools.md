@@ -54,6 +54,30 @@ Cada herramienta, al empezar, publica un evento de estado (ver [sse-events.md](.
   fuente, fecha}`, `reutilizado: [campo]`.
 - **`needs_input`**: cantidad o ciudad ausentes; incluye `ciudades_disponibles`.
 - **`empty`**: sin precio publicado para esa ciudad; incluye sedes del directorio.
+- **Referencia nombrada** (`sku` o `nombre`, ronda 4): se resuelve con la búsqueda por
+  nombre de `buscar_producto` (`carvajal.agent.reference_names`). Una sola coincidencia se
+  cotiza exactamente (sin alternativas ni pregunta de temperatura); si la persona dijo uso,
+  temperatura o microondas, `check_material` manda y una referencia no apta devuelve
+  `empty` con `no_apta: {sku, motivo}`. Varias coincidencias (o una parcial) →
+  `needs_input` con `missing: ["referencia"]` y `candidatas`. Sin coincidencia → `empty`
+  con `referencia_encontrada: false` y `aviso`. Sin precio en la ciudad → `empty` con
+  `referencia`, `ciudades_con_precio` y las sedes; nunca se sustituye por otra. El SKU
+  resuelto se guarda en `commercial_context` junto con la familia y la capacidad de su
+  ficha, para los seguimientos (domicilio, IVA, total, o que repiten esa familia o esa
+  capacidad); se olvida cuando la llamada cotiza otro producto, cuando `buscar_producto`
+  explora otra familia, uso, capacidad o temperatura (`sku: null`) y cuando la referencia
+  sale ambigua, inexistente o no apta.
+- `sku` solo vale como SKU exacto: si no lo es, manda `nombre` (el texto del SKU se busca
+  como nombre solo si no hay `nombre`); si `sku` y `nombre` fijan referencias distintas →
+  `needs_input` con `candidatas` y `conflicto_sku_nombre: true`.
+- Si el nombre («vaso P1») o la familia pasada dicen otra familia que la de la referencia,
+  se cotiza la nombrada y el `ok` trae `familia_distinta: {pedida, referencia}` para que el
+  modelo lo diga.
+- Un `nombre` genérico (solo tipo de producto y material, sin códigos ni números: «vaso de
+  icopor») no es una referencia: se cotiza como la búsqueda por familia (temperatura, la
+  más económica y alternativas) entre las referencias que coinciden.
+- Una referencia nombrada cuya presentación pedida no se convierte con certeza («2 cajas
+  del P1») → `needs_input` (`cantidad`) que la nombra con su presentación publicada.
 - Máximo 3 cotizaciones exitosas distintas por turno; la cuarta devuelve `error` con
   `message` explicativo.
 - Si una cotización exitosa coincide con otra del turno en producto, ciudad y cantidad y

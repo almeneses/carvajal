@@ -47,6 +47,13 @@ from carvajal.agent.commercial_flow import (
     commercial_sources,
 )
 from carvajal.agent.commercial_intent import USE_TEMPERATURE, USES, microwave_for
+from carvajal.agent.reference_names import (
+    capacity_fits,
+    informative_terms,
+    match_named,
+    matched_terms,
+    query_terms,
+)
 from carvajal.agent.toolagent.sources import SourceRegistry
 from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_CORPUS,
@@ -404,8 +411,26 @@ class CotizarArgs(BaseModel):
         default=None,
         description="true con domicilio, false con retiro en sede; null si no se sabe.",
     )
+    sku: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "SKU de la referencia que nombró la persona (como CO-PCOM-J2), tal como aparece "
+            "en los datos de las herramientas; fija la referencia que se cotiza."
+        ),
+    )
+    nombre: str | None = Field(
+        default=None,
+        max_length=MAX_NAME_CHARS,
+        description=(
+            "Referencia concreta que nombró la persona: código (P1, J2) o nombre comercial "
+            "(Vaso Gold de 14 oz). Se busca como en buscar_producto y se cotiza exactamente "
+            "esa, sin alternativas. Una descripción genérica (vasos de icopor) no es una "
+            "referencia: pásala en family y use."
+        ),
+    )
 
-    _texts = field_validator("use", "city", mode="before")(_optional_text)
+    _texts = field_validator("use", "city", "sku", "nombre", mode="before")(_optional_text)
 
     @field_validator("use")
     @classmethod
@@ -474,7 +499,10 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     TOOL_COTIZAR: (
         "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con "
         "el precio publicado de un vendedor. Los datos ausentes se completan con el contexto "
-        "comercial del hilo. Solo para combinaciones que la persona pidió. La cantidad va en "
+        "comercial del hilo. Solo para combinaciones que la persona pidió. Si la persona "
+        "nombró una referencia concreta (código como P1 o J2, SKU o nombre comercial), pásala "
+        "en sku o nombre: se cotiza exactamente esa, sin alternativas, y si el nombre es "
+        "ambiguo devuelve las candidatas. La cantidad va en "
         "la unidad que dijo la persona (unidad: cajas, paquetes, pacas); la herramienta la "
         "convierte y devuelve la conversión: no la calcules tú. Sin ciudad dicha por la "
         "persona, o con una ciudad fuera del directorio, pide la ciudad."
@@ -772,132 +800,8 @@ def _buscar_corpus(
 
 # --- buscar_producto (T018) ----------------------------------------------------------------
 
-# Búsqueda por nombre. El texto de la persona y la ficha se comparan por términos
-# normalizados (sin tildes ni mayúsculas): todos los términos de la búsqueda deben estar en
-# el nombre, el SKU, la familia, el material o sus nombres coloquiales.
-_NAME_STOPWORDS = frozenset(
-    {
-        "a", "al", "con", "de", "del", "el", "en", "la", "las", "lo", "los", "o", "para",
-        "por", "sin", "un", "una", "unas", "unos", "y", "x",
-        "oz", "onza", "onzas", "cm", "mm", "ml", "centimetro", "centimetros", "pzs", "und",
-        "unidad", "unidades", "caja", "cajas", "paca", "pacas", "paquete", "paquetes",
-        "codigo", "modelo", "numero", "ref", "referencia", "sku", "tipo",
-    }
-)  # fmt: skip
-# Nombres coloquiales del material: «icopor» (Colombia), «unicel» (México) y «anime»
-# (Venezuela) son el EPS. Se agregan a los términos de la ficha, no a la búsqueda.
-_MATERIAL_ALIASES = {
-    "EPS": "icopor unicel anime foam espuma espumado poliestireno expandido termico",
-    "PS": "poliestireno plastico",
-    "PP": "polipropileno plastico",
-    # «rpet» no es alias del PET: solo coincide con las fichas que dicen RPET (reciclado).
-    "PET": "plastico",
-    "PULPA": "pulpa bagazo cana fibra",
-    "PAPEL": "papel carton",
-}
-_FAMILY_ALIASES = {"charola": "bandeja", "tapa": "domo", "cubierto": "cubiertos"}
-_DIMENSION = re.compile(r"(\d)\s*[x\u00d7]\s*(\d)")  # «14 x 14» → «14x14»
-_NUMBER_UNIT = re.compile(r"(\d)(oz|cm|mm|ml|pzs)\b")  # «8oz» → «8 oz»
-_NAME_TOKEN = re.compile(r"[a-z0-9]+(?:[.,][0-9]+)*")
-# Tamaño del empaque: «(paquete x 50)», «(paca x 200)», «Caja con 1000 pzs», «Caja 20X50
-# 1000», «300 unidades». No identifica la referencia y se quita antes de comparar: una
-# búsqueda que trae la cantidad no debe coincidir con fichas que no tienen nada que ver.
-_PACK_SIZE = re.compile(
-    r"\b(?:caja|paca|paquete)s?\s+(?:(?:con|de|x)\s*)?\d+(?:x\d+)?(?:\s+\d+)?"
-    r"|\bx\s*\d+"
-    r"|\b\d+\s*(?:pzs|piezas|und|unidades)\b"
-)
-# Capacidad declarada en el nombre de una ficha sin ``capacity_oz``: «3,5 a 7 oz» es un
-# rango; «12 y 16 oz», dos medidas.
-_OZ_PAIR = re.compile(r"(\d+(?:\.\d+)?)\s*(?:oz)?\s*\b(a|y)\b\s*(\d+(?:\.\d+)?)\s*oz")
-_OZ_SINGLE = re.compile(r"(\d+(?:\.\d+)?)\s*oz")
-
-
-def _name_terms(text: str) -> list[str]:
-    """Términos normalizados de un texto: «Tapa 3,5 a 7 oz» → tapa, 3.5, a, 7, oz.
-
-    Sin el tamaño del empaque: «Vaso 3,5 oz (paquete x 50)» → vaso, 3.5, oz.
-    """
-
-    folded = _NUMBER_UNIT.sub(r"\1 \2", _DIMENSION.sub(r"\1x\2", plain(text)))
-    folded = _PACK_SIZE.sub(" ", folded)
-    return [term.replace(",", ".") for term in _NAME_TOKEN.findall(folded)]
-
-
-def _stems(term: str) -> frozenset[str]:
-    """Raíces de un término sin plural ni género («vasos», «térmica») para comparar.
-
-    Los códigos y números («P1», «J2», «34», «14x14») se comparan enteros: «P1» no
-    coincide con «P1S».
-    """
-
-    if not term.isalpha() or len(term) < 4:
-        return frozenset({term})
-    bases = {term}
-    if term.endswith("s"):
-        bases.add(term[:-1])
-    if term.endswith("es"):
-        bases.add(term[:-2])
-    return frozenset(base[:-1] if len(base) > 4 and base[-1] in "aeo" else base for base in bases)
-
-
-def _query_terms(name: str | None) -> list[frozenset[str]]:
-    """Términos de la búsqueda por nombre (sin palabras vacías ni unidades)."""
-
-    if not name:
-        return []
-    return [_stems(term) for term in _name_terms(name) if term not in _NAME_STOPWORDS]
-
-
-def _reference_stems(reference: Reference) -> frozenset[str]:
-    """Raíces de la ficha: nombre, SKU, familia, material y sus nombres coloquiales."""
-
-    capacity = f"{reference.capacity_oz:g}" if reference.capacity_oz is not None else ""
-    text = " ".join(
-        (
-            reference.name,
-            reference.sku,
-            reference.family,
-            _FAMILY_ALIASES.get(reference.family, ""),
-            reference.material,
-            _MATERIAL_ALIASES.get(reference.material, ""),
-            capacity,
-        )
-    )
-    return frozenset(stem for term in _name_terms(text) for stem in _stems(term))
-
-
-def _matched_terms(reference: Reference, query: Sequence[frozenset[str]]) -> int:
-    """Cuántos términos de la búsqueda están en la ficha."""
-
-    stems = _reference_stems(reference)
-    return sum(1 for term in query if term & stems)
-
-
-def _name_capacities(name: str) -> list[tuple[float, float]]:
-    """Capacidades en onzas que declara el nombre, como rangos ``(mínima, máxima)``."""
-
-    text = plain(name).replace(",", ".")
-    found: list[tuple[float, float]] = []
-    for low, joiner, high in _OZ_PAIR.findall(text):
-        if joiner == "a":
-            found.append((float(low), float(high)))
-        else:
-            found.extend(((float(low), float(low)), (float(high), float(high))))
-    found.extend((float(value), float(value)) for value in _OZ_SINGLE.findall(text))
-    return found
-
-
-def _capacity_fits(reference: Reference, capacity: float) -> bool:
-    """Capacidad de la ficha o, si no la tiene, la que declara su nombre (tapas «3,5 a 7 oz»)."""
-
-    tolerance = CAPACITY_TOLERANCE_OZ
-    if reference.capacity_oz is not None:
-        return abs(reference.capacity_oz - capacity) <= tolerance
-    return any(
-        low - tolerance <= capacity <= high + tolerance
-        for low, high in _name_capacities(reference.name)
-    )
+# Búsqueda por nombre: la normalización (códigos enteros, icopor → EPS, sin tamaño del
+# empaque) vive en ``carvajal.agent.reference_names`` y la comparte ``cotizar``.
 
 
 def _candidates(req: CommercialRequest, catalog: Catalog) -> list[Reference]:
@@ -907,7 +811,7 @@ def _candidates(req: CommercialRequest, catalog: Catalog) -> list[Reference]:
     if req.capacity_oz is None:
         return found
     capacity = req.capacity_oz
-    return [reference for reference in found if _capacity_fits(reference, capacity)]
+    return [reference for reference in found if capacity_fits(reference, capacity)]
 
 
 def _temperature(
@@ -996,36 +900,6 @@ class _NameMatch:
     outside_rejected: list[tuple[Reference, str]] = field(default_factory=list)
 
 
-def _family_words(req: CommercialRequest, catalog: Catalog) -> frozenset[str]:
-    """Raíces de los nombres de familia del catálogo y del alias de la familia pedida."""
-
-    families = {reference.family for reference in catalog.references}
-    text = " ".join((*families, _FAMILY_ALIASES.get(req.family or "", "")))
-    return frozenset(stem for term in _name_terms(text) for stem in _stems(term))
-
-
-def _informative_terms(
-    query: Sequence[frozenset[str]],
-    found: Sequence[Reference],
-    req: CommercialRequest,
-    catalog: Catalog,
-) -> list[frozenset[str]]:
-    """Términos que distinguen una referencia de otra dentro de la búsqueda.
-
-    No lo son el nombre de una familia («vaso», «tapa», «plato») ni el término que está en
-    todas las candidatas: con ellos, «vaso J2» daba por coincidencia parcial todos los
-    vasos y escondía el J2 (contenedor) que la persona nombró.
-    """
-
-    family = _family_words(req, catalog)
-    stems = [_reference_stems(reference) for reference in found]
-    return [
-        term
-        for term in query
-        if not term & family and not (len(stems) > 1 and all(term & item for item in stems))
-    ]
-
-
 def _name_search(
     query: Sequence[frozenset[str]],
     name: str,
@@ -1045,20 +919,10 @@ def _name_search(
     """
 
     exact = plain(name)
-    informative = _informative_terms(query, found, req, catalog)
-    counts = [(reference, _matched_terms(reference, query)) for reference in found]
-    named = [reference for reference, count in counts if count == len(query)]
-    partial = False
-    if not named and len(query) >= 2 and informative:
-        named = [
-            reference
-            for reference, count in counts
-            if count == len(query) - 1 and _matched_terms(reference, informative)
-        ]
-        partial = bool(named)
-    named.sort(key=lambda reference: plain(reference.sku) != exact)
-    if named:
-        return _NameMatch(named=named, partial=partial)
+    match = match_named(query, name, found, req.family, catalog)
+    if match.named:
+        return _NameMatch(named=match.named, partial=match.partial)
+    informative = informative_terms(query, found, req.family, catalog)
     skus = {reference.sku for reference in found}
     wanted = informative or list(query)
     outside = [
@@ -1066,7 +930,7 @@ def _name_search(
         for reference in catalog.references
         if reference.sku not in skus
         and (req.country is None or reference.country == req.country)
-        and _matched_terms(reference, wanted) == len(wanted)
+        and matched_terms(reference, wanted) == len(wanted)
     ]
     outside.sort(key=lambda reference: plain(reference.sku) != exact)
     valid, discarded = check_material(outside, req, catalog=catalog)
@@ -1164,11 +1028,15 @@ def _buscar_producto(
         city=None,
         prefers_renewable=args.prefiere_renovable,
     )
-    update = {
+    update: dict[str, Any] = {
         _PRODUCT_CONTEXT_KEYS[key]: value
         for key, value in args.model_dump(exclude_unset=True, exclude_none=True).items()
         if key in _PRODUCT_CONTEXT_KEYS  # el nombre describe esta búsqueda, no la necesidad
     }
+    if any(key in update for key in _PRODUCT_FIELDS):
+        # Explorar otro producto (otra familia, uso o capacidad) suelta la referencia de la
+        # cotización anterior: un ``cotizar`` genérico posterior no debe volver a cotizarla.
+        update["sku"] = None
     if args.pais and args.pais not in data.countries:
         return _Draft(
             "empty",
@@ -1177,7 +1045,7 @@ def _buscar_producto(
             context_update=update,
         )
     found = _candidates(req, data)
-    query = _query_terms(args.nombre)
+    query = query_terms(args.nombre)
     name = args.nombre if query else None
     match: _NameMatch | None = None
     name_data: dict[str, Any] = {}
@@ -1268,6 +1136,16 @@ def _buscar_producto(
 # --- cotizar (T019) ------------------------------------------------------------------------
 
 
+def _same_capacity(explicit: Any, stored: Any) -> bool:
+    """La capacidad de la llamada no contradice la de la referencia del contexto."""
+
+    if explicit is None:
+        return True
+    if not isinstance(stored, int | float):
+        return False
+    return abs(float(explicit) - float(stored)) <= CAPACITY_TOLERANCE_OZ
+
+
 def _fill_from_context(
     args: CotizarArgs, context: Mapping[str, Any]
 ) -> tuple[CotizarArgs, list[str]]:
@@ -1283,9 +1161,28 @@ def _fill_from_context(
         explicit.get(key) is None or explicit.get(key) == context.get(key)
         for key in ("family", "use")
     )
-    reusable = [*(_PRODUCT_FIELDS if same_product else ()), *_SHARED_FIELDS]
+    named = "sku" in explicit or "nombre" in explicit
+    # Una referencia nombrada fija la familia y la capacidad: las del contexto describían
+    # otro producto. El uso, la temperatura y el microondas siguen siendo la necesidad.
+    product_fields = [
+        key for key in _PRODUCT_FIELDS if not (named and key in ("family", "capacity_oz"))
+    ]
+    reusable = [*(product_fields if same_product else ()), *_SHARED_FIELDS]
     filled = dict(explicit)
     reused: list[str] = []
+    sku = context.get("sku")
+    if (
+        not named
+        and same_product
+        and isinstance(sku, str)
+        and sku
+        and _same_capacity(explicit.get("capacity_oz"), context.get("capacity_oz"))
+    ):
+        # Seguimiento de la cotización anterior («¿y con domicilio?»): misma referencia. El
+        # contexto guarda la familia y la capacidad de la referencia junto a su SKU, así que
+        # ``same_product`` ya exige que la familia pedida sea la suya.
+        filled["sku"] = sku
+        reused.append("sku")
     for key in reusable:
         value = context.get(key)
         if key in explicit or value in (None, ""):
@@ -1569,8 +1466,11 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})
-    # El contexto comercial guarda lo que dijo la persona, no lo que se infiere.
-    update = {**filled.model_dump(exclude_none=True), "country": "CO"}
+    # El contexto comercial guarda lo que dijo la persona, no lo que se infiere. La
+    # referencia se guarda por su SKU resuelto, no por el texto del nombre; ``None`` hace que
+    # el grafo olvide la de una cotización anterior.
+    update = {**filled.model_dump(exclude_none=True), "country": "CO", "sku": filled.sku}
+    update.pop("nombre", None)
     if "quantity" in update:
         # La unidad viaja con la cantidad: una cantidad nueva sin unidad deja de ser de cajas.
         update["unidad"] = filled.unidad or "unidades"
@@ -1603,17 +1503,35 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
         )
     fields = request.model_dump()
     unit = _UNIT_BASIS.get(fields.pop("unidad") or "unidades", "unidad")
+    name = fields.pop("nombre")
     quoted = quote_request(
-        QuoteRequest(**fields, unit=unit), today=day, now=deps.now, dataset=dataset
+        QuoteRequest(**fields, unit=unit, name=name), today=day, now=deps.now, dataset=dataset
     )
     kind = quoted.get("kind")
+    if filled.sku or name:
+        _remember_reference(quoted, update, dataset)
+    if kind == "aclaracion" and "referencia" in (quoted.get("missing") or []):
+        return _ambiguous_reference(quoted, base, update)
+    if kind == "sin_resultados" and quoted.get("reason") in _NAMED_EMPTY:
+        return _named_empty(quoted, base, update)
     if kind == "aclaracion":
         missing = [str(item) for item in quoted.get("missing") or []]
         data = dict(base)
         if quoted.get("cities"):
             data["ciudades_disponibles"] = list(quoted["cities"])
         message = f"Falta un dato para cotizar: {', '.join(missing) or 'sin especificar'}."
-        if quoted.get("unconvertible"):
+        if quoted.get("unconvertible") and quoted.get("presentations") is not None:
+            published = ", ".join(quoted["presentations"]) or "no consta"
+            message = (
+                f"No se puede convertir la cantidad en {filled.unidad} a unidades con "
+                "certeza para la referencia nombrada: el catálogo y el contrato no declaran "
+                f"esa presentación. Su presentación publicada: {published}. Pide la cantidad "
+                "en unidades o en esa presentación, nombrando la referencia; no la calcules."
+            )
+            data["presentaciones_publicadas"] = _published_presentations(
+                dataset, quoted["unconvertible"]
+            )
+        elif quoted.get("unconvertible"):
             message = (
                 f"No se puede convertir la cantidad en {filled.unidad} a unidades con "
                 "certeza: el catálogo y el contrato no declaran esa presentación para las "
@@ -1636,7 +1554,10 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
             context_update=update,
         )
     if kind == "sin_resultados":
-        return _quote_without_price(quoted, dataset, base, update, sources)
+        draft = _quote_without_price(quoted, dataset, base, update, sources)
+        if quoted.get("reason") == "sin_precio":
+            _named_without_price(draft, quoted)
+        return draft
     if kind != "cotizacion":
         return _Draft("error", "El motor de cotización no devolvió un resultado válido.")
 
@@ -1669,14 +1590,148 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
     if merge.action == "replaced":
         message += " Reemplaza a la cotización anterior que solo difería en el domicilio."
     stored = merge.quotes[merge.index] if merge.index is not None else None
+    data = {**base, "cotizacion": _quote_payload(quoted, numbers[0], source_type, shipping_n)}
+    mismatch = quoted.get("family_mismatch")
+    if mismatch:
+        # «vaso P1»: se cotiza el P1 nombrado, pero es un contenedor y hay que decirlo.
+        data["familia_distinta"] = {"pedida": mismatch["asked"], "referencia": mismatch["family"]}
+        message += (
+            f" La referencia nombrada es de la familia {mismatch['family']}, no "
+            f"{mismatch['asked']} como se pidió: díselo a la persona y preséntala como la "
+            "referencia que nombró, no como lo que pidió."
+        )
     return _Draft(
         "ok",
         message.strip(),
-        data={**base, "cotizacion": _quote_payload(quoted, numbers[0], source_type, shipping_n)},
+        data=data,
         quotes=merge.quotes,
         quote=stored,
         context_update=update,
     )
+
+
+_NAMED_EMPTY = ("referencia_no_encontrada", "referencia_no_apta")
+
+
+def _remember_reference(
+    quoted: Mapping[str, Any], update: dict[str, Any], dataset: Dataset
+) -> None:
+    """Deja en el contexto la referencia identificada, con su familia y su capacidad.
+
+    Queda la referencia que el motor identificó y aceptó (cotizada, sin precio en la ciudad
+    o a la espera de la cantidad o la ciudad); una ambigua, inexistente o no apta suelta la
+    anterior (``sku: None``). La familia y la capacidad son las de la ficha, para que un
+    seguimiento que las repite («contenedor» del J2, «14 oz» del Gold) la reconozca y uno de
+    otra familia no la reutilice.
+    """
+
+    request = quoted.get("request") or {}
+    primary = quoted.get("primary") or {}
+    sku = primary.get("sku") if quoted.get("kind") == "cotizacion" else request.get("sku")
+    product = dataset.product(sku) if isinstance(sku, str) and sku else None
+    if product is None:
+        update["sku"] = None
+        family = request.get("family")
+        if family and "family" not in update:
+            # Nombre genérico («vaso de icopor»): la familia que resolvió el motor.
+            update["family"] = family
+        return
+    update["sku"] = product.sku
+    update["family"] = product.family
+    update["capacity_oz"] = product.capacity_oz
+
+
+def _ambiguous_reference(
+    quoted: Mapping[str, Any], base: dict[str, Any], update: dict[str, Any]
+) -> _Draft:
+    """El nombre coincide con varias referencias (o solo en parte): se pregunta cuál."""
+
+    candidates = [
+        {
+            "sku": item["sku"],
+            "nombre": item["name"],
+            "familia": item["family"],
+            "material": item["material"],
+            "capacidad_oz": item["capacity_oz"],
+        }
+        for item in quoted.get("candidates") or []
+    ]
+    partial = bool(quoted.get("partial"))
+    conflict = bool(quoted.get("conflict"))
+    if conflict:
+        message = (
+            "El sku y el nombre corresponden a referencias distintas del catálogo; no se "
+            "cotizó ninguna."
+        )
+    elif partial:
+        message = (
+            "Ninguna referencia coincide con todos los términos del nombre; estas coinciden "
+            "en parte y no son exactamente la nombrada."
+        )
+    else:
+        message = "El nombre coincide con varias referencias del catálogo."
+    message += " Pregunta a la persona cuál quiere y cotízala con su sku; no elijas tú."
+    data: dict[str, Any] = {
+        **base,
+        "candidatas": candidates,
+        "total_candidatas": quoted.get("candidates_total", len(candidates)),
+    }
+    if partial:
+        data["parcial"] = True
+    if conflict:
+        data["conflicto_sku_nombre"] = True
+    return _Draft("needs_input", message, data=data, missing=["referencia"], context_update=update)
+
+
+def _named_empty(quoted: Mapping[str, Any], base: dict[str, Any], update: dict[str, Any]) -> _Draft:
+    """La referencia nombrada no existe o no es apta: no se cotiza ni se sustituye."""
+
+    if quoted.get("reason") == "referencia_no_apta":
+        reason = str((quoted.get("discarded") or [""])[0])
+        return _Draft(
+            "empty",
+            "La referencia nombrada no es apta para el uso o la temperatura que dijo la "
+            "persona; no se cotizó ni se sustituyó por otra.",
+            data={**base, "no_apta": {"sku": quoted.get("sku"), "motivo": reason}},
+            context_update=update,
+        )
+    return _Draft(
+        "empty",
+        "Ninguna referencia del catálogo de Colombia coincide con ese nombre o SKU; no se "
+        "cotizó otra en su lugar.",
+        data={
+            **base,
+            "referencia_encontrada": False,
+            "aviso": (
+                "cotizar ya buscó ese nombre en todo el catálogo de Colombia con la misma "
+                "búsqueda de buscar_producto: no repitas la búsqueda por nombre. Di que no la "
+                "encontraste en el catálogo de Colombia y ofrece buscar por uso, familia o "
+                "capacidad."
+            ),
+        },
+        context_update=update,
+    )
+
+
+def _named_without_price(draft: _Draft, quoted: Mapping[str, Any]) -> None:
+    """La referencia nombrada no tiene precio en la ciudad: dónde sí, sin sustituirla."""
+
+    priced = list(quoted.get("priced_cities") or [])
+    city = (quoted.get("request") or {}).get("city")
+    message = (
+        f"No hay precio publicado de la referencia nombrada en {city}"
+        if city
+        else "La referencia nombrada no tiene precio publicado"
+    )
+    message += "; no se sustituyó por otra."
+    if priced:
+        message += f" Tiene precio publicado en {', '.join(priced)}."
+    sites = len(draft.data.get("sedes") or [])
+    if sites:
+        message += f" Hay {sites} sede(s) del directorio con contacto."
+    draft.message = message
+    draft.data["referencia"] = {"sku": quoted.get("sku"), "nombre": quoted.get("name")}
+    draft.data["ciudades_con_precio"] = priced
 
 
 def _other_conversions(quoted: Mapping[str, Any]) -> list[str]:

@@ -912,9 +912,12 @@ def build_tool_agent(
         progress.cards.update(result.cards)
         if progress.quotes:
             progress.cards["quotes"] = progress.quotes
-        progress.commercial_context.update(
-            {key: value for key, value in result.context_update.items() if value not in (None, "")}
-        )
+        for key, value in result.context_update.items():
+            if value is None:
+                # La herramienta pide olvidar el dato (la referencia de otra cotización).
+                progress.commercial_context.pop(key, None)
+            elif value != "":
+                progress.commercial_context[key] = value
         contents[fingerprint] = result.content
         return ToolMessage(
             content=result.content,

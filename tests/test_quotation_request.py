@@ -445,3 +445,344 @@ def test_los_descartes_respetan_el_tope_y_explican_primero_la_conversion() -> No
     descartes = resultado["discarded"]
     assert 0 < len(descartes) <= MAX_DISCARDED
     assert "no se sabe con certeza" in descartes[0]
+
+
+# --- Referencia nombrada (spec 044, ronda 4: s-r3-01, 02, 05, 10 y 11) ---------------------
+
+
+def _skus(result: dict[str, Any]) -> set[str]:
+    return {option["sku"] for option in _options(result)}
+
+
+def test_el_p1_nombrado_cotiza_el_p1_sin_pedir_la_temperatura() -> None:
+    # Arrange: «2 pacas del P1»; antes cotizaba el portacomidas más barato de la familia.
+    solicitud = QuoteRequest(name="P1", quantity=2, unit="paca", city="Bogotá", delivery=False)
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "CO-PCOM-P1"
+    assert resultado["alternatives"] == []
+    assert resultado["primary"]["conversion"]["text"] == f"2 pacas {TIMES} 200 = 400 unidades"
+    assert resultado["primary"]["presentation"]["count"] == 2
+    assert resultado["commercial"]["subtotal"] == "228926"
+    assert resultado["total"] == "228926"
+    assert resultado["request"]["sku"] == "CO-PCOM-P1"
+    assert "Portacomidas espumado P1" in resultado["reply"]
+
+
+@pytest.mark.parametrize("nombre", ["portacomidas J2", "vaso J2"])
+def test_el_j2_nombrado_gana_a_una_familia_mal_pasada(nombre: str) -> None:
+    # Arrange: el J2 es un contenedor; la familia «vaso» no lo esconde.
+    solicitud = QuoteRequest(name=nombre, family="vaso", quantity=600, city="Bogotá")
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert _skus(resultado) == {"CO-PCOM-J2"}
+    assert resultado["primary"]["presentation"]["count"] == 3
+    assert resultado["commercial"]["subtotal"] == "284766"
+    assert resultado["total"] is None
+    assert resultado["commercial"]["shipping"]["status"] == "pending"
+    assert resultado["request"]["family"] == "contenedor"
+
+
+def test_el_sku_fija_la_referencia_y_convierte_sus_paquetes() -> None:
+    # Arrange: «10 paquetes del CO-CTT-16» = 10 por 20.793 (s-r3-11).
+    solicitud = QuoteRequest(
+        sku="CO-CTT-16", quantity=10, unit="paquete", city="Bogotá", delivery=False
+    )
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert _skus(resultado) == {"CO-CTT-16"}
+    assert resultado["primary"]["conversion"]["text"] == f"10 paquetes {TIMES} 20 = 200 unidades"
+    assert resultado["primary"]["tax"]["status"]
+    assert resultado["total"] == "207930"
+
+
+@pytest.mark.parametrize("temperatura", [None, "fria"])
+def test_el_vaso_gold_de_14_oz_nombrado_no_pide_temperatura(temperatura: str | None) -> None:
+    # Arrange: sin nombre, los vasos de 14 oz piden la temperatura (el Gold es solo frío).
+    solicitud = QuoteRequest(
+        name="Vaso Gold de 14 oz", temperature=temperatura, quantity=1000, city="Bogotá"
+    )
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert _skus(resultado) == {"CO-VGOLD-14"}
+    assert resultado["primary"]["presentation"]["count"] == 20
+    assert resultado["commercial"]["subtotal"] == "396180"
+
+
+def test_una_referencia_nombrada_no_apta_para_el_uso_dicho_no_se_cotiza() -> None:
+    # Arrange: el vaso Gold es de PP declarado solo para bebida fría.
+    solicitud = QuoteRequest(
+        name="Vaso Gold de 14 oz", use="bebida_caliente", quantity=1000, city="Bogotá"
+    )
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "sin_resultados"
+    assert resultado["reason"] == "referencia_no_apta"
+    assert resultado["sku"] == "CO-VGOLD-14"
+    assert "fría" in resultado["discarded"][0]
+    assert "primary" not in resultado
+    assert "total" not in resultado
+
+
+def test_un_nombre_ambiguo_pide_cual_con_las_candidatas() -> None:
+    # Arrange: hay un J1 espumado y un J1 de pulpa de caña.
+    solicitud = QuoteRequest(name="portacomidas J1", quantity=200, city="Bogotá")
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "aclaracion"
+    assert resultado["missing"] == ["referencia"]
+    candidatas = {item["sku"] for item in resultado["candidates"]}
+    assert {"CO-PCOM-J1", "7704918105071"} <= candidatas
+    assert "primary" not in resultado
+
+
+def test_un_termino_mas_del_nombre_acota_el_j1_ambiguo() -> None:
+    # Arrange: «icopor» deja solo el J1 espumado.
+    solicitud = QuoteRequest(name="portacomidas J1 de icopor", quantity=200, city="Bogotá")
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert _skus(resultado) == {"CO-PCOM-J1"}
+
+
+def test_un_nombre_que_no_existe_no_cotiza_otra_referencia() -> None:
+    # Act
+    resultado = quote_request(
+        QuoteRequest(name="vaso XZ-900", quantity=100, city="Bogotá"), today=HOY, now=MANANA
+    )
+
+    # Assert
+    assert resultado["kind"] == "sin_resultados"
+    assert resultado["reason"] == "referencia_no_encontrada"
+    assert "primary" not in resultado
+
+
+def test_una_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None:
+    # Arrange: el J1 de pulpa tiene precio publicado en Bogotá, no en Pereira (s-r3-01).
+    solicitud = QuoteRequest(
+        name="portacomidas de pulpa de caña J1 de Bioform",
+        use="comida_caliente",
+        quantity=1,
+        unit="caja",
+        city="Pereira",
+    )
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "sin_resultados"
+    assert resultado["reason"] == "sin_precio"
+    assert resultado["sku"] == "7704918105071"
+    assert resultado["providers"]
+    assert {item["city"] for item in resultado["providers"]} == {"Pereira"}
+    assert resultado["priced_cities"] == ["Bogotá"]
+    assert "primary" not in resultado
+
+
+def test_una_referencia_sin_ningun_precio_publicado_no_pide_mas_datos() -> None:
+    # Arrange: el vaso Gold de 16 oz no tiene oferta publicada en ninguna ciudad.
+    solicitud = QuoteRequest(name="vaso Gold 16 oz", city="Bogotá")
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "sin_resultados"
+    assert resultado["reason"] == "sin_precio"
+    assert resultado["sku"] == "CO-VGOLD-16"
+    assert resultado["priced_cities"] == []
+    assert resultado["providers"]
+
+
+# --- Revisión de la referencia nombrada (ronda 4) ------------------------------------------
+
+
+def test_el_vaso_p1_cotiza_el_p1_y_avisa_que_es_un_contenedor() -> None:
+    # Act
+    resultado = quote_request(
+        QuoteRequest(name="vaso P1", quantity=400, city="Bogotá"), today=HOY, now=MANANA
+    )
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "CO-PCOM-P1"
+    assert resultado["family_mismatch"] == {"asked": "vaso", "family": "contenedor"}
+    assert "es de contenedores y no de vasos" in resultado["reply"]
+    assert "Cotizo la referencia que pediste" not in resultado["reply"]
+
+
+def test_una_familia_pedida_que_contradice_el_sku_se_avisa() -> None:
+    # Act: el modelo pasa el SKU del P1 con familia «vaso».
+    resultado = quote_request(
+        QuoteRequest(sku="CO-PCOM-P1", family="vaso", quantity=400, city="Bogotá"),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert: no se cotiza en silencio como si fuera un vaso.
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["family_mismatch"] == {"asked": "vaso", "family": "contenedor"}
+
+
+def test_el_portacomidas_j2_con_familia_mal_pasada_no_avisa_otra_familia() -> None:
+    # Act: el nombre dice portacomidas y el J2 lo es; la familia «vaso» es del modelo.
+    resultado = quote_request(
+        QuoteRequest(name="portacomidas J2", family="vaso", quantity=600, city="Bogotá"),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert "family_mismatch" not in resultado
+    assert "Cotizo la referencia que pediste" in resultado["reply"]
+
+
+def test_un_sku_inexacto_no_tapa_el_nombre() -> None:
+    # Act: «CO-PCOM-P1S» no es un SKU; antes traía cinco portacomidas «parecidos».
+    resultado = quote_request(
+        QuoteRequest(sku="CO-PCOM-P1S", name="J2", quantity=400, city="Bogotá"),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "CO-PCOM-J2"
+
+
+def test_un_sku_inexacto_sin_nombre_se_busca_como_nombre() -> None:
+    # Act
+    resultado = quote_request(
+        QuoteRequest(sku="P1", quantity=400, city="Bogotá"), today=HOY, now=MANANA
+    )
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "CO-PCOM-P1"
+
+
+def test_sku_y_nombre_de_referencias_distintas_piden_cual() -> None:
+    # Act
+    resultado = quote_request(
+        QuoteRequest(sku="CO-PCOM-P1", name="J2", quantity=400, city="Bogotá"),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert
+    assert resultado["kind"] == "aclaracion"
+    assert resultado["missing"] == ["referencia"]
+    assert resultado["conflict"] is True
+    assert {item["sku"] for item in resultado["candidates"]} == {"CO-PCOM-P1", "CO-PCOM-J2"}
+    assert "primary" not in resultado
+
+
+def test_sku_y_nombre_de_la_misma_referencia_la_cotizan() -> None:
+    # Act
+    resultado = quote_request(
+        QuoteRequest(sku="CO-VGOLD-14", name="Vaso Gold de 14 oz", quantity=1000, city="Bogotá"),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "CO-VGOLD-14"
+
+
+def test_una_referencia_no_apta_no_queda_fijada_en_la_solicitud() -> None:
+    # Act
+    resultado = quote_request(
+        QuoteRequest(name="Vaso Gold de 14 oz", use="bebida_caliente", quantity=1000),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert: el SKU solo va en el motivo, no en la solicitud que se reutiliza.
+    assert resultado["reason"] == "referencia_no_apta"
+    assert "sku" not in resultado["request"]
+
+
+def test_un_nombre_generico_se_cotiza_como_busqueda_por_familia() -> None:
+    # Act: «portacomidas de icopor» coincide con cinco referencias, ninguna nombrada.
+    resultado = quote_request(
+        QuoteRequest(name="portacomidas de icopor", quantity=400, city="Bogotá"),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert: la más económica y alternativas, solo de EPS, sin pedir cuál.
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["alternatives"]
+    assert {option["material"] for option in _options(resultado)} == {"EPS"}
+    assert resultado["reply"].startswith("Cotización para 400 contenedores")
+    assert "La más económica es" in resultado["reply"]
+    assert "sku" not in resultado["request"]
+
+
+def test_un_nombre_generico_pregunta_la_temperatura_si_cambia_el_material() -> None:
+    # Act: «vaso» solo es un tipo de producto; entre los vasos la temperatura importa.
+    resultado = quote_request(
+        QuoteRequest(name="vaso", quantity=400, city="Bogotá"), today=HOY, now=MANANA
+    )
+
+    # Assert
+    assert resultado["kind"] == "aclaracion"
+    assert resultado["missing"] == ["temperatura"]
+
+
+def test_un_nombre_generico_respeta_la_guia_de_materiales() -> None:
+    # Act: con microondas, el EPS no es apto.
+    resultado = quote_request(
+        QuoteRequest(name="portacomidas de icopor", microwave=True, quantity=400, city="Bogotá"),
+        today=HOY,
+        now=MANANA,
+    )
+
+    # Assert
+    assert resultado["kind"] == "sin_resultados"
+    assert "primary" not in resultado
+    assert resultado["discarded"]
+
+
+def test_la_referencia_nombrada_sin_conversion_la_nombra_con_su_presentacion() -> None:
+    # Act: «2 cajas del P1» (s-r3-05); la ficha declara «paca x 200», no la caja.
+    resultado = quote_request(
+        QuoteRequest(name="P1", quantity=2, unit="caja", city="Bogotá"), today=HOY, now=MANANA
+    )
+
+    # Assert
+    assert resultado["kind"] == "aclaracion"
+    assert resultado["missing"] == ["cantidad"]
+    assert resultado["presentations"] == ["paca de 200"]
+    assert resultado["unconvertible"] == ["CO-PCOM-P1"]
+    assert "Portacomidas espumado P1" in resultado["reply"]
+    assert "en unidades o en pacas" in resultado["reply"]
+    assert "esas cajas" not in resultado["reply"]

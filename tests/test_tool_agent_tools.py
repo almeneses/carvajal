@@ -24,6 +24,7 @@ from carvajal.agent.toolagent.state import TOOL_NAMES, UNKNOWN_TOOL
 from carvajal.agent.toolagent.tools import (
     DATA_CLOSE,
     DATA_OPEN,
+    CotizarArgs,
     ToolCallResult,
     ToolContext,
     ToolDeps,
@@ -555,6 +556,7 @@ def test_buscar_producto_actualiza_el_contexto_comercial() -> None:
         "family": "vaso",
         "capacity_oz": 12.0,
         "country": "MX",
+        "sku": None,  # explorar otro producto suelta la referencia cotizada antes
     }
 
 
@@ -859,7 +861,7 @@ def test_buscar_producto_nombre_no_entra_al_contexto_comercial() -> None:
 
     # Assert
     assert "nombre" not in result.context_update
-    assert result.context_update == {"temperature": "caliente", "country": "CO"}
+    assert result.context_update == {"temperature": "caliente", "country": "CO", "sku": None}
 
 
 @pytest.mark.parametrize(
@@ -1791,3 +1793,403 @@ def test_cotizar_avisa_si_las_cajas_de_cada_referencia_traen_distintas_unidades(
     assert "Cada referencia trae otra cantidad por presentación" in message
     assert "menor precio por unidad" in message
     assert "Pregunta qué referencia busca la persona" in message
+
+
+# --- cotizar por referencia nombrada (spec 044, ronda 4) -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("args", "sku", "subtotal"),
+    [
+        pytest.param({"nombre": "P1", "quantity": 2, "unidad": "pacas"}, "CO-PCOM-P1", "228926"),
+        pytest.param({"nombre": "portacomidas J2", "quantity": 600}, "CO-PCOM-J2", "284766"),
+        pytest.param(
+            {"sku": "CO-CTT-16", "quantity": 10, "unidad": "paquetes"}, "CO-CTT-16", "207930"
+        ),
+        pytest.param({"nombre": "Vaso Gold de 14 oz", "quantity": 1000}, "CO-VGOLD-14", "396180"),
+    ],
+    ids=["P1", "J2", "CO-CTT-16", "vaso-gold-14"],
+)
+def test_cotizar_la_referencia_nombrada_cotiza_esa_y_no_pide_temperatura(
+    args: dict[str, Any], sku: str, subtotal: str
+) -> None:
+    # Act
+    result = _run("cotizar", {**args, "city": "Bogotá"})
+
+    # Assert: la tarjeta y el folio corresponden a la referencia pedida, sin alternativas.
+    assert result.status == "ok"
+    quote = result.payload["cotizacion"]
+    assert quote["sku"] == sku
+    assert quote["subtotal"] == subtotal
+    assert quote["alternativas"] == 0
+    assert quote["iva"]["estado"]
+    assert quote["envio"]["estado"] == "pending"
+    assert quote["total"] is None
+    assert result.quote is not None
+    assert result.quote["primary"]["sku"] == sku
+    assert result.quote["alternatives"] == []
+    assert result.context_update["sku"] == sku
+    assert "nombre" not in result.context_update
+
+
+def test_cotizar_la_referencia_nombrada_aplica_la_temperatura_dicha() -> None:
+    # Act: el vaso Gold es de PP, declarado solo para bebida fría.
+    result = _run(
+        "cotizar",
+        {"nombre": "Vaso Gold de 14 oz", "temperature": "caliente", "quantity": 1000},
+    )
+
+    # Assert
+    assert result.status == "empty"
+    assert result.payload["no_apta"]["sku"] == "CO-VGOLD-14"
+    assert "fría" in result.payload["no_apta"]["motivo"]
+    assert "cotizacion" not in result.payload
+    assert result.quote is None
+    assert result.quotes == []
+
+
+def test_cotizar_un_nombre_ambiguo_devuelve_las_candidatas() -> None:
+    # Act
+    result = _run("cotizar", {"nombre": "portacomidas J1", "quantity": 200, "city": "Bogotá"})
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["referencia"]
+    candidatas = {item["sku"] for item in result.payload["candidatas"]}
+    assert {"CO-PCOM-J1", "7704918105071"} <= candidatas
+    assert result.quote is None
+
+
+def test_cotizar_un_nombre_inexistente_es_empty_sin_cotizar_otra() -> None:
+    # Act
+    result = _run("cotizar", {"nombre": "vaso XZ-900", "quantity": 100, "city": "Bogotá"})
+
+    # Assert
+    assert result.status == "empty"
+    assert result.payload["aviso"]
+    assert result.payload["referencia_encontrada"] is False
+    assert result.quote is None
+
+
+def test_cotizar_la_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None:
+    # Act: el J1 de pulpa tiene precio en Bogotá, no en Pereira (s-r3-01).
+    result = _run(
+        "cotizar",
+        {
+            "nombre": "portacomidas de pulpa de caña J1 de Bioform",
+            "use": "comida_caliente",
+            "quantity": 1,
+            "unidad": "cajas",
+            "city": "Pereira",
+        },
+    )
+
+    # Assert
+    assert result.status == "empty"
+    assert result.payload["referencia"]["sku"] == "7704918105071"
+    assert result.payload["ciudades_con_precio"] == ["Bogotá"]
+    assert result.payload["sedes"]
+    assert all(site["city"] == "Pereira" for site in result.cards["sites"])
+    assert "cotizacion" not in result.payload
+    assert result.quote is None
+
+
+def test_cotizar_un_seguimiento_reutiliza_la_referencia_del_contexto() -> None:
+    # Arrange: el turno anterior cotizó el P1; ahora la persona pregunta por el domicilio.
+    first = _run("cotizar", {"nombre": "P1", "quantity": 2, "unidad": "pacas", "city": "Bogotá"})
+    context = ToolContext(commercial_context=first.context_update)
+
+    # Act
+    second = _run("cotizar", {"delivery": False}, _deps(), context)
+
+    # Assert
+    assert second.status == "ok"
+    assert "sku" in second.payload["reutilizado"]
+    assert second.payload["cotizacion"]["sku"] == "CO-PCOM-P1"
+    assert second.payload["cotizacion"]["total"] == "228926"
+
+
+def test_cotizar_otro_producto_olvida_la_referencia_del_contexto() -> None:
+    # Arrange
+    first = _run("cotizar", {"nombre": "P1", "quantity": 2, "unidad": "pacas", "city": "Bogotá"})
+    context = ToolContext(commercial_context=first.context_update)
+
+    # Act: ahora pide vasos calientes, sin nombrar referencia.
+    second = _run("cotizar", {**CALIENTE, "quantity": 1000}, _deps(), context)
+
+    # Assert
+    assert "sku" not in second.payload["reutilizado"]
+    assert second.context_update["sku"] is None
+    if second.quote is not None:
+        assert second.quote["primary"]["family"] == "vaso"
+
+
+# --- Referencia nombrada en el contexto comercial (revisión de la ronda 4) -----------------
+
+
+def _merged(context: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    """Fusión del grafo: ``None`` olvida la clave y el texto vacío no cuenta."""
+
+    merged = dict(context)
+    for key, value in update.items():
+        if value is None:
+            merged.pop(key, None)
+        elif value != "":
+            merged[key] = value
+    return merged
+
+
+def _chain(calls: Sequence[tuple[str, dict[str, Any]]]) -> list[ToolCallResult]:
+    """Llamadas sucesivas de un hilo, cada una con el contexto que dejaron las anteriores."""
+
+    context: dict[str, Any] = {}
+    results = []
+    for name, args in calls:
+        result = _run(name, args, _deps(**REAL), ToolContext(commercial_context=dict(context)))
+        context = _merged(context, result.context_update)
+        results.append(result)
+    return results
+
+
+P1_PACAS = ("cotizar", {"nombre": "P1", "quantity": 2, "unidad": "pacas", "city": "Bogotá"})
+VASOS_FRIOS = {"family": "vaso", "use": "bebida_fria"}
+
+
+@pytest.mark.parametrize(
+    "explore",
+    [
+        pytest.param([("buscar_producto", {"familia": "vaso", "uso": "bebida_fria"})], id="buscar"),
+        pytest.param([], id="directo"),
+    ],
+)
+def test_cotizar_vasos_despues_del_p1_no_cotiza_el_p1(
+    explore: list[tuple[str, dict[str, Any]]],
+) -> None:
+    # Arrange: el P1 (portacomidas) quedó en el contexto; luego la persona pide vasos fríos.
+    calls = [P1_PACAS, *explore, ("cotizar", {**VASOS_FRIOS, "quantity": 500})]
+
+    # Act
+    *_, result = _chain(calls)
+
+    # Assert: la tarjeta y el folio son de un vaso, no del portacomidas de antes.
+    assert result.status == "ok"
+    assert "sku" not in result.payload["reutilizado"]
+    assert result.payload["cotizacion"]["sku"] != "CO-PCOM-P1"
+    assert result.quote is not None
+    assert result.quote["primary"]["family"] == "vaso"
+    assert result.context_update["sku"] is None
+
+
+def test_buscar_producto_de_otra_familia_suelta_la_referencia_del_contexto() -> None:
+    # Act
+    _, result = _chain([P1_PACAS, ("buscar_producto", {"familia": "vaso"})])
+
+    # Assert
+    assert result.context_update["sku"] is None
+
+
+def test_cotizar_la_referencia_nombrada_guarda_su_familia_y_capacidad() -> None:
+    # Act
+    [result] = _chain(
+        [("cotizar", {"nombre": "Vaso Gold de 14 oz", "quantity": 1000, "city": "Bogotá"})]
+    )
+
+    # Assert: las de la ficha, aunque la llamada no las pasó.
+    assert result.context_update["sku"] == "CO-VGOLD-14"
+    assert result.context_update["family"] == "vaso"
+    assert result.context_update["capacity_oz"] == 14.0
+
+
+@pytest.mark.parametrize(
+    "explore",
+    [
+        pytest.param(
+            [("buscar_producto", {"familia": "vaso", "uso": "bebida_caliente"})], id="buscar"
+        ),
+        pytest.param([], id="directo"),
+    ],
+)
+def test_una_referencia_no_apta_no_queda_en_el_contexto(
+    explore: list[tuple[str, dict[str, Any]]],
+) -> None:
+    # Arrange: el vaso Gold es solo para frío; luego se piden vasos calientes sin nombre.
+    calls = [
+        (
+            "cotizar",
+            {
+                "nombre": "Vaso Gold de 14 oz",
+                "use": "bebida_caliente",
+                "quantity": 1000,
+                "city": "Bogotá",
+            },
+        ),
+        *explore,
+        ("cotizar", {"family": "vaso", "use": "bebida_caliente", "quantity": 1000}),
+    ]
+
+    # Act
+    first, *_, last = _chain(calls)
+
+    # Assert
+    assert first.status == "empty"
+    assert first.payload["no_apta"]["sku"] == "CO-VGOLD-14"
+    assert first.context_update["sku"] is None
+    assert last.status == "ok"
+    assert "sku" not in last.payload["reutilizado"]
+    assert last.payload["cotizacion"]["sku"] != "CO-VGOLD-14"
+
+
+@pytest.mark.parametrize(
+    ("first", "follow_up", "sku"),
+    [
+        pytest.param(
+            {"nombre": "J2", "quantity": 600},
+            {"family": "contenedor", "quantity": 600, "delivery": True},
+            "CO-PCOM-J2",
+            id="J2-familia",
+        ),
+        pytest.param(
+            {"nombre": "Vaso Gold de 14 oz", "quantity": 1000},
+            {"capacity_oz": 14, "quantity": 2000},
+            "CO-VGOLD-14",
+            id="gold-capacidad",
+        ),
+        pytest.param(
+            {"nombre": "Vaso Gold de 14 oz", "quantity": 1000},
+            {"family": "vaso", "capacity_oz": 14, "delivery": False},
+            "CO-VGOLD-14",
+            id="gold-familia-y-capacidad",
+        ),
+        pytest.param(
+            {"nombre": "P1", "quantity": 2, "unidad": "pacas"},
+            {"family": "contenedor", "delivery": False},
+            "CO-PCOM-P1",
+            id="P1-familia",
+        ),
+    ],
+)
+def test_un_seguimiento_que_repite_la_familia_o_la_capacidad_conserva_la_referencia(
+    first: dict[str, Any], follow_up: dict[str, Any], sku: str
+) -> None:
+    # Act
+    _, result = _chain([("cotizar", {**first, "city": "Bogotá"}), ("cotizar", follow_up)])
+
+    # Assert
+    assert result.status == "ok"
+    assert "sku" in result.payload["reutilizado"]
+    assert result.payload["cotizacion"]["sku"] == sku
+    assert result.context_update["sku"] == sku
+
+
+def test_un_seguimiento_con_otra_capacidad_no_reutiliza_la_referencia() -> None:
+    # Act: tras el Gold de 14 oz, la persona pide vasos de 9 oz.
+    _, result = _chain(
+        [
+            ("cotizar", {"nombre": "Vaso Gold de 14 oz", "quantity": 1000, "city": "Bogotá"}),
+            ("cotizar", {"family": "vaso", "capacity_oz": 9, "quantity": 1000}),
+        ]
+    )
+
+    # Assert
+    assert "sku" not in result.payload["reutilizado"]
+    assert result.context_update["sku"] is None
+
+
+def test_la_referencia_que_espera_la_cantidad_queda_para_el_seguimiento() -> None:
+    # Arrange: «2 cajas del P1» no se convierte con certeza; la persona da las unidades.
+    calls = [
+        ("cotizar", {"nombre": "P1", "quantity": 2, "unidad": "cajas", "city": "Bogotá"}),
+        ("cotizar", {"quantity": 400, "unidad": "unidades"}),
+    ]
+
+    # Act
+    first, second = _chain(calls)
+
+    # Assert
+    assert first.status == "needs_input"
+    assert first.context_update["sku"] == "CO-PCOM-P1"
+    assert second.status == "ok"
+    assert second.payload["cotizacion"]["sku"] == "CO-PCOM-P1"
+
+
+def test_el_nombre_de_cotizar_no_invita_descripciones_genericas() -> None:
+    # Arrange
+    description = CotizarArgs.model_fields["nombre"].description or ""
+
+    # Assert: el ejemplo es una referencia concreta, no «portacomidas de icopor».
+    assert "portacomidas de icopor" not in description
+    assert "Vaso Gold de 14 oz" in description
+
+
+def test_cotizar_un_nombre_generico_sigue_el_flujo_por_familia() -> None:
+    # Act: «portacomidas de icopor» describe un tipo de producto, no una referencia.
+    result = _run(
+        "cotizar", {"nombre": "portacomidas de icopor", "quantity": 400, "city": "Bogotá"}
+    )
+
+    # Assert: la más económica con alternativas, todas de EPS, sin pedir cuál.
+    assert result.status == "ok"
+    assert result.quote is not None
+    assert result.quote["alternatives"]
+    skus = [result.quote["primary"]["sku"], *(a["sku"] for a in result.quote["alternatives"])]
+    assert all(MATERIALS[sku] == "EPS" for sku in skus)
+
+
+def test_cotizar_un_sku_que_no_existe_deja_mandar_al_nombre() -> None:
+    # Act: el SKU está mal escrito («P1S»); el nombre sí identifica el J2.
+    result = _run(
+        "cotizar", {"sku": "CO-PCOM-P1S", "nombre": "J2", "quantity": 400, "city": "Bogotá"}
+    )
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["sku"] == "CO-PCOM-J2"
+
+
+def test_cotizar_un_sku_y_un_nombre_de_referencias_distintas_pregunta_cual() -> None:
+    # Act
+    result = _run(
+        "cotizar", {"sku": "CO-PCOM-P1", "nombre": "J2", "quantity": 400, "city": "Bogotá"}
+    )
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["referencia"]
+    assert result.payload["conflicto_sku_nombre"] is True
+    assert {item["sku"] for item in result.payload["candidatas"]} == {"CO-PCOM-P1", "CO-PCOM-J2"}
+    assert result.quote is None
+    assert result.context_update["sku"] is None
+
+
+def test_cotizar_avisa_si_la_referencia_nombrada_es_de_otra_familia() -> None:
+    # Act: «vaso P1»; el P1 es un portacomidas (contenedor).
+    result = _run("cotizar", {"nombre": "vaso P1", "quantity": 400, "city": "Bogotá"})
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["sku"] == "CO-PCOM-P1"
+    assert result.payload["familia_distinta"] == {"pedida": "vaso", "referencia": "contenedor"}
+    assert "contenedor" in result.content
+
+
+def test_cotizar_un_nombre_inexistente_no_pide_repetir_la_busqueda() -> None:
+    # Act
+    result = _run("cotizar", {"nombre": "vaso XZ-900", "quantity": 100, "city": "Bogotá"})
+
+    # Assert: coherente con el prompt (no repetir la búsqueda, nunca «no existe»).
+    aviso = result.payload["aviso"]
+    assert "no existe" not in aviso
+    assert "no repitas la búsqueda" in aviso
+    assert "catálogo de Colombia" in aviso
+
+
+def test_cotizar_la_referencia_nombrada_sin_conversion_la_nombra_con_su_presentacion() -> None:
+    # Act: «2 cajas del P1» (s-r3-05); la ficha declara «paca x 200», no la caja.
+    result = _run("cotizar", {"nombre": "P1", "quantity": 2, "unidad": "cajas", "city": "Bogotá"})
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["cantidad"]
+    assert "referencia nombrada" in result.content
+    assert "paca de 200" in result.content
+    assert "las referencias que aplican" not in result.content
