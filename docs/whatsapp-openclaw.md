@@ -225,8 +225,17 @@ cotización y oferta del PDF>
 - Las líneas separadoras son las constantes `carvajal.speech.TEXT_HEADER` y
   `carvajal.speech.LINKS_HEADER`. `carvajal.speech.parse_voice_reply` devuelve las tres
   partes (`spoken`, `written`, `links`); `carvajal.speech.split_voice_reply` sigue
-  devolviendo `(texto hablado, enlaces)` y descarta la parte escrita, así que un consumidor
-  antiguo nunca la lee en voz alta.
+  devolviendo `(texto hablado, enlaces)` y descarta la parte escrita. Ningún código de
+  producción de este repositorio las usa: quien interpreta el texto es el agente de
+  OpenClaw, según su prompt.
+- ⚠️ **Nota de despliegue.** Con `voz=true` la respuesta cambia de forma (antes: texto
+  hablado + `ENLACES`; ahora, casi siempre: resumen + `TEXTO`). El prompt del agente vive en
+  el servidor de OpenClaw, no aquí: con el anterior («el texto hablado dentro de
+  [[tts:text]]; fuera, los enlaces tras la línea ENLACES») el agente leería en voz alta todo
+  lo que va antes de `ENLACES`, incluidas la línea `--- TEXTO … ---` y la respuesta
+  completa, y la nota de voz sería más larga que antes. **Actualiza la sección «Mensajes de
+  voz» del `AGENTS.md` del agente ([abajo](#agentsmd-del-agente-ventas-añadir-al-existente))
+  antes de desplegar esta versión del servidor MCP, o en el mismo momento.**
 - El resumen (`carvajal.speech.spoken_summary`, canal `whatsapp`) es **extractivo y sin
   LLM**: nunca inventa, solo reutiliza frases y cifras de la respuesta, completas (no corta
   una cifra). Presupuesto de unas 55 palabras: la primera frase del primer párrafo
@@ -234,9 +243,15 @@ cotización y oferta del PDF>
   ciudad?»), la primera lista en una frase y más frases del primer párrafo mientras quepan.
   Una lista de hasta cuatro ítems cortos se nombra por la cabeza de cada ítem (lo que va
   antes de la primera coma, dos puntos, raya o paréntesis): «Te dejo por escrito tres
-  opciones: A, B y C.»; con más ítems, «Te dejo cinco opciones por escrito.». Las fuentes,
-  en una frase. Si se omitió algo y no hay lista que ya lo diga, «Te dejo el detalle por
-  escrito.» antes de la pregunta. Nunca pasa del presupuesto en más de una frase.
+  opciones: A, B y C.»; si no, solo cuántas hay: «Te dejo cinco opciones por escrito.». Una
+  lista numerada son pasos («Te dejo tres pasos por escrito.»). Las cabezas tampoco se
+  nombran si cortarían una cifra, un rango o una enumeración («Vasos de 7, 9 y 12 oz» no se
+  dice «Vasos de 7»), si quedarían repetidas o si solo nombran un campo («Precio: …»). Las
+  fuentes, en una frase. Si se omitió algo más que el detalle de la lista (frases, otro
+  párrafo, la pregunta), «Te dejo el detalle por escrito.» antes de la pregunta, haya lista
+  o no. El presupuesto cuenta todo lo que se dice; solo la primera frase, la frase corta de
+  la lista, la de las fuentes y el aviso entran aunque no quepan, así que un resumen que
+  pasa del presupuesto dice únicamente esas piezas.
 - El mensaje transcrito pasa por `carvajal.speech.normalize_transcript` antes del turno: los
   STT escriben «mil ochocientos» como «1,800» (miles de EE. UU.), que aquí se leería «uno
   coma ocho». Se reescribe a «1.800» («12,500,000» → «12.500.000», «2,500.50» →
@@ -367,7 +382,7 @@ mecanismo de secretos de OpenClaw), **nunca** en este repositorio ni en su `.env
   audio), llama a consultar_carvajal con la transcripción en `mensaje` y voz=true. Si llegó
   como texto, no pases voz (o pasa voz=false).
 - Con voz=true la herramienta devuelve primero un resumen corto para leer en voz alta y,
-  después, una de estas secciones (o ninguna):
+  después, una de estas secciones, las dos (primero TEXTO y luego ENLACES) o ninguna:
   - «--- TEXTO (enviar como mensaje escrito, no leer en voz alta) ---» seguida de la
     respuesta completa por escrito (con sus enlaces, fuentes y oferta del PDF);
   - «--- ENLACES (enviar como texto, no leer en voz alta) ---» seguida de un enlace por

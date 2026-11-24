@@ -9,6 +9,7 @@ al arrancar ni al comprobar la vitalidad del contenedor.
 from functools import cache
 from pathlib import Path
 
+import structlog
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,6 +23,7 @@ from carvajal.application.ports import Embedder, LLMProvider
 from carvajal.infrastructure.settings import Settings
 
 APP_DIR = Path(__file__).resolve().parent
+logger = structlog.get_logger(__name__)
 templates = Jinja2Templates(
     directory=APP_DIR / "templates",
     context_processors=[csrf_context],
@@ -43,7 +45,11 @@ def _spoken_summary(message: object) -> str:
         return ""
     try:
         return spoken_message(message)
-    except Exception:  # un resumen roto no impide pintar el hilo: el navegador lee el DOM
+    except Exception as error:  # un resumen roto no impide pintar el hilo: se lee el DOM
+        # Queda en el log, como en el stream: un fallo sistemático no pasa inadvertido.
+        logger.warning(
+            "chat.spoken_summary_failed", error_type=type(error).__name__, source="thread"
+        )
         return ""
 
 

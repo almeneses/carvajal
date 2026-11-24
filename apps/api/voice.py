@@ -29,6 +29,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from apps.api.chat.products import has_cards
 from apps.api.quote_view import quote_view
 from apps.mcp.bridge import spoken_quote
 from carvajal.adapters.speech import OpenAISpeechClient, SynthesizedAudio, build_speech
@@ -40,6 +41,7 @@ from carvajal.speech import (
     combine,
     spoken_sources,
     spoken_summary,
+    to_speech,
 )
 
 __all__ = [
@@ -58,6 +60,10 @@ LIMITER_MAX_KEYS: Final = 4096
 GLOBAL_KEY: Final = "global"
 TRUNCATED_NOTE: Final = "El resto de la respuesta está en pantalla."
 _SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
+# Tarjetas de referencias que se nombran en la voz: más, o con nombres largos, solo se cuentan.
+_CARD_NAMES: Final = 4
+_CARD_NAME_WORDS: Final = 8
+_COUNT_WORDS: Final = {2: "dos", 3: "tres", 4: "cuatro", 5: "cinco", 6: "seis", 7: "siete"}
 
 
 class RateLimiter:
@@ -220,6 +226,59 @@ def _quotes(result: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [single] if isinstance(single, Mapping) else []
 
 
+def _card_name(option: Mapping[str, Any]) -> str:
+    name = str(option.get("name") or "").strip()
+    return to_speech(name).text.rstrip(" .") if name else ""
+
+
+def _cards_phrase(result: Mapping[str, Any]) -> str:
+    """Lo que la voz dice de las tarjetas de un turno comercial sin cotización.
+
+    Las referencias del catálogo se nombran («Te muestro dos referencias en pantalla: Vaso
+    de papel 12 onzas y Vaso de papel 16 onzas.») o, si son muchas o largas, se cuentan; el
+    precio y las cajas quedan en la tarjeta. Otras tarjetas (ficha, distribuidores, sedes)
+    se avisan con «El detalle completo está en pantalla.».
+    """
+
+    options = [item for item in result.get("options") or [] if isinstance(item, Mapping)]
+    if options and not result.get("ficha"):
+        count = len(options)
+        noun = (
+            "una referencia" if count == 1 else f"{_COUNT_WORDS.get(count, str(count))} referencias"
+        )
+        names = [_card_name(option) for option in options]
+        named = (
+            count <= _CARD_NAMES
+            and all(names)
+            and all(len(name.split()) <= _CARD_NAME_WORDS for name in names)
+            and len({name.casefold() for name in names}) == count
+        )
+        if named:
+            listed = names[0] if count == 1 else f"{', '.join(names[:-1])} y {names[-1]}"
+            return f"Te muestro {noun} en pantalla: {listed}."
+        return f"Te muestro {noun} en pantalla."
+    return SUMMARY_POINTERS["web"] if has_cards(dict(result)) else ""
+
+
+def _before_question(summary: str, phrase: str) -> str:
+    """Añade ``phrase`` al resumen, antes de la pregunta final si la hay, sin repetirla."""
+
+    if not phrase or phrase in summary:
+        return summary
+    paragraphs = [part.strip() for part in summary.split("\n\n") if part.strip()]
+    if paragraphs and paragraphs[-1].endswith("?"):
+        last = paragraphs.pop()
+        # La pregunta final puede ir en el mismo párrafo que otra frase: se separa.
+        start = last.rfind("¿")
+        if start > 0 and last[:start].rstrip().endswith((".", "!", "?", "…")):
+            paragraphs.append(last[:start].rstrip())
+            last = last[start:]
+        paragraphs.extend([phrase, last])
+    else:
+        paragraphs.append(phrase)
+    return "\n\n".join(paragraphs)
+
+
 def spoken_message(message: ChatMessage) -> str:
     """Texto para el TTS de una respuesta guardada: su resumen hablado.
 
@@ -227,11 +286,15 @@ def spoken_message(message: ChatMessage) -> str:
     frase, la lista en una frase, la pregunta final y las fuentes en una frase, con «El
     detalle completo está en pantalla.» si se omitió algo. Una respuesta corta se lee
     completa. Con cotización se lee solo su versión corta
-    (:func:`apps.mcp.bridge.spoken_quote`), las fuentes y el mismo aviso. Sin citas,
-    Markdown, emojis ni URL; los enlaces no se leen.
+    (:func:`apps.mcp.bridge.spoken_quote`), las fuentes y el mismo aviso. Sin cotización
+    pero con tarjetas comerciales (referencias del catálogo, ficha, distribuidores), se
+    nombran o se cuentan las referencias, o se añade el aviso, antes de la pregunta final:
+    sus datos no están en el texto. Sin citas, Markdown, emojis ni URL; los enlaces no se
+    leen.
     """
 
     quotes: list[SpokenReply] = []
+    cards: list[str] = []
     listed: list[tuple[str, str]] = []
     seen: set[str] = set()
     for source in message.sources or []:
@@ -244,6 +307,9 @@ def spoken_message(message: ChatMessage) -> str:
                     view = quote_view(payload)
                     if view is not None:
                         quotes.append(spoken_quote(view))
+                phrase = _cards_phrase(result)
+                if phrase and phrase not in cards:
+                    cards.append(phrase)
             continue
         title = str(source.get("title") or source.get("slug") or "").strip()
         url = str(source.get("url") or "").strip()
@@ -252,7 +318,11 @@ def spoken_message(message: ChatMessage) -> str:
             seen.add(key)
             listed.append((title, url))
     if not quotes:
-        return spoken_summary(message.content or "", channel="web", sources=listed[:5]).text
+        summary = spoken_summary(message.content or "", channel="web", sources=listed[:5]).text
+        # Las tarjetas no están en el texto: sin esta frase, la voz no diría que existen.
+        for phrase in cards:
+            summary = _before_question(summary, phrase)
+        return summary.strip()
     # Con cotización se lee solo su versión corta: la prosa del agente repite las cifras.
     parts = list(quotes)
     if listed:

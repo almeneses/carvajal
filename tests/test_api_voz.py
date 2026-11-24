@@ -23,14 +23,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from structlog.testing import capture_logs
 
 from apps.api.chat.identity import COOKIE_NAME, VISITOR_COOKIE, SignedCookieIdentity
 from apps.api.chat.service import ChatService
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import Handlers, HealthStatus, create_app
+from apps.api.runtime import _spoken_summary
 from apps.api.security import CSP_CHAT, CSRF_COOKIE, CSRF_FIELD
 from apps.api.views.voz import CSRF_HEADER
-from apps.api.voice import TRUNCATED_NOTE, RateLimiter, VoiceRuntime, cap_text
+from apps.api.voice import TRUNCATED_NOTE, RateLimiter, VoiceRuntime, cap_text, spoken_message
 from carvajal.adapters.speech.openai import OpenAISpeechClient
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.chat import ChatMessage, Conversation, SqlChatRepository
@@ -1100,11 +1102,13 @@ LONG_ANSWER = (
     "Todos se pueden combinar con tapas de 80 mm y portavasos.\n\n"
     "¿Cuántas unidades necesitas y en qué ciudad?"
 )
+# El párrafo de las tapas queda fuera: además de la frase de la lista, se avisa.
 LONG_SUMMARY = (
     "Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y "
-    "doble pared. Te muestro tres opciones en pantalla: Vaso de papel 8 onzas, Vaso de papel "
-    "12 onzas y Vaso de papel 16 onzas.\n\n"
+    "doble pared. Son aptos para café, té y chocolate. Te dejo tres opciones en pantalla."
+    "\n\n"
     "Según el sitio de Carvajal Empaques.\n\n"
+    "El detalle completo está en pantalla.\n\n"
     "¿Cuántas unidades necesitas y en qué ciudad?"
 )
 VASOS = {"title": "Vasos de papel", "url": "https://colombia.carvajalempaques.com/vasos"}
@@ -1173,6 +1177,90 @@ def test_hablar_una_cotizacion_avisa_que_el_detalle_esta_en_pantalla() -> None:
     [spoken] = fake.tts_inputs()
     assert spoken.startswith("Son 2 cajas de 1.000 unidades")
     assert spoken.endswith("El detalle completo está en pantalla.")
+
+
+def test_hablar_nombra_las_tarjetas_de_un_turno_sin_cotizacion() -> None:
+    # Arrange: la prosa es corta y las referencias solo están en las tarjetas.
+    fake = OpenAIFake()
+    chat = FakeChat()
+    options = [
+        {"name": "Vaso papel 12 oz", "price_per_box": "7250.00 MXN"},
+        {"name": "Vaso papel 16 oz", "price_per_box": "8100.00 MXN"},
+    ]
+    chat.add(
+        _message(
+            "m-3",
+            "assistant",
+            "Encontré estas referencias para tu pedido. ¿Para qué ciudad es?",
+            sources=[{"result_type": "commercial", "result": {"options": options}}],
+        )
+    )
+    client, _ = _app(_runtime(fake), chat)
+    token = _session(client)
+
+    # Act
+    _speak(client, "m-3", token)
+
+    # Assert: se nombran antes de la pregunta final.
+    [spoken] = fake.tts_inputs()
+    assert spoken == (
+        "Encontré estas referencias para tu pedido.\n\n"
+        "Te muestro dos referencias en pantalla: Vaso papel 12 onzas y Vaso papel 16 onzas."
+        "\n\n¿Para qué ciudad es?"
+    )
+
+
+def test_tarjetas_sin_nombres_o_sin_texto_avisan_de_la_pantalla() -> None:
+    # Arrange
+    many = [{"name": f"Vaso papel {size} oz"} for size in (7, 9, 12, 16, 20)]
+    cards = _message(
+        "m-4",
+        "assistant",
+        "",
+        sources=[VASOS, {"result_type": "commercial", "result": {"options": many}}],
+    )[1]
+    ficha = _message(
+        "m-5",
+        "assistant",
+        "Esta es la ficha.",
+        sources=[{"result_type": "commercial", "result": {"ficha": {"name": "Vaso"}}}],
+    )[1]
+
+    # Act
+    spoken_cards = spoken_message(cards)
+    spoken_ficha = spoken_message(ficha)
+
+    # Assert
+    assert spoken_cards == (
+        "Según el sitio de Carvajal Empaques.\n\nTe muestro cinco referencias en pantalla."
+    )
+    assert spoken_ficha == "Esta es la ficha.\n\nEl detalle completo está en pantalla."
+
+
+def test_un_resumen_que_falla_en_el_hilo_queda_en_el_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    import apps.api.voice as voice
+
+    def broken(message: ChatMessage) -> str:
+        raise ValueError("payload roto")
+
+    monkeypatch.setattr(voice, "spoken_message", broken)
+    _, message = _message("m-6", "assistant", "Hola.")
+
+    # Act
+    with capture_logs() as logs:
+        summary = _spoken_summary(message)
+
+    # Assert
+    assert summary == ""
+    assert {
+        "event": "chat.spoken_summary_failed",
+        "error_type": "ValueError",
+        "source": "thread",
+        "log_level": "warning",
+    } in logs
 
 
 def test_el_hilo_publica_el_resumen_hablado_escapado() -> None:

@@ -63,7 +63,10 @@ queda en los logs.
   llegan al estilo colombiano (`carvajal.speech.normalize_transcript`): OpenAI escribe «mil
   ochocientos» como «1,800» y se devuelve «1.800» («12,500,000» → «12.500.000»,
   «2,500.50» → «2.500,50»); decimales («1,5», «12,5 onzas»), horas («10:30») y listas
-  («2, 3 y 4») no cambian.
+  («2, 3 y 4») no cambian. Es una decisión ante la ambigüedad: «1,500» (tres cifras tras
+  la coma) se toma siempre como miles, también con «kg» o «litros», porque así escribe el
+  STT los miles; un decimal dictado de tres cifras («uno coma quinientos») saldría mil
+  veces mayor, y por eso el dictado se revisa antes de enviarlo.
 - Errores: `403 csrf|no_session`, `411 length_required`, `413 too_large|too_long`,
   `415 unsupported_type`, `422 empty|rejected`, `429 rate_limited` (con `Retry-After`) y
   `503 off|cap|circuit_open|unavailable`. `rejected` es un audio que OpenAI no aceptó
@@ -95,12 +98,19 @@ LLM y de forma determinista, solo con frases y cifras de la propia respuesta:
 - una respuesta corta (abstenciones, saludos, datos sueltos) se lee completa;
 - si no cabe: la primera frase del primer párrafo, la pregunta final al cliente si la hay,
   la primera lista en una frase («Te muestro tres opciones en pantalla: A, B y C.», o solo
-  cuántas hay si son más de cuatro o largas) y más frases del primer párrafo mientras
-  quepan; las fuentes en una frase; si se omitió algo que la frase de la lista no cubre,
-  «El detalle completo está en pantalla.» antes de la pregunta. Nunca pasa del presupuesto
-  en más de una frase, nunca corta una cifra y nunca lee una URL;
+  cuántas hay si son más de cuatro, largas, repetidas o si nombrarlas cortaría una cifra,
+  un rango o una enumeración; una lista numerada son «tres pasos») y más frases del primer
+  párrafo mientras quepan; las fuentes en una frase; si se omitió algo más que el detalle
+  de la lista (frases, otro párrafo, la pregunta), «El detalle completo está en
+  pantalla.» antes de la pregunta, haya lista o no. El presupuesto cuenta todo lo que se
+  dice: solo la primera frase, la frase corta de la lista, la de las fuentes y el aviso
+  entran aunque no quepan. Nunca corta una cifra y nunca lee una URL;
 - con cotización se lee solo su versión corta (producto, cantidades, total con IVA y
-  envío), las fuentes y «El detalle completo está en pantalla.».
+  envío), las fuentes y «El detalle completo está en pantalla.»;
+- con tarjetas de referencias sin cotización, la voz las nombra o las cuenta («Te muestro
+  dos referencias en pantalla: A y B.») antes de la pregunta final; con otras tarjetas
+  (ficha, distribuidores, sedes) añade «El detalle completo está en pantalla.». Sus datos
+  no están en el texto de la respuesta y, sin esto, la voz no diría que existen.
 
 Ejemplo (respuesta con lista y pregunta):
 

@@ -415,9 +415,10 @@ def test_una_respuesta_larga_se_resume_y_va_completa_por_escrito() -> None:
     # Assert
     assert parts.spoken == (
         "Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y "
-        "doble pared. Te dejo por escrito tres opciones: Vaso de papel 8 onzas, Vaso de "
-        "papel 12 onzas y Vaso de papel 16 onzas.\n\n"
+        "doble pared. Son aptos para café, té y chocolate, y se venden en cajas de 1.000 "
+        "unidades. Te dejo tres opciones por escrito.\n\n"
         "Según el sitio de Carvajal Empaques.\n\n"
+        "Te dejo el detalle por escrito.\n\n"
         "¿Cuántas unidades necesitas y en qué ciudad?"
     )
     assert parts.written == written
