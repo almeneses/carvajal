@@ -43,6 +43,8 @@ __all__ = [
     "empty_request",
     "extract_commercial",
     "is_custom_need",
+    "mentions_microwave",
+    "microwave_for",
     "non_commercial_part",
 ]
 
@@ -137,6 +139,26 @@ _RENEWABLE = re.compile(
     r"\b(renovables?|compostables?|biodegradables?|ecologic\w*|sostenibles?|de papel|de carton"
     r"|fibra|cana|bagazo|pulpa|sin plastico|sin icopor)\b"
 )
+# Microondas sobre texto ya sin tildes ni mayúsculas (``_plain``). Cuenta la familia de
+# la palabra («microondas», «micro-ondas», «microhondas», «microndas», «mircoondas»,
+# «microondable(s)», «microondear»), «microwave», «micro» suelto solo tras «para», «al»,
+# «en» u «horno» («aptos para micro», «que vayan al micro») y «MW» solo en «aptos para
+# MW» (suelto es también megavatio). No cuentan
+# «micro empresa», «micro-negocio», «micro y pequeñas empresas» ni el cartón
+# «microondulado»; tampoco una negación cercana («no necesito que sean para microondas»).
+_MICROWAVE = re.compile(
+    r"\bmi(?:cr|rc)o[\s-]?h?o?nd(?!ul)\w*"
+    r"|\bmicrowaves?\b"
+    r"|\b(?:para(?:\s+el)?|al|en(?:\s+el)?|horno(?:\s+de)?)\s+micro\b"
+    r"(?![\s,-]*(?:y\s+)?(?:empres|negoci|emprend|credit|financ|peque|median|ondul|corrug))"
+    r"|\bapt[oa]s?\s+(?:para(?:\s+el)?|al)\s+mw\b"
+)
+# La negación vale dentro de la misma cláusula: «no necesito tapa, pero sí para microondas»
+# sigue pidiendo microondas.
+_MICROWAVE_NEGATION = re.compile(
+    r"\bno\s+(?:necesit\w*|requier\w*|hace\s+falta|es\s+necesario|van?)\b[^.,;?!]{0,40}$"
+    r"|\bsin\s+(?:ir\s+al\s+|usar\s+el\s+)?$"
+)
 _HOT = re.compile(r"\b(calientes?|calentar|hirviendo)\b")
 _COLD = re.compile(r"\b(fri[ao]s?|helad[ao]s?|refrigera\w*|congela\w*)\b")
 _NUMBER = r"\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?"
@@ -172,6 +194,35 @@ def _number(raw: str) -> float:
     if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", raw):
         return float(re.sub(r"[.,]", "", raw))
     return float(raw.replace(",", "."))
+
+
+def mentions_microwave(text: str) -> bool:
+    """La frase pide un empaque que vaya al microondas (detector único del producto).
+
+    Acepta texto crudo o ya normalizado. Lo usan la extracción comercial y la red de
+    seguridad del modo ``tools``; la simulación de conversaciones debe usarlo también para
+    medir lo mismo que detecta el producto.
+    """
+
+    plain = _plain(text)
+    return any(
+        not _MICROWAVE_NEGATION.search(plain[: match.start()])
+        for match in _MICROWAVE.finditer(plain)
+    )
+
+
+def microwave_for(question: str, family: str | None) -> bool | None:
+    """``True`` si la pregunta pide microondas para ``family``; si no, ``None``.
+
+    Si la pregunta nombra otra familia («vasos para café y contenedores para microondas»)
+    no se sabe a cuál se refiere y no se deduce nada.
+    """
+
+    if not mentions_microwave(question):
+        return None
+    plain = _plain(question)
+    named = {name for name, pattern in _FAMILIES.items() if _search(pattern, plain)}
+    return True if named <= {family} or (family is None and len(named) <= 1) else None
 
 
 def _search(pattern: str, text: str) -> re.Match[str] | None:
@@ -237,7 +288,7 @@ def _extract(question: str) -> tuple[bool, dict[str, Any]]:
     family = _family(text)
     without_wine = _WINE.sub(" ", text)
     use = next((name for name, pattern in _USES if _search(pattern, without_wine)), None)
-    microwave = True if "microondas" in text else None
+    microwave = True if mentions_microwave(text) else None
     temperature: str | None = None
     if _COLD.search(text):
         temperature = "fria"

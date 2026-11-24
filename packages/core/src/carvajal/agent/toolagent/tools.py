@@ -42,7 +42,7 @@ from carvajal.agent.commercial_flow import (
     _option,
     commercial_sources,
 )
-from carvajal.agent.commercial_intent import USE_TEMPERATURE, USES
+from carvajal.agent.commercial_intent import USE_TEMPERATURE, USES, microwave_for
 from carvajal.agent.toolagent.sources import SourceRegistry
 from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_CORPUS,
@@ -765,11 +765,16 @@ def _buscar_producto(
     args: BuscarProductoArgs, deps: ToolDeps, context: ToolContext, sources: _Sources
 ) -> _Draft:
     data = deps.catalog or load_catalog()
+    # Red de seguridad: si la persona pidió microondas y el modelo no lo pasó, se aplica
+    # igual, para no recomendar un material que la guía descarta (EPS, evaluación spec 044).
+    microwave = args.microondas
+    if microwave is None:
+        microwave = microwave_for(context.question, args.familia)
     temperature = args.temperatura or cast(Temperature | None, USE_TEMPERATURE.get(args.uso or ""))
     req = CommercialRequest(
         use=args.uso,
         temperature=temperature,
-        microwave=args.microondas,
+        microwave=microwave,
         capacity_oz=args.capacidad_oz,
         family=args.familia,
         quantity=None,  # sin cantidad no hay totales: explorar no es cotizar
@@ -981,6 +986,9 @@ def _quote_payload(
 
 def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
     filled, reused = _fill_from_context(args, context.commercial_context)
+    if filled.microwave is None and microwave_for(context.question, filled.family):
+        # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
+        filled = filled.model_copy(update={"microwave": True})
     update = {**filled.model_dump(exclude_none=True), "country": "CO"}
     base = {"reutilizado": reused}
     day = _today(deps)
