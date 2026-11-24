@@ -974,7 +974,8 @@
     {
       "version": 2,
       "date": "2026-11-23",
-      "change": "Corrección objetiva de forbidden_materials en g-001, g-003, g-013, g-015, g-016, g-023, g-033, g-037 y g-045: se derivan de check_material y data/catalog/empaques/materiales.csv (PP, PS y EPS admiten contenido caliente; PET no; con microondas solo PP). La v1 prohibía PP para tinto y PS para comida caliente por error del redactor. No cambia ninguna pregunta ni otra expectativa; se detectó en la primera corrida parcial, antes de la evaluación completa."
+      "change": "Corrección objetiva de forbidden_materials en g-001, g-003, g-013, g-015, g-016, g-023, g-033, g-037 y g-045: se derivan de check_material y data/catalog/empaques/materiales.csv (PP, PS y EPS admiten contenido caliente; PET no; con microondas solo PP). La v1 prohibía PP para tinto y PS para comida caliente por error del redactor. No cambia ninguna pregunta ni otra expectativa; se detectó en la primera corrida parcial, antes de la evaluación completa.",
+      "accepted_by_owner": "2026-11-23"
     }
   ]
 }

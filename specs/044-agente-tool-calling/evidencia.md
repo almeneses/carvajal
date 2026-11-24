@@ -163,8 +163,9 @@ del motor y las tarjetas solo traen opciones validadas.
    (1 caso dudoso), SC-006a (1,48 s) y SC-004 en su lectura estricta. A la vez, `tools`
    supera a `routes` en todas las garantías y `routes` tiene hallazgos graves en producción
    (§7). **Resuelta el 2026-11-23: sí, con riesgos aceptados → §10.**
-2. **¿Se acepta el conjunto v2?** (§2.1). **Abierta.** La decisión 1 se tomó con los
-   resultados de v2, pero el owner no se pronunció sobre el conjunto.
+2. **¿Se acepta el conjunto v2?** (§2.1). **Resuelta el 2026-11-23: sí.** El owner acepta
+   la corrección de `forbidden_materials` en los 9 ítems, derivada de `check_material` y
+   `materiales.csv`, sin cambios en las preguntas. La v2 es la versión vigente del conjunto.
 3. **¿Se ajusta `AGENT_SYSTEM` para los fallos de §3?** Implica escribir un conjunto v3 para
    medir sin contaminación. **Abierta.**
 4. **¿Se abren specs aparte** para los hallazgos de `routes` (§7) y para la regresión de
@@ -176,7 +177,8 @@ Borrador del asistente de desarrollo, revisado y congelado por el owner sin camb
 2026-11-23. Quien redactó el borrador ya había leído `agent/router.py`, el primer ítem de
 `routing_questions.json` y había probado frases contra el enrutador y el cotizador durante
 el plan; no se consultó `routing_questions.json` para escribir los ítems. La versión 2
-corrige solo expectativas de material contra `check_material`.
+corrige solo expectativas de material contra `check_material` y la aceptó el owner el
+2026-11-23 (§8, decisión 2).
 
 ## 10. Decisión del owner
 
