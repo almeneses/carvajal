@@ -410,6 +410,33 @@ def test_memoria_del_agente_por_defecto() -> None:
     assert settings.agent_faq_timeout_s < settings.agent_turn_timeout_s
 
 
+@pytest.mark.parametrize(("turno", "faq"), [("20", "40"), ("25", "25")])
+def test_un_plazo_de_faq_no_menor_que_el_del_turno_falla_al_arrancar(
+    monkeypatch: pytest.MonkeyPatch, turno: str, faq: str
+) -> None:
+    """Contrato: el plazo de ``preguntas_frecuentes`` es menor que el del turno."""
+
+    # Arrange
+    monkeypatch.setenv("AGENT_TURN_TIMEOUT_S", turno)
+    monkeypatch.setenv("AGENT_FAQ_TIMEOUT_S", faq)
+
+    # Act / Assert
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_un_turno_corto_recorta_el_plazo_de_faq_por_defecto() -> None:
+    """Sin ``AGENT_FAQ_TIMEOUT_S`` explícito, el plazo por defecto se ajusta al del turno."""
+
+    # Act
+    corto = Settings(_env_file=None, agent_turn_timeout_s=20)
+    minimo = Settings(_env_file=None, agent_turn_timeout_s=0.25)
+
+    # Assert
+    assert corto.agent_faq_timeout_s == 15
+    assert 0 < minimo.agent_faq_timeout_s < minimo.agent_turn_timeout_s
+
+
 def test_memoria_del_agente_desde_el_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
     """Los ajustes de la 045 se leen del entorno con sus nombres en mayúsculas."""
 

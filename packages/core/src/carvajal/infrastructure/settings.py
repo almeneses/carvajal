@@ -9,6 +9,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# Holgura entre el plazo de ``preguntas_frecuentes`` y el del turno cuando se recorta el
+# valor por defecto (``Settings._plazo_faq_menor_que_el_turno``).
+_FAQ_MARGIN_S = 5.0
+
 
 class Settings(BaseSettings):
     """Valores de configuración del corpus, las capas y los proveedores de LLM."""
@@ -265,6 +269,27 @@ class Settings(BaseSettings):
         except ZoneInfoNotFoundError as error:
             raise ValueError(f"zona horaria desconocida: {value}") from error
         return value
+
+    @model_validator(mode="after")
+    def _plazo_faq_menor_que_el_turno(self) -> "Settings":
+        """El plazo de ``preguntas_frecuentes`` es siempre menor que el del turno (R18).
+
+        Si el turno vence antes, el turno cae al respaldo por plazo, la herramienta nunca
+        usa su caché de respaldo y su hilo sigue llamando al LLM. Un
+        ``AGENT_FAQ_TIMEOUT_S`` explícito que no lo cumple falla al arrancar; el valor por
+        defecto (25 s) se recorta al del turno menos 5 s, o a la mitad si el turno es corto.
+        """
+
+        turn = self.agent_turn_timeout_s
+        if self.agent_faq_timeout_s < turn:
+            return self
+        if "agent_faq_timeout_s" in self.model_fields_set:
+            raise ValueError(
+                "AGENT_FAQ_TIMEOUT_S debe ser menor que AGENT_TURN_TIMEOUT_S "
+                f"({self.agent_faq_timeout_s} ≥ {turn})"
+            )
+        self.agent_faq_timeout_s = turn - _FAQ_MARGIN_S if turn > 2 * _FAQ_MARGIN_S else turn / 2
+        return self
 
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
