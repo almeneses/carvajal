@@ -242,6 +242,33 @@ class SqlChatRepository:
             .limit(1)
         )
 
+    def owned_message(self, message_id: str, owner_key: str) -> ChatMessage | None:
+        """Mensaje ``message_id`` solo si su hilo es del dueño; nunca cruza identidades.
+
+        Lo usa la lectura en voz del servidor (spec 047): el texto que se sintetiza sale de
+        la base, no del navegador.
+        """
+
+        if not message_id:
+            return None
+        row = (
+            self._session.execute(
+                select(tables.messages)
+                .join(
+                    tables.conversations,
+                    tables.conversations.c.id == tables.messages.c.conversation_id,
+                )
+                .where(
+                    tables.messages.c.id == message_id,
+                    tables.conversations.c.owner_key == owner_key,
+                )
+                .limit(1)
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return None if row is None else ChatMessage(**row)
+
     def history(
         self,
         conversation_id: str,

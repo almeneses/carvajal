@@ -16,6 +16,11 @@ texto listo para WhatsApp.
   consumiendo el mismo cupo diario que cualquier mensaje.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
+- **Voz**: ``consult(..., voice=True)`` devuelve el mismo turno como texto para el TTS de
+  la pasarela (:mod:`carvajal.speech`): sin citas, Markdown, emojis ni URL; fuentes en una
+  frase, unidades y folios en palabras. Los enlaces (PDF, foto, fuentes) van al final, tras
+  :data:`~carvajal.speech.LINKS_HEADER`, para enviarlos como texto. Sin ``voice`` la
+  respuesta es la de siempre.
 - **Reintentos**: :meth:`WhatsAppBridge.respond` acepta un ``client_turn_id`` (el webhook
   lo deriva del ``message_id``). Si el dueño ya tiene ese turno guardado, el servicio lo
   reemite sin cobrar cupo, sin abrir hilo nuevo y sin emitir otros folios. Si no, el
@@ -31,6 +36,7 @@ texto listo para WhatsApp.
 
 import hmac
 import re
+import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -44,6 +50,14 @@ from apps.api.quote_view import QuoteView, quote_view
 from carvajal.application.deliveries import DeliveryClaim, DeliveryStore, InMemoryDeliveryStore
 from carvajal.application.quota import QuotaResult
 from carvajal.domain.phone import normalize_e164
+from carvajal.speech import (
+    SpeechLink,
+    SpokenReply,
+    combine,
+    speak_folio_tail,
+    spoken_sources,
+    to_speech,
+)
 
 __all__ = [
     "EMPTY_MESSAGE",
@@ -54,6 +68,7 @@ __all__ = [
     "NO_QUOTE_FOR_PDF",
     "OWNER_PREFIX",
     "PDF_OFFER",
+    "PDF_OFFER_SPOKEN",
     "PDF_UNAVAILABLE",
     "SERVICE_UNAVAILABLE",
     "TOO_LONG_MESSAGE",
@@ -65,6 +80,7 @@ __all__ = [
     "canonical_chat_id",
     "is_pdf_request",
     "owner_key_for",
+    "spoken_quote",
     "to_whatsapp",
     "whatsapp_quote",
 ]
@@ -89,6 +105,7 @@ SERVICE_UNAVAILABLE = (
 )
 NEW_CONVERSATION = "Listo, empezamos una conversación nueva. ¿En qué te puedo ayudar?"
 PDF_OFFER = "¿Quieres esta cotización en PDF? Responde *PDF* 📄"
+PDF_OFFER_SPOKEN = "Si quieres el detalle, respóndeme PDF y te lo mando por escrito."
 NO_QUOTE_FOR_PDF = (
     "Todavía no tengo una cotización en esta conversación. Pídeme una, por ejemplo: "
     "*Cotiza 400 portacomidas espumados J1 en Bogotá*."
@@ -142,12 +159,20 @@ class BridgeReply:
     """Texto listo para WhatsApp y folios de las cotizaciones emitidas en el turno.
 
     ``in_progress`` indica que otro intento atiende el mismo ``client_turn_id``: no hay
-    nada que enviar al cliente y el relé debe reintentar más tarde.
+    nada que enviar al cliente y el relé debe reintentar más tarde. ``spoken`` es la
+    versión para voz del mismo turno; si falta (respuestas cortas o reemitidas desde la
+    reserva), :meth:`voice` la deriva de ``text``.
     """
 
     text: str
     quote_ids: tuple[str, ...] = ()
     in_progress: bool = False
+    spoken: SpokenReply | None = field(default=None, compare=False, repr=False)
+
+    def voice(self) -> SpokenReply:
+        """Texto para el TTS y enlaces aparte (ver :mod:`carvajal.speech`)."""
+
+        return self.spoken if self.spoken is not None else to_speech(self.text)
 
 
 def _no_limit(_owner_key: str) -> QuotaResult:
@@ -224,56 +249,114 @@ def to_whatsapp(text: str) -> str:
     return result.strip()
 
 
-_PDF_WORDS = re.compile(r"[a-záéíóúñ]+")
+# Letras que un transcriptor (STT) puede devolver en cirílico o griego por parecerse a
+# las latinas (una «ф» cirílica en «efe»): se leen como su par latino antes de buscar «PDF».
+# Se escriben con su código para que el archivo no tenga caracteres ambiguos.
+_HOMOGLYPHS = str.maketrans(
+    {
+        "\u0430": "a",  # a cirílica
+        "\u0435": "e",  # ie cirílica
+        "\u0451": "e",  # io cirílica
+        "\u043e": "o",  # o cirílica
+        "\u0440": "p",  # er cirílica
+        "\u0441": "c",  # es cirílica
+        "\u0434": "d",  # de cirílica
+        "\u0444": "f",  # ef cirílica
+        "\u043c": "m",  # em cirílica
+        "\u0456": "i",  # i cirílica
+        "\u03c1": "p",  # rho griega
+        "\u03b5": "e",  # épsilon griega
+        "\u03c6": "f",  # phi griega
+        "\u03b4": "d",  # delta griega
+    }
+)
+# «PDF» escrito: «pdf», «P.D.F.», «p d f» (ya sin tildes ni puntuación).
+_PDF_TYPED = re.compile(r"(?<![a-z0-9])p ?d ?f(?![a-z0-9])")
+# «PDF» oído por un STT: «pe de efe», «pe de fe», «p de f», «pedefe», «impedefe», «MPDF»,
+# «em pe de efe»… Solo letras p, d y f en orden, con «e» opcionales entre ellas: ninguna
+# palabra común del español tiene esa forma, así que no se confunde con una frase normal.
+_PDF_SPOKEN = re.compile(
+    r"(?<![a-z0-9])(?:[ie]? ?m ?)?p ?(?:e ?)?d ?(?:e ?)?(?:e ?)?f(?: ?e)?(?![a-z0-9])"
+)
+_PDF_WORDS = re.compile(r"[a-z0-9]+")
+# Palabras que acompañan el pedido sin cambiarlo (ya sin tildes).
 _PDF_FILLER = {
     "si",
-    "sí",
     "el",
     "la",
     "en",
     "un",
     "una",
     "de",
+    "y",
+    "a",
     "por",
     "favor",
     "porfa",
+    "porfi",
     "porfavor",
     "quiero",
     "dame",
     "envia",
-    "envía",
     "enviame",
-    "envíame",
+    "enviamelo",
+    "envialo",
     "manda",
     "mandame",
-    "mándame",
+    "mandamelo",
+    "mandalo",
     "genera",
     "generar",
     "generame",
-    "genérame",
     "pasa",
     "pasame",
-    "pásame",
+    "pasamelo",
     "me",
     "lo",
     "cotizacion",
-    "cotización",
+    "archivo",
     "gracias",
     "ok",
+    "okay",
+    "vale",
+    "bueno",
+    "claro",
     "dale",
     "listo",
     "pdf",
 }
 
 
-def is_pdf_request(message: str) -> bool:
+def _fold(text: str) -> str:
+    """Minúsculas, sin tildes, sin homoglifos y con la puntuación como espacio."""
+
+    decomposed = unicodedata.normalize("NFKD", text.lower().translate(_HOMOGLYPHS))
+    plain = "".join(
+        character
+        for character in decomposed
+        if not unicodedata.combining(character) and unicodedata.category(character) != "Cf"
+    )
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", plain.translate(_HOMOGLYPHS)).split())
+
+
+def is_pdf_request(message: str, *, spoken: bool = False) -> bool:
     """«PDF», «sí, el PDF», «envíame la cotización en pdf»…: pedido explícito del PDF.
 
     Solo cuenta si el mensaje es corto y todas sus palabras son de relleno: «¿el PDF trae
-    el IVA?» es una pregunta para el agente, no un pedido del archivo.
+    el IVA?» es una pregunta para el agente, no un pedido del archivo. Tildes, mayúsculas,
+    puntos y espacios entre letras no cuentan («P.D.F.», «p d f», «pdF»). Con ``spoken``
+    (el mensaje llegó como nota de voz y lo transcribió la pasarela) también valen las
+    formas en que un STT suele oír «PDF»: «pe de efe», «impedefe», «MPDF» o «el pe de efe»
+    con letras cirílicas.
     """
 
-    words = _PDF_WORDS.findall(message.lower())
+    folded = _fold(message)
+    # Cada sustitución deja espacios dobles; se colapsan para que la siguiente vea «m pdf»
+    # (de «M P D F» o «em p d f») y no «m  pdf», que no casaría.
+    folded = " ".join(_PDF_TYPED.sub(" pdf ", folded).split())
+    if spoken:
+        folded = " ".join(_PDF_SPOKEN.sub(" pdf ", folded).split())
+    words = _PDF_WORDS.findall(folded)
     return "pdf" in words and len(words) <= 8 and all(word in _PDF_FILLER for word in words)
 
 
@@ -325,6 +408,102 @@ def whatsapp_quote(view: QuoteView, photo_url: str | None = None) -> str:
     if photo_url:
         lines.append(f"📷 Foto: {photo_url}")
     return "\n".join(lines)
+
+
+# Una advertencia más larga que esto no se dice: queda en el texto y en el PDF.
+_SPOKEN_WARNING_CHARS = 80
+
+
+def _spoken_tax(tax: str) -> str:
+    """«Incluido (19 %)» → «con IVA incluido»; «No incluido» → «sin incluir IVA»."""
+
+    lowered = tax.lower()
+    if lowered.startswith("incluido"):
+        return " con IVA incluido"
+    if lowered.startswith("no incluido"):
+        return " sin incluir IVA"
+    return ""
+
+
+def _spoken_shipping(shipping: str, currency: str) -> str:
+    """El envío en una frase, con la moneda de la cotización (no siempre pesos)."""
+
+    if shipping.startswith("$"):
+        return f"El envío cuesta {shipping} {currency}."
+    if shipping[:1].isdigit():
+        # Moneda sin signo: ``format_money`` ya la escribe detrás («1.234 EUR»).
+        return f"El envío cuesta {shipping}."
+    lowered = shipping.lower()
+    if lowered == "gratis":
+        return "El envío es gratis."
+    if lowered.startswith("por confirmar"):
+        return "El envío se confirma con el vendedor."
+    return ""
+
+
+def spoken_quote(view: QuoteView, photo_url: str | None = None) -> SpokenReply:
+    """La misma cotización que :func:`whatsapp_quote`, en versión corta para la voz (~15 s).
+
+    Dice solo lo esencial con las cifras exactas del payload: cuántas presentaciones y de
+    cuántas unidades, el producto, la ciudad, el total con el IVA y el envío. La
+    presentación con su precio, el subtotal, el vendedor, las fechas y el folio quedan en el
+    texto de WhatsApp y en el PDF. :func:`~carvajal.speech.to_speech` lee importes y
+    unidades. La foto no se lee: va como enlace aparte.
+    """
+
+    product = view.product
+    count, label, per = (
+        view.presentations,
+        view.presentations_label.lower(),
+        view.units_per_presentation,
+    )
+    if count is not None and label and per:
+        verb = "Es" if count == 1 else "Son"
+        head = f"{verb} {_units(count)} {label} de {_units(per)} unidades de {product}"
+    elif count is not None and label:
+        head = f"{'Es' if count == 1 else 'Son'} {_units(count)} {label} de {product}"
+    elif view.units_requested is not None:
+        head = f"Son {_units(view.units_requested)} unidades de {product}"
+    else:
+        head = f"Es una cotización de {product}"
+    if view.city:
+        head += f" en {view.city}"
+    sentences: list[str] = []
+    if view.total:
+        sentences.append(
+            f"{head}, por un total de {view.total} {view.currency}{_spoken_tax(view.tax)}."
+        )
+    else:
+        sentences.append(f"{head}.")
+        pending = f": {view.pending[0].rstrip('.')}" if view.pending else ""
+        sentences.append(f"El total está pendiente{pending}.")
+    shipping = _spoken_shipping(view.shipping, view.currency)
+    if shipping:
+        sentences.append(shipping)
+    if view.warning and len(view.warning) <= _SPOKEN_WARNING_CHARS:
+        sentences.append(f"Ojo: {view.warning.rstrip('.')}.")
+    spoken = to_speech(" ".join(sentences))
+    links = (SpeechLink(f"Foto de {view.product}", photo_url),) if photo_url else ()
+    return SpokenReply(spoken.text, spoken.links + links)
+
+
+def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
+    """Las fuentes de :func:`_sources_block` en una frase; sus URL, como enlaces aparte."""
+
+    listed: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for source in sources:
+        if len(listed) >= MAX_LISTED_SOURCES:
+            break
+        title = str(source.get("title") or source.get("slug") or "").strip()
+        url = str(source.get("url") or "").strip()
+        key = url or title
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        listed.append((title, url))
+    links = tuple(SpeechLink(title or "Fuente", url) for title, url in listed if url)
+    return SpokenReply(spoken_sources(listed), links)
 
 
 def _sources_block(sources: Iterable[Mapping[str, Any]]) -> str:
@@ -391,14 +570,24 @@ class WhatsAppBridge:
 
         return owner_key_for(chat_id, self.secret)
 
-    def consult(self, message: str, chat_id: str, *, new_conversation: bool = False) -> str:
+    def consult(
+        self,
+        message: str,
+        chat_id: str,
+        *,
+        new_conversation: bool = False,
+        voice: bool = False,
+    ) -> str:
         """Responde ``message`` en el hilo del chat ``chat_id``; nunca lanza.
 
         Con ``new_conversation`` se abre un hilo nuevo antes del turno (equivale al botón
-        «Nueva conversación» de la web); si además no hay mensaje, solo se confirma.
+        «Nueva conversación» de la web); si además no hay mensaje, solo se confirma. Con
+        ``voice`` la respuesta es apta para leerse en voz alta y los enlaces van aparte
+        (:meth:`SpokenReply.render <carvajal.speech.SpokenReply.render>`).
         """
 
-        return self.respond(message, chat_id, new_conversation=new_conversation).text
+        reply = self.respond(message, chat_id, new_conversation=new_conversation, voice=voice)
+        return reply.voice().render() if voice else reply.text
 
     def respond(
         self,
@@ -407,8 +596,13 @@ class WhatsAppBridge:
         *,
         new_conversation: bool = False,
         client_turn_id: str | None = None,
+        voice: bool = False,
     ) -> BridgeReply:
         """Como :meth:`consult`, con los folios y un ``client_turn_id`` para reintentos.
+
+        ``voice`` indica que el mensaje llegó como nota de voz: el pedido del PDF acepta
+        además lo que un STT suele oír por «PDF» (:func:`is_pdf_request`). La respuesta es
+        la misma; quien la envía elige el texto o :meth:`BridgeReply.voice`.
 
         Si ``turns`` encuentra ``client_turn_id`` en un hilo del dueño, el turno se reemite
         desde ese hilo: no se abre conversación nueva ni se cobra cupo, y el servicio de
@@ -443,7 +637,7 @@ class WhatsAppBridge:
             )
             try:
                 reply, streamed, final = self._fresh_turn(
-                    owner, text, new_conversation, client_turn_id, effects
+                    owner, text, new_conversation, client_turn_id, effects, voice=voice
                 )
             except Exception as error:
                 logger.warning("whatsapp.turn_failed", error=repr(error))
@@ -508,6 +702,8 @@ class WhatsAppBridge:
         new_conversation: bool,
         client_turn_id: str | None,
         effects: "_Effects | None" = None,
+        *,
+        voice: bool = False,
     ) -> tuple[BridgeReply, bool, bool]:
         """Atiende un turno nuevo: ``(respuesta, el servicio lo ejecutó, es definitiva)``.
 
@@ -529,10 +725,10 @@ class WhatsAppBridge:
                 logger.info("whatsapp.quota_exhausted")
                 return BridgeReply(LIMIT_REACHED), False, True
             effects.quota = True
-        if is_pdf_request(text):
+        if is_pdf_request(text, spoken=voice):
             # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
             pdf, final = self._pdf(owner)
-            return BridgeReply(pdf), False, final
+            return pdf, False, final
         turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
         reply = self._render(turn, owner)
         return reply, True, reply.text != SERVICE_UNAVAILABLE
@@ -578,28 +774,44 @@ class WhatsAppBridge:
             logger.warning("whatsapp.delivery_settle_failed", error=repr(error))
 
     def _render(self, turn: _Turn, owner: str) -> BridgeReply:
+        """El turno en formato de WhatsApp y, en paralelo, su versión para voz."""
+
         if turn.error is not None and not turn.text.strip():
             return BridgeReply(SERVICE_UNAVAILABLE)
         blocks = [to_whatsapp(turn.text)] if turn.text.strip() else []
-        quotes = self._quote_blocks(turn.folios, owner)
-        blocks.extend(quotes)
+        prose = to_speech(turn.text) if turn.text.strip() else None
+        quotes = self._quote_views(turn.folios, owner)
+        # Con cotización, la voz dice solo la cotización corta: la introducción del agente
+        # repite sus cifras y alarga la nota (~30 s). Sus enlaces sí se conservan.
+        spoken = [] if prose is None else [SpokenReply("", prose.links) if quotes else prose]
+        blocks.extend(whatsapp_quote(view, photo) for view, photo in quotes)
+        spoken.extend(spoken_quote(view, photo) for view, photo in quotes)
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)
+            spoken.append(_spoken_sources(turn.sources))
         if quotes and self.pdf_link is not None and self._latest_view(owner) is not None:
             blocks.append(PDF_OFFER)
+            spoken.append(SpokenReply(PDF_OFFER_SPOKEN))
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
+            spoken.append(SpokenReply("La respuesta quedó incompleta; vuelve a preguntarme."))
         reply = "\n\n".join(block for block in blocks if block)
         if not reply:
             return BridgeReply(SERVICE_UNAVAILABLE)
-        return BridgeReply(reply, tuple(turn.folios))
+        voice = combine(spoken)
+        # Un turno que solo trae enlaces no deja la nota de voz vacía.
+        if not voice.text:
+            voice = SpokenReply("Te envío la información por escrito.", voice.links)
+        return BridgeReply(reply, tuple(turn.folios), spoken=voice)
 
-    def _quote_blocks(self, folios: Sequence[str], owner: str) -> list[str]:
+    def _quote_views(self, folios: Sequence[str], owner: str) -> list[tuple[QuoteView, str | None]]:
+        """Cotizaciones del turno con su foto; un folio ilegible se omite sin romper el turno."""
+
         if self.quotes is None:
             return []
-        blocks: list[str] = []
+        views: list[tuple[QuoteView, str | None]] = []
         for folio in folios:
             try:
                 payload = self.quotes(folio, owner)
@@ -608,9 +820,8 @@ class WhatsAppBridge:
                 continue
             view = quote_view(payload) if payload else None
             if view is not None:
-                photo = self._photo(view.sku)
-                blocks.append(whatsapp_quote(view, photo))
-        return blocks
+                views.append((view, self._photo(view.sku)))
+        return views
 
     def _photo(self, sku: str) -> str | None:
         if self.photo_url is None or not sku:
@@ -633,34 +844,40 @@ class WhatsAppBridge:
             return None
         return quote_view(payload) if payload else None
 
-    def _pdf(self, owner: str) -> tuple[str, bool]:
+    def _pdf(self, owner: str) -> tuple[BridgeReply, bool]:
         """Enlace firmado al PDF de la última cotización del hilo (sin LLM, con cupo).
 
-        Devuelve el texto y si es definitivo: sin URL pública (``pdf_link``) o sin lector
-        de cotizaciones el PDF no estará disponible en un reintento (definitivo); un fallo
-        al leer la última cotización o al firmar el enlace es transitorio.
+        Devuelve la respuesta y si es definitiva: sin URL pública (``pdf_link``) o sin
+        lector de cotizaciones el PDF no estará disponible en un reintento (definitiva); un
+        fallo al leer la última cotización o al firmar el enlace es transitorio.
         """
 
         if self.pdf_link is None or self.latest_quote is None:
-            return PDF_UNAVAILABLE, True
+            return BridgeReply(PDF_UNAVAILABLE), True
         try:
             payload = self.latest_quote(owner)
         except Exception as error:
             logger.warning("whatsapp.latest_quote_failed", error=repr(error))
-            return PDF_UNAVAILABLE, False
+            return BridgeReply(PDF_UNAVAILABLE), False
         view = quote_view(payload) if payload else None
         if view is None or not view.folio:
-            return NO_QUOTE_FOR_PDF, True
+            return BridgeReply(NO_QUOTE_FOR_PDF), True
         try:
             url = self.pdf_link(view.folio, owner, view.valid_until_date)
         except Exception as error:
             logger.warning("whatsapp.pdf_link_failed", error=repr(error))
-            return PDF_UNAVAILABLE, False
+            return BridgeReply(PDF_UNAVAILABLE), False
         logger.info("whatsapp.pdf_link", folio=view.folio)
         lines = [f"📄 Aquí está tu cotización #{view.folio} en PDF:", url]
         if view.valid_until:
             lines.append(f"_El enlace funciona hasta el {view.valid_until}._")
-        return "\n".join(lines), True
+        # En voz, solo el final del folio; el enlace y su vigencia van por escrito.
+        said = (
+            "Te mando por escrito el PDF de tu cotización terminada en "
+            f"{speak_folio_tail(view.folio)}."
+        )
+        link = SpeechLink(f"Cotización {view.folio} en PDF", url)
+        return BridgeReply("\n".join(lines), spoken=SpokenReply(said, (link,))), True
 
 
 @dataclass

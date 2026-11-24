@@ -299,6 +299,11 @@
             if (evento.datos.quote_id) {
               turnoAsistente.dataset.quoteId = String(evento.datos.quote_id);
             }
+            // Spec 047: la lectura en voz del servidor pide el audio por el id de la
+            // respuesta guardada, nunca por el texto de la página.
+            if (evento.datos.message_id) {
+              turnoAsistente.dataset.vozMensaje = String(evento.datos.message_id);
+            }
             pintarLote(false, errorRecibido);
             crearMarcas(turnoAsistente, evento.datos.request_id);
             completado = true;

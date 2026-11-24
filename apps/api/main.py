@@ -26,7 +26,7 @@ from apps.api.observability import (
     configure_observability,
 )
 from apps.api.runtime import APP_DIR, session_factory, templates
-from apps.api.security import SecurityMiddleware
+from apps.api.security import SecurityMiddleware, operator_authorized
 from apps.api.views import (
     api,
     catalogo_imagenes,
@@ -38,9 +38,11 @@ from apps.api.views import (
     documents,
     faq,
     stream,
+    voz,
     webhooks,
 )
 from carvajal.adapters.judge import jev_health
+from carvajal.adapters.speech import voice_health
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.application.quota import DailyQuota, QuotaResult
@@ -190,6 +192,17 @@ def _jev_block(settings: Settings) -> dict[str, object]:
     )
 
 
+def _voice_block(app: FastAPI, settings: Settings, request: Request) -> dict[str, object]:
+    """Bloque ``voice`` de ``/health`` (spec 047): sin red ni secretos y sin construir nada.
+
+    El consumo del día y el último error solo los ve el operador (``/health`` es público).
+    """
+
+    runtime = getattr(app.state, "voice", None)
+    detail = operator_authorized(request, settings=settings)
+    return voice_health(settings, getattr(runtime, "client", None), detail=detail)
+
+
 def _log_webhook_status(settings: Settings) -> None:
     """Deja constancia del webhook de mensajería al arrancar, sin números ni secretos."""
 
@@ -235,6 +248,9 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
             detail=LLM_UNCONFIGURED_DETAIL.get(llm_blocker, llm_blocker),
         )
     _log_webhook_status(settings)
+    if settings.voice_provider == "openai" and not settings.voice_server_configured:
+        # Sin clave el chat sigue con la voz del navegador; el aviso queda una vez.
+        logger.warning("voice.provider_unconfigured", reason="missing_openai_api_key")
     # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
     app.state.monitoring = monitoring_status(settings).enabled
     # Captura web: un registro por app para que las pruebas inyecten su runner.
@@ -260,6 +276,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         cotizacion_pdf,
         catalogo_imagenes,
         webhooks,
+        voz,
     ):
         app.include_router(module.router)
     app.include_router(faq.page_router)
@@ -271,7 +288,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         return JSONResponse({"status": "ok"})
 
     @app.get("/health")
-    def health() -> JSONResponse:
+    def health(request: Request) -> JSONResponse:
         """Readiness: base e índice; ``/live`` sigue siendo solo el proceso."""
 
         try:
@@ -286,6 +303,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "monitoring": monitoring_status(settings).as_health(),
                     "agent": agent_mode_status(settings).as_health(),
                     "jev": _jev_block(settings),
+                    "voice": _voice_block(app, settings, request),
                 },
                 status_code=503,
             )
@@ -308,6 +326,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 # Spec 046 (FR-024): Jev sin llamar a TypeSafe; no cambia el estado global
                 # porque el asistente atiende igual sin Jev.
                 "jev": _jev_block(settings),
+                # Spec 047: voz del chat por el servidor; opcional, no cambia el estado.
+                "voice": _voice_block(app, settings, request),
             },
             status_code=200 if healthy else 503,
         )

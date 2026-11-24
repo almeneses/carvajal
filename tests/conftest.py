@@ -1,4 +1,4 @@
-"""Fixtures compartidas: Postgres efímero para las pruebas de integración y Jev apagado.
+"""Fixtures compartidas: Postgres efímero, Jev apagado y voz del servidor apagada.
 
 ``testcontainers`` se importa dentro del fixture para que las pruebas unitarias
 no necesiten Docker ni el paquete instalado.
@@ -27,32 +27,41 @@ if TYPE_CHECKING:
 
 # Host de la API de Jev: cualquier conexión real desde las pruebas es un error (SC-008).
 JEV_HOST = "api.typesafe.ai"
+# Spec 047: la voz del servidor usa OpenAI; las pruebas nunca la llaman de verdad.
+OPENAI_HOST = "api.openai.com"
+BLOCKED_HOSTS = frozenset({JEV_HOST, OPENAI_HOST})
 
 
 class JevNetworkBlocked(AssertionError):
-    """Una prueba intentó conectarse a TypeSafe."""
+    """Una prueba intentó conectarse a TypeSafe o a OpenAI."""
 
 
 @pytest.fixture(autouse=True)
 def _jev_apagado(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Jev apagado y sin red hacia TypeSafe en todas las pruebas (FR-029, SC-008)."""
+    """Jev y la voz del servidor apagados, sin red hacia TypeSafe ni OpenAI (FR-029, SC-008).
+
+    El ``.env`` local puede traer ``OPENAI_API_KEY`` y ``VOICE_PROVIDER=openai``: aquí se
+    fijan vacía y ``browser``. Las pruebas de la voz usan ``httpx.MockTransport``.
+    """
 
     monkeypatch.setenv("JEV_ENABLED", "false")
     monkeypatch.setenv("TYPESAFE_API_KEY", "")
     monkeypatch.delenv("JEV_LEDGER", raising=False)
+    monkeypatch.setenv("VOICE_PROVIDER", "browser")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
     original = httpx.HTTPTransport.handle_request
     original_async = httpx.AsyncHTTPTransport.handle_async_request
 
     def guarded(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
-        if request.url.host == JEV_HOST:
-            raise JevNetworkBlocked(f"Conexión a {JEV_HOST} bloqueada en las pruebas.")
+        if request.url.host in BLOCKED_HOSTS:
+            raise JevNetworkBlocked(f"Conexión a {request.url.host} bloqueada en las pruebas.")
         return original(self, request)
 
     async def guarded_async(
         self: httpx.AsyncHTTPTransport, request: httpx.Request
     ) -> httpx.Response:
-        if request.url.host == JEV_HOST:
-            raise JevNetworkBlocked(f"Conexión a {JEV_HOST} bloqueada en las pruebas.")
+        if request.url.host in BLOCKED_HOSTS:
+            raise JevNetworkBlocked(f"Conexión a {request.url.host} bloqueada en las pruebas.")
         return await original_async(self, request)
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", guarded)

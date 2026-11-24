@@ -68,7 +68,10 @@
           mensaje; conservo el resto del contexto comercial.
         </p>
         <div class="composer-acciones">
-          <div class="voz" data-voz hidden>
+          <div class="voz" data-voz hidden
+               data-voz-servidor="{{ '1' if voz_servidor else '0' }}"
+               data-voz-max-segundos="{{ voz_max_segundos or 60 }}"
+               data-voz-plazo-segundos="{{ voz_plazo_segundos or 35 }}">
             <div class="voz-controles">
               <button
                 type="button"
@@ -120,9 +123,15 @@
       >
         <h2 id="voz-aviso-titulo" class="voz-aviso-titulo">Antes de dictar</h2>
         <p id="voz-aviso-texto" class="voz-aviso-texto">
+          {%- if voz_servidor %}
+          El dictado envía el audio de tu pregunta a este sitio, que lo transcribe con
+          OpenAI y no lo guarda. Si el servicio no responde, se usa el reconocimiento de voz
+          de tu navegador. También puedes escribir tu pregunta.
+          {%- else %}
           El dictado usa el reconocimiento de voz de tu navegador. Algunos navegadores
           envían el audio a su propio servicio para transcribirlo; este sitio no recibe ni
           guarda el audio. También puedes escribir tu pregunta.
+          {%- endif %}
         </p>
         <div class="voz-aviso-acciones">
           <button type="button" class="boton" data-voz-aviso-aceptar>Continuar</button>

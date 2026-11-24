@@ -1,16 +1,31 @@
 // Chat por voz (spec 040): dictado y lectura con las APIs del navegador.
 //
-// El audio nunca sale del navegador hacia el servidor del proyecto: aquí solo se
-// manejan transcripciones, preferencias booleanas del visitante y la lectura de
-// texto ya renderizado. La detección es por capacidad, no por marca ni versión.
+// Con la voz del servidor (spec 047, `data-voz-servidor="1"`), el dictado graba con
+// MediaRecorder y sube el audio a /api/voz/transcribir, y la lectura pide a
+// /api/voz/hablar el audio de la respuesta guardada (por su id, nunca por el texto
+// de la página). Ante cualquier error, 503 o 429 el controlador vuelve a la voz del
+// navegador del resto de la sesión. Sin voz del servidor el audio nunca sale del
+// navegador hacia el servidor del proyecto. La detección es por capacidad, no por
+// marca ni versión.
 (() => {
   "use strict";
 
   const MAX_BORRADOR = 500;
   const MAX_GRABACION_MS = 60000;
   const SILENCIO_MANOS_LIBRES_MS = 10000;
+  // Voz del servidor (spec 047): fin del dictado tras una pausa y sin voz al empezar.
+  const PAUSA_FIN_DICTADO_MS = 1500;
+  const SIN_VOZ_DICTADO_MS = 8000;
+  const UMBRAL_VOZ = 0.02;
+  const BITS_GRABACION = 32000;
+  // Plazo de cada petición a /api/voz/* si la página no trae el del servidor: sin él, una
+  // red colgada dejaría «Transcribiendo…» para siempre.
+  const PLAZO_SERVIDOR_MS = 35000;
   const CLAVES = {
     aviso: "carvajal_voz_aviso_dictado",
+    // El aviso de la voz del servidor dice otra cosa (el audio pasa por el sitio): se
+    // acepta aparte, aunque ya se hubiera aceptado el del navegador.
+    avisoServidor: "carvajal_voz_aviso_dictado_servidor",
     autoLectura: "carvajal_voz_autolectura",
   };
   const MENSAJES = {
@@ -43,6 +58,11 @@
     manosOculto: "Manos libres se apagó al ocultar la pestaña.",
     manosLectura: "Manos libres se apagó al detener la lectura.",
     manosHilo: "Manos libres se apagó porque cambió el hilo visible.",
+    transcribiendo: "Transcribiendo el dictado…",
+    preparandoLectura: "Preparando la lectura…",
+    servidorDictado:
+      "La transcripción del servidor no respondió. Dicta de nuevo: se usará el reconocimiento de tu navegador.",
+    servidorSinRespaldo: "No se pudo transcribir el dictado. Puedes escribir tu pregunta.",
     manosSinSoporte: "Manos libres necesita dictado, lectura y streaming disponibles.",
     manosOcupado: "Espera a que termine la respuesta en curso para activar manos libres.",
     manosLeyendo: "Espera a que termine la lectura para activar manos libres.",
@@ -316,8 +336,8 @@
     };
   }
 
-  function crearPreferencias(almacen) {
-    let aviso = almacen.get(CLAVES.aviso) === "1";
+  function crearPreferencias(almacen, claveAviso = CLAVES.aviso) {
+    let aviso = almacen.get(claveAviso) === "1";
     let autoLectura = almacen.get(CLAVES.autoLectura) === "1";
     return {
       get avisoAceptado() {
@@ -329,7 +349,7 @@
       aceptarAviso() {
         if (aviso) return;
         aviso = true;
-        almacen.set(CLAVES.aviso, "1");
+        almacen.set(claveAviso, "1");
       },
       fijarAutoLectura(valor) {
         autoLectura = Boolean(valor);
@@ -342,7 +362,6 @@
     const vista = opciones.vista || {};
     const documento = opciones.documento || document;
     const almacen = crearAlmacenSeguro(opciones.almacen);
-    const preferencias = crearPreferencias(almacen);
     const Reconocimiento = opciones.reconocimiento || null;
     const sintesis = opciones.sintesis || null;
     const Utterance = opciones.Utterance || null;
@@ -354,13 +373,30 @@
       now: () => window.performance.now(),
     };
     const segura = Boolean(opciones.segura);
-
-    const soporte = {
+    // Voz del servidor (spec 047): opcional; cada capacidad se apaga sola al primer fallo
+    // y el resto de la sesión sigue con la voz del navegador.
+    const servidor = opciones.servidor || null;
+    const servidorActivo = {
+      dictado: Boolean(servidor && servidor.dictado) && segura,
+      lectura: Boolean(servidor && servidor.lectura),
+    };
+    const navegador = {
       dictado: Boolean(Reconocimiento) && segura,
       sintesis: Boolean(sintesis && Utterance),
-      streaming: Boolean(opciones.streaming),
     };
-    soporte.manosLibres = soporte.dictado && soporte.sintesis && soporte.streaming;
+    const preferencias = crearPreferencias(
+      almacen,
+      servidorActivo.dictado ? CLAVES.avisoServidor : CLAVES.aviso,
+    );
+
+    const soporte = { streaming: Boolean(opciones.streaming) };
+    function calcularSoporte() {
+      soporte.dictado = navegador.dictado || servidorActivo.dictado;
+      soporte.sintesis = navegador.sintesis || servidorActivo.lectura;
+      soporte.manosLibres = soporte.dictado && soporte.sintesis && soporte.streaming;
+      soporte.servidor = { dictado: servidorActivo.dictado, lectura: servidorActivo.lectura };
+    }
+    calcularSoporte();
     const estado = { ciclo: 0, escuchando: false, leyendo: false, mensaje: "", transcripcion: "" };
     let reconocimiento = null;
     let temporizador = null;
@@ -373,6 +409,12 @@
     let cicloManosLibres = false;
     let temporizadorSilencio = null;
     let opcionesPendientes = null;
+    let grabacion = null;
+    let grabacionActiva = false;
+    let subiendo = false;
+    // AbortController de la transcripción en curso: cancelar el dictado corta la subida.
+    let subida = null;
+    let reproduccion = null;
 
     function mount() {
       // Montar dos veces no debe duplicar listeners ni ciclos de voz.
@@ -498,8 +540,14 @@
           temporizador = null;
         }
         limpiarSilencio();
+        soltarGrabacion();
         if (anterior && typeof anterior.abort === "function") anterior.abort();
       }
+      if (servidorActivo.dictado) {
+        comenzarGrabacion(opciones);
+        return;
+      }
+      if (!navegador.dictado) return;
       cicloManosLibres = Boolean(opciones.manosLibres) && manosLibres.activo;
       estado.ciclo += 1;
       const ciclo = estado.ciclo;
@@ -535,6 +583,175 @@
         reconocimiento.start();
       } catch {
         fallar(ciclo, { error: "audio-capture" });
+      }
+    }
+
+    // --- Dictado con la voz del servidor (spec 047) ---------------------------
+
+    function soltarGrabacion() {
+      const anterior = grabacion;
+      const envio = subida;
+      grabacion = null;
+      grabacionActiva = false;
+      subiendo = false;
+      subida = null;
+      if (anterior && typeof anterior.cancelar === "function") anterior.cancelar();
+      // Una transcripción descartada no debe seguir subiendo ni gastando cuota.
+      if (envio) envio.abort();
+    }
+
+    function crearAbortador() {
+      const Abortador = typeof AbortController === "function" ? AbortController : null;
+      return Abortador ? new Abortador() : null;
+    }
+
+    // Sin detector de voz que funcione (sin Web Audio, o con el contexto suspendido),
+    // nadie avisa de que la persona habla: el silencio de manos libres no se puede medir.
+    function detectorOperativo() {
+      return Boolean(
+        grabacion && typeof grabacion.detectorActivo === "function" && grabacion.detectorActivo(),
+      );
+    }
+
+    function comenzarGrabacion(opciones = {}) {
+      cicloManosLibres = Boolean(opciones.manosLibres) && manosLibres.activo;
+      estado.ciclo += 1;
+      const ciclo = estado.ciclo;
+      estado.transcripcion = "";
+      reconocimiento = null;
+      grabacionActiva = true;
+      marcarEscuchando(true);
+      avisar(
+        cicloManosLibres ? `Manos libres · ${MENSAJES.escuchando}` : MENSAJES.escuchando,
+      );
+      const maximo = Number(servidor.maxMs) > 0 ? Number(servidor.maxMs) : MAX_GRABACION_MS;
+      temporizador = reloj.setTimeout(() => {
+        if (estado.ciclo !== ciclo || !grabacionActiva) return;
+        avisar(MENSAJES.limite);
+        terminarGrabacion(ciclo);
+      }, maximo);
+      if (cicloManosLibres) reiniciarSilencio(ciclo);
+      let pendiente;
+      try {
+        pendiente = Promise.resolve(
+          servidor.grabar({
+            alVoz: () => {
+              if (estado.ciclo === ciclo && cicloManosLibres) reiniciarSilencio(ciclo);
+            },
+            alPausa: () => {
+              if (estado.ciclo === ciclo && grabacion) terminarGrabacion(ciclo);
+            },
+            alSinVoz: () => {
+              // En manos libres manda su propio temporizador de 10 s.
+              if (estado.ciclo !== ciclo || cicloManosLibres || !grabacion) return;
+              soltarGrabacion();
+              finalizarCiclo(MENSAJES.silencio);
+            },
+          }),
+        );
+      } catch (error) {
+        pendiente = Promise.reject(error);
+      }
+      pendiente.then(
+        (manejador) => {
+          if (estado.ciclo !== ciclo || !grabacionActiva) {
+            if (manejador && typeof manejador.cancelar === "function") manejador.cancelar();
+            return;
+          }
+          grabacion = manejador;
+        },
+        (error) => fallarServidorDictado(ciclo, error),
+      );
+    }
+
+    function terminarGrabacion(ciclo) {
+      if (ciclo !== estado.ciclo || !grabacionActiva || subiendo) return;
+      const manejador = grabacion;
+      if (!manejador) {
+        // El micrófono todavía no abrió: no hay nada que transcribir.
+        cancelarDictado();
+        return;
+      }
+      grabacion = null;
+      subiendo = true;
+      if (temporizador !== null) {
+        reloj.clearTimeout(temporizador);
+        temporizador = null;
+      }
+      // En manos libres el temporizador de silencio no corre mientras se transcribe.
+      limpiarSilencio();
+      avisar(MENSAJES.transcribiendo);
+      const control = crearAbortador();
+      subida = control;
+      Promise.resolve(manejador.detener())
+        .then((resultado) => {
+          if (ciclo !== estado.ciclo) return null;
+          const audio = resultado && resultado.audio ? resultado.audio : null;
+          // Con detector de voz y sin voz oída no se sube nada: ahorra la llamada.
+          if (!audio || audio.size === 0 || (resultado && resultado.voz === false)) return "";
+          return servidor.transcribir(audio, { signal: control ? control.signal : undefined });
+        })
+        .then((texto) => {
+          if (ciclo !== estado.ciclo || texto === null) return;
+          estado.transcripcion = String(texto || "");
+          finalizar(ciclo);
+        })
+        .catch((error) => fallarServidorDictado(ciclo, error));
+    }
+
+    function esSinVoz(error) {
+      return Boolean(error && error.status === 422);
+    }
+
+    function fallarServidorDictado(ciclo, error) {
+      if (ciclo !== estado.ciclo) return;
+      const nombre = error && error.name ? String(error.name) : "";
+      if (nombre === "NotAllowedError" || nombre === "SecurityError") {
+        soltarGrabacion();
+        fallar(ciclo, { error: "not-allowed" });
+        return;
+      }
+      if (nombre === "NotFoundError" || nombre === "OverconstrainedError") {
+        soltarGrabacion();
+        fallar(ciclo, { error: "audio-capture" });
+        return;
+      }
+      if (esSinVoz(error)) {
+        estado.transcripcion = "";
+        finalizar(ciclo);
+        return;
+      }
+      // 503, 429, red, CSRF…: el resto de la sesión dicta con el navegador.
+      servidorActivo.dictado = false;
+      calcularSoporte();
+      const eraManos = cicloManosLibres;
+      cicloManosLibres = false;
+      limpiarSilencio();
+      soltarGrabacion();
+      cerrarCiclo();
+      actualizarBotonDictar();
+      if (eraManos) {
+        if (navegador.dictado && manosLibres.activo) {
+          // El aviso (el audio puede ir a otro proveedor) queda en la nota visible y
+          // delante del «Escuchando…», que si no lo pisaría antes de anunciarse.
+          mostrarNota(MENSAJES.servidorDictado);
+          comenzarDictado({ manosLibres: true });
+          avisar(`${MENSAJES.servidorDictado} ${estado.mensaje}`.trim());
+        } else {
+          desactivarManosLibres("error");
+        }
+        return;
+      }
+      const mensaje = navegador.dictado ? MENSAJES.servidorDictado : MENSAJES.servidorSinRespaldo;
+      avisar(mensaje);
+      mostrarNota(mensaje);
+    }
+
+    function actualizarBotonDictar() {
+      const boton = vista.botonDictar;
+      if (boton) boton.hidden = !soporte.dictado;
+      if (vista.botonManosLibres && !manosLibres.activo) {
+        vista.botonManosLibres.hidden = !soporte.manosLibres;
       }
     }
 
@@ -585,7 +802,7 @@
     }
 
     function finalizar(ciclo) {
-      if (ciclo !== estado.ciclo || !reconocimiento) return;
+      if (ciclo !== estado.ciclo || (!reconocimiento && !grabacionActiva)) return;
       const texto = normalizarCantidades(estado.transcripcion.trim());
       const eraManos = cicloManosLibres;
       cicloManosLibres = false;
@@ -625,6 +842,10 @@
         temporizador = null;
       }
       reconocimiento = null;
+      grabacion = null;
+      grabacionActiva = false;
+      subiendo = false;
+      subida = null;
       estado.ciclo += 1;
       estado.transcripcion = "";
       marcarEscuchando(false);
@@ -636,7 +857,15 @@
     }
 
     function detenerDictado() {
-      if (!estado.escuchando || !reconocimiento) return;
+      if (!estado.escuchando) return;
+      if (grabacionActiva) {
+        // Durante la transcripción ya no hay grabación que detener: el clic la cancela
+        // (aborta la subida) en lugar de no hacer nada, igual que Escape.
+        if (subiendo) cancelarDictado();
+        else terminarGrabacion(estado.ciclo);
+        return;
+      }
+      if (!reconocimiento) return;
       avisar(MENSAJES.deteniendo);
       try {
         reconocimiento.stop();
@@ -652,6 +881,7 @@
       const anterior = reconocimiento;
       estado.ciclo += 1;
       reconocimiento = null;
+      soltarGrabacion();
       if (temporizador !== null) {
         reloj.clearTimeout(temporizador);
         temporizador = null;
@@ -712,6 +942,8 @@
     }
 
     function hayVozEspanola() {
+      if (servidorActivo.lectura) return true;
+      if (!sintesis) return false;
       const voces = typeof sintesis.getVoices === "function" ? sintesis.getVoices() : [];
       return Boolean(elegirVoz(voces));
     }
@@ -852,6 +1084,13 @@
       limpiarSilencio();
       temporizadorSilencio = reloj.setTimeout(() => {
         if (!manosLibres.activo || estado.ciclo !== ciclo) return;
+        if (grabacionActiva && grabacion && !detectorOperativo()) {
+          // Sin detector no se sabe si hubo voz: se transcribe lo grabado en lugar de
+          // descartarlo. Si no había nada, la transcripción vacía apaga manos libres.
+          temporizadorSilencio = null;
+          terminarGrabacion(ciclo);
+          return;
+        }
         desactivarManosLibres("silencio");
       }, SILENCIO_MANOS_LIBRES_MS);
     }
@@ -947,6 +1186,93 @@
     function leerTurno(turno, opciones = {}) {
       if (!turno || !soporte.sintesis) return false;
       if (opciones.automatico && !opciones.manosLibres && !preferencias.autoLectura) return false;
+      const mensaje = turno.dataset ? String(turno.dataset.vozMensaje || "") : "";
+      if (servidorActivo.lectura && mensaje) return leerConServidor(turno, mensaje, opciones);
+      return leerConNavegador(turno, opciones);
+    }
+
+    function leerConServidor(turno, mensaje, opciones) {
+      if (!opciones.automatico && turno.dataset) delete turno.dataset.vozAutoLeido;
+      const alEmpezar = typeof opciones.alEmpezar === "function" ? opciones.alEmpezar : null;
+      detenerLectura();
+      turnoLectura = turno;
+      segmentosLectura = [];
+      indiceLectura = 0;
+      cicloLectura += 1;
+      const ciclo = cicloLectura;
+      avisar(MENSAJES.preparandoLectura);
+      actualizarControles(turno, "cargando");
+      let pendiente;
+      try {
+        pendiente = Promise.resolve(servidor.sintetizar(mensaje));
+      } catch (error) {
+        pendiente = Promise.reject(error);
+      }
+      pendiente.then(
+        (audio) => {
+          if (ciclo !== cicloLectura) return;
+          reproduccion = servidor.reproducir(audio, {
+            alEmpezar: () => {
+              if (ciclo !== cicloLectura) return;
+              estado.leyendo = true;
+              if (alEmpezar) alEmpezar();
+              avisar(MENSAJES.leyendo);
+              actualizarControles(turnoLectura, "leyendo");
+            },
+            alTerminar: () => {
+              if (ciclo !== cicloLectura) return;
+              reproduccion = null;
+              terminarLectura();
+            },
+            alFallar: () => {
+              if (ciclo !== cicloLectura) return;
+              reproduccion = null;
+              // El audio llegó pero no suena (autoplay bloqueado tras el await, CSP,
+              // decodificación): repetir pagaría otra síntesis que fallaría igual. Se
+              // apaga la lectura del servidor y este turno lo lee el navegador.
+              servidorActivo.lectura = false;
+              calcularSoporte();
+              if (leerConRespaldo(turno, opciones)) return;
+              const eraManos = manosLibres.activo;
+              manosLibres.reanudarTrasLeer = false;
+              terminarLectura();
+              avisar(MENSAJES.lecturaError);
+              if (eraManos) desactivarManosLibres("error");
+            },
+          });
+        },
+        (error) => {
+          if (ciclo !== cicloLectura) return;
+          // Un 404 o un 422 son de este turno (no existe, no tiene texto que leer o el
+          // id no vale); cualquier otro fallo apaga la lectura del servidor el resto de
+          // la sesión. Se lee con la voz del navegador.
+          if (!esFalloDelTurno(error)) {
+            servidorActivo.lectura = false;
+            calcularSoporte();
+          }
+          if (leerConRespaldo(turno, opciones)) return;
+          terminarLectura();
+          avisar(MENSAJES.lecturaError);
+        },
+      );
+      return true;
+    }
+
+    function esFalloDelTurno(error) {
+      return Boolean(error && (error.status === 404 || error.status === 422));
+    }
+
+    // Deja el turno sin lectura en curso y lo intenta con la voz del navegador.
+    function leerConRespaldo(turno, opciones) {
+      cicloLectura += 1;
+      turnoLectura = null;
+      estado.leyendo = false;
+      actualizarControles(turno, "detenido");
+      return leerConNavegador(turno, opciones);
+    }
+
+    function leerConNavegador(turno, opciones = {}) {
+      if (!turno || !navegador.sintesis) return false;
       const voces = typeof sintesis.getVoices === "function" ? sintesis.getVoices() : [];
       const voz = elegirVoz(voces);
       // Chrome llena la lista de voces de forma asíncrona: con la lista vacía
@@ -1005,7 +1331,8 @@
 
     function pausarLectura() {
       if (!turnoLectura || !estado.leyendo) return;
-      if (typeof sintesis.pause === "function") sintesis.pause();
+      if (reproduccion) reproduccion.pausar();
+      else if (sintesis && typeof sintesis.pause === "function") sintesis.pause();
       estado.leyendo = false;
       const turno = turnoLectura;
       actualizarControles(turno, "pausado");
@@ -1014,7 +1341,8 @@
 
     function reanudarLectura() {
       if (!turnoLectura) return;
-      if (typeof sintesis.resume === "function") sintesis.resume();
+      if (reproduccion) reproduccion.reanudar();
+      else if (sintesis && typeof sintesis.resume === "function") sintesis.resume();
       estado.leyendo = true;
       actualizarControles(turnoLectura, "leyendo");
       avisar(MENSAJES.leyendo);
@@ -1030,7 +1358,13 @@
       segmentosLectura = [];
       indiceLectura = 0;
       estado.leyendo = false;
-      if (typeof sintesis.cancel === "function") sintesis.cancel();
+      if (reproduccion) {
+        const anterior = reproduccion;
+        reproduccion = null;
+        anterior.detener();
+      } else if (sintesis && typeof sintesis.cancel === "function") {
+        sintesis.cancel();
+      }
       actualizarControles(turno, "detenido");
       avisar("");
       if (manosActivas) desactivarManosLibres("lectura");
@@ -1075,6 +1409,7 @@
         escuchar.setAttribute("aria-pressed", modo === "detenido" ? "false" : "true");
       }
       const pausar = buscar("pausar");
+      // «cargando»: el audio del servidor aún no llega; solo se puede detener.
       if (pausar) pausar.hidden = modo !== "leyendo";
       const reanudar = buscar("reanudar");
       if (reanudar) reanudar.hidden = modo !== "pausado";
@@ -1115,12 +1450,315 @@
       desactivarManosLibres,
       destruir() {
         detenerLectura();
+        soltarGrabacion();
         documento.removeEventListener("keydown", alPulsarTecla);
         documento.removeEventListener("click", alClicTurno);
         documento.removeEventListener("chat:turn-complete", alCompletarTurno);
         documento.removeEventListener("chat:turn-failed", alFallarTurno);
         documento.removeEventListener("visibilitychange", alCambiarVisibilidad);
       },
+    };
+  }
+
+  // --- Adaptador de la voz del servidor (spec 047) ----------------------------
+  // Envuelve MediaRecorder, el detector de voz (Web Audio), fetch y <audio>. El
+  // controlador solo ve promesas: grabar → {detener, cancelar}, transcribir(audio)
+  // → texto, sintetizar(id) → audio y reproducir(audio) → {pausar, reanudar,
+  // detener}. Los errores HTTP llevan `status` y `reason` para decidir el respaldo.
+
+  function errorHttp(status, cuerpo) {
+    const reason = cuerpo && typeof cuerpo.reason === "string" ? cuerpo.reason : "";
+    const error = new Error(reason || `http_${status}`);
+    error.status = status;
+    error.reason = reason;
+    return error;
+  }
+
+  function tipoDeGrabacion(MediaRecorder) {
+    if (!MediaRecorder || typeof MediaRecorder.isTypeSupported !== "function") return "";
+    const tipos = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4", "audio/webm"];
+    return tipos.find((tipo) => MediaRecorder.isTypeSupported(tipo)) || "";
+  }
+
+  function extensionDe(tipo) {
+    if (tipo.startsWith("audio/ogg")) return "ogg";
+    if (tipo.startsWith("audio/mp4")) return "mp4";
+    return "webm";
+  }
+
+  function crearServidorVoz(win, ajustes = {}) {
+    const fetchFn = typeof win.fetch === "function" ? (...args) => win.fetch(...args) : null;
+    const MediaRecorder = win.MediaRecorder || null;
+    const dispositivos = win.navigator && win.navigator.mediaDevices;
+    const AudioCtx = win.AudioContext || win.webkitAudioContext || null;
+    const URLApi = win.URL || null;
+    const AudioEl = win.Audio || null;
+    const csrf = typeof ajustes.csrf === "function" ? ajustes.csrf : () => "";
+    const ahora = () => (win.performance ? win.performance.now() : Date.now());
+
+    async function grabar(llamadas = {}) {
+      const flujo = await dispositivos.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+      });
+      const tipo = tipoDeGrabacion(MediaRecorder);
+      const ajustesGrabadora = { audioBitsPerSecond: BITS_GRABACION };
+      if (tipo) ajustesGrabadora.mimeType = tipo;
+      let grabadora;
+      try {
+        grabadora = new MediaRecorder(flujo, ajustesGrabadora);
+      } catch (error) {
+        flujo.getTracks().forEach((pista) => pista.stop());
+        throw error;
+      }
+      const partes = [];
+      grabadora.ondataavailable = (evento) => {
+        if (evento.data && evento.data.size) partes.push(evento.data);
+      };
+      try {
+        grabadora.start(250);
+      } catch (error) {
+        // Sin grabación no se arranca nada más: se suelta el micrófono y se avisa.
+        flujo.getTracks().forEach((pista) => pista.stop());
+        throw error;
+      }
+      // Detector de voz por energía: sin Web Audio solo valen el clic y el límite. Se
+      // arranca después de start() para no dejar un intervalo ni un contexto vivos si
+      // la grabadora no llega a empezar.
+      let contexto = null;
+      let intervalo = null;
+      let huboVoz = null;
+      let detectorCorriendo = false;
+      if (AudioCtx) {
+        try {
+          contexto = new AudioCtx();
+          // Tras el await del micrófono el contexto puede nacer suspendido: se
+          // reanuda y, mientras no corra, el detector no opina (voz desconocida).
+          if (contexto.state === "suspended" && typeof contexto.resume === "function") {
+            contexto.resume().catch(() => {});
+          }
+          const analizador = contexto.createAnalyser();
+          analizador.fftSize = 1024;
+          contexto.createMediaStreamSource(flujo).connect(analizador);
+          const muestras = new Float32Array(analizador.fftSize);
+          let inicio = null;
+          let ultimaVoz = 0;
+          intervalo = win.setInterval(() => {
+            if (contexto.state !== "running") return;
+            detectorCorriendo = true;
+            if (inicio === null) {
+              inicio = ahora();
+              huboVoz = false;
+            }
+            analizador.getFloatTimeDomainData(muestras);
+            let suma = 0;
+            for (const muestra of muestras) suma += muestra * muestra;
+            const nivel = Math.sqrt(suma / muestras.length);
+            const momento = ahora();
+            if (nivel > UMBRAL_VOZ) {
+              huboVoz = true;
+              ultimaVoz = momento;
+              if (llamadas.alVoz) llamadas.alVoz();
+            } else if (huboVoz && momento - ultimaVoz > PAUSA_FIN_DICTADO_MS) {
+              if (llamadas.alPausa) llamadas.alPausa();
+            } else if (!huboVoz && momento - inicio > SIN_VOZ_DICTADO_MS) {
+              if (llamadas.alSinVoz) llamadas.alSinVoz();
+            }
+          }, 100);
+        } catch {
+          // Cada contexto abierto ocupa recursos de audio y el navegador limita cuántos
+          // conviven: el que no sirve se cierra.
+          if (intervalo !== null) win.clearInterval(intervalo);
+          intervalo = null;
+          if (contexto && typeof contexto.close === "function") {
+            contexto.close().catch(() => {});
+          }
+          contexto = null;
+          huboVoz = null;
+        }
+      }
+      let liberado = false;
+      function liberar() {
+        if (liberado) return;
+        liberado = true;
+        if (intervalo !== null) win.clearInterval(intervalo);
+        flujo.getTracks().forEach((pista) => pista.stop());
+        if (contexto && typeof contexto.close === "function") {
+          contexto.close().catch(() => {});
+        }
+      }
+      return {
+        // ¿El detector mide la voz? Falso sin Web Audio o con el contexto sin arrancar.
+        detectorActivo: () => detectorCorriendo && contexto !== null && contexto.state === "running",
+        detener() {
+          return new Promise((resolver) => {
+            const entregar = () => {
+              liberar();
+              const tipoFinal = grabadora.mimeType || tipo || "audio/webm";
+              resolver({ audio: new win.Blob(partes, { type: tipoFinal }), voz: huboVoz });
+            };
+            if (grabadora.state === "inactive") {
+              entregar();
+              return;
+            }
+            grabadora.onstop = entregar;
+            grabadora.stop();
+          });
+        },
+        cancelar() {
+          grabadora.onstop = null;
+          try {
+            if (grabadora.state !== "inactive") grabadora.stop();
+          } catch {
+            // ya estaba detenida
+          }
+          partes.length = 0;
+          liberar();
+        },
+      };
+    }
+
+    const plazoMs = Number(ajustes.plazoMs) > 0 ? Number(ajustes.plazoMs) : PLAZO_SERVIDOR_MS;
+    const Abortador = typeof win.AbortController === "function" ? win.AbortController : null;
+
+    // Un AbortController por petición: lo aborta el plazo o la señal de quien llama
+    // (cancelar el dictado). Un plazo vencido sale como TimeoutError, sin `status`.
+    async function enviar(ruta, cuerpo, opciones = {}) {
+      const externa = opciones.signal || null;
+      const control = Abortador ? new Abortador() : null;
+      let vencido = false;
+      const abortar = () => {
+        if (control) control.abort();
+      };
+      const plazo = control
+        ? win.setTimeout(() => {
+            vencido = true;
+            abortar();
+          }, plazoMs)
+        : null;
+      if (externa) {
+        if (externa.aborted) abortar();
+        else if (typeof externa.addEventListener === "function") {
+          externa.addEventListener("abort", abortar, { once: true });
+        }
+      }
+      let respuesta;
+      try {
+        respuesta = await fetchFn(ruta, {
+          method: "POST",
+          body: cuerpo,
+          credentials: "same-origin",
+          headers: { "X-CSRF-Token": csrf() },
+          signal: control ? control.signal : undefined,
+        });
+      } catch (error) {
+        if (vencido) {
+          const plazoVencido = new Error("timeout");
+          plazoVencido.name = "TimeoutError";
+          throw plazoVencido;
+        }
+        throw error;
+      } finally {
+        if (plazo !== null) win.clearTimeout(plazo);
+        if (externa && typeof externa.removeEventListener === "function") {
+          externa.removeEventListener("abort", abortar);
+        }
+      }
+      if (!respuesta.ok) {
+        let detalle = {};
+        try {
+          detalle = await respuesta.json();
+        } catch {
+          detalle = {};
+        }
+        throw errorHttp(respuesta.status, detalle);
+      }
+      return respuesta;
+    }
+
+    async function transcribir(audio, opciones = {}) {
+      const datos = new win.FormData();
+      const tipo = String(audio.type || "audio/webm");
+      // El CSRF va solo en la cabecera: el servidor lo comprueba antes de leer el cuerpo.
+      datos.append("audio", audio, `dictado.${extensionDe(tipo)}`);
+      const respuesta = await enviar("/api/voz/transcribir", datos, opciones);
+      const cuerpo = await respuesta.json();
+      return String((cuerpo && cuerpo.texto) || "");
+    }
+
+    async function sintetizar(mensaje) {
+      const datos = new win.URLSearchParams();
+      datos.append("message_id", mensaje);
+      datos.append("csrf_token", csrf());
+      const respuesta = await enviar("/api/voz/hablar", datos);
+      return respuesta.blob();
+    }
+
+    function reproducir(audio, llamadas = {}) {
+      const url = URLApi.createObjectURL(audio);
+      const elemento = new AudioEl(url);
+      let liberado = false;
+      const liberar = () => {
+        if (liberado) return;
+        liberado = true;
+        URLApi.revokeObjectURL(url);
+      };
+      elemento.onplaying = () => {
+        if (llamadas.alEmpezar) llamadas.alEmpezar();
+      };
+      elemento.onended = () => {
+        liberar();
+        if (llamadas.alTerminar) llamadas.alTerminar();
+      };
+      elemento.onerror = () => {
+        liberar();
+        if (llamadas.alFallar) llamadas.alFallar();
+      };
+      const inicio = elemento.play();
+      if (inicio && typeof inicio.catch === "function") {
+        inicio.catch(() => {
+          liberar();
+          if (llamadas.alFallar) llamadas.alFallar();
+        });
+      }
+      return {
+        pausar() {
+          elemento.pause();
+        },
+        reanudar() {
+          const reanudacion = elemento.play();
+          if (reanudacion && typeof reanudacion.catch === "function") reanudacion.catch(() => {});
+        },
+        detener() {
+          elemento.onended = null;
+          elemento.onerror = null;
+          elemento.onplaying = null;
+          elemento.pause();
+          liberar();
+        },
+      };
+    }
+
+    return {
+      dictado: Boolean(
+        fetchFn &&
+          MediaRecorder &&
+          win.FormData &&
+          win.Blob &&
+          dispositivos &&
+          typeof dispositivos.getUserMedia === "function",
+      ),
+      lectura: Boolean(
+        fetchFn &&
+          AudioEl &&
+          win.URLSearchParams &&
+          URLApi &&
+          typeof URLApi.createObjectURL === "function",
+      ),
+      maxMs: Number(ajustes.maxMs) > 0 ? Number(ajustes.maxMs) : MAX_GRABACION_MS,
+      grabar,
+      transcribir,
+      sintetizar,
+      reproducir,
     };
   }
 
@@ -1140,6 +1778,18 @@
     const Reconocimiento = win.SpeechRecognition || win.webkitSpeechRecognition || null;
     const sintesis = win.speechSynthesis || null;
     const Utterance = win.SpeechSynthesisUtterance || null;
+    const formulario = document.querySelector("form[data-chat-stream]");
+    const servidor =
+      raiz.dataset && raiz.dataset.vozServidor === "1"
+        ? crearServidorVoz(win, {
+            csrf: () => {
+              const campo = formulario && formulario.querySelector('input[name="csrf_token"]');
+              return campo ? String(campo.value || "") : "";
+            },
+            maxMs: (Number(raiz.dataset.vozMaxSegundos) || 60) * 1000,
+            plazoMs: (Number(raiz.dataset.vozPlazoSegundos) || 0) * 1000,
+          })
+        : null;
     const controlador = createVoiceController({
       vista: {
         raiz,
@@ -1151,7 +1801,7 @@
         autoLecturaCampo: buscar("[data-voz-autolectura-campo]"),
         hilo: document.querySelector("[data-thread-id]"),
         entrada: document.getElementById("pregunta"),
-        formulario: document.querySelector("form[data-chat-stream]"),
+        formulario,
         aviso: document.querySelector("[data-voz-aviso]"),
         avisoAceptar: document.querySelector("[data-voz-aviso-aceptar]"),
         avisoCancelar: document.querySelector("[data-voz-aviso-cancelar]"),
@@ -1165,6 +1815,7 @@
       reconocimiento: Reconocimiento,
       sintesis,
       Utterance,
+      servidor,
       segura: Boolean(win.isSecureContext),
       streaming:
         typeof win.fetch === "function" &&
@@ -1173,7 +1824,7 @@
     });
     controlador.mount();
     const opciones = buscar("[data-voz-opciones]");
-    if (opciones) opciones.hidden = !sintesis || !Utterance;
+    if (opciones) opciones.hidden = !controlador.soporte.sintesis;
     raiz._controladorVoz = controlador;
   }
 
@@ -1183,6 +1834,7 @@
     SILENCIO_MANOS_LIBRES_MS,
     MENSAJES,
     createVoiceController,
+    crearServidorVoz,
     normalizarCantidades,
     recortarTexto,
     construirSegmentos,

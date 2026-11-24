@@ -47,6 +47,7 @@ MCP propio que usa OpenClaw como gateway de WhatsApp y por un webhook firmado.
 | Router y System One (Jev) | Reglas primero, gatekeeper Jev Choice, compuerta Noul de afirmaciones |
 | Memoria | Resumen acumulado de la conversación y memoria del dueño por categorías, con olvido |
 | Canales | Chat web, WhatsApp (OpenClaw → MCP) y webhook HMAC con allowlist E.164 |
+| Voz | Dictado y lectura en el chat (navegador u OpenAI por el servidor) y notas de voz en WhatsApp |
 | Cotizaciones | Folio, desglose con IVA y envío, y PDF firmado descargable |
 
 ## Demo rápida
@@ -158,6 +159,7 @@ Flujo de un turno:
 | Memoria de corto y largo plazo | Resumen acumulado + memoria del dueño por categorías, datos sensibles y olvido | [Memoria](#memoria-de-corto-y-largo-plazo), [`specs/045-memoria-herramientas/evidencia.md`](specs/045-memoria-herramientas/evidencia.md) |
 | RAG con citas y evaluación | Qdrant con citas por fragmento; Recall@10/nDCG@10 y evaluación del agente | [Evaluación](#evaluación), [`docs/eval/`](docs/eval/) |
 | Servidor MCP propio | `apps/mcp` (Streamable HTTP, Bearer, solo loopback) | [`apps/mcp/server.py`](apps/mcp/server.py) |
+| Voz | Chat web: OpenAI por el servidor (`VOICE_PROVIDER=openai`) con respaldo en la voz del navegador; WhatsApp: `voz=true` con texto hablado corto | [Voz](#voz), [`docs/voz-web.md`](docs/voz-web.md), [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz) |
 | Seguridad | Compuertas de evidencia, filtro de sensibles, token MCP, firma, allowlist, errores sin trazas | [Seguridad](#seguridad) |
 | Licencia, despliegue y reproducibilidad | MIT, guía de despliegue, `.env` fuera del repo, `uv sync`, `make check` | [Licencia](#licencia-y-créditos), [Despliegue](#despliegue), [Instalación](#instalación) |
 
@@ -292,6 +294,23 @@ el bloque `jev`. Resultados de la medición
   `/cotizaciones/{folio}.pdf` ([`cotizacion_pdf.py`](apps/api/views/cotizacion_pdf.py),
   [`quote_pdf.py`](apps/api/quote_pdf.py)) que vence con la vigencia de la cotización y se
   genera al vuelo con fpdf2 (logo, folio, producto, importes, vendedor y fuente del precio).
+
+### Voz
+
+- **Chat web.** El dictado y la lectura en voz alta usan el navegador (spec 040) o, con
+  `VOICE_PROVIDER=openai` y `OPENAI_API_KEY`, OpenAI a través del servidor (spec 047):
+  `POST /api/voz/transcribir` recibe el audio de `MediaRecorder` (tipo, firma y tamaño
+  validados; no se guarda) y devuelve el texto para revisarlo; `POST /api/voz/hablar`
+  sintetiza **solo** una respuesta guardada de la conversación de quien llama, por su id,
+  nunca texto libre. CSRF, la identidad del chat, límites por sesión, por IP y global, la
+  duración máxima del audio, un tope diario y un circuito protegen el gasto; ante
+  cualquier fallo el chat vuelve a la voz del navegador.
+  Detalle en [`docs/voz-web.md`](docs/voz-web.md).
+- **WhatsApp.** Con `voz=true`, `consultar_carvajal` devuelve el texto para la nota de voz
+  (sin citas, Markdown ni URL) y los enlaces aparte. La cotización hablada dura unos 15 s,
+  el folio se dice por sus cuatro últimos caracteres y el pedido «PDF» acepta lo que un STT
+  suele oír («pe de efe», «impedefe»). Ver
+  [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz).
 
 ### Backend FastAPI y persistencia
 
@@ -529,6 +548,10 @@ cp .env.example .env
 | `QDRANT_URL` / `QDRANT_COLLECTION` | `http://127.0.0.1:6333` / `carvajal_chunks` | Índice vectorial |
 | `RAG_TOP_K` / `RAG_MIN_SCORE` | `6` / `0.30` | Fragmentos por consulta y umbral de similitud |
 | `MONITORING_ENABLED` | `false` | Trazas en LangSmith, solo metadatos en producción ([guía](docs/monitoreo-langsmith.md)) |
+| `VOICE_PROVIDER` / `OPENAI_API_KEY` | `browser` / vacío | Voz del chat por el servidor con OpenAI ([guía](docs/voz-web.md)); sin clave, voz del navegador |
+| `VOICE_MAX_CALLS_PER_DAY` / `VOICE_RATE_LIMIT` | `500` / `20` por 10 min | Tope diario por proceso y límite por sesión de la voz del servidor |
+| `VOICE_IP_RATE_LIMIT` / `VOICE_GLOBAL_RATE_PER_MIN` | `60` por 10 min / `30` | Límites de la voz del servidor por IP y para todo el proceso |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | IPs de proxy en las que confía uvicorn; detrás de nginx, la puerta de enlace de Docker ([despliegue](docs/despliegue-ovh.md)) |
 
 La lista completa, con los límites de la captura web y del monitoreo, está comentada en
 [`.env.example`](.env.example).
@@ -600,6 +623,7 @@ carvajal/
   contratos y evidencia); índice en [`specs/README.md`](specs/README.md).
 - [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md) — WhatsApp con el servidor MCP.
 - [`docs/webhooks.md`](docs/webhooks.md) — webhook firmado: contrato, seguridad y firma.
+- [`docs/voz-web.md`](docs/voz-web.md) — voz del chat web por el servidor y su respaldo.
 - [`docs/despliegue-ovh.md`](docs/despliegue-ovh.md) — despliegue, operación y rollback.
 - [`docs/monitoreo-langsmith.md`](docs/monitoreo-langsmith.md) — monitoreo opcional.
 - [`docs/prompts.md`](docs/prompts.md) — prompts, variantes probadas y decisiones.

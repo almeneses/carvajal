@@ -288,6 +288,17 @@ class ChatService:
         with self._session_factory() as session:
             return SqlChatRepository(session).summarize(owner_key)
 
+    def assistant_message(self, owner_key: str, message_id: str) -> ChatMessage | None:
+        """Respuesta del asistente ``message_id`` del dueño, o ``None`` (spec 047).
+
+        La lectura en voz del servidor sintetiza solo respuestas guardadas de la propia
+        conversación: un id ajeno, de otro dueño o de un mensaje del usuario no existe.
+        """
+
+        with self._session_factory() as session:
+            message = SqlChatRepository(session).owned_message(message_id, owner_key)
+        return message if message is not None and message.role == "assistant" else None
+
     def new_conversation(self, owner_key: str) -> Conversation:
         """Crea un hilo nuevo y lo deja como activo para el dueño."""
 

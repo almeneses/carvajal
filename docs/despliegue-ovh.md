@@ -127,8 +127,9 @@ Notas:
 - `AGENT_MODE=tools` (agente con herramientas) exige `LLM_PROVIDER=deepseek`; con otro
   proveedor el chat sigue en `routes`. `deepseek-flash` es el modelo con el que se evaluó y
   decidió el modo `tools` (ver *Modo del agente* en §8).
-- No definas `FORWARDED_ALLOW_IPS`: el compose usa `127.0.0.1` porque no hay
-  proxy delante.
+- No definas `FORWARDED_ALLOW_IPS` mientras no haya proxy delante: el compose usa
+  `127.0.0.1`. Con nginx y TLS delante, sigue la §10 (la IP correcta es la puerta de
+  enlace de la red de Docker, no `127.0.0.1`).
 - No cambies `POSTGRES_USER`, `POSTGRES_PASSWORD` ni `POSTGRES_DB` después del
   primer arranque; el volumen ya quedó inicializado.
 - `SESSION_SECRET` debe mantenerse estable; si lo cambias, se invalidan las
@@ -657,6 +658,14 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
   HTTPS (vhost con TLS delante); no se rebaja la política para la demo.
   El permiso `microphone=(self)` se declara solo en el documento HTML de
   `/chat`; el resto del sitio y el SSE lo mantienen denegado.
+- **Voz del servidor (spec 047, opcional):** con `VOICE_PROVIDER=openai` y
+  `OPENAI_API_KEY` en el `.env`, el dictado y la lectura usan OpenAI a través de
+  la app (ver [`voz-web.md`](voz-web.md)); el dictado sigue exigiendo HTTPS. El
+  bloque `voice` de `/health` dice si está disponible; cuántas llamadas lleva el
+  día y el último error solo se ven con el token de operador
+  (`X-Operator-Token`). El límite por IP necesita `FORWARDED_ALLOW_IPS` bien
+  puesto: si no, todos comparten la IP de nginx. Sin clave o con el tope
+  alcanzado, el chat usa la voz del navegador.
 - Si quieres limitar el acceso, restringe el puerto 8080 por IP en el firewall
   de OVH o en un proxy delante.
 - `.env` siempre en `600`.
@@ -695,9 +704,31 @@ server {
 }
 ```
 
-En ese caso cambia el puerto del compose a `127.0.0.1:${APP_PORT:-8000}:8000`,
-pon `FORWARDED_ALLOW_IPS=127.0.0.1` y emite el certificado con
+En ese caso cambia el puerto del compose a `127.0.0.1:${APP_PORT:-8000}:8000`
+(y el `proxy_pass` al mismo puerto) y emite el certificado con
 `sudo certbot --nginx -d TU_DOMINIO`.
+
+**`FORWARDED_ALLOW_IPS` detrás de nginx.** Uvicorn corre con `--proxy-headers`
+pero solo cree en `X-Forwarded-Proto`/`X-Forwarded-For` si la conexión llega
+desde una IP de `FORWARDED_ALLOW_IPS` (por defecto `127.0.0.1`). nginx corre en
+el host y se conecta al puerto publicado; Docker reenvía esa conexión al
+contenedor desde la **puerta de enlace de la red del compose** (por ejemplo
+`172.18.0.1`), no desde `127.0.0.1`. Con el valor por defecto la app ve `http`:
+las cookies salen sin `Secure`, no hay HSTS y las redirecciones absolutas
+apuntan a `http://`. Obtén la IP y fíjala en el `.env`:
+
+```bash
+docker network inspect carvajal-prod_default \
+  -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}'      # p. ej. 172.18.0.1
+echo 'FORWARDED_ALLOW_IPS=172.18.0.1' >> /opt/carvajal/.env
+docker compose -f compose.prod.yml up -d --no-build app
+```
+
+Comprueba que funcionó: `curl -sI https://TU_DOMINIO/chat | grep -i
+strict-transport-security` debe mostrar la cabecera HSTS y la cookie del chat
+debe llevar `Secure`. No pongas `*` ni una subred amplia: cualquiera que llegue
+directo al puerto podría falsificar el esquema y la IP del cliente. Con el
+puerto publicado solo en `127.0.0.1`, únicamente nginx llega a la app.
 
 ## 11. Problemas frecuentes
 

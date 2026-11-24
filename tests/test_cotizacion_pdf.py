@@ -145,7 +145,17 @@ def test_bloque_de_whatsapp() -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["PDF", "pdf", "Sí, el PDF", "envíame la cotización en pdf por favor", "dale pdf!"],
+    [
+        "PDF",
+        "pdf",
+        "Sí, el PDF",
+        "envíame la cotización en pdf por favor",
+        "dale pdf!",
+        "P.D.F.",
+        "p d f",
+        "SÍ, EL PDF",
+        "mándamelo en PDF",
+    ],
 )
 def test_pedidos_de_pdf(message: str) -> None:
     assert is_pdf_request(message)
@@ -153,10 +163,53 @@ def test_pedidos_de_pdf(message: str) -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["¿el PDF trae el IVA?", "cotiza 400 vasos y mándame el pdf", "hola", ""],
+    [
+        "¿el PDF trae el IVA?",
+        "cotiza 400 vasos y mándame el pdf",
+        "hola",
+        "",
+        "impedefe",
+        "pe de efe",
+    ],
 )
 def test_no_son_pedidos_de_pdf(message: str) -> None:
     assert not is_pdf_request(message)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "impedefe",
+        "MPDF",
+        "pe de efe",
+        "Pé dé éfe",
+        "p de f",
+        "pedefe por favor",
+        "em pe de efe",
+        "sí, mándame el pe de fe",
+        "el pe de e\u0444e",  # «ф» cirílica que a veces devuelve el STT
+        "M P D F",  # letras sueltas: la primera sustitución deja espacios dobles
+        "em p d f",
+    ],
+)
+def test_pedidos_de_pdf_por_voz_aceptan_lo_que_oye_el_stt(message: str) -> None:
+    assert is_pdf_request(message, spoken=True)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "¿el pe de efe trae el IVA?",
+        "puedes darme el precio",
+        "pide de fe",
+        "pedido de cajas",
+        "de fe",
+        "cotiza 400 vasos de 12 onzas",
+        "dame el precio del pedido",
+    ],
+)
+def test_frases_normales_por_voz_no_son_pedidos_de_pdf(message: str) -> None:
+    assert not is_pdf_request(message, spoken=True)
 
 
 @dataclass
