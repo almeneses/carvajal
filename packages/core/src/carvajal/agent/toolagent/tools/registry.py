@@ -27,7 +27,12 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_CORPUS,
     TOOL_BUSCAR_PRODUCTO,
     TOOL_BUSCAR_SEDES,
+    TOOL_CIUDADES_CON_COBERTURA,
+    TOOL_COMPARAR_REFERENCIAS,
+    TOOL_CONVERTIR_PRESENTACION,
     TOOL_COTIZAR,
+    TOOL_FICHA_PRODUCTO,
+    TOOL_GUIA_MATERIALES,
     TOOL_INDICADOR_FINANCIERO,
     TOOL_LISTAR_MEMORIA,
     TOOL_OLVIDAR_PREFERENCIA,
@@ -37,6 +42,11 @@ from carvajal.agent.toolagent.state import (
 )
 from carvajal.agent.toolagent.tools import (
     builtin,
+    ciudades_con_cobertura,
+    comparar_referencias,
+    convertir_presentacion,
+    ficha_producto,
+    guia_materiales,
     listar_memoria,
     olvidar_preferencia,
     recordar_preferencia,
@@ -145,6 +155,42 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         status_template=None,
         consumes_budget=False,
         evidence_role="declaration",
+    ),
+    # Catálogo (spec 045, US3, T069): una fuente por dato, sin ciudad como argumento.
+    ToolSpec(
+        name=TOOL_FICHA_PRODUCTO,
+        args_schema=ficha_producto.FichaProductoArgs,
+        description=ficha_producto.DESCRIPTION,
+        run=ficha_producto.run,
+        status_template=ficha_producto.status,
+    ),
+    ToolSpec(
+        name=TOOL_COMPARAR_REFERENCIAS,
+        args_schema=comparar_referencias.CompararReferenciasArgs,
+        description=comparar_referencias.DESCRIPTION,
+        run=comparar_referencias.run,
+        status_template=comparar_referencias.status,
+    ),
+    ToolSpec(
+        name=TOOL_GUIA_MATERIALES,
+        args_schema=guia_materiales.GuiaMaterialesArgs,
+        description=guia_materiales.DESCRIPTION,
+        run=guia_materiales.run,
+        status_template=guia_materiales.status,
+    ),
+    ToolSpec(
+        name=TOOL_CONVERTIR_PRESENTACION,
+        args_schema=convertir_presentacion.ConvertirPresentacionArgs,
+        description=convertir_presentacion.DESCRIPTION,
+        run=convertir_presentacion.run,
+        status_template=convertir_presentacion.status,
+    ),
+    ToolSpec(
+        name=TOOL_CIUDADES_CON_COBERTURA,
+        args_schema=ciudades_con_cobertura.CiudadesConCoberturaArgs,
+        description=ciudades_con_cobertura.DESCRIPTION,
+        run=ciudades_con_cobertura.run,
+        status_template=ciudades_con_cobertura.status,
     ),
     # Memoria del dueño (spec 045, US2, T050): sin fuentes; ``_outcome`` guarda solo la
     # categoría como argumento (FR-012, FR-018).

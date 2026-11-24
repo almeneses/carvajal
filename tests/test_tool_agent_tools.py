@@ -2386,3 +2386,79 @@ def test_cotizar_con_la_ciudad_dicha_no_sugiere() -> None:
 
     # Assert
     assert "sugerencia_ciudad" not in result.payload
+
+
+# --- Fuentes compartidas entre herramientas (spec 045, R11) ---------------------------------
+
+
+def _ficha_source(excerpt: str) -> dict[str, Any]:
+    return {
+        "chunk_id": "ficha:CO-X:CO",
+        "slug": "catalogo",
+        "section": "catalogo_empaques",
+        "layer": "core",
+        "score": 1.0,
+        "excerpt": excerpt,
+        "url": "https://www.carvajalempaques.com/x",
+        "title": "Ficha",
+        "source_type": "oficial",
+    }
+
+
+def test_una_fuente_repetida_suma_al_extracto_lo_que_trae_la_otra_herramienta() -> None:
+    # Arrange: dos herramientas citan la misma ficha con campos distintos.
+    from carvajal.agent.toolagent.tools._base import _Sources
+
+    sources = _Sources(())
+    sources.add([_ficha_source("Capacidad: 4 oz.")])
+
+    # Act
+    numbers = sources.add([_ficha_source("Unidades por caja: 1000.")])
+
+    # Assert: el mismo [n] y las dos cifras en su extracto.
+    assert numbers == [1]
+    assert len(sources.entries) == 1
+    assert "4 oz" in sources.entries[0]["excerpt"]
+    assert "1000" in sources.entries[0]["excerpt"]
+
+
+def test_una_fuente_repetida_con_el_mismo_extracto_no_cambia() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools._base import _Sources
+
+    sources = _Sources(())
+    sources.add([_ficha_source("Capacidad: 4 oz.")])
+
+    # Act
+    sources.add([_ficha_source("Capacidad: 4 oz.")])
+
+    # Assert
+    assert sources.entries[0]["excerpt"] == "Capacidad: 4 oz."
+
+
+def test_comparar_tras_ficha_cita_sus_cifras_en_la_ficha_compartida() -> None:
+    # Arrange: ``ficha_producto`` registra primero ``ficha:CO-CTT-08:CO``.
+    from carvajal.agent.toolagent.tools import content_data
+
+    deps = ToolDeps(
+        vector_store=None,  # ty: ignore[invalid-argument-type]
+        embedder=None,  # ty: ignore[invalid-argument-type]
+        settings=Settings(_env_file=None),
+    )
+    first = run_tool("ficha_producto", {"sku": "CO-CTT-08"}, deps, ToolContext())
+
+    # Act
+    second = run_tool(
+        "comparar_referencias",
+        {"referencias": ["CO-CTT-08", "CO-CTT-16"]},
+        deps,
+        ToolContext(sources=first.sources),
+    )
+
+    # Assert: la fila de CO-CTT-08 cita la ficha compartida y su extracto trae sus cifras.
+    assert first.status == "ok" and second.status == "ok"
+    data = content_data(second.content) or {}
+    rows = {row["sku"]: row for row in data["comparacion"]["filas"]}
+    row = rows["CO-CTT-08"]
+    excerpt = next(s["excerpt"] for s in second.sources if s["n"] == row["n"])
+    assert str(row["unidades_por_caja"]) in excerpt

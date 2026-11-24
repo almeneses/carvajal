@@ -20,7 +20,12 @@ __all__ = [
     "TOOL_BUSCAR_CORPUS",
     "TOOL_BUSCAR_PRODUCTO",
     "TOOL_BUSCAR_SEDES",
+    "TOOL_CIUDADES_CON_COBERTURA",
+    "TOOL_COMPARAR_REFERENCIAS",
+    "TOOL_CONVERTIR_PRESENTACION",
     "TOOL_COTIZAR",
+    "TOOL_FICHA_PRODUCTO",
+    "TOOL_GUIA_MATERIALES",
     "TOOL_INDICADOR_FINANCIERO",
     "TOOL_LISTAR_MEMORIA",
     "TOOL_NAMES",
@@ -45,6 +50,11 @@ ToolName = Literal[
     "buscar_sedes",
     "indicador_financiero",
     "sin_consulta",
+    "ficha_producto",
+    "comparar_referencias",
+    "guia_materiales",
+    "convertir_presentacion",
+    "ciudades_con_cobertura",
     "recordar_preferencia",
     "listar_memoria",
     "olvidar_preferencia",
@@ -59,6 +69,12 @@ TOOL_COTIZAR: Final = "cotizar"
 TOOL_BUSCAR_SEDES: Final = "buscar_sedes"
 TOOL_INDICADOR_FINANCIERO: Final = "indicador_financiero"
 TOOL_SIN_CONSULTA: Final = "sin_consulta"
+# Catálogo (spec 045, US3).
+TOOL_FICHA_PRODUCTO: Final = "ficha_producto"
+TOOL_COMPARAR_REFERENCIAS: Final = "comparar_referencias"
+TOOL_GUIA_MATERIALES: Final = "guia_materiales"
+TOOL_CONVERTIR_PRESENTACION: Final = "convertir_presentacion"
+TOOL_CIUDADES_CON_COBERTURA: Final = "ciudades_con_cobertura"
 # Memoria del dueño (spec 045, US2).
 TOOL_RECORDAR_PREFERENCIA: Final = "recordar_preferencia"
 TOOL_LISTAR_MEMORIA: Final = "listar_memoria"

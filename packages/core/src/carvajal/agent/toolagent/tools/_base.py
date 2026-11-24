@@ -264,9 +264,27 @@ class _Sources:
         self.ids: list[int] = []
 
     def add(self, batch: Iterable[Source | Mapping[str, Any]]) -> list[int]:
-        """Registra el lote y devuelve el número de cada fuente."""
+        """Registra el lote y devuelve el número de cada fuente.
 
-        registered = SourceRegistry.register(self.entries, batch)
+        Varias herramientas registran el mismo ``chunk_id`` (``ficha:{sku}:{pais}`` o
+        ``precio:{sku}:{sede}``) con extractos distintos, porque cada una cita los campos que
+        devuelve. ``SourceRegistry`` conserva la primera entrada; si el extracto nuevo trae
+        texto que la entrada no tiene, se añade a su extracto. Así cada cifra que devuelve
+        una herramienta aparece en el extracto de su ``[n]`` aunque otra herramienta del
+        turno registrara antes la misma fuente (spec 045, R11). Un fragmento del corpus
+        repetido trae el mismo extracto y no cambia.
+        """
+
+        items = list(batch)
+        registered = SourceRegistry.register(self.entries, items)
+        by_number = {int(entry["n"]): entry for entry in registered.sources}
+        for item, number in zip(items, registered.numbers, strict=True):
+            raw = item.excerpt if isinstance(item, Source) else item.get("excerpt")
+            excerpt = str(raw or "")
+            entry = by_number[number]
+            current = str(entry.get("excerpt") or "")
+            if excerpt and excerpt not in current:
+                entry["excerpt"] = f"{current}\n{excerpt}" if current else excerpt
         self.entries = registered.sources
         for number in registered.numbers:
             if number not in self.ids:

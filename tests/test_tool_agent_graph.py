@@ -1650,3 +1650,142 @@ def test_un_error_no_actualiza_el_estado(monkeypatch: pytest.MonkeyPatch) -> Non
     # Assert
     assert result.status == "error"
     assert result.state_update == {}
+
+
+# --- Herramientas nuevas en el grafo (spec 045, T070 y T081; FR-024, FR-025) ---------------
+
+# Una llamada válida por herramienta nueva y la línea de estado de su contrato
+# (contracts/agent-tools-045.md). Los datos salen del repositorio; nada usa red.
+NEW_TOOL_CALLS: dict[str, tuple[dict[str, Any], str]] = {
+    "ficha_producto": ({"sku": "CO-VTER-04"}, "Estoy revisando la ficha del producto…"),
+    "comparar_referencias": (
+        {"referencias": ["CO-CTT-08", "CO-CTT-16"]},
+        "Estoy comparando las referencias que me pediste…",
+    ),
+    "guia_materiales": ({"material": "PET"}, "Estoy revisando la guía de materiales…"),
+    "convertir_presentacion": (
+        {"sku": "CO-VTER-04", "cantidad": 3, "unidad": "caja"},
+        "Estoy calculando cuántas unidades son…",
+    ),
+    "ciudades_con_cobertura": ({}, "Estoy revisando en qué ciudades hay distribuidores…"),
+}
+
+
+def _counting(monkeypatch: pytest.MonkeyPatch, name: str) -> list[int]:
+    """Envuelve la implementación registrada de ``name`` y cuenta sus ejecuciones."""
+
+    from types import MappingProxyType
+
+    from carvajal.agent.toolagent.tools import runner
+
+    calls: list[int] = []
+    implementations = dict(runner.IMPLEMENTATIONS)
+    original = implementations[name]
+
+    def counted(args: Any, deps: Any, context: Any, sources: Any) -> Any:
+        calls.append(1)
+        return original(args, deps, context, sources)
+
+    implementations[name] = counted
+    monkeypatch.setattr(runner, "IMPLEMENTATIONS", MappingProxyType(implementations))
+    return calls
+
+
+@pytest.mark.parametrize("name", sorted(NEW_TOOL_CALLS))
+def test_una_herramienta_nueva_publica_su_estado_y_no_se_repite(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: la misma llamada dos veces en un paso.
+    args, status_text = NEW_TOOL_CALLS[name]
+    calls = _counting(monkeypatch, name)
+    steps = [
+        ScriptStep(tool_calls=[_call(name, "a", **args), _call(name, "b", **args)]),
+        ScriptStep(text="Listo."),
+    ]
+    graph, _, _ = _build(steps)
+
+    # Act
+    stream = list(
+        graph.stream(_input("Pregunta de prueba"), _config(), stream_mode=["custom", "values"])
+    )
+    events = [chunk for mode, chunk in stream if mode == "custom"]
+    state = [chunk for mode, chunk in stream if mode == "values"][-1]
+
+    # Assert: una ejecución, una línea de estado sin valores y el mismo resultado dos veces.
+    assert len(calls) == 1
+    assert [event["text"] for event in events] == [status_text]
+    assert [r["tool"] for r in state["results"]] == [name]
+    assert state["tool_calls_used"] == 1
+    first, repeated = _tool_messages(state)
+    assert repeated.content == first.content
+    assert "<datos>" in str(first.content)
+
+
+@pytest.mark.parametrize("name", sorted(NEW_TOOL_CALLS))
+def test_una_herramienta_nueva_respeta_el_limite_de_consultas(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: cupo de una consulta; la nueva va segunda y queda fuera.
+    settings = Settings(agent_max_tool_calls=1)
+    args, _ = NEW_TOOL_CALLS[name]
+    calls = _counting(monkeypatch, name)
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("buscar_corpus", "c1", consulta="fundación de Carvajal"),
+                _call(name, "c2", **args),
+            ]
+        ),
+        ScriptStep(text="Carvajal se fundó en 1904 [1]."),
+    ]
+    graph, chat, _ = _build(steps, store=QueueStore([FUNDACION]), settings=settings)
+
+    # Act
+    state = graph.invoke(_input(), _config(settings=settings))
+
+    # Assert
+    assert calls == []
+    assert state["tool_calls_used"] == 1
+    assert len(state["missing"]) == 1 and name in state["missing"][0]
+    assert _tool_messages(state)[-1].status == "error"
+    assert "tools" not in chat.call_kwargs[-1]
+
+
+@pytest.mark.parametrize("name", sorted(NEW_TOOL_CALLS))
+def test_una_herramienta_nueva_no_corre_tras_cancelar_el_turno(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: la primera llamada del paso pide «Detener»; la nueva estaba pendiente.
+    from types import MappingProxyType
+
+    from carvajal.agent.toolagent.graph import TurnCancel, TurnCancelled
+    from carvajal.agent.toolagent.tools import runner
+
+    cancel = TurnCancel()
+    args, _ = NEW_TOOL_CALLS[name]
+    calls = _counting(monkeypatch, name)
+    implementations = dict(runner.IMPLEMENTATIONS)
+    original = implementations["buscar_corpus"]
+
+    def cancelling(*call_args: Any) -> Any:
+        cancel.cancel()
+        return original(*call_args)
+
+    implementations["buscar_corpus"] = cancelling
+    monkeypatch.setattr(runner, "IMPLEMENTATIONS", MappingProxyType(implementations))
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("buscar_corpus", "c1", consulta="fundación de Carvajal"),
+                _call(name, "c2", **args),
+            ]
+        ),
+        ScriptStep(text="No debería llegar."),
+    ]
+    graph, chat, _ = _build(steps, store=QueueStore([FUNDACION]))
+
+    # Act / Assert
+    with pytest.raises(TurnCancelled):
+        graph.invoke(_input(), cancel.config(_config()))
+    assert calls == []
+    assert chat.remaining_steps == 1

@@ -161,21 +161,21 @@ versionado.
 
 ### Tests for User Story 3
 
-- [ ] T057 [P] [US3] Escribir `tests/test_tool_ficha_producto.py`: SKU exacto (CO-VTER-04: 4 oz, EPS, 1000 por caja, sin temperatura de ficha, guía rotulada), nombre ambiguo → candidatas, inexistente → `empty`, ficha MX con precio inline, fuentes `ficha:` y `precio:` con excerpt que contiene las cifras, línea de estado sin valores.
-- [ ] T058 [P] [US3] Escribir `tests/test_tool_comparar_referencias.py`: CO-CTT-08 frente a CO-CTT-16 (ambas con precio de EDEXA) → precio unitario con `Decimal` y `mas_economica`; CO-VTER-08 frente a CO-VTER-10 (sin precio) → diferencias sin veredicto; distinto `tax_status`, país o moneda → `mas_economica: null` con `aviso`; CO frente a MX sin veredicto; una ambigua → `needs_input`.
-- [ ] T059 [P] [US3] Escribir `tests/test_tool_guia_materiales.py`: PET y comida caliente, «icopor» → EPS, solo aplicación ordenada por nivel, PAPEL/PULPA → `sin_regla`, `refrigeracion_deducida` para PS y aluminio.
-- [ ] T060 [P] [US3] Escribir `tests/test_tool_convertir_presentacion.py`: 3 cajas del CO-VTER-04 = 3000 unidades, paca del nombre en fichas CO, portacomidas J1 («paca x 200», oferta «caja de 200») → `no_convertible`, tamaños contradictorios → `no_convertible`, MX desde el catálogo, paridad con el motor de cotización.
-- [ ] T062 [P] [US3] Escribir `tests/test_tool_ciudades_con_cobertura.py`: 10 ciudades y 29 sedes, con referencia separa `con_precio` de `con_sede`, aviso de existencias.
+- [X] T057 [P] [US3] Escribir `tests/test_tool_ficha_producto.py`: SKU exacto (CO-VTER-04: 4 oz, EPS, 1000 por caja, sin temperatura de ficha, guía rotulada), nombre ambiguo → candidatas, inexistente → `empty`, ficha MX con precio inline, fuentes `ficha:` y `precio:` con excerpt que contiene las cifras, línea de estado sin valores.
+- [X] T058 [P] [US3] Escribir `tests/test_tool_comparar_referencias.py`: CO-CTT-08 frente a CO-CTT-16 (ambas con precio de EDEXA) → precio unitario con `Decimal` y `mas_economica`; CO-VTER-08 frente a CO-VTER-10 (sin precio) → diferencias sin veredicto; distinto `tax_status`, país o moneda → `mas_economica: null` con `aviso`; CO frente a MX sin veredicto; una ambigua → `needs_input`.
+- [X] T059 [P] [US3] Escribir `tests/test_tool_guia_materiales.py`: PET y comida caliente, «icopor» → EPS, solo aplicación ordenada por nivel, PAPEL/PULPA → `sin_regla`, `refrigeracion_deducida` para PS y aluminio.
+- [X] T060 [P] [US3] Escribir `tests/test_tool_convertir_presentacion.py`: 3 cajas del CO-VTER-04 = 3000 unidades, paca del nombre en fichas CO, portacomidas J1 («paca x 200», oferta «caja de 200») → `no_convertible`, tamaños contradictorios → `no_convertible`, MX desde el catálogo, paridad con el motor de cotización.
+- [X] T062 [P] [US3] Escribir `tests/test_tool_ciudades_con_cobertura.py`: 10 ciudades y 29 sedes, con referencia separa `con_precio` de `con_sede`, aviso de existencias.
 
 ### Implementation for User Story 3
 
-- [ ] T063 [P] [US3] Implementar `ficha_producto` en `ta/tools/ficha_producto.py`. Depende de T016, T057.
-- [ ] T064 [US3] Implementar `comparar_referencias` en `ta/tools/comparar_referencias.py` (reutiliza la resolución de `ficha_producto`; precio unitario = importe ÷ unidades de la base con `Decimal`: CO desde `Offer.units_in_basis`, MX con `amount / units_per_box`). Depende de T063, T058.
-- [ ] T065 [P] [US3] Implementar `guia_materiales` en `ta/tools/guia_materiales.py`. Depende de T016, T059.
-- [ ] T066 [P] [US3] Implementar `convertir_presentacion` en `ta/tools/convertir_presentacion.py` con `engine.published_presentations(product, dataset, city=None)`. Depende de T021, T060.
-- [ ] T068 [P] [US3] Implementar `ciudades_con_cobertura` en `ta/tools/ciudades_con_cobertura.py`. Depende de T016, T062.
-- [ ] T069 [US3] Registrar las cinco herramientas de catálogo en `ta/tools/registry.py` en el orden de data-model *ToolSpec* y ampliar `ToolName` con sus nombres en `ta/state.py`. Depende de T063–T068.
-- [ ] T070 [US3] Verificar con `tests/test_tool_agent_graph.py` que una herramienta de catálogo nueva respeta el límite, la deduplicación, la cancelación y la emisión de `status` (una prueba parametrizada por herramienta nueva). Depende de T069. FR-024, FR-025.
+- [X] T063 [P] [US3] Implementar `ficha_producto` en `ta/tools/ficha_producto.py`. Depende de T016, T057.
+- [X] T064 [US3] Implementar `comparar_referencias` en `ta/tools/comparar_referencias.py` (reutiliza la resolución de `ficha_producto`; precio unitario = importe ÷ unidades de la base con `Decimal`: CO desde `Offer.units_in_basis`, MX con `amount / units_per_box`). Depende de T063, T058.
+- [X] T065 [P] [US3] Implementar `guia_materiales` en `ta/tools/guia_materiales.py`. Depende de T016, T059.
+- [X] T066 [P] [US3] Implementar `convertir_presentacion` en `ta/tools/convertir_presentacion.py` con `engine.published_presentations(product, dataset, city=None)`. Depende de T021, T060.
+- [X] T068 [P] [US3] Implementar `ciudades_con_cobertura` en `ta/tools/ciudades_con_cobertura.py`. Depende de T016, T062.
+- [X] T069 [US3] Registrar las cinco herramientas de catálogo en `ta/tools/registry.py` en el orden de data-model *ToolSpec* y ampliar `ToolName` con sus nombres en `ta/state.py`. Depende de T063–T068.
+- [X] T070 [US3] Verificar con `tests/test_tool_agent_graph.py` que una herramienta de catálogo nueva respeta el límite, la deduplicación, la cancelación y la emisión de `status` (una prueba parametrizada por herramienta nueva). Depende de T069. FR-024, FR-025.
 
 **Checkpoint**: 14 herramientas registradas; las de catálogo funcionan solas.
 
