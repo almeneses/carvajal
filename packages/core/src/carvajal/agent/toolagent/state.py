@@ -25,6 +25,7 @@ __all__ = [
     "TOOL_NAMES",
     "TOOL_SIN_CONSULTA",
     "TOOL_STATUSES",
+    "UNKNOWN_TOOL",
     "ModePath",
     "ToolAgentState",
     "ToolName",
@@ -54,6 +55,9 @@ TOOL_INDICADOR_FINANCIERO: Final = "indicador_financiero"
 TOOL_SIN_CONSULTA: Final = "sin_consulta"
 
 TOOL_NAMES: Final[tuple[str, ...]] = get_args(ToolName)
+# Nombre con el que se registra una llamada a una herramienta que no existe: el nombre que
+# escribió el modelo puede llevar datos de la persona y no se conserva (FR-014).
+UNKNOWN_TOOL: Final = "desconocida"
 TOOL_STATUSES: Final[tuple[str, ...]] = get_args(ToolStatus)
 MODE_PATHS: Final[tuple[str, ...]] = get_args(ModePath)
 
@@ -81,6 +85,9 @@ class ToolAgentState(TypedDict, total=False):
     reductor ``add_messages`` (sistema, historial, pregunta y pasos del turno).
     ``seen_calls`` es una lista (no ``set``) de huellas ``nombre+args`` normalizados.
     ``results`` guarda un :class:`ToolOutcome` por herramienta, en orden.
+    ``shortcut_intent`` es la intención que decidió el nodo ``shortcut`` (``greeting`` o
+    ``memory_write``; vacía si el turno va al agente): ``direct`` la lee en vez de
+    recalcularla. ``recall`` la reinicia en cada turno, porque el checkpoint persiste.
     """
 
     question: str
@@ -97,6 +104,7 @@ class ToolAgentState(TypedDict, total=False):
     quotes: list[dict[str, Any]]
     cards: dict[str, Any]
     mode_path: ModePath
+    shortcut_intent: str
     missing: list[str]
 
 

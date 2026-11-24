@@ -52,6 +52,7 @@ from carvajal.agent.toolagent.state import (
     TOOL_INDICADOR_FINANCIERO,
     TOOL_NAMES,
     TOOL_SIN_CONSULTA,
+    UNKNOWN_TOOL,
     ToolOutcome,
     ToolStatus,
     make_tool_outcome,
@@ -1266,7 +1267,11 @@ def run_tool(
 def _outcome(
     name: str, args: dict[str, Any], status: ToolStatus, ids: list[int], elapsed: int
 ) -> ToolOutcome:
-    """``ToolOutcome`` validado; una herramienta desconocida conserva su nombre tal cual."""
+    """``ToolOutcome`` validado; una herramienta desconocida se registra como ``UNKNOWN_TOOL``.
+
+    El nombre inventado lo escribe el modelo y puede llevar datos de la persona: no llega
+    al estado ni al monitoreo (FR-014).
+    """
 
     if name in TOOL_NAMES:
         return make_tool_outcome(
@@ -1275,7 +1280,7 @@ def _outcome(
     known = make_tool_outcome(
         tool=TOOL_SIN_CONSULTA, args=args, status=status, source_ids=(), elapsed_ms=elapsed
     )
-    return cast(ToolOutcome, {**known, "tool": name})
+    return cast(ToolOutcome, {**known, "tool": UNKNOWN_TOOL})
 
 
 def _execute(

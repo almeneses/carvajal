@@ -11,7 +11,12 @@ __all__ = ["DeepSeekProvider", "build_deepseek_chat"]
 
 
 def build_deepseek_chat(
-    settings: Settings | None = None, *, stream_usage: bool = False, for_tools: bool = False
+    settings: Settings | None = None,
+    *,
+    stream_usage: bool = False,
+    for_tools: bool = False,
+    timeout_s: float | None = None,
+    max_retries: int | None = None,
 ) -> ChatOpenAI:
     """Construye el ``ChatOpenAI`` de DeepSeek con temperatura 0.
 
@@ -23,6 +28,10 @@ def build_deepseek_chat(
     DeepSeek (p. ej. ``deepseek-flash``) lo traen activo por defecto y en ese modo la API
     rechaza ``tool_choice="required"`` («Thinking mode does not support this tool_choice»),
     que el agente usa en el primer paso. Además, sin razonamiento la temperatura 0 aplica.
+
+    ``timeout_s`` y ``max_retries`` acotan la petición (por defecto, ``llm_timeout_seconds``
+    y los reintentos del cliente de ``openai``); el agente los usa para no esperar más que el
+    plazo del turno.
 
     Construirlo no comprueba que la API esté accesible ni que el modelo exista: eso se
     descubre en la primera llamada.
@@ -46,12 +55,14 @@ def build_deepseek_chat(
     extra: dict[str, Any] = {"stream_usage": True} if stream_usage else {}
     if for_tools:
         extra["extra_body"] = {"thinking": {"type": "disabled"}}
+    if max_retries is not None:
+        extra["max_retries"] = max_retries
     return ChatOpenAI(
         model=model,
         api_key=api_key,
         base_url=base_url,
         temperature=0,
-        request_timeout=settings.llm_timeout_seconds,
+        request_timeout=settings.llm_timeout_seconds if timeout_s is None else timeout_s,
         **extra,
     )
 

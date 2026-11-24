@@ -5,7 +5,8 @@
     FR-007); sin precio se dice por qué y no se estima (FR-006). Spec 039: cada referencia
     lista sus ofertas, una por fuente, y el precio de un tercero nombra a quien lo publica.
     Diseño «Asistente Carvajal» (Stitch): resumen de lo entendido, insignias de material,
-    precio destacado y descartes con su motivo. Solo presentación: los datos son los mismos. -#}
+    precio destacado y descartes con su motivo. Solo presentación: los datos son los mismos.
+    Spec 044: ``quotes`` trae una cotización por tarjeta, cada una con su folio. -#}
 {%- set usos = {
   "bebida_caliente": "Bebida caliente", "bebida_fria": "Bebida fría",
   "comida_caliente": "Comida caliente", "comida_fria": "Comida fría", "sopas": "Sopas",
@@ -104,10 +105,14 @@
     {%- endfor %}
   </ul>
   {%- endif %}
-  {%- set coti = resultado.quote %}
+  {#- Spec 044 (T043): una tarjeta por cotización de ``quotes``; sin la lista (modo
+      ``routes`` o turnos guardados antes) se cae a ``[quote]``. -#}
+  {%- set cotizaciones = resultado.quotes if resultado.quotes else ([resultado.quote] if resultado.quote else []) %}
+  {%- set coti = cotizaciones[0] if cotizaciones else none %}
+  {%- for coti in cotizaciones %}
   {%- if coti and coti.kind == "cotizacion" %}
   {%- set cp = coti.primary.presentation %}
-  <section class="coti coti-resumen" aria-label="Cotización">
+  <section class="coti coti-resumen" aria-label="{{ 'Cotización %d de %d' | format(loop.index, loop.length) if loop.length > 1 else 'Cotización' }}">
     <header class="coti-cabecera">
       <h4 class="coti-titulo">Cotización para {{ coti.city }}</h4>
       {%- if coti.quote %}
@@ -147,6 +152,7 @@
   {%- elif coti and coti.reply %}
   <p class="productos-nota">{{ coti.reply }}</p>
   {%- endif %}
+  {%- endfor %}
   {%- if resultado.clarifications %}
   <div class="productos-nota" data-campo="aclaraciones">
     <p>Para completar la cotización:</p>

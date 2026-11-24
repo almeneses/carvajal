@@ -134,6 +134,12 @@ argumentos inventados por el modelo en esos turnos.
 - **Rationale**: cero costo para saludos (SC-007) y respuesta útil sin proveedor.
 - **Alternatives considered**: Ollama como redactor (descartado por el owner en la
   aclaración).
+- **Ajuste de implementación (2026-11-23)**: el atajo redacta el saludo con el mismo chat
+  del modo `tools` **sin herramientas ni `tool_choice`** (cero decisiones del proveedor,
+  FR-008), con el prompt del nodo `direct` actual; el texto se retiene completo y pasa el
+  filtro de la ruta directa. Una preferencia que trae además una pregunta o una corrección
+  comercial se guarda y el turno sigue al agente. Lo único que una preferencia respalda en
+  el filtro es el nombre pedido («llámame Ana»), nunca cifras.
 
 ## R9. Límites del turno
 
@@ -147,6 +153,15 @@ argumentos inventados por el modelo en esos turnos.
   de `sin_consulta` es gratuito y no cuenta para el límite; el corte se aplica con
   `usados ≥ límite`, `pasos reales ≥ límite` o `pasos > límite` (antibucle). «Detener»
   cancela el grafo con un callback (`TurnCancel`) y no espera a que termine el paso.
+- **Ajuste de implementación US3/US4 (2026-11-23)**: el grafo es `recall → shortcut →
+  (direct → END | agent ⇄ tools)`, así que `recursion_limit = 2·límite + 6`. El plazo corre
+  en un hilo aparte (`_GraphPump`): si vence antes del primer token, el runner lanza
+  `TurnTimeout` sin esperar al proveedor, y el cliente de DeepSeek del modo `tools` usa
+  `min(llm_timeout_seconds, agent_turn_timeout_s)` y `max_retries=0`. Con resultados ya
+  obtenidos, el respaldo redacta con ellos y declara lo que faltó; sin resultados, usa el
+  camino de reglas (con `decide_route`, nunca el enrutador LLM). Un cierre sin texto
+  (`empty_answer`) que ya trae fuentes o tarjetas también redacta con lo obtenido, sin
+  repetir consultas ni descartar la cotización calculada, pero sin la nota del plazo.
 
 ## R10. Pruebas sin red
 
