@@ -110,6 +110,23 @@ services:
       JEV_CLAIMS_THRESHOLD: ${JEV_CLAIMS_THRESHOLD:-0.5}
       JEV_MAX_CALLS_PER_DAY: ${JEV_MAX_CALLS_PER_DAY:-1000}
       JEV_MAX_EVIDENCE_CHARS: ${JEV_MAX_EVIDENCE_CHARS:-12000}
+      # Spec 047: voz del chat web por el servidor con OpenAI (dictado y lectura). Apagada
+      # salvo VOICE_PROVIDER=openai con OPENAI_API_KEY en el .env del servidor; si falla,
+      # el navegador vuelve a su propia voz. El dictado exige HTTPS (docs/voz-web.md).
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-browser}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      VOICE_STT_MODEL: ${VOICE_STT_MODEL:-gpt-4o-mini-transcribe}
+      VOICE_TTS_MODEL: ${VOICE_TTS_MODEL:-gpt-4o-mini-tts}
+      VOICE_TTS_VOICE: ${VOICE_TTS_VOICE:-coral}
+      # Vacío usa las instrucciones de Settings (asesora comercial colombiana, ritmo pausado).
+      VOICE_TTS_INSTRUCTIONS: ${VOICE_TTS_INSTRUCTIONS:-}
+      VOICE_TTS_MAX_CHARS: ${VOICE_TTS_MAX_CHARS:-1200}
+      VOICE_MAX_AUDIO_SECONDS: ${VOICE_MAX_AUDIO_SECONDS:-60}
+      VOICE_MAX_UPLOAD_BYTES: ${VOICE_MAX_UPLOAD_BYTES:-2000000}
+      VOICE_MAX_CALLS_PER_DAY: ${VOICE_MAX_CALLS_PER_DAY:-500}
+      VOICE_RATE_LIMIT: ${VOICE_RATE_LIMIT:-20}
+      VOICE_RATE_WINDOW_S: ${VOICE_RATE_WINDOW_S:-600}
+      VOICE_TIMEOUT_S: ${VOICE_TIMEOUT_S:-20}
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
@@ -166,8 +183,11 @@ services:
       LANGSMITH_TRACING: "false"
       LANGCHAIN_TRACING_V2: "false"
       # Sin proxy delante, uvicorn no debe confiar en X-Forwarded-* de los
-      # clientes. Si añades nginx/Caddy en el host o en un contenedor, ajusta
-      # esta variable a su IP o subred.
+      # clientes. Con nginx en el host proxiando al puerto publicado, el
+      # contenedor ve llegar las peticiones desde la puerta de enlace de la red
+      # de Docker (p. ej. 172.18.0.1), no desde 127.0.0.1: pon esa IP aquí para
+      # que request.url.scheme sea https (cookies Secure, HSTS, redirecciones).
+      # Cómo obtenerla: docs/despliegue-ovh.md §10.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
       # Demo por IP: la app se publica directamente en 0.0.0.0:APP_PORT.

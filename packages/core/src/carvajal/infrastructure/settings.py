@@ -13,6 +13,11 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # Holgura entre el plazo de ``preguntas_frecuentes`` y el del turno cuando se recorta el
 # valor por defecto (``Settings._plazo_faq_menor_que_el_turno``).
 _FAQ_MARGIN_S = 5.0
+# Estilo de la voz del servidor (spec 047); ``VOICE_TTS_INSTRUCTIONS`` vacío vuelve a este.
+DEFAULT_VOICE_TTS_INSTRUCTIONS = (
+    "Habla en español de Colombia como una asesora comercial cálida y cercana, con un "
+    "ritmo pausado y claro. Lee las cifras, los precios y las cantidades con calma."
+)
 
 
 class Settings(BaseSettings):
@@ -251,6 +256,29 @@ class Settings(BaseSettings):
     jev_max_calls_per_day: int = Field(default=1000, ge=0, le=100_000)
     jev_max_evidence_chars: int = Field(default=12_000, ge=1_000, le=40_000)
 
+    # Voz del chat web por el servidor con OpenAI (spec 047). ``browser`` (por defecto)
+    # conserva el dictado y la lectura del navegador (spec 040) y no envía audio al
+    # servidor; ``openai`` transcribe y sintetiza aquí, con la clave solo del entorno. Si
+    # falla, el navegador vuelve a su voz. Los topes son por proceso (como Jev).
+    voice_provider: Literal["browser", "openai"] = "browser"
+    openai_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    voice_openai_base_url: str = "https://api.openai.com/v1"
+    voice_stt_model: str = "gpt-4o-mini-transcribe"
+    voice_tts_model: str = "gpt-4o-mini-tts"
+    voice_tts_voice: str = "coral"
+    voice_tts_instructions: str = DEFAULT_VOICE_TTS_INSTRUCTIONS
+    voice_max_audio_seconds: int = Field(default=60, ge=5, le=300)
+    # OpenAI admite hasta 25 MB; 2 MB sobran para 60 s de Opus a 32 kbps.
+    voice_max_upload_bytes: int = Field(default=2_000_000, ge=10_000, le=25_000_000)
+    # Texto máximo que se sintetiza de un mensaje; el resto se queda en pantalla.
+    voice_tts_max_chars: int = Field(default=1200, ge=100, le=4000)
+    # Tope diario por proceso (STT + TTS); se reinicia a medianoche de Bogotá.
+    voice_max_calls_per_day: int = Field(default=500, ge=0, le=100_000)
+    # Límite por sesión del chat (``owner_key``): llamadas por ventana deslizante.
+    voice_rate_limit: int = Field(default=20, ge=1, le=1000)
+    voice_rate_window_s: int = Field(default=600, ge=10, le=86_400)
+    voice_timeout_s: float = Field(default=20.0, ge=1.0, le=120.0)
+
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
     # trazas es explícito y por defecto queda apagado.
@@ -389,6 +417,32 @@ class Settings(BaseSettings):
         """Jev encendido de forma explícita y con clave (la clave sola no lo enciende)."""
 
         return self.jev_enabled and bool(self.typesafe_api_key.get_secret_value().strip())
+
+    @property
+    def voice_server_configured(self) -> bool:
+        """Voz por el servidor pedida (``VOICE_PROVIDER=openai``) y con clave de OpenAI."""
+
+        return self.voice_provider == "openai" and bool(
+            self.openai_api_key.get_secret_value().strip()
+        )
+
+    @field_validator("voice_tts_instructions", mode="before")
+    @classmethod
+    def _instrucciones_de_voz(cls, value: Any) -> Any:
+        """Vacío (p. ej. ``${VOICE_TTS_INSTRUCTIONS:-}`` en compose) usa el estilo por defecto."""
+
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return DEFAULT_VOICE_TTS_INSTRUCTIONS
+        return value
+
+    @field_validator("voice_provider", mode="before")
+    @classmethod
+    def _proveedor_de_voz(cls, value: Any) -> Any:
+        """``VOICE_PROVIDER`` sin distinguir mayúsculas; vacío equivale a ``browser``."""
+
+        if isinstance(value, str):
+            return value.strip().lower() or "browser"
+        return value
 
     @property
     def index_file(self) -> Path:

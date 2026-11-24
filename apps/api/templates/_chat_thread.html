@@ -15,6 +15,7 @@
     {% endif %}
   {% endfor %}
   <li class="turno turno-{{ message.role }}"
+      {% if voz_servidor and message.role != "user" and message.id %}data-voz-mensaje="{{ message.id }}"{% endif %}
       {% if titulos %}data-voz-fuentes='{{ titulos | tojson }}'{% endif %}>
     <span class="turno-avatar" aria-hidden="true"></span>
     <p class="turno-rol">

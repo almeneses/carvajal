@@ -22,6 +22,7 @@ from carvajal.infrastructure.settings import Settings
 
 __all__ = [
     "CABECERAS",
+    "CSP_CHAT",
     "CSRF_COOKIE",
     "CSRF_FIELD",
     "HSTS",
@@ -39,6 +40,7 @@ __all__ = [
     "operator_authorized",
     "operator_configured",
     "operator_token",
+    "politica_csp",
     "politica_permisos",
     "set_operator_cookie",
     "valid_operator_cookie",
@@ -95,6 +97,18 @@ CABECERAS = {
     ),
 }
 HSTS = "max-age=31536000; includeSubDomains"
+# El documento del chat reproduce el audio de la voz del servidor (spec 047) desde un
+# ``blob:`` creado con la respuesta de ``/api/voz/hablar``; el resto del sitio conserva la
+# política por defecto (``media-src`` cae en ``default-src 'self'``).
+CSP_CHAT = CABECERAS["Content-Security-Policy"] + "; media-src 'self' blob:"
+
+
+def politica_csp(ruta: str, metodo: str) -> str:
+    """``Content-Security-Policy`` según la ruta: solo el documento del chat admite ``blob:``."""
+
+    if ruta == "/chat" and metodo.upper() in {"GET", "HEAD"}:
+        return CSP_CHAT
+    return CABECERAS["Content-Security-Policy"]
 
 
 def _cookie(valor: str, *, secure: bool) -> str:
@@ -356,9 +370,9 @@ class SecurityMiddleware:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers.update(CABECERAS)
-                headers["Permissions-Policy"] = politica_permisos(
-                    str(scope.get("path", "")), str(scope.get("method", ""))
-                )
+                ruta, metodo = str(scope.get("path", "")), str(scope.get("method", ""))
+                headers["Permissions-Policy"] = politica_permisos(ruta, metodo)
+                headers["Content-Security-Policy"] = politica_csp(ruta, metodo)
                 if secure:
                     headers["Strict-Transport-Security"] = HSTS
                 if not estatico:

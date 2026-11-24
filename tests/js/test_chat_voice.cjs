@@ -396,6 +396,7 @@ function montar({
   streaming = true,
   vista = crearVista(),
   reloj = crearReloj(),
+  servidor = null,
 } = {}) {
   const doc = documento || crearDocumento();
   const sandbox = cargarVoz({ documento: doc, almacen, reconocimiento, sintesis });
@@ -410,6 +411,7 @@ function montar({
     reloj,
     segura,
     streaming,
+    servidor,
   });
   controlador.mount();
   return { sandbox, api, controlador, vista, reloj, documento: doc };
@@ -429,14 +431,17 @@ test("T002 el script se carga sin DOM y expone la API sin iniciar nada", () => {
   assert.equal(sandbox.document.documentElement.dataset.voz, undefined);
 });
 
-test("T002 el script no requiere dependencias npm ni red", () => {
+test("T002 el script no requiere dependencias npm y solo llama a la voz del propio sitio", () => {
   // Act
   const fuente = fs.readFileSync(FUENTE, "utf8");
 
-  // Assert: solo APIs del navegador; sin importaciones ni fetch de voz.
+  // Assert: solo APIs del navegador; la única red es la voz del servidor (spec 047),
+  // en rutas relativas del propio sitio y nunca a un dominio externo.
   assert.equal(/^\s*import\s/m.test(fuente), false);
   assert.equal(/\brequire\(/.test(fuente), false);
-  assert.equal(/fetch\(/.test(fuente), false);
+  assert.equal(/https?:\/\//.test(fuente), false);
+  const rutas = new Set(fuente.match(/["'`]\/api\/[^"'`]+["'`]/g) || []);
+  assert.deepEqual([...rutas].sort(), ['"/api/voz/hablar"', '"/api/voz/transcribir"']);
 });
 
 test("T002 los controles base se muestran solo con JS y sin soporte explican", () => {
@@ -1966,4 +1971,492 @@ test("T017 un atributo de fuentes roto no impide la lectura", () => {
   assert.equal(ok, true);
   assert.equal(sintesis.locuciones[0].text, "Respuesta legible.");
   assert.equal(/Según/.test(sintesis.locuciones[0].text), false);
+});
+
+
+// ---------------------------------------------------------------------------
+// Spec 047 · voz del servidor con respaldo en la voz del navegador
+// ---------------------------------------------------------------------------
+
+function errorHttp(status, reason = "") {
+  const error = new Error(reason || `http_${status}`);
+  error.status = status;
+  error.reason = reason;
+  return error;
+}
+
+function crearServidorFalso({
+  texto = "cotiza 400 vasos de 12 onzas",
+  falloGrabar = null,
+  falloTranscribir = null,
+  falloSintetizar = null,
+  voz = true,
+} = {}) {
+  const registro = {
+    grabaciones: 0,
+    cancelados: 0,
+    transcritos: [],
+    sintetizados: [],
+    reproducciones: [],
+    llamadas: null,
+  };
+  return {
+    dictado: true,
+    lectura: true,
+    maxMs: 60000,
+    registro,
+    grabar(llamadas) {
+      registro.grabaciones += 1;
+      registro.llamadas = llamadas;
+      if (falloGrabar) return Promise.reject(falloGrabar);
+      return Promise.resolve({
+        detener: () => Promise.resolve({ audio: { size: 4096, type: "audio/webm" }, voz }),
+        cancelar: () => {
+          registro.cancelados += 1;
+        },
+      });
+    },
+    transcribir(audio) {
+      registro.transcritos.push(audio);
+      return falloTranscribir ? Promise.reject(falloTranscribir) : Promise.resolve(texto);
+    },
+    sintetizar(mensaje) {
+      registro.sintetizados.push(mensaje);
+      return falloSintetizar ? Promise.reject(falloSintetizar) : Promise.resolve({ size: 10 });
+    },
+    reproducir(audio, llamadas) {
+      const reproduccion = {
+        audio,
+        llamadas,
+        pausas: 0,
+        reanudaciones: 0,
+        detenciones: 0,
+        pausar() {
+          this.pausas += 1;
+        },
+        reanudar() {
+          this.reanudaciones += 1;
+        },
+        detener() {
+          this.detenciones += 1;
+        },
+      };
+      registro.reproducciones.push(reproduccion);
+      return reproduccion;
+    },
+  };
+}
+
+function esperar() {
+  return new Promise((resolver) => setImmediate(resolver));
+}
+
+async function vaciarPromesas(veces = 5) {
+  for (let vez = 0; vez < veces; vez += 1) await esperar();
+}
+
+function montarServidor({ servidor = crearServidorFalso(), reconocimiento, sintesis } = {}) {
+  const reconocimientoReal = reconocimiento || crearReconocimiento();
+  const almacen = crearAlmacen({ carvajal_voz_aviso_dictado_servidor: "1" });
+  const montaje = montar({
+    reconocimiento: reconocimientoReal,
+    sintesis: sintesis || crearSintesis(),
+    almacen,
+    servidor,
+  });
+  montaje.reconocimiento = reconocimientoReal;
+  montaje.servidor = servidor;
+  return montaje;
+}
+
+test("047 el dictado del servidor graba, transcribe y deja el texto para revisar", async () => {
+  // Arrange
+  const montaje = montarServidor();
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "true");
+  assert.match(montaje.vista.estado.textContent, /Escuchando/);
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert: el navegador no transcribe, el texto queda en el borrador y no se envía.
+  assert.equal(montaje.servidor.registro.grabaciones, 1);
+  assert.equal(montaje.servidor.registro.transcritos.length, 1);
+  assert.equal(montaje.reconocimiento.instancias.length, 0);
+  assert.equal(montaje.vista.entrada.value, "cotiza 400 vasos de 12 onzas");
+  assert.equal(montaje.vista.formulario.enviados, 0);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.listo);
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "false");
+});
+
+test("047 el primer dictado del servidor pide su propio aviso aunque se aceptara el del navegador", () => {
+  // Arrange
+  const almacen = crearAlmacen({ carvajal_voz_aviso_dictado: "1" });
+  const servidor = crearServidorFalso();
+  const montaje = montar({ almacen, servidor });
+
+  // Act
+  clic(montaje.vista.botonDictar);
+
+  // Assert
+  assert.equal(montaje.vista.aviso.open, true);
+  assert.equal(servidor.registro.grabaciones, 0);
+});
+
+test("047 la pausa detectada termina el dictado del servidor sin clic", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Act
+  montaje.servidor.registro.llamadas.alPausa();
+  montaje.servidor.registro.llamadas.alPausa();
+  await vaciarPromesas();
+
+  // Assert: una sola subida aunque el detector avise dos veces.
+  assert.equal(montaje.servidor.registro.transcritos.length, 1);
+  assert.equal(montaje.vista.entrada.value, "cotiza 400 vasos de 12 onzas");
+});
+
+test("047 sin voz detectada no se sube el audio", async () => {
+  // Arrange
+  const montaje = montarServidor({ servidor: crearServidorFalso({ voz: false }) });
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.servidor.registro.transcritos.length, 0);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.silencio);
+});
+
+test("047 un 503 del servidor vuelve al dictado del navegador el resto de la sesión", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(503, "cap") });
+  const montaje = montarServidor({ servidor });
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert: aviso claro y el siguiente dictado usa SpeechRecognition.
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.servidorDictado);
+  assert.equal(montaje.controlador.soporte.servidor.dictado, false);
+  assert.equal(montaje.vista.botonDictar.hidden, false);
+  clic(montaje.vista.botonDictar);
+  assert.equal(montaje.reconocimiento.instancias.length, 1);
+  assert.equal(servidor.registro.grabaciones, 1);
+});
+
+test("047 sin reconocimiento del navegador el fallo del servidor invita a escribir", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(503, "off") });
+  const almacen = crearAlmacen({ carvajal_voz_aviso_dictado_servidor: "1" });
+  const sandbox = cargarVoz({ reconocimiento: false });
+  const vista = crearVista();
+  const controlador = sandbox.window.CarvajalVoz.createVoiceController({
+    vista,
+    documento: crearDocumento(),
+    almacen,
+    reconocimiento: null,
+    sintesis: crearSintesis(),
+    Utterance: sandbox.SpeechSynthesisUtterance,
+    reloj: crearReloj(),
+    segura: true,
+    streaming: true,
+    servidor,
+  });
+  controlador.mount();
+  assert.equal(vista.botonDictar.hidden, false);
+
+  // Act
+  clic(vista.botonDictar);
+  await vaciarPromesas();
+  clic(vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(vista.estado.textContent, sandbox.window.CarvajalVoz.MENSAJES.servidorSinRespaldo);
+  assert.equal(vista.botonDictar.hidden, true);
+});
+
+test("047 un permiso denegado no cambia de voz y lo explica", async () => {
+  // Arrange
+  const denegado = new Error("denegado");
+  denegado.name = "NotAllowedError";
+  const montaje = montarServidor({ servidor: crearServidorFalso({ falloGrabar: denegado }) });
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.permiso);
+  assert.equal(montaje.controlador.soporte.servidor.dictado, true);
+  assert.equal(montaje.vista.botonDictar.getAttribute("aria-pressed"), "false");
+});
+
+test("047 un 422 del servidor se trata como silencio sin apagar la voz del servidor", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(422, "empty") });
+  const montaje = montarServidor({ servidor });
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.silencio);
+  assert.equal(montaje.controlador.soporte.servidor.dictado, true);
+});
+
+test("047 Escape cancela la grabación del servidor y libera el micrófono", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Act
+  tecla(montaje.documento, "Escape");
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.servidor.registro.cancelados, 1);
+  assert.equal(montaje.servidor.registro.transcritos.length, 0);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.cancelado);
+});
+
+test("047 el límite de segundos del servidor detiene y transcribe", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Act
+  montaje.reloj.avanzar(60000);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.servidor.registro.transcritos.length, 1);
+  assert.equal(montaje.vista.entrada.value, "cotiza 400 vasos de 12 onzas");
+});
+
+function turnoConMensaje(texto, mensaje) {
+  const turno = crearTurnoFalso({ texto });
+  if (mensaje) turno.dataset.vozMensaje = mensaje;
+  return turno;
+}
+
+test("047 la lectura del servidor pide el audio por id y controla pausa y fin", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarServidor({ sintesis });
+  const turno = turnoConMensaje("Hola, soy Carva.", "m-123");
+
+  // Act
+  const leido = montaje.controlador.leerTurno(turno);
+  await vaciarPromesas();
+  const [reproduccion] = montaje.servidor.registro.reproducciones;
+  reproduccion.llamadas.alEmpezar();
+
+  // Assert: el servidor recibe el id, nunca el texto, y el navegador no habla.
+  assert.equal(leido, true);
+  assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-123"]);
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.equal(turno._botones.pausar.hidden, false);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.leyendo);
+
+  // Act: pausa, reanuda y termina.
+  montaje.controlador.pausarLectura();
+  montaje.controlador.reanudarLectura();
+  reproduccion.llamadas.alTerminar();
+
+  // Assert
+  assert.equal(reproduccion.pausas, 1);
+  assert.equal(reproduccion.reanudaciones, 1);
+  assert.equal(turno._botones.detener.hidden, true);
+  assert.equal(turno._botones.escuchar.getAttribute("aria-pressed"), "false");
+});
+
+test("047 detener la lectura del servidor corta el audio", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  const turno = turnoConMensaje("Hola.", "m-1");
+  montaje.controlador.leerTurno(turno);
+  await vaciarPromesas();
+  const [reproduccion] = montaje.servidor.registro.reproducciones;
+  reproduccion.llamadas.alEmpezar();
+
+  // Act
+  montaje.controlador.detenerLectura();
+
+  // Assert
+  assert.equal(reproduccion.detenciones, 1);
+  assert.equal(turno._botones.detener.hidden, true);
+});
+
+test("047 un 503 en la lectura usa la voz del navegador y la deja para la sesión", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
+  const montaje = montarServidor({ servidor, sintesis });
+  const turno = turnoConMensaje("Tenemos vasos de papel.", "m-9");
+
+  // Act
+  montaje.controlador.leerTurno(turno);
+  await vaciarPromesas();
+  montaje.controlador.leerTurno(turnoConMensaje("Otra respuesta.", "m-10"));
+
+  // Assert
+  assert.deepEqual(servidor.registro.sintetizados, ["m-9"]);
+  assert.equal(sintesis.locuciones.length >= 2, true);
+  assert.equal(sintesis.locuciones[0].text, "Tenemos vasos de papel.");
+  assert.equal(montaje.controlador.soporte.servidor.lectura, false);
+});
+
+test("047 un 404 en la lectura solo afecta a ese turno", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const servidor = crearServidorFalso({ falloSintetizar: errorHttp(404, "not_found") });
+  const montaje = montarServidor({ servidor, sintesis });
+
+  // Act
+  montaje.controlador.leerTurno(turnoConMensaje("Hola.", "ajeno"));
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(montaje.controlador.soporte.servidor.lectura, true);
+});
+
+test("047 un turno sin id de mensaje se lee con el navegador", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarServidor({ sintesis });
+
+  // Act
+  montaje.controlador.leerTurno(turnoConMensaje("Respuesta en curso.", ""));
+
+  // Assert
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+  assert.equal(sintesis.locuciones.length, 1);
+});
+
+test("047 solo la voz del servidor basta para ofrecer la lectura sin voces del navegador", () => {
+  // Arrange
+  const servidor = crearServidorFalso();
+  const montaje = montar({ sintesis: false, servidor });
+
+  // Assert
+  assert.equal(montaje.controlador.soporte.sintesis, true);
+  assert.equal(montaje.documento.documentElement.dataset.vozTts, "1");
+});
+
+test("047 manos libres con la voz del servidor envía lo dictado y lee la respuesta", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  clic(montaje.vista.botonManosLibres);
+  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
+  await vaciarPromesas();
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+
+  // Act: habla, pausa y el servidor transcribe.
+  montaje.servidor.registro.llamadas.alVoz();
+  montaje.servidor.registro.llamadas.alPausa();
+  await vaciarPromesas();
+
+  // Assert: se envía sin revisar, como en manos libres del navegador.
+  assert.equal(montaje.vista.formulario.enviados, 1);
+  montaje.vista.entrada.value = ""; // el stream del chat vacía el borrador al enviar
+
+  // Act: llega la respuesta y se lee con el servidor; al terminar vuelve a escuchar.
+  const turno = turnoConMensaje("Listo, son 2 cajas.", "m-77");
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1", handsFree: true },
+  });
+  await vaciarPromesas();
+  const [reproduccion] = montaje.servidor.registro.reproducciones;
+  reproduccion.llamadas.alEmpezar();
+  reproduccion.llamadas.alTerminar();
+  await vaciarPromesas();
+
+  // Assert
+  assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-77"]);
+  assert.equal(montaje.servidor.registro.grabaciones, 2);
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+});
+
+test("047 manos libres sigue con el navegador si la transcripción del servidor falla", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(429, "rate_limited") });
+  const montaje = montarServidor({ servidor });
+  clic(montaje.vista.botonManosLibres);
+  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
+  await vaciarPromesas();
+
+  // Act
+  servidor.registro.llamadas.alPausa();
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+  assert.equal(montaje.reconocimiento.instancias.length, 1);
+  assert.equal(montaje.vista.formulario.enviados, 0);
+});
+
+test("047 el adaptador del servidor envía CSRF y lanza errores con status y reason", async () => {
+  // Arrange
+  const peticiones = [];
+  const ventana = {
+    fetch: (ruta, opciones) => {
+      peticiones.push({ ruta, opciones });
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ reason: "off" }),
+      });
+    },
+    URLSearchParams,
+    FormData: class {
+      constructor() {
+        this.campos = [];
+      }
+      append(...args) {
+        this.campos.push(args);
+      }
+    },
+    Blob: class {},
+    Audio: class {},
+    URL: { createObjectURL: () => "blob:x", revokeObjectURL: () => {} },
+    navigator: {},
+  };
+  const sandbox = cargarVoz();
+  const servidor = sandbox.window.CarvajalVoz.crearServidorVoz(ventana, { csrf: () => "token-1" });
+
+  // Act
+  let capturado = null;
+  try {
+    await servidor.sintetizar("m-5");
+  } catch (error) {
+    capturado = error;
+  }
+
+  // Assert
+  assert.equal(servidor.lectura, true);
+  assert.equal(servidor.dictado, false);
+  assert.equal(peticiones[0].ruta, "/api/voz/hablar");
+  assert.equal(peticiones[0].opciones.headers["X-CSRF-Token"], "token-1");
+  assert.equal(String(peticiones[0].opciones.body), "message_id=m-5&csrf_token=token-1");
+  assert.equal(capturado.status, 503);
+  assert.equal(capturado.reason, "off");
 });

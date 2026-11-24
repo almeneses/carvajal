@@ -393,10 +393,28 @@ def _page(
                 "monitoring",
                 monitoring_status(Settings()).enabled,
             ),
+            # Spec 047: el chat ofrece la voz del servidor; si falla, vuelve a la del navegador.
+            "voz_servidor": _voice_available(request),
+            "voz_max_segundos": _voice_max_seconds(request),
         },
         status_code=status_code,
         headers=headers,
     )
+
+
+def _voice_available(request: Request) -> bool:
+    from apps.api.views.voz import voice_available
+
+    try:
+        return voice_available(request)
+    except Exception as error:  # la página del chat nunca cae por la voz
+        logger.warning("voice.flag_failed", error_type=type(error).__name__)
+        return False
+
+
+def _voice_max_seconds(request: Request) -> int:
+    settings = getattr(request.app.state, "settings", None)
+    return settings.voice_max_audio_seconds if isinstance(settings, Settings) else 60
 
 
 def _error_page(
