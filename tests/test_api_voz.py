@@ -1086,3 +1086,173 @@ def test_hablar_con_el_servicio_real_no_lee_el_mensaje_del_usuario(
     assert question.status_code == 404
     assert answer.status_code == 200
     assert fake.tts_inputs() == ["Respuesta."]
+
+
+# --- resumen hablado (spec 048) --------------------------------------------------------------
+
+LONG_ANSWER = (
+    "Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y "
+    "doble pared [1]. Son aptos para café, té y chocolate.\n\n"
+    "Estas son las opciones:\n"
+    "- **Vaso de papel 8 oz**: pared sencilla, caja x 1.000 und, ideal para tinto.\n"
+    "- **Vaso de papel 12 oz**: doble pared, caja x 500 und, aprox. $185.000 por caja.\n"
+    "- **Vaso de papel 16 oz** — doble pared, para capuchino y bebidas grandes.\n\n"
+    "Todos se pueden combinar con tapas de 80 mm y portavasos.\n\n"
+    "¿Cuántas unidades necesitas y en qué ciudad?"
+)
+LONG_SUMMARY = (
+    "Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y "
+    "doble pared. Te muestro tres opciones en pantalla: Vaso de papel 8 onzas, Vaso de papel "
+    "12 onzas y Vaso de papel 16 onzas.\n\n"
+    "Según el sitio de Carvajal Empaques.\n\n"
+    "¿Cuántas unidades necesitas y en qué ciudad?"
+)
+VASOS = {"title": "Vasos de papel", "url": "https://colombia.carvajalempaques.com/vasos"}
+
+
+@dataclass
+class StreamingChat(FakeChat):
+    """Doble que emite un turno y lo deja guardado como respuesta del asistente."""
+
+    answer: str = ""
+    stored: ChatMessage | None = None
+
+    def stream(self, owner_key: str, question: str, **_: Any) -> Iterator[ChatEvent]:
+        yield ChatEvent("meta", {"sources": [VASOS]})
+        yield ChatEvent("token", {"text": self.answer})
+        if self.stored is not None:
+            self.add((owner_key, self.stored))
+        yield ChatEvent("done", {"message_id": "m-9", "conversation_id": "hilo"})
+
+
+def _stream_done(client: TestClient, token: str) -> dict[str, Any]:
+    response = client.post("/chat/stream", data={"question": "vasos", CSRF_FIELD: token})
+    blocks = [block for block in response.text.split("\n\n") if "event: done" in block]
+    [block] = blocks
+    data = block.split("data:", 1)[1].strip()
+    return cast(dict[str, Any], json.loads(data))
+
+
+def test_hablar_lee_el_resumen_de_una_respuesta_larga() -> None:
+    # Arrange
+    fake = OpenAIFake()
+    chat = FakeChat()
+    chat.add(_message("m-1", "assistant", LONG_ANSWER, sources=[VASOS]))
+    client, _ = _app(_runtime(fake), chat)
+    token = _session(client)
+
+    # Act
+    response = _speak(client, "m-1", token)
+
+    # Assert
+    assert response.status_code == 200
+    [spoken] = fake.tts_inputs()
+    assert spoken == LONG_SUMMARY
+    assert "185.000" not in spoken and "tapas de 80" not in spoken
+
+
+def test_hablar_una_cotizacion_avisa_que_el_detalle_esta_en_pantalla() -> None:
+    # Arrange
+    fake = OpenAIFake()
+    chat = FakeChat()
+    chat.add(
+        _message(
+            "m-2",
+            "assistant",
+            "Aquí tienes la cotización.",
+            sources=[{"result_type": "commercial", "result": {"quotes": [QUOTE]}}],
+        )
+    )
+    client, _ = _app(_runtime(fake), chat)
+    token = _session(client)
+
+    # Act
+    _speak(client, "m-2", token)
+
+    # Assert
+    [spoken] = fake.tts_inputs()
+    assert spoken.startswith("Son 2 cajas de 1.000 unidades")
+    assert spoken.endswith("El detalle completo está en pantalla.")
+
+
+def test_el_hilo_publica_el_resumen_hablado_escapado() -> None:
+    # Arrange: el resumen es texto; comillas y «<» no pueden romper el atributo.
+    chat = FakeChat()
+    chat.add(_message("m-user", "user", "Hola"))
+    chat.add(_message("m-bot", "assistant", 'Usa el vaso "J1" <grande> [1].', sources=[VASOS]))
+    client, _ = _app(chat=chat)
+    client.cookies.set(COOKIE_NAME, IDENTITY.issue(OWNER))
+
+    # Act
+    page = client.get("/chat").text
+
+    # Assert
+    assert (
+        'data-voz-resumen="Usa el vaso &#34;J1&#34; &lt;grande&gt;.\n\n'
+        'Según el sitio de Carvajal Empaques."'
+    ) in page
+    assert page.count("data-voz-resumen=") == 1, "solo en respuestas del asistente"
+
+
+def test_el_done_del_stream_trae_el_resumen_de_la_respuesta_guardada() -> None:
+    # Arrange: la respuesta guardada trae la cotización; lo emitido es solo la prosa.
+    chat = StreamingChat(
+        answer="Aquí tienes la cotización.",
+        stored=ChatMessage(
+            id="m-9",
+            conversation_id="hilo",
+            role="assistant",
+            content="Aquí tienes la cotización.",
+            sources=[{"result_type": "commercial", "result": {"quotes": [QUOTE]}}],
+            created_at=WHEN,
+        ),
+    )
+    client, _ = _app(chat=chat)
+    token = _session(client)
+
+    # Act
+    done = _stream_done(client, token)
+
+    # Assert
+    assert done["message_id"] == "m-9"
+    assert done["voz_resumen"].startswith("Son 2 cajas de 1.000 unidades")
+    assert chat.lookups == [(OWNER, "m-9")]
+
+
+def test_sin_respuesta_guardada_el_done_resume_lo_emitido() -> None:
+    # Arrange
+    chat = StreamingChat(answer=LONG_ANSWER)
+    client, _ = _app(chat=chat)
+    token = _session(client)
+
+    # Act
+    done = _stream_done(client, token)
+
+    # Assert
+    assert done["voz_resumen"] == LONG_SUMMARY
+
+
+def test_un_fallo_al_resumir_no_rompe_el_done() -> None:
+    # Arrange
+    chat = StreamingChat(answer="Hola.", error=SQLAlchemyError("caída"))
+    client, _ = _app(chat=chat)
+    token = _session(client)
+
+    # Act
+    done = _stream_done(client, token)
+
+    # Assert
+    assert done == {"message_id": "m-9", "conversation_id": "hilo"}
+
+
+def test_transcribir_devuelve_los_miles_al_estilo_colombiano() -> None:
+    # Arrange
+    fake = OpenAIFake(transcript="Cotiza 1,800 vasos de 12,5 onzas a las 10:30")
+    client, _ = _app(_runtime(fake))
+    token = _session(client)
+
+    # Act
+    response = _transcribe(client, token=token)
+
+    # Assert
+    assert response.json() == {"texto": "Cotiza 1.800 vasos de 12,5 onzas a las 10:30"}

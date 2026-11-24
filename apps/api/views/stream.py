@@ -4,9 +4,16 @@ Formato de cable: cada evento ocupa un bloque terminado en una línea en blanco,
 con ``event: <nombre>`` y ``data: <json>``. La pregunta inválida (vacía o de más
 de 500 caracteres) responde **422** con el mismo formato SSE y un evento
 ``error``; se elige SSE, y no JSON, para que el cliente tenga un único parser.
+
+El evento ``done`` añade ``voz_resumen``: el resumen hablado de la respuesta guardada
+(:func:`apps.api.voice.spoken_message`, el mismo que lee ``/api/voz/hablar``), para que la
+lectura de respaldo del navegador diga lo mismo que la del servidor. Si no se puede
+preparar, el evento sale sin él y el navegador lee la respuesta como antes.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from fastapi import APIRouter, Form, Request
@@ -29,6 +36,8 @@ from apps.api.views.chat import (
     request_identity,
     set_identity_cookie,
 )
+from apps.api.voice import spoken_message
+from carvajal.adapters.storage.chat import ChatMessage
 
 __all__ = ["router"]
 
@@ -119,6 +128,8 @@ def _sse(
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
     saw_token = False
     cerrado = False
+    fragments: list[str] = []
+    sources: list[dict[str, Any]] = []
     try:
         for event in provider.stream(
             owner_key,
@@ -128,6 +139,16 @@ def _sse(
         ):
             saw_token = saw_token or event.name == "token"
             cerrado = event.name in {"done", "error"}
+            if event.name == "token":
+                fragments.append(str(event.data.get("text", "")))
+            elif event.name == "fallback":
+                fragments = [str(event.data.get("text", ""))]
+            if event.name in {"meta", "fallback"} and isinstance(event.data.get("sources"), list):
+                sources = [item for item in event.data["sources"] if isinstance(item, Mapping)]
+            if event.name == "done":
+                event = _with_spoken_summary(
+                    provider, owner_key, event, "".join(fragments), sources
+                )
             yield _encode(event)
     except Exception as error:
         logger.warning("chat.stream_failed", error=str(error))
@@ -139,6 +160,44 @@ def _sse(
                     {"message": SERVICE_UNAVAILABLE, "incomplete": saw_token},
                 )
             )
+
+
+def _with_spoken_summary(
+    provider: ChatProvider,
+    owner_key: str,
+    event: ChatEvent,
+    text: str,
+    sources: list[dict[str, Any]],
+) -> ChatEvent:
+    """``done`` con ``voz_resumen``: de la respuesta guardada o, si no, de lo emitido.
+
+    La respuesta guardada trae además el resultado comercial (la cotización corta). Nunca
+    lanza: sin resumen, el ``done`` sale igual que antes.
+    """
+
+    try:
+        message: ChatMessage | None = None
+        message_id = str(event.data.get("message_id") or "")
+        lookup = getattr(provider, "assistant_message", None)
+        if message_id and callable(lookup):
+            found = lookup(owner_key, message_id)
+            message = found if isinstance(found, ChatMessage) else None
+        if message is None and text.strip():
+            message = ChatMessage(
+                id=message_id,
+                conversation_id="",
+                role="assistant",
+                content=text,
+                sources=[dict(item) for item in sources],
+                created_at=datetime.now(UTC),
+            )
+        summary = spoken_message(message) if message is not None else ""
+    except Exception as error:  # el resumen es un extra: nunca rompe el cierre del turno
+        logger.warning("chat.spoken_summary_failed", error_type=type(error).__name__)
+        return event
+    if not summary:
+        return event
+    return ChatEvent("done", {**event.data, "voz_resumen": summary})
 
 
 def _encode(event: ChatEvent) -> str:

@@ -15,8 +15,9 @@ Un :class:`VoiceRuntime` por aplicación (``app.state.voice``), construido al pr
   usuario.
 
 :func:`spoken_message` prepara el texto que se sintetiza a partir de una respuesta
-guardada: el mismo :func:`carvajal.speech.to_speech` de WhatsApp, la cotización corta y las
-fuentes en una frase.
+guardada: un resumen hablado (:func:`carvajal.speech.spoken_summary`, extractivo y sin LLM,
+unos 15-20 s), la cotización corta y las fuentes en una frase. El mismo texto se publica en
+el hilo (``data-voz-resumen``) para la lectura de respaldo del navegador.
 """
 
 import hashlib
@@ -33,7 +34,13 @@ from apps.mcp.bridge import spoken_quote
 from carvajal.adapters.speech import OpenAISpeechClient, SynthesizedAudio, build_speech
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.infrastructure.settings import Settings
-from carvajal.speech import SpokenReply, combine, spoken_sources, to_speech
+from carvajal.speech import (
+    SUMMARY_POINTERS,
+    SpokenReply,
+    combine,
+    spoken_sources,
+    spoken_summary,
+)
 
 __all__ = [
     "CACHE_ENTRIES",
@@ -214,11 +221,14 @@ def _quotes(result: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def spoken_message(message: ChatMessage) -> str:
-    """Texto para el TTS de una respuesta guardada: prosa, cotizaciones y fuentes.
+    """Texto para el TTS de una respuesta guardada: su resumen hablado.
 
-    Sin citas, Markdown, emojis ni URL (:func:`carvajal.speech.to_speech`); cada cotización
-    en su versión corta (:func:`apps.mcp.bridge.spoken_quote`) y las fuentes en una frase.
-    Los enlaces no se leen.
+    La prosa se resume (:func:`carvajal.speech.spoken_summary`, canal ``web``): la primera
+    frase, la lista en una frase, la pregunta final y las fuentes en una frase, con «El
+    detalle completo está en pantalla.» si se omitió algo. Una respuesta corta se lee
+    completa. Con cotización se lee solo su versión corta
+    (:func:`apps.mcp.bridge.spoken_quote`), las fuentes y el mismo aviso. Sin citas,
+    Markdown, emojis ni URL; los enlaces no se leen.
     """
 
     quotes: list[SpokenReply] = []
@@ -241,10 +251,13 @@ def spoken_message(message: ChatMessage) -> str:
         if key and key not in seen:
             seen.add(key)
             listed.append((title, url))
+    if not quotes:
+        return spoken_summary(message.content or "", channel="web", sources=listed[:5]).text
     # Con cotización se lee solo su versión corta: la prosa del agente repite las cifras.
-    parts = quotes or [to_speech(message.content or "")]
+    parts = list(quotes)
     if listed:
         parts.append(SpokenReply(spoken_sources(listed[:5])))
+    parts.append(SpokenReply(SUMMARY_POINTERS["web"]))
     return combine(parts).text.strip()
 
 

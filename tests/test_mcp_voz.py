@@ -8,7 +8,10 @@ Sin red, sin Postgres y sin LLM: el servicio de chat es un doble que emite los m
   unidades en palabras, fuentes en una frase, oferta del PDF hablada y foto como enlace
   aparte;
 - el pedido «PDF» por voz: solo el final del folio en voz, el enlace firmado nunca va en el
-  texto hablado, y las formas en que un STT oye «PDF» («impedefe», «pe de efe») cuentan.
+  texto hablado, y las formas en que un STT oye «PDF» («impedefe», «pe de efe») cuentan;
+- el resumen hablado (spec 048): una respuesta larga se resume y la respuesta escrita
+  completa va tras ``TEXT_HEADER``; una corta se lee entera, con los enlaces aparte como
+  antes; la transcripción llega con los miles al estilo colombiano.
 """
 
 from collections.abc import Iterator
@@ -30,7 +33,7 @@ from apps.mcp.bridge import (
 )
 from apps.mcp.server import TOOL_NAME, build_server
 from carvajal.application.quota import QuotaResult
-from carvajal.speech import LINKS_HEADER, split_voice_reply
+from carvajal.speech import LINKS_HEADER, TEXT_HEADER, parse_voice_reply, split_voice_reply
 
 SECRET = b"secreto-de-prueba"
 CHAT = "+573100000000"
@@ -107,13 +110,14 @@ def _bridge(chat: FakeChat, **kwargs: Any) -> WhatsAppBridge:
 # --- turno con cotización ------------------------------------------------------------------
 
 
-def test_cotizacion_por_voz_sin_marcas_ni_url_y_con_enlaces_aparte() -> None:
+def test_cotizacion_por_voz_sin_marcas_ni_url_y_con_el_texto_escrito_aparte() -> None:
     # Arrange
     bridge = _bridge(FakeChat(events=_quote_turn()))
 
     # Act
     answer = bridge.consult("Cotiza 1800 vasos en Cali", CHAT, voice=True)
-    spoken, links = split_voice_reply(answer)
+    parts = parse_voice_reply(answer)
+    spoken = parts.spoken
 
     # Assert
     for mark in ("http", "*", "_", "[1]", "🧾", "💰", "📷", "#", " oz", "$", "COP"):
@@ -127,10 +131,10 @@ def test_cotizacion_por_voz_sin_marcas_ni_url_y_con_enlaces_aparte() -> None:
     assert len(spoken.split()) <= 50
     assert "Según el sitio de Carvajal Empaques." in spoken
     assert spoken.endswith(PDF_OFFER_SPOKEN)
-    assert links == [
-        f"Foto de Vaso de papel 12 oz: {PHOTO_URL}",
-        "Vasos de papel: https://colombia.carvajalempaques.com/vasos",
-    ]
+    # La cotización completa (folio, subtotal, foto y fuentes) va por escrito, tal cual.
+    assert parts.written == bridge.respond("Cotiza 1800 vasos en Cali", CHAT).text
+    assert PHOTO_URL in parts.written and "#a3f09c12b7e4" in parts.written
+    assert parts.links == (), "los enlaces ya van en el texto escrito"
 
 
 def test_cotizacion_sin_voz_no_cambia() -> None:
@@ -348,9 +352,9 @@ async def test_la_herramienta_con_voz_devuelve_texto_hablado_y_enlaces() -> None
     assert isinstance(result, CallToolResult)
     texts = [block.text for block in result.content if isinstance(block, TextContent)]
     assert len(texts) == 1
-    spoken, links = split_voice_reply(texts[0])
-    assert "http" not in spoken and "por un total de 370.000 pesos" in spoken
-    assert len(links) == 2
+    parts = parse_voice_reply(texts[0])
+    assert "http" not in parts.spoken and "por un total de 370.000 pesos" in parts.spoken
+    assert PHOTO_URL in parts.written and "*Fuentes:*" in parts.written
     assert result.structured_content == {"result": texts[0]}
 
 
@@ -374,3 +378,94 @@ async def test_la_herramienta_sin_voz_devuelve_lo_mismo_que_antes() -> None:
         assert isinstance(result, CallToolResult)
         texts = [block.text for block in result.content if isinstance(block, TextContent)]
         assert texts == [expected]
+
+
+# --- resumen hablado (spec 048) --------------------------------------------------------------
+
+RAG_TEXT = (
+    "Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y "
+    "doble pared [1]. Son aptos para café, té y chocolate, y se venden en cajas de 1.000 "
+    "unidades.\n\n"
+    "Estas son las opciones:\n"
+    "- **Vaso de papel 8 oz**: pared sencilla, caja x 1.000 und, ideal para tinto.\n"
+    "- **Vaso de papel 12 oz**: doble pared, caja x 500 und, aprox. $185.000 por caja.\n"
+    "- **Vaso de papel 16 oz** — doble pared, para capuchino y bebidas grandes.\n\n"
+    "Todos se pueden combinar con tapas de 80 mm y portavasos.\n\n"
+    "¿Cuántas unidades necesitas y en qué ciudad?"
+)
+
+
+def _rag_turn(text: str = RAG_TEXT) -> list[ChatEvent]:
+    return [
+        ChatEvent("meta", {"sources": SOURCES}),
+        ChatEvent("token", {"text": text}),
+        ChatEvent("done", {}),
+    ]
+
+
+def test_una_respuesta_larga_se_resume_y_va_completa_por_escrito() -> None:
+    # Arrange
+    bridge = _bridge(FakeChat(events=_rag_turn()))
+    written = _bridge(FakeChat(events=_rag_turn())).consult("vasos para café", CHAT)
+
+    # Act
+    answer = bridge.consult("vasos para café", CHAT, voice=True)
+    parts = parse_voice_reply(answer)
+
+    # Assert
+    assert parts.spoken == (
+        "Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y "
+        "doble pared. Te dejo por escrito tres opciones: Vaso de papel 8 onzas, Vaso de "
+        "papel 12 onzas y Vaso de papel 16 onzas.\n\n"
+        "Según el sitio de Carvajal Empaques.\n\n"
+        "¿Cuántas unidades necesitas y en qué ciudad?"
+    )
+    assert parts.written == written
+    assert "*Fuentes:*" in parts.written and "https://" in parts.written
+    assert parts.links == ()
+    assert answer.index(TEXT_HEADER) > 0 and LINKS_HEADER not in answer
+    spoken, links = split_voice_reply(answer)
+    assert (spoken, links) == (parts.spoken, []), "split_voice_reply ignora lo escrito"
+
+
+def test_una_respuesta_corta_por_voz_no_trae_texto_escrito() -> None:
+    # Arrange
+    chat = FakeChat(events=_rag_turn("Sí, tenemos vasos de 12 oz para café [1]."))
+
+    # Act
+    answer = _bridge(chat).consult("¿tienen vasos?", CHAT, voice=True)
+    parts = parse_voice_reply(answer)
+
+    # Assert
+    assert TEXT_HEADER not in answer
+    assert parts.spoken == (
+        "Sí, tenemos vasos de 12 onzas para café.\n\nSegún el sitio de Carvajal Empaques."
+    )
+    assert parts.links == ("Vasos de papel: https://colombia.carvajalempaques.com/vasos",)
+
+
+def test_la_transcripcion_por_voz_llega_con_miles_colombianos() -> None:
+    # Arrange
+    voice_chat = FakeChat(events=_rag_turn("Listo."))
+    text_chat = FakeChat(events=_rag_turn("Listo."))
+
+    # Act
+    _bridge(voice_chat).consult("Cotiza 1,800 vasos de 12,5 onzas", CHAT, voice=True)
+    _bridge(text_chat).consult("Cotiza 1,800 vasos de 12,5 onzas", CHAT)
+
+    # Assert: solo la nota de voz se normaliza; lo escrito por el cliente no se toca.
+    assert voice_chat.calls == ["Cotiza 1.800 vasos de 12,5 onzas"]
+    assert text_chat.calls == ["Cotiza 1,800 vasos de 12,5 onzas"]
+
+
+def test_respuesta_larga_sin_voz_no_cambia() -> None:
+    # Arrange
+    bridge = _bridge(FakeChat(events=_rag_turn()))
+
+    # Act
+    answer = bridge.consult("vasos para café", CHAT)
+
+    # Assert
+    assert TEXT_HEADER not in answer and LINKS_HEADER not in answer
+    assert answer.startswith("Para bebidas calientes, Carvajal Empaques ofrece vasos")
+    assert "- *Vaso de papel 8 oz*: pared sencilla" in answer

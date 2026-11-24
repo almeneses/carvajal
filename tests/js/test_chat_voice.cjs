@@ -1958,6 +1958,53 @@ test("T019 cancelar el aviso del micrófono no deja manos libres colgado", () =>
   );
 });
 
+test("048 la lectura del navegador prefiere el resumen hablado del servidor", () => {
+  // Arrange: el turno trae texto largo, una tarjeta y fuentes, y además su resumen.
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({
+    texto: "Respuesta larga que no debe leerse entera [1]. Con muchos detalles.",
+    tarjetas: [crearTarjetaFalsa({ nombre: "Vaso papel 12 oz", precio: "7250.00 MXN" })],
+    citas: [{ titulo: "Manual de empaques" }],
+  });
+  turno.dataset.vozResumen =
+    "Te muestro tres opciones en pantalla: A, B y C.\n\nSegún el sitio de Carvajal.\n\n¿Cuántas necesitas?";
+
+  // Act
+  const ok = montaje.controlador.leerTurno(turno);
+  sintesis.terminar();
+  sintesis.terminar();
+
+  // Assert: un párrafo por locución, sin el texto completo ni la tarjeta.
+  assert.equal(ok, true);
+  assert.deepEqual(
+    sintesis.locuciones.map((locucion) => locucion.text),
+    [
+      "Te muestro tres opciones en pantalla: A, B y C.",
+      "Según el sitio de Carvajal.",
+      "¿Cuántas necesitas?",
+    ],
+  );
+});
+
+test("048 construirSegmentos usa el resumen y, sin él, el DOM como antes", () => {
+  // Arrange
+  const { construirSegmentos } = cargarVoz().window.CarvajalVoz;
+  const conResumen = crearTurnoFalso({ texto: "Texto completo." });
+  conResumen.dataset.vozResumen = "Resumen corto.\n\n  \n\nEl detalle completo está en pantalla.";
+  const vacio = crearTurnoFalso({ texto: "Texto completo." });
+  vacio.dataset.vozResumen = "  ";
+
+  // Act
+  const resumidos = construirSegmentos(conResumen);
+  const completos = construirSegmentos(vacio);
+
+  // Assert
+  // Los arreglos vienen del contexto `vm`: se copian para compararlos.
+  assert.deepEqual([...resumidos], ["Resumen corto.", "El detalle completo está en pantalla."]);
+  assert.deepEqual([...completos], ["Texto completo."]);
+});
+
 test("T017 un atributo de fuentes roto no impide la lectura", () => {
   // Arrange: el turno trae los títulos mal formados (versión vieja o atributo alterado).
   const sintesis = crearSintesis();

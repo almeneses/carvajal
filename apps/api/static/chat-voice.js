@@ -232,9 +232,28 @@
     return textoVisible(raiz.querySelector(selector));
   }
 
-  /** Las tarjetas se leen del DOM y las fuentes de los metadatos del turno. */
+  /**
+   * Resumen hablado del turno (spec 048): lo prepara el servidor con la misma función
+   * que /api/voz/hablar y llega en `data-voz-resumen` (hilo) o en el evento `done`.
+   * Un párrafo por locución; vacío si el turno no lo trae.
+   */
+  function segmentosDelResumen(turno) {
+    if (!turno || !turno.dataset) return [];
+    const resumen = String(turno.dataset.vozResumen || "");
+    return resumen
+      .split(/\n\s*\n/)
+      .map((parrafo) => limpiarTextoHablado(parrafo))
+      .filter(Boolean);
+  }
+
+  /**
+   * Prefiere el resumen hablado del servidor; sin él, las tarjetas se leen del DOM y las
+   * fuentes de los metadatos del turno (comportamiento anterior).
+   */
   function construirSegmentos(turno) {
     if (!turno) return [];
+    const resumen = segmentosDelResumen(turno);
+    if (resumen.length) return resumen;
     const segmentos = [];
     const texto = limpiarTextoHablado(textoVisible(turno.querySelector(".texto")));
     if (texto) segmentos.push(texto);
