@@ -526,6 +526,77 @@ def test_los_turnos_anteriores_siembran_el_historial_y_se_evalua_el_ultimo() -> 
     ]
 
 
+class OwnerDriver(ScriptedDriver):
+    """Como ``ScriptedDriver``, pero registra también el dueño de cada turno."""
+
+    def __init__(self, answers: dict[str, Any]) -> None:
+        super().__init__(answers)
+        self.owners: list[str] = []
+
+    def run_turn(
+        self, *, owner_key: str, thread_id: str, question: str, seed_turns: Sequence[Turn]
+    ) -> TurnObservation:
+        self.owners.append(owner_key)
+        return super().run_turn(
+            owner_key=owner_key, thread_id=thread_id, question=question, seed_turns=seed_turns
+        )
+
+
+def test_new_thread_before_abre_otra_conversacion_del_mismo_dueno(tmp_path: Path) -> None:
+    """Spec 045 (T003): «llámame Ana» y, en otra conversación, «¿cómo me llamo?»."""
+
+    # Arrange
+    path = tmp_path / "conjunto.json"
+    path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "id": "m-ana",
+                        "group": "memoria",
+                        "turns": ["llámame Ana", "gracias", "¿cómo me llamo?"],
+                        "new_thread_before": [2],
+                        "expect": {},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    [item] = load_question_set(path).items
+    driver = OwnerDriver(
+        {
+            "llámame Ana": _obs("Listo, Ana."),
+            "gracias": _obs("Con gusto."),
+            "¿cómo me llamo?": _obs("Te llamas Ana."),
+        }
+    )
+
+    # Act
+    report = evaluate_mode(driver, [item])
+
+    # Assert
+    assert item.new_thread_before == (2,)
+    assert report.results[0].observation is not None
+    first, second, third = driver.calls
+    assert first[0] == second[0] == "eval-tools-m-ana"
+    assert third[0] == "eval-tools-m-ana-h1"
+    assert third[2] == []
+    assert len(set(driver.owners)) == 1
+
+
+@pytest.mark.parametrize("valor", [[0], [3], [1, 1], "1", [True]])
+def test_new_thread_before_invalido_falla_al_cargar(tmp_path: Path, valor: Any) -> None:
+    # Arrange
+    path = tmp_path / "conjunto.json"
+    item = {"id": "m-x", "turns": ["a", "b", "c"], "new_thread_before": valor, "expect": {}}
+    path.write_text(json.dumps({"items": [item]}), encoding="utf-8")
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="new_thread_before"):
+        load_question_set(path)
+
+
 def test_un_error_de_un_item_no_corta_la_corrida() -> None:
     # Arrange
     items = [

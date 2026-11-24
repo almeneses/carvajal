@@ -142,7 +142,10 @@ class EvalItem:
     """Un ítem del conjunto: turnos a ejecutar (el último se evalúa) y lo esperado.
 
     ``history`` son turnos ya respondidos que se siembran sin ejecutarse (el historial de
-    ``routing_questions.json``); ``turns`` se ejecutan en orden en el mismo hilo.
+    ``routing_questions.json``); ``turns`` se ejecutan en orden en el mismo hilo, salvo que
+    ``new_thread_before`` nombre el índice (desde 0) de un turno: antes de ese turno se abre
+    otra conversación del mismo dueño (``thread_id`` nuevo, mismo ``owner_key``, sin
+    historial), como la persona que vuelve otro día (spec 045, T003).
     """
 
     id: str
@@ -150,6 +153,7 @@ class EvalItem:
     turns: tuple[str, ...]
     expect: Mapping[str, Any]
     history: tuple[Turn, ...] = ()
+    new_thread_before: tuple[int, ...] = ()
 
     @property
     def question(self) -> str:
@@ -211,6 +215,22 @@ def _routing_expect(raw: Mapping[str, Any]) -> dict[str, Any]:
     return expect
 
 
+def _new_threads(item_id: str, raw: Any, turns: int) -> tuple[int, ...]:
+    """Índices de ``new_thread_before``: enteros entre 1 y el último turno, sin repetir."""
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(
+        isinstance(index, int) and not isinstance(index, bool) for index in raw
+    ):
+        raise ValueError(f"El ítem {item_id} trae un new_thread_before que no es una lista.")
+    if any(index < 1 or index >= turns for index in raw) or len(set(raw)) != len(raw):
+        raise ValueError(
+            f"El ítem {item_id} trae un new_thread_before fuera de 1..{turns - 1} o repetido."
+        )
+    return tuple(sorted(raw))
+
+
 def _item(raw: Mapping[str, Any]) -> EvalItem:
     item_id = str(raw["id"])
     if "question" in raw:  # formato de routing_questions.json
@@ -234,7 +254,13 @@ def _item(raw: Mapping[str, Any]) -> EvalItem:
         raise ValueError(f"El ítem {item_id} no tiene turnos.")
     expect = dict(raw.get("expect") or {})
     _check_expect(item_id, expect)
-    return EvalItem(id=item_id, group=str(raw.get("group", "")), turns=turns, expect=expect)
+    return EvalItem(
+        id=item_id,
+        group=str(raw.get("group", "")),
+        turns=turns,
+        expect=expect,
+        new_thread_before=_new_threads(item_id, raw.get("new_thread_before"), len(turns)),
+    )
 
 
 def load_question_set(path: Path) -> QuestionSet:
@@ -2486,13 +2512,21 @@ class ModeReport:
 
 
 def _run_item(driver: ModeDriver, item: EvalItem) -> TurnObservation:
-    """Ejecuta los turnos del ítem en su hilo; devuelve la observación del último."""
+    """Ejecuta los turnos del ítem en su hilo; devuelve la observación del último.
 
-    thread_id = f"eval-{driver.mode}-{item.id}"
+    Antes de cada índice de ``new_thread_before`` se abre otra conversación del mismo dueño:
+    ``thread_id`` con sufijo ``-h{n}`` y semilla vacía, con el mismo ``owner_key``.
+    """
+
+    base = f"eval-{driver.mode}-{item.id}"
+    thread_id = base
     owner_key = f"eval-{driver.mode}-{item.id}"
     seed: list[Turn] = list(item.history)
     observation: TurnObservation | None = None
-    for question in item.turns:
+    for index, question in enumerate(item.turns):
+        if index in item.new_thread_before:
+            thread_id = f"{base}-h{item.new_thread_before.index(index) + 1}"
+            seed = []
         observation = driver.run_turn(
             owner_key=owner_key, thread_id=thread_id, question=question, seed_turns=list(seed)
         )

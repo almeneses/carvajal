@@ -1,0 +1,496 @@
+{
+  "version": 1,
+  "frozen_at": "2026-11-24",
+  "origin": "redactado por el asistente de desarrollo (Claude Code) a partir del quickstart y de los contratos de la spec 045, antes de implementar las herramientas nuevas; no se ajusta después de ver resultados del agente",
+  "description": "Conjunto de herramientas de la spec 045 (FR-030): 26 ítems, una pregunta por cada una de las 20 herramientas (grupo herramienta, con tools_any) y 6 escenarios de memoria (grupo memoria): Ana en otra conversación, listar, olvidar una categoría en otra conversación, olvidar todo (atajo, path shortcut), dato sensible y ciudad habitual solo como sugerencia. new_thread_before abre otra conversación del mismo dueño antes de ese turno. Las preguntas de recordar_preferencia no llevan las marcas del atajo (llámame, recuerda que, prefiero). El ejecutor de evaluación no tiene base de datos: consultar_cotizacion y preguntas_frecuentes pueden devolver error declarado; se informa en la evidencia.",
+  "items": [
+    {
+      "id": "h045-01",
+      "group": "herramienta",
+      "turns": [
+        "¿Carvajal tiene programas de sostenibilidad?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_corpus"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-02",
+      "group": "herramienta",
+      "turns": [
+        "Necesito vasos para café caliente que sirvan para microondas, ¿qué opciones tienen?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_producto"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-03",
+      "group": "herramienta",
+      "turns": [
+        "Cotízame 2.000 vasos térmicos de 8 oz en Bogotá"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "no_invented_terms": true,
+        "no_currency_conversion": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-04",
+      "group": "herramienta",
+      "turns": [
+        "¿Dónde compro empaques en Medellín?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_sedes"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-05",
+      "group": "herramienta",
+      "turns": [
+        "¿Cuáles fueron los ingresos consolidados de Carvajal en 2024?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "indicador_financiero"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-06",
+      "group": "herramienta",
+      "turns": [
+        "Quiero hacer un pedido"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "sin_consulta"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "asks_for": [
+          "*"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-07",
+      "group": "herramienta",
+      "turns": [
+        "¿Qué trae el vaso CO-VTER-04?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "ficha_producto"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-08",
+      "group": "herramienta",
+      "turns": [
+        "¿Qué diferencia hay entre el CO-CTT-08 y el CO-CTT-16?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "comparar_referencias"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "no_currency_conversion": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-09",
+      "group": "herramienta",
+      "turns": [
+        "¿El PET sirve para comida caliente?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "guia_materiales"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-10",
+      "group": "herramienta",
+      "turns": [
+        "¿Cuántas unidades son 3 cajas del vaso CO-VTER-04?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "convertir_presentacion"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-11",
+      "group": "herramienta",
+      "turns": [
+        "¿En qué ciudades tienen distribuidores?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "ciudades_con_cobertura"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-12",
+      "group": "herramienta",
+      "turns": [
+        "Cotízame 2.000 vasos térmicos de 8 oz en Bogotá",
+        "¿Mi cotización sigue vigente?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "consultar_cotizacion"
+          ]
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-13",
+      "group": "herramienta",
+      "turns": [
+        "¿Qué cifras financieras de Carvajal me puedes dar?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "indicadores_disponibles"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-14",
+      "group": "herramienta",
+      "turns": [
+        "¿Qué pasó en Carvajal en 1960?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "historia_carvajal"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-15",
+      "group": "herramienta",
+      "turns": [
+        "¿Qué empresas y marcas tiene Carvajal?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "empresas_del_grupo"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-16",
+      "group": "herramienta",
+      "turns": [
+        "¿Qué preguntas frecuentes hay sobre la sostenibilidad de Carvajal?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "preguntas_frecuentes"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-17",
+      "group": "herramienta",
+      "turns": [
+        "¿Mañana es día hábil?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "fecha_actual"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-18",
+      "group": "herramienta",
+      "turns": [
+        "Soy Ana, de la Panadería La Espiga; tenlo en cuenta para la próxima."
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "recordar_preferencia"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "h045-19",
+      "group": "herramienta",
+      "turns": [
+        "Soy Ana, de la Panadería La Espiga; tenlo en cuenta para la próxima.",
+        "¿Qué sabes de mí?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "listar_memoria"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      },
+      "new_thread_before": [
+        1
+      ]
+    },
+    {
+      "id": "h045-20",
+      "group": "herramienta",
+      "turns": [
+        "Soy Ana, de la Panadería La Espiga; tenlo en cuenta para la próxima.",
+        "Olvida dónde trabajo."
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "olvidar_preferencia"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "m045-01",
+      "group": "memoria",
+      "turns": [
+        "Soy Ana y trabajo en la Panadería La Espiga.",
+        "Hola, ¿cómo me llamo?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "listar_memoria"
+          ]
+        ],
+        "no_tool_allowed": true,
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      },
+      "new_thread_before": [
+        1
+      ]
+    },
+    {
+      "id": "m045-02",
+      "group": "memoria",
+      "turns": [
+        "Soy Ana, de la Panadería La Espiga, y suelo comprar en Cali.",
+        "¿Qué recuerdas de mí?"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "listar_memoria"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      },
+      "new_thread_before": [
+        1
+      ]
+    },
+    {
+      "id": "m045-03",
+      "group": "memoria",
+      "turns": [
+        "Soy Ana, de la Panadería La Espiga.",
+        "Ya no trabajo ahí: olvida mi empresa, por favor."
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "olvidar_preferencia"
+          ]
+        ],
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      },
+      "new_thread_before": [
+        1
+      ]
+    },
+    {
+      "id": "m045-04",
+      "group": "memoria",
+      "turns": [
+        "Soy Ana, de la Panadería La Espiga.",
+        "Olvida todo lo que sabes de mí."
+      ],
+      "expect": {
+        "tools_any": [],
+        "shortcut": true,
+        "language": "es"
+      },
+      "path": "shortcut"
+    },
+    {
+      "id": "m045-05",
+      "group": "memoria",
+      "turns": [
+        "Guarda mi cédula 1.234.567.890 para la próxima cotización."
+      ],
+      "expect": {
+        "tools_none": [
+          "cotizar"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "m045-06",
+      "group": "memoria",
+      "turns": [
+        "Soy Ana y suelo comprar en Cali.",
+        "Cotízame 500 vasos para café caliente."
+      ],
+      "expect": {
+        "asks_for": [
+          "ciudad"
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      },
+      "new_thread_before": [
+        1
+      ]
+    }
+  ]
+}
