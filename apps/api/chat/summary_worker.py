@@ -22,7 +22,7 @@ advertencia (FR-009). Los eventos de log nunca llevan texto de la conversación.
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
@@ -34,6 +34,7 @@ import structlog
 from sqlalchemy.orm import Session, sessionmaker
 
 from carvajal.adapters.storage.chat import SqlChatRepository
+from carvajal.agent.memory.store import forget_all_requested
 from carvajal.agent.memory.summary import (
     TOMBSTONE_KEY,
     ConversationSummary,
@@ -210,14 +211,7 @@ class SummaryWorker:
                 draft = None
         forgotten = draft.forgotten_through if draft is not None else 0
         if tomb_at is not None:
-            # Turnos cuya pregunta llegó antes de «olvidar todo»: no se resumen (R16).
-            before = sum(
-                1
-                for _turn, user, _answer in paired
-                if (moment := parse_time(getattr(user, "created_at", None))) is not None
-                and moment <= tomb_at
-            )
-            forgotten = max(forgotten, before)
+            forgotten = max(forgotten, _forgotten_turns(paired, tomb_at))
         if draft is not None and draft.covered_turns >= needed:
             return draft
         start = max(draft.covered_turns if draft is not None else 0, forgotten)
@@ -247,14 +241,18 @@ class SummaryWorker:
                 logger.warning("agent.summary_failed", cause=cause)
         summary = replace(summary, forgotten_through=max(summary.forgotten_through, forgotten))
         try:
-            latest = store.get(namespace, TOMBSTONE_KEY)
-            value = getattr(latest, "value", None)
-            latest_at = parse_time(value.get("at")) if isinstance(value, dict) else None
-            if latest_at is not None and latest_at > read_at:
+            if _forgotten_since(store, namespace, read_at):
                 # «Olvidar todo» llegó mientras se resumía: el resultado ya no vale.
                 logger.info("agent.summary_discarded", reason="forgotten")
                 return None
             store.put(namespace, conversation_id, summary.to_value())
+            if _forgotten_since(store, namespace, read_at):
+                # «Olvidar todo» se intercaló entre la comprobación y el ``put``: su borrado
+                # pudo correr antes de este ``put``. La lápida se escribe antes de borrar
+                # (``store._forget_all``), así que aquí se ve y el borrador se retira.
+                store.delete(namespace, conversation_id)
+                logger.info("agent.summary_discarded", reason="forgotten")
+                return None
         except Exception as error:
             logger.warning(
                 "agent.summary_store_failed", operation="worker_write", error=type(error).__name__
@@ -267,6 +265,35 @@ class SummaryWorker:
             elapsed_ms=int((perf_counter() - started) * 1000),
         )
         return summary
+
+
+def _forgotten_since(store: Any, namespace: tuple[str, ...], read_at: datetime) -> bool:
+    """Hay una lápida de «olvidar todo» posterior a la lectura del historial."""
+
+    latest = store.get(namespace, TOMBSTONE_KEY)
+    value = getattr(latest, "value", None)
+    latest_at = parse_time(value.get("at")) if isinstance(value, dict) else None
+    return latest_at is not None and latest_at > read_at
+
+
+def _forgotten_turns(paired: Sequence[tuple[Any, Any, Any]], tomb_at: datetime) -> int:
+    """Turnos que «olvidar todo» deja fuera del resumen (R16).
+
+    Son los turnos cuya pregunta se guardó antes de la lápida y, además, el propio turno que
+    pidió olvidar: ``append_turn`` lo persiste después de que el grafo escribiera la lápida,
+    pero el grafo ya lo marcó como olvidado (``forgotten_through = turn_count + 1``). Se
+    reconoce con el mismo patrón que exigen el atajo y ``olvidar_preferencia(todo)``.
+    """
+
+    moments = [parse_time(getattr(user, "created_at", None)) for _turn, user, _answer in paired]
+    before = sum(1 for moment in moments if moment is not None and moment <= tomb_at)
+    after = next(
+        (index for index, moment in enumerate(moments) if moment is not None and moment > tomb_at),
+        None,
+    )
+    if after is not None and forget_all_requested(str(getattr(paired[after][1], "content", ""))):
+        before = max(before, after + 1)
+    return before
 
 
 def build_summary_worker(

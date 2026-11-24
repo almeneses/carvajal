@@ -6,7 +6,7 @@ la validación de la salida del modelo, la adopción entre canal y borrador (con
 del hueco y el marcador de olvido) y la idempotencia por ``covered_turns``.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -492,3 +492,36 @@ def test_un_borrador_ya_al_dia_no_se_toca() -> None:
     assert adoption.summary.text == draft.text
     assert adoption.summary.covered_turns == 4
     assert adoption.summary.method == "deterministic"
+
+
+def test_un_borrador_que_olvida_menos_que_el_canal_no_se_adopta() -> None:
+    # Arrange: el canal marca olvidado hasta el turno 11 (incluye el que pidió olvidar); un
+    # borrador del worker lo creyó olvidado solo hasta el 10 y cubre el turno 11 con su
+    # texto literal. Ambos son posteriores a la lápida.
+    tombstone = {"v": 1, "at": (NOW - timedelta(minutes=10)).isoformat()}
+    marker = forgotten_marker(11, now=NOW - timedelta(minutes=9)).to_value()
+    leaked = {"question": "Olvida todo lo que sabes de mí. Soy Ana", "answer": "Listo."}
+    draft = replace(
+        deterministic_summary(
+            [leaked, _turn(11)], start=10, max_chars=1500, now=NOW - timedelta(minutes=1)
+        ),
+        forgotten_through=10,
+    )
+
+    # Act
+    adoption = adopt(
+        channel=marker,
+        draft=draft.to_value(),
+        tombstone=tombstone,
+        turn_count=20,
+        seed=_turns(10, start=10),
+        history_turns=8,
+        max_chars=1500,
+        now=NOW,
+    )
+
+    # Assert: el resumen sale del marcador y de la semilla, sin el turno olvidado.
+    assert "Ana" not in adoption.summary.text
+    assert all("Ana" not in quote for quote in adoption.summary.user_quotes)
+    assert adoption.summary.forgotten_through == 11
+    assert adoption.summary.covered_turns == 12

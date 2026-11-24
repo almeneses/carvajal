@@ -23,7 +23,15 @@ from apps.api.chat.summary_worker import SummaryWorker
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.chat import SqlChatRepository
 from carvajal.adapters.storage.database import build_session_factory
-from carvajal.agent.memory.summary import TOMBSTONE_KEY, ConversationSummary, summary_namespace
+from carvajal.agent.memory.store import forget
+from carvajal.agent.memory.summary import (
+    TOMBSTONE_KEY,
+    ConversationSummary,
+    adopt,
+    forgotten_marker,
+    pair_turns,
+    summary_namespace,
+)
 from carvajal.infrastructure.settings import Settings
 
 OWNER = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
@@ -297,6 +305,87 @@ def test_los_turnos_anteriores_a_la_lapida_no_se_resumen(session_factory: Any) -
         "Turno 4 — la persona: «pregunta 3»",
         "Turno 5 — la persona: «pregunta 4»",
     ]
+
+
+class _RacingStore(InMemoryStore):
+    """«Olvidar todo» se intercala entre la última lectura de la lápida y el ``put``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.raced = False
+
+    def put(self, namespace: Any, key: str, value: Any, *args: Any, **kwargs: Any) -> None:
+        if tuple(namespace) == summary_namespace(OWNER) and key != TOMBSTONE_KEY and not self.raced:
+            self.raced = True
+            forget(self, OWNER, "todo")
+        super().put(namespace, key, value, *args, **kwargs)
+
+
+def test_un_olvido_concurrente_con_el_put_no_deja_el_borrador(session_factory: Any) -> None:
+    # Arrange: doce turnos con datos de la persona (cuatro fuera de la ventana).
+    store = _RacingStore()
+    with session_factory() as session:
+        repository = SqlChatRepository(session)
+        conversation = repository.create(OWNER).id
+        for index in range(12):
+            repository.append_turn(
+                conversation, question=f"soy Ana de Cali, pregunta {index}", answer="ok"
+            )
+        session.commit()
+    worker = SummaryWorker(session_factory, _settings(), store=store)
+
+    # Act
+    with capture_logs() as logs:
+        summary = worker.summarize_now(OWNER, conversation)
+
+    # Assert: tras «olvidar todo» no queda el borrador con las citas anteriores.
+    assert store.raced
+    assert summary is None
+    assert store.get(summary_namespace(OWNER), conversation) is None
+    assert any(log["event"] == "agent.summary_discarded" for log in logs)
+
+
+def test_el_turno_que_pide_olvidar_todo_no_vuelve_al_resumen(session_factory: Any) -> None:
+    # Arrange: diez turnos; «olvidar todo» escribe la lápida mientras se procesa el turno 11
+    # (append_turn lo persiste después) y luego nueve turnos más. El grafo deja el canal con
+    # forgotten_through = 11 (turn_count + 1, R16).
+    store = InMemoryStore()
+    conversation = _conversation(session_factory, 10)
+    time.sleep(0.01)
+    forget(store, OWNER, "todo")
+    time.sleep(0.01)
+    with session_factory() as session:
+        SqlChatRepository(session).append_turn(
+            conversation,
+            question="Olvida todo lo que sabes de mí. Soy Ana, de Panadería La Espiga",
+            answer="Listo, ya lo olvidé todo.",
+        )
+        session.commit()
+    marker = forgotten_marker(11).to_value()
+    _append(session_factory, conversation, 9, start=11)
+    worker = SummaryWorker(session_factory, _settings(), store=store)
+
+    # Act
+    draft = worker.summarize_now(OWNER, conversation)
+    with session_factory() as session:
+        seed = pair_turns(SqlChatRepository(session).history_all(conversation))
+    adoption = adopt(
+        channel=marker,
+        draft=draft.to_value() if draft is not None else None,
+        tombstone=store.get(summary_namespace(OWNER), TOMBSTONE_KEY).value,
+        turn_count=len(seed),
+        seed=seed[-10:],
+        history_turns=8,
+        max_chars=1500,
+    )
+
+    # Assert
+    assert draft is not None
+    assert draft.forgotten_through == 11
+    assert "Panadería La Espiga" not in draft.text
+    assert all("Espiga" not in quote for quote in draft.user_quotes)
+    assert "Panadería La Espiga" not in adoption.summary.text
+    assert all("Espiga" not in quote for quote in adoption.summary.user_quotes)
 
 
 @pytest.mark.parametrize(

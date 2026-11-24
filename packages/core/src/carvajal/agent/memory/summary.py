@@ -522,7 +522,8 @@ def adopt(
 
     1. Descarta canal y borrador anteriores a la lápida de «olvidar todo»; si el canal lo
        era (u otro hilo del dueño no lo tenía), fija el marcador con
-       ``forgotten_through = turn_count``.
+       ``forgotten_through = turn_count``. Descarta también el que olvida menos turnos que
+       el otro y cubre más allá de su límite: su texto podría traer turnos olvidados.
     2. Gana el que más turnos cubre.
     3. El hueco hasta ``turn_count - history_turns`` se rellena con el determinista si la
        semilla lo trae entero (el primer turno de la semilla tiene índice
@@ -548,6 +549,14 @@ def adopt(
         candidates.append(summary)
     channel_kept = stored is not None and any(c is stored for c in candidates)
     forgotten_through = max((c.forgotten_through for c in candidates), default=0)
+    # Un candidato que olvida menos que otro y cubre turnos posteriores a su propio límite
+    # puede llevar en su texto y en sus citas turnos ya olvidados (por ejemplo, el turno que
+    # pidió «olvidar todo», que el grafo marca y un borrador antiguo no): no se adopta.
+    candidates = [
+        c
+        for c in candidates
+        if c.forgotten_through >= forgotten_through or c.covered_turns <= c.forgotten_through
+    ]
     if tomb_at is not None and not channel_kept:
         # El hilo no tiene marca posterior al olvido: todo lo anterior queda fuera.
         forgotten = True
