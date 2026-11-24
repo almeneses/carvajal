@@ -11,6 +11,13 @@ Seguridad, en capas:
   token configurado la aplicación no se construye: falla cerrada.
 - Protección contra DNS rebinding: solo se aceptan cabeceras ``Host`` de loopback.
 - ``/live`` responde sin token y sin tocar la base, para el healthcheck del contenedor.
+
+Voz: con ``voz=true`` (el cliente mandó una nota de voz y la pasarela responderá con TTS)
+la herramienta sigue devolviendo un solo texto, pero apto para leerse en voz alta (ver
+:mod:`carvajal.speech`). Si la respuesta trae enlaces (PDF, foto, fuentes), van al final,
+después de la línea :data:`~carvajal.speech.LINKS_HEADER`, uno por línea y como
+``rótulo: url``, para enviarlos como un mensaje de texto aparte. Con ``voz=false`` (por
+defecto) la respuesta no cambia.
 """
 
 import hmac
@@ -32,6 +39,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 
 from apps.api.quote_links import link_expiry, pdf_url
 from apps.mcp.bridge import MAX_CHAT_ID_CHARS, MAX_MESSAGE_CHARS, WhatsAppBridge
+from carvajal.speech import LINKS_HEADER
 
 __all__ = [
     "INSTRUCTIONS",
@@ -51,13 +59,17 @@ TOOL_DESCRIPTION = (
     "con folio, sedes de distribuidores e indicadores financieros. Si el cliente pide "
     "el PDF de su cotización (p. ej. responde «PDF»), pásale ese mensaje igual: la "
     "herramienta devuelve el enlace. Devuelve el texto final, ya en formato de WhatsApp "
-    "y con sus fuentes: envíalo al cliente tal cual."
+    "y con sus fuentes: envíalo al cliente tal cual. Si el cliente mandó una nota de voz, "
+    "llama con voz=true: el texto viene listo para leerse en voz alta y, si hay enlaces, "
+    f"van al final tras la línea «{LINKS_HEADER}» para enviarlos como texto."
 )
 INSTRUCTIONS = (
     "Usa consultar_carvajal para cada mensaje del cliente. Pasa el mensaje completo en "
     "`mensaje` y el identificador del chat (número o JID del remitente) en "
     "`conversacion`, siempre el mismo para el mismo chat. Responde al cliente exactamente "
-    "con el texto que devuelve la herramienta, sin cambiar cifras, precios ni folios."
+    "con el texto que devuelve la herramienta, sin cambiar cifras, precios ni folios. Si "
+    "el cliente mandó una nota de voz, pasa voz=true y no leas en voz alta los enlaces del "
+    "final: envíalos como texto."
 )
 
 ASGIApp = Callable[
@@ -103,10 +115,19 @@ def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPSe
             bool,
             Field(description="True para empezar una conversación nueva (comando /new)."),
         ] = False,
+        voz: Annotated[
+            bool,
+            Field(
+                description=(
+                    "True si el cliente mandó una nota de voz: la respuesta llega apta para "
+                    "TTS y los enlaces van aparte, al final, tras la línea de ENLACES."
+                )
+            ),
+        ] = False,
     ) -> str:
         # El turno es síncrono (SQLAlchemy y el grafo): se ejecuta fuera del event loop.
         return await anyio.to_thread.run_sync(
-            lambda: resolve().consult(mensaje, conversacion, new_conversation=nueva)
+            lambda: resolve().consult(mensaje, conversacion, new_conversation=nueva, voice=voz)
         )
 
     return server

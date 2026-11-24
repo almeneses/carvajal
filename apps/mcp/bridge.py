@@ -16,6 +16,11 @@ texto listo para WhatsApp.
   consumiendo el mismo cupo diario que cualquier mensaje.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
+- **Voz**: ``consult(..., voice=True)`` devuelve el mismo turno como texto para el TTS de
+  la pasarela (:mod:`carvajal.speech`): sin citas, Markdown, emojis ni URL; fuentes en una
+  frase, unidades y folios en palabras. Los enlaces (PDF, foto, fuentes) van al final, tras
+  :data:`~carvajal.speech.LINKS_HEADER`, para enviarlos como texto. Sin ``voice`` la
+  respuesta es la de siempre.
 - **Reintentos**: :meth:`WhatsAppBridge.respond` acepta un ``client_turn_id`` (el webhook
   lo deriva del ``message_id``). Si el dueño ya tiene ese turno guardado, el servicio lo
   reemite sin cobrar cupo, sin abrir hilo nuevo y sin emitir otros folios. Si no, el
@@ -44,6 +49,7 @@ from apps.api.quote_view import QuoteView, quote_view
 from carvajal.application.deliveries import DeliveryClaim, DeliveryStore, InMemoryDeliveryStore
 from carvajal.application.quota import QuotaResult
 from carvajal.domain.phone import normalize_e164
+from carvajal.speech import SpeechLink, SpokenReply, combine, spoken_sources, to_speech
 
 __all__ = [
     "EMPTY_MESSAGE",
@@ -54,6 +60,7 @@ __all__ = [
     "NO_QUOTE_FOR_PDF",
     "OWNER_PREFIX",
     "PDF_OFFER",
+    "PDF_OFFER_SPOKEN",
     "PDF_UNAVAILABLE",
     "SERVICE_UNAVAILABLE",
     "TOO_LONG_MESSAGE",
@@ -65,6 +72,7 @@ __all__ = [
     "canonical_chat_id",
     "is_pdf_request",
     "owner_key_for",
+    "spoken_quote",
     "to_whatsapp",
     "whatsapp_quote",
 ]
@@ -89,6 +97,7 @@ SERVICE_UNAVAILABLE = (
 )
 NEW_CONVERSATION = "Listo, empezamos una conversación nueva. ¿En qué te puedo ayudar?"
 PDF_OFFER = "¿Quieres esta cotización en PDF? Responde *PDF* 📄"
+PDF_OFFER_SPOKEN = "Si quieres esta cotización en PDF, respóndeme PDF y te envío el enlace."
 NO_QUOTE_FOR_PDF = (
     "Todavía no tengo una cotización en esta conversación. Pídeme una, por ejemplo: "
     "*Cotiza 400 portacomidas espumados J1 en Bogotá*."
@@ -142,12 +151,20 @@ class BridgeReply:
     """Texto listo para WhatsApp y folios de las cotizaciones emitidas en el turno.
 
     ``in_progress`` indica que otro intento atiende el mismo ``client_turn_id``: no hay
-    nada que enviar al cliente y el relé debe reintentar más tarde.
+    nada que enviar al cliente y el relé debe reintentar más tarde. ``spoken`` es la
+    versión para voz del mismo turno; si falta (respuestas cortas o reemitidas desde la
+    reserva), :meth:`voice` la deriva de ``text``.
     """
 
     text: str
     quote_ids: tuple[str, ...] = ()
     in_progress: bool = False
+    spoken: SpokenReply | None = field(default=None, compare=False, repr=False)
+
+    def voice(self) -> SpokenReply:
+        """Texto para el TTS y enlaces aparte (ver :mod:`carvajal.speech`)."""
+
+        return self.spoken if self.spoken is not None else to_speech(self.text)
 
 
 def _no_limit(_owner_key: str) -> QuotaResult:
@@ -327,6 +344,75 @@ def whatsapp_quote(view: QuoteView, photo_url: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def spoken_quote(view: QuoteView, photo_url: str | None = None) -> SpokenReply:
+    """La misma cotización que :func:`whatsapp_quote`, redactada para leerse en voz alta.
+
+    Usa las mismas cifras del payload; :func:`~carvajal.speech.to_speech` deletrea el folio
+    y lee importes, unidades y fechas. La foto no se lee: va como enlace aparte.
+    """
+
+    head = f"Cotización con folio {view.folio}" if view.folio else "Cotización"
+    if view.city:
+        head += f" en {view.city}"
+    if view.seller:
+        head += f", con {view.seller}"
+    sentences = [f"{head}.", f"Producto: {view.product}."]
+    if view.basis:
+        detail = f"Viene por {view.basis.lower()}"
+        if view.units_per_presentation:
+            units = view.units_per_presentation
+            detail += f" de {_units(units)} {'unidad' if units == 1 else 'unidades'}"
+        if view.price_per_presentation:
+            detail += f", a {view.price_per_presentation} cada una"
+        sentences.append(f"{detail}.")
+    if view.units_requested is not None and view.presentations is not None:
+        buy = (
+            f"Pides {_units(view.units_requested)} unidades, así que compras "
+            f"{_units(view.presentations)} {view.presentations_label.lower()}, "
+            f"{_units(view.units_bought)} unidades en total"
+        )
+        if view.units_surplus:
+            buy += f", y sobran {_units(view.units_surplus)}"
+        sentences.append(f"{buy}.")
+    sentences.append(f"Subtotal: {view.subtotal or 'pendiente'}.")
+    sentences.append(f"IVA {view.tax.lower()}.")
+    shipping = view.shipping if view.shipping.startswith("$") else view.shipping.lower()
+    sentences.append(f"Envío: {shipping}.")
+    if view.total:
+        sentences.append(f"Total: {view.total} {view.currency}.")
+    else:
+        sentences.append("El total está pendiente.")
+        sentences += [f"{item.rstrip('.')}." for item in view.pending]
+    if view.source_name and view.price_date:
+        sentences.append(f"Precio publicado por {view.source_name} el {view.price_date}.")
+    if view.valid_until:
+        sentences.append(f"La cotización es válida hasta el {view.valid_until}.")
+    if view.warning:
+        sentences.append(f"Ojo: {view.warning.rstrip('.')}.")
+    spoken = to_speech(" ".join(sentences))
+    links = (SpeechLink(f"Foto de {view.product}", photo_url),) if photo_url else ()
+    return SpokenReply(spoken.text, spoken.links + links)
+
+
+def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
+    """Las fuentes de :func:`_sources_block` en una frase; sus URL, como enlaces aparte."""
+
+    listed: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for source in sources:
+        if len(listed) >= MAX_LISTED_SOURCES:
+            break
+        title = str(source.get("title") or source.get("slug") or "").strip()
+        url = str(source.get("url") or "").strip()
+        key = url or title
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        listed.append((title, url))
+    links = tuple(SpeechLink(title or "Fuente", url) for title, url in listed if url)
+    return SpokenReply(spoken_sources(listed), links)
+
+
 def _sources_block(sources: Iterable[Mapping[str, Any]]) -> str:
     lines: list[str] = []
     seen: set[str] = set()
@@ -391,14 +477,24 @@ class WhatsAppBridge:
 
         return owner_key_for(chat_id, self.secret)
 
-    def consult(self, message: str, chat_id: str, *, new_conversation: bool = False) -> str:
+    def consult(
+        self,
+        message: str,
+        chat_id: str,
+        *,
+        new_conversation: bool = False,
+        voice: bool = False,
+    ) -> str:
         """Responde ``message`` en el hilo del chat ``chat_id``; nunca lanza.
 
         Con ``new_conversation`` se abre un hilo nuevo antes del turno (equivale al botón
-        «Nueva conversación» de la web); si además no hay mensaje, solo se confirma.
+        «Nueva conversación» de la web); si además no hay mensaje, solo se confirma. Con
+        ``voice`` la respuesta es apta para leerse en voz alta y los enlaces van aparte
+        (:meth:`SpokenReply.render <carvajal.speech.SpokenReply.render>`).
         """
 
-        return self.respond(message, chat_id, new_conversation=new_conversation).text
+        reply = self.respond(message, chat_id, new_conversation=new_conversation)
+        return reply.voice().render() if voice else reply.text
 
     def respond(
         self,
@@ -532,7 +628,7 @@ class WhatsAppBridge:
         if is_pdf_request(text):
             # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
             pdf, final = self._pdf(owner)
-            return BridgeReply(pdf), False, final
+            return pdf, False, final
         turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
         reply = self._render(turn, owner)
         return reply, True, reply.text != SERVICE_UNAVAILABLE
@@ -578,28 +674,41 @@ class WhatsAppBridge:
             logger.warning("whatsapp.delivery_settle_failed", error=repr(error))
 
     def _render(self, turn: _Turn, owner: str) -> BridgeReply:
+        """El turno en formato de WhatsApp y, en paralelo, su versión para voz."""
+
         if turn.error is not None and not turn.text.strip():
             return BridgeReply(SERVICE_UNAVAILABLE)
         blocks = [to_whatsapp(turn.text)] if turn.text.strip() else []
-        quotes = self._quote_blocks(turn.folios, owner)
-        blocks.extend(quotes)
+        spoken = [to_speech(turn.text)] if turn.text.strip() else []
+        quotes = self._quote_views(turn.folios, owner)
+        blocks.extend(whatsapp_quote(view, photo) for view, photo in quotes)
+        spoken.extend(spoken_quote(view, photo) for view, photo in quotes)
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)
+            spoken.append(_spoken_sources(turn.sources))
         if quotes and self.pdf_link is not None and self._latest_view(owner) is not None:
             blocks.append(PDF_OFFER)
+            spoken.append(SpokenReply(PDF_OFFER_SPOKEN))
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
+            spoken.append(SpokenReply("La respuesta quedó incompleta; vuelve a preguntarme."))
         reply = "\n\n".join(block for block in blocks if block)
         if not reply:
             return BridgeReply(SERVICE_UNAVAILABLE)
-        return BridgeReply(reply, tuple(turn.folios))
+        voice = combine(spoken)
+        # Un turno que solo trae enlaces no deja la nota de voz vacía.
+        if not voice.text:
+            voice = SpokenReply("Te envío la información por escrito.", voice.links)
+        return BridgeReply(reply, tuple(turn.folios), spoken=voice)
 
-    def _quote_blocks(self, folios: Sequence[str], owner: str) -> list[str]:
+    def _quote_views(self, folios: Sequence[str], owner: str) -> list[tuple[QuoteView, str | None]]:
+        """Cotizaciones del turno con su foto; un folio ilegible se omite sin romper el turno."""
+
         if self.quotes is None:
             return []
-        blocks: list[str] = []
+        views: list[tuple[QuoteView, str | None]] = []
         for folio in folios:
             try:
                 payload = self.quotes(folio, owner)
@@ -608,9 +717,8 @@ class WhatsAppBridge:
                 continue
             view = quote_view(payload) if payload else None
             if view is not None:
-                photo = self._photo(view.sku)
-                blocks.append(whatsapp_quote(view, photo))
-        return blocks
+                views.append((view, self._photo(view.sku)))
+        return views
 
     def _photo(self, sku: str) -> str | None:
         if self.photo_url is None or not sku:
@@ -633,34 +741,38 @@ class WhatsAppBridge:
             return None
         return quote_view(payload) if payload else None
 
-    def _pdf(self, owner: str) -> tuple[str, bool]:
+    def _pdf(self, owner: str) -> tuple[BridgeReply, bool]:
         """Enlace firmado al PDF de la última cotización del hilo (sin LLM, con cupo).
 
-        Devuelve el texto y si es definitivo: sin URL pública (``pdf_link``) o sin lector
-        de cotizaciones el PDF no estará disponible en un reintento (definitivo); un fallo
-        al leer la última cotización o al firmar el enlace es transitorio.
+        Devuelve la respuesta y si es definitiva: sin URL pública (``pdf_link``) o sin
+        lector de cotizaciones el PDF no estará disponible en un reintento (definitiva); un
+        fallo al leer la última cotización o al firmar el enlace es transitorio.
         """
 
         if self.pdf_link is None or self.latest_quote is None:
-            return PDF_UNAVAILABLE, True
+            return BridgeReply(PDF_UNAVAILABLE), True
         try:
             payload = self.latest_quote(owner)
         except Exception as error:
             logger.warning("whatsapp.latest_quote_failed", error=repr(error))
-            return PDF_UNAVAILABLE, False
+            return BridgeReply(PDF_UNAVAILABLE), False
         view = quote_view(payload) if payload else None
         if view is None or not view.folio:
-            return NO_QUOTE_FOR_PDF, True
+            return BridgeReply(NO_QUOTE_FOR_PDF), True
         try:
             url = self.pdf_link(view.folio, owner, view.valid_until_date)
         except Exception as error:
             logger.warning("whatsapp.pdf_link_failed", error=repr(error))
-            return PDF_UNAVAILABLE, False
+            return BridgeReply(PDF_UNAVAILABLE), False
         logger.info("whatsapp.pdf_link", folio=view.folio)
         lines = [f"📄 Aquí está tu cotización #{view.folio} en PDF:", url]
+        said = f"Te envío por escrito el enlace al PDF de tu cotización con folio {view.folio}."
         if view.valid_until:
             lines.append(f"_El enlace funciona hasta el {view.valid_until}._")
-        return "\n".join(lines), True
+            said += f" El enlace funciona hasta el {view.valid_until}."
+        spoken = to_speech(said)
+        link = SpeechLink(f"Cotización {view.folio} en PDF", url)
+        return BridgeReply("\n".join(lines), spoken=SpokenReply(spoken.text, (link,))), True
 
 
 @dataclass
