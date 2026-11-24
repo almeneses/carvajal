@@ -43,10 +43,16 @@ from carvajal.agent.toolagent.graph import (
     TurnCancelled,
     recursion_limit,
 )
-from carvajal.agent.toolagent.state import TOOL_COTIZAR, TOOL_SIN_CONSULTA, validate_question
+from carvajal.agent.toolagent.state import (
+    TOOL_BUSCAR_CORPUS,
+    TOOL_COTIZAR,
+    TOOL_SIN_CONSULTA,
+    validate_question,
+)
 from carvajal.agent.toolagent.tools import content_data
 from carvajal.application.ask import Source
 from carvajal.application.ports import LLMProvider
+from carvajal.prompts import NO_CONTEXT_ANSWER
 
 __all__ = [
     "RETAIN_CHARS",
@@ -560,9 +566,10 @@ class _TurnStream:
             if step.path == GATE_ABSTAIN:
                 return self._abstain(GATE_ABSTAIN, 0)
             if neutral_only(self.values.get("results") or []):
-                # Búsqueda documental vacía y ninguna herramienta pidió el dato: la redacción
-                # del modelo no sale ni filtrada; sale el reemplazo neutro o la abstención.
-                replacement = self._replacement()
+                # Búsqueda documental vacía: la petición del dato o las sedes no respaldan lo
+                # que el modelo diga del corpus. Su redacción no sale ni filtrada; sale el
+                # reemplazo neutro (con la ausencia del corpus) o la abstención.
+                replacement = self._replacement(corpus_miss=True)
                 if replacement:
                     return self._replace(replacement, 0)
                 return self._abstain(GATE_NO_QUERY, 0)
@@ -623,7 +630,7 @@ class _TurnStream:
         logger.info("tool_agent.replaced", path=GATE_NO_QUERY, unsupported_terms=terms)
         return self._emit(text)
 
-    def _replacement(self) -> str:
+    def _replacement(self, *, corpus_miss: bool = False) -> str:
         """Reemplazo neutro de un texto ``no_query`` rechazado; ``""`` si no corresponde.
 
         La abstención del corpus no sirve cuando el turno pidió un dato o trajo sedes:
@@ -638,6 +645,9 @@ class _TurnStream:
 
         Con alguno de ellos, las búsquedas vacías del turno (:func:`tool_misses`) van antes:
         «no hay sedes en esa ciudad» no se pierde porque otra herramienta pidiera un dato.
+        Con ``corpus_miss`` (caso :func:`neutral_only`), ``NO_CONTEXT_ANSWER`` va antes de la
+        petición si ``buscar_corpus`` consultó de verdad (sin ``error``, como en
+        :func:`abstention`): la parte documental declara su ausencia en vez de desaparecer.
         Sin nada de eso (conversación, atajo, búsquedas vacías) devuelve ``""`` y el turno
         se abstiene (:meth:`_abstain`).
         """
@@ -662,6 +672,11 @@ class _TurnStream:
                         # Una llamada repetida devuelve las mismas sedes con el mismo ``n``.
                         sites.setdefault(site.get("n", len(sites)), site)
         parts = [sites_without_price(sites.values())]
+        if corpus_miss and any(
+            tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error"
+            for tool, data in self.tool_payloads
+        ):
+            parts.append(NO_CONTEXT_ANSWER)
         if asked:
             parts.append(ask_for_missing(fields, cities=list(dict.fromkeys(cities))))
         if not any(parts):
@@ -782,7 +797,9 @@ class ToolAgentRunner:
       del dato si el turno pidió uno, por las sedes sin precio si ``cotizar`` las trajo, o
       por la abstención ajustada a lo consultado si no hay ninguno de esos datos. Si el
       turno buscó en el corpus sin evidencia y ninguna herramienta pidió el dato
-      (``neutral_only``), no emite la redacción del modelo: solo el reemplazo neutro.
+      (``neutral_only``), aunque una herramienta pidiera un dato (``needs_input``), no emite
+      la redacción del modelo: solo el reemplazo neutro, con ``NO_CONTEXT_ANSWER`` antes de
+      la petición del dato.
 
     Antes del primer token emite ``ToolAgentSources``. Los trozos se distinguen por el nodo
     (``langgraph_node``) y por ``tool_call_chunks``.

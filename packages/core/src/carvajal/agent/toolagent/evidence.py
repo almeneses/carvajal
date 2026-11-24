@@ -18,12 +18,14 @@ compuerta, determinista, sobre los ``ToolOutcome`` del turno.
     la abstención. El texto completo se retiene y pasa :func:`filter_unsupported` antes de
     emitirse de una vez, salvo en el caso de :func:`neutral_only`.
 
-- :func:`neutral_only`: el turno buscó en el corpus sin evidencia y solo salió de la
-  abstención por una declaración del propio modelo (``sin_consulta`` con ``pedir_dato``) o
-  por sedes sin precio. Ninguna herramienta pidió el dato (``needs_input``), así que la
-  redacción del modelo no se emite, ni filtrada: el filtro deja pasar afirmaciones
-  cualitativas y lo que las sedes respaldan por casualidad (la «terraza 3» de una
-  dirección respaldaría «entrega en 3 días»). En su lugar sale el reemplazo neutro.
+- :func:`neutral_only`: el turno buscó en el corpus sin evidencia y salió de la
+  abstención por una petición de dato (``needs_input`` de una herramienta o ``sin_consulta``
+  con ``pedir_dato``) o por sedes sin precio. Nada de eso respalda lo que el modelo diga
+  del corpus, así que su redacción no se emite, ni filtrada: el filtro deja pasar
+  afirmaciones cualitativas y lo que las sedes respaldan por casualidad (la «terraza 3» de
+  una dirección respaldaría «entrega en 3 días»). En su lugar sale el reemplazo neutro,
+  con ``NO_CONTEXT_ANSWER`` para la parte documental. Un ``needs_input`` sin búsqueda
+  documental sigue el camino filtrado.
 
 - :func:`filter_unsupported` es el filtro de la ruta directa aplicado a la salida. La ruta
   directa del modo ``routes`` no tiene un filtro de salida reutilizable (se apoya en el
@@ -269,6 +271,10 @@ _NUMBER: Final = re.compile(r"\d+(?:[.,\s]\d+)*")
 # Parte decimal: uno o dos dígitos tras el último punto o coma («14.0», «3,5», «2.50»). Tres
 # dígitos son separador de miles («2.000»).
 _DECIMAL: Final = re.compile(r"(.*\d)[.,](\d{1,2})")
+# Capacidad en los datos JSON (``"capacity_oz": 14.0``): solo respalda su cifra en onzas.
+_CAPACITY_KEY: Final = re.compile(r'"(?:capacity_oz|capacidad_oz)"\s*:\s*(\d+(?:[.,]\d+)?)')
+# Unidad de capacidad justo después de una cifra del texto («14 oz», «14 onzas»).
+_OZ_AFTER: Final = re.compile(r"\s*(?:oz|onzas?)\b", re.IGNORECASE)
 _CURRENCY: Final = re.compile(r"[$€£%]")
 # Números romanos de dos o más letras en mayúscula («siglo XX», «XIX»).
 _ROMAN: Final = re.compile(r"\b[IVXLCDM]{2,}\b")
@@ -343,17 +349,16 @@ def neutral_only(results: Iterable[Mapping[str, Any]]) -> bool:
     """El texto ``no_query`` del modelo no se emite: solo vale el reemplazo neutro.
 
     Es el caso de un turno que buscó en el corpus sin evidencia y que :func:`gate` saca de
-    la abstención sin que ninguna herramienta pidiera un dato: lo sacan una declaración del
-    modelo (``sin_consulta`` con ``pedir_dato``) o las sedes de un ``cotizar`` sin precio.
-    Ninguna de las dos respalda la redacción: la abstención sigue garantizada por el
-    servidor (FR-004) y la petición o las sedes salen igual (FR-005), con texto neutro.
+    la abstención: lo sacan una petición de dato (``needs_input`` de la herramienta o
+    ``sin_consulta`` con ``pedir_dato``) o las sedes de un ``cotizar`` sin precio. Ninguna
+    respalda lo que el modelo diga del corpus: un ``needs_input`` solo respalda la petición
+    del dato. La abstención sigue garantizada por el servidor (FR-004) y la petición o las
+    sedes salen igual (FR-005), con texto neutro.
     """
 
     outcomes = list(results)
-    return (
-        gate(outcomes) == GATE_NO_QUERY
-        and any(r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes)
-        and not any(r.get("status") == "needs_input" for r in outcomes)
+    return gate(outcomes) == GATE_NO_QUERY and any(
+        r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes
     )
 
 
@@ -376,11 +381,9 @@ def _canonical(number: str) -> str:
     «14.0», «14,00» y «14» son la misma cifra (los datos JSON escriben ``14.0``); «3,5» y
     «3.50» también. «3,5» no es «35» y «2.000» (miles) no es «2».
 
-    Riesgo conocido: el filtro compara cifras sin su contexto, así que la capacidad
-    ``capacity_oz: 14.0`` respalda también un «14» con otra unidad («entrega en 14 días»).
-    Es el mismo caso que un ``14`` entero en los datos; antes ``14.0`` lo bloqueaba solo por
-    accidente (lo leía como «140», que tampoco era la cifra) y bloqueaba también el legítimo
-    «14 oz». Atar la cifra a su unidad exigiría saber de qué campo viene cada número.
+    La capacidad de los datos (``capacity_oz: 14.0``) no pasa por aquí sin más: en
+    :func:`unsupported_terms` solo respalda su cifra seguida de «oz» u «onzas», para que no
+    respalde «entrega en 14 días».
     """
 
     decimal = _DECIMAL.fullmatch(number.strip())
@@ -411,14 +414,17 @@ def unsupported_terms(text: str, *, allowed: Iterable[str] = ()) -> list[str]:
 
     ``allowed`` son textos que el turno ya trae (la pregunta, el contenido de las
     herramientas, el contexto comercial): una cifra o un nombre que aparezca ahí no es una
-    afirmación nueva del modelo. Devuelve los términos en el orden en que aparecen, sin
-    repetir; sirve para registrar por qué se bloqueó una respuesta.
+    afirmación nueva del modelo. Una capacidad de los datos (``capacity_oz``) solo respalda
+    su cifra seguida de «oz» u «onzas»; si la misma cifra viene en otro dato (SKU, nombre,
+    pregunta), respalda cualquier unidad. Devuelve los términos en el orden en que
+    aparecen, sin repetir; sirve para registrar por qué se bloqueó una respuesta.
     """
 
     allowed_text = " ".join(allowed)
     allowed_words = set(_WORD.findall(_fold(allowed_text)))
     allowed_tokens = _tokens(allowed_text)
-    allowed_numbers = {_canonical(n) for n in _NUMBER.findall(allowed_text)}
+    capacity_numbers = {_canonical(n) for n in _CAPACITY_KEY.findall(allowed_text)}
+    allowed_numbers = {_canonical(n) for n in _NUMBER.findall(_CAPACITY_KEY.sub("", allowed_text))}
     cleaned = _clean(text)
     terms: list[str] = []
 
@@ -428,8 +434,12 @@ def unsupported_terms(text: str, *, allowed: Iterable[str] = ()) -> list[str]:
 
     for match in _NUMBER.finditer(cleaned):
         raw = match.group().strip()
-        if _canonical(raw) not in allowed_numbers:
-            flag(raw)
+        number = _canonical(raw)
+        if number in allowed_numbers:
+            continue
+        if number in capacity_numbers and _OZ_AFTER.match(cleaned, match.end()):
+            continue
+        flag(raw)
     for symbol in _CURRENCY.findall(cleaned):
         if symbol not in allowed_text:
             flag(symbol)

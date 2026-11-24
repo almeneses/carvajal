@@ -408,15 +408,16 @@ def _pedir_dato() -> ToolOutcome:
         ),
         pytest.param(
             [_outcome("buscar_corpus", "empty"), _outcome("cotizar", "needs_input")],
-            False,
+            True,
             id="corpus-vacio+needs-input-de-la-herramienta",
         ),
         pytest.param(
             [_outcome("buscar_corpus", "empty"), _pedir_dato(), _outcome("cotizar", "needs_input")],
-            False,
+            True,
             id="pedir+needs-input",
         ),
         pytest.param([_pedir_dato()], False, id="pedir-sin-corpus"),
+        pytest.param([_outcome("cotizar", "needs_input")], False, id="needs-input-sin-corpus"),
         pytest.param([_outcome("cotizar", "empty", (1,))], False, id="sedes-sin-corpus"),
         pytest.param([_outcome("buscar_corpus", "empty")], False, id="abstencion"),
         pytest.param(
@@ -424,28 +425,45 @@ def _pedir_dato() -> ToolOutcome:
         ),
     ],
 )
-def test_solo_el_reemplazo_neutro_cuando_el_corpus_no_respondio_y_nadie_pidio_el_dato(
+def test_solo_el_reemplazo_neutro_cuando_el_corpus_no_respondio(
     results: list[ToolOutcome], expected: bool
 ) -> None:
     # Act
     blocked = neutral_only(results)
 
-    # Assert: la declaración del modelo o las sedes no liberan su redacción tras buscar en
-    # el corpus sin evidencia; un ``needs_input`` (lo decide la herramienta) sí la filtra.
+    # Assert: ni la declaración del modelo, ni las sedes, ni un ``needs_input`` liberan su
+    # redacción tras buscar en el corpus sin evidencia: solo respaldan la petición del dato
+    # o las sedes, no lo que diga del corpus (revisión PR 236, C1). Sin búsqueda documental,
+    # el texto pasa el filtro.
     assert blocked is expected
 
 
-def test_riesgo_conocido_la_capacidad_respalda_la_misma_cifra_con_otra_unidad() -> None:
-    # Arrange: el filtro compara cifras sin su unidad (docstring de ``_canonical``).
+def test_la_capacidad_solo_respalda_su_cifra_en_onzas() -> None:
+    # Arrange: revisión PR 236 (C2). La capacidad es la única fuente del «14».
     allowed = ['{"capacity_oz": 14.0}']
 
     # Act
-    same = unsupported_terms("Vasos de 14 oz; entrega en 14 días.", allowed=allowed)
+    ounces = unsupported_terms("Vasos de 14 oz y de 14 onzas.", allowed=allowed)
+    days = unsupported_terms("La entrega tarda 14 días.", allowed=allowed)
+    mixed = unsupported_terms("Vasos de 14 oz; entrega en 14 días.", allowed=allowed)
     other = unsupported_terms("Entrega en 140 días.", allowed=allowed)
 
-    # Assert: «14» queda respaldado con cualquier unidad (limitación aceptada); otra cifra no.
-    assert same == []
+    # Assert: «14 oz» queda respaldado; el mismo «14» con otra unidad u otra cifra, no.
+    assert ounces == []
+    assert days == ["14"]
+    assert mixed == ["14"]
     assert other == ["140"]
+
+
+def test_la_capacidad_repetida_en_otro_dato_respalda_la_cifra_con_cualquier_unidad() -> None:
+    # Arrange: el «14» también viene en el SKU de la herramienta, no solo en la capacidad.
+    allowed = ['{"capacity_oz": 14.0, "sku": "CO-VGOLD-14"}']
+
+    # Act
+    terms = unsupported_terms("La referencia trae 14 unidades por paquete.", allowed=allowed)
+
+    # Assert
+    assert terms == []
 
 
 def test_una_cifra_decimal_entera_de_los_datos_respalda_la_cifra_sin_decimales() -> None:

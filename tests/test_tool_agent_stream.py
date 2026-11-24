@@ -694,11 +694,50 @@ def test_una_pregunta_compuesta_conserva_la_peticion_del_dato_que_falta() -> Non
     # Act
     events = _stream(runner, "¿Quién fundó Carvajal? Y cotízame 2000 vasos en Bogotá")
 
-    # Assert
+    # Assert: la parte documental declara su ausencia y la petición del dato sale neutra,
+    # con los campos de ``missing`` de la herramienta, no con la redacción del modelo.
     final = _final(events)
     assert [r["status"] for r in final.results] == ["empty", "needs_input"]
     assert final.gate == "no_query"
-    assert _tokens(events) == [text]
+    [token] = _tokens(events)
+    assert token.startswith(NO_CONTEXT_ANSWER)
+    assert token.endswith(
+        "Para seguir me falta un dato: si el contenido va caliente, frío o a temperatura "
+        "ambiente. ¿Me lo indicas?"
+    )
+    assert final.abstained is False
+
+
+def test_corpus_vacio_y_needs_input_no_liberan_afirmaciones_cualitativas_del_modelo() -> None:
+    # Arrange: revisión PR 236 (C1). El corpus no responde, ``cotizar`` pide la temperatura y
+    # el modelo afirma en minúscula un hecho del corpus que el filtro no marca.
+    claim = (
+        "Carvajal recicla todos sus vasos usados y los convierte en papel nuevo. "
+        "Para cotizar, dime si la bebida es caliente o fría."
+    )
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("buscar_corpus", consulta="programa de reciclaje de Carvajal"),
+                _call("cotizar", family="vaso", quantity=2000, city="Bogotá"),
+            ]
+        ),
+        ScriptStep(text=claim),
+    ]
+    runner, _ = _runner(steps, store=QueueStore([]))
+
+    # Act
+    events = _stream(runner, "¿Carvajal recicla los vasos? Y cotízame 2000 vasos en Bogotá")
+
+    # Assert: el ``needs_input`` respalda la petición del dato, no lo dicho sobre el corpus.
+    final = _final(events)
+    assert [r["status"] for r in final.results] == ["empty", "needs_input"]
+    assert final.gate == "no_query"
+    [token] = _tokens(events)
+    assert "recicla" not in token
+    assert token.startswith(NO_CONTEXT_ANSWER)
+    assert "caliente, frío" in token
+    assert final.abstained is False
 
 
 @pytest.mark.parametrize(
@@ -864,6 +903,37 @@ def _two_turns(
     runner, _ = _runner([*first[1], *second[1]])
     list(runner.stream("dueno-1", "hilo-1", first[0], []))
     return list(runner.stream("dueno-1", "hilo-1", second[0], []))
+
+
+def test_la_capacidad_del_turno_anterior_no_respalda_un_plazo_con_la_misma_cifra() -> None:
+    # Arrange: revisión PR 236 (C2). El único «14» del turno es ``capacity_oz: 14.0`` del
+    # contexto comercial; el modelo lo reutiliza para inventar un plazo de entrega.
+    first = [
+        ScriptStep(tool_calls=[_call("cotizar", **COTIZAR_GOLD)]),
+        ScriptStep(text="¿En qué ciudad y cuántas unidades?"),
+    ]
+    second = [
+        ScriptStep(tool_calls=[_call("cotizar", family="vaso", temperature="fria")]),
+        ScriptStep(
+            text="Para cotizarlos necesito la ciudad y la cantidad; la entrega tarda 14 días "
+            "hábiles."
+        ),
+    ]
+
+    # Act
+    events = _two_turns(
+        ("Necesito vasos de 14 oz para bebida fría.", first),
+        ("¿Y para cuándo me llegarían?", second),
+    )
+
+    # Assert: sale el reemplazo neutro con los campos de ``missing``, sin el plazo.
+    final = _final(events)
+    assert final.gate == "no_query"
+    [token] = _tokens(events)
+    assert "14" not in token
+    assert "días" not in token
+    assert token.startswith("Para seguir me")
+    assert final.abstained is False
 
 
 def test_pedir_la_ciudad_con_la_capacidad_del_turno_anterior_no_se_abstiene() -> None:
