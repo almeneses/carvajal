@@ -87,6 +87,7 @@ __all__ = [
     "canonical_chat_id",
     "is_pdf_request",
     "owner_key_for",
+    "split_pdf_request",
     "spoken_quote",
     "to_whatsapp",
     "whatsapp_quote",
@@ -380,6 +381,30 @@ def is_pdf_request(message: str, *, spoken: bool = False) -> bool:
         folded = " ".join(_PDF_SPOKEN.sub(" pdf ", folded).split())
     words = _PDF_WORDS.findall(folded)
     return "pdf" in words and len(words) <= 8 and all(word in _PDF_FILLER for word in words)
+
+
+# «… en Bogotá y genérame el PDF», «…, y mándalo en pdf»: cláusula final con «pdf».
+_PDF_TAIL = re.compile(
+    r"(?:\s*[,;.]\s*|\s+)(?:y|e)\s+[^,;.\n]*\bp\.?\s?d\.?\s?f\b[^,;.\n]*[.!?¡¿]*\s*$",
+    re.IGNORECASE,
+)
+# «cotiza en PDF 400 vasos», «cotízame con pdf…»: «en/con (el) pdf» dentro del pedido.
+_PDF_INLINE = re.compile(r"\s*\b(?:en|con)\s+(?:un\s+|el\s+)?pdf\b", re.IGNORECASE)
+
+
+def split_pdf_request(message: str) -> tuple[str, bool]:
+    """``(pedido sin la parte del PDF, si además pidió el PDF)``.
+
+    «Cotiza 400 J1 en Bogotá y genera el PDF» → («Cotiza 400 J1 en Bogotá», True): el
+    agente cotiza y el puente adjunta el PDF de esa cotización, sin pedirle al modelo que
+    entienda el archivo. Una pregunta sobre el PDF («¿el PDF trae el IVA?») no se toca.
+    """
+
+    for pattern in (_PDF_TAIL, _PDF_INLINE):
+        cleaned = " ".join(pattern.sub("", message).split())
+        if cleaned != " ".join(message.split()) and cleaned:
+            return cleaned, True
+    return message, False
 
 
 def _units(value: int | None) -> str:
@@ -763,9 +788,26 @@ class WhatsAppBridge:
             # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
             pdf, final = self._pdf(owner)
             return pdf, False, final
-        turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
+        question, wants_pdf = split_pdf_request(text)
+        turn = _collect(self.chat.stream(owner, question, client_turn_id=client_turn_id))
         reply = self._render(turn, owner)
+        if wants_pdf and reply.quote_ids:
+            reply = self._with_pdf(reply, owner)
         return reply, True, reply.text != SERVICE_UNAVAILABLE
+
+    def _with_pdf(self, reply: BridgeReply, owner: str) -> BridgeReply:
+        """La cotización del turno con su PDF ya entregado, en vez de la oferta."""
+
+        pdf, _final = self._pdf(owner)
+        if pdf.text in {PDF_UNAVAILABLE, NO_QUOTE_FOR_PDF}:
+            return reply
+        text = reply.text.removesuffix(PDF_OFFER).rstrip()
+        said = reply.voice()
+        without_offer = SpokenReply(
+            said.text.replace(PDF_OFFER_SPOKEN, "").strip(), said.links, said.omitted
+        )
+        spoken = combine([without_offer, pdf.voice()])
+        return BridgeReply(f"{text}\n\n{pdf.text}", reply.quote_ids, spoken=spoken)
 
     def _settle(
         self,

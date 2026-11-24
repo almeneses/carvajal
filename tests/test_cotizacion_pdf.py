@@ -53,6 +53,7 @@ from apps.mcp.bridge import (
     WhatsAppBridge,
     is_pdf_request,
     owner_key_for,
+    split_pdf_request,
     whatsapp_quote,
 )
 from carvajal.adapters.storage import tables
@@ -798,3 +799,71 @@ def test_solo_con_adjunto_tambien_se_ofrece_el_pdf() -> None:
 
     assert bridge.consult("Cotiza", "+573100000000").endswith(PDF_OFFER)
     assert ATTACH_PDF_PREFIX in bridge.consult("pdf", "+573100000000")
+
+
+# --- «cotiza … y genera el PDF» en un solo mensaje -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("message", "question"),
+    [
+        (
+            "Cotiza 400 porta comidas espumados j1 en Bogotá y genes PDF",
+            "Cotiza 400 porta comidas espumados j1 en Bogotá",
+        ),
+        (
+            "Cotiza 400 J1 en Bogotá, y mándame la cotización en pdf por favor.",
+            "Cotiza 400 J1 en Bogotá",
+        ),
+        ("Cotiza en PDF 400 vasos en Bogotá", "Cotiza 400 vasos en Bogotá"),
+    ],
+)
+def test_split_pdf_request(message: str, question: str) -> None:
+    assert split_pdf_request(message) == (question, True)
+
+
+@pytest.mark.parametrize("message", ["¿el PDF trae el IVA?", "Cotiza 400 J1 en Bogotá", "PDF"])
+def test_split_pdf_request_no_toca_lo_demas(message: str) -> None:
+    assert split_pdf_request(message) == (message, False)
+
+
+def test_cotizacion_y_pdf_en_un_solo_mensaje() -> None:
+    payload = stamped()
+    chat = FakeChat(
+        events=[
+            ChatEvent("token", {"text": "Aquí está tu cotización."}),
+            ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]}),
+        ]
+    )
+    bridge = WhatsAppBridge(
+        chat=chat,
+        secret=SECRET,
+        quotes=lambda folio, owner: payload,
+        latest_quote=lambda owner: payload,
+        pdf_link=_links,
+        pdf_attachment=_attachment,
+    )
+
+    reply = bridge.consult("Cotiza 400 J1 en Bogotá y genera el PDF", "+573100000000")
+    answer = getattr(reply, "text", reply)
+
+    assert chat.calls == ["Cotiza 400 J1 en Bogotá"]
+    assert "🧾 *Cotización #Q-7F3A2C*" in answer
+    assert PDF_OFFER not in answer
+    assert f"\n{ATTACH_PDF_PREFIX}{MEDIA}/cotizaciones/Q-7F3A2C.pdf?t=" in answer
+
+
+def test_si_el_agente_no_cotiza_no_se_adjunta_nada() -> None:
+    chat = FakeChat(events=[ChatEvent("token", {"text": "¿Para qué ciudad?"})])
+    bridge = WhatsAppBridge(
+        chat=chat,
+        secret=SECRET,
+        latest_quote=lambda owner: stamped(),
+        pdf_attachment=_attachment,
+    )
+
+    reply = bridge.consult("Cotiza 400 J1 y genera el PDF", "+573100000000")
+    answer = getattr(reply, "text", reply)
+
+    assert ATTACH_PDF_PREFIX not in answer
+    assert chat.calls == ["Cotiza 400 J1"]

@@ -85,6 +85,13 @@ esta regla en su `AGENTS.md`:
 
 Sin `MEDIA_BASE_URL`, el PDF se entrega como enlace con `PUBLIC_BASE_URL`.
 
+### Cotización y PDF en un solo mensaje
+
+«Cotiza 400 portacomidas J1 en Bogotá y genera el PDF» no se le pasa entero al agente:
+el puente separa la parte del PDF (`split_pdf_request`), el agente cotiza solo el pedido y,
+si salió una cotización, el puente añade el PDF (adjunto o enlace) en lugar de la oferta.
+Una pregunta sobre el PDF («¿el PDF trae el IVA?») va al agente sin cambios.
+
 ## Fotos del catálogo
 
 Las fotos son opcionales y se versionan con el catálogo:
