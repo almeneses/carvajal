@@ -54,7 +54,7 @@ MCP propio que usa OpenClaw como gateway de WhatsApp y por un webhook firmado.
 Solo necesita Docker y una clave de DeepSeek:
 
 ```bash
-git clone git@github.com:markodavid/carvajal.git
+git clone https://github.com/markodavid/carvajal.git
 cd carvajal
 cp .env.example .env          # completa DEEPSEEK_API_KEY (el .env no se versiona)
 make up                       # app + Postgres + Qdrant + Ollama (embeddings) + corpus
@@ -101,7 +101,7 @@ flowchart LR
 
   subgraph GRAFO["Grafo LangGraph (AGENT_MODE=tools)"]
     RC["recall<br/>ventana + resumen + memoria"] --> SC{"shortcut / gatekeeper<br/>reglas → Jev Choice → LLM"}
-    SC -->|"saludo · despedida · olvido"| DI["direct<br/>sin consultas"]
+    SC -->|"reglas: saludo · despedida · olvido<br/>Jev: respuesta_directa ≥ 0,8"| DI["direct<br/>sin herramientas"]
     SC -->|"alcance rag · structured · all<br/>o cautela"| AG["agent<br/>DeepSeek + bind_tools"]
     AG <-->|"tool_calls"| TL["tools<br/>20 herramientas @tool"]
   end
@@ -118,6 +118,7 @@ flowchart LR
   CS <--> PG
   RC <--> PG
   AG --> DS["DeepSeek API<br/>LLM en la nube"]
+  DI --> DS
   SC -.->|"Choice"| JEV["Jev · TypeSafe System One"]
   GT -.->|"Noul"| JEV
   OL["Ollama<br/>nomic-embed-text"] -->|"embeddings 768 d"| QD
@@ -133,13 +134,15 @@ Flujo de un turno:
    los anteriores y la memoria del dueño ([`agent/toolagent/graph.py`](packages/core/src/carvajal/agent/toolagent/graph.py)).
 3. **`shortcut` / gatekeeper.** Las reglas deciden primero: saludos, despedidas y «olvida
    todo» van a `direct` sin consultar. Si no deciden, Jev clasifica el turno y limita las
-   herramientas disponibles ([`agent/gatekeeper/decide.py`](packages/core/src/carvajal/agent/gatekeeper/decide.py)).
+   herramientas disponibles; solo una `respuesta_directa` con confianza ≥ 0,8 va a `direct`
+   ([`agent/gatekeeper/decide.py`](packages/core/src/carvajal/agent/gatekeeper/decide.py)).
 4. **`agent` ⇄ `tools`.** DeepSeek elige y encadena herramientas (máximo
    `AGENT_MAX_TOOL_CALLS`, 4 por defecto); cada consulta publica una línea de estado
    («Estoy calculando cuánto te salen 2.000 vasos en Bogotá…») y registra sus fuentes.
 5. **Compuertas.** La compuerta determinista abstiene el turno si ninguna consulta dio
    evidencia; después, la compuerta Noul de Jev sustituye por el texto neutro la respuesta
-   con afirmaciones no respaldadas ([`apps/api/chat/agent.py`](apps/api/chat/agent.py)).
+   con afirmaciones no respaldadas ([`apps/api/chat/agent.py`](apps/api/chat/agent.py)). La
+   respuesta de `direct` no consulta datos y Noul no la juzga.
 6. **Salida.** Texto con citas, tarjetas de producto y cotización en la web; texto con
    formato de WhatsApp, fuentes y oferta de PDF en el canal de mensajería.
 
@@ -229,9 +232,11 @@ El gatekeeper corre en el nodo `shortcut`, antes del primer paso del modelo
 2. **Jev Choice**: si las reglas no deciden, una pregunta Choice de Jev (TypeSafe System
    One, `jev-1.14.0`) clasifica el turno en `herramienta_estructurada`, `rag`, `mixta` o
    `respuesta_directa`. La clase limita las herramientas del turno: `rag` solo ve las
-   documentales, `structured` las de catálogo, precios, sedes, cifras, fechas y memoria, y
-   `mixta` todas ([`registry.py`](packages/core/src/carvajal/agent/toolagent/tools/registry.py),
-   `TOOLS_BY_SCOPE`).
+   documentales, `herramienta_estructurada` las de catálogo, precios, sedes, cifras, fechas
+   y memoria, y `mixta` todas ([`registry.py`](packages/core/src/carvajal/agent/toolagent/tools/registry.py),
+   `TOOLS_BY_SCOPE`). Si Jev elige `rag` pero la pregunta nombra un producto, un precio, una
+   cantidad o dónde comprar, el turno se trata como `mixta` para no perder el catálogo. Una
+   `respuesta_directa` con confianza suficiente se responde por `direct`, sin herramientas.
 3. **Confianza baja → cautela**: por debajo de `JEV_ROUTER_MIN_CONFIDENCE` (0,6), por
    debajo de `JEV_ROUTER_DIRECT_MIN_CONFIDENCE` (0,8) para la respuesta directa, o si Jev
    contradice una señal estructurada fuerte de las reglas, el turno ve las 20 herramientas y
@@ -271,9 +276,9 @@ el bloque `jev`. Resultados de la medición
   **el mismo turno del chat web** con [`WhatsAppBridge`](apps/mcp/bridge.py) y devuelve el
   texto final en formato de WhatsApp con sus fuentes; OpenClaw lo reenvía tal cual.
 - **Servidor MCP propio**: Streamable HTTP, `Authorization: Bearer <MCP_TOKEN>` comparado en
-  tiempo constante (sin token no arranca), solo cabeceras `Host` de loopback, puerto
-  publicado en `127.0.0.1:8765` y alcanzado por túnel SSH; servicio `mcp` del perfil
-  `whatsapp` en [`compose.prod.yml`](compose.prod.yml).
+  tiempo constante (sin token no arranca), solo cabeceras `Host` de loopback, puerto 8765
+  publicado solo en loopback y alcanzado por túnel SSH; servicio `mcp` del perfil `whatsapp`
+  en [`compose.prod.yml`](compose.prod.yml).
 - **Webhook firmado** `POST /api/webhooks/whatsapp`
   ([`apps/api/views/webhooks.py`](apps/api/views/webhooks.py),
   [`docs/webhooks.md`](docs/webhooks.md)): HMAC-SHA256 de `<timestamp>.<cuerpo>` con
@@ -348,7 +353,7 @@ Contrato: [`specs/045-memoria-herramientas/contracts/memory.md`](specs/045-memor
 | Compuerta de evidencia | Sin evidencia consultada, abstención declarada; el modelo no redacta datos de Carvajal sin consulta ([`toolagent/evidence.py`](packages/core/src/carvajal/agent/toolagent/evidence.py)) |
 | Compuerta de afirmaciones | Jev Noul sustituye por el texto neutro lo no respaldado ([`claims.py`](packages/core/src/carvajal/agent/gatekeeper/claims.py)) |
 | Datos sensibles | Filtro determinista en memoria, resumen y lo que viaja a Jev ([`sensitive.py`](packages/core/src/carvajal/agent/memory/sensitive.py), [`privacy.py`](packages/core/src/carvajal/agent/gatekeeper/privacy.py)) |
-| Token MCP | Bearer obligatorio, comparación en tiempo constante, Host de loopback, puerto solo en `127.0.0.1` |
+| Token MCP | Bearer obligatorio, comparación en tiempo constante, Host de loopback, puerto publicado solo en loopback |
 | Firma del webhook | HMAC-SHA256 con timestamp firmado, ventana de 5 minutos e idempotencia por `message_id` |
 | Allowlist | `WEBHOOK_ALLOWED_NUMBERS` en E.164; vacía rechaza a todos (403) |
 | Sin trazas internas al usuario | Errores con mensaje legible en web y WhatsApp; `trace` solo con `?debug=1`; Sentry con `send_default_pii=False` e `include_local_variables=False` ([`observability.py`](apps/api/observability.py)) |
@@ -364,7 +369,7 @@ Requisitos: Python 3.13, [`uv`](https://docs.astral.sh/uv/) y Docker (para Postg
 Qdrant). Toda la gestión de dependencias pasa por `uv`.
 
 ```bash
-git clone git@github.com:markodavid/carvajal.git
+git clone https://github.com/markodavid/carvajal.git
 cd carvajal
 uv sync --all-extras                 # entorno reproducible desde uv.lock
 cp .env.example .env                 # DEEPSEEK_API_KEY y SESSION_SECRET
@@ -373,7 +378,7 @@ make qdrant                          # Qdrant con volumen persistente
 uv run alembic upgrade head          # migraciones
 ollama pull nomic-embed-text         # embeddings locales de 768 dimensiones
 uv run carvajal migrate-gold         # importa documentos y fragmentos a Postgres
-make index                           # indexa data/gold en Qdrant (idempotente)
+make index                           # indexa el núcleo y las capas extendidas en Qdrant
 make api                             # http://localhost:8000
 ```
 
@@ -404,12 +409,13 @@ uv run carvajal sync --layer all     # Gold → PostgreSQL → Qdrant, increment
 uv run carvajal sync --verify        # compara huellas y conteos sin escribir
 uv run carvajal status               # estado del corpus
 uv run carvajal capture              # captura el sitio oficial y la prensa (respeta robots.txt)
-python -m apps.mcp                   # servidor MCP en 127.0.0.1:8765 (requiere MCP_TOKEN)
+uv run python -m apps.mcp            # servidor MCP en loopback, puerto 8765 (requiere MCP_TOKEN)
 ```
 
-La CLI completa (`capture`, `sync`, `index-qdrant`, `status`, `ask`, `eval`, `summarize`,
-`faq`, `import`, `migrate-gold`, `eval-agent`, `simulate-chat`, `eval-gatekeeper`,
-`eval-claims`) requiere los extras: `uv sync --all-extras` en el repositorio o
+La CLI completa (`capture`, `sync`, `index-qdrant`, `status`, `list`, `ask`, `eval`,
+`summarize`, `faq`, `import`, `migrate-gold`, `catalog-build`, `catalog-prices`,
+`eval-router`, `eval-agent`, `simulate-chat`, `eval-gatekeeper`, `eval-claims`) requiere
+los extras: `uv sync --all-extras` en el repositorio o
 `uv tool install "carvajal[capture,legacy]"` fuera de él.
 
 La interfaz web ofrece **Chat** (respuestas con fuentes, tarjetas de producto y
@@ -417,7 +423,7 @@ cotizaciones, hilos anteriores, voz) y **Corpus** (explorador y ficha de cada do
 `/configuracion` es la consola del operador para cargar archivos (`.pdf`, `.xml`, `.json`,
 `.csv`, `.html`, `.md`…) o capturar URLs; exige `OPERATOR_TOKEN` y deja lo nuevo en Gold
 para revisión antes de publicarlo con `carvajal sync`. Para volúmenes grandes:
-`python -m apps.api.ingest_cli /ruta --source-type oficial`.
+`uv run python -m apps.api.ingest_cli /ruta --source-type oficial`.
 
 ## Despliegue
 
@@ -477,14 +483,15 @@ fuente (oficial, tercero, colaborador o sistema).
 | 20 herramientas y memoria, 26 ítems | `uv run carvajal eval-agent --mode tools --questions data/eval/herramientas_045.json` | **25/26** (26/26 auditado), 0 violaciones, 0 datos sin fuente | [045 §4](specs/045-memoria-herramientas/evidencia.md) |
 | Generalización v3, 40 ítems | `uv run carvajal eval-agent --mode tools --questions data/eval/generalization_v3.json` | **37/40** auditado (13/40 en `routes`) | [045 §5](specs/045-memoria-herramientas/evidencia.md) |
 | Simulación de conversaciones, 12 escenarios y 32 turnos | `uv run carvajal simulate-chat --scenarios data/eval/simulacion_escenarios_r3.json` | 0 respaldos ni errores, 0 turnos con dato sin fuente, 1 violación de garantía dudosa, primer texto p95 4,71 s | [045 §6](specs/045-memoria-herramientas/evidencia.md) |
-| Gatekeeper, 20 preguntas | `uv run carvajal eval-gatekeeper` | Jev 20/20, LLM 18/20, reglas 14/20 | [046 §2](specs/046-jev-router/evidencia.md) |
-| Compuerta de afirmaciones, 16 respuestas | `uv run carvajal eval-claims` | 10/10 detectadas, 0/6 falsas alarmas | [046 §3](specs/046-jev-router/evidencia.md) |
+| Gatekeeper, 20 preguntas | `uv run carvajal eval-gatekeeper --judge rules --judge llm --judge jev --ledger <libro>` | Jev 20/20, LLM 18/20, reglas 14/20 | [046 §2](specs/046-jev-router/evidencia.md) |
+| Compuerta de afirmaciones, 16 respuestas | `uv run carvajal eval-claims --ledger <libro>` | 10/10 detectadas, 0/6 falsas alarmas | [046 §3](specs/046-jev-router/evidencia.md) |
 | v3 con y sin Jev | `eval-agent … --jev-ledger <libro>` | 28/40 frente a 29/40 (estricto); latencia y costo en la evidencia | [046 §4](specs/046-jev-router/evidencia.md) |
 | Cotizador, casos dorados | `make eval-cotizador` | **18/18** | [046 §1](specs/046-jev-router/evidencia.md) |
 
 `eval-agent`, `simulate-chat`, `eval-gatekeeper` y `eval-claims` llaman a los proveedores
-reales y gastan créditos; cuando llaman a Jev exigen `--ledger`, que anota cada llamada
-sin texto. Los conjuntos están en [`data/eval/`](data/eval/).
+reales y gastan créditos; cuando llaman a Jev exigen un libro de llamadas (`--ledger`, o
+`--jev-ledger` en `eval-agent`) que anota cada llamada sin texto. Los conjuntos están en
+[`data/eval/`](data/eval/).
 
 ## Configuración
 
