@@ -7,13 +7,25 @@ compuerta, determinista, sobre los ``ToolOutcome`` del turno.
   menos un ``ToolOutcome`` con ``status == "ok"`` y ``source_ids`` no vacío.
 
   - ``evidence``: hay evidencia; el texto se transmite con la retención de 48 caracteres.
-  - ``abstain``: no hay evidencia y el turno buscó en el corpus (``buscar_corpus``); la
-    respuesta es ``NO_CONTEXT_ANSWER`` y no se transmite nada del modelo.
+  - ``abstain``: no hay evidencia, el turno buscó en el corpus (``buscar_corpus``) y
+    ninguna otra herramienta aportó datos; la respuesta es ``NO_CONTEXT_ANSWER`` y no se
+    transmite nada del modelo.
   - ``no_query``: no hay evidencia ni búsqueda documental (solo ``sin_consulta`` o
-    herramientas sin evidencia), o alguna herramienta pidió un dato (``needs_input``)
-    aunque la búsqueda documental del turno saliera vacía: la petición del dato (FR-005)
-    no se pierde tras la abstención. El texto completo se retiene y pasa
-    :func:`filter_unsupported` antes de emitirse de una vez.
+    herramientas sin evidencia), alguna herramienta pidió un dato (``needs_input`` o
+    ``sin_consulta`` válido con ``pedir_dato``) o devolvió datos citados sin ``ok``
+    (``cotizar`` sin precio, con las sedes del directorio), aunque la búsqueda documental
+    del turno saliera vacía: la petición del dato (FR-005) y las sedes no se pierden tras
+    la abstención. El texto completo se retiene y pasa :func:`filter_unsupported` antes de
+    emitirse de una vez, salvo en el caso de :func:`neutral_only`.
+
+- :func:`neutral_only`: el turno buscó en el corpus sin evidencia y salió de la
+  abstención por una petición de dato (``needs_input`` de una herramienta o ``sin_consulta``
+  con ``pedir_dato``) o por sedes sin precio. Nada de eso respalda lo que el modelo diga
+  del corpus, así que su redacción no se emite, ni filtrada: el filtro deja pasar
+  afirmaciones cualitativas y lo que las sedes respaldan por casualidad (la «terraza 3» de
+  una dirección respaldaría «entrega en 3 días»). En su lugar sale el reemplazo neutro,
+  con ``NO_CONTEXT_ANSWER`` para la parte documental. Un ``needs_input`` sin búsqueda
+  documental sigue el camino filtrado.
 
 - :func:`filter_unsupported` es el filtro de la ruta directa aplicado a la salida. La ruta
   directa del modo ``routes`` no tiene un filtro de salida reutilizable (se apoya en el
@@ -24,26 +36,66 @@ compuerta, determinista, sobre los ``ToolOutcome`` del turno.
   cualquier posición y en minúscula. Las cifras pequeñas en letras («dos», «tres»…) no
   cuentan: son habituales en una aclaración («te pido dos datos»).
   Lo que ya aportaron la pregunta o los resultados de las herramientas no cuenta como
-  afirmación nueva (``allowed``). Ante la duda bloquea: una abstención de más es preferible
-  a una cifra inventada.
+  afirmación nueva (``allowed``), aunque el resultado sea ``empty`` o ``needs_input``: sus
+  sedes, ciudades, campos faltantes y referencias respaldan lo que el modelo diga de ellos.
+  Ante la duda bloquea: una abstención de más es preferible a una cifra inventada.
+
+- :func:`ask_for_missing` y :func:`sites_without_price` son los reemplazos neutros del
+  camino ``no_query`` cuando el filtro rechaza el texto de un turno que pidió un dato o que
+  trajo sedes: se construyen solo con los datos de las herramientas (los campos de
+  ``missing``, las ciudades y las sedes), nunca con texto del modelo. Una petición de dato
+  no se convierte en «no está en el corpus».
+
+- :func:`abstention` es el texto que sustituye una redacción sin respaldo cuando no hay
+  petición ni sedes, y se ajusta a lo que el turno consultó (simulación de la spec 044):
+
+  - cada búsqueda vacía declara su ausencia con los datos de la herramienta
+    (:func:`tool_misses`: «no lo encontré en el catálogo de Colombia», las ciudades con
+    sedes del directorio, lo que sí coincide con el nombre buscado);
+  - ``NO_CONTEXT_ANSWER`` («no está en el corpus») solo si el turno buscó en el corpus;
+  - sin búsquedas, una respuesta de conversación (:data:`FAREWELL_ANSWER`,
+    :data:`GREETING_ANSWER`, :data:`PREFERENCE_ANSWER` o :data:`NO_DATA_ANSWER`): nunca la
+    frase del corpus, que afirmaría una búsqueda que no se hizo.
+
+  Ninguno de esos textos lleva cifras ni nombres del modelo: solo datos de las herramientas
+  y frases fijas, así que ninguna afirmación sin respaldo pasa.
 """
 
 import re
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final, Literal
 
-from carvajal.agent.toolagent.state import TOOL_BUSCAR_CORPUS
+from carvajal.agent.toolagent.state import (
+    TOOL_BUSCAR_CORPUS,
+    TOOL_BUSCAR_PRODUCTO,
+    TOOL_BUSCAR_SEDES,
+    TOOL_COTIZAR,
+    TOOL_INDICADOR_FINANCIERO,
+    TOOL_SIN_CONSULTA,
+)
 from carvajal.application.evidence import _KNOWN_ENTITIES, _entities
+from carvajal.prompts import NO_CONTEXT_ANSWER
 
 __all__ = [
+    "FAREWELL_ANSWER",
     "GATE_ABSTAIN",
     "GATE_EVIDENCE",
     "GATE_NO_QUERY",
+    "GREETING_ANSWER",
+    "NO_DATA_ANSWER",
+    "PREFERENCE_ANSWER",
     "GatePath",
+    "abstention",
+    "ask_for_missing",
     "filter_unsupported",
     "gate",
     "has_evidence",
+    "missing_fields",
+    "names_city",
+    "neutral_only",
+    "sites_without_price",
+    "tool_misses",
     "unsupported_terms",
 ]
 
@@ -216,6 +268,13 @@ _NUMBER_WORDS: Final = frozenset(
 
 # Cifra con separadores de miles o decimales: «2.000», «3,2», «1 500».
 _NUMBER: Final = re.compile(r"\d+(?:[.,\s]\d+)*")
+# Parte decimal: uno o dos dígitos tras el último punto o coma («14.0», «3,5», «2.50»). Tres
+# dígitos son separador de miles («2.000»).
+_DECIMAL: Final = re.compile(r"(.*\d)[.,](\d{1,2})")
+# Capacidad en los datos JSON (``"capacity_oz": 14.0``): solo respalda su cifra en onzas.
+_CAPACITY_KEY: Final = re.compile(r'"(?:capacity_oz|capacidad_oz)"\s*:\s*(\d+(?:[.,]\d+)?)')
+# Unidad de capacidad justo después de una cifra del texto («14 oz», «14 onzas»).
+_OZ_AFTER: Final = re.compile(r"\s*(?:oz|onzas?)\b", re.IGNORECASE)
 _CURRENCY: Final = re.compile(r"[$€£%]")
 # Números romanos de dos o más letras en mayúscula («siglo XX», «XIX»).
 _ROMAN: Final = re.compile(r"\b[IVXLCDM]{2,}\b")
@@ -226,12 +285,42 @@ _LIST_MARKER: Final = re.compile(r"^\s*(?:[-*+•]|\d{1,2}[.)])\s+", re.MULTILIN
 _MARKUP: Final = re.compile(r"[*_`#>|]")
 # Fin de frase o de segmento: lo que sigue empieza con mayúscula por gramática.
 _SEGMENT_BREAK: Final = re.compile(r"[.!?¡¿:;\n]+")
+# Signos que ``application.evidence._entities`` quita a cada palabra, más los del JSON.
+_TOKEN_STRIP: Final = "¿?¡!,.;:()[]{}«»\"'"
+
+
+def names_city(text: str) -> bool:
+    """El texto nombra una ciudad de Colombia (las del directorio y las principales)."""
+
+    return bool(set(_WORD.findall(_fold(text))) & _CITIES)
 
 
 def has_evidence(results: Iterable[Mapping[str, Any]]) -> bool:
     """Indica si alguna herramienta del turno devolvió ``ok`` con citas ``[n]``."""
 
     return any(r.get("status") == "ok" and r.get("source_ids") for r in results)
+
+
+def _declares_ask(outcome: Mapping[str, Any]) -> bool:
+    """El modelo declaró que pide un dato: ``sin_consulta`` válido con ``pedir_dato``.
+
+    Un ``sin_consulta`` con argumentos inválidos (``status == "error"``) no declara nada:
+    no saca el turno de la abstención ni cuenta como petición en el reemplazo neutro.
+    """
+
+    args = outcome.get("args")
+    return (
+        outcome.get("tool") == TOOL_SIN_CONSULTA
+        and outcome.get("status") == "ok"
+        and isinstance(args, Mapping)
+        and args.get("motivo") == "pedir_dato"
+    )
+
+
+def _asks_for_data(outcome: Mapping[str, Any]) -> bool:
+    """Se pidió un dato: la herramienta (``needs_input``) o el modelo (:func:`_declares_ask`)."""
+
+    return outcome.get("status") == "needs_input" or _declares_ask(outcome)
 
 
 def gate(results: Iterable[Mapping[str, Any]]) -> GatePath:
@@ -244,12 +333,33 @@ def gate(results: Iterable[Mapping[str, Any]]) -> GatePath:
     outcomes = list(results)
     if has_evidence(outcomes):
         return GATE_EVIDENCE
-    if any(r.get("status") == "needs_input" for r in outcomes):
+    if any(_asks_for_data(r) for r in outcomes):
         # Falta un dato: la pregunta al usuario se filtra en vez de perderse (FR-005).
+        return GATE_NO_QUERY
+    if any(r.get("tool") != TOOL_BUSCAR_CORPUS and r.get("source_ids") for r in outcomes):
+        # Otra herramienta trajo datos citados sin ``ok`` (``cotizar`` sin precio, con las
+        # sedes del directorio): se filtra con esos datos en vez de abstenerse del corpus.
         return GATE_NO_QUERY
     if any(r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes):
         return GATE_ABSTAIN
     return GATE_NO_QUERY
+
+
+def neutral_only(results: Iterable[Mapping[str, Any]]) -> bool:
+    """El texto ``no_query`` del modelo no se emite: solo vale el reemplazo neutro.
+
+    Es el caso de un turno que buscó en el corpus sin evidencia y que :func:`gate` saca de
+    la abstención: lo sacan una petición de dato (``needs_input`` de la herramienta o
+    ``sin_consulta`` con ``pedir_dato``) o las sedes de un ``cotizar`` sin precio. Ninguna
+    respalda lo que el modelo diga del corpus: un ``needs_input`` solo respalda la petición
+    del dato. La abstención sigue garantizada por el servidor (FR-004) y la petición o las
+    sedes salen igual (FR-005), con texto neutro.
+    """
+
+    outcomes = list(results)
+    return gate(outcomes) == GATE_NO_QUERY and any(
+        r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes
+    )
 
 
 def _fold(text: str) -> str:
@@ -265,6 +375,34 @@ def _digits(number: str) -> str:
     return "".join(c for c in number if c.isdigit())
 
 
+def _canonical(number: str) -> str:
+    """Forma comparable de una cifra: dígitos y, si la hay, la parte decimal sin ceros.
+
+    «14.0», «14,00» y «14» son la misma cifra (los datos JSON escriben ``14.0``); «3,5» y
+    «3.50» también. «3,5» no es «35» y «2.000» (miles) no es «2».
+
+    La capacidad de los datos (``capacity_oz: 14.0``) no pasa por aquí sin más: en
+    :func:`unsupported_terms` solo respalda su cifra seguida de «oz» u «onzas», para que no
+    respalde «entrega en 14 días».
+    """
+
+    decimal = _DECIMAL.fullmatch(number.strip())
+    if decimal is None:
+        return _digits(number)
+    integer, fraction = _digits(decimal.group(1)), decimal.group(2).rstrip("0")
+    return f"{integer}.{fraction}" if fraction else integer
+
+
+def _tokens(text: str) -> set[str]:
+    """Palabras del texto tal como las corta el criterio de entidades, plegadas.
+
+    Sirve para respaldar nombres compuestos que vienen enteros en los datos: el SKU
+    «CO-VGOLD-14» de una herramienta respalda el «CO-VGOLD-14» del texto.
+    """
+
+    return {_fold(raw.strip(_TOKEN_STRIP)) for raw in text.split()} - {""}
+
+
 def _clean(text: str) -> str:
     """Texto sin marcadores de lista ni marcado Markdown."""
 
@@ -276,13 +414,17 @@ def unsupported_terms(text: str, *, allowed: Iterable[str] = ()) -> list[str]:
 
     ``allowed`` son textos que el turno ya trae (la pregunta, el contenido de las
     herramientas, el contexto comercial): una cifra o un nombre que aparezca ahí no es una
-    afirmación nueva del modelo. Devuelve los términos en el orden en que aparecen, sin
-    repetir; sirve para registrar por qué se bloqueó una respuesta.
+    afirmación nueva del modelo. Una capacidad de los datos (``capacity_oz``) solo respalda
+    su cifra seguida de «oz» u «onzas»; si la misma cifra viene en otro dato (SKU, nombre,
+    pregunta), respalda cualquier unidad. Devuelve los términos en el orden en que
+    aparecen, sin repetir; sirve para registrar por qué se bloqueó una respuesta.
     """
 
     allowed_text = " ".join(allowed)
     allowed_words = set(_WORD.findall(_fold(allowed_text)))
-    allowed_numbers = {_digits(n) for n in _NUMBER.findall(allowed_text)}
+    allowed_tokens = _tokens(allowed_text)
+    capacity_numbers = {_canonical(n) for n in _CAPACITY_KEY.findall(allowed_text)}
+    allowed_numbers = {_canonical(n) for n in _NUMBER.findall(_CAPACITY_KEY.sub("", allowed_text))}
     cleaned = _clean(text)
     terms: list[str] = []
 
@@ -292,8 +434,12 @@ def unsupported_terms(text: str, *, allowed: Iterable[str] = ()) -> list[str]:
 
     for match in _NUMBER.finditer(cleaned):
         raw = match.group().strip()
-        if _digits(raw) not in allowed_numbers:
-            flag(raw)
+        number = _canonical(raw)
+        if number in allowed_numbers:
+            continue
+        if number in capacity_numbers and _OZ_AFTER.match(cleaned, match.end()):
+            continue
+        flag(raw)
     for symbol in _CURRENCY.findall(cleaned):
         if symbol not in allowed_text:
             flag(symbol)
@@ -317,7 +463,7 @@ def unsupported_terms(text: str, *, allowed: Iterable[str] = ()) -> list[str]:
     for segment in _SEGMENT_BREAK.split(cleaned):
         for entity in _entities(segment):
             folded = _fold(entity)
-            if folded in _ASSISTANT_TERMS or folded in allowed_words:
+            if folded in _ASSISTANT_TERMS or folded in allowed_words or folded in allowed_tokens:
                 continue
             flag(entity)
     return terms
@@ -331,3 +477,184 @@ def filter_unsupported(text: str, *, allowed: Iterable[str] = ()) -> bool:
     """
 
     return bool(unsupported_terms(text, allowed=allowed))
+
+
+# --- Reemplazos neutros del camino ``no_query`` --------------------------------------------
+
+# Campos que piden las herramientas (``missing``) y cómo se piden. Las frases no traen
+# cifras ni nombres propios: pasan el filtro sin respaldo.
+_MISSING_LABELS: Final = {
+    "producto": "qué producto buscas (vasos, contenedores, tapas…)",
+    "temperatura": "si el contenido va caliente, frío o a temperatura ambiente",
+    "cantidad": "cuántas unidades necesitas",
+    "ciudad": "la ciudad donde lo recibirías",
+    "periodo": "el período (año o año y mes)",
+}
+# Palabras del ``dato`` de ``sin_consulta`` (lo escribe el modelo) que señalan un campo. El
+# ``dato`` nunca se copia: solo elige una de las frases de ``_MISSING_LABELS``.
+_FIELD_HINTS: Final = {
+    "producto": ("producto", "referencia"),
+    "temperatura": ("temperatura", "caliente", "fria", "frio"),
+    "cantidad": ("cantidad", "unidades", "cuantos", "cuantas"),
+    "ciudad": ("ciudad",),
+    "periodo": ("periodo",),
+}
+_GENERIC_ASK: Final = "Para seguir necesito un dato más. ¿Me cuentas con más detalle qué necesitas?"
+
+
+def _join(items: Sequence[str]) -> str:
+    """«a», «a y b», «a, b y c»."""
+
+    if len(items) <= 1:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} y {items[-1]}"
+
+
+def missing_fields(dato: str) -> list[str]:
+    """Campos conocidos que nombra el ``dato`` de ``sin_consulta`` con ``pedir_dato``.
+
+    El ``dato`` lo escribe el modelo: no respalda nada ni se repite; solo indica qué frase
+    de petición usar. Sin campo conocido devuelve una lista vacía.
+    """
+
+    words = set(_WORD.findall(_fold(dato)))
+    return [field for field, hints in _FIELD_HINTS.items() if words & set(hints)]
+
+
+def ask_for_missing(fields: Iterable[str], *, cities: Sequence[str] = ()) -> str:
+    """Petición neutra de los datos que faltan, para reemplazar un texto rechazado.
+
+    ``fields`` son los campos de ``missing`` de las herramientas (``ciudad``, ``cantidad``,
+    ``temperatura``…); los desconocidos se ignoran. ``cities`` son las ciudades que devolvió
+    la herramienta (``ciudades_disponibles``) y solo se listan si falta la ciudad. Sin campo
+    conocido la petición es genérica. Nunca es la abstención del corpus.
+    """
+
+    known = list(dict.fromkeys(f for f in fields if f in _MISSING_LABELS))
+    if not known:
+        return _GENERIC_ASK
+    labels = [_MISSING_LABELS[f] for f in known]
+    if len(labels) == 1:
+        text = f"Para seguir me falta un dato: {labels[0]}."
+    else:
+        text = f"Para seguir me faltan estos datos: {_join(labels)}."
+    if "ciudad" in known and cities:
+        text += f" Ciudades disponibles: {_join([str(c) for c in cities])}."
+    question = "¿Me lo indicas?" if len(labels) == 1 else "¿Me los indicas?"
+    return f"{text} {question}"
+
+
+def sites_without_price(sites: Iterable[Mapping[str, Any]]) -> str:
+    """Aviso neutro de una cotización sin precio con las sedes del directorio que trajo.
+
+    Cada sede sale con su nombre, dirección y teléfono (los que haya) y su cita ``[n]``;
+    todo viene de los datos de ``cotizar`` y respalda sus propias cifras. Sin sedes con
+    nombre devuelve ``""``.
+    """
+
+    lines: list[str] = []
+    for site in sites:
+        name = site.get("nombre")
+        if not name:
+            continue
+        parts = [str(name), *(str(site[k]) for k in ("direccion", "telefono") if site.get(k))]
+        cite = f" [{site['n']}]" if isinstance(site.get("n"), int) else ""
+        lines.append(f"- {' — '.join(parts)}{cite}")
+    if not lines:
+        return ""
+    return (
+        "No encontré un precio publicado para esta búsqueda. Estas sedes del directorio "
+        "tienen contacto para confirmar precio y disponibilidad:\n\n" + "\n".join(lines)
+    )
+
+
+# --- Abstención ajustada a lo que se consultó ----------------------------------------------
+
+# Respuestas de conversación de un turno sin búsquedas: frases fijas, sin cifras ni nombres.
+FAREWELL_ANSWER: Final = "Con gusto. Si necesitas algo más, aquí estoy."
+GREETING_ANSWER: Final = (
+    "Hola, soy Carva. Puedo ayudarte con empaques (qué referencia te sirve, precios y dónde "
+    "comprar) y con información pública de Carvajal. ¿Qué necesitas?"
+)
+PREFERENCE_ANSWER: Final = "Listo, lo tendré en cuenta."
+NO_DATA_ANSWER: Final = (
+    "No tengo un dato verificado para responder eso. Si me cuentas qué necesitas (un "
+    "producto, un precio, dónde comprar o un dato de Carvajal), lo busco."
+)
+_CATALOG_COUNTRIES: Final = {"CO": "Colombia", "MX": "México"}
+_MISS_OFFER: Final = "Si quieres, busco otra opción o te digo dónde comprar."
+
+
+def _named_matches(data: Mapping[str, Any]) -> str:
+    """Referencias aptas que coinciden con el nombre buscado fuera de los filtros."""
+
+    found = [
+        f"{item['nombre']} ({item['sku']})"
+        for item in data.get("fuera_de_filtros") or []
+        if isinstance(item, Mapping) and item.get("apto") and item.get("nombre") and item.get("sku")
+    ]
+    if not found:
+        return ""
+    return f" Con ese nombre sí aparece fuera de esa búsqueda: {_join(found)}."
+
+
+def tool_misses(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> list[str]:
+    """Una frase por búsqueda vacía del turno, con lo que sí trajo la herramienta.
+
+    ``payloads`` son ``(herramienta, datos)`` de cada ``ToolMessage``. Solo cuentan los
+    ``empty``: ``buscar_producto`` (catálogo del país consultado y las coincidencias por
+    nombre fuera de los filtros), ``buscar_sedes`` (ciudades con cobertura), ``cotizar`` sin
+    sedes e ``indicador_financiero``. ``buscar_corpus`` no: su ausencia es
+    ``NO_CONTEXT_ANSWER``. No se repite ningún argumento del modelo; las frases repetidas se
+    dan una vez.
+    """
+
+    lines: list[str] = []
+
+    def add(line: str) -> None:
+        if line not in lines:
+            lines.append(line)
+
+    for tool, data in payloads:
+        if data.get("status") != "empty":
+            continue
+        if tool == TOOL_BUSCAR_PRODUCTO:
+            country = _CATALOG_COUNTRIES.get(str(data.get("pais_catalogo") or "CO"), "Colombia")
+            add(f"No lo encontré en el catálogo de {country}.{_named_matches(data)}")
+        elif tool == TOOL_BUSCAR_SEDES:
+            cities = [str(city) for city in data.get("ciudades_con_cobertura") or []]
+            line = "No hay sedes del directorio en esa ciudad."
+            if cities:
+                line += f" Las ciudades con sedes son: {_join(cities)}."
+            add(line)
+        elif tool == TOOL_COTIZAR and not data.get("sedes"):
+            add("No encontré un precio publicado que cumpla esa solicitud.")
+        elif tool == TOOL_INDICADOR_FINANCIERO:
+            add("No hay un registro publicado de ese indicador para ese período; no lo estimo.")
+    return lines
+
+
+def abstention(
+    payloads: Iterable[tuple[str, Mapping[str, Any]]],
+    *,
+    conversation: str = NO_DATA_ANSWER,
+) -> tuple[str, bool]:
+    """Texto que sustituye una redacción sin respaldo y si es una abstención.
+
+    Las ausencias de :func:`tool_misses` van primero; ``NO_CONTEXT_ANSWER`` solo si el turno
+    buscó de verdad en el corpus (una llamada con ``error`` no buscó). Sin nada de eso sale
+    ``conversation`` (la respuesta de conversación que elige quien llama); es una abstención
+    salvo que sea una despedida, un saludo o la confirmación de una preferencia.
+    """
+
+    items = list(payloads)
+    parts = tool_misses(items)
+    # Una búsqueda documental con argumentos inválidos (``error``) no consultó el corpus.
+    if any(tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error" for tool, data in items):
+        parts.append(NO_CONTEXT_ANSWER)
+    elif parts:
+        parts.append(_MISS_OFFER)
+    if parts:
+        return " ".join(parts), True
+    conversational = conversation in {FAREWELL_ANSWER, GREETING_ANSWER, PREFERENCE_ANSWER}
+    return conversation, not conversational

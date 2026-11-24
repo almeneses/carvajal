@@ -131,40 +131,57 @@ def _channel(req: CommercialRequest, catalog: Catalog | None) -> dict[str, Any]:
 
 
 def _contract_reference(
-    req: CommercialRequest, book: CommercialBook, catalog: Catalog, as_of: date
+    req: CommercialRequest,
+    book: CommercialBook,
+    catalog: Catalog,
+    as_of: date,
+    options: list[Reference] | None = None,
 ) -> Reference | None:
-    """Referencia publicada que mejor responde a la solicitud, con oferta si existe."""
+    """Referencia de la ficha del contrato: una opción apta y con oferta publicada.
 
-    candidates = [
-        reference
-        for reference in catalog.references
-        if reference.country == "CO"
-        and (req.family is None or reference.family == req.family)
-        and (req.use is None or req.use in reference.uses)
-        and (
-            req.capacity_oz is None
+    La ficha es la tarjeta principal y la vista la pinta en lugar de las opciones, así que
+    sale de las mismas opciones que muestra ``run_commercial`` (``options``, ya filtradas
+    por ``check_material``) y respeta su orden. Sin ``options`` se recalculan con
+    ``check_material``. Manda lo renovable si la persona lo pidió, luego la ficha que
+    declara el uso, luego la oferta más barata en la ciudad y, al final, el orden de las
+    opciones. Si la mejor no tiene oferta no hay ficha: no aportaría precio y ocultaría las
+    demás opciones válidas (evaluación spec 044).
+    """
+
+    if options is None:
+        matching = [
+            reference
+            for reference in catalog.references
+            if req.capacity_oz is None
             or (
                 reference.capacity_oz is not None
                 and abs(reference.capacity_oz - req.capacity_oz) <= CAPACITY_TOLERANCE_OZ
             )
-        )
-    ]
-    if not candidates:
-        return None
-
-    def priority(reference: Reference) -> tuple[int, float, str]:
-        offers = [
-            item
-            for item in book.offers_for_sku(reference.sku, "CO", as_of=as_of)
-            if item.offer is not None
-            and (req.city is None or plain(item.offer.city or "") == plain(req.city))
         ]
-        if not offers:
-            return (1, 0.0, reference.sku)
-        cheapest = min(item.offer.amount for item in offers if item.offer is not None)
-        return (0, float(cheapest), reference.sku)
+        options, _ = check_material(matching, req, catalog=catalog)
+    candidates = [
+        (position, reference)
+        for position, reference in enumerate(options)
+        if reference.country == "CO" and (req.family is None or reference.family == req.family)
+    ]
 
-    return min(candidates, key=priority)
+    def priority(item: tuple[int, Reference]) -> tuple[bool, bool, float, int]:
+        position, reference = item
+        prices = [
+            record.offer.amount
+            for record in book.offers_for_sku(reference.sku, "CO", as_of=as_of)
+            if record.offer is not None
+            and (req.city is None or plain(record.offer.city or "") == plain(req.city))
+        ]
+        not_renewable = req.prefers_renewable and reference.material not in RENEWABLE
+        other_use = req.use is not None and req.use not in reference.uses
+        cheapest = float(min(prices)) if prices else float("inf")
+        return (not_renewable, other_use, cheapest, position)
+
+    ranked = sorted(candidates, key=priority)
+    if not ranked or priority(ranked[0])[2] == float("inf"):
+        return None
+    return ranked[0][1]
 
 
 def _contract_ficha(reference: Reference) -> dict[str, Any]:
@@ -264,12 +281,14 @@ def contract_result(
     catalog: Catalog | None = None,
     today: date | None = None,
     questions: list[str] | None = None,
+    options: list[Reference] | None = None,
 ) -> dict[str, Any]:
     """Ficha, ofertas, sedes y cotización del contrato publicado para Colombia.
 
     El resultado es JSON-safe y conserva los campos pendientes como ausencia. La
     cotización la calcula el motor determinista con el texto del turno; si falta un
-    dato, la aclaración viaja aparte y no se inventa el importe.
+    dato, la aclaración viaja aparte y no se inventa el importe. ``options`` son las
+    opciones aptas que muestra el turno, en su orden: la ficha sale de ellas.
     """
 
     req = _request(extra)
@@ -278,7 +297,7 @@ def contract_result(
     data = catalog or load_catalog()
     commercial = book or load_commercial_book()
     as_of = today or date.today()
-    reference = _contract_reference(req, commercial, data, as_of)
+    reference = _contract_reference(req, commercial, data, as_of, options)
     result: dict[str, Any] = {
         "cities": list(commercial.cities()),
         "ficha": _contract_ficha(reference) if reference is not None else None,
@@ -384,6 +403,7 @@ def run_commercial(
                 catalog=data,
                 today=today,
                 questions=questions,
+                options=chosen,
             )
         except Exception as error:  # el contrato no debe tumbar la ruta comercial
             result["contract_error"] = str(error)

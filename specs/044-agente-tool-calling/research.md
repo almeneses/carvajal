@@ -63,14 +63,18 @@ trozo, que nunca se muestran. Las fuentes (`meta`) se emiten justo antes del pri
   revisar antes de mostrar: rompe SC-006.
 
 **Ajustes de implementación (2026-11-23).** (a) Un `needs_input` sin evidencia toma el
-camino `no_query` filtrado (no la abstención), para no perder la petición del dato que
-falta. (b) El filtro permite los términos propios del asistente (Carva, Carvajal, Colombia,
+camino `no_query` (no la abstención), para no perder la petición del dato que falta. Sin
+búsqueda documental, el texto del modelo pasa el filtro; si el turno buscó en el corpus sin
+evidencia (`neutral_only`), el `needs_input` solo respalda la petición, no lo dicho del
+corpus: sale el reemplazo neutro, `NO_CONTEXT_ANSWER` y la petición de los campos de
+`missing` (revisión PR 236). (b) El filtro permite los términos propios del asistente (Carva, Carvajal, Colombia,
 México, IVA, SKU) y bloquea cifras con dígitos y en palabras desde «once», ordinales,
 décadas, siglos, numerales romanos, empresas del grupo y ciudades; los números «dos»…«diez»
 se permiten a propósito para que pasen preguntas como «te pido dos datos». (c) Lo permitido
 se calcula solo con la pregunta, los datos devueltos por herramientas (sin `message`) y el
 contexto comercial con el que empezó el turno: los argumentos que escribe el modelo no
-respaldan sus propias cifras. Hueco conocido: el contexto de turnos previos puede traer
+respaldan sus propias cifras. Una capacidad de los datos (`capacity_oz`) solo respalda su
+cifra seguida de «oz» u «onzas»: no respalda «entrega en 14 días». Hueco conocido: el contexto de turnos previos puede traer
 argumentos inventados por el modelo en esos turnos.
 
 ## R4. Entrada estructurada del motor de cotización

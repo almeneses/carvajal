@@ -20,15 +20,35 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.evidence import (
+    FAREWELL_ANSWER,
     GATE_ABSTAIN,
     GATE_EVIDENCE,
     GATE_NO_QUERY,
+    GREETING_ANSWER,
+    NO_DATA_ANSWER,
+    PREFERENCE_ANSWER,
     GatePath,
+    abstention,
+    ask_for_missing,
     gate,
+    missing_fields,
+    neutral_only,
+    sites_without_price,
+    tool_misses,
     unsupported_terms,
 )
-from carvajal.agent.toolagent.graph import TurnCancel, TurnCancelled, recursion_limit
-from carvajal.agent.toolagent.state import TOOL_SIN_CONSULTA, validate_question
+from carvajal.agent.toolagent.graph import (
+    FAREWELL_INTENT,
+    TurnCancel,
+    TurnCancelled,
+    recursion_limit,
+)
+from carvajal.agent.toolagent.state import (
+    TOOL_BUSCAR_CORPUS,
+    TOOL_COTIZAR,
+    TOOL_SIN_CONSULTA,
+    validate_question,
+)
 from carvajal.agent.toolagent.tools import content_data
 from carvajal.application.ask import Source
 from carvajal.application.ports import LLMProvider
@@ -216,8 +236,10 @@ _MODEL_NODES: Final = frozenset({_AGENT_NODE, _DIRECT_NODE})
 _TOOLS_NODE: Final = "tools"
 _RECALL_NODE: Final = "recall"
 # Claves de un resultado que no respaldan cifras: ``message`` repite argumentos del modelo
-# («No hay sedes del directorio en {ciudad}»).
-_ECHO_KEYS: Final = frozenset({"message"})
+# («No hay sedes del directorio en {ciudad}»). ``aviso`` y ``busqueda_nombre`` de
+# ``buscar_producto`` son prosa y conteos sobre la búsqueda por ``nombre`` (un argumento
+# del modelo): ya no lo repiten, pero sus cifras son conteos, no datos del catálogo.
+_ECHO_KEYS: Final = frozenset({"message", "aviso", "busqueda_nombre"})
 # ``updates`` se suma a ``messages`` y ``custom``: marca el fin de cada paso del modelo y
 # trae los canales del estado (resultados, fuentes, tarjetas) sin leer el checkpointer.
 _STREAM_MODES: Final = ["messages", "custom", "updates"]
@@ -256,7 +278,12 @@ class ToolAgentFinal:
 
     - ``answer``: todo el texto emitido en ``ToolAgentToken`` (la abstención incluida).
     - ``gate``: camino de la compuerta (``evidence``, ``abstain`` o ``no_query``) y
-      ``abstained`` si la respuesta del modelo se sustituyó por ``NO_CONTEXT_ANSWER``.
+      ``abstained`` si la respuesta del modelo se sustituyó por una abstención
+      (:func:`~carvajal.agent.toolagent.evidence.abstention`: las búsquedas vacías del
+      turno, ``NO_CONTEXT_ANSWER`` si buscó en el corpus o ``NO_DATA_ANSWER`` si no consultó
+      nada). El reemplazo neutro del camino ``no_query`` (petición del dato o sedes sin
+      precio) y la respuesta de conversación de un turno sin búsquedas (despedida, saludo o
+      preferencia) no son abstenciones: ``abstained`` queda en ``False``.
     - ``sources``: citas en orden ``[n]``; vacías si hubo abstención.
     - ``products``: tarjetas comerciales (``cards``) con ``quote`` (primera cotización, para
       lectores actuales) y ``quotes``; ``quotes`` también va aparte.
@@ -374,6 +401,9 @@ class _TurnStream:
         self.question = question
         self.values: dict[str, Any] = {}
         self.tool_texts: list[str] = []
+        # Datos de cada ``ToolMessage`` del turno (herramienta, datos): construyen el
+        # reemplazo neutro cuando el filtro rechaza el texto de ``no_query``.
+        self.tool_payloads: list[tuple[str, dict[str, Any]]] = []
         # Contexto comercial con el que empezó el turno: el que actualizan las herramientas
         # lleva argumentos del modelo y no respalda cifras.
         self.prior_context: dict[str, Any] = {}
@@ -451,7 +481,9 @@ class _TurnStream:
                 if key != "messages":
                     self.values[key] = value
                 elif node == _TOOLS_NODE:
-                    self.tool_texts.extend(_tool_backing(value or []))
+                    payloads = _tool_payloads(value or [])
+                    self.tool_payloads.extend(payloads)
+                    self.tool_texts.extend(_tool_backing(payloads))
         return events
 
     # -- Cierre --
@@ -533,8 +565,19 @@ class _TurnStream:
                 return self._emit(self._remainder(text, step))
             if step.path == GATE_ABSTAIN:
                 return self._abstain(GATE_ABSTAIN, 0)
+            if neutral_only(self.values.get("results") or []):
+                # Búsqueda documental vacía: la petición del dato o las sedes no respaldan lo
+                # que el modelo diga del corpus. Su redacción no sale ni filtrada; sale el
+                # reemplazo neutro (con la ausencia del corpus) o la abstención.
+                replacement = self._replacement(corpus_miss=True)
+                if replacement:
+                    return self._replace(replacement, 0)
+                return self._abstain(GATE_NO_QUERY, 0)
             terms = unsupported_terms(text, allowed=self._allowed())
             if terms:
+                replacement = self._replacement()
+                if replacement:
+                    return self._replace(replacement, len(terms))
                 return self._abstain(GATE_NO_QUERY, len(terms))
             return self._emit(text)
         finally:
@@ -550,9 +593,95 @@ class _TurnStream:
         return ""
 
     def _abstain(self, path: str, terms: int) -> list[ToolAgentEvent]:
+        """Sustituye la redacción por la abstención ajustada a lo que consultó el turno.
+
+        Nunca dice «no está en el corpus» si el turno no buscó en el corpus: las búsquedas
+        vacías declaran su propia ausencia y un turno sin búsquedas recibe una respuesta de
+        conversación (despedida, saludo o preferencia, que no son abstenciones).
+        """
+
+        text, abstained = abstention(self.tool_payloads, conversation=self._conversation())
+        if not abstained:
+            return self._replace(text, terms)
         self.abstained = True
         logger.info("tool_agent.abstained", path=path, unsupported_terms=terms)
-        return self._emit(NO_CONTEXT_ANSWER)
+        return self._emit(text)
+
+    def _conversation(self) -> str:
+        """Respuesta fija de un turno sin búsquedas, según la intención del atajo.
+
+        La despedida fija es solo para el atajo de despedida: un turno que fue al agente
+        («Gracias, sin domicilio») pedía algo, y sin respaldo eso es una abstención
+        (``NO_DATA_ANSWER``), no un «con gusto».
+        """
+
+        intent = str(self.values.get("shortcut_intent") or "")
+        if intent == FAREWELL_INTENT and self.values.get("mode_path") == "shortcut":
+            return FAREWELL_ANSWER
+        if intent == "greeting":
+            return GREETING_ANSWER
+        if intent == "memory_write":
+            return PREFERENCE_ANSWER
+        return NO_DATA_ANSWER
+
+    def _replace(self, text: str, terms: int) -> list[ToolAgentEvent]:
+        """Emite el reemplazo neutro: no es una abstención y conserva las fuentes."""
+
+        logger.info("tool_agent.replaced", path=GATE_NO_QUERY, unsupported_terms=terms)
+        return self._emit(text)
+
+    def _replacement(self, *, corpus_miss: bool = False) -> str:
+        """Reemplazo neutro de un texto ``no_query`` rechazado; ``""`` si no corresponde.
+
+        La abstención del corpus no sirve cuando el turno pidió un dato o trajo sedes:
+        «no está en el corpus» ocultaría la pregunta o los contactos. Solo usa datos de las
+        herramientas (spec 044, FR-004 y FR-005):
+
+        - ``cotizar`` ``empty`` con sedes: el aviso sin precio con las sedes citadas.
+        - ``needs_input`` o ``sin_consulta`` válido con ``pedir_dato`` (el mismo criterio que
+          :func:`gate`): la petición neutra de los campos de ``missing`` (el ``dato`` del
+          modelo solo elige el campo, no se copia) y, si falta la ciudad, las
+          ``ciudades_disponibles``.
+
+        Con alguno de ellos, las búsquedas vacías del turno (:func:`tool_misses`) van antes:
+        «no hay sedes en esa ciudad» no se pierde porque otra herramienta pidiera un dato.
+        Con ``corpus_miss`` (caso :func:`neutral_only`), ``NO_CONTEXT_ANSWER`` va antes de la
+        petición si ``buscar_corpus`` consultó de verdad (sin ``error``, como en
+        :func:`abstention`): la parte documental declara su ausencia en vez de desaparecer.
+        Sin nada de eso (conversación, atajo, búsquedas vacías) devuelve ``""`` y el turno
+        se abstiene (:meth:`_abstain`).
+        """
+
+        sites: dict[Any, Mapping[str, Any]] = {}
+        fields: list[str] = []
+        cities: list[str] = []
+        asked = False
+        for tool, data in self.tool_payloads:
+            if tool == TOOL_SIN_CONSULTA:
+                if data.get("status") == "ok" and data.get("motivo") == "pedir_dato":
+                    asked = True
+                    fields.extend(missing_fields(str(data.get("dato") or "")))
+                continue
+            if data.get("status") == "needs_input":
+                asked = True
+                fields.extend(str(item) for item in data.get("missing") or [])
+                cities.extend(str(city) for city in data.get("ciudades_disponibles") or [])
+            elif data.get("status") == "empty" and tool == TOOL_COTIZAR:
+                for site in data.get("sedes") or []:
+                    if isinstance(site, Mapping):
+                        # Una llamada repetida devuelve las mismas sedes con el mismo ``n``.
+                        sites.setdefault(site.get("n", len(sites)), site)
+        parts = [sites_without_price(sites.values())]
+        if corpus_miss and any(
+            tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error"
+            for tool, data in self.tool_payloads
+        ):
+            parts.append(NO_CONTEXT_ANSWER)
+        if asked:
+            parts.append(ask_for_missing(fields, cities=list(dict.fromkeys(cities))))
+        if not any(parts):
+            return ""
+        return "\n\n".join(part for part in [*tool_misses(self.tool_payloads), *parts] if part)
 
     def _allowed(self) -> list[str]:
         """Textos que respaldan cifras y nombres en el camino ``no_query``.
@@ -618,19 +747,37 @@ def _preferred_names(preferences: Sequence[Any]) -> list[str]:
     return names
 
 
-def _tool_backing(messages: Sequence[Any]) -> list[str]:
-    """Datos que produjeron las herramientas, como texto, para respaldar el ``no_query``."""
+def _tool_payloads(messages: Sequence[Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Herramienta y datos de cada ``ToolMessage`` (bloque ``<datos>``), en orden."""
 
-    texts: list[str] = []
+    payloads: list[tuple[str, dict[str, Any]]] = []
     for message in messages:
-        if not isinstance(message, ToolMessage) or message.name == TOOL_SIN_CONSULTA:
+        if not isinstance(message, ToolMessage):
             continue
         data = content_data(_text(message.content))
-        if data is None:
-            continue
-        backing = {key: value for key, value in data.items() if key not in _ECHO_KEYS}
-        texts.append(json.dumps(backing, ensure_ascii=False, default=str))
-    return texts
+        if data is not None:
+            payloads.append((str(message.name or ""), data))
+    return payloads
+
+
+def _tool_backing(payloads: Sequence[tuple[str, Mapping[str, Any]]]) -> list[str]:
+    """Datos que produjeron las herramientas, como texto, para respaldar el ``no_query``.
+
+    Vale cualquier estado: las sedes y ciudades de un ``empty`` o los campos de un
+    ``needs_input`` son datos de la herramienta. Quedan fuera ``sin_consulta`` (su ``dato``
+    lo escribe el modelo) y las claves de ``_ECHO_KEYS`` (``message``, que repite
+    argumentos, y la prosa y los conteos de la búsqueda por nombre).
+    """
+
+    return [
+        json.dumps(
+            {key: value for key, value in data.items() if key not in _ECHO_KEYS},
+            ensure_ascii=False,
+            default=str,
+        )
+        for tool, data in payloads
+        if tool != TOOL_SIN_CONSULTA
+    ]
 
 
 class ToolAgentRunner:
@@ -642,10 +789,17 @@ class ToolAgentRunner:
       ``tool_call_chunk`` descarta lo retenido (era «pensamiento» previo a una llamada); si
       no, lo libera y sigue transmitiendo cada trozo.
     - ``abstain`` (sin evidencia tras ``buscar_corpus``): no transmite nada del modelo;
-      emite ``NO_CONTEXT_ANSWER`` en cuanto el paso final pasa la retención sin llamar
-      herramientas (o al cerrarse, si es más corto) y detiene el grafo.
-    - ``no_query``: retiene el paso final completo, lo filtra y lo emite de una vez, o la
-      abstención si trae cifras, fechas o nombres propios sin respaldo.
+      emite la abstención (``NO_CONTEXT_ANSWER`` precedida de las demás búsquedas vacías del
+      turno) en cuanto el paso final pasa la retención sin llamar herramientas (o al
+      cerrarse, si es más corto) y detiene el grafo.
+    - ``no_query``: retiene el paso final completo, lo filtra y lo emite de una vez. Si trae
+      cifras, fechas o nombres propios sin respaldo, lo sustituye: por la petición neutra
+      del dato si el turno pidió uno, por las sedes sin precio si ``cotizar`` las trajo, o
+      por la abstención ajustada a lo consultado si no hay ninguno de esos datos. Si el
+      turno buscó en el corpus sin evidencia y ninguna herramienta pidió el dato
+      (``neutral_only``), aunque una herramienta pidiera un dato (``needs_input``), no emite
+      la redacción del modelo: solo el reemplazo neutro, con ``NO_CONTEXT_ANSWER`` antes de
+      la petición del dato.
 
     Antes del primer token emite ``ToolAgentSources``. Los trozos se distinguen por el nodo
     (``langgraph_node``) y por ``tool_call_chunks``.

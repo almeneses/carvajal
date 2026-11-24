@@ -203,6 +203,20 @@
     todavía no tiene referencias cargadas; consulta a los distribuidores.
   </p>
   {%- endif %}
+  {#- Spec 044: con búsqueda por nombre sin coincidencia exacta, las tarjetas son
+      alternativas de la misma búsqueda, no la referencia que nombró la persona. -#}
+  {%- set por_nombre = resultado.name_search %}
+  {%- if opciones and not ficha and por_nombre and (por_nombre.matches == 0 or por_nombre.partial) %}
+  <p class="productos-nota" data-campo="alternativas">
+    {%- if por_nombre.matches == 0 %}
+    No encontramos la referencia que nombraste con estos filtros: estas son alternativas aptas
+    de la misma búsqueda.
+    {%- else %}
+    Ninguna referencia coincide del todo con el nombre: estas se le parecen, pero no son
+    exactamente la que nombraste.
+    {%- endif %}
+  </p>
+  {%- endif %}
   {%- if opciones and not ficha %}
   <ul class="productos-lista">
     {%- for opcion in opciones %}

@@ -40,6 +40,7 @@ from tests.test_agent_graph import HIT, FakeEmbedder, FakeVectorStore
 
 from apps.api.chat.agent import GraphAgentRunner, ToolAgentFinal, ToolAgentRunner
 from carvajal.agent.graph import AgentDeps, build_agent
+from carvajal.agent.toolagent.evidence import NO_DATA_ANSWER
 from carvajal.agent.toolagent.graph import build_tool_agent
 from carvajal.agent.toolagent.tools import ToolDeps
 from carvajal.application.ask import NO_CONTEXT_ANSWER
@@ -69,7 +70,9 @@ class HardRuleTurn:
     - ``answer``: texto final cuando el modo lo produce. En ``routes`` la generación es
       externa: solo se rellena con ``NO_CONTEXT_ANSWER`` cuando se abstiene, como hace el
       servicio con ``prompt is None``.
-    - ``abstained``: el turno no genera y responde ``NO_CONTEXT_ANSWER`` (FR-004).
+    - ``abstained``: el turno no genera y responde una abstención (FR-004): en ``routes``
+      ``NO_CONTEXT_ANSWER``; en ``tools`` la marca estructural de la compuerta, con
+      ``NO_CONTEXT_ANSWER`` si buscó en el corpus y ``NO_DATA_ANSWER`` si no consultó nada.
     """
 
     mode: str
@@ -150,7 +153,7 @@ def _tools_turn(
         prompt=prompt,
         system=system,
         answer=final.answer,
-        abstained=final.answer == NO_CONTEXT_ANSWER,
+        abstained=final.abstained,
     )
 
 
@@ -433,9 +436,11 @@ def test_sin_evidencia_se_abstiene_sin_generar(
     # Act
     turn = run_turn(mode, question, script, hits=hits)
 
-    # Assert
+    # Assert: «no está en el corpus» solo si el turno buscó en el corpus; si solo declaró
+    # que no consulta, la abstención no afirma una búsqueda que no hizo.
+    searched = mode == "routes" or "buscar_corpus" in calls
     assert turn.abstained
-    assert turn.answer == NO_CONTEXT_ANSWER
+    assert turn.answer == (NO_CONTEXT_ANSWER if searched else NO_DATA_ANSWER)
     assert turn.sources == ()
 
 

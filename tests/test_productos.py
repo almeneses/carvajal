@@ -278,3 +278,50 @@ def test_la_tarjeta_sin_precio_no_marca_un_precio_inexistente() -> None:
     assert 'data-campo="producto-nombre"' in html
     assert 'data-campo="producto-precio"' not in html
     assert "MXN" not in html
+
+
+@pytest.mark.parametrize(
+    ("busqueda", "texto"),
+    [
+        pytest.param(
+            {"matches": 0, "partial": False}, "alternativas aptas", id="sin-coincidencias"
+        ),
+        pytest.param({"matches": 3, "partial": True}, "coincide del todo", id="parcial"),
+    ],
+)
+def test_las_tarjetas_que_no_son_la_referencia_nombrada_se_rotulan(
+    busqueda: dict[str, Any], texto: str
+) -> None:
+    # Arrange: ``buscar_producto`` (spec 044) no encontró la referencia que nombró la persona.
+    resultado = _resultado(use="bebida_caliente", temperature="caliente", family="vaso")
+    resultado["name_search"] = busqueda
+
+    # Act
+    html = render_products(resultado)
+
+    # Assert
+    assert 'data-campo="alternativas"' in html
+    assert texto in html
+    assert 'data-campo="producto-nombre"' in html
+
+
+@pytest.mark.parametrize(
+    "busqueda",
+    [
+        pytest.param({"matches": 1, "partial": False}, id="coincidencia"),
+        pytest.param(None, id="sin-busqueda-por-nombre"),
+    ],
+)
+def test_las_tarjetas_de_la_referencia_nombrada_no_llevan_rotulo(
+    busqueda: dict[str, Any] | None,
+) -> None:
+    # Arrange
+    resultado = _resultado(use="bebida_caliente", temperature="caliente", family="vaso")
+    if busqueda is not None:
+        resultado["name_search"] = busqueda
+
+    # Act
+    html = render_products(resultado)
+
+    # Assert
+    assert 'data-campo="alternativas"' not in html

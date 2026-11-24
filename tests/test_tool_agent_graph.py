@@ -35,7 +35,14 @@ from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
 
 from carvajal.agent.graph import memory_namespace
 from carvajal.agent.toolagent import graph as graph_module
-from carvajal.agent.toolagent.graph import build_tool_agent, recursion_limit
+from carvajal.agent.toolagent.graph import (
+    FAREWELL_INSTRUCTIONS,
+    FAREWELL_INTENT,
+    build_tool_agent,
+    is_closing,
+    recursion_limit,
+    shortcut_intent,
+)
 from carvajal.agent.toolagent.tools import ToolDeps
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
@@ -1257,3 +1264,188 @@ def test_un_turno_con_sin_consulta_y_el_maximo_de_consultas_cabe_con_el_atajo() 
     # Assert
     assert chat.remaining_steps == 0
     assert state["messages"][-1].content == "Listo [1]."
+
+
+# --- Despedidas y agradecimientos por el atajo (simulación s-clientes-08) ------------------
+
+NEIVA_CONTEXT = {"family": "envase", "use": "salsas", "quantity": 1000, "city": "Neiva"}
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Perfecto, eso era todo",
+        "gracias, muy amable",
+        "muchas gracias!",
+        "Gracias por la ayuda, chao",
+        "Listo, muchas gracias. Entonces llamo a esa sede a ver si me llevan los 10 paquetes "
+        "hasta la universidad. Dios le pague.",
+    ],
+)
+def test_una_despedida_o_agradecimiento_va_al_atajo(question: str) -> None:
+    # Act
+    intent, preference = shortcut_intent(question, commercial_context=NEIVA_CONTEXT)
+
+    # Assert
+    assert is_closing(question)
+    assert intent == FAREWELL_INTENT
+    assert preference == ""
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        pytest.param("Gracias. ¿Y tienen tapas?", id="pregunta"),
+        pytest.param(
+            "Listo, muchas gracias. Le pido el favor de cotizarme 10 paquetes de esas copitas",
+            id="pedido",
+        ),
+        pytest.param("Gracias, mejor 200", id="correccion"),
+        pytest.param("Gracias, en Cali", id="ciudad"),
+        pytest.param("Gracias, pero necesito vasos de 14 oz", id="adversativa"),
+        pytest.param("Perfecto", id="sin-marca-de-cierre"),
+        pytest.param("Llámame Ana, gracias", id="preferencia"),
+    ],
+)
+def test_un_agradecimiento_con_pedido_no_es_despedida(question: str) -> None:
+    # Act
+    intent, _ = shortcut_intent(question, commercial_context=NEIVA_CONTEXT)
+
+    # Assert
+    assert intent != FAREWELL_INTENT
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Gracias, 2000 unidades",
+        "Gracias, en cajas",
+        "Gracias, y para Lima",
+        "Gracias. Busco tapas para esos vasos",
+        "Gracias. Envíenme la factura",
+        "Gracias, me interesa el vaso de 12 oz",
+        "Listo gracias, y el plato hondo de 12",
+        "Gracias! Una última: la tapa de 12 oz",
+        "gracias x la info. el telefono de edexa porfa",
+        "No, gracias",
+        "Gracias, sin domicilio",
+        "Envíenme la factura. Chao",
+    ],
+)
+def test_un_agradecimiento_que_trae_algo_mas_que_relleno_no_es_despedida(question: str) -> None:
+    # Act: sin contexto comercial, para que solo decida ``is_closing``.
+    intent, _ = shortcut_intent(question, [], {})
+
+    # Assert: cifras, productos, ciudades de cualquier país, un «y» o un «no» van al agente.
+    assert not is_closing(question)
+    assert intent != FAREWELL_INTENT
+
+
+@pytest.mark.parametrize(
+    "question", ["gracias x la info", "Mil gracias, muy amable", "gracias gracias"]
+)
+def test_un_cierre_con_solo_relleno_es_despedida(question: str) -> None:
+    # Act
+    intent, _ = shortcut_intent(question, [], {})
+
+    # Assert
+    assert is_closing(question)
+    assert intent == FAREWELL_INTENT
+
+
+def test_la_despedida_se_redacta_sin_herramientas_con_sus_instrucciones() -> None:
+    # Arrange
+    graph, chat, _ = _build([ScriptStep(text="Con gusto, que te vaya bien.")])
+
+    # Act
+    state = graph.invoke(_input("Perfecto, eso era todo"), _config())
+
+    # Assert
+    assert _model_bindings(chat) == []
+    assert state["mode_path"] == "shortcut"
+    assert state["shortcut_intent"] == FAREWELL_INTENT
+    assert state["results"] == []
+    assert FAREWELL_INSTRUCTIONS in str(chat.calls[0][1].content)
+
+
+# --- cotizar en el grafo: unidad y ciudad dicha -------------------------------------------
+
+
+def test_el_estado_de_cotizar_no_llama_unidades_a_las_cajas() -> None:
+    # Arrange
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call(
+                    "cotizar",
+                    family="contenedor",
+                    quantity=10,
+                    unidad="cajas",
+                    city="Bogotá",
+                )
+            ],
+        ),
+        ScriptStep(text="¿Para comida caliente o fría?"),
+    ]
+    graph, _, _ = _build(steps)
+
+    # Act
+    texts = _statuses(graph, "Mándame 10 cajas de portacomidas a Bogotá")
+
+    # Assert: «10 contenedores» sería falso; la cantidad en cajas no va en el estado.
+    assert texts == ["Estoy calculando cuánto te salen tus contenedores en Bogotá…"]
+
+
+def test_cotizar_acepta_la_ciudad_dicha_en_un_turno_anterior() -> None:
+    # Arrange
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call(
+                    "cotizar",
+                    family="vaso",
+                    capacity_oz=14,
+                    temperature="fria",
+                    quantity=500,
+                    city="Bogotá",
+                )
+            ],
+        ),
+        ScriptStep(text="Listo [1]."),
+    ]
+    graph, _, _ = _build(steps)
+    turns = [{"question": "Estoy en Bogotá", "answer": "¿Qué necesitas?", "incomplete": False}]
+
+    # Act
+    state = graph.invoke(_input("Serían 500 vasos de 14 oz fríos", seed_turns=turns), _config())
+
+    # Assert
+    assert [r["status"] for r in state["results"]] == ["ok"]
+
+
+def test_cotizar_no_usa_una_ciudad_que_nadie_dijo_en_el_hilo() -> None:
+    # Arrange
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call(
+                    "cotizar",
+                    family="vaso",
+                    capacity_oz=14,
+                    temperature="fria",
+                    quantity=500,
+                    city="Bogotá",
+                )
+            ],
+        ),
+        ScriptStep(text="¿En qué ciudad?"),
+    ]
+    graph, _, _ = _build(steps)
+
+    # Act
+    state = graph.invoke(_input("Serían 500 vasos de 14 oz fríos"), _config())
+
+    # Assert
+    assert [r["status"] for r in state["results"]] == ["needs_input"]
+    assert state["quotes"] == []
+    assert "city" not in state["commercial_context"]

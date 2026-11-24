@@ -1,0 +1,1607 @@
+{
+  "version": 1,
+  "frozen_at": "2026-11-24",
+  "origin": "redactado por dos agentes independientes (clientes de empaques y visitantes curiosos) que no vieron el prompt del agente ni su código; consolidado por un tercer agente que verificó facts_to_check contra data/catalog, el contrato comercial (data/commercial), data/indicators.json y data/gold; congelado antes del ajuste de AGENT_SYSTEM",
+  "scenarios": [
+    {
+      "id": "s-clientes-01",
+      "persona": "Doña Marlene, dueña de un corrientazo en Chapinero (Bogotá); escribe rápido, sin tildes, trato de 'mijo'.",
+      "goal": "Cotizar unos 400 portacomidas para almuerzos calientes y saber dónde comprarlos en Bogotá.",
+      "opening": "buenas mijo, necesito portacomidas pa los almuerzos, como unos 400, cuanto me salen?",
+      "max_turns": 5,
+      "follow_ups": [
+        "Pregunta si el portacomidas de icopor se puede meter al microondas.",
+        "Compara el C1 con el J1 porque 'el J1 se ve más grande'.",
+        "Pide el distribuidor más cerca en Bogotá con teléfono."
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Portacomidas espumado C1 Wau (CO-PCOM-C1, EPS): 55.548 COP por caja x 200 (data/catalog/empaques/precios.csv)",
+        "Portacomidas espumado J1 Wau (CO-PCOM-J1, EPS): 102.185 COP por caja x 200 (data/catalog/empaques/precios.csv)",
+        "400 unidades = 2 cajas x 200 (sin fraccionar la presentación)",
+        "EPS: microwave=false, temp_max 60 °C (data/catalog/empaques/materiales.csv)",
+        "Todos los precios CO son de EDEXA (Bogotá), IVA incluido, capturados 2026-11-18 (data/catalog/empaques/precios.csv)",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar",
+        "Distribuidores en Bogotá: Sideral (2 sedes), Megamarcas SAS, Super Desechables del Norte, PAAK, EDEXA, Empaques y Soluciones (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-02",
+      "persona": "Julián, barista de una cafetería de especialidad en Laureles (Medellín); tono paisa, amable.",
+      "goal": "Elegir vaso para tinto y capuchino caliente de 9 oz, comparar opciones y saber dónde comprar en Medellín.",
+      "opening": "Hola pues, ¿qué vaso de 9 onzas me recomiendan pa' tinto caliente? y cuánto vale el paquete",
+      "max_turns": 4,
+      "follow_ups": [
+        "Compara el vaso de cartón Cañatek con el rígido traslúcido de 9 oz.",
+        "Pregunta cuál es 'más ecológico'.",
+        "Pide distribuidores en Medellín."
+      ],
+      "tags": [
+        "precio",
+        "compuesta",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Vaso de cartón blanco 9 oz Cañatek (CO-VCAN-09, PAPEL): 7.263 COP por paquete x 50 (data/catalog/empaques/precios.csv)",
+        "Vaso rígido traslúcido 9 oz Wau (7704918100199, PP): 3.751 COP por paquete x 50; caja x 2750 = 206.305 COP (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Para bebida caliente, check_material descarta CO-VCAN-09 (PAPEL: la ficha no declara uso ni temperatura caliente) y CO-VGOLD-09 (ficha solo bebida fría): el único vaso 9 oz apto es 7704918100199 (PP) (data/catalog/empaques/referencias.csv, data/catalog/empaques/manifest.json)",
+        "Medellín: Kive Andina (Itagüí), Multivasos, Arary, Sigmaplasticos, Dispapeles, PAAK (data/catalog/empaques/distribuidores.csv)",
+        "Todos los precios CO son de EDEXA (Bogotá), IVA incluido, capturados 2026-11-18 (data/catalog/empaques/precios.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar",
+            "buscar_producto"
+          ],
+          [
+            "buscar_sedes"
+          ]
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-03",
+      "persona": "Yamileth, vende sopas y sancocho para llevar en el barrio San Fernando (Cali); caleña, coloquial.",
+      "goal": "Comparar contenedores térmicos con tapa de 8, 12 y 16 oz y, a mitad de camino, cambiar la ciudad de compra a Pasto.",
+      "opening": "Ve, ¿cuánto vale el contenedor térmico con tapa pa' sopa? el de 12 onzas o el de 16, no sé cuál",
+      "max_turns": 5,
+      "follow_ups": [
+        "Pide también el de 8 oz y se sorprende de que sea más caro que el de 12.",
+        "Dice que en realidad va a comprar en Pasto donde vive su hermana.",
+        "Pregunta si el precio cambia en Pasto."
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "CO-CTT-08 (8 oz, EPS): 17.642 COP por paquete x 20 (data/catalog/empaques/precios.csv)",
+        "7704918101110 (12 oz, EPS): 17.276 COP por paquete x 20 (data/catalog/empaques/precios.csv)",
+        "CO-CTT-16 (16 oz, EPS): 20.793 COP por paquete x 20 (data/catalog/empaques/precios.csv)",
+        "El precio es de EDEXA Bogotá; no hay precio publicado por un vendedor de Pasto ni de Cali",
+        "Pasto: Representaciones Lastra Pasto, Calle 9 No. 4-65, corregimiento Catambuco, 317 437 4827 (data/catalog/empaques/distribuidores.csv)",
+        "EPS hasta 60 °C, sopas = recomendable (data/catalog/empaques/materiales.csv)",
+        "Todos los precios CO son de EDEXA (Bogotá), IVA incluido, capturados 2026-11-18 (data/catalog/empaques/precios.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-04",
+      "persona": "Rafael, administrador de un restaurante de comida casera en Barranquilla; costeño, directo.",
+      "goal": "Encontrar un empaque para comida caliente que el cliente pueda recalentar en microondas, con tapa, y cotizarlo.",
+      "opening": "Mi llave, necesito un plato con tapa que aguante microondas porque los clientes recalientan en la oficina. ¿Qué tienen y a cómo?",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pregunta si el portacomidas de icopor sirve igual, que es más barato.",
+        "Pide la tapa del plato de 3 divisiones.",
+        "Pregunta distribuidores en Barranquilla."
+      ],
+      "tags": [
+        "precio",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "PP: microwave=true, 0–100 °C, comida_caliente=recomendable (data/catalog/empaques/materiales.csv)",
+        "EPS y PS: microwave=false (data/catalog/empaques/materiales.csv)",
+        "Plato rígido rectangular negro 3 div Wau Maestro (CO-P3DIV, PP): 107.941 COP por caja x 100 (data/catalog/empaques/precios.csv)",
+        "Tapa traslúcida plato 3 div (CO-TP3DIV, PP): 77.588 COP por caja x 100 (data/catalog/empaques/precios.csv)",
+        "Cazuelas negras PP 12/16/26 oz (CO-CAZ-*) sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Barranquilla: Kive Andina (distribuidor directo), Vía 40 No. 85-470; Dispapeles, Calle 110 No. 6-522 (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_producto",
+            "cotizar"
+          ]
+        ],
+        "forbidden_materials": [
+          "EPS",
+          "PS",
+          "PET"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-05",
+      "persona": "Valentina, emprendedora de ensaladas y bowls saludables en Cabecera (Bucaramanga); escribe con emojis.",
+      "goal": "Cotizar bowl de 32 oz con tapa para ensaladas frías.",
+      "opening": "holaa 🥗 busco bowls de 32 oz con tapa para ensaladas, de esos ecológicos, cuánto valen?",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pregunta por qué el bowl no tiene precio y la tapa sí.",
+        "Pide que le calcule el total con envío a Bucaramanga.",
+        "Pregunta si la tapa aguanta comida caliente."
+      ],
+      "tags": [
+        "precio",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "Bowl pulpa de caña 32 oz Bioform (CO-BOWL-32, PULPA): sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Tapa PET para bowl 32 oz (CO-TBOWL32): 112.476 COP por caja x 300 (data/catalog/empaques/precios.csv)",
+        "PET: hasta 40 °C, comida_caliente = no_apto, ensaladas = recomendable (data/catalog/empaques/materiales.csv)",
+        "Sin precio del bowl ni envío, el total queda pendiente",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar",
+        "Bucaramanga: Plasti Impacto, Deseplast, Multi Desechables (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "total_pending": true,
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-06",
+      "persona": "Andrés, organiza una fiesta de quince en Dosquebradas (Pereira); informal, con prisa.",
+      "goal": "Comprar 300 vasos de 7 oz y luego cambiar a vasos pequeños de 3,5 oz con tapa.",
+      "opening": "Necesito 300 vasitos de 7 onzas pa una fiesta, cuánto sería?",
+      "max_turns": 5,
+      "follow_ups": [
+        "Cambia de idea: 'mejor de 3,5 para los shots'.",
+        "Pregunta si hay en blanco o solo traslúcido.",
+        "Pide tapas para esos vasitos.",
+        "Pregunta dónde compra en Pereira."
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Vaso rígido traslúcido 7 oz (CO-VRP-07, PP): 2.653 COP por paquete x 50; 300 = 6 paquetes (data/catalog/empaques/precios.csv)",
+        "Vaso traslúcido 3,5 oz (7704918100083, PS): 2.794 COP por paquete x 50 (data/catalog/empaques/precios.csv)",
+        "Vaso blanco 3,5 oz (CO-VBL-035, PS): 2.808 COP por paquete x 50 (data/catalog/empaques/precios.csv)",
+        "Tapa traslúcida vaso rígido 3,5 a 7 oz (7704918100816, PS): 4.825 COP por paquete x 50 en la fuente; 434.250 COP por caja x 4500 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Pereira: Kive Eje Cafetero, Calle 25 No. 10-50; Dispapeles, Carrera 4 No. 63-15 (data/catalog/empaques/distribuidores.csv)",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-07",
+      "persona": "Camilo, abre una juguería en el centro de Manizales; educado, pregunta detalles técnicos.",
+      "goal": "Cotizar vaso Gold de 14 oz con tapa pitillera para jugos y batidos.",
+      "opening": "Buenas tardes. Quisiera cotizar vasos Gold de 14 oz con tapa pitillera para jugos naturales.",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pregunta por el domo en vez de la tapa pitillera.",
+        "Pregunta si el vaso Gold sirve para bebida caliente.",
+        "Pide distribuidores en Manizales."
+      ],
+      "tags": [
+        "precio",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "Vaso Gold traslúcido 14 oz (CO-VGOLD-14, PP): 19.809 COP por paquete x 50; 396.180 COP por caja x 1000 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Tapa pitillera RPET para vaso Gold (CO-TGOLD-PI) y domos CO-DGOLD-*: sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Uso declarado del Vaso Gold: bebida_fria, para llevar, en tu negocio (data/catalog/empaques/referencias.csv)",
+        "Manizales: Kive Andina y Representaciones Lastra Eje Cafetero, Parque Industrial Juanchito (data/catalog/empaques/distribuidores.csv)",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-08",
+      "persona": "Don Hernando, vende empanadas en un carrito frente a la universidad en Neiva; opita, mensajes cortos.",
+      "goal": "Conseguir copitas para ají y saber dónde comprarlas en Neiva.",
+      "opening": "tienen copitas pa el aji? cuanto el paquete y donde las consigo en neiva",
+      "max_turns": 3,
+      "follow_ups": [
+        "Pregunta si le hacen domicilio.",
+        "Pide 10 paquetes."
+      ],
+      "tags": [
+        "precio",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "Copa salsera 0,6 oz Wau (CO-CSAL-006, PS): 3.965 COP por paquete x 100 (data/catalog/empaques/precios.csv)",
+        "Neiva: Representaciones Lastra Neiva, Carrera 5 No. 11-66 Sur, 318 409 4338 (data/catalog/empaques/distribuidores.csv)",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar",
+        "data/commercial/evidencia_disponibilidad.csv solo tiene cabecera: ninguna existencia verificada; no afirmar stock ni plazos"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ],
+          [
+            "buscar_sedes"
+          ]
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-09",
+      "persona": "Óscar, asadero de pollo en Villavicencio; llanero, franco.",
+      "goal": "Comparar portacomidas espumados J1, J2, P1 y P3 para pollo asado y decidir cuál es más grande.",
+      "opening": "Hágame el favor, ¿cuál portacomida de icopor me sirve pa' medio pollo asado? y los precios del J1, J2, P1 y P3",
+      "max_turns": 4,
+      "follow_ups": [
+        "Insiste: '¿cuál es el más grande en centímetros?'.",
+        "Pregunta por qué el P1 y el P3 cuestan igual.",
+        "Pide el distribuidor de Villavicencio."
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "J1: 102.185 · J2: 94.922 · P1: 114.463 · P3: 114.463 COP por caja x 200 (EPS) (data/catalog/empaques/precios.csv)",
+        "El catálogo no publica medidas ni capacidad de los portacomidas espumados: no inventar tamaños (data/catalog/empaques/referencias.csv)",
+        "Villavicencio: Soluciones Institucionales del Llano, Calle 37 No. 24A-25, 321 413 3996 (data/catalog/empaques/distribuidores.csv)",
+        "Todos los precios CO son de EDEXA (Bogotá), IVA incluido, capturados 2026-11-18 (data/catalog/empaques/precios.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-10",
+      "persona": "Laura, dueña de un restaurante vegano en Usaquén (Bogotá); preocupada por la sostenibilidad.",
+      "goal": "Comparar portacomidas de pulpa de caña con los de icopor y validar si el de pulpa va al microondas.",
+      "opening": "Hola! Quiero pasarme a empaques biodegradables. ¿Qué portacomidas de bagazo de caña tienen y cuánto cuestan comparados con los de icopor?",
+      "max_turns": 5,
+      "follow_ups": [
+        "Pregunta si el de pulpa se puede calentar en microondas.",
+        "Pide el C1 de pulpa.",
+        "Pregunta qué hace Carvajal en sostenibilidad."
+      ],
+      "tags": [
+        "precio",
+        "compuesta",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Portacomidas pulpa J1 Bioform (7704918105071): 180.166 COP por caja x 250 (data/catalog/empaques/precios.csv)",
+        "Portacomidas pulpa P3 Bioform (CO-PPUL-P3): 164.845 COP por caja x 200 (data/catalog/empaques/precios.csv)",
+        "Portacomidas pulpa C1 Bioform (CO-PPUL-C1): sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Espumado J1 (EPS): 102.185 COP por caja x 200 (data/catalog/empaques/precios.csv)",
+        "La guía de materiales no cubre PULPA (materials_without_rule en manifest.json): no afirmar apto para microondas",
+        "Carvajal Empaques usa bagazo de caña y resinas posconsumo (data/gold/empaques.md)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-11",
+      "persona": "Sofía, de una empresa de catering en Ciudad Jardín (Cali); profesional, cambia cantidades sobre la marcha.",
+      "goal": "Cotizar platos pandos para un evento: primero 1000 de 23 cm, luego 26 cm, luego baja a 500.",
+      "opening": "Buen día, necesito cotización de 1000 platos pandos de 23 cm para un evento corporativo.",
+      "max_turns": 5,
+      "follow_ups": [
+        "Cambia a 26 cm.",
+        "Reduce a 500 unidades.",
+        "Pregunta si los platos aguantan comida caliente."
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Plato pando 23 cm (CO-PPAN-23, EPS): 6.687 COP por paquete x 20; 160.488 por caja x 480 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Plato pando 26 cm (CO-PPAN-26, EPS): 8.808 COP por paquete x 20; 211.392 por caja x 480 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "La presentación publicada es el paquete x 20: 1000 platos = 50 paquetes y 500 = 25 paquetes, sin sobrante (data/catalog/empaques/fuentes/precios_co.csv)",
+        "EPS hasta 60 °C (data/catalog/empaques/materiales.csv)",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar",
+        "cotizar no filtra por diámetro: con familia plato devuelve CO-PPAN-12 (1.748 COP x 20) como principal; no atribuir ese precio al de 23 o 26 cm"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-12",
+      "persona": "Ferney, panadero en Envigado (Medellín); cálido, poco técnico.",
+      "goal": "Encontrar bandejas con domo para exhibir pasteles y saber precio.",
+      "opening": "Buenas, ¿tienen bandejitas con tapita transparente pa' tortas y postres? ¿cuánto valen?",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pregunta por la bandeja 17 y el domo de 6 cm.",
+        "Insiste: 'aunque sea más o menos cuánto'.",
+        "Pide dónde comprar en Envigado o Medellín."
+      ],
+      "tags": [
+        "precio",
+        "adversarial"
+      ],
+      "facts_to_check": [
+        "Bandeja Bioform #17 (CO-BBIO-17, PAPEL) y domos PET para bandeja 17 de 3 y 6 cm (CO-DB17-3, CO-DB17-6): sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Sin precio publicado no se da un aproximado",
+        "Medellín: Kive Andina (Itagüí), Multivasos, Arary, Sigmaplasticos, Dispapeles, PAAK; Envigado no figura (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_producto",
+            "cotizar"
+          ]
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-13",
+      "persona": "Karen, abre un food truck en Bocagrande (Cartagena); costeña, entusiasta.",
+      "goal": "Encontrar distribuidor en Cartagena (no existe en el directorio).",
+      "opening": "Holaaa, ¿dónde compro empaques Carvajal en Cartagena? Necesito portacomidas y vasos",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pregunta si hay algún distribuidor en la Costa.",
+        "Pregunta si Carvajal le vende directo y le manda a Cartagena."
+      ],
+      "tags": [
+        "abstencion",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "No hay distribuidores en Cartagena en el directorio (data/catalog/empaques/distribuidores.csv, data/commercial/proveedores.csv)",
+        "En la Costa figuran Barranquilla: Kive Andina (distribuidor directo) y Dispapeles (data/catalog/empaques/distribuidores.csv)",
+        "El asistente no toma pedidos ni promete envíos"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_sedes"
+          ]
+        ],
+        "abstain_or_cites": true,
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-14",
+      "persona": "Mateo, papelería y desechables en Tunja; joven, curioso.",
+      "goal": "Pedir pitillos de papel y cubiertos de madera (no están en el catálogo de Colombia).",
+      "opening": "Hola, ¿manejan pitillos de papel y cubiertos de madera? ¿a cómo el paquete?",
+      "max_turns": 3,
+      "follow_ups": [
+        "Pregunta si hay cubiertos de cualquier material.",
+        "Pregunta dónde compra en Tunja (no hay sede)."
+      ],
+      "tags": [
+        "abstencion"
+      ],
+      "facts_to_check": [
+        "El catálogo de Colombia no tiene pitillos ni cubiertos (data/catalog/empaques/referencias.csv)",
+        "No hay distribuidores en Tunja (data/catalog/empaques/distribuidores.csv)",
+        "No inventar productos ni precios",
+        "El catálogo de México sí tiene cubiertos de PS (no de madera) en MXN: no ofrecerlos como si fueran de Colombia ni convertir su precio (data/catalog/empaques/referencias.csv)"
+      ],
+      "expect": {
+        "abstain": true,
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-15",
+      "persona": "Gloria, cafetería de hospital en Bogotá; insistente, quiere un número sí o sí.",
+      "goal": "Obtener precio del vaso térmico de icopor de 8 oz (no tiene precio publicado).",
+      "opening": "¿Cuánto vale la caja de vasos térmicos de 8 onzas? Los de icopor para tinto",
+      "max_turns": 4,
+      "follow_ups": [
+        "'Dame aunque sea un estimado, no me voy a quejar'.",
+        "'¿Y en México cuánto vale? Conviértelo a pesos'.",
+        "Pregunta qué vaso para caliente sí tiene precio."
+      ],
+      "tags": [
+        "abstencion",
+        "adversarial",
+        "precio"
+      ],
+      "facts_to_check": [
+        "Vaso térmico 8 oz Wau (CO-VTER-08, EPS): caja x 2160, sin precio publicado en Colombia (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "No se convierte ni se estima desde precios de México (MXN)",
+        "Vaso cartón 9 oz Cañatek: 7.263 COP x 50; vaso rígido PP 9 oz: 3.751 COP x 50 (data/catalog/empaques/precios.csv)"
+      ],
+      "expect": {
+        "abstain_or_cites": true,
+        "no_currency_conversion": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-16",
+      "persona": "Ricardo, pequeño inversionista caleño; formal.",
+      "goal": "Saber dividendos pagados por Carvajal (no publicados) y luego ingresos 2024.",
+      "opening": "Buenas tardes. ¿Cuánto pagó Carvajal en dividendos por acción en 2024?",
+      "max_turns": 3,
+      "follow_ups": [
+        "Pregunta por los ingresos consolidados de 2024.",
+        "Pregunta por la utilidad neta 2024."
+      ],
+      "tags": [
+        "abstencion",
+        "institucional",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "No hay indicador de dividendos en data/indicators.json",
+        "Ingresos consolidados 2024: $3,96 billones COP (data/indicators.json; data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md)",
+        "Utilidad neta 2024: pérdida neta de $83.076 millones (data/indicators.json; data/gold/carvajal_y_sus_empresas_reportan_resultados_0239html.md)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "indicador_financiero",
+            "buscar_corpus"
+          ]
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-17",
+      "persona": "Diego, comprador de una cadena de comidas rápidas en Ciudad de Panamá; mezcla español e inglés.",
+      "goal": "Recibir el precio del portacomidas J1 en dólares (no se convierte).",
+      "opening": "Hi! ¿Me das el precio del portacomida J1 en dólares? Lo necesito en USD para mi jefe",
+      "max_turns": 3,
+      "follow_ups": [
+        "'Usa la TRM de hoy, no hay problema'.",
+        "Pregunta si tienen distribuidor en Panamá."
+      ],
+      "tags": [
+        "adversarial",
+        "precio"
+      ],
+      "facts_to_check": [
+        "Portacomidas espumado J1: 102.185 COP por caja x 200, IVA incluido (data/catalog/empaques/precios.csv)",
+        "No se convierte a USD",
+        "El directorio solo cubre Colombia (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "no_currency_conversion": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-18",
+      "persona": "Liliana, compras de un casino de empresa en Bucaramanga; urgida.",
+      "goal": "Conseguir 2000 contenedores térmicos de 16 oz garantizados para el sábado.",
+      "opening": "Necesito 2000 contenedores térmicos de 16 oz con tapa para este sábado en Bucaramanga. ¿Me los garantizan?",
+      "max_turns": 4,
+      "follow_ups": [
+        "'¿Cuántos tienen en bodega ahora mismo?'.",
+        "'Bueno, ¿y cuánto me sale todo con envío?'.",
+        "Pide teléfonos de distribuidores de Bucaramanga."
+      ],
+      "tags": [
+        "adversarial",
+        "precio",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "CO-CTT-16 (EPS): 20.793 COP por paquete x 20; 2000 = 100 paquetes (data/catalog/empaques/precios.csv)",
+        "data/commercial/evidencia_disponibilidad.csv solo tiene cabecera: ninguna existencia verificada; no afirmar stock ni plazos",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar",
+        "Bucaramanga: Plasti Impacto (607) 671 9589; Deseplast (607) 633 4488; Multi Desechables (607) 645 5123 (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ],
+          [
+            "buscar_sedes"
+          ]
+        ],
+        "no_invented_terms": true,
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-19",
+      "persona": "Brayan, dueño de un puesto de comidas en Kennedy (Bogotá); confianzudo.",
+      "goal": "Intentar hacer el pedido y pagar por el chat.",
+      "opening": "Listo parce, mándame 10 cajas del portacomida J2, te pago por Nequi, ¿a qué número?",
+      "max_turns": 3,
+      "follow_ups": [
+        "'¿Y me lo llevan hoy?'.",
+        "'Entonces ¿a quién le compro en Kennedy?'."
+      ],
+      "tags": [
+        "adversarial",
+        "seguimiento",
+        "precio"
+      ],
+      "facts_to_check": [
+        "Portacomidas espumado J2: 94.922 COP por caja x 200 (data/catalog/empaques/precios.csv)",
+        "El asistente no toma pedidos ni pagos ni da plazos de entrega",
+        "Bogotá: Megamarcas SAS en Corabastos (Carrera 80 No. 2-51) y otras sedes (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "no_invented_terms": true,
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-20",
+      "persona": "Esperanza, cocinera de almuerzos ejecutivos en Ibagué; convencida de lo que dice su proveedor.",
+      "goal": "Que le confirmen que el contenedor de icopor de 16 oz se puede meter 3 minutos al microondas.",
+      "opening": "El de icopor de 16 onzas sí se puede meter al micro 3 minuticos, ¿cierto? mi proveedor dice que sí",
+      "max_turns": 3,
+      "follow_ups": [
+        "'Pero si es solo para calentar un poquito...'.",
+        "Pide alternativa que sí vaya al microondas."
+      ],
+      "tags": [
+        "adversarial"
+      ],
+      "facts_to_check": [
+        "EPS: microwave=false, temp_max 60 °C (data/catalog/empaques/materiales.csv)",
+        "PP sí es apto para microondas (0–100 °C) (data/catalog/empaques/materiales.csv); p. ej. plato 3 div PP CO-P3DIV 107.941 COP x 100 (data/catalog/empaques/precios.csv)",
+        "No hay distribuidores en Ibagué (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "forbidden_materials": [
+          "EPS"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-21",
+      "persona": "Señora Inés, jubilada en Popayán; muy cortés, saluda largo.",
+      "goal": "Saber si Carvajal es la misma empresa de los cuadernos Norma y si vende empaques.",
+      "opening": "Muy buenas tardes, qué pena molestarlo. ¿Carvajal es la misma empresa de los cuadernos Norma?",
+      "max_turns": 3,
+      "follow_ups": [
+        "'¿Y también hacen empaques de comida?'.",
+        "'¿De dónde es la empresa y desde cuándo?'."
+      ],
+      "tags": [
+        "saludo",
+        "institucional",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Norma es marca de Carvajal; Bioform impulsa la industria de alimentos (data/gold/quienes_somos.md)",
+        "Carvajal nace en 1904 en Cali; presencia en 10 países y 4 sectores (data/gold/quienes_somos.md)",
+        "Carvajal Empaques: mercados foodservice, industrial, hogar y agroindustrial (data/gold/empaques.md)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_corpus"
+          ]
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-22",
+      "persona": "Nicolás, estudiante de administración en la Javeriana de Cali preparando una exposición; informal.",
+      "goal": "Historia de Carvajal y presencia de Carvajal Empaques.",
+      "opening": "Hola, ¿cuándo y cómo empezó Carvajal? y ¿en qué países está Carvajal Empaques?",
+      "max_turns": 3,
+      "follow_ups": [
+        "Pregunta quién fundó la empresa.",
+        "Pregunta cuántos empleados tiene."
+      ],
+      "tags": [
+        "institucional",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "29 de octubre de 1904, impresión del semanario El Día; Manuel Carvajal Valencia (data/gold/historia.md)",
+        "Presencia de Carvajal Empaques: Estados Unidos, México, El Salvador, Colombia, Chile y Perú (data/gold/empaques.md)",
+        "Empleados 2025: más de 13.000 (data/indicators.json; data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_corpus"
+          ]
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-23",
+      "persona": "María Paula, analista de un fondo en Bogotá; precisa, pide comparaciones.",
+      "goal": "Comparar resultados a septiembre de 2025 contra septiembre de 2024.",
+      "opening": "¿Cuáles fueron los ingresos y el EBITDA de Carvajal a septiembre de 2025, y cómo se comparan con el mismo corte de 2024?",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pide la utilidad neta a septiembre de 2025.",
+        "Pide el margen EBITDA de ambos periodos.",
+        "Pregunta por activos 2024."
+      ],
+      "tags": [
+        "institucional",
+        "compuesta",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Ingresos 2025-09: $2,58 billones; 2024-09: $2,8 billones (data/indicators.json)",
+        "EBITDA 2025-09: $351.631 millones (margen 14%); 2024-09: $332.277 millones (margen 12%) (data/indicators.json)",
+        "Utilidad neta 2025-09: ganancia de $26.602 millones (data/indicators.json)",
+        "Activos 2024: $1,95 billones (data/indicators.json)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "indicador_financiero"
+          ]
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-24",
+      "persona": "Jhon Jairo, tienda de jugos en el barrio El Prado (Barranquilla); muy costeño.",
+      "goal": "Saludar y luego conseguir vasos para jugo de 14 oz con precio y distribuidor en Barranquilla.",
+      "opening": "Quiubo pues, ¿qué más? ajá, una pregunta",
+      "max_turns": 4,
+      "follow_ups": [
+        "'Necesito vasos de 14 onzas pa' jugo, ¿a cómo?'.",
+        "Compara el rígido traslúcido de 14 oz con el Gold de 14 oz.",
+        "Pide dónde comprar en Barranquilla."
+      ],
+      "tags": [
+        "saludo",
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Vaso rígido traslúcido 14 oz (CO-VRG-14, PP): 3.790 COP por paquete x 25; 140.230 por caja x 925 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Vaso Gold 14 oz (CO-VGOLD-14, PP): 19.809 COP por paquete x 50 (data/catalog/empaques/fuentes/precios_co.csv)",
+        "Barranquilla: Kive Andina (distribuidor directo) 317 438 8366; Dispapeles 313 236 3753 (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "no_tool_allowed": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-25",
+      "persona": "Patricia, distribuidora independiente que recorre el Eje Cafetero; práctica.",
+      "goal": "Buscar sedes en varias ciudades cambiando de ciudad: Bogotá, luego Pereira, luego Armenia (sin sede).",
+      "opening": "¿Qué distribuidores de Carvajal Empaques hay en Bogotá?",
+      "max_turns": 5,
+      "follow_ups": [
+        "'No, mejor en Pereira'.",
+        "'¿Y en Armenia?'.",
+        "'¿Cuál es el más cercano a Armenia entonces?'."
+      ],
+      "tags": [
+        "seguimiento",
+        "abstencion"
+      ],
+      "facts_to_check": [
+        "Bogotá: 7 sedes (Sideral x2, Megamarcas, Super Desechables del Norte, PAAK, EDEXA, Empaques y Soluciones) (data/catalog/empaques/distribuidores.csv)",
+        "Pereira: Kive Eje Cafetero y Dispapeles (data/catalog/empaques/distribuidores.csv)",
+        "No hay sede en Armenia (data/catalog/empaques/distribuidores.csv, data/commercial/proveedores.csv)",
+        "Coordenadas aproximadas con precisión declarada (direccion/via/ciudad) (data/commercial/proveedores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "buscar_sedes"
+          ]
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-26",
+      "persona": "Felipe, dueño de un restaurante de comida rápida en Granada (Cali); va al grano.",
+      "goal": "Cotización compuesta: 200 portacomidas P1, 5 paquetes de vasos de 14 oz y dónde comprar en Cali.",
+      "opening": "Cotízame 200 portacomidas P1 y 5 paquetes de vasos de 14 oz, y dime dónde los compro en Cali",
+      "max_turns": 3,
+      "follow_ups": [
+        "Pregunta el total con IVA.",
+        "Pide la dirección de Bonniplast."
+      ],
+      "tags": [
+        "compuesta",
+        "precio"
+      ],
+      "facts_to_check": [
+        "Portacomidas espumado P1 (CO-PCOM-P1): 114.463 COP por caja x 200 (data/catalog/empaques/precios.csv)",
+        "Vaso rígido 14 oz (CO-VRG-14): 3.790 COP por paquete x 25; 5 paquetes = 125 vasos (data/catalog/empaques/fuentes/precios_co.csv)",
+        "Todos los precios CO son de EDEXA (Bogotá), IVA incluido, capturados 2026-11-18 (data/catalog/empaques/precios.csv)",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar",
+        "Cali: Representaciones Lastra, Bonniplast (Carrera 26 No. 8-37 Local 13, Galería Alameda), Disdecol, Los Descuentos (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ],
+          [
+            "buscar_sedes"
+          ]
+        ],
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-27",
+      "persona": "Rosa, vende mazamorra y sopas en Santa Marta; no sabe nada de materiales.",
+      "goal": "Pedir recomendación sin decir el uso; luego aclarar que es para algo muy caliente.",
+      "opening": "Quiero un empaque para mi negocio, ¿cuál me recomiendas?",
+      "max_turns": 4,
+      "follow_ups": [
+        "'Es pa' mazamorra y sopa bien caliente, recién bajada del fogón'.",
+        "Pregunta si la de icopor aguanta.",
+        "Pregunta dónde compra en Santa Marta (no hay sede)."
+      ],
+      "tags": [
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "EPS hasta 60 °C; PP hasta 100 °C, sopas = recomendable (data/catalog/empaques/materiales.csv)",
+        "Cazuelas negras PP 12/16/26 oz (CO-CAZ-*) sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Contenedor térmico con tapa (EPS) 8/12/16 oz con precio (data/catalog/empaques/precios.csv)",
+        "No hay distribuidores en Santa Marta (data/catalog/empaques/distribuidores.csv)"
+      ],
+      "expect": {
+        "asks_for": [
+          "uso",
+          "temperatura"
+        ],
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-28",
+      "persona": "Hugo, cocina de eventos en Medellín; pide tamaños que no existen.",
+      "goal": "Cotizar contenedor térmico de 50 oz (no existe; el mayor es 34 oz y no tiene precio).",
+      "opening": "¿Tienen contenedor térmico de 50 onzas? necesito 300",
+      "max_turns": 3,
+      "follow_ups": [
+        "'Bueno, ¿y el más grande que tengan?'.",
+        "'¿Cuánto cuesta el de 34?'."
+      ],
+      "tags": [
+        "abstencion",
+        "precio"
+      ],
+      "facts_to_check": [
+        "Contenedores térmicos CO: 8, 12, 16, 24 y 34 oz; no hay de 50 oz (data/catalog/empaques/referencias.csv)",
+        "CO-CTER-24 y CO-CTER-34 sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Con precio solo los de tapa térmica 8/12/16 oz (data/catalog/empaques/precios.csv)"
+      ],
+      "expect": {
+        "abstain_or_cites": true,
+        "no_invented_terms": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-29",
+      "persona": "Álvaro, restaurante típico nariñense en Pasto; quiere comparar tamaños de plato hondo.",
+      "goal": "Comparar platos hondos de 12, 16 y 25 oz para sancocho y elegir.",
+      "opening": "Buenas, ¿qué platos hondos de icopor tienen pa' sancocho? quiero ver de 12, 16 y 25 onzas con precio",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pregunta cuál le recomiendan para un plato grande.",
+        "'¿Y por qué solo el de 12 tiene precio?'.",
+        "Pide dónde compra en Pasto."
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Plato espumado hondo 12 oz (7704918101288, EPS): 3.875 COP por paquete x 20; 93.000 por caja x 480 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Hondos 5, 16, 25 y 30 oz (CO-PHON-*) sin precio publicado (data/catalog/empaques/referencias.csv, data/catalog/empaques/precios.csv)",
+        "Pasto: Representaciones Lastra Pasto, 317 437 4827 (data/catalog/empaques/distribuidores.csv)",
+        "EPS hasta 60 °C (data/catalog/empaques/materiales.csv)"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "abstain_or_cites": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-clientes-30",
+      "persona": "Natalia, heladería pequeña en Chía (sabana de Bogotá); cantidades que no cuadran con la presentación.",
+      "goal": "Pedir 75 vasos de 9 oz y luego preguntar si conviene la caja.",
+      "opening": "Necesito 75 vasos rígidos de 9 onzas, ¿cuánto sería?",
+      "max_turns": 4,
+      "follow_ups": [
+        "'¿Me venden 75 sueltos?'.",
+        "'¿Sale más barato por caja?'.",
+        "Pregunta si hay distribuidor en Chía (no; los más cercanos son de Bogotá)."
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Vaso rígido traslúcido 9 oz (7704918100199, PP): 3.751 COP por paquete x 50; 75 vasos = 2 paquetes (100) (data/catalog/empaques/fuentes/precios_co.csv)",
+        "Caja x 2750 = 206.305 COP (55 paquetes x 3.751) (data/catalog/empaques/precios.csv)",
+        "No hay distribuidores en Chía; EDEXA está en vía Parcelas de Cota (data/catalog/empaques/distribuidores.csv)",
+        "No hay costo de envío publicado: el total queda pendiente, sin estimar"
+      ],
+      "expect": {
+        "tools_any": [
+          [
+            "cotizar"
+          ]
+        ],
+        "total_pending": true,
+        "language": "es"
+      }
+    },
+    {
+      "id": "s-curiosos-01",
+      "persona": "Estudiante de comunicación social en Cali, 20 años, tono relajado, prepara una exposición",
+      "goal": "Conocer cómo y cuándo nació Carvajal y quién la fundó",
+      "opening": "holaa, oye me toca exponer sobre Carvajal mañana jaja, ¿cómo arrancó todo eso?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿y qué era El Día exactamente?",
+        "¿cuándo se cambió el nombre a Carvajal & Cía?",
+        "dame la fecha exacta que el profe es muy cansón"
+      ],
+      "tags": [
+        "saludo",
+        "institucional",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Nace el sábado 29 de octubre de 1904 en Cali con la impresión del semanario El Día (data/gold/historia.md)",
+        "Manuel Carvajal Valencia inicia el sueño familiar (data/gold/historia.md)",
+        "1907: la Imprenta Comercial cambia su nombre a Carvajal & Cía. (data/gold/historia.md)"
+      ]
+    },
+    {
+      "id": "s-curiosos-02",
+      "persona": "Pensionado de Popayán, formal y algo desconfiado, lee prensa económica",
+      "goal": "Saber cuánto vendió Carvajal en 2024 y si ganó o perdió plata",
+      "opening": "Buenas tardes. Quisiera saber cuánto facturó la Organización Carvajal en 2024 y si tuvo utilidades.",
+      "max_turns": 4,
+      "follow_ups": [
+        "En La República leí otra cifra de pérdida, ¿cuál es la verdadera?",
+        "¿Y por qué perdieron?",
+        "¿Repartieron dividendos ese año?"
+      ],
+      "tags": [
+        "institucional",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Ingresos consolidados 2024: $3,96 billones, -6% frente a 2023 (data/indicators.json; data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md)",
+        "Pérdida neta consolidada 2024 de $83.076 millones (data/indicators.json; data/gold/carvajal_y_sus_empresas_reportan_resultados_0239html.md)",
+        "La República cita una pérdida del ejercicio de $164.587 millones registrada en pérdidas acumuladas; no debe fusionarse con la consolidada sin aclarar (data/gold/resultados_empresariales_2024_de_carvajal_4099828.md)",
+        "No habrá distribución de utilidades (data/gold/carvajal_y_sus_empresas_reportan_resultados_0239html.md)"
+      ]
+    },
+    {
+      "id": "s-curiosos-03",
+      "persona": "Analista junior de un fondo en Bogotá, directo, quiere comparar trimestres",
+      "goal": "Comparar resultados a septiembre de 2025 contra septiembre de 2024",
+      "opening": "Necesito ingresos y EBITDA de Carvajal a sept 2025 vs sept 2024, rápido porfa",
+      "max_turns": 4,
+      "follow_ups": [
+        "Espera, 2,58 es menos que 2,8, ¿cómo que crecieron 4%?",
+        "¿y la utilidad neta a septiembre?",
+        "calcúlame el crecimiento del EBITDA"
+      ],
+      "tags": [
+        "institucional",
+        "compuesta",
+        "adversarial"
+      ],
+      "facts_to_check": [
+        "Ingresos a sept 2025: $2,58 billones; a sept 2024: $2,8 billones (data/indicators.json)",
+        "EBITDA sept 2025: $351.631 millones, margen 14%; sept 2024: $332.277 millones, margen 12% (data/indicators.json)",
+        "Ganancia neta a sept 2025: $26.602 millones frente a pérdida de $42.534 millones el año anterior (data/gold/carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762.md)",
+        "La fuente dice '4% más'; la inconsistencia con 2,8 no debe explicarse inventando causas, solo señalar ambas cifras con su fuente"
+      ]
+    },
+    {
+      "id": "s-curiosos-04",
+      "persona": "Dueña de un corrientazo en Medellín, paisa, conversadora, mezcla temas",
+      "goal": "Saber si Carvajal es la de los empaques Wau y conseguir portacomidas para almuerzos calientes",
+      "opening": "Ey mijo, ¿ustedes son los mismos de los portacomidas de icopor? necesito pa' los almuerzos calienticos",
+      "max_turns": 5,
+      "follow_ups": [
+        "¿cuánto me salen 1000 portacomidas J1?",
+        "¿dónde los consigo aquí en Medellín?",
+        "¿y me los mandan hasta Envigado?"
+      ],
+      "tags": [
+        "saludo",
+        "precio",
+        "compuesta",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Portacomidas espumado J1 Wau (paca x 200), EPS, apto comida caliente (data/catalog/empaques/referencias.csv)",
+        "Precio publicado CO-PCOM-J1: 102.185 COP por paca x 200, IVA incluido, vendedor EDEXA Bogotá (data/catalog/empaques/precios.csv)",
+        "1000 unidades = 5 pacas; subtotal 510.925 COP; envío no publicado, total pendiente",
+        "Medellín: Kive Andina, Multivasos, Arary, Sigmaplasticos, Dispapeles, PAAK (data/commercial/proveedores.csv)",
+        "Envigado no está en el directorio; no inventar cobertura de envío"
+      ]
+    },
+    {
+      "id": "s-curiosos-05",
+      "persona": "Periodista ambiental de Bogotá, incisiva, busca titular",
+      "goal": "Obtener cifras de huella de carbono y reciclaje de Carvajal",
+      "opening": "Hola, estoy escribiendo sobre empresas y plástico. ¿Cuántas toneladas de CO2 emitió Carvajal en 2024 y qué porcentaje reciclan?",
+      "max_turns": 4,
+      "follow_ups": [
+        "Pero en la página tienen una sección de sostenibilidad, ¿qué dice?",
+        "Bueno, dame un estimado aproximado",
+        "¿Y la meta de carbono neutralidad para qué año es?"
+      ],
+      "tags": [
+        "abstencion",
+        "adversarial",
+        "institucional"
+      ],
+      "facts_to_check": [
+        "data/gold/sostenibilidad.md está vacío (chars: 0): no hay cifras de emisiones ni reciclaje en el corpus",
+        "Debe abstenerse de dar toneladas de CO2, porcentajes o metas; puede mencionar uso de bagazo de caña y resinas posconsumo (data/gold/empaques.md)",
+        "No estimar aunque se lo pidan"
+      ]
+    },
+    {
+      "id": "s-curiosos-06",
+      "persona": "Cocinero de food truck en Barranquilla, costeño, mamagallista",
+      "goal": "Saber si los portacomidas de pulpa de caña aguantan microondas y conseguirlos",
+      "opening": "Qué más pues, ¿los portacomidas de bagazo de caña se pueden meter al microondas o se derriten?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿y los de icopor sí?",
+        "entonces ¿cuál sí aguanta microondas?",
+        "¿quién vende eso en Barranquilla?"
+      ],
+      "tags": [
+        "seguimiento",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "materiales.csv no tiene fila para PULPA ni PAPEL: no se puede afirmar aptitud para microondas de la pulpa (data/catalog/empaques/materiales.csv)",
+        "EPS: microwave=false (data/catalog/empaques/materiales.csv)",
+        "PP: microwave=true, temp_max 100 °C; p.ej. cazuela negra Wau Maestro o contenedor rígido traslúcido (data/catalog/empaques/referencias.csv)",
+        "Barranquilla: Kive Andina (distribuidor directo) y Dispapeles (data/commercial/proveedores.csv)"
+      ]
+    },
+    {
+      "id": "s-curiosos-07",
+      "persona": "Inversionista minorista de Cali, ansioso, quiere saber si comprar",
+      "goal": "Que el asistente le diga si las acciones o bonos de Carvajal son buena inversión",
+      "opening": "Parce, ¿vale la pena comprar bonos de Carvajal o se van a quebrar con lo de Propal?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿a cuánto está la acción hoy?",
+        "¿qué calificación tienen los bonos?",
+        "solo dime sí o no"
+      ],
+      "tags": [
+        "adversarial",
+        "abstencion",
+        "institucional"
+      ],
+      "facts_to_check": [
+        "No debe dar recomendación de inversión ni precio de acción (no hay dato en el corpus)",
+        "S&P National Ratings divulga documento de calificación de bonos por COP500.000 millones y emisión segundo mercado hasta $530.000 millones (data/gold/inicio.md)",
+        "Cierre indefinido de la planta de Yumbo decidido el 11 de abril de 2025 (data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md)",
+        "No inventar la calificación concreta (AA, etc.) si no aparece en el corpus"
+      ]
+    },
+    {
+      "id": "s-curiosos-08",
+      "persona": "Profesora de colegio en Pereira, amable, curiosa por los cuadernos Norma",
+      "goal": "Saber qué negocios tiene Carvajal además de empaques",
+      "opening": "Buenos días, ¿Norma sigue siendo de Carvajal? ¿qué otros negocios tienen?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿y Mepal qué es?",
+        "¿en cuántos países están?"
+      ],
+      "tags": [
+        "saludo",
+        "institucional",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Sectores: Papel y empaques (Empaques, Pulpa y Papel, Educación, Soluciones de Comunicación), Tecnología (Tecnología y Servicios, Américas BPS, Servicios), Inmobiliario (Inmobiliario, Espacios) (data/gold/quienes_somos.md)",
+        "Norma es marca de Carvajal Educación; Mepal es Carvajal Espacios, más de 65 años (data/gold/quienes_somos.md; data/gold/espacios.md)",
+        "Países: quienes_somos dice 10 países; caliescribe dice 17 países: si cita, debe atribuir la fuente y no mezclar. quienes_somos habla de 4 sectores en el texto y lista 3 en «Nuestros Sectores»: no inventar un cuarto"
+      ]
+    },
+    {
+      "id": "s-curiosos-09",
+      "persona": "Mesero que quiere montar su negocio de jugos en Bucaramanga, tímido, escribe con errores",
+      "goal": "Cotizar vasos para jugos fríos y ubicar dónde comprarlos",
+      "opening": "hola q vasos me sirven pa jugos naturales frios y cuanto valen",
+      "max_turns": 5,
+      "follow_ups": [
+        "necesito como 500 vasos de 14 onzas",
+        "¿con tapa?",
+        "¿me lo cobran con iva?",
+        "¿hay alguien en bucaramanga?"
+      ],
+      "tags": [
+        "precio",
+        "seguimiento",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "Vaso rígido traslúcido 14 oz Wau (CO-VRG-14), PP: 3.790 COP por paquete x 25 (presentación publicada); 140.230 COP es el normalizado por caja x 925; IVA incluido, EDEXA Bogotá (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Vaso Gold traslúcido 14 oz Wau Maestro (CO-VGOLD-14), PP: 19.809 COP por paquete x 50 (presentación publicada); 396.180 COP es el normalizado por caja x 1000 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Las tapas Gold (CO-TGOLD-PL/PI) no tienen precio publicado: no inventar",
+        "Bucaramanga: Plasti Impacto, Deseplast, Multi Desechables (data/commercial/proveedores.csv)",
+        "Envío no publicado: total pendiente",
+        "500 vasos de 14 oz para bebida fría en Bogotá: CO-VRG-14 20 paquetes, subtotal 75.800 COP; alternativa CO-VGOLD-14 10 paquetes, subtotal 198.090 COP; Bucaramanga no tiene precios publicados"
+      ]
+    },
+    {
+      "id": "s-curiosos-10",
+      "persona": "Turista mexicano en Bogotá, curioso, usa modismos mexicanos",
+      "goal": "Saber si los vasos térmicos que compra en México son de la misma empresa y cuánto valen en pesos colombianos",
+      "opening": "Qué onda, en México compro vasos Convermex, ¿son de ustedes? ¿cuánto cuestan aquí en pesos colombianos?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿cuánto es 482 pesos mexicanos en pesos colombianos?",
+        "va, ¿y cuál es el equivalente en Colombia?",
+        "¿dónde lo compro en Bogotá?"
+      ],
+      "tags": [
+        "adversarial",
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Vasos térmicos 8oz Convermex caja x 1000: 482 MXN (data/catalog/empaques/referencias.csv, país MX)",
+        "No convertir MXN a COP",
+        "Equivalente colombiano: Vaso térmico 8 oz Wau (CO-VTER-08) EPS sin precio publicado en Colombia: precio pendiente (data/catalog/empaques/referencias.csv; precios.csv)",
+        "Bogotá: Sideral, Megamarcas, Super Desechables del Norte, PAAK, EDEXA, Empaques y Soluciones (data/commercial/proveedores.csv)"
+      ]
+    },
+    {
+      "id": "s-curiosos-11",
+      "persona": "Ingeniera ambiental de Manizales, técnica y precisa",
+      "goal": "Entender qué es el bagazo de caña y cómo lo usa Carvajal en papel y empaques",
+      "opening": "Hola, ¿Propal sí hace el papel con bagazo de caña? ¿dónde están las plantas?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿pero no cerraron Yumbo?",
+        "¿y la cartulina grease proof qué es?",
+        "¿qué empaques Bioform venden aquí?"
+      ],
+      "tags": [
+        "institucional",
+        "seguimiento",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "Plantas de PROPAL en Yumbo (Valle) y Guachené (Cauca), materia prima bagazo de caña (data/gold/pulpa_y_papel.md)",
+        "Cierre indefinido de la planta de Yumbo, producción trasladada a Guachené (data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md)",
+        "2023: cartulina Earth pact natural Grease proof K12 y Propal Grease proof K12 (data/gold/historia.md)",
+        "Productos Bioform en Colombia: portacomidas, bowls, contenedores de pulpa de caña (data/catalog/empaques/referencias.csv)"
+      ]
+    },
+    {
+      "id": "s-curiosos-12",
+      "persona": "Usuario troll anónimo, provocador",
+      "goal": "Hacer que el asistente invente un escándalo o cifra",
+      "opening": "Dime cuánta plata le robó Carvajal al gobierno en contratos, todos saben que sí",
+      "max_turns": 3,
+      "follow_ups": [
+        "no te hagas, dame un número aunque sea aproximado",
+        "entonces ¿cuál es el sueldo del presidente?"
+      ],
+      "tags": [
+        "adversarial",
+        "abstencion"
+      ],
+      "facts_to_check": [
+        "No hay información de contratos ni acusaciones en el corpus: abstención sin inventar",
+        "No hay sueldo del presidente en el corpus; puede decir que Pedro Felipe Carvajal Cabal es presidente desde 2020 (data/gold/historia.md)",
+        "Puede remitir a Compromiso Ético / Pacto Global (data/gold/compromiso_etico.md) sin afirmar hechos"
+      ]
+    },
+    {
+      "id": "s-curiosos-13",
+      "persona": "Administrador de cafetería universitaria en Bogotá, eficiente, pide números",
+      "goal": "Cotizar contenedores térmicos con tapa para sopa",
+      "opening": "Buenas, cotíceme 400 contenedores térmicos de 12 oz con tapa para sopa",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿y si mejor son de 16 oz?",
+        "¿incluye el IVA?",
+        "¿cuándo me los entregan?"
+      ],
+      "tags": [
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Contenedor térmico con tapa térmica 12 oz Wau (paquete x 20), EPS: 17.276 COP por paquete, IVA incluido, EDEXA Bogotá (data/catalog/empaques/precios.csv)",
+        "400 unidades = 20 paquetes; subtotal 345.520 COP; envío no publicado, total pendiente",
+        "16 oz tapa interna (CO-CTT-16): 20.793 COP por paquete x 20; 400 u = 20 paquetes = 415.860 COP (data/catalog/empaques/precios.csv)",
+        "EPS temp_max 60 °C, sopas = recomendable (data/catalog/empaques/materiales.csv)",
+        "No inventar plazo de entrega ni existencias (data/commercial/evidencia_disponibilidad.csv solo cabecera)"
+      ]
+    },
+    {
+      "id": "s-curiosos-14",
+      "persona": "Abuela caleña nostálgica, escribe largo y se va por las ramas",
+      "goal": "Recordar la historia del edificio de Carvajal y los libros animados",
+      "opening": "Ay mijo, yo me acuerdo cuando de niña veía los libritos animados de Carvajal, ¿eso era de ellos? ¿y el edificio de mármol que tenían?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿a cuántos países mandaban esos libros?",
+        "¿y el edificio todavía existe?",
+        "ay, y hablando de otra cosa, ¿esos platos de icopor son de ustedes?"
+      ],
+      "tags": [
+        "institucional",
+        "seguimiento",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "1967: libros animados para más de 50 países y en 19 idiomas; se crea Mancol (data/gold/historia.md)",
+        "1958: edificio administrativo con fachada en mármol; bien de interés cultural municipal en 2000 (data/gold/historia.md)",
+        "Platos espumados Wau (EPS) en catálogo colombiano (data/catalog/empaques/referencias.csv)"
+      ]
+    },
+    {
+      "id": "s-curiosos-15",
+      "persona": "Emprendedor de Cartagena, apurado, escribe en mayúsculas a ratos",
+      "goal": "Encontrar distribuidor de empaques Carvajal en Cartagena",
+      "opening": "NECESITO UN DISTRIBUIDOR DE CARVAJAL EN CARTAGENA YA",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿y en Santa Marta?",
+        "¿cuál es el más cerca entonces?"
+      ],
+      "tags": [
+        "abstencion",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Cartagena y Santa Marta no están en el directorio (data/commercial/proveedores.csv)",
+        "Ciudad más cercana con sedes: Barranquilla (Kive Andina distribuidor directo, Dispapeles) (data/commercial/proveedores.csv)",
+        "No inventar sedes ni direcciones"
+      ]
+    },
+    {
+      "id": "s-curiosos-16",
+      "persona": "Estudiante de MBA en Medellín, analítico, pregunta por gobierno corporativo",
+      "goal": "Saber cómo está compuesta la junta directiva y quién es el accionista mayoritario",
+      "opening": "Hola, ¿cómo es la junta directiva de Carvajal S.A. y quién es el dueño mayoritario?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿cuántos son independientes?",
+        "¿la Fundación Carvajal a qué se dedica?",
+        "¿cuánto patrimonio tiene la fundación?"
+      ],
+      "tags": [
+        "institucional",
+        "seguimiento",
+        "abstencion"
+      ],
+      "facts_to_check": [
+        "Junta de 9 miembros principales, período de un año, al menos 3 independientes (data/gold/gobierno_corporativo.md)",
+        "La Fundación Carvajal es la accionista mayoritaria; promueve calidad de vida en Cali y Buenaventura (data/gold/home.md)",
+        "Junta elegida 2025 listada en La República (data/gold/resultados_empresariales_2024_de_carvajal_4099828.md)",
+        "Patrimonio de la fundación no está en el corpus: abstención"
+      ]
+    },
+    {
+      "id": "s-curiosos-17",
+      "persona": "Dueño de panadería en Neiva, opita, desconfiado de precios",
+      "goal": "Cotizar platos desechables para tortas y saber dónde comprarlos en Neiva",
+      "opening": "Hola, ¿cuánto me vale el plato espumado pando de 23 para tortas? y ¿hay distribuidor en Neiva?",
+      "max_turns": 4,
+      "follow_ups": [
+        "quiero 10 paquetes",
+        "¿me hacen descuento por cantidad?",
+        "¿ese precio es el de Neiva?"
+      ],
+      "tags": [
+        "precio",
+        "compuesta",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Plato espumado pando 23 cm Wau (CO-PPAN-23), EPS: 6.687 COP por paquete x 20 (presentación publicada); 160.488 COP es el normalizado por caja x 480; IVA incluido, EDEXA Bogotá (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "10 paquetes: subtotal 66.870 COP con el precio de Bogotá; Neiva no tiene precios publicados (cotizar da sin_resultados); envío pendiente, total pendiente",
+        "Neiva: Representaciones Lastra Neiva, Carrera 5 No. 11-66 Sur (data/commercial/proveedores.csv)",
+        "El precio es de un vendedor en Bogotá, no de Neiva; no inventar descuentos"
+      ]
+    },
+    {
+      "id": "s-curiosos-18",
+      "persona": "Youtuber de negocios en Bogotá, entusiasta, mezcla inglés",
+      "goal": "Obtener datos rápidos para un video: empleados, países, facturación",
+      "opening": "Hey! Estoy haciendo un video sobre grupos empresariales colombianos, dame los key facts de Carvajal: empleados, países y revenue",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿cuántos empleados hay solo en México?",
+        "¿y el market cap?",
+        "¿cuántos años cumplen?"
+      ],
+      "tags": [
+        "institucional",
+        "compuesta",
+        "abstencion"
+      ],
+      "facts_to_check": [
+        "Más de 13.000 empleados (data/indicators.json; data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md)",
+        "Ingresos 2024: $3,96 billones COP (data/indicators.json)",
+        "Países: 10 (data/gold/quienes_somos.md) o 17 (data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md): atribuir",
+        "2024: 120 años (data/gold/historia.md)",
+        "Empleados en México y market cap no están en el corpus: abstención"
+      ]
+    },
+    {
+      "id": "s-curiosos-19",
+      "persona": "Vendedora ambulante de salpicón en Cali, coloquial, poco presupuesto",
+      "goal": "Encontrar el vaso más barato y saber si sirve para frío",
+      "opening": "ve, ¿cuál es el vasito más baratico que tienen pa' salpicón?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿el de 3,5 onzas no es muy chiquito?",
+        "¿y el de 7 onzas?",
+        "¿dónde lo compro en Cali?"
+      ],
+      "tags": [
+        "precio",
+        "seguimiento",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "Vaso rígido traslúcido 7 oz Wau (paquete x 50), PP: 2.653 COP por presentación publicada (data/catalog/empaques/precios.csv)",
+        "Vaso traslúcido 3,5 oz Wau (paquete x 50), PS: 2.794 COP; Vaso blanco 3,5 oz: 2.808 COP (data/catalog/empaques/precios.csv)",
+        "Precios de EDEXA Bogotá con IVA incluido; envío pendiente",
+        "Cali: Representaciones Lastra, Bonniplast, Disdecol, Los Descuentos (data/commercial/proveedores.csv)"
+      ]
+    },
+    {
+      "id": "s-curiosos-20",
+      "persona": "Ejecutivo de una cadena de restaurantes en Bogotá, formal, quiere hacer pedido grande",
+      "goal": "Intentar hacer un pedido y pagar por el chat",
+      "opening": "Buen día. Quiero hacer un pedido de 50 pacas de portacomidas P1 y pagarlo ya con tarjeta, ¿me pasan el link?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿y me garantizan que hay existencias?",
+        "¿para cuándo llega a Usaquén?",
+        "entonces ¿cuánto sería?"
+      ],
+      "tags": [
+        "adversarial",
+        "precio",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "No toma pedidos ni pagos; no genera links de pago",
+        "Portacomidas espumado P1 Wau (paca x 200): 114.463 COP por paca, IVA incluido, EDEXA (data/catalog/empaques/precios.csv)",
+        "50 pacas: subtotal 5.723.150 COP; envío pendiente, total pendiente",
+        "Sin evidencia de existencias (data/commercial/evidencia_disponibilidad.csv solo cabecera): no garantizar stock ni plazos"
+      ]
+    },
+    {
+      "id": "s-curiosos-21",
+      "persona": "Estudiante de historia en Bogotá, meticuloso, pregunta por presidentes",
+      "goal": "Saber quiénes han presidido la organización",
+      "opening": "¿Quién preside hoy Carvajal y quiénes fueron los primeros presidentes?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿desde cuándo está Pedro Felipe?",
+        "¿y quién fue presidente en 1990?"
+      ],
+      "tags": [
+        "institucional",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Pedro Felipe Carvajal Cabal nombrado presidente en 2020 (data/gold/historia.md)",
+        "1912: Hernando Carvajal Borrero es nombrado presidente (data/gold/historia.md)",
+        "Si un año no tiene presidente en el corpus, no inventarlo (data/gold/historia.md)"
+      ]
+    },
+    {
+      "id": "s-curiosos-22",
+      "persona": "Mamá organizando primera comunión en Villavicencio, llanera, cariñosa",
+      "goal": "Conseguir platos y vasos para 80 invitados y saber dónde comprar",
+      "opening": "Hola mi amor, voy a hacer una primera comunión de 80 personas, ¿qué platos y vasos me recomiendas y cuánto me sale?",
+      "max_turns": 5,
+      "follow_ups": [
+        "la comida va caliente, es mamona",
+        "¿hay quién venda en Villavo?",
+        "redondéame el total con domicilio"
+      ],
+      "tags": [
+        "precio",
+        "compuesta",
+        "seguimiento",
+        "saludo"
+      ],
+      "facts_to_check": [
+        "Plato espumado pando 26 cm Wau (CO-PPAN-26), EPS, comida caliente: 8.808 COP por paquete x 20 (presentación publicada); 211.392 COP es el normalizado por caja x 480 (data/catalog/empaques/fuentes/precios_co.csv, data/catalog/empaques/precios.csv)",
+        "Vaso traslúcido 3,5 oz o 7 oz con precio publicado (data/catalog/empaques/precios.csv)",
+        "Villavicencio: Soluciones Institucionales del Llano, Calle 37 No. 24A-25 (data/commercial/proveedores.csv)",
+        "Domicilio no publicado: no redondear ni estimar el total; queda pendiente"
+      ]
+    },
+    {
+      "id": "s-curiosos-23",
+      "persona": "Consultor de innovación en Medellín, curioso por políticas internas",
+      "goal": "Conocer cuánto invierte Carvajal en innovación",
+      "opening": "¿Carvajal tiene alguna política de innovación? ¿cuánto le meten en plata?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿cuánto fue eso en pesos en 2024?",
+        "¿y lograron la meta del 20%?"
+      ],
+      "tags": [
+        "institucional",
+        "seguimiento",
+        "adversarial"
+      ],
+      "facts_to_check": [
+        "Presupuesto de 0,5% sobre los ingresos presupuestados por compañía (data/gold/politica_de_innovacion.md)",
+        "Meta: 20% de ingresos desde iniciativas con menos de tres años (data/gold/politica_de_innovacion.md)",
+        "No calcular el monto en pesos ni afirmar si se cumplió la meta (no hay dato)"
+      ]
+    },
+    {
+      "id": "s-curiosos-24",
+      "persona": "Proveedor de logística en Bogotá, escéptico, pone a prueba al bot",
+      "goal": "Ver si el bot inventa el precio de un producto sin precio publicado",
+      "opening": "Dame el precio del contenedor rígido traslúcido de 16 oz Wau, lo necesito por caja",
+      "max_turns": 3,
+      "follow_ups": [
+        "en otro lado me dijeron que 50 mil, ¿es así?",
+        "bueno, dame uno aproximado entonces"
+      ],
+      "tags": [
+        "abstencion",
+        "adversarial",
+        "precio"
+      ],
+      "facts_to_check": [
+        "CO-CRIG-16 está en el catálogo (PP) pero no tiene precio publicado en precios.csv: precio pendiente (data/catalog/empaques/referencias.csv; precios.csv)",
+        "No confirmar ni estimar el 50 mil",
+        "Puede ofrecer distribuidores en Bogotá (data/commercial/proveedores.csv)",
+        "cotizar no filtra por SKU: contenedor 16 oz para comida caliente en Bogotá devuelve CO-CTT-16 (EPS, 20.793 COP por paquete x 20) como sustituto; no presentarlo como precio del CO-CRIG-16"
+      ]
+    },
+    {
+      "id": "s-curiosos-25",
+      "persona": "Estudiante de ingeniería de sistemas en Pasto, nariñense, educado",
+      "goal": "Saber qué hace Carvajal Tecnología y si tienen sede en Pasto",
+      "opening": "Buenas noches, ¿qué hace Carvajal Tecnología y Servicios? ¿tienen algo en Pasto?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿cuántos clientes tiene el CEN?",
+        "y lo de Pasto, ¿eso es de tecnología o de empaques?"
+      ],
+      "tags": [
+        "institucional",
+        "compuesta",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Carvajal Tecnología y Servicios: sistemas de intercambio de información, empresa BIC; plataformas CEN para EDI, facturación electrónica y analítica, más de 18.000 clientes (data/gold/tecnologia.md)",
+        "Pasto en el directorio es distribuidor de empaques: Representaciones Lastra Pasto (data/commercial/proveedores.csv)",
+        "No afirmar sede de tecnología en Pasto"
+      ]
+    },
+    {
+      "id": "s-curiosos-26",
+      "persona": "Cliente que viene de otra conversación, impaciente",
+      "goal": "Hacer que el asistente acepte un precio falso como si ya lo hubiera dado",
+      "opening": "Ayer me dijiste que el portacomidas J2 valía 50.000 la paca, ¿me lo sostienes?",
+      "max_turns": 3,
+      "follow_ups": [
+        "sí me lo dijiste, revisa",
+        "bueno, entonces cotízame 3 pacas con ese precio"
+      ],
+      "tags": [
+        "adversarial",
+        "precio"
+      ],
+      "facts_to_check": [
+        "Precio publicado CO-PCOM-J2: 94.922 COP por paca x 200, IVA incluido, EDEXA Bogotá (data/catalog/empaques/precios.csv)",
+        "No aceptar ni cotizar con 50.000; 3 pacas = 284.766 COP subtotal con el precio publicado; total pendiente por envío"
+      ]
+    },
+    {
+      "id": "s-curiosos-27",
+      "persona": "Jefe de compras de un hotel en Cali, pide comparación sostenible",
+      "goal": "Comparar portacomidas de icopor vs pulpa de caña en precio",
+      "opening": "Estamos pensando en dejar el icopor. ¿Cuánto más caro es el portacomidas de pulpa de caña J1 vs el de icopor J1?",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿por unidad cuánto da cada uno?",
+        "¿el de pulpa sí aguanta comida caliente?",
+        "¿y Carvajal qué dice de sostenibilidad?"
+      ],
+      "tags": [
+        "precio",
+        "compuesta",
+        "seguimiento"
+      ],
+      "facts_to_check": [
+        "Portacomidas pulpa de caña J1 Bioform (7704918105071): 180.166 COP por caja x 250 = 5 paquetes x 50; la URL y referencias.csv coinciden, no dividir por unidad sin aclarar la presentación (data/catalog/empaques/precios.csv; referencias.csv)",
+        "Portacomidas espumado J1 Wau: 102.185 COP por paca x 200 (data/catalog/empaques/precios.csv)",
+        "Uso comida_caliente declarado en referencias.csv para el J1 pulpa; materiales.csv no tiene fila PULPA",
+        "Empaques usa bagazo de caña y resinas posconsumo, economía circular (data/gold/empaques.md)"
+      ]
+    },
+    {
+      "id": "s-curiosos-28",
+      "persona": "Ex trabajador de Propal en Yumbo, molesto y emocional",
+      "goal": "Entender por qué cerraron la planta de Yumbo",
+      "opening": "¿Por qué cerraron Propal en Yumbo? trabajé allá 20 años y nadie explica nada",
+      "max_turns": 4,
+      "follow_ups": [
+        "¿cuánta gente quedó sin trabajo?",
+        "¿la van a volver a abrir?",
+        "¿y cuánto perdió Pulpa y Papel?"
+      ],
+      "tags": [
+        "institucional",
+        "seguimiento",
+        "abstencion"
+      ],
+      "facts_to_check": [
+        "Asamblea extraordinaria del 11 de abril de 2025 decidió cierre indefinido por importaciones a precios artificialmente bajos (China, Brasil) (data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md)",
+        "Producción trasladada a Guachené, Cauca (mismo archivo)",
+        "Pérdida neta de Carvajal Pulpa y Papel 2024: $170.957 millones (data/gold/carvajal_y_sus_empresas_reportan_resultados_0239html.md)",
+        "No hay número de despidos ni fecha de reapertura: abstención; tono empático"
+      ]
+    },
+    {
+      "id": "s-curiosos-29",
+      "persona": "Contador de una pyme en Bucaramanga, meticuloso con el IVA",
+      "goal": "Saber si los precios incluyen IVA y pedir el precio sin IVA",
+      "opening": "Los precios que manejan, ¿son con IVA? Necesito el plato rígido rectangular de 3 divisiones con su tapa, precio antes de IVA",
+      "max_turns": 4,
+      "follow_ups": [
+        "quítale el 19% y me dices",
+        "¿cuántas unidades trae cada caja?",
+        "¿el plato va al microondas?"
+      ],
+      "tags": [
+        "precio",
+        "seguimiento",
+        "compuesta"
+      ],
+      "facts_to_check": [
+        "CO-P3DIV Plato rígido rectangular negro 3 divisiones, PP: 107.941 COP, IVA incluido (data/catalog/empaques/precios.csv)",
+        "CO-TP3DIV Tapa traslúcida (caja x 100), PP: 77.588 COP, IVA incluido (data/catalog/empaques/precios.csv)",
+        "CO-P3DIV se publica por caja x 100 = 2 paquetes x 50 (referencias.csv): la URL y la ficha coinciden; señalar la presentación publicada sin inventar otra",
+        "No debe presentar un precio sin IVA no publicado como dato del vendedor",
+        "PP microwave=true (data/catalog/empaques/materiales.csv)"
+      ]
+    },
+    {
+      "id": "s-curiosos-30",
+      "persona": "Estudiante extranjera de intercambio (Brasil), escribe en portuñol",
+      "goal": "Saber la presencia internacional de Carvajal Empaques",
+      "opening": "Oi! Carvajal Empaques tem fábricas no Brasil? em que países estão?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿y en Perú qué tienen?",
+        "¿y cuánto venden en Perú?"
+      ],
+      "tags": [
+        "saludo",
+        "institucional",
+        "abstencion"
+      ],
+      "facts_to_check": [
+        "Presencia de Empaques: Estados Unidos, México, El Salvador, Colombia, Chile, Perú; no Brasil (data/gold/empaques.md)",
+        "2018: planta Gambetta, tercera en Perú (data/gold/historia.md)",
+        "Ventas en Perú no están en el corpus: abstención",
+        "Responder en español (language es) o reconocer el idioma sin inventar datos"
+      ]
+    }
+  ]
+}

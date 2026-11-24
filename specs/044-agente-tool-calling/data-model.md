@@ -74,13 +74,15 @@ valid_until, days}` de la 043. Lectores nuevos iteran `quotes` y caen a `[quote]
 
 | Campo | Tipo | Regla |
 |---|---|---|
-| `family` / `use` | `str \| None` | Al menos uno; si faltan ambos → `needs_input`. |
+| `family` / `use` | `str \| None` | Al menos uno (o una referencia nombrada); si faltan → `needs_input`. |
 | `capacity_oz` | `float \| None` | Tolerancia `CAPACITY_TOLERANCE_OZ`. |
 | `temperature` | `"caliente" \| "fria" \| "ambiente" \| None` | Requerida si el uso no la implica (FR-005). |
 | `microwave`, `prefers_renewable` | `bool \| None` | |
 | `quantity` | `int ≥ 1 \| None` | `None` → `needs_input`. |
 | `city` | `str \| None` | Normalizada contra el dataset; `None` → `needs_input` con ciudades disponibles. |
 | `delivery` | `bool \| None` | `None` → envío pendiente, total pendiente. |
+| `unit` | `"unidad" \| "caja" \| "paquete" \| "paca" \| None` | Unidad de `quantity`; el motor la convierte con la presentación declarada. |
+| `sku` / `name` | `str \| None` | Referencia nombrada (ronda 4): fija la referencia que se cotiza; `sku` solo como SKU exacto; ambigua o en conflicto → `needs_input` (`referencia`); de otra familia → `family_mismatch`; un nombre genérico se cotiza como búsqueda por familia; inexistente, no apta o sin precio → `sin_resultados` con `reason`. |
 
 ## Generalization item (`data/eval/generalization_questions.json`)
 
