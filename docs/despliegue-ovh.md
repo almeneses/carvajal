@@ -1,10 +1,13 @@
 # Despliegue demo en OVH (por IP, sin dominio)
 
-Esta guía despliega Carvajal en el VPS `144.217.80.136` como **demo por IP**:
+Esta guía despliega Carvajal en un VPS como **demo por IP**. `203.0.113.10` es una IP
+de ejemplo (RFC 5737): sustitúyela por la del servidor en cada orden.
+
+Esquema:
 
 ```text
 Internet
-   │  http://144.217.80.136:8080
+   │  http://203.0.113.10:8080
    ▼
 contenedor app ── red Docker interna ── db, qdrant, ollama
 ```
@@ -51,7 +54,7 @@ chown -R deploy:deploy /opt/carvajal
 Cierra la sesión y vuelve a entrar como `deploy` para que aplique el grupo:
 
 ```bash
-ssh -p 2422 deploy@144.217.80.136
+ssh -p 2422 deploy@203.0.113.10
 id
 # Debe aparecer el grupo docker
 docker ps
@@ -86,7 +89,7 @@ Copia la plantilla desde tu máquina:
 
 ```bash
 # LOCAL
-scp .env.example deploy@144.217.80.136:/opt/carvajal/.env
+scp .env.example deploy@203.0.113.10:/opt/carvajal/.env
 ```
 
 Genera los secretos en el VPS:
@@ -178,22 +181,22 @@ En **Settings → Secrets and variables → Actions** del repositorio:
 
 | Secreto | Valor |
 |---|---|
-| `VPS_HOST` | `144.217.80.136` |
+| `VPS_HOST` | `203.0.113.10` |
 | `VPS_USER` | `deploy` |
 | `VPS_SSH_KEY` | contenido de la clave privada dedicada |
 | `VPS_HOST_KEY` | línea de `ssh-keyscan` del VPS |
 | `VPS_PORT` | `2422` |
 
-La host key de este VPS es:
+La línea de la host key tiene esta forma:
 
 ```text
-[144.217.80.136]:2422 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILWS/i9cBQ6m+KiYaIGBbaqu6RE4E5Zly62cVVyoxWPR
+[203.0.113.10]:2422 ssh-ed25519 <clave pública del VPS>
 ```
 
 Puedes generarla de nuevo con:
 
 ```bash
-ssh-keyscan -p 2422 -t ed25519 144.217.80.136
+ssh-keyscan -p 2422 -t ed25519 203.0.113.10
 ```
 
 Genera una clave dedicada para Actions y autorízala:
@@ -201,13 +204,13 @@ Genera una clave dedicada para Actions y autorízala:
 ```bash
 # LOCAL
 ssh-keygen -t ed25519 -C "github-actions@carvajal" -f deploy_key -N ""
-ssh-copy-id -i deploy_key.pub -p 2422 deploy@144.217.80.136
+ssh-copy-id -i deploy_key.pub -p 2422 deploy@203.0.113.10
 
-gh secret set VPS_HOST --body "144.217.80.136"
+gh secret set VPS_HOST --body "203.0.113.10"
 gh secret set VPS_USER --body "deploy"
 gh secret set VPS_PORT --body "2422"
 gh secret set VPS_SSH_KEY < deploy_key
-ssh-keyscan -p 2422 -t ed25519 144.217.80.136 | gh secret set VPS_HOST_KEY
+ssh-keyscan -p 2422 -t ed25519 203.0.113.10 | gh secret set VPS_HOST_KEY
 
 rm -f deploy_key deploy_key.pub
 gh secret list
@@ -242,10 +245,10 @@ docker compose -f compose.prod.yml logs --tail=100 app
 Verifica desde tu máquina:
 
 ```bash
-curl -fsS http://144.217.80.136:8080/live
+curl -fsS http://203.0.113.10:8080/live
 # {"status":"ok"}
 
-curl -i http://144.217.80.136:8080/health
+curl -i http://203.0.113.10:8080/health
 ```
 
 El primer `/health` puede devolver `503` con `"status":"missing"`: la app está
@@ -271,16 +274,16 @@ idempotente.
 
 ```bash
 # LOCAL: solo las capas que la demo necesita (núcleo, catálogo e indicadores).
-ssh -p 2422 deploy@144.217.80.136 "mkdir -p /opt/carvajal/data"
+ssh -p 2422 deploy@203.0.113.10 "mkdir -p /opt/carvajal/data"
 rsync -av data/gold data/catalog data/indicators.json \
-  deploy@144.217.80.136:/opt/carvajal/data/
+  deploy@203.0.113.10:/opt/carvajal/data/
 ```
 
 ```bash
 # VPS
 cd /opt/carvajal
 docker compose -f compose.prod.yml --profile bootstrap run --rm bootstrap
-curl -fsS http://144.217.80.136:8080/health
+curl -fsS http://203.0.113.10:8080/health
 ```
 
 Desde un clon del repositorio (no solo en el VPS) el mismo paso es:
@@ -386,7 +389,7 @@ de 5 MB. Sube la carpeta al host y procésala dentro del contenedor:
 
 ```bash
 # LOCAL
-rsync -av ./mi-corpus/ deploy@144.217.80.136:/opt/carvajal/inbox/
+rsync -av ./mi-corpus/ deploy@203.0.113.10:/opt/carvajal/inbox/
 ```
 
 ```bash

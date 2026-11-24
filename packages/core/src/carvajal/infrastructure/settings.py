@@ -140,6 +140,9 @@ class Settings(BaseSettings):
     mcp_token: str = Field(default="", repr=False)
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8765, ge=1, le=65535)
+    # URL pública de la web (p. ej. http://203.0.113.10:8080) para los enlaces
+    # firmados al PDF de una cotización. Vacía: WhatsApp no ofrece el PDF.
+    public_base_url: str = ""
 
     # Captura web desde la consola de Configuración, solo para operadores
     # autorizados con OPERATOR_TOKEN. El máximo de URLs por ejecución sigue al

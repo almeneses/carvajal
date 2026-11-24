@@ -32,6 +32,46 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
   (`*negrita*`, viñetas con `-`, enlaces como `texto (url)`), y se añade `*Fuentes:*`.
 - **Fallos**: el canal recibe siempre un mensaje legible, nunca una traza interna.
 
+## Cotización en PDF
+
+Cada cotización de WhatsApp sale con folio, presentación, unidades, subtotal, IVA, envío,
+total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *PDF*».
+
+- Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
+  herramienta busca la **última cotización de la conversación activa** y devuelve un
+  enlace. No llama al LLM, pero consume el mismo cupo diario que cualquier mensaje.
+- El enlace es `PUBLIC_BASE_URL/cotizaciones/{folio}.pdf?e=…&t=…`, firmado con HMAC
+  (`SESSION_SECRET`) sobre el folio, el dueño y el vencimiento. Vence con la vigencia de
+  la cotización (máximo 7 días); al validar se toleran 5 minutos de desfase de reloj
+  entre los procesos MCP y web. El dueño no va en la URL: la ruta lee la cotización por
+  folio y verifica la firma contra su `owner_key`. Cualquier fallo responde 404.
+- El PDF se genera al vuelo con fpdf2 (sin dependencias del sistema) desde el payload de
+  `quotes`: logo de Carvajal, folio y fechas, producto, tabla de importes, total,
+  vendedor, fuente del precio y nota legal. Los recursos están en `apps/api/pdf/`.
+- Para activarlo, define `PUBLIC_BASE_URL` en el `.env` del servidor
+  (p. ej. `http://203.0.113.10:8080`, con la IP del servidor). Sin ella, no se ofrece el PDF.
+
+## Fotos del catálogo
+
+Las fotos son opcionales y se versionan con el catálogo:
+`data/catalog/empaques/imagenes/{sku}.jpg` y su procedencia en
+`data/catalog/empaques/imagenes.csv` (`sku, archivo, fuente_url, imagen_url,
+tipo_fuente, capturada_el`).
+
+- **Curaduría**: `uv run --extra capture python scripts/curar_imagenes_co.py` toma la
+  foto principal (`og:image`) de cada ficha oficial de `colombia.carvajalempaques.com`
+  para las referencias con precio (`--todas` para todo CO, `--sku` para una), respetando
+  `robots.txt`, y la reduce a 600 px en JPEG. Las tallas de una misma línea comparten
+  foto. Las fichas de terceros (EDEXA) se omiten salvo `--incluir-terceros`: úsalas solo
+  con permiso de su dueño. Revisa `imagenes/revision.html` antes de versionar.
+- **PDF**: la foto va junto al bloque del producto; sin foto, el bloque ocupa todo el
+  ancho.
+- **WhatsApp**: la cotización añade `📷 Foto: PUBLIC_BASE_URL/catalogo/imagenes/{sku}.jpg`
+  y WhatsApp muestra la vista previa.
+- **Despliegue**: la imagen Docker copia `data/catalog` y el despliegue siembra los
+  archivos nuevos en el volumen; además, la app busca en `seed-data/catalog` si el
+  volumen aún no tiene la foto.
+
 ## 1. Activarlo en el VPS
 
 En `/opt/carvajal/.env`:
@@ -82,7 +122,7 @@ After=network-online.target
 ExecStart=/usr/bin/ssh -NT -i %h/.ssh/ovh_tunnel -p 2422 \
   -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
   -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new \
-  -L 127.0.0.1:8765:127.0.0.1:8765 deploy@144.217.80.136
+  -L 127.0.0.1:8765:127.0.0.1:8765 deploy@203.0.113.10
 Restart=always
 RestartSec=5
 
