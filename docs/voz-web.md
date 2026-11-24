@@ -3,9 +3,10 @@
 El chat web tiene voz desde la spec 040: dictado revisable, lectura de respuestas y modo
 manos libres con las APIs del navegador (Web Speech). La spec 047 añade una **voz del
 servidor** opcional con OpenAI: mejor transcripción en español y una voz única y natural en
-todos los navegadores. La voz del navegador sigue siendo el **respaldo**: ante cualquier
-fallo el chat vuelve a ella sin que la persona tenga que hacer nada más que repetir el
-dictado.
+todos los navegadores. La voz del navegador sigue siendo el **respaldo**: si el dictado del
+servidor falla, el chat vuelve a ella sin que la persona tenga que hacer nada más que
+repetir el dictado; la lectura (spec 050, [notas de voz](#notas-de-voz-por-respuesta)) solo
+la usa mientras el servidor no está disponible (503, 401/403).
 
 ## Cómo se enciende
 
@@ -142,15 +143,18 @@ La página del chat marca `data-voz-servidor="1"` solo si la voz del servidor es
   plazo, CSRF) apaga el dictado del servidor el resto de la sesión y el siguiente dictado usa
   el reconocimiento del navegador. Un permiso de micrófono denegado se explica igual que
   antes.
-- **Escuchar** pide `/api/voz/hablar` y reproduce el audio desde un `blob:`; pausa, reanuda y
-  detiene como la lectura del navegador. Un `404` o un `422` leen ese turno con la voz del
-  navegador; otro fallo apaga la lectura del servidor el resto de la sesión. Si el audio
-  llega pero no se puede reproducir (autoplay bloqueado, decodificación), ese turno también
-  pasa al navegador y la lectura del servidor se apaga para no pagar otra síntesis inútil.
+- **La lectura** es una [nota de voz por respuesta](#notas-de-voz-por-respuesta) (spec
+  050): pide `/api/voz/hablar` y reproduce el audio desde un `blob:`. Solo un `503` o un
+  `401`/`403` dejan la voz del servidor **en espera 60 s** (`data-voz-respaldo="1"`); en
+  ese rato la nota lee con la voz del navegador si existe y, si no, dice «La voz no está
+  disponible ahora». Pasado el plazo, la siguiente nota vuelve a probar el servidor, y
+  «Reintentar» lo prueba de inmediato. Un `404`, un `422`, un `429`, la red, el plazo o un
+  audio que no suena dejan **esa nota** en `error` con reintento: nunca cambian de voz ni
+  apagan la del servidor para la sesión.
 - **Manos libres** funciona igual: si la transcripción del servidor falla en medio, sigue
   escuchando con el navegador y lo avisa en la nota visible. Sin detector de voz (sin Web
   Audio o con el contexto suspendido), a los 10 s transcribe lo grabado en lugar de
-  descartarlo.
+  descartarlo. La respuesta suena con la misma nota y, al terminar, vuelve a escuchar.
 - El aviso previo al primer dictado cambia de texto (el audio pasa por el sitio y lo
   transcribe OpenAI) y se acepta aparte del aviso de la voz del navegador.
 
@@ -158,6 +162,112 @@ La CSP de las páginas del chat (`/chat`, también la página de error de sus PO
 `/chat/new`) añade `media-src 'self' blob:` para reproducir ese audio; el resto del sitio
 conserva la política por defecto. El micrófono sigue permitido solo en el documento GET de
 `/chat`.
+
+## Notas de voz por respuesta
+
+Spec 050. En producción la lectura acababa en la voz del navegador: el `play()` del audio
+del servidor llegaba unos 17 s después del último gesto, el navegador lo bloqueaba
+(`NotAllowedError`) y ese único fallo apagaba la lectura del servidor el resto de la
+sesión. Ahora cada respuesta guardada trae una nota de voz y la voz no cambia por un fallo
+de reproducción.
+
+### Cuándo suena sola
+
+| La pregunta… | Lectura automática | Qué pasa al completar el turno |
+|---|---|---|
+| se escribió | apagada (por defecto) | La nota queda `lista`; **no** se pide el audio hasta que se pulsa ▶ |
+| se escribió | encendida | Se pide el audio y suena sola |
+| se dictó (borrador dictado y enviado, o manos libres) | cualquiera | Se pide el audio y suena sola |
+
+«Se dictó» quiere decir que el borrador enviado trae texto del dictado (del servidor o del
+navegador) y conserva al menos la mitad de sus palabras: corregir una palabra mal
+transcrita sigue contando como dictado, pero vaciarlo, sustituirlo por una sugerencia o
+seleccionarlo todo y escribir encima cuenta como escrita (ni desbloqueo ni síntesis). Con la
+pestaña oculta o un dictado nuevo en curso, la nota se precarga pero no suena. La casilla
+«Leer respuestas en voz alta» conserva su sentido: encendida, también suenan las preguntas
+escritas. Sin voz del servidor la regla es la misma con la voz del navegador.
+
+### Desbloqueo del audio
+
+Safari, iOS y Chrome solo dejan sonar tras un `await` a un elemento que ya hizo `play()`
+dentro de un gesto. El adaptador tiene **un solo** `HTMLAudioElement` para todas las notas
+y `desbloquear()` le hace reproducir 0,1 s de silencio (un WAV por `blob:`, porque la CSP
+admite `media-src 'self' blob:` y no `data:`) en el gesto que empieza el dictado (Dictar,
+el aviso, manos libres) y en el envío del borrador dictado. No se desbloquea al enviar una
+pregunta escrita sin lectura automática: en iOS ese `play()` pausaría la música de la
+persona. Si aun así el navegador bloquea el audio, la nota queda `bloqueada` con el audio en
+caché y un toque lo reproduce dentro del gesto; no se cambia de voz ni se apaga el
+servidor. En manos libres un bloqueo apaga el modo (no puede quedar «activo» sin sonar ni
+escuchar) y lo explica. Una nota que no se pudo preparar o reproducir (404, 422, 429, la
+red, un audio que no decodifica o sin ninguna voz disponible) también lo apaga, con su
+propio aviso («no se pudo reproducir la respuesta»), no con el del micrófono.
+
+### Precarga, caché y coste
+
+- El audio se pide al completar el turno solo si va a sonar (la persona habló o la lectura
+  automática está encendida). Las preguntas escritas sintetizan solo al pulsar ▶.
+- **No hay síntesis proactiva en el servidor** al guardar la respuesta: sintetizaría cada
+  respuesta aunque nadie la escuche, y cada una cuenta para el tope diario
+  (`VOICE_MAX_CALLS_PER_DAY`) y el límite por sesión. Una pregunta dictada cuesta dos
+  llamadas (transcribir y hablar); una escrita, cero salvo que se escuche.
+- Como mucho una síntesis en vuelo por mensaje (la precarga y el clic la comparten). El
+  audio de las últimas 6 notas queda en memoria (LRU); repetir una nota no paga otra
+  síntesis. Hay como mucho una URL `blob:` viva, la de la nota cargada, y se revoca al
+  terminar, al detener, al cambiar de nota y en `pagehide`.
+- Al salir de la página (otro hilo, `/chat/new`) se abortan las síntesis en vuelo.
+
+### Contrato del marcado (con el rediseño, 049)
+
+`chat-voice.js` crea la nota (también para el historial, sin pedir audio) solo si la
+página tiene voz del servidor y el turno trae `data-voz-mensaje`. Es un solo elemento, hijo
+del `<li class="turno">` justo después de `.burbuja`; la franja `.turno-voz` del turno se
+oculta con `hidden`:
+
+```html
+<div class="turno-nota" role="group" aria-label="Nota de voz de la respuesta"
+     data-nota-estado="lista" data-nota-mensaje="<message_id>" style="--nota-avance: 0.000">
+  <button type="button" class="turno-nota-boton" data-nota-accion="alternar"
+          aria-pressed="false" aria-label="Reproducir la nota de voz"></button>
+  <span class="turno-nota-barra" role="progressbar" aria-label="Avance de la nota de voz"
+        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0:00"></span>
+  <span class="turno-nota-tiempo">0:00</span>
+  <span class="turno-nota-duracion"></span>
+  <span class="turno-nota-estado" role="status" aria-live="polite"></span>
+  <span class="turno-nota-aviso" aria-hidden="true" hidden></span>
+  <button type="button" class="turno-nota-reintentar" data-nota-accion="reintentar" hidden>Reintentar</button>
+</div>
+```
+
+El botón principal es un botón de alternancia: su nombre es siempre «Reproducir la nota de
+voz» (la guía ARIA APG pide no cambiarlo con el estado) y el estado va en `aria-pressed`,
+`aria-busy` y `data-nota-estado`.
+
+| `data-nota-estado` | Cuándo | Botón | Al pulsarlo |
+|---|---|---|---|
+| `lista` | Sin reproducir, o terminada (avance a 0) | `aria-pressed="false"` | Reproduce |
+| `cargando` (pedida) | Se pulsó o suena sola y el audio aún no llega | `aria-pressed="true"`, `aria-busy="true"` | Cancela la reproducción; la síntesis sigue y queda en caché |
+| `cargando` (precarga) | Pestaña oculta o dictado nuevo en curso | `aria-pressed="false"`, `aria-busy="true"` | Reproduce al llegar el audio, sin otra síntesis |
+| `sonando` | Suena (servidor o respaldo del navegador) | `aria-pressed="true"` | Pausa |
+| `pausada` | En pausa | `aria-pressed="false"` | Reanuda |
+| `bloqueada` | El navegador no dejó sonar sola | `aria-pressed="false"`; `.turno-nota-aviso` visible | Reproduce desde la caché |
+| `error` | Falló la síntesis o el audio | `aria-pressed="false"`; `.turno-nota-reintentar` y `.turno-nota-aviso` visibles | Reintenta |
+
+- `--nota-avance` (0–1, en la raíz) y `aria-valuenow` (0–100) siguen al audio; con el
+  respaldo del navegador avanzan por partes leídas. `.turno-nota-duracion` queda vacía hasta
+  conocer la duración y después muestra «m:ss».
+- `.turno-nota-estado` es la región viva y solo anuncia lo que el botón no dice:
+  «Preparando…», el bloqueo o el error. En `sonando` y `pausada` queda vacía: el cambio de
+  `aria-pressed` ya se anuncia y un aviso encima del audio lo taparía. En una nota recién
+  creada el primer texto se escribe en la tarea siguiente, para que el lector ya tenga la
+  región en su árbol. Con nota, la línea de estado global no repite la lectura.
+- `.turno-nota-aviso` repite el texto del bloqueo o del error para quien ve la pantalla
+  (es `aria-hidden`). Es el único hijo con texto largo: ocupa su propia línea
+  y el rediseño la estila en `chat.css`.
+- Si el foco estaba en la franja `.turno-voz` cuando nace la nota, pasa a su botón; si
+  estaba en «Reintentar» al ocultarse, también.
+- La `<li>` del turno lleva `data-voz-nota="1"` mientras tiene nota.
+- Los estilos de la nota viven en `chat.css` (rediseño 049); este archivo JS no fija estilos
+  salvo `--nota-avance` por CSSOM.
 
 ## Requisitos de despliegue
 
@@ -183,8 +293,9 @@ y el JavaScript no conoce clases de diseño.
 | `data-voz-escuchando="1"` | Dictado en curso, del navegador o del servidor |
 | `data-voz-grabando="1"` + `--voz-progreso` (0–1) | El servidor graba; el progreso se mide frente a `VOICE_MAX_AUDIO_SECONDS` |
 | `data-voz-transcribiendo="1"` | El audio se está transcribiendo en el servidor |
-| `data-voz-sintetizando="<message_id>"` | Se pide al servidor el audio de esa respuesta |
-| `data-voz-respaldo="1"` | La voz del servidor se apagó en esta sesión y se usa la del navegador |
+| `data-voz-sintetizando="<message_id>"` | Se pide al servidor el audio de esa respuesta (también una precarga; con varias, la última) |
+| `data-voz-respaldo="1"` | Dictado o lectura del servidor apagados (el dictado, el resto de la sesión; la lectura, en espera de 60 s tras un 503 o un 401/403) |
 | `data-voz-manos="1"` | Modo manos libres activo |
 
-Por turno, los botones `data-voz-accion` usan `aria-pressed` y `aria-busy`.
+Por turno, los botones `data-voz-accion` usan `aria-pressed` y `aria-busy`; con voz del
+servidor la nota los sustituye (ver [su contrato](#contrato-del-marcado-con-el-rediseño-049)).
