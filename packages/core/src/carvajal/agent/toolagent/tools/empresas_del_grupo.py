@@ -61,6 +61,13 @@ _MIN_PARTIAL: Final = 3
 _GENERIC: Final = frozenset(
     {"carvajal", "grupo", "organizacion", "s", "a", "sa", "empresa", "empresas", "marca"}
 )
+# Palabras de relleno que pueden acompañar un nombre listado sin cambiar a qué empresa se
+# refiere («Editorial Norma», «la unidad de Empaques»). Cualquier otra palabra que sobre
+# (y que no sea de otro nombre listado) es una marca ajena: «Empaques Flexa» → ``empty``.
+_FILLER: Final = frozenset(
+    {"editorial", "la", "el", "los", "las", "de", "del", "y", "e", "unidad", "unidades"}
+    | {"negocio", "negocios", "compania", "sas", "ltda", "marcas"}
+)
 
 # Lo que ve el modelo (≤ 300 caracteres, sin cifras, ciudades ni SKU; research R10).
 DESCRIPTION: Final = (
@@ -138,19 +145,45 @@ def _contains(haystack: Sequence[str], needle: Sequence[str]) -> bool:
     )
 
 
-def _partial(query: tuple[str, ...], name: tuple[str, ...]) -> bool:
-    if _contains(query, name):  # «Editorial Norma» contiene «Norma»
-        return True
-    return len(" ".join(query)) >= _MIN_PARTIAL and _contains(name, query)  # «Pulpa»
+def _leftover(query: tuple[str, ...], name: tuple[str, ...]) -> list[str]:
+    """Palabras de ``query`` fuera de la primera aparición de ``name``."""
+
+    size = len(name)
+    for start in range(len(query) - size + 1):
+        if tuple(query[start : start + size]) == tuple(name):
+            return [*query[:start], *query[start + size :]]
+    return list(query)
 
 
-def _match(company: Company, query: tuple[str, ...], *, exact: bool) -> str | None:
+def _partial(query: tuple[str, ...], name: tuple[str, ...], known: frozenset[str]) -> bool:
+    """Coincidencia parcial entre la consulta y el nombre (sin las palabras genéricas).
+
+    - La consulta contiene el nombre («Editorial Norma» → «Norma») solo si lo que sobra son
+      palabras de relleno o de otros nombres listados: «Empaques Flexa» o «Servicios
+      Nutresa» traen una marca ajena y no son «Carvajal Empaques» ni «Carvajal Servicios».
+    - El nombre contiene la consulta («Pulpa» → «Pulpa y Papel») con al menos
+      :data:`_MIN_PARTIAL` caracteres.
+    """
+
+    if _contains(query, name):
+        return all(word in _FILLER or word in known for word in _leftover(query, name))
+    return len(" ".join(query)) >= _MIN_PARTIAL and _contains(name, query)
+
+
+def _names(company: Company) -> list[tuple[str, str]]:
+    """``(etiqueta, nombre)``: el nombre (sin etiqueta) y cada alias citado."""
+
+    return [("", company.name), *((alias.name, alias.name) for alias in company.aliases)]
+
+
+def _match(
+    company: Company, query: tuple[str, ...], *, exact: bool, known: frozenset[str]
+) -> str | None:
     """``""`` si coincide el nombre, el alias con que coincidió, o ``None`` si no coincide."""
 
-    names = [("", company.name), *((alias.name, alias.name) for alias in company.aliases)]
-    for label, name in names:
+    for label, name in _names(company):
         core = _core(name)
-        if (core == query) if exact else _partial(query, core):
+        if (core == query) if exact else _partial(query, core, known):
             return label
     return None
 
@@ -161,11 +194,14 @@ def _select(companies: Sequence[Company], name: str | None) -> list[tuple[Compan
     query = _core(name or "")
     if not query:  # sin nombre o solo «Grupo Carvajal»: la lista completa
         return [(company, "") for company in companies]
+    known = frozenset(
+        word for company in companies for _, listed in _names(company) for word in _core(listed)
+    )
     for exact in (True, False):  # una coincidencia exacta excluye las parciales
         found = [
             (company, label)
             for company in companies
-            if (label := _match(company, query, exact=exact)) is not None
+            if (label := _match(company, query, exact=exact, known=known)) is not None
         ]
         if found:
             return found

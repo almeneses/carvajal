@@ -181,6 +181,26 @@ def test_con_nombre_listado_devuelve_solo_la_coincidencia(
     assert len(sources.ids) == len(unidades) + len(marcas)
 
 
+@pytest.mark.parametrize(
+    ("nombre", "unidades", "marcas"),
+    [
+        ("Editorial Norma", [], ["Norma"]),
+        ("la empresa Carvajal Empaques", ["Carvajal Empaques"], []),
+        ("Carvajal Empaques S.A.", ["Carvajal Empaques"], []),
+    ],
+)
+def test_palabras_genericas_alrededor_del_nombre_siguen_coincidiendo(
+    datos: InstitutionalData, nombre: str, unidades: list[str], marcas: list[str]
+) -> None:
+    # Act
+    draft, _ = _run({"nombre": nombre}, datos)
+
+    # Assert
+    assert draft.status == "ok"
+    assert [unidad["nombre"] for unidad in draft.data["unidades"]] == unidades
+    assert [marca["nombre"] for marca in draft.data["marcas"]] == marcas
+
+
 def test_el_alias_propal_lleva_a_pulpa_y_papel_con_su_cita(datos: InstitutionalData) -> None:
     # Arrange
     pagina = (GOLD / "pulpa_y_papel.md").read_text(encoding="utf-8")
@@ -223,7 +243,20 @@ def test_carvajal_a_secas_devuelve_la_lista_completa(datos: InstitutionalData) -
 # --- Nombre que el núcleo no menciona -------------------------------------------------------
 
 
-@pytest.mark.parametrize("nombre", ["Alpina", "Assenda", "y", "de"])
+@pytest.mark.parametrize(
+    "nombre",
+    [
+        "Alpina",
+        "Assenda",
+        "y",
+        "de",
+        # Contienen la palabra distintiva de una unidad junto a otra marca ajena.
+        "Servicios Nutresa",
+        "Empaques Flexa",
+        "Inmobiliario Alpina",
+        "Norma Pacific",
+    ],
+)
 def test_nombre_no_listado_da_empty_sin_afirmar_que_no_pertenece(
     datos: InstitutionalData, nombre: str
 ) -> None:

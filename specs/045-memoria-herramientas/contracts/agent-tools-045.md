@@ -229,7 +229,10 @@ que aportó la persona (regla de la 044; FR-018).
   coincidencia, buscada también en `alias` (por ejemplo, «Propal» → Carvajal Pulpa y Papel,
   con la cita de `pulpa_y_papel.md`).
 - **`empty`**: nombre no listado ni como alias (por ejemplo, «Alpina») → `message: "no tengo
-  ese dato en las fuentes de Carvajal"`; nunca afirma que no pertenece.
+  ese dato en las fuentes de Carvajal"`; nunca afirma que no pertenece. También cuando la
+  consulta contiene un nombre listado junto a palabras distintivas ajenas («Empaques
+  Flexa», «Servicios Nutresa»): solo se acepta lo que sobra si es relleno («Editorial
+  Norma», «la empresa Carvajal Empaques») o parte de otro nombre listado.
 - **`error`**: `empresas.json` ausente (despliegue incompleto) → error declarado, nunca una
   excepción.
 
