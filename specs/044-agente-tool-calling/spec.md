@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-23
 
-**Status**: Implemented (2026-11-23), detrás de `AGENT_MODE=tools`; valor por defecto pendiente de decisión del owner ([evidencia](./evidencia.md))
+**Status**: Implemented (2026-11-23). `AGENT_MODE=tools` es el valor por defecto desde el 2026-11-23 por decisión del owner, con riesgos aceptados y observación de dos semanas desde que producción sirve `mode=tools` (prevista hasta el 2026-12-07); el retiro de `routes` (T055) queda diferido ([evidencia §10](./evidencia.md#10-decisión-del-owner))
 
 **Input**: User description: "Agente con tool calling para el chat de Carvajal (spec 044).
 Sustituir el enrutador determinista por regex + una sola llamada al LLM por un agente

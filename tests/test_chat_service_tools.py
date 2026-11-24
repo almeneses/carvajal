@@ -20,12 +20,13 @@ y ``ToolAgentFinal``); una prueba de extremo a extremo usa el runner real con
 """
 
 from collections.abc import Generator, Iterator, Mapping, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, replace
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import Mock
 
 import httpx
 import openai
@@ -33,10 +34,14 @@ import pytest
 from langchain_core.exceptions import OutputParserException
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphRecursionError
+from langgraph.store.memory import InMemoryStore
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.pool import StaticPool
+from structlog.testing import capture_logs
 from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
 
+from apps.api import agent_runtime as agent_runtime_module
+from apps.api.agent_runtime import AgentRuntime, _graphs
 from apps.api.chat import service as service_module
 from apps.api.chat.agent import (
     AgentTurn,
@@ -55,6 +60,7 @@ from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.agent.graph import AgentDeps, build_agent
+from carvajal.agent.router import decide_route
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
 from carvajal.agent.toolagent.graph import build_tool_agent
@@ -841,6 +847,58 @@ class SingleBatchStore:
 
     def delete_by_document(self, document_id: str) -> None:
         raise AssertionError("El servicio no borra.")
+
+
+def test_por_defecto_sin_deepseek_api_key_el_turno_va_por_routes_sin_error(
+    engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: CI o desarrollo sin clave con el valor por defecto (``AGENT_MODE=tools``).
+    # El runtime se arma con el ``_graphs`` real y los runners por defecto lo leen.
+    monkeypatch.delenv("AGENT_MODE", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    with capture_logs() as logs:
+        graph, tool_graph = _graphs(
+            settings,
+            vector_store=SingleBatchStore([]),
+            embedder=FakeEmbedder(),
+            checkpointer=InMemorySaver(),
+            store=InMemoryStore(),
+            router=decide_route,
+        )
+    runtime = AgentRuntime(
+        graph=graph,
+        qdrant=Mock(),
+        checkpointer=None,
+        store=None,
+        _stack=ExitStack(),
+        tool_graph=tool_graph,
+    )
+    monkeypatch.setattr(agent_runtime_module, "_runtime", runtime)
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        tracer=FakeTracer(),
+        settings=settings,
+    )
+
+    # Act
+    events = list(service.stream("dueno-sin-clave", "¿Qué es Carvajal?"))
+    answer = service.ask("dueno-sin-clave", "¿Qué es Carvajal?")
+
+    # Assert: se registra el modo no disponible y el turno sigue por ``routes``, sin 503.
+    assert settings.agent_mode == "tools"
+    assert runtime.mode == "routes"
+    evento = next(item for item in logs if item["event"] == "agent.tools_mode_unavailable")
+    assert evento["reason"] == "missing_deepseek_api_key"
+    assert evento["log_level"] == "warning"
+    assert names(events) == ["open", "trace", "meta", "token", "done"]
+    assert named(events, "trace").data["route"] == "rag"
+    assert "mode" not in named(events, "trace").data
+    assert named(events, "token").data["text"] == NO_CONTEXT_ANSWER
+    assert answer.text == NO_CONTEXT_ANSWER
 
 
 def test_extremo_a_extremo_con_el_runner_real_y_un_chat_guionado(engine: Any) -> None:

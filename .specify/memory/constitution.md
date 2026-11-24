@@ -119,10 +119,14 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 - La 043 está implementada: un solo hilo comercial con datos publicados sobre la
   protección de ingesta de #222 y el contrato de #223. Retiró la demo y el compositor
   separado; conserva el histórico real autorizado y el contrato `POST /api/faq`.
-- La 044 (agente con herramientas) está implementada detrás de `AGENT_MODE=tools`, con
-  `routes` como valor por defecto, atajo y respaldo. El informe comparativo
+- La 044 (agente con herramientas) está implementada y `AGENT_MODE=tools` es el valor por
+  defecto desde el 2026-11-23, por decisión del owner con riesgos aceptados (SC-001,
+  SC-005, SC-006a y SC-004 según la lectura). `routes` queda como interruptor de
+  emergencia, atajo y respaldo. El informe comparativo
   (`specs/044-agente-tool-calling/evidencia.md`) da 89,5 % de ítems resueltos frente a 54,4 %
-  de `routes`; el cambio de valor por defecto queda a decisión del owner. El índice de
+  de `routes`; el modo `tools` solo arranca con `LLM_PROVIDER=deepseek`. La observación dura
+  dos semanas desde que producción sirve `mode=tools` (prevista hasta el 2026-12-07) y, si
+  se cumple, abre el retiro (T055). El índice de
   Qdrant creció a ~40 800 puntos con el corpus ampliado y el retrieval cayó a
   Recall@10 = 0,578 frente a la línea base: pendiente de una spec aparte.
 
@@ -133,9 +137,11 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 - Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0007).
 - Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
 - Agente LangGraph con `PostgresSaver` y `PostgresStore`, en dos modos elegidos con
-  `AGENT_MODE`: `routes` (router `direct`/`tool`/`rag`/`commercial`, valor por defecto) y
-  `tools` (spec 044: el modelo encadena consultas tipadas y deterministas). El router por
-  reglas atiende en ambos el atajo de saludos y el respaldo cuando el proveedor falla.
+  `AGENT_MODE`: `tools` (spec 044, valor por defecto: el modelo encadena consultas tipadas y
+  deterministas) y `routes` (router `direct`/`tool`/`rag`/`commercial`, interruptor de
+  emergencia). El router por reglas atiende en ambos el atajo de saludos y el respaldo
+  cuando el proveedor falla, y todos los turnos si `tools` no arranca (`LLM_PROVIDER`
+  distinto de `deepseek` o sin `DEEPSEEK_API_KEY`).
 - Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con
   LangSmith (spec 038) es opcional, sin PII y en producción solo con metadatos.
 - Precios del catálogo: referencias fechadas con moneda, una oferta por fuente. Los de
@@ -171,4 +177,4 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.6.1 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.7.0 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.

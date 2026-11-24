@@ -110,6 +110,7 @@ def app(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, ClienteFa
     marcas: list[tuple[str, bool]] = []
     ajustes = Settings(
         _env_file=None,
+        agent_mode="routes",
         monitoring_enabled=True,
         langsmith_api_key="lsv2_pt_smoke",
         monitoring_sample_rate=1.0,

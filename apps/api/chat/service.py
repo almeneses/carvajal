@@ -201,8 +201,8 @@ class ChatService:
 
         Con ``AGENT_MODE=tools`` se usa el inyectado o el del runtime. Si solo se inyectó
         el runner ``routes`` (pruebas), no se construye el runtime real. Si el runtime no
-        pudo construir el grafo ``tools`` (por ejemplo, sin ``DEEPSEEK_API_KEY``), el
-        turno sigue por ``routes``.
+        pudo construir el grafo ``tools`` (``LLM_PROVIDER`` distinto de ``deepseek`` o sin
+        ``DEEPSEEK_API_KEY``), el turno sigue por ``routes``.
         """
 
         if self._config().agent_mode != "tools":

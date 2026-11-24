@@ -31,6 +31,7 @@ from apps.api.views import api, chat, config, corpus, cotizador, documents, faq,
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.application.quota import DailyQuota, QuotaResult
+from carvajal.infrastructure.agent_mode import agent_mode_status
 from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 
@@ -201,6 +202,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "detail": DB_UNAVAILABLE,
                     "index": {"status": "unknown"},
                     "monitoring": monitoring_status(settings).as_health(),
+                    "agent": agent_mode_status(settings).as_health(),
                 },
                 status_code=503,
             )
@@ -215,6 +217,11 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 "index": index,
                 "catalog": catalog,
                 "monitoring": monitoring_status(settings).as_health(),
+                # Modo del agente según la configuración, sin construir el runtime (que es
+                # perezoso): ``mode_expected=routes`` con ``mode_configured=tools`` avisa
+                # de que el modo ``tools`` no arrancará. No cambia el estado: ``routes``
+                # atiende igual.
+                "agent": agent_mode_status(settings).as_health(),
             },
             status_code=200 if healthy else 503,
         )

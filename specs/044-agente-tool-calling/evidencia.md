@@ -38,7 +38,8 @@ de los dos modos.
 la mejora en resueltos (+35 pp) duplica la exigida. No cumple todos los criterios
 formales: SC-001 (2 casos), SC-005 (1 caso dudoso), SC-006a (1,48 s frente a 1 s) y SC-004
 según cómo se lea. Por el plan, sin SC-001…SC-008 en verde `AGENT_MODE` sigue en `routes`
-hasta que el owner decida (§8).
+hasta que el owner decida (§8). El owner decidió el 2026-11-23 pasar a `tools` con esos
+riesgos aceptados (§10).
 
 ## 2. Cómo se llegó a esta medición
 
@@ -161,12 +162,13 @@ del motor y las tarjetas solo traen opciones validadas.
 1. **¿`AGENT_MODE` pasa a `tools`?** Formalmente faltan SC-001 (2 casos menores), SC-005
    (1 caso dudoso), SC-006a (1,48 s) y SC-004 en su lectura estricta. A la vez, `tools`
    supera a `routes` en todas las garantías y `routes` tiene hallazgos graves en producción
-   (§7).
-2. **¿Se acepta el conjunto v2?** (§2.1).
+   (§7). **Resuelta el 2026-11-23: sí, con riesgos aceptados → §10.**
+2. **¿Se acepta el conjunto v2?** (§2.1). **Abierta.** La decisión 1 se tomó con los
+   resultados de v2, pero el owner no se pronunció sobre el conjunto.
 3. **¿Se ajusta `AGENT_SYSTEM` para los fallos de §3?** Implica escribir un conjunto v3 para
-   medir sin contaminación.
+   medir sin contaminación. **Abierta.**
 4. **¿Se abren specs aparte** para los hallazgos de `routes` (§7) y para la regresión de
-   retrieval (§6)?
+   retrieval (§6)? **Abierta.**
 
 ## 9. Limitación de origen del conjunto (FR-016)
 
@@ -175,3 +177,61 @@ Borrador del asistente de desarrollo, revisado y congelado por el owner sin camb
 `routing_questions.json` y había probado frases contra el enrutador y el cotizador durante
 el plan; no se consultó `routing_questions.json` para escribir los ítems. La versión 2
 corrige solo expectativas de material contra `check_material`.
+
+## 10. Decisión del owner
+
+- **Fecha**: 2026-11-23.
+- **Decisión**: la 1 de §8. `AGENT_MODE` pasa de `routes` a `tools` como valor por
+  defecto en `Settings`, `.env.example`, `compose.yml` y `compose.prod.yml`. `routes` queda
+  como interruptor de emergencia (`AGENT_MODE=routes`, sin migraciones) y sigue atendiendo
+  el atajo, el respaldo y todos los turnos cuando el modo `tools` no arranca.
+- **Modelo**: la decisión vale para `deepseek-flash` sin razonamiento, el modelo con el que
+  se midió este informe. `.env.example` y el runbook de producción lo fijan
+  (`DEEPSEEK_MODEL=deepseek-flash`); `Settings` y los compose conservan `deepseek-chat` como
+  valor por defecto. No se corrió `eval-agent` con ese nombre, pero sí se comprobó contra la
+  API el 2026-11-23: una petición con `model: "deepseek-chat"` y `tool_choice: "required"`
+  respondió con `"model": "deepseek-flash"`, sin contenido de razonamiento y con la llamada
+  a la herramienta. Es decir, el mismo modelo evaluado, por su alias sin razonamiento. `agent.runtime_ready` registra `tools_model` para
+  comprobar el modelo en uso.
+- **Consecuencia para el proveedor**: el modo `tools` usa siempre DeepSeek, así que solo
+  arranca con `LLM_PROVIDER=deepseek` y DeepSeek completo (clave, modelo y URL). Con
+  `LLM_PROVIDER=ollama` (el valor por defecto de `Settings` y de los compose) o `claude`,
+  el chat sigue en `routes` con ese proveedor aunque haya una clave de DeepSeek para el
+  enrutador, `eval-agent` o la revisión automática: los turnos no salen del servidor sin
+  decidirlo. Si no arranca, un aviso `agent.tools_mode_unavailable` (con `reason`, sin
+  traza) lo registra y `/health` lo publica en el bloque `agent`, sin 503.
+- **Motivo**: `tools` supera a `routes` en todas las garantías y en cobertura (+35,1 pp de
+  resueltos) y elimina los tres hallazgos graves que `routes` tiene hoy en producción (§7).
+- **Riesgos aceptados** como conocidos y menores:
+  - SC-001: 2 casos (§3).
+  - SC-005: 1 caso dudoso (g-049).
+  - SC-006a: línea de estado p95 de 1,48 s frente a la meta de 1 s.
+  - SC-004: 91,7 % en la lectura de partes atendidas y 50,0 % en la estricta (§4). El owner
+    aceptó el riesgo **sin elegir lectura**: la decisión no depende de ella y la elección
+    queda abierta.
+- **Período de observación**: dos semanas **desde el día en que `agent.runtime_ready`
+  muestra `"mode": "tools"` en producción**, no desde la fecha de la decisión. Previsto del
+  2026-11-23 al 2026-12-07; si el despliegue se retrasa, el período se corre con él. Los
+  criterios son los del plan (*Convivencia y retiro*):
+  - cero violaciones de material o datos sin fuente en los turnos revisados (el tipo de
+    g-003, cajas calculadas por el modelo, cuenta como dato sin fuente, igual que en
+    SC-001);
+  - tasa de respaldo < 2 % de los turnos del modo `tools`;
+  - sin aumento de la tasa de «No útil» frente a las dos semanas previas en `routes`.
+
+  Procedimiento (export de logs, muestra diaria de hasta 10 hilos leídos en Postgres,
+  consultas de la tasa de respaldo y de «No útil»), activación y vuelta a `routes`:
+  [`docs/despliegue-ovh.md`](../../docs/despliegue-ovh.md) (*Modo del agente*). Revisa el
+  owner. Si se cumplen los tres criterios, se abre T055 (F5, retiro); si alguno falla, se
+  vuelve a `routes` y el caso se registra aquí.
+
+### Registro de la observación
+
+- **Inicio real** (primer `agent.runtime_ready` con `"mode": "tools"` en producción):
+  pendiente.
+- **Cierre** (inicio + 14 días): pendiente.
+- **Base de «No útil»** (dos semanas previas en `routes`, congelada el día del inicio):
+  pendiente.
+
+| Fecha | Hilos revisados | Violaciones de material | Datos sin fuente | Respaldo acumulado | Notas |
+|---|---|---|---|---|---|

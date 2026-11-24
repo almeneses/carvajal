@@ -155,7 +155,11 @@ toque el modo `tools`:
 
 Advierten en una PR y, además, son la **aprobación del cambio de `AGENT_MODE`**: el owner
 solo pasa el valor por defecto a `tools` si el informe completo sobre el conjunto de
-generalización cumple todos a la vez (más los bloqueantes de arriba):
+generalización cumple todos a la vez (más los bloqueantes de arriba), salvo que apruebe
+con riesgos aceptados y los deje escritos en la evidencia de la spec. Excepción vigente:
+el 2026-11-23 el owner pasó `AGENT_MODE` a `tools` con SC-001, SC-004, SC-005 y SC-006a
+fuera de meta como riesgos aceptados (`specs/044-agente-tool-calling/evidencia.md` §10).
+Los criterios de aprobación son:
 
 - **SC-003**: «Ítems resueltos» de `tools` ≥ 85 % y al menos 15 puntos por encima de
   `routes`.

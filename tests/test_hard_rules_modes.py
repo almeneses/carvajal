@@ -96,7 +96,7 @@ class RunTurn(Protocol):
 def _routes_turn(question: str, *, store: FakeVectorStore, catalog: Catalog | None) -> HardRuleTurn:
     """Turno del grafo ``routes`` a través de su adaptador real (``GraphAgentRunner``)."""
 
-    settings = Settings()
+    settings = Settings(_env_file=None, agent_mode="routes")  # type: ignore[call-arg]
     graph = build_agent(
         AgentDeps(store, FakeEmbedder(), settings, catalog=catalog),
         checkpointer=InMemorySaver(),
@@ -130,7 +130,7 @@ def _tools_turn(
     reglas sobre datos recuperados se comprueban igual que en ``routes``.
     """
 
-    settings = Settings()
+    settings = Settings(_env_file=None, agent_mode="tools")  # type: ignore[call-arg]
     chat = ScriptedToolChat(steps=list(script))
     deps = ToolDeps(store, FakeEmbedder(), settings, catalog=catalog)
     graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), store=InMemoryStore())

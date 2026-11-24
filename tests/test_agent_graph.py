@@ -415,8 +415,13 @@ def test_el_runtime_en_modo_routes_no_construye_el_grafo_tools(
 def test_el_runtime_en_modo_tools_construye_ambos_grafos(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Arrange
-    settings = Settings(agent_mode="tools")
+    # Arrange: el modo ``tools`` exige ``LLM_PROVIDER=deepseek`` y DeepSeek completo.
+    settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        agent_mode="tools",
+        llm_provider="deepseek",
+        deepseek_api_key="sk-prueba",
+    )
     opciones: list[dict[str, object]] = []
 
     def fake_chat(received: Settings, **kwargs: object) -> ScriptedToolChat:
@@ -442,7 +447,12 @@ def test_el_runtime_en_modo_tools_sin_deepseek_sigue_con_routes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
-    settings = Settings(agent_mode="tools", deepseek_api_key="")
+    settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        agent_mode="tools",
+        llm_provider="deepseek",
+        deepseek_api_key="",
+    )
 
     # Act
     with capture_logs() as logs:
@@ -452,7 +462,8 @@ def test_el_runtime_en_modo_tools_sin_deepseek_sigue_con_routes(
     assert graph is not None
     assert tool_graph is None
     evento = next(item for item in logs if item["event"] == "agent.tools_mode_unavailable")
-    assert "DEEPSEEK_API_KEY" in evento["error"]
+    assert evento["reason"] == "missing_deepseek_api_key"
+    assert evento["log_level"] == "warning"
 
 
 @pytest.mark.parametrize(("tool_graph", "mode"), [(None, "routes"), (object(), "tools")])

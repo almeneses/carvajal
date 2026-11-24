@@ -236,14 +236,15 @@ T022 status.py
 ### Incremental Delivery
 
 1. Fase 2 → PR `fix:` «tinto» + PR del motor estructurado.
-2. US1 + US2 → PR del agente (modo `tools` apagado por defecto).
+2. US1 + US2 → PR del agente (modo `tools` apagado por defecto en ese momento).
 3. US3 → PR de conversación multi-turno.
 4. US4 → PR de operación (atajo, respaldo, folios, monitoreo).
 5. US5 + Polish → PR de evaluación, informe y enmiendas.
-6. Decisión del owner sobre el valor por defecto; F5 (T055) después de la observación.
+6. Decisión del owner sobre el valor por defecto (2026-11-23: `tools`); el PR de cierre (T054) lo cambia.
+7. F5 (T055) después de la observación.
 
 ## Notes
 
 - `[P]` = archivos distintos y sin dependencias pendientes.
-- Ningún PR cambia el valor por defecto de `AGENT_MODE`; eso lo decide el owner con el informe de T049.
+- Hasta la decisión del owner ningún PR cambiaba el valor por defecto de `AGENT_MODE`; el PR de cierre (T054) lo cambia a `tools` por la decisión del 2026-11-23 ([`evidencia.md`](./evidencia.md) §10).
 - Commit por tarea o grupo lógico; `make check` en verde antes de cada PR.

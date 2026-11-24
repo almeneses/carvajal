@@ -8,8 +8,10 @@ vitalidad. ``PostgresSaver`` y ``PostgresStore`` usan el Postgres existente;
 ``routes`` se construye siempre: con ``tools`` activo atiende el respaldo determinista
 cuando DeepSeek falla o vence el plazo (FR-009), y en ese caso se compila con el
 enrutador de reglas (``decide_route``) aunque ``AGENT_ROUTER`` pida otro: el respaldo no
-llama a ningún LLM. Sin grafo ``tools`` (por ejemplo, sin clave), ``routes`` atiende los
-turnos con el enrutador configurado.
+llama a ningún LLM. Sin grafo ``tools``, ``routes`` atiende los turnos con el enrutador
+configurado: el modo ``tools`` solo arranca con ``LLM_PROVIDER=deepseek`` y DeepSeek
+completo (``carvajal.infrastructure.agent_mode``), así que con ``ollama`` o ``claude`` el
+chat no envía los turnos a DeepSeek aunque haya una clave.
 """
 
 import atexit
@@ -32,6 +34,7 @@ from carvajal.agent.toolagent.graph import build_tool_agent
 from carvajal.agent.toolagent.tools import ToolDeps
 from carvajal.application.ports import Embedder, VectorStore
 from carvajal.application.retrieval import LayerPriorityStore
+from carvajal.infrastructure.agent_mode import agent_mode_status
 from carvajal.infrastructure.settings import Settings
 
 __all__ = ["AgentRuntime", "agent_runtime", "close_agent_runtime"]
@@ -44,7 +47,8 @@ class AgentRuntime:
     """Recursos vivos del agente; se cierran al terminar el proceso.
 
     ``graph`` es el grafo ``routes`` (siempre presente: atajo y respaldo);
-    ``tool_graph`` es el grafo ``tools`` y solo existe con ``AGENT_MODE=tools``.
+    ``tool_graph`` es el grafo ``tools`` y solo existe si ``AGENT_MODE=tools`` y la
+    configuración lo permite (``agent_mode_status``).
     """
 
     graph: Any
@@ -105,8 +109,11 @@ def _graphs(
 ) -> tuple[Any, Any | None]:
     """Compila el grafo ``routes`` y, con ``AGENT_MODE=tools``, también el ``tools``.
 
-    Si el modo ``tools`` no puede arrancar (por ejemplo, sin ``DEEPSEEK_API_KEY``), se
-    registra el error y el proceso sigue con ``routes``, igual que con el enrutador.
+    Si la configuración no permite el modo ``tools`` (``LLM_PROVIDER`` distinto de
+    ``deepseek`` o DeepSeek incompleto, p. ej. sin ``DEEPSEEK_API_KEY``), se registra un
+    aviso sin traza con el motivo y el proceso sigue con ``routes``: es una configuración
+    esperada (CI, ``make up`` con Ollama). Un fallo inesperado al construir el grafo se
+    registra como error con traza y el proceso también sigue con ``routes``.
 
     Con el grafo ``tools`` activo, ``routes`` solo atiende el respaldo (FR-009, R8): se
     compila con ``decide_route`` para que el respaldo no llame a un ``LLMRouter`` (a menudo
@@ -121,7 +128,16 @@ def _graphs(
             router=selected,
         )
 
-    if settings.agent_mode != "tools":
+    status = agent_mode_status(settings)
+    if status.configured != "tools":
+        return routes_graph(router), None
+    if status.reason is not None:
+        logger.warning(
+            "agent.tools_mode_unavailable",
+            mode=settings.agent_mode,
+            reason=status.reason,
+            llm_provider=settings.llm_provider,
+        )
         return routes_graph(router), None
     try:
         tool_graph = build_tool_agent(
@@ -134,6 +150,7 @@ def _graphs(
         logger.error(
             "agent.tools_mode_unavailable",
             mode=settings.agent_mode,
+            reason="build_failed",
             error=str(error),
             exc_info=True,
         )
@@ -207,6 +224,10 @@ def _build(settings: Settings) -> AgentRuntime:
         logger.info(
             "agent.runtime_ready",
             mode=runtime.mode,
+            mode_configured=settings.agent_mode,
+            # Modelo que atiende el modo ``tools``: la decisión (evidencia §10) vale para el
+            # modelo evaluado y este campo permite comprobar que es el mismo.
+            tools_model=settings.deepseek_model.strip() if runtime.mode == "tools" else None,
             router=router_name(router),
             checkpointer=settings.agent_checkpointer,
             collection=settings.qdrant_collection,

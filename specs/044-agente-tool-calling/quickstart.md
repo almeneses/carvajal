@@ -49,4 +49,5 @@ uv run carvajal eval-agent --mode routes --mode tools \
 ```
 
 Esperado para aprobar el cambio de valor por defecto: SC-001…SC-008 en verde en el
-informe; sin ello, `AGENT_MODE` sigue en `routes`.
+informe; sin ello, `AGENT_MODE` sigue en `routes`. El 2026-11-23 el owner aprobó el cambio
+con riesgos aceptados: `tools` es el valor por defecto ([evidencia §10](./evidencia.md)).

@@ -124,9 +124,12 @@ make prod-bootstrap # prepara un servidor limpio (modelos, migraciones y corpus)
 make eval-agent # compara los modos routes y tools (spec 044; gasta tokens de DeepSeek)
 ```
 
-> 🤖 `AGENT_MODE=routes` (por defecto) usa el enrutador por reglas; `AGENT_MODE=tools`
-> activa el agente con herramientas de la spec 044. El cambio de valor por defecto lo
-> decide el owner con el informe `specs/044-agente-tool-calling/evidencia.md`.
+> 🤖 `AGENT_MODE=tools` (por defecto desde el 2026-11-23, decisión del owner) activa el
+> agente con herramientas de la spec 044; `AGENT_MODE=routes` vuelve al enrutador por
+> reglas. El modo `tools` usa DeepSeek y solo arranca con `LLM_PROVIDER=deepseek` y
+> `DEEPSEEK_API_KEY`; si no, el chat sigue en `routes` con el proveedor configurado (aviso
+> `agent.tools_mode_unavailable` y bloque `agent` de `/health`). Decisión, modelo evaluado
+> (`deepseek-flash`) y período de observación: `specs/044-agente-tool-calling/evidencia.md` §10.
 
 > 📦 `uv sync --all-extras` instala también los extras `capture` (CLI de
 > captura) y `legacy` (FAISS para la CLI histórica). El CLI completo requiere ambos:
