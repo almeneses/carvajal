@@ -1910,7 +1910,9 @@
         actualizarControles(turnoLectura, "leyendo");
         // Respaldo dentro de una nota: el avance es la parte que se está leyendo.
         const nota = notaDe(turnoLectura);
-        if (nota) pintarAvance(nota, indiceLectura / segmentosLectura.length, 0);
+        if (nota && segmentosLectura.length) {
+          pintarAvance(nota, indiceLectura / segmentosLectura.length, 0);
+        }
       };
       locucion.onend = () => {
         if (ciclo !== cicloLectura) return;
