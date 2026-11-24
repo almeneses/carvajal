@@ -169,6 +169,7 @@ def test_judgeable_reproduce_la_tabla_del_contrato(
 def test_judgeable_solo_preguntas_y_demasiado_larga() -> None:
     assert judgeable("¿En qué ciudad? ¿Cuántas unidades?") == (False, "solo_preguntas")
     assert judgeable("a" * 8001) == (False, "demasiado_larga")
+    assert judgeable("El vaso cuesta $500, ¿te lo cotizo?") == (True, "")
 
 
 @pytest.mark.parametrize(
@@ -178,6 +179,16 @@ def test_judgeable_solo_preguntas_y_demasiado_larga() -> None:
         ("¿En qué ciudad? ¿Y cuántas unidades?", True),
         ("Tengo dos opciones. ¿Cuál prefieres?", False),
         ("", False),
+        ("¿Cuál prefieres: la de 9 oz o la de 12 oz?", True),
+        ("Te lo cotizo?", True),
+        # Afirmación y pregunta en la misma oración: se juzga.
+        ("El vaso cuesta $500, ¿te lo cotizo?", False),
+        (
+            "Carvajal fue fundada en 1904 [1] y es la más usada para sopas, "
+            "¿te ayudo con algo más?",
+            False,
+        ),
+        ("El vaso cuesta $500, te lo cotizo?", False),
     ],
 )
 def test_only_questions(text: str, expected: bool) -> None:

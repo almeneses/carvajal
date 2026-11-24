@@ -60,6 +60,12 @@ SKIP_QUESTIONS: Final = "solo_preguntas"
 SKIP_LONG: Final = "demasiado_larga"
 _CITATION: Final = re.compile(r"\[(\d+)\]")
 _SENTENCE: Final = re.compile(r"(?<=[.!?…])\s+|\n+")
+# Tramo de pregunta con apertura: «¿…?».
+_QUESTION_SPAN: Final = re.compile(r"¿[^¿?]*\?")
+# Separadores de cláusula: una oración sin «¿» que los tenga puede afirmar algo antes de
+# preguntar («El vaso cuesta $500, te lo cotizo?»).
+_CLAUSE_MARK: Final = re.compile(r"[,;:]")
+_WORD: Final = re.compile(r"\w")
 _ELLIPSIS: Final = "…"
 # Valores estructurados que la persona puede haber dicho (extracción de las reglas).
 _PERSON_KEYS: Final = (
@@ -72,11 +78,28 @@ _PERSON_KEYS: Final = (
 )
 
 
+def _is_question(sentence: str) -> bool:
+    """La oración es solo pregunta: nada afirmado fuera de sus tramos «¿…?».
+
+    Con «¿», se quitan los tramos «¿…?» y no debe quedar ninguna palabra («El vaso cuesta
+    $500, ¿te lo cotizo?» deja una afirmación). Sin «¿», debe terminar en «?» y ser una sola
+    cláusula, sin comas, punto y coma ni dos puntos.
+    """
+
+    if "¿" in sentence:
+        return not _WORD.search(_QUESTION_SPAN.sub(" ", sentence))
+    return sentence.endswith("?") and not _CLAUSE_MARK.search(sentence)
+
+
 def only_questions(text: str) -> bool:
-    """El texto solo hace preguntas a la persona: cada oración termina en «?»."""
+    """El texto solo hace preguntas a la persona: ninguna oración afirma nada.
+
+    Una afirmación seguida de una pregunta en la misma oración («Carvajal fue fundada en
+    1904, ¿te ayudo con algo más?») no es solo pregunta y se juzga.
+    """
 
     sentences = [part.strip() for part in _SENTENCE.split(text or "") if part.strip()]
-    return bool(sentences) and all(sentence.endswith("?") for sentence in sentences)
+    return bool(sentences) and all(_is_question(sentence) for sentence in sentences)
 
 
 def memory_only(results: Sequence[Mapping[str, Any]]) -> bool:
