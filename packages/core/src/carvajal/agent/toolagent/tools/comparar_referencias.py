@@ -47,6 +47,7 @@ from carvajal.agent.toolagent.tools._base import (
     _Sources,
 )
 from carvajal.agent.toolagent.tools.builtin import MAX_NAME_CHARS, MAX_TOOL_OPTIONS
+from carvajal.agent.toolagent.tools.ficha_producto import _sizes
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import Reference
 from carvajal.commercial.book import CommercialBook
@@ -213,8 +214,13 @@ def _number(value: float | None) -> int | float | None:
     return int(value) if float(value).is_integer() else value
 
 
-def _ficha_source(reference: Reference) -> dict[str, Any]:
-    """La ficha con todas las cifras que la comparación devuelve de ella."""
+def _ficha_source(reference: Reference, sizes: Mapping[str, Any]) -> dict[str, Any]:
+    """La ficha con todas las cifras que la comparación devuelve de ella.
+
+    Los tamaños son los de ``ficha_producto._sizes``: una ficha «(paquete x N)» sin paquete
+    declarado no dice que sea una caja, así que no se escribe «N unidades por caja» (el
+    ``chunk_id`` es el mismo que el de ``ficha_producto`` y su extracto se fusiona).
+    """
 
     parts = [f"{reference.name} (SKU {reference.sku}, {reference.country})", reference.material]
     if reference.capacity_oz is not None:
@@ -226,7 +232,11 @@ def _ficha_source(reference: Reference) -> dict[str, Any]:
             f"{reference.units_per_pack} unidades por paquete, "
             f"{reference.packs_per_box} paquetes por caja"
         )
-    parts.append(f"{reference.units_per_box} unidades por caja")
+    if sizes["unidades_por_caja"] is not None:
+        parts.append(f"{sizes['unidades_por_caja']} unidades por caja")
+    named = sizes["presentacion_nombre"]
+    if named is not None:
+        parts.append(f"{named['presentacion']} de {named['unidades']} unidades según el nombre")
     if reference.uses:
         parts.append("usos: " + ", ".join(reference.uses))
     parts.append(f"ficha capturada el {reference.captured_at.isoformat()}")
@@ -320,7 +330,8 @@ def _row(
     book: CommercialBook,
     sources: _Sources,
 ) -> tuple[dict[str, Any], _UnitPrice | None]:
-    [ficha_n] = sources.add([_ficha_source(reference)])
+    sizes = _sizes(reference)
+    [ficha_n] = sources.add([_ficha_source(reference, sizes)])
     rule = catalog.materials.get(reference.material)
     temperature: dict[str, Any] | None = None
     if rule is not None:
@@ -352,7 +363,8 @@ def _row(
         "capacidad_oz": _number(reference.capacity_oz),
         "microondas": rule.microwave if rule is not None else None,
         "temperatura_guia": temperature,
-        "unidades_por_caja": reference.units_per_box,
+        "unidades_por_caja": sizes["unidades_por_caja"],
+        "presentacion_nombre": sizes["presentacion_nombre"],
         "usos": list(reference.uses),
         "precio_unitario": unit_price,
     }
@@ -390,8 +402,9 @@ def _differences(rows: Sequence[Mapping[str, Any]], comparable: bool) -> list[st
             )
         )
     boxes = [row["unidades_por_caja"] for row in rows]
-    if len(set(boxes)) > 1:
-        found.append(line("Unidades por caja", [str(value) for value in boxes]))
+    # Solo se comparan cajas que alguna ficha declara; sin caja declarada, «no declarado».
+    if len(set(boxes)) > 1 and any(value is not None for value in boxes):
+        found.append(line("Unidades por caja", [_text(value) for value in boxes]))
     microwave = [row["microondas"] for row in rows]
     if len(set(microwave)) > 1:
         found.append(line(f"Microondas ({GUIDE_LABEL})", [_text(value) for value in microwave]))

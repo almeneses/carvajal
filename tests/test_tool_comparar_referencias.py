@@ -142,9 +142,83 @@ def test_cada_cifra_del_precio_esta_en_el_excerpt_de_su_fuente() -> None:
     ficha = _source(sources, ocho["n"])
     assert ficha["chunk_id"] == "ficha:CO-CTT-08:CO"
     assert ficha["layer"] == "core"
-    for cifra in ("CO-CTT-08", "EPS", "8 oz", "20 unidades por caja", "2026-11-18"):
+    for cifra in ("CO-CTT-08", "EPS", "8 oz", "paquete de 20 unidades", "2026-11-18"):
         assert cifra in ficha["excerpt"]
+    # La ficha dice «(paquete x 20)» y no declara caja: no se afirma una caja de 20.
+    assert "unidades por caja" not in ficha["excerpt"]
     assert sorted(sources.ids) == sorted({entry["n"] for entry in sources.entries})
+
+
+def test_una_ficha_paquete_x_n_no_inventa_unidades_por_caja() -> None:
+    # Arrange: CO-CTT-08 es «(paquete x 20)» sin units_per_pack; ficha_producto no declara caja.
+    from carvajal.agent.toolagent.tools import ficha_producto
+
+    ficha_sources = _Sources(())
+    ficha = ficha_producto.run(
+        ficha_producto.FichaProductoArgs.model_validate({"sku": "CO-CTT-08"}),
+        _deps(),
+        ToolContext(),
+        ficha_sources,
+    )
+
+    # Act
+    draft, sources = _run(["CO-CTT-08", "CO-CTT-16"], "CO")
+
+    # Assert: comparar y ficha coinciden en lo que la ficha permite afirmar.
+    ocho = _row(draft, "CO-CTT-08")
+    assert ficha.data["ficha"]["unidades_por_caja"] is None
+    assert ocho["unidades_por_caja"] is None
+    assert ocho["presentacion_nombre"] == {"presentacion": "paquete", "unidades": 20}
+    excerpt = _source(sources, ocho["n"])["excerpt"]
+    assert "unidades por caja" not in excerpt
+    assert "paquete de 20 unidades según el nombre" in excerpt
+    assert not any(
+        line.startswith("Unidades por caja") for line in draft.data["comparacion"]["diferencias"]
+    )
+
+
+def test_comparar_tras_la_ficha_no_ensucia_la_fuente_oficial_compartida() -> None:
+    # Arrange: el turno pide la ficha y luego compara; las dos citan ficha:CO-CTT-08:CO.
+    from carvajal.agent.toolagent.tools import ficha_producto
+
+    sources = _Sources(())
+    ficha_producto.run(
+        ficha_producto.FichaProductoArgs.model_validate({"sku": "CO-CTT-08"}),
+        _deps(),
+        ToolContext(),
+        sources,
+    )
+    args = mod.CompararReferenciasArgs.model_validate({"referencias": ["CO-CTT-08", "CO-CTT-16"]})
+
+    # Act
+    mod.run(args, _deps(), ToolContext(), sources)
+
+    # Assert
+    shared = next(e for e in sources.entries if e["chunk_id"] == "ficha:CO-CTT-08:CO")
+    assert "unidades por caja" not in shared["excerpt"]
+
+
+def test_las_fichas_con_caja_declarada_conservan_sus_unidades_por_caja() -> None:
+    # Arrange: una ficha con paquete y paquetes por caja sí declara la caja.
+    reference = next(
+        item for item in CATALOG.references if item.units_per_pack and item.packs_per_box
+    )
+    other = next(
+        item
+        for item in CATALOG.references
+        if item.units_per_pack
+        and item.packs_per_box
+        and item.sku != reference.sku
+        and item.country == reference.country
+    )
+
+    # Act
+    draft, sources = _run([reference.sku, other.sku], reference.country)
+
+    # Assert
+    row = _row(draft, reference.sku)
+    assert row["unidades_por_caja"] == reference.units_per_box
+    assert f"{reference.units_per_box} unidades por caja" in _source(sources, row["n"])["excerpt"]
 
 
 def test_la_guia_de_materiales_va_rotulada_y_con_su_fuente() -> None:

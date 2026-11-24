@@ -114,9 +114,14 @@ que aportó la persona (regla de la 044; FR-018).
   oferta publicada; para MX, `ReferencePrice.amount / units_per_box` (precio por caja). No
   usa `engine._offer_for`, que opera sobre ofertas CO y exige una cantidad.
 - **`ok`**: `comparacion: {filas: [{n, sku, nombre, material, capacidad_oz, microondas,
-  temperatura_guia, unidades_por_caja, usos, precio_unitario: {valor, moneda, n} | null}],
-  diferencias: [str], mas_economica: sku | null, aviso: str | null}`. `mas_economica` solo
-  si todas tienen precio y coinciden país, moneda y `tax_status`; si no, `null` y `aviso`.
+  temperatura_guia, unidades_por_caja, presentacion_nombre, usos, precio_unitario: {valor,
+  moneda, n} | null}], diferencias: [str], mas_economica: sku | null, aviso: str | null}`.
+  `unidades_por_caja` y `presentacion_nombre` siguen la regla de `ficha_producto`: una
+  ficha «(paquete x N)» o «(paca x N)» sin paquete declarado no dice que sea una caja, así
+  que `unidades_por_caja` es `null` y el extracto de `ficha:{sku}:{pais}` dice «paquete de
+  N unidades según el nombre» (la fuente se comparte con `ficha_producto`). `mas_economica`
+  solo si todas tienen precio y coinciden país, moneda y `tax_status`; si no, `null` y
+  `aviso`.
   Caso positivo de prueba: CO-CTT-08 frente a CO-CTT-16 (ambas con precio de EDEXA); las
   CO-VTER-08 y CO-VTER-10 no tienen precio y sirven para el caso sin veredicto.
 - **`needs_input`**: alguna ambigua → `missing: ["referencia"]`, `candidatas: {texto: [...]}`.
