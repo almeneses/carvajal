@@ -488,6 +488,9 @@ class _TurnStream:
         self.gate_claims = claims or _ClaimsGate()
         # Línea de estado de la revisión: se emite una vez, tras la última de herramienta.
         self.reviewing = False
+        # Veredicto pendiente: la línea de revisión sale antes de la llamada a Jev y el
+        # runner ejecuta esto después de emitirla (:meth:`take_deferred`).
+        self._deferred: Callable[[], list[ToolAgentEvent]] | None = None
         self.last_status_step = 0
         # Semilla del turno: las preguntas anteriores de la persona respaldan lo que ella
         # dijo (spec 045, R4); los turnos anteriores a «olvidar todo» no.
@@ -560,10 +563,9 @@ class _TurnStream:
             return self._abstain(GATE_ABSTAIN, 0)
         if step.path == GATE_EVIDENCE and self.gate_claims.holds:
             # Compuerta de afirmaciones activa (FR-014): el paso con evidencia se retiene
-            # completo hasta el veredicto; la línea de revisión sale una vez.
+            # completo hasta el veredicto. La línea de revisión no sale aquí: el paso aún
+            # puede terminar en una llamada a herramienta; sale al cerrar el paso final.
             step.pending.append(piece)
-            if node == _AGENT_NODE and len("".join(step.pending)) >= RETAIN_CHARS:
-                return self._review_status()
             return []
         if step.path != GATE_EVIDENCE or step.filtered:
             # ``no_query`` (o evidencia sin corpus tras una búsqueda vacía): no sale nada
@@ -759,18 +761,34 @@ class _TurnStream:
         if self.gate_claims.active and self.claims["status"] == "skipped":
             self.claims["reason"] = reason
 
-    def _judged(self, text: str, path: str) -> list[ToolAgentEvent]:
-        """Texto del modelo que pasó la compuerta determinista: Noul y, si no, sustituto."""
+    def take_deferred(self) -> Callable[[], list[ToolAgentEvent]] | None:
+        """Veredicto pendiente del paso final, si lo hay; el runner lo ejecuta una vez."""
 
-        events = self._review_status() if self.gate_claims.holds and text.strip() else []
+        deferred, self._deferred = self._deferred, None
+        return deferred
+
+    def _judged(self, text: str, path: str) -> list[ToolAgentEvent]:
+        """Texto del modelo que pasó la compuerta determinista: Noul y, si no, sustituto.
+
+        Con la compuerta reteniendo, la línea de revisión sale ya (el paso final cerró sin
+        llamadas a herramientas) y el veredicto queda pendiente: el runner la emite y luego
+        llama a Jev, así que la línea se ve mientras se revisa (FR-014).
+        """
+
+        if self.gate_claims.holds and text.strip():
+            self._deferred = lambda: self._verdict(text, path)
+            return self._review_status()
+        return self._verdict(text, path)
+
+    def _verdict(self, text: str, path: str) -> list[ToolAgentEvent]:
         verdict = self._judge(text)
         if verdict == "unsupported" and self.gate_claims.holds:
             self.claims["substituted"] = True
             replacement = self._replacement()
             if replacement:
-                return [*events, *self._replace(replacement, 0)]
-            return [*events, *self._abstain(path, 0)]
-        return [*events, *self._emit(text)]
+                return self._replace(replacement, 0)
+            return self._abstain(path, 0)
+        return self._emit(text)
 
     def _judge(self, text: str, *, began: bool = False) -> str:
         """Llama a la compuerta si el texto es juzgable y queda plazo; devuelve el estado.
@@ -1253,13 +1271,23 @@ class ToolAgentRunner:
                         out = state.on_update(data)
                     else:
                         out = []
-                    if any(isinstance(e, ToolAgentToken) for e in out) and not (
-                        deadline.begin_text()
-                    ):
-                        out = []
-                    if deadline.expired:
+                    stop = False
+                    while True:
+                        if any(isinstance(e, ToolAgentToken) for e in out) and not (
+                            deadline.begin_text()
+                        ):
+                            out = []
+                        if deadline.expired:
+                            stop = True
+                            break
+                        yield from out
+                        # Veredicto de la compuerta tras emitir la línea de revisión.
+                        deferred = state.take_deferred()
+                        if deferred is None:
+                            break
+                        out = deferred()
+                    if stop:
                         break
-                    yield from out
                     if state.finished:
                         logger.info("tool_agent.stopped_early", reason="abstain")
                         break

@@ -2350,3 +2350,54 @@ def test_sombra_sin_plazo_en_no_query_no_llama_y_emite() -> None:
     assert "".join(_tokens(events)) == "Con gusto te ayudo con lo que necesites."
     final = _final(events)
     assert (final.claims["status"], final.claims["reason"]) == ("unavailable", "sin_plazo")
+
+
+def test_la_linea_de_revision_no_sale_en_un_paso_que_termina_en_herramienta() -> None:
+    # Arrange: un paso intermedio redacta más de 48 caracteres y luego pide otra búsqueda.
+    from tests.fakes.judge import FakeJudge
+
+    from carvajal.agent.toolagent.status import REVIEW_STATUS
+
+    judge = FakeJudge(p=0.9)
+    steps = [
+        ScriptStep(tool_calls=[_call("buscar_corpus", consulta="fundación")]),
+        ScriptStep(
+            text="Voy a buscar un poco más de información sobre la historia antes de responder.",
+            tool_calls=[_call("buscar_corpus", consulta="historia")],
+        ),
+        ScriptStep(text=ANSWER),
+    ]
+    runner = _claims_runner(steps, judge, store=QueueStore([FUNDACION]))
+
+    # Act
+    events = _stream(runner)
+
+    # Assert: una sola línea de revisión, después de la última búsqueda y con el paso
+    # siguiente; luego el texto revisado.
+    statuses = [(e.step, e.text) for e in events if isinstance(e, ToolAgentStatus)]
+    assert [text for _, text in statuses].count(REVIEW_STATUS) == 1
+    assert statuses[-1][1] == REVIEW_STATUS
+    assert statuses[-1][0] == statuses[-2][0] + 1
+    assert _tokens(events) == [ANSWER]
+    review = next(i for i, e in enumerate(events) if getattr(e, "text", "") == REVIEW_STATUS)
+    assert review < next(i for i, e in enumerate(events) if isinstance(e, ToolAgentToken))
+
+
+def test_la_linea_de_revision_sale_antes_de_llamar_a_jev() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    from carvajal.agent.toolagent.status import REVIEW_STATUS
+
+    judge = FakeJudge(p=0.9)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]))
+    calls_at_review: list[int] = []
+
+    # Act: se consume el stream evento a evento.
+    for event in runner.stream("d", "h", "¿Cuándo se fundó Carvajal?", []):
+        if isinstance(event, ToolAgentStatus) and event.text == REVIEW_STATUS:
+            calls_at_review.append(len(judge.claims))
+
+    # Assert: cuando la línea llega a la persona, Jev aún no se ha consultado.
+    assert calls_at_review == [0]
+    assert len(judge.claims) == 1
