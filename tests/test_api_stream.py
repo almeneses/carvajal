@@ -124,7 +124,11 @@ def test_stream_emite_open_meta_tokens_y_done_en_orden() -> None:
         "Carvajal ",
         "nació en 1904 [1].",
     ]
-    assert events[4][1] == DONE
+    # Spec 048: el ``done`` trae además el resumen hablado (aquí, de lo emitido).
+    assert events[4][1] == {
+        **DONE,
+        "voz_resumen": "Carvajal nació en 1904.\n\nLo saqué del documento «Historia».",
+    }
     assert len(chat.calls) == 1
     assert chat.calls[0][1] == "¿Cuándo nació?"
     assert chat.persisted == 1

@@ -13,11 +13,14 @@ Seguridad, en capas:
 - ``/live`` responde sin token y sin tocar la base, para el healthcheck del contenedor.
 
 Voz: con ``voz=true`` (el cliente mandó una nota de voz y la pasarela responderá con TTS)
-la herramienta sigue devolviendo un solo texto, pero apto para leerse en voz alta (ver
-:mod:`carvajal.speech`). Si la respuesta trae enlaces (PDF, foto, fuentes), van al final,
-después de la línea :data:`~carvajal.speech.LINKS_HEADER`, uno por línea y como
-``rótulo: url``, para enviarlos como un mensaje de texto aparte. Con ``voz=false`` (por
-defecto) la respuesta no cambia.
+la herramienta sigue devolviendo un solo texto. Primero va un **resumen hablado** (unos
+15-20 s, extractivo y sin LLM; ver :func:`carvajal.speech.spoken_summary`). Si el resumen
+dejó algo fuera (o hay cotización), detrás va la línea :data:`~carvajal.speech.TEXT_HEADER`
+y la respuesta escrita completa de WhatsApp, con sus enlaces, para enviarla como mensaje de
+texto. Si no, y hay enlaces (PDF, foto, fuentes), van tras la línea
+:data:`~carvajal.speech.LINKS_HEADER`, uno por línea y como ``rótulo: url``. La transcripción
+llega con los miles al estilo colombiano (:func:`carvajal.speech.normalize_transcript`). Con
+``voz=false`` (por defecto) la respuesta no cambia.
 """
 
 import hmac
@@ -39,7 +42,7 @@ from starlette.responses import JSONResponse, PlainTextResponse, Response
 
 from apps.api.quote_links import link_expiry, pdf_url
 from apps.mcp.bridge import MAX_CHAT_ID_CHARS, MAX_MESSAGE_CHARS, WhatsAppBridge
-from carvajal.speech import LINKS_HEADER
+from carvajal.speech import LINKS_HEADER, TEXT_HEADER
 
 __all__ = [
     "INSTRUCTIONS",
@@ -60,16 +63,19 @@ TOOL_DESCRIPTION = (
     "el PDF de su cotización (p. ej. responde «PDF»), pásale ese mensaje igual: la "
     "herramienta devuelve el enlace. Devuelve el texto final, ya en formato de WhatsApp "
     "y con sus fuentes: envíalo al cliente tal cual. Si el cliente mandó una nota de voz, "
-    "llama con voz=true: el texto viene listo para leerse en voz alta y, si hay enlaces, "
-    f"van al final tras la línea «{LINKS_HEADER}» para enviarlos como texto."
+    "llama con voz=true: primero viene un resumen corto para leer en voz alta; si trae la "
+    f"línea «{TEXT_HEADER}», lo que sigue es la respuesta completa para enviarla como "
+    f"mensaje escrito, y si trae la línea «{LINKS_HEADER}», los enlaces para enviarlos "
+    "como texto."
 )
 INSTRUCTIONS = (
     "Usa consultar_carvajal para cada mensaje del cliente. Pasa el mensaje completo en "
     "`mensaje` y el identificador del chat (número o JID del remitente) en "
     "`conversacion`, siempre el mismo para el mismo chat. Responde al cliente exactamente "
     "con el texto que devuelve la herramienta, sin cambiar cifras, precios ni folios. Si "
-    "el cliente mandó una nota de voz, pasa voz=true y no leas en voz alta los enlaces del "
-    "final: envíalos como texto."
+    "el cliente mandó una nota de voz, pasa voz=true: lee en voz alta solo el resumen del "
+    "principio y envía como texto, sin leerlo, lo que venga tras las líneas de TEXTO o de "
+    "ENLACES."
 )
 
 ASGIApp = Callable[
@@ -119,8 +125,9 @@ def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPSe
             bool,
             Field(
                 description=(
-                    "True si el cliente mandó una nota de voz: la respuesta llega apta para "
-                    "TTS y los enlaces van aparte, al final, tras la línea de ENLACES."
+                    "True si el cliente mandó una nota de voz: la respuesta llega como un "
+                    "resumen apto para TTS y, aparte, el texto escrito completo (línea de "
+                    "TEXTO) o los enlaces (línea de ENLACES)."
                 )
             ),
         ] = False,

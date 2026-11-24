@@ -16,7 +16,8 @@
   {% endfor %}
   <li class="turno turno-{{ message.role }}"
       {% if voz_servidor and message.role != "user" and message.id %}data-voz-mensaje="{{ message.id }}"{% endif %}
-      {% if titulos %}data-voz-fuentes='{{ titulos | tojson }}'{% endif %}>
+      {% if titulos %}data-voz-fuentes='{{ titulos | tojson }}'{% endif %}
+      {% if message.role != "user" %}{% set resumen = message | resumen_hablado %}{% if resumen %}data-voz-resumen="{{ resumen }}"{% endif %}{% endif %}>
     <span class="turno-avatar" aria-hidden="true"></span>
     <p class="turno-rol">
       {{ "Tú" if message.role == "user" else "Carva" }}

@@ -26,7 +26,7 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
 | `mensaje` | Texto del cliente (máx. 500 caracteres, igual que la web). |
 | `conversacion` | Identificador estable del chat: número o JID del remitente. |
 | `nueva` | `true` abre un hilo nuevo (equivale a «Nueva conversación»). |
-| `voz` | `true` si el cliente mandó una nota de voz: respuesta apta para TTS y enlaces aparte (ver [Mensajes de voz](#mensajes-de-voz)). |
+| `voz` | `true` si el cliente mandó una nota de voz: resumen hablado apto para TTS y, aparte, el texto escrito completo o los enlaces (ver [Mensajes de voz](#mensajes-de-voz)). |
 
 - **Identidad**: el número nunca se guarda en claro. El `owner_key` es
   `wa_` + HMAC-SHA256(`SESSION_SECRET`, número normalizado): cada chat tiene su hilo, su
@@ -194,7 +194,16 @@ proveedor de voz: todo eso vive en el servidor de OpenClaw.
 
 La herramienta sigue devolviendo **un solo texto** (el mismo tipo `str`, el mismo
 `structuredContent` `{"result": …}`); con `voz=false`, que es el valor por defecto, la
-respuesta es idéntica a la de antes. Con `voz=true` el texto tiene dos partes:
+respuesta es idéntica a la de antes. Con `voz=true` la nota de voz es un **resumen** de la
+respuesta (unos 15-20 s) y el detalle va por escrito. El texto tiene una de dos formas:
+
+```text
+<resumen para leer en voz alta>
+
+--- TEXTO (enviar como mensaje escrito, no leer en voz alta) ---
+<la respuesta completa de WhatsApp, igual que con voz=false: formato, enlaces, fuentes,
+cotización y oferta del PDF>
+```
 
 ```text
 <texto para leer en voz alta>
@@ -204,9 +213,50 @@ respuesta es idéntica a la de antes. Con `voz=true` el texto tiene dos partes:
 <rótulo>: <url>
 ```
 
-- La sección de enlaces solo aparece si hay alguno (PDF de la cotización, foto del producto,
-  fuentes). La línea separadora es la constante `carvajal.speech.LINKS_HEADER` y
-  `carvajal.speech.split_voice_reply` separa ambas partes.
+- **Con sección `TEXTO`** (spec 048): el resumen dejó algo fuera (frases, el detalle de una
+  lista) o el turno trae cotización. Lo que sigue a la línea es exactamente la respuesta de
+  `voz=false` y ya lleva los enlaces, así que **no** hay sección de enlaces (solo aparecería,
+  detrás, con algún enlace que no estuviera en el texto escrito). Esa parte se envía como
+  mensaje de texto normal: dentro de `[[tts:text]]` no se vería y el cliente perdería el
+  detalle.
+- **Sin sección `TEXTO`**: la respuesta era corta y se lee completa (abstenciones, saludos,
+  el pedido «PDF», el aviso de cupo). Si hay enlaces (PDF de la cotización, foto, fuentes),
+  van tras la línea `ENLACES`, como antes.
+- Las líneas separadoras son las constantes `carvajal.speech.TEXT_HEADER` y
+  `carvajal.speech.LINKS_HEADER`. `carvajal.speech.parse_voice_reply` devuelve las tres
+  partes (`spoken`, `written`, `links`); `carvajal.speech.split_voice_reply` sigue
+  devolviendo `(texto hablado, enlaces)` y descarta la parte escrita. Ningún código de
+  producción de este repositorio las usa: quien interpreta el texto es el agente de
+  OpenClaw, según su prompt.
+- ⚠️ **Nota de despliegue.** Con `voz=true` la respuesta cambia de forma (antes: texto
+  hablado + `ENLACES`; ahora, casi siempre: resumen + `TEXTO`). El prompt del agente vive en
+  el servidor de OpenClaw, no aquí: con el anterior («el texto hablado dentro de
+  [[tts:text]]; fuera, los enlaces tras la línea ENLACES») el agente leería en voz alta todo
+  lo que va antes de `ENLACES`, incluidas la línea `--- TEXTO … ---` y la respuesta
+  completa, y la nota de voz sería más larga que antes. **Actualiza la sección «Mensajes de
+  voz» del `AGENTS.md` del agente ([abajo](#agentsmd-del-agente-ventas-añadir-al-existente))
+  antes de desplegar esta versión del servidor MCP, o en el mismo momento.**
+- El resumen (`carvajal.speech.spoken_summary`, canal `whatsapp`) es **extractivo y sin
+  LLM**: nunca inventa, solo reutiliza frases y cifras de la respuesta, completas (no corta
+  una cifra). Presupuesto de unas 55 palabras: la primera frase del primer párrafo
+  (siempre), la pregunta final al cliente si la hay («¿Cuántas unidades necesitas y en qué
+  ciudad?»), la primera lista en una frase y más frases del primer párrafo mientras quepan.
+  Una lista de hasta cuatro ítems cortos se nombra por la cabeza de cada ítem (lo que va
+  antes de la primera coma, dos puntos, raya o paréntesis): «Te dejo por escrito tres
+  opciones: A, B y C.»; si no, solo cuántas hay: «Te dejo cinco opciones por escrito.». Una
+  lista numerada son pasos («Te dejo tres pasos por escrito.»). Las cabezas tampoco se
+  nombran si cortarían una cifra, un rango o una enumeración («Vasos de 7, 9 y 12 oz» no se
+  dice «Vasos de 7»), si quedarían repetidas o si solo nombran un campo («Precio: …»). Las
+  fuentes, en una frase. Si se omitió algo más que el detalle de la lista (frases, otro
+  párrafo, la pregunta), «Te dejo el detalle por escrito.» antes de la pregunta, haya lista
+  o no. El presupuesto cuenta todo lo que se dice; solo la primera frase, la frase corta de
+  la lista, la de las fuentes y el aviso entran aunque no quepan, así que un resumen que
+  pasa del presupuesto dice únicamente esas piezas.
+- El mensaje transcrito pasa por `carvajal.speech.normalize_transcript` antes del turno: los
+  STT escriben «mil ochocientos» como «1,800» (miles de EE. UU.), que aquí se leería «uno
+  coma ocho». Se reescribe a «1.800» («12,500,000» → «12.500.000», «2,500.50» →
+  «2.500,50»); decimales («1,5», «0,75»), horas («10:30») y listas («2, 3 y 4») no cambian.
+  Por escrito (`voz=false`) el mensaje no se toca.
 - El texto hablado se genera sin LLM (`carvajal.speech.to_speech`) desde el mismo turno:
   sin citas `[n]`, sin Markdown ni formato de WhatsApp, sin emojis y sin URL (dentro de una
   frase se dice «el enlace»); las fuentes en una frase («Según el sitio de Carvajal
@@ -223,13 +273,32 @@ respuesta es idéntica a la de antes. Con `voz=true` el texto tiene dos partes:
   precio, el subtotal, el vendedor, las fechas y el folio quedan en el texto de WhatsApp y
   en el PDF. La oferta del PDF se dice «Si quieres el detalle, respóndeme PDF y te lo mando
   por escrito.». El pedido «PDF» por voz responde con el final del folio en el texto
-  hablado y el enlace firmado (con su vigencia) en la sección de enlaces.
+  hablado y el enlace firmado (con su vigencia) en la sección de enlaces. Con cotización
+  siempre va la sección `TEXTO`: el folio, la presentación con su precio, el subtotal y la
+  foto van por escrito.
 - Con `voz=true` el pedido «PDF» acepta también lo que un STT suele oír: «pe de efe»,
   «pe de fe», «p de f», «impedefe», «MPDF», con o sin tildes, mayúsculas o letras
   cirílicas. Por escrito valen «PDF», «pdf», «P.D.F.» y «p d f». En ambos casos el mensaje
   debe ser corto y sin otra intención: «¿el PDF trae el IVA?» sigue yendo al agente.
 
-Ejemplo de cotización con `voz=true` (texto hablado):
+Ejemplo de respuesta del catálogo con `voz=true`:
+
+```text
+Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y doble pared. Te dejo por escrito tres opciones: Vaso de papel 8 onzas, Vaso de papel 12 onzas y Vaso de papel 16 onzas.
+
+Según el sitio de Carvajal Empaques.
+
+¿Cuántas unidades necesitas y en qué ciudad?
+
+--- TEXTO (enviar como mensaje escrito, no leer en voz alta) ---
+Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y doble pared [1]. …
+- *Vaso de papel 8 oz*: pared sencilla, caja x 1.000 und, ideal para tinto.
+…
+*Fuentes:*
+[1] Vasos de papel — https://colombia.carvajalempaques.com/vasos
+```
+
+Ejemplo de cotización con `voz=true`:
 
 ```text
 Son 2 cajas de 1.000 unidades de Vaso de papel 12 onzas en Cali, por un total de 370.000 pesos con IVA incluido. El envío se confirma con el vendedor.
@@ -237,6 +306,12 @@ Son 2 cajas de 1.000 unidades de Vaso de papel 12 onzas en Cali, por un total de
 Según el sitio de Carvajal Empaques.
 
 Si quieres el detalle, respóndeme PDF y te lo mando por escrito.
+
+--- TEXTO (enviar como mensaje escrito, no leer en voz alta) ---
+Te comparto la cotización de *2 cajas* …
+🧾 *Cotización #a3f09c12b7e4*
+…
+¿Quieres esta cotización en PDF? Responde *PDF* 📄
 ```
 
 Ejemplo (pedido «PDF» con `voz=true`):
@@ -306,24 +381,29 @@ mecanismo de secretos de OpenClaw), **nunca** en este repositorio ni en su `.env
 - Si el mensaje del cliente llegó como nota de voz (OpenClaw lo transcribe y lo marca como
   audio), llama a consultar_carvajal con la transcripción en `mensaje` y voz=true. Si llegó
   como texto, no pases voz (o pasa voz=false).
-- Con voz=true la herramienta devuelve el texto para leer en voz alta y, si hay enlaces,
-  al final una línea «--- ENLACES (enviar como texto, no leer en voz alta) ---» seguida de
-  un enlace por línea.
-- Responde así: el texto hablado, sin cambios, dentro de [[tts:text]]…[[/tts:text]]; y
-  fuera de ese bloque, los enlaces tal cual (sin la línea «--- ENLACES … ---»), para que
-  lleguen como texto. Si no hay enlaces, responde solo con el bloque [[tts:text]].
-- Nunca leas una URL en voz alta ni la metas dentro de [[tts:text]]. No cambies cifras,
-  precios, folios ni fuentes, y no agregues información propia.
+- Con voz=true la herramienta devuelve primero un resumen corto para leer en voz alta y,
+  después, una de estas secciones, las dos (primero TEXTO y luego ENLACES) o ninguna:
+  - «--- TEXTO (enviar como mensaje escrito, no leer en voz alta) ---» seguida de la
+    respuesta completa por escrito (con sus enlaces, fuentes y oferta del PDF);
+  - «--- ENLACES (enviar como texto, no leer en voz alta) ---» seguida de un enlace por
+    línea.
+- Responde así: el resumen, sin cambios, dentro de [[tts:text]]…[[/tts:text]]; y fuera de
+  ese bloque, tal cual y sin las líneas «--- TEXTO … ---» ni «--- ENLACES … ---», el texto
+  escrito y los enlaces que vengan, para que lleguen como mensaje de texto. Si no viene
+  ninguna sección, responde solo con el bloque [[tts:text]].
+- Nunca metas el texto escrito ni una URL dentro de [[tts:text]]: solo el resumen se lee.
+  No cambies cifras, precios, folios ni fuentes, y no agregues información propia.
 - Si el cliente pide el PDF por voz («mándame el PDF»), pásale el mensaje igual, con
   voz=true: el enlace llega en la sección de enlaces.
 ```
 
 Pendiente de verificar en el servidor de OpenClaw (no se puede probar desde este
-repositorio): que WhatsApp entregue la nota de voz **y** el texto visible con los enlaces
-cuando la respuesta trae un bloque `[[tts:text]]`, y cómo llega la transcripción al agente
-(OpenClaw la pone en el cuerpo del mensaje dentro de un bloque `[Audio]`). Si tu versión
-no admite `[[tts:text]]`, que el agente envíe los enlaces en un mensaje aparte con su
-herramienta de mensajes y responda solo con el texto hablado.
+repositorio): que WhatsApp entregue la nota de voz **y** el texto visible (la sección
+`TEXTO` o los enlaces) cuando la respuesta trae un bloque `[[tts:text]]`, y cómo llega la
+transcripción al agente (OpenClaw la pone en el cuerpo del mensaje dentro de un bloque
+`[Audio]`). Si tu versión no admite `[[tts:text]]`, que el agente envíe el texto escrito y
+los enlaces en un mensaje aparte con su herramienta de mensajes y responda solo con el
+resumen hablado.
 
 ## Operación
 

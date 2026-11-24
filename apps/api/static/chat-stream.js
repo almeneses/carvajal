@@ -313,6 +313,11 @@
             if (evento.datos.message_id) {
               turnoAsistente.dataset.vozMensaje = String(evento.datos.message_id);
             }
+            // Spec 048: resumen hablado preparado por el servidor (texto plano); la
+            // lectura de respaldo del navegador lo prefiere a leer todo el turno.
+            if (typeof evento.datos.voz_resumen === "string" && evento.datos.voz_resumen.trim()) {
+              turnoAsistente.dataset.vozResumen = evento.datos.voz_resumen;
+            }
             pintarLote(false, errorRecibido);
             crearMarcas(turnoAsistente, evento.datos.request_id);
             completado = true;

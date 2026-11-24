@@ -300,14 +300,19 @@ el bloque `jev`. Resultados de la medición
 - **Chat web.** El dictado y la lectura en voz alta usan el navegador (spec 040) o, con
   `VOICE_PROVIDER=openai` y `OPENAI_API_KEY`, OpenAI a través del servidor (spec 047):
   `POST /api/voz/transcribir` recibe el audio de `MediaRecorder` (tipo, firma y tamaño
-  validados; no se guarda) y devuelve el texto para revisarlo; `POST /api/voz/hablar`
-  sintetiza **solo** una respuesta guardada de la conversación de quien llama, por su id,
-  nunca texto libre. CSRF, la identidad del chat, límites por sesión, por IP y global, la
+  validados; no se guarda) y devuelve el texto para revisarlo, con los miles al estilo
+  colombiano («1,800» → «1.800»); `POST /api/voz/hablar` sintetiza **solo** una respuesta
+  guardada de la conversación de quien llama, por su id, nunca texto libre. Lo que se lee
+  es un **resumen hablado** de unos 15-20 s (extractivo, sin LLM: primera frase, la lista
+  en una frase, la pregunta final y «El detalle completo está en pantalla.»), también en
+  la voz de respaldo del navegador. CSRF, la identidad del chat, límites por sesión, por IP y global, la
   duración máxima del audio, un tope diario y un circuito protegen el gasto; ante
   cualquier fallo el chat vuelve a la voz del navegador.
   Detalle en [`docs/voz-web.md`](docs/voz-web.md).
-- **WhatsApp.** Con `voz=true`, `consultar_carvajal` devuelve el texto para la nota de voz
-  (sin citas, Markdown ni URL) y los enlaces aparte. La cotización hablada dura unos 15 s,
+- **WhatsApp.** Con `voz=true`, `consultar_carvajal` devuelve un resumen para la nota de
+  voz (sin citas, Markdown ni URL) y, si omitió algo, la respuesta escrita completa tras
+  la línea `TEXTO` para enviarla como mensaje; si no, los enlaces aparte. La transcripción
+  entra con los miles al estilo colombiano. La cotización hablada dura unos 15 s,
   el folio se dice por sus cuatro últimos caracteres y el pedido «PDF» acepta lo que un STT
   suele oír («pe de efe», «impedefe»). Ver
   [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz).

@@ -1,8 +1,16 @@
 """Texto apto para voz (TTS) a partir del Markdown del modelo o del formato de WhatsApp.
 
-Lo usa el canal de WhatsApp cuando el cliente habló (``consultar_carvajal`` con
-``voz=true``): la pasarela convierte la respuesta en nota de voz y lo que aquí se devuelve
-es lo que se oye. Todo es determinista y sin LLM; no se inventan ni se redondean cifras.
+Lo usan el canal de WhatsApp cuando el cliente habló (``consultar_carvajal`` con
+``voz=true``) y la lectura en voz del chat web: lo que aquí se devuelve es lo que se oye.
+Todo es determinista y sin LLM; no se inventan ni se redondean cifras.
+
+- :func:`to_speech` pasa **toda** la respuesta a texto hablable;
+- :func:`spoken_summary` (spec 048) la **resume** en unas 55 palabras (15-20 s) sin LLM,
+  solo con frases de la propia respuesta: la primera frase, la lista en una frase, la
+  pregunta final y las fuentes, con un aviso de que el detalle está en pantalla o por
+  escrito. Es lo que se lee en la web y en las notas de voz de WhatsApp;
+- :func:`normalize_transcript` pasa los miles de una transcripción al estilo colombiano
+  («1,800» → «1.800»).
 
 Reglas (español de Colombia), alineadas con la lectura en voz del chat web
 (``apps/api/static/chat-voice.js``, ``limpiarTextoHablado``):
@@ -24,23 +32,52 @@ import re
 import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Final, Literal
 from urllib.parse import urlsplit
 
 __all__ = [
     "LINKS_HEADER",
+    "SUMMARY_POINTERS",
+    "SUMMARY_WORDS",
+    "TEXT_HEADER",
+    "Channel",
     "SpeechLink",
     "SpokenReply",
+    "VoiceReplyParts",
     "combine",
+    "normalize_transcript",
+    "parse_voice_reply",
     "speak_folio",
     "speak_folio_tail",
     "speak_money",
     "split_voice_reply",
     "spoken_sources",
+    "spoken_summary",
     "to_speech",
 ]
 
 LINKS_HEADER = "--- ENLACES (enviar como texto, no leer en voz alta) ---"
 """Separa el texto hablado de los enlaces en :meth:`SpokenReply.render`."""
+
+TEXT_HEADER = "--- TEXTO (enviar como mensaje escrito, no leer en voz alta) ---"
+"""Separa el texto hablado de la respuesta escrita completa en :meth:`SpokenReply.render`.
+
+Aparece cuando la nota de voz es un resumen (:attr:`SpokenReply.omitted`): lo que sigue es
+la respuesta normal de WhatsApp, con sus enlaces, fuentes y oferta del PDF, para enviarla
+como mensaje de texto y que el cliente no pierda el detalle.
+"""
+
+Channel = Literal["web", "whatsapp"]
+"""Dónde queda el detalle que el resumen hablado no dice: en pantalla o por escrito."""
+
+SUMMARY_WORDS: Final = 55
+"""Presupuesto del resumen hablado: unas 55 palabras son 15 a 20 segundos de voz."""
+
+SUMMARY_POINTERS: Final[dict[str, str]] = {
+    "web": "El detalle completo está en pantalla.",
+    "whatsapp": "Te dejo el detalle por escrito.",
+}
+"""Frase final cuando el resumen deja fuera parte de la respuesta, por canal."""
 
 
 @dataclass(frozen=True)
@@ -56,20 +93,37 @@ class SpeechLink:
 
 @dataclass(frozen=True)
 class SpokenReply:
-    """Texto para el TTS y los enlaces que acompañan la nota de voz por escrito."""
+    """Texto para el TTS y los enlaces que acompañan la nota de voz por escrito.
+
+    ``omitted`` indica que el texto hablado es un resumen: dejó fuera parte de la
+    respuesta escrita (frases, el detalle de una lista, la cotización completa).
+    """
 
     text: str
     links: tuple[SpeechLink, ...] = ()
+    omitted: bool = False
 
-    def render(self) -> str:
-        """El texto hablado y, si hay enlaces, la sección :data:`LINKS_HEADER` con uno por línea."""
+    def render(self, written: str = "") -> str:
+        """El texto hablado y, aparte, lo que va por escrito.
 
-        if not self.links:
-            return self.text
-        listed = "\n".join(link.line() for link in self.links)
-        return (
-            f"{self.text}\n\n{LINKS_HEADER}\n{listed}" if self.text else f"{LINKS_HEADER}\n{listed}"
-        )
+        Sin ``written``: si hay enlaces, la sección :data:`LINKS_HEADER` con uno por línea
+        (contrato de siempre). Con ``written`` (la respuesta escrita completa): la sección
+        :data:`TEXT_HEADER` con ese texto, que ya lleva los enlaces; la de enlaces solo
+        aparece si alguno no está en ``written``. Se comparan URL completas, no
+        subcadenas: «…/vasos» no está en un texto que solo trae «…/vasos-de-papel».
+        """
+
+        sections: list[str] = [self.text] if self.text else []
+        written = written.strip()
+        links = self.links
+        if written:
+            sections.append(f"{TEXT_HEADER}\n{written}")
+            present = {_trim_url(match[0]) for match in _URL.finditer(written)}
+            links = tuple(link for link in links if _trim_url(link.url) not in present)
+        if links:
+            listed = "\n".join(link.line() for link in links)
+            sections.append(f"{LINKS_HEADER}\n{listed}")
+        return "\n\n".join(sections)
 
 
 def combine(parts: Iterable[SpokenReply]) -> SpokenReply:
@@ -77,25 +131,61 @@ def combine(parts: Iterable[SpokenReply]) -> SpokenReply:
 
     texts: list[str] = []
     links: list[SpeechLink] = []
-    seen: set[str] = set()
+    omitted = False
     for part in parts:
         if part.text:
             texts.append(part.text)
-        for link in part.links:
-            if link.url not in seen:
-                seen.add(link.url)
-                links.append(link)
-    return SpokenReply("\n\n".join(texts), tuple(links))
+        links.extend(part.links)
+        omitted = omitted or part.omitted
+    return SpokenReply("\n\n".join(texts), _unique_links(links), omitted)
+
+
+@dataclass(frozen=True)
+class VoiceReplyParts:
+    """Las tres partes de una respuesta con ``voz=true`` (ver :meth:`SpokenReply.render`)."""
+
+    spoken: str
+    written: str = ""
+    links: tuple[str, ...] = ()
+
+
+def _section(reply: str, header: str) -> int:
+    """Posición donde empieza la sección ``header`` (al inicio o tras línea en blanco)."""
+
+    if reply.startswith(f"{header}\n"):
+        return 0
+    found = reply.find(f"\n\n{header}\n")
+    return -1 if found < 0 else found
+
+
+def parse_voice_reply(reply: str) -> VoiceReplyParts:
+    """Inversa de :meth:`SpokenReply.render`: texto hablado, texto escrito y enlaces."""
+
+    marks = sorted(
+        (position, header)
+        for header in (TEXT_HEADER, LINKS_HEADER)
+        if (position := _section(reply, header)) >= 0
+    )
+    if not marks:
+        return VoiceReplyParts(reply)
+    spoken = reply[: marks[0][0]]
+    pieces: dict[str, str] = {}
+    for index, (position, header) in enumerate(marks):
+        begin = reply.index(f"{header}\n", position) + len(header) + 1
+        finish = marks[index + 1][0] if index + 1 < len(marks) else len(reply)
+        pieces[header] = reply[begin:finish]
+    links = tuple(line for line in pieces.get(LINKS_HEADER, "").splitlines() if line.strip())
+    return VoiceReplyParts(spoken, pieces.get(TEXT_HEADER, "").strip(), links)
 
 
 def split_voice_reply(reply: str) -> tuple[str, list[str]]:
-    """Inversa de :meth:`SpokenReply.render`: ``(texto hablado, líneas de enlaces)``."""
+    """``(texto hablado, líneas de enlaces)``, sin la sección escrita.
 
-    marker = f"{LINKS_HEADER}\n"
-    if reply.startswith(marker):
-        return "", reply[len(marker) :].splitlines()
-    spoken, found, links = reply.partition(f"\n\n{marker}")
-    return spoken, links.splitlines() if found else []
+    Para las tres partes, :func:`parse_voice_reply`.
+    """
+
+    parts = parse_voice_reply(reply)
+    return parts.spoken, list(parts.links)
 
 
 # --- Piezas sueltas ------------------------------------------------------------------------
@@ -537,12 +627,31 @@ def _line_links(line: str, previous: str) -> tuple[str, list[SpeechLink]]:
     return line.replace("\x00", "el enlace"), links
 
 
-def to_speech(text: str) -> SpokenReply:
-    """Markdown del modelo o texto de WhatsApp → texto para el TTS y enlaces aparte.
+@dataclass
+class _Parsed:
+    """Respuesta ya pasada a frases: párrafos (líneas y listas), fuentes y enlaces."""
 
-    Es determinista: no inventa ni redondea cifras, y deja los dígitos para que el TTS
-    los lea. Los párrafos se separan con una línea en blanco.
-    """
+    paragraphs: list[list[str | _List]]
+    sources: list[tuple[str, str]]
+    links: tuple[SpeechLink, ...]
+
+
+class _Heading(str):
+    """Línea que era un encabezado: se lee igual, pero no abre un resumen hablado."""
+
+
+def _unique_links(links: Iterable[SpeechLink]) -> tuple[SpeechLink, ...]:
+    unique: list[SpeechLink] = []
+    seen: set[str] = set()
+    for link in links:
+        if link.url not in seen:
+            seen.add(link.url)
+            unique.append(link)
+    return tuple(unique)
+
+
+def _parse(text: str) -> _Parsed:
+    """Markdown o texto de WhatsApp → párrafos hablables, fuentes y enlaces aparte."""
 
     paragraphs: list[list[str | _List]] = [[]]
     links: list[SpeechLink] = []
@@ -590,14 +699,370 @@ def to_speech(text: str) -> SpokenReply:
             continue
         spoken = _speak_inline(line)
         if spoken:
-            paragraphs[-1].append(spoken)
-    rendered = [_render_paragraph(parts) for parts in paragraphs if parts]
-    if sources:
-        rendered.append(spoken_sources(sources))
-    unique: list[SpeechLink] = []
+            paragraphs[-1].append(_Heading(spoken) if heading else spoken)
+    return _Parsed([parts for parts in paragraphs if parts], sources, _unique_links(links))
+
+
+def to_speech(text: str) -> SpokenReply:
+    """Markdown del modelo o texto de WhatsApp → texto para el TTS y enlaces aparte.
+
+    Es determinista: no inventa ni redondea cifras, y deja los dígitos para que el TTS
+    los lea. Los párrafos se separan con una línea en blanco. Lee **toda** la respuesta;
+    para la versión corta, :func:`spoken_summary`.
+    """
+
+    parsed = _parse(text)
+    rendered = [_render_paragraph(parts) for parts in parsed.paragraphs]
+    if parsed.sources:
+        rendered.append(spoken_sources(parsed.sources))
+    return SpokenReply("\n\n".join(part for part in rendered if part), parsed.links)
+
+
+# --- Resumen hablado -----------------------------------------------------------------------
+
+# Fin de frase: signo de cierre y espacio antes de una frase nueva. «1.800», «12,5» o
+# «10:30» no llevan espacio tras el signo, así que nunca parten una cifra.
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?…])\s+(?=[¿¡«\"(\[A-ZÁÉÍÓÚÑÜ0-9])")
+# Abreviaturas que terminan en punto sin cerrar la frase («S.A. Tiene…», «Sr. López»).
+_NOT_AN_END = re.compile(r"(?:\bS\.A|\bS\.A\.S|\b(?:Sr|Sra|Dr|Dra|Ltda|Cía|Ing|Lic))\.$")
+# Cabeza de un ítem de lista: lo que va antes de la primera coma, dos puntos, punto y coma,
+# raya o paréntesis con espacio. Una coma decimal («1,5 litros») no lleva espacio detrás.
+_HEAD_BREAK = re.compile(r",\s|:\s|;\s|\.\s|\s[\u2014\u2013-]\s|\s\(")
+# Una cifra en la cabeza y, justo tras el corte, otra cifra (sola o tras «y», «a» o una
+# raya): el corte partiría una enumeración («7, 9 y 12») o un rango («1.000 - 5.000»).
+_HEAD_NUMBER = re.compile(r"\d")
+_REST_NUMBER = re.compile(r"\s*(?:(?:y|a|e|[\u2014\u2013-])\s+)?\$?\d", re.IGNORECASE)
+# Una introducción de lista así de corta («Estas son las opciones:») no aporta nada que no
+# diga ya la frase de la lista; una más larga sí se dice.
+_LEAD_IN_WORDS = 6
+_LIST_HEADS = 4
+_HEAD_WORDS = 8
+_MAX_SPOKEN_SOURCES = 5
+
+
+def _words(text: str) -> int:
+    return len(text.split())
+
+
+def _sentences(text: str) -> list[str]:
+    """Frases completas de una línea ya hablable, sin partir cifras ni abreviaturas."""
+
+    pieces: list[str] = []
+    start = 0
+    for match in _SENTENCE_BREAK.finditer(text):
+        piece = text[start : match.start()]
+        if _NOT_AN_END.search(piece):
+            continue
+        pieces.append(piece)
+        start = match.end()
+    pieces.append(text[start:])
+    return [piece.strip() for piece in pieces if piece.strip()]
+
+
+def _closing(sentence: str) -> str:
+    """Una frase que termina en «:» (sin lista detrás) se cierra con punto."""
+
+    return sentence[:-1].rstrip() + "." if sentence.endswith(":") else sentence
+
+
+def _count(count: int, ordered: bool) -> str:
+    """«tres opciones» o, en una lista numerada (pasos a seguir), «tres pasos»."""
+
+    if count == 1:
+        return "un paso" if ordered else "una opción"
+    noun = "pasos" if ordered else "opciones"
+    return f"{_SMALL_NUMBERS.get(count, str(count))} {noun}"
+
+
+def _split_head(item: str) -> tuple[str, str, str]:
+    """``(cabeza, separador, resto)`` de un ítem; sin separador, todo es cabeza."""
+
+    found = _HEAD_BREAK.search(item)
+    if found is None:
+        return item.strip(" .,;:"), "", ""
+    return item[: found.start()].strip(" .,;:"), found[0], item[found.end() :]
+
+
+def _item_head(item: str) -> str:
+    return _split_head(item)[0]
+
+
+def _cuts_a_figure(item: str) -> bool:
+    """Si cortar el ítem en su cabeza deja a medias una cifra, un rango o una enumeración.
+
+    «Vasos de 7, 9 y 12 onzas» quedaría en «Vasos de 7» y «Entre 1.000 - 5.000 unidades» en
+    «Entre 1.000»: si la cabeza lleva una cifra y lo que sigue al corte empieza por otra
+    (o por «y», «a» o una raya y otra cifra), la cifra dicha no sería la de la respuesta.
+    «Precio: 1.200 pesos» (una sola palabra y dos puntos) es un par clave-valor: su cabeza
+    nombraría el campo, no la opción.
+    """
+
+    head, separator, rest = _split_head(item)
+    if not separator:
+        return False
+    if _HEAD_NUMBER.search(head) and _REST_NUMBER.match(rest):
+        return True
+    return separator.startswith(":") and _words(head) == 1
+
+
+def _heads(block: _List) -> list[str] | None:
+    """Las cabezas que se pueden decir en lugar de la lista, o ``None`` si no conviene.
+
+    No se enumeran: las listas numeradas (son pasos, no opciones), las de más de
+    :data:`_LIST_HEADS` ítems, las cabezas vacías o largas, las que cortarían una cifra
+    (:func:`_cuts_a_figure`) ni las que quedarían repetidas («Caja de 1.000 unidades» dos
+    veces cuando lo que cambia va detrás de la coma).
+    """
+
+    items = [item for item in block.items if item.strip(" .;,")]
+    if block.ordered or not items or len(items) > _LIST_HEADS:
+        return None
+    heads = [_item_head(item) for item in items]
+    if not all(1 <= _words(head) <= _HEAD_WORDS for head in heads):
+        return None
+    if any(_cuts_a_figure(item) for item in items):
+        return None
+    if len({head.casefold() for head in heads}) < len(heads):
+        return None
+    return heads
+
+
+def _list_phrase(block: _List, channel: Channel, *, with_heads: bool) -> str:
+    """«Te muestro tres opciones en pantalla: A, B y C.» o solo cuántas hay."""
+
+    items = [item for item in block.items if item.strip(" .;,")]
+    count = _count(len(items), block.ordered)
+    heads = _heads(block) if with_heads else None
+    if heads:
+        listed = _and(heads)
+        if channel == "web":
+            return f"Te muestro {count} en pantalla: {listed}."
+        return f"Te dejo por escrito {count}: {listed}."
+    return f"Te dejo {count} en pantalla." if channel == "web" else f"Te dejo {count} por escrito."
+
+
+def _merge_sources(*groups: Sequence[tuple[str, str]]) -> list[tuple[str, str]]:
+    merged: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for link in links:
-        if link.url not in seen:
-            seen.add(link.url)
-            unique.append(link)
-    return SpokenReply("\n\n".join(part for part in rendered if part), tuple(unique))
+    for group in groups:
+        for title, url in group:
+            key = (url or title).strip()
+            if key and key not in seen:
+                seen.add(key)
+                merged.append((title, url))
+    return merged
+
+
+def spoken_summary(
+    text: str,
+    *,
+    channel: Channel = "web",
+    sources: Sequence[tuple[str, str]] = (),
+    budget: int = SUMMARY_WORDS,
+) -> SpokenReply:
+    """Resumen hablado **extractivo** de una respuesta: unas ``budget`` palabras (~15-20 s).
+
+    Determinista y sin LLM: solo reutiliza frases y cifras que ya están en la respuesta,
+    pasadas por las mismas reglas de :func:`to_speech`. Nunca inventa ni parte una cifra.
+
+    - Una respuesta que ya cabe en el presupuesto se lee completa (abstenciones, mensajes
+      cortos): ``omitted`` queda en ``False``.
+    - Si no cabe: la primera frase del primer párrafo de prosa (siempre, aunque sea larga),
+      luego la frase de la lista, la pregunta final al cliente y más frases del primer
+      párrafo mientras quepan, en ese orden de prioridad y siempre frases completas.
+    - La primera lista no se lee ítem por ítem: con hasta cuatro ítems cortos se nombran
+      sus cabezas («Te muestro tres opciones en pantalla: A, B y C.»; en WhatsApp «Te dejo
+      por escrito…»); si no, solo cuántas hay. Una lista numerada son pasos: «Te dejo tres
+      pasos en pantalla.», sin nombrarlos. Tampoco se nombran cabezas que cortarían una
+      cifra, un rango o una enumeración («Vasos de 7, 9 y 12 onzas» no se dice «Vasos de
+      7»), que quedarían repetidas o que solo nombran un campo («Precio: …»). Una
+      introducción corta de la lista («Estas son las opciones:») se omite; una larga se
+      dice con punto.
+    - Si la respuesta termina con una pregunta al cliente, esa pregunta cierra el resumen.
+    - Las fuentes van en una frase (:func:`spoken_sources`, también las de ``sources``,
+      pares ``(título, url)``) y las URL nunca se dicen: quedan en ``links``.
+    - Si se omitió algo más que el detalle de la lista (que su frase ya remite a la
+      pantalla o al texto): frases, un párrafo, otra lista o la pregunta final, se avisa
+      con :data:`SUMMARY_POINTERS` antes de la pregunta, haya lista o no.
+
+    El presupuesto cuenta todo lo que se dice, fuentes y aviso incluidos (también para
+    decidir si la respuesta se lee completa). Solo entran aunque no quepan la primera frase,
+    la frase corta de la lista, la de las fuentes y el aviso; todo lo demás entra solo si
+    cabe. Así, un resumen que pasa del presupuesto dice únicamente esas piezas.
+    """
+
+    if channel not in SUMMARY_POINTERS:
+        raise ValueError(f"Canal desconocido: {channel!r}")
+    parsed = _parse(text)
+    listed = _merge_sources(parsed.sources, sources)
+    links = _unique_links(
+        [*parsed.links, *(SpeechLink(title or "Fuente", url) for title, url in sources if url)]
+    )
+    source_phrase = spoken_sources(listed[:_MAX_SPOKEN_SOURCES]) if listed else ""
+    body = [_render_paragraph(parts) for parts in parsed.paragraphs]
+    body = [paragraph for paragraph in body if paragraph]
+    if _words(" ".join([*body, source_phrase])) <= budget:
+        return SpokenReply("\n\n".join([*body, source_phrase]).strip(), links)
+
+    # Elementos en orden: (párrafo, posición, línea de prosa o lista).
+    elements = [
+        (paragraph, position, part)
+        for paragraph, parts in enumerate(parsed.paragraphs)
+        for position, part in enumerate(parts)
+    ]
+    prose = [
+        index
+        for index, (_, _, part) in enumerate(elements)
+        if isinstance(part, str) and not isinstance(part, _Heading)
+    ]
+    lists = [index for index, (_, _, part) in enumerate(elements) if isinstance(part, _List)]
+
+    # Apertura: las líneas de prosa seguidas del primer párrafo que tiene prosa.
+    opening_lines: list[int] = []
+    if prose:
+        first_paragraph = elements[prose[0]][0]
+        for index in range(prose[0], len(elements)):
+            paragraph, _, part = elements[index]
+            if paragraph != first_paragraph or not isinstance(part, str):
+                break
+            if not isinstance(part, _Heading):
+                opening_lines.append(index)
+    opening: list[str] = []
+    for index in opening_lines:
+        opening.extend(_sentences(_sentence(str(elements[index][2]))))
+    next_index = (opening_lines[-1] + 1) if opening_lines else -1
+    introduces_list = 0 <= next_index < len(elements) and isinstance(elements[next_index][2], _List)
+    if opening and opening[-1].endswith(":") and introduces_list:
+        lead_in = opening.pop()
+        if _words(lead_in) > _LEAD_IN_WORDS:
+            opening.append(_closing(lead_in))
+    opening = [_closing(sentence) for sentence in opening]
+
+    # Pregunta final: la última frase de la última línea de prosa, si es una pregunta.
+    question = ""
+    question_line = -1
+    if prose and prose[-1] == len(elements) - 1:
+        question_line = prose[-1]
+        last = _sentences(_sentence(str(elements[question_line][2])))
+        if last and last[-1].endswith("?"):
+            question = last[-1]
+            if question_line in opening_lines and opening and opening[-1] == question:
+                opening.pop()
+            extra_in_question_line = len(last) > 1 and question_line not in opening_lines
+        else:
+            question_line = -1
+    if question_line < 0:
+        extra_in_question_line = False
+
+    first_list = elements[lists[0]][2] if lists else None
+    # Una introducción corta de la primera lista en su propio párrafo («Estas son las
+    # opciones:») la cubre la frase de la lista: no cuenta como prosa omitida.
+    lead_ins = {
+        index
+        for index in prose
+        if lists
+        and index + 1 == lists[0]
+        and str(elements[index][2]).rstrip().endswith(":")
+        and _words(str(elements[index][2])) <= _LEAD_IN_WORDS
+    }
+    other_prose = any(
+        index not in opening_lines and index != question_line and index not in lead_ins
+        for index in prose
+    )
+    # Omisiones que no dependen del presupuesto.
+    omits_anyway = other_prose or extra_in_question_line or len(lists) > 1
+
+    def select(pointer: str) -> tuple[list[str], str, str, bool]:
+        """Frases elegidas, pregunta, frase de la lista y si se omitió algo más que la lista.
+
+        Las palabras de las piezas que se dicen siempre (fuentes, aviso si se pasa, frase
+        corta de la lista) se reservan desde el principio: lo opcional solo entra si cabe
+        con ellas.
+        """
+
+        short_list = (
+            _list_phrase(first_list, channel, with_heads=False)
+            if isinstance(first_list, _List)
+            else ""
+        )
+        used = _words(source_phrase) + _words(pointer) + _words(short_list)
+        chosen: list[str] = []
+        if opening:
+            chosen.append(opening[0])
+            used += _words(opening[0])
+        spoken_question = ""
+        if question and used + _words(question) <= budget:
+            spoken_question = question
+            used += _words(question)
+        list_text = short_list
+        if isinstance(first_list, _List) and _heads(first_list):
+            full_list = _list_phrase(first_list, channel, with_heads=True)
+            extra = _words(full_list) - _words(short_list)
+            if used + extra <= budget:
+                list_text = full_list
+                used += extra
+        for sentence in opening[1:]:
+            if used + _words(sentence) > budget:
+                break
+            chosen.append(sentence)
+            used += _words(sentence)
+        omitted_more = (
+            omits_anyway or len(chosen) < len(opening) or bool(question and not spoken_question)
+        )
+        return chosen, spoken_question, list_text, omitted_more
+
+    # El aviso final se dice si se omitió algo más que el detalle de la lista (cuya frase
+    # ya remite a la pantalla o al texto), haya lista o no. Primero se intenta sin aviso:
+    # si así no se omite nada más, sobra; si no, se elige de nuevo reservando sus palabras.
+    pointer = SUMMARY_POINTERS[channel]
+    chosen, spoken_question, list_text, omitted_more = select(pointer if omits_anyway else "")
+    if omitted_more and not omits_anyway:
+        chosen, spoken_question, list_text, omitted_more = select(pointer)
+    if not omitted_more and first_list is None:
+        # Nada que resumir (una sola frase larga, por ejemplo): se lee completa, salvo los
+        # encabezados, que son títulos y no cuentan como contenido omitido.
+        whole = [" ".join(chosen), source_phrase, spoken_question]
+        return SpokenReply("\n\n".join(part for part in whole if part), links)
+    list_first = bool(lists) and (not opening_lines or lists[0] < opening_lines[0])
+    spoken_body = [list_text, *chosen] if list_first else [*chosen, list_text]
+    paragraphs = [
+        " ".join(part for part in spoken_body if part),
+        source_phrase,
+        pointer if omitted_more else "",
+        spoken_question,
+    ]
+    return SpokenReply("\n\n".join(part for part in paragraphs if part), links, omitted=True)
+
+
+# --- Transcripciones -----------------------------------------------------------------------
+
+# Miles al estilo de EE. UU. («1,800», «12,500,000», «2,500.50»): grupos de tres cifras tras
+# la coma, sin espacio, y una primera cifra distinta de cero. Así no se tocan decimales
+# («1,5», «0,75», «12,5 onzas»), horas («10:30») ni listas («2, 3 y 4»).
+_US_THOUSANDS = re.compile(
+    r"(?<![\d.,])(?P<integer>[1-9]\d{0,2}(?:,\d{3})+)(?:\.(?P<decimals>\d+))?(?!\d|[.,]\d)"
+)
+
+
+def normalize_transcript(text: str) -> str:
+    """Transcripción del STT → cifras al estilo colombiano, sin tocar nada más.
+
+    Los transcriptores (OpenAI) escriben «mil ochocientos» como «1,800», que en Colombia se
+    leería como uno coma ocho. Se reescribe el separador: «1,800» → «1.800», «12,500,000» →
+    «12.500.000», «2,500.50» → «2.500,50». Decimales («1,5», «0,75»), horas («10:30») y
+    listas con espacio tras la coma («2, 3 y 4») quedan igual. Determinista y sin LLM.
+
+    Decisión ante la ambigüedad: «1,500» con exactamente tres cifras tras la coma se lee
+    siempre como miles («1.500»), también delante de unidades como «kg» o «litros». Un
+    decimal colombiano de tres cifras dictado («uno coma quinientos») se convertiría mil
+    veces mayor; se acepta porque el STT escribe los miles de esa forma de manera
+    sistemática y un decimal dictado con tres cifras es raro en pedidos de empaques. Solo
+    «0,750» queda igual (la parte entera no puede empezar por cero). En la web el texto
+    dictado se revisa antes de enviarlo (salvo en manos libres).
+    """
+
+    def colombian(match: re.Match[str]) -> str:
+        integer = match["integer"].replace(",", ".")
+        return f"{integer},{match['decimals']}" if match["decimals"] else integer
+
+    return _US_THOUSANDS.sub(colombian, text)

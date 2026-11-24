@@ -9,6 +9,7 @@ al arrancar ni al comprobar la vitalidad del contenedor.
 from functools import cache
 from pathlib import Path
 
+import structlog
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,11 +23,37 @@ from carvajal.application.ports import Embedder, LLMProvider
 from carvajal.infrastructure.settings import Settings
 
 APP_DIR = Path(__file__).resolve().parent
+logger = structlog.get_logger(__name__)
 templates = Jinja2Templates(
     directory=APP_DIR / "templates",
     context_processors=[csrf_context],
 )
 templates.env.filters["respuesta"] = render_answer
+
+
+def _spoken_summary(message: object) -> str:
+    """Resumen hablado de una respuesta del hilo (``data-voz-resumen``); vacío si falla.
+
+    Se importa al usarse: ``apps.api.voice`` arrastra el puente de WhatsApp y el cliente
+    de voz, que esta capa compartida no necesita al arrancar.
+    """
+
+    from apps.api.voice import spoken_message
+    from carvajal.adapters.storage.chat import ChatMessage
+
+    if not isinstance(message, ChatMessage):
+        return ""
+    try:
+        return spoken_message(message)
+    except Exception as error:  # un resumen roto no impide pintar el hilo: se lee el DOM
+        # Queda en el log, como en el stream: un fallo sistemático no pasa inadvertido.
+        logger.warning(
+            "chat.spoken_summary_failed", error_type=type(error).__name__, source="thread"
+        )
+        return ""
+
+
+templates.env.filters["resumen_hablado"] = _spoken_summary
 
 __all__ = [
     "APP_DIR",

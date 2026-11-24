@@ -201,7 +201,18 @@ function montar() {
   const hilo = crearElemento("section");
   const historial = crearElemento("div");
   const estado = crearEstado();
-  const plantilla = { content: { firstElementChild: { cloneNode: () => crearTurno() } } };
+  const turnos = [];
+  const plantilla = {
+    content: {
+      firstElementChild: {
+        cloneNode: () => {
+          const turno = crearTurno();
+          turnos.push(turno);
+          return turno;
+        },
+      },
+    },
+  };
   const porId = { hilo, "chat-stream-estado": estado, "plantilla-turno": plantilla };
   const porSelector = {
     "form[data-chat-stream]": formulario,
@@ -241,7 +252,7 @@ function montar() {
     await esperarTareas();
   }
 
-  return { estado, reloj, transporte, preguntar, enviar };
+  return { estado, reloj, transporte, turnos, preguntar, enviar };
 }
 
 // ---------------------------------------------------------------------------
@@ -348,4 +359,34 @@ test("el error reemplaza el status por su aviso y no vuelve a mostrarlo", async 
   // Assert
   assert.equal(chat.estado.textContent, "No se pudo completar la respuesta.");
   assert.equal(chat.estado.classList.contains("aviso"), true);
+});
+
+// Spec 048: el `done` trae el resumen hablado que prepara el servidor.
+test("el done guarda el resumen hablado del turno como texto", async () => {
+  // Arrange
+  const chat = montar();
+  await chat.preguntar();
+  await chat.enviar("token", { text: "Para café tenemos tres vasos." });
+  const resumen = 'Te muestro tres opciones en pantalla: <b>"A"</b>, B y C.\n\n¿Cuántas necesitas?';
+
+  // Act
+  await chat.enviar("done", { message_id: "m-1", voz_resumen: resumen });
+
+  // Assert: se guarda tal cual en el dataset (texto, nunca HTML) junto al id.
+  const asistente = chat.turnos[1];
+  assert.equal(asistente.dataset.vozResumen, resumen);
+  assert.equal(asistente.dataset.vozMensaje, "m-1");
+});
+
+test("un done sin resumen deja la lectura como antes", async () => {
+  // Arrange
+  const chat = montar();
+  await chat.preguntar();
+  await chat.enviar("token", { text: "Hola." });
+
+  // Act
+  await chat.enviar("done", { message_id: "m-2", voz_resumen: "   " });
+
+  // Assert
+  assert.equal(chat.turnos[1].dataset.vozResumen, undefined);
 });

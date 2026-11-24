@@ -232,9 +232,28 @@
     return textoVisible(raiz.querySelector(selector));
   }
 
-  /** Las tarjetas se leen del DOM y las fuentes de los metadatos del turno. */
+  /**
+   * Resumen hablado del turno (spec 048): lo prepara el servidor con la misma función
+   * que /api/voz/hablar y llega en `data-voz-resumen` (hilo) o en el evento `done`.
+   * Un párrafo por locución; vacío si el turno no lo trae.
+   */
+  function segmentosDelResumen(turno) {
+    if (!turno || !turno.dataset) return [];
+    const resumen = String(turno.dataset.vozResumen || "");
+    return resumen
+      .split(/\n\s*\n/)
+      .map((parrafo) => limpiarTextoHablado(parrafo))
+      .filter(Boolean);
+  }
+
+  /**
+   * Prefiere el resumen hablado del servidor; sin él, las tarjetas se leen del DOM y las
+   * fuentes de los metadatos del turno (comportamiento anterior).
+   */
   function construirSegmentos(turno) {
     if (!turno) return [];
+    const resumen = segmentosDelResumen(turno);
+    if (resumen.length) return resumen;
     const segmentos = [];
     const texto = limpiarTextoHablado(textoVisible(turno.querySelector(".texto")));
     if (texto) segmentos.push(texto);
@@ -390,7 +409,38 @@
     );
 
     const soporte = { streaming: Boolean(opciones.streaming) };
+    // Lo que el servidor ofrecía al cargar: si después se apaga algo, la página está
+    // usando la voz del navegador como respaldo (data-voz-respaldo).
+    const servidorInicial = { dictado: servidorActivo.dictado, lectura: servidorActivo.lectura };
+
+    // --- Estados de la voz en <html> (contrato con el rediseño, 049) ---------------
+    // Solo atributos: el CSS los estila y este archivo no conoce clases de diseño.
+    function marcarEstadoVoz(nombre, valor) {
+      const raiz = documento && documento.documentElement;
+      if (!raiz || !raiz.dataset) return;
+      if (valor) raiz.dataset[nombre] = String(valor);
+      else delete raiz.dataset[nombre];
+    }
+
+    function fijarProgresoVoz(valor) {
+      const raiz = documento && documento.documentElement;
+      const estilo = raiz && raiz.style;
+      if (!estilo) return;
+      if (valor === null) {
+        if (typeof estilo.removeProperty === "function") estilo.removeProperty("--voz-progreso");
+      } else if (typeof estilo.setProperty === "function") {
+        estilo.setProperty("--voz-progreso", valor.toFixed(3));
+      }
+    }
+
     function calcularSoporte() {
+      marcarEstadoVoz(
+        "vozRespaldo",
+        (servidorInicial.dictado && !servidorActivo.dictado) ||
+          (servidorInicial.lectura && !servidorActivo.lectura)
+          ? "1"
+          : null,
+      );
       soporte.dictado = navegador.dictado || servidorActivo.dictado;
       soporte.sintesis = navegador.sintesis || servidorActivo.lectura;
       soporte.manosLibres = soporte.dictado && soporte.sintesis && soporte.streaming;
@@ -415,6 +465,7 @@
     // AbortController de la transcripción en curso: cancelar el dictado corta la subida.
     let subida = null;
     let reproduccion = null;
+    let temporizadorProgreso = null;
 
     function mount() {
       // Montar dos veces no debe duplicar listeners ni ciclos de voz.
@@ -588,7 +639,28 @@
 
     // --- Dictado con la voz del servidor (spec 047) ---------------------------
 
+    // --voz-progreso: de 0 a 1 frente al máximo de segundos mientras se graba.
+    function seguirProgreso(ciclo, inicio, maximo) {
+      fijarProgresoVoz(Math.min(1, Math.max(0, (reloj.now() - inicio) / maximo)));
+      temporizadorProgreso = reloj.setTimeout(() => {
+        temporizadorProgreso = null;
+        if (estado.ciclo !== ciclo || !grabacionActiva || subiendo) return;
+        seguirProgreso(ciclo, inicio, maximo);
+      }, 250);
+    }
+
+    function pararGrabacionVisible() {
+      if (temporizadorProgreso !== null) {
+        reloj.clearTimeout(temporizadorProgreso);
+        temporizadorProgreso = null;
+      }
+      fijarProgresoVoz(null);
+      marcarEstadoVoz("vozGrabando", null);
+    }
+
     function soltarGrabacion() {
+      pararGrabacionVisible();
+      marcarEstadoVoz("vozTranscribiendo", null);
       const anterior = grabacion;
       const envio = subida;
       grabacion = null;
@@ -625,6 +697,8 @@
         cicloManosLibres ? `Manos libres · ${MENSAJES.escuchando}` : MENSAJES.escuchando,
       );
       const maximo = Number(servidor.maxMs) > 0 ? Number(servidor.maxMs) : MAX_GRABACION_MS;
+      marcarEstadoVoz("vozGrabando", "1");
+      seguirProgreso(ciclo, reloj.now(), maximo);
       temporizador = reloj.setTimeout(() => {
         if (estado.ciclo !== ciclo || !grabacionActiva) return;
         avisar(MENSAJES.limite);
@@ -674,6 +748,8 @@
       }
       grabacion = null;
       subiendo = true;
+      pararGrabacionVisible();
+      marcarEstadoVoz("vozTranscribiendo", "1");
       if (temporizador !== null) {
         reloj.clearTimeout(temporizador);
         temporizador = null;
@@ -846,6 +922,8 @@
       grabacionActiva = false;
       subiendo = false;
       subida = null;
+      pararGrabacionVisible();
+      marcarEstadoVoz("vozTranscribiendo", null);
       estado.ciclo += 1;
       estado.transcripcion = "";
       marcarEscuchando(false);
@@ -1202,6 +1280,7 @@
       const ciclo = cicloLectura;
       avisar(MENSAJES.preparandoLectura);
       actualizarControles(turno, "cargando");
+      marcarEstadoVoz("vozSintetizando", mensaje);
       let pendiente;
       try {
         pendiente = Promise.resolve(servidor.sintetizar(mensaje));
@@ -1211,6 +1290,7 @@
       pendiente.then(
         (audio) => {
           if (ciclo !== cicloLectura) return;
+          marcarEstadoVoz("vozSintetizando", null);
           reproduccion = servidor.reproducir(audio, {
             alEmpezar: () => {
               if (ciclo !== cicloLectura) return;
@@ -1243,6 +1323,7 @@
         },
         (error) => {
           if (ciclo !== cicloLectura) return;
+          marcarEstadoVoz("vozSintetizando", null);
           // Un 404 o un 422 son de este turno (no existe, no tiene texto que leer o el
           // id no vale); cualquier otro fallo apaga la lectura del servidor el resto de
           // la sesión. Se lee con la voz del navegador.
@@ -1355,6 +1436,7 @@
       const turno = turnoLectura;
       cicloLectura += 1;
       turnoLectura = null;
+      marcarEstadoVoz("vozSintetizando", null);
       segmentosLectura = [];
       indiceLectura = 0;
       estado.leyendo = false;
@@ -1374,6 +1456,7 @@
       const turno = turnoLectura;
       cicloLectura += 1;
       turnoLectura = null;
+      marcarEstadoVoz("vozSintetizando", null);
       segmentosLectura = [];
       indiceLectura = 0;
       estado.leyendo = false;

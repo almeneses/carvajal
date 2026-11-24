@@ -16,11 +16,14 @@ texto listo para WhatsApp.
   consumiendo el mismo cupo diario que cualquier mensaje.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
-- **Voz**: ``consult(..., voice=True)`` devuelve el mismo turno como texto para el TTS de
-  la pasarela (:mod:`carvajal.speech`): sin citas, Markdown, emojis ni URL; fuentes en una
-  frase, unidades y folios en palabras. Los enlaces (PDF, foto, fuentes) van al final, tras
-  :data:`~carvajal.speech.LINKS_HEADER`, para enviarlos como texto. Sin ``voice`` la
-  respuesta es la de siempre.
+- **Voz**: ``consult(..., voice=True)`` devuelve un **resumen hablado** del turno para el
+  TTS de la pasarela (:func:`carvajal.speech.spoken_summary`, extractivo y sin LLM): sin
+  citas, Markdown, emojis ni URL; fuentes en una frase, unidades y folios en palabras. Si el
+  resumen dejó algo fuera (o hay cotización), detrás va la respuesta escrita completa, tras
+  :data:`~carvajal.speech.TEXT_HEADER`, para enviarla como mensaje de texto; si no, los
+  enlaces (PDF, foto, fuentes) tras :data:`~carvajal.speech.LINKS_HEADER`. El mensaje
+  transcrito pasa antes por :func:`carvajal.speech.normalize_transcript` («1,800» →
+  «1.800»). Sin ``voice`` la respuesta es la de siempre.
 - **Reintentos**: :meth:`WhatsAppBridge.respond` acepta un ``client_turn_id`` (el webhook
   lo deriva del ``message_id``). Si el dueño ya tiene ese turno guardado, el servicio lo
   reemite sin cobrar cupo, sin abrir hilo nuevo y sin emitir otros folios. Si no, el
@@ -51,11 +54,14 @@ from carvajal.application.deliveries import DeliveryClaim, DeliveryStore, InMemo
 from carvajal.application.quota import QuotaResult
 from carvajal.domain.phone import normalize_e164
 from carvajal.speech import (
+    SUMMARY_POINTERS,
     SpeechLink,
     SpokenReply,
     combine,
+    normalize_transcript,
     speak_folio_tail,
     spoken_sources,
+    spoken_summary,
     to_speech,
 )
 
@@ -160,8 +166,8 @@ class BridgeReply:
 
     ``in_progress`` indica que otro intento atiende el mismo ``client_turn_id``: no hay
     nada que enviar al cliente y el relé debe reintentar más tarde. ``spoken`` es la
-    versión para voz del mismo turno; si falta (respuestas cortas o reemitidas desde la
-    reserva), :meth:`voice` la deriva de ``text``.
+    versión para voz del mismo turno (un resumen si ``spoken.omitted``); si falta
+    (respuestas cortas o reemitidas desde la reserva), :meth:`voice` la deriva de ``text``.
     """
 
     text: str
@@ -172,7 +178,20 @@ class BridgeReply:
     def voice(self) -> SpokenReply:
         """Texto para el TTS y enlaces aparte (ver :mod:`carvajal.speech`)."""
 
-        return self.spoken if self.spoken is not None else to_speech(self.text)
+        if self.spoken is not None:
+            return self.spoken
+        return spoken_summary(self.text, channel="whatsapp")
+
+    def voice_message(self) -> str:
+        """La respuesta con ``voz=true``: resumen hablado y, si omitió algo, el texto escrito.
+
+        Ver :meth:`SpokenReply.render <carvajal.speech.SpokenReply.render>`: con resumen, la
+        respuesta escrita completa va tras :data:`~carvajal.speech.TEXT_HEADER` (con sus
+        enlaces); si no, los enlaces tras :data:`~carvajal.speech.LINKS_HEADER`.
+        """
+
+        spoken = self.voice()
+        return spoken.render(written=self.text if spoken.omitted else "")
 
 
 def _no_limit(_owner_key: str) -> QuotaResult:
@@ -487,8 +506,8 @@ def spoken_quote(view: QuoteView, photo_url: str | None = None) -> SpokenReply:
     return SpokenReply(spoken.text, spoken.links + links)
 
 
-def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
-    """Las fuentes de :func:`_sources_block` en una frase; sus URL, como enlaces aparte."""
+def _listed_sources(sources: Iterable[Mapping[str, Any]]) -> list[tuple[str, str]]:
+    """Pares ``(título, url)`` sin repetir de las fuentes que lista :func:`_sources_block`."""
 
     listed: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -502,6 +521,13 @@ def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
             continue
         seen.add(key)
         listed.append((title, url))
+    return listed
+
+
+def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
+    """Las fuentes de :func:`_sources_block` en una frase; sus URL, como enlaces aparte."""
+
+    listed = _listed_sources(sources)
     links = tuple(SpeechLink(title or "Fuente", url) for title, url in listed if url)
     return SpokenReply(spoken_sources(listed), links)
 
@@ -582,12 +608,12 @@ class WhatsAppBridge:
 
         Con ``new_conversation`` se abre un hilo nuevo antes del turno (equivale al botón
         «Nueva conversación» de la web); si además no hay mensaje, solo se confirma. Con
-        ``voice`` la respuesta es apta para leerse en voz alta y los enlaces van aparte
-        (:meth:`SpokenReply.render <carvajal.speech.SpokenReply.render>`).
+        ``voice`` la respuesta es un resumen apto para leerse en voz alta y lo escrito va
+        aparte (:meth:`BridgeReply.voice_message`).
         """
 
         reply = self.respond(message, chat_id, new_conversation=new_conversation, voice=voice)
-        return reply.voice().render() if voice else reply.text
+        return reply.voice_message() if voice else reply.text
 
     def respond(
         self,
@@ -600,9 +626,11 @@ class WhatsAppBridge:
     ) -> BridgeReply:
         """Como :meth:`consult`, con los folios y un ``client_turn_id`` para reintentos.
 
-        ``voice`` indica que el mensaje llegó como nota de voz: el pedido del PDF acepta
-        además lo que un STT suele oír por «PDF» (:func:`is_pdf_request`). La respuesta es
-        la misma; quien la envía elige el texto o :meth:`BridgeReply.voice`.
+        ``voice`` indica que el mensaje llegó como nota de voz: la transcripción pasa por
+        :func:`~carvajal.speech.normalize_transcript` (miles al estilo colombiano) y el
+        pedido del PDF acepta además lo que un STT suele oír por «PDF»
+        (:func:`is_pdf_request`). La respuesta es la misma; quien la envía elige el texto o
+        :meth:`BridgeReply.voice_message`.
 
         Si ``turns`` encuentra ``client_turn_id`` en un hilo del dueño, el turno se reemite
         desde ese hilo: no se abre conversación nueva ni se cobra cupo, y el servicio de
@@ -616,6 +644,8 @@ class WhatsAppBridge:
         if not chat or len(chat) > MAX_CHAT_ID_CHARS:
             raise ValueError("conversacion debe ser el identificador del chat (1-200 caracteres).")
         text = message.strip()
+        if voice:
+            text = normalize_transcript(text)
         if len(text) > MAX_MESSAGE_CHARS:
             return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)
@@ -779,20 +809,33 @@ class WhatsAppBridge:
         if turn.error is not None and not turn.text.strip():
             return BridgeReply(SERVICE_UNAVAILABLE)
         blocks = [to_whatsapp(turn.text)] if turn.text.strip() else []
-        prose = to_speech(turn.text) if turn.text.strip() else None
         quotes = self._quote_views(turn.folios, owner)
-        # Con cotización, la voz dice solo la cotización corta: la introducción del agente
-        # repite sus cifras y alarga la nota (~30 s). Sus enlaces sí se conservan.
-        spoken = [] if prose is None else [SpokenReply("", prose.links) if quotes else prose]
         blocks.extend(whatsapp_quote(view, photo) for view, photo in quotes)
-        spoken.extend(spoken_quote(view, photo) for view, photo in quotes)
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)
-            spoken.append(_spoken_sources(turn.sources))
-        if quotes and self.pdf_link is not None and self._latest_view(owner) is not None:
+        offer = bool(quotes) and self.pdf_link is not None and self._latest_view(owner) is not None
+        if offer:
             blocks.append(PDF_OFFER)
-            spoken.append(SpokenReply(PDF_OFFER_SPOKEN))
+        spoken: list[SpokenReply] = []
+        if quotes:
+            # Con cotización, la voz dice solo la cotización corta: la introducción del
+            # agente repite sus cifras y alarga la nota (~30 s). Sus enlaces sí se conservan.
+            if turn.text.strip():
+                spoken.append(SpokenReply("", to_speech(turn.text).links))
+            spoken.extend(spoken_quote(view, photo) for view, photo in quotes)
+            if listed:
+                spoken.append(_spoken_sources(turn.sources))
+            # El folio, la presentación con su precio y el subtotal van por escrito.
+            closing = PDF_OFFER_SPOKEN if offer else SUMMARY_POINTERS["whatsapp"]
+            spoken.append(SpokenReply(closing, omitted=True))
+        elif turn.text.strip():
+            # Resumen hablado (~15-20 s); el texto completo se envía por escrito.
+            spoken.append(
+                spoken_summary(turn.text, channel="whatsapp", sources=_listed_sources(turn.sources))
+            )
+        elif listed:
+            spoken.append(_spoken_sources(turn.sources))
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
@@ -803,7 +846,7 @@ class WhatsAppBridge:
         voice = combine(spoken)
         # Un turno que solo trae enlaces no deja la nota de voz vacía.
         if not voice.text:
-            voice = SpokenReply("Te envío la información por escrito.", voice.links)
+            voice = SpokenReply("Te envío la información por escrito.", voice.links, voice.omitted)
         return BridgeReply(reply, tuple(turn.folios), spoken=voice)
 
     def _quote_views(self, folios: Sequence[str], owner: str) -> list[tuple[QuoteView, str | None]]:

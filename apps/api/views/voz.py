@@ -19,8 +19,9 @@ navegador. Las dos rutas exigen, en este orden:
 ``audio/mp4``) en el campo ``audio`` de un multipart. Comprueba el tamaño por
 ``Content-Length`` y pasa los límites **antes** de leer el cuerpo; después, la firma del
 contenedor y la duración que declara (**413** ``too_long`` si supera
-``VOICE_MAX_AUDIO_SECONDS``), y devuelve ``{"texto": …}``. El audio no se guarda ni se
-registra.
+``VOICE_MAX_AUDIO_SECONDS``), y devuelve ``{"texto": …}`` con las cifras al estilo
+colombiano (:func:`carvajal.speech.normalize_transcript`: «1,800» → «1.800»). El audio no se
+guarda ni se registra.
 
 Los fallos internos del proveedor (``timeout``, ``error``, ``auth``, ``invalid``, ``db``)
 salen al navegador como ``unavailable``: el detalle queda en los logs. Un audio que OpenAI
@@ -28,7 +29,7 @@ rechaza (4xx de la entrada) es **422** ``rejected`` y no abre el circuito de nad
 
 ``/hablar`` **no sintetiza texto libre**: recibe ``message_id``, el id de una respuesta del
 asistente de la conversación de quien llama (lo expone ``data-voz-mensaje`` en el hilo y el
-evento ``done`` del stream), la carga de la base, la prepara con
+evento ``done`` del stream), la carga de la base, prepara su resumen hablado con
 :func:`apps.api.voice.spoken_message`, la recorta a ``VOICE_TTS_MAX_CHARS`` y devuelve el
 audio MP3 sin caché (``no-store``). Un id ajeno, de otro dueño o de un
 mensaje del usuario responde **404**: no es un TTS público.
@@ -51,6 +52,7 @@ from apps.api.voice import VoiceRuntime, build_voice_runtime, cap_text, spoken_m
 from carvajal.adapters.speech import SpeechUnavailable
 from carvajal.adapters.speech.container import audio_duration_s
 from carvajal.infrastructure.settings import Settings
+from carvajal.speech import normalize_transcript
 
 __all__ = [
     "ALLOWED_AUDIO_TYPES",
@@ -262,7 +264,9 @@ async def transcribir(request: Request) -> Response:
         await form.close()
     if not text:
         return _reject(422, "empty")
-    return JSONResponse({"texto": text}, headers={"Cache-Control": "no-store"})
+    return JSONResponse(
+        {"texto": normalize_transcript(text)}, headers={"Cache-Control": "no-store"}
+    )
 
 
 @router.post("/hablar")
