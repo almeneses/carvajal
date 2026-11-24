@@ -500,7 +500,11 @@ def test_un_borrador_que_olvida_menos_que_el_canal_no_se_adopta() -> None:
     # texto literal. Ambos son posteriores a la lápida.
     tombstone = {"v": 1, "at": (NOW - timedelta(minutes=10)).isoformat()}
     marker = forgotten_marker(11, now=NOW - timedelta(minutes=9)).to_value()
-    leaked = {"question": "Olvida todo lo que sabes de mí. Soy Ana", "answer": "Listo."}
+    leaked: Turn = {
+        "question": "Olvida todo lo que sabes de mí. Soy Ana",
+        "answer": "Listo.",
+        "incomplete": False,
+    }
     draft = replace(
         deterministic_summary(
             [leaked, _turn(11)], start=10, max_chars=1500, now=NOW - timedelta(minutes=1)

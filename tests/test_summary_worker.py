@@ -369,10 +369,12 @@ def test_el_turno_que_pide_olvidar_todo_no_vuelve_al_resumen(session_factory: An
     draft = worker.summarize_now(OWNER, conversation)
     with session_factory() as session:
         seed = pair_turns(SqlChatRepository(session).history_all(conversation))
+    tombstone = store.get(summary_namespace(OWNER), TOMBSTONE_KEY)
+    assert tombstone is not None
     adoption = adopt(
         channel=marker,
         draft=draft.to_value() if draft is not None else None,
-        tombstone=store.get(summary_namespace(OWNER), TOMBSTONE_KEY).value,
+        tombstone=tombstone.value,
         turn_count=len(seed),
         seed=seed[-10:],
         history_turns=8,
