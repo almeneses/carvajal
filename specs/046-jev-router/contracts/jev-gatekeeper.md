@@ -102,8 +102,10 @@ Solo en la medición (`with_score=True`), la misma petición añade:
 ```
 
 Según `openapi.json`, el nivel de Score es la posición en `criteria` empezando en cero: con
-estos cinco criterios, `score` ∈ [0, 4]. Se guardan `clarity` (el nivel) y
-`clarity_confidence` (el `confidence` de la respuesta Score).
+estos cinco criterios, `score` ∈ [0, 4]. La API devuelve el **valor esperado** del nivel, un
+número real (p. ej. `2.5`), no un entero (D1 de `evidencia.md`): el adaptador acepta un real
+en [0, 4]. Se guardan `clarity` (ese valor) y `clarity_confidence` (el `confidence` de la
+respuesta Score).
 
 ### Respuesta esperada
 

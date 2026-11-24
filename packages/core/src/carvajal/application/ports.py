@@ -301,7 +301,8 @@ class RouteVerdict:
     confidence: float
     probabilities: Mapping[GateClass, float]
     call: JudgeCall
-    clarity: int | None = None
+    # Valor esperado del nivel de Score (real en [0, 4]); la API no devuelve un entero.
+    clarity: float | None = None
     clarity_confidence: float | None = None
 
 

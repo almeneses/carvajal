@@ -120,7 +120,7 @@ class RouteVerdict:
     choice: GateClass
     confidence: float
     probabilities: Mapping[GateClass, float]
-    clarity: int | None  # Score: nivel en [0, 4]; solo en la medición (None en producción)
+    clarity: float | None  # Score: valor esperado real en [0, 4]; solo en la medición (D1)
     clarity_confidence: float | None  # confidence de la respuesta Score; solo en la medición
     call: JudgeCall
 

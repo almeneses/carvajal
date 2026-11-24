@@ -223,7 +223,7 @@ class GateResult:
     predicted: GateClass | None = None
     confidence: float | None = None
     probabilities: dict[str, float] = field(default_factory=dict)
-    clarity: int | None = None
+    clarity: float | None = None
     clarity_confidence: float | None = None
     latency_ms: int | None = None
     # Decisión de producción con los umbrales vigentes (solo Jev), sin llamadas nuevas.
@@ -361,11 +361,12 @@ class GateReport:
         def clarity(results: Sequence[GateResult]) -> float | None:
             return _mean(float(r.clarity) for r in results if r.clarity is not None)
 
+        # La claridad es real (D1): se agrupa por el nivel más cercano (2,5 → 3).
         by_level: dict[int, list[int]] = {}
         for result in self.judged:
             if result.clarity is None:
                 continue
-            counts = by_level.setdefault(result.clarity, [0, 0])
+            counts = by_level.setdefault(math.floor(result.clarity + 0.5), [0, 0])
             counts[0] += not result.correct
             counts[1] += 1
         return {
@@ -630,7 +631,7 @@ def render_gatekeeper_report(
             if result.confidence is not None:
                 cell += f" {_fmt(result.confidence)}"
             if result.clarity is not None:
-                cell += f" · claridad {result.clarity}"
+                cell += f" · claridad {_fmt(result.clarity)}"
             if result.decision is not None:
                 state = "cautela" if result.decision.get("cautious") else result.decision["scope"]
                 cell += f" → {state}"
@@ -951,13 +952,12 @@ class ReplayJudge:
                 for k, v in (line.get("probabilities") or {}).items()
                 if _number(v) is not None
             }
-            clarity = line.get("clarity")
             verdicts[str(line.get("item") or "")] = RouteVerdict(
                 choice=cast(GateClass, choice),
                 confidence=confidence,
                 probabilities=cast(Mapping[GateClass, float], probabilities),
                 call=_call_from(line),
-                clarity=clarity if isinstance(clarity, int) else None,
+                clarity=_number(line.get("clarity")),
                 clarity_confidence=_number(line.get("clarity_confidence")),
             )
         return cls(verdicts)

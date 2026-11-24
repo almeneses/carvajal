@@ -433,6 +433,18 @@ def _probability(value: Any) -> float:
     return number
 
 
+def _clarity(value: Any) -> float:
+    """Nivel de Score: la API devuelve el valor esperado (real) en [0, niveles - 1] (D1)."""
+
+    top = len(JEV_SCORE_CLARITY["criteria"]) - 1
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise _Invalid("score")
+    number = float(value)
+    if not 0.0 <= number <= top:  # también descarta NaN
+        raise _Invalid("score fuera de rango")
+    return round(number, 4)
+
+
 def _answer(payload: Mapping[str, Any], name: str, kind: str) -> Mapping[str, Any]:
     answers = payload.get("answers")
     if not isinstance(answers, Mapping):
@@ -527,10 +539,7 @@ class JevJudge:
             }
             if with_score:
                 score = _answer(payload, SCORE_QUESTION, "score")
-                level = score.get("score")
-                if isinstance(level, bool) or not isinstance(level, int) or not 0 <= level <= 4:
-                    raise _Invalid("score")
-                parsed["clarity"] = level
+                parsed["clarity"] = _clarity(score.get("score"))
                 parsed["clarity_confidence"] = (
                     round(_probability(score["confidence"]), 4)
                     if score.get("confidence") is not None

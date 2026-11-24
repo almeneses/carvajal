@@ -237,13 +237,31 @@ def test_noul_fuera_de_rango_es_invalida(p: Any) -> None:
     assert raised.value.status == "invalid"
 
 
-def test_score_fuera_de_rango_es_invalida() -> None:
+@pytest.mark.parametrize("score", [7, 4.01, -0.5, "2.5", True, float("nan")])
+def test_score_fuera_de_rango_es_invalida(score: Any) -> None:
     payload = _choice()
-    payload["answers"]["claridad"] = {"type": "score", "score": 7, "confidence": 0.5}
+    payload["answers"]["claridad"] = {"type": "score", "score": score, "confidence": 0.5}
     judge, _ = _judge(_ok(payload))
 
     with pytest.raises(JudgeUnavailable):
         judge.classify(RouteQuery(question="hola"), with_score=True)
+
+
+@pytest.mark.parametrize("score", [2.5, 0.0, 4.0, 1.16])
+def test_score_real_dentro_de_la_escala_es_valido(score: float) -> None:
+    # Arrange: la API devuelve el valor esperado del nivel, un real en [0, 4] (D1).
+    payload = _choice()
+    payload["answers"]["claridad"] = {"type": "score", "score": score, "confidence": 0.53}
+    judge, _ = _judge(_ok(payload))
+
+    # Act
+    verdict = judge.classify(RouteQuery(question="¿Cuánto vale la caja?"), with_score=True)
+
+    # Assert
+    assert verdict.choice == "rag"
+    assert verdict.clarity == score
+    assert isinstance(verdict.clarity, float)
+    assert verdict.clarity_confidence == 0.53
 
 
 # --- Errores HTTP y red ----------------------------------------------------------------------
