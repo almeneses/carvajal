@@ -174,6 +174,57 @@ services:
       retries: 3
       start_period: 15s
 
+  mcp:
+    # Perfil `whatsapp`: servidor MCP que atiende WhatsApp (OpenClaw) con el mismo
+    # agente del chat. No arranca en un despliegue normal: se activa con
+    # COMPOSE_PROFILES=whatsapp y MCP_TOKEN en el .env del servidor, y desde ahí
+    # `deploy.sh` lo actualiza con la misma imagen que `app`.
+    # Se publica SOLO en el loopback del host; OpenClaw llega por un túnel SSH
+    # restringido a este puerto (docs/whatsapp-openclaw.md).
+    profiles: ["whatsapp"]
+    image: ${APP_IMAGE:-carvajal-api:local}
+    restart: unless-stopped
+    command: ["python", "-m", "apps.mcp"]
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+    environment:
+      <<: *app-environment
+      # Bearer obligatorio de /mcp. Sin él el proceso termina con un mensaje claro.
+      MCP_TOKEN: ${MCP_TOKEN:-}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8765"
+    ports:
+      - "127.0.0.1:${MCP_PORT:-8765}:8765"
+    read_only: true
+    volumes:
+      - appdata:/app/data
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    pids_limit: 128
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/live', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   qdrant:
     image: qdrant/qdrant:v1.15.4
     restart: unless-stopped

@@ -28,6 +28,7 @@ __all__ = [
     "MAX_ITEMS",
     "RETRY_INVITATION",
     "TIMEOUT_NOTE",
+    "quote_text",
     "render",
     "timeout_note",
 ]
@@ -126,6 +127,18 @@ def _quotes(result: Mapping[str, Any]) -> list[Mapping[str, Any]]:
         and item.get("kind") == "cotizacion"
         and isinstance(item.get("primary"), Mapping)
     ]
+
+
+def quote_text(quote: Mapping[str, Any]) -> str:
+    """Bloque de texto de una cotización emitida; ``""`` si no es una cotización.
+
+    Lo usan los canales sin tarjetas HTML (WhatsApp por MCP) para mostrar la misma
+    cotización que pinta la web, con su folio, a partir del payload guardado en ``quotes``.
+    """
+
+    if quote.get("kind") != "cotizacion" or not isinstance(quote.get("primary"), Mapping):
+        return ""
+    return _quote_block(quote)
 
 
 def _quote_block(quote: Mapping[str, Any]) -> str:
