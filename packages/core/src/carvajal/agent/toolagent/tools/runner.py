@@ -25,6 +25,7 @@ from carvajal.agent.toolagent.state import (
     make_tool_outcome,
 )
 from carvajal.agent.toolagent.tools._base import (
+    STATE_UPDATE_KEYS,
     ToolCallResult,
     ToolContext,
     ToolDeps,
@@ -154,7 +155,19 @@ def run_tool(
         quote=draft.quote,
         context_update=draft.context_update,
         cards=draft.cards,
+        state_update=_state_update(name, draft),
     )
+
+
+def _state_update(name: str, draft: _Draft) -> dict[str, Any]:
+    """Canales que la herramienta actualiza; ninguno si falló o si la clave no se permite."""
+
+    if draft.status == "error" or not draft.state_update:
+        return {}
+    unknown = sorted(set(draft.state_update) - STATE_UPDATE_KEYS)
+    if unknown:
+        logger.warning("tool_agent.state_update_ignored", tool=name, keys=unknown)
+    return {key: value for key, value in draft.state_update.items() if key in STATE_UPDATE_KEYS}
 
 
 def _outcome(

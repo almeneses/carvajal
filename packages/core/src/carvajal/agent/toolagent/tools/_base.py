@@ -42,6 +42,9 @@ DATA_OPEN = "<datos>"
 DATA_CLOSE = "</datos>"
 CORE_LAYER = "core"  # capa núcleo de ``LayerPriorityStore`` (alcance «oficial»)
 OFFICIAL_HOSTS = ("carvajal.com", "carvajalempaques.com")
+# Canales del estado que una herramienta puede actualizar en el mismo turno (spec 045,
+# research R7): solo las de memoria los usan. Cualquier otra clave se descarta.
+STATE_UPDATE_KEYS = frozenset({"memory", "preferences", "conversation_summary"})
 
 # --- Dependencias, contexto y resultado ----------------------------------------------------
 
@@ -207,6 +210,9 @@ class ToolCallResult:
       en la lista.
     - ``context_update``: claves a fusionar en ``commercial_context``.
     - ``cards``: aporte a las tarjetas comerciales (``options``, ``discarded``, ``sites``…).
+    - ``state_update``: canales del estado que la herramienta reemplaza en el mismo turno
+      (solo :data:`STATE_UPDATE_KEYS`: ``memory``, ``preferences`` y
+      ``conversation_summary``; spec 045, research R7). Vacío salvo en las de memoria.
     """
 
     tool: str
@@ -219,6 +225,7 @@ class ToolCallResult:
     quote: dict[str, Any] | None = None
     context_update: dict[str, Any] = field(default_factory=dict)
     cards: dict[str, Any] = field(default_factory=dict)
+    state_update: dict[str, Any] = field(default_factory=dict)
 
     @property
     def status(self) -> ToolStatus:
@@ -245,6 +252,7 @@ class _Draft:
     quote: dict[str, Any] | None = None
     context_update: dict[str, Any] = field(default_factory=dict)
     cards: dict[str, Any] = field(default_factory=dict)
+    state_update: dict[str, Any] = field(default_factory=dict)
 
 
 class _Sources:

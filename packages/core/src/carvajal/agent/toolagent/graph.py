@@ -41,6 +41,7 @@ persiste el checkpointer de Postgres. La compuerta de evidencia (R3) y la retenc
 streaming (R2) actúan fuera, en el adaptador del servicio.
 """
 
+import hashlib
 import json
 import re
 import threading
@@ -83,6 +84,7 @@ from carvajal.agent.toolagent.status import emit_status
 from carvajal.agent.toolagent.tools import (
     BUDGET_FREE,
     CITY_KEYS,
+    MEMORY_TOOLS,
     STATUS_TEMPLATES,
     TOOL_SCHEMAS,
     ToolContext,
@@ -550,6 +552,25 @@ def _previous_contents(messages: Sequence[BaseMessage]) -> dict[str, str]:
     return contents
 
 
+def _fingerprint(name: str, args: Any, progress: "_TurnProgress") -> str:
+    """Huella de deduplicación de una llamada en el turno.
+
+    Las herramientas de memoria llevan además la huella de la memoria vigente: tras una que
+    escribe, ``listar_memoria`` ya no sale de la deduplicación con la lista vieja (spec 045,
+    research R7). Entre pasos del modelo no se deduplican (``_previous_contents`` usa la
+    huella sin memoria), lo que solo puede costar una consulta del cupo.
+    """
+
+    fingerprint = call_fingerprint(name, args)
+    if name not in MEMORY_TOOLS:
+        return fingerprint
+    # Solo una huella corta de la memoria: ``seen_calls`` llega al checkpoint y no debe
+    # llevar valores de memoria (FR-012).
+    snapshot = json.dumps(progress.memory, ensure_ascii=False, sort_keys=True, default=str)
+    digest = hashlib.sha256(snapshot.encode("utf-8")).hexdigest()[:12]
+    return f"{fingerprint}#memoria:{digest}"
+
+
 def _model_steps(messages: Sequence[BaseMessage]) -> tuple[int, int]:
     """Pasos del modelo del turno: ``(total, con alguna consulta real)``.
 
@@ -655,6 +676,8 @@ class _TurnProgress:
     owner_key: str = ""
     thread_id: str = ""
     memory: dict[str, Any] = field(default_factory=dict)
+    # Canales que las herramientas de memoria reemplazan en el turno (spec 045, R7).
+    state_update: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_state(
@@ -702,7 +725,20 @@ class _TurnProgress:
             "cards": self.cards,
             "commercial_context": self.commercial_context,
             "missing": self.missing,
+            **self.state_update,
         }
+
+    def apply(self, update: Mapping[str, Any]) -> None:
+        """Vuelca el ``state_update`` de una herramienta: el resto del turno lo ve."""
+
+        self.state_update.update(update)
+        if "memory" in update:
+            self.memory = dict(update["memory"] or {})
+
+    def memory_changed(self) -> bool:
+        """Alguna herramienta cambió la memoria o las preferencias en este paso."""
+
+        return "memory" in self.state_update or "preferences" in self.state_update
 
 
 def build_tool_agent(
@@ -878,6 +914,16 @@ def build_tool_agent(
                     status="error",
                 )
             )
+        if progress.memory_changed():
+            # Como el nodo ``shortcut``: el sistema del resto del turno lleva la memoria nueva
+            # (mismo id, así ``add_messages`` lo reemplaza en su lugar; spec 045, R7).
+            preferences = progress.state_update.get("preferences", state.get("preferences"))
+            replies.append(
+                SystemMessage(
+                    content=system_prompt(progress.commercial_context, preferences or []),
+                    id=SYSTEM_MESSAGE_ID,
+                )
+            )
         return {"messages": replies, **progress.update()}
 
     def _run_call(
@@ -888,7 +934,7 @@ def build_tool_agent(
         contents: dict[str, str],
     ) -> ToolMessage:
         tool_call_id = str(call_id or "")
-        fingerprint = call_fingerprint(name, args)
+        fingerprint = _fingerprint(name, args, progress)
         if fingerprint in contents:
             # Repetida en el turno: se devuelve el resultado anterior sin ejecutar ni contar.
             logger.info("tool_agent.duplicate_call", tool=name)
@@ -929,6 +975,8 @@ def build_tool_agent(
                 progress.commercial_context.pop(key, None)
             elif value != "":
                 progress.commercial_context[key] = value
+        if result.state_update:
+            progress.apply(result.state_update)
         contents[fingerprint] = result.content
         return ToolMessage(
             content=result.content,

@@ -38,6 +38,7 @@ from carvajal.agent.toolagent import graph as graph_module
 from carvajal.agent.toolagent.graph import (
     FAREWELL_INSTRUCTIONS,
     FAREWELL_INTENT,
+    SYSTEM_MESSAGE_ID,
     build_tool_agent,
     is_closing,
     recursion_limit,
@@ -1473,3 +1474,92 @@ def test_el_progreso_del_turno_pasa_dueno_hilo_memoria_y_ventana_a_las_herramien
     assert (context.owner_key, context.thread_id) == ("owner-1", "hilo-1")
     assert context.memory == {"nombre": {"v": 2, "value": "Ana"}}
     assert list(context.history) == [f"p{i}" for i in range(2, 10)]
+
+
+# --- Actualizaciones de estado desde herramientas (spec 045, T017) ----------------------------
+
+
+def test_una_herramienta_actualiza_memoria_y_sistema_en_el_mismo_turno(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con ``state_update`` la herramienta cambia ``memory`` y ``preferences``, el nodo
+    ``tools`` reemplaza el ``SystemMessage`` (mismo id) y una lectura posterior de memoria ya
+    no sale de la deduplicación (research R7)."""
+
+    # Arrange
+    from types import MappingProxyType
+
+    from carvajal.agent.toolagent.tools import _base, runner
+
+    seen_memory: list[dict[str, Any]] = []
+
+    def fake(args: Any, deps: Any, context: Any, sources: Any) -> Any:
+        seen_memory.append(dict(context.memory))
+        if not context.memory:
+            return _base._Draft(
+                "ok",
+                "guardado",
+                data={"guardado": True, "categoria": "nombre"},
+                state_update={
+                    "memory": {"nombre": {"v": 2, "value": "Ana"}},
+                    "preferences": ["nombre: Ana"],
+                    "sources": [{"n": 99}],  # clave no permitida: se descarta
+                },
+            )
+        return _base._Draft("ok", "lista", data={"memoria": {"nombre": "Ana"}})
+
+    implementations = dict(runner.IMPLEMENTATIONS)
+    implementations["indicador_financiero"] = fake
+    monkeypatch.setattr(runner, "IMPLEMENTATIONS", MappingProxyType(implementations))
+    monkeypatch.setattr(graph_module, "MEMORY_TOOLS", frozenset({"indicador_financiero"}))
+    args = {"nombre": "ingresos_consolidados", "periodo": "2024"}
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("indicador_financiero", "c1", **args),
+                _call("indicador_financiero", "c2", **args),
+            ]
+        ),
+        ScriptStep(text="Listo, Ana."),
+    ]
+    graph, _, _ = _build(steps)
+
+    # Act
+    state = graph.invoke(_input("Soy Ana"), _config())
+
+    # Assert
+    assert seen_memory == [{}, {"nombre": {"v": 2, "value": "Ana"}}]
+    assert state["memory"] == {"nombre": {"v": 2, "value": "Ana"}}
+    assert state["preferences"] == ["nombre: Ana"]
+    assert [s["n"] for s in state["sources"]] == []
+    systems = [m for m in state["messages"] if isinstance(m, SystemMessage)]
+    assert len(systems) == 1
+    assert systems[0].id == SYSTEM_MESSAGE_ID
+    assert "nombre: Ana" in str(systems[0].content)
+    assert state["messages"][0].id == SYSTEM_MESSAGE_ID
+
+
+def test_un_error_no_actualiza_el_estado(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    from types import MappingProxyType
+
+    from carvajal.agent.toolagent.tools import _base, runner
+
+    def failing(args: Any, deps: Any, context: Any, sources: Any) -> Any:
+        return _base._Draft("error", "falló", state_update={"memory": {"x": 1}})
+
+    implementations = dict(runner.IMPLEMENTATIONS)
+    implementations["sin_consulta"] = failing
+    monkeypatch.setattr(runner, "IMPLEMENTATIONS", MappingProxyType(implementations))
+
+    # Act
+    result = runner.run_tool(
+        "sin_consulta",
+        {"motivo": "conversacion"},
+        ToolDeps(vector_store=QueueStore(), embedder=FakeEmbedder(), settings=Settings()),
+        runner.ToolContext(),
+    )
+
+    # Assert
+    assert result.status == "error"
+    assert result.state_update == {}
