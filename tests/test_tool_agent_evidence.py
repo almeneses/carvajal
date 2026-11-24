@@ -872,3 +872,18 @@ def test_un_anio_sin_hito_se_declara_con_los_anios_cercanos() -> None:
         "La historia oficial no registra un hito en ese año; no lo interpolo. Los años más "
         "cercanos con hitos son: 1961 y 1964."
     ]
+
+
+def test_la_sugerencia_de_ciudad_de_la_memoria_no_respalda() -> None:
+    # Arrange: cotizar sin ciudad añade la ciudad habitual de la memoria (FR-013).
+    from carvajal.agent.toolagent.evidence import ask_for_missing, backing_data
+
+    data = {"status": "needs_input", "missing": ["ciudad"], "sugerencia_ciudad": "Yumbo"}
+
+    # Act
+    backing = json.dumps(backing_data("cotizar", data), ensure_ascii=False)
+    ask = ask_for_missing(["ciudad"], suggestion="Yumbo")
+
+    # Assert: no respalda nada (FR-017); solo se ofrece en la pregunta de confirmación.
+    assert "Yumbo" not in backing
+    assert ask.endswith("¿O lo hago en Yumbo, tu ciudad habitual?")

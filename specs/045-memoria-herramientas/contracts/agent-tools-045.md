@@ -402,4 +402,16 @@ herramienta los fijan.
   año sin hito se declara con los años cercanos (`tool_misses`).
 - **`preguntas_frecuentes`**: en la compuerta solo respalda `fragmento`
   (`evidence.backing_data`), nunca la pregunta ni la respuesta generadas.
+- **Compuerta con una búsqueda documental vacía** (revisión de la 045): si el turno consultó
+  el corpus sin evidencia y otra herramienta dio `ok` con fuentes (por ejemplo
+  `fecha_actual`, `indicadores_disponibles`, o `empresas_del_grupo` y
+  `ciudades_con_cobertura` sin argumentos, que siempre dan `ok`), el camino sigue siendo
+  `evidence` pero el texto no se transmite: se retiene y pasa `filter_unsupported` con los
+  datos de las herramientas (`evidence.filtered_evidence`). Sin respaldo, el turno se
+  abstiene; con una petición de dato o sedes, sale el reemplazo neutro con
+  `NO_CONTEXT_ANSWER`. Así la abstención del servidor no depende de que el modelo no añada
+  una llamada trivial. Aplica también a `buscar_producto` e `indicador_financiero` de la 044.
+- **`sugerencia_ciudad`** (de la memoria del dueño) no respalda nada en la compuerta
+  (`evidence.MEMORY_DATA_KEYS`, FR-017); cuando el texto del modelo se rechaza, el
+  reemplazo neutro la ofrece como pregunta: «¿O lo hago en {ciudad}, tu ciudad habitual?».
 - **Descripciones**: todas las nuevas respetan el tope de 300 caracteres de R10.

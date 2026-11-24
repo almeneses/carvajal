@@ -34,6 +34,7 @@ from carvajal.agent.toolagent.evidence import (
     abstention,
     ask_for_missing,
     backing_data,
+    filtered_evidence,
     gate,
     missing_fields,
     neutral_only,
@@ -417,6 +418,9 @@ class _ModelStep:
     """Un paso del modelo mientras se transmite, con el camino vigente al empezar."""
 
     path: GatePath
+    # ``evidence`` cuya evidencia no viene del corpus tras una búsqueda documental vacía
+    # (:func:`filtered_evidence`): el texto se retiene y se filtra como en ``no_query``.
+    filtered: bool = False
     pending: list[str] = field(default_factory=list)
     emitted: list[str] = field(default_factory=list)
     released: bool = False
@@ -467,7 +471,7 @@ class _TurnStream:
             return []
         step = self.step
         if step is None:
-            step = self.step = _ModelStep(path=self._step_path(node))
+            step = self.step = self._new_step(node)
         self._add_usage(chunk.usage_metadata)
         if chunk.tool_call_chunks:
             if step.emitted and not step.tool_call:
@@ -489,8 +493,9 @@ class _TurnStream:
             self.finished = True
             self.step = None
             return self._abstain(GATE_ABSTAIN, 0)
-        if step.path != GATE_EVIDENCE:
-            # ``no_query``: no sale nada mientras el paso corre; se filtra al cerrarlo.
+        if step.path != GATE_EVIDENCE or step.filtered:
+            # ``no_query`` (o evidencia sin corpus tras una búsqueda vacía): no sale nada
+            # mientras el paso corre; se filtra al cerrarlo.
             step.pending.append(piece)
             return []
         if step.released:
@@ -562,6 +567,11 @@ class _TurnStream:
 
         return GATE_NO_QUERY if node == _DIRECT_NODE else self._path()
 
+    def _new_step(self, node: Any) -> "_ModelStep":
+        path = self._step_path(node)
+        filtered = path == GATE_EVIDENCE and filtered_evidence(self.values.get("results") or [])
+        return _ModelStep(path=path, filtered=filtered)
+
     def _emit(self, text: str) -> list[ToolAgentEvent]:
         if not text:
             return []
@@ -594,14 +604,14 @@ class _TurnStream:
         llamadas que el modelo pide cuando ya no hay herramientas (límite del turno).
         """
 
-        step = self.step or _ModelStep(path=self._step_path(node))
+        step = self.step or self._new_step(node)
         self.step = step
         try:
             message = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
             if message is not None and (message.tool_calls or message.invalid_tool_calls):
                 return []
             text = _text(message.content) if message is not None else "".join(step.pending)
-            if step.path == GATE_EVIDENCE:
+            if step.path == GATE_EVIDENCE and not step.filtered:
                 return self._emit(self._remainder(text, step))
             if step.path == GATE_ABSTAIN:
                 return self._abstain(GATE_ABSTAIN, 0)
@@ -616,9 +626,13 @@ class _TurnStream:
             terms = unsupported_terms(text, allowed=self._allowed())
             if terms:
                 replacement = self._replacement()
+                if replacement and step.filtered:
+                    # Con una petición de dato o sedes, la parte documental declara su
+                    # ausencia; sin ellas, el turno se abstiene (FR-004).
+                    replacement = self._replacement(corpus_miss=True)
                 if replacement:
                     return self._replace(replacement, len(terms))
-                return self._abstain(GATE_NO_QUERY, len(terms))
+                return self._abstain(step.path, len(terms))
             return self._emit(text)
         finally:
             self.step = None
@@ -704,6 +718,7 @@ class _TurnStream:
         sites: dict[Any, Mapping[str, Any]] = {}
         fields: list[str] = []
         cities: list[str] = []
+        suggestion: str | None = None
         asked = False
         for tool, data in self.tool_payloads:
             if tool in DECLARATION_TOOLS:
@@ -715,6 +730,9 @@ class _TurnStream:
                 asked = True
                 fields.extend(str(item) for item in data.get("missing") or [])
                 cities.extend(str(city) for city in data.get("ciudades_disponibles") or [])
+                # La ciudad habitual de la memoria no respalda nada (FR-017): solo se ofrece
+                # en la pregunta de confirmación que construye ``ask_for_missing``.
+                suggestion = suggestion or (str(data.get("sugerencia_ciudad") or "") or None)
             elif data.get("status") == "empty" and tool == TOOL_COTIZAR:
                 for site in data.get("sedes") or []:
                     if isinstance(site, Mapping):
@@ -727,7 +745,9 @@ class _TurnStream:
         ):
             parts.append(NO_CONTEXT_ANSWER)
         if asked:
-            parts.append(ask_for_missing(fields, cities=list(dict.fromkeys(cities))))
+            parts.append(
+                ask_for_missing(fields, cities=list(dict.fromkeys(cities)), suggestion=suggestion)
+            )
         if not any(parts):
             return ""
         return "\n\n".join(part for part in [*tool_misses(self.tool_payloads), *parts] if part)

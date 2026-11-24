@@ -178,6 +178,9 @@ lista), no `NO_DATA_ANSWER`.
 
 El texto del resumen (`conversation_summary.text`) y los valores de memoria fuera de esas
 condiciones **no** respaldan nada. `_tool_backing` de `evaluation.py` aplica la misma regla.
+Tampoco la `sugerencia_ciudad` que `cotizar` y `buscar_sedes` añaden desde la memoria:
+`backing_data` la quita de los datos de la herramienta en ambos `_tool_backing`, y el
+reemplazo neutro la ofrece solo como pregunta de confirmación.
 
 ## 5. Pruebas de contrato (sin red)
 

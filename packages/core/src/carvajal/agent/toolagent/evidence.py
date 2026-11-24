@@ -22,6 +22,15 @@ donde dice ``sin_consulta``, para la de papel ``declaration``.
     la abstención. El texto completo se retiene y pasa :func:`filter_unsupported` antes de
     emitirse de una vez, salvo en el caso de :func:`neutral_only`.
 
+- :func:`filtered_evidence`: hay evidencia, pero solo de herramientas no documentales, y
+  la búsqueda documental del turno salió vacía. Una herramienta que siempre da ``ok`` con
+  fuente (``fecha_actual``, ``indicadores_disponibles``, ``empresas_del_grupo`` o
+  ``ciudades_con_cobertura`` sin argumentos, o un ``buscar_producto``) no respalda lo que
+  el modelo diga del corpus: el texto se retiene y pasa :func:`filter_unsupported` con lo
+  que aportaron las herramientas, como en ``no_query``; si no pasa, el turno se abstiene.
+  Así la abstención la sigue garantizando el servidor aunque el modelo, por error o por
+  inyección, añada una de esas llamadas a una búsqueda vacía (spec 045, revisión).
+
 - :func:`neutral_only`: el turno buscó en el corpus sin evidencia y salió de la
   abstención por una petición de dato (``needs_input`` de una herramienta o ``sin_consulta``
   con ``pedir_dato``) o por sedes sin precio. Nada de eso respalda lo que el modelo diga
@@ -89,6 +98,7 @@ __all__ = [
     "GATE_EVIDENCE",
     "GATE_NO_QUERY",
     "GREETING_ANSWER",
+    "MEMORY_DATA_KEYS",
     "MEMORY_UNAVAILABLE_ANSWER",
     "NO_DATA_ANSWER",
     "PREFERENCE_ANSWER",
@@ -97,6 +107,7 @@ __all__ = [
     "ask_for_missing",
     "backing_data",
     "filter_unsupported",
+    "filtered_evidence",
     "gate",
     "has_evidence",
     "missing_fields",
@@ -108,6 +119,11 @@ __all__ = [
 ]
 
 GatePath = Literal["evidence", "abstain", "no_query"]
+
+# Claves de los datos de una herramienta que vienen de la memoria del dueño, no de la
+# herramienta: no respaldan nada ante la compuerta (FR-017). La pregunta de confirmación
+# la construye :func:`ask_for_missing` con ``suggestion``.
+MEMORY_DATA_KEYS: Final = frozenset({"sugerencia_ciudad"})
 
 GATE_EVIDENCE: Final = "evidence"
 GATE_ABSTAIN: Final = "abstain"
@@ -368,6 +384,20 @@ def neutral_only(results: Iterable[Mapping[str, Any]]) -> bool:
     return gate(outcomes) == GATE_NO_QUERY and any(r.get("tool") in CORPUS_TOOLS for r in outcomes)
 
 
+def filtered_evidence(results: Iterable[Mapping[str, Any]]) -> bool:
+    """El camino es ``evidence``, pero la evidencia no viene de la búsqueda documental.
+
+    Verdadero si el turno consultó el corpus de verdad (alguna herramienta de papel
+    ``corpus`` sin ``error``), ninguna de esas consultas trajo evidencia y otra herramienta
+    sí dio ``ok`` con fuentes. Entonces el texto no se transmite: se retiene y se filtra con
+    los datos de las herramientas, y sin respaldo el turno se abstiene (FR-004).
+    """
+
+    outcomes = list(results)
+    searched = [r for r in outcomes if r.get("tool") in CORPUS_TOOLS and r.get("status") != "error"]
+    return bool(searched) and not has_evidence(searched) and gate(outcomes) == GATE_EVIDENCE
+
+
 def _fold(text: str) -> str:
     """Minúsculas sin tildes, para comparar palabras con lo permitido."""
 
@@ -527,13 +557,17 @@ def missing_fields(dato: str) -> list[str]:
     return [field for field, hints in _FIELD_HINTS.items() if words & set(hints)]
 
 
-def ask_for_missing(fields: Iterable[str], *, cities: Sequence[str] = ()) -> str:
+def ask_for_missing(
+    fields: Iterable[str], *, cities: Sequence[str] = (), suggestion: str | None = None
+) -> str:
     """Petición neutra de los datos que faltan, para reemplazar un texto rechazado.
 
     ``fields`` son los campos de ``missing`` de las herramientas (``ciudad``, ``cantidad``,
     ``temperatura``…); los desconocidos se ignoran. ``cities`` son las ciudades que devolvió
     la herramienta (``ciudades_disponibles``) y solo se listan si falta la ciudad. Sin campo
-    conocido la petición es genérica. Nunca es la abstención del corpus.
+    conocido la petición es genérica. Nunca es la abstención del corpus. ``suggestion`` es
+    la ciudad habitual de la memoria (``sugerencia_ciudad``): si falta la ciudad, se ofrece
+    como pregunta de confirmación, nunca como dato.
     """
 
     known = list(dict.fromkeys(f for f in fields if f in _MISSING_LABELS))
@@ -547,6 +581,8 @@ def ask_for_missing(fields: Iterable[str], *, cities: Sequence[str] = ()) -> str
     if "ciudad" in known and cities:
         text += f" Ciudades disponibles: {_join([str(c) for c in cities])}."
     question = "¿Me lo indicas?" if len(labels) == 1 else "¿Me los indicas?"
+    if "ciudad" in known and suggestion:
+        question += f" ¿O lo hago en {suggestion}, tu ciudad habitual?"
     return f"{text} {question}"
 
 
@@ -658,7 +694,9 @@ def backing_data(tool: str, data: Mapping[str, Any]) -> Mapping[str, Any]:
     ``preguntas_frecuentes`` devuelve preguntas y respuestas que redactó un LLM: solo su
     ``fragmento`` (el pasaje literal del núcleo que las verificó) respalda algo, nunca la
     ``pregunta`` ni la ``respuesta`` (spec 045, R18). Las demás herramientas devuelven
-    datos deterministas y se usan enteros.
+    datos deterministas y se usan enteros, salvo las claves de :data:`MEMORY_DATA_KEYS`:
+    ``sugerencia_ciudad`` es la ciudad habitual de la memoria del dueño y, como los demás
+    valores de memoria, nunca respalda un dato de Carvajal (FR-017).
     """
 
     if tool == TOOL_PREGUNTAS_FRECUENTES:
@@ -668,7 +706,9 @@ def backing_data(tool: str, data: Mapping[str, Any]) -> Mapping[str, Any]:
                 str(entry.get("fragmento") or "") for entry in entries if isinstance(entry, Mapping)
             ]
         }
-    return data
+    if MEMORY_DATA_KEYS.isdisjoint(data):
+        return data
+    return {key: value for key, value in data.items() if key not in MEMORY_DATA_KEYS}
 
 
 def abstention(
