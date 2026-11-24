@@ -59,7 +59,11 @@ queda en los logs.
   holgura). Es una defensa frente a clientes honestos o mal configurados; contra quien
   falsee la cabecera, el tope de bytes es el límite duro.
 - `200 {"texto": "…"}`: el texto va al borrador para revisarlo; no se envía solo (salvo en
-  manos libres, que ya envía sin revisar). El audio no se guarda ni se registra.
+  manos libres, que ya envía sin revisar). El audio no se guarda ni se registra. Las cifras
+  llegan al estilo colombiano (`carvajal.speech.normalize_transcript`): OpenAI escribe «mil
+  ochocientos» como «1,800» y se devuelve «1.800» («12,500,000» → «12.500.000»,
+  «2,500.50» → «2.500,50»); decimales («1,5», «12,5 onzas»), horas («10:30») y listas
+  («2, 3 y 4») no cambian.
 - Errores: `403 csrf|no_session`, `411 length_required`, `413 too_large|too_long`,
   `415 unsupported_type`, `422 empty|rejected`, `429 rate_limited` (con `Retry-After`) y
   `503 off|cap|circuit_open|unavailable`. `rejected` es un audio que OpenAI no aceptó
@@ -71,15 +75,49 @@ queda en los logs.
 - Cuerpo `application/x-www-form-urlencoded` con `message_id`: el id de una **respuesta del
   asistente guardada en la conversación de quien llama**. El hilo lo expone como
   `data-voz-mensaje` y el evento `done` del stream como `message_id`.
-- El servidor carga el mensaje, lo prepara para voz con `carvajal.speech.to_speech` (sin
-  citas, Markdown, emojis ni URL; cotizaciones en su versión corta; fuentes en una frase), lo
-  recorta a `VOICE_TTS_MAX_CHARS` en un fin de frase y devuelve `audio/mpeg` con
+- El servidor carga el mensaje, prepara su **resumen hablado** (ver
+  [Resumen hablado](#resumen-hablado); cotizaciones en su versión corta), lo recorta a
+  `VOICE_TTS_MAX_CHARS` en un fin de frase como red de seguridad y devuelve `audio/mpeg` con
   `Cache-Control: no-store`. El audio de una respuesta ya leída se guarda en una caché pequeña
   en memoria (32 entradas) para no pagar dos síntesis.
 - **No es un TTS público**: no acepta texto libre. Un id de otro dueño, de un mensaje del
   usuario o inexistente responde `404 not_found`.
 - Errores: `403`, `404`, `422 invalid_message|no_text|rejected`, `429` y `503` como arriba
   (`unavailable` también si la base no responde).
+
+## Resumen hablado
+
+«Escuchar», la lectura automática y manos libres leen un **resumen** de la respuesta, no
+la respuesta entera (spec 048): unas 55 palabras, 15 a 20 segundos. Lo prepara
+`apps.api.voice.spoken_message` con `carvajal.speech.spoken_summary` (canal `web`), sin
+LLM y de forma determinista, solo con frases y cifras de la propia respuesta:
+
+- una respuesta corta (abstenciones, saludos, datos sueltos) se lee completa;
+- si no cabe: la primera frase del primer párrafo, la pregunta final al cliente si la hay,
+  la primera lista en una frase («Te muestro tres opciones en pantalla: A, B y C.», o solo
+  cuántas hay si son más de cuatro o largas) y más frases del primer párrafo mientras
+  quepan; las fuentes en una frase; si se omitió algo que la frase de la lista no cubre,
+  «El detalle completo está en pantalla.» antes de la pregunta. Nunca pasa del presupuesto
+  en más de una frase, nunca corta una cifra y nunca lee una URL;
+- con cotización se lee solo su versión corta (producto, cantidades, total con IVA y
+  envío), las fuentes y «El detalle completo está en pantalla.».
+
+Ejemplo (respuesta con lista y pregunta):
+
+```text
+Para bebidas calientes, Carvajal Empaques ofrece vasos de papel de pared sencilla y doble pared. Te muestro tres opciones en pantalla: Vaso de papel 8 onzas, Vaso de papel 12 onzas y Vaso de papel 16 onzas.
+
+Según el sitio de Carvajal Empaques.
+
+¿Cuántas unidades necesitas y en qué ciudad?
+```
+
+El mismo texto llega al navegador para su voz de respaldo: el hilo lo publica en
+`data-voz-resumen` (texto escapado en un atributo, no HTML) y el stream en el campo
+`voz_resumen` del evento `done` (de la respuesta guardada; si no se puede leer, de lo
+emitido). `construirSegmentos` (`chat-voice.js`) lo prefiere y lee un párrafo por
+locución; si falta (una página vieja, un fallo al prepararlo), lee el turno del DOM como
+antes. Así la voz del servidor y la del navegador dicen lo mismo.
 
 ## Respaldo en el navegador
 
