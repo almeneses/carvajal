@@ -128,9 +128,12 @@ body:has(> .ancho-chat) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* El hilo se desvanece bajo la cabecera en vez de cortarse en seco. */
-  mask-image: linear-gradient(transparent, #000 28px);
-  padding: clamp(12px, 2.5vw, 28px) 6px;
+  /* El hilo se desvanece bajo la cabecera en vez de cortarse en seco. El relleno
+     superior nunca baja de la altura del degradado: sin desplazar, el primer turno
+     queda entero a la vista. */
+  --desvanecido: 28px;
+  mask-image: linear-gradient(transparent, #000 var(--desvanecido));
+  padding: max(var(--desvanecido), 2.5vw) 6px clamp(12px, 2.5vw, 28px);
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
 }
