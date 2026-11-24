@@ -1473,3 +1473,321 @@ def test_run_tool_desconocida_no_conserva_el_nombre_que_escribio_el_modelo() -> 
     # Assert
     assert result.outcome["tool"] == UNKNOWN_TOOL
     assert invented not in repr(result.outcome)
+
+
+# --- cotizar: unidad de compra (simulación s-clientes-19 y s-clientes-24) ----------------
+
+TIMES = "\u00d7"  # signo de multiplicar de la conversión
+FRIA_14: dict[str, Any] = {"family": "vaso", "capacity_oz": 14, "temperature": "fria"}
+
+
+def test_cotizar_convierte_las_cajas_y_dice_la_conversion() -> None:
+    # Act: «como 5 cajas» de vasos de 14 oz.
+    result = _run("cotizar", {**FRIA_14, "quantity": 5, "unidad": "cajas", "city": "Bogotá"})
+
+    # Assert: la conversión la hace la herramienta y va en los datos y en el mensaje.
+    assert result.status == "ok"
+    quote = result.payload["cotizacion"]
+    assert quote["conversion"] == f"5 cajas {TIMES} 925 = 4.625 unidades"
+    assert quote["unidades_pedidas"] == 4625
+    assert f"5 cajas {TIMES} 925 = 4.625 unidades" in result.payload["message"]
+    assert result.context_update["quantity"] == 5
+    assert result.context_update["unidad"] == "cajas"
+
+
+def test_cotizar_sin_presentacion_convertible_pide_la_cantidad() -> None:
+    # Act: ningún vaso de 14 oz se vende por paca.
+    result = _run("cotizar", {**FRIA_14, "quantity": 10, "unidad": "pacas", "city": "Bogotá"})
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["cantidad"]
+    assert "unidades" in result.payload["message"]
+    assert result.payload["presentaciones_publicadas"]
+    assert result.quote is None
+
+
+def test_cotizar_reutiliza_la_unidad_con_la_cantidad_del_contexto() -> None:
+    # Arrange: el turno anterior pidió 5 cajas.
+    context = ToolContext(
+        commercial_context={**FRIA_14, "quantity": 5, "unidad": "cajas", "city": "Bogotá"}
+    )
+
+    # Act
+    result = _run("cotizar", {"delivery": False}, _deps(), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert {"quantity", "unidad"} <= set(result.payload["reutilizado"])
+    assert result.payload["cotizacion"]["unidades_pedidas"] == 4625
+
+
+def test_cotizar_una_cantidad_nueva_sin_unidad_son_unidades() -> None:
+    # Arrange: el contexto tenía cajas; la persona ahora dice «500 unidades».
+    context = ToolContext(
+        commercial_context={**FRIA_14, "quantity": 5, "unidad": "cajas", "city": "Bogotá"}
+    )
+
+    # Act
+    result = _run("cotizar", {"quantity": 500}, _deps(), context)
+
+    # Assert: la unidad vieja no se arrastra ni queda en el contexto.
+    assert result.status == "ok"
+    assert "unidad" not in result.payload["reutilizado"]
+    assert "conversion" not in result.payload["cotizacion"]
+    assert result.payload["cotizacion"]["unidades_pedidas"] == 500
+    assert result.context_update["unidad"] == "unidades"
+
+
+def test_cotizar_rechaza_una_unidad_desconocida() -> None:
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 5, "unidad": "docenas", "city": "Bogotá"})
+
+    # Assert
+    assert result.status == "error"
+    assert result.quote is None
+
+
+# --- cotizar: ciudad fuera del directorio o no dicha (simulación s-clientes-17) -----------
+
+
+@pytest.mark.parametrize("city", ["Ciudad de Panamá", "Leticia"])
+def test_cotizar_con_ciudad_fuera_del_directorio_pide_una_ciudad_disponible(city: str) -> None:
+    # Arrange
+    context = ToolContext(question=f"Cotízame 500 vasos de 14 oz fríos en {city}")
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": city}, _deps(), context)
+
+    # Assert: no se cotiza en otra ciudad ni se guarda la ciudad sin sedes.
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["ciudad"]
+    assert result.payload["ciudad_fuera_del_directorio"] is True
+    assert "Bogotá" in result.payload["ciudades_disponibles"]
+    assert result.quote is None
+    assert "city" not in result.context_update
+
+
+def test_cotizar_ignora_una_ciudad_que_la_persona_no_dijo() -> None:
+    # Arrange: s-clientes-17; la persona (en Panamá) nunca dijo Bogotá.
+    context = ToolContext(question="Serían 500 unidades para arrancar. El J1 en dólares.")
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Bogotá"}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["ciudad"]
+    assert "ciudad" in result.payload["message"]
+    assert result.quote is None
+    assert "city" not in result.context_update
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        pytest.param(ToolContext(question="Cotízame 500 vasos fríos en bogota"), id="pregunta"),
+        pytest.param(
+            ToolContext(question="Serían 500", history=["Estoy en Bogotá, ¿qué vasos hay?"]),
+            id="historial",
+        ),
+        pytest.param(
+            ToolContext(question="Serían 500", commercial_context={"city": "Bogotá"}),
+            id="contexto",
+        ),
+    ],
+)
+def test_cotizar_usa_la_ciudad_que_la_persona_si_dijo(context: ToolContext) -> None:
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Bogotá"}, _deps(), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["ciudad"] == "Bogotá"
+
+
+def test_cotizar_sin_ciudad_nunca_cotiza_en_bogota_por_defecto() -> None:
+    # Arrange
+    context = ToolContext(question="Serían 500 vasos de 14 oz fríos")
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["ciudad"]
+    assert result.quote is None
+    assert "city" not in result.context_update
+
+
+def test_buscar_producto_vacio_declara_el_pais_del_catalogo() -> None:
+    # Act
+    result = _run(
+        "buscar_producto", {"familia": "vaso", "capacidad_oz": 199, "pais": "CO"}, _deps(**REAL)
+    )
+
+    # Assert
+    assert result.status == "empty"
+    assert result.payload["pais_catalogo"] == "CO"
+
+
+# --- cotizar: revisión de la unidad reenviada y de la ciudad no dicha ---------------------
+
+CAJAS_BOGOTA: dict[str, Any] = {**FRIA_14, "quantity": 5, "unidad": "cajas", "city": "Bogotá"}
+
+
+@pytest.mark.parametrize(
+    ("question", "args"),
+    [
+        pytest.param("Sin domicilio, lo recojo", {"delivery": False}, id="domicilio"),
+        pytest.param("¿Y con domicilio?", {"delivery": True, "city": "Bogotá"}, id="todo"),
+    ],
+)
+def test_cotizar_conserva_la_unidad_si_el_modelo_reenvia_la_misma_cantidad(
+    question: str, args: dict[str, Any]
+) -> None:
+    # Arrange: el turno anterior pidió 5 cajas; el modelo reenvía todos los argumentos, la
+    # cantidad incluida, pero sin la unidad.
+    context = ToolContext(question=question, commercial_context=CAJAS_BOGOTA)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 5, **args}, _deps(), context)
+
+    # Assert: siguen siendo 5 cajas, no 5 unidades, y el contexto no se sobrescribe.
+    assert result.status == "ok"
+    assert "unidad" in result.payload["reutilizado"]
+    assert result.payload["cotizacion"]["unidades_pedidas"] == 4625
+    assert result.context_update["unidad"] == "cajas"
+
+
+def test_cotizar_en_otra_ciudad_no_sobrescribe_la_unidad_del_contexto() -> None:
+    # Arrange: «¿y en Cali?»; en Cali no hay precio publicado, pero el contexto sigue en cajas.
+    context = ToolContext(question="¿y en Cali?", commercial_context=CAJAS_BOGOTA)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 5, "city": "Cali"}, _deps(), context)
+
+    # Assert
+    assert "unidad" in result.payload["reutilizado"]
+    assert result.context_update["unidad"] == "cajas"
+
+
+def test_cotizar_la_unidad_que_dice_la_pregunta_gana_a_la_del_contexto() -> None:
+    # Arrange: misma cantidad, pero la persona la dice en unidades.
+    context = ToolContext(question="Mejor 5 unidades nada más", commercial_context=CAJAS_BOGOTA)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 5}, _deps(), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["unidades_pedidas"] == 5
+    assert result.context_update["unidad"] == "unidades"
+
+
+def test_cotizar_toma_la_unidad_de_la_pregunta_si_el_modelo_la_omite() -> None:
+    # Arrange
+    context = ToolContext(question="Cotízame 5 cajas de vasos de 14 oz fríos en Bogotá")
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 5, "city": "Bogotá"}, _deps(), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["unidades_pedidas"] == 4625
+
+
+def test_cotizar_no_cambia_una_ciudad_no_dicha_por_la_del_contexto() -> None:
+    # Arrange: el hilo cotizó en Bogotá; la persona pregunta por «la capital antioqueña» y
+    # el modelo pide Medellín, que la persona no dijo.
+    context = ToolContext(
+        question="¿Y en la capital antioqueña?",
+        commercial_context={**FRIA_14, "quantity": 500, "city": "Bogotá"},
+    )
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Medellín"}, _deps(), context)
+
+    # Assert: ni Medellín ni Bogotá; se pide confirmar la ciudad.
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["ciudad"]
+    assert "city" not in result.payload["reutilizado"]
+    assert result.payload["ciudad_no_dicha"] == "Medellín"
+    assert "«Medellín»" in result.payload["message"]
+    assert result.quote is None
+    assert "city" not in result.context_update
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        pytest.param(
+            ToolContext(question="Cotízame 500 vasos de 14 oz fríos en Medelin"), id="errata"
+        ),
+        pytest.param(ToolContext(question="cotizame 500 vasos en baranquilla"), id="errata-2"),
+        pytest.param(
+            ToolContext(
+                question="Sí, esa",
+                history=["Cotízame 500 vasos de 14 oz fríos en la capital antioqueña"],
+                last_answer="¿Te refieres a Medellín?",
+            ),
+            id="confirmacion",
+        ),
+    ],
+)
+def test_cotizar_acepta_la_ciudad_con_errata_o_confirmada(context: ToolContext) -> None:
+    # Arrange
+    city = "Barranquilla" if "baranquilla" in context.question else "Medellín"
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": city}, _deps(), context)
+
+    # Assert: no vuelve a pedir la ciudad en bucle.
+    assert result.status != "needs_input" or result.payload["missing"] != ["ciudad"]
+    assert result.context_update.get("city") == city
+
+
+@pytest.mark.parametrize(
+    ("context", "city"),
+    [
+        pytest.param(ToolContext(question="Cotízame 500 vasos en Cal"), "Cali", id="corta"),
+        pytest.param(
+            ToolContext(question="Sí", last_answer="¿En qué ciudad lo necesitas?"),
+            "Medellín",
+            id="confirmacion-sin-ciudad",
+        ),
+        pytest.param(
+            ToolContext(question="Sí, 500 vasos y también tapas", last_answer="¿Medellín?"),
+            "Medellín",
+            id="no-es-solo-confirmacion",
+        ),
+    ],
+)
+def test_cotizar_no_acepta_una_ciudad_parecida_por_azar(context: ToolContext, city: str) -> None:
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": city}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["ciudad"]
+
+
+def test_cotizar_avisa_si_las_cajas_de_cada_referencia_traen_distintas_unidades() -> None:
+    # Act: vasos fríos sin capacidad; cada referencia tiene su propia caja.
+    result = _run(
+        "cotizar",
+        {
+            "family": "vaso",
+            "temperature": "fria",
+            "quantity": 5,
+            "unidad": "cajas",
+            "city": "Bogotá",
+        },
+    )
+
+    # Assert: la herramienta dice que no es el mismo pedido y que hay que preguntar.
+    assert result.status == "ok"
+    message = result.payload["message"]
+    assert "Cada referencia trae otra cantidad por presentación" in message
+    assert "menor precio por unidad" in message
+    assert "Pregunta qué referencia busca la persona" in message

@@ -1402,7 +1402,9 @@ def test_extremo_a_extremo_dos_cantidades_dan_dos_cotizaciones(engine: Any) -> N
     service, _ = quoting_service(engine, calls)
 
     # Act
-    events = list(service.stream("dueno-e2e-dos", "cotiza 1000 y 2000 vasos", client_turn_id="t"))
+    events = list(
+        service.stream("dueno-e2e-dos", "cotiza 1000 y 2000 vasos en Bogotá", client_turn_id="t")
+    )
 
     # Assert
     done = named(events, "done").data
@@ -1421,7 +1423,9 @@ def test_extremo_a_extremo_solo_cambia_el_domicilio_y_se_reemplaza(engine: Any) 
     service, _ = quoting_service(engine, [args, {**args, "delivery": False}])
 
     # Act
-    events = list(service.stream("dueno-e2e-domicilio", "y sin domicilio", client_turn_id="d"))
+    events = list(
+        service.stream("dueno-e2e-domicilio", "y sin domicilio, en Bogotá", client_turn_id="d")
+    )
 
     # Assert
     done = named(events, "done").data
@@ -1436,7 +1440,9 @@ def test_extremo_a_extremo_respeta_el_tope_de_cotizaciones(engine: Any) -> None:
     service, _ = quoting_service(engine, calls, max_quotes=2)
 
     # Act
-    events = list(service.stream("dueno-e2e-tope", "cotiza tres cantidades", client_turn_id="m"))
+    events = list(
+        service.stream("dueno-e2e-tope", "cotiza tres cantidades en Bogotá", client_turn_id="m")
+    )
 
     # Assert
     done = named(events, "done").data

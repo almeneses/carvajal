@@ -11,9 +11,11 @@ Spec 044 (T023, T034, T035, T039 y T040).
 - ``shortcut`` corre ``decide_route`` (research R8). Si la ruta es ``direct`` con intención
   de saludo o capacidad (``greeting``) o de preferencia declarada (``memory_write``), el
   turno va a ``direct`` con ``mode_path="shortcut"``; la preferencia se guarda en el Store
-  del dueño como en el grafo ``routes``. Una preferencia que trae además una pregunta, un
-  pedido comercial o una corrección del contexto comercial del hilo se guarda y el turno
-  sigue al agente con el sistema actualizado.
+  del dueño como en el grafo ``routes``. Una despedida o un agradecimiento sin pedido
+  (:func:`is_closing`: «perfecto, eso era todo», «gracias, muy amable») también va al atajo,
+  con la intención ``farewell``: no hay nada que consultar. Una preferencia que trae además
+  una pregunta, un pedido comercial o una corrección del contexto comercial del hilo se
+  guarda y el turno sigue al agente con el sistema actualizado.
 - ``direct`` prepara el turno como el nodo ``direct`` del grafo ``routes``
   (``DIRECT_SYSTEM`` + ``DIRECT_INSTRUCTIONS`` con ``build_conversation_prompt``) y lo
   redacta con el mismo modelo de chat **sin herramientas**: cero decisiones del proveedor
@@ -40,6 +42,7 @@ streaming (R2) actúan fuera, en el adaptador del servicio.
 """
 
 import json
+import re
 import threading
 import unicodedata
 from collections.abc import Mapping, Sequence
@@ -70,6 +73,7 @@ from carvajal.agent.graph import (
 )
 from carvajal.agent.router import decide_route
 from carvajal.agent.state import Turn
+from carvajal.agent.toolagent.evidence import names_city
 from carvajal.agent.toolagent.state import (
     TOOL_NAMES,
     TOOL_SIN_CONSULTA,
@@ -85,6 +89,7 @@ from carvajal.agent.toolagent.tools import (
     build_tools,
     call_fingerprint,
     format_tool_content,
+    last_answer,
     run_tool,
 )
 from carvajal.application.ask import _neutralize
@@ -95,6 +100,8 @@ __all__ = [
     "CANCEL_KEY",
     "COMMERCIAL_CLOSE",
     "COMMERCIAL_OPEN",
+    "FAREWELL_INSTRUCTIONS",
+    "FAREWELL_INTENT",
     "PREFERENCES_CLOSE",
     "PREFERENCES_OPEN",
     "SHORTCUT_INTENTS",
@@ -103,6 +110,7 @@ __all__ = [
     "TurnCancelled",
     "build_tool_agent",
     "history_messages",
+    "is_closing",
     "recursion_limit",
     "shortcut_intent",
     "system_prompt",
@@ -118,6 +126,153 @@ PREFERENCES_CLOSE = "</preferencias>"
 # Intenciones de ``decide_route`` que atiende el atajo (FR-008): saludo, agradecimiento y
 # capacidad comparten ``greeting``; ``memory_write`` es una preferencia declarada.
 SHORTCUT_INTENTS: Final = frozenset({"greeting", "memory_write"})
+# Despedida o agradecimiento sin pedido: lo atiende el atajo sin pasar por ``decide_route``,
+# que solo reconoce el agradecimiento exacto («gracias») como ``greeting``.
+FAREWELL_INTENT: Final = "farewell"
+FAREWELL_INSTRUCTIONS: Final = (
+    "La persona se despide o agradece. Responde en una o dos frases cordiales y ofrece ayuda "
+    "para otra consulta. No repitas datos del historial: ni cifras, ni precios, ni nombres de "
+    "sedes, ciudades o empresas. No recuperes documentos ni des datos."
+)
+# Marcas de cierre (plegadas, sin tildes). Las de despedida cierran también un mensaje que
+# antes cuenta el siguiente paso de la persona («Entonces llamo a esa sede. Dios le pague.»);
+# las de agradecimiento solo si no queda nada más que relleno.
+_THANKS_MARKERS: Final = (
+    "muchisimas gracias",
+    "muchas gracias",
+    "mil gracias",
+    "gracias",
+    "agradezco",
+    "agradecido",
+    "agradecida",
+    "muy amable",
+)
+_FAREWELL_MARKERS: Final = (
+    "eso era todo",
+    "eso es todo",
+    "era todo",
+    "seria todo",
+    "dios le pague",
+    "dios te pague",
+    "dios le bendiga",
+    "dios te bendiga",
+    "bendiciones",
+    "hasta luego",
+    "hasta pronto",
+    "nos vemos",
+    "chao",
+    "chau",
+    "adios",
+    "feliz dia",
+    "feliz tarde",
+    "feliz noche",
+)
+_CLOSING_MARKERS: Final = (*_FAREWELL_MARKERS, *_THANKS_MARKERS)
+# Relleno de un cierre: lo que puede acompañar a la marca sin pedir nada.
+_CLOSING_FILLER: Final = frozenset(
+    {
+        "a",
+        "amable",
+        "atencion",
+        "ayuda",
+        "bien",
+        "buen",
+        "buena",
+        "bueno",
+        "de",
+        "el",
+        "excelente",
+        "genial",
+        "info",
+        "informacion",
+        "la",
+        "le",
+        "listo",
+        "lo",
+        "mil",
+        "muchas",
+        "muchisimas",
+        "muy",
+        "ok",
+        "okay",
+        "perfecto",
+        "por",
+        "super",
+        "su",
+        "te",
+        "ti",
+        "todo",
+        "tu",
+        "usted",
+        "vale",
+        "x",
+    }
+)
+_SENTENCE_RE: Final = re.compile(r"[.!;:\n]+")
+_REQUEST_WORDS: Final = frozenset(
+    {
+        "ademas",
+        "ahora",
+        "ayudame",
+        "busco",
+        "envien",
+        "envienme",
+        "interesa",
+        "ultima",
+        "ultimo",
+        "busca",
+        "buscame",
+        "buscar",
+        "cambia",
+        "cambiar",
+        "como",
+        "cual",
+        "cuales",
+        "cuando",
+        "cuanto",
+        "cuanta",
+        "cuantos",
+        "cuantas",
+        "dame",
+        "deme",
+        "dime",
+        "digame",
+        "donde",
+        "envia",
+        "enviame",
+        "hay",
+        "manda",
+        "mandame",
+        "mejor",
+        "muestrame",
+        "necesito",
+        "necesitaria",
+        "otra",
+        "otras",
+        "otro",
+        "otros",
+        "pero",
+        "pido",
+        "podria",
+        "podrias",
+        "precio",
+        "precios",
+        "puede",
+        "puedes",
+        "quiero",
+        "quisiera",
+        "recomienda",
+        "recomiendame",
+        "sean",
+        "serian",
+        "tambien",
+        "tiene",
+        "tienen",
+        "valor",
+    }
+)
+_REQUEST_STEMS: Final = ("cotiz",)
+_WORDS_RE: Final = re.compile(r"[^\W_]+")
 # Id fijo del mensaje de sistema del turno: el atajo lo reemplaza (``add_messages``) cuando
 # guarda una preferencia y el turno sigue al agente.
 SYSTEM_MESSAGE_ID: Final = "tool-agent-system"
@@ -250,11 +405,12 @@ def shortcut_intent(
 ) -> tuple[str, str]:
     """Intención del atajo y preferencia declarada según ``decide_route`` (research R8).
 
-    Devuelve ``(intención, preferencia)``. La intención es ``greeting`` o ``memory_write``
-    si el turno lo atiende el atajo; vacía si va al agente. La preferencia, si la hay, se
-    guarda aunque el turno siga al agente: una declaración que además pregunta algo
-    («Recuerda que prefiero respuestas cortas, ¿cuándo se fundó Carvajal?») o pide una
-    cotización no se atiende solo con la confirmación, como haría el grafo ``routes``.
+    Devuelve ``(intención, preferencia)``. La intención es ``greeting``, ``memory_write`` o
+    ``farewell`` (:func:`is_closing`) si el turno lo atiende el atajo; vacía si va al agente.
+    La preferencia, si la hay, se guarda aunque el turno siga al agente: una declaración que
+    además pregunta algo («Recuerda que prefiero respuestas cortas, ¿cuándo se fundó
+    Carvajal?») o pide una cotización no se atiende solo con la confirmación, como haría el
+    grafo ``routes``.
 
     Con ``commercial_context`` (el del hilo), una corrección de cantidad o de entrega
     sobre ese contexto («Llámame Ana y mejor 2000») también sigue al agente: el grafo
@@ -263,13 +419,69 @@ def shortcut_intent(
 
     decision = decide_route(question, list(turns))
     preference = decision.preference
+    context = dict(commercial_context or {})
+    if not preference and is_closing(question) and _commercial_follow_up(question, context) is None:
+        return FAREWELL_INTENT, ""
     if decision.route != "direct" or decision.intent not in SHORTCUT_INTENTS:
         return "", preference
     if decision.intent == "memory_write" and _carries_request(question):
         return "", preference
-    if _commercial_follow_up(question, dict(commercial_context or {})) is not None:
+    if _commercial_follow_up(question, context) is not None:
         return "", preference
     return decision.intent, preference
+
+
+def is_closing(question: str) -> bool:
+    """El mensaje es una despedida o un agradecimiento que no pide nada nuevo.
+
+    Sin signo de interrogación, es un cierre si:
+
+    - quitadas las marcas de cierre («gracias», «eso era todo», «chao»…) y el relleno
+      («listo», «perfecto», «muy amable», «por la info»), no queda nada: ni cifras, ni
+      productos, ni ciudades, ni un «y» o un «no» que respondan o pidan algo; o
+    - la última frase es solo una despedida («Dios le pague», «chao») y lo anterior no trae
+      palabras de pedido o corrección («cotízame», «necesito», «mejor», «pero»…), ni un «y»
+      al inicio de una frase, ni una ciudad de Colombia: la persona cuenta qué hará después.
+
+    Ante la duda no es un cierre: el turno sigue al agente.
+    """
+
+    if "?" in question or "¿" in question:
+        return False
+    sentences = [
+        _WORDS_RE.findall(_fold(part)) for part in _SENTENCE_RE.split(question) if part.strip()
+    ]
+    sentences = [words for words in sentences if words]
+    if not sentences:
+        return False
+    words = [word for sentence in sentences for word in sentence]
+    if not _has_marker(words, _CLOSING_MARKERS):
+        return False
+    if not _closing_residue(words):
+        return True
+    last = sentences[-1]
+    if not _has_marker(last, _FAREWELL_MARKERS) or _closing_residue(last):
+        return False
+    before = [word for sentence in sentences[:-1] for word in sentence]
+    if any(word in _REQUEST_WORDS or word.startswith(_REQUEST_STEMS) for word in before):
+        return False
+    if any(sentence[0] == "y" for sentence in sentences[:-1]):
+        return False
+    return not names_city(question)
+
+
+def _has_marker(words: Sequence[str], markers: Sequence[str]) -> bool:
+    text = f" {' '.join(words)} "
+    return any(f" {marker} " in text for marker in markers)
+
+
+def _closing_residue(words: Sequence[str]) -> list[str]:
+    """Palabras que quedan al quitar las marcas de cierre y el relleno."""
+
+    text = " ".join(words)
+    for marker in _CLOSING_MARKERS:
+        text = re.sub(rf"(?<!\S){marker}(?!\S)", " ", text)
+    return [word for word in text.split() if word not in _CLOSING_FILLER]
 
 
 def _carries_request(question: str) -> bool:
@@ -397,6 +609,9 @@ def _status_args(name: str, args: Any, progress: "_TurnProgress") -> dict[str, A
         city = validated.get(key)
         if isinstance(city, str) and _fold(city) not in said:
             validated.pop(key)
+    if validated.get("unidad") not in (None, "unidades"):
+        # «10 cajas» no son «10 vasos»: la cantidad en otra unidad no va en el estado.
+        validated.pop("quantity", None)
     return validated
 
 
@@ -433,6 +648,8 @@ class _TurnProgress:
     cards: dict[str, Any]
     commercial_context: dict[str, Any]
     missing: list[str]
+    history: list[str]
+    last_answer: str
 
     @classmethod
     def from_state(cls, state: Mapping[str, Any]) -> "_TurnProgress":
@@ -446,6 +663,12 @@ class _TurnProgress:
             cards=dict(state.get("cards") or {}),
             commercial_context=dict(state.get("commercial_context") or {}),
             missing=list(state.get("missing") or []),
+            history=[
+                str(turn.get("question") or "")
+                for turn in state.get("seed_turns") or []
+                if isinstance(turn, Mapping)
+            ],
+            last_answer=last_answer(state.get("seed_turns") or []),
         )
 
     def context(self) -> ToolContext:
@@ -454,6 +677,8 @@ class _TurnProgress:
             sources=self.sources,
             commercial_context=self.commercial_context,
             quotes=self.quotes,
+            history=self.history,
+            last_answer=self.last_answer,
         )
 
     def update(self) -> dict[str, Any]:
@@ -565,7 +790,11 @@ def build_tool_agent(
         # La intención ya la decidió ``shortcut``: recalcularla aquí duplicaría el
         # enrutador y podría divergir si una de las dos llamadas cambiara de entradas.
         intent = state.get("shortcut_intent", "")
-        instructions = DIRECT_INSTRUCTIONS.get(intent, DIRECT_INSTRUCTIONS["default"])
+        instructions = (
+            FAREWELL_INSTRUCTIONS
+            if intent == FAREWELL_INTENT
+            else DIRECT_INSTRUCTIONS.get(intent, DIRECT_INSTRUCTIONS["default"])
+        )
         # Mismo prompt que la ruta ``direct``; historial y preferencias neutralizados para
         # que ninguno cierre su bloque (FR-007).
         prompt = build_conversation_prompt(

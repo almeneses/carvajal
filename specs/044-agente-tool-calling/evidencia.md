@@ -240,8 +240,7 @@ corrige solo expectativas de material contra `check_material` y la aceptó el ow
 
 ## 11. Observación simulada (2026-11-24)
 
-El owner dispone de un día, no de dos semanas, así que la observación de §10 se reemplazó
-por una **observación simulada**: 60 escenarios de conversación de 3 a 5 turnos
+La observación de §10 se reemplazó por una **observación simulada**: 60 escenarios de conversación de 3 a 5 turnos
 (`data/eval/simulacion_escenarios.json`) contra el `ChatService` real (Postgres, Qdrant,
 DeepSeek), con un cliente simulado (`carvajal simulate-chat`). Cada turno lo calificó un juez
 independiente (utilidad, datos sin fuente, garantías) y un verificador escéptico intentó

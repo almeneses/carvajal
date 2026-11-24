@@ -15,6 +15,19 @@ Dos entradas (spec 044, R4):
 - ``quote(text)`` interpreta el texto del turno con las reglas de la spec 036 (historial,
   perfil, seguimientos, saludos) y delega en ``quote_request()``.
 
+Unidad de compra (spec 044, simulación): ``QuoteRequest.unit`` dice en qué viene la
+cantidad (``unidad`` por defecto, ``caja``, ``paquete`` o ``paca``). El motor la convierte a
+unidades por referencia, de forma determinista, con la presentación declarada: la del
+catálogo (``units_per_box``, ``units_per_pack`` o la «paca x N» del nombre) o la del contrato
+comercial (la base de la oferta publicada). Si las fuentes no declaran esa presentación o se
+contradicen, la referencia no se cotiza; si ninguna se puede convertir, el motor pide la
+cantidad (``missing: ["cantidad"]``) en vez de suponer cuántas unidades trae. Cada opción
+publica la conversión hecha (``conversion``) para que nadie la recalcule. Si las opciones
+convierten a distinto número de unidades, no son el mismo pedido: se ordenan por precio por
+unidad y la respuesta lo dice, con la conversión de cada una. Si el nombre de la ficha
+declara otra presentación («paca x 200») y el catálogo no declara la pedida, la oferta del
+contrato rotulada con la pedida no basta para convertir.
+
 Temperatura (corrección «tinto»): si la solicitud no dice la temperatura y ni el uso ni el
 microondas la implican, el motor la pregunta (``missing: ["temperatura"]``) siempre que la
 respuesta cambie qué referencias son aptas. La decisión se toma con ``check_material`` sobre
@@ -45,6 +58,7 @@ __all__ = [
     "MAX_ALTERNATIVES",
     "OUT_OF_SCOPE",
     "QUOTE_VERSION",
+    "UNITS",
     "QuoteRequest",
     "quote",
     "quote_request",
@@ -57,7 +71,7 @@ BOGOTA = ZoneInfo("America/Bogota")
 COP = "COP"
 OUT_OF_SCOPE = f"{ABSENCE_POLICY['out_of_scope']['say']} {ABSENCE_POLICY['out_of_scope']['offer']}"
 NO_PRODUCTS = (
-    "No encontré en el catálogo referencias que cumplan lo que pedís. "
+    "No encontré en el catálogo referencias que cumplan lo que pides. "
     "Puedo ampliar la búsqueda o pasarte el contacto de un asesor."
 )
 _DELIVERY = re.compile(
@@ -70,15 +84,15 @@ _GREETING = re.compile(
     r"^\s*(hola|buenas|buen d[ií]a|buenas tardes|buenas noches|hey|qu[eé] tal)\b", re.I
 )
 GREETING_REPLY = (
-    "Hola. Contame qué producto, cuántas unidades y en qué ciudad lo buscás; con eso te "
+    "Hola. Cuéntame qué producto, cuántas unidades y en qué ciudad lo buscas; con eso te "
     "armo la cotización."
 )
 ASK_PRODUCT = (
-    "Decime qué querés cotizar: producto, cantidad y ciudad. Por ejemplo, «20 vasos para "
+    "Dime qué quieres cotizar: producto, cantidad y ciudad. Por ejemplo, «20 vasos para "
     "bebida caliente en Bogotá»."
 )
 ASK_QUANTITY = (
-    "¿Cuántas unidades necesitás? Con eso calculo la presentación, los sobrantes y el total."
+    "¿Cuántas unidades necesitas? Con eso calculo la presentación, los sobrantes y el total."
 )
 ASK_DRINK_TEMPERATURE = (
     "¿Es para bebida caliente o fría? El material cambia según la temperatura y no quiero "
@@ -92,6 +106,13 @@ PENDING_DELIVERY = "Falta saber si va con domicilio o con retiro."
 _QUANTITY = re.compile(
     r"\b(?:mejor|ahora|sean|ser[ií]an|son|para)\s+(\d{1,3}(?:[.,]\d{3})+|\d+)\b", re.I
 )
+# Unidades de compra que entiende ``QuoteRequest.unit`` y su plural para los textos.
+UNITS = ("unidad", "caja", "paquete", "paca")
+_UNIT_PLURAL = {"unidad": "unidades", "caja": "cajas", "paquete": "paquetes", "paca": "pacas"}
+_TIMES = "\u00d7"  # signo de multiplicar de la conversión («10 cajas por 200»)
+_UNIT_ARTICLE = {"unidad": "una", "caja": "una", "paquete": "un", "paca": "una"}
+# Presentación declarada en el nombre de la ficha: «(paca x 200)», «(paquete x 20)».
+_NAME_PRESENTATION = re.compile(r"\b(paca|paquete)\s*(?:x|por)\s*(\d{1,6})\b", re.I)
 _FAMILIES_LABEL = {
     "vaso": "vasos",
     "tapa": "tapas",
@@ -161,6 +182,91 @@ class QuoteRequest:
     quantity: int | None = None
     city: str | None = None
     delivery: bool | None = None
+    # Unidad en que viene ``quantity`` (``UNITS``); ``None`` equivale a ``unidad``.
+    unit: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _Conversion:
+    """Cantidad pedida en una presentación, convertida a unidades de una referencia."""
+
+    quantity: int
+    unit: str
+    units_per: int
+    source: str
+
+    @property
+    def units(self) -> int:
+        return self.quantity * self.units_per
+
+    def as_dict(self) -> dict[str, Any]:
+        label = self.unit if self.quantity == 1 else _UNIT_PLURAL[self.unit]
+        per = _units(Decimal(self.units_per))
+        return {
+            "quantity": self.quantity,
+            "unit": self.unit,
+            "units_per": self.units_per,
+            "units": self.units,
+            "source": self.source,
+            "text": (
+                f"{_units(Decimal(self.quantity))} {label} {_TIMES} {per} "
+                f"= {_units(Decimal(self.units))} unidades"
+            ),
+        }
+
+
+def _declared_sizes(product: Product, unit: str, dataset: Dataset) -> dict[int, list[str]]:
+    """Tamaños que el catálogo y el contrato declaran para la presentación ``unit``.
+
+    - Catálogo: ``units_per_pack`` es el paquete; ``units_per_box`` es la caja solo si la
+      ficha declara además el paquete (si no, la ficha conoce una sola presentación y no
+      dice si es caja o paquete); la «paca x N» o el «paquete x N» del nombre.
+    - Contrato: la base de las ofertas publicadas de la referencia (``caja`` o ``paquete``).
+
+    Si el nombre declara otra presentación y el catálogo no declara ``unit``, el contrato no
+    basta: devuelve vacío (no se sabe con certeza). Devuelve tamaño → fuentes; más de un
+    tamaño es una contradicción.
+    """
+
+    sizes: dict[int, list[str]] = {}
+
+    def add(size: int | None, source: str) -> None:
+        if size and source not in sizes.setdefault(size, []):
+            sizes[size].append(source)
+
+    if unit == "paquete":
+        add(product.units_per_pack, "catálogo")
+    if unit == "caja" and product.units_per_pack:
+        add(product.units_per_box, "catálogo")
+    for match in _NAME_PRESENTATION.finditer(product.name):
+        if _plain(match.group(1)) == unit:
+            add(int(match.group(2)), "catálogo")
+    # El nombre de la ficha declara otra presentación («paca x 200») y el catálogo no dice
+    # nada de ``unit``: una oferta del contrato rotulada ``unit`` contradice al catálogo (la
+    # «caja de 200» del contrato es la paca de la ficha), así que no se cuenta.
+    other_in_name = any(
+        _plain(match.group(1)) != unit for match in _NAME_PRESENTATION.finditer(product.name)
+    )
+    if other_in_name and not sizes:
+        return sizes
+    for offer in dataset.offers_for(product.sku):
+        if offer.basis == unit:
+            add(offer.units_in_basis, "contrato")
+    return sizes
+
+
+def _conversion(
+    product: Product, quantity: int, unit: str | None, dataset: Dataset
+) -> _Conversion | None:
+    """Conversión a unidades de la referencia; ``None`` si no se sabe con certeza."""
+
+    if unit in (None, "unidad"):
+        return _Conversion(quantity=quantity, unit="unidad", units_per=1, source="")
+    sizes = _declared_sizes(product, unit, dataset)
+    if len(sizes) != 1:
+        return None
+    [(size, sources)] = sizes.items()
+    return _Conversion(quantity=quantity, unit=unit, units_per=size, source=" y ".join(sources))
 
 
 def _plain(value: str) -> str:
@@ -543,6 +649,9 @@ def _difference(primary: Product, other: Product, option: dict[str, Any]) -> str
         parts.append(f"material {other.material}")
     presentation = option["presentation"]
     parts.append(f"{presentation['count']} {presentation['basis']} de {presentation['units']}")
+    if option.get("conversion"):
+        # Su propia conversión: con cajas o pacas cada referencia es un pedido distinto.
+        parts.append(option["conversion"]["text"])
     return "; ".join(parts)
 
 
@@ -600,10 +709,15 @@ def quote_request(
     quantity = request.quantity
     if quantity is None or quantity < 1:
         return _needs("cantidad", ASK_QUANTITY, request=data)
+    unit = request.unit or "unidad"
+    if unit not in UNITS:
+        return _needs("cantidad", ASK_QUANTITY, request=data)
+    if unit != "unidad":
+        data["unit"] = unit
     if city is None:
         return _needs(
             "ciudad",
-            "¿En qué ciudad lo buscás? Tengo sedes en "
+            "¿En qué ciudad lo buscas? Tengo sedes en "
             f"{', '.join(dataset.cities())}; con la ciudad te muestro precios y sedes.",
             request=data,
             cities=list(dataset.cities()),
@@ -619,6 +733,8 @@ def quote_request(
         )
 
     options = []
+    # Referencias con precio en la ciudad cuya presentación pedida no se sabe convertir.
+    unconvertible: list[Product] = []
     for product in products:
         offers = [
             offer
@@ -627,18 +743,53 @@ def quote_request(
         ]
         if not offers:
             continue
-        offer = min(offers, key=lambda item: _offer_for(item, quantity)["subtotal"])
+        conversion = _conversion(product, quantity, unit, dataset)
+        if conversion is None:
+            unconvertible.append(product)
+            continue
+        units = conversion.units
+        offer = min(offers, key=lambda item: _offer_for(item, units)["subtotal"])
         provider = dataset.provider(offer.site_id)
         if provider is None:
             continue
-        options.append(
-            (
-                product,
-                offer,
-                _option(product, offer, quantity, _provider(provider)),
+        option = _option(product, offer, units, _provider(provider))
+        if unit != "unidad":
+            option["conversion"] = conversion.as_dict()
+        options.append((product, offer, option))
+    # Con cajas, paquetes o pacas cada referencia puede convertir a otro número de unidades:
+    # el subtotal compara pedidos distintos, así que se ordena por precio por unidad.
+    mixed = len({option["units_requested"] for _, _, option in options}) > 1
+    if mixed:
+        options.sort(
+            key=lambda item: (
+                Decimal(item[2]["presentation"]["unit_price"]),
+                Decimal(item[2]["presentation"]["subtotal"]),
             )
         )
-    options.sort(key=lambda item: Decimal(item[2]["presentation"]["subtotal"]))
+    else:
+        options.sort(key=lambda item: Decimal(item[2]["presentation"]["subtotal"]))
+    if unconvertible:
+        # Primero los de conversión: explican por qué falta una referencia pedida. La lista
+        # completa respeta el tope.
+        discarded = [
+            *(
+                f"{item.name}: no se sabe con certeza cuántas unidades trae {_UNIT_ARTICLE[unit]} "
+                f"{unit} (el catálogo y el contrato no lo declaran)."
+                for item in unconvertible
+            ),
+            *discarded,
+        ][:MAX_DISCARDED]
+    if not options and unconvertible:
+        plural = _UNIT_PLURAL[unit]
+        return _needs(
+            "cantidad",
+            f"No sé con certeza cuántas unidades trae cada una de esas {plural}: el catálogo "
+            "y el contrato no declaran esa presentación para las referencias que aplican. "
+            "¿Me das la cantidad en unidades?",
+            request=data,
+            unit=unit,
+            unconvertible=[item.sku for item in unconvertible],
+        )
     if not options:
         sedes = dataset.providers_in(city)
         return _empty(
@@ -706,14 +857,30 @@ def quote_request(
     }
 
     label = _FAMILIES_LABEL.get(product.family, product.family)
+    asked = (
+        f"{_units(Decimal(quantity))} {label}"
+        if "conversion" not in primary
+        else f"{label} ({primary['conversion']['text']})"
+    )
+    cheapest = "La de menor precio por unidad es" if mixed else "La más económica es"
     reply = (
-        f"Cotización para {_units(Decimal(quantity))} {label} en {city}. "
-        f"La más económica es {product.name}: "
+        f"Cotización para {asked} en {city}. "
+        f"{cheapest} {product.name}: "
         f"{primary['presentation']['count']} "
         f"{primary['presentation']['basis']} de "
         f"{_units(Decimal(primary['presentation']['units']))} unidades por "
         f"{_money(Decimal(primary['presentation']['price_per_presentation']))} COP."
     )
+    if mixed:
+        # Cada opción con su propia conversión: no se comparan como si fueran el mismo pedido.
+        others = "".join(
+            f"; {item['name']}: {item['conversion']['text']}"
+            for _, _, item in options[1 : 1 + MAX_ALTERNATIVES]
+        )
+        reply += (
+            f" Cada referencia trae una cantidad distinta por {unit} "
+            f"({primary['conversion']['text']}{others}): confirma qué {unit} buscas."
+        )
     if wants_delivery is None:
         reply += f" {PENDING_DELIVERY} El total queda pendiente."
     elif wants_delivery:

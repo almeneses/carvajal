@@ -15,16 +15,23 @@ from typing import Any
 import pytest
 
 from carvajal.agent.toolagent.evidence import (
+    FAREWELL_ANSWER,
     GATE_ABSTAIN,
     GATE_EVIDENCE,
     GATE_NO_QUERY,
+    GREETING_ANSWER,
+    NO_DATA_ANSWER,
+    PREFERENCE_ANSWER,
+    abstention,
     ask_for_missing,
     filter_unsupported,
     gate,
     has_evidence,
     missing_fields,
+    names_city,
     neutral_only,
     sites_without_price,
+    tool_misses,
     unsupported_terms,
 )
 from carvajal.agent.toolagent.state import ToolOutcome, make_tool_outcome
@@ -594,3 +601,150 @@ def test_las_sedes_sin_precio_se_listan_con_su_cita() -> None:
     assert "None" not in text
     assert NO_CONTEXT_ANSWER not in text
     assert unsupported_terms(text, allowed=allowed) == []
+
+
+# --- Abstención ajustada a lo consultado (simulación spec 044) ----------------------------
+
+SEDES_VACIAS = (
+    "buscar_sedes",
+    {
+        "status": "empty",
+        "message": "No hay sedes del directorio en Tunja.",
+        "missing": [],
+        "ciudades_con_cobertura": ["Bogotá", "Cali"],
+    },
+)
+PRODUCTO_VACIO = (
+    "buscar_producto",
+    {"status": "empty", "message": "Ninguna referencia.", "missing": [], "pais_catalogo": "CO"},
+)
+CORPUS_VACIO = ("buscar_corpus", {"status": "empty", "message": "Sin fragmentos.", "missing": []})
+
+
+def test_las_busquedas_vacias_declaran_su_ausencia_con_los_datos_de_la_herramienta() -> None:
+    # Act
+    lines = tool_misses([PRODUCTO_VACIO, SEDES_VACIAS, PRODUCTO_VACIO])
+
+    # Assert: una frase por búsqueda, sin repetir y sin el argumento del modelo («Tunja»).
+    assert lines == [
+        "No lo encontré en el catálogo de Colombia.",
+        "No hay sedes del directorio en esa ciudad. Las ciudades con sedes son: Bogotá y Cali.",
+    ]
+
+
+def test_el_catalogo_de_mexico_y_las_coincidencias_por_nombre_se_nombran() -> None:
+    # Arrange
+    data = {
+        "status": "empty",
+        "pais_catalogo": "MX",
+        "fuera_de_filtros": [
+            {"sku": "MX-1", "nombre": "Vaso térmico 8 oz", "familia": "vaso", "apto": True},
+            {"sku": "MX-2", "familia": "tapa", "apto": False, "motivo": "PET"},
+        ],
+    }
+
+    # Act
+    [line] = tool_misses([("buscar_producto", data)])
+
+    # Assert: solo la apta se ofrece.
+    assert line.startswith("No lo encontré en el catálogo de México.")
+    assert "Vaso térmico 8 oz (MX-1)" in line
+    assert "MX-2" not in line
+
+
+@pytest.mark.parametrize(
+    "payloads",
+    [
+        pytest.param([("buscar_producto", {"status": "ok"})], id="ok"),
+        pytest.param([("cotizar", {"status": "needs_input"})], id="needs-input"),
+        pytest.param([("buscar_sedes", {"status": "error"})], id="error"),
+        pytest.param([("cotizar", {"status": "empty", "sedes": [{"n": 1}]})], id="con-sedes"),
+    ],
+)
+def test_solo_las_busquedas_vacias_sin_datos_declaran_ausencia(
+    payloads: list[tuple[str, dict[str, Any]]],
+) -> None:
+    # Act / Assert
+    assert tool_misses(payloads) == []
+
+
+def test_sin_buscar_en_el_corpus_la_abstencion_no_lo_nombra() -> None:
+    # Act
+    text, abstained = abstention([PRODUCTO_VACIO, SEDES_VACIAS])
+
+    # Assert
+    assert NO_CONTEXT_ANSWER not in text
+    assert text.startswith("No lo encontré en el catálogo de Colombia.")
+    assert abstained is True
+
+
+def test_con_busqueda_en_el_corpus_la_frase_del_corpus_va_al_final() -> None:
+    # Act
+    text, abstained = abstention([SEDES_VACIAS, CORPUS_VACIO])
+
+    # Assert
+    assert text.startswith("No hay sedes del directorio en esa ciudad.")
+    assert text.endswith(NO_CONTEXT_ANSWER)
+    assert abstained is True
+
+
+def test_una_busqueda_documental_con_error_no_cuenta_como_consulta_al_corpus() -> None:
+    # Act
+    text, abstained = abstention([("buscar_corpus", {"status": "error"})])
+
+    # Assert
+    assert text == NO_DATA_ANSWER
+    assert abstained is True
+
+
+@pytest.mark.parametrize(
+    ("conversation", "abstained"),
+    [
+        (FAREWELL_ANSWER, False),
+        (GREETING_ANSWER, False),
+        (PREFERENCE_ANSWER, False),
+        (NO_DATA_ANSWER, True),
+    ],
+)
+def test_sin_busquedas_sale_la_respuesta_de_conversacion(
+    conversation: str, abstained: bool
+) -> None:
+    # Act
+    text, flagged = abstention([("sin_consulta", {"status": "ok"})], conversation=conversation)
+
+    # Assert
+    assert text == conversation
+    assert flagged is abstained
+
+
+@pytest.mark.parametrize(
+    "payloads",
+    [
+        pytest.param([], id="sin-herramientas"),
+        pytest.param([PRODUCTO_VACIO, SEDES_VACIAS], id="catalogo-y-sedes"),
+        pytest.param([SEDES_VACIAS, CORPUS_VACIO], id="sedes-y-corpus"),
+    ],
+)
+def test_la_abstencion_no_afirma_nada_que_las_herramientas_no_respalden(
+    payloads: list[tuple[str, dict[str, Any]]],
+) -> None:
+    # Arrange: el respaldo son solo los datos de las herramientas (sin ``message``).
+    allowed = [
+        json.dumps({k: v for k, v in data.items() if k != "message"}, ensure_ascii=False)
+        for _, data in payloads
+    ]
+
+    # Act
+    text, _ = abstention(payloads)
+
+    # Assert
+    assert unsupported_terms(text, allowed=allowed) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("Gracias, en Cali", True), ("nos vemos en medellin", True), ("gracias, muy amable", False)],
+)
+def test_names_city_detecta_ciudades_en_minuscula_y_sin_tildes(text: str, expected: bool) -> None:
+    # Act / Assert
+    assert names_city(text) is expected

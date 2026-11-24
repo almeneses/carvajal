@@ -43,6 +43,20 @@ compuerta, determinista, sobre los ``ToolOutcome`` del turno.
   trajo sedes: se construyen solo con los datos de las herramientas (los campos de
   ``missing``, las ciudades y las sedes), nunca con texto del modelo. Una petición de dato
   no se convierte en «no está en el corpus».
+
+- :func:`abstention` es el texto que sustituye una redacción sin respaldo cuando no hay
+  petición ni sedes, y se ajusta a lo que el turno consultó (simulación de la spec 044):
+
+  - cada búsqueda vacía declara su ausencia con los datos de la herramienta
+    (:func:`tool_misses`: «no lo encontré en el catálogo de Colombia», las ciudades con
+    sedes del directorio, lo que sí coincide con el nombre buscado);
+  - ``NO_CONTEXT_ANSWER`` («no está en el corpus») solo si el turno buscó en el corpus;
+  - sin búsquedas, una respuesta de conversación (:data:`FAREWELL_ANSWER`,
+    :data:`GREETING_ANSWER`, :data:`PREFERENCE_ANSWER` o :data:`NO_DATA_ANSWER`): nunca la
+    frase del corpus, que afirmaría una búsqueda que no se hizo.
+
+  Ninguno de esos textos lleva cifras ni nombres del modelo: solo datos de las herramientas
+  y frases fijas, así que ninguna afirmación sin respaldo pasa.
 """
 
 import re
@@ -50,21 +64,36 @@ import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final, Literal
 
-from carvajal.agent.toolagent.state import TOOL_BUSCAR_CORPUS, TOOL_SIN_CONSULTA
+from carvajal.agent.toolagent.state import (
+    TOOL_BUSCAR_CORPUS,
+    TOOL_BUSCAR_PRODUCTO,
+    TOOL_BUSCAR_SEDES,
+    TOOL_COTIZAR,
+    TOOL_INDICADOR_FINANCIERO,
+    TOOL_SIN_CONSULTA,
+)
 from carvajal.application.evidence import _KNOWN_ENTITIES, _entities
+from carvajal.prompts import NO_CONTEXT_ANSWER
 
 __all__ = [
+    "FAREWELL_ANSWER",
     "GATE_ABSTAIN",
     "GATE_EVIDENCE",
     "GATE_NO_QUERY",
+    "GREETING_ANSWER",
+    "NO_DATA_ANSWER",
+    "PREFERENCE_ANSWER",
     "GatePath",
+    "abstention",
     "ask_for_missing",
     "filter_unsupported",
     "gate",
     "has_evidence",
     "missing_fields",
+    "names_city",
     "neutral_only",
     "sites_without_price",
+    "tool_misses",
     "unsupported_terms",
 ]
 
@@ -252,6 +281,12 @@ _MARKUP: Final = re.compile(r"[*_`#>|]")
 _SEGMENT_BREAK: Final = re.compile(r"[.!?¡¿:;\n]+")
 # Signos que ``application.evidence._entities`` quita a cada palabra, más los del JSON.
 _TOKEN_STRIP: Final = "¿?¡!,.;:()[]{}«»\"'"
+
+
+def names_city(text: str) -> bool:
+    """El texto nombra una ciudad de Colombia (las del directorio y las principales)."""
+
+    return bool(set(_WORD.findall(_fold(text))) & _CITIES)
 
 
 def has_evidence(results: Iterable[Mapping[str, Any]]) -> bool:
@@ -521,3 +556,95 @@ def sites_without_price(sites: Iterable[Mapping[str, Any]]) -> str:
         "No encontré un precio publicado para esta búsqueda. Estas sedes del directorio "
         "tienen contacto para confirmar precio y disponibilidad:\n\n" + "\n".join(lines)
     )
+
+
+# --- Abstención ajustada a lo que se consultó ----------------------------------------------
+
+# Respuestas de conversación de un turno sin búsquedas: frases fijas, sin cifras ni nombres.
+FAREWELL_ANSWER: Final = "Con gusto. Si necesitas algo más, aquí estoy."
+GREETING_ANSWER: Final = (
+    "Hola, soy Carva. Puedo ayudarte con empaques (qué referencia te sirve, precios y dónde "
+    "comprar) y con información pública de Carvajal. ¿Qué necesitas?"
+)
+PREFERENCE_ANSWER: Final = "Listo, lo tendré en cuenta."
+NO_DATA_ANSWER: Final = (
+    "No tengo un dato verificado para responder eso. Si me cuentas qué necesitas (un "
+    "producto, un precio, dónde comprar o un dato de Carvajal), lo busco."
+)
+_CATALOG_COUNTRIES: Final = {"CO": "Colombia", "MX": "México"}
+_MISS_OFFER: Final = "Si quieres, busco otra opción o te digo dónde comprar."
+
+
+def _named_matches(data: Mapping[str, Any]) -> str:
+    """Referencias aptas que coinciden con el nombre buscado fuera de los filtros."""
+
+    found = [
+        f"{item['nombre']} ({item['sku']})"
+        for item in data.get("fuera_de_filtros") or []
+        if isinstance(item, Mapping) and item.get("apto") and item.get("nombre") and item.get("sku")
+    ]
+    if not found:
+        return ""
+    return f" Con ese nombre sí aparece fuera de esa búsqueda: {_join(found)}."
+
+
+def tool_misses(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> list[str]:
+    """Una frase por búsqueda vacía del turno, con lo que sí trajo la herramienta.
+
+    ``payloads`` son ``(herramienta, datos)`` de cada ``ToolMessage``. Solo cuentan los
+    ``empty``: ``buscar_producto`` (catálogo del país consultado y las coincidencias por
+    nombre fuera de los filtros), ``buscar_sedes`` (ciudades con cobertura), ``cotizar`` sin
+    sedes e ``indicador_financiero``. ``buscar_corpus`` no: su ausencia es
+    ``NO_CONTEXT_ANSWER``. No se repite ningún argumento del modelo; las frases repetidas se
+    dan una vez.
+    """
+
+    lines: list[str] = []
+
+    def add(line: str) -> None:
+        if line not in lines:
+            lines.append(line)
+
+    for tool, data in payloads:
+        if data.get("status") != "empty":
+            continue
+        if tool == TOOL_BUSCAR_PRODUCTO:
+            country = _CATALOG_COUNTRIES.get(str(data.get("pais_catalogo") or "CO"), "Colombia")
+            add(f"No lo encontré en el catálogo de {country}.{_named_matches(data)}")
+        elif tool == TOOL_BUSCAR_SEDES:
+            cities = [str(city) for city in data.get("ciudades_con_cobertura") or []]
+            line = "No hay sedes del directorio en esa ciudad."
+            if cities:
+                line += f" Las ciudades con sedes son: {_join(cities)}."
+            add(line)
+        elif tool == TOOL_COTIZAR and not data.get("sedes"):
+            add("No encontré un precio publicado que cumpla esa solicitud.")
+        elif tool == TOOL_INDICADOR_FINANCIERO:
+            add("No hay un registro publicado de ese indicador para ese período; no lo estimo.")
+    return lines
+
+
+def abstention(
+    payloads: Iterable[tuple[str, Mapping[str, Any]]],
+    *,
+    conversation: str = NO_DATA_ANSWER,
+) -> tuple[str, bool]:
+    """Texto que sustituye una redacción sin respaldo y si es una abstención.
+
+    Las ausencias de :func:`tool_misses` van primero; ``NO_CONTEXT_ANSWER`` solo si el turno
+    buscó de verdad en el corpus (una llamada con ``error`` no buscó). Sin nada de eso sale
+    ``conversation`` (la respuesta de conversación que elige quien llama); es una abstención
+    salvo que sea una despedida, un saludo o la confirmación de una preferencia.
+    """
+
+    items = list(payloads)
+    parts = tool_misses(items)
+    # Una búsqueda documental con argumentos inválidos (``error``) no consultó el corpus.
+    if any(tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error" for tool, data in items):
+        parts.append(NO_CONTEXT_ANSWER)
+    elif parts:
+        parts.append(_MISS_OFFER)
+    if parts:
+        return " ".join(parts), True
+    conversational = conversation in {FAREWELL_ANSWER, GREETING_ANSWER, PREFERENCE_ANSWER}
+    return conversation, not conversational

@@ -90,6 +90,7 @@ __all__ = [
     "call_fingerprint",
     "content_data",
     "format_tool_content",
+    "last_answer",
     "merge_quote",
     "quote_key",
     "run_tool",
@@ -125,6 +126,14 @@ _PRODUCT_CONTEXT_KEYS = {
 }
 
 Temperature = Literal["caliente", "fria", "ambiente"]
+Unit = Literal["unidades", "cajas", "paquetes", "pacas"]
+# Unidad de ``cotizar`` → unidad del motor (``QuoteRequest.unit``).
+_UNIT_BASIS: dict[str, str] = {
+    "unidades": "unidad",
+    "cajas": "caja",
+    "paquetes": "paquete",
+    "pacas": "paca",
+}
 _Period = Annotated[
     str, StringConstraints(strip_whitespace=True, pattern=r"^\d{4}(-(0[1-9]|1[0-2]))?$")
 ]
@@ -161,13 +170,18 @@ class ToolContext:
 
     ``question`` es la pregunta original del turno (para ``proper_entities_supported``),
     ``sources`` el registro numerado (``ToolAgentState.sources``), ``commercial_context`` los
-    datos comerciales vigentes y ``quotes`` las cotizaciones exitosas del turno.
+    datos comerciales vigentes, ``quotes`` las cotizaciones exitosas del turno, ``history``
+    las preguntas anteriores de la persona en el hilo (para saber si dijo la ciudad) y
+    ``last_answer`` la última respuesta del asistente (una confirmación como «sí» acepta la
+    ciudad que el asistente propuso).
     """
 
     question: str = ""
     sources: Sequence[Mapping[str, Any]] = ()
     commercial_context: Mapping[str, Any] = field(default_factory=dict)
     quotes: Sequence[Mapping[str, Any]] = ()
+    history: Sequence[str] = ()
+    last_answer: str = ""
 
     @classmethod
     def from_state(cls, state: Mapping[str, Any]) -> "ToolContext":
@@ -178,7 +192,22 @@ class ToolContext:
             sources=list(state.get("sources") or []),
             commercial_context=dict(state.get("commercial_context") or {}),
             quotes=list(state.get("quotes") or []),
+            history=[
+                str(turn.get("question") or "")
+                for turn in state.get("seed_turns") or []
+                if isinstance(turn, Mapping)
+            ],
+            last_answer=last_answer(state.get("seed_turns") or []),
         )
+
+
+def last_answer(turns: Sequence[Any]) -> str:
+    """Última respuesta del asistente en ``seed_turns`` (vacía si no hay turnos)."""
+
+    for turn in reversed(list(turns)):
+        if isinstance(turn, Mapping):
+            return str(turn.get("answer") or "")
+    return ""
 
 
 @dataclass(frozen=True)
@@ -350,10 +379,26 @@ class CotizarArgs(BaseModel):
         default=None, description="Si la persona prefiere papel o pulpa."
     )
     quantity: int | None = Field(
-        default=None, ge=1, le=10_000_000, description="Cantidad en unidades."
+        default=None,
+        ge=1,
+        le=10_000_000,
+        description="Cantidad tal como la dijo la persona, en la unidad de «unidad».",
+    )
+    unidad: Unit | None = Field(
+        default=None,
+        description=(
+            "Unidad de la cantidad: unidades (por defecto), cajas, paquetes o pacas. Pasa la "
+            "que dijo la persona («10 cajas» → quantity 10, unidad cajas); la herramienta la "
+            "convierte a unidades con la presentación de cada referencia."
+        ),
     )
     city: str | None = Field(
-        default=None, max_length=80, description="Ciudad de Colombia donde se compra."
+        default=None,
+        max_length=80,
+        description=(
+            "Ciudad de Colombia donde se compra, solo si la dijo la persona; sin ciudad la "
+            "herramienta la pide."
+        ),
     )
     delivery: bool | None = Field(
         default=None,
@@ -429,7 +474,10 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     TOOL_COTIZAR: (
         "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con "
         "el precio publicado de un vendedor. Los datos ausentes se completan con el contexto "
-        "comercial del hilo. Solo para combinaciones que la persona pidió."
+        "comercial del hilo. Solo para combinaciones que la persona pidió. La cantidad va en "
+        "la unidad que dijo la persona (unidad: cajas, paquetes, pacas); la herramienta la "
+        "convierte y devuelve la conversión: no la calcules tú. Sin ciudad dicha por la "
+        "persona, o con una ciudad fuera del directorio, pide la ciudad."
     ),
     TOOL_BUSCAR_SEDES: (
         "Lista las sedes de distribuidores de una ciudad de Colombia con dirección y teléfono; "
@@ -1125,6 +1173,7 @@ def _buscar_producto(
         return _Draft(
             "empty",
             f"El catálogo cargado no tiene referencias de {args.pais}.",
+            data={"pais_catalogo": args.pais},
             context_update=update,
         )
     found = _candidates(req, data)
@@ -1171,7 +1220,9 @@ def _buscar_producto(
         return _Draft(
             "empty",
             "Ninguna referencia del catálogo coincide con la familia, el uso y la capacidad.",
-            data={**name_data, **notice_data},
+            # El país del catálogo consultado: sin país se buscó en todos, y si no está en
+            # ninguno tampoco está en el de Colombia.
+            data={**name_data, **notice_data, "pais_catalogo": args.pais or "CO"},
             context_update=update,
         )
     options = [_option(reference, req, deps.today, data) for reference in shown]
@@ -1248,7 +1299,140 @@ def _fill_from_context(
             continue
         filled = candidate
         reused.append(key)
+    # La unidad acompaña a la cantidad: se reutiliza con ella («10 cajas» sigue siendo de
+    # cajas en el turno siguiente), también si el modelo reenvía la misma cantidad sin unidad
+    # («con domicilio», «¿y en Cali?»). Una cantidad nueva sin unidad es de unidades.
+    unit = context.get("unidad")
+    same_quantity = "quantity" in explicit and explicit["quantity"] == context.get("quantity")
+    if ("quantity" in reused or same_quantity) and "unidad" not in explicit and unit in _UNIT_BASIS:
+        filled["unidad"] = unit
+        if unit != "unidades":
+            reused.append("unidad")
     return CotizarArgs.model_validate(filled), reused
+
+
+# Cantidad con su unidad en el texto de la persona: «5 cajas», «2.000 unidades», «10 und».
+_QUANTITY_UNIT = re.compile(
+    r"(\d{1,3}(?:[.,]\d{3})+|\d+)\s*(unidades|unidad|unds?|uds?|cajas?|paquetes?|pacas?)\b"
+)
+_UNIT_WORDS: dict[str, Unit] = {
+    "unidades": "unidades",
+    "unidad": "unidades",
+    "und": "unidades",
+    "unds": "unidades",
+    "ud": "unidades",
+    "uds": "unidades",
+    "caja": "cajas",
+    "cajas": "cajas",
+    "paquete": "paquetes",
+    "paquetes": "paquetes",
+    "paca": "pacas",
+    "pacas": "pacas",
+}
+
+
+def _unit_in_question(question: str, quantity: int) -> Unit | None:
+    """Unidad con que la persona dijo esa cantidad en la pregunta, si la dijo."""
+
+    for number, word in _QUANTITY_UNIT.findall(plain(question)):
+        if int(re.sub(r"[.,]", "", number)) == quantity:
+            return _UNIT_WORDS.get(word)
+    return None
+
+
+# Palabras de una ciudad que no la identifican («Ciudad de Panamá», «Bogotá D.C.»).
+_CITY_FILLERS = frozenset({"de", "del", "la", "el", "los", "las", "d", "c", "dc"})
+
+
+def _city_said(city: str, context: ToolContext) -> bool:
+    """La persona dijo la ciudad: en la pregunta, en el historial o en el contexto vigente.
+
+    El contexto comercial guarda solo ciudades que pasaron esta misma comprobación. Se
+    exige cada palabra significativa del argumento como palabra de lo dicho.
+    """
+
+    texts = [
+        context.question,
+        *context.history,
+        json.dumps(dict(context.commercial_context), ensure_ascii=False),
+    ]
+    if _confirms(context.question):
+        # «Sí» a «¿te refieres a Medellín?»: la ciudad la propuso el asistente y la persona
+        # la aceptó.
+        texts.append(context.last_answer)
+    said = set(re.findall(r"[^\W\d_]+", plain(" ".join(texts))))
+    words = [word for word in re.findall(r"[^\W\d_]+", plain(city)) if word not in _CITY_FILLERS]
+    return bool(words) and all(
+        word in said or any(_close_word(word, other) for other in said) for word in words
+    )
+
+
+# Respuestas que solo confirman lo que propuso el asistente.
+_CONFIRM_WORDS = frozenset(
+    {
+        "si",
+        "claro",
+        "correcto",
+        "exacto",
+        "eso",
+        "esa",
+        "ese",
+        "dale",
+        "ok",
+        "okay",
+        "listo",
+        "de",
+        "una",
+        "afirmativo",
+        "asi",
+        "es",
+        "por",
+        "favor",
+        "porfa",
+        "ahi",
+        "en",
+        "la",
+        "misma",
+    }
+)
+
+
+def _confirms(question: str) -> bool:
+    """La pregunta es solo una confirmación («sí», «claro, esa»)."""
+
+    words = re.findall(r"[^\W\d_]+", plain(question))
+    return bool(words) and len(words) <= 5 and set(words) <= _CONFIRM_WORDS
+
+
+def _close_word(word: str, other: str) -> bool:
+    """``other`` es ``word`` con una errata: una edición (dos si la palabra es larga).
+
+    Solo para palabras de cinco letras o más: «Medelin» es Medellín, «Cal» no es Cali.
+    """
+
+    if len(word) < 5 or abs(len(word) - len(other)) > 2:
+        return False
+    limit = 2 if len(word) >= 9 else 1
+    previous = list(range(len(other) + 1))
+    for i, char in enumerate(word, start=1):
+        current = [i]
+        for j, other_char in enumerate(other, start=1):
+            current.append(
+                min(
+                    previous[j] + 1,
+                    current[j - 1] + 1,
+                    previous[j - 1] + (char != other_char),
+                )
+            )
+        previous = current
+    return previous[-1] <= limit
+
+
+def _directory_city(city: str, dataset: Dataset) -> str | None:
+    """Ciudad con la grafía del directorio; ``None`` si el directorio no la tiene."""
+
+    known = {plain(item): item for item in dataset.cities()}
+    return known.get(plain(city))
 
 
 def _offer_source_type(book: CommercialBook, sku: str, site_id: str, url: str) -> str:
@@ -1344,6 +1528,7 @@ def _quote_payload(
             f"{presentation['count']} {presentation['basis']} de {presentation['units']} unidades"
         ),
         "precio_por_presentacion": presentation["price_per_presentation"],
+        **({"conversion": primary["conversion"]["text"]} if primary.get("conversion") else {}),
         "unidades_pedidas": presentation["units_requested"],
         "unidades_compradas": presentation["units_bought"],
         "sobrante": presentation["units_surplus"],
@@ -1364,12 +1549,31 @@ def _quote_payload(
 
 
 def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
-    filled, reused = _fill_from_context(args, context.commercial_context)
+    # Una ciudad que la persona no dijo no se usa (FR-005: se pregunta, no se supone). Solo
+    # se comprueba dentro de un turno: una llamada suelta no tiene pregunta con qué comparar.
+    unsaid_city = bool(
+        args.city is not None and context.question and not _city_said(args.city, context)
+    )
+    requested_city = args.city
+    commercial_context = dict(context.commercial_context)
+    if unsaid_city:
+        # Ni se usa ni se sustituye por la ciudad del contexto: el modelo pidió otra ciudad
+        # y una cotización de la anterior se le atribuiría a la que pidió.
+        args = args.model_copy(update={"city": None})
+        commercial_context.pop("city", None)
+    if args.quantity is not None and args.unidad is None:
+        said_unit = _unit_in_question(context.question, args.quantity)
+        if said_unit is not None:
+            args = args.model_copy(update={"unidad": said_unit})
+    filled, reused = _fill_from_context(args, commercial_context)
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})
     # El contexto comercial guarda lo que dijo la persona, no lo que se infiere.
     update = {**filled.model_dump(exclude_none=True), "country": "CO"}
+    if "quantity" in update:
+        # La unidad viaja con la cantidad: una cantidad nueva sin unidad deja de ser de cajas.
+        update["unidad"] = filled.unidad or "unidades"
     request = filled
     temperature = _temperature(filled.temperature, filled.use, filled.microwave)
     if filled.temperature is None and temperature == "caliente" and filled.microwave:
@@ -1377,11 +1581,30 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
         # para esta cotización: guardado, un turno posterior sin microondas lo reutilizaría
         # y descartaría sin motivo el PP y el PET de bebida fría.
         request = filled.model_copy(update={"temperature": temperature})
-    base = {"reutilizado": reused}
+    base: dict[str, Any] = {"reutilizado": reused}
     day = _today(deps)
     dataset = deps.dataset or load_dataset(day.isoformat())
+    if filled.city is not None and _directory_city(filled.city, dataset) is None:
+        # Ciudad fuera del directorio (otra ciudad de Colombia sin sedes o fuera del país): se
+        # pide una del directorio en vez de cotizar en otra. No se guarda en el contexto.
+        update.pop("city", None)
+        return _Draft(
+            "needs_input",
+            "La ciudad indicada no está en el directorio de sedes de Colombia; solo se cotiza "
+            "en las ciudades disponibles. Pide a la persona una de ellas; no cotices en otra "
+            "ciudad por tu cuenta.",
+            data={
+                **base,
+                "ciudad_fuera_del_directorio": True,
+                "ciudades_disponibles": list(dataset.cities()),
+            },
+            missing=["ciudad"],
+            context_update=update,
+        )
+    fields = request.model_dump()
+    unit = _UNIT_BASIS.get(fields.pop("unidad") or "unidades", "unidad")
     quoted = quote_request(
-        QuoteRequest(**request.model_dump()), today=day, now=deps.now, dataset=dataset
+        QuoteRequest(**fields, unit=unit), today=day, now=deps.now, dataset=dataset
     )
     kind = quoted.get("kind")
     if kind == "aclaracion":
@@ -1389,9 +1612,25 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
         data = dict(base)
         if quoted.get("cities"):
             data["ciudades_disponibles"] = list(quoted["cities"])
+        message = f"Falta un dato para cotizar: {', '.join(missing) or 'sin especificar'}."
+        if quoted.get("unconvertible"):
+            message = (
+                f"No se puede convertir la cantidad en {filled.unidad} a unidades con "
+                "certeza: el catálogo y el contrato no declaran esa presentación para las "
+                "referencias que aplican. Pide la cantidad en unidades; no la calcules."
+            )
+            data["presentaciones_publicadas"] = _published_presentations(
+                dataset, quoted["unconvertible"]
+            )
+        elif unsaid_city and "ciudad" in missing:
+            message += (
+                f" La persona no ha dicho la ciudad «{requested_city}»: confírmala con ella; "
+                "no se cotizó en esa ni en la del contexto."
+            )
+            data["ciudad_no_dicha"] = requested_city
         return _Draft(
             "needs_input",
-            f"Falta un dato para cotizar: {', '.join(missing) or 'sin especificar'}.",
+            message,
             data=data,
             missing=missing,
             context_update=update,
@@ -1415,6 +1654,16 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
     numbers = sources.add(_quote_sources(quoted, source_type))
     shipping_n = numbers[1] if len(numbers) > 1 else None
     message = f"Cotización calculada con el precio publicado por {primary['seller']}."
+    if primary.get("conversion"):
+        message += f" Conversión hecha por la herramienta: {primary['conversion']['text']}."
+        others = _other_conversions(quoted)
+        if others:
+            message += (
+                " Cada referencia trae otra cantidad por presentación ("
+                + "; ".join(others)
+                + "): la principal es la de menor precio por unidad, no la del total más "
+                "bajo. Pregunta qué referencia busca la persona."
+            )
     if quoted["total"] is None:
         message += f" El total queda pendiente: {quoted['commercial']['shipping']['note']}"
     if merge.action == "replaced":
@@ -1428,6 +1677,31 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
         quote=stored,
         context_update=update,
     )
+
+
+def _other_conversions(quoted: Mapping[str, Any]) -> list[str]:
+    """Conversiones de las alternativas que no dan las mismas unidades que la principal."""
+
+    units = quoted["primary"]["conversion"]["units"]
+    return [
+        f"{item['name']}: {item['conversion']['text']}"
+        for item in quoted.get("alternatives") or []
+        if item.get("conversion") and item["conversion"]["units"] != units
+    ]
+
+
+def _published_presentations(dataset: Dataset, skus: Sequence[str]) -> list[dict[str, Any]]:
+    """Presentaciones publicadas en el contrato de las referencias que no se convirtieron."""
+
+    shown: list[dict[str, Any]] = []
+    for sku in list(skus)[:MAX_OUTSIDE_FILTERS]:
+        product = dataset.product(sku)
+        labels = sorted(
+            {f"{offer.basis} de {offer.units_in_basis}" for offer in dataset.offers_for(sku)}
+        )
+        if product is not None and labels:
+            shown.append({"sku": sku, "nombre": product.name, "presentaciones": labels})
+    return shown
 
 
 def _quote_without_price(
