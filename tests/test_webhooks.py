@@ -29,6 +29,7 @@ from apps.api.views import webhooks
 from apps.mcp.bridge import (
     LIMIT_REACHED,
     NEW_CONVERSATION,
+    PDF_UNAVAILABLE,
     SERVICE_UNAVAILABLE,
     BridgeReply,
     WhatsAppBridge,
@@ -981,3 +982,130 @@ def test_el_webhook_entrega_el_pdf_como_el_mcp(monkeypatch: pytest.MonkeyPatch) 
     assert "https://carvajal.example/cotizaciones/Q-7F3A2C.pdf?firma" in response.json()["reply"]
     assert links == [("Q-7F3A2C", owner_key_for(NUMBER, SESSION))]
     assert chat.calls == []
+
+
+# --- Mismo hilo por los dos canales y reintentos tras un fallo -------------------------------
+
+
+@pytest.mark.parametrize(
+    "mcp_id",
+    [
+        NUMBER,
+        "+57 310 000 0000",
+        "+57.310.000.0000",
+        "whatsapp:+573100000000",
+        "573100000000",
+        "573100000000@s.whatsapp.net",
+        "573100000000:12@s.whatsapp.net",
+    ],
+)
+def test_el_mismo_numero_cae_en_el_mismo_hilo_por_webhook_y_por_mcp(
+    monkeypatch: pytest.MonkeyPatch, mcp_id: str
+) -> None:
+    # Arrange
+    chat = FakeChat(events=_events())
+    bridge = WhatsAppBridge(chat=chat, secret=SESSION)
+    client = _app(monkeypatch, bridge)
+
+    # Act: el mismo número por el webhook (E.164) y por la herramienta MCP (número o JID).
+    _post(client, _message())
+    bridge.consult("Hola otra vez", mcp_id)
+
+    # Assert
+    webhook_owner, mcp_owner = (call["owner_key"] for call in chat.calls)
+    assert webhook_owner == mcp_owner == owner_key_for(NUMBER, SESSION)
+
+
+def test_un_grupo_o_alias_conserva_su_propio_hilo() -> None:
+    group = owner_key_for("120363025246125486@g.us", SESSION)
+
+    assert group == owner_key_for(" 120363025246125486@G.US ", SESSION)
+    assert group != owner_key_for(NUMBER, SESSION)
+
+
+def test_un_fallo_tras_cobrar_cupo_y_abrir_hilo_no_los_repite_en_el_reintento(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: los dos primeros intentos fallan después de cobrar el cupo y abrir el hilo.
+    chat = FlakyChat(events=_events("Ahora sí"), failures=2)
+    quota_calls: list[str] = []
+
+    def quota(owner: str) -> QuotaResult:
+        quota_calls.append(owner)
+        return QuotaResult(allowed=True)
+
+    client = _app(monkeypatch, WhatsAppBridge(chat=chat, secret=SESSION, quota=quota))
+
+    # Act: el mismo message_id llega tres veces con ``nueva``.
+    replies = [_post(client, _message(nueva=True)).json()["reply"] for _ in range(3)]
+
+    # Assert: un solo cobro y un solo hilo nuevo para un solo mensaje.
+    assert replies == [SERVICE_UNAVAILABLE, SERVICE_UNAVAILABLE, "Ahora sí"]
+    assert len(quota_calls) == 1
+    assert len(chat.created) == 1
+
+
+def test_el_pdf_sin_url_publica_es_definitivo_y_no_vuelve_a_cobrar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    quoted = quote_request(QuoteRequest(sku="CO-PCOM-J1", quantity=450, city="Bogotá"))
+    payload, _record = _stamp_quote(quoted, folio="Q-7F3A2C", moment=datetime.now(UTC))
+    quota_calls: list[str] = []
+
+    def quota(owner: str) -> QuotaResult:
+        quota_calls.append(owner)
+        return QuotaResult(allowed=True)
+
+    bridge = WhatsAppBridge(
+        chat=FakeChat(events=_events()),
+        secret=SESSION,
+        quota=quota,
+        latest_quote=lambda owner: payload,
+        pdf_link=None,
+    )
+    client = _app(monkeypatch, bridge)
+
+    # Act
+    replies = [_post(client, _message(text="PDF")).json()["reply"] for _ in range(3)]
+
+    # Assert
+    assert replies == [PDF_UNAVAILABLE] * 3
+    assert len(quota_calls) == 1
+
+
+def test_el_pdf_con_un_fallo_transitorio_se_reintenta_sin_volver_a_cobrar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: leer la última cotización falla una vez.
+    quoted = quote_request(QuoteRequest(sku="CO-PCOM-J1", quantity=450, city="Bogotá"))
+    payload, _record = _stamp_quote(quoted, folio="Q-7F3A2C", moment=datetime.now(UTC))
+    failures = [RuntimeError("bd caída")]
+    quota_calls: list[str] = []
+
+    def latest(owner: str) -> Any:
+        if failures:
+            raise failures.pop()
+        return payload
+
+    def quota(owner: str) -> QuotaResult:
+        quota_calls.append(owner)
+        return QuotaResult(allowed=True)
+
+    bridge = WhatsAppBridge(
+        chat=FakeChat(events=_events()),
+        secret=SESSION,
+        quota=quota,
+        latest_quote=latest,
+        pdf_link=lambda folio, owner, valid: f"https://carvajal.example/{folio}.pdf",
+    )
+    client = _app(monkeypatch, bridge)
+
+    # Act
+    first = _post(client, _message(text="PDF")).json()["reply"]
+    second = _post(client, _message(text="PDF")).json()["reply"]
+
+    # Assert
+    assert first == PDF_UNAVAILABLE
+    assert "https://carvajal.example/Q-7F3A2C.pdf" in second
+    assert len(quota_calls) == 1

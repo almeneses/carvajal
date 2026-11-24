@@ -22,9 +22,11 @@ texto listo para WhatsApp.
   ``client_turn_id`` se reserva de forma atómica (:mod:`carvajal.application.deliveries`)
   antes de abrir hilo, cobrar cupo o llamar al LLM: un reintento que llega con el primer
   turno en curso recibe ``in_progress`` sin efectos, y uno posterior a una respuesta sin
-  turno (nueva conversación sin texto, cupo agotado, enlace al PDF) recibe la misma
-  respuesta. Así el webhook también entrega el PDF: un reintento del pedido «PDF» no
-  vuelve a cobrar cupo y devuelve el mismo enlace.
+  turno (nueva conversación sin texto, cupo agotado, enlace al PDF, PDF sin URL pública)
+  recibe la misma respuesta. Así el webhook también entrega el PDF: un reintento del
+  pedido «PDF» no vuelve a cobrar cupo y devuelve el mismo enlace. Si un intento falla
+  después de cobrar el cupo o abrir el hilo nuevo, la reserva se libera anotándolo y el
+  reintento no los repite.
 """
 
 import hmac
@@ -41,6 +43,7 @@ from apps.api.chat.streaming import ChatEvent
 from apps.api.quote_view import QuoteView, quote_view
 from carvajal.application.deliveries import DeliveryClaim, DeliveryStore, InMemoryDeliveryStore
 from carvajal.application.quota import QuotaResult
+from carvajal.domain.phone import normalize_e164
 
 __all__ = [
     "EMPTY_MESSAGE",
@@ -59,6 +62,7 @@ __all__ = [
     "ChatTurns",
     "TurnLookup",
     "WhatsAppBridge",
+    "canonical_chat_id",
     "is_pdf_request",
     "owner_key_for",
     "to_whatsapp",
@@ -150,14 +154,44 @@ def _no_limit(_owner_key: str) -> QuotaResult:
     return QuotaResult(allowed=True)
 
 
+_CHANNEL_PREFIX = "whatsapp:"
+# JID de un chat individual (``573100000000@s.whatsapp.net``, con dispositivo ``:12``).
+_JID_SUFFIX = re.compile(r"(?::\d+)?@(?:s\.whatsapp\.net|c\.us)$")
+_PHONE_SEPARATORS = re.compile(r"[\s\-().]")
+_PHONE = re.compile(r"\+?\d{8,15}")
+
+
+def canonical_chat_id(chat_id: str) -> str:
+    """Identificador canónico del chat: el número E.164 si lo es, o el texto normalizado.
+
+    ``+573100000000``, ``+57 310 000 0000``, ``+57.310.000.0000``,
+    ``whatsapp:+573100000000``, ``573100000000`` y ``573100000000@s.whatsapp.net`` dan
+    ``+573100000000``, el mismo número que normaliza el webhook (:func:`normalize_e164`).
+    Lo que no es un número (un JID de grupo, un alias) queda sin espacios, guiones ni
+    paréntesis y en minúsculas.
+    """
+
+    raw = chat_id.strip().lower()
+    if raw.startswith(_CHANNEL_PREFIX):
+        raw = raw[len(_CHANNEL_PREFIX) :]
+    candidate = _PHONE_SEPARATORS.sub("", _JID_SUFFIX.sub("", raw))
+    if _PHONE.fullmatch(candidate):
+        try:
+            return normalize_e164(candidate if candidate.startswith("+") else f"+{candidate}")
+        except ValueError:
+            pass
+    return re.sub(r"[\s\-()]", "", chat_id).lower()
+
+
 def owner_key_for(chat_id: str, secret: bytes) -> str:
     """``owner_key`` estable y opaco para un chat de WhatsApp.
 
-    El identificador se normaliza (sin espacios, guiones ni paréntesis, en minúsculas)
-    para que ``+57 310 000 0000`` y ``+573100000000`` caigan en el mismo hilo.
+    El identificador pasa por :func:`canonical_chat_id`: el mismo número cae en el mismo
+    hilo por el webhook (E.164) y por el servidor MCP (número con o sin ``+``, con
+    separadores, ``whatsapp:`` o JID).
     """
 
-    normalized = re.sub(r"[\s\-()]", "", chat_id).lower()
+    normalized = canonical_chat_id(chat_id)
     digest = hmac.new(secret, _DOMAIN + normalized.encode("utf-8"), sha256).hexdigest()
     return f"{OWNER_PREFIX}{digest[:32]}"
 
@@ -403,13 +437,21 @@ class WhatsAppBridge:
                 return BridgeReply(SERVICE_UNAVAILABLE)
             if claim is not None and claim.status != "acquired":
                 return self._claimed_elsewhere(claim, owner, text, client_turn_id)
+            effects = _Effects(
+                quota=claim is not None and claim.quota_charged,
+                thread=claim is not None and claim.thread_opened,
+            )
             try:
-                reply, streamed = self._fresh_turn(owner, text, new_conversation, client_turn_id)
+                reply, streamed, final = self._fresh_turn(
+                    owner, text, new_conversation, client_turn_id, effects
+                )
             except Exception as error:
                 logger.warning("whatsapp.turn_failed", error=repr(error))
-                reply, streamed = BridgeReply(SERVICE_UNAVAILABLE), False
+                reply, streamed, final = BridgeReply(SERVICE_UNAVAILABLE), False, False
             if claim is not None and client_turn_id:
-                self._settle(owner, client_turn_id, reply, streamed=streamed)
+                self._settle(
+                    owner, client_turn_id, reply, claim, effects, streamed=streamed, final=final
+                )
             return reply
         finally:
             structlog.contextvars.unbind_contextvars("owner_key", "channel")
@@ -465,41 +507,72 @@ class WhatsAppBridge:
         text: str,
         new_conversation: bool,
         client_turn_id: str | None,
-    ) -> tuple[BridgeReply, bool]:
-        """Atiende un turno nuevo; el booleano indica si el servicio de chat lo ejecutó."""
+        effects: "_Effects | None" = None,
+    ) -> tuple[BridgeReply, bool, bool]:
+        """Atiende un turno nuevo: ``(respuesta, el servicio lo ejecutó, es definitiva)``.
 
-        if new_conversation:
+        ``effects`` trae lo que un intento anterior fallido de este mensaje ya hizo (cupo
+        cobrado, hilo nuevo abierto): no se repite, y lo que hace este intento se anota ahí.
+        Una respuesta no definitiva (fallo transitorio) libera la reserva para el reintento.
+        """
+
+        effects = effects if effects is not None else _Effects()
+        if new_conversation and not effects.thread:
             self.chat.new_conversation(owner)
-            if not text:
-                return BridgeReply(NEW_CONVERSATION), False
+            effects.thread = True
+        if new_conversation and not text:
+            return BridgeReply(NEW_CONVERSATION), False, True
         if not text:
-            return BridgeReply(EMPTY_MESSAGE), False
-        if not self.quota(owner).allowed:
-            logger.info("whatsapp.quota_exhausted")
-            return BridgeReply(LIMIT_REACHED), False
+            return BridgeReply(EMPTY_MESSAGE), False, True
+        if not effects.quota:
+            if not self.quota(owner).allowed:
+                logger.info("whatsapp.quota_exhausted")
+                return BridgeReply(LIMIT_REACHED), False, True
+            effects.quota = True
         if is_pdf_request(text):
             # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
-            return BridgeReply(self._pdf(owner)), False
+            pdf, final = self._pdf(owner)
+            return BridgeReply(pdf), False, final
         turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
-        return self._render(turn, owner), True
+        reply = self._render(turn, owner)
+        return reply, True, reply.text != SERVICE_UNAVAILABLE
 
     def _settle(
-        self, owner: str, client_turn_id: str, reply: BridgeReply, *, streamed: bool
+        self,
+        owner: str,
+        client_turn_id: str,
+        reply: BridgeReply,
+        claim: DeliveryClaim,
+        effects: "_Effects",
+        *,
+        streamed: bool,
+        final: bool,
     ) -> None:
         """Cierra la reserva: libera ante un fallo y, si no hubo turno, guarda la respuesta.
 
         Un turno ejecutado queda en ``messages`` y se reemite desde allí; solo las
         respuestas cortas sin turno se guardan aquí: constantes o el enlace firmado al PDF,
-        nunca el texto del cliente. No poder generar el PDF cuenta como fallo.
+        nunca el texto del cliente. Un fallo transitorio (servicio caído, no se pudo leer la
+        última cotización) libera la reserva anotando el cupo cobrado y el hilo abierto; el
+        PDF sin URL pública es definitivo y se guarda como cualquier respuesta corta. Solo
+        se toca la reserva de este intento (``claim.token``).
         """
 
         if self.deliveries is None:
             return
         try:
-            if reply.text in (SERVICE_UNAVAILABLE, PDF_UNAVAILABLE):
-                self.deliveries.release(owner, client_turn_id)
+            if not final:
+                self.deliveries.release(
+                    owner,
+                    client_turn_id,
+                    claim.token,
+                    quota_charged=effects.quota,
+                    thread_opened=effects.thread,
+                )
             else:
-                self.deliveries.finish(owner, client_turn_id, None if streamed else reply.text)
+                self.deliveries.finish(
+                    owner, client_turn_id, None if streamed else reply.text, claim.token
+                )
         except Exception as error:
             # La reserva caduca sola; un turno guardado se sigue reemitiendo desde ``messages``.
             logger.warning("whatsapp.delivery_settle_failed", error=repr(error))
@@ -560,22 +633,39 @@ class WhatsAppBridge:
             return None
         return quote_view(payload) if payload else None
 
-    def _pdf(self, owner: str) -> str:
-        """Enlace firmado al PDF de la última cotización del hilo (sin LLM, con cupo)."""
+    def _pdf(self, owner: str) -> tuple[str, bool]:
+        """Enlace firmado al PDF de la última cotización del hilo (sin LLM, con cupo).
+
+        Devuelve el texto y si es definitivo: sin URL pública (``pdf_link``) o sin lector
+        de cotizaciones el PDF no estará disponible en un reintento (definitivo); un fallo
+        al leer la última cotización o al firmar el enlace es transitorio.
+        """
 
         if self.pdf_link is None or self.latest_quote is None:
-            return PDF_UNAVAILABLE
+            return PDF_UNAVAILABLE, True
         try:
             payload = self.latest_quote(owner)
         except Exception as error:
             logger.warning("whatsapp.latest_quote_failed", error=repr(error))
-            return PDF_UNAVAILABLE
+            return PDF_UNAVAILABLE, False
         view = quote_view(payload) if payload else None
         if view is None or not view.folio:
-            return NO_QUOTE_FOR_PDF
-        url = self.pdf_link(view.folio, owner, view.valid_until_date)
+            return NO_QUOTE_FOR_PDF, True
+        try:
+            url = self.pdf_link(view.folio, owner, view.valid_until_date)
+        except Exception as error:
+            logger.warning("whatsapp.pdf_link_failed", error=repr(error))
+            return PDF_UNAVAILABLE, False
         logger.info("whatsapp.pdf_link", folio=view.folio)
         lines = [f"📄 Aquí está tu cotización #{view.folio} en PDF:", url]
         if view.valid_until:
             lines.append(f"_El enlace funciona hasta el {view.valid_until}._")
-        return "\n".join(lines)
+        return "\n".join(lines), True
+
+
+@dataclass
+class _Effects:
+    """Efectos de un mensaje ya hechos: cupo cobrado y hilo nuevo abierto."""
+
+    quota: bool = False
+    thread: bool = False

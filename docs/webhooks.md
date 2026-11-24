@@ -31,7 +31,9 @@ WEBHOOK_ALLOWED_NUMBERS=+573100000000,+573110000000
 
 `SESSION_SECRET` también debe estar definido: firma el `owner_key` de cada número (en
 producción ya es obligatorio). El mismo número cae en el mismo hilo por el webhook y por
-el servidor MCP. Al arrancar, la app registra `webhook.enabled` con el número de entradas
+el servidor MCP: antes del HMAC, el identificador del MCP se reduce al mismo E.164 que el
+webhook (sin `whatsapp:`, sin el sufijo `@s.whatsapp.net` del JID, sin separadores y con
+`+` si llega solo con dígitos). Al arrancar, la app registra `webhook.enabled` con el número de entradas
 autorizadas, o `webhook.allowlist_empty` / `webhook.allowlist_invalid_entries`, sin
 mostrar ningún número.
 
@@ -110,11 +112,17 @@ agente:
   repetición devuelve la misma respuesta corta (o el mismo enlace al PDF) sin volver a
   abrir hilo ni cobrar. La misma petición
   firmada reenviada dentro de la ventana de ±5 minutos tampoco repite efectos.
-- **Fallo** (`SERVICE_UNAVAILABLE`, o no se pudo generar el PDF): la reserva se libera y
-  el reintento vuelve a intentar.
+- **Fallo** (`SERVICE_UNAVAILABLE`, o no se pudo leer la última cotización o firmar el
+  enlace al PDF): la reserva se libera y el reintento vuelve a intentar. Si el intento
+  fallido ya cobró el cupo o abrió la conversación nueva (`nueva: true`), la reserva lo
+  anota y el reintento no los repite. Sin `PUBLIC_BASE_URL` el PDF no está disponible de
+  forma permanente: esa respuesta se guarda como cualquier respuesta corta y la
+  repetición no vuelve a cobrar.
 
 Una reserva pendiente de más de 10 minutos (proceso caído a mitad de turno) la toma el
-siguiente intento. Las filas se purgan al día. Solo guardan el `owner_key`, el
+siguiente intento. Cada toma lleva su propio token: solo el intento que tiene la reserva
+puede cerrarla o liberarla, así un intento viejo que termina tarde no suelta la del
+siguiente. Las filas se purgan al día. Solo guardan el `owner_key`, el
 `client_turn_id`, el estado y, sin turno, la respuesta corta (texto fijo o el enlace
 firmado al PDF, que caduca solo); nunca el número ni el texto del cliente.
 
