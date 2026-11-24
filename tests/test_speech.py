@@ -14,6 +14,7 @@ from carvajal.speech import (
     SpokenReply,
     combine,
     speak_folio,
+    speak_folio_tail,
     speak_money,
     split_voice_reply,
     spoken_sources,
@@ -114,7 +115,7 @@ def test_url_sola_toma_el_rotulo_de_la_linea_anterior() -> None:
 
     # Assert
     assert spoken.text == (
-        "Aquí está tu cotización con folio A 3 F 0, 9 C 1 2, B 7 E 4 en PDF. "
+        "Aquí está tu cotización terminada en B 7 E 4 en PDF. "
         "El enlace funciona hasta el 1 de diciembre de 2026."
     )
     assert spoken.links == (
@@ -212,16 +213,30 @@ def test_speak_folio_deletrea_por_grupos(folio: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("folio", "expected"),
+    [
+        ("a3f09c12b7e4", "B 7 E 4"),
+        ("C-2026-0042", "0 0 4 2"),
+        ("#Q-7F3A2C", "3 A 2 C"),
+        ("X12", "X 1 2"),
+    ],
+)
+def test_speak_folio_tail_deletrea_solo_los_ultimos_cuatro(folio: str, expected: str) -> None:
+    # Act / Assert
+    assert speak_folio_tail(folio) == expected
+
+
+@pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("Tu folio: C-2026-0042.", "Tu folio C, 2026, 0 0 4 2."),
-        ("Folio #a3f09c12b7e4 emitido", "Folio A 3 F 0, 9 C 1 2, B 7 E 4 emitido."),
-        ("Cotización #a3f09c12b7e4", "Cotización con folio A 3 F 0, 9 C 1 2, B 7 E 4."),
-        ("Guardé a3f09c12b7e4", "Guardé A 3 F 0, 9 C 1 2, B 7 E 4."),
+        ("Tu folio: C-2026-0042.", "Tu folio terminado en 0 0 4 2."),
+        ("Folio #a3f09c12b7e4 emitido", "Folio terminado en B 7 E 4 emitido."),
+        ("Cotización #a3f09c12b7e4", "Cotización terminada en B 7 E 4."),
+        ("Guardé a3f09c12b7e4", "Guardé el folio terminado en B 7 E 4."),
         ("La opción #2", "La opción número 2."),
     ],
 )
-def test_folio_en_el_texto_se_lee_claro(text: str, expected: str) -> None:
+def test_folio_en_el_texto_se_lee_solo_por_su_final(text: str, expected: str) -> None:
     # Act
     spoken = to_speech(text)
 

@@ -4,9 +4,11 @@ Sin red, sin Postgres y sin LLM: el servicio de chat es un doble que emite los m
 ``ChatEvent`` que ``ChatService.stream``. Cubren:
 
 - la herramienta MCP con ``voz=true`` y con ``voz=false`` (igual que antes);
-- el turno con cotización: folio deletreado, importes y unidades en palabras, fuentes en
-  una frase, oferta del PDF hablada y foto como enlace aparte;
-- el pedido «PDF» por voz: el enlace firmado nunca va en el texto hablado.
+- el turno con cotización: versión corta (~15 s) con las cifras exactas, importes y
+  unidades en palabras, fuentes en una frase, oferta del PDF hablada y foto como enlace
+  aparte;
+- el pedido «PDF» por voz: solo el final del folio en voz, el enlace firmado nunca va en el
+  texto hablado, y las formas en que un STT oye «PDF» («impedefe», «pe de efe») cuentan.
 """
 
 from collections.abc import Iterator
@@ -116,11 +118,11 @@ def test_cotizacion_por_voz_sin_marcas_ni_url_y_con_enlaces_aparte() -> None:
     # Assert
     for mark in ("http", "*", "_", "[1]", "🧾", "💰", "📷", "#", " oz", "$", "COP"):
         assert mark not in spoken, mark
-    assert "folio A 3 F 0, 9 C 1 2, B 7 E 4" in spoken
-    assert "Vaso de papel 12 onzas" in spoken
-    assert "caja de 1.000 unidades, a 185.000 pesos cada una" in spoken
-    assert "Total: 370.000 pesos." in spoken
-    assert "válida hasta el 1 de diciembre de 2026" in spoken
+    assert (
+        "Son 2 cajas de 1.000 unidades de Vaso de papel 12 onzas en Cali, por un total de "
+        "370.000 pesos con IVA incluido. El envío se confirma con el vendedor."
+    ) in spoken
+    assert "a3f09c12b7e4" not in spoken and "Subtotal" not in spoken
     assert "Según el sitio de Carvajal Empaques." in spoken
     assert spoken.endswith(PDF_OFFER_SPOKEN)
     assert links == [
@@ -154,15 +156,45 @@ def test_spoken_quote_lee_las_cifras_del_payload() -> None:
 
     # Assert
     assert spoken.text == (
-        "Cotización con folio A 3 F 0, 9 C 1 2, B 7 E 4 en Cali, con Distribuidora del "
-        "Valle. Producto: Vaso de papel 12 onzas. Viene por caja de 1.000 unidades, a "
-        "185.000 pesos cada una. Pides 1.800 unidades, así que compras 2 cajas, 2.000 "
-        "unidades en total, y sobran 200. Subtotal: 370.000 pesos. IVA incluido (19 por "
-        "ciento). Envío: por confirmar con el vendedor. Total: 370.000 pesos. Precio "
-        "publicado por Carvajal Empaques el 18 de noviembre de 2026. La cotización es "
-        "válida hasta el 1 de diciembre de 2026."
+        "Son 2 cajas de 1.000 unidades de Vaso de papel 12 onzas en Cali, por un total de "
+        "370.000 pesos con IVA incluido. El envío se confirma con el vendedor."
     )
     assert [link.url for link in spoken.links] == [PHOTO_URL]
+
+
+def test_spoken_quote_dura_unos_quince_segundos_con_la_oferta_del_pdf() -> None:
+    # Arrange
+    view = quote_view(QUOTE)
+    assert view is not None
+
+    # Act
+    words = f"{spoken_quote(view).text} {PDF_OFFER_SPOKEN}".split()
+
+    # Assert: unas 150 palabras por minuto; 45 palabras son unos 18 s.
+    assert len(words) <= 45
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        (
+            {"commercial": {"tax": {"status": "no_incluido"}}},
+            "por un total de 370.000 pesos sin incluir IVA.",
+        ),
+        ({"delivery": {"free": True}}, "El envío es gratis."),
+        ({"commercial": {"shipping": {"cost": 12000}}}, "El envío cuesta 12.000 pesos."),
+    ],
+)
+def test_spoken_quote_dice_el_iva_y_el_envio(changes: dict[str, Any], expected: str) -> None:
+    # Arrange
+    view = quote_view({**QUOTE, **changes})
+    assert view is not None
+
+    # Act
+    spoken = spoken_quote(view)
+
+    # Assert
+    assert expected in spoken.text
 
 
 def test_cotizacion_con_total_pendiente_lo_dice() -> None:
@@ -175,7 +207,7 @@ def test_cotizacion_con_total_pendiente_lo_dice() -> None:
     spoken = spoken_quote(view)
 
     # Assert
-    assert "El total está pendiente. Falta el costo de envío." in spoken.text
+    assert "El total está pendiente: Falta el costo de envío." in spoken.text
     assert spoken.links == ()
 
 
@@ -193,11 +225,38 @@ def test_pdf_por_voz_separa_el_enlace() -> None:
 
     # Assert
     assert chat.calls == []
-    assert spoken == (
-        "Te envío por escrito el enlace al PDF de tu cotización con folio "
-        "A 3 F 0, 9 C 1 2, B 7 E 4. El enlace funciona hasta el 1 de diciembre de 2026."
-    )
+    assert spoken == "Te mando por escrito el PDF de tu cotización terminada en B 7 E 4."
     assert links == [f"Cotización a3f09c12b7e4 en PDF: {PDF_URL}"]
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["impedefe", "MPDF", "pe de efe", "Pé de éfe", "sí, mándame el pe de fe", "el pe de e\u0444e"],
+)
+def test_pdf_oido_por_el_stt_se_atiende_sin_llm(message: str) -> None:
+    # Arrange
+    chat = FakeChat()
+    bridge = _bridge(chat)
+
+    # Act
+    spoken, links = split_voice_reply(bridge.consult(message, CHAT, voice=True))
+
+    # Assert
+    assert chat.calls == []
+    assert spoken.endswith("terminada en B 7 E 4.")
+    assert links == [f"Cotización a3f09c12b7e4 en PDF: {PDF_URL}"]
+
+
+def test_pdf_oido_por_el_stt_por_escrito_va_al_agente() -> None:
+    # Arrange: sin voz, «impedefe» no es un pedido del PDF.
+    chat = FakeChat(events=[ChatEvent("token", {"text": "¿Me lo repites?"}), ChatEvent("done", {})])
+
+    # Act
+    answer = _bridge(chat).consult("impedefe", CHAT)
+
+    # Assert
+    assert chat.calls == ["impedefe"]
+    assert answer == "¿Me lo repites?"
 
 
 def test_pdf_sin_voz_no_cambia() -> None:
@@ -274,7 +333,7 @@ async def test_la_herramienta_con_voz_devuelve_texto_hablado_y_enlaces() -> None
     texts = [block.text for block in result.content if isinstance(block, TextContent)]
     assert len(texts) == 1
     spoken, links = split_voice_reply(texts[0])
-    assert "http" not in spoken and "folio A 3 F 0" in spoken
+    assert "http" not in spoken and "por un total de 370.000 pesos" in spoken
     assert len(links) == 2
     assert result.structured_content == {"result": texts[0]}
 

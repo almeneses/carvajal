@@ -14,8 +14,9 @@ Reglas (español de Colombia), alineadas con la lectura en voz del chat web
 - unidades y abreviaturas en palabras («12 oz» → «12 onzas», «x 200 und» → «de 200
   unidades», «aprox.» → «aproximadamente»); los importes conservan los dígitos
   («$1.234.500» → «1.234.500 pesos»), que el TTS lee bien;
-- el folio se deletrea por grupos (:func:`speak_folio`) y los códigos técnicos (SKU) se
-  omiten, como en la web;
+- del folio solo se dicen los últimos cuatro caracteres, deletreados («tu cotización
+  terminada en B 7 E 4», :func:`speak_folio_tail`); el folio completo va por escrito. Los
+  códigos técnicos (SKU) se omiten, como en la web;
 - las viñetas pasan a una frase («a, b y c») y las listas numeradas a «primero… luego…».
 """
 
@@ -31,6 +32,7 @@ __all__ = [
     "SpokenReply",
     "combine",
     "speak_folio",
+    "speak_folio_tail",
     "speak_money",
     "split_voice_reply",
     "spoken_sources",
@@ -140,6 +142,22 @@ def speak_folio(folio: str) -> str:
         chunks = [group[index : index + size] for index in range(0, len(group), size)]
         groups.extend(" ".join(chunk.upper()) for chunk in chunks)
     return ", ".join(groups)
+
+
+FOLIO_TAIL_CHARS = 4
+"""Caracteres del final del folio que se dicen en voz alta (:func:`speak_folio_tail`)."""
+
+
+def speak_folio_tail(folio: str, size: int = FOLIO_TAIL_CHARS) -> str:
+    """Los últimos ``size`` caracteres del folio, deletreados uno a uno.
+
+    ``a3f09c12b7e4`` → ``B 7 E 4`` y ``C-2026-0042`` → ``0 0 4 2``: se ignoran guiones,
+    espacios y ``#``. Un folio de ``size`` caracteres o menos se deletrea completo. Basta
+    para reconocer la cotización en una nota de voz; el folio completo va por escrito.
+    """
+
+    characters = re.sub(r"[^0-9A-Za-z]", "", folio)
+    return " ".join(characters[-size:].upper())
 
 
 _CARVAJAL_HOST = re.compile(r"(?:^|\.)carvajal[a-z]*\.(?:com|co)(?:\.[a-z]{2})?$")
@@ -340,16 +358,19 @@ def _money(text: str) -> str:
 
 
 def _folio(match: re.Match[str]) -> str:
+    """Solo el final del folio: «folio terminado en B 7 E 4», «cotización terminada en…»."""
+
     lead = match["lead"].strip()
     code = match["code"]
+    tail = speak_folio_tail(code)
     if lead.startswith("#"):
         # «#3» es un número; «cotización #a3f09c12b7e4» es un folio.
         if len(code) < 4:
             return f"número {code}"
         after_quote = match.string[: match.start()].rstrip().lower().endswith("cotización")
-        return f"{'con folio' if after_quote else 'folio'} {speak_folio(code)}"
+        return f"terminada en {tail}" if after_quote else f"folio terminado en {tail}"
     word = "Folio" if lead.startswith("F") else "folio"
-    return f"{word} {speak_folio(code)}"
+    return f"{word} terminado en {tail}"
 
 
 def _date(match: re.Match[str]) -> str:
@@ -362,7 +383,9 @@ def _speak_inline(text: str) -> str:
     result = _plain(text)
     result = _SKU.sub(" ", result)
     result = _FOLIO_REF.sub(_folio, result)
-    result = _HEX_FOLIO.sub(lambda match: speak_folio(match[0]), result)
+    result = _HEX_FOLIO.sub(
+        lambda match: f"el folio terminado en {speak_folio_tail(match[0])}", result
+    )
     result = _TECH_CODE.sub(" ", result)
     result = _money(result)
     result = _PRESENTATION_X.sub(

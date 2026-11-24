@@ -214,17 +214,35 @@ respuesta es idéntica a la de antes. Con `voz=true` el texto tiene dos partes:
   Luego…»; las unidades y abreviaturas en palabras («12 oz» → «12 onzas», «x 200 und» → «de
   200 unidades», «aprox.» → «aproximadamente», «19 %» → «19 por ciento», «1 dic 2026» → «1
   de diciembre de 2026»); los importes conservan los dígitos («$370.000 COP» → «370.000
-  pesos»), y el folio se deletrea por grupos («a3f09c12b7e4» → «A 3 F 0, 9 C 1 2, B 7 E 4»).
-  Los códigos técnicos (SKU) no se leen, igual que en la lectura en voz de la web.
-- La cotización se redacta como frases (`spoken_quote`) con las mismas cifras del bloque de
-  WhatsApp; la oferta del PDF se dice «Si quieres esta cotización en PDF, respóndeme PDF y
-  te envío el enlace». El pedido «PDF» por voz responde con el folio y la vigencia en el
-  texto hablado y el enlace firmado en la sección de enlaces.
+  pesos»). Del folio solo se dicen los **últimos cuatro caracteres**, deletreados («tu
+  cotización terminada en B 7 E 4»); el folio completo va por escrito. Los códigos técnicos
+  (SKU) no se leen, igual que en la lectura en voz de la web.
+- La cotización hablada (`spoken_quote`) es **corta, unos 15 segundos** (≤ 45 palabras con
+  la oferta del PDF): cuántas presentaciones y de cuántas unidades, el producto, la ciudad,
+  el total con el IVA y el envío, con las cifras exactas del payload. La presentación con su
+  precio, el subtotal, el vendedor, las fechas y el folio quedan en el texto de WhatsApp y
+  en el PDF. La oferta del PDF se dice «Si quieres el detalle, respóndeme PDF y te lo mando
+  por escrito.». El pedido «PDF» por voz responde con el final del folio en el texto
+  hablado y el enlace firmado (con su vigencia) en la sección de enlaces.
+- Con `voz=true` el pedido «PDF» acepta también lo que un STT suele oír: «pe de efe»,
+  «pe de fe», «p de f», «impedefe», «MPDF», con o sin tildes, mayúsculas o letras
+  cirílicas. Por escrito valen «PDF», «pdf», «P.D.F.» y «p d f». En ambos casos el mensaje
+  debe ser corto y sin otra intención: «¿el PDF trae el IVA?» sigue yendo al agente.
+
+Ejemplo de cotización con `voz=true` (texto hablado):
+
+```text
+Son 2 cajas de 1.000 unidades de Vaso de papel 12 onzas en Cali, por un total de 370.000 pesos con IVA incluido. El envío se confirma con el vendedor.
+
+Según el sitio de Carvajal Empaques.
+
+Si quieres el detalle, respóndeme PDF y te lo mando por escrito.
+```
 
 Ejemplo (pedido «PDF» con `voz=true`):
 
 ```text
-Te envío por escrito el enlace al PDF de tu cotización con folio A 3 F 0, 9 C 1 2, B 7 E 4. El enlace funciona hasta el 1 de diciembre de 2026.
+Te mando por escrito el PDF de tu cotización terminada en B 7 E 4.
 
 --- ENLACES (enviar como texto, no leer en voz alta) ---
 Cotización a3f09c12b7e4 en PDF: http://203.0.113.10:8080/cotizaciones/a3f09c12b7e4.pdf?e=…&t=…
