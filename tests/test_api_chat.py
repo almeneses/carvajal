@@ -1013,3 +1013,18 @@ def test_un_hilo_ajeno_no_se_renderiza() -> None:
     respuesta = client.get("/chat?thread=ajeno")
 
     assert respuesta.status_code == 404
+
+
+def test_el_panel_de_depuracion_muestra_la_decision_del_gatekeeper() -> None:
+    """Spec 046 (T050): campo «Decisión» del panel, que solo se ve con ``?debug=1``."""
+
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "apps" / "api"
+    template = (root / "templates" / "_chat_stream.html").read_text(encoding="utf-8")
+    script = (root / "static" / "chat-stream.js").read_text(encoding="utf-8")
+
+    assert 'data-campo="decision"' in template
+    assert "Decisión:" in template
+    assert "textoDecision(datos.gatekeeper)" in script
+    assert 'get("debug") === "1"' in script

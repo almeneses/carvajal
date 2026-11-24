@@ -40,6 +40,7 @@ from apps.api.views import (
     stream,
     webhooks,
 )
+from carvajal.adapters.judge import jev_health
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.application.quota import DailyQuota, QuotaResult
@@ -172,6 +173,14 @@ def _unhandled(request: Request, error: Exception) -> Response:
     return _message(request, 500, SERVICE_UNAVAILABLE)
 
 
+def _runtime_judge() -> object | None:
+    """Juez de Jev del runtime si ya se construyó; ``/health`` nunca lo construye (FR-024)."""
+
+    module = sys.modules.get("apps.api.agent_runtime")
+    runtime = getattr(module, "_runtime", None)
+    return getattr(runtime, "judge", None)
+
+
 def _log_webhook_status(settings: Settings) -> None:
     """Deja constancia del webhook de mensajería al arrancar, sin números ni secretos."""
 
@@ -263,6 +272,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "index": {"status": "unknown"},
                     "monitoring": monitoring_status(settings).as_health(),
                     "agent": agent_mode_status(settings).as_health(),
+                    "jev": jev_health(settings, _runtime_judge()),
                 },
                 status_code=503,
             )
@@ -282,6 +292,9 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 # de que el modo ``tools`` no arrancará. No cambia el estado: ``routes``
                 # atiende igual.
                 "agent": agent_mode_status(settings).as_health(),
+                # Spec 046 (FR-024): Jev sin llamar a TypeSafe; no cambia el estado global
+                # porque el asistente atiende igual sin Jev.
+                "jev": jev_health(settings, _runtime_judge()),
             },
             status_code=200 if healthy else 503,
         )

@@ -6,9 +6,20 @@ WhatsApp con memoria, resumen, contexto comercial, frases sensibles y una cotiza
 guardada, y ninguna carga lleva identidad, memoria, historial ni datos de la persona.
 """
 
-import pytest
-from tests.test_memory_sensitive import SENSITIVE, VALID
+import json
+from typing import Any
 
+import pytest
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.memory import InMemoryStore
+from tests.fakes.judge import FakeJudge
+from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
+from tests.test_memory_sensitive import SENSITIVE, VALID
+from tests.test_tool_agent_stream import FUNDACION, FakeEmbedder, QueueStore
+
+from apps.api.chat.agent import ToolAgentRunner
+from carvajal.agent.gatekeeper.claims import build_claims_query
+from carvajal.agent.gatekeeper.decide import decide_gate
 from carvajal.agent.gatekeeper.privacy import (
     FOLIO_MARK,
     PERSON_MARK,
@@ -18,8 +29,12 @@ from carvajal.agent.gatekeeper.privacy import (
     sensitive_spans,
 )
 from carvajal.agent.memory.sensitive import REDACTED
-from carvajal.agent.memory.store import MemoryProfile, classify
+from carvajal.agent.memory.store import MemoryProfile, classify, remember
+from carvajal.agent.memory.summary import ConversationSummary
 from carvajal.agent.state import Turn
+from carvajal.agent.toolagent.graph import build_tool_agent
+from carvajal.agent.toolagent.tools import ToolDeps
+from carvajal.infrastructure.settings import Settings
 
 MEMORY = MemoryProfile(
     values={"nombre": "Ana", "empresa": "Panadería La Espiga", "ciudad_habitual": "Cali"},
@@ -160,3 +175,146 @@ def test_context_line_solo_con_pregunta_eliptica_o_corta() -> None:
     assert len(short) <= 160
     assert long == ""
     assert without == ""
+
+
+# --- Extremo a extremo (T040): ninguna carga lleva identidad, memoria ni historial -------------
+
+WEB_OWNER = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+WA_OWNER = "wa_5f2d7c1e9a8b4c3d"
+PHONE = "+573001234567"
+PREVIOUS_ANSWER = "Respuesta anterior: te recomendé la referencia RA-PRIVADA-77."
+SUMMARY_TEXT = "La persona habló de su panadería y de su socio."
+FOLIO = "CV-7F3A9-PRIV"
+
+
+def _payloads(judge: Any) -> str:
+    """Todo lo que el doble recibió, como texto, para buscar fugas."""
+
+    routes = [[q.question, q.context] for q in judge.routes]
+    claims = [[q.answer, list(q.evidence)] for q in judge.claims]
+    return json.dumps([routes, claims], ensure_ascii=False)
+
+
+def _store_with_memory(owner: str) -> Any:
+    store = InMemoryStore()
+    remember(store, owner, "nombre", "Ana", origin="shortcut")
+    remember(store, owner, "empresa", "Panadería La Espiga", origin="shortcut")
+    remember(store, owner, "nota", "mi socio se llama Ramiro", origin="shortcut")
+    return store
+
+
+@pytest.mark.parametrize("owner", [WEB_OWNER, WA_OWNER])
+@pytest.mark.parametrize(
+    "question",
+    [
+        "¿Cuándo se fundó Carvajal? Te escribe Ana de Panadería La Espiga",
+        "mi socio se llama Ramiro, ¿qué vasos de 9 oz tienen?",
+        f"Escríbeme al {PHONE}, ¿cuándo se fundó Carvajal?",
+        "¿y en Cali?",
+        "¿Quién fundó Carvajal? mi cédula es 1.234.567.890",
+    ],
+)
+def test_turnos_web_y_whatsapp_con_memoria_no_filtran_datos(owner: str, question: str) -> None:
+    # Arrange
+    judge = FakeJudge(choice="mixta", confidence=0.9, p=0.9)
+    store = _store_with_memory(owner)
+    echo = f" Te escribo al {PHONE}." if PHONE in question else ""
+    settings = Settings()
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "buscar_corpus", "args": {"consulta": "fundación"}}]),
+            # El modelo solo puede repetir el número si la persona lo dio en el mensaje: por
+            # WhatsApp el número nunca llega al grafo (``owner_key`` es un HMAC).
+            ScriptStep(text=f"Ana, Carvajal fue fundada en Cali en 1904 [1].{echo}"),
+        ]
+    )
+    deps = ToolDeps(
+        vector_store=QueueStore([FUNDACION]), embedder=FakeEmbedder(), settings=settings
+    )
+    graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), store=store, judge=judge)
+    runner = ToolAgentRunner(graph, settings, claims_judge=judge)
+    seed: list[Turn] = [
+        {
+            "question": "Hola, cotízame 500 vasos de 9 oz en Cali",
+            "answer": PREVIOUS_ANSWER,
+            "incomplete": False,
+        }
+    ]
+    thread = f"hilo-{owner[-6:]}"
+
+    # Act
+    events = list(runner.stream(owner, thread, question, seed))
+
+    # Assert
+    assert judge.routes
+    sent = _payloads(judge)
+    for leaked in (owner, thread, PHONE, "3001234567", "Ramiro", "Espiga", "1.234.567.890"):
+        assert leaked not in sent, leaked
+    assert "Ana" not in sent
+    assert PREVIOUS_ANSWER not in sent and "RA-PRIVADA-77" not in sent
+    for query in judge.claims:
+        assert question not in json.dumps([query.answer, list(query.evidence)], ensure_ascii=False)
+    assert events
+
+
+@pytest.mark.parametrize(("phrase", "kind"), SENSITIVE)
+def test_ninguna_frase_sensible_viaja_sin_redactar(phrase: str, kind: str) -> None:
+    # Arrange
+    judge = FakeJudge(choice="rag", confidence=0.9, p=0.9)
+    question = f"¿Cuándo se fundó Carvajal? {phrase}"
+    payloads = [
+        ("buscar_corpus", {"status": "ok", "fragmentos": [{"n": 1, "texto": "Se fundó en 1904."}]}),
+        ("consultar_cotizacion", {"status": "ok", "cotizaciones": [{"folio": FOLIO}]}),
+    ]
+
+    # Act
+    decide_gate(question, judge=judge, settings=Settings(), memory=MEMORY)
+    judge.check(
+        build_claims_query(
+            f"Se fundó en 1904 [1]. Repito tu dato: {phrase}. Folio {FOLIO}.",
+            question,
+            payloads,
+            MEMORY,
+        )
+    )
+
+    # Assert
+    sent = _payloads(judge)
+    for span in sensitive_spans(phrase):
+        assert span not in sent, (phrase, span)
+    assert FOLIO not in sent
+    assert question not in json.dumps(list(judge.claims[0].evidence), ensure_ascii=False)
+
+
+def test_el_resumen_y_el_contexto_comercial_no_viajan() -> None:
+    # Arrange: un turno con resumen acumulado y contexto comercial en el estado del hilo.
+    judge = FakeJudge(choice="rag", confidence=0.9, p=0.9)
+    settings = Settings()
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "buscar_corpus", "args": {"consulta": "fundación"}}]),
+            ScriptStep(text="Carvajal fue fundada en Cali en 1904 [1]."),
+        ]
+    )
+    deps = ToolDeps(
+        vector_store=QueueStore([FUNDACION]), embedder=FakeEmbedder(), settings=settings
+    )
+    graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), judge=judge)
+    summary = ConversationSummary(text=SUMMARY_TEXT, covered_turns=0).to_value()
+
+    # Act
+    graph.invoke(
+        {
+            "question": "¿Cuándo se fundó Carvajal?",
+            "owner_key": WEB_OWNER,
+            "thread_id": "hilo-resumen",
+            "conversation_summary": summary,
+            "commercial_context": {"city": "Pasto", "quantity": 777},
+        },
+        {"configurable": {"thread_id": "hilo-resumen"}, "recursion_limit": 20},
+    )
+
+    # Assert
+    sent = _payloads(judge)
+    assert SUMMARY_TEXT not in sent
+    assert "Pasto" not in sent and "777" not in sent
