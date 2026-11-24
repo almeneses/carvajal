@@ -46,7 +46,7 @@ Lo escribe el nodo `shortcut`; `recall` lo reinicia a `{}`; lo leen `after_short
 | `source` | `GateSource` | `reglas` si decidió una regla; `jev` si se usó la respuesta de Jev (aplicada, con cautela o en sombra); `llm` si no hubo Jev. |
 | `rule` | `str` | Regla que decidió: `greeting`, `farewell`, `memory_forget`, `memory_unavailable`, `memory_write`, `commercial_follow_up`; vacía si no decidió una regla. `rule_decision` (pura) nunca devuelve `memory_unavailable`: devuelve `memory_forget` y el nodo `shortcut` lo reescribe si el olvido falla. |
 | `cautious` | `bool` | Cautela aplicada (alcance `all` + bloque `<cautela>`). |
-| `reason` | `str` | Código corto: `aplicada`, `confianza_baja`, `confianza_baja_directa`, `desacuerdo_reglas`, `mixta_reglas`, `sombra`, `sin_jev:<JevStatus>`. |
+| `reason` | `str` | Código corto: `aplicada`, `confianza_baja`, `confianza_baja_directa`, `desacuerdo_reglas`, `mixta_reglas`, `producto_reglas`, `sombra`, `sin_jev:<JevStatus>`. |
 | `confidence` | `float \| None` | `confidence` de Choice (o la mayor probabilidad si falta), redondeada a 2 decimales. |
 | `probabilities` | `dict[GateClass, float]` | De Choice; vacío sin Jev. |
 | `rules_route` | `str` | Ruta e intención de `decide_route` (`"commercial/commercial"`), para la regla de desacuerdo y la evaluación. |
@@ -66,7 +66,9 @@ Lo escribe el nodo `shortcut`; `recall` lo reinicia a `{}`; lo leen `after_short
   `respuesta_directa`, `confidence ≥ JEV_ROUTER_DIRECT_MIN_CONFIDENCE`; si no, cautela.
   Desacuerdo fuerte (reglas `commercial`/`tool`/`commercial_clarify`/`missing_period` y Jev
   `rag`/`respuesta_directa`) → cautela. Reglas `commercial_mixed` → `scope="all"` (motivo
-  `mixta_reglas`).
+  `mixta_reglas`). Jev `rag` aplicada con `commercial_signal` (producto, precio, cantidad,
+  capacidad o dónde comprar) → `scope="all"`, sin cautela (motivo `producto_reglas`,
+  research R16).
 - `JEV_ROUTER_MODE=shadow`: se llama a Jev y se registra, pero `scope="all"`,
   `cautious=False`, `reason="sombra"`.
 - `mode_path` sigue siendo `"shortcut"` para todo turno que va al nodo `direct` (regla o

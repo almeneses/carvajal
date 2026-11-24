@@ -119,6 +119,11 @@ se llamó a Jev ni a ningún LLM.
     no detectan puede llegar a cautela). «Derivar» es pedir la aclaración u ofrecer los canales que ya devuelven
     las consultas (sedes del directorio, canales de una necesidad a la medida); nunca un
     canal inventado. La compuerta de afirmaciones sigue aplicando.
+  - **Señal comercial con `rag`** (añadida tras la medición, R1 de `evidencia.md` §9): si
+    Jev elige `rag`, la confianza llega al umbral y la pregunta nombra un producto del
+    catálogo, un precio, una cantidad, una capacidad o dónde comprar (`commercial_signal`,
+    determinista, sin red), se trata como `mixta`: alcance `all`, **sin cautela**, motivo
+    `producto_reglas`. Ver R16.
   - **Sin Jev no hay cautela** (decisión del owner: sin Jev, «como hoy»). Para que la decisión
     del LLM también sea auditable, al cerrar el turno se deriva `llm_class` del `route_group`
     de las consultas ejecutadas (solo `rag` → `rag`; solo `structured` →
@@ -456,3 +461,37 @@ alternativas que proponía el hallazgo, con su motivo:
 | P2: Sentry con variables locales | FR-021, R12, contrato §5, T041, T043 | — |
 | P2: `mode_path="shortcut"` ambiguo en la evaluación | distinción por `gatekeeper.source` (data-model, R12, T047, T051) | Un `mode_path` nuevo: cambiaría `ModePath` y las pruebas de la 044 y la 045 sin aportar información que `source` no dé. |
 | P2: versión de la constitución | D y E juntas como 2.9.0 con un único Sync Impact Report (R14, plan, T026, T038) | — |
+
+## R16. `rag` de Jev con señal comercial (R1 de la evidencia, 2026-11-24)
+
+- **Problema**: en v3-003 («¿qué es Propal y qué tiene que ver el bagazo de caña con los
+  portacomidas Bioform que ustedes venden?») las reglas ven `rag/documental` (sin señal de
+  compra no es comercial, FR-009 de la 036) y Jev eligió `rag` con 0,83. El alcance `rag`
+  quitó `buscar_producto` y la compuesta perdió la parte del catálogo. Sin Jev la consulta
+  pasaba. La regla de desacuerdo fuerte (R4) no la cubre porque las reglas no ven
+  `commercial` ni `tool`.
+- **Decision**: tras los umbrales y la cautela, si Jev elige `rag` y `commercial_signal`
+  (`agent/commercial_intent.py`) detecta un producto del catálogo (las familias de
+  `extract_commercial` o un desechable para llevar), un precio o dónde comprar, una
+  cantidad o una capacidad, el turno se trata como **`mixta`**: alcance `all`, sin el
+  bloque `<cautela>`, `reason="producto_reglas"`. `gate_class` sigue siendo `rag` (lo que
+  eligió Jev) para que la decisión se pueda auditar. Con confianza baja sigue la cautela de
+  R4, que ya usa todas las consultas.
+- **Rationale**: `mixta` y no cautela. La cautela es para cuando la clase es dudosa y añade
+  instrucciones de aclaración; aquí la pregunta es clara y Jev acierta en que pide
+  documentos, solo que también nombra un producto que `buscar_producto` resuelve. Es el
+  mismo trato que `commercial_mixed` (`mixta_reglas`), que tampoco lleva cautela. La señal
+  es más amplia que `extract_commercial` (no exige señal de compra junto al producto) pero
+  más estrecha que `_INTENT` («busco», «quiero» aparecen en preguntas institucionales).
+  Solo se relaja una restricción: en el peor caso el turno vuelve al comportamiento sin
+  Jev (las 20 consultas).
+- **Efecto medido sin red**: de las 6 preguntas `rag` de `gatekeeper_046.json`, 0 tienen la
+  señal (la exactitud y las decisiones de T053 no cambian). De las 33 `rag` de
+  `routing_questions.json`, 3 la tienen (n-12, n-13 y n-14: «¿Qué vasos fabrica Carvajal
+  Empaques?» y similares), donde `buscar_producto` también aporta. No se volvió a llamar a
+  Jev: la prueba usa un juez falso con `rag` a 0,95 sobre la pregunta de v3-003.
+- **Alternatives considered**: cautela con `desacuerdo_reglas` (añade el bloque de
+  aclaración a una pregunta clara); ampliar `extract_commercial` para que v3-003 sea
+  `commercial_mixed` (cambiaría el enrutador de la 036 y el modo `routes`, con sus
+  conjuntos de evaluación); un umbral más alto para `rag` (no separa: 0,83 está por encima
+  de cualquier valor razonable de la rejilla).

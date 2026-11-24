@@ -11,7 +11,10 @@
 Con Jev, la clase se aplica solo si su confianza llega al umbral (y al umbral propio de la
 respuesta directa); si no, o si contradice una señal estructurada fuerte de las reglas, hay
 **cautela**: las 20 consultas y el bloque ``<cautela>``. Con ``commercial_mixed`` de las
-reglas, todas las consultas. En sombra se consulta y se registra sin restringir.
+reglas, todas las consultas. Si Jev elige ``rag`` y la pregunta nombra un producto, un
+precio, una cantidad o dónde comprar (``commercial_signal``), se trata como ``mixta``: todas
+las consultas, sin cautela (``producto_reglas``). En sombra se consulta y se registra sin
+restringir.
 
 El log ``gatekeeper.decided`` lleva solo la decisión (sin texto ni probabilidades por clase).
 """
@@ -22,6 +25,7 @@ from typing import Any, Final
 
 import structlog
 
+from carvajal.agent.commercial_intent import commercial_signal
 from carvajal.agent.gatekeeper.model import SCOPE_BY_CLASS, GatekeeperDecision
 from carvajal.agent.gatekeeper.privacy import context_line, outgoing_question
 from carvajal.agent.gatekeeper.rules import rule_decision, rules_route
@@ -34,6 +38,7 @@ __all__ = [
     "REASON_LOW",
     "REASON_LOW_DIRECT",
     "REASON_MIXED",
+    "REASON_PRODUCT",
     "REASON_SHADOW",
     "decide_gate",
 ]
@@ -45,6 +50,9 @@ REASON_LOW: Final = "confianza_baja"
 REASON_LOW_DIRECT: Final = "confianza_baja_directa"
 REASON_DISAGREEMENT: Final = "desacuerdo_reglas"
 REASON_MIXED: Final = "mixta_reglas"
+# Jev elige ``rag`` y la pregunta nombra un producto, un precio, una cantidad o dónde comprar
+# (``commercial_signal``): se trata como ``mixta`` para no quitar ``buscar_producto`` (R1).
+REASON_PRODUCT: Final = "producto_reglas"
 REASON_SHADOW: Final = "sombra"
 # Señal estructurada fuerte de las reglas (research R4): si Jev la contradice con ``rag`` o
 # ``respuesta_directa``, cautela.
@@ -159,4 +167,6 @@ def _decide(
         return GatekeeperDecision(scope="all", cautious=True, reason=REASON_LOW, **common)
     if verdict.choice == "respuesta_directa" and verdict.confidence < direct_minimum:
         return GatekeeperDecision(scope="all", cautious=True, reason=REASON_LOW_DIRECT, **common)
+    if verdict.choice == "rag" and commercial_signal(question):
+        return GatekeeperDecision(scope=SCOPE_BY_CLASS["mixta"], reason=REASON_PRODUCT, **common)
     return GatekeeperDecision(scope=SCOPE_BY_CLASS[verdict.choice], reason=REASON_APPLIED, **common)

@@ -391,6 +391,13 @@ v3-003 --jev-ledger <libro> --max-jev-router-calls 1 --max-jev-claims-calls 1`. 
 grabada está en la línea `run=v3`, `item=v3-003`, `kind=router` del libro y en
 `evaluacion/v3-con-jev.json`. Sin Jev, la consulta pasa (`v3-sin-jev.json`).
 
+**Estado (corregido tras la medición):** si Jev elige `rag` y la pregunta nombra un producto
+del catálogo, un precio, una cantidad, una capacidad o dónde comprar
+(`commercial_signal`), el gatekeeper la trata como `mixta`: alcance `all`, sin cautela,
+`reason="producto_reglas"` (research R16). Prueba sin red con la pregunta de v3-003 y un
+juez falso con `rag` a 0,95 en `tests/test_gatekeeper_decide.py`. No se repitió la corrida
+con Jev (sin créditos).
+
 **R2. Seguimientos comerciales de varias vueltas clasificados como `respuesta_directa`.**
 v3-023 turno 2 (0,45), v3-024 turno 3 (0,72) y v3-025 turno 3 (0,67). La línea de contexto
 no le basta a Jev para ver que el turno sigue una cotización. Hoy los contiene la cautela

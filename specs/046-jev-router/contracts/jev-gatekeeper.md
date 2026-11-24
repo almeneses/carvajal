@@ -30,6 +30,7 @@ Gatekeeper (`decide_gate`, nodo `shortcut`):
      ├─ reglas ven commercial_mixed        ─► scope=all, reason=mixta_reglas
      ├─ confidence < umbral (o < umbral de directa para respuesta_directa)
      │                                     ─► scope=all, cautious, reason=confianza_baja[_directa]
+     ├─ rag y commercial_signal(pregunta)  ─► scope=all, reason=producto_reglas (research R16)
      └─ si no                              ─► scope=map(clase), reason=aplicada
 5. Sin Jev                                 ─► scope=all, source=llm, reason=sin_jev:off
 ```
