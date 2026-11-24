@@ -62,28 +62,27 @@ def build_speech(
     )
 
 
-def voice_health(settings: Settings, client: Any = None) -> dict[str, Any]:
+def voice_health(settings: Settings, client: Any = None, *, detail: bool = False) -> dict[str, Any]:
     """Bloque ``voice`` de ``/health``: proveedor, configuración y estado, sin red ni secretos.
 
     Sin cliente construido (aún nadie usó la voz), ``available`` es la configuración. No
     cambia el ``status`` global: el chat atiende igual con la voz del navegador.
+
+    ``/health`` es público: ``calls_today`` y ``last_error`` (cuánto falta para el tope,
+    si la clave está rechazada o sin saldo) solo salen con ``detail``, que la vista pasa
+    cuando quien pregunta es el operador.
     """
 
     configured = settings.voice_provider == "openai" and bool(usable_key(settings))
-    if isinstance(client, OpenAISpeechClient):
-        available = client.available()
-        calls_today = client.calls_today
-        last_error = client.last_error
-    else:
-        available = configured
-        calls_today = 0
-        last_error = None
-    return {
+    built = isinstance(client, OpenAISpeechClient)
+    block: dict[str, Any] = {
         "provider": settings.voice_provider,
         "configured": configured,
-        "available": available,
+        "available": client.available() if built else configured,
         "stt_model": settings.voice_stt_model if configured else None,
         "tts_model": settings.voice_tts_model if configured else None,
-        "calls_today": calls_today,
-        "last_error": last_error,
     }
+    if detail:
+        block["calls_today"] = client.calls_today if built else 0
+        block["last_error"] = client.last_error if built else None
+    return block

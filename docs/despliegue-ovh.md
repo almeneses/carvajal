@@ -661,8 +661,11 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
 - **Voz del servidor (spec 047, opcional):** con `VOICE_PROVIDER=openai` y
   `OPENAI_API_KEY` en el `.env`, el dictado y la lectura usan OpenAI a través de
   la app (ver [`voz-web.md`](voz-web.md)); el dictado sigue exigiendo HTTPS. El
-  bloque `voice` de `/health` dice si está disponible y cuántas llamadas lleva
-  el día. Sin clave o con el tope alcanzado, el chat usa la voz del navegador.
+  bloque `voice` de `/health` dice si está disponible; cuántas llamadas lleva el
+  día y el último error solo se ven con el token de operador
+  (`X-Operator-Token`). El límite por IP necesita `FORWARDED_ALLOW_IPS` bien
+  puesto: si no, todos comparten la IP de nginx. Sin clave o con el tope
+  alcanzado, el chat usa la voz del navegador.
 - Si quieres limitar el acceso, restringe el puerto 8080 por IP en el firewall
   de OVH o en un proxy delante.
 - `.env` siempre en `600`.

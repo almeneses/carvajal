@@ -302,8 +302,9 @@ el bloque `jev`. Resultados de la medición
   `POST /api/voz/transcribir` recibe el audio de `MediaRecorder` (tipo, firma y tamaño
   validados; no se guarda) y devuelve el texto para revisarlo; `POST /api/voz/hablar`
   sintetiza **solo** una respuesta guardada de la conversación de quien llama, por su id,
-  nunca texto libre. CSRF, la cookie del chat, un límite por sesión, un tope diario y un
-  circuito protegen el gasto; ante cualquier fallo el chat vuelve a la voz del navegador.
+  nunca texto libre. CSRF, la identidad del chat, límites por sesión, por IP y global, la
+  duración máxima del audio, un tope diario y un circuito protegen el gasto; ante
+  cualquier fallo el chat vuelve a la voz del navegador.
   Detalle en [`docs/voz-web.md`](docs/voz-web.md).
 - **WhatsApp.** Con `voz=true`, `consultar_carvajal` devuelve el texto para la nota de voz
   (sin citas, Markdown ni URL) y los enlaces aparte. La cotización hablada dura unos 15 s,
@@ -549,6 +550,7 @@ cp .env.example .env
 | `MONITORING_ENABLED` | `false` | Trazas en LangSmith, solo metadatos en producción ([guía](docs/monitoreo-langsmith.md)) |
 | `VOICE_PROVIDER` / `OPENAI_API_KEY` | `browser` / vacío | Voz del chat por el servidor con OpenAI ([guía](docs/voz-web.md)); sin clave, voz del navegador |
 | `VOICE_MAX_CALLS_PER_DAY` / `VOICE_RATE_LIMIT` | `500` / `20` por 10 min | Tope diario por proceso y límite por sesión de la voz del servidor |
+| `VOICE_IP_RATE_LIMIT` / `VOICE_GLOBAL_RATE_PER_MIN` | `60` por 10 min / `30` | Límites de la voz del servidor por IP y para todo el proceso |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | IPs de proxy en las que confía uvicorn; detrás de nginx, la puerta de enlace de Docker ([despliegue](docs/despliegue-ovh.md)) |
 
 La lista completa, con los límites de la captura web y del monitoreo, está comentada en

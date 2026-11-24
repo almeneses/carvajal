@@ -153,7 +153,6 @@ def test_synthesize_vacio_es_invalido() -> None:
     [
         (httpx.Response(500), "error", "http_5xx"),
         (httpx.Response(429, json={"error": {"code": "rate_limit_exceeded"}}), "error", "http_429"),
-        (httpx.Response(400), "error", "http_400"),
         (httpx.Response(401), "auth", "auth"),
         (httpx.Response(429, json={"error": {"code": "insufficient_quota"}}), "auth", None),
     ],
@@ -167,6 +166,85 @@ def test_errores_http(response: httpx.Response, reason: str, last_error: str | N
         client.synthesize("Hola.")
     assert error.value.reason == reason
     assert client.last_error == (last_error or "insufficient_quota")
+
+
+@pytest.mark.parametrize("status", [400, 413, 415, 422])
+def test_un_4xx_de_la_entrada_es_rejected_y_no_cuenta_como_fallo(status: int) -> None:
+    # Arrange: OpenAI rechaza el audio (corrupto, corto o de otro formato).
+    clock = Clock()
+    calls: list[int] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(status)
+
+    client = _client(handler, clock=clock, max_calls_per_day=10)
+
+    # Act: más rechazos que los que abrirían el circuito.
+    reasons = []
+    for _ in range(5):
+        with pytest.raises(SpeechUnavailable) as error:
+            client.transcribe(AUDIO, "audio/webm")
+        reasons.append(error.value.reason)
+
+    # Assert: ni circuito, ni ``last_error`` global, ni gasto del tope diario.
+    assert reasons == ["rejected"] * 5
+    assert len(calls) == 5
+    assert client.available()
+    assert client.failures == 0
+    assert client.last_error is None
+    assert client.calls_today == 0
+
+
+def test_los_rechazos_no_borran_los_fallos_reales_del_proveedor() -> None:
+    # Arrange: dos 503 del proveedor, un 400 de la entrada y otro 503.
+    responses = [httpx.Response(503), httpx.Response(503), httpx.Response(400), httpx.Response(503)]
+    client = _client(lambda _request: responses.pop(0))
+
+    # Act
+    for _ in range(4):
+        with pytest.raises(SpeechUnavailable):
+            client.synthesize("Hola.")
+
+    # Assert: el 400 no reinicia la cuenta; el tercer 503 abre el circuito.
+    assert client.unavailable_status() == "circuit_open"
+
+
+def test_el_tope_diario_es_atomico_con_hilos_concurrentes() -> None:
+    # Arrange: 1 llamada libre y 16 hilos que la piden a la vez.
+    import threading
+
+    calls: list[int] = []
+    barrier = threading.Barrier(16)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, content=b"a")
+
+    client = _client(handler, max_calls_per_day=1)
+    outcomes: list[str] = []
+
+    def call() -> None:
+        barrier.wait()
+        try:
+            client.synthesize("Hola.")
+            outcomes.append("ok")
+        except SpeechUnavailable as error:
+            outcomes.append(error.reason)
+
+    threads = [threading.Thread(target=call) for _ in range(16)]
+
+    # Act
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # Assert: una sola pasa; las demás ven el tope sin llegar a OpenAI.
+    assert outcomes.count("ok") == 1
+    assert outcomes.count("cap") == 15
+    assert len(calls) == 1
+    assert client.calls_today == 1
 
 
 def test_plazo_vencido_es_timeout() -> None:
@@ -360,21 +438,21 @@ def test_voice_health_sin_cliente_y_con_cliente() -> None:
     without = voice_health(off)
     configured = voice_health(on)
     serving = voice_health(on, client)
+    operator = voice_health(on, client, detail=True)
 
-    # Assert
+    # Assert: lo público no dice cuánto falta para el tope ni el último error.
     assert without == {
         "provider": "browser",
         "configured": False,
         "available": False,
         "stt_model": None,
         "tts_model": None,
-        "calls_today": 0,
-        "last_error": None,
     }
     assert configured["configured"] is True and configured["available"] is True
     assert serving["available"] is False  # tope de 1 ya gastado
-    assert serving["calls_today"] == 1
-    assert KEY not in json.dumps([without, configured, serving])
+    assert "calls_today" not in serving and "last_error" not in serving
+    assert operator["calls_today"] == 1 and operator["last_error"] is None
+    assert KEY not in json.dumps([without, configured, serving, operator])
 
 
 def test_settings_de_voz_por_defecto_y_sin_clave_en_repr() -> None:
@@ -389,9 +467,13 @@ def test_settings_de_voz_por_defecto_y_sin_clave_en_repr() -> None:
     assert settings.voice_tts_voice == "coral"
     assert "Colombia" in settings.voice_tts_instructions
     assert settings.voice_max_audio_seconds == 60
-    assert settings.voice_max_upload_bytes == 2_000_000
+    assert settings.voice_max_upload_bytes == 0
+    # Derivado de la duración: 60 s a 64 kbps, el doble de lo que graba el navegador.
+    assert settings.voice_upload_limit_bytes == 480_000
     assert settings.voice_max_calls_per_day == 500
     assert (settings.voice_rate_limit, settings.voice_rate_window_s) == (20, 600)
+    assert settings.voice_ip_rate_limit == 60
+    assert settings.voice_global_rate_per_min == 30
     assert settings.voice_timeout_s == 20.0
     assert KEY not in repr(settings)
 
@@ -401,6 +483,9 @@ def test_settings_de_voz_por_defecto_y_sin_clave_en_repr() -> None:
     [
         ("voice_provider", "azure"),
         ("voice_max_upload_bytes", 30_000_000),
+        ("voice_max_upload_bytes", 5_000),
+        ("voice_ip_rate_limit", 0),
+        ("voice_global_rate_per_min", 0),
         ("voice_max_audio_seconds", 1),
         ("voice_rate_limit", 0),
         ("voice_timeout_s", 0),
@@ -410,6 +495,16 @@ def test_settings_de_voz_rechazan_valores_fuera_de_rango(field: str, value: Any)
     # Act / Assert
     with pytest.raises(ValueError):
         Settings(**{field: value})
+
+
+def test_el_tope_de_bytes_explicito_manda_sobre_el_derivado() -> None:
+    # Act
+    explicit = Settings(voice_max_upload_bytes=300_000)
+    longer = Settings(voice_max_audio_seconds=120)
+
+    # Assert
+    assert explicit.voice_upload_limit_bytes == 300_000
+    assert longer.voice_upload_limit_bytes == 960_000
 
 
 def test_instrucciones_vacias_usan_el_estilo_por_defecto(monkeypatch: pytest.MonkeyPatch) -> None:

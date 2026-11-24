@@ -13,6 +13,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # Holgura entre el plazo de ``preguntas_frecuentes`` y el del turno cuando se recorta el
 # valor por defecto (``Settings._plazo_faq_menor_que_el_turno``).
 _FAQ_MARGIN_S = 5.0
+# 64 kbps en bytes por segundo: el doble del bitrate con que graba el chat (spec 047).
+_VOICE_UPLOAD_BYTES_PER_SECOND = 8_000
 # Estilo de la voz del servidor (spec 047); ``VOICE_TTS_INSTRUCTIONS`` vacío vuelve a este.
 DEFAULT_VOICE_TTS_INSTRUCTIONS = (
     "Habla en español de Colombia como una asesora comercial cálida y cercana, con un "
@@ -268,8 +270,11 @@ class Settings(BaseSettings):
     voice_tts_voice: str = "coral"
     voice_tts_instructions: str = DEFAULT_VOICE_TTS_INSTRUCTIONS
     voice_max_audio_seconds: int = Field(default=60, ge=5, le=300)
-    # OpenAI admite hasta 25 MB; 2 MB sobran para 60 s de Opus a 32 kbps.
-    voice_max_upload_bytes: int = Field(default=2_000_000, ge=10_000, le=25_000_000)
+    # Tamaño máximo del audio subido. ``0`` (por defecto) lo deriva de la duración:
+    # ``VOICE_MAX_AUDIO_SECONDS`` a 64 kbps, el doble de los 32 kbps que graba el navegador
+    # (480 KB para 60 s). OpenAI admite hasta 25 MB y cobra por duración: un audio grande a
+    # bitrate bajo serían muchos minutos.
+    voice_max_upload_bytes: int = Field(default=0, ge=0, le=25_000_000)
     # Texto máximo que se sintetiza de un mensaje; el resto se queda en pantalla.
     voice_tts_max_chars: int = Field(default=1200, ge=100, le=4000)
     # Tope diario por proceso (STT + TTS); se reinicia a medianoche de Bogotá.
@@ -277,6 +282,10 @@ class Settings(BaseSettings):
     # Límite por sesión del chat (``owner_key``): llamadas por ventana deslizante.
     voice_rate_limit: int = Field(default=20, ge=1, le=1000)
     voice_rate_window_s: int = Field(default=600, ge=10, le=86_400)
+    # La sesión del chat la puede fabricar el cliente (cookie de visitante): el límite por
+    # IP (en la misma ventana) y el global por minuto acotan a quien rota identidades.
+    voice_ip_rate_limit: int = Field(default=60, ge=1, le=10_000)
+    voice_global_rate_per_min: int = Field(default=30, ge=1, le=10_000)
     voice_timeout_s: float = Field(default=20.0, ge=1.0, le=120.0)
 
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
@@ -425,6 +434,23 @@ class Settings(BaseSettings):
         return self.voice_provider == "openai" and bool(
             self.openai_api_key.get_secret_value().strip()
         )
+
+    @property
+    def voice_upload_limit_bytes(self) -> int:
+        """Tope de bytes del audio: el explícito o el derivado de la duración (64 kbps)."""
+
+        if self.voice_max_upload_bytes > 0:
+            return self.voice_max_upload_bytes
+        return self.voice_max_audio_seconds * _VOICE_UPLOAD_BYTES_PER_SECOND
+
+    @field_validator("voice_max_upload_bytes")
+    @classmethod
+    def _tope_de_audio(cls, value: int) -> int:
+        """``0`` deriva el tope de la duración; uno explícito no baja de 10 KB."""
+
+        if 0 < value < 10_000:
+            raise ValueError("VOICE_MAX_UPLOAD_BYTES debe ser 0 (derivado) o al menos 10000")
+        return value
 
     @field_validator("voice_tts_instructions", mode="before")
     @classmethod

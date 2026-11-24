@@ -26,7 +26,7 @@ from apps.api.observability import (
     configure_observability,
 )
 from apps.api.runtime import APP_DIR, session_factory, templates
-from apps.api.security import SecurityMiddleware
+from apps.api.security import SecurityMiddleware, operator_authorized
 from apps.api.views import (
     api,
     catalogo_imagenes,
@@ -192,11 +192,15 @@ def _jev_block(settings: Settings) -> dict[str, object]:
     )
 
 
-def _voice_block(app: FastAPI, settings: Settings) -> dict[str, object]:
-    """Bloque ``voice`` de ``/health`` (spec 047): sin red ni secretos y sin construir nada."""
+def _voice_block(app: FastAPI, settings: Settings, request: Request) -> dict[str, object]:
+    """Bloque ``voice`` de ``/health`` (spec 047): sin red ni secretos y sin construir nada.
+
+    El consumo del día y el último error solo los ve el operador (``/health`` es público).
+    """
 
     runtime = getattr(app.state, "voice", None)
-    return voice_health(settings, getattr(runtime, "client", None))
+    detail = operator_authorized(request, settings=settings)
+    return voice_health(settings, getattr(runtime, "client", None), detail=detail)
 
 
 def _log_webhook_status(settings: Settings) -> None:
@@ -284,7 +288,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         return JSONResponse({"status": "ok"})
 
     @app.get("/health")
-    def health() -> JSONResponse:
+    def health(request: Request) -> JSONResponse:
         """Readiness: base e índice; ``/live`` sigue siendo solo el proceso."""
 
         try:
@@ -299,7 +303,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "monitoring": monitoring_status(settings).as_health(),
                     "agent": agent_mode_status(settings).as_health(),
                     "jev": _jev_block(settings),
-                    "voice": _voice_block(app, settings),
+                    "voice": _voice_block(app, settings, request),
                 },
                 status_code=503,
             )
@@ -323,7 +327,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 # porque el asistente atiende igual sin Jev.
                 "jev": _jev_block(settings),
                 # Spec 047: voz del chat por el servidor; opcional, no cambia el estado.
-                "voice": _voice_block(app, settings),
+                "voice": _voice_block(app, settings, request),
             },
             status_code=200 if healthy else 503,
         )

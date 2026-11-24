@@ -14,6 +14,11 @@ de Bogotá (``VOICE_MAX_CALLS_PER_DAY``) y circuito (3 fallos seguidos → 60 s;
 rechazada o sin saldo → 15 min). Cualquier fallo sale como :class:`SpeechUnavailable` con un
 motivo corto, y el chat vuelve a la voz del navegador.
 
+Un 4xx causado por la entrada (400, 413, 415 o 422: audio corrupto, demasiado corto o con
+otro formato) es ``rejected``: no es un fallo del proveedor, así que no abre el circuito
+para todos, no queda como ``last_error`` y no descuenta del tope diario (OpenAI no lo
+cobra). Así un usuario no puede apagar la voz de los demás con audios rotos.
+
 Privacidad: ni el audio ni el texto se registran ni se guardan. Los logs llevan solo el
 tipo de llamada, el estado, la latencia, los tamaños en bytes y el modelo. La clave nunca
 aparece en mensajes, logs ni ``repr``.
@@ -48,6 +53,8 @@ FAILURES_TO_OPEN: Final = 3
 FAILURE_OPEN_S: Final = 60.0
 AUTH_OPEN_S: Final = 15 * 60.0
 _AUTH_STATUSES: Final = frozenset({401, 403})
+# Errores que causa la petición (el audio o el texto), no el proveedor.
+_REJECTED_STATUSES: Final = frozenset({400, 413, 415, 422})
 _BOGOTA: Final = ZoneInfo("America/Bogota")
 # El borrador del chat admite 500 caracteres; una transcripción más larga no es dictado.
 MAX_TRANSCRIPT_CHARS: Final = 2000
@@ -73,15 +80,16 @@ _EXTENSIONS: Final[Mapping[str, str]] = {
 }
 
 SpeechKind = Literal["stt", "tts"]
-SpeechStatus = Literal["ok", "timeout", "error", "auth", "invalid"]
+SpeechStatus = Literal["ok", "timeout", "error", "auth", "invalid", "rejected"]
 
 
 class SpeechUnavailable(Exception):
     """La voz del servidor no atendió; ``reason`` dice por qué, sin datos del usuario.
 
     Motivos: ``off`` (sin configurar), ``cap`` (tope diario), ``circuit_open``,
-    ``timeout``, ``error`` (red o HTTP), ``auth`` (clave rechazada o sin saldo) e
-    ``invalid`` (respuesta con otra forma).
+    ``timeout``, ``error`` (red o HTTP), ``auth`` (clave rechazada o sin saldo),
+    ``invalid`` (respuesta con otra forma) y ``rejected`` (OpenAI rechazó la entrada con
+    un 4xx; no cuenta como fallo del proveedor).
     """
 
     def __init__(self, reason: str) -> None:
@@ -163,11 +171,16 @@ class OpenAISpeechClient:
         if not self.configured:
             return "off"
         with self._lock:
-            if self.open_until is not None and self._clock() < self.open_until:
-                return "circuit_open"
-            self._roll_day()
-            if self.calls_today >= self.max_calls_per_day:
-                return "cap"
+            return self._blocked()
+
+    def _blocked(self) -> str | None:
+        """Circuito y tope diario; se llama con ``_lock`` tomado."""
+
+        if self.open_until is not None and self._clock() < self.open_until:
+            return "circuit_open"
+        self._roll_day()
+        if self.calls_today >= self.max_calls_per_day:
+            return "cap"
         return None
 
     def available(self) -> bool:
@@ -181,16 +194,26 @@ class OpenAISpeechClient:
             self._cap_logged = False
 
     def _reserve(self) -> None:
-        """Cuenta la llamada contra el tope o lanza :class:`SpeechUnavailable`."""
+        """Cuenta la llamada contra el tope o lanza :class:`SpeechUnavailable`.
 
-        blocked = self.unavailable_status()
-        if blocked is not None:
-            if blocked == "cap" and not self._cap_logged:
-                self._cap_logged = True
-                logger.warning("voice.cap_reached", calls_today=self.calls_today)
-            raise SpeechUnavailable(blocked)
+        La comprobación y el incremento van en la misma sección crítica: dos hilos con
+        ``calls_today = max - 1`` no pueden pasar los dos.
+        """
+
+        if not self.configured:
+            raise SpeechUnavailable("off")
         with self._lock:
-            self.calls_today += 1
+            blocked = self._blocked()
+            if blocked is None:
+                self.calls_today += 1
+                return
+            log_cap = blocked == "cap" and not self._cap_logged
+            if log_cap:
+                self._cap_logged = True
+            calls_today = self.calls_today
+        if log_cap:
+            logger.warning("voice.cap_reached", calls_today=calls_today)
+        raise SpeechUnavailable(blocked)
 
     # -- Llamadas --
 
@@ -266,6 +289,8 @@ class OpenAISpeechClient:
             return _Outcome("auth", "auth")
         if code == 429 and _error_code(response) == "insufficient_quota":
             return _Outcome("auth", "insufficient_quota")
+        if code in _REJECTED_STATUSES:
+            return _Outcome("rejected", f"http_{code}")
         if code != 200:
             return _Outcome("error", "http_5xx" if code >= 500 else f"http_{code}")
         if not expect_json:
@@ -305,6 +330,11 @@ class OpenAISpeechClient:
         with self._lock:
             if outcome.status == "ok":
                 self.failures = 0
+                return
+            if outcome.status == "rejected":
+                # La entrada era mala, no el proveedor: ni circuito, ni ``last_error``, ni
+                # tope (OpenAI no cobra la petición rechazada).
+                self.calls_today = max(0, self.calls_today - 1)
                 return
             self.last_error = outcome.category or outcome.status
             if outcome.status == "auth":

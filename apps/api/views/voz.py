@@ -6,15 +6,25 @@ navegador. Las dos rutas exigen, en este orden:
 
 1. Voz del servidor encendida (``VOICE_PROVIDER=openai`` con clave): si no, **503**
    ``{"reason": "off"}`` sin leer el cuerpo.
-2. CSRF de doble cookie, por cabecera ``X-CSRF-Token`` o campo ``csrf_token`` (**403**).
-3. La cookie firmada del chat (la misma identidad que el chat; sin ella, **403**
-   ``no_session``) y el límite por sesión (**429** con ``Retry-After``).
-4. Tope diario y circuito del cliente (**503** ``cap`` / ``circuit_open``).
+2. CSRF de doble cookie (**403**): en ``/transcribir`` solo por la cabecera
+   ``X-CSRF-Token``, para no parsear el multipart de quien no lo trae; en ``/hablar``,
+   cabecera o campo ``csrf_token``.
+3. La identidad del chat (la misma que el chat; sin ella, **403** ``no_session``).
+4. Disponibilidad: tope diario y circuito del cliente (**503** ``cap`` / ``circuit_open``).
+5. Los límites global por minuto, por IP y por sesión (**429** con ``Retry-After``). La
+   identidad la puede fabricar el cliente (cookie de visitante), así que los límites por IP
+   y global son los que frenan a quien rota identidades.
 
 ``/transcribir`` recibe el audio de ``MediaRecorder`` (``audio/webm``, ``audio/ogg`` o
-``audio/mp4``) en el campo ``audio`` de un multipart, comprueba el tamaño antes de leer el
-cuerpo y la firma del contenedor, y devuelve ``{"texto": …}``. El audio no se guarda ni se
+``audio/mp4``) en el campo ``audio`` de un multipart. Comprueba el tamaño por
+``Content-Length`` y pasa los límites **antes** de leer el cuerpo; después, la firma del
+contenedor y la duración que declara (**413** ``too_long`` si supera
+``VOICE_MAX_AUDIO_SECONDS``), y devuelve ``{"texto": …}``. El audio no se guarda ni se
 registra.
+
+Los fallos internos del proveedor (``timeout``, ``error``, ``auth``, ``invalid``, ``db``)
+salen al navegador como ``unavailable``: el detalle queda en los logs. Un audio que OpenAI
+rechaza (4xx de la entrada) es **422** ``rejected`` y no abre el circuito de nadie.
 
 ``/hablar`` **no sintetiza texto libre**: recibe ``message_id``, el id de una respuesta del
 asistente de la conversación de quien llama (lo expone ``data-voz-mensaje`` en el hilo y el
@@ -39,6 +49,7 @@ from apps.api.security import verify_csrf
 from apps.api.views.chat import chat_provider, request_identity
 from apps.api.voice import VoiceRuntime, build_voice_runtime, cap_text, spoken_message
 from carvajal.adapters.speech import SpeechUnavailable
+from carvajal.adapters.speech.container import audio_duration_s
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
@@ -60,6 +71,12 @@ _MULTIPART_OVERHEAD: Final = 16 * 1024
 # Un audio de menos de esto no tiene voz que transcribir.
 _MIN_AUDIO_BYTES: Final = 512
 _MESSAGE_ID: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")
+# Holgura sobre ``VOICE_MAX_AUDIO_SECONDS``: el navegador corta en el límite y el último
+# trozo de ``MediaRecorder`` (cada 250 ms) puede pasarse un poco.
+_DURATION_SLACK_S: Final = 3.0
+# Motivos que se dicen tal cual al navegador; el resto de 503 sale como ``unavailable``
+# para no contar desde fuera si la clave está rechazada, sin saldo o caída.
+_PUBLIC_UNAVAILABLE: Final = frozenset({"off", "cap", "circuit_open"})
 _RUNTIME_LOCK = threading.Lock()
 
 UNAVAILABLE: Final = "La voz del servidor no está disponible; se usa la voz del navegador."
@@ -67,16 +84,14 @@ MESSAGES: Final[dict[str, str]] = {
     "off": UNAVAILABLE,
     "cap": UNAVAILABLE,
     "circuit_open": UNAVAILABLE,
-    "timeout": UNAVAILABLE,
-    "error": UNAVAILABLE,
-    "auth": UNAVAILABLE,
-    "invalid": UNAVAILABLE,
-    "db": UNAVAILABLE,
+    "unavailable": UNAVAILABLE,
     "csrf": "La sesión expiró. Recarga la página e inténtalo de nuevo.",
     "no_session": "Abre el chat antes de usar la voz.",
     "rate_limited": "Usaste la voz muchas veces seguidas. Espera un momento.",
     "length_required": "Falta el tamaño del audio.",
     "too_large": "El audio es demasiado largo.",
+    "too_long": "El audio es demasiado largo.",
+    "rejected": "No se pudo procesar el audio. Inténtalo de nuevo.",
     "bad_request": "No se recibió el audio.",
     "unsupported_type": "Formato de audio no admitido.",
     "empty": "No se oyó ninguna voz.",
@@ -121,6 +136,25 @@ def _settings(request: Request) -> Settings:
 def _reject(status_code: int, reason: str, headers: dict[str, str] | None = None) -> JSONResponse:
     # Solo el motivo: ni el audio, ni el texto, ni el id del mensaje.
     logger.info("voice.rejected", reason=reason, status=status_code)
+    return _respond(status_code, reason, headers)
+
+
+def _unavailable(reason: str) -> JSONResponse:
+    """503 con el motivo interno en el log y uno genérico hacia el navegador."""
+
+    logger.info("voice.rejected", reason=reason, status=503)
+    return _respond(503, reason if reason in _PUBLIC_UNAVAILABLE else "unavailable")
+
+
+def _provider_failed(error: SpeechUnavailable) -> JSONResponse:
+    """Fallo del cliente de OpenAI: 422 si rechazó la entrada; si no, 503 genérico."""
+
+    if error.reason == "rejected":
+        return _reject(422, "rejected")
+    return _unavailable(error.reason)
+
+
+def _respond(status_code: int, reason: str, headers: dict[str, str] | None = None) -> JSONResponse:
     return JSONResponse(
         {"detail": MESSAGES.get(reason, UNAVAILABLE), "reason": reason},
         status_code=status_code,
@@ -133,19 +167,28 @@ def _csrf_ok(request: Request, field_value: str = "") -> bool:
     return verify_csrf(request, token)
 
 
+def _client_ip(request: Request) -> str:
+    """IP de quien llama; detrás de nginx, la real si ``FORWARDED_ALLOW_IPS`` es correcta."""
+
+    return request.client.host if request.client is not None else "desconocida"
+
+
 def _gate(request: Request, runtime: VoiceRuntime) -> tuple[str | None, JSONResponse | None]:
-    """Identidad, límite por sesión y disponibilidad: ``(owner_key, rechazo)``."""
+    """Identidad, disponibilidad y límites (global, IP y sesión): ``(owner_key, rechazo)``.
+
+    La disponibilidad va antes que los límites: con la voz caída no se gasta cupo.
+    """
 
     owner_key = request_identity(request).read(request)
     if owner_key is None:
         return None, _reject(403, "no_session")
     structlog.contextvars.bind_contextvars(owner_key=owner_key)
-    wait = runtime.limiter.hit(owner_key)
-    if wait:
-        return owner_key, _reject(429, "rate_limited", {"Retry-After": str(wait)})
     reason = runtime.unavailable_reason()
     if reason is not None:
-        return owner_key, _reject(503, reason)
+        return owner_key, _unavailable(reason)
+    wait = runtime.admit(owner_key, _client_ip(request))
+    if wait:
+        return owner_key, _reject(429, "rate_limited", {"Retry-After": str(wait)})
     return owner_key, None
 
 
@@ -168,26 +211,26 @@ async def transcribir(request: Request) -> Response:
     runtime = voice_runtime(request)
     if runtime.client is None:
         return _reject(503, "off")
-    # El tamaño se comprueba antes de leer el cuerpo: un audio enorme no llega a parsearse.
+    # Todo lo barato va antes de leer el cuerpo: CSRF por cabecera (el cliente oficial
+    # siempre la manda), tamaño declarado, identidad y límites. Quien no los pasa no obliga
+    # al servidor a parsear ni a volcar a disco un multipart.
+    if not _csrf_ok(request):
+        logger.warning("csrf.rejected", path=request.url.path)
+        return _reject(403, "csrf")
     declared = request.headers.get("content-length", "").strip()
     if not declared.isdigit():
         return _reject(411, "length_required")
     if int(declared) > runtime.max_upload_bytes + _MULTIPART_OVERHEAD:
         return _reject(413, "too_large")
-    header_ok = _csrf_ok(request)
+    _, rejected = _gate(request, runtime)
+    if rejected is not None:
+        return rejected
     try:
         form = await request.form(max_files=1, max_fields=4, max_part_size=4096)
     except Exception:  # cuerpo multipart roto: no se describe el contenido
         return _reject(400, "bad_request")
     upload: UploadFile | None = None
     try:
-        field = form.get("csrf_token")
-        if not (header_ok or _csrf_ok(request, field if isinstance(field, str) else "")):
-            logger.warning("csrf.rejected", path=request.url.path)
-            return _reject(403, "csrf")
-        _, rejected = _gate(request, runtime)
-        if rejected is not None:
-            return rejected
         candidate = form.get("audio")
         if not isinstance(candidate, UploadFile):
             return _reject(400, "bad_request")
@@ -202,13 +245,17 @@ async def transcribir(request: Request) -> Response:
             return _reject(422, "empty")
         if not _sniff(audio, media_type):
             return _reject(415, "unsupported_type")
+        # OpenAI cobra por duración: un audio largo a bitrate bajo cabe en pocos bytes.
+        seconds = audio_duration_s(audio, media_type)
+        if seconds is not None and seconds > runtime.max_audio_seconds + _DURATION_SLACK_S:
+            return _reject(413, "too_long")
         client = runtime.client
         try:
             text = await anyio.to_thread.run_sync(
                 lambda: client.transcribe(audio, upload.content_type or media_type)
             )
         except SpeechUnavailable as error:
-            return _reject(503, error.reason)
+            return _provider_failed(error)
     finally:
         if upload is not None:
             await upload.close()
@@ -246,7 +293,7 @@ def hablar(
         message = lookup(owner_key, identifier)
     except SQLAlchemyError as error:
         logger.warning("voice.message_lookup_failed", error_type=type(error).__name__)
-        return _reject(503, "db")
+        return _unavailable("db")
     if message is None:
         return _reject(404, "not_found")
     text = cap_text(spoken_message(message), runtime.tts_max_chars)
@@ -259,7 +306,7 @@ def hablar(
         try:
             audio = client.synthesize(text)
         except SpeechUnavailable as error:
-            return _reject(503, error.reason)
+            return _provider_failed(error)
         runtime.remember(key, audio)
     return Response(
         content=audio.content,

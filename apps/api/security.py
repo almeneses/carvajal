@@ -101,12 +101,19 @@ HSTS = "max-age=31536000; includeSubDomains"
 # ``blob:`` creado con la respuesta de ``/api/voz/hablar``; el resto del sitio conserva la
 # política por defecto (``media-src`` cae en ``default-src 'self'``).
 CSP_CHAT = CABECERAS["Content-Security-Policy"] + "; media-src 'self' blob:"
+# Rutas que pintan ``chat.html``: el GET y las páginas de error de sus POST, que también
+# ofrecen «Escuchar» con la voz del servidor.
+_RUTAS_CHAT = frozenset({"/chat", "/chat/new"})
 
 
 def politica_csp(ruta: str, metodo: str) -> str:
-    """``Content-Security-Policy`` según la ruta: solo el documento del chat admite ``blob:``."""
+    """``Content-Security-Policy`` según la ruta: solo las páginas del chat admiten ``blob:``.
 
-    if ruta == "/chat" and metodo.upper() in {"GET", "HEAD"}:
+    Incluye los POST de ``/chat`` y ``/chat/new``, cuya página de error es el mismo
+    documento del chat; en una respuesta que no es HTML la directiva no tiene efecto.
+    """
+
+    if ruta in _RUTAS_CHAT:
         return CSP_CHAT
     return CABECERAS["Content-Security-Policy"]
 

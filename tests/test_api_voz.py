@@ -10,10 +10,11 @@ repositorio real con SQLite: un id de otro dueño no se encuentra.
 """
 
 import json
+import struct
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -23,12 +24,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
+from apps.api.chat.identity import COOKIE_NAME, VISITOR_COOKIE, SignedCookieIdentity
+from apps.api.chat.service import ChatService
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import Handlers, HealthStatus, create_app
 from apps.api.security import CSP_CHAT, CSRF_COOKIE, CSRF_FIELD
 from apps.api.views.voz import CSRF_HEADER
-from apps.api.voice import TRUNCATED_NOTE, RateLimiter, VoiceRuntime
+from apps.api.voice import TRUNCATED_NOTE, RateLimiter, VoiceRuntime, cap_text
 from carvajal.adapters.speech.openai import OpenAISpeechClient
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.chat import ChatMessage, Conversation, SqlChatRepository
@@ -130,6 +132,19 @@ class OpenAIFake:
         ]
 
 
+def _ogg(seconds: float, size: int = 2000) -> bytes:
+    """Ogg Opus mínimo cuya última página declara ``seconds`` (granulo a 48 kHz)."""
+
+    def page(granule: int, payload: bytes) -> bytes:
+        lacing = bytes([255] * (len(payload) // 255) + [len(payload) % 255])
+        header = b"OggS" + bytes([0, 0]) + struct.pack("<qIII", granule, 1, 0, 0)
+        return header + bytes([len(lacing)]) + lacing + payload
+
+    head = page(0, b"OpusHead" + bytes([1, 1]) + struct.pack("<HIhB", 312, 48_000, 0, 0))
+    filler = b"\x00" * max(0, size - len(head) - 40)
+    return head + page(int(seconds * 48_000) + 312, filler)
+
+
 def _runtime(
     fake: OpenAIFake,
     *,
@@ -137,6 +152,8 @@ def _runtime(
     max_calls: int = 500,
     max_upload: int = 100_000,
     tts_max_chars: int = 1200,
+    ip_limit: int | None = None,
+    global_limit: int | None = None,
 ) -> VoiceRuntime:
     client = OpenAISpeechClient(
         api_key=KEY,
@@ -149,6 +166,9 @@ def _runtime(
         limiter=RateLimiter(limit, 600),
         max_upload_bytes=max_upload,
         tts_max_chars=tts_max_chars,
+        max_audio_seconds=60,
+        ip_limiter=None if ip_limit is None else RateLimiter(ip_limit, 600),
+        global_limiter=None if global_limit is None else RateLimiter(global_limit, 60),
     )
 
 
@@ -179,7 +199,7 @@ def _transcribe(
     media_type: str = "audio/webm;codecs=opus",
     *,
     token: str | None = None,
-    header: bool = False,
+    header: bool = True,
 ) -> Any:
     data = {} if token is None or header else {CSRF_FIELD: token}
     headers = {CSRF_HEADER: token} if header and token else {}
@@ -380,10 +400,13 @@ def test_sin_campo_audio_es_400() -> None:
     token = _session(client)
 
     # Act
-    response = client.post("/api/voz/transcribir", data={CSRF_FIELD: token})
+    response = client.post(
+        "/api/voz/transcribir", data={"otro": "campo"}, headers={CSRF_HEADER: token}
+    )
 
     # Assert
-    assert response.status_code in {400, 411}
+    assert response.status_code == 400
+    assert response.json()["reason"] == "bad_request"
 
 
 def test_el_limite_por_sesion_responde_429_con_retry_after() -> None:
@@ -447,10 +470,172 @@ def test_circuito_abierto_es_503_circuit_open() -> None:
     blocked = _transcribe(client, token=token)
 
     # Assert
-    assert [response.json()["reason"] for response in failures] == ["error"] * 3
+    # El motivo interno (``error``) queda en el log; el navegador recibe uno genérico.
+    assert [response.json()["reason"] for response in failures] == ["unavailable"] * 3
     assert blocked.status_code == 503
     assert blocked.json()["reason"] == "circuit_open"
     assert len(fake.requests) == 3
+
+
+def test_transcribir_no_acepta_el_csrf_solo_en_el_formulario() -> None:
+    # Arrange
+    fake = OpenAIFake()
+    client, _ = _app(_runtime(fake))
+    token = _session(client)
+
+    # Act
+    response = _transcribe(client, token=token, header=False)
+
+    # Assert
+    assert response.status_code == 403
+    assert response.json()["reason"] == "csrf"
+    assert fake.requests == []
+
+
+def test_transcribir_comprueba_sesion_y_limite_antes_de_leer_el_cuerpo() -> None:
+    # Arrange: un multipart roto daría 400 si se leyera antes de la identidad y el límite.
+    client, _ = _app(_runtime(OpenAIFake(), limit=1))
+    token = _session(client)
+    broken = {
+        CSRF_HEADER: token,
+        "content-type": "multipart/form-data; boundary=x",
+    }
+    stranger, _ = _app(_runtime(OpenAIFake()))
+    stranger.get("/api/csrf")
+    stranger_token = stranger.cookies[CSRF_COOKIE]
+
+    # Act
+    no_session = stranger.post(
+        "/api/voz/transcribir",
+        content=b"--x\r\nroto",
+        headers={**broken, CSRF_HEADER: stranger_token},
+    )
+    first = client.post("/api/voz/transcribir", content=b"--x\r\nroto", headers=broken)
+    limited = client.post("/api/voz/transcribir", content=b"--x\r\nroto", headers=broken)
+
+    # Assert
+    assert no_session.status_code == 403 and no_session.json()["reason"] == "no_session"
+    assert first.status_code == 400
+    assert limited.status_code == 429
+
+
+def test_rotar_la_identidad_no_salta_el_limite_por_ip() -> None:
+    # Arrange: cada petición con una cookie de visitante distinta (la fabrica el cliente).
+    fake = OpenAIFake()
+    client, _ = _app(_runtime(fake, limit=20, ip_limit=2))
+    client.get("/api/csrf")
+    token = client.cookies[CSRF_COOKIE]
+
+    # Act
+    responses = []
+    for index in range(3):
+        client.cookies.set(VISITOR_COOKIE, f"{index:064x}")
+        responses.append(_transcribe(client, token=token))
+
+    # Assert
+    assert [response.status_code for response in responses] == [200, 200, 429]
+    assert responses[2].headers["Retry-After"]
+    assert len(fake.requests) == 2
+
+
+def test_el_limite_global_frena_a_quien_rota_identidad_e_ip() -> None:
+    # Arrange: dos sesiones distintas con límite global de 2 por minuto.
+    fake = OpenAIFake()
+    runtime = _runtime(fake, global_limit=2)
+    client_a, _ = _app(runtime)
+    client_b, _ = _app(runtime)
+    token_a = _session(client_a, "dueno-a")
+    token_b = _session(client_b, "dueno-b")
+
+    # Act
+    first = _transcribe(client_a, token=token_a)
+    second = _transcribe(client_b, token=token_b)
+    third = _transcribe(client_b, token=token_b)
+
+    # Assert
+    assert (first.status_code, second.status_code, third.status_code) == (200, 200, 429)
+    assert len(fake.requests) == 2
+
+
+def test_un_rechazo_por_un_limite_no_gasta_el_cupo_de_los_otros() -> None:
+    # Arrange
+    runtime = _runtime(OpenAIFake(), limit=1, ip_limit=5)
+
+    # Act
+    first = runtime.admit("dueno-a", "10.0.0.1")
+    blocked = [runtime.admit("dueno-a", "10.0.0.1") for _ in range(4)]
+    other = runtime.admit("dueno-b", "10.0.0.1")
+
+    # Assert: los 4 rechazos por sesión no contaron contra la IP.
+    assert first == 0
+    assert all(wait > 0 for wait in blocked)
+    assert other == 0
+
+
+def test_el_limitador_olvida_las_claves_mas_antiguas() -> None:
+    # Arrange
+    limiter = RateLimiter(1, 600, max_keys=3)
+
+    # Act: miles de claves inventadas.
+    for index in range(5000):
+        limiter.hit(f"clave-{index}")
+    kept = limiter.hit("clave-4999")
+    forgotten = limiter.hit("clave-0")
+
+    # Assert: memoria acotada; la reciente sigue limitada y la olvidada vuelve a pasar.
+    assert len(limiter) == 3
+    assert kept > 0
+    assert forgotten == 0
+
+
+def test_un_audio_que_declara_mas_duracion_que_el_tope_es_413_sin_llamar_a_openai() -> None:
+    # Arrange: pocos bytes (Opus a bitrate bajo) pero 10 minutos de audio.
+    fake = OpenAIFake()
+    client, _ = _app(_runtime(fake))
+    token = _session(client)
+
+    # Act
+    long_audio = _transcribe(client, _ogg(600), "audio/ogg;codecs=opus", token=token)
+    short_audio = _transcribe(client, _ogg(20), "audio/ogg;codecs=opus", token=token)
+
+    # Assert
+    assert long_audio.status_code == 413
+    assert long_audio.json()["reason"] == "too_long"
+    assert short_audio.status_code == 200
+    assert len(fake.requests) == 1
+
+
+def test_un_audio_que_openai_rechaza_es_422_y_no_abre_el_circuito() -> None:
+    # Arrange: firma WebM válida y basura detrás; OpenAI responde 400.
+    fake = OpenAIFake(status=400)
+    client, _ = _app(_runtime(fake))
+    token = _session(client)
+
+    # Act
+    rejected = [_transcribe(client, token=token) for _ in range(4)]
+    fake.status = 200
+    after = _transcribe(client, token=token)
+
+    # Assert: la voz sigue disponible para todos.
+    assert [response.status_code for response in rejected] == [422] * 4
+    assert {response.json()["reason"] for response in rejected} == {"rejected"}
+    assert after.status_code == 200
+
+
+def test_los_motivos_internos_salen_como_unavailable() -> None:
+    # Arrange: la clave rechazada (401) no se cuenta al navegador.
+    fake = OpenAIFake(status=401)
+    client, _ = _app(_runtime(fake))
+    token = _session(client)
+
+    # Act
+    auth = _transcribe(client, token=token)
+    blocked = _transcribe(client, token=token)
+
+    # Assert
+    assert auth.status_code == 503 and auth.json()["reason"] == "unavailable"
+    assert blocked.status_code == 503 and blocked.json()["reason"] == "circuit_open"
+    assert "auth" not in auth.text
 
 
 # --- /api/voz/hablar -----------------------------------------------------------------------
@@ -625,6 +810,33 @@ def test_hablar_recorta_respuestas_largas_en_un_fin_de_frase() -> None:
     assert spoken.startswith("Esta es una frase de prueba.")
 
 
+def test_el_recorte_no_parte_una_cifra_por_su_punto_de_miles() -> None:
+    # Arrange: el presupuesto cae justo detrás del primer punto de «1.234.500».
+    text = "Hola. " + "x" * 50 + " el total es 1.234.500 pesos con IVA incluido. " * 3
+    limit = 114
+    assert text[: limit - len(TRUNCATED_NOTE) - 1].endswith("1.")
+
+    # Act
+    spoken = cap_text(text, limit)
+
+    # Assert
+    assert spoken == f"Hola. {TRUNCATED_NOTE}"
+    assert "1." not in spoken.replace(TRUNCATED_NOTE, "")
+
+
+def test_el_recorte_sin_fin_de_frase_corta_en_un_espacio() -> None:
+    # Arrange
+    text = "el total es 1.234.500 pesos " * 20
+
+    # Act
+    spoken = cap_text(text, 120)
+
+    # Assert: nunca una cifra a medias.
+    head = spoken.removesuffix(f" {TRUNCATED_NOTE}")
+    assert len(spoken) <= 120
+    assert head.split()[-1] in {"pesos", "1.234.500", "es", "total", "el"}
+
+
 def test_hablar_con_la_base_caida_o_openai_caido_es_503() -> None:
     # Arrange
     fake = OpenAIFake(status=503)
@@ -639,8 +851,8 @@ def test_hablar_con_la_base_caida_o_openai_caido_es_503() -> None:
     db_down = _speak(client, "m-1", token)
 
     # Assert
-    assert provider_down.status_code == 503 and provider_down.json()["reason"] == "error"
-    assert db_down.status_code == 503 and db_down.json()["reason"] == "db"
+    assert provider_down.status_code == 503 and provider_down.json()["reason"] == "unavailable"
+    assert db_down.status_code == 503 and db_down.json()["reason"] == "unavailable"
 
 
 # --- /health, página del chat y CSP --------------------------------------------------------
@@ -734,6 +946,42 @@ def test_solo_el_documento_del_chat_admite_audio_blob() -> None:
         assert "blob:" not in response.headers["content-security-policy"]
 
 
+def test_la_pagina_de_error_del_post_del_chat_tambien_admite_audio_blob() -> None:
+    # Arrange: la página de error de POST /chat es el mismo chat.html con «Escuchar».
+    client, _ = _app(_runtime(OpenAIFake()))
+    token = _session(client)
+
+    # Act
+    error_page = client.post("/chat", data={"question": "", CSRF_FIELD: token})
+    new_error = client.post("/chat/new", data={CSRF_FIELD: "token-falso"})
+
+    # Assert
+    assert 'data-voz-servidor="1"' in error_page.text
+    assert error_page.headers["content-security-policy"] == CSP_CHAT
+    assert new_error.headers["content-security-policy"] == CSP_CHAT
+
+
+def test_health_solo_muestra_el_consumo_de_voz_al_operador(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("OPERATOR_TOKEN", "token-de-operador-de-prueba")
+    client, _ = _app(_runtime(OpenAIFake(status=401)))
+    token = _session(client)
+    _transcribe(client, token=token)
+
+    # Act
+    public = client.get("/health").json()["voice"]
+    operator = client.get(
+        "/health", headers={"X-Operator-Token": "token-de-operador-de-prueba"}
+    ).json()["voice"]
+
+    # Assert
+    assert "calls_today" not in public and "last_error" not in public
+    assert operator["calls_today"] == 1
+    assert operator["last_error"] == "auth"
+
+
 # --- repositorio real ----------------------------------------------------------------------
 
 
@@ -780,3 +1028,60 @@ def test_el_repositorio_solo_devuelve_mensajes_del_dueno(
     assert foreign is None
     assert question is not None and question.role == "user"
     assert missing is None
+
+
+def _real_chat(session_factory: Callable[[], Any]) -> ChatService:
+    """``ChatService`` real sobre SQLite; ``assistant_message`` no usa embedder ni LLM."""
+
+    return ChatService(cast(Any, session_factory), embedder=cast(Any, None), llm=cast(Any, None))
+
+
+def test_el_servicio_real_solo_entrega_respuestas_del_asistente_del_dueno(
+    session_factory: Callable[[], Any],
+) -> None:
+    # Arrange: el filtro de rol vive en ``ChatService.assistant_message``, no en el doble.
+    with session_factory() as session:
+        repository = SqlChatRepository(session)
+        conversation = repository.create("dueno-a")
+        user, assistant = repository.append_turn(
+            conversation.id, question="¿Qué es Carvajal?", answer="Una empresa de Cali."
+        )
+        session.commit()
+    service = _real_chat(session_factory)
+
+    # Act
+    own = service.assistant_message("dueno-a", assistant.id)
+    own_question = service.assistant_message("dueno-a", user.id)
+    foreign = service.assistant_message("dueno-b", assistant.id)
+
+    # Assert: ni el mensaje del usuario ni el de otro dueño se pueden sintetizar.
+    assert own is not None and own.content == "Una empresa de Cali."
+    assert own_question is None
+    assert foreign is None
+
+
+def test_hablar_con_el_servicio_real_no_lee_el_mensaje_del_usuario(
+    session_factory: Callable[[], Any],
+) -> None:
+    # Arrange
+    with session_factory() as session:
+        repository = SqlChatRepository(session)
+        conversation = repository.create(OWNER)
+        user, assistant = repository.append_turn(
+            conversation.id, question="Texto que escribió la persona.", answer="Respuesta."
+        )
+        session.commit()
+    fake = OpenAIFake()
+    runtime = _runtime(fake)
+    client, _ = _app(runtime)
+    cast(Any, client.app).state.chat = _real_chat(session_factory)
+    token = _session(client)
+
+    # Act
+    question = _speak(client, user.id, token)
+    answer = _speak(client, assistant.id, token)
+
+    # Assert
+    assert question.status_code == 404
+    assert answer.status_code == 200
+    assert fake.tts_inputs() == ["Respuesta."]

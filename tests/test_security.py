@@ -14,6 +14,7 @@ from apps.api.main import SERVICE_UNAVAILABLE, Handlers, HealthStatus, create_ap
 from apps.api.runtime import APP_DIR
 from apps.api.security import (
     CABECERAS,
+    CSP_CHAT,
     CSRF_COOKIE,
     CSRF_FIELD,
     HSTS,
@@ -113,9 +114,14 @@ def test_las_cabeceras_de_seguridad_van_en_todas_las_respuestas() -> None:
     portada = client.get("/", follow_redirects=False)
     rechazo = client.post("/chat", data={"question": "¿?"})
 
-    # Assert
-    for response in (portada, rechazo):
-        for nombre, valor in CABECERAS.items():
+    # Assert: la página de error de POST /chat es el documento del chat y lleva su CSP
+    # (la por defecto más ``media-src 'self' blob:`` para la voz del servidor, spec 047).
+    esperadas = [
+        (portada, CABECERAS),
+        (rechazo, {**CABECERAS, "Content-Security-Policy": CSP_CHAT}),
+    ]
+    for response, cabeceras in esperadas:
+        for nombre, valor in cabeceras.items():
             assert response.headers[nombre] == valor
         assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 

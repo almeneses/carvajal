@@ -122,10 +122,13 @@ services:
       VOICE_TTS_INSTRUCTIONS: ${VOICE_TTS_INSTRUCTIONS:-}
       VOICE_TTS_MAX_CHARS: ${VOICE_TTS_MAX_CHARS:-1200}
       VOICE_MAX_AUDIO_SECONDS: ${VOICE_MAX_AUDIO_SECONDS:-60}
-      VOICE_MAX_UPLOAD_BYTES: ${VOICE_MAX_UPLOAD_BYTES:-2000000}
+      # 0 deriva el tope de bytes de la duración (64 kbps: 480 KB para 60 s).
+      VOICE_MAX_UPLOAD_BYTES: ${VOICE_MAX_UPLOAD_BYTES:-0}
       VOICE_MAX_CALLS_PER_DAY: ${VOICE_MAX_CALLS_PER_DAY:-500}
       VOICE_RATE_LIMIT: ${VOICE_RATE_LIMIT:-20}
       VOICE_RATE_WINDOW_S: ${VOICE_RATE_WINDOW_S:-600}
+      VOICE_IP_RATE_LIMIT: ${VOICE_IP_RATE_LIMIT:-60}
+      VOICE_GLOBAL_RATE_PER_MIN: ${VOICE_GLOBAL_RATE_PER_MIN:-30}
       VOICE_TIMEOUT_S: ${VOICE_TIMEOUT_S:-20}
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
