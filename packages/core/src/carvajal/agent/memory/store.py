@@ -561,15 +561,42 @@ def _forget_note(
     return "forgotten"
 
 
+def _delete_all(store: Any, namespace: tuple[str, ...], *, keep: str | None = None) -> None:
+    """Borra todos los elementos del namespace (salvo ``keep``), página a página.
+
+    ``store.search`` devuelve como mucho :data:`_SEARCH_LIMIT` elementos: se repite la
+    búsqueda hasta que no quede nada que borrar. Si una página no borra nada nuevo (un
+    Store que ignora ``delete``), se corta para no girar sin fin.
+    """
+
+    seen: set[str] = set()
+    while True:
+        batch = [
+            str(item.key)
+            for item in store.search(namespace, limit=_SEARCH_LIMIT)
+            if str(item.key) != keep
+        ]
+        if not batch or seen.issuperset(batch):
+            return
+        seen.update(batch)
+        for key in batch:
+            store.delete(namespace, key)
+
+
 def _forget_all(store: Any, owner_key: str, now: datetime) -> None:
-    namespace = memory_namespace(owner_key)
-    for item in store.search(namespace, limit=_SEARCH_LIMIT):
-        store.delete(namespace, item.key)
-    store.delete(legacy_namespace(owner_key), LEGACY_KEY)
+    """Borra toda la memoria y los borradores del dueño y deja la lápida (R16).
+
+    La lápida se escribe **antes** de borrar los borradores: un ``SummaryWorker`` que
+    escriba su borrador después del borrado relee la lápida tras su ``put`` y lo borra él
+    mismo (ver ``summary_worker``); con la lápida al final quedaría una ventana en la que
+    ninguno de los dos lo vería.
+    """
+
     drafts = summary_namespace(owner_key)
-    for item in store.search(drafts, limit=_SEARCH_LIMIT):
-        store.delete(drafts, item.key)
     store.put(drafts, TOMBSTONE_KEY, {"v": 1, "at": now.isoformat()})
+    _delete_all(store, memory_namespace(owner_key))
+    store.delete(legacy_namespace(owner_key), LEGACY_KEY)
+    _delete_all(store, drafts, keep=TOMBSTONE_KEY)
 
 
 # --- Patrones propios (R6) -----------------------------------------------------------------------

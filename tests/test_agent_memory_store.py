@@ -319,6 +319,64 @@ def test_olvidar_todo_borra_memoria_formato_anterior_y_borradores_y_deja_lapida(
     assert load(store, OTHER, now=NOW).values == {"nombre": "Beto"}
 
 
+def test_olvidar_todo_borra_mas_de_cien_borradores_y_notas() -> None:
+    # Arrange: 150 conversaciones con borrador (citas literales de la persona), más de lo que
+    # devuelve una sola página de ``store.search``.
+    store = InMemoryStore()
+    drafts = summary_namespace(OWNER)
+    for index in range(150):
+        store.put(
+            drafts,
+            f"conv-{index}",
+            {"v": 1, "text": f"Turno 1 — la persona: «soy Ana {index}»"},
+        )
+    for index in range(120):
+        store.put(memory_namespace(OWNER), f"_extra-{index}", {"v": 2})
+
+    # Act
+    operation = forget(store, OWNER, "todo", now=NOW)
+
+    # Assert
+    assert operation.outcome == "forgotten"
+    left = [item.key for item in store.search(drafts, limit=1000)]
+    assert left == [TOMBSTONE_KEY]
+    assert store.search(memory_namespace(OWNER), limit=1000) == []
+
+
+class _TombstoneOrder(InMemoryStore):
+    """Registra el orden de escrituras y borrados del namespace del resumen."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[tuple[str, str]] = []
+
+    def put(self, namespace: Any, key: str, value: Any, *args: Any, **kwargs: Any) -> None:
+        if tuple(namespace) == summary_namespace(OWNER):
+            self.events.append(("put", key))
+        super().put(namespace, key, value, *args, **kwargs)
+
+    def delete(self, namespace: Any, key: str) -> None:
+        if tuple(namespace) == summary_namespace(OWNER):
+            self.events.append(("delete", key))
+        super().delete(namespace, key)
+
+
+def test_olvidar_todo_escribe_la_lapida_antes_de_borrar_los_borradores() -> None:
+    # Arrange: con la lápida primero, un borrador que el worker escriba entre el borrado y la
+    # lápida no puede pasar su comprobación posterior sin verla.
+    store = _TombstoneOrder()
+    store.put(summary_namespace(OWNER), "hilo-1", {"v": 1, "text": "Ana"})
+    store.events.clear()
+
+    # Act
+    forget(store, OWNER, "todo", now=NOW)
+
+    # Assert
+    assert store.events[0] == ("put", TOMBSTONE_KEY)
+    assert ("delete", "hilo-1") in store.events
+    assert ("delete", TOMBSTONE_KEY) not in store.events
+
+
 # --- Patrones propios -----------------------------------------------------------------------
 
 
