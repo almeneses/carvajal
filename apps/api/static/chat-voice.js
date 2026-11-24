@@ -1761,6 +1761,8 @@
     }
 
     function alFallarTurno(evento) {
+      // Un turno fallido no deja «hablado» pendiente para la respuesta siguiente.
+      turnoHablado = false;
       if (!manosLibres.activo) return;
       const detalle = (evento && evento.detail) || {};
       if (detalle.handsFree === true) desactivarManosLibres("fallo");
