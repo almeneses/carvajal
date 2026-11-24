@@ -1,0 +1,173 @@
+{
+  "version": "2026-11-24",
+  "frozen_at": "2026-11-24",
+  "origin": "15 preguntas de routing_questions.json (ids de origen en «source») y 5 redactadas por el asistente de desarrollo (campo «origin»)",
+  "description": "Conjunto del gatekeeper de la spec 046 (FR-026, T004): 7 herramienta_estructurada (c-54 incluida: dos datos estructurados), 6 rag, 2 mixta (c-52 y c-53) y 5 respuesta_directa redactadas (4 sobre el asistente y un saludo coloquial que las reglas no detectan). «expected» sale del mapa de data-model (map_route) para las 15 de origen, salvo c-54 (commercial_mixed cuya otra parte es otro dato estructurado); las etiquetas de routing_questions.json vienen del router de reglas, así que las reglas parecerán perfectas sobre ellas. «context» es la línea que enviaría producción (vacía: todos son primeros turnos). Congelado antes de medir.",
+  "items": [
+    {
+      "id": "gk-01",
+      "question": "necesito 5.000 vasos de 9 oz para jugos en Bogotá",
+      "context": "",
+      "expected": "herramienta_estructurada",
+      "source": "routing_questions.json#co-01",
+      "rules_route": "commercial/commercial"
+    },
+    {
+      "id": "gk-02",
+      "question": "quiero vasos personalizados con mi logo",
+      "context": "",
+      "expected": "herramienta_estructurada",
+      "source": "routing_questions.json#c-48",
+      "rules_route": "commercial/commercial_custom"
+    },
+    {
+      "id": "gk-03",
+      "question": "cotízame 500 vasos",
+      "context": "",
+      "expected": "herramienta_estructurada",
+      "source": "routing_questions.json#c-30",
+      "rules_route": "direct/commercial_clarify"
+    },
+    {
+      "id": "gk-04",
+      "question": "necesito 1.000 vasos de cartón de 9 oz en Bogotá",
+      "context": "",
+      "expected": "herramienta_estructurada",
+      "source": "routing_questions.json#co-11",
+      "rules_route": "direct/commercial_clarify"
+    },
+    {
+      "id": "gk-05",
+      "question": "¿Cuáles fueron los ingresos consolidados de Carvajal en 2024?",
+      "context": "",
+      "expected": "herramienta_estructurada",
+      "source": "routing_questions.json#r-q26",
+      "rules_route": "tool/indicator"
+    },
+    {
+      "id": "gk-06",
+      "question": "¿Cuántos empleados tiene Carvajal?",
+      "context": "",
+      "expected": "herramienta_estructurada",
+      "source": "routing_questions.json#n-10",
+      "rules_route": "direct/missing_period"
+    },
+    {
+      "id": "gk-07",
+      "question": "necesito vasos de café de 12 oz y los ingresos de Carvajal en 2024",
+      "context": "",
+      "expected": "herramienta_estructurada",
+      "source": "routing_questions.json#c-54",
+      "rules_route": "commercial/commercial_mixed"
+    },
+    {
+      "id": "gk-08",
+      "question": "¿Qué es Carvajal y a qué sectores se dedica?",
+      "context": "",
+      "expected": "rag",
+      "source": "routing_questions.json#r-q01",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-09",
+      "question": "¿En qué año y ciudad fue fundada Carvajal?",
+      "context": "",
+      "expected": "rag",
+      "source": "routing_questions.json#r-q02",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-10",
+      "question": "¿Cuál es el propósito superior de Carvajal?",
+      "context": "",
+      "expected": "rag",
+      "source": "routing_questions.json#r-q05",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-11",
+      "question": "¿Qué es LiquidezYa?",
+      "context": "",
+      "expected": "rag",
+      "source": "routing_questions.json#r-q12",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-12",
+      "question": "¿Qué compromisos éticos declara la empresa?",
+      "context": "",
+      "expected": "rag",
+      "source": "routing_questions.json#r-q15",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-13",
+      "question": "¿Qué fundaciones están vinculadas a Carvajal?",
+      "context": "",
+      "expected": "rag",
+      "source": "routing_questions.json#r-q20",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-14",
+      "question": "Necesito vasos para café de 12 oz. ¿Quién fundó Carvajal?",
+      "context": "",
+      "expected": "mixta",
+      "source": "routing_questions.json#c-52",
+      "rules_route": "commercial/commercial_mixed"
+    },
+    {
+      "id": "gk-15",
+      "question": "¿Cuál es la historia de Carvajal? Y necesito contenedores para sopa",
+      "context": "",
+      "expected": "mixta",
+      "source": "routing_questions.json#c-53",
+      "rules_route": "commercial/commercial_mixed"
+    },
+    {
+      "id": "gk-16",
+      "question": "¿eres una persona o un bot?",
+      "context": "",
+      "expected": "respuesta_directa",
+      "source": "",
+      "origin": "redactada por el asistente de desarrollo (spec 046, research R11)",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-17",
+      "question": "no entendí tu última respuesta",
+      "context": "",
+      "expected": "respuesta_directa",
+      "source": "",
+      "origin": "redactada por el asistente de desarrollo (spec 046, research R11)",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-18",
+      "question": "¿me puedes responder más corto?",
+      "context": "",
+      "expected": "respuesta_directa",
+      "source": "",
+      "origin": "redactada por el asistente de desarrollo (spec 046, research R11)",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-19",
+      "question": "¿en qué idiomas me puedes atender?",
+      "context": "",
+      "expected": "respuesta_directa",
+      "source": "",
+      "origin": "redactada por el asistente de desarrollo (spec 046, research R11)",
+      "rules_route": "rag/documental"
+    },
+    {
+      "id": "gk-20",
+      "question": "quiubo pues, todo bien?",
+      "context": "",
+      "expected": "respuesta_directa",
+      "source": "",
+      "origin": "redactada por el asistente de desarrollo (spec 046, research R11)",
+      "rules_route": "rag/documental"
+    }
+  ]
+}

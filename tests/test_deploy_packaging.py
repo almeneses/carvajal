@@ -77,3 +77,29 @@ def test_deploy_siembra_la_capa_institucional_sin_pisar_el_volumen(tmp_path: Pat
     assert result.returncode == 0, result.stderr
     assert (app / "data" / "institucional" / "empresas.json").read_text() == "volumen\n"
     assert (app / "data" / "institucional" / "nuevo.json").read_text() == "imagen\n"
+
+
+def test_compose_pasa_las_variables_de_jev_sin_contradecir_settings() -> None:
+    """Spec 046 (T002): la app recibe la clave y los ajustes ``JEV_*`` con los defaults."""
+
+    from carvajal.infrastructure.settings import Settings
+
+    text = (REPO / "compose.prod.yml").read_text(encoding="utf-8")
+    defaults = Settings(_env_file=None)
+    expected = {
+        "JEV_ENABLED": "false",
+        "TYPESAFE_API_KEY": "",
+        "JEV_LEDGER": "",
+        "JEV_BASE_URL": defaults.jev_base_url,
+        "JEV_MODEL": defaults.jev_model,
+        "JEV_TIMEOUT_S": str(defaults.jev_timeout_s),
+        "JEV_ROUTER_MODE": defaults.jev_router_mode,
+        "JEV_ROUTER_MIN_CONFIDENCE": str(defaults.jev_router_min_confidence),
+        "JEV_ROUTER_DIRECT_MIN_CONFIDENCE": str(defaults.jev_router_direct_min_confidence),
+        "JEV_CLAIMS_MODE": defaults.jev_claims_mode,
+        "JEV_CLAIMS_THRESHOLD": str(defaults.jev_claims_threshold),
+        "JEV_MAX_CALLS_PER_DAY": str(defaults.jev_max_calls_per_day),
+        "JEV_MAX_EVIDENCE_CHARS": str(defaults.jev_max_evidence_chars),
+    }
+    for name, value in expected.items():
+        assert f"{name}: ${{{name}:-{value}}}" in text, name

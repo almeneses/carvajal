@@ -227,3 +227,84 @@ def test_cada_herramienta_del_registro_es_un_hijo_tool_con_estado_y_latencia() -
             "latency_ms": 10 + i,
             "source_count": 1,
         }
+
+
+# --- Jev (spec 046, T017 y T045) ---------------------------------------------------------------
+
+LLAMADAS_JEV = (
+    {
+        "kind": "router",
+        "status": "ok",
+        "latency_ms": 271,
+        "model": "jev-1.14.0",
+        "input_tokens": 412,
+        "output_tokens": 9,
+        "choice": "rag",
+        "confidence": 0.83,
+        "probabilities": {"rag": 0.83, "herramienta_estructurada": 0.17},
+    },
+    {
+        "kind": "claims",
+        "status": "ok",
+        "latency_ms": 300,
+        "model": "jev-1.14.0",
+        "input_tokens": 2300,
+        "output_tokens": 22,
+        "p_supported": 0.22,
+        "threshold": 0.5,
+    },
+)
+
+
+def test_un_hijo_jev_por_llamada_solo_con_metadatos() -> None:
+    # Arrange
+    from carvajal.infrastructure.monitoring import record_judge_calls
+
+    raiz = SpanFalso()
+
+    # Act
+    record_judge_calls(raiz, LLAMADAS_JEV)
+
+    # Assert
+    assert [(nombre, tipo) for nombre, tipo, _, _ in raiz.children] == [
+        ("jev", "tool"),
+        ("jev", "tool"),
+    ]
+    assert raiz.children[0][2] == LLAMADAS_JEV[0]
+    assert raiz.children[1][2]["p_supported"] == 0.22
+    assert all(hijo.outputs == {} for _, _, _, hijo in raiz.children)
+
+
+def test_los_metadatos_de_jev_sobreviven_a_la_redaccion_sin_texto() -> None:
+    # Arrange
+    meta = {
+        **LLAMADAS_JEV[0],
+        "gatekeeper_route": "rag",
+        "gatekeeper_scope": "rag",
+        "gatekeeper_source": "jev",
+        "gatekeeper_llm_class": None,
+        "gatekeeper_confidence": 0.83,
+        "gatekeeper_cautious": False,
+        "gatekeeper_rule": "",
+        "claims_status": "supported",
+        "claims_p": 0.91,
+        "pregunta": "¿Quién fundó Carvajal?",
+        "respuesta": "Carvajal se fundó en 1904.",
+    }
+
+    # Act
+    limpio = redact(meta, include_content=False)
+
+    # Assert
+    assert limpio["probabilities"] == {"rag": 0.83, "herramienta_estructurada": 0.17}
+    assert limpio["gatekeeper_scope"] == "rag"
+    assert limpio["claims_p"] == 0.91
+    assert "pregunta" not in limpio
+    assert "respuesta" not in limpio
+    assert {"gatekeeper_route", "claims_status", "jev_status", "p_supported"} <= SAFE_KEYS
+
+
+def test_un_sdk_roto_no_rompe_el_registro_de_jev() -> None:
+    from carvajal.infrastructure.monitoring import record_judge_calls
+
+    record_judge_calls(SpanRoto(), LLAMADAS_JEV)

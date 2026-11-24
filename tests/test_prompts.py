@@ -834,3 +834,64 @@ def test_el_agente_nombra_las_veinte_herramientas_por_area() -> None:
         for name in names:
             assert re.search(rf"\b{name}\b", areas[area]), (area, name)
     assert "nunca supongas la fecha" in areas["Utilidades"]
+
+
+# --- Jev (spec 046, T018; contrato §2, §3 y §7) ------------------------------------------------
+
+
+def test_las_opciones_de_choice_van_en_el_orden_del_contrato() -> None:
+    from carvajal.application.ports import GATE_CLASSES
+    from carvajal.prompts import JEV_ROUTE_CRITERIA, JEV_ROUTE_INSTRUCTIONS
+
+    assert list(JEV_ROUTE_CRITERIA) == [
+        "herramienta_estructurada",
+        "rag",
+        "mixta",
+        "respuesta_directa",
+    ]
+    assert tuple(JEV_ROUTE_CRITERIA) == GATE_CLASSES
+    assert "`pregunta`" in JEV_ROUTE_INSTRUCTIONS
+    assert "`contexto`" in JEV_ROUTE_INSTRUCTIONS
+
+
+def test_score_tiene_cinco_niveles() -> None:
+    from carvajal.prompts import JEV_SCORE_CLARITY
+
+    assert len(JEV_SCORE_CLARITY["criteria"]) == 5
+    assert "`pregunta`" in JEV_SCORE_CLARITY["instructions"]
+
+
+def test_la_cautela_incluye_la_regla_de_conversacion() -> None:
+    from carvajal.prompts import GATEKEEPER_CAUTION
+
+    assert "sin_consulta (motivo conversacion)" in GATEKEEPER_CAUTION
+    assert "sin_consulta (motivo pedir_dato)" in GATEKEEPER_CAUTION
+    assert "No inventes canales de contacto" in GATEKEEPER_CAUTION
+
+
+def test_noul_conserva_el_texto_medido_con_dicho_por_la_persona() -> None:
+    from carvajal.prompts import JEV_CLAIMS_CRITERIA, JEV_CLAIMS_INSTRUCTIONS
+
+    # Texto medido el 2026-11-24 (con ``pregunta`` → ``dicho_por_la_persona``).
+    assert "`dicho_por_la_persona`" in JEV_CLAIMS_INSTRUCTIONS
+    assert "`pregunta`" not in JEV_CLAIMS_INSTRUCTIONS
+    assert JEV_CLAIMS_CRITERIA["true"].startswith(
+        "Cada dato de la respuesta (productos, SKU, materiales, capacidades, unidades por "
+        "caja, precios, direcciones, teléfonos, plazos de entrega, certificaciones, prácticas "
+        "de la empresa, cifras financieras) aparece en `evidencia`"
+    )
+    assert "Decir que un dato no está publicado" in JEV_CLAIMS_CRITERIA["true"]
+    assert JEV_CLAIMS_CRITERIA["false"].startswith(
+        "Al menos una afirmación de hecho de la respuesta no aparece en `evidencia`"
+    )
+    # Reglas del owner y de la revisión (⁺ en el contrato).
+    assert "indicativo actualizado" in JEV_CLAIMS_CRITERIA["true"]
+    assert "`[folio]`" in JEV_CLAIMS_CRITERIA["true"]
+    assert "«la más usada»" in JEV_CLAIMS_CRITERIA["false"]
+
+
+def test_instruccion_de_la_respuesta_directa_de_jev() -> None:
+    text = DIRECT_INSTRUCTIONS["gatekeeper_direct"]
+
+    assert "sin cifras, fechas ni nombres de Carvajal" in text
+    assert "pide que la precise" in text

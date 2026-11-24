@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Holgura entre el plazo de ``preguntas_frecuentes`` y el del turno cuando se recorta el
@@ -227,6 +227,30 @@ class Settings(BaseSettings):
     # research R18): siempre menor que ``agent_turn_timeout_s``.
     agent_faq_timeout_s: float = Field(default=25, ge=5, le=40)
 
+    # Jev de TypeSafe (spec 046): gatekeeper del modo ``tools`` y compuerta de afirmaciones.
+    # Apagado por defecto aunque haya clave (research R9, FR-031): el ``.env`` local puede
+    # traerla y cada ``make api`` gastaría créditos fuera del libro. Producción lo enciende
+    # en su ``.env``. La clave solo sale del entorno y nunca aparece en ``repr`` ni en logs.
+    jev_enabled: bool = False
+    # Libro de llamadas (JSONL sin texto); vacío, no se anota nada.
+    jev_ledger: str = ""
+    typesafe_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    jev_base_url: str = "https://api.typesafe.ai/v1"
+    # Modelo fijado: un alias móvil cambiaría los umbrales sin aviso.
+    jev_model: str = "jev-1.14.0"
+    jev_timeout_s: float = Field(default=0.8, ge=0.2, le=3.0)
+    jev_router_mode: Literal["on", "shadow", "off"] = "on"
+    jev_router_min_confidence: float = Field(default=0.6, ge=0, le=1)
+    jev_router_direct_min_confidence: float = Field(default=0.8, ge=0, le=1)
+    # Compuerta de afirmaciones (decisión del owner): ``enforce`` sustituye la respuesta no
+    # respaldada, ``shadow`` solo juzga y registra, ``off`` la apaga. ``on`` es alias de
+    # ``enforce``.
+    jev_claims_mode: Literal["enforce", "shadow", "off"] = "enforce"
+    jev_claims_threshold: float = Field(default=0.5, ge=0, le=1)
+    # Tope por proceso; se reinicia a medianoche de Bogotá. ``0`` = sin llamadas.
+    jev_max_calls_per_day: int = Field(default=1000, ge=0, le=100_000)
+    jev_max_evidence_chars: int = Field(default=12_000, ge=1_000, le=40_000)
+
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
     # trazas es explícito y por defecto queda apagado.
@@ -275,6 +299,15 @@ class Settings(BaseSettings):
             return tuple(part.strip() for part in raw.split(",") if part.strip())
         return value
 
+    @field_validator("jev_claims_mode", mode="before")
+    @classmethod
+    def _modo_de_compuerta(cls, value: Any) -> Any:
+        """Acepta ``on`` como alias de ``enforce`` (el nombre de la spec 046)."""
+
+        if isinstance(value, str) and value.strip().lower() == "on":
+            return "enforce"
+        return value.strip().lower() if isinstance(value, str) else value
+
     @field_validator("log_level")
     @classmethod
     def _nivel_de_log_valido(cls, value: str) -> str:
@@ -318,6 +351,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _umbrales_de_jev(self) -> "Settings":
+        """El umbral de la respuesta directa nunca es menor que el general (research R4)."""
+
+        if self.jev_router_direct_min_confidence < self.jev_router_min_confidence:
+            raise ValueError(
+                "JEV_ROUTER_DIRECT_MIN_CONFIDENCE debe ser mayor o igual que "
+                "JEV_ROUTER_MIN_CONFIDENCE"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
         """Deriva la URL del contenedor local si no se dio una explícita.
 
@@ -339,6 +383,12 @@ class Settings(BaseSettings):
         """Alias del token de operador que usaba la Configuración anterior."""
 
         return self.operator_token
+
+    @property
+    def jev_active(self) -> bool:
+        """Jev encendido de forma explícita y con clave (la clave sola no lo enciende)."""
+
+        return self.jev_enabled and bool(self.typesafe_api_key.get_secret_value().strip())
 
     @property
     def index_file(self) -> Path:

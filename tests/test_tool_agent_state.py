@@ -229,3 +229,30 @@ def test_tool_outcome_copia_en_profundidad_y_exige_json() -> None:
     with pytest.raises(ValueError):
         # Tipo inválido a propósito: se prueba la validación en tiempo de ejecución.
         make_tool_outcome(tool="cotizar", args={}, status="ok", source_ids=5)  # ty: ignore[invalid-argument-type]
+
+
+def test_el_canal_gatekeeper_hace_ida_y_vuelta_por_el_serializador() -> None:
+    """Spec 046 (T016): la decisión del gatekeeper es JSON y sobrevive al checkpointer."""
+
+    from carvajal.agent.gatekeeper.model import GatekeeperDecision
+
+    # Arrange
+    serializer = JsonPlusSerializer()
+    decision = GatekeeperDecision(
+        scope="structured",
+        source="jev",
+        gate_class="herramienta_estructurada",
+        reason="aplicada",
+        confidence=0.91,
+        probabilities={"herramienta_estructurada": 0.91, "rag": 0.09},
+        jev={"kind": "router", "status": "ok", "latency_ms": 250, "model": "jev-1.14.0"},
+    )
+    state = {"question": "hola", "gatekeeper": decision.to_value()}
+
+    # Act
+    restored = serializer.loads_typed(serializer.dumps_typed(state))
+
+    # Assert
+    assert restored == state
+    assert GatekeeperDecision.from_value(restored["gatekeeper"]) == decision
+    assert "gatekeeper" in get_type_hints(ToolAgentState)

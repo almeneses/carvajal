@@ -21,7 +21,13 @@ __all__ = [
     "DIRECT_INSTRUCTIONS",
     "DIRECT_SYSTEM",
     "FAQ_INSTRUCTIONS",
+    "GATEKEEPER_CAUTION",
     "IDENTITY",
+    "JEV_CLAIMS_CRITERIA",
+    "JEV_CLAIMS_INSTRUCTIONS",
+    "JEV_ROUTE_CRITERIA",
+    "JEV_ROUTE_INSTRUCTIONS",
+    "JEV_SCORE_CLARITY",
     "NO_CONTEXT_ANSWER",
     "RAG_SYSTEM",
     "ROUTER_EXAMPLES",
@@ -289,7 +295,94 @@ DIRECT_INSTRUCTIONS = {
         "Responde en una o dos frases y ofrece el siguiente paso. Si la pregunta pide "
         "datos de Carvajal, invita a repetirla para buscarla con fuentes."
     ),
+    # Spec 046 (contrato §7): respuesta directa decidida por Jev (no por las reglas).
+    "gatekeeper_direct": (
+        "La pregunta no necesita datos de Carvajal. Responde en una o dos frases, sin "
+        "cifras, fechas ni nombres de Carvajal, y ofrece el siguiente paso. Si en realidad "
+        "pide datos de Carvajal, dilo y pide que la precise para buscarlos."
+    ),
 }
+
+# --- Jev de TypeSafe (spec 046, contracts/jev-gatekeeper.md) ----------------------------------
+# Son prompts: cualquier cambio exige repetir su medición (principio III) con
+# ``data/eval/gatekeeper_046.json`` (Choice) y ``data/eval/claims_046.json`` (Noul).
+
+JEV_ROUTE_INSTRUCTIONS = (
+    "Decide cómo debe atender el asistente de Carvajal el mensaje `pregunta`. Si hay "
+    "`contexto`, es la pregunta anterior de la misma persona. El asistente puede consultar "
+    "herramientas estructuradas (catálogo de empaques, precios, sedes, cifras financieras) "
+    "o buscar en los documentos de Carvajal."
+)
+# El orden de las opciones es parte del prompt: la respuesta directa va al final (R2).
+JEV_ROUTE_CRITERIA = {
+    "herramienta_estructurada": (
+        "Pide datos del catálogo de empaques (productos, materiales, presentaciones, fichas "
+        "o comparaciones), precios o cotizaciones, dónde comprar, sedes o distribuidores, "
+        "una cifra financiera o de empleados de un período, una fecha o un día hábil, una "
+        "cotización guardada, o lo que el asistente recuerda de la persona."
+    ),
+    "rag": (
+        "Pregunta por Carvajal como organización: historia, fundadores, empresas y marcas "
+        "del grupo, sectores, sostenibilidad, gobierno corporativo, noticias, informes o "
+        "preguntas frecuentes, sin pedir precios, productos para comprar ni la cifra de un "
+        "período."
+    ),
+    "mixta": "Pide a la vez algo de herramienta_estructurada y algo de rag en el mismo mensaje.",
+    "respuesta_directa": (
+        "No pide ningún dato: saludo, agradecimiento, despedida, charla, preguntas sobre el "
+        "propio asistente o cómo usarlo, o un comentario que no necesita consultar nada."
+    ),
+}
+# Score solo en la medición (R5): ``clarity`` es la posición en ``criteria`` desde cero.
+JEV_SCORE_CLARITY = {
+    "instructions": "¿Qué tan clara es la intención de `pregunta` para decidir cómo atenderla?",
+    "criteria": [
+        "No se entiende qué pide",
+        "Admite varias lecturas muy distintas",
+        "Se entiende, pero falta un dato clave",
+        "Clara",
+        "Totalmente clara y sin ambigüedad",
+    ],
+}
+JEV_CLAIMS_INSTRUCTIONS = (
+    "¿Todas las afirmaciones de hecho de `respuesta` están respaldadas por `evidencia` "
+    "(resultados de las consultas del asistente y lo que dijo la persona, en "
+    "`dicho_por_la_persona`)?"
+)
+# Texto medido el 2026-11-24 (19/20 con etiquetas corregidas), con la referencia a
+# ``pregunta`` cambiada a ``dicho_por_la_persona`` y las reglas del owner y de la revisión
+# (formatos equivalentes, marcadores y valoraciones presentadas como hecho).
+JEV_CLAIMS_CRITERIA = {
+    "true": (
+        "Cada dato de la respuesta (productos, SKU, materiales, capacidades, unidades por "
+        "caja, precios, direcciones, teléfonos, plazos de entrega, certificaciones, prácticas "
+        "de la empresa, cifras financieras) aparece en `evidencia` (incluido "
+        "`dicho_por_la_persona`). Decir que un dato no está publicado, rechazar algo de la "
+        "pregunta, hacer preguntas a la persona u ofrecer ayuda no son afirmaciones que "
+        "necesiten respaldo. Un mismo dato con otro formato (un teléfono con el indicativo "
+        "actualizado o con otros separadores, una cifra con otro separador de miles, una "
+        "unidad equivalente) cuenta como respaldado. Lo que la respuesta atribuye a lo que la "
+        "persona dijo antes no se evalúa. Los marcadores `[dato de la persona]`, "
+        "`[dato omitido]` y `[folio]` reemplazan datos de la persona y no se evalúan."
+    ),
+    "false": (
+        "Al menos una afirmación de hecho de la respuesta no aparece en `evidencia`, o la "
+        "contradice (por ejemplo un precio, un plazo, una certificación, un teléfono o una "
+        "práctica de la empresa que ninguna consulta devolvió). Una valoración o "
+        "recomendación presentada como hecho («la más usada», «la preferida», «la mejor») "
+        "que la evidencia no dice cuenta como no respaldada."
+    ),
+}
+# Bloque ``<cautela>`` del sistema del agente con confianza baja (R4, contrato §7).
+GATEKEEPER_CAUTION = (
+    "No está claro qué pide la persona. Consulta antes de afirmar cualquier dato. Si la "
+    "pregunta admite varias lecturas, pide la aclaración con sin_consulta (motivo "
+    "pedir_dato) en una sola pregunta concreta. Si lo que pide no está en tus consultas, "
+    "dilo y ofrece lo que sí puedes buscar: productos, precios, dónde comprar o datos de "
+    "Carvajal. No inventes canales de contacto: usa solo los que devuelvan tus consultas. "
+    "Si el mensaje es solo conversación (saludo, agradecimiento), responde con sin_consulta "
+    "(motivo conversacion) sin buscar."
+)
 
 COMMERCIAL_INSTRUCTIONS = (
     "Eres el asesor comercial de Carvajal Empaques. Redacta con el resultado estructurado "

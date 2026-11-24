@@ -95,6 +95,21 @@ services:
       AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-4}
       AGENT_TURN_TIMEOUT_S: ${AGENT_TURN_TIMEOUT_S:-45}
       AGENT_MAX_QUOTES: ${AGENT_MAX_QUOTES:-3}
+      # Spec 046: Jev de TypeSafe (gatekeeper y compuerta de afirmaciones). Apagado salvo
+      # JEV_ENABLED=true en el .env del servidor; sin clave o apagado, reglas + LLM como antes.
+      JEV_ENABLED: ${JEV_ENABLED:-false}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      JEV_LEDGER: ${JEV_LEDGER:-}
+      JEV_BASE_URL: ${JEV_BASE_URL:-https://api.typesafe.ai/v1}
+      JEV_MODEL: ${JEV_MODEL:-jev-1.14.0}
+      JEV_TIMEOUT_S: ${JEV_TIMEOUT_S:-0.8}
+      JEV_ROUTER_MODE: ${JEV_ROUTER_MODE:-on}
+      JEV_ROUTER_MIN_CONFIDENCE: ${JEV_ROUTER_MIN_CONFIDENCE:-0.6}
+      JEV_ROUTER_DIRECT_MIN_CONFIDENCE: ${JEV_ROUTER_DIRECT_MIN_CONFIDENCE:-0.8}
+      JEV_CLAIMS_MODE: ${JEV_CLAIMS_MODE:-enforce}
+      JEV_CLAIMS_THRESHOLD: ${JEV_CLAIMS_THRESHOLD:-0.5}
+      JEV_MAX_CALLS_PER_DAY: ${JEV_MAX_CALLS_PER_DAY:-1000}
+      JEV_MAX_EVIDENCE_CHARS: ${JEV_MAX_EVIDENCE_CHARS:-12000}
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"

@@ -144,6 +144,10 @@ class ToolAgentState(TypedDict, total=False):
     ``memory`` es la instantánea JSON de la memoria del dueño leída en ``recall``
     (``preferences`` se conserva con sus líneas por compatibilidad); ``turn_count`` es una
     entrada del turno: los turnos persistidos del hilo antes del actual.
+
+    Spec 046: ``gatekeeper`` es la decisión del gatekeeper del turno
+    (``GatekeeperDecision.to_value()``): la escribe el nodo ``shortcut``, ``recall`` la
+    reinicia a ``{}`` y la leen ``agent``, ``tools``, el streaming y la traza.
     """
 
     question: str
@@ -165,6 +169,7 @@ class ToolAgentState(TypedDict, total=False):
     conversation_summary: dict[str, Any]
     memory: dict[str, Any]
     turn_count: int
+    gatekeeper: dict[str, Any]
 
 
 def validate_question(question: str) -> str:

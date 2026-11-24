@@ -64,6 +64,7 @@ from carvajal.agent.toolagent.tools import (
     recordar_preferencia,
 )
 from carvajal.agent.toolagent.tools._base import ToolContext, ToolDeps, _Draft, _Sources
+from carvajal.application.ports import GateScope
 
 __all__ = [
     "BUDGET_FREE",
@@ -72,12 +73,15 @@ __all__ = [
     "DECLARATION_TOOLS",
     "EVIDENCE_ROLES",
     "MEMORY_TOOLS",
+    "ROUTE_GROUPS",
     "STATUS_TEMPLATES",
     "TOOLS",
+    "TOOLS_BY_SCOPE",
     "TOOL_DESCRIPTIONS",
     "TOOL_NAMES",
     "TOOL_SCHEMAS",
     "EvidenceRole",
+    "RouteGroup",
     "StatusTemplate",
     "ToolRun",
     "ToolSpec",
@@ -85,6 +89,10 @@ __all__ = [
 ]
 
 EvidenceRole = Literal["corpus", "data", "declaration", "memory"]
+# Grupo de la consulta para el gatekeeper (spec 046, research R3): ``rag`` (documental),
+# ``structured`` (catálogo, precios, sedes, cifras, fechas, cotizaciones y memoria) o ``any``
+# (solo ``sin_consulta``, disponible en todos los alcances).
+RouteGroup = Literal["rag", "structured", "any"]
 # Texto de la línea de estado a partir de los argumentos validados (FR-025).
 StatusTemplate = Callable[[Mapping[str, Any]], str]
 # Implementación: argumentos validados, dependencias, contexto del turno y registro de
@@ -108,6 +116,9 @@ class ToolSpec:
       (``sin_consulta``) o ``memory`` (sin fuentes; ``_outcome`` guarda solo la categoría).
     - ``city_keys``: argumentos que son una ciudad (la línea de estado solo la muestra si
       la persona la dijo; FR-013).
+    - ``route_group``: grupo del gatekeeper (spec 046). Es un campo propio y no se deriva
+      de ``evidence_role``: ``historia_carvajal`` y ``empresas_del_grupo`` son ``data`` pero
+      responden preguntas documentales.
     """
 
     name: ToolName
@@ -118,6 +129,7 @@ class ToolSpec:
     consumes_budget: bool = True
     evidence_role: EvidenceRole = "data"
     city_keys: tuple[str, ...] = ()
+    route_group: RouteGroup = "structured"
 
 
 TOOLS: Final[tuple[ToolSpec, ...]] = (
@@ -128,6 +140,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         run=builtin._buscar_corpus,
         status_template=status.BUILTIN_TEMPLATES[TOOL_BUSCAR_CORPUS],
         evidence_role="corpus",
+        route_group="rag",
     ),
     ToolSpec(
         name=TOOL_BUSCAR_PRODUCTO,
@@ -135,6 +148,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=builtin.DESCRIPTIONS[TOOL_BUSCAR_PRODUCTO],
         run=builtin._buscar_producto,
         status_template=status.BUILTIN_TEMPLATES[TOOL_BUSCAR_PRODUCTO],
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_COTIZAR,
@@ -143,6 +157,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         run=builtin._cotizar,
         status_template=status.BUILTIN_TEMPLATES[TOOL_COTIZAR],
         city_keys=("city",),
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_BUSCAR_SEDES,
@@ -151,6 +166,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         run=builtin._buscar_sedes,
         status_template=status.BUILTIN_TEMPLATES[TOOL_BUSCAR_SEDES],
         city_keys=("ciudad",),
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_INDICADOR_FINANCIERO,
@@ -158,6 +174,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=builtin.DESCRIPTIONS[TOOL_INDICADOR_FINANCIERO],
         run=builtin._indicador_financiero,
         status_template=status.BUILTIN_TEMPLATES[TOOL_INDICADOR_FINANCIERO],
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_SIN_CONSULTA,
@@ -167,6 +184,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         status_template=None,
         consumes_budget=False,
         evidence_role="declaration",
+        route_group="any",
     ),
     # Catálogo (spec 045, US3, T069): una fuente por dato, sin ciudad como argumento.
     ToolSpec(
@@ -175,6 +193,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=ficha_producto.DESCRIPTION,
         run=ficha_producto.run,
         status_template=ficha_producto.status,
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_COMPARAR_REFERENCIAS,
@@ -182,6 +201,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=comparar_referencias.DESCRIPTION,
         run=comparar_referencias.run,
         status_template=comparar_referencias.status,
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_GUIA_MATERIALES,
@@ -189,6 +209,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=guia_materiales.DESCRIPTION,
         run=guia_materiales.run,
         status_template=guia_materiales.status,
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_CONVERTIR_PRESENTACION,
@@ -196,6 +217,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=convertir_presentacion.DESCRIPTION,
         run=convertir_presentacion.run,
         status_template=convertir_presentacion.status,
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_CIUDADES_CON_COBERTURA,
@@ -203,6 +225,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=ciudades_con_cobertura.DESCRIPTION,
         run=ciudades_con_cobertura.run,
         status_template=ciudades_con_cobertura.status,
+        route_group="structured",
     ),
     # Institucionales, cotizaciones guardadas y fecha (spec 045, US4, T081).
     # ``consultar_cotizacion`` solo lee cotizaciones de procedencia ``real`` del dueño;
@@ -214,6 +237,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=consultar_cotizacion.DESCRIPTION,
         run=consultar_cotizacion.run,
         status_template=consultar_cotizacion.status,
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_INDICADORES_DISPONIBLES,
@@ -221,6 +245,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=indicadores_disponibles.DESCRIPTION,
         run=indicadores_disponibles.run,
         status_template=indicadores_disponibles.status,
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_HISTORIA_CARVAJAL,
@@ -228,6 +253,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=historia_carvajal.DESCRIPTION,
         run=historia_carvajal.run,
         status_template=historia_carvajal.status,
+        route_group="rag",
     ),
     ToolSpec(
         name=TOOL_EMPRESAS_DEL_GRUPO,
@@ -235,6 +261,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=empresas_del_grupo.DESCRIPTION,
         run=empresas_del_grupo.run,
         status_template=empresas_del_grupo.status,
+        route_group="rag",
     ),
     ToolSpec(
         name=TOOL_PREGUNTAS_FRECUENTES,
@@ -243,6 +270,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         run=preguntas_frecuentes.run,
         status_template=preguntas_frecuentes.status,
         evidence_role="corpus",
+        route_group="rag",
     ),
     ToolSpec(
         name=TOOL_FECHA_ACTUAL,
@@ -250,6 +278,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=fecha_actual.DESCRIPTION,
         run=fecha_actual.run,
         status_template=fecha_actual.status,
+        route_group="structured",
     ),
     # Memoria del dueño (spec 045, US2, T050): sin fuentes; ``_outcome`` guarda solo la
     # categoría como argumento (FR-012, FR-018).
@@ -260,6 +289,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         run=recordar_preferencia.run,
         status_template=recordar_preferencia.status,
         evidence_role="memory",
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_LISTAR_MEMORIA,
@@ -268,6 +298,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         run=listar_memoria.run,
         status_template=listar_memoria.status,
         evidence_role="memory",
+        route_group="structured",
     ),
     ToolSpec(
         name=TOOL_OLVIDAR_PREFERENCIA,
@@ -276,6 +307,7 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         run=olvidar_preferencia.run,
         status_template=olvidar_preferencia.status,
         evidence_role="memory",
+        route_group="structured",
     ),
 )
 
@@ -312,6 +344,21 @@ DECLARATION_TOOLS: Final[frozenset[str]] = frozenset(
 )
 MEMORY_TOOLS: Final[frozenset[str]] = frozenset(
     spec.name for spec in TOOLS if spec.evidence_role == "memory"
+)
+ROUTE_GROUPS: Final[Mapping[str, RouteGroup]] = MappingProxyType(
+    {spec.name: spec.route_group for spec in TOOLS}
+)
+# Consultas que el modelo ve en cada alcance del gatekeeper, en el orden de ``TOOLS``
+# (data-model *Grupo de cada consulta*): ``direct`` no consulta nada.
+TOOLS_BY_SCOPE: Final[Mapping[GateScope, tuple[str, ...]]] = MappingProxyType(
+    {
+        "all": TOOL_NAMES,
+        "rag": tuple(spec.name for spec in TOOLS if spec.route_group in ("rag", "any")),
+        "structured": tuple(
+            spec.name for spec in TOOLS if spec.route_group in ("structured", "any")
+        ),
+        "direct": (),
+    }
 )
 
 if len(_BY_NAME) != len(TOOLS):  # pragma: no cover - lo vigila tests/test_tool_registry.py
