@@ -334,6 +334,7 @@ function cargarVoz({
     setTimeout,
     clearTimeout,
     queueMicrotask,
+    AbortController,
     performance: { now: () => 0 },
     navigator: { language: "es-CO" },
     isSecureContext: true,
@@ -1991,11 +1992,14 @@ function crearServidorFalso({
   falloTranscribir = null,
   falloSintetizar = null,
   voz = true,
+  detector = true,
+  transcripcionColgada = false,
 } = {}) {
   const registro = {
     grabaciones: 0,
     cancelados: 0,
     transcritos: [],
+    opcionesTranscribir: [],
     sintetizados: [],
     reproducciones: [],
     llamadas: null,
@@ -2010,14 +2014,18 @@ function crearServidorFalso({
       registro.llamadas = llamadas;
       if (falloGrabar) return Promise.reject(falloGrabar);
       return Promise.resolve({
+        detectorActivo: () => detector,
         detener: () => Promise.resolve({ audio: { size: 4096, type: "audio/webm" }, voz }),
         cancelar: () => {
           registro.cancelados += 1;
         },
       });
     },
-    transcribir(audio) {
+    transcribir(audio, opciones = {}) {
       registro.transcritos.push(audio);
+      registro.opcionesTranscribir.push(opciones);
+      // Una red colgada: solo termina si se aborta la señal.
+      if (transcripcionColgada) return new Promise(() => {});
       return falloTranscribir ? Promise.reject(falloTranscribir) : Promise.resolve(texto);
     },
     sintetizar(mensaje) {
@@ -2459,4 +2467,298 @@ test("047 el adaptador del servidor envía CSRF y lanza errores con status y rea
   assert.equal(String(peticiones[0].opciones.body), "message_id=m-5&csrf_token=token-1");
   assert.equal(capturado.status, 503);
   assert.equal(capturado.reason, "off");
+});
+
+// ---------------------------------------------------------------------------
+// Spec 047 · arreglos de la revisión: respaldo al reproducir, 422 por turno,
+// cancelar la subida, manos libres sin detector y limpieza del micrófono.
+// ---------------------------------------------------------------------------
+
+test("047 si el audio del servidor no se puede reproducir lee con el navegador y no vuelve a pagar", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montarServidor({ sintesis });
+  const turno = turnoConMensaje("Son 2 cajas de vasos.", "m-1");
+
+  // Act: play() rechazado (autoplay) o CSP sin blob:.
+  montaje.controlador.leerTurno(turno);
+  await vaciarPromesas();
+  const [reproduccion] = montaje.servidor.registro.reproducciones;
+  reproduccion.llamadas.alFallar();
+  montaje.controlador.leerTurno(turnoConMensaje("Otra respuesta.", "m-2"));
+  await vaciarPromesas();
+
+  // Assert: el turno se lee con el navegador y la siguiente lectura ya no pide audio.
+  assert.equal(sintesis.locuciones[0].text, "Son 2 cajas de vasos.");
+  assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-1"]);
+  assert.equal(montaje.controlador.soporte.servidor.lectura, false);
+});
+
+test("047 un 422 en la lectura solo afecta a ese turno", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const servidor = crearServidorFalso({ falloSintetizar: errorHttp(422, "no_text") });
+  const montaje = montarServidor({ servidor, sintesis });
+
+  // Act
+  montaje.controlador.leerTurno(turnoConMensaje("Hola.", "m-sin-texto"));
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(montaje.controlador.soporte.servidor.lectura, true);
+});
+
+test("047 el clic durante la transcripción la cancela y aborta la subida", async () => {
+  // Arrange: la red se cuelga en la subida.
+  const servidor = crearServidorFalso({ transcripcionColgada: true });
+  const montaje = montarServidor({ servidor });
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+  clic(montaje.vista.botonDictar); // termina la grabación y empieza a subir
+  await vaciarPromesas();
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.transcribiendo);
+  const [opciones] = servidor.registro.opcionesTranscribir;
+
+  // Act
+  clic(montaje.vista.botonDictar);
+
+  // Assert
+  assert.equal(opciones.signal.aborted, true);
+  assert.equal(montaje.controlador.estado.escuchando, false);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.cancelado);
+});
+
+test("047 manos libres sin detector de voz transcribe lo grabado en vez de descartarlo", async () => {
+  // Arrange: sin Web Audio no llegan alVoz ni alPausa.
+  const servidor = crearServidorFalso({ detector: false });
+  const montaje = montarServidor({ servidor });
+  clic(montaje.vista.botonManosLibres);
+  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
+  await vaciarPromesas();
+
+  // Act
+  montaje.reloj.avanzar(10000);
+  await vaciarPromesas();
+
+  // Assert: se transcribe y se envía; manos libres sigue activo.
+  assert.equal(servidor.registro.transcritos.length, 1);
+  assert.equal(servidor.registro.cancelados, 0);
+  assert.equal(montaje.vista.formulario.enviados, 1);
+  assert.equal(montaje.controlador.manosLibres.activo, true);
+});
+
+test("047 manos libres con detector sigue apagándose tras 10 s sin voz", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  clic(montaje.vista.botonManosLibres);
+  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
+  await vaciarPromesas();
+
+  // Act
+  montaje.reloj.avanzar(10000);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.servidor.registro.transcritos.length, 0);
+});
+
+test("047 el paso al reconocimiento del navegador en manos libres queda anunciado y visible", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(503, "unavailable") });
+  const montaje = montarServidor({ servidor });
+  clic(montaje.vista.botonManosLibres);
+  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
+  await vaciarPromesas();
+
+  // Act
+  servidor.registro.llamadas.alPausa();
+  await vaciarPromesas();
+
+  // Assert
+  const mensajes = montaje.api.MENSAJES;
+  assert.equal(montaje.vista.nota.hidden, false);
+  assert.equal(montaje.vista.nota.textContent, mensajes.servidorDictado);
+  assert.equal(montaje.vista.estado.textContent.startsWith(mensajes.servidorDictado), true);
+  assert.equal(montaje.vista.estado.textContent.includes(mensajes.escuchando), true);
+});
+
+function crearVentanaGrabacion({ fallaStart = false, fallaAnalizador = false } = {}) {
+  const registro = { pistasDetenidas: 0, contextos: 0, cerrados: 0, intervalos: 0 };
+  const flujo = {
+    getTracks: () => [
+      {
+        stop() {
+          registro.pistasDetenidas += 1;
+        },
+      },
+    ],
+  };
+  class GrabadoraFalsa {
+    constructor() {
+      this.state = "inactive";
+      this.mimeType = "audio/webm";
+    }
+    start() {
+      if (fallaStart) throw new Error("NotSupportedError");
+      this.state = "recording";
+    }
+    stop() {
+      this.state = "inactive";
+    }
+    static isTypeSupported() {
+      return true;
+    }
+  }
+  class ContextoFalso {
+    constructor() {
+      registro.contextos += 1;
+      this.state = "running";
+    }
+    createAnalyser() {
+      if (fallaAnalizador) throw new Error("InvalidStateError");
+      return { fftSize: 0, getFloatTimeDomainData() {} };
+    }
+    createMediaStreamSource() {
+      return { connect() {} };
+    }
+    close() {
+      registro.cerrados += 1;
+      return Promise.resolve();
+    }
+  }
+  const ventana = {
+    MediaRecorder: GrabadoraFalsa,
+    AudioContext: ContextoFalso,
+    navigator: { mediaDevices: { getUserMedia: () => Promise.resolve(flujo) } },
+    setInterval: () => {
+      registro.intervalos += 1;
+      return 1;
+    },
+    clearInterval() {},
+    setTimeout,
+    clearTimeout,
+    fetch: () => Promise.reject(new Error("sin red")),
+    FormData: class {},
+    Blob: class {},
+  };
+  return { ventana, registro };
+}
+
+test("047 si la grabadora no arranca se suelta el micrófono sin dejar detector vivo", async () => {
+  // Arrange
+  const { ventana, registro } = crearVentanaGrabacion({ fallaStart: true });
+  const servidor = cargarVoz().window.CarvajalVoz.crearServidorVoz(ventana);
+
+  // Act
+  let capturado = null;
+  try {
+    await servidor.grabar({});
+  } catch (error) {
+    capturado = error;
+  }
+
+  // Assert
+  assert.notEqual(capturado, null);
+  assert.equal(registro.pistasDetenidas, 1);
+  assert.equal(registro.contextos, 0);
+  assert.equal(registro.intervalos, 0);
+});
+
+test("047 un AudioContext que no sirve se cierra y la grabación sigue sin detector", async () => {
+  // Arrange
+  const { ventana, registro } = crearVentanaGrabacion({ fallaAnalizador: true });
+  const servidor = cargarVoz().window.CarvajalVoz.crearServidorVoz(ventana);
+
+  // Act
+  const manejador = await servidor.grabar({});
+
+  // Assert
+  assert.equal(registro.contextos, 1);
+  assert.equal(registro.cerrados, 1);
+  assert.equal(manejador.detectorActivo(), false);
+  manejador.cancelar();
+});
+
+function crearVentanaFetchColgado() {
+  const peticiones = [];
+  return {
+    peticiones,
+    ventana: {
+      fetch: (ruta, opciones) => {
+        peticiones.push({ ruta, opciones });
+        return new Promise((_resolver, rechazar) => {
+          opciones.signal.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            rechazar(error);
+          });
+        });
+      },
+      AbortController,
+      setTimeout,
+      clearTimeout,
+      URLSearchParams,
+      FormData: class {
+        constructor() {
+          this.campos = [];
+        }
+        append(...args) {
+          this.campos.push(args);
+        }
+      },
+      Blob: class {},
+      Audio: class {},
+      URL: { createObjectURL: () => "blob:x", revokeObjectURL: () => {} },
+      navigator: {},
+    },
+  };
+}
+
+test("047 la transcripción con la red colgada vence por plazo con TimeoutError", async () => {
+  // Arrange
+  const { ventana, peticiones } = crearVentanaFetchColgado();
+  const servidor = cargarVoz().window.CarvajalVoz.crearServidorVoz(ventana, {
+    csrf: () => "token-1",
+    plazoMs: 20,
+  });
+
+  // Act
+  let capturado = null;
+  try {
+    await servidor.transcribir({ type: "audio/webm" });
+  } catch (error) {
+    capturado = error;
+  }
+
+  // Assert: CSRF solo por cabecera y error de plazo sin `status`.
+  assert.equal(capturado.name, "TimeoutError");
+  assert.equal(capturado.status, undefined);
+  assert.equal(peticiones[0].opciones.headers["X-CSRF-Token"], "token-1");
+  assert.equal(
+    peticiones[0].opciones.body.campos.some(([nombre]) => nombre === "csrf_token"),
+    false,
+  );
+});
+
+test("047 cancelar el dictado aborta la subida de la transcripción", async () => {
+  // Arrange
+  const { ventana, peticiones } = crearVentanaFetchColgado();
+  const servidor = cargarVoz().window.CarvajalVoz.crearServidorVoz(ventana, { plazoMs: 60000 });
+  const control = new AbortController();
+
+  // Act
+  const pendiente = servidor.transcribir({ type: "audio/webm" }, { signal: control.signal });
+  control.abort();
+  let capturado = null;
+  try {
+    await pendiente;
+  } catch (error) {
+    capturado = error;
+  }
+
+  // Assert
+  assert.equal(peticiones[0].opciones.signal.aborted, true);
+  assert.equal(capturado.name, "AbortError");
 });

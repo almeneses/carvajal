@@ -396,6 +396,7 @@ def _page(
             # Spec 047: el chat ofrece la voz del servidor; si falla, vuelve a la del navegador.
             "voz_servidor": _voice_available(request),
             "voz_max_segundos": _voice_max_seconds(request),
+            "voz_plazo_segundos": _voice_client_timeout(request),
         },
         status_code=status_code,
         headers=headers,
@@ -415,6 +416,14 @@ def _voice_available(request: Request) -> bool:
 def _voice_max_seconds(request: Request) -> int:
     settings = getattr(request.app.state, "settings", None)
     return settings.voice_max_audio_seconds if isinstance(settings, Settings) else 60
+
+
+def _voice_client_timeout(request: Request) -> int:
+    """Plazo del navegador para ``/api/voz/*``: el de OpenAI más margen para la subida."""
+
+    settings = getattr(request.app.state, "settings", None)
+    timeout = settings.voice_timeout_s if isinstance(settings, Settings) else 20.0
+    return int(timeout) + 15
 
 
 def _error_page(

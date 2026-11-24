@@ -70,7 +70,8 @@
         <div class="composer-acciones">
           <div class="voz" data-voz hidden
                data-voz-servidor="{{ '1' if voz_servidor else '0' }}"
-               data-voz-max-segundos="{{ voz_max_segundos or 60 }}">
+               data-voz-max-segundos="{{ voz_max_segundos or 60 }}"
+               data-voz-plazo-segundos="{{ voz_plazo_segundos or 35 }}">
             <div class="voz-controles">
               <button
                 type="button"
