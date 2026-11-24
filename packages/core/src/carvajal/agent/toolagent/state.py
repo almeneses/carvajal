@@ -54,6 +54,9 @@ TOOL_BUSCAR_SEDES: Final = "buscar_sedes"
 TOOL_INDICADOR_FINANCIERO: Final = "indicador_financiero"
 TOOL_SIN_CONSULTA: Final = "sin_consulta"
 
+# Los nombres del ``Literal``: valida ``make_tool_outcome``. El registro de herramientas
+# (``tools/registry.py``) deriva su propio ``TOOL_NAMES`` del orden de ``TOOLS`` y una prueba
+# exige que ambos conjuntos coincidan en cada commit (spec 045, research R9).
 TOOL_NAMES: Final[tuple[str, ...]] = get_args(ToolName)
 # Nombre con el que se registra una llamada a una herramienta que no existe: el nombre que
 # escribió el modelo puede llevar datos de la persona y no se conserva (FR-014).
@@ -88,6 +91,12 @@ class ToolAgentState(TypedDict, total=False):
     ``shortcut_intent`` es la intención que decidió el nodo ``shortcut`` (``greeting`` o
     ``memory_write``; vacía si el turno va al agente): ``direct`` la lee en vez de
     recalcularla. ``recall`` la reinicia en cada turno, porque el checkpoint persiste.
+
+    Spec 045 (data-model *Estado de los grafos*): ``conversation_summary`` es el resumen
+    acumulado de los turnos que salieron de la ventana (``recall`` no lo reinicia);
+    ``memory`` es la instantánea JSON de la memoria del dueño leída en ``recall``
+    (``preferences`` se conserva con sus líneas por compatibilidad); ``turn_count`` es una
+    entrada del turno: los turnos persistidos del hilo antes del actual.
     """
 
     question: str
@@ -106,6 +115,9 @@ class ToolAgentState(TypedDict, total=False):
     mode_path: ModePath
     shortcut_intent: str
     missing: list[str]
+    conversation_summary: dict[str, Any]
+    memory: dict[str, Any]
+    turn_count: int
 
 
 def validate_question(question: str) -> str:
