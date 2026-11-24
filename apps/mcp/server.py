@@ -159,6 +159,7 @@ def default_bridge() -> WhatsAppBridge:
 
     from apps.api import runtime
     from apps.api.chat.service import default_chat_service
+    from carvajal.adapters.storage.chat import SqlChatRepository
     from carvajal.adapters.storage.quotes import SqlQuoteRepository
     from carvajal.adapters.storage.usage import SqlUsageRepository
     from carvajal.application.quota import DailyQuota, QuotaResult
@@ -185,7 +186,10 @@ def default_bridge() -> WhatsAppBridge:
 
     def latest_quote(owner_key: str) -> dict[str, Any] | None:
         with factory() as session:
-            record = SqlQuoteRepository(session).latest(owner_key)
+            conversation = SqlChatRepository(session).active(owner_key)
+            if conversation is None:
+                return None
+            record = SqlQuoteRepository(session).latest(owner_key, conversation_id=conversation.id)
             return None if record is None else dict(record.payload)
 
     secret = settings.session_secret.encode("utf-8")
@@ -195,6 +199,14 @@ def default_bridge() -> WhatsAppBridge:
         return pdf_url(base_url, folio, owner_key, link_expiry(valid_until), secret)
 
     def photo_url(sku: str) -> str | None:
+        # El manifiesto usa SKU simples; no se construye una URL que la ruta no
+        # pueda volver a resolver (por ejemplo, un SKU con ``/``).
+        if (
+            not sku
+            or len(sku) > 64
+            or any(not (character.isalnum() or character in "._-") for character in sku)
+        ):
+            return None
         if catalog_image(sku) is None:
             return None
         return f"{base_url.rstrip('/')}/catalogo/imagenes/{quote(sku, safe='')}.jpg"

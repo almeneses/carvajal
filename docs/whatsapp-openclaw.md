@@ -38,11 +38,12 @@ Cada cotización de WhatsApp sale con folio, presentación, unidades, subtotal, 
 total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *PDF*».
 
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
-  herramienta busca la **última cotización de ese chat** y devuelve un enlace. No llama
-  al LLM ni cobra cupo.
+  herramienta busca la **última cotización de la conversación activa** y devuelve un
+  enlace. No llama al LLM, pero consume el mismo cupo diario que cualquier mensaje.
 - El enlace es `PUBLIC_BASE_URL/cotizaciones/{folio}.pdf?e=…&t=…`, firmado con HMAC
   (`SESSION_SECRET`) sobre el folio, el dueño y el vencimiento. Vence con la vigencia de
-  la cotización (máximo 7 días). El dueño no va en la URL: la ruta lee la cotización por
+  la cotización (máximo 7 días); al validar se toleran 5 minutos de desfase de reloj
+  entre los procesos MCP y web. El dueño no va en la URL: la ruta lee la cotización por
   folio y verifica la firma contra su `owner_key`. Cualquier fallo responde 404.
 - El PDF se genera al vuelo con fpdf2 (sin dependencias del sistema) desde el payload de
   `quotes`: logo de Carvajal, folio y fechas, producto, tabla de importes, total,

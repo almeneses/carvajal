@@ -15,11 +15,13 @@ from urllib.parse import quote
 __all__ = ["MAX_LINK_DAYS", "link_expiry", "pdf_url", "sign", "verify"]
 
 MAX_LINK_DAYS = 7
+# Tolerancia de reloj entre el proceso MCP y el proceso web al validar el enlace.
+LINK_LEEWAY_SECONDS = 300
 _DOMAIN = b"carvajal:quote-pdf:v1\n"
 
 
 def sign(folio: str, owner_key: str, expires: int, secret: bytes) -> str:
-    """Firma del enlace (hexadecimal, 32 caracteres)."""
+    """Firma HMAC-SHA256 truncada a 128 bits (32 caracteres hexadecimales)."""
 
     message = _DOMAIN + f"{folio}\n{owner_key}\n{expires}".encode()
     return hmac.new(secret, message, sha256).hexdigest()[:32]
@@ -37,10 +39,11 @@ def verify(
     """``True`` si la firma corresponde y el enlace no ha vencido."""
 
     moment = now or datetime.now(UTC)
-    if expires < int(moment.timestamp()):
+    if expires + LINK_LEEWAY_SECONDS < int(moment.timestamp()):
         return False
     expected = sign(folio, owner_key, expires, secret)
-    return hmac.compare_digest(expected.encode(), token.strip().encode())
+    # Un enlace copiado puede venir con el hexadecimal en mayúsculas.
+    return hmac.compare_digest(expected.encode(), token.strip().lower().encode())
 
 
 def link_expiry(valid_until: date | None, *, now: datetime | None = None) -> int:

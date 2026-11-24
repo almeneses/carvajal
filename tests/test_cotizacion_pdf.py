@@ -5,7 +5,8 @@ hace el servicio de chat. Cubren:
 
 - vista de lectura (``quote_view``): importes, sobrantes, IVA, envío, vigencia, pendientes;
 - bloque de WhatsApp con folio, total y vigencia, y la oferta del PDF;
-- pedido de «PDF» por WhatsApp: enlace firmado a la última cotización, sin LLM ni cupo;
+- pedido de «PDF» por WhatsApp: enlace firmado a la última cotización del hilo, sin
+  LLM pero consumiendo cupo;
 - enlaces firmados: firma, vencimiento, alteración y otro dueño;
 - ruta ``/cotizaciones/{folio}.pdf``: 200 con PDF válido y 404 en cualquier otro caso;
 - repositorio: ``latest`` y ``by_folio`` sobre SQLite.
@@ -30,11 +31,20 @@ from sqlalchemy.pool import StaticPool
 from apps.api.chat.service import _stamp_quote
 from apps.api.chat.streaming import ChatEvent
 from apps.api.main import create_app
-from apps.api.quote_links import MAX_LINK_DAYS, link_expiry, pdf_url, sign, verify
+from apps.api.quote_links import (
+    LINK_LEEWAY_SECONDS,
+    MAX_LINK_DAYS,
+    link_expiry,
+    pdf_url,
+    sign,
+    verify,
+)
 from apps.api.quote_pdf import build_quote_pdf
 from apps.api.quote_view import format_date, format_money, quote_view
 from apps.api.views import catalogo_imagenes
+from apps.api.views import cotizacion_pdf as cotizacion_pdf_view
 from apps.mcp.bridge import (
+    LIMIT_REACHED,
     NO_QUOTE_FOR_PDF,
     PDF_OFFER,
     PDF_UNAVAILABLE,
@@ -201,7 +211,7 @@ def test_sin_url_publica_no_se_ofrece_el_pdf() -> None:
     assert bridge.consult("PDF", "+573100000000") == PDF_UNAVAILABLE
 
 
-def test_pdf_devuelve_el_enlace_sin_llamar_al_agente_ni_cobrar_cupo() -> None:
+def test_pdf_devuelve_el_enlace_sin_llamar_al_agente_pero_consume_cupo() -> None:
     payload = stamped()
     chat = FakeChat()
     charged: list[str] = []
@@ -223,10 +233,32 @@ def test_pdf_devuelve_el_enlace_sin_llamar_al_agente_ni_cobrar_cupo() -> None:
 
     owner = owner_key_for("+573100000000", SECRET)
     assert asked == [owner]
-    assert chat.calls == [] and charged == []
+    assert chat.calls == [] and charged == [owner]
     assert answer.startswith("📄 Aquí está tu cotización #Q-7F3A2C en PDF:")
     assert f"{BASE}/cotizaciones/Q-7F3A2C.pdf?e=" in answer
     assert "_El enlace funciona hasta el 1 dic 2026._" in answer
+
+
+def test_pdf_no_elude_el_cupo() -> None:
+    chat = FakeChat()
+    charged: list[str] = []
+
+    def quota(owner: str) -> QuotaResult:
+        charged.append(owner)
+        return QuotaResult(allowed=False)
+
+    bridge = WhatsAppBridge(
+        chat=chat,
+        secret=SECRET,
+        latest_quote=lambda owner: stamped(),
+        pdf_link=_links,
+        quota=quota,
+    )
+
+    answer = bridge.consult("PDF", "+573100000000")
+
+    assert answer == LIMIT_REACHED
+    assert chat.calls == [] and charged
 
 
 def test_pdf_sin_cotizacion_previa() -> None:
@@ -267,8 +299,12 @@ def test_firma_y_vencimiento() -> None:
     assert not verify("Q-1", "wa_otro", expires, token, SECRET, now=MOMENT)
     assert not verify("Q-1", "wa_dueno", expires + 1, token, SECRET, now=MOMENT)
     assert not verify("Q-1", "wa_dueno", expires, token, b"otro", now=MOMENT)
-    late = datetime.fromtimestamp(expires + 1, UTC)
+    # Tolerancia de reloj entre MCP y web; pasados unos minutos ya no vale.
+    near = datetime.fromtimestamp(expires + 1, UTC)
+    assert verify("Q-1", "wa_dueno", expires, token, SECRET, now=near)
+    late = datetime.fromtimestamp(expires + LINK_LEEWAY_SECONDS + 1, UTC)
     assert not verify("Q-1", "wa_dueno", expires, token, SECRET, now=late)
+    assert verify("Q-1", "wa_dueno", expires, token.upper(), SECRET, now=MOMENT)
 
 
 def test_el_enlace_no_pasa_del_tope_ni_de_la_vigencia() -> None:
@@ -303,6 +339,23 @@ def _path(folio: str, owner: str, expires: int, secret: bytes = SECRET) -> str:
     return pdf_url("", folio, owner, expires, secret)
 
 
+def test_ruta_usa_el_secreto_de_los_settings_sin_inyeccion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """En producción nadie inyecta ``quote_link_secret``: sale de ``app.state.settings``."""
+
+    monkeypatch.setenv("SESSION_SECRET", "secreto-de-produccion")
+    app = create_app()
+    app.state.quote_lookup = lambda folio: ("wa_dueno", stamped())
+    client = TestClient(app)
+    expires = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
+
+    response = client.get(_path("Q-7F3A2C", "wa_dueno", expires, b"secreto-de-produccion"))
+
+    assert response.status_code == 200
+    assert app.state.settings.session_secret == "secreto-de-produccion"
+
+
 def test_ruta_entrega_el_pdf_con_firma_valida() -> None:
     expires = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
     client = _client(stamped())
@@ -319,7 +372,7 @@ def test_ruta_entrega_el_pdf_con_firma_valida() -> None:
 @pytest.mark.parametrize("case", ["otro_dueno", "vencido", "sin_firma", "otro_secreto"])
 def test_ruta_responde_404_si_la_firma_no_vale(case: str) -> None:
     future = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
-    past = int((datetime.now(UTC) - timedelta(minutes=1)).timestamp())
+    past = int((datetime.now(UTC) - timedelta(seconds=LINK_LEEWAY_SECONDS + 1)).timestamp())
     paths = {
         "otro_dueno": _path("Q-7F3A2C", "wa_otro", future),
         "vencido": _path("Q-7F3A2C", "wa_dueno", past),
@@ -340,6 +393,19 @@ def test_ruta_responde_404_si_el_folio_no_existe() -> None:
     assert response.status_code == 404
 
 
+def test_ruta_responde_404_si_el_pdf_no_se_puede_generar(monkeypatch: pytest.MonkeyPatch) -> None:
+    expires = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
+
+    def explode(*args: Any, **kwargs: Any) -> bytes:
+        raise RuntimeError("fpdf2")
+
+    monkeypatch.setattr(cotizacion_pdf_view, "build_quote_pdf", explode)
+    response = _client(stamped()).get(_path("Q-7F3A2C", "wa_dueno", expires))
+
+    assert response.status_code == 404
+    assert "fpdf2" not in response.text
+
+
 # --- repositorio ---------------------------------------------------------------------------
 
 
@@ -354,9 +420,12 @@ def test_repositorio_latest_y_by_folio() -> None:
     try:
         with factory() as session:
             repo = SqlQuoteRepository(session)
-            for index, (folio, owner) in enumerate(
-                [("Q-1", "wa_a"), ("Q-2", "wa_a"), ("Q-3", "wa_b")]
-            ):
+            records = [
+                ("Q-1", "wa_a", "c-1"),
+                ("Q-2", "wa_a", "c-2"),
+                ("Q-3", "wa_b", "c-1"),
+            ]
+            for index, (folio, owner, conversation) in enumerate(records):
                 repo.record(
                     folio,
                     owner,
@@ -365,12 +434,17 @@ def test_repositorio_latest_y_by_folio() -> None:
                     currency="COP",
                     valid_until=date(2026, 12, 1),
                     issued_at=MOMENT + timedelta(minutes=index),
+                    conversation_id=conversation,
                 )
             session.commit()
         with factory() as session:
             repo = SqlQuoteRepository(session)
             latest = repo.latest("wa_a")
             assert latest is not None and latest.folio in {"Q-1", "Q-2"}
+            by_c1 = repo.latest("wa_a", conversation_id="c-1")
+            by_c2 = repo.latest("wa_a", conversation_id="c-2")
+            assert by_c1 is not None and by_c1.folio == "Q-1"
+            assert by_c2 is not None and by_c2.folio == "Q-2"
             assert repo.latest("wa_nadie") is None
             found = repo.by_folio("Q-3")
             assert found is not None and found.get("owner_key") == "wa_b"

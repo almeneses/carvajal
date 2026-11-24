@@ -12,7 +12,8 @@ texto listo para WhatsApp.
 - **Cotizaciones**: la web las pinta como tarjetas HTML; aquí se leen de la tabla
   ``quotes`` por folio y se redactan con :func:`whatsapp_quote` (folio, importes, total y
   vigencia). Si hay URL pública, se ofrece el PDF y la palabra «PDF» devuelve un enlace
-  firmado a la última cotización del chat, sin pasar por el LLM ni cobrar cupo.
+  firmado a la última cotización de la conversación activa, sin pasar por el LLM pero
+  consumiendo el mismo cupo diario que cualquier mensaje.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
 """
@@ -345,11 +346,11 @@ class WhatsAppBridge:
                     return NEW_CONVERSATION
             if not text:
                 return EMPTY_MESSAGE
-            if is_pdf_request(text):
-                return self._pdf(owner)
             if not self.quota(owner).allowed:
                 logger.info("whatsapp.quota_exhausted")
                 return LIMIT_REACHED
+            if is_pdf_request(text):
+                return self._pdf(owner)
             turn = _collect(self.chat.stream(owner, text))
         except Exception as error:  # el canal nunca recibe una traza interna
             logger.warning("whatsapp.turn_failed", error=repr(error))
@@ -400,7 +401,7 @@ class WhatsAppBridge:
             return None
 
     def _pdf(self, owner: str) -> str:
-        """Enlace firmado al PDF de la última cotización del chat (sin LLM ni cupo)."""
+        """Enlace firmado al PDF de la última cotización del hilo (sin LLM, con cupo)."""
 
         if self.pdf_link is None or self.latest_quote is None:
             return PDF_UNAVAILABLE
