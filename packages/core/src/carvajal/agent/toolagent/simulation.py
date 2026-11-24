@@ -1239,7 +1239,7 @@ def last_turn_tool_data(
 
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from carvajal.agent.toolagent.tools import content_data
+    from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, content_data
 
     messages: list[Any] = []
     last_human = -1
@@ -1257,7 +1257,7 @@ def last_turn_tool_data(
         return []
     out: list[str] = []
     for message in messages[last_human + 1 :]:
-        if not isinstance(message, ToolMessage) or message.name == "sin_consulta":
+        if not isinstance(message, ToolMessage) or message.name in DECLARATION_TOOLS:
             continue
         data = content_data(str(message.content))
         if data:

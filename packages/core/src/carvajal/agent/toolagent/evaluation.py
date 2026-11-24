@@ -53,10 +53,9 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
     TOOL_INDICADOR_FINANCIERO,
-    TOOL_NAMES,
     TOOL_SIN_CONSULTA,
 )
-from carvajal.agent.toolagent.tools import content_data
+from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, TOOL_NAMES, content_data
 from carvajal.prompts import ABSENCE_POLICY, NO_CONTEXT_ANSWER
 
 __all__ = [
@@ -130,6 +129,10 @@ ROUTE_TOOLS: Final[dict[str, tuple[str, ...]]] = {
     "tool": (TOOL_INDICADOR_FINANCIERO,),
     "commercial": (TOOL_BUSCAR_PRODUCTO, TOOL_COTIZAR, TOOL_BUSCAR_SEDES),
 }
+# El grafo ``routes`` solo conoce herramientas de la 044; si el registro dejara de tener
+# alguna, la conversión de ``routing_questions.json`` no podría esperarla (spec 045, T015).
+if not {name for names in ROUTE_TOOLS.values() for name in names} <= set(TOOL_NAMES):
+    raise RuntimeError("ROUTE_TOOLS nombra herramientas fuera del registro.")
 # Intenciones de la ruta directa que piden un dato a la persona.
 _ASKING_INTENTS: Final = frozenset({"commercial_clarify", "missing_period"})
 
@@ -732,7 +735,7 @@ def _tool_backing(messages: Sequence[Any]) -> list[str]:
 
     texts: list[str] = []
     for message in messages:
-        if not isinstance(message, ToolMessage) or message.name == TOOL_SIN_CONSULTA:
+        if not isinstance(message, ToolMessage) or message.name in DECLARATION_TOOLS:
             continue
         content = message.content if isinstance(message.content, str) else _dumps(message.content)
         data = content_data(content)
@@ -751,7 +754,7 @@ def _has_evidence(final: Any) -> bool:
     queried = any(
         r.get("status") == "ok"
         and r.get("tool") in TOOL_NAMES
-        and r.get("tool") != TOOL_SIN_CONSULTA
+        and r.get("tool") not in DECLARATION_TOOLS
         for r in final.results
     )
     return queried and (bool(final.sources) or has_cards(dict(final.products or {})))
@@ -770,7 +773,7 @@ def _asked_data(results: Iterable[Mapping[str, Any]]) -> list[str]:
     asked: list[str] = []
     for result in results:
         args = result.get("args") or {}
-        if result.get("tool") == TOOL_SIN_CONSULTA and args.get("motivo") == "pedir_dato":
+        if result.get("tool") in DECLARATION_TOOLS and args.get("motivo") == "pedir_dato":
             asked.append(str(args.get("dato") or "dato"))
     return asked
 
@@ -794,7 +797,7 @@ def _tool_requested(final: Any, messages: Sequence[Any]) -> list[str]:
 
     requested: list[str] = []
     for message in _turn_messages(messages):
-        if not isinstance(message, ToolMessage) or message.name == TOOL_SIN_CONSULTA:
+        if not isinstance(message, ToolMessage) or message.name in DECLARATION_TOOLS:
             continue
         content = message.content if isinstance(message.content, str) else _dumps(message.content)
         data = content_data(content) or {}
@@ -1626,7 +1629,7 @@ def _defers(observation: TurnObservation) -> bool:
     """
 
     return any(
-        call.name == TOOL_SIN_CONSULTA and call.args.get("motivo") == "pedir_dato"
+        call.name in DECLARATION_TOOLS and call.args.get("motivo") == "pedir_dato"
         for call in observation.tools
     )
 
@@ -1638,7 +1641,7 @@ def _no_real_query(observation: TurnObservation) -> bool:
     directa es ``conversacion``), así que el motivo no puede decidir.
     """
 
-    return all(call.name == TOOL_SIN_CONSULTA for call in observation.tools)
+    return all(call.name in DECLARATION_TOOLS for call in observation.tools)
 
 
 def _declaration(folded: str, *, refusal: bool) -> re.Match[str] | None:
@@ -2141,7 +2144,7 @@ def _tools_any(
     observation: TurnObservation, groups: Sequence[Sequence[str]], allow: bool
 ) -> CheckResult:
     used = {call.name for call in observation.tools if call.status in _USED_STATUSES}
-    if allow and (observation.shortcut or used <= {TOOL_SIN_CONSULTA}):
+    if allow and (observation.shortcut or used <= DECLARATION_TOOLS):
         return CheckResult("tools_any", True)
     missing = [list(group) for group in groups if not used & set(group)]
     detail = f"faltan {missing}; usó {sorted(used) or 'ninguna'}" if missing else ""
@@ -2159,9 +2162,9 @@ def check_item(item: EvalItem, observation: TurnObservation) -> list[CheckResult
         checks.append(_tools_any(observation, expect["tools_any"], allow))
     elif "no_tool_allowed" in expect and not allow:
         # Sin herramientas esperadas, ``no_tool_allowed: false`` exige alguna consulta real.
-        queried = {call.name for call in observation.tools if call.status in _USED_STATUSES} - {
-            TOOL_SIN_CONSULTA
-        }
+        queried = {
+            call.name for call in observation.tools if call.status in _USED_STATUSES
+        } - DECLARATION_TOOLS
         checks.append(CheckResult("no_tool_allowed", bool(queried), "solo sin_consulta"))
     if "tools_none" in expect:
         called = sorted(used & set(expect["tools_none"]))
@@ -2388,7 +2391,7 @@ class ModeReport:
                 continue
             if expect.get("no_tool_allowed") or expect.get("shortcut"):
                 continue
-            if set(observation.tool_names) <= {TOOL_SIN_CONSULTA}:
+            if set(observation.tool_names) <= DECLARATION_TOOLS:
                 count += 1
         return count
 
