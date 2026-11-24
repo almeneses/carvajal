@@ -8,6 +8,7 @@ estados de error, el plazo total, el tope diario, el circuito, la clave fuera de
 
 import contextlib
 import json
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -304,6 +305,73 @@ def test_demora_mayor_que_el_plazo_es_timeout_dentro_del_plazo() -> None:
     assert elapsed <= 0.2 + 0.1
 
 
+def test_la_concurrencia_no_consume_el_plazo_ni_abre_el_circuito() -> None:
+    # Arrange: 8 turnos a la vez con Jev respondiendo dentro del plazo (0,3 s de 0,8 s).
+    def slow(request: httpx.Request) -> httpx.Response:
+        time.sleep(0.3)
+        return httpx.Response(200, json=_choice())
+
+    judge, recorder = _judge(slow, timeout_s=0.8)
+    barrier = threading.Barrier(8)
+    results: list[str] = []
+    lock = threading.Lock()
+
+    def worker() -> None:
+        barrier.wait()
+        try:
+            judge.classify(RouteQuery(question="¿qué vasos tienen?"))
+            status = "ok"
+        except JudgeUnavailable as error:
+            status = error.status
+        with lock:
+            results.append(status)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+
+    # Act
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # Assert: ninguna espera en cola vence el plazo.
+    assert results == ["ok"] * 8
+    assert len(recorder.requests) == 8
+    assert judge.client.calls_today == 8
+    assert judge.client.last_error is None
+    assert judge.available() is True
+
+
+def test_una_excepcion_fuera_de_httpx_es_error_de_red() -> None:
+    # Arrange: clave con un espacio de ancho cero (no se puede codificar en la cabecera).
+    judge, recorder = _judge(_ok(_choice()), key="abc\u200bdef")
+
+    # Act
+    with capture_logs() as logs, pytest.raises(JudgeUnavailable) as raised:
+        judge.classify(RouteQuery(question="hola"))
+
+    # Assert: se convierte en ``JudgeUnavailable`` y cuenta para el circuito.
+    assert raised.value.status == "error"
+    assert judge.client.last_error == "red"
+    assert judge.client.failures == 1
+    assert recorder.requests == []
+    failed = [log for log in logs if log["event"] == "jev.request_failed"]
+    assert failed == [
+        {"event": "jev.request_failed", "error_type": "UnicodeEncodeError", "log_level": "warning"}
+    ]
+
+
+def test_un_cliente_cerrado_es_error_de_red() -> None:
+    judge, _ = _judge(_ok(_choice()))
+    judge.close()
+
+    with pytest.raises(JudgeUnavailable) as raised:
+        judge.check(ClaimsQuery(answer="x", evidence=()))
+
+    assert raised.value.status == "error"
+    assert judge.client.last_error == "red"
+
+
 # --- Tope diario y circuito ------------------------------------------------------------------
 
 
@@ -462,6 +530,19 @@ def test_build_judge_respeta_el_encendido_explicito() -> None:
     assert isinstance(build_judge(off, force=True), JevJudge)
 
 
+def test_build_judge_rechaza_una_clave_no_ascii_sin_mostrarla() -> None:
+    bad = "clave\u200b-pegada"
+    settings = Settings(_env_file=None, typesafe_api_key=bad, jev_enabled=True)
+
+    with capture_logs() as logs:
+        judge = build_judge(settings)
+
+    assert judge is None
+    assert [log["event"] for log in logs] == ["jev.invalid_key"]
+    assert bad not in str(logs)
+    assert jev_health(settings)["available"] is False
+
+
 def test_jev_health_sin_runtime_y_con_cliente() -> None:
     # Arrange
     settings = Settings(_env_file=None, typesafe_api_key=KEY, jev_enabled=True)
@@ -485,3 +566,23 @@ def test_jev_health_sin_runtime_y_con_cliente() -> None:
     }
     assert with_client["calls_today"] == 1
     assert with_client["available"] is True
+
+
+def test_jev_health_en_modo_routes_no_esta_disponible() -> None:
+    # Arrange: Jev encendido con clave, pero el modo ``routes`` nunca lo llama (FR-009).
+    routes = Settings(_env_file=None, typesafe_api_key=KEY, jev_enabled=True, agent_mode="routes")
+    tools = Settings(_env_file=None, typesafe_api_key=KEY, jev_enabled=True)
+
+    # Act
+    configured_routes = jev_health(routes)
+    served_routes = jev_health(tools, None, mode="routes")
+    built_without_judge = jev_health(tools, None, mode="tools")
+
+    # Assert
+    for block in (configured_routes, served_routes):
+        assert block["available"] is False
+        assert block["router"] == "off"
+        assert block["claims"] == "off"
+        assert block["configured"] is True
+    assert built_without_judge["available"] is False
+    assert built_without_judge["router"] == "on"

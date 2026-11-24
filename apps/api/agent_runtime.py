@@ -305,7 +305,8 @@ def _build(settings: Settings) -> AgentRuntime:
             store = stack.enter_context(PostgresStore.from_conn_string(url))
             store.setup()
         router = _router(settings)
-        judge = _judge(settings)
+        # El modo ``routes`` nunca llama a Jev (FR-009): ni siquiera se construye el cliente.
+        judge = _judge(settings) if settings.agent_mode == "tools" else None
         graph, tool_graph = _graphs(
             settings,
             vector_store=LayerPriorityStore(qdrant, min_score=settings.rag_min_score),
@@ -315,6 +316,13 @@ def _build(settings: Settings) -> AgentRuntime:
             router=router,
             judge=judge,
         )
+        if judge is not None:
+            if tool_graph is None:
+                # Sin grafo ``tools`` el proceso atiende con ``routes``: el juez sobra.
+                judge.close()
+                judge = None
+            else:
+                stack.callback(judge.close)
         runtime = AgentRuntime(
             graph=graph,
             qdrant=qdrant,
@@ -323,7 +331,7 @@ def _build(settings: Settings) -> AgentRuntime:
             _stack=stack,
             tool_graph=tool_graph,
             # El modo ``routes`` nunca usa Jev (FR-009): sin grafo ``tools``, sin juez.
-            judge=judge if tool_graph is not None else None,
+            judge=judge,
         )
         logger.info(
             "agent.runtime_ready",

@@ -173,12 +173,17 @@ def _unhandled(request: Request, error: Exception) -> Response:
     return _message(request, 500, SERVICE_UNAVAILABLE)
 
 
-def _runtime_judge() -> object | None:
-    """Juez de Jev del runtime si ya se construyó; ``/health`` nunca lo construye (FR-024)."""
+def _runtime_jev() -> dict[str, object]:
+    """Juez de Jev y modo del runtime si ya se construyó; ``/health`` nunca lo construye.
+
+    Sin runtime, ``mode`` es ``None`` y :func:`jev_health` informa la configuración (FR-024).
+    """
 
     module = sys.modules.get("apps.api.agent_runtime")
     runtime = getattr(module, "_runtime", None)
-    return getattr(runtime, "judge", None)
+    if runtime is None:
+        return {"judge": None, "mode": None}
+    return {"judge": getattr(runtime, "judge", None), "mode": getattr(runtime, "mode", None)}
 
 
 def _log_webhook_status(settings: Settings) -> None:
@@ -272,7 +277,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "index": {"status": "unknown"},
                     "monitoring": monitoring_status(settings).as_health(),
                     "agent": agent_mode_status(settings).as_health(),
-                    "jev": jev_health(settings, _runtime_judge()),
+                    "jev": jev_health(settings, **_runtime_jev()),
                 },
                 status_code=503,
             )
@@ -294,7 +299,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 "agent": agent_mode_status(settings).as_health(),
                 # Spec 046 (FR-024): Jev sin llamar a TypeSafe; no cambia el estado global
                 # porque el asistente atiende igual sin Jev.
-                "jev": jev_health(settings, _runtime_judge()),
+                "jev": jev_health(settings, **_runtime_jev()),
             },
             status_code=200 if healthy else 503,
         )

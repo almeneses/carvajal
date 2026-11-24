@@ -239,6 +239,27 @@ def test_health_con_clave_y_encendido_sin_runtime(monkeypatch: pytest.MonkeyPatc
     assert "clave-falsa" not in str(body)
 
 
+def test_health_en_modo_routes_no_ofrece_jev(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange: runtime construido en ``routes`` (interruptor de emergencia): sin juez.
+    import apps.api.agent_runtime as runtime_module
+
+    class Runtime:
+        judge = None
+        mode = "routes"
+
+    monkeypatch.setattr(runtime_module, "_runtime", Runtime())
+
+    # Act
+    body = (
+        _app(monkeypatch, JEV_ENABLED="true", TYPESAFE_API_KEY="clave-falsa").get("/health").json()
+    )
+
+    # Assert
+    assert body["jev"]["available"] is False
+    assert body["jev"]["router"] == "off"
+    assert body["jev"]["claims"] == "off"
+
+
 def _runtime_with_judge(monkeypatch: pytest.MonkeyPatch, client: Any) -> None:
     import apps.api.agent_runtime as runtime_module
     from carvajal.adapters.judge.jev import JevJudge

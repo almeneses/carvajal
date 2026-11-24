@@ -4,9 +4,12 @@ Spec 046, research R9 y contrato §2 a §4. Una sola petición ``POST {base}/sys
 pregunta, con ``Authorization: Bearer <clave>``:
 
 - :class:`JevClient` hace la petición con ``httpx.Client`` (conexiones reutilizadas) bajo un
-  **plazo total** (``JEV_TIMEOUT_S``): la petición corre en un ejecutor pequeño y se espera
-  con ``future.result(timeout=…)``, y los plazos por fase de httpx valen lo mismo para que el
-  hilo también termine. Sin reintentos. Lleva el tope diario por proceso (se reinicia a
+  **plazo total** (``JEV_TIMEOUT_S``): cada petición corre en su propio hilo, que sale de
+  inmediato (sin cola compartida, así que la concurrencia no consume el plazo ni envía
+  peticiones de turnos que ya se rindieron), y se espera con un evento; los plazos por fase
+  de httpx valen lo mismo para que el hilo también termine. Cualquier excepción de la
+  petición (no solo de httpx: una clave con caracteres no ASCII, un cliente cerrado) cuenta
+  como fallo de red. Sin reintentos. Lleva el tope diario por proceso (se reinicia a
   medianoche de Bogotá), el circuito (3 fallos seguidos → 60 s; 401/402/403 → 15 min) y el
   libro de llamadas (``JEV_LEDGER``: una línea JSON por llamada, también las fallidas, sin
   texto).
@@ -22,8 +25,6 @@ import json
 import threading
 import time
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -125,7 +126,6 @@ class JevClient:
             timeout=httpx.Timeout(self.timeout_s),
             headers={"Content-Type": "application/json"},
         )
-        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jev")
         # Estado del proceso (data-model *Estado del cliente*).
         self.calls_today = 0
         self._day: date | None = None
@@ -231,11 +231,26 @@ class JevClient:
         return value, call
 
     def _send(self, body: Mapping[str, Any]) -> _Outcome:
-        future = self._executor.submit(self._post, body)
-        try:
-            return future.result(timeout=self.timeout_s)
-        except FutureTimeout:
-            return _Outcome(None, None, "timeout")
+        """La petición en un hilo propio, esperada como mucho ``timeout_s``.
+
+        Un hilo por llamada y no un ejecutor compartido: con una cola, el tiempo de espera
+        contaría contra el plazo y la petición se enviaría después de que el turno se
+        rindiera (gastando cupo y abriendo el circuito por la concurrencia, no por Jev).
+        """
+
+        box: list[_Outcome] = []
+        done = threading.Event()
+
+        def run() -> None:
+            try:
+                box.append(self._post(body))
+            finally:
+                done.set()
+
+        threading.Thread(target=run, name="jev", daemon=True).start()
+        if not done.wait(self.timeout_s) or not box:
+            return _Outcome(None, None, "timeout" if not done.is_set() else "red")
+        return box[0]
 
     def _post(self, body: Mapping[str, Any]) -> _Outcome:
         try:
@@ -247,6 +262,10 @@ class JevClient:
         except httpx.TimeoutException:
             return _Outcome(None, None, "timeout")
         except httpx.HTTPError:
+            return _Outcome(None, None, "red")
+        except Exception as error:  # nunca escapa del adaptador (FR-006)
+            # Clave con caracteres no ASCII, cliente cerrado…: solo el tipo, nunca el texto.
+            logger.warning("jev.request_failed", error_type=type(error).__name__)
             return _Outcome(None, None, "red")
         if response.status_code != 200:
             return _Outcome(response.status_code, None)
@@ -334,6 +353,9 @@ class JevClient:
             outcome = _Outcome(None, None, "timeout")
         except httpx.HTTPError:
             outcome = _Outcome(None, None, "red")
+        except Exception as error:  # el humo nunca lanza
+            logger.warning("jev.request_failed", error_type=type(error).__name__)
+            outcome = _Outcome(None, None, "red")
         latency_ms = max(0, round((self._clock() - started) * 1000))
         status, category = self._classify(outcome)
         listed = status == "ok" and self.model in _strings(outcome.payload)
@@ -364,7 +386,6 @@ class JevClient:
             logger.warning("jev.ledger_failed", error_type=type(error).__name__)
 
     def close(self) -> None:
-        self._executor.shutdown(wait=False, cancel_futures=True)
         self._http.close()
 
 
