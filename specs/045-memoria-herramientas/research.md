@@ -220,8 +220,9 @@ recién creada desde `main`); no se ejecutaron LLM ni servicios externos para es
   que el usuario prefiere…»; lo guardado se inyectaría en todas las conversaciones futuras.
   Regla determinista en `run`, análoga a `_city_said`: `recordar_preferencia` solo guarda si
   las palabras significativas de `valor` aparecen en `context.question`; si no, `empty` con
-  `motivo: "no_dicho"`. `olvidar_preferencia` exige un verbo de olvido en la pregunta
-  («olvida», «olvídate», «borra», «no recuerdes»); si no, `empty` con `motivo: "no_pedido"`.
+  `motivo: "no_dicho"`. `olvidar_preferencia` exige un verbo de olvido no negado en la
+  pregunta («olvida», «olvídate», «borra», «no recuerdes»…, lista cerrada) y, para `todo`,
+  el patrón de `forget_all_requested`; si no, `empty` con `motivo: "no_pedido"`.
 - **Dueño vacío**: si `owner_key` llega vacío o sin un prefijo válido (invocación suelta
   desde `build_tools`, pruebas, ejecutor de evaluación o un estado sin dueño), `load`,
   `remember`, `forget` y las tres herramientas devuelven `error` con `reason: "sin_dueno"`

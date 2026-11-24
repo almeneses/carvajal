@@ -15,7 +15,12 @@ import re
 import unicodedata
 from typing import Any, Final
 
-from carvajal.agent.memory.store import MemoryProfile, normalize_format, valid_owner
+from carvajal.agent.memory.store import (
+    MemoryProfile,
+    forget_all_requested,
+    normalize_format,
+    valid_owner,
+)
 from carvajal.agent.toolagent.tools._base import ToolContext, ToolDeps, _Draft
 
 __all__ = [
@@ -71,7 +76,17 @@ _STOPWORDS: Final = frozenset(
     }
 )
 _WORDS: Final = re.compile(r"[^\W_]+")
-_FORGET_VERB: Final = re.compile(r"\b(?:olvid\w*|borr\w*|elimin\w*|no\s+recuerdes)\b")
+# Formas de petición de olvido, cerradas y con límites de palabra exactos: «borrador»,
+# «borrosa» o «eliminan» no piden nada. Se comparan sin tildes («olvídate» → «olvidate»).
+_FORGET_VERB: Final = re.compile(
+    r"\b(?:olvida|olvidate|olvidame|olvidalo|olvidala|olvidalos|olvidalas|olvides"
+    r"|borra|borrame|borralo|borrala|borralos|borralas|borres)\b"
+)
+# «no recuerdes (mi nombre)» es en sí una petición de olvido.
+_DONT_REMEMBER: Final = re.compile(r"\bno\s+(?:me\s+)?recuerdes\b")
+# Negación justo antes del verbo, con a lo sumo un pronombre entre medias: «no olvides»,
+# «nunca me olvides», «no lo borres».
+_NEGATED: Final = re.compile(r"\b(?:no|nunca|jamas|ni)\s+(?:(?:me|te|lo|la|los|las|se)\s+)?$")
 
 
 def _plain(text: str) -> str:
@@ -115,10 +130,23 @@ def said_in_question(category: str, value: str, context: ToolContext) -> bool:
     return bool(significant) and all(_close(word, said) for word in significant)
 
 
-def forget_requested(context: ToolContext) -> bool:
-    """La pregunta pide olvidar («olvida», «olvídate», «borra», «no recuerdes»)."""
+def forget_requested(context: ToolContext, category: str | None = None) -> bool:
+    """La pregunta pide olvidar («olvida», «olvídate», «borra», «no recuerdes»).
 
-    return _FORGET_VERB.search(" ".join(_words(context.question or ""))) is not None
+    Un verbo negado («no olvides que me llamo Ana») no pide olvidar. Con ``category ==
+    "todo"`` hace falta el mismo patrón del olvido total que usa el atajo
+    (:func:`forget_all_requested`): «olvida mi nombre» no borra toda la memoria.
+    """
+
+    question = context.question or ""
+    if category == "todo":
+        return forget_all_requested(question)
+    text = " ".join(_words(question))
+    if _DONT_REMEMBER.search(text):
+        return True
+    return any(
+        _NEGATED.search(text[: match.start()]) is None for match in _FORGET_VERB.finditer(text)
+    )
 
 
 def memory_update(profile: MemoryProfile | None) -> dict[str, Any]:

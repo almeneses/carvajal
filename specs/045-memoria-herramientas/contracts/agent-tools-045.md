@@ -334,7 +334,13 @@ guarda solo `{"categoria"}` como argumentos; las que escriben devuelven un `stat
   "ciudad_habitual" | "formato_preferido" | "nota" | "todo"`, `valor: str | None` (con
   `nota`, el texto o un fragmento de la nota a olvidar; sin `valor`, todas las notas).
 - **Regla «pedido en la pregunta»**: solo actúa si la pregunta contiene un verbo de olvido
-  («olvida», «olvídate», «borra», «no recuerdes»).
+  de una lista cerrada, con límites de palabra exactos («olvida», «olvídate», «olvídame»,
+  «olvides», «borra», «bórrame», «borres», «no recuerdes» y sus formas con «lo/la»), y no
+  negado («no olvides», «nunca me olvides», «no lo borres» no piden olvidar). «Borrador»,
+  «borrosa» o «eliminan» no cuentan; «elimin*» no es un verbo de olvido. Con `todo`,
+  además, la pregunta debe cumplir `forget_all_requested` (el mismo patrón del atajo:
+  «olvida todo lo que sabes de mí», «olvídate de mí», «borra mi memoria»…), de modo que
+  una inyección indirecta no borra toda la memoria con un «olvida mi nombre».
 - **`ok`**: `{olvidado: [categoria]}`. Con `todo`: memoria nueva, formato anterior, todos los
   borradores de resumen del dueño, lápida de olvido y marcador en el canal del hilo actual
   (R16).

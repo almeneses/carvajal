@@ -329,6 +329,68 @@ def test_olvidar_sin_que_la_persona_lo_pida_no_borra() -> None:
     assert load(store, OWNER).values == {"nombre": "Ana"}
 
 
+@pytest.mark.parametrize(
+    ("question", "categoria"),
+    [
+        # Pide NO olvidar.
+        ("No olvides que me llamo Ana, ¿qué vasos tienen?", "nombre"),
+        ("Nunca olvides mi nombre", "nombre"),
+        # Palabras que empiezan como un verbo de olvido pero no lo piden.
+        ("¿Me pasas el borrador de la cotización?", "todo"),
+        ("¿Qué empaques eliminan la grasa de las frituras?", "todo"),
+        ("¿Cómo elimino una cotización?", "todo"),
+        ("La imagen se ve borrosa", "nombre"),
+        # Pide olvidar algo concreto, no todo: «todo» exige el patrón del olvido total.
+        ("Olvida mi nombre", "todo"),
+    ],
+)
+def test_olvidar_exige_que_la_persona_lo_pida(question: str, categoria: str) -> None:
+    # Arrange
+    store = InMemoryStore()
+    remember(store, OWNER, "nombre", "Ana")
+
+    # Act
+    result = run_tool(
+        "olvidar_preferencia", {"categoria": categoria}, _deps(store), _context(question)
+    )
+
+    # Assert
+    assert result.status == "empty", result.payload
+    assert result.payload["motivo"] == "no_pedido"
+    assert load(store, OWNER).values == {"nombre": "Ana"}
+    assert store.get(summary_namespace(OWNER), TOMBSTONE_KEY) is None
+
+
+@pytest.mark.parametrize(
+    ("question", "categoria"),
+    [
+        ("olvida mi nombre", "nombre"),
+        ("Olvídate de mi nombre, por favor", "nombre"),
+        ("Bórrame el nombre", "nombre"),
+        ("Quiero que olvides mi nombre", "nombre"),
+        ("No recuerdes mi nombre", "nombre"),
+        ("Ya no trabajo ahí: olvida mi empresa, por favor.", "empresa"),
+        ("Olvida todo lo que sabes de mí", "todo"),
+        ("Olvídate de mí", "todo"),
+        ("Borra mi memoria", "todo"),
+    ],
+)
+def test_olvidar_con_un_pedido_explicito_borra(question: str, categoria: str) -> None:
+    # Arrange
+    store = InMemoryStore()
+    remember(store, OWNER, "nombre", "Ana")
+    remember(store, OWNER, "empresa", "La Espiga")
+
+    # Act
+    result = run_tool(
+        "olvidar_preferencia", {"categoria": categoria}, _deps(store), _context(question)
+    )
+
+    # Assert
+    assert result.status == "ok", result.payload
+    assert result.payload["olvidado"] == [categoria]
+
+
 def test_olvidar_lo_que_no_esta_es_empty() -> None:
     # Act
     result = run_tool(

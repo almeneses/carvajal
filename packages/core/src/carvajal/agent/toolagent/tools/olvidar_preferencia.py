@@ -1,7 +1,8 @@
 """``olvidar_preferencia``: borra una categoría, una nota o todo (spec 045, T049).
 
 Contrato *Memoria* de ``contracts/agent-tools-045.md`` y research R16. Solo actúa si la
-pregunta del turno pide olvidar. Con ``todo`` borra la memoria, el formato anterior y todos
+pregunta del turno pide olvidar (un verbo de olvido no negado; con ``todo``, el patrón del
+olvido total del atajo). Con ``todo`` borra la memoria, el formato anterior y todos
 los borradores de resumen del dueño, deja la lápida y marca el canal del resumen del hilo
 actual (el grafo completa el marcador con los turnos del hilo).
 """
@@ -51,7 +52,7 @@ def run(
     failure = owner_error(deps, context)
     if failure is not None:
         return failure
-    if not forget_requested(context):
+    if not forget_requested(context, args.categoria):
         return _Draft(
             "empty",
             "No se borró nada: la persona no pidió olvidar en su mensaje.",
