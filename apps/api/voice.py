@@ -221,7 +221,7 @@ def spoken_message(message: ChatMessage) -> str:
     Los enlaces no se leen.
     """
 
-    parts: list[SpokenReply] = [to_speech(message.content or "")]
+    quotes: list[SpokenReply] = []
     listed: list[tuple[str, str]] = []
     seen: set[str] = set()
     for source in message.sources or []:
@@ -233,7 +233,7 @@ def spoken_message(message: ChatMessage) -> str:
                 for payload in _quotes(result):
                     view = quote_view(payload)
                     if view is not None:
-                        parts.append(spoken_quote(view))
+                        quotes.append(spoken_quote(view))
             continue
         title = str(source.get("title") or source.get("slug") or "").strip()
         url = str(source.get("url") or "").strip()
@@ -241,6 +241,8 @@ def spoken_message(message: ChatMessage) -> str:
         if key and key not in seen:
             seen.add(key)
             listed.append((title, url))
+    # Con cotización se lee solo su versión corta: la prosa del agente repite las cifras.
+    parts = quotes or [to_speech(message.content or "")]
     if listed:
         parts.append(SpokenReply(spoken_sources(listed[:5])))
     return combine(parts).text.strip()

@@ -779,8 +779,11 @@ class WhatsAppBridge:
         if turn.error is not None and not turn.text.strip():
             return BridgeReply(SERVICE_UNAVAILABLE)
         blocks = [to_whatsapp(turn.text)] if turn.text.strip() else []
-        spoken = [to_speech(turn.text)] if turn.text.strip() else []
+        prose = to_speech(turn.text) if turn.text.strip() else None
         quotes = self._quote_views(turn.folios, owner)
+        # Con cotización, la voz dice solo la cotización corta: la introducción del agente
+        # repite sus cifras y alarga la nota (~30 s). Sus enlaces sí se conservan.
+        spoken = [] if prose is None else [SpokenReply("", prose.links) if quotes else prose]
         blocks.extend(whatsapp_quote(view, photo) for view, photo in quotes)
         spoken.extend(spoken_quote(view, photo) for view, photo in quotes)
         listed = _sources_block(turn.sources)

@@ -694,6 +694,7 @@ def test_hablar_lee_la_cotizacion_corta_del_resultado_comercial() -> None:
     [spoken] = fake.tts_inputs()
     assert "Son 2 cajas de 1.000 unidades de Vaso de papel 12 onzas en Cali" in spoken
     assert "por un total de 370.000 pesos con IVA incluido" in spoken
+    assert "Aquí tienes la cotización" not in spoken, "la prosa del agente no se repite"
 
 
 @pytest.mark.parametrize(

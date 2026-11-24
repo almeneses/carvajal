@@ -123,6 +123,8 @@ def test_cotizacion_por_voz_sin_marcas_ni_url_y_con_enlaces_aparte() -> None:
         "370.000 pesos con IVA incluido. El envío se confirma con el vendedor."
     ) in spoken
     assert "a3f09c12b7e4" not in spoken and "Subtotal" not in spoken
+    assert spoken.startswith("Son 2 cajas"), "la introducción del agente no se repite en voz"
+    assert len(spoken.split()) <= 50
     assert "Según el sitio de Carvajal Empaques." in spoken
     assert spoken.endswith(PDF_OFFER_SPOKEN)
     assert links == [
