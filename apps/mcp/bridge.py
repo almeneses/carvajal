@@ -108,6 +108,9 @@ LatestQuote = Callable[[str], Mapping[str, Any] | None]
 PdfLink = Callable[[str, str, date | None], str]
 """``(folio, owner_key, válida_hasta) -> URL`` firmada del PDF."""
 
+PhotoUrl = Callable[[str], str | None]
+"""``sku -> URL`` pública de la foto del catálogo, o ``None`` si no tiene."""
+
 Quota = Callable[[str], QuotaResult]
 
 
@@ -212,7 +215,7 @@ def _units(value: int | None) -> str:
     return "?" if value is None else f"{value:,}".replace(",", ".")
 
 
-def whatsapp_quote(view: QuoteView) -> str:
+def whatsapp_quote(view: QuoteView, photo_url: str | None = None) -> str:
     """Bloque de WhatsApp de una cotización emitida, con las cifras del payload."""
 
     lines = [f"🧾 *Cotización #{view.folio}*" if view.folio else "🧾 *Cotización*"]
@@ -253,6 +256,8 @@ def whatsapp_quote(view: QuoteView) -> str:
         lines.append(f"_{' · '.join(notes)}_")
     if view.warning:
         lines.append(f"_⚠️ {view.warning}_")
+    if photo_url:
+        lines.append(f"📷 Foto: {photo_url}")
     return "\n".join(lines)
 
 
@@ -311,6 +316,7 @@ class WhatsAppBridge:
     quota: Quota = _no_limit
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
+    photo_url: PhotoUrl | None = None
 
     def owner_key(self, chat_id: str) -> str:
         """``owner_key`` del chat (ver :func:`owner_key_for`)."""
@@ -380,8 +386,18 @@ class WhatsAppBridge:
                 continue
             view = quote_view(payload) if payload else None
             if view is not None:
-                blocks.append(whatsapp_quote(view))
+                photo = self._photo(view.sku)
+                blocks.append(whatsapp_quote(view, photo))
         return blocks
+
+    def _photo(self, sku: str) -> str | None:
+        if self.photo_url is None or not sku:
+            return None
+        try:
+            return self.photo_url(sku)
+        except Exception as error:  # una foto nunca tumba la cotización
+            logger.warning("whatsapp.photo_lookup_failed", sku=sku, error=repr(error))
+            return None
 
     def _pdf(self, owner: str) -> str:
         """Enlace firmado al PDF de la última cotización del chat (sin LLM ni cupo)."""

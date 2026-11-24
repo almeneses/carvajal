@@ -20,6 +20,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from apps.api.quote_links import verify
 from apps.api.quote_pdf import build_quote_pdf
 from apps.api.quote_view import quote_view
+from carvajal.catalog.images import catalog_image
 
 __all__ = ["router"]
 
@@ -77,7 +78,8 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
     view = quote_view(payload)
     if view is None:
         return _not_found()
-    document = build_quote_pdf(view)
+    image = catalog_image(view.sku) if view.sku else None
+    document = build_quote_pdf(view, photo=None if image is None else image.path)
     logger.info("quote_pdf.served", folio=folio, bytes=len(document))
     return Response(
         document,

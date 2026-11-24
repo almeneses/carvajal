@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable, MutableMapping
 from datetime import date
 from functools import cache
 from typing import Annotated, Any
+from urllib.parse import quote
 
 import anyio
 import structlog
@@ -161,6 +162,7 @@ def default_bridge() -> WhatsAppBridge:
     from carvajal.adapters.storage.quotes import SqlQuoteRepository
     from carvajal.adapters.storage.usage import SqlUsageRepository
     from carvajal.application.quota import DailyQuota, QuotaResult
+    from carvajal.catalog.images import catalog_image
     from carvajal.infrastructure.settings import Settings
 
     settings = Settings()
@@ -192,6 +194,11 @@ def default_bridge() -> WhatsAppBridge:
     def pdf_link(folio: str, owner_key: str, valid_until: date | None) -> str:
         return pdf_url(base_url, folio, owner_key, link_expiry(valid_until), secret)
 
+    def photo_url(sku: str) -> str | None:
+        if catalog_image(sku) is None:
+            return None
+        return f"{base_url.rstrip('/')}/catalogo/imagenes/{quote(sku, safe='')}.jpg"
+
     return WhatsAppBridge(
         chat=default_chat_service(),
         secret=secret,
@@ -200,4 +207,5 @@ def default_bridge() -> WhatsAppBridge:
         latest_quote=latest_quote,
         # Sin URL pública no hay a dónde enlazar: el chat no ofrece el PDF.
         pdf_link=pdf_link if base_url else None,
+        photo_url=photo_url if base_url else None,
     )

@@ -19,6 +19,8 @@ __all__ = ["DISCLAIMER", "build_quote_pdf"]
 
 ASSETS = Path(__file__).resolve().parent / "pdf"
 LOGO = ASSETS / "carvajal-logo-marca.png"
+MARGIN = 18
+PHOTO_MM = 34
 
 NAVY = (0, 58, 93)  # #003A5D
 CYAN = (0, 181, 229)  # #00B5E5
@@ -101,12 +103,16 @@ def _section(pdf: FPDF, title: str) -> None:
     pdf.ln(2.5)
 
 
-def build_quote_pdf(view: QuoteView, *, compress: bool = True) -> bytes:
-    """Bytes del PDF de la cotización (A4, una página en los casos habituales)."""
+def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: bool = True) -> bytes:
+    """Bytes del PDF de la cotización (A4, una página en los casos habituales).
+
+    ``photo`` es la foto del catálogo (``carvajal.catalog.images``); sin ella, el bloque
+    del producto ocupa todo el ancho.
+    """
 
     pdf = _QuotePDF(format="A4", unit="mm")
     pdf.set_compression(compress)
-    pdf.set_margins(18, 16, 18)
+    pdf.set_margins(MARGIN, 16, MARGIN)
     pdf.set_auto_page_break(auto=True, margin=22)
     pdf.add_font("DMSans", "", str(ASSETS / "DMSans-Regular.ttf"))
     pdf.add_font("DMSans", "B", str(ASSETS / "DMSans-Bold.ttf"))
@@ -139,8 +145,23 @@ def build_quote_pdf(view: QuoteView, *, compress: bool = True) -> bytes:
     pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
     pdf.ln(2)
 
-    # Producto.
+    # Producto: foto a la izquierda (si hay) y datos a la derecha.
     _section(pdf, "Producto")
+    start = pdf.get_y()
+    text_x = pdf.l_margin
+    if photo is not None:
+        try:
+            pdf.image(
+                str(photo), x=pdf.l_margin, y=start, w=PHOTO_MM, h=PHOTO_MM, keep_aspect_ratio=True
+            )
+            pdf.set_draw_color(220, 226, 232)
+            pdf.set_line_width(0.2)
+            pdf.rect(pdf.l_margin, start, PHOTO_MM, PHOTO_MM)
+            text_x = pdf.l_margin + PHOTO_MM + 6
+        except (OSError, RuntimeError, ValueError):  # foto ilegible: el PDF sale sin ella
+            text_x = pdf.l_margin
+    pdf.set_left_margin(text_x)
+    pdf.set_xy(text_x, start)
     pdf.set_font("DMSans", "B", 12)
     pdf.set_text_color(30, 30, 30)
     pdf.multi_cell(0, 6.5, view.product, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -153,6 +174,9 @@ def build_quote_pdf(view: QuoteView, *, compress: bool = True) -> bytes:
     for label, value in details:
         if value:
             _label_value(pdf, label, value, width=24)
+    pdf.set_left_margin(MARGIN)
+    if text_x != MARGIN:
+        pdf.set_y(max(pdf.get_y(), start + PHOTO_MM) + 1)
 
     # Importes.
     _section(pdf, "Detalle de la cotización")

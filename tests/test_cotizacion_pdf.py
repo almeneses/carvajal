@@ -11,6 +11,9 @@ hace el servicio de chat. Cubren:
 - repositorio: ``latest`` y ``by_folio`` sobre SQLite.
 """
 
+import csv
+import importlib.util
+import io
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -20,6 +23,7 @@ from typing import Any
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
@@ -29,6 +33,7 @@ from apps.api.main import create_app
 from apps.api.quote_links import MAX_LINK_DAYS, link_expiry, pdf_url, sign, verify
 from apps.api.quote_pdf import build_quote_pdf
 from apps.api.quote_view import format_date, format_money, quote_view
+from apps.api.views import catalogo_imagenes
 from apps.mcp.bridge import (
     NO_QUOTE_FOR_PDF,
     PDF_OFFER,
@@ -42,6 +47,7 @@ from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.application.quota import QuotaResult
+from carvajal.catalog.images import catalog_image, clear_image_cache
 from carvajal.quotation import QuoteRequest, quote_request
 
 SECRET = b"secreto-de-prueba"
@@ -371,3 +377,147 @@ def test_repositorio_latest_y_by_folio() -> None:
     finally:
         tables.metadata.drop_all(engine)
         engine.dispose()
+
+
+# --- fotos del catálogo --------------------------------------------------------------------
+
+
+def _photo_dir(tmp_path: Path, rows: list[dict[str, str]], files: list[str]) -> Path:
+    base = tmp_path / "empaques"
+    (base / "imagenes").mkdir(parents=True)
+    for name in files:
+        Image.new("RGB", (60, 40), (200, 210, 220)).save(base / "imagenes" / name)
+    with (base / "imagenes.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["sku", "archivo", "fuente_url", "tipo_fuente"])
+        writer.writeheader()
+        writer.writerows(rows)
+    clear_image_cache()
+    return base
+
+
+def test_catalog_image_lee_el_manifiesto_y_rechaza_rutas(tmp_path: Path) -> None:
+    base = _photo_dir(
+        tmp_path,
+        [
+            {"sku": "CO-PCOM-J1", "archivo": "CO-PCOM-J1.jpg", "tipo_fuente": "oficial"},
+            {"sku": "MALO", "archivo": "../secreto.jpg"},
+            {"sku": "SIN-ARCHIVO", "archivo": "no-existe.jpg"},
+        ],
+        ["CO-PCOM-J1.jpg"],
+    )
+
+    image = catalog_image("CO-PCOM-J1", (tmp_path / "vacio", base))
+
+    assert image is not None and image.path.name == "CO-PCOM-J1.jpg"
+    assert image.source_type == "oficial"
+    assert catalog_image("MALO", (base,)) is None
+    assert catalog_image("SIN-ARCHIVO", (base,)) is None
+    assert catalog_image("OTRO", (base,)) is None
+    clear_image_cache()
+
+
+def test_ruta_de_fotos(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base = _photo_dir(
+        tmp_path, [{"sku": "CO-PCOM-J1", "archivo": "CO-PCOM-J1.jpg"}], ["CO-PCOM-J1.jpg"]
+    )
+    monkeypatch.setattr(catalogo_imagenes, "catalog_image", lambda sku: catalog_image(sku, (base,)))
+    client = TestClient(create_app())
+
+    found = client.get("/catalogo/imagenes/CO-PCOM-J1.jpg")
+    missing = client.get("/catalogo/imagenes/OTRO.jpg")
+
+    assert found.status_code == 200
+    assert found.headers["content-type"] == "image/jpeg"
+    assert missing.status_code == 404
+    clear_image_cache()
+
+
+def test_el_pdf_incluye_la_foto_y_sobrevive_a_una_ilegible(tmp_path: Path) -> None:
+    view = quote_view(stamped())
+    assert view is not None
+    photo = tmp_path / "foto.jpg"
+    Image.new("RGB", (600, 450), (120, 140, 160)).save(photo)
+    broken = tmp_path / "rota.jpg"
+    broken.write_bytes(b"no es una imagen")
+
+    plain = build_quote_pdf(view)
+    with_photo = build_quote_pdf(view, photo=photo)
+    with_broken = build_quote_pdf(view, photo=broken)
+
+    assert with_photo.startswith(b"%PDF-") and len(with_photo) > len(plain)
+    assert with_broken.startswith(b"%PDF-")
+
+
+def test_whatsapp_enlaza_la_foto() -> None:
+    payload = stamped()
+    chat = FakeChat(events=[ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]})])
+    bridge = WhatsAppBridge(
+        chat=chat,
+        secret=SECRET,
+        quotes=lambda folio, owner: payload,
+        photo_url=lambda sku: f"{BASE}/catalogo/imagenes/{sku}.jpg",
+    )
+
+    answer = bridge.consult("Cotiza", "+573100000000")
+
+    assert f"📷 Foto: {BASE}/catalogo/imagenes/CO-PCOM-J1.jpg" in answer
+
+
+def test_una_foto_que_falla_no_tumba_la_cotizacion() -> None:
+    payload = stamped()
+    chat = FakeChat(events=[ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]})])
+
+    def broken(sku: str) -> str | None:
+        raise OSError("disco")
+
+    bridge = WhatsAppBridge(
+        chat=chat, secret=SECRET, quotes=lambda folio, owner: payload, photo_url=broken
+    )
+
+    answer = bridge.consult("Cotiza", "+573100000000")
+
+    assert "🧾 *Cotización #Q-7F3A2C*" in answer and "📷" not in answer
+
+
+def _script() -> Any:
+    path = Path(__file__).resolve().parents[1] / "scripts" / "curar_imagenes_co.py"
+    spec = importlib.util.spec_from_file_location("curar_imagenes_co", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_script_toma_og_image_y_si_falta_la_foto_de_producto() -> None:
+    script = _script()
+    page = "https://colombia.carvajalempaques.com/producto/portacomidas-j1/"
+    with_og = (
+        '<meta property="og:image" content="/cms/wp-content/uploads/2400027005.png">'
+        '<img src="/cms/wp-content/uploads/otra.jpg">'
+    )
+    without_og = (
+        '<img src="/cms/wp-content/uploads/logo-white.png">'
+        '<img src="/cms/wp-content/themes/site/public/images/icons/apilable-ico.png">'
+        '<img data-src="/cms/wp-content/uploads/portacomidas-j1.jpg">'
+    )
+
+    assert (
+        script.image_url(with_og, page)
+        == "https://colombia.carvajalempaques.com/cms/wp-content/uploads/2400027005.png"
+    )
+    assert script.image_url(without_og, page).endswith("/uploads/portacomidas-j1.jpg")
+    assert script.image_url("<p>sin fotos</p>", page) is None
+
+
+def test_script_guarda_jpeg_reducido_y_sin_transparencia(tmp_path: Path) -> None:
+    script = _script()
+    buffer = io.BytesIO()
+    Image.new("RGBA", (1600, 900), (0, 0, 0, 0)).save(buffer, "PNG")
+    target = tmp_path / "x.jpg"
+
+    script.save_jpeg(buffer.getvalue(), target, 600)
+
+    with Image.open(target) as saved:
+        assert saved.format == "JPEG"
+        assert max(saved.size) == 600
+        assert saved.getpixel((0, 0)) == (255, 255, 255)
