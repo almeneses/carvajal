@@ -1,0 +1,223 @@
+{
+  "questions": "data/eval/claims_046.json",
+  "frozen_at": "2026-11-24",
+  "threshold": 0.5,
+  "judged": 16,
+  "quota_skipped": 0,
+  "failed": 0,
+  "grid": [
+    {
+      "threshold": 0.3,
+      "detected": 10,
+      "unsupported": 10,
+      "false_alarms": 0,
+      "supported": 6
+    },
+    {
+      "threshold": 0.4,
+      "detected": 10,
+      "unsupported": 10,
+      "false_alarms": 0,
+      "supported": 6
+    },
+    {
+      "threshold": 0.5,
+      "detected": 10,
+      "unsupported": 10,
+      "false_alarms": 0,
+      "supported": 6
+    },
+    {
+      "threshold": 0.6,
+      "detected": 10,
+      "unsupported": 10,
+      "false_alarms": 1,
+      "supported": 6
+    },
+    {
+      "threshold": 0.7,
+      "detected": 10,
+      "unsupported": 10,
+      "false_alarms": 2,
+      "supported": 6
+    }
+  ],
+  "items": [
+    {
+      "id": "cl-001-orig",
+      "v3": "v3-001",
+      "variant": "original",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.06,
+      "flagged": true,
+      "latency_ms": 296,
+      "note": "«La de 16 oz es la más usada para sopas»: valoración presentada como hecho que ninguna consulta devolvió (confirmada por el owner)."
+    },
+    {
+      "id": "cl-001-pert",
+      "v3": "v3-001",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.02,
+      "flagged": true,
+      "latency_ms": 141,
+      "note": "Perturbación «cualitativa»: se insertó «Además, esa cazuela es compostable y se degrada en pocos meses.», que ninguna consulta respalda."
+    },
+    {
+      "id": "cl-002-orig",
+      "v3": "v3-002",
+      "variant": "original",
+      "label": "supported",
+      "status": "ok",
+      "p": 0.79,
+      "flagged": false,
+      "latency_ms": 156,
+      "note": "Respuesta original de la ronda 4 del v3: cada dato aparece en las consultas."
+    },
+    {
+      "id": "cl-002-pert",
+      "v3": "v3-002",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.08,
+      "flagged": true,
+      "latency_ms": 145,
+      "note": "Perturbación «plazo»: se insertó «EDEXA despacha a Cali en 48 horas hábiles desde la confirmación del pedido [2].», que ninguna consulta respalda."
+    },
+    {
+      "id": "cl-005-orig",
+      "v3": "v3-005",
+      "variant": "original",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.13,
+      "flagged": true,
+      "latency_ms": 185,
+      "note": "«la tapa se pide aparte»: ninguna consulta lo devolvió (misma regla que v3-001)."
+    },
+    {
+      "id": "cl-005-pert",
+      "v3": "v3-005",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.04,
+      "flagged": true,
+      "latency_ms": 164,
+      "note": "Perturbación «certificacion»: se insertó «Todas estas referencias tienen certificación FDA para uso en microondas.», que ninguna consulta respalda."
+    },
+    {
+      "id": "cl-008-orig",
+      "v3": "v3-008",
+      "variant": "original",
+      "label": "supported",
+      "status": "ok",
+      "p": 0.78,
+      "flagged": false,
+      "latency_ms": 133,
+      "note": "Respuesta original de la ronda 4 del v3: cada dato aparece en las consultas."
+    },
+    {
+      "id": "cl-008-pert",
+      "v3": "v3-008",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.07,
+      "flagged": true,
+      "latency_ms": 146,
+      "note": "Perturbación «precio»: se insertó «Sus ingresos consolidados de ese año fueron de $2,91 billones [1].», que ninguna consulta respalda."
+    },
+    {
+      "id": "cl-010-orig",
+      "v3": "v3-010",
+      "variant": "original",
+      "label": "supported",
+      "status": "ok",
+      "p": 0.9,
+      "flagged": false,
+      "latency_ms": 143,
+      "note": "Respuesta original de la ronda 4 del v3: cada dato aparece en las consultas."
+    },
+    {
+      "id": "cl-010-pert",
+      "v3": "v3-010",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.03,
+      "flagged": true,
+      "latency_ms": 135,
+      "note": "Perturbación «cualitativa»: se insertó «Es el portacomidas preferido por los asaderos porque conserva el calor durante todo el domicilio.», que ninguna consulta respalda."
+    },
+    {
+      "id": "cl-018-orig",
+      "v3": "v3-018",
+      "variant": "original",
+      "label": "supported",
+      "status": "ok",
+      "p": 0.93,
+      "flagged": false,
+      "latency_ms": 148,
+      "note": "Respuesta original de la ronda 4 del v3: cada dato aparece en las consultas."
+    },
+    {
+      "id": "cl-018-pert",
+      "v3": "v3-018",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.04,
+      "flagged": true,
+      "latency_ms": 125,
+      "note": "Perturbación «plazo»: se insertó «Se despacha desde la planta en un plazo de 5 días hábiles.», que ninguna consulta respalda."
+    },
+    {
+      "id": "cl-027-orig",
+      "v3": "v3-027",
+      "variant": "original",
+      "label": "supported",
+      "status": "ok",
+      "p": 0.58,
+      "flagged": false,
+      "latency_ms": 179,
+      "note": "El teléfono «(601)» es el del directorio con el indicativo actualizado: el owner decidió que reformatear no es inventar; llega visible a Jev porque no es de la persona."
+    },
+    {
+      "id": "cl-027-pert",
+      "v3": "v3-027",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.04,
+      "flagged": true,
+      "latency_ms": 140,
+      "note": "Perturbación «certificacion»: se insertó «El portacomidas espumado J1 cuenta con certificación ICONTEC de inocuidad alimentaria.», que ninguna consulta respalda."
+    },
+    {
+      "id": "cl-034-orig",
+      "v3": "v3-034",
+      "variant": "original",
+      "label": "supported",
+      "status": "ok",
+      "p": 0.6,
+      "flagged": false,
+      "latency_ms": 160,
+      "note": "Respuesta original de la ronda 4 del v3: cada dato aparece en las consultas."
+    },
+    {
+      "id": "cl-034-pert",
+      "v3": "v3-034",
+      "variant": "perturbada",
+      "label": "unsupported",
+      "status": "ok",
+      "p": 0.06,
+      "flagged": true,
+      "latency_ms": 147,
+      "note": "Perturbación «plazo»: se insertó «Si la pides hoy, te llega en 3 días hábiles.», que ninguna consulta respalda."
+    }
+  ]
+}
