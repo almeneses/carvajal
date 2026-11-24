@@ -48,7 +48,8 @@
   hilo.addEventListener("click", (event) => {
     const sugerencia = event.target.closest("[data-chat-sugerencia]");
     if (!sugerencia || enCurso) return;
-    input.value = sugerencia.textContent.trim();
+    // Los temas del inicio muestran título y subtítulo; la pregunta va en data-pregunta.
+    input.value = (sugerencia.dataset.pregunta || sugerencia.textContent).trim();
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.focus({ preventScroll: true });
   });
@@ -153,13 +154,20 @@
   }
 
   async function responder(pregunta, turnId, manosLibres) {
-    quitarVacio();
-    const lista = asegurarLista();
     const turnoUsuario = crearTurno("user", pregunta);
     const turnoAsistente = crearTurno("assistant", "");
+    // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css).
+    turnoAsistente.dataset.pensando = "1";
     const controlesVoz = turnoAsistente.querySelector("[data-voz-turno]");
     if (controlesVoz) controlesVoz.hidden = true;
-    lista.append(turnoUsuario, turnoAsistente);
+    let lista;
+    // Al salir del inicio el compositor baja de su sitio centrado al pie: se anima
+    // con FLIP para que no salte. El DOM cambia en el acto (el resto del flujo lo usa).
+    deslizar(form, Boolean(bienvenida && bienvenida.isConnected), () => {
+      quitarVacio();
+      lista = asegurarLista();
+      lista.append(turnoUsuario, turnoAsistente);
+    });
     const texto = turnoAsistente.querySelector(".texto");
     const flujo = formateador.crearFlujo(texto);
     const espera = setTimeout(() => avisar("Pensando…"), 300);
@@ -168,6 +176,7 @@
     let progreso = "";
     let progresoCerrado = false;
     function quitarProgreso() {
+      delete turnoAsistente.dataset.pensando;
       clearTimeout(espera);
       progresoCerrado = true;
       const vigente = estado.textContent;
@@ -379,6 +388,7 @@
         if (!texto.textContent) turnoAsistente.remove();
       }
     } finally {
+      delete turnoAsistente.dataset.pensando;
       clearTimeout(temporizador);
       clearTimeout(espera);
       clearTimeout(repintado);
@@ -438,7 +448,8 @@
 
   function crearTurno(rol, contenido) {
     const turno = plantillaTurno.content.firstElementChild.cloneNode(true);
-    turno.classList.add(`turno-${rol}`);
+    // «turno-nuevo» anima solo los turnos de esta visita, no el historial recargado.
+    turno.classList.add(`turno-${rol}`, "turno-nuevo");
     turno.querySelector("[data-turno-autor]").textContent = rol === "user" ? "Tú" : "Carva";
     turno.querySelector(".texto").textContent = contenido;
     return turno;
@@ -513,6 +524,25 @@
         ? ` ${confianza.toFixed(2).replace(".", ",")}`
         : "";
     return `${etiqueta} · ${fuente}${cifra}`;
+  }
+
+  function deslizar(elemento, animar, mutar) {
+    const medible = animar && elemento && typeof elemento.getBoundingClientRect === "function"
+      && typeof elemento.animate === "function";
+    const reducido = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!medible || reducido) {
+      mutar();
+      return;
+    }
+    const antes = elemento.getBoundingClientRect().top;
+    mutar();
+    const desplazamiento = antes - elemento.getBoundingClientRect().top;
+    if (Math.abs(desplazamiento) < 2) return;
+    elemento.animate(
+      [{ transform: `translateY(${desplazamiento}px)` }, { transform: "none" }],
+      { duration: 520, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+    );
   }
 
   function quitarVacio() {

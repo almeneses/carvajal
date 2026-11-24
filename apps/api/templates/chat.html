@@ -6,6 +6,7 @@
 <script src="/static/hilos.js" defer></script>
 <script src="/static/chat-stream.js" defer></script>
 <script src="/static/chat-voice.js" defer></script>
+<script src="/static/chat-motion.js" defer></script>
 {% endblock %}
 {% block content %}
 <section
@@ -58,7 +59,7 @@
             maxlength="500"
             autocomplete="off"
             enterkeyhint="send"
-            placeholder="Escribe tu pregunta"
+            placeholder="Escribe o dicta tu pregunta"
             aria-describedby="ayuda-chat"
           >{{ question }}</textarea>
           <span id="ayuda-chat" class="sr-solo">Hasta 500 caracteres. Mayús + Enter añade una línea.</span>
@@ -109,7 +110,13 @@
             <p class="voz-estado" data-voz-estado role="status" aria-live="polite"></p>
             <p class="voz-nota" data-voz-nota role="note" hidden></p>
           </div>
-          <button type="submit">Enviar</button>
+          <button type="submit">
+            Enviar
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          </button>
           <button type="button" class="boton secundario" data-chat-detener aria-label="Detener respuesta" hidden>Detener</button>
         </div>
       </form>

@@ -112,7 +112,29 @@
   {%- for coti in cotizaciones %}
   {%- if coti and coti.kind == "cotizacion" %}
   {%- set cp = coti.primary.presentation %}
-  <section class="coti coti-resumen" aria-label="{{ 'Cotización %d de %d' | format(loop.index, loop.length) if loop.length > 1 else 'Cotización' }}">
+  {%- set folio = (coti.quote.folio or coti.quote.id) if coti.quote else none %}
+  {#- Confirmación plegable (diseño «Confirmación y transición a chat» de Stitch): chat-motion.js
+      celebra la cotización recién emitida y la minimiza; sin JavaScript queda abierta. -#}
+  <section class="coti coti-resumen" aria-label="{{ 'Cotización %d de %d' | format(loop.index, loop.length) if loop.length > 1 else 'Cotización' }}"
+           data-coti{% if folio %} data-coti-folio="{{ folio }}" data-coti-emitida="{{ coti.quote.issued_at or '' }}"{% endif %}>
+    {%- if folio %}
+    <div class="coti-plegable coti-celebra" data-coti-celebra>
+      <div class="coti-plegable-interior">
+        <div class="coti-barra">
+          <p class="coti-barra-texto">
+            <strong>✓ Cotización guardada</strong>
+            <span class="coti-barra-corre">· se minimiza en unos segundos</span>
+            <span class="coti-barra-pausa">· en pausa mientras la miras</span>
+          </p>
+          <span class="coti-barra-pista" aria-hidden="true"><span class="coti-barra-relleno" data-coti-relleno></span></span>
+          <button type="button" class="boton coti-minimizar" data-coti-minimizar>Minimizar</button>
+        </div>
+        <div class="coti-carva">{% set carva_estado = "celebra" %}{% include "_carva.html" %}</div>
+        <p class="coti-celebra-titulo">¡Cotización lista!</p>
+        <p class="coti-celebra-texto">Quedó guardada con el folio <span class="coti-folio">#{{ folio }}</span>.</p>
+      </div>
+    </div>
+    {%- endif %}
     <header class="coti-cabecera">
       <h4 class="coti-titulo">Cotización para {{ coti.city }}</h4>
       {%- if coti.quote %}
@@ -124,7 +146,17 @@
       {%- if coti.commercial and coti.commercial.valid_until %}
       <span class="coti-sello">Vigencia del vendedor hasta {{ coti.commercial.valid_until }}</span>
       {%- endif %}
+      <button type="button" class="coti-alternar" data-coti-alternar aria-expanded="true" hidden>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+        <span data-coti-alternar-texto>Ocultar detalle</span>
+      </button>
     </header>
+    <p class="coti-linea">
+      {{ cp.count }} {{ cp.basis }} · {{ cp.units_bought }} unidades
+      {%- if coti.total %} · <strong>{{ coti.total }} COP</strong>{% endif %}
+    </p>
+    <div class="coti-plegable coti-detalle" data-coti-detalle>
+      <div class="coti-plegable-interior">
     <dl class="coti-cifras">
       <div><dt>Pides</dt><dd>{{ cp.units_requested or coti.primary.units_requested }} unidades</dd></div>
       <div><dt>Compras</dt><dd>{{ cp.count }} {{ cp.basis }} ({{ cp.units_bought }} unidades)</dd></div>
@@ -148,6 +180,8 @@
       {%- for linea in coti.pending_lines %} {{ linea.label }} ({{ linea.status }}){% if not loop.last %},{% endif %}{% endfor %}.
     </p>
     {%- endif %}
+      </div>
+    </div>
   </section>
   {%- elif coti and coti.reply %}
   <p class="productos-nota">{{ coti.reply }}</p>

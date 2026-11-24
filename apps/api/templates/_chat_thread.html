@@ -68,12 +68,41 @@
 </ol>
 {% elif not error %}
 <div class="vacio chat-bienvenida">
-  <h2>Hola, soy Carva</h2>
-  <p>Todavía no hay mensajes. Pregúntame por Carvajal o por sus empaques.</p>
-  <div class="chat-sugerencias" data-chat-sugerencias hidden>
-    <button type="button" class="boton secundario" data-chat-sugerencia>¿Cómo nació Carvajal?</button>
-    <button type="button" class="boton secundario" data-chat-sugerencia>¿Qué vasos sirven para café?</button>
-    <button type="button" class="boton secundario" data-chat-sugerencia>¿Dónde comprar empaques en Colombia?</button>
+  {#- Inicio (diseño «Inicio Refinado» de Stitch). Con mensajes, chat-stream.js quita este
+      bloque dentro de una View Transition y el compositor baja a su sitio. -#}
+  <div class="bienvenida-heroe">
+    <div class="bienvenida-carva">
+      {% set carva_estado = "saluda" %}{% include "_carva.html" %}
+    </div>
+    <p class="bienvenida-estado"><span class="punto-vivo" aria-hidden="true"></span>Listo para ayudarte</p>
+    <h2>Hola, soy Carva</h2>
+    <p class="bienvenida-texto">
+      Escríbeme o dicta tu pregunta. Te ayudo con empaques, cotizaciones y la historia de
+      Carvajal.
+    </p>
+  </div>
+  <div class="bienvenida-temas">
+    <p class="bienvenida-temas-titulo" id="temas-frecuentes">Temas frecuentes</p>
+    <div class="chat-sugerencias temas" data-chat-sugerencias aria-labelledby="temas-frecuentes" role="group" hidden>
+      <button type="button" class="tema" data-chat-sugerencia data-pregunta="¿Cómo nació Carvajal?">
+        <span class="tema-icono" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-2-1.6-4.7-2-8-2v13c3.3 0 6 .4 8 2 2-1.6 4.7-2 8-2V5c-3.3 0-6 .4-8 2Z" /><path d="M12 7v13" /></svg>
+        </span>
+        <span class="tema-texto"><strong>Historia de Carvajal</strong><span>Sus orígenes</span></span>
+      </button>
+      <button type="button" class="tema" data-chat-sugerencia data-pregunta="¿Qué vasos sirven para café?">
+        <span class="tema-icono" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1.4 12.2a1 1 0 0 1-1 .8H8.4a1 1 0 0 1-1-.8Z" /><path d="M5 5h14v3H5zM9 2.5c0 1 .8 1 .8 2M13 2.5c0 1 .8 1 .8 2" /></svg>
+        </span>
+        <span class="tema-texto"><strong>Vasos para café</strong><span>Para bebida caliente</span></span>
+      </button>
+      <button type="button" class="tema" data-chat-sugerencia data-pregunta="¿Dónde comprar empaques en Colombia?">
+        <span class="tema-icono" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z" /><circle cx="12" cy="9.5" r="2.5" /></svg>
+        </span>
+        <span class="tema-texto"><strong>Dónde comprar</strong><span>En Colombia</span></span>
+      </button>
+    </div>
   </div>
 </div>
 {% endif %}

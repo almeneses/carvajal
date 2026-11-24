@@ -31,12 +31,15 @@
   --azul: #003a5d;
   --cian: #00b5e5;
   --tinta: #072b46;
-  --secundario: #4c6578;
-  --fondo-pagina: #edf5f9;
+  /* Rediseño 049: tokens del sistema «Asistente Carvajal» de Stitch (contraste AAA en
+     texto secundario, fondo mate de bajo brillo y radios amplios). */
+  --secundario: #3e5568;
+  --fondo-pagina: #f3f6f8;
   --fondo: #ffffff;
-  --fondo-suave: #f4f8fb;
+  --fondo-suave: #edf4ff;
+  --superficie-alta: #e3efff;
   --panel: #ffffff;
-  --borde: #d8e5ed;
+  --borde: #dce5ea;
   --borde-control: #7d95a6;
   --etiqueta-fondo: #e2f6fc;
   --etiqueta-texto: #00688b;
@@ -46,13 +49,19 @@
   --externa-texto: #844219;
   --error: #a32626;
   --foco: #007ca5;
-  --radio: 18px;
-  --radio-pequeno: 12px;
+  --radio: 24px;
+  --radio-pequeno: 16px;
   --ancho-max: 1360px;
   --ancho-chat-max: 1680px;
   --alto-control: 54px;
-  --sombra: 0 8px 24px rgb(20 73 103 / 7%);
-  --transicion: 180ms ease;
+  --sombra: 0 4px 16px -2px rgb(7 43 70 / 6%), 0 2px 6px -1px rgb(7 43 70 / 4%);
+  --sombra-alta: 0 12px 32px -4px rgb(7 43 70 / 12%), 0 4px 12px -2px rgb(7 43 70 / 8%);
+  --halo-cian: rgb(0 181 229 / 35%);
+  --exito: #1e7a57;
+  --exito-fondo: #e3f3ec;
+  /* Curva enfática: arranca rápido y se posa suave. */
+  --curva: cubic-bezier(0.2, 0, 0, 1);
+  --transicion: 200ms var(--curva);
   --fuente: "DM Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --kraft: #c89b6a;
   --kraft-fondo: #f3eadf;
@@ -136,8 +145,11 @@ h1:focus-visible,
 /* Cabecera ---------------------------------------------------------------- */
 
 .cabecera {
-  background: var(--panel);
-  border-bottom: 1px solid var(--borde);
+  position: relative;
+  z-index: 5;
+  background: rgb(255 255 255 / 92%);
+  box-shadow: 0 1px 8px rgb(7 43 70 / 6%);
+  backdrop-filter: blur(12px);
 }
 
 .cabecera-interior {
@@ -147,7 +159,7 @@ h1:focus-visible,
   gap: clamp(14px, 3vw, 32px);
   max-width: var(--ancho-max);
   margin: 0 auto;
-  padding: 14px clamp(18px, 3vw, 32px) 0;
+  padding: 10px clamp(18px, 3vw, 32px);
 }
 
 .marca {
@@ -165,9 +177,9 @@ h1:focus-visible,
 
 .pestanas {
   display: flex;
-  align-self: stretch;
+  align-self: center;
   justify-content: center;
-  gap: clamp(4px, 1.5vw, 16px);
+  gap: 6px;
 }
 
 .pestana {
@@ -175,9 +187,9 @@ h1:focus-visible,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 56px;
-  padding: 10px 18px;
-  border-radius: 10px 10px 0 0;
+  min-height: 48px;
+  padding: 8px 20px;
+  border-radius: 14px;
   color: var(--secundario);
   font-size: 1rem;
   font-weight: 500;
@@ -187,31 +199,15 @@ h1:focus-visible,
     background-color var(--transicion);
 }
 
-.pestana::after {
-  position: absolute;
-  right: 10px;
-  bottom: 0;
-  left: 10px;
-  height: 3px;
-  content: "";
-  background: var(--cian);
-  border-radius: 3px 3px 0 0;
-  transform: scaleX(0);
-  transition: transform var(--transicion);
-}
-
 .pestana:hover {
   background: var(--fondo-suave);
   color: var(--azul);
 }
 
 .pestana[aria-current="page"] {
+  background: var(--superficie-alta);
   color: var(--azul);
-  font-weight: 600;
-}
-
-.pestana[aria-current="page"]::after {
-  transform: scaleX(1);
+  font-weight: 700;
 }
 
 .estado-sitio {
@@ -387,7 +383,7 @@ h2 {
 
 .formulario button:active,
 .boton:active {
-  transform: translateY(1px);
+  filter: brightness(0.88);
 }
 
 .formulario button:disabled,
@@ -779,16 +775,10 @@ h2 {
   }
 
   .pestana {
-    min-height: 52px;
+    min-height: 48px;
     padding: 8px 6px;
-    border-radius: 0;
     font-size: 0.95rem;
     white-space: nowrap;
-  }
-
-  .pestana::after {
-    right: 6px;
-    left: 6px;
   }
 
   main {
