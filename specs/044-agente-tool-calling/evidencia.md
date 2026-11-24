@@ -280,3 +280,49 @@ simples) y la abstención genérica en despedidas o temas fuera de catálogo.
 **Conclusión**: la observación simulada **no cumple** los criterios de §10 (violaciones y
 datos sin fuente distintos de 0). T055 (retiro de `routes`) **no** queda habilitado. Falta
 una línea base de `routes` en la misma simulación para juzgar la utilidad relativa.
+
+### Rondas 3 y 4 (2026-11-24, simulaciones cortas)
+
+A pedido del owner, dos rondas más de arreglos con simulaciones de 2 a 3 minutos: 12
+escenarios nuevos de 2 a 3 turnos (`data/eval/simulacion_escenarios_r3.json`), redactados
+por un agente independiente que no vio el prompt, el código ni las simulaciones previas,
+congelados antes de medir. Cada ronda se midió una sola vez, con juez y verificador.
+
+- **Ronda 3** (`af06c36`): `cotizar` acepta la unidad de compra (cajas, paquetes, pacas)
+  y la convierte con la presentación publicada; sin ciudad o con una ciudad sin cobertura
+  pide la ciudad; las despedidas van por el atajo; la compuerta reemplaza con un texto
+  acorde a lo consultado; `AGENT_SYSTEM` pide buscar antes de negar, cotizar lo nombrado y
+  no dar juicios ni cálculos sin fuente; el motor de cotización deja el voseo.
+- **Ronda 4** (`f3a5551`, última): `cotizar` acepta la referencia nombrada (`sku` o
+  `nombre`) y la cotiza exactamente, sin exigir temperatura y sin sustituirla; reglas de
+  idioma y de seguimiento de IVA, envío o total.
+
+| 12 conversaciones ciegas (juzgadas y verificadas) | Ronda 3 | Ronda 4 |
+|---|---|---|
+| Turnos | 31 | 32 |
+| Violaciones de garantía | 4 | **1** |
+| Turnos con dato sin fuente | 4 | **1** |
+| Turnos «No útil» | 35 % | **28 %** |
+| Respaldo / errores / no persistidos | 0 / 0 / 0 | 0 / 0 / 0 |
+| Primer texto p95 | — | 4,21 s |
+
+| v3 auditado (tools) | Ronda 2 | Ronda 4 |
+|---|---|---|
+| Ítems resueltos | 37/40 (92,5 %) | 34/40 (85 %) |
+
+El caso restante de la ronda 4 (violación y dato sin fuente, mismo turno) es la lectura de
+períodos en informes financieros: el modelo presentó cifras del 3T 2026 como de septiembre
+de 2025. Los fallos reales del v3 en la ronda 4 son: no usar `cotizar` cuando la persona
+nombró la referencia (v3-009, v3-019, v3-024), una respuesta en español a una pregunta en
+inglés (v3-036) y una cifra del usuario repetida en un caso adversarial (v3-027).
+
+**Contaminación declarada**: los ítems v3-006 y v3-021 informaron reglas de la ronda 4, así
+que desde ahí el v3 tampoco es una medición ciega. Los escenarios r3 fueron ciegos para la
+ronda 3; sus fallos informaron la ronda 4, que se midió con los mismos escenarios, así que
+la mejora de la ronda 4 sobre la 3 no es una medición independiente.
+
+**Estado al cierre**: `tools` sigue por defecto (decisión 1, §10). La observación simulada
+**no cumple** los criterios de §10 (1 violación y 1 dato sin fuente en la ronda 4); T055
+(retiro de `routes`) **no** queda habilitado. Pendientes: lectura de tablas y períodos en
+informes PDF, usar `cotizar` siempre que se nombra una referencia, idioma de la respuesta y
+la conversión de «cajas» cuando el catálogo solo declara «paca x N».
