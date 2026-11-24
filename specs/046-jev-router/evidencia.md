@@ -110,8 +110,10 @@ generalización (research R11).
   con cobertura ≥ 70 %; la rejilla no separa y, por la regla, se queda el valor inicial.
 - **`JEV_ROUTER_DIRECT_MIN_CONFIDENCE` = 0,8 (sin cambio)**: ningún valor de la rejilla manda
   preguntas con datos a la directa (las 5 directas tienen confianza ≥ 0,95). La rejilla
-  tampoco separa, así que se queda el valor inicial. El informe imprime «0,6 (la rejilla no
-  separa: se queda el valor vigente)», que se contradice: ver D2 en §9.
+  tampoco separa, así que se queda el valor inicial. El informe de esta corrida
+  (`evaluacion/gatekeeper.md`, tal cual salió) imprime «0,6 (la rejilla no separa: se queda el
+  valor vigente)», que se contradice; el generador ya está corregido (D2 en §9) y hoy
+  imprimiría 0,6 y 0,8 con la nota de cada umbral. **El valor vigente y recomendado es 0,8.**
 - **Confirmación fuera del conjunto** (no sirvió para elegir): en el v3, Jev mandó tres
   seguimientos con datos a `respuesta_directa` (§4.2). Dos tenían 0,72 y 0,67: con 0,6 habrían
   ido a la respuesta directa sin consultar, y con 0,8 fueron a cautela.
@@ -311,7 +313,10 @@ quickstart), salvo que el owner amplíe el presupuesto.
 - Etiquetas del conjunto del gatekeeper: 15 de 20 vienen de `routing_questions.json`,
   etiquetado por las reglas; las 5 directas las redactó el asistente de desarrollo.
 
-## 9. Defectos y regresiones (documentados, no arreglados)
+## 9. Defectos y regresiones
+
+Se midieron sin arreglar nada. Después de la medición se corrigieron D1, D2 y R1 (cada uno
+lleva su «Estado»); R2–R5 siguen documentados.
 
 **D1. Score: `score` real rechazado (solo medición).**
 `JevJudge.classify(with_score=True)` en `adapters/judge/jev.py` exige un entero en [0, 4] y
@@ -354,6 +359,13 @@ judge.classify(q, with_score=True)  # JudgeUnavailable: status 'invalid'
 La lectura de Score en `ReplayJudge.from_ledger` (`isinstance(clarity, int)`) también
 descarta el valor real.
 
+**Estado (corregido tras la medición):** `JevJudge` acepta un real en [0, 4] (los niveles
+de `JEV_SCORE_CLARITY` menos uno) y rechaza lo que esté fuera, `NaN`, booleanos y textos;
+`RouteVerdict.clarity` y `GateResult.clarity` pasan a `float`; `ReplayJudge.from_ledger`
+conserva el real del libro, y `errors_by_clarity` agrupa por el nivel más cercano. Pruebas
+sin red en `tests/test_jev_adapter.py` y `tests/test_eval_gatekeeper.py`. La parte Choice
+y la producción (`with_score=False`) no cambian.
+
 **D2. El informe del gatekeeper recomienda `DIRECT=0,6` y dice «se queda el valor
 vigente».**
 `GateReport.recommend()` aplica la cláusula «si la rejilla no separa, se quedan los valores
@@ -362,6 +374,13 @@ la directa que no baje del mínimo, y deja la nota del mínimo. Reproducción:
 `evaluacion/gatekeeper.json` → `judges.jev.recommend` = `{"min_confidence": 0.6,
 "direct_min_confidence": 0.6, "note": "la rejilla no separa: se queda el valor vigente"}`,
 con 0,8 vigente. Se decidió 0,8 (§2.3).
+
+**Estado (corregido tras la medición):** `GateReport.recommend()` aplica la cláusula de R4
+también al umbral directo: si todos los valores de la rejilla tienen cero preguntas con datos
+enviadas a la directa, la rejilla no separa y se queda el vigente (sin bajar del mínimo). La
+nota nombra el umbral («umbral mínimo: …», «umbral directo: …»). Con los datos de T053 el
+informe recomienda 0,6 y **0,8**. Pruebas sin red en `tests/test_eval_gatekeeper.py`. Los
+archivos de `evaluacion/` se dejan como salieron de la corrida.
 
 **R1. v3-003: el alcance `rag` deja una compuesta sin catálogo (atribuible a Jev).**
 Jev clasificó como `rag` (0,83) «¿qué es Propal y qué tiene que ver el bagazo de caña con los

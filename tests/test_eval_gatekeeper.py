@@ -16,6 +16,8 @@ from carvajal.adapters.judge.jev import JevClient, JevJudge
 from carvajal.agent.gatekeeper.evaluation import (
     ClaimsItem,
     GateItem,
+    GateReport,
+    GateResult,
     QuotaJudge,
     ReplayJudge,
     eval_claims,
@@ -539,6 +541,94 @@ def test_replay_judge_reproduce_los_veredictos_del_libro_sin_red(tmp_path: Path)
     with pytest.raises(JudgeUnavailable):
         replay.check(ClaimsQuery(answer="x", evidence=()))
     assert replay.items() == {"g1"}
+
+
+def _gate_report(script: list[tuple[str, str, float]]) -> GateReport:
+    """Reporte de Jev con (esperada, elegida, confianza) por ítem y umbrales 0,6 y 0,8."""
+
+    results = [
+        GateResult(
+            item=GateItem(id=f"g{n}", question=f"q{n}", expected=cast(GateClass, expected)),
+            judge="jev",
+            predicted=cast(GateClass, predicted),
+            confidence=confidence,
+        )
+        for n, (expected, predicted, confidence) in enumerate(script, start=1)
+    ]
+    return GateReport(judge="jev", results=results, min_confidence=0.6, direct_min_confidence=0.8)
+
+
+def test_recommend_sin_separacion_conserva_ambos_umbrales_vigentes() -> None:
+    # Arrange: el caso de T053 (D2): todo acierta y ningún umbral manda datos a la directa.
+    report = _gate_report(
+        [
+            ("herramienta_estructurada", "herramienta_estructurada", 0.99),
+            ("rag", "rag", 0.97),
+            ("mixta", "mixta", 0.59),
+            ("respuesta_directa", "respuesta_directa", 0.96),
+        ]
+    )
+
+    # Act
+    choice = report.recommend()
+
+    # Assert
+    assert (choice["min_confidence"], choice["direct_min_confidence"]) == (0.6, 0.8)
+    assert "umbral mínimo" in choice["note"] and "umbral directo" in choice["note"]
+
+
+def test_recommend_directo_que_separa_toma_el_menor_limpio() -> None:
+    # Arrange: con 0,5 y 0,6 una pregunta con datos (0,65) va a la directa; desde 0,7, no.
+    report = _gate_report(
+        [
+            ("herramienta_estructurada", "herramienta_estructurada", 0.99),
+            ("rag", "rag", 0.97),
+            ("rag", "respuesta_directa", 0.65),
+            ("respuesta_directa", "respuesta_directa", 0.96),
+        ]
+    )
+
+    # Act
+    choice = report.recommend()
+
+    # Assert
+    assert choice["direct_min_confidence"] == 0.7
+    assert "umbral directo" not in choice["note"]
+
+
+def test_score_real_del_libro_y_errores_por_nivel_redondeado(tmp_path: Path) -> None:
+    # Arrange: el libro guarda la claridad real que devuelve la API (D1).
+    ledger = tmp_path / "jev-calls.jsonl"
+    line = {
+        "run": "gatekeeper",
+        "item": "g1",
+        "kind": "router",
+        "status": "ok",
+        "latency_ms": 200,
+        "model": "jev-1.14.0",
+        "choice": "rag",
+        "confidence": 0.9,
+        "probabilities": _probabilities("rag", 0.9),
+        "clarity": 2.5,
+        "clarity_confidence": 0.53,
+    }
+    ledger.write_text(json.dumps(line) + "\n", encoding="utf-8")
+    report = _gate_report([("rag", "rag", 0.9), ("rag", "mixta", 0.7)])
+    report.results[0].clarity = 3.84
+    report.results[1].clarity = 1.16
+
+    # Act
+    replay = ReplayJudge.from_ledger(ledger)
+    replay.item = "g1"
+    verdict = replay.classify(RouteQuery(question="x"))
+    versus = report.confidence_vs_score()
+
+    # Assert
+    assert verdict.clarity == 2.5 and verdict.clarity_confidence == 0.53
+    assert versus["errors_by_clarity"] == {
+        "1": {"errors": 1, "total": 1},
+        "4": {"errors": 0, "total": 1},
+    }
 
 
 def test_quota_judge_corta_cada_cuota_por_separado() -> None:

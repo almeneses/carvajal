@@ -313,10 +313,11 @@ class GateReport:
     def recommend(self) -> dict[str, Any]:
         """Umbrales según la regla de research R4, declarada antes de medir.
 
-        ``min_confidence``: la mayor exactitud de las aplicadas con cobertura ≥ 70 %; si la
-        rejilla no separa, se queda el valor vigente. ``direct_min_confidence``: el menor
-        valor de la rejilla, no menor que el anterior, sin preguntas con datos enviadas a
-        ``respuesta_directa``.
+        ``min_confidence``: la mayor exactitud de las aplicadas con cobertura ≥ 70 %.
+        ``direct_min_confidence``: el menor valor de la rejilla, no menor que el mínimo, sin
+        preguntas con datos enviadas a ``respuesta_directa``. La cláusula «si la rejilla no
+        separa, se quedan los valores iniciales» vale para los dos (D2): si todos los
+        valores empatan, se queda el vigente y la nota dice de cuál umbral se trata.
         """
 
         rows = self.grid()
@@ -324,24 +325,25 @@ class GateReport:
         eligible = [r for r in rows if r["applied"] and (r["coverage"] or 0) >= MIN_COVERAGE]
         if not eligible:
             minimum = self.min_confidence
-            notes.append("ningún umbral cubre el 70 %: se queda el valor vigente")
+            notes.append("umbral mínimo: ningún valor cubre el 70 %, se queda el vigente")
         else:
             best = max(r["accuracy"] for r in eligible)
             tied = [r["threshold"] for r in eligible if r["accuracy"] == best]
+            minimum = self.min_confidence if self.min_confidence in tied else min(tied)
             if len(tied) == len(eligible) and len(eligible) > 1:
-                minimum = self.min_confidence if self.min_confidence in tied else min(tied)
-                notes.append("la rejilla no separa: se queda el valor vigente")
-            else:
-                minimum = self.min_confidence if self.min_confidence in tied else min(tied)
+                notes.append("umbral mínimo: la rejilla no separa, se queda el vigente")
         clean = [r["threshold"] for r in rows if r["data_to_direct"] == 0]
         candidates = [t for t in clean if t >= minimum]
-        if candidates:
+        if len(clean) == len(rows):
+            direct = max(self.direct_min_confidence, minimum)
+            notes.append("umbral directo: la rejilla no separa, se queda el vigente")
+        elif candidates:
             direct = min(candidates)
         else:
             direct = max(self.direct_min_confidence, minimum)
             notes.append(
-                "ningún umbral de la rejilla evita enviar preguntas con datos a la respuesta "
-                "directa: se queda el valor vigente"
+                "umbral directo: ningún valor evita enviar preguntas con datos a la respuesta "
+                "directa, se queda el vigente"
             )
         return {
             "min_confidence": minimum,
