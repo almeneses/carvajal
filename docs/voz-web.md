@@ -262,11 +262,12 @@ voz» (la guía ARIA APG pide no cambiarlo con el estado) y el estado va en `ari
   región en su árbol. Con nota, la línea de estado global no repite la lectura.
 - `.turno-nota-aviso` repite el texto del bloqueo o del error para quien ve la pantalla
   (es `aria-hidden`). Es el único hijo con texto largo: ocupa su propia línea
-  (`flex-basis: 100%` en el mínimo de abajo) y el rediseño debe estilarlo.
+  y el rediseño la estila en `chat.css`.
 - Si el foco estaba en la franja `.turno-voz` cuando nace la nota, pasa a su botón; si
   estaba en «Reintentar» al ocultarse, también.
-- `chat.css` solo añade lo funcional: `.turno-voz[hidden]` oculto y un mínimo dentro de
-  `:where()` (especificidad cero) que cualquier regla `.turno-nota-*` del rediseño sustituye.
+- La `<li>` del turno lleva `data-voz-nota="1"` mientras tiene nota.
+- Los estilos de la nota viven en `chat.css` (rediseño 049); este archivo JS no fija estilos
+  salvo `--nota-avance` por CSSOM.
 
 ## Requisitos de despliegue
 

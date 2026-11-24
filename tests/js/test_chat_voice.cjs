@@ -4144,3 +4144,15 @@ test("050 el adaptador entrega el NotAllowedError del autoplay al controlador", 
   assert.equal(recibido && recibido.name, "NotAllowedError");
   assert.deepEqual(ventana.revocadas, ventana.creadas);
 });
+
+test("050 la respuesta con nota marca la <li> con data-voz-nota para el rediseño", () => {
+  // Arrange
+  const montaje = montarServidor();
+  const turno = turnoConMensaje("Hola, soy Carva.", "m-555");
+
+  // Act
+  montaje.controlador.leerTurno(turno);
+
+  // Assert
+  assert.equal(turno.dataset.vozNota, "1");
+});

@@ -748,6 +748,8 @@
       if (!mensaje) return null;
       const nota = construirNota(turno, mensaje);
       notas.set(turno, nota);
+      // Contrato con el rediseño (049): la <li> marca que tiene nota.
+      if (turno.dataset) turno.dataset.vozNota = "1";
       return nota;
     }
 
