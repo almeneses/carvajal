@@ -2292,3 +2292,61 @@ def test_sombra_juzga_sin_sustituir_ni_retener() -> None:
     final = _final(events)
     assert (final.claims["status"], final.claims["substituted"]) == ("unsupported", False)
     assert final.claims["reason"] == "sombra"
+
+
+def _no_query_steps() -> list[ScriptStep]:
+    return [
+        ScriptStep(tool_calls=[_call("sin_consulta", motivo="conversacion")]),
+        ScriptStep(text="Con gusto te ayudo con lo que necesites."),
+    ]
+
+
+def test_sombra_lenta_en_no_query_no_pierde_la_respuesta() -> None:
+    # Arrange: en sombra el texto de ``no_query`` sigue retenido mientras se juzga; la
+    # llamada «tarda» hasta pasar el plazo del turno (FR-030).
+    from tests.fakes.judge import FakeJudge
+
+    clock = _Clock(0.0, 10.0)
+
+    class SlowJudge(FakeJudge):
+        def check(self, query: Any) -> Any:
+            clock.t = 50.0
+            return super().check(query)
+
+    judge = SlowJudge(p=0.9)
+    runner = _claims_runner(
+        _no_query_steps(), judge, settings=Settings(jev_claims_mode="shadow"), clock=clock
+    )
+
+    # Act
+    events = _stream(runner, "¿me ayudas?")
+
+    # Assert: no es ``TurnTimeout``; sale la respuesta del modelo.
+    assert len(judge.claims) == 1
+    assert "".join(_tokens(events)) == "Con gusto te ayudo con lo que necesites."
+    assert (_final(events).claims["status"], _final(events).claims["reason"]) == (
+        "supported",
+        "sombra",
+    )
+
+
+def test_sombra_sin_plazo_en_no_query_no_llama_y_emite() -> None:
+    # Arrange: al cerrar el paso quedan 0,5 s de 45 (< 0,8 + 0,2).
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.1)
+    runner = _claims_runner(
+        _no_query_steps(),
+        judge,
+        settings=Settings(jev_claims_mode="shadow"),
+        clock=_Clock(0.0, 44.5),
+    )
+
+    # Act
+    events = _stream(runner, "¿me ayudas?")
+
+    # Assert
+    assert judge.claims == []
+    assert "".join(_tokens(events)) == "Con gusto te ayudo con lo que necesites."
+    final = _final(events)
+    assert (final.claims["status"], final.claims["reason"]) == ("unavailable", "sin_plazo")

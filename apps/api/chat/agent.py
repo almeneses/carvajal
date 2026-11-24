@@ -702,10 +702,11 @@ class _TurnStream:
             if step.path == GATE_EVIDENCE and not step.filtered:
                 if self.gate_claims.holds:
                     return self._judged(text, step.path)
+                began = bool(self.answer)
                 events = self._emit(self._remainder(text, step))
                 if self.gate_claims.active:
                     # Sombra: se juzga lo ya emitido y solo se registra (no hay retención).
-                    self._judge(text)
+                    self._judge(text, began=began)
                 return events
             if step.path == GATE_ABSTAIN:
                 self._skip_claims("abstencion")
@@ -771,8 +772,14 @@ class _TurnStream:
             return [*events, *self._abstain(path, 0)]
         return [*events, *self._emit(text)]
 
-    def _judge(self, text: str) -> str:
-        """Llama a la compuerta si el texto es juzgable y queda plazo; devuelve el estado."""
+    def _judge(self, text: str, *, began: bool = False) -> str:
+        """Llama a la compuerta si el texto es juzgable y queda plazo; devuelve el estado.
+
+        El plazo vale en los dos modos (FR-030): en sombra el texto de ``no_query`` (o uno
+        corto con evidencia) sigue retenido mientras se juzga, y una llamada lenta haría
+        vencer el turno y perder una respuesta buena. ``began`` indica que el texto ya salió
+        antes de este paso (sombra con evidencia larga): el plazo del turno ya no aplica.
+        """
 
         gate = self.gate_claims
         if not gate.active or gate.judge is None:
@@ -781,9 +788,9 @@ class _TurnStream:
         if not ok:
             self._skip_claims(reason)
             return "skipped"
-        if gate.holds and gate.remaining() <= gate.timeout_s + CLAIMS_MARGIN_S:
+        if not began and gate.remaining() <= gate.timeout_s + CLAIMS_MARGIN_S:
             return self._claims_unavailable("sin_plazo")
-        if gate.holds and not gate.begin_text():
+        if not gate.begin_text():
             return self._claims_unavailable("sin_plazo")
         query = build_claims_query(
             text,
