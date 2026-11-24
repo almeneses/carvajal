@@ -251,3 +251,50 @@ una iteración futura (sin medir): que el modelo resuma solo los turnos nuevos y
 concatene el resultado con el resumen anterior, o validar que la salida conserve lo
 anterior y caer al determinista si no. Evidencia completa:
 `specs/045-memoria-herramientas/evidencia.md` §7.
+
+## 11. Prompts de Jev, cautela y respuesta directa del gatekeeper (spec 046)
+
+Viven en `carvajal/prompts.py`. Los de Jev son instrucciones y criterios de preguntas de
+System One (TypeSafe), no prompts de un LLM generativo, pero rigen igual que el resto: un
+cambio de texto exige repetir su medición (principio III) con el mismo conjunto. Evidencia
+completa: [`specs/046-jev-router/evidencia.md`](../specs/046-jev-router/evidencia.md).
+
+| Texto | Para qué | Conjunto de medición |
+|---|---|---|
+| `JEV_ROUTE_INSTRUCTIONS` + `JEV_ROUTE_CRITERIA` (Choice) | Gatekeeper: `herramienta_estructurada`, `rag`, `mixta` o `respuesta_directa` (la directa va última por el sesgo posicional) | `data/eval/gatekeeper_046.json` (20) |
+| `JEV_CLAIMS_INSTRUCTIONS` + `JEV_CLAIMS_CRITERIA` (Noul) | Compuerta de afirmaciones: p de que todo lo afirmado esté en la evidencia | `data/eval/claims_046.json` (16) |
+| `JEV_SCORE_CLARITY` (Score) | Solo en la medición: claridad de la pregunta, de 0 a 4 | `gatekeeper_046.json`, en la misma petición que Choice |
+| `GATEKEEPER_CAUTION` | Bloque `<cautela>` del sistema del agente con confianza baja o desacuerdo con las reglas | Reproducción desde el libro (`ReplayJudge`) y turnos con cautela del v3 |
+| `DIRECT_INSTRUCTIONS["gatekeeper_direct"]` | Respuesta directa cuando la decide Jev (no las reglas) | Reproducción desde el libro (`ReplayJudge`) |
+
+**Medición (2026-11-24, una corrida por conjunto, `jev-1.14.0`).**
+
+- **Choice**: Jev acierta 20/20 en `gatekeeper_046.json` (reglas 14/20; LLM 18/20), con
+  confianza media 0,95 y mínima 0,59. Umbrales sin cambio: `JEV_ROUTER_MIN_CONFIDENCE=0.6`
+  y `JEV_ROUTER_DIRECT_MIN_CONFIDENCE=0.8` (la rejilla no separa; en el v3, dos
+  seguimientos comerciales con 0,72 y 0,67 habrían ido a la directa con 0,6).
+- **Noul**: 10/10 respuestas no respaldadas detectadas y 0/6 falsas alarmas con
+  `JEV_CLAIMS_THRESHOLD=0.5` (con 0,6 ya aparece una falsa alarma: v3-034, p = 0,60).
+- **Score**: claridad media 2,52 sobre 4. Con 0 errores de Choice no hay con qué compararla
+  como predictor de error: **sigue fuera de producción**. La API devuelve el nivel como
+  número real (p. ej. 2,5); el adaptador lo acepta desde la corrección de D1.
+- **`gatekeeper_direct`**: reproducción de los ítems que terminaron en la directa (gk-16 a
+  gk-20) con `ReplayJudge` (0 llamadas a Jev, solo DeepSeek): 5 respuestas por el atajo,
+  **sin consultar datos**, correctas en contenido y tono. En gk-19 el modelo afirmó que
+  atiende «en español y en el idioma en que me escribas»: es cierto, pero no se consultó.
+- **`GATEKEEPER_CAUTION`**: la reproducción no tuvo ítems en cautela. Se midió con los 4
+  turnos de cautela del v3 con Jev (v3-020 turno 1, v3-023 turno 2, v3-024 turno 3 y
+  v3-025 turno 3): en los tres turnos finales consultó antes de afirmar y no inventó
+  canales; los tres ítems pasan.
+
+**Qué se observó.**
+
+- Jev manda a `respuesta_directa` los seguimientos comerciales cortos de varias vueltas
+  («Mejor que sean cinco, no dos»). Hoy los contiene la cautela con `DIRECT_MIN=0,8`, no la
+  clasificación (R2 de la evidencia).
+- Un `rag` correcto de Jev quitaba `buscar_producto` en una compuesta que nombra un
+  producto (v3-003). Se corrigió en el código, no en el prompt: con señal comercial, `rag`
+  se trata como `mixta` (research R16). El texto de Choice no cambió, así que su medición
+  sigue vigente.
+- El texto neutro que sustituye una respuesta rechazada solo existe en español (R3 de la
+  evidencia); queda pendiente.
