@@ -165,6 +165,48 @@ rollback() {
 echo "==> Imagen: ${APP_IMAGE}"
 "${COMPOSE[@]}" pull app
 
+# Aprovisionamiento comercial (catálogo y sedes/precios). La imagen lo trae en
+# /app/seed-data, pero el volumen `appdata` tapa /app/data: sin esta siembra, una
+# versión que añade archivos al contrato arranca con el catálogo inválido,
+# /health falla y el despliegue hace rollback. Se copian solo los archivos
+# ausentes (como el perfil `bootstrap`), sin pisar los del volumen, y se valida
+# antes de migrar: si falla, nada cambió aún y la versión en marcha sigue igual.
+# Imágenes anteriores a la 043 no traen /app/seed-data y se saltan el paso.
+SEED_PROVISIONING='
+set -e
+seed_dir() {
+  src="$1"; dest="$2"
+  [ -d "$src" ] || return 0
+  mkdir -p "$dest"
+  find "$src" -type f | while IFS= read -r file; do
+    target="$dest/${file#"$src"/}"
+    if [ ! -e "$target" ]; then
+      mkdir -p "$(dirname "$target")"
+      cp "$file" "$target"
+      echo "    sembrado: ${target#/app/}"
+    fi
+  done
+}
+[ -d /app/seed-data ] || { echo "    la imagen no trae /app/seed-data; se omite"; exit 0; }
+seed_dir /app/seed-data/catalog /app/data/catalog
+seed_dir /app/seed-data/commercial /app/data/commercial
+cd /app
+actual="$(python -m carvajal.commercial version)"
+if [ -n "${EXPECTED_COMMERCIAL_VERSION:-}" ] && [ "$actual" != "$EXPECTED_COMMERCIAL_VERSION" ]; then
+  echo "    catálogo comercial $actual; se esperaba $EXPECTED_COMMERCIAL_VERSION" >&2
+  exit 1
+fi
+python -m carvajal.commercial validar >/dev/null
+echo "    catálogo comercial $actual válido"
+'
+
+echo "==> Aprovisionamiento comercial"
+if ! "${COMPOSE[@]}" run --rm --no-deps -T app sh -c "$SEED_PROVISIONING"; then
+  echo "==> El aprovisionamiento comercial no es válido; no se despliega." >&2
+  echo "    La versión en marcha sigue intacta. Revisa docs/despliegue-ovh.md." >&2
+  exit 1
+fi
+
 echo "==> Preparando la base"
 # `compose run` no garantiza que `db` esté listo: se arranca y se espera aquí
 # para que Alembic no falle por conexión rechazada en el primer despliegue.
