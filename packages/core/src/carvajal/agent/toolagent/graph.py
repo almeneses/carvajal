@@ -75,14 +75,15 @@ from carvajal.agent.router import decide_route
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.evidence import names_city
 from carvajal.agent.toolagent.state import (
-    TOOL_NAMES,
-    TOOL_SIN_CONSULTA,
     ToolAgentState,
     ToolOutcome,
     validate_question,
 )
 from carvajal.agent.toolagent.status import emit_status
 from carvajal.agent.toolagent.tools import (
+    BUDGET_FREE,
+    CITY_KEYS,
+    STATUS_TEMPLATES,
     TOOL_SCHEMAS,
     ToolContext,
     ToolDeps,
@@ -284,8 +285,6 @@ _LIMIT_NOTE = (
 )
 _SKIPPED_MESSAGE = "No se ejecutó: se alcanzó el límite de consultas del turno."
 _UNREADABLE_MESSAGE = "Los argumentos de la llamada no son JSON válido; no se consultó nada."
-# Claves de ciudad en los argumentos validados (``cotizar`` y ``buscar_sedes``).
-_CITY_KEYS: Final = ("city", "ciudad")
 
 # Clave de ``configurable`` con la :class:`TurnCancel` del turno. No es un valor primitivo,
 # así que LangGraph no la copia a los metadatos del checkpoint.
@@ -563,7 +562,7 @@ def _model_steps(messages: Sequence[BaseMessage]) -> tuple[int, int]:
             continue
         total += 1
         if message.invalid_tool_calls or any(
-            call["name"] != TOOL_SIN_CONSULTA for call in message.tool_calls
+            call["name"] not in BUDGET_FREE for call in message.tool_calls
         ):
             real += 1
     return total, real
@@ -605,7 +604,9 @@ def _status_args(name: str, args: Any, progress: "_TurnProgress") -> dict[str, A
     said = _fold(
         " ".join([progress.question, json.dumps(progress.commercial_context, ensure_ascii=False)])
     )
-    for key in _CITY_KEYS:
+    # Claves de ciudad de la herramienta según el registro (``cotizar``: ``city``;
+    # ``buscar_sedes``: ``ciudad``).
+    for key in CITY_KEYS.get(name, ()):
         city = validated.get(key)
         if isinstance(city, str) and _fold(city) not in said:
             validated.pop(key)
@@ -616,9 +617,9 @@ def _status_args(name: str, args: Any, progress: "_TurnProgress") -> dict[str, A
 
 
 def _status_step(results: Sequence[ToolOutcome]) -> int:
-    """Número de la próxima línea de estado: herramientas reales ya ejecutadas + 1."""
+    """Número de la próxima línea de estado: herramientas con línea de estado ya ejecutadas + 1."""
 
-    return 1 + sum(1 for r in results if r["tool"] in TOOL_NAMES and r["tool"] != TOOL_SIN_CONSULTA)
+    return 1 + sum(1 for r in results if r["tool"] in STATUS_TEMPLATES)
 
 
 def _describe(name: str, args: Any) -> str:
@@ -882,7 +883,7 @@ def build_tool_agent(
             # Repetida en el turno: se devuelve el resultado anterior sin ejecutar ni contar.
             logger.info("tool_agent.duplicate_call", tool=name)
             return ToolMessage(content=contents[fingerprint], tool_call_id=tool_call_id, name=name)
-        counts = name != TOOL_SIN_CONSULTA
+        counts = name not in BUDGET_FREE
         if counts and progress.used >= max_calls:
             progress.missing.append(_describe(name, args))
             return ToolMessage(

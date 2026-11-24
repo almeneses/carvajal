@@ -3,6 +3,10 @@
 El modelo decide qué consultar, pero no decide si su redacción se muestra: lo decide esta
 compuerta, determinista, sobre los ``ToolOutcome`` del turno.
 
+Desde la spec 045 los papeles salen del registro de herramientas (``evidence_role``):
+donde este texto dice ``buscar_corpus`` vale para toda herramienta con papel ``corpus`` y
+donde dice ``sin_consulta``, para la de papel ``declaration``.
+
 - :func:`gate` elige uno de tres caminos. **Evidencia del turno** (``data-model.md``) es al
   menos un ``ToolOutcome`` con ``status == "ok"`` y ``source_ids`` no vacío.
 
@@ -67,13 +71,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final, Literal
 
 from carvajal.agent.toolagent.state import (
-    TOOL_BUSCAR_CORPUS,
     TOOL_BUSCAR_PRODUCTO,
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
     TOOL_INDICADOR_FINANCIERO,
-    TOOL_SIN_CONSULTA,
 )
+from carvajal.agent.toolagent.tools.registry import CORPUS_TOOLS, DECLARATION_TOOLS
 from carvajal.application.evidence import _KNOWN_ENTITIES, _entities
 from carvajal.prompts import NO_CONTEXT_ANSWER
 
@@ -310,7 +313,7 @@ def _declares_ask(outcome: Mapping[str, Any]) -> bool:
 
     args = outcome.get("args")
     return (
-        outcome.get("tool") == TOOL_SIN_CONSULTA
+        outcome.get("tool") in DECLARATION_TOOLS
         and outcome.get("status") == "ok"
         and isinstance(args, Mapping)
         and args.get("motivo") == "pedir_dato"
@@ -336,11 +339,11 @@ def gate(results: Iterable[Mapping[str, Any]]) -> GatePath:
     if any(_asks_for_data(r) for r in outcomes):
         # Falta un dato: la pregunta al usuario se filtra en vez de perderse (FR-005).
         return GATE_NO_QUERY
-    if any(r.get("tool") != TOOL_BUSCAR_CORPUS and r.get("source_ids") for r in outcomes):
+    if any(r.get("tool") not in CORPUS_TOOLS and r.get("source_ids") for r in outcomes):
         # Otra herramienta trajo datos citados sin ``ok`` (``cotizar`` sin precio, con las
         # sedes del directorio): se filtra con esos datos en vez de abstenerse del corpus.
         return GATE_NO_QUERY
-    if any(r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes):
+    if any(r.get("tool") in CORPUS_TOOLS for r in outcomes):
         return GATE_ABSTAIN
     return GATE_NO_QUERY
 
@@ -357,9 +360,7 @@ def neutral_only(results: Iterable[Mapping[str, Any]]) -> bool:
     """
 
     outcomes = list(results)
-    return gate(outcomes) == GATE_NO_QUERY and any(
-        r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes
-    )
+    return gate(outcomes) == GATE_NO_QUERY and any(r.get("tool") in CORPUS_TOOLS for r in outcomes)
 
 
 def _fold(text: str) -> str:
@@ -650,7 +651,7 @@ def abstention(
     items = list(payloads)
     parts = tool_misses(items)
     # Una búsqueda documental con argumentos inválidos (``error``) no consultó el corpus.
-    if any(tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error" for tool, data in items):
+    if any(tool in CORPUS_TOOLS and data.get("status") != "error" for tool, data in items):
         parts.append(NO_CONTEXT_ANSWER)
     elif parts:
         parts.append(_MISS_OFFER)

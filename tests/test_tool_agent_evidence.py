@@ -766,3 +766,26 @@ def test_la_abstencion_no_afirma_nada_que_las_herramientas_no_respalden(
 def test_names_city_detecta_ciudades_en_minuscula_y_sin_tildes(text: str, expected: bool) -> None:
     # Act / Assert
     assert names_city(text) is expected
+
+
+# --- Papeles desde el registro (spec 045, T013) -----------------------------------------------
+
+
+def test_la_compuerta_lee_el_papel_corpus_del_registro(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Una herramienta nueva con ``evidence_role="corpus"`` se abstiene como ``buscar_corpus``.
+
+    ``gate`` y ``neutral_only`` ya no nombran ``buscar_corpus``: leen ``CORPUS_TOOLS`` del
+    registro (``preguntas_frecuentes`` lo usará en la US4).
+    """
+
+    # Arrange
+    from carvajal.agent.toolagent import evidence
+
+    monkeypatch.setattr(evidence, "CORPUS_TOOLS", frozenset({"buscar_corpus", "faq_falsa"}))
+    vacia = {"tool": "faq_falsa", "args": {}, "status": "empty", "source_ids": [], "elapsed_ms": 1}
+    pide = {**vacia, "tool": "cotizar", "status": "needs_input"}
+
+    # Act / Assert
+    assert evidence.gate([vacia]) == evidence.GATE_ABSTAIN
+    assert evidence.neutral_only([vacia, pide])
+    assert evidence.abstention([("faq_falsa", {"status": "empty"})])[0].endswith(NO_CONTEXT_ANSWER)
