@@ -1264,7 +1264,19 @@ html[data-voz-grabando="1"] .chat-cuerpo .composer [data-voz-dictar] {
   50% { box-shadow: 0 0 0 10px rgb(0 181 229 / 12%); }
 }
 
-/* Grabación por el servidor: anillo de progreso frente al máximo de segundos. */
+/* Grabación por el servidor: anillo de progreso frente al máximo de segundos.
+   chat-voice.js actualiza --voz-progreso cada 250 ms; registrada como número, la propiedad
+   se interpola y el anillo avanza continuo en vez de a saltos. */
+@property --voz-progreso {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+html[data-voz-grabando="1"] {
+  transition: --voz-progreso 250ms linear;
+}
+
 html[data-voz-grabando="1"] .chat-cuerpo .composer [data-voz-dictar]::after {
   content: "";
   position: absolute;
