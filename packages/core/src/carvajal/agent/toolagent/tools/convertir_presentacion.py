@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from carvajal.agent.reference_names import exact_sku, resolve_reference
+from carvajal.agent.reference_names import exact_sku, looks_like_sku, resolve_reference
 from carvajal.agent.toolagent.tools._base import (
     CORE_LAYER,
     ToolContext,
@@ -153,11 +153,20 @@ def _ask_which(references: Sequence[Reference], *, conflict: bool = False) -> _D
     return _Draft("needs_input", message, data=data, missing=["referencia"])
 
 
+def _not_found() -> _Draft:
+    return _Draft(
+        "empty",
+        "No encontré esa referencia en el catálogo.",
+        data={"referencia_encontrada": False},
+    )
+
+
 def _resolve(args: ConvertirPresentacionArgs, catalog: Catalog) -> Reference | _Draft:
     """La referencia que nombró la persona, o el borrador que pide aclarar o declara ausencia.
 
     Como el motor: un SKU exacto fija la referencia; si el nombre fija otra distinta, se
-    pregunta cuál. Un SKU que no es exacto se busca como nombre solo si no hay ``nombre``.
+    pregunta cuál. Un SKU con forma de SKU que no existe es ``empty``; uno sin esa forma
+    («J2») se busca como nombre solo si no hay ``nombre``.
     """
 
     references = catalog.references
@@ -169,14 +178,14 @@ def _resolve(args: ConvertirPresentacionArgs, catalog: Catalog) -> Reference | _
             if match.named and not match.partial and by_sku.sku not in skus:
                 return _ask_which([by_sku, *match.named], conflict=True)
         return by_sku
+    if args.sku and looks_like_sku(args.sku):
+        # Con forma de SKU, el SKU es exacto o no es (como ``ficha_producto``): no se
+        # reinterpreta como nombre, que coincidiría en parte con fichas ajenas.
+        return _not_found()
     text = args.nombre or args.sku or ""
     match = resolve_reference(text, references, catalog)
     if not match.named:
-        return _Draft(
-            "empty",
-            "No encontré esa referencia en el catálogo.",
-            data={"referencia_encontrada": False},
-        )
+        return _not_found()
     if len(match.named) > 1 or match.partial:
         return _ask_which(match.named)
     return match.named[0]

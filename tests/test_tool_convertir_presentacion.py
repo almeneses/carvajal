@@ -376,6 +376,17 @@ def test_referencia_inexistente_es_empty() -> None:
     assert sources.ids == []
 
 
+@pytest.mark.parametrize("sku", ["CO-NOEXISTE-1", "CO-PCOM-P9", "9999999999"])
+def test_un_sku_inexistente_con_forma_de_sku_es_empty(sku: str) -> None:
+    # Act: el SKU con forma de SKU no se reinterpreta como nombre.
+    draft, sources = _run({"sku": sku, "cantidad": 3, "unidad": "caja"})
+
+    # Assert
+    assert draft.status == "empty", draft.data
+    assert draft.data == {"referencia_encontrada": False}
+    assert sources.ids == []
+
+
 def test_sku_y_nombre_que_no_coinciden_preguntan_cual() -> None:
     # Arrange
     args = {"sku": "CO-VTER-04", "nombre": "portacomidas J1", "cantidad": 3, "unidad": "caja"}

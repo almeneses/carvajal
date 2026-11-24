@@ -163,6 +163,9 @@ que aportó la persona (regla de la 044; FR-018).
   "catalogo" | "contrato" | "ambos"}`.
 - **`empty`**: `no_convertible: true`, `presentaciones_publicadas: [str]`.
 - **`needs_input`**: referencia ambigua (`candidatas`).
+- **`empty`** con `referencia_encontrada: false`: la referencia no existe; un `sku` con forma
+  de SKU que no está en el catálogo no se reinterpreta como nombre (igual que
+  `ciudades_con_cobertura`).
 
 ### ciudades_con_cobertura
 
@@ -174,6 +177,10 @@ que aportó la persona (regla de la 044; FR-018).
   Fuente `directorio:CO` (URL oficial del directorio de distribuidores); precios con su
   `precio:`.
 - **`needs_input`**: referencia ambigua.
+- **`empty`**: referencia que no existe, con `referencia_encontrada: false`. Un `sku` con
+  forma de SKU (prefijo de país y guion, o diez o más dígitos) es exacto o no es, como en
+  `ficha_producto`: «CO-NOEXISTE-1» no se reinterpreta como nombre. Solo un código corto
+  sin esa forma («J2», «P1») se busca como nombre.
 - **No** pide ciudad (eso es `buscar_sedes`).
 
 ---

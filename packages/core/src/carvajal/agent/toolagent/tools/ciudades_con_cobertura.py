@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from carvajal.agent.reference_names import exact_sku, resolve_reference
+from carvajal.agent.reference_names import exact_sku, looks_like_sku, resolve_reference
 from carvajal.agent.toolagent.tools._base import (
     CORE_LAYER,
     ToolContext,
@@ -172,12 +172,21 @@ def _ask_which(named: Sequence[Reference], *, partial: bool, conflict: bool) -> 
     return _Draft("needs_input", message, data=data, missing=["referencia"])
 
 
+def _not_found() -> _Draft:
+    return _Draft(
+        "empty",
+        "No encontré esa referencia en el catálogo de Colombia; no hay cobertura que dar.",
+        data={"referencia_encontrada": False},
+    )
+
+
 def _resolve(args: CiudadesConCoberturaArgs, catalog: Catalog) -> Reference | _Draft:
     """Referencia de Colombia que fijan ``sku`` o ``nombre``, o el borrador si no se puede.
 
     Misma regla que el Cotizador (``engine._named_reference``): el SKU exacto manda; sin
-    nombre, un ``sku`` que no es SKU exacto («J2») se busca como nombre; un SKU y un nombre
-    de referencias distintas no se resuelven en silencio.
+    nombre, un ``sku`` que no es SKU exacto ni tiene forma de SKU («J2») se busca como
+    nombre; uno con forma de SKU que no existe («CO-NOEXISTE-1») es ``empty``; un SKU y un
+    nombre de referencias distintas no se resuelven en silencio.
     """
 
     pool = [item for item in catalog.references if item.country == COUNTRY]
@@ -193,6 +202,10 @@ def _resolve(args: CiudadesConCoberturaArgs, catalog: Catalog) -> Reference | _D
                 "cubre Colombia.",
                 data={"pais_referencia": foreign.country},
             )
+        if looks_like_sku(sku_text):
+            # Con forma de SKU, el SKU es exacto o no es (como ``ficha_producto``): no se
+            # reinterpreta como nombre, que coincidiría en parte con fichas ajenas.
+            return _not_found()
         if not name:
             name = sku_text
     if by_sku is not None:
@@ -204,11 +217,7 @@ def _resolve(args: CiudadesConCoberturaArgs, catalog: Catalog) -> Reference | _D
         return by_sku
     match = resolve_reference(name, pool, catalog)
     if not match.named:
-        return _Draft(
-            "empty",
-            "No encontré esa referencia en el catálogo de Colombia; no hay cobertura que dar.",
-            data={"referencia_encontrada": False},
-        )
+        return _not_found()
     if len(match.named) > 1 or match.partial:
         return _ask_which(match.named, partial=match.partial, conflict=False)
     return match.named[0]

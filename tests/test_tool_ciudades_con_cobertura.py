@@ -312,6 +312,17 @@ def test_referencia_inexistente_es_empty_sin_fuentes() -> None:
     assert "ciudades" not in draft.data
 
 
+@pytest.mark.parametrize("sku", ["CO-NOEXISTE-1", "CO-PCOM-P9", "9999999999"])
+def test_un_sku_inexistente_con_forma_de_sku_no_ofrece_candidatas_ajenas(sku: str) -> None:
+    # Act: «CO-NOEXISTE-1» coincidía en parte por «co» y «1» con bandejas sin relación.
+    draft, sources = _run({"sku": sku})
+
+    # Assert: como ficha_producto, el SKU es exacto o no es.
+    assert draft.status == "empty", draft.data
+    assert draft.data == {"referencia_encontrada": False}
+    assert sources.ids == []
+
+
 def test_referencia_de_mexico_es_empty_porque_el_directorio_es_de_colombia() -> None:
     # Arrange
     args = {"sku": "2864108000"}
