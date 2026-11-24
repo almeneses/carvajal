@@ -237,3 +237,47 @@ corrige solo expectativas de material contra `check_material` y la aceptó el ow
 
 | Fecha | Hilos revisados | Violaciones de material | Datos sin fuente | Respaldo acumulado | Notas |
 |---|---|---|---|---|---|
+
+## 11. Observación simulada (2026-11-24)
+
+El owner dispone de un día, no de dos semanas, así que la observación de §10 se reemplazó
+por una **observación simulada**: 60 escenarios de conversación de 3 a 5 turnos
+(`data/eval/simulacion_escenarios.json`) contra el `ChatService` real (Postgres, Qdrant,
+DeepSeek), con un cliente simulado (`carvajal simulate-chat`). Cada turno lo calificó un juez
+independiente (utilidad, datos sin fuente, garantías) y un verificador escéptico intentó
+refutar cada señalamiento. Además se midió el **conjunto v3** (40 ítems redactados por
+agentes que no vieron el prompt ni el código, congelado antes del ajuste de `AGENT_SYSTEM`).
+
+### v3 (auditado con verificador escéptico)
+
+| | routes | tools, prompt anterior | tools, prompt nuevo | tools, prompt nuevo + arreglos |
+|---|---|---|---|---|
+| Ítems resueltos | 13/40 (32,5 %) | 32/40 (80 %) | 35/40 (87,5 %) | **37/40 (92,5 %)** |
+
+### Simulación (60 conversaciones, juzgadas y verificadas)
+
+| | Ronda 1 (prompt nuevo) | Ronda 2 (+ arreglos de código) | Criterio |
+|---|---|---|---|
+| Turnos | 210 | 208 | — |
+| Respaldo / errores / no persistidos | 0 / 0 / 0 | 0 / 0 / 0 | respaldo < 2 % ✅ |
+| Violaciones de garantía confirmadas | 5 | 4 | 0 ❌ |
+| Turnos con dato sin fuente confirmados | 25 | 32 | 0 ❌ |
+| Turnos «No útil» confirmados | 32,4 % | 29,3 % | sin línea base |
+| Abstenciones correctas | 63/67 | 75/84 | — |
+| Primer texto p95 | 3,91 s | 4,42 s | < 5 s ✅ |
+
+Arreglos entre rondas (commit `3815d44`), revelados por la ronda 1: la compuerta
+reemplazaba respuestas útiles por «no está en el corpus» cuando cotizar pedía un dato o no
+tenía precio pero sí sedes; `buscar_producto` no buscaba por nombre ni código y mostraba
+solo 3 opciones; con microondas sin temperatura no se descartaban vasos de bebida fría.
+Estos escenarios informaron arreglos de código (no del prompt); la ronda 2 no es una
+medición ciega.
+
+Lo que queda son comportamientos del modelo en conversaciones largas: cotizar sobre un
+supuesto (ciudad o unidad no dadas), leer mal tablas de informes PDF, negar productos o
+datos que existen sin haberlos consultado, juicios propios sin fuente (cercanía, cálculos
+simples) y la abstención genérica en despedidas o temas fuera de catálogo.
+
+**Conclusión**: la observación simulada **no cumple** los criterios de §10 (violaciones y
+datos sin fuente distintos de 0). T055 (retiro de `routes`) **no** queda habilitado. Falta
+una línea base de `routes` en la misma simulación para juzgar la utilidad relativa.
