@@ -312,6 +312,57 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    simulate_parser = subparsers.add_parser(
+        "simulate-chat",
+        help=(
+            "Simula conversaciones de varios turnos contra el chat real (spec 044): un "
+            "cliente simulado con DeepSeek escribe los mensajes y cada escenario usa su "
+            "propio hilo en Postgres. Gasta tokens del asistente y del cliente."
+        ),
+    )
+    simulate_parser.add_argument(
+        "--scenarios",
+        type=Path,
+        required=True,
+        help="JSON de escenarios ({id, persona, goal, opening, max_turns, follow_ups, ...}).",
+    )
+    simulate_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Carpeta de salida (transcripts.jsonl y summary.md). Por defecto, "
+            "data/processed/simulations/<fecha UTC>."
+        ),
+    )
+    simulate_parser.add_argument(
+        "--limit", type=int, default=None, help="Corre solo los primeros N escenarios."
+    )
+    simulate_parser.add_argument(
+        "--ids",
+        action="append",
+        default=None,
+        help="Escenarios a correr (repetible o separados por comas), p. ej. --ids s-01,s-07.",
+    )
+    simulate_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=3,
+        help="Conversaciones en paralelo (por defecto 3, para no saturar DeepSeek).",
+    )
+    simulate_parser.add_argument(
+        "--price-input",
+        type=float,
+        default=None,
+        help="Precio en USD por millón de tokens de entrada, para el costo estimado.",
+    )
+    simulate_parser.add_argument(
+        "--price-output",
+        type=float,
+        default=None,
+        help="Precio en USD por millón de tokens de salida, para el costo estimado.",
+    )
+
     catalog_parser = subparsers.add_parser(
         "catalog-build",
         help=(
@@ -582,6 +633,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "eval-agent":
         return _eval_agent(args)
+
+    if args.command == "simulate-chat":
+        return _simulate_chat(args)
 
     if args.command == "catalog-build":
         from carvajal.catalog.build import (
@@ -959,6 +1013,109 @@ def _eval_agent(args: argparse.Namespace) -> int:
             "clave, la red y el plazo.",
             file=sys.stderr,
         )
+        return 1
+    return 0
+
+
+def _simulate_chat(args: argparse.Namespace) -> int:
+    """``carvajal simulate-chat``: conversaciones simuladas contra el ``ChatService`` real.
+
+    Escribe ``transcripts.jsonl`` (una conversación por línea, en cuanto termina) y
+    ``summary.md`` en ``--output-dir``; nunca sobrescribe una corrida anterior.
+
+    Códigos de salida: 0 si la corrida terminó; 1 si no pudo empezar o si ningún turno
+    obtuvo respuesta (todos en error); 130 si se interrumpió (se guarda lo ya corrido).
+    """
+
+    from carvajal.agent.toolagent.simulation import (
+        build_real_simulator,
+        load_scenarios,
+        render_summary,
+        run_simulation,
+        runtime_mode,
+        select_scenarios,
+    )
+    from carvajal.infrastructure.settings import Settings
+
+    ids = [part.strip() for value in args.ids or [] for part in value.split(",") if part.strip()]
+    if args.ids is not None and not ids:
+        print("--ids vacío: indica al menos un identificador.", file=sys.stderr)
+        return 1
+    if args.concurrency < 1:
+        print("--concurrency debe ser un entero ≥ 1.", file=sys.stderr)
+        return 1
+    try:
+        scenarios = select_scenarios(load_scenarios(args.scenarios), ids=ids, limit=args.limit)
+    except (OSError, ValueError) as error:
+        print(f"No se pudieron cargar los escenarios {args.scenarios}: {error}", file=sys.stderr)
+        return 1
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    output_dir: Path = args.output_dir or Path("data") / "processed" / "simulations" / stamp
+    transcripts_file = output_dir / "transcripts.jsonl"
+    summary_file = output_dir / "summary.md"
+    if transcripts_file.exists() or summary_file.exists():
+        print(f"{output_dir} ya tiene una corrida: elige otra carpeta.", file=sys.stderr)
+        return 1
+    settings = Settings()
+    try:
+        simulator = build_real_simulator(settings)
+        mode = runtime_mode()
+    except ModuleNotFoundError as error:
+        print(
+            f"simulate-chat necesita el checkout del repositorio (apps/): {error}", file=sys.stderr
+        )
+        return 1
+    except Exception as error:
+        print(f"No se pudo preparar la simulación: {error}", file=sys.stderr)
+        return 1
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def write(transcript: Any) -> None:
+        with transcripts_file.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(transcript.as_dict(), ensure_ascii=False, default=str) + "\n")
+        state = transcript.finished_by + (f" ({transcript.error})" if transcript.error else "")
+        print(
+            f"[{transcript.scenario.id}] {len(transcript.turns)} turnos: {state}", file=sys.stderr
+        )
+
+    collected: list[Any] = []
+
+    def on_transcript(transcript: Any) -> None:
+        collected.append(transcript)
+        write(transcript)
+
+    interrupted = False
+    try:
+        transcripts = run_simulation(
+            simulator, scenarios, concurrency=args.concurrency, on_transcript=on_transcript
+        )
+    except KeyboardInterrupt:
+        interrupted = True
+        print("Simulación interrumpida: se guarda lo ya corrido.", file=sys.stderr)
+        order = {scenario.id: n for n, scenario in enumerate(scenarios)}
+        transcripts = sorted(collected, key=lambda t: order.get(t.scenario.id, 0))
+    summary = render_summary(
+        transcripts,
+        scenarios_path=str(args.scenarios),
+        price_in=args.price_input,
+        price_out=args.price_output,
+        header={
+            "Fecha (UTC)": stamp,
+            "Modo del agente": f"{mode} (AGENT_MODE={settings.agent_mode})",
+            "Modelo": settings.deepseek_model,
+            "Concurrencia": args.concurrency,
+            "Transcripciones": str(transcripts_file),
+        },
+        interrupted=interrupted,
+    )
+    summary_file.write_text(summary + "\n", encoding="utf-8")
+    print(summary)
+    print(f"Transcripciones en {transcripts_file}; resumen en {summary_file}", file=sys.stderr)
+    if interrupted:
+        return 130
+    turns = [turn for transcript in transcripts for turn in transcript.turns]
+    if not turns or all(turn.error for turn in turns):
+        print("Ningún turno obtuvo respuesta: revisa Postgres, Qdrant y DeepSeek.", file=sys.stderr)
         return 1
     return 0
 

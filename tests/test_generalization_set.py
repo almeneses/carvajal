@@ -72,3 +72,43 @@ def test_cada_item_tiene_turnos_y_claves_conocidas(data: dict[str, Any]) -> None
         named = {tool for group in expect.get("tools_any", []) for tool in group}
         named |= set(expect.get("tools_none", []))
         assert named <= TOOLS, (item["id"], named - TOOLS)
+
+
+# --- Conjunto v3 (congelado antes del ajuste de AGENT_SYSTEM) ---------------------------------
+
+V3_PATH = Path("data") / "eval" / "generalization_v3.json"
+V3_GROUPS = {*GROUPS, "precio", "supuesto"}
+V3_ITEM_KEYS = {"id", "group", "turns", "expect"}
+
+
+@pytest.fixture(scope="module")
+def data_v3() -> dict[str, Any]:
+    return json.loads(V3_PATH.read_text(encoding="utf-8"))
+
+
+def test_v3_cabecera_congelada_con_origen(data_v3: dict[str, Any]) -> None:
+    assert data_v3["version"] == 3
+    date.fromisoformat(data_v3["frozen_at"])
+    assert data_v3["origin"].strip()
+    assert data_v3["description"].strip()
+
+
+def test_v3_ids_unicos_y_grupos_conocidos(data_v3: dict[str, Any]) -> None:
+    items = data_v3["items"]
+    ids = [item["id"] for item in items]
+
+    assert items
+    assert len(set(ids)) == len(ids)
+    assert all(item_id.startswith("v3-") for item_id in ids)
+    assert {item["group"] for item in items} <= V3_GROUPS
+
+
+def test_v3_items_con_claves_y_herramientas_validas(data_v3: dict[str, Any]) -> None:
+    for item in data_v3["items"]:
+        assert set(item) == V3_ITEM_KEYS, (item["id"], set(item) ^ V3_ITEM_KEYS)
+        assert item["turns"] and all(turn.strip() for turn in item["turns"]), item["id"]
+        expect = item["expect"]
+        assert set(expect) <= EXPECT_KEYS, (item["id"], set(expect) - EXPECT_KEYS)
+        named = {tool for group in expect.get("tools_any", []) for tool in group}
+        named |= set(expect.get("tools_none", []))
+        assert named <= TOOLS, (item["id"], named - TOOLS)
