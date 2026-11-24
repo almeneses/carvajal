@@ -9,7 +9,8 @@
 El chat pasa de «un enrutador por reglas elige una ruta y el LLM redacta» a «DeepSeek
 decide y encadena consultas tipadas, y redacta solo con sus resultados». Se construye un
 segundo grafo LangGraph (`agent` ⇄ `tools`) junto al actual, seleccionable con
-`AGENT_MODE=routes|tools` (por defecto `routes` hasta aprobar el informe). Las cinco
+`AGENT_MODE=routes|tools` (por defecto `routes` hasta aprobar el informe; `tools` desde el
+2026-11-23 por decisión del owner, ver *Convivencia y retiro*). Las cinco
 herramientas envuelven funciones deterministas que ya existen; la única refactorización de
 dominio es exponer una entrada estructurada del motor de cotización, que hoy interpreta
 texto libre. El streaming se hace con `graph.stream(stream_mode=["messages", "custom"])`:
@@ -173,6 +174,15 @@ el PR. Mientras convivan, todo cambio en prompts, tarjetas o cotización corre a
 **Criterio para cambiar el valor por defecto.** El informe de `eval-agent` cumple SC-001…
 SC-008 y el owner lo aprueba; entonces `AGENT_MODE` pasa a `tools` en `.env.example`,
 `compose.prod.yml` y `Settings`.
+
+> **Dado el 2026-11-23 por decisión del owner, con riesgos aceptados.** El informe no dejó
+> SC-001…SC-008 en verde (SC-001 con 2 casos, SC-005 con 1 dudoso, SC-006a con 1,48 s y
+> SC-004 según la lectura), pero el owner tomó la decisión 1 de
+> [`evidencia.md`](./evidencia.md) §8 y aceptó esos riesgos como conocidos y menores.
+> `AGENT_MODE` pasó a `tools` en `Settings`, `.env.example`, `compose.yml` y
+> `compose.prod.yml`; el modo `tools` solo arranca con `LLM_PROVIDER=deepseek`. La
+> observación dura dos semanas desde el despliegue en producción con `mode=tools` (prevista
+> del 2026-11-23 al 2026-12-07; [`evidencia.md`](./evidencia.md) §10).
 
 **Observación.** Dos semanas con `tools` por defecto sin regresiones: cero violaciones de
 material o datos sin fuente en trazas revisadas, tasa de respaldo < 2 % de los turnos y sin

@@ -108,6 +108,8 @@ Valores mínimos:
 APP_PORT=8080
 LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=tu_clave_de_deepseek
+DEEPSEEK_MODEL=deepseek-flash
+AGENT_MODE=tools
 
 SESSION_SECRET=pega_aqui_el_hex_de_32
 OPERATOR_TOKEN=pega_aqui_el_hex_de_32
@@ -119,6 +121,9 @@ POSTGRES_DB=carvajal
 Notas:
 
 - No definas `OLLAMA_BASE_URL`: el compose usa `http://ollama:11434`.
+- `AGENT_MODE=tools` (agente con herramientas) exige `LLM_PROVIDER=deepseek`; con otro
+  proveedor el chat sigue en `routes`. `deepseek-flash` es el modelo con el que se evaluó y
+  decidió el modo `tools` (ver *Modo del agente* en §8).
 - No definas `FORWARDED_ALLOW_IPS`: el compose usa `127.0.0.1` porque no hay
   proxy delante.
 - No cambies `POSTGRES_USER`, `POSTGRES_PASSWORD` ni `POSTGRES_DB` después del
@@ -430,6 +435,157 @@ crontab -e
 Copia los backups fuera del VPS (restic, rclone o `scp` a otra máquina).
 
 ## 8. Operación y rollback
+
+### Modo del agente (spec 044)
+
+`AGENT_MODE` elige el agente del chat: `tools` (agente con herramientas, **por defecto**
+desde la decisión del owner del 2026-11-23) o `routes` (enrutador por reglas, interruptor
+de emergencia). No hay migraciones ni cambios de datos: cambiar de modo es editar el
+`.env` del servidor y recrear la app.
+
+El modo `tools` **solo arranca con `LLM_PROVIDER=deepseek`** y DeepSeek completo
+(`DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL` y `DEEPSEEK_BASE_URL`). Con `LLM_PROVIDER=ollama` o
+`claude` el chat sigue en `routes` aunque haya una clave de DeepSeek, para no enviar los
+turnos a DeepSeek sin decidirlo. La decisión se tomó con `deepseek-flash`, el modelo
+evaluado (`evidencia.md` §10).
+
+**Activación (una vez, tras desplegar la versión con `tools` por defecto).** Un `.env`
+copiado de `.env.example` antes de esa versión trae `AGENT_MODE=routes` y
+`DEEPSEEK_MODEL=deepseek-chat` escritos, y el valor por defecto del compose no los pisa.
+Ajústalos de forma explícita:
+
+```bash
+cd /opt/carvajal
+grep -E '^(AGENT_MODE|LLM_PROVIDER|DEEPSEEK_MODEL)=' .env      # sin imprimir la clave
+sed -i 's/^AGENT_MODE=.*/AGENT_MODE=tools/' .env
+grep -q '^AGENT_MODE=' .env || echo 'AGENT_MODE=tools' >> .env
+sed -i 's/^DEEPSEEK_MODEL=.*/DEEPSEEK_MODEL=deepseek-flash/' .env
+grep -q '^DEEPSEEK_MODEL=' .env || echo 'DEEPSEEK_MODEL=deepseek-flash' >> .env
+grep -q '^LLM_PROVIDER=deepseek$' .env || echo 'LLM_PROVIDER no es deepseek: tools no arrancará'
+docker compose -f compose.prod.yml up -d app
+curl -fsS http://127.0.0.1:8080/health | python3 -m json.tool | grep -A3 '"agent"'
+```
+
+`/health` publica el bloque `agent` sin construir el runtime: `mode_expected` debe ser
+`tools`. Si dice `routes` con `mode_configured=tools`, `tools_unavailable_reason` da el
+motivo (`llm_provider`, `missing_deepseek_api_key`, `missing_deepseek_model` o
+`missing_deepseek_base_url`). El runtime se construye en la primera pregunta: haz una
+pregunta en el chat y confirma el modo efectivo y el modelo en el log:
+
+```bash
+docker compose -f compose.prod.yml logs --no-log-prefix app \
+  | grep -E '"event": "agent\.(runtime_ready|tools_mode_unavailable)"'
+# esperado: "mode": "tools", "tools_model": "deepseek-flash"
+```
+
+Si en lugar de `runtime_ready` con `"mode": "tools"` aparece
+`agent.tools_mode_unavailable`, su campo `reason` dice qué falta. Con un motivo de
+configuración es un aviso (`warning`) y el chat sigue en `routes`, sin errores ni 503;
+`reason=build_failed` es un error real (`error`, con traza).
+
+**Volver a `routes`** (ante una violación de material o de datos sin fuente, una tasa de
+respaldo alta o un aumento de «No útil»). Exporta antes los logs del día (ver abajo):
+recrear la app borra los del contenedor anterior.
+
+```bash
+cd /opt/carvajal
+sed -i 's/^AGENT_MODE=.*/AGENT_MODE=routes/' .env
+grep -q '^AGENT_MODE=' .env || echo 'AGENT_MODE=routes' >> .env
+docker compose -f compose.prod.yml up -d app
+docker compose -f compose.prod.yml logs --no-log-prefix app \
+  | grep -F '"event": "agent.runtime_ready"'                 # "mode": "routes"
+```
+
+Para regresar a `tools`, repite la activación. Los hilos se conservan: ambos modos
+comparten checkpointer y Store.
+
+#### Período de observación
+
+Dura **dos semanas desde el día en que `agent.runtime_ready` muestra `"mode": "tools"` en
+producción** (previsto del 2026-11-23 al 2026-12-07). Anota esa fecha real y la de cierre
+en `specs/044-agente-tool-calling/evidencia.md` §10; cada día que el servidor siga en
+`routes` no cuenta. Quien revisa es el owner y lo apunta en el registro de §10.
+
+1. **Export diario de logs** (los de Docker no sobreviven a recrear el contenedor):
+
+   ```bash
+   mkdir -p /opt/carvajal/obs-044
+   docker compose -f compose.prod.yml logs --no-log-prefix --since 24h app \
+     > "/opt/carvajal/obs-044/$(date +%F).jsonl"
+   ```
+
+2. **Tasa de respaldo** (< **2 %** de los turnos del modo `tools`, acumulada desde el
+   inicio):
+
+   ```bash
+   cd /opt/carvajal/obs-044
+   tools=$(cat ./*.jsonl | grep -F '"event": "chat.turn_completed"' | grep -F '"mode": "tools"')
+   total=$(printf '%s\n' "$tools" | grep -c .)
+   respaldo=$(printf '%s\n' "$tools" | grep -cF '"path": "fallback"')
+   echo "respaldo: $respaldo / $total"
+   ```
+
+3. **Revisión de turnos** (**cero** violaciones de material y **cero** datos sin fuente).
+   El monitoreo de producción solo lleva metadatos y `chat.turn_completed` solo conteos,
+   así que el texto se lee de los mensajes guardados en Postgres. Cada día se toman hasta
+   10 hilos al azar con turnos `tools` que no sean atajo (todos si hay menos):
+
+   ```bash
+   grep -hF '"event": "chat.turn_completed"' "/opt/carvajal/obs-044/$(date +%F).jsonl" \
+     | grep -F '"mode": "tools"' | grep -vF '"path": "shortcut"' \
+     | grep -o '"thread_id": "[^"]*"' | cut -d'"' -f4 | sort -u | shuf -n 10
+   ```
+
+   Por cada hilo de la muestra:
+
+   ```bash
+   hilo=<thread_id>
+   docker compose -f compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"' <<SQL
+   SELECT created_at, role, content, sources FROM messages
+   WHERE conversation_id = '$hilo' ORDER BY created_at, id;
+   SQL
+   ```
+
+   - **Violación de material**: el texto o una tarjeta recomienda una referencia no apta
+     para el uso pedido según `check_material` (p. ej. PET para caliente, algo distinto de
+     PP para microondas).
+   - **Dato sin fuente**: precio, total, cantidad de cajas o paquetes, existencias, plazo,
+     sede o cifra financiera que no está en `sources` ni en la cotización con folio del
+     turno. El tipo de g-003 (cajas calculadas por el modelo) **cuenta** como dato sin
+     fuente, con la misma definición que SC-001 en el informe; si el owner decide
+     reclasificarlo, lo deja escrito en §10.
+   - Cada hilo revisado se anota en el registro de §10 (fecha, `thread_id`, resultado).
+
+4. **Marcas «No útil»** (sin aumento de la tasa frente a las dos semanas previas en
+   `routes`). Los botones de marca solo aparecen con `MONITORING_ENABLED=true`; si el
+   monitoreo está apagado, este criterio no se puede medir y se deja constancia en §10.
+   La base se congela el día de la activación con la misma consulta y se anota en §10.
+   Sustituye `<INICIO>` por la fecha y hora (UTC) de la activación:
+
+   ```bash
+   docker compose -f compose.prod.yml exec -T db sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"' <<'SQL'
+   SELECT CASE WHEN created_at < TIMESTAMPTZ '<INICIO>' THEN '1 routes (base)' ELSE '2 tools' END
+            AS ventana,
+          count(*) AS marcas,
+          count(*) FILTER (WHERE NOT useful) AS no_util,
+          round(100.0 * count(*) FILTER (WHERE NOT useful) / nullif(count(*), 0), 1) AS pct_no_util
+   FROM chat_feedback
+   WHERE created_at >= TIMESTAMPTZ '<INICIO>' - INTERVAL '14 days'
+     AND created_at <  TIMESTAMPTZ '<INICIO>' + INTERVAL '14 days'
+   GROUP BY 1 ORDER BY 1;
+   SQL
+   ```
+
+   Se compara `pct_no_util`; con menos de 20 marcas en una ventana el resultado se anota
+   como no concluyente.
+
+Si se cumplen los criterios al cierre, se abre T055 (retiro del modo `routes` como camino
+principal); si alguno falla, vuelve a `routes` y registra el caso en
+`specs/044-agente-tool-calling/evidencia.md` §10.
+
+- Límites: `AGENT_MAX_TOOL_CALLS` (4), `AGENT_TURN_TIMEOUT_S` (45) y `AGENT_MAX_QUOTES` (3).
+- Decisión, riesgos aceptados y criterios: `specs/044-agente-tool-calling/evidencia.md` §10.
+
 
 ```bash
 cd /opt/carvajal

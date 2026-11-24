@@ -18,6 +18,7 @@ from apps.api.main import (
 )
 from carvajal.application.ask import Answer, Source
 from carvajal.application.quota import QuotaResult
+from carvajal.infrastructure.agent_mode import agent_mode_status
 from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 
@@ -63,6 +64,7 @@ def test_health_devuelve_estado_y_conteos() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload.pop("monitoring") == monitoring_status(Settings()).as_health()
+    assert payload.pop("agent") == agent_mode_status(Settings()).as_health()
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-18"
@@ -85,6 +87,7 @@ def test_health_degradado_no_filtra_detalles() -> None:
     assert response.status_code == 503
     payload = response.json()
     payload.pop("monitoring")
+    assert payload.pop("agent") == agent_mode_status(Settings()).as_health()
     assert payload == {
         "status": "degraded",
         "detail": DB_UNAVAILABLE,
@@ -319,6 +322,7 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     assert calls == [1]
     payload = response.json()
     payload.pop("monitoring")
+    payload.pop("agent")
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-18"

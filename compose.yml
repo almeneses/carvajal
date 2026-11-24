@@ -49,6 +49,13 @@ x-dev-app: &dev-app
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-5}
     AGENT_CHECKPOINTER: ${AGENT_CHECKPOINTER:-postgres}
+    # Spec 044: modo del agente (tools por defecto; routes = enrutador por reglas)
+    # y límites por turno del modo tools. tools solo arranca con LLM_PROVIDER=deepseek
+    # y DEEPSEEK_API_KEY; si no, los turnos siguen por routes.
+    AGENT_MODE: ${AGENT_MODE:-tools}
+    AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-4}
+    AGENT_TURN_TIMEOUT_S: ${AGENT_TURN_TIMEOUT_S:-45}
+    AGENT_MAX_QUOTES: ${AGENT_MAX_QUOTES:-3}
     RAG_TOP_K: ${RAG_TOP_K:-6}
     RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.30}
     DAILY_REQUESTS_LIMIT: ${DAILY_REQUESTS_LIMIT:-20}

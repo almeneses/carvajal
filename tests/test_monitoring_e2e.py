@@ -352,6 +352,7 @@ def test_servicio_caido_no_retrasa_el_primer_fragmento(ajustes: Settings) -> Non
         tables.metadata.create_all(motor_escenario)
         ajustes_medicion = Settings(
             _env_file=None,
+            agent_mode="routes",
             monitoring_enabled=activo,
             monitoring_sample_rate=1.0,
             monitoring_include_content=False,

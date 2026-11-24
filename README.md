@@ -371,6 +371,42 @@ uv run carvajal eval-router --router rules --router llm  # comparación con el L
 
 Resultados y análisis: [`docs/resultados-router.md`](docs/resultados-router.md).
 
+### Agente con herramientas (spec 044)
+
+Con `AGENT_MODE=tools` (valor por defecto desde el 2026-11-23, decisión del owner),
+DeepSeek decide qué consultar y encadena seis herramientas
+deterministas: `buscar_corpus`, `buscar_producto`, `cotizar`, `buscar_sedes`,
+`indicador_financiero` y `sin_consulta`. Las reglas duras siguen en las herramientas, y el
+servidor aplica una compuerta de evidencia: sin resultado de una consulta, abstención. El
+chat muestra líneas de estado («Estoy calculando cuánto te salen 2.000 vasos en Bogotá…»)
+mientras consulta. Saludos y preferencias van por un atajo sin decisión del modelo; si
+DeepSeek falla o vence el plazo, responde un respaldo determinista sin LLM.
+
+El modo `tools` usa DeepSeek y **solo arranca con `LLM_PROVIDER=deepseek`** y
+`DEEPSEEK_API_KEY`. Con `LLM_PROVIDER=ollama` (el valor por defecto de `Settings` y de
+`make up`) o `claude`, o sin clave (CI), el chat sigue con el enrutador por reglas y el
+proveedor configurado, aunque haya una clave de DeepSeek para el enrutador o `eval-agent`:
+un aviso `agent.tools_mode_unavailable` registra el motivo y `/health` lo publica en el
+bloque `agent`. La decisión se evaluó con `DEEPSEEK_MODEL=deepseek-flash`.
+`AGENT_MODE=routes` vuelve al enrutador por reglas sin migraciones.
+
+| Variable | Por defecto | Qué controla |
+|---|---|---|
+| `AGENT_MODE` | `tools` | `tools` (agente con herramientas) o `routes` (enrutador por reglas, interruptor de emergencia) |
+| `AGENT_MAX_TOOL_CALLS` | `4` | Consultas por turno (`sin_consulta` no cuenta) |
+| `AGENT_TURN_TIMEOUT_S` | `45` | Plazo hasta el primer token; después responde el respaldo |
+| `AGENT_MAX_QUOTES` | `3` | Cotizaciones con folio por turno |
+
+```bash
+make api                                           # modo tools (LLM_PROVIDER=deepseek y clave)
+AGENT_MODE=routes make api                         # enrutador por reglas
+uv run carvajal eval-agent --ids g-001,g-052       # corrida parcial (gasta tokens)
+make eval-agent                                    # 57 preguntas en ambos modos
+```
+
+Resultados, criterios, decisión del owner y período de observación:
+[`specs/044-agente-tool-calling/evidencia.md`](specs/044-agente-tool-calling/evidencia.md).
+
 ## 🗺️ Arquitectura
 
 La arquitectura vigente, con el agente, la ruta `commercial` y la sincronización incremental,
@@ -546,7 +582,7 @@ cp .env.example .env
 ```ini
 LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=sk-...
-DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_MODEL=deepseek-flash
 ```
 
 También puedes configurar las variables en la terminal:
@@ -554,8 +590,8 @@ También puedes configurar las variables en la terminal:
 | Variable | Descripción | Default |
 |----------|-------------|---------|
 | `LLM_PROVIDER` | Proveedor LLM: `ollama`, `deepseek` o `claude`. | `ollama` |
-| `DEEPSEEK_API_KEY` | Clave API de DeepSeek (solo si `LLM_PROVIDER=deepseek`). | `""` |
-| `DEEPSEEK_MODEL` | Modelo DeepSeek a utilizar. | `deepseek-chat` |
+| `DEEPSEEK_API_KEY` | Clave API de DeepSeek: chat con `LLM_PROVIDER=deepseek` (también el agente con herramientas, que solo arranca con ese proveedor), enrutador LLM, `eval-agent` y revisión automática. | `""` |
+| `DEEPSEEK_MODEL` | Modelo DeepSeek a utilizar. `.env.example` trae `deepseek-flash`, el evaluado para el modo `tools`. | `deepseek-chat` |
 | `DEEPSEEK_BASE_URL` | Endpoint compatible con OpenAI. | `https://api.deepseek.com/v1` |
 | `ANTHROPIC_API_KEY` | Clave API de Anthropic (solo si `LLM_PROVIDER=claude`). | `""` |
 | `CLAUDE_MODEL` | Modelo Claude a utilizar (p. ej. `claude-sonnet-4-5`). | `claude-sonnet-4-5` |

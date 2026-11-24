@@ -385,22 +385,51 @@ def test_capture_allowed_domains_acepta_lista_separada_por_coma(
 
 
 def test_modo_del_agente_por_defecto_y_limites() -> None:
-    """Spec 044: el modo nuevo queda apagado y los límites del turno tienen defaults."""
+    """Spec 044: el agente con herramientas es el modo por defecto desde el 2026-11-23."""
 
     settings = Settings(_env_file=None)
 
-    assert settings.agent_mode == "routes"
+    assert settings.agent_mode == "tools"
     assert settings.agent_max_tool_calls == 4
     assert settings.agent_turn_timeout_s == 45
     assert settings.agent_max_quotes == 3
 
 
-def test_modo_del_agente_desde_el_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``AGENT_MODE=tools`` activa el agente con herramientas."""
+@pytest.mark.parametrize("modo", ["routes", "tools"])
+def test_modo_del_agente_desde_el_entorno(monkeypatch: pytest.MonkeyPatch, modo: str) -> None:
+    """``AGENT_MODE`` elige el modo; ``routes`` es el interruptor para volver atrás."""
 
-    monkeypatch.setenv("AGENT_MODE", "tools")
+    monkeypatch.setenv("AGENT_MODE", modo)
 
-    assert Settings(_env_file=None).agent_mode == "tools"
+    assert Settings(_env_file=None).agent_mode == modo
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    ("archivo", "esperado"),
+    [
+        ("compose.yml", "AGENT_MODE: ${AGENT_MODE:-tools}"),
+        ("compose.prod.yml", "AGENT_MODE: ${AGENT_MODE:-tools}"),
+        (".env.example", "AGENT_MODE=tools"),
+    ],
+)
+def test_el_modo_por_defecto_coincide_en_settings_compose_y_plantilla(
+    archivo: str, esperado: str
+) -> None:
+    """La decisión del 2026-11-23 (evidencia §10) fija ``tools`` en los cuatro sitios."""
+
+    # Arrange
+    lineas = [linea.strip() for linea in (REPO / archivo).read_text().splitlines()]
+    declaradas = [linea for linea in lineas if linea.startswith(("AGENT_MODE:", "AGENT_MODE="))]
+
+    # Act
+    modo_por_defecto = Settings(_env_file=None).agent_mode
+
+    # Assert
+    assert declaradas == [esperado]
+    assert esperado.endswith(f"{modo_por_defecto}}}") or esperado.endswith(f"={modo_por_defecto}")
 
 
 @pytest.mark.parametrize(

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Engine
 from sqlalchemy.exc import InterfaceError, OperationalError, SQLAlchemyError
@@ -244,6 +245,70 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Registra la corrida como experimento en LangSmith (spec 038). Sin esta "
             "bandera no se carga el módulo de monitoreo ni se toca la red."
+        ),
+    )
+
+    agent_parser = subparsers.add_parser(
+        "eval-agent",
+        help=(
+            "Compara el agente actual (routes) y el de herramientas (tools) con turnos "
+            "completos en proceso (spec 044): verificaciones por pregunta, cifras con fuente, "
+            "latencia, tokens y costo. Llama al proveedor configurado: gasta tokens."
+        ),
+    )
+    agent_parser.add_argument(
+        "--mode",
+        action="append",
+        choices=("routes", "tools"),
+        help="Modo a evaluar; se puede repetir. Por defecto, ambos.",
+    )
+    agent_parser.add_argument(
+        "--questions",
+        type=Path,
+        default=Path("data") / "eval" / "generalization_questions.json",
+        help="Conjunto de preguntas (generalización o routing_questions.json).",
+    )
+    agent_parser.add_argument(
+        "--output", type=Path, default=None, help="Archivo Markdown donde guardar el informe."
+    )
+    agent_parser.add_argument(
+        "--json", type=Path, default=None, help="Archivo JSON con los resultados por ítem."
+    )
+    agent_parser.add_argument(
+        "--limit", type=int, default=None, help="Evalúa solo los primeros N ítems."
+    )
+    agent_parser.add_argument(
+        "--ids",
+        action="append",
+        default=None,
+        help="Ítems a evaluar (repetible o separados por comas), p. ej. --ids g-001,g-025.",
+    )
+    agent_parser.add_argument(
+        "--price-input",
+        type=float,
+        default=None,
+        help="Precio en USD por millón de tokens de entrada, para el costo por turno.",
+    )
+    agent_parser.add_argument(
+        "--price-output",
+        type=float,
+        default=None,
+        help="Precio en USD por millón de tokens de salida, para el costo por turno.",
+    )
+    agent_parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Permite que --output o --json sobrescriban un archivo versionado en git. Nunca "
+            "permite escribir sobre el conjunto de preguntas."
+        ),
+    )
+    agent_parser.add_argument(
+        "--langsmith",
+        action="store_true",
+        help=(
+            "Registra cada modo como experimento en LangSmith. Sin esta bandera no se "
+            "carga el módulo de monitoreo ni se toca la red de LangSmith."
         ),
     )
 
@@ -515,6 +580,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(resultado.as_message(), file=sys.stderr)
         return 0
 
+    if args.command == "eval-agent":
+        return _eval_agent(args)
+
     if args.command == "catalog-build":
         from carvajal.catalog.build import (
             build_mx_references,
@@ -754,6 +822,190 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 0
+
+
+def _tracked_by_git(path: Path) -> bool:
+    """El archivo está versionado en el repositorio que lo contiene (sin git: no)."""
+
+    import subprocess
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(path.parent), "ls-files", "--error-unmatch", "--", path.name],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+def _unsafe_outputs(args: argparse.Namespace) -> list[str]:
+    """Motivos para no escribir ``--output``/``--json``.
+
+    Nunca el conjunto de preguntas (el congelado se leería y se sobrescribiría) ni el mismo
+    archivo para ambos; un archivo versionado en git, solo con ``--force``.
+    """
+
+    targets = [("--output", args.output), ("--json", args.json)]
+    resolved = {flag: path.resolve() for flag, path in targets if path is not None}
+    problems: list[str] = []
+    questions = args.questions.resolve()
+    for flag, path in resolved.items():
+        if path == questions:
+            problems.append(f"{flag} apunta al conjunto de preguntas {args.questions}")
+        elif not args.force and path.parent.is_dir() and _tracked_by_git(path):
+            problems.append(f"{flag} apunta a un archivo versionado en git: {path}")
+    if len(resolved) == 2 and resolved["--output"] == resolved["--json"]:
+        problems.append("--output y --json apuntan al mismo archivo")
+    return problems
+
+
+def _eval_agent(args: argparse.Namespace) -> int:
+    """``carvajal eval-agent``: informe comparativo de los modos ``routes`` y ``tools``.
+
+    Corre turnos completos en proceso con persistencia en memoria (sin Postgres). Solo
+    escribe donde indican ``--output`` y ``--json`` (nunca sobre el conjunto ni sobre un
+    archivo versionado, salvo ``--force``); sin ``--langsmith`` no toca LangSmith.
+
+    Códigos de salida: 0 si la corrida terminó; 1 si no pudo empezar o si algún modo no
+    obtuvo ninguna respuesta del proveedor (todo en error o en respaldo por ``provider`` o
+    ``timeout``); 130 si se interrumpió (se guarda lo ya corrido).
+    """
+
+    from carvajal.agent.toolagent.evaluation import (
+        MODES,
+        ModeReport,
+        build_runtime,
+        evaluate_mode,
+        load_question_set,
+        render_report,
+        results_payload,
+        select_items,
+    )
+    from carvajal.infrastructure.settings import Settings
+
+    modes = list(dict.fromkeys(args.mode or MODES))
+    ids = [part.strip() for value in args.ids or [] for part in value.split(",") if part.strip()]
+    if args.ids is not None and not ids:
+        # Una variable de shell vacía no debe convertirse en «todo el conjunto».
+        print("--ids vacío: indica al menos un identificador.", file=sys.stderr)
+        return 1
+    if problems := _unsafe_outputs(args):
+        for problem in problems:
+            print(
+                f"No se escribe el informe: {problem} (usa --force si es a propósito).",
+                file=sys.stderr,
+            )
+        return 1
+    try:
+        question_set = load_question_set(args.questions)
+        items = select_items(question_set.items, ids=ids, limit=args.limit)
+    except (OSError, ValueError, KeyError) as error:
+        print(f"No se pudo cargar el conjunto {args.questions}: {error}", file=sys.stderr)
+        return 1
+    settings = Settings()
+    try:
+        runtime = build_runtime(settings, modes)
+    except ModuleNotFoundError as error:
+        print(f"eval-agent necesita el checkout del repositorio (apps/): {error}", file=sys.stderr)
+        return 1
+    except Exception as error:
+        print(f"No se pudo preparar la evaluación: {error}", file=sys.stderr)
+        return 1
+
+    def progress(result: Any) -> None:
+        state = "error" if result.error else "ok" if result.passed else "FALLO"
+        print(f"[{result.mode}] {result.item.id}: {state}", file=sys.stderr)
+
+    # Cada resultado entra a su informe en cuanto termina: una interrupción conserva lo
+    # ya corrido (y pagado) y lo escribe con un aviso.
+    reports: list[ModeReport] = []
+    interrupted = False
+    try:
+        for mode in modes:
+            report = ModeReport(mode=mode)
+            reports.append(report)
+            evaluate_mode(runtime.drivers[mode], items, progress=progress, report=report)
+    except KeyboardInterrupt:
+        interrupted = True
+        print("Corrida interrumpida: se guarda lo ya corrido.", file=sys.stderr)
+    finally:
+        runtime.close()
+    prices = {"price_in": args.price_input, "price_out": args.price_output}
+    table = render_report(reports, question_set, interrupted=interrupted, **prices)
+    print(table)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(table + "\n", encoding="utf-8")
+        print(f"Informe guardado en {args.output}", file=sys.stderr)
+    if args.json is not None:
+        payload = results_payload(reports, question_set, interrupted=interrupted, **prices)
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Resultados por ítem guardados en {args.json}", file=sys.stderr)
+    if interrupted:
+        return 130
+    if args.langsmith:
+        _register_agent_experiments(reports, args, settings)
+    degraded = [report.mode for report in reports if report.degraded]
+    if degraded:
+        print(
+            f"Ningún turno de {', '.join(degraded)} obtuvo respuesta del proveedor: revisa la "
+            "clave, la red y el plazo.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _register_agent_experiments(
+    reports: Sequence[Any], args: argparse.Namespace, settings: Any
+) -> None:
+    """Registra cada modo como experimento de LangSmith (red externa, solo con la bandera)."""
+
+    from carvajal.agent.toolagent.evaluation import experiment_rows
+    from carvajal.infrastructure.monitoring import (
+        build_eval_client,
+        commit_sha,
+        dataset_de,
+        register_experiment,
+    )
+
+    client = build_eval_client(settings)
+    if client is None:
+        print("Experimento no registrado: falta LANGSMITH_API_KEY.", file=sys.stderr)
+        return
+    fecha = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    text_model = (
+        settings.deepseek_model if settings.llm_provider == "deepseek" else settings.ollama_model
+    )
+    for report in reports:
+        resultado = register_experiment(
+            client,
+            # Dataset propio: ``eval-router`` usa ``dataset_de`` sobre el mismo archivo de
+            # enrutamiento con otras entradas y otra verdad de referencia.
+            dataset=f"{dataset_de(args.questions)}-agent",
+            experiment=f"agent-{report.mode}-{fecha}",
+            rows=experiment_rows(report),
+            metrics=report.metrics(price_in=args.price_input, price_out=args.price_output),
+            metadata={
+                "mode": report.mode,
+                "commit": commit_sha() or "desconocido",
+                "date": fecha,
+                "questions": str(args.questions),
+                "router": settings.agent_router if report.mode == "routes" else "",
+                "model": settings.deepseek_model if report.mode == "tools" else text_model,
+                "price_input_usd_per_million": args.price_input,
+                "price_output_usd_per_million": args.price_output,
+            },
+            description="Evaluación comparativa del agente routes frente a tools (spec 044).",
+        )
+        print(resultado.as_message(), file=sys.stderr)
 
 
 def _build_client(args: argparse.Namespace) -> WebClient:

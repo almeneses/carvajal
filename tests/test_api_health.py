@@ -140,3 +140,60 @@ def test_forzar_las_globales_es_idempotente(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert os.environ["LANGSMITH_TRACING"] == "false"
     assert os.environ["LANGCHAIN_TRACING_V2"] == "false"
+
+
+@pytest.mark.parametrize(
+    ("entorno", "esperado"),
+    [
+        (
+            {"AGENT_MODE": "tools", "LLM_PROVIDER": "deepseek", "DEEPSEEK_API_KEY": "sk-prueba"},
+            {
+                "mode_configured": "tools",
+                "mode_expected": "tools",
+                "tools_unavailable_reason": None,
+            },
+        ),
+        (
+            {"AGENT_MODE": "tools", "LLM_PROVIDER": "deepseek", "DEEPSEEK_API_KEY": ""},
+            {
+                "mode_configured": "tools",
+                "mode_expected": "routes",
+                "tools_unavailable_reason": "missing_deepseek_api_key",
+            },
+        ),
+        (
+            {"AGENT_MODE": "tools", "LLM_PROVIDER": "ollama", "DEEPSEEK_API_KEY": "sk-prueba"},
+            {
+                "mode_configured": "tools",
+                "mode_expected": "routes",
+                "tools_unavailable_reason": "llm_provider",
+            },
+        ),
+        (
+            {"AGENT_MODE": "routes", "LLM_PROVIDER": "deepseek", "DEEPSEEK_API_KEY": "sk-prueba"},
+            {
+                "mode_configured": "routes",
+                "mode_expected": "routes",
+                "tools_unavailable_reason": None,
+            },
+        ),
+    ],
+)
+def test_health_publica_el_modo_del_agente_sin_construir_el_runtime(
+    monkeypatch: pytest.MonkeyPatch, entorno: dict[str, str], esperado: dict[str, object]
+) -> None:
+    """Spec 044: ``/health`` dice si el modo ``tools`` arrancará, sin la clave ni el modelo."""
+
+    # Arrange
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-flash")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    cliente = _app(monkeypatch, **entorno)
+
+    # Act
+    response = cliente.get("/health")
+
+    # Assert: el estado no cambia; ``routes`` atiende igual.
+    assert response.status_code == 200
+    assert response.json()["agent"] == esperado
+    assert "sk-prueba" not in response.text
+    assert "deepseek-flash" not in response.text

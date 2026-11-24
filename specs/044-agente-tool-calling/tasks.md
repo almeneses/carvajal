@@ -159,14 +159,14 @@ de cada campo restringido.
 
 ### Tests for User Story 5
 
-- [ ] T045 [P] [US5] Pruebas sin red del runner en `tests/test_eval_agent.py`: verificaciones por ítem (`tools_any`, `tools_none`, `abstain`, `asks_for`, `forbidden_materials`, `total_pending`, `language`, `no_tool_allowed`), cifras de la respuesta presentes en resultados de herramientas, mapeo ruta→herramientas en modo `routes`, agregados de tokens y costo.
+- [X] T045 [P] [US5] Pruebas sin red del runner en `tests/test_eval_agent.py`: verificaciones por ítem (`tools_any`, `tools_none`, `abstain`, `asks_for`, `forbidden_materials`, `total_pending`, `language`, `no_tool_allowed`), cifras de la respuesta presentes en resultados de herramientas, mapeo ruta→herramientas en modo `routes`, agregados de tokens y costo.
 
 ### Implementation for User Story 5
 
-- [ ] T046 [US5] Implementar el runner en proceso (persistencia en memoria, ambos grafos construidos) en `packages/core/src/carvajal/agent/toolagent/evaluation.py`. Depende de T045.
-- [ ] T047 [US5] Añadir `carvajal eval-agent --mode … --questions … --output … [--langsmith]` en `packages/core/src/carvajal/cli.py` y objetivo `make eval-agent` en `Makefile`. Depende de T046. FR-017.
-- [ ] T048 [US5] Actualizar `.claude/skills/evaluar-agente/SKILL.md` para incluir `eval-agent` y los criterios SC-001…SC-008. Depende de T047.
-- [ ] T049 [US5] Correr la evaluación completa (con permiso del owner por costo de DeepSeek) y guardar el informe en `specs/044-agente-tool-calling/evidencia.md`, con la limitación de origen del conjunto (FR-016) y la medición de SC-006/SC-006a en el chat real. Depende de T003 y de las fases 3–6.
+- [X] T046 [US5] Implementar el runner en proceso (persistencia en memoria, ambos grafos construidos) en `packages/core/src/carvajal/agent/toolagent/evaluation.py`. Depende de T045.
+- [X] T047 [US5] Añadir `carvajal eval-agent --mode … --questions … --output … [--langsmith]` en `packages/core/src/carvajal/cli.py` y objetivo `make eval-agent` en `Makefile`. Depende de T046. FR-017.
+- [X] T048 [US5] Actualizar `.claude/skills/evaluar-agente/SKILL.md` para incluir `eval-agent` y los criterios SC-001…SC-008. Depende de T047.
+- [X] T049 [US5] Correr la evaluación completa (con permiso del owner por costo de DeepSeek) y guardar el informe en `specs/044-agente-tool-calling/evidencia.md`, con la limitación de origen del conjunto (FR-016) y la medición de SC-006/SC-006a en el chat real. Depende de T003 y de las fases 3–6.
 
 **Checkpoint**: el owner decide con el informe si `AGENT_MODE` pasa a `tools`.
 
@@ -174,11 +174,11 @@ de cada campo restringido.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T050 [P] Verificar que `CONSTITUTION.md` refleja lo entregado (estado técnico y spec 044, §3 stack si aplica); las enmiendas de principio ya entraron con T005.
-- [ ] T051 [P] Documentar `AGENT_MODE`, límites y respaldo en `docs/despliegue-ovh.md`, `README.md` y `AGENTS.md` (sección de comandos).
-- [ ] T052 [P] Actualizar `specs/README.md` y el estado de `specs/044-agente-tool-calling/spec.md` con la evidencia.
-- [ ] T053 Ejecutar `specs/044-agente-tool-calling/quickstart.md` completo y `make check`; registrar resultados en `specs/044-agente-tool-calling/evidencia.md`.
-- [ ] T054 Abrir las PRs por fase con la skill `abrir-pr` (sin merge).
+- [X] T050 [P] Verificar que `CONSTITUTION.md` refleja lo entregado (estado técnico y spec 044, §3 stack si aplica); las enmiendas de principio ya entraron con T005.
+- [X] T051 [P] Documentar `AGENT_MODE`, límites y respaldo en `docs/despliegue-ovh.md`, `README.md` y `AGENTS.md` (sección de comandos).
+- [X] T052 [P] Actualizar `specs/README.md` y el estado de `specs/044-agente-tool-calling/spec.md` con la evidencia.
+- [X] T053 Ejecutar `specs/044-agente-tool-calling/quickstart.md` completo y `make check`; registrar resultados en `specs/044-agente-tool-calling/evidencia.md`.
+- [X] T054 Abrir las PRs por fase con la skill `abrir-pr` (sin merge). #230, #231, #232 y el PR de la fase 7.
 - [ ] T055 F5 — Retiro (diferido, PR propio tras el cambio de valor por defecto y dos semanas de observación según el plan): retirar redacción por rutas, `commercial_mixed`, `LLMRouter`, `DecisionRouter` y regex sin consumidores en `packages/core/src/carvajal/agent/`; reducir `decide_route` a atajo y respaldo; actualizar `CONSTITUTION.md`.
 
 ---
@@ -236,14 +236,15 @@ T022 status.py
 ### Incremental Delivery
 
 1. Fase 2 → PR `fix:` «tinto» + PR del motor estructurado.
-2. US1 + US2 → PR del agente (modo `tools` apagado por defecto).
+2. US1 + US2 → PR del agente (modo `tools` apagado por defecto en ese momento).
 3. US3 → PR de conversación multi-turno.
 4. US4 → PR de operación (atajo, respaldo, folios, monitoreo).
 5. US5 + Polish → PR de evaluación, informe y enmiendas.
-6. Decisión del owner sobre el valor por defecto; F5 (T055) después de la observación.
+6. Decisión del owner sobre el valor por defecto (2026-11-23: `tools`); el PR de cierre (T054) lo cambia.
+7. F5 (T055) después de la observación.
 
 ## Notes
 
 - `[P]` = archivos distintos y sin dependencias pendientes.
-- Ningún PR cambia el valor por defecto de `AGENT_MODE`; eso lo decide el owner con el informe de T049.
+- Hasta la decisión del owner ningún PR cambiaba el valor por defecto de `AGENT_MODE`; el PR de cierre (T054) lo cambia a `tools` por la decisión del 2026-11-23 ([`evidencia.md`](./evidencia.md) §10).
 - Commit por tarea o grupo lógico; `make check` en verde antes de cada PR.

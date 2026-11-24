@@ -15,8 +15,16 @@ from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
 from carvajal.agent.state import Turn
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Source
+from carvajal.infrastructure.settings import Settings
 
 pytestmark = pytest.mark.integration
+
+
+def routes_settings() -> Settings:
+    """Estas pruebas cubren el modo ``routes``; el valor por defecto es ``tools``."""
+
+    return Settings(_env_file=None, agent_mode="routes")  # type: ignore[call-arg]
+
 
 SOURCE = Source(
     "historia-1",
@@ -111,7 +119,11 @@ def _delete_owner(engine: Engine, owner_key: str) -> None:
 def test_servicio_persiste_usuario_y_asistente_al_terminar_bien(engine: Engine) -> None:
     # Arrange
     service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        agent=no_context_agent(),
+        settings=routes_settings(),
     )
     owner_key = "servicio-ok"
 
@@ -134,7 +146,13 @@ def test_servicio_persiste_usuario_y_asistente_al_terminar_bien(engine: Engine) 
 def test_stream_persiste_un_solo_turno_y_emite_trace(engine: Engine) -> None:
     # Arrange
     agent = no_context_agent()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=agent)
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        agent=agent,
+        settings=routes_settings(),
+    )
     owner_key = "stream-ok"
 
     try:
@@ -192,7 +210,13 @@ def rag_agent() -> FakeAgent:
 def test_stream_exitoso_emite_tokens_y_persiste_el_turno(engine: Engine) -> None:
     # Arrange
     llm = StreamingLLM()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=rag_agent())
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        llm,
+        agent=rag_agent(),
+        settings=routes_settings(),
+    )
     owner_key = "stream-tokens"
 
     try:
@@ -256,7 +280,11 @@ def test_stream_comercial_emite_las_tarjetas_antes_de_los_tokens(engine: Engine)
         )
     )
     service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), StreamingLLM(), agent=agent
+        build_session_factory(engine),
+        FakeEmbedder(),
+        StreamingLLM(),
+        agent=agent,
+        settings=routes_settings(),
     )
     owner_key = "stream-tarjetas"
 
@@ -291,7 +319,13 @@ class FailingStreamLLM:
 def test_stream_falla_antes_del_primer_token_y_persiste_el_fallback(engine: Engine) -> None:
     # Arrange
     llm = FailingStreamLLM()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=rag_agent())
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        llm,
+        agent=rag_agent(),
+        settings=routes_settings(),
+    )
     owner_key = "stream-fallback"
 
     try:
@@ -325,7 +359,11 @@ class BrokenAfterTokenLLM:
 def test_stream_falla_tras_un_token_persiste_incompleto(engine: Engine) -> None:
     # Arrange
     service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), BrokenAfterTokenLLM(), agent=rag_agent()
+        build_session_factory(engine),
+        FakeEmbedder(),
+        BrokenAfterTokenLLM(),
+        agent=rag_agent(),
+        settings=routes_settings(),
     )
     owner_key = "stream-incompleto"
 
@@ -360,6 +398,7 @@ def test_servicio_no_crea_hilo_si_la_preparacion_falla(engine: Engine) -> None:
             AgentTurn("rag", "", None, "", (), ()),
             error=EmbeddingError("Ollama no responde."),
         ),
+        settings=routes_settings(),
     )
     owner_key = "servicio-fallo"
 
@@ -373,7 +412,9 @@ def test_reintento_con_el_mismo_turno_no_duplica_ni_vuelve_al_llm(engine: Engine
     # Arrange
     agent = rag_agent()
     llm = StreamingLLM()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=agent)
+    service = ChatService(
+        build_session_factory(engine), FakeEmbedder(), llm, agent=agent, settings=routes_settings()
+    )
     owner_key = "stream-idempotente"
 
     try:
@@ -396,7 +437,11 @@ def test_reintento_con_el_mismo_turno_no_duplica_ni_vuelve_al_llm(engine: Engine
 def test_un_hilo_ajeno_no_se_puede_usar(engine: Engine) -> None:
     # Arrange
     service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        agent=no_context_agent(),
+        settings=routes_settings(),
     )
     dueno = "dueno-a"
     intruso = "dueno-b"
@@ -434,7 +479,13 @@ class ConnectionCheckingLLM:
 def test_el_stream_libera_la_conexion_antes_de_llamar_al_llm(engine: Engine) -> None:
     # Arrange
     llm = ConnectionCheckingLLM(engine)
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=rag_agent())
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        llm,
+        agent=rag_agent(),
+        settings=routes_settings(),
+    )
     owner_key = "stream-sin-transaccion"
 
     try:
@@ -452,7 +503,11 @@ def test_el_primer_envio_concurrente_comparte_un_solo_hilo(engine: Engine) -> No
     """Dos peticiones sin hilo no abren dos conversaciones para el mismo dueño."""
 
     service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        agent=no_context_agent(),
+        settings=routes_settings(),
     )
     owner_key = "primer-hilo-concurrente"
 
@@ -480,7 +535,11 @@ def test_dos_reenvios_simultaneos_del_mismo_turno_persisten_uno(engine: Engine) 
     """El mismo ``client_turn_id`` concurrente no duplica mensajes."""
 
     service = ChatService(
-        build_session_factory(engine), FakeEmbedder(), FakeLLM(), agent=no_context_agent()
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        agent=no_context_agent(),
+        settings=routes_settings(),
     )
     owner_key = "mismo-turno-concurrente"
 
@@ -563,6 +622,7 @@ def test_el_turno_comercial_guarda_cotizacion_y_resultado_junto(engine: Engine) 
         FakeEmbedder(),
         StreamingLLM(),
         agent=FakeAgent(_commercial_turn()),
+        settings=routes_settings(),
     )
     owner_key = "comercial-cotiza"
 
@@ -605,6 +665,7 @@ def test_si_falla_la_cotizacion_no_quedan_mensajes(
         FakeEmbedder(),
         StreamingLLM(),
         agent=FakeAgent(_commercial_turn()),
+        settings=routes_settings(),
     )
     owner_key = "comercial-rollback"
 
@@ -636,7 +697,9 @@ def test_el_mismo_turno_html_no_duplica_ni_vuelve_al_llm(engine: Engine) -> None
 
     agent = rag_agent()
     llm = StreamingLLM()
-    service = ChatService(build_session_factory(engine), FakeEmbedder(), llm, agent=agent)
+    service = ChatService(
+        build_session_factory(engine), FakeEmbedder(), llm, agent=agent, settings=routes_settings()
+    )
     owner_key = "html-idempotente"
 
     try:
