@@ -1,14 +1,12 @@
 <!--
-Sync Impact Report (spec 045)
-- Versión: 2.7.0 → 2.8.0 (MINOR: guía ampliada, sin principios retirados ni redefinidos).
-- Enmienda A (principio II): capa institucional curada `data/institucional/` (T023).
-- Enmienda B (principio III): memoria y resumen como datos del usuario, que nunca respaldan
-  datos de Carvajal, y procedencia `sistema` para la fecha y los festivos (T083).
-- Enmienda C (restricciones técnicas): resumen acumulado en el estado del hilo, memoria del
-  dueño por categorías en el Store y herramientas de memoria que escriben (T056).
+Sync Impact Report (spec 046)
+- Versión: 2.8.0 → 2.9.0 (MINOR: guía ampliada, sin principios retirados ni redefinidos).
+- Enmienda D (restricciones técnicas y estado técnico): gatekeeper del modo `tools` con Jev
+  de TypeSafe opcional, minimización de lo que viaja y registros sin texto; `routes` sin
+  Jev (T026).
 - Plantillas revisadas: `.specify/templates/plan-template.md`, `spec-template.md` y
   `tasks-template.md` no requieren cambios (el *Constitution Check* ya lee esta proyección).
-- Pendiente: ninguno.
+- Pendiente: enmienda E (principio III, compuerta de afirmaciones), en el commit de T034–T036.
 -->
 # Constitución de Carvajal Corpus
 
@@ -149,6 +147,9 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   se cumple, abre el retiro (T055). El índice de
   Qdrant creció a ~40 800 puntos con el corpus ampliado y el retrieval cayó a
   Recall@10 = 0,578 frente a la línea base: pendiente de una spec aparte.
+- La 046 (router y System One) añade al modo `tools` un gatekeeper explícito: reglas
+  primero y, si no deciden y Jev está encendido, una pregunta Choice de Jev de TypeSafe que
+  restringe las consultas del turno; sin Jev, reglas + LLM como en la 045 (enmienda D).
 
 ## Restricciones técnicas
 
@@ -162,6 +163,16 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   emergencia). El router por reglas atiende en ambos el atajo de saludos y el respaldo
   cuando el proveedor falla, y todos los turnos si `tools` no arranca (`LLM_PROVIDER`
   distinto de `deepseek` o sin `DEEPSEEK_API_KEY`).
+- El modo `tools` tiene un gatekeeper en el nodo `shortcut`: reglas primero (saludos,
+  despedidas, «olvida todo», preferencias y seguimiento comercial, sin búsquedas ni
+  servicios externos) y, si no deciden, Jev de TypeSafe (System One, `jev-1.14.0` fijado,
+  pregunta Choice) clasifica el turno en herramienta estructurada, RAG, mixta o respuesta
+  directa y restringe sus consultas; con confianza baja, cautela con todas las consultas.
+  Jev es opcional en tiempo de ejecución y se enciende de forma explícita: sin él, reglas +
+  LLM. A TypeSafe solo viajan la pregunta redactada y una línea de contexto (y, en la
+  compuerta, la respuesta sin datos de la persona y la evidencia mínima); nunca identidad,
+  memoria ni historial; los registros guardan solo decisión, probabilidades, latencia,
+  modelo y tokens. El modo `routes` no usa Jev (spec 046, enmienda D).
 - El estado del hilo guarda un resumen acumulado (`conversation_summary`) calculado en
   segundo plano; el Store guarda la memoria del dueño por categorías, sin datos sensibles y
   con caducidad de 180 días. El modo `tools` dispone de consultas registradas en
@@ -202,4 +213,4 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.8.0 - 2026-11-24, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.9.0 - 2026-11-24, sincronizada con `CONSTITUTION.md` del repositorio.

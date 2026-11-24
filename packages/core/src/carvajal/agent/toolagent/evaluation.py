@@ -3050,8 +3050,13 @@ def build_runtime(
     catalog: Any = None,
     router: Any = None,
     clock: Callable[[], float] = time.perf_counter,
+    judge: Any = None,
 ) -> EvalRuntime:
     """Construye los modos pedidos sobre el mismo índice, embedder y catálogo.
+
+    ``judge`` (spec 046) es el juez de Jev del gatekeeper y de la compuerta de afirmaciones,
+    el mismo que usa producción. ``carvajal eval-agent`` solo lo construye con
+    ``--jev-ledger`` (FR-031); sin él, el modo ``tools`` corre sin Jev aunque haya clave.
 
     Persistencia en memoria (``InMemorySaver``/``InMemoryStore``, una pareja por modo). Sin
     dobles, usa Qdrant (envuelto en ``LayerPriorityStore``), Ollama y DeepSeek con la
@@ -3140,6 +3145,7 @@ def build_runtime(
                 tool_chat if tool_chat is not None else build_tool_chat(settings),
                 checkpointer=checkpointer,
                 store=store,
+                judge=judge,
             )
             # Respaldo determinista: grafo ``routes`` con reglas en el mismo checkpointer,
             # como el runtime de la app (FR-009).

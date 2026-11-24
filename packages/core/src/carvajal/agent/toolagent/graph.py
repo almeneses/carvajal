@@ -48,9 +48,7 @@ streaming (R2) actúan fuera, en el adaptador del servicio.
 
 import hashlib
 import json
-import re
 import threading
-import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final, cast
@@ -71,8 +69,18 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.store.base import BaseStore
 
-from carvajal.agent.commercial_intent import extract_commercial
-from carvajal.agent.graph import _commercial_follow_up, build_conversation_prompt
+from carvajal.agent.gatekeeper.decide import decide_gate
+from carvajal.agent.gatekeeper.model import GatekeeperDecision
+from carvajal.agent.gatekeeper.rules import (
+    FAREWELL_INTENT,
+    FORGET_INTENT,
+    SHORTCUT_INTENTS,
+    UNAVAILABLE_INTENT,
+    _fold,
+    is_closing,
+    shortcut_intent,
+)
+from carvajal.agent.graph import build_conversation_prompt
 from carvajal.agent.memory.store import forget, forget_all_requested, load
 from carvajal.agent.memory.summary import (
     ConversationSummary,
@@ -80,9 +88,7 @@ from carvajal.agent.memory.summary import (
     recall_summary,
     summary_block,
 )
-from carvajal.agent.router import decide_route
 from carvajal.agent.state import Turn
-from carvajal.agent.toolagent.evidence import names_city
 from carvajal.agent.toolagent.state import (
     ToolAgentState,
     ToolOutcome,
@@ -95,6 +101,7 @@ from carvajal.agent.toolagent.tools import (
     MEMORY_TOOLS,
     STATUS_TEMPLATES,
     TOOL_SCHEMAS,
+    TOOLS_BY_SCOPE,
     ToolContext,
     ToolDeps,
     build_tools,
@@ -105,23 +112,30 @@ from carvajal.agent.toolagent.tools import (
     seed_questions,
 )
 from carvajal.application.ask import _neutralize
+from carvajal.application.ports import RouteJudge
 from carvajal.infrastructure.settings import Settings
-from carvajal.prompts import AGENT_SYSTEM, DIRECT_INSTRUCTIONS, DIRECT_SYSTEM
+from carvajal.prompts import AGENT_SYSTEM, DIRECT_INSTRUCTIONS, DIRECT_SYSTEM, GATEKEEPER_CAUTION
 
 __all__ = [
     "CANCEL_KEY",
+    "CAUTION_CLOSE",
+    "CAUTION_OPEN",
     "COMMERCIAL_CLOSE",
     "COMMERCIAL_OPEN",
     "FAREWELL_INSTRUCTIONS",
     "FAREWELL_INTENT",
     "FORGET_INTENT",
+    "GATEKEEPER_DIRECT_INTENT",
     "PREFERENCES_CLOSE",
     "PREFERENCES_OPEN",
+    "SCOPE_CLOSE",
+    "SCOPE_OPEN",
     "SHORTCUT_INTENTS",
     "SYSTEM_MESSAGE_ID",
     "TurnCancel",
     "TurnCancelled",
     "build_tool_agent",
+    "gate_blocks",
     "history_messages",
     "is_closing",
     "recursion_limit",
@@ -136,17 +150,6 @@ COMMERCIAL_CLOSE = "</contexto_comercial>"
 PREFERENCES_OPEN = "<preferencias>"
 PREFERENCES_CLOSE = "</preferencias>"
 
-# Intenciones de ``decide_route`` que atiende el atajo (FR-008): saludo, agradecimiento y
-# capacidad comparten ``greeting``; ``memory_forget`` es «olvida todo lo que sabes de mí»
-# (spec 045, FR-015). ``memory_write`` ya no: la preferencia la guarda el agente con
-# ``recordar_preferencia`` (research R15).
-FORGET_INTENT: Final = "memory_forget"
-# «Olvida todo» sin Store o sin dueño: el atajo dice que la memoria no está disponible.
-UNAVAILABLE_INTENT: Final = "memory_unavailable"
-SHORTCUT_INTENTS: Final = frozenset({"greeting", FORGET_INTENT})
-# Despedida o agradecimiento sin pedido: lo atiende el atajo sin pasar por ``decide_route``,
-# que solo reconoce el agradecimiento exacto («gracias») como ``greeting``.
-FAREWELL_INTENT: Final = "farewell"
 FAREWELL_INSTRUCTIONS: Final = (
     "La persona se despide o agradece. Responde en una o dos frases cordiales y ofrece ayuda "
     "para otra consulta. No repitas datos del historial: ni cifras, ni precios, ni nombres de "
@@ -155,142 +158,6 @@ FAREWELL_INSTRUCTIONS: Final = (
 # Marcas de cierre (plegadas, sin tildes). Las de despedida cierran también un mensaje que
 # antes cuenta el siguiente paso de la persona («Entonces llamo a esa sede. Dios le pague.»);
 # las de agradecimiento solo si no queda nada más que relleno.
-_THANKS_MARKERS: Final = (
-    "muchisimas gracias",
-    "muchas gracias",
-    "mil gracias",
-    "gracias",
-    "agradezco",
-    "agradecido",
-    "agradecida",
-    "muy amable",
-)
-_FAREWELL_MARKERS: Final = (
-    "eso era todo",
-    "eso es todo",
-    "era todo",
-    "seria todo",
-    "dios le pague",
-    "dios te pague",
-    "dios le bendiga",
-    "dios te bendiga",
-    "bendiciones",
-    "hasta luego",
-    "hasta pronto",
-    "nos vemos",
-    "chao",
-    "chau",
-    "adios",
-    "feliz dia",
-    "feliz tarde",
-    "feliz noche",
-)
-_CLOSING_MARKERS: Final = (*_FAREWELL_MARKERS, *_THANKS_MARKERS)
-# Relleno de un cierre: lo que puede acompañar a la marca sin pedir nada.
-_CLOSING_FILLER: Final = frozenset(
-    {
-        "a",
-        "amable",
-        "atencion",
-        "ayuda",
-        "bien",
-        "buen",
-        "buena",
-        "bueno",
-        "de",
-        "el",
-        "excelente",
-        "genial",
-        "info",
-        "informacion",
-        "la",
-        "le",
-        "listo",
-        "lo",
-        "mil",
-        "muchas",
-        "muchisimas",
-        "muy",
-        "ok",
-        "okay",
-        "perfecto",
-        "por",
-        "super",
-        "su",
-        "te",
-        "ti",
-        "todo",
-        "tu",
-        "usted",
-        "vale",
-        "x",
-    }
-)
-_SENTENCE_RE: Final = re.compile(r"[.!;:\n]+")
-_REQUEST_WORDS: Final = frozenset(
-    {
-        "ademas",
-        "ahora",
-        "ayudame",
-        "busco",
-        "envien",
-        "envienme",
-        "interesa",
-        "ultima",
-        "ultimo",
-        "busca",
-        "buscame",
-        "buscar",
-        "cambia",
-        "cambiar",
-        "como",
-        "cual",
-        "cuales",
-        "cuando",
-        "cuanto",
-        "cuanta",
-        "cuantos",
-        "cuantas",
-        "dame",
-        "deme",
-        "dime",
-        "digame",
-        "donde",
-        "envia",
-        "enviame",
-        "hay",
-        "manda",
-        "mandame",
-        "mejor",
-        "muestrame",
-        "necesito",
-        "necesitaria",
-        "otra",
-        "otras",
-        "otro",
-        "otros",
-        "pero",
-        "pido",
-        "podria",
-        "podrias",
-        "precio",
-        "precios",
-        "puede",
-        "puedes",
-        "quiero",
-        "quisiera",
-        "recomienda",
-        "recomiendame",
-        "sean",
-        "serian",
-        "tambien",
-        "tiene",
-        "tienen",
-        "valor",
-    }
-)
-_REQUEST_STEMS: Final = ("cotiz",)
-_WORDS_RE: Final = re.compile(r"[^\W_]+")
 # Id fijo del mensaje de sistema del turno: el atajo lo reemplaza (``add_messages``) cuando
 # guarda una preferencia y el turno sigue al agente.
 SYSTEM_MESSAGE_ID: Final = "tool-agent-system"
@@ -418,98 +285,6 @@ def system_prompt(
     if block:
         blocks.append(block)
     return "\n\n".join(blocks)
-
-
-def shortcut_intent(
-    question: str,
-    turns: Sequence[Turn] = (),
-    commercial_context: Mapping[str, Any] | None = None,
-) -> tuple[str, str]:
-    """Intención del atajo y preferencia declarada según ``decide_route`` (research R8).
-
-    Devuelve ``(intención, preferencia)``. La intención es ``greeting``, ``memory_forget`` o
-    ``farewell`` (:func:`is_closing`) si el turno lo atiende el atajo; vacía si va al agente.
-    La preferencia declarada (``memory_write``) siempre va al agente (spec 045, R15): el
-    grafo ``tools`` no la guarda por reglas; se devuelve solo para no tratarla como cierre.
-    «Olvida todo» con un pedido o una pregunta también sigue al agente (el nodo
-    ``shortcut`` ya borró la memoria).
-
-    Con ``commercial_context`` (el del hilo), una corrección de cantidad o de entrega
-    sobre ese contexto («Llámame Ana y mejor 2000») también sigue al agente: el grafo
-    ``routes`` la atiende como seguimiento comercial (``_commercial_follow_up``).
-    """
-
-    decision = decide_route(question, list(turns))
-    preference = decision.preference
-    context = dict(commercial_context or {})
-    if not preference and is_closing(question) and _commercial_follow_up(question, context) is None:
-        return FAREWELL_INTENT, ""
-    if decision.route != "direct" or decision.intent not in SHORTCUT_INTENTS:
-        return "", preference
-    if decision.intent == FORGET_INTENT and _carries_request(question):
-        return "", preference
-    if _commercial_follow_up(question, context) is not None:
-        return "", preference
-    return decision.intent, preference
-
-
-def is_closing(question: str) -> bool:
-    """El mensaje es una despedida o un agradecimiento que no pide nada nuevo.
-
-    Sin signo de interrogación, es un cierre si:
-
-    - quitadas las marcas de cierre («gracias», «eso era todo», «chao»…) y el relleno
-      («listo», «perfecto», «muy amable», «por la info»), no queda nada: ni cifras, ni
-      productos, ni ciudades, ni un «y» o un «no» que respondan o pidan algo; o
-    - la última frase es solo una despedida («Dios le pague», «chao») y lo anterior no trae
-      palabras de pedido o corrección («cotízame», «necesito», «mejor», «pero»…), ni un «y»
-      al inicio de una frase, ni una ciudad de Colombia: la persona cuenta qué hará después.
-
-    Ante la duda no es un cierre: el turno sigue al agente.
-    """
-
-    if "?" in question or "¿" in question:
-        return False
-    sentences = [
-        _WORDS_RE.findall(_fold(part)) for part in _SENTENCE_RE.split(question) if part.strip()
-    ]
-    sentences = [words for words in sentences if words]
-    if not sentences:
-        return False
-    words = [word for sentence in sentences for word in sentence]
-    if not _has_marker(words, _CLOSING_MARKERS):
-        return False
-    if not _closing_residue(words):
-        return True
-    last = sentences[-1]
-    if not _has_marker(last, _FAREWELL_MARKERS) or _closing_residue(last):
-        return False
-    before = [word for sentence in sentences[:-1] for word in sentence]
-    if any(word in _REQUEST_WORDS or word.startswith(_REQUEST_STEMS) for word in before):
-        return False
-    if any(sentence[0] == "y" for sentence in sentences[:-1]):
-        return False
-    return not names_city(question)
-
-
-def _has_marker(words: Sequence[str], markers: Sequence[str]) -> bool:
-    text = f" {' '.join(words)} "
-    return any(f" {marker} " in text for marker in markers)
-
-
-def _closing_residue(words: Sequence[str]) -> list[str]:
-    """Palabras que quedan al quitar las marcas de cierre y el relleno."""
-
-    text = " ".join(words)
-    for marker in _CLOSING_MARKERS:
-        text = re.sub(rf"(?<!\S){marker}(?!\S)", " ", text)
-    return [word for word in text.split() if word not in _CLOSING_FILLER]
-
-
-def _carries_request(question: str) -> bool:
-    """La preferencia viene con una pregunta o un pedido comercial que hay que atender."""
-
-    return "?" in question or "¿" in question or extract_commercial(question) is not None
 
 
 def history_messages(turns: Sequence[Turn], limit: int) -> list[BaseMessage]:
@@ -643,11 +418,6 @@ def _text_only(response: BaseMessage) -> BaseMessage:
             usage_metadata=response.usage_metadata,
         )
     return response
-
-
-def _fold(text: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    return " ".join("".join(c for c in decomposed if not unicodedata.combining(c)).split())
 
 
 def _status_args(name: str, args: Any, progress: "_TurnProgress") -> dict[str, Any] | None:
@@ -796,17 +566,80 @@ class _TurnProgress:
         return "memory" in self.state_update or "preferences" in self.state_update
 
 
+# Spec 046 (contrato §7): bloques del sistema del turno según la decisión del gatekeeper.
+SCOPE_OPEN: Final = "<alcance_del_turno>"
+SCOPE_CLOSE: Final = "</alcance_del_turno>"
+CAUTION_OPEN: Final = "<cautela>"
+CAUTION_CLOSE: Final = "</cautela>"
+# Respuesta directa decidida por Jev (no por una regla): su propia instrucción.
+GATEKEEPER_DIRECT_INTENT: Final = "gatekeeper_direct"
+_OUT_OF_SCOPE_MESSAGE: Final = "Esa consulta no está disponible en este turno."
+_RESTRICTED_SCOPES: Final = frozenset({"rag", "structured"})
+
+
+def _decision(state: Mapping[str, Any]) -> GatekeeperDecision | None:
+    return GatekeeperDecision.from_value(state.get("gatekeeper"))
+
+
+def gate_blocks(decision: GatekeeperDecision | None) -> str:
+    """Bloques ``<alcance_del_turno>`` y ``<cautela>`` del turno; ``""`` si no aplican.
+
+    Van al final del sistema para no mover el prefijo de ``AGENT_SYSTEM`` (caché del
+    proveedor). Sin Jev, en sombra o sin restricción no se añade nada: el turno queda como
+    en la 045 (FR-006).
+    """
+
+    if decision is None or decision.scope == "direct":
+        return ""
+    blocks: list[str] = []
+    applied = decision.source == "jev" and decision.reason != "sombra"
+    if decision.scope in _RESTRICTED_SCOPES or applied:
+        names = ", ".join(TOOLS_BY_SCOPE[decision.scope])
+        blocks.append(f"{SCOPE_OPEN}\nEn este turno puedes consultar: {names}.\n{SCOPE_CLOSE}")
+    if decision.cautious:
+        blocks.append(f"{CAUTION_OPEN}\n{GATEKEEPER_CAUTION}\n{CAUTION_CLOSE}")
+    return "\n\n".join(blocks)
+
+
+def _with_blocks(messages: Sequence[BaseMessage], blocks: str) -> list[BaseMessage]:
+    """Mensajes del turno con los bloques del gatekeeper al final del sistema.
+
+    Se añaden al invocar el modelo y no se guardan en el estado: cuando ``tools`` reemplaza
+    el ``SystemMessage`` (memoria nueva), el paso siguiente los vuelve a añadir.
+    """
+
+    if not blocks:
+        return list(messages)
+    result: list[BaseMessage] = []
+    done = False
+    for message in messages:
+        if not done and isinstance(message, SystemMessage):
+            done = True
+            message = SystemMessage(content=f"{_text_content(message)}\n\n{blocks}", id=message.id)
+        result.append(message)
+    return result
+
+
+def _text_content(message: BaseMessage) -> str:
+    content = message.content
+    return content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+
+
 def build_tool_agent(
     deps: ToolDeps,
     chat_model: BaseChatModel,
     *,
     checkpointer: Any,
     store: Any = None,
+    judge: RouteJudge | None = None,
 ) -> Any:
     """Compila el grafo ``tools`` con el modelo de chat, el checkpointer y el Store dados.
 
     ``chat_model`` debe soportar ``bind_tools``; con temperatura 0 en producción. El
     servicio debe invocar con ``recursion_limit(settings)`` en la configuración.
+
+    ``judge`` (spec 046) es el clasificador del gatekeeper (Jev); sin él, las reglas y el
+    modelo deciden como en la 045.
     """
 
     if deps.memory is None and isinstance(store, BaseStore):
@@ -816,11 +649,18 @@ def build_tool_agent(
     max_calls = settings.agent_max_tool_calls
     history_turns = settings.agent_history_turns
     tools = build_tools(deps)
-    # Se atan una vez: el primer paso obliga a declarar la consulta (``sin_consulta``
-    # incluida); los siguientes eligen. No se pasa ``parallel_tool_calls``: el valor por
-    # defecto del proveedor ya permite varias llamadas por paso.
-    first_model = chat_model.bind_tools(tools, tool_choice="required")
-    loop_model = chat_model.bind_tools(tools)
+    by_name = {tool.name: tool for tool in tools}
+    # Se atan una vez por alcance (spec 046): el primer paso obliga a declarar la consulta
+    # (``sin_consulta`` incluida); los siguientes eligen. No se pasa ``parallel_tool_calls``:
+    # el valor por defecto del proveedor ya permite varias llamadas por paso. El modelo no ve
+    # las consultas que no puede usar.
+    models: dict[str, tuple[Any, Any]] = {}
+    for scope in ("all", "rag", "structured"):
+        selected = [by_name[name] for name in TOOLS_BY_SCOPE[scope] if name in by_name]
+        models[scope] = (
+            chat_model.bind_tools(selected, tool_choice="required"),
+            chat_model.bind_tools(selected),
+        )
 
     def recall(state: ToolAgentState, config: RunnableConfig) -> dict[str, Any]:
         question = validate_question(state.get("question", ""))
@@ -869,6 +709,8 @@ def build_tool_agent(
             "missing": [],
             "mode_path": "agent",
             "shortcut_intent": "",
+            # La decisión del gatekeeper es del turno (spec 046): el checkpoint persiste.
+            "gatekeeper": {},
         }
         if summary is not None:
             update["conversation_summary"] = summary.to_value()
@@ -882,23 +724,37 @@ def build_tool_agent(
 
         _check_cancel(config)
         question = state.get("question", "")
-        intent, _preference = shortcut_intent(
-            question, _recent_turns(state), state.get("commercial_context")
+        turns = _recent_turns(state)
+        context = state.get("commercial_context")
+        # La intención del atajo se calcula una vez y la reutiliza el gatekeeper (spec 046).
+        intent, preference = shortcut_intent(question, turns, context)
+        decision = decide_gate(
+            question,
+            turns,
+            context,
+            state.get("memory"),
+            judge,
+            settings,
+            shortcut=(intent, preference),
         )
         update: dict[str, Any] = {}
         if forget_all_requested(question):
             update.update(_forget_all(state))
-            if "memory" not in update and intent == FORGET_INTENT:
+            if "memory" not in update and decision.rule == FORGET_INTENT:
                 # No se pudo borrar (sin Store o sin dueño): no se confirma un olvido.
-                intent = UNAVAILABLE_INTENT
-            elif "memory" in update and not intent:
+                decision = replace(decision, rule=UNAVAILABLE_INTENT)
+            elif "memory" in update and decision.scope != "direct":
                 # Sigue al agente (trae un pedido): el sistema ya va sin memoria ni resumen.
-                context = state.get("commercial_context") or {}
                 update["messages"] = [
-                    SystemMessage(content=system_prompt(context, []), id=SYSTEM_MESSAGE_ID)
+                    SystemMessage(content=system_prompt(context or {}, []), id=SYSTEM_MESSAGE_ID)
                 ]
-        logger.info("tool_agent.shortcut_decided", intent=intent or None, shortcut=bool(intent))
-        if intent:
+        direct = decision.scope == "direct"
+        intent = ""
+        if direct:
+            intent = decision.rule if decision.source == "reglas" else GATEKEEPER_DIRECT_INTENT
+        logger.info("tool_agent.shortcut_decided", intent=intent or None, shortcut=direct)
+        update["gatekeeper"] = decision.to_value()
+        if direct:
             update["mode_path"] = "shortcut"
             update["shortcut_intent"] = intent
         return update
@@ -969,16 +825,20 @@ def build_tool_agent(
         used = int(state.get("tool_calls_used") or 0)
         # ``sin_consulta`` no gasta cupo, pero solo un paso suyo sale gratis: ``steps`` tiene
         # un tope de ``max_calls + 1`` para que un modelo terco no gire sin fin.
+        decision = _decision(state)
+        scope = decision.scope if decision is not None and decision.scope in models else "all"
+        prompt = _with_blocks(messages, gate_blocks(decision))
         if used >= max_calls or real_steps >= max_calls or steps > max_calls:
             missing = list(state.get("missing") or [])
             note = _LIMIT_NOTE
             if missing:
                 note += "\nNo se alcanzó a consultar:\n" + "\n".join(f"- {m}" for m in missing)
-            response = chat_model.invoke([*messages, SystemMessage(content=note)], config)
+            response = chat_model.invoke([*prompt, SystemMessage(content=note)], config)
             logger.info("tool_agent.limit_reached", used=used, steps=steps, missing=missing)
             return {"messages": [_text_only(response)]}
+        first_model, loop_model = models[scope]
         model = first_model if steps == 0 else loop_model
-        return {"messages": [model.invoke(messages, config)]}
+        return {"messages": [model.invoke(prompt, config)]}
 
     def after_agent(state: ToolAgentState) -> str:
         last = _last_ai(state.get("messages") or [])
@@ -993,10 +853,19 @@ def build_tool_agent(
             return {}
         progress = _TurnProgress.from_state(state, history_turns)
         contents = _previous_contents(_turn_messages(messages))
+        decision = _decision(state)
+        allowed = (
+            frozenset(TOOLS_BY_SCOPE[decision.scope])
+            if decision is not None and decision.scope in _RESTRICTED_SCOPES
+            else None
+        )
         replies: list[BaseMessage] = []
         for call in last.tool_calls:
             # Entre llamadas: «Detener» no espera a las herramientas pendientes del paso.
             _check_cancel(config)
+            if allowed is not None and call["name"] not in allowed:
+                replies.append(_out_of_scope(call["name"], call.get("id"), progress))
+                continue
             replies.append(
                 _run_call(call["name"], call["args"], call.get("id"), progress, contents)
             )
@@ -1027,6 +896,26 @@ def build_tool_agent(
                 )
             )
         return {"messages": replies, **progress.update()}
+
+    def _out_of_scope(name: str, call_id: str | None, progress: _TurnProgress) -> ToolMessage:
+        """Consulta fuera del alcance del turno: no se ejecuta y gasta cupo (FR-004)."""
+
+        progress.used += 1
+        logger.info("tool_agent.out_of_scope_call", tool=name)
+        return ToolMessage(
+            content=format_tool_content(
+                name,
+                {
+                    "status": "error",
+                    "message": _OUT_OF_SCOPE_MESSAGE,
+                    "error": "fuera_de_alcance",
+                    "missing": [],
+                },
+            ),
+            tool_call_id=str(call_id or ""),
+            name=name,
+            status="error",
+        )
 
     def _run_call(
         name: str,

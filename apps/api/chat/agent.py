@@ -17,6 +17,7 @@ from typing import Any, Final, Protocol, runtime_checkable
 import structlog
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
+from carvajal.agent.gatekeeper.model import GatekeeperDecision, llm_class
 from carvajal.agent.memory.store import CATEGORIES, MemoryProfile
 from carvajal.agent.memory.summary import ConversationSummary, seed_turn_count
 from carvajal.agent.state import Turn
@@ -59,6 +60,7 @@ from carvajal.agent.toolagent.tools import (
     CORPUS_TOOLS,
     DECLARATION_TOOLS,
     MEMORY_TOOLS,
+    ROUTE_GROUPS,
     content_data,
 )
 from carvajal.application.ask import Source
@@ -323,6 +325,9 @@ class ToolAgentFinal:
     - ``turns``: los ``seed_turns`` recibidos, para ``record``.
     - ``usage``: tokens sumados de todos los pasos del modelo (SC-008).
     - ``summary``: ``covered_turns`` y ``method`` del resumen del hilo (spec 045), sin texto.
+    - ``gatekeeper``: decisión del gatekeeper del turno (spec 046, canal del estado), con
+      ``llm_class`` derivada de las consultas ejecutadas cuando decidió el LLM.
+    - ``claims``: veredicto de la compuerta de afirmaciones (spec 046, data-model).
     """
 
     answer: str
@@ -339,6 +344,8 @@ class ToolAgentFinal:
     turns: tuple[Turn, ...] = ()
     usage: dict[str, int] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
+    gatekeeper: dict[str, Any] = field(default_factory=dict)
+    claims: dict[str, Any] = field(default_factory=dict)
 
 
 ToolAgentEvent = ToolAgentStatus | ToolAgentSources | ToolAgentToken | ToolAgentFinal
@@ -457,6 +464,8 @@ class _TurnStream:
         # El turno ya tiene respuesta (abstención anticipada): el runner detiene el grafo.
         self.finished = False
         self.usage: dict[str, int] = {}
+        # Veredicto de la compuerta de afirmaciones (spec 046).
+        self.claims: dict[str, Any] = {}
 
     # -- Eventos del grafo --
 
@@ -555,7 +564,23 @@ class _TurnStream:
             turns=tuple(turns),
             usage=dict(self.usage),
             summary=_summary_meta(values.get("conversation_summary")),
+            gatekeeper=self._gatekeeper(),
+            claims=dict(self.claims),
         )
+
+    def _gatekeeper(self) -> dict[str, Any]:
+        """Decisión del turno; con ``source=llm``, la clase derivada de lo consultado (FR-006)."""
+
+        decision = GatekeeperDecision.from_value(self.values.get("gatekeeper"))
+        if decision is None:
+            return {}
+        if decision.source == "llm":
+            groups = [ROUTE_GROUPS.get(str(r.get("tool")), "") for r in self._results()]
+            decision = replace(decision, llm_class=llm_class(groups))
+        return decision.to_value()
+
+    def _results(self) -> list[Mapping[str, Any]]:
+        return [r for r in self.values.get("results") or [] if isinstance(r, Mapping)]
 
     # -- Internos --
 
