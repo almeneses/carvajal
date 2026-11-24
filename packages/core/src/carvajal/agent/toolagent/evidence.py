@@ -3,6 +3,10 @@
 El modelo decide qué consultar, pero no decide si su redacción se muestra: lo decide esta
 compuerta, determinista, sobre los ``ToolOutcome`` del turno.
 
+Desde la spec 045 los papeles salen del registro de herramientas (``evidence_role``):
+donde este texto dice ``buscar_corpus`` vale para toda herramienta con papel ``corpus`` y
+donde dice ``sin_consulta``, para la de papel ``declaration``.
+
 - :func:`gate` elige uno de tres caminos. **Evidencia del turno** (``data-model.md``) es al
   menos un ``ToolOutcome`` con ``status == "ok"`` y ``source_ids`` no vacío.
 
@@ -17,6 +21,15 @@ compuerta, determinista, sobre los ``ToolOutcome`` del turno.
     del turno saliera vacía: la petición del dato (FR-005) y las sedes no se pierden tras
     la abstención. El texto completo se retiene y pasa :func:`filter_unsupported` antes de
     emitirse de una vez, salvo en el caso de :func:`neutral_only`.
+
+- :func:`filtered_evidence`: hay evidencia, pero solo de herramientas no documentales, y
+  la búsqueda documental del turno salió vacía. Una herramienta que siempre da ``ok`` con
+  fuente (``fecha_actual``, ``indicadores_disponibles``, ``empresas_del_grupo`` o
+  ``ciudades_con_cobertura`` sin argumentos, o un ``buscar_producto``) no respalda lo que
+  el modelo diga del corpus: el texto se retiene y pasa :func:`filter_unsupported` con lo
+  que aportaron las herramientas, como en ``no_query``; si no pasa, el turno se abstiene.
+  Así la abstención la sigue garantizando el servidor aunque el modelo, por error o por
+  inyección, añada una de esas llamadas a una búsqueda vacía (spec 045, revisión).
 
 - :func:`neutral_only`: el turno buscó en el corpus sin evidencia y salió de la
   abstención por una petición de dato (``needs_input`` de una herramienta o ``sin_consulta``
@@ -67,28 +80,34 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final, Literal
 
 from carvajal.agent.toolagent.state import (
-    TOOL_BUSCAR_CORPUS,
     TOOL_BUSCAR_PRODUCTO,
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
+    TOOL_HISTORIA_CARVAJAL,
     TOOL_INDICADOR_FINANCIERO,
-    TOOL_SIN_CONSULTA,
+    TOOL_PREGUNTAS_FRECUENTES,
 )
+from carvajal.agent.toolagent.tools.registry import CORPUS_TOOLS, DECLARATION_TOOLS
 from carvajal.application.evidence import _KNOWN_ENTITIES, _entities
 from carvajal.prompts import NO_CONTEXT_ANSWER
 
 __all__ = [
     "FAREWELL_ANSWER",
+    "FORGET_ANSWER",
     "GATE_ABSTAIN",
     "GATE_EVIDENCE",
     "GATE_NO_QUERY",
     "GREETING_ANSWER",
+    "MEMORY_DATA_KEYS",
+    "MEMORY_UNAVAILABLE_ANSWER",
     "NO_DATA_ANSWER",
     "PREFERENCE_ANSWER",
     "GatePath",
     "abstention",
     "ask_for_missing",
+    "backing_data",
     "filter_unsupported",
+    "filtered_evidence",
     "gate",
     "has_evidence",
     "missing_fields",
@@ -100,6 +119,11 @@ __all__ = [
 ]
 
 GatePath = Literal["evidence", "abstain", "no_query"]
+
+# Claves de los datos de una herramienta que vienen de la memoria del dueño, no de la
+# herramienta: no respaldan nada ante la compuerta (FR-017). La pregunta de confirmación
+# la construye :func:`ask_for_missing` con ``suggestion``.
+MEMORY_DATA_KEYS: Final = frozenset({"sugerencia_ciudad"})
 
 GATE_EVIDENCE: Final = "evidence"
 GATE_ABSTAIN: Final = "abstain"
@@ -310,7 +334,7 @@ def _declares_ask(outcome: Mapping[str, Any]) -> bool:
 
     args = outcome.get("args")
     return (
-        outcome.get("tool") == TOOL_SIN_CONSULTA
+        outcome.get("tool") in DECLARATION_TOOLS
         and outcome.get("status") == "ok"
         and isinstance(args, Mapping)
         and args.get("motivo") == "pedir_dato"
@@ -336,11 +360,11 @@ def gate(results: Iterable[Mapping[str, Any]]) -> GatePath:
     if any(_asks_for_data(r) for r in outcomes):
         # Falta un dato: la pregunta al usuario se filtra en vez de perderse (FR-005).
         return GATE_NO_QUERY
-    if any(r.get("tool") != TOOL_BUSCAR_CORPUS and r.get("source_ids") for r in outcomes):
+    if any(r.get("tool") not in CORPUS_TOOLS and r.get("source_ids") for r in outcomes):
         # Otra herramienta trajo datos citados sin ``ok`` (``cotizar`` sin precio, con las
         # sedes del directorio): se filtra con esos datos en vez de abstenerse del corpus.
         return GATE_NO_QUERY
-    if any(r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes):
+    if any(r.get("tool") in CORPUS_TOOLS for r in outcomes):
         return GATE_ABSTAIN
     return GATE_NO_QUERY
 
@@ -357,9 +381,21 @@ def neutral_only(results: Iterable[Mapping[str, Any]]) -> bool:
     """
 
     outcomes = list(results)
-    return gate(outcomes) == GATE_NO_QUERY and any(
-        r.get("tool") == TOOL_BUSCAR_CORPUS for r in outcomes
-    )
+    return gate(outcomes) == GATE_NO_QUERY and any(r.get("tool") in CORPUS_TOOLS for r in outcomes)
+
+
+def filtered_evidence(results: Iterable[Mapping[str, Any]]) -> bool:
+    """El camino es ``evidence``, pero la evidencia no viene de la búsqueda documental.
+
+    Verdadero si el turno consultó el corpus de verdad (alguna herramienta de papel
+    ``corpus`` sin ``error``), ninguna de esas consultas trajo evidencia y otra herramienta
+    sí dio ``ok`` con fuentes. Entonces el texto no se transmite: se retiene y se filtra con
+    los datos de las herramientas, y sin respaldo el turno se abstiene (FR-004).
+    """
+
+    outcomes = list(results)
+    searched = [r for r in outcomes if r.get("tool") in CORPUS_TOOLS and r.get("status") != "error"]
+    return bool(searched) and not has_evidence(searched) and gate(outcomes) == GATE_EVIDENCE
 
 
 def _fold(text: str) -> str:
@@ -521,13 +557,17 @@ def missing_fields(dato: str) -> list[str]:
     return [field for field, hints in _FIELD_HINTS.items() if words & set(hints)]
 
 
-def ask_for_missing(fields: Iterable[str], *, cities: Sequence[str] = ()) -> str:
+def ask_for_missing(
+    fields: Iterable[str], *, cities: Sequence[str] = (), suggestion: str | None = None
+) -> str:
     """Petición neutra de los datos que faltan, para reemplazar un texto rechazado.
 
     ``fields`` son los campos de ``missing`` de las herramientas (``ciudad``, ``cantidad``,
     ``temperatura``…); los desconocidos se ignoran. ``cities`` son las ciudades que devolvió
     la herramienta (``ciudades_disponibles``) y solo se listan si falta la ciudad. Sin campo
-    conocido la petición es genérica. Nunca es la abstención del corpus.
+    conocido la petición es genérica. Nunca es la abstención del corpus. ``suggestion`` es
+    la ciudad habitual de la memoria (``sugerencia_ciudad``): si falta la ciudad, se ofrece
+    como pregunta de confirmación, nunca como dato.
     """
 
     known = list(dict.fromkeys(f for f in fields if f in _MISSING_LABELS))
@@ -541,6 +581,8 @@ def ask_for_missing(fields: Iterable[str], *, cities: Sequence[str] = ()) -> str
     if "ciudad" in known and cities:
         text += f" Ciudades disponibles: {_join([str(c) for c in cities])}."
     question = "¿Me lo indicas?" if len(labels) == 1 else "¿Me los indicas?"
+    if "ciudad" in known and suggestion:
+        question += f" ¿O lo hago en {suggestion}, tu ciudad habitual?"
     return f"{text} {question}"
 
 
@@ -577,6 +619,11 @@ GREETING_ANSWER: Final = (
     "comprar) y con información pública de Carvajal. ¿Qué necesitas?"
 )
 PREFERENCE_ANSWER: Final = "Listo, lo tendré en cuenta."
+# «Olvida todo lo que sabes de mí» (spec 045): confirmación fija, sin repetir ningún dato.
+FORGET_ANSWER: Final = "Listo, ya olvidé lo que sabía de ti."
+MEMORY_UNAVAILABLE_ANSWER: Final = (
+    "Ahora no puedo gestionar lo que recuerdo de ti; intenta de nuevo en un momento."
+)
 NO_DATA_ANSWER: Final = (
     "No tengo un dato verificado para responder eso. Si me cuentas qué necesitas (un "
     "producto, un precio, dónde comprar o un dato de Carvajal), lo busco."
@@ -631,7 +678,37 @@ def tool_misses(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> list[str]:
             add("No encontré un precio publicado que cumpla esa solicitud.")
         elif tool == TOOL_INDICADOR_FINANCIERO:
             add("No hay un registro publicado de ese indicador para ese período; no lo estimo.")
+        elif tool == TOOL_HISTORIA_CARVAJAL:
+            # Los años cercanos son datos de la herramienta (los hitos de la historia oficial).
+            years = [str(year) for year in data.get("anios_cercanos") or []]
+            line = "La historia oficial no registra un hito en ese año; no lo interpolo."
+            if years:
+                line += f" Los años más cercanos con hitos son: {_join(years)}."
+            add(line)
     return lines
+
+
+def backing_data(tool: str, data: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Parte de los datos de una herramienta que puede respaldar texto en ``no_query``.
+
+    ``preguntas_frecuentes`` devuelve preguntas y respuestas que redactó un LLM: solo su
+    ``fragmento`` (el pasaje literal del núcleo que las verificó) respalda algo, nunca la
+    ``pregunta`` ni la ``respuesta`` (spec 045, R18). Las demás herramientas devuelven
+    datos deterministas y se usan enteros, salvo las claves de :data:`MEMORY_DATA_KEYS`:
+    ``sugerencia_ciudad`` es la ciudad habitual de la memoria del dueño y, como los demás
+    valores de memoria, nunca respalda un dato de Carvajal (FR-017).
+    """
+
+    if tool == TOOL_PREGUNTAS_FRECUENTES:
+        entries = data.get("preguntas") or []
+        return {
+            "fragmentos": [
+                str(entry.get("fragmento") or "") for entry in entries if isinstance(entry, Mapping)
+            ]
+        }
+    if MEMORY_DATA_KEYS.isdisjoint(data):
+        return data
+    return {key: value for key, value in data.items() if key not in MEMORY_DATA_KEYS}
 
 
 def abstention(
@@ -650,11 +727,17 @@ def abstention(
     items = list(payloads)
     parts = tool_misses(items)
     # Una búsqueda documental con argumentos inválidos (``error``) no consultó el corpus.
-    if any(tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error" for tool, data in items):
+    if any(tool in CORPUS_TOOLS and data.get("status") != "error" for tool, data in items):
         parts.append(NO_CONTEXT_ANSWER)
     elif parts:
         parts.append(_MISS_OFFER)
     if parts:
         return " ".join(parts), True
-    conversational = conversation in {FAREWELL_ANSWER, GREETING_ANSWER, PREFERENCE_ANSWER}
+    conversational = conversation in {
+        FAREWELL_ANSWER,
+        GREETING_ANSWER,
+        PREFERENCE_ANSWER,
+        FORGET_ANSWER,
+        MEMORY_UNAVAILABLE_ANSWER,
+    }
     return conversation, not conversational

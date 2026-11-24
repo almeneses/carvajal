@@ -16,7 +16,10 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
     TOOL_INDICADOR_FINANCIERO,
+    TOOL_LISTAR_MEMORIA,
     TOOL_NAMES,
+    TOOL_OLVIDAR_PREFERENCIA,
+    TOOL_RECORDAR_PREFERENCIA,
     TOOL_SIN_CONSULTA,
 )
 from carvajal.agent.toolagent.status import MAX_VALUE_CHARS, emit_status, status_text
@@ -31,6 +34,10 @@ FULL_ARGS: dict[str, dict[str, Any]] = {
     TOOL_COTIZAR: {"family": "vaso", "quantity": 2000, "city": "Bogotá"},
     TOOL_BUSCAR_SEDES: {"ciudad": "Cali", "sku": "ABC-123"},
     TOOL_INDICADOR_FINANCIERO: {"nombre": "ingresos", "periodo": "2024"},
+    # Memoria (spec 045): la línea de estado nunca lleva el valor (FR-018).
+    TOOL_RECORDAR_PREFERENCIA: {"categoria": "nombre", "valor": "Ana Secreta"},
+    TOOL_LISTAR_MEMORIA: {},
+    TOOL_OLVIDAR_PREFERENCIA: {"categoria": "nota", "valor": "compostables"},
 }
 
 
@@ -250,7 +257,7 @@ def test_every_tool_tolerates_missing_or_malformed_args(tool_name, args):
 @pytest.mark.parametrize("with_data", [True, False])
 def test_no_text_contains_internal_tool_names(tool_name, with_data):
     # Arrange
-    args = FULL_ARGS[tool_name] if with_data else {}
+    args = FULL_ARGS.get(tool_name, {}) if with_data else {}
 
     # Act
     text = status_text(tool_name, args)
@@ -265,7 +272,7 @@ def test_no_text_contains_internal_tool_names(tool_name, with_data):
 @pytest.mark.parametrize("tool_name", STATUS_TOOLS)
 def test_no_text_leaks_results_prices_or_sources(tool_name):
     # Arrange
-    args = FULL_ARGS[tool_name]
+    args = FULL_ARGS.get(tool_name, {})
 
     # Act
     text = status_text(tool_name, args)
@@ -444,3 +451,29 @@ def test_emit_status_inside_graph_without_custom_mode_is_silent():
 
     # Assert
     assert result == {"calls": calls}
+
+
+# --- Memoria (spec 045, T042) ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "tool_name", [TOOL_RECORDAR_PREFERENCIA, TOOL_LISTAR_MEMORIA, TOOL_OLVIDAR_PREFERENCIA]
+)
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"categoria": "nombre", "valor": "Ana Secreta"},
+        {"categoria": "ciudad_habitual", "valor": "Cali"},
+        {"categoria": "nota", "valor": "mi cédula es 1.234.567.890"},
+    ],
+)
+def test_las_lineas_de_estado_de_memoria_no_llevan_valores(tool_name, args):
+    # Act
+    text = status_text(tool_name, args)
+
+    # Assert
+    assert text is not None
+    assert text.startswith("Estoy ")
+    assert args["valor"] not in text
+    assert "Ana" not in text and "Cali" not in text and "1.234" not in text
+    assert args["categoria"] not in text

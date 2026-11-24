@@ -25,6 +25,7 @@ __all__ = [
     "exact_sku",
     "informative_terms",
     "is_generic_name",
+    "looks_like_sku",
     "match_named",
     "matched_terms",
     "name_family",
@@ -230,6 +231,18 @@ def match_named(
 
 def _sku_text(value: str) -> str:
     return _SKU_TEXT.sub("", plain(value))
+
+
+# Forma de un SKU del catálogo: prefijo de país, guion y código («CO-PCOM-J2», «CO-CTT-08»)
+# o un código numérico largo («2864108000», «7704918105071»). Un código corto como «J2» o
+# «P1» no tiene esa forma: es un nombre comercial.
+_SKU_SHAPE = re.compile(r"[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*|\d{10,}", re.IGNORECASE)
+
+
+def looks_like_sku(text: str) -> bool:
+    """``text`` tiene forma de SKU del catálogo (no de nombre ni de código corto)."""
+
+    return _SKU_SHAPE.fullmatch(" ".join(str(text).split())) is not None
 
 
 def exact_sku(text: str, references: Sequence[Reference]) -> Reference | None:

@@ -21,8 +21,16 @@ antes del primer token, el turno se atiende con el respaldo determinista (FR-009
 LLM; si venció el plazo con resultados ya obtenidos, se redacta con ellos y se declara lo
 que faltó (R9, FR-010). Cada cotización mostrada recibe su folio y su fila ``quotes`` en la
 transacción del turno, que se guarda antes de mostrar los folios (FR-012a).
+
+Spec 045 (US1): justo después de guardar cada turno (completo o ``incomplete``, en ambos
+modos y en el respaldo), el servicio encola el resumen acumulado del hilo en el
+``SummaryWorker`` sin esperarlo; la réplica idempotente no encola nada. La semilla del
+turno trae ``agent_history_turns`` más la holgura del resumen y el total de turnos del hilo
+(``SeedTurns.turn_count``). ``trace`` lleva ``memory`` (categorías con valor) y
+``summary`` (``covered_turns`` y ``method``, nunca el texto).
 """
 
+import atexit
 from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
@@ -54,6 +62,7 @@ from apps.api.chat.agent import (
 )
 from apps.api.chat.products import has_cards, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
+from apps.api.chat.summary_worker import SummaryWorker, build_summary_worker
 from carvajal.adapters.storage.chat import (
     ChatMessage,
     Conversation,
@@ -61,9 +70,11 @@ from carvajal.adapters.storage.chat import (
     SqlChatRepository,
 )
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
+from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns, pair_turns
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
-from carvajal.agent.toolagent.state import TOOL_NAMES, TOOL_SIN_CONSULTA, UNKNOWN_TOOL
+from carvajal.agent.toolagent.state import UNKNOWN_TOOL
+from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, TOOL_NAMES
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
 from carvajal.application.errors import LLMError
 from carvajal.application.ports import Embedder, LLMProvider
@@ -112,7 +123,7 @@ class _ToolTurn:
 
     runner: ToolStreamRunner
     fragments: list[str]
-    seed: tuple[Turn, ...]
+    seed: Sequence[Turn]
     route: str = "agent"
     persist_attempted: bool = False
     # Fuentes ya enviadas en ``meta`` antes del primer token; ``None`` si aún no.
@@ -180,8 +191,11 @@ class ChatService:
         tool_agent: ToolStreamRunner | None = None,
         tracer: TurnTracer | None = None,
         settings: Settings | None = None,
+        summary_worker: SummaryWorker | None = None,
     ) -> None:
         self._session_factory = session_factory
+        # Spec 045 (US1): resumen en segundo plano tras persistir; ``None`` no resume.
+        self._summary_worker = summary_worker
         self._embedder = embedder
         self._llm = llm
         self._agent = agent
@@ -219,6 +233,16 @@ class ChatService:
         if self._settings is None:
             self._settings = Settings()
         return self._settings
+
+    def _summarize(self, owner_key: str, conversation_id: str) -> None:
+        """Encola el resumen del hilo sin esperarlo (FR-003); un fallo no toca el turno."""
+
+        if self._summary_worker is None:
+            return
+        try:
+            self._summary_worker.submit(owner_key, conversation_id)
+        except Exception as error:  # el resumen nunca rompe la respuesta
+            logger.warning("agent.summary_failed", cause="submit", error=type(error).__name__)
 
     def _modelo(self) -> str:
         """Modelo configurado, para los metadatos de la llamada al LLM."""
@@ -346,7 +370,7 @@ class ChatService:
             with self._session_factory() as session:
                 repository = SqlChatRepository(session)
                 conversation = _owned_conversation(repository, owner_key, thread_id)
-                seed = _seed_turns(repository, conversation.id)
+                seed = _seed_turns(repository, conversation.id, self._config().agent_history_turns)
                 replay = (
                     repository.find_turn(conversation.id, client_turn_id)
                     if client_turn_id
@@ -361,7 +385,7 @@ class ChatService:
             request_id = _request_id()
             monitor = self._monitoring()
             if tool_runner is not None:
-                tools = _ToolTurn(runner=tool_runner, fragments=fragments, seed=tuple(seed))
+                tools = _ToolTurn(runner=tool_runner, fragments=fragments, seed=seed)
                 yield from self._stream_tools(
                     tools,
                     monitor,
@@ -412,7 +436,8 @@ class ChatService:
                         "intent": turn.intent,
                         "tool": turn.tool,
                         "reason": turn.reason,
-                        "memory": len(turn.preferences),
+                        "memory": _memory_count(turn.preferences),
+                        "summary": _summary_trace(turn.summary),
                         "retrieved": len(turn.sources),
                     },
                 )
@@ -511,6 +536,7 @@ class ChatService:
                         quotes=[quote_record] if quote_record else (),
                     )
                     persisted = True
+                self._summarize(owner_key, conversation.id)
                 runner.record(
                     conversation.id,
                     question=text,
@@ -801,6 +827,7 @@ class ChatService:
             products=products,
             quotes=quote_records,
         )
+        self._summarize(owner_key, conversation.id)
         tools.runner.record(
             conversation.id,
             question=question,
@@ -820,7 +847,8 @@ class ChatService:
                 "intent": "",
                 "tool": ",".join(tool_names),
                 "reason": "",
-                "memory": len(closing.preferences),
+                "memory": _memory_count(closing.preferences),
+                "summary": _summary_trace(closing.summary),
                 "retrieved": len(sources),
                 "mode": "tools",
                 "path": closing.mode_path,
@@ -922,6 +950,7 @@ class ChatService:
             note = fallback.timeout_note(len(obtained.missing)) if reason == "timeout" else ""
             answer_text = fallback.render(products, sources, note=note)
             fallback_route, intent, preferences = "tools", "", obtained.preferences
+            summary = obtained.summary
             tool = ",".join(tool_names)
             recorder: ToolStreamRunner | AgentRunner = tools.runner
             turns: Sequence[Turn] = tools.seed
@@ -942,6 +971,7 @@ class ChatService:
                 turn.tool,
                 turn.preferences,
             )
+            summary = turn.summary
             recorder, turns = runner, turn.turns
         span.add_metadata(
             route="agent",
@@ -973,6 +1003,7 @@ class ChatService:
             products=products,
             quotes=quote_records,
         )
+        self._summarize(owner_key, conversation.id)
         recorder.record(
             conversation.id,
             question=question,
@@ -1009,7 +1040,8 @@ class ChatService:
                 "intent": intent,
                 "tool": tool,
                 "reason": reason,
-                "memory": len(preferences),
+                "memory": _memory_count(preferences),
+                "summary": _summary_trace(summary),
                 "retrieved": len(sources),
                 "mode": "tools",
                 "path": "fallback",
@@ -1199,6 +1231,8 @@ class ChatService:
                 )
         except Exception as error:  # la UI ya recibirá el evento de error
             logger.warning("chat.incomplete_persist_failed", error=str(error))
+        else:
+            self._summarize(conversation.owner_key, conversation.id)
 
 
 def _is_duplicate_turn(error: IntegrityError) -> bool:
@@ -1239,25 +1273,37 @@ def _owned_conversation(
     return repository.get_or_create(owner_key)
 
 
-def _seed_turns(repository: SqlChatRepository, conversation_id: str) -> list[Turn]:
-    """Convierte el historial persistido en turnos para sembrar el checkpointer."""
+def _seed_turns(
+    repository: SqlChatRepository, conversation_id: str, history_turns: int
+) -> SeedTurns:
+    """Semilla del turno: la ventana más la holgura del resumen y el total de turnos.
 
-    messages = repository.history(conversation_id, limit=16)
-    turns: list[Turn] = []
-    pending: ChatMessage | None = None
-    for message in messages:
-        if message.role == "user":
-            pending = message
-        elif pending is not None:
-            turns.append(
-                {
-                    "question": pending.content,
-                    "answer": message.content,
-                    "incomplete": message.status == "incomplete",
-                }
-            )
-            pending = None
-    return turns
+    Pide el doble de ``agent_history_turns + SUMMARY_SLACK_TURNS`` mensajes (spec 045, FR-008),
+    los empareja con ``pair_turns`` (la misma cuenta que el ``SummaryWorker``) y añade
+    ``turn_count`` (un ``COUNT`` en la misma sesión): con él ``recall`` sabe qué índice
+    tiene el primer turno de la semilla.
+    """
+
+    window = history_turns + SUMMARY_SLACK_TURNS
+    messages = repository.history(conversation_id, limit=2 * window)
+    turns = pair_turns(messages)[-window:]
+    return SeedTurns(turns, turn_count=repository.count_turns(conversation_id))
+
+
+def _memory_count(preferences: Sequence[str]) -> int:
+    """Categorías de la memoria con valor (las notas cuentan como una), para ``trace``."""
+
+    return len({"nota" if str(line).startswith("nota:") else str(line) for line in preferences})
+
+
+def _summary_trace(summary: Mapping[str, Any] | None) -> dict[str, Any]:
+    """``trace.summary``: solo ``covered_turns`` y ``method``, nunca el texto."""
+
+    summary = summary or {}
+    return {
+        "covered_turns": int(summary.get("covered_turns") or 0),
+        "method": str(summary.get("method") or ""),
+    }
 
 
 def _replay(
@@ -1364,7 +1410,7 @@ def _has_evidence(obtained: ToolAgentFinal) -> bool:
     queried = any(
         r.get("status") == "ok"
         and r.get("tool") in TOOL_NAMES
-        and r.get("tool") != TOOL_SIN_CONSULTA
+        and r.get("tool") not in DECLARATION_TOOLS
         for r in obtained.results
     )
     return queried and (bool(obtained.sources) or has_cards(obtained.products))
@@ -1385,7 +1431,7 @@ def _monitored_results(
     no_query = False
     for result in results:
         name = str(result.get("tool") or "")
-        if name == TOOL_SIN_CONSULTA:
+        if name in DECLARATION_TOOLS:
             no_query = True
             continue
         monitored.append({**result, "tool": name if name in TOOL_NAMES else UNKNOWN_TOOL})
@@ -1645,4 +1691,8 @@ def default_chat_service() -> ChatService:
 
     from apps.api import runtime
 
-    return ChatService(runtime.session_factory(), _DeferredEmbedder(), _DeferredLLM())
+    session_factory = runtime.session_factory()
+    # El worker no abre conexiones hasta su primer trabajo y se cierra al salir.
+    worker = build_summary_worker(session_factory)
+    atexit.register(worker.close)
+    return ChatService(session_factory, _DeferredEmbedder(), _DeferredLLM(), summary_worker=worker)

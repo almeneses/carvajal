@@ -20,9 +20,23 @@ __all__ = [
     "TOOL_BUSCAR_CORPUS",
     "TOOL_BUSCAR_PRODUCTO",
     "TOOL_BUSCAR_SEDES",
+    "TOOL_CIUDADES_CON_COBERTURA",
+    "TOOL_COMPARAR_REFERENCIAS",
+    "TOOL_CONSULTAR_COTIZACION",
+    "TOOL_CONVERTIR_PRESENTACION",
     "TOOL_COTIZAR",
+    "TOOL_EMPRESAS_DEL_GRUPO",
+    "TOOL_FECHA_ACTUAL",
+    "TOOL_FICHA_PRODUCTO",
+    "TOOL_GUIA_MATERIALES",
+    "TOOL_HISTORIA_CARVAJAL",
+    "TOOL_INDICADORES_DISPONIBLES",
     "TOOL_INDICADOR_FINANCIERO",
+    "TOOL_LISTAR_MEMORIA",
     "TOOL_NAMES",
+    "TOOL_OLVIDAR_PREFERENCIA",
+    "TOOL_PREGUNTAS_FRECUENTES",
+    "TOOL_RECORDAR_PREFERENCIA",
     "TOOL_SIN_CONSULTA",
     "TOOL_STATUSES",
     "UNKNOWN_TOOL",
@@ -42,18 +56,52 @@ ToolName = Literal[
     "buscar_sedes",
     "indicador_financiero",
     "sin_consulta",
+    "ficha_producto",
+    "comparar_referencias",
+    "guia_materiales",
+    "convertir_presentacion",
+    "ciudades_con_cobertura",
+    "consultar_cotizacion",
+    "indicadores_disponibles",
+    "historia_carvajal",
+    "empresas_del_grupo",
+    "preguntas_frecuentes",
+    "fecha_actual",
+    "recordar_preferencia",
+    "listar_memoria",
+    "olvidar_preferencia",
 ]
 ToolStatus = Literal["ok", "empty", "needs_input", "error"]
 ModePath = Literal["shortcut", "agent"]
 
-# Nombres de las seis herramientas de contracts/agent-tools.md.
+# Nombres de las seis herramientas de contracts/agent-tools.md (spec 044).
 TOOL_BUSCAR_CORPUS: Final = "buscar_corpus"
 TOOL_BUSCAR_PRODUCTO: Final = "buscar_producto"
 TOOL_COTIZAR: Final = "cotizar"
 TOOL_BUSCAR_SEDES: Final = "buscar_sedes"
 TOOL_INDICADOR_FINANCIERO: Final = "indicador_financiero"
 TOOL_SIN_CONSULTA: Final = "sin_consulta"
+# Catálogo (spec 045, US3).
+TOOL_FICHA_PRODUCTO: Final = "ficha_producto"
+TOOL_COMPARAR_REFERENCIAS: Final = "comparar_referencias"
+TOOL_GUIA_MATERIALES: Final = "guia_materiales"
+TOOL_CONVERTIR_PRESENTACION: Final = "convertir_presentacion"
+TOOL_CIUDADES_CON_COBERTURA: Final = "ciudades_con_cobertura"
+# Institucionales, cotizaciones guardadas y fecha (spec 045, US4).
+TOOL_CONSULTAR_COTIZACION: Final = "consultar_cotizacion"
+TOOL_INDICADORES_DISPONIBLES: Final = "indicadores_disponibles"
+TOOL_HISTORIA_CARVAJAL: Final = "historia_carvajal"
+TOOL_EMPRESAS_DEL_GRUPO: Final = "empresas_del_grupo"
+TOOL_PREGUNTAS_FRECUENTES: Final = "preguntas_frecuentes"
+TOOL_FECHA_ACTUAL: Final = "fecha_actual"
+# Memoria del dueño (spec 045, US2).
+TOOL_RECORDAR_PREFERENCIA: Final = "recordar_preferencia"
+TOOL_LISTAR_MEMORIA: Final = "listar_memoria"
+TOOL_OLVIDAR_PREFERENCIA: Final = "olvidar_preferencia"
 
+# Los nombres del ``Literal``: valida ``make_tool_outcome``. El registro de herramientas
+# (``tools/registry.py``) deriva su propio ``TOOL_NAMES`` del orden de ``TOOLS`` y una prueba
+# exige que ambos conjuntos coincidan en cada commit (spec 045, research R9).
 TOOL_NAMES: Final[tuple[str, ...]] = get_args(ToolName)
 # Nombre con el que se registra una llamada a una herramienta que no existe: el nombre que
 # escribió el modelo puede llevar datos de la persona y no se conserva (FR-014).
@@ -85,9 +133,17 @@ class ToolAgentState(TypedDict, total=False):
     reductor ``add_messages`` (sistema, historial, pregunta y pasos del turno).
     ``seen_calls`` es una lista (no ``set``) de huellas ``nombre+args`` normalizados.
     ``results`` guarda un :class:`ToolOutcome` por herramienta, en orden.
-    ``shortcut_intent`` es la intención que decidió el nodo ``shortcut`` (``greeting`` o
-    ``memory_write``; vacía si el turno va al agente): ``direct`` la lee en vez de
-    recalcularla. ``recall`` la reinicia en cada turno, porque el checkpoint persiste.
+    ``shortcut_intent`` es la intención que decidió el nodo ``shortcut`` (``greeting``,
+    ``farewell``, ``memory_forget`` o ``memory_unavailable``; vacía si el turno va al
+    agente): ``direct`` la lee en vez de recalcularla. ``recall`` la reinicia en cada
+    turno, porque el checkpoint persiste. Desde la spec 045 (R15) ``memory_write`` ya no es
+    del atajo: la preferencia la guarda el agente con ``recordar_preferencia``.
+
+    Spec 045 (data-model *Estado de los grafos*): ``conversation_summary`` es el resumen
+    acumulado de los turnos que salieron de la ventana (``recall`` no lo reinicia);
+    ``memory`` es la instantánea JSON de la memoria del dueño leída en ``recall``
+    (``preferences`` se conserva con sus líneas por compatibilidad); ``turn_count`` es una
+    entrada del turno: los turnos persistidos del hilo antes del actual.
     """
 
     question: str
@@ -106,6 +162,9 @@ class ToolAgentState(TypedDict, total=False):
     mode_path: ModePath
     shortcut_intent: str
     missing: list[str]
+    conversation_summary: dict[str, Any]
+    memory: dict[str, Any]
+    turn_count: int
 
 
 def validate_question(question: str) -> str:

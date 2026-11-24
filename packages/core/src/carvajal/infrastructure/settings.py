@@ -9,6 +9,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# Holgura entre el plazo de ``preguntas_frecuentes`` y el del turno cuando se recorta el
+# valor por defecto (``Settings._plazo_faq_menor_que_el_turno``).
+_FAQ_MARGIN_S = 5.0
+
 
 class Settings(BaseSettings):
     """Valores de configuración del corpus, las capas y los proveedores de LLM."""
@@ -200,6 +204,16 @@ class Settings(BaseSettings):
     agent_max_tool_calls: int = Field(default=4, ge=1, le=8)
     agent_turn_timeout_s: float = Field(default=45, gt=0, le=300)
     agent_max_quotes: int = Field(default=3, ge=1, le=10)
+    # Spec 045: memoria de corto y largo plazo. El resumen acumulado de los turnos que salen
+    # de la ventana es determinista por defecto hasta medir el prompt del resumidor (T097);
+    # «off» lo apaga. La memoria del dueño caduca como la del Cotizador.
+    agent_summary_mode: Literal["llm", "deterministic", "off"] = "deterministic"
+    agent_summary_timeout_s: float = Field(default=8, ge=1, le=30)
+    agent_summary_max_chars: int = Field(default=1500, ge=300, le=4000)
+    agent_memory_days: int = Field(default=180, ge=1, le=730)
+    # Plazo de la generación de ``preguntas_frecuentes`` (único LLM dentro del turno,
+    # research R18): siempre menor que ``agent_turn_timeout_s``.
+    agent_faq_timeout_s: float = Field(default=25, ge=5, le=40)
 
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
@@ -255,6 +269,27 @@ class Settings(BaseSettings):
         except ZoneInfoNotFoundError as error:
             raise ValueError(f"zona horaria desconocida: {value}") from error
         return value
+
+    @model_validator(mode="after")
+    def _plazo_faq_menor_que_el_turno(self) -> "Settings":
+        """El plazo de ``preguntas_frecuentes`` es siempre menor que el del turno (R18).
+
+        Si el turno vence antes, el turno cae al respaldo por plazo, la herramienta nunca
+        usa su caché de respaldo y su hilo sigue llamando al LLM. Un
+        ``AGENT_FAQ_TIMEOUT_S`` explícito que no lo cumple falla al arrancar; el valor por
+        defecto (25 s) se recorta al del turno menos 5 s, o a la mitad si el turno es corto.
+        """
+
+        turn = self.agent_turn_timeout_s
+        if self.agent_faq_timeout_s < turn:
+            return self
+        if "agent_faq_timeout_s" in self.model_fields_set:
+            raise ValueError(
+                "AGENT_FAQ_TIMEOUT_S debe ser menor que AGENT_TURN_TIMEOUT_S "
+                f"({self.agent_faq_timeout_s} ≥ {turn})"
+            )
+        self.agent_faq_timeout_s = turn - _FAQ_MARGIN_S if turn > 2 * _FAQ_MARGIN_S else turn / 2
+        return self
 
     @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":

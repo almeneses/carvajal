@@ -17,7 +17,13 @@ class Turn(TypedDict):
 
 
 class AgentState(TypedDict, total=False):
-    """Canales que persiste el checkpointer entre turnos de un mismo hilo."""
+    """Canales que persiste el checkpointer entre turnos de un mismo hilo.
+
+    Spec 045: ``conversation_summary`` es el mismo canal del grafo ``tools`` (resumen
+    acumulado de los turnos fuera de la ventana), declarado aquí para que el respaldo
+    ``routes`` lo lea y lo adopte; ``turn_count`` es una entrada del turno (turnos
+    persistidos del hilo antes del actual).
+    """
 
     question: str
     owner_key: str
@@ -39,6 +45,8 @@ class AgentState(TypedDict, total=False):
     reason: str
     answer: str
     incomplete: bool
+    conversation_summary: dict[str, Any]
+    turn_count: int
 
 
 @dataclass(frozen=True)

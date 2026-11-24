@@ -395,6 +395,96 @@ def test_modo_del_agente_por_defecto_y_limites() -> None:
     assert settings.agent_max_quotes == 3
 
 
+def test_memoria_del_agente_por_defecto() -> None:
+    """Spec 045 (T001): resumen determinista hasta medir el resumidor, 180 días de memoria."""
+
+    # Arrange / Act
+    settings = Settings(_env_file=None)
+
+    # Assert
+    assert settings.agent_summary_mode == "deterministic"
+    assert settings.agent_summary_timeout_s == 8
+    assert settings.agent_summary_max_chars == 1500
+    assert settings.agent_memory_days == 180
+    assert settings.agent_faq_timeout_s == 25
+    assert settings.agent_faq_timeout_s < settings.agent_turn_timeout_s
+
+
+@pytest.mark.parametrize(("turno", "faq"), [("20", "40"), ("25", "25")])
+def test_un_plazo_de_faq_no_menor_que_el_del_turno_falla_al_arrancar(
+    monkeypatch: pytest.MonkeyPatch, turno: str, faq: str
+) -> None:
+    """Contrato: el plazo de ``preguntas_frecuentes`` es menor que el del turno."""
+
+    # Arrange
+    monkeypatch.setenv("AGENT_TURN_TIMEOUT_S", turno)
+    monkeypatch.setenv("AGENT_FAQ_TIMEOUT_S", faq)
+
+    # Act / Assert
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_un_turno_corto_recorta_el_plazo_de_faq_por_defecto() -> None:
+    """Sin ``AGENT_FAQ_TIMEOUT_S`` explícito, el plazo por defecto se ajusta al del turno."""
+
+    # Act
+    corto = Settings(_env_file=None, agent_turn_timeout_s=20)
+    minimo = Settings(_env_file=None, agent_turn_timeout_s=0.25)
+
+    # Assert
+    assert corto.agent_faq_timeout_s == 15
+    assert 0 < minimo.agent_faq_timeout_s < minimo.agent_turn_timeout_s
+
+
+def test_memoria_del_agente_desde_el_entorno(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Los ajustes de la 045 se leen del entorno con sus nombres en mayúsculas."""
+
+    # Arrange
+    monkeypatch.setenv("AGENT_SUMMARY_MODE", "llm")
+    monkeypatch.setenv("AGENT_SUMMARY_TIMEOUT_S", "12")
+    monkeypatch.setenv("AGENT_SUMMARY_MAX_CHARS", "900")
+    monkeypatch.setenv("AGENT_MEMORY_DAYS", "30")
+    monkeypatch.setenv("AGENT_FAQ_TIMEOUT_S", "15")
+
+    # Act
+    settings = Settings(_env_file=None)
+
+    # Assert
+    assert settings.agent_summary_mode == "llm"
+    assert settings.agent_summary_timeout_s == 12
+    assert settings.agent_summary_max_chars == 900
+    assert settings.agent_memory_days == 30
+    assert settings.agent_faq_timeout_s == 15
+
+
+@pytest.mark.parametrize(
+    ("nombre", "valor"),
+    [
+        ("AGENT_SUMMARY_MODE", "siempre"),
+        ("AGENT_SUMMARY_TIMEOUT_S", "0.5"),
+        ("AGENT_SUMMARY_TIMEOUT_S", "31"),
+        ("AGENT_SUMMARY_MAX_CHARS", "299"),
+        ("AGENT_SUMMARY_MAX_CHARS", "4001"),
+        ("AGENT_MEMORY_DAYS", "0"),
+        ("AGENT_MEMORY_DAYS", "731"),
+        ("AGENT_FAQ_TIMEOUT_S", "4"),
+        ("AGENT_FAQ_TIMEOUT_S", "41"),
+    ],
+)
+def test_memoria_del_agente_fuera_de_rango_falla(
+    monkeypatch: pytest.MonkeyPatch, nombre: str, valor: str
+) -> None:
+    """Un valor fuera del rango declarado en la spec 045 no arranca la aplicación."""
+
+    # Arrange
+    monkeypatch.setenv(nombre, valor)
+
+    # Act / Assert
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
 @pytest.mark.parametrize("modo", ["routes", "tools"])
 def test_modo_del_agente_desde_el_entorno(monkeypatch: pytest.MonkeyPatch, modo: str) -> None:
     """``AGENT_MODE`` elige el modo; ``routes`` es el interruptor para volver atrás."""

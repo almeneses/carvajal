@@ -526,6 +526,77 @@ def test_los_turnos_anteriores_siembran_el_historial_y_se_evalua_el_ultimo() -> 
     ]
 
 
+class OwnerDriver(ScriptedDriver):
+    """Como ``ScriptedDriver``, pero registra también el dueño de cada turno."""
+
+    def __init__(self, answers: dict[str, Any]) -> None:
+        super().__init__(answers)
+        self.owners: list[str] = []
+
+    def run_turn(
+        self, *, owner_key: str, thread_id: str, question: str, seed_turns: Sequence[Turn]
+    ) -> TurnObservation:
+        self.owners.append(owner_key)
+        return super().run_turn(
+            owner_key=owner_key, thread_id=thread_id, question=question, seed_turns=seed_turns
+        )
+
+
+def test_new_thread_before_abre_otra_conversacion_del_mismo_dueno(tmp_path: Path) -> None:
+    """Spec 045 (T003): «llámame Ana» y, en otra conversación, «¿cómo me llamo?»."""
+
+    # Arrange
+    path = tmp_path / "conjunto.json"
+    path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "id": "m-ana",
+                        "group": "memoria",
+                        "turns": ["llámame Ana", "gracias", "¿cómo me llamo?"],
+                        "new_thread_before": [2],
+                        "expect": {},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    [item] = load_question_set(path).items
+    driver = OwnerDriver(
+        {
+            "llámame Ana": _obs("Listo, Ana."),
+            "gracias": _obs("Con gusto."),
+            "¿cómo me llamo?": _obs("Te llamas Ana."),
+        }
+    )
+
+    # Act
+    report = evaluate_mode(driver, [item])
+
+    # Assert
+    assert item.new_thread_before == (2,)
+    assert report.results[0].observation is not None
+    first, second, third = driver.calls
+    assert first[0] == second[0] == "eval-tools-m-ana"
+    assert third[0] == "eval-tools-m-ana-h1"
+    assert third[2] == []
+    assert len(set(driver.owners)) == 1
+
+
+@pytest.mark.parametrize("valor", [[0], [3], [1, 1], "1", [True]])
+def test_new_thread_before_invalido_falla_al_cargar(tmp_path: Path, valor: Any) -> None:
+    # Arrange
+    path = tmp_path / "conjunto.json"
+    item = {"id": "m-x", "turns": ["a", "b", "c"], "new_thread_before": valor, "expect": {}}
+    path.write_text(json.dumps({"items": [item]}), encoding="utf-8")
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="new_thread_before"):
+        load_question_set(path)
+
+
 def test_un_error_de_un_item_no_corta_la_corrida() -> None:
     # Arrange
     items = [
@@ -2099,3 +2170,186 @@ def test_tools_observation_lee_needs_input_del_turno_y_no_las_omitidas() -> None
     # Assert
     assert observation.requested == ("temperatura",)
     assert observation.missing == ('buscar_sedes {"ciudad": "Cali"}',)
+
+
+# --- Semilla acotada como en producción (spec 045, T030) --------------------------------------
+
+
+class SeedDriver(ScriptedDriver):
+    """Registra la semilla tal como llega (con ``turn_count``)."""
+
+    def __init__(self, answers: dict[str, Any]) -> None:
+        super().__init__(answers)
+        self.seeds: list[Any] = []
+
+    def run_turn(
+        self, *, owner_key: str, thread_id: str, question: str, seed_turns: Sequence[Turn]
+    ) -> TurnObservation:
+        self.seeds.append(seed_turns)
+        return super().run_turn(
+            owner_key=owner_key, thread_id=thread_id, question=question, seed_turns=seed_turns
+        )
+
+
+def test_el_ejecutor_acota_la_semilla_y_pasa_turn_count() -> None:
+    # Arrange: 12 turnos; la ventana es de 8 y la holgura del resumen de 2.
+    from carvajal.agent.toolagent.evaluation import _run_item
+
+    questions = tuple(f"pregunta {i}" for i in range(12))
+    item = EvalItem(id="m-largo", group="memoria", turns=questions, expect={})
+    driver = SeedDriver({question: _obs(f"r {question}") for question in questions})
+
+    # Act
+    _run_item(driver, item, history_turns=8)
+
+    # Assert
+    last = driver.seeds[-1]
+    assert len(last) == 10
+    assert last.turn_count == 11
+    assert last[0]["question"] == "pregunta 1"
+    assert [seed.turn_count for seed in driver.seeds[:3]] == [0, 1, 2]
+
+
+def test_los_drivers_conservan_turn_count_al_llamar_al_runner() -> None:
+    # Arrange
+    from carvajal.agent.memory.summary import SeedTurns
+
+    received: list[Any] = []
+
+    class Runner:
+        def prepare(self, owner_key: str, thread_id: str, question: str, seed: Any) -> Any:
+            received.append(seed)
+            return _routes_turn(route="direct", intent="greeting", prompt=None, sources=())
+
+        def record(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    driver = RoutesDriver(Runner(), FakeLLM("hola"))
+    seed = SeedTurns([{"question": "q", "answer": "a", "incomplete": False}], turn_count=7)
+
+    # Act
+    driver.run_turn(owner_key="o", thread_id="t", question="hola", seed_turns=seed)
+
+    # Assert
+    assert received[0].turn_count == 7
+
+
+# --- Equivalencias de herramientas (spec 045, T090; US5-1) -----------------------------------
+
+
+def _check_equivalent(item: EvalItem, observation: TurnObservation, name: str) -> bool:
+    result = next(c for c in check_item(item, observation, equivalences=True) if c.name == name)
+    return result.passed
+
+
+@pytest.mark.parametrize(
+    ("expected", "used"),
+    [
+        ("buscar_sedes", "ciudades_con_cobertura"),
+        ("ciudades_con_cobertura", "buscar_sedes"),
+        ("buscar_producto", "ficha_producto"),
+        ("buscar_producto", "comparar_referencias"),
+        ("buscar_corpus", "historia_carvajal"),
+        ("buscar_corpus", "empresas_del_grupo"),
+    ],
+)
+def test_una_herramienta_equivalente_solo_cuenta_en_el_crudo_con_equivalencias(
+    expected: str, used: str
+) -> None:
+    # Arrange
+    item = _item({"tools_any": [[expected]]})
+    observation = _obs(tools=(ToolCall(used),))
+
+    # Act / Assert
+    assert not _check(item, observation, "tools_any")
+    assert _check_equivalent(item, observation, "tools_any")
+
+
+def test_las_equivalencias_no_son_transitivas_ni_cubren_otras_herramientas() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.evaluation import TOOL_EQUIVALENTS
+
+    item = _item({"tools_any": [["ficha_producto"]]})
+
+    # Act / Assert: ficha_producto ↔ buscar_producto, pero no ↔ comparar_referencias.
+    assert not _check_equivalent(item, _obs(tools=(ToolCall("comparar_referencias"),)), "tools_any")
+    assert not _check_equivalent(item, _obs(tools=(ToolCall("cotizar"),)), "tools_any")
+    assert "cotizar" not in TOOL_EQUIVALENTS
+    # Una llamada con error no cuenta ni con equivalencias.
+    assert not _check_equivalent(
+        item, _obs(tools=(ToolCall("buscar_producto", "error"),)), "tools_any"
+    )
+
+
+def test_el_atajo_declarado_por_el_item_cuenta_como_equivalente() -> None:
+    # Arrange: «olvidar todo» lo atiende el atajo (path: "shortcut" en el ítem).
+    declared = EvalItem(
+        id="m", group="memoria", turns=("q",), expect={"tools_any": [["x"]]}, path="shortcut"
+    )
+    undeclared = EvalItem(id="n", group="memoria", turns=("q",), expect={"tools_any": [["x"]]})
+    observation = _obs("Listo.", path="shortcut")
+
+    # Act / Assert
+    assert not _check(declared, observation, "tools_any")
+    assert _check_equivalent(declared, observation, "tools_any")
+    assert not _check_equivalent(undeclared, observation, "tools_any")
+
+
+def test_el_parser_acepta_path_y_rechaza_uno_desconocido(tmp_path: Path) -> None:
+    # Arrange
+    good = {"items": [{"id": "a", "turns": ["q"], "expect": {"tools_any": []}, "path": "shortcut"}]}
+    bad = {"items": [{"id": "b", "turns": ["q"], "expect": {}, "path": "atajo"}]}
+    (tmp_path / "good.json").write_text(json.dumps(good), encoding="utf-8")
+    (tmp_path / "bad.json").write_text(json.dumps(bad), encoding="utf-8")
+
+    # Act
+    loaded = load_question_set(tmp_path / "good.json")
+
+    # Assert
+    assert loaded.items[0].path == "shortcut"
+    with pytest.raises(ValueError, match="path desconocido"):
+        load_question_set(tmp_path / "bad.json")
+
+
+def test_el_informe_da_el_crudo_estricto_y_con_equivalencias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: un ítem pasa estricto, otro solo con equivalencias y otro en ninguno.
+    class Driver:
+        mode = "tools"
+
+        def __init__(self) -> None:
+            self.observations = {
+                "estricto": _obs(tools=(ToolCall("buscar_sedes"),)),
+                "equivalente": _obs(tools=(ToolCall("ciudades_con_cobertura"),)),
+                "ninguno": _obs(tools=(ToolCall("cotizar"),)),
+            }
+
+    items = [
+        EvalItem(
+            id=key, group="herramienta", turns=(key,), expect={"tools_any": [["buscar_sedes"]]}
+        )
+        for key in ("estricto", "equivalente", "ninguno")
+    ]
+    driver = Driver()
+
+    def run_item(_driver: Any, item: EvalItem) -> TurnObservation:
+        return driver.observations[item.id]
+
+    # Act
+    import carvajal.agent.toolagent.evaluation as evaluation
+
+    monkeypatch.setattr(evaluation, "_run_item", run_item)
+    report = evaluate_mode(driver, items)  # ty: ignore[invalid-argument-type]
+    metrics = report.metrics()
+    text = render_report([report], QuestionSet(path=Path("x.json"), items=tuple(items)))
+
+    # Assert
+    assert metrics["resolved"] == 1
+    assert metrics["resolved_with_equivalences"] == 2
+    assert "Ítems resueltos con equivalencias de herramientas" in text
+    assert [r.to_dict()["passed_with_equivalences"] for r in report.results] == [
+        True,
+        True,
+        False,
+    ]

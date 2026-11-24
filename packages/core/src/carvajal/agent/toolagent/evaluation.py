@@ -39,30 +39,45 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final, Protocol
 
 import structlog
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
+from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
+from carvajal.agent.toolagent.evidence import backing_data
 from carvajal.agent.toolagent.graph import SHORTCUT_INTENTS
 from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_CORPUS,
     TOOL_BUSCAR_PRODUCTO,
     TOOL_BUSCAR_SEDES,
+    TOOL_CIUDADES_CON_COBERTURA,
+    TOOL_COMPARAR_REFERENCIAS,
     TOOL_COTIZAR,
+    TOOL_EMPRESAS_DEL_GRUPO,
+    TOOL_FICHA_PRODUCTO,
+    TOOL_HISTORIA_CARVAJAL,
     TOOL_INDICADOR_FINANCIERO,
-    TOOL_NAMES,
+    TOOL_RECORDAR_PREFERENCIA,
     TOOL_SIN_CONSULTA,
 )
-from carvajal.agent.toolagent.tools import content_data
+from carvajal.agent.toolagent.tools import (
+    DECLARATION_TOOLS,
+    MEMORY_TOOLS,
+    TOOL_NAMES,
+    content_data,
+)
+from carvajal.infrastructure.settings import Settings
 from carvajal.prompts import ABSENCE_POLICY, NO_CONTEXT_ANSWER
 
 __all__ = [
     "EXPECT_KEYS",
     "MODES",
     "ROUTE_TOOLS",
+    "TOOL_EQUIVALENTS",
     "CombinedUsage",
     "EvalItem",
     "EvalRuntime",
@@ -130,6 +145,38 @@ ROUTE_TOOLS: Final[dict[str, tuple[str, ...]]] = {
     "tool": (TOOL_INDICADOR_FINANCIERO,),
     "commercial": (TOOL_BUSCAR_PRODUCTO, TOOL_COTIZAR, TOOL_BUSCAR_SEDES),
 }
+# El grafo ``routes`` solo conoce herramientas de la 044; si el registro dejara de tener
+# alguna, la conversión de ``routing_questions.json`` no podría esperarla (spec 045, T015).
+if not {name for names in ROUTE_TOOLS.values() for name in names} <= set(TOOL_NAMES):
+    raise RuntimeError("ROUTE_TOOLS nombra herramientas fuera del registro.")
+# Equivalencias congeladas de ``tools_any`` (spec 045, T090; research R10.6). Los conjuntos
+# congelados antes de la 045 nombran solo las seis herramientas de la 044: elegir la nueva
+# que hace lo mismo con más precisión bajaría el crudo sin ser una regresión. Cada par vale
+# en los dos sentidos y no es transitivo (``ficha_producto`` no equivale a
+# ``comparar_referencias``). El informe da el crudo estricto y el crudo con equivalencias.
+_EQUIVALENT_PAIRS: Final[tuple[tuple[str, str], ...]] = (
+    (TOOL_BUSCAR_SEDES, TOOL_CIUDADES_CON_COBERTURA),
+    (TOOL_BUSCAR_PRODUCTO, TOOL_FICHA_PRODUCTO),
+    (TOOL_BUSCAR_PRODUCTO, TOOL_COMPARAR_REFERENCIAS),
+    (TOOL_BUSCAR_CORPUS, TOOL_HISTORIA_CARVAJAL),
+    (TOOL_BUSCAR_CORPUS, TOOL_EMPRESAS_DEL_GRUPO),
+)
+
+
+def _equivalents() -> Mapping[str, frozenset[str]]:
+    found: dict[str, set[str]] = {}
+    for left, right in _EQUIVALENT_PAIRS:
+        found.setdefault(left, set()).add(right)
+        found.setdefault(right, set()).add(left)
+    return MappingProxyType({name: frozenset(names) for name, names in found.items()})
+
+
+TOOL_EQUIVALENTS: Final[Mapping[str, frozenset[str]]] = _equivalents()
+if not set(TOOL_EQUIVALENTS) <= set(TOOL_NAMES):
+    raise RuntimeError("TOOL_EQUIVALENTS nombra herramientas fuera del registro.")
+# Caminos que un ítem puede declarar (``path``): con ``shortcut``, que el atajo atienda el
+# turno cuenta como equivalente a las herramientas esperadas (US5-1).
+ITEM_PATHS: Final = frozenset({"", "shortcut", "agent"})
 # Intenciones de la ruta directa que piden un dato a la persona.
 _ASKING_INTENTS: Final = frozenset({"commercial_clarify", "missing_period"})
 
@@ -142,7 +189,10 @@ class EvalItem:
     """Un ítem del conjunto: turnos a ejecutar (el último se evalúa) y lo esperado.
 
     ``history`` son turnos ya respondidos que se siembran sin ejecutarse (el historial de
-    ``routing_questions.json``); ``turns`` se ejecutan en orden en el mismo hilo.
+    ``routing_questions.json``); ``turns`` se ejecutan en orden en el mismo hilo, salvo que
+    ``new_thread_before`` nombre el índice (desde 0) de un turno: antes de ese turno se abre
+    otra conversación del mismo dueño (``thread_id`` nuevo, mismo ``owner_key``, sin
+    historial), como la persona que vuelve otro día (spec 045, T003).
     """
 
     id: str
@@ -150,6 +200,10 @@ class EvalItem:
     turns: tuple[str, ...]
     expect: Mapping[str, Any]
     history: tuple[Turn, ...] = ()
+    new_thread_before: tuple[int, ...] = ()
+    # Camino declarado por el ítem (spec 045, T090): ``shortcut`` acepta el atajo como
+    # equivalente en el crudo con equivalencias.
+    path: str = ""
 
     @property
     def question(self) -> str:
@@ -183,6 +237,10 @@ def _check_expect(item_id: str, expect: Mapping[str, Any]) -> None:
         raise ValueError(f"El ítem {item_id} trae claves de expect desconocidas: {unknown}")
 
 
+# Intenciones de memoria que el grafo ``routes`` atiende como atajo (spec 045, R15).
+_ROUTES_MEMORY_INTENTS: Final = frozenset({"memory_write", "memory_rejected", "memory_unavailable"})
+
+
 def _routing_expect(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Expectativas de un ítem de ``routing_questions.json`` (ruta esperada → herramientas)."""
 
@@ -191,6 +249,9 @@ def _routing_expect(raw: Mapping[str, Any]) -> dict[str, Any]:
     expect: dict[str, Any] = {"language": "es"}
     if route in ROUTE_TOOLS:
         expect["tools_any"] = [list(ROUTE_TOOLS[route])]
+    elif intent == "memory_write":
+        # Spec 045 (R15): en ``tools`` la preferencia la guarda el agente con la herramienta.
+        expect["tools_any"] = [[TOOL_RECORDAR_PREFERENCIA]]
     elif intent in SHORTCUT_INTENTS:
         expect["shortcut"] = True
     elif intent == "missing_period":
@@ -209,6 +270,22 @@ def _routing_expect(raw: Mapping[str, Any]) -> dict[str, Any]:
     if forbidden:
         expect["forbidden_materials"] = list(forbidden)
     return expect
+
+
+def _new_threads(item_id: str, raw: Any, turns: int) -> tuple[int, ...]:
+    """Índices de ``new_thread_before``: enteros entre 1 y el último turno, sin repetir."""
+
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(
+        isinstance(index, int) and not isinstance(index, bool) for index in raw
+    ):
+        raise ValueError(f"El ítem {item_id} trae un new_thread_before que no es una lista.")
+    if any(index < 1 or index >= turns for index in raw) or len(set(raw)) != len(raw):
+        raise ValueError(
+            f"El ítem {item_id} trae un new_thread_before fuera de 1..{turns - 1} o repetido."
+        )
+    return tuple(sorted(raw))
 
 
 def _item(raw: Mapping[str, Any]) -> EvalItem:
@@ -234,7 +311,17 @@ def _item(raw: Mapping[str, Any]) -> EvalItem:
         raise ValueError(f"El ítem {item_id} no tiene turnos.")
     expect = dict(raw.get("expect") or {})
     _check_expect(item_id, expect)
-    return EvalItem(id=item_id, group=str(raw.get("group", "")), turns=turns, expect=expect)
+    path = str(raw.get("path") or "")
+    if path not in ITEM_PATHS:
+        raise ValueError(f"El ítem {item_id} declara un path desconocido: {path!r}")
+    return EvalItem(
+        id=item_id,
+        group=str(raw.get("group", "")),
+        turns=turns,
+        expect=expect,
+        new_thread_before=_new_threads(item_id, raw.get("new_thread_before"), len(turns)),
+        path=path,
+    )
 
 
 def load_question_set(path: Path) -> QuestionSet:
@@ -448,7 +535,8 @@ def routes_tools(turn: Any) -> tuple[tuple[ToolCall, ...], bool]:
             corpus = "ok" if _corpus_sources(sources) else "empty"
             calls.append(ToolCall(TOOL_BUSCAR_CORPUS, corpus))
         return tuple(calls), False
-    if intent in SHORTCUT_INTENTS:
+    if intent in SHORTCUT_INTENTS or intent in _ROUTES_MEMORY_INTENTS:
+        # En ``routes`` la preferencia (``memory_write``) y su rechazo siguen siendo atajo.
         return (), True
     motivo = "pedir_dato" if intent in _ASKING_INTENTS else "conversacion"
     return (ToolCall(TOOL_SIN_CONSULTA, "ok", {"motivo": motivo}),), False
@@ -643,7 +731,7 @@ class RoutesDriver:
         started = self._clock()
         if self._usage is not None:
             self._usage.reset()
-        turn = self._runner.prepare(owner_key, thread_id, question, list(seed_turns))
+        turn = self._runner.prepare(owner_key, thread_id, question, _as_seed(seed_turns))
         first: float | None = None
         if turn.prompt is None:
             answer = NO_CONTEXT_ANSWER
@@ -701,18 +789,32 @@ def fallback_reason(error: BaseException) -> str | None:
     return None
 
 
+def _as_seed(seed_turns: Sequence[Turn]) -> list[Turn]:
+    """La semilla como lista, conservando ``turn_count`` si es una ``SeedTurns``."""
+
+    return seed_turns if isinstance(seed_turns, SeedTurns) else list(seed_turns)
+
+
 def _tool_backing(messages: Sequence[Any]) -> list[str]:
-    """Datos de las herramientas del turno (sin ``message`` ni ``sin_consulta``)."""
+    """Datos de las herramientas del turno (sin ``message``, ``sin_consulta`` ni memoria).
+
+    Las de memoria quedan fuera como en ``_tool_backing`` del servicio (spec 045, FR-017):
+    sus valores son de la persona y nunca respaldan datos de Carvajal. De
+    ``preguntas_frecuentes`` solo cuentan los fragmentos (``backing_data``, R18).
+    """
 
     texts: list[str] = []
     for message in messages:
-        if not isinstance(message, ToolMessage) or message.name == TOOL_SIN_CONSULTA:
+        if not isinstance(message, ToolMessage) or message.name in DECLARATION_TOOLS:
+            continue
+        if message.name in MEMORY_TOOLS:
             continue
         content = message.content if isinstance(message.content, str) else _dumps(message.content)
         data = content_data(content)
         if data is None:
             continue
-        texts.append(_dumps({key: value for key, value in data.items() if key != "message"}))
+        backing = backing_data(str(message.name or ""), data)
+        texts.append(_dumps({key: value for key, value in backing.items() if key != "message"}))
     return texts
 
 
@@ -725,7 +827,7 @@ def _has_evidence(final: Any) -> bool:
     queried = any(
         r.get("status") == "ok"
         and r.get("tool") in TOOL_NAMES
-        and r.get("tool") != TOOL_SIN_CONSULTA
+        and r.get("tool") not in DECLARATION_TOOLS
         for r in final.results
     )
     return queried and (bool(final.sources) or has_cards(dict(final.products or {})))
@@ -744,7 +846,7 @@ def _asked_data(results: Iterable[Mapping[str, Any]]) -> list[str]:
     asked: list[str] = []
     for result in results:
         args = result.get("args") or {}
-        if result.get("tool") == TOOL_SIN_CONSULTA and args.get("motivo") == "pedir_dato":
+        if result.get("tool") in DECLARATION_TOOLS and args.get("motivo") == "pedir_dato":
             asked.append(str(args.get("dato") or "dato"))
     return asked
 
@@ -768,7 +870,7 @@ def _tool_requested(final: Any, messages: Sequence[Any]) -> list[str]:
 
     requested: list[str] = []
     for message in _turn_messages(messages):
-        if not isinstance(message, ToolMessage) or message.name == TOOL_SIN_CONSULTA:
+        if not isinstance(message, ToolMessage) or message.name in DECLARATION_TOOLS:
             continue
         content = message.content if isinstance(message.content, str) else _dumps(message.content)
         data = content_data(content) or {}
@@ -842,7 +944,7 @@ class ToolsDriver:
         parts: list[str] = []
         final: Any = None
         try:
-            for event in self._runner.stream(owner_key, thread_id, question, list(seed_turns)):
+            for event in self._runner.stream(owner_key, thread_id, question, _as_seed(seed_turns)):
                 if isinstance(event, ToolAgentStatus) and first_status is None:
                     first_status = self._clock()
                 elif isinstance(event, ToolAgentToken):
@@ -934,7 +1036,7 @@ class ToolsDriver:
                 turns=tuple(obtained.turns) or tuple(seed_turns),
             )
         else:
-            turn = self._fallback.prepare(owner_key, thread_id, question, list(seed_turns))
+            turn = self._fallback.prepare(owner_key, thread_id, question, _as_seed(seed_turns))
             products = dict(turn.products or {})
             sources = tuple(_plain(source) for source in turn.sources)
             answer = fallback.render(products, sources)
@@ -1600,7 +1702,7 @@ def _defers(observation: TurnObservation) -> bool:
     """
 
     return any(
-        call.name == TOOL_SIN_CONSULTA and call.args.get("motivo") == "pedir_dato"
+        call.name in DECLARATION_TOOLS and call.args.get("motivo") == "pedir_dato"
         for call in observation.tools
     )
 
@@ -1612,7 +1714,7 @@ def _no_real_query(observation: TurnObservation) -> bool:
     directa es ``conversacion``), así que el motivo no puede decidir.
     """
 
-    return all(call.name == TOOL_SIN_CONSULTA for call in observation.tools)
+    return all(call.name in DECLARATION_TOOLS for call in observation.tools)
 
 
 def _declaration(folded: str, *, refusal: bool) -> re.Match[str] | None:
@@ -2111,31 +2213,64 @@ class CheckResult:
 _USED_STATUSES: Final = frozenset({"ok", "needs_input", "empty"})
 
 
+def _with_equivalents(group: Sequence[str]) -> set[str]:
+    """El grupo de ``tools_any`` más sus equivalentes congelados (:data:`TOOL_EQUIVALENTS`)."""
+
+    names = set(group)
+    for name in group:
+        names |= TOOL_EQUIVALENTS.get(name, frozenset())
+    return names
+
+
 def _tools_any(
-    observation: TurnObservation, groups: Sequence[Sequence[str]], allow: bool
+    observation: TurnObservation,
+    groups: Sequence[Sequence[str]],
+    allow: bool,
+    *,
+    equivalences: bool = False,
+    path: str = "",
 ) -> CheckResult:
     used = {call.name for call in observation.tools if call.status in _USED_STATUSES}
-    if allow and (observation.shortcut or used <= {TOOL_SIN_CONSULTA}):
+    if allow and (observation.shortcut or used <= DECLARATION_TOOLS):
         return CheckResult("tools_any", True)
-    missing = [list(group) for group in groups if not used & set(group)]
+    if equivalences and path == "shortcut" and observation.shortcut:
+        # El ítem declara que el atajo atiende el turno (US5-1).
+        return CheckResult("tools_any", True)
+    expand = _with_equivalents if equivalences else set
+    missing = [list(group) for group in groups if not used & expand(group)]
     detail = f"faltan {missing}; usó {sorted(used) or 'ninguna'}" if missing else ""
     return CheckResult("tools_any", not missing, detail)
 
 
-def check_item(item: EvalItem, observation: TurnObservation) -> list[CheckResult]:
-    """Verificaciones del ítem (claves presentes de ``expect``) y la global de SC-001."""
+def check_item(
+    item: EvalItem, observation: TurnObservation, *, equivalences: bool = False
+) -> list[CheckResult]:
+    """Verificaciones del ítem (claves presentes de ``expect``) y la global de SC-001.
+
+    Con ``equivalences``, ``tools_any`` acepta las herramientas equivalentes de
+    :data:`TOOL_EQUIVALENTS` y el atajo si el ítem declara ``path: "shortcut"`` (T090); el
+    resto de las verificaciones no cambia.
+    """
 
     expect = item.expect
     used = set(observation.tool_names)
     allow = bool(expect.get("no_tool_allowed"))
     checks: list[CheckResult] = []
     if "tools_any" in expect:
-        checks.append(_tools_any(observation, expect["tools_any"], allow))
+        checks.append(
+            _tools_any(
+                observation,
+                expect["tools_any"],
+                allow,
+                equivalences=equivalences,
+                path=item.path,
+            )
+        )
     elif "no_tool_allowed" in expect and not allow:
         # Sin herramientas esperadas, ``no_tool_allowed: false`` exige alguna consulta real.
-        queried = {call.name for call in observation.tools if call.status in _USED_STATUSES} - {
-            TOOL_SIN_CONSULTA
-        }
+        queried = {
+            call.name for call in observation.tools if call.status in _USED_STATUSES
+        } - DECLARATION_TOOLS
         checks.append(CheckResult("no_tool_allowed", bool(queried), "solo sin_consulta"))
     if "tools_none" in expect:
         called = sorted(used & set(expect["tools_none"]))
@@ -2222,6 +2357,8 @@ class ItemResult:
     mode: str
     observation: TurnObservation | None = None
     checks: list[CheckResult] = field(default_factory=list)
+    # Las mismas verificaciones con las equivalencias de ``tools_any`` (T090).
+    equivalent_checks: list[CheckResult] = field(default_factory=list)
     error: str = ""
     # Segundos de todo el ítem (todos sus turnos) hasta terminar o fallar.
     elapsed_s: float | None = None
@@ -2229,6 +2366,11 @@ class ItemResult:
     @property
     def passed(self) -> bool:
         return not self.error and all(check.passed for check in self.checks)
+
+    @property
+    def passed_with_equivalences(self) -> bool:
+        checks = self.equivalent_checks or self.checks
+        return not self.error and all(check.passed for check in checks)
 
     @property
     def failures(self) -> list[CheckResult]:
@@ -2246,6 +2388,7 @@ class ItemResult:
             "turns": list(self.item.turns),
             "expect": dict(self.item.expect),
             "passed": self.passed,
+            "passed_with_equivalences": self.passed_with_equivalences,
             "error": self.error,
             "checks": {check.name: check.passed for check in self.checks},
             "failures": [{"check": c.name, "detail": c.detail} for c in self.failures],
@@ -2298,6 +2441,10 @@ class ModeReport:
     @property
     def resolved(self) -> int:
         return sum(r.passed for r in self.results)
+
+    @property
+    def resolved_with_equivalences(self) -> int:
+        return sum(r.passed_with_equivalences for r in self.results)
 
     @property
     def errors(self) -> int:
@@ -2362,7 +2509,7 @@ class ModeReport:
                 continue
             if expect.get("no_tool_allowed") or expect.get("shortcut"):
                 continue
-            if set(observation.tool_names) <= {TOOL_SIN_CONSULTA}:
+            if set(observation.tool_names) <= DECLARATION_TOOLS:
                 count += 1
         return count
 
@@ -2457,6 +2604,8 @@ class ModeReport:
             "items": self.total,
             "resolved": self.resolved,
             "resolved_rate": rate(self.resolved, self.total),
+            "resolved_with_equivalences": self.resolved_with_equivalences,
+            "resolved_with_equivalences_rate": rate(self.resolved_with_equivalences, self.total),
             "compound_total": self.compound_total,
             "compound_complete": self.compound_complete,
             "compound_rate": rate(self.compound_complete, self.compound_total),
@@ -2485,16 +2634,37 @@ class ModeReport:
         }
 
 
-def _run_item(driver: ModeDriver, item: EvalItem) -> TurnObservation:
-    """Ejecuta los turnos del ítem en su hilo; devuelve la observación del último."""
+def _run_item(
+    driver: ModeDriver, item: EvalItem, *, history_turns: int | None = None
+) -> TurnObservation:
+    """Ejecuta los turnos del ítem en su hilo; devuelve la observación del último.
 
-    thread_id = f"eval-{driver.mode}-{item.id}"
+    Antes de cada índice de ``new_thread_before`` se abre otra conversación del mismo dueño:
+    ``thread_id`` con sufijo ``-h{n}`` y semilla vacía, con el mismo ``owner_key``.
+
+    Como el servicio (spec 045, research R13): la semilla se acota a
+    ``agent_history_turns + SUMMARY_SLACK_TURNS`` turnos y lleva ``turn_count``. El ejecutor
+    no tiene ``SummaryWorker``: los turnos que salen de la ventana solo los resume ``recall``
+    con el relleno determinista de la holgura (limitación declarada en la evidencia).
+    """
+
+    if history_turns is None:
+        history_turns = Settings().agent_history_turns
+    window = history_turns + SUMMARY_SLACK_TURNS
+    base = f"eval-{driver.mode}-{item.id}"
+    thread_id = base
     owner_key = f"eval-{driver.mode}-{item.id}"
     seed: list[Turn] = list(item.history)
     observation: TurnObservation | None = None
-    for question in item.turns:
+    for index, question in enumerate(item.turns):
+        if index in item.new_thread_before:
+            thread_id = f"{base}-h{item.new_thread_before.index(index) + 1}"
+            seed = []
         observation = driver.run_turn(
-            owner_key=owner_key, thread_id=thread_id, question=question, seed_turns=list(seed)
+            owner_key=owner_key,
+            thread_id=thread_id,
+            question=question,
+            seed_turns=SeedTurns(seed[-window:], turn_count=len(seed)),
         )
         seed.append(Turn(question=question, answer=observation.answer, incomplete=False))
     if observation is None:  # ``_item`` exige al menos un turno
@@ -2530,6 +2700,7 @@ def evaluate_mode(
         else:
             result.observation = observation
             result.checks = check_item(item, observation)
+            result.equivalent_checks = check_item(item, observation, equivalences=True)
         result.elapsed_s = clock() - started
         report.results.append(result)
         if progress is not None:
@@ -2588,6 +2759,10 @@ def render_report(
     modes = [report.mode for report in reports]
     rows: list[tuple[str, Callable[[ModeReport], str]]] = [
         ("Ítems resueltos (todas las verificaciones)", lambda r: _pct(r.resolved, r.total)),
+        (
+            "Ítems resueltos con equivalencias de herramientas",
+            lambda r: _pct(r.resolved_with_equivalences, r.total),
+        ),
         (
             "Compuestas con todas las partes",
             lambda r: _pct(r.compound_complete, r.compound_total),
@@ -2793,6 +2968,32 @@ def _text_provider(settings: Any) -> tuple[Any, UsageProbe | None]:
     return build_llm_provider(settings), None
 
 
+def _eval_faq_source(settings: Any) -> Any:
+    """``FaqSource`` del ejecutor con la base y el proveedor configurados; ``None`` si falla.
+
+    Mismo corpus núcleo de PostgreSQL y mismo tope de prompt que ``apps/api/agent_runtime.py``.
+    El LLM de la FAQ no pasa por el medidor de uso del informe.
+    """
+
+    try:
+        ensure_apps_importable()
+        from apps.api.agent_runtime import _faq_prompt_chars
+        from apps.api.views.faq import SqlFaqCorpus
+        from carvajal.adapters.llm import build_llm_provider
+        from carvajal.adapters.storage.database import build_engine, build_session_factory
+        from carvajal.agent.toolagent.tools import FaqSource
+
+        return FaqSource(
+            corpus=SqlFaqCorpus(build_session_factory(build_engine(settings.database_url))),
+            llm=build_llm_provider(settings),
+            timeout_s=settings.agent_faq_timeout_s,
+            max_prompt_chars=_faq_prompt_chars(settings),
+        )
+    except Exception as error:
+        logger.warning("eval_agent.faq_unavailable", error=str(error))
+        return None
+
+
 _REPO_MARKER: Final = Path("apps") / "api" / "chat" / "agent.py"
 
 
@@ -2867,11 +3068,13 @@ def build_runtime(
     from carvajal.agent.router import decide_route
     from carvajal.agent.toolagent.graph import build_tool_agent
     from carvajal.agent.toolagent.tools import ToolDeps
+    from carvajal.institutional import load_institutional
 
     unknown = sorted(set(modes) - set(MODES))
     if unknown:
         raise ValueError(f"Modos desconocidos: {unknown}")
     closers: list[Callable[[], None]] = []
+    real = vector_store is None and llm is None
     if vector_store is None:
         from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
         from carvajal.application.retrieval import LayerPriorityStore
@@ -2885,6 +3088,9 @@ def build_runtime(
         )
         closers.append(qdrant.close)
         vector_store = LayerPriorityStore(qdrant, min_score=settings.rag_min_score)
+    # ``preguntas_frecuentes`` necesita el corpus de PostgreSQL y un LLM: solo con el runtime
+    # real (sin dobles); con dobles, la herramienta devuelve ``error`` declarado (T067).
+    faq = _eval_faq_source(settings) if real else None
     if embedder is None:
         from carvajal.adapters.embeddings import OllamaEmbedder
 
@@ -2919,8 +3125,15 @@ def build_runtime(
             )
         if "tools" in modes:
             checkpointer, store = InMemorySaver(), InMemoryStore()
+            # Sin base de cotizaciones: ``consultar_cotizacion`` devuelve ``error`` declarado
+            # (limitación del ejecutor, declarada en la evidencia de la 045).
             deps = ToolDeps(
-                vector_store=vector_store, embedder=embedder, settings=settings, catalog=catalog
+                vector_store=vector_store,
+                embedder=embedder,
+                settings=settings,
+                catalog=catalog,
+                institutional=load_institutional(),
+                faq=faq,
             )
             tool_graph = build_tool_agent(
                 deps,

@@ -1,0 +1,134 @@
+{
+  "version": "2026-11-24",
+  "derived_from": [
+    "data/gold/home.md",
+    "data/gold/quienes_somos.md",
+    "data/gold/empaques.md",
+    "data/gold/pulpa_y_papel.md",
+    "data/gold/educacion.md",
+    "data/gold/tecnologia.md",
+    "data/gold/comunicacion.md",
+    "data/gold/espacios.md",
+    "data/gold/index.jsonl"
+  ],
+  "nota": "Capa institucional curada (spec 045, research R12): unidades de «Nuestros Sectores» (quienes_somos.md), unidades con página propia en el núcleo y las marcas que quienes_somos.md nombra. Cada cita y cada alias aparece literalmente en data/gold/<slug>.md y la url es la de ese slug en index.jsonl (prueba). No añade hechos que el núcleo no diga; los nombres que solo aparecen en prensa o en la historia no se incluyen.",
+  "items": [
+    {
+      "nombre": "Carvajal Empaques",
+      "tipo": "unidad",
+      "slug": "empaques",
+      "url": "https://www.carvajal.com/empaques/",
+      "cita": "Carvajal Empaques hace uso del residuo agroindustrial de la caña, el bagazo de caña y resinas posconsumo",
+      "alias": []
+    },
+    {
+      "nombre": "Carvajal Pulpa y Papel",
+      "tipo": "unidad",
+      "slug": "pulpa_y_papel",
+      "url": "https://www.carvajal.com/pulpa-y-papel/",
+      "cita": "Carvajal Pulpa y Papel",
+      "alias": [
+        {
+          "nombre": "PROPAL",
+          "cita": "PROPAL hace parte de la Organización Carvajal S.A."
+        }
+      ]
+    },
+    {
+      "nombre": "Carvajal Educación",
+      "tipo": "unidad",
+      "slug": "educacion",
+      "url": "https://www.carvajal.com/educacion/",
+      "cita": "Carvajal Educación.",
+      "alias": []
+    },
+    {
+      "nombre": "Carvajal Soluciones de Comunicación",
+      "tipo": "unidad",
+      "slug": "comunicacion",
+      "url": "https://www.carvajal.com/comunicacion/",
+      "cita": "Carvajal Soluciones de Comunicación es una empresa líder en el mercado de impresión digital y administrada en Colombia",
+      "alias": []
+    },
+    {
+      "nombre": "Carvajal Tecnología y Servicios",
+      "tipo": "unidad",
+      "slug": "tecnologia",
+      "url": "https://www.carvajal.com/tecnologia/",
+      "cita": "Carvajal Tecnología y Servicios",
+      "alias": []
+    },
+    {
+      "nombre": "Américas BPS",
+      "tipo": "unidad",
+      "slug": "quienes_somos",
+      "url": "https://www.carvajal.com/quienes-somos/",
+      "cita": "Américas BPS",
+      "alias": []
+    },
+    {
+      "nombre": "Carvajal Servicios",
+      "tipo": "unidad",
+      "slug": "quienes_somos",
+      "url": "https://www.carvajal.com/quienes-somos/",
+      "cita": "Carvajal Servicios",
+      "alias": []
+    },
+    {
+      "nombre": "Inmobiliario",
+      "tipo": "unidad",
+      "slug": "quienes_somos",
+      "url": "https://www.carvajal.com/quienes-somos/",
+      "cita": "Sector Inmobiliario",
+      "alias": []
+    },
+    {
+      "nombre": "Carvajal Espacios",
+      "tipo": "unidad",
+      "slug": "espacios",
+      "url": "https://www.carvajal.com/espacios/",
+      "cita": "a través de la marca Mepal Carvajal Espacios",
+      "alias": []
+    },
+    {
+      "nombre": "Carvajal Propiedades e Inversiones",
+      "tipo": "unidad",
+      "slug": "home",
+      "url": "https://www.carvajal.com/",
+      "cita": "Carvajal Propiedades e Inversiones",
+      "alias": []
+    },
+    {
+      "nombre": "Bioform",
+      "tipo": "marca",
+      "slug": "quienes_somos",
+      "url": "https://www.carvajal.com/quienes-somos/",
+      "cita": "nuestros empaques Bioform",
+      "alias": []
+    },
+    {
+      "nombre": "Norma",
+      "tipo": "marca",
+      "slug": "quienes_somos",
+      "url": "https://www.carvajal.com/quienes-somos/",
+      "cita": "la entrañable marca Norma",
+      "alias": []
+    },
+    {
+      "nombre": "Mepal",
+      "tipo": "marca",
+      "slug": "quienes_somos",
+      "url": "https://www.carvajal.com/quienes-somos/",
+      "cita": "más conocido en el mercado como Mepal",
+      "alias": []
+    },
+    {
+      "nombre": "LiquidezYa",
+      "tipo": "marca",
+      "slug": "quienes_somos",
+      "url": "https://www.carvajal.com/quienes-somos/",
+      "cita": "ecosistemas empresariales con LiquidezYa",
+      "alias": []
+    }
+  ]
+}

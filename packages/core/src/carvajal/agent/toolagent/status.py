@@ -6,12 +6,16 @@ asistente: nunca nombra herramientas, ni adelanta resultados, precios o fuentes.
 puede llevar el dato principal que aportó la persona (producto, cantidad, ciudad), saneado
 aquí aunque el cliente lo pinte con ``textContent``.
 
-``sin_consulta`` y las herramientas desconocidas no publican nada.
+``sin_consulta`` y las herramientas desconocidas no publican nada. Desde la spec 045 la
+plantilla de cada herramienta sale del registro (``tools/registry.py``,
+``STATUS_TEMPLATES``); aquí viven las de las seis de la 044 (:data:`BUILTIN_TEMPLATES`) y
+los saneadores. Las plantillas de las herramientas nuevas no interpolan valores.
 """
 
 import re
 import unicodedata
 from collections.abc import Callable, Mapping
+from types import ModuleType
 from typing import Any, Final, Literal, TypedDict
 
 from langgraph.config import get_stream_writer
@@ -22,10 +26,15 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
     TOOL_INDICADOR_FINANCIERO,
-    TOOL_NAMES,
 )
 
-__all__ = ["MAX_VALUE_CHARS", "StatusEvent", "emit_status", "status_text"]
+__all__ = [
+    "BUILTIN_TEMPLATES",
+    "MAX_VALUE_CHARS",
+    "StatusEvent",
+    "emit_status",
+    "status_text",
+]
 
 # Largo máximo del dato de la persona dentro del texto de estado.
 MAX_VALUE_CHARS: Final = 40
@@ -80,7 +89,7 @@ def _clean(value: object) -> str | None:
     )
     text = "".join(chars).translate(_MARKUP_CHARS)
     lowered = text.lower()
-    if any(name in lowered for name in TOOL_NAMES):
+    if any(name in lowered for name in _registry().TOOL_NAMES):
         return None
     text = " ".join(text.replace("_", " ").split())
     text = text[:MAX_VALUE_CHARS].rstrip()
@@ -184,13 +193,23 @@ def _indicador_financiero(_args: Mapping[str, Any]) -> str:
     return "Estoy consultando las cifras de Carvajal…"
 
 
-_TEMPLATES: Final[dict[str, Callable[[Mapping[str, Any]], str]]] = {
+# Plantillas de las seis herramientas de la 044 (``sin_consulta`` no tiene); el registro
+# las asigna a cada ``ToolSpec``.
+BUILTIN_TEMPLATES: Final[Mapping[str, Callable[[Mapping[str, Any]], str]]] = {
     TOOL_BUSCAR_CORPUS: _buscar_corpus,
     TOOL_BUSCAR_PRODUCTO: _buscar_producto,
     TOOL_COTIZAR: _cotizar,
     TOOL_BUSCAR_SEDES: _buscar_sedes,
     TOOL_INDICADOR_FINANCIERO: _indicador_financiero,
 }
+
+
+def _registry() -> ModuleType:
+    """Registro de herramientas, importado al usarlo: el registro importa este módulo."""
+
+    from carvajal.agent.toolagent.tools import registry
+
+    return registry
 
 
 def status_text(tool_name: str, args: Mapping[str, Any] | None) -> str | None:
@@ -201,7 +220,7 @@ def status_text(tool_name: str, args: Mapping[str, Any] | None) -> str | None:
     variante sin datos.
     """
 
-    template = _TEMPLATES.get(tool_name)
+    template = _registry().STATUS_TEMPLATES.get(tool_name)
     if template is None:
         return None
     return template(args if isinstance(args, Mapping) else {})

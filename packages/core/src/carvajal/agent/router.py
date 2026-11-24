@@ -2,8 +2,12 @@
 
 Orden de decisión (documentado y probado):
 
+0. **Olvido total (spec 045).** «Olvida todo lo que sabes de mí», «olvida mis datos»,
+   «borra todo lo que sabes de mí» u «olvídate de mí» van a ``direct`` con la intención
+   ``memory_forget``: el grafo borra la memoria sin decisión del proveedor.
 1. **Memoria/preferencia declarada.** «Recuerda que…», «prefiero…», «mi nombre
-   es…» se responde en ``direct`` y se guarda en el Store. No se busca.
+   es…» se responde en ``direct`` y se guarda en el Store por categoría (en el grafo
+   ``tools`` lo atiende el agente con ``recordar_preferencia``). No se busca.
 2. **Saludo, agradecimiento o capacidad.** ``direct`` sin tocar Qdrant ni la
    herramienta.
 3. **Solicitud comercial de empaques (spec 036).** Si nombra un producto del
@@ -37,6 +41,7 @@ from carvajal.agent.commercial_intent import (
     is_custom_need,
     non_commercial_part,
 )
+from carvajal.agent.memory.store import forget_all_requested
 from carvajal.agent.state import RouteDecision, Turn
 from carvajal.agent.tools import known_names, resolve_indicator_name
 
@@ -243,6 +248,15 @@ def decide_route(question: str, turns: list[Turn] | None = None) -> RouteDecisio
 
     turns = turns or []
     normalized = _plain(question)
+    if forget_all_requested(question):
+        # «Olvida todo lo que sabes de mí» (spec 045, FR-015): lo atiende el atajo sin
+        # decisión del proveedor; el grafo borra la memoria antes de responder.
+        return RouteDecision(
+            route="direct",
+            intent="memory_forget",
+            query=question,
+            reason="la persona pidió olvidar todo lo que se sabe de ella",
+        )
     preference = _preference(question)
     if preference:
         return RouteDecision(

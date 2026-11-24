@@ -2193,3 +2193,276 @@ def test_cotizar_la_referencia_nombrada_sin_conversion_la_nombra_con_su_presenta
     assert "referencia nombrada" in result.content
     assert "paca de 200" in result.content
     assert "las referencias que aplican" not in result.content
+
+
+# --- Contexto ampliado de la spec 045 (T016) --------------------------------------------------
+
+
+def _seed(*questions: str) -> list[dict[str, Any]]:
+    return [{"question": q, "answer": "Entendido.", "incomplete": False} for q in questions]
+
+
+def test_una_ciudad_dicha_nueve_turnos_atras_no_cuenta_para_cotizar() -> None:
+    """La holgura de la semilla (spec 045, FR-008) no amplía ``_city_said``."""
+
+    # Arrange: diez turnos sembrados; Cali solo aparece en el primero (fuera de la ventana).
+    seed = _seed("Estoy en Cali", *[f"pregunta {i}" for i in range(9)])
+    state = {"question": "Serían 500 vasos de 14 oz fríos", "seed_turns": seed}
+    window = ToolContext.from_state(state, history_turns=8)
+    unlimited = ToolContext.from_state(state)
+
+    # Act
+    in_window = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Cali"}, _deps(), window)
+
+    # Assert
+    assert len(window.history) == 8
+    assert "Estoy en Cali" not in window.history
+    assert "Estoy en Cali" in unlimited.history
+    assert in_window.status == "needs_input"
+    assert in_window.payload["missing"] == ["ciudad"]
+
+
+def test_el_contexto_lleva_dueno_hilo_y_memoria_del_estado() -> None:
+    # Arrange
+    state = {
+        "question": "hola",
+        "owner_key": "owner-1",
+        "thread_id": "hilo-1",
+        "memory": {"nombre": {"v": 2, "value": "Ana"}},
+    }
+
+    # Act
+    context = ToolContext.from_state(state)
+
+    # Assert
+    assert context.owner_key == "owner-1"
+    assert context.thread_id == "hilo-1"
+    assert context.memory == {"nombre": {"v": 2, "value": "Ana"}}
+    assert ToolContext().owner_key == ""  # fuera del grafo no hay dueño
+
+
+def test_las_dependencias_nuevas_son_opcionales() -> None:
+    # Act
+    deps = _deps()
+
+    # Assert
+    assert deps.memory is None
+    assert deps.quote_lookup is None
+    assert deps.institutional is None
+    assert deps.faq is None
+
+
+# --- Reloj único de Bogotá (spec 045, T018; research R11) -------------------------------------
+
+
+def test_today_usa_la_fecha_de_bogota_y_no_la_utc() -> None:
+    """A las 04:30 UTC del 25 todavía es el 24 en Bogotá (UTC-5)."""
+
+    # Arrange
+    from datetime import UTC, datetime
+
+    from carvajal.agent.toolagent.tools._base import BOGOTA, _now_bogota
+    from carvajal.agent.toolagent.tools.builtin import _today
+
+    deps = _deps(today=None, now=datetime(2026, 11, 25, 4, 30, tzinfo=UTC))
+
+    # Act
+    now = _now_bogota(deps)
+    day = _today(deps)
+
+    # Assert
+    assert now.tzinfo == BOGOTA
+    assert (now.hour, now.minute) == (23, 30)
+    assert day == date(2026, 11, 24)
+
+
+def test_today_respeta_deps_today_y_un_now_sin_zona() -> None:
+    # Arrange
+    from datetime import datetime
+
+    from carvajal.agent.toolagent.tools.builtin import _today
+
+    # Act / Assert
+    assert _today(_deps(today=date(2026, 1, 2))) == date(2026, 1, 2)
+    assert _today(_deps(today=None, now=datetime(2026, 11, 25, 4, 30))) == date(2026, 11, 25)
+
+
+# --- Ciudad habitual solo como sugerencia (spec 045, T044, FR-013) ----------------------------
+
+CALI_MEMORY = {"ciudad_habitual": {"v": 2, "value": "Cali"}}
+
+
+def test_buscar_sedes_con_una_ciudad_no_dicha_pide_la_ciudad_y_sugiere_la_habitual() -> None:
+    # Arrange: el modelo copia la ciudad habitual de ``<preferencias>``.
+    context = ToolContext(question="¿Dónde puedo comprar vasos?", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("buscar_sedes", {"ciudad": "Cali"}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["ciudad"]
+    assert "Cali" in result.payload["ciudades_disponibles"]
+    assert result.payload["sugerencia_ciudad"] == "Cali"
+    assert result.sources == []
+    assert "sedes" not in result.payload
+
+
+def test_buscar_sedes_sin_ciudad_habitual_no_sugiere_nada() -> None:
+    # Act
+    result = _run(
+        "buscar_sedes", {"ciudad": "Cali"}, _deps(), ToolContext(question="¿Dónde compro?")
+    )
+
+    # Assert
+    assert result.status == "needs_input"
+    assert "sugerencia_ciudad" not in result.payload
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        pytest.param(ToolContext(question="Sedes en Cali, por favor"), id="pregunta"),
+        pytest.param(
+            ToolContext(question="¿Y dónde compro?", history=["Estoy en Cali"]), id="historial"
+        ),
+        pytest.param(
+            ToolContext(
+                question="sí",
+                last_answer="¿Te busco sedes en Cali, tu ciudad habitual?",
+                memory=CALI_MEMORY,
+            ),
+            id="confirmada",
+        ),
+        pytest.param(
+            ToolContext(question="¿Dónde compro?", commercial_context={"city": "Cali"}),
+            id="contexto",
+        ),
+    ],
+)
+def test_buscar_sedes_con_la_ciudad_dicha_o_confirmada_busca(context: ToolContext) -> None:
+    # Act
+    result = _run("buscar_sedes", {"ciudad": "Cali"}, _deps(), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["sedes"]
+
+
+def test_cotizar_sin_ciudad_sugiere_la_habitual_sin_usarla() -> None:
+    # Arrange
+    context = ToolContext(question="Cotízame 500 vasos de 14 oz fríos", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert "ciudad" in result.payload["missing"]
+    assert result.payload["sugerencia_ciudad"] == "Cali"
+    assert result.quote is None
+    assert "city" not in result.context_update
+
+
+def test_cotizar_con_la_ciudad_habitual_copiada_por_el_modelo_no_cotiza() -> None:
+    # Arrange
+    context = ToolContext(question="Cotízame 500 vasos de 14 oz fríos", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Cali"}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["sugerencia_ciudad"] == "Cali"
+    assert result.quote is None
+
+
+def test_cotizar_con_la_ciudad_dicha_no_sugiere() -> None:
+    # Arrange
+    context = ToolContext(question="Cotízame 500 vasos de 14 oz fríos en Cali", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Cali"}, _deps(), context)
+
+    # Assert
+    assert "sugerencia_ciudad" not in result.payload
+
+
+# --- Fuentes compartidas entre herramientas (spec 045, R11) ---------------------------------
+
+
+def _ficha_source(excerpt: str) -> dict[str, Any]:
+    return {
+        "chunk_id": "ficha:CO-X:CO",
+        "slug": "catalogo",
+        "section": "catalogo_empaques",
+        "layer": "core",
+        "score": 1.0,
+        "excerpt": excerpt,
+        "url": "https://www.carvajalempaques.com/x",
+        "title": "Ficha",
+        "source_type": "oficial",
+    }
+
+
+def test_una_fuente_repetida_suma_al_extracto_lo_que_trae_la_otra_herramienta() -> None:
+    # Arrange: dos herramientas citan la misma ficha con campos distintos.
+    from carvajal.agent.toolagent.tools._base import _Sources
+
+    sources = _Sources(())
+    sources.add([_ficha_source("Capacidad: 4 oz.")])
+
+    # Act
+    numbers = sources.add([_ficha_source("Unidades por caja: 1000.")])
+
+    # Assert: el mismo [n] y las dos cifras en su extracto.
+    assert numbers == [1]
+    assert len(sources.entries) == 1
+    assert "4 oz" in sources.entries[0]["excerpt"]
+    assert "1000" in sources.entries[0]["excerpt"]
+
+
+def test_una_fuente_repetida_con_el_mismo_extracto_no_cambia() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools._base import _Sources
+
+    sources = _Sources(())
+    sources.add([_ficha_source("Capacidad: 4 oz.")])
+
+    # Act
+    sources.add([_ficha_source("Capacidad: 4 oz.")])
+
+    # Assert
+    assert sources.entries[0]["excerpt"] == "Capacidad: 4 oz."
+
+
+def test_comparar_tras_ficha_cita_sus_cifras_en_la_ficha_compartida() -> None:
+    # Arrange: ``ficha_producto`` registra primero ``ficha:CO-CTT-08:CO``.
+    from carvajal.agent.toolagent.tools import content_data
+
+    deps = ToolDeps(
+        vector_store=None,  # ty: ignore[invalid-argument-type]
+        embedder=None,  # ty: ignore[invalid-argument-type]
+        settings=Settings(_env_file=None),
+    )
+    first = run_tool("ficha_producto", {"sku": "CO-CTT-08"}, deps, ToolContext())
+
+    # Act
+    second = run_tool(
+        "comparar_referencias",
+        {"referencias": ["CO-CTT-08", "CO-CTT-16"]},
+        deps,
+        ToolContext(sources=first.sources),
+    )
+
+    # Assert: la fila de CO-CTT-08 cita la ficha compartida y su extracto trae sus cifras.
+    assert first.status == "ok" and second.status == "ok"
+    data = content_data(second.content) or {}
+    rows = {row["sku"]: row for row in data["comparacion"]["filas"]}
+    row = rows["CO-CTT-08"]
+    excerpt = next(s["excerpt"] for s in second.sources if s["n"] == row["n"])
+    # «(paquete x 20)» sin caja declarada: la cifra que comparar devuelve es la del paquete
+    # según el nombre, y la ficha compartida no gana un «unidades por caja» que no publica.
+    assert row["unidades_por_caja"] is None
+    assert f"paquete de {row['presentacion_nombre']['unidades']} unidades" in excerpt
+    assert "unidades por caja" not in excerpt

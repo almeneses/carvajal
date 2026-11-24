@@ -7,6 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
+from carvajal.agent.state import AgentState
 from carvajal.agent.toolagent.state import (
     TOOL_NAMES,
     TOOL_STATUSES,
@@ -15,6 +16,7 @@ from carvajal.agent.toolagent.state import (
     make_tool_outcome,
     validate_question,
 )
+from carvajal.agent.toolagent.tools import TOOL_NAMES as REGISTRY_TOOL_NAMES
 
 
 def _full_state() -> ToolAgentState:
@@ -75,6 +77,45 @@ def test_full_state_round_trips_through_checkpointer_serializer():
     assert restored["messages"][3].tool_call_id == "call-1"
 
 
+def test_canales_de_la_045_hacen_ida_y_vuelta_por_el_serializador() -> None:
+    """Spec 045 (T012): resumen, memoria y ``turn_count`` son JSON y sobreviven al checkpoint."""
+
+    # Arrange
+    serializer = JsonPlusSerializer()
+    summary = {
+        "v": 1,
+        "text": "La persona pidió vasos para tinto en Pereira.",
+        "covered_turns": 7,
+        "forgotten_through": 0,
+        "last_message_id": None,
+        "method": "deterministic",
+        "user_quotes": ["necesito vasos para tinto en Pereira"],
+        "updated_at": "2026-11-24T15:00:00+00:00",
+    }
+    tools_state: ToolAgentState = {
+        **_full_state(),
+        "conversation_summary": summary,
+        "memory": {"nombre": {"v": 2, "value": "Ana", "origin": "tool"}, "notas": {"items": []}},
+        "turn_count": 15,
+    }
+    routes_state: AgentState = {
+        "question": "hola",
+        "conversation_summary": summary,
+        "turn_count": 15,
+    }
+
+    # Act
+    restored_tools = serializer.loads_typed(serializer.dumps_typed(tools_state))
+    restored_routes = serializer.loads_typed(serializer.dumps_typed(routes_state))
+
+    # Assert
+    assert restored_tools == tools_state
+    assert restored_routes == routes_state
+    assert json.loads(json.dumps(summary)) == summary
+    assert {"conversation_summary", "memory", "turn_count"} <= set(get_type_hints(ToolAgentState))
+    assert {"conversation_summary", "turn_count"} <= set(get_type_hints(AgentState))
+
+
 def test_state_without_messages_is_plain_json():
     # Arrange
     state = {k: v for k, v in _full_state().items() if k != "messages"}
@@ -104,15 +145,8 @@ def test_tool_outcome_is_a_plain_dict():
 
 
 def test_tool_names_match_contract():
-    # Arrange
-    expected = {
-        "buscar_corpus",
-        "buscar_producto",
-        "cotizar",
-        "buscar_sedes",
-        "indicador_financiero",
-        "sin_consulta",
-    }
+    # Arrange: desde la spec 045 los nombres salen del registro de herramientas.
+    expected = set(REGISTRY_TOOL_NAMES)
 
     # Act / Assert
     assert set(TOOL_NAMES) == expected

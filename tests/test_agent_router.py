@@ -154,3 +154,53 @@ def test_parametros_invalidos_fallan_antes_de_leer() -> None:
         IndicatorQuery(name="ingresos", period="2024-13")
     with pytest.raises(ValidationError):
         indicator_lookup.invoke({"name": "ingresos", "period": "no-es-un-periodo"})
+
+
+# --- Memoria (spec 045, T043) -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Olvida todo lo que sabes de mí",
+        "olvida mis datos",
+        "Borra todo lo que sabes de mí, por favor",
+        "olvídate de mí",
+    ],
+)
+def test_olvidar_todo_es_una_intencion_propia_del_atajo(question: str) -> None:
+    # Act
+    decision = decide_route(question)
+
+    # Assert
+    assert decision.route == "direct"
+    assert decision.intent == "memory_forget"
+    assert decision.preference == ""
+
+
+@pytest.mark.parametrize("question", ["olvida dónde trabajo", "olvida mi nombre"])
+def test_un_olvido_parcial_no_es_olvidar_todo(question: str) -> None:
+    # Act / Assert: lo atiende el agente con ``olvidar_preferencia``.
+    assert decide_route(question).intent != "memory_forget"
+
+
+def test_la_preferencia_declarada_sigue_siendo_memory_write_para_el_respaldo() -> None:
+    # Act
+    decision = decide_route("Llámame Ana")
+
+    # Assert
+    assert decision.intent == "memory_write"
+    assert decision.preference == "Llámame Ana"
+
+
+def test_el_atajo_del_grafo_tools_no_atiende_memory_write() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.graph import SHORTCUT_INTENTS, shortcut_intent
+
+    # Act
+    intent, _ = shortcut_intent("Llámame Ana")
+
+    # Assert: la guarda el agente con ``recordar_preferencia`` (research R15).
+    assert intent == ""
+    assert "memory_write" not in SHORTCUT_INTENTS
+    assert shortcut_intent("Olvida todo lo que sabes de mí")[0] == "memory_forget"

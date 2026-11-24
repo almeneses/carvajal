@@ -8,7 +8,6 @@ la app real usa el grafo con PostgresSaver/Store y Qdrant.
 import contextvars
 import json
 import queue
-import re
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -18,18 +17,24 @@ from typing import Any, Final, Protocol, runtime_checkable
 import structlog
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
+from carvajal.agent.memory.store import CATEGORIES, MemoryProfile
+from carvajal.agent.memory.summary import ConversationSummary, seed_turn_count
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.evidence import (
     FAREWELL_ANSWER,
+    FORGET_ANSWER,
     GATE_ABSTAIN,
     GATE_EVIDENCE,
     GATE_NO_QUERY,
     GREETING_ANSWER,
+    MEMORY_UNAVAILABLE_ANSWER,
     NO_DATA_ANSWER,
     PREFERENCE_ANSWER,
     GatePath,
     abstention,
     ask_for_missing,
+    backing_data,
+    filtered_evidence,
     gate,
     missing_fields,
     neutral_only,
@@ -39,17 +44,23 @@ from carvajal.agent.toolagent.evidence import (
 )
 from carvajal.agent.toolagent.graph import (
     FAREWELL_INTENT,
+    FORGET_INTENT,
+    UNAVAILABLE_INTENT,
     TurnCancel,
     TurnCancelled,
     recursion_limit,
+    window_turns,
 )
 from carvajal.agent.toolagent.state import (
-    TOOL_BUSCAR_CORPUS,
     TOOL_COTIZAR,
-    TOOL_SIN_CONSULTA,
     validate_question,
 )
-from carvajal.agent.toolagent.tools import content_data
+from carvajal.agent.toolagent.tools import (
+    CORPUS_TOOLS,
+    DECLARATION_TOOLS,
+    MEMORY_TOOLS,
+    content_data,
+)
 from carvajal.application.ask import Source
 from carvajal.application.ports import LLMProvider
 from carvajal.prompts import NO_CONTEXT_ANSWER
@@ -94,6 +105,8 @@ class AgentTurn:
     products: dict[str, Any] = field(default_factory=dict)
     # Contexto comercial persistido en el hilo (ciudad, cantidad, producto, entrega).
     commercial_context: dict[str, Any] = field(default_factory=dict)
+    # Resumen acumulado del hilo (spec 045): solo ``covered_turns`` y ``method``.
+    summary: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
@@ -166,6 +179,9 @@ class GraphAgentRunner:
                 "owner_key": owner_key,
                 "thread_id": thread_id,
                 "seed_turns": list(seed_turns),
+                # Spec 045 (FR-008): turnos persistidos del hilo antes de este; la semilla
+                # del servicio (``SeedTurns``) lo trae, si no se usa su largo.
+                "turn_count": _turn_count(seed_turns),
             },
             config={"configurable": {"thread_id": thread_id}},
         )
@@ -186,6 +202,7 @@ class GraphAgentRunner:
             query=str(state.get("query", "")),
             products=dict(state.get("tool_result") or {}) if route == "commercial" else {},
             commercial_context=dict(state.get("commercial_context") or {}),
+            summary=_summary_meta(state.get("conversation_summary")),
         )
 
     def record(
@@ -211,6 +228,21 @@ class GraphAgentRunner:
             )
         except Exception as error:  # el checkpointer no debe tumbar la UI
             logger.warning("agent.checkpoint_failed", error=str(error), thread_id=thread_id)
+
+
+def _summary_meta(value: Any) -> dict[str, Any]:
+    """``covered_turns`` y ``method`` del canal del resumen (sin el texto) para ``trace``."""
+
+    summary = ConversationSummary.from_value(value)
+    if summary is None:
+        return {}
+    return {"covered_turns": summary.covered_turns, "method": summary.method}
+
+
+def _turn_count(seed_turns: Sequence[Turn]) -> int:
+    """``turn_count`` de la semilla (``SeedTurns``) o, sin él, el largo de la semilla."""
+
+    return seed_turn_count(seed_turns)
 
 
 def default_agent_runner() -> GraphAgentRunner:
@@ -290,6 +322,7 @@ class ToolAgentFinal:
     - ``results``: un ``ToolOutcome`` por herramienta, para el monitoreo.
     - ``turns``: los ``seed_turns`` recibidos, para ``record``.
     - ``usage``: tokens sumados de todos los pasos del modelo (SC-008).
+    - ``summary``: ``covered_turns`` y ``method`` del resumen del hilo (spec 045), sin texto.
     """
 
     answer: str
@@ -305,6 +338,7 @@ class ToolAgentFinal:
     missing: tuple[str, ...] = ()
     turns: tuple[Turn, ...] = ()
     usage: dict[str, int] = field(default_factory=dict)
+    summary: dict[str, Any] = field(default_factory=dict)
 
 
 ToolAgentEvent = ToolAgentStatus | ToolAgentSources | ToolAgentToken | ToolAgentFinal
@@ -384,6 +418,9 @@ class _ModelStep:
     """Un paso del modelo mientras se transmite, con el camino vigente al empezar."""
 
     path: GatePath
+    # ``evidence`` cuya evidencia no viene del corpus tras una búsqueda documental vacía
+    # (:func:`filtered_evidence`): el texto se retiene y se filtra como en ``no_query``.
+    filtered: bool = False
     pending: list[str] = field(default_factory=list)
     emitted: list[str] = field(default_factory=list)
     released: bool = False
@@ -397,8 +434,14 @@ class _TurnStream:
     con los ``results`` ya conocidos: las llamadas del propio paso aún no corrieron.
     """
 
-    def __init__(self, question: str) -> None:
+    def __init__(
+        self, question: str, seed_turns: Sequence[Turn] = (), turn_count: int | None = None
+    ) -> None:
         self.question = question
+        # Semilla del turno: las preguntas anteriores de la persona respaldan lo que ella
+        # dijo (spec 045, R4); los turnos anteriores a «olvidar todo» no.
+        self.seed = [dict(turn) for turn in seed_turns if isinstance(turn, Mapping)]
+        self.turn_count = turn_count if turn_count is not None else len(self.seed)
         self.values: dict[str, Any] = {}
         self.tool_texts: list[str] = []
         # Datos de cada ``ToolMessage`` del turno (herramienta, datos): construyen el
@@ -428,7 +471,7 @@ class _TurnStream:
             return []
         step = self.step
         if step is None:
-            step = self.step = _ModelStep(path=self._step_path(node))
+            step = self.step = self._new_step(node)
         self._add_usage(chunk.usage_metadata)
         if chunk.tool_call_chunks:
             if step.emitted and not step.tool_call:
@@ -450,8 +493,9 @@ class _TurnStream:
             self.finished = True
             self.step = None
             return self._abstain(GATE_ABSTAIN, 0)
-        if step.path != GATE_EVIDENCE:
-            # ``no_query``: no sale nada mientras el paso corre; se filtra al cerrarlo.
+        if step.path != GATE_EVIDENCE or step.filtered:
+            # ``no_query`` (o evidencia sin corpus tras una búsqueda vacía): no sale nada
+            # mientras el paso corre; se filtra al cerrarlo.
             step.pending.append(piece)
             return []
         if step.released:
@@ -510,6 +554,7 @@ class _TurnStream:
             missing=tuple(str(m) for m in values.get("missing") or []),
             turns=tuple(turns),
             usage=dict(self.usage),
+            summary=_summary_meta(values.get("conversation_summary")),
         )
 
     # -- Internos --
@@ -521,6 +566,11 @@ class _TurnStream:
         """Camino de un paso: el atajo no consulta, así que va por el filtro directo."""
 
         return GATE_NO_QUERY if node == _DIRECT_NODE else self._path()
+
+    def _new_step(self, node: Any) -> "_ModelStep":
+        path = self._step_path(node)
+        filtered = path == GATE_EVIDENCE and filtered_evidence(self.values.get("results") or [])
+        return _ModelStep(path=path, filtered=filtered)
 
     def _emit(self, text: str) -> list[ToolAgentEvent]:
         if not text:
@@ -554,14 +604,14 @@ class _TurnStream:
         llamadas que el modelo pide cuando ya no hay herramientas (límite del turno).
         """
 
-        step = self.step or _ModelStep(path=self._step_path(node))
+        step = self.step or self._new_step(node)
         self.step = step
         try:
             message = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
             if message is not None and (message.tool_calls or message.invalid_tool_calls):
                 return []
             text = _text(message.content) if message is not None else "".join(step.pending)
-            if step.path == GATE_EVIDENCE:
+            if step.path == GATE_EVIDENCE and not step.filtered:
                 return self._emit(self._remainder(text, step))
             if step.path == GATE_ABSTAIN:
                 return self._abstain(GATE_ABSTAIN, 0)
@@ -576,9 +626,13 @@ class _TurnStream:
             terms = unsupported_terms(text, allowed=self._allowed())
             if terms:
                 replacement = self._replacement()
+                if replacement and step.filtered:
+                    # Con una petición de dato o sedes, la parte documental declara su
+                    # ausencia; sin ellas, el turno se abstiene (FR-004).
+                    replacement = self._replacement(corpus_miss=True)
                 if replacement:
                     return self._replace(replacement, len(terms))
-                return self._abstain(GATE_NO_QUERY, len(terms))
+                return self._abstain(step.path, len(terms))
             return self._emit(text)
         finally:
             self.step = None
@@ -622,6 +676,10 @@ class _TurnStream:
             return GREETING_ANSWER
         if intent == "memory_write":
             return PREFERENCE_ANSWER
+        if intent == FORGET_INTENT:
+            return FORGET_ANSWER
+        if intent == UNAVAILABLE_INTENT:
+            return MEMORY_UNAVAILABLE_ANSWER
         return NO_DATA_ANSWER
 
     def _replace(self, text: str, terms: int) -> list[ToolAgentEvent]:
@@ -652,12 +710,18 @@ class _TurnStream:
         se abstiene (:meth:`_abstain`).
         """
 
+        memory = _memory_replacement(self.tool_payloads)
+        if memory:
+            # Turno solo de memoria (FR-017): confirmación o lista con los datos de la
+            # herramienta, no la abstención.
+            return memory
         sites: dict[Any, Mapping[str, Any]] = {}
         fields: list[str] = []
         cities: list[str] = []
+        suggestion: str | None = None
         asked = False
         for tool, data in self.tool_payloads:
-            if tool == TOOL_SIN_CONSULTA:
+            if tool in DECLARATION_TOOLS:
                 if data.get("status") == "ok" and data.get("motivo") == "pedir_dato":
                     asked = True
                     fields.extend(missing_fields(str(data.get("dato") or "")))
@@ -666,6 +730,9 @@ class _TurnStream:
                 asked = True
                 fields.extend(str(item) for item in data.get("missing") or [])
                 cities.extend(str(city) for city in data.get("ciudades_disponibles") or [])
+                # La ciudad habitual de la memoria no respalda nada (FR-017): solo se ofrece
+                # en la pregunta de confirmación que construye ``ask_for_missing``.
+                suggestion = suggestion or (str(data.get("sugerencia_ciudad") or "") or None)
             elif data.get("status") == "empty" and tool == TOOL_COTIZAR:
                 for site in data.get("sedes") or []:
                     if isinstance(site, Mapping):
@@ -673,12 +740,14 @@ class _TurnStream:
                         sites.setdefault(site.get("n", len(sites)), site)
         parts = [sites_without_price(sites.values())]
         if corpus_miss and any(
-            tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error"
+            tool in CORPUS_TOOLS and data.get("status") != "error"
             for tool, data in self.tool_payloads
         ):
             parts.append(NO_CONTEXT_ANSWER)
         if asked:
-            parts.append(ask_for_missing(fields, cities=list(dict.fromkeys(cities))))
+            parts.append(
+                ask_for_missing(fields, cities=list(dict.fromkeys(cities)), suggestion=suggestion)
+            )
         if not any(parts):
             return ""
         return "\n\n".join(part for part in [*tool_misses(self.tool_payloads), *parts] if part)
@@ -686,65 +755,133 @@ class _TurnStream:
     def _allowed(self) -> list[str]:
         """Textos que respaldan cifras y nombres en el camino ``no_query``.
 
-        Solo lo que no escribió el modelo: la pregunta, los datos que produjeron las
-        herramientas (sin ``message``, que repite argumentos, y sin ``sin_consulta``, cuyo
-        ``dato`` escribe el propio modelo), el contexto comercial con el que empezó el
-        turno (el actualizado lleva los argumentos de ``cotizar`` y ``buscar_producto``) y,
-        de las preferencias, solo el nombre con el que la persona pidió que la llamen.
+        Solo lo que no escribió el modelo: la pregunta, las preguntas anteriores de la
+        persona (las de la semilla y las ``user_quotes`` del resumen, spec 045 R4), los datos
+        que produjeron las herramientas (sin ``message``, que repite argumentos, sin
+        ``sin_consulta``, cuyo ``dato`` escribe el propio modelo, y sin las de memoria), el
+        contexto comercial con el que empezó el turno (el actualizado lleva los argumentos
+        de ``cotizar`` y ``buscar_producto``) y, de la memoria, el nombre de la persona.
 
-        El texto completo de una preferencia no respalda nada: cualquiera puede guardar
-        «Recuerda que Carvajal se fundó en 1850» y un dato sembrado así no puede pasar la
-        compuerta en turnos sin consulta (FR-004a, FR-007).
+        El texto del resumen nunca respalda nada (FR-006). Los demás valores de la memoria
+        (empresa, ciudad habitual, formato) solo respaldan si todas las consultas del turno
+        fueron de memoria o ``sin_consulta`` (FR-017). Las notas nunca: cualquiera puede
+        guardar «Recuerda que Carvajal se fundó en 1850» y un dato sembrado así no puede
+        pasar la compuerta (FR-004a, FR-007).
         """
 
         context = self.prior_context
+        summary = ConversationSummary.from_value(self.values.get("conversation_summary"))
+        memory = self.values.get("memory") or {}
+        results = self.values.get("results") or []
         return [
             self.question,
+            *self._seed_questions(),
+            *(summary.user_quotes if summary is not None else ()),
             *self.tool_texts,
             json.dumps(context, ensure_ascii=False, default=str) if context else "",
-            *_preferred_names(self.values.get("preferences") or []),
+            *_preferred_names(memory),
+            *(_memory_values(memory) if _memory_only(results) else ()),
         ]
 
-
-# Cómo pide la persona que la llamen: «llámame Ana», «me llamo Ana», «mi nombre es Ana».
-_NAME_MARKER: Final = re.compile(r"\b(?:ll[aá]mame|me\s+llamo|mi\s+nombre\s+es)\s+", re.IGNORECASE)
-_NAME_WORD: Final = re.compile(r"[^\W\d_]+(?:[-'][^\W\d_]+)?")
-# Palabras que cierran el nombre: conectores y la continuación de la frase.
-_NAME_STOP: Final = frozenset(
-    {"y", "e", "o", "u", "pero", "porque", "que", "por", "para", "con", "en", "de"}
-    | {"del", "la", "el", "los", "las", "mejor", "no", "si", "sí", "ya"}
-)
-_NAME_MAX_WORDS: Final = 3
+    def _seed_questions(self) -> list[str]:
+        state = {
+            "seed_turns": self.seed,
+            "turn_count": self.turn_count,
+            "conversation_summary": self.values.get("conversation_summary"),
+        }
+        return [str(turn.get("question") or "") for turn in window_turns(state, len(self.seed))]
 
 
-def _preferred_names(preferences: Sequence[Any]) -> list[str]:
-    """Nombres con los que la persona pidió que la llamen, sacados de sus preferencias.
+def _preferred_names(memory: Any) -> list[str]:
+    """Nombre con el que la persona pidió que la llamen: la categoría ``nombre`` (spec 045).
 
-    Toma hasta tres palabras alfabéticas tras «llámame», «me llamo» o «mi nombre es» y se
-    detiene en un conector, una cifra o un signo: «Llámame Ana y mejor 2000» → «Ana». Nunca
-    devuelve cifras ni el resto de la frase.
+    Antes se buscaba con patrones en el texto de las preferencias; la memoria por
+    categorías ya lo guarda aparte y sin el resto de la frase.
     """
 
-    names: list[str] = []
-    for preference in preferences:
-        text = str(preference)
-        for marker in _NAME_MARKER.finditer(text):
-            words: list[str] = []
-            rest = text[marker.end() :]
-            position = 0
-            while len(words) < _NAME_MAX_WORDS:
-                match = _NAME_WORD.match(rest, position)
-                if match is None or match.group().casefold() in _NAME_STOP:
-                    break
-                words.append(match.group())
-                position = match.end()
-                gap = re.match(r"[ \t]+", rest[position:])
-                if gap is None:
-                    break
-                position += gap.end()
-            if words:
-                names.append(" ".join(words))
-    return names
+    name = MemoryProfile.from_snapshot(memory).values.get("nombre")
+    return [name] if name else []
+
+
+def _memory_values(memory: Any) -> list[str]:
+    """Valores de las categorías de la memoria (sin las notas, que nunca respaldan)."""
+
+    values = MemoryProfile.from_snapshot(memory).values
+    return [values[category] for category in CATEGORIES if values.get(category)]
+
+
+def _memory_only(results: Sequence[Mapping[str, Any]]) -> bool:
+    """Todas las consultas del turno fueron de memoria o ``sin_consulta`` (FR-017)."""
+
+    return all(r.get("tool") in MEMORY_TOOLS or r.get("tool") in DECLARATION_TOOLS for r in results)
+
+
+_SAVED: Final = "Listo, lo guardé."
+_NOT_SAVED: Final = "No guardé ese dato: {motivo}."
+_FORGOTTEN: Final = "Listo, lo olvidé."
+_NOTHING: Final = "No tenía nada guardado de eso."
+_REASONS: Final = {
+    "dato_sensible": "es un dato personal sensible y ese tipo de dato no se guarda",
+    "no_dicho": "no lo encontré en tu mensaje",
+    "limite_notas": "ya hay cinco notas; borra una para guardar otra",
+    "demasiado_largo": "es demasiado largo",
+    "vacio": "está vacío",
+}
+_LABELS: Final = {
+    "nombre": "Nombre",
+    "empresa": "Empresa",
+    "ciudad_habitual": "Ciudad habitual (solo la uso si la confirmas)",
+    "formato_preferido": "Formato preferido",
+}
+
+
+def _memory_replacement(payloads: Sequence[tuple[str, Mapping[str, Any]]]) -> str:
+    """Reemplazo determinista de un turno solo de memoria (FR-017); ``""`` si no aplica.
+
+    Usa solo los datos de las herramientas: la confirmación de guardado u olvido, o la lista
+    de ``listar_memoria``. Si el turno consultó algo más que memoria y ``sin_consulta``, no
+    aplica.
+    """
+
+    memory = [(tool, data) for tool, data in payloads if tool in MEMORY_TOOLS]
+    if not memory or any(
+        tool not in MEMORY_TOOLS and tool not in DECLARATION_TOOLS for tool, _ in payloads
+    ):
+        return ""
+    parts: list[str] = []
+    for tool, data in memory:
+        status = data.get("status")
+        if tool == "listar_memoria":
+            if status == "ok":
+                parts.append(_memory_listing(data.get("memoria") or {}))
+            elif status == "empty":
+                parts.append("No tengo nada guardado de ti.")
+        elif tool == "recordar_preferencia":
+            if status == "ok":
+                parts.append(_SAVED)
+            elif status == "empty":
+                reason = _REASONS.get(str(data.get("motivo") or ""), "no se pudo guardar")
+                parts.append(_NOT_SAVED.format(motivo=reason))
+        elif tool == "olvidar_preferencia":
+            if status == "ok":
+                parts.append(_FORGOTTEN)
+            elif data.get("motivo") == "nada_que_olvidar":
+                parts.append(_NOTHING)
+        if status == "error":
+            parts.append(MEMORY_UNAVAILABLE_ANSWER)
+    return " ".join(dict.fromkeys(part for part in parts if part))
+
+
+def _memory_listing(memory: Mapping[str, Any]) -> str:
+    lines = [
+        f"- {_LABELS[category]}: {memory[category]}"
+        for category in CATEGORIES
+        if isinstance(memory.get(category), str) and memory[category]
+    ]
+    lines.extend(f"- Nota: {note}" for note in memory.get("notas") or [] if isinstance(note, str))
+    if not lines:
+        return "No tengo nada guardado de ti."
+    return "Esto es lo que recuerdo de ti:\n" + "\n".join(lines)
 
 
 def _tool_payloads(messages: Sequence[Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -765,18 +902,24 @@ def _tool_backing(payloads: Sequence[tuple[str, Mapping[str, Any]]]) -> list[str
 
     Vale cualquier estado: las sedes y ciudades de un ``empty`` o los campos de un
     ``needs_input`` son datos de la herramienta. Quedan fuera ``sin_consulta`` (su ``dato``
-    lo escribe el modelo) y las claves de ``_ECHO_KEYS`` (``message``, que repite
-    argumentos, y la prosa y los conteos de la búsqueda por nombre).
+    lo escribe el modelo), las de memoria (sus valores respaldan solo según el camino,
+    spec 045 FR-017, en :meth:`_TurnStream._allowed`) y las claves de ``_ECHO_KEYS``
+    (``message``, que repite argumentos, y la prosa y los conteos de la búsqueda por
+    nombre). De ``preguntas_frecuentes`` solo cuentan los fragmentos (:func:`backing_data`).
     """
 
     return [
         json.dumps(
-            {key: value for key, value in data.items() if key not in _ECHO_KEYS},
+            {
+                key: value
+                for key, value in backing_data(tool, data).items()
+                if key not in _ECHO_KEYS
+            },
             ensure_ascii=False,
             default=str,
         )
         for tool, data in payloads
-        if tool != TOOL_SIN_CONSULTA
+        if tool not in DECLARATION_TOOLS and tool not in MEMORY_TOOLS
     ]
 
 
@@ -843,7 +986,8 @@ class ToolAgentRunner:
 
         cleaned = validate_question(question)
         turns = list(seed_turns)
-        state = _TurnStream(cleaned)
+        turn_count = _turn_count(seed_turns)
+        state = _TurnStream(cleaned, turns, turn_count)
         cancel = TurnCancel()
         config = cancel.config(
             {
@@ -856,6 +1000,8 @@ class ToolAgentRunner:
             "owner_key": owner_key,
             "thread_id": thread_id,
             "seed_turns": turns,
+            # Spec 045 (FR-008): turnos persistidos antes de este (``SeedTurns``).
+            "turn_count": turn_count,
         }
         timeout_s = float(self._settings.agent_turn_timeout_s)
         pump = _GraphPump(
