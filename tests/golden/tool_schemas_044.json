@@ -1,0 +1,442 @@
+[
+  {
+    "function": {
+      "description": "Busca en los documentos públicos de Carvajal (historia, empresas, sostenibilidad, noticias, sedes institucionales). Devuelve fragmentos numerados [n] con su fuente.",
+      "name": "buscar_corpus",
+      "parameters": {
+        "properties": {
+          "alcance": {
+            "default": "todo",
+            "description": "«oficial» busca solo en la capa núcleo de Carvajal; «todo» incluye terceros.",
+            "enum": [
+              "oficial",
+              "todo"
+            ],
+            "type": "string"
+          },
+          "consulta": {
+            "description": "Reformulación autocontenida de lo que se busca, con los nombres propios necesarios (de 1 a 300 caracteres).",
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "consulta"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Busca empaques del catálogo según uso, temperatura, microondas, capacidad, familia y nombre (código como P1 o J2, SKU o nombre comercial o coloquial como icopor). Devuelve hasta 8 opciones aptas numeradas [n], el total de coincidencias y las descartadas con su motivo. No calcula totales; sirve para explorar y comparar.",
+      "name": "buscar_producto",
+      "parameters": {
+        "properties": {
+          "capacidad_oz": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 200,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Capacidad en onzas líquidas."
+          },
+          "familia": {
+            "anyOf": [
+              {
+                "enum": [
+                  "vaso",
+                  "tapa",
+                  "contenedor",
+                  "charola",
+                  "cubierto",
+                  "envase",
+                  "plato"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Familia: vaso, tapa, contenedor, charola, cubierto, envase o plato."
+          },
+          "microondas": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Si se calentará en microondas."
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Texto libre para una referencia concreta: código (P1, J2, 14x14), SKU (CO-PCOM-J2) o nombre comercial o coloquial (icopor, portacomidas, bowl, pando). Filtra por coincidencia en nombre, SKU y material; se combina con los demás filtros."
+          },
+          "pais": {
+            "anyOf": [
+              {
+                "enum": [
+                  "MX",
+                  "CO"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "País de compra (CO o MX); sin país no hay precio."
+          },
+          "prefiere_renovable": {
+            "default": false,
+            "description": "Si la persona prefiere papel o pulpa.",
+            "type": "boolean"
+          },
+          "temperatura": {
+            "anyOf": [
+              {
+                "enum": [
+                  "caliente",
+                  "fria",
+                  "ambiente"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Temperatura del contenido: caliente, fria o ambiente."
+          },
+          "uso": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Uso del empaque: bebida_caliente, bebida_fria, comida_caliente, comida_fria, ensaladas, frituras, frutas, panaderia, salsas, sandwiches, sopas."
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con el precio publicado de un vendedor. Los datos ausentes se completan con el contexto comercial del hilo. Solo para combinaciones que la persona pidió. Si la persona nombró una referencia concreta (código como P1 o J2, SKU o nombre comercial), pásala en sku o nombre: se cotiza exactamente esa, sin alternativas, y si el nombre es ambiguo devuelve las candidatas. La cantidad va en la unidad que dijo la persona (unidad: cajas, paquetes, pacas); la herramienta la convierte y devuelve la conversión: no la calcules tú. Sin ciudad dicha por la persona, o con una ciudad fuera del directorio, pide la ciudad.",
+      "name": "cotizar",
+      "parameters": {
+        "properties": {
+          "capacity_oz": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 200,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Capacidad en onzas líquidas."
+          },
+          "city": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Ciudad de Colombia donde se compra, solo si la dijo la persona; sin ciudad la herramienta la pide."
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "true con domicilio, false con retiro en sede; null si no se sabe."
+          },
+          "family": {
+            "anyOf": [
+              {
+                "enum": [
+                  "vaso",
+                  "tapa",
+                  "contenedor",
+                  "charola",
+                  "cubierto",
+                  "envase",
+                  "plato"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Familia: vaso, tapa, contenedor, charola, cubierto, envase o plato."
+          },
+          "microwave": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Si se calentará en microondas."
+          },
+          "nombre": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Referencia concreta que nombró la persona: código (P1, J2) o nombre comercial (Vaso Gold de 14 oz). Se busca como en buscar_producto y se cotiza exactamente esa, sin alternativas. Una descripción genérica (vasos de icopor) no es una referencia: pásala en family y use."
+          },
+          "prefers_renewable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Si la persona prefiere papel o pulpa."
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "maximum": 10000000,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Cantidad tal como la dijo la persona, en la unidad de «unidad»."
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "SKU de la referencia que nombró la persona (como CO-PCOM-J2), tal como aparece en los datos de las herramientas; fija la referencia que se cotiza."
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "enum": [
+                  "caliente",
+                  "fria",
+                  "ambiente"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Temperatura del contenido: caliente, fria o ambiente."
+          },
+          "unidad": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unidades",
+                  "cajas",
+                  "paquetes",
+                  "pacas"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Unidad de la cantidad: unidades (por defecto), cajas, paquetes o pacas. Pasa la que dijo la persona («10 cajas» → quantity 10, unidad cajas); la herramienta la convierte a unidades con la presentación de cada referencia."
+          },
+          "use": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Uso del empaque: bebida_caliente, bebida_fria, comida_caliente, comida_fria, ensaladas, frituras, frutas, panaderia, salsas, sandwiches, sopas."
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Lista las sedes de distribuidores de una ciudad de Colombia con dirección y teléfono; con un SKU marca las que lo ofrecen.",
+      "name": "buscar_sedes",
+      "parameters": {
+        "properties": {
+          "ciudad": {
+            "description": "Ciudad de Colombia.",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sku": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "SKU para marcar las sedes que lo ofrecen."
+          }
+        },
+        "required": [
+          "ciudad"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Consulta un indicador financiero publicado de Carvajal (ingresos, ebitda, utilidad, activos, empleados) para un año o un año-mes. No estima ni interpola.",
+      "name": "indicador_financiero",
+      "parameters": {
+        "properties": {
+          "nombre": {
+            "description": "Indicador: ingresos_consolidados, ebitda, utilidad_neta, activos…",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "periodo": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}(-(0[1-9]|1[0-2]))?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Año (2024) o año-mes (2025-09)."
+          }
+        },
+        "required": [
+          "nombre"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Declara que este paso se responde sin consultar datos: para pedir un dato que falta, para conversación (saludo, agradecimiento) o para algo fuera del alcance.",
+      "name": "sin_consulta",
+      "parameters": {
+        "properties": {
+          "dato": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Con pedir_dato: qué dato falta."
+          },
+          "motivo": {
+            "description": "pedir_dato, conversacion o fuera_de_alcance.",
+            "enum": [
+              "pedir_dato",
+              "conversacion",
+              "fuera_de_alcance"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "motivo"
+        ],
+        "type": "object"
+      }
+    },
+    "type": "function"
+  }
+]
