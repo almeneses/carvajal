@@ -2461,4 +2461,8 @@ def test_comparar_tras_ficha_cita_sus_cifras_en_la_ficha_compartida() -> None:
     rows = {row["sku"]: row for row in data["comparacion"]["filas"]}
     row = rows["CO-CTT-08"]
     excerpt = next(s["excerpt"] for s in second.sources if s["n"] == row["n"])
-    assert str(row["unidades_por_caja"]) in excerpt
+    # «(paquete x 20)» sin caja declarada: la cifra que comparar devuelve es la del paquete
+    # según el nombre, y la ficha compartida no gana un «unidades por caja» que no publica.
+    assert row["unidades_por_caja"] is None
+    assert f"paquete de {row['presentacion_nombre']['unidades']} unidades" in excerpt
+    assert "unidades por caja" not in excerpt
