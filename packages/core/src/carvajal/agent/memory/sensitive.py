@@ -36,11 +36,21 @@ _END = r"(?![\w]|[.,]\d)"
 _START = r"(?<![\w.+$])"
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", _FLAGS)
-_MOBILE = re.compile(rf"{_START}(?:\+?57[ .-]?)?3\d{{2}}[ .-]?\d{{3}}[ .-]?\d{{4}}{_END}")
+# Celular: diez dígitos que empiezan por 3, con el prefijo entre paréntesis si lo hay
+# («(310) 123-4567») y cualquier agrupación con espacios o guiones («31 01 23 45 67»). El
+# punto solo separa tras el prefijo: «3.000.000.000» es una cifra con miles, no un celular.
+_MOBILE = re.compile(
+    rf"{_START}(?:\+?57[ .-]?)?"
+    r"(?:(?:\(3\d{2}\)|3\d{2})(?:[ .-]?\d){7}|3(?:[ -]?\d){9})"
+    rf"{_END}"
+)
 _LANDLINE = re.compile(rf"(?<![\w.+$(])(?:\+?57[ .-]?)?\(?60\d\)?[ .-]?\d{{3}}[ .-]?\d{{4}}{_END}")
 _INTERNATIONAL = re.compile(rf"(?<![\w])\+\d(?:[ .-]?\d){{7,}}{_END}")
 _DOCUMENT = re.compile(
-    r"\b(?:c[ée]dula|c\.?\s?c\.?|documento|nit|pasaporte|dni|identificaci[óo]n)"
+    r"\b(?:c[ée]dula|c\.?\s?c\.?|documento|nit|rut|pasaporte|dni|identificaci[óo]n"
+    r"|tarjeta\s+de\s+identidad"
+    # «TI» y «CE» solo en mayúsculas: en minúscula son «ti» y «ce» de una frase cualquiera.
+    r"|(?-i:T\.?\s?I\.?|C\.?\s?E\.?))"
     r"(?:\s*(?:de\s+identidad|de\s+ciudadan[íi]a|de\s+extranjer[íi]a|n[úu]mero|no\.|nro\.?"
     r"|es|:|#))*"
     rf"\s*(?:[a-z]{{1,3}}\s?)?(?:\d{{1,3}}(?:\.\d{{3}})+|\d{{5,}})(?:-\d)?{_END}",
@@ -54,11 +64,22 @@ _CARD_WORDS = re.compile(
 )
 _ACCOUNT = re.compile(
     r"\b(?:cuenta\s+(?:de\s+)?(?:ahorros|corriente|bancaria)|n[úu]mero\s+de\s+cuenta)\b"
-    r"\s*(?:es\b|:|#|no\.)?\s*\d[\d -]{3,}[^,;\n]*",
+    r"\s*(?:es\b|:|#|no\.)?\s*\d[\d -]{3,}[^,;\n]*"
+    # «mi cuenta de Bancolombia es 12345678901»: el banco (una palabra que no es cifra) y
+    # seis o más dígitos con o sin separadores.
+    r"|\bcuenta\s+(?:de|del|en)\s+[^\W\d]\w*\s*(?:es\b|:|#|no\.)?\s*\d(?:[ -]?\d){5,}"
+    rf"{_END}",
     _FLAGS,
 )
 _SECRET = re.compile(
-    r"\b(?:contrase[ñn]a|password|clave|pin|token)\b\s*(?:es\b|:|=)\s*\S[^,;\n]*", _FLAGS
+    # Con un complemento entre la palabra y el valor: «la clave de mi tarjeta es 4321», «mi
+    # clave del banco es Hunter22».
+    r"\b(?:contrase[ñn]a|password|clave|pin|token)\b"
+    r"(?:\s+(?:de|del)\s+(?:mi\s+|la\s+|el\s+)?[^\W\d]\w*){0,2}"
+    r"\s*(?:es\b|:|=)\s*\S[^,;\n]*"
+    # «clave 4455», «PIN 1234»: la palabra seguida directamente de cuatro a seis dígitos.
+    rf"|\b(?:clave|pin)\s*\d{{4,6}}{_END}",
+    _FLAGS,
 )
 # Exenciones de las cifras con forma de teléfono o tarjeta (R8): una unidad o una moneda
 # después, o ``$``/``COP`` antes.

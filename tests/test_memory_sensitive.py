@@ -6,8 +6,12 @@ conteo de dígitos: cantidades, montos, fechas, rangos, tallas y folios no son s
 """
 
 import pytest
+from langgraph.store.memory import InMemoryStore
 
 from carvajal.agent.memory.sensitive import REDACTED, find_sensitive, redact
+from carvajal.agent.memory.store import load, remember
+
+OWNER = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
 
 SENSITIVE = [
     ("mi cédula es 1.234.567.890", "documento"),
@@ -43,6 +47,20 @@ SENSITIVE = [
     ("mi PIN es 1234", "clave"),
     ("usuario y contraseña: ana / secreto", "clave"),
     ("token: abc123xyz", "clave"),
+    # Formas que la revisión de la spec 045 encontró sin detectar (FR-012, R8).
+    ("la clave de mi tarjeta es 4321", "clave"),
+    ("el pin de mi tarjeta es 1234", "clave"),
+    ("mi clave del banco es Hunter22", "clave"),
+    ("clave 4455", "clave"),
+    ("mi cuenta de Bancolombia es 12345678901", "cuenta"),
+    ("cuenta en Davivienda: 0550-1234-5678", "cuenta"),
+    ("mi RUT es 1020304050-1", "documento"),
+    ("mi tarjeta de identidad es 1001234567", "documento"),
+    ("TI 1001234567", "documento"),
+    ("CE 456789", "documento"),
+    ("mi celular es (310) 123-4567", "telefono"),
+    ("mi celular es 310 12 34 567", "telefono"),
+    ("31 01 23 45 67", "telefono"),
 ]
 
 VALID = [
@@ -80,6 +98,13 @@ VALID = [
     "mi número de pedido es 12345",
     "la paca x 200 me sirve",
     "3001 vasos para el evento",
+    # Sin falsos positivos de las formas nuevas.
+    "para ti 50000 vasos",
+    "ce 2026 es el año del evento",
+    "la cuenta de cobro llega el 2026-12-01",
+    "una cuenta de 500 vasos",
+    "3.000.000 de vasos",
+    "300 310 320 ml",
 ]
 
 
@@ -130,3 +155,29 @@ def test_varios_tipos_en_una_frase_y_sin_repetir() -> None:
     found = find_sensitive("cédula 1234567890, correo ana@x.co y otro correo b@y.co")
 
     assert found == ["documento", "correo"]
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "la clave de mi tarjeta es 4321",
+        "el pin de mi tarjeta es 1234",
+        "mi clave del banco es Hunter22",
+        "mi cuenta de Bancolombia es 12345678901",
+        "mi RUT es 1020304050-1",
+        "mi tarjeta de identidad es 1001234567",
+        "mi celular es (310) 123-4567",
+        "mi celular es 310 12 34 567",
+    ],
+)
+def test_la_memoria_no_guarda_como_nota_las_formas_nuevas(frase: str) -> None:
+    # Arrange
+    store = InMemoryStore()
+
+    # Act
+    operation = remember(store, OWNER, "nota", frase)
+
+    # Assert
+    assert operation.outcome == "rejected"
+    assert operation.reason == "dato_sensible"
+    assert load(store, OWNER).notes == ()
