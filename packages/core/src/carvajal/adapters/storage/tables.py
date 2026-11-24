@@ -261,6 +261,8 @@ Index("ix_quotes_owner_created", quotes.c.owner_key, quotes.c.created_at.desc())
 # hilo, cobrar cupo o llamar al LLM. ``delivery_id`` es el ``client_turn_id`` derivado del
 # ``message_id``. ``reply`` solo guarda las respuestas cortas que no dejan turno (nueva
 # conversación sin texto, cupo agotado); el texto de un turno vive en ``messages``.
+# ``attempt`` es el token de la toma vigente (``NULL``: pendiente liberada, libre);
+# ``quota_charged`` y ``thread_opened`` anotan los efectos de un intento fallido.
 webhook_deliveries = Table(
     "webhook_deliveries",
     metadata,
@@ -270,6 +272,9 @@ webhook_deliveries = Table(
     Column("reply", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("attempt", String(32), nullable=True),
+    Column("quota_charged", Boolean, nullable=False, server_default=text("false")),
+    Column("thread_opened", Boolean, nullable=False, server_default=text("false")),
     CheckConstraint("status IN ('pending', 'done')", name="ck_webhook_deliveries_status"),
 )
 

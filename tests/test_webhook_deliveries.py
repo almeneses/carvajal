@@ -150,6 +150,47 @@ def test_una_reserva_pendiente_caducada_la_toma_el_siguiente_intento(
     assert after == DeliveryClaim("pending")
 
 
+def test_el_intento_viejo_no_libera_ni_cierra_la_reserva_del_nuevo(
+    store_and_clock: tuple[Any, Clock],
+) -> None:
+    # Arrange: A tarda más que PENDING_TTL y B toma su reserva caducada.
+    store, clock = store_and_clock
+    first = store.claim(OWNER, TURN)
+    clock.advance(PENDING_TTL + timedelta(minutes=1))
+    second = store.claim(OWNER, TURN)
+
+    # Act: A termina en fallo (libera) y luego otro intento C llega mientras B sigue.
+    store.release(OWNER, TURN, first.token)
+    store.finish(OWNER, TURN, "de A", first.token)
+    third = store.claim(OWNER, TURN)
+    store.finish(OWNER, TURN, "de B", second.token)
+
+    # Assert
+    assert first.token and second.token and first.token != second.token
+    assert third == DeliveryClaim("pending")
+    assert store.claim(OWNER, TURN) == DeliveryClaim("done", "de B")
+
+
+def test_liberar_con_efectos_los_entrega_al_reintento(store_and_clock: tuple[Any, Clock]) -> None:
+    # Arrange: el primer intento cobró el cupo y abrió el hilo, y falló.
+    store, _clock = store_and_clock
+    first = store.claim(OWNER, TURN)
+
+    # Act
+    store.release(OWNER, TURN, first.token, quota_charged=True, thread_opened=True)
+    retried = store.claim(OWNER, TURN)
+    concurrent = store.claim(OWNER, TURN)
+    store.release(OWNER, TURN, retried.token, quota_charged=True)
+    again = store.claim(OWNER, TURN)
+
+    # Assert: el reintento la toma de inmediato con las marcas; mientras la tiene, está
+    # pendiente para los demás; las marcas se acumulan.
+    assert retried == DeliveryClaim("acquired", quota_charged=True, thread_opened=True)
+    assert retried.token not in (None, first.token)
+    assert concurrent == DeliveryClaim("pending")
+    assert again == DeliveryClaim("acquired", quota_charged=True, thread_opened=True)
+
+
 def test_las_entregas_viejas_se_purgan(sqlite_engine: Any) -> None:
     # Arrange
     clock = Clock()

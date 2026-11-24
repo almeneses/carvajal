@@ -98,6 +98,9 @@ def _assert_head_schema(engine: Engine) -> None:
         "reply",
         "created_at",
         "updated_at",
+        "attempt",
+        "quota_charged",
+        "thread_opened",
     }
     delivery_pk = inspector.get_pk_constraint("webhook_deliveries")["constrained_columns"]
     assert delivery_pk == ["owner_key", "delivery_id"]
