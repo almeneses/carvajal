@@ -47,6 +47,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
+from carvajal.agent.toolagent.evidence import backing_data
 from carvajal.agent.toolagent.graph import SHORTCUT_INTENTS
 from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_CORPUS,
@@ -756,7 +757,8 @@ def _tool_backing(messages: Sequence[Any]) -> list[str]:
     """Datos de las herramientas del turno (sin ``message``, ``sin_consulta`` ni memoria).
 
     Las de memoria quedan fuera como en ``_tool_backing`` del servicio (spec 045, FR-017):
-    sus valores son de la persona y nunca respaldan datos de Carvajal.
+    sus valores son de la persona y nunca respaldan datos de Carvajal. De
+    ``preguntas_frecuentes`` solo cuentan los fragmentos (``backing_data``, R18).
     """
 
     texts: list[str] = []
@@ -769,7 +771,8 @@ def _tool_backing(messages: Sequence[Any]) -> list[str]:
         data = content_data(content)
         if data is None:
             continue
-        texts.append(_dumps({key: value for key, value in data.items() if key != "message"}))
+        backing = backing_data(str(message.name or ""), data)
+        texts.append(_dumps({key: value for key, value in backing.items() if key != "message"}))
     return texts
 
 
@@ -2871,6 +2874,32 @@ def _text_provider(settings: Any) -> tuple[Any, UsageProbe | None]:
     return build_llm_provider(settings), None
 
 
+def _eval_faq_source(settings: Any) -> Any:
+    """``FaqSource`` del ejecutor con la base y el proveedor configurados; ``None`` si falla.
+
+    Mismo corpus núcleo de PostgreSQL y mismo tope de prompt que ``apps/api/agent_runtime.py``.
+    El LLM de la FAQ no pasa por el medidor de uso del informe.
+    """
+
+    try:
+        ensure_apps_importable()
+        from apps.api.agent_runtime import _faq_prompt_chars
+        from apps.api.views.faq import SqlFaqCorpus
+        from carvajal.adapters.llm import build_llm_provider
+        from carvajal.adapters.storage.database import build_engine, build_session_factory
+        from carvajal.agent.toolagent.tools import FaqSource
+
+        return FaqSource(
+            corpus=SqlFaqCorpus(build_session_factory(build_engine(settings.database_url))),
+            llm=build_llm_provider(settings),
+            timeout_s=settings.agent_faq_timeout_s,
+            max_prompt_chars=_faq_prompt_chars(settings),
+        )
+    except Exception as error:
+        logger.warning("eval_agent.faq_unavailable", error=str(error))
+        return None
+
+
 _REPO_MARKER: Final = Path("apps") / "api" / "chat" / "agent.py"
 
 
@@ -2945,11 +2974,13 @@ def build_runtime(
     from carvajal.agent.router import decide_route
     from carvajal.agent.toolagent.graph import build_tool_agent
     from carvajal.agent.toolagent.tools import ToolDeps
+    from carvajal.institutional import load_institutional
 
     unknown = sorted(set(modes) - set(MODES))
     if unknown:
         raise ValueError(f"Modos desconocidos: {unknown}")
     closers: list[Callable[[], None]] = []
+    real = vector_store is None and llm is None
     if vector_store is None:
         from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
         from carvajal.application.retrieval import LayerPriorityStore
@@ -2963,6 +2994,9 @@ def build_runtime(
         )
         closers.append(qdrant.close)
         vector_store = LayerPriorityStore(qdrant, min_score=settings.rag_min_score)
+    # ``preguntas_frecuentes`` necesita el corpus de PostgreSQL y un LLM: solo con el runtime
+    # real (sin dobles); con dobles, la herramienta devuelve ``error`` declarado (T067).
+    faq = _eval_faq_source(settings) if real else None
     if embedder is None:
         from carvajal.adapters.embeddings import OllamaEmbedder
 
@@ -2997,8 +3031,15 @@ def build_runtime(
             )
         if "tools" in modes:
             checkpointer, store = InMemorySaver(), InMemoryStore()
+            # Sin base de cotizaciones: ``consultar_cotizacion`` devuelve ``error`` declarado
+            # (limitación del ejecutor, declarada en la evidencia de la 045).
             deps = ToolDeps(
-                vector_store=vector_store, embedder=embedder, settings=settings, catalog=catalog
+                vector_store=vector_store,
+                embedder=embedder,
+                settings=settings,
+                catalog=catalog,
+                institutional=load_institutional(),
+                faq=faq,
             )
             tool_graph = build_tool_agent(
                 deps,

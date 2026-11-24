@@ -951,6 +951,50 @@ def test_extremo_a_extremo_con_el_runner_real_y_un_chat_guionado(engine: Any) ->
     assert stored[0]["url"] == "https://www.carvajal.com/historia/"
 
 
+def test_una_fuente_de_tipo_sistema_llega_a_la_api_y_al_historial(engine: Any) -> None:
+    # Arrange: ``fecha_actual`` cita el reloj del servidor con ``source_type="sistema"``
+    # (spec 045, T082); la interfaz solo distingue ``tercero`` y no debe romperse.
+    from datetime import UTC, datetime
+
+    from apps.api.runtime import templates
+
+    answer = "Hoy es martes 24 de noviembre de 2026 en Colombia [1]."
+    settings = tools_settings()
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "fecha_actual", "args": {}}]),
+            ScriptStep(text=answer),
+        ]
+    )
+    graph = build_tool_agent(
+        ToolDeps(
+            vector_store=SingleBatchStore([]),
+            embedder=FakeEmbedder(),
+            settings=settings,
+            now=datetime(2026, 11, 24, 15, 0, tzinfo=UTC),
+        ),
+        chat,
+        checkpointer=InMemorySaver(),
+    )
+    service = build_service(engine, ToolAgentRunner(graph, settings), settings=settings)
+
+    # Act
+    events = list(service.stream("dueno-reloj", "¿Qué día es hoy?"))
+    history = list(service.history("dueno-reloj"))
+    html = templates.get_template("_chat_thread.html").render(messages=history, error=None)
+
+    # Assert
+    sources = named(events, "meta").data["sources"]
+    assert [source["source_type"] for source in sources] == ["sistema"]
+    assert "".join(e.data["text"] for e in events if e.name == "token") == answer
+    stored = history[1].sources
+    assert stored is not None
+    assert stored[0]["source_type"] == "sistema"
+    assert stored[0]["chunk_id"] == "reloj:2026-11-24"
+    assert "24 de noviembre de 2026" in html
+    assert "etiqueta-tercero" not in html
+
+
 def test_si_las_fuentes_cambian_tras_anunciarlas_se_reemite_meta(engine: Any) -> None:
     # Arrange: el runner anunció una fuente, pero el cierre trae otra lista (por ejemplo, el
     # modelo siguió consultando tras un texto largo).

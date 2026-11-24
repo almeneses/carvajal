@@ -22,14 +22,20 @@ __all__ = [
     "TOOL_BUSCAR_SEDES",
     "TOOL_CIUDADES_CON_COBERTURA",
     "TOOL_COMPARAR_REFERENCIAS",
+    "TOOL_CONSULTAR_COTIZACION",
     "TOOL_CONVERTIR_PRESENTACION",
     "TOOL_COTIZAR",
+    "TOOL_EMPRESAS_DEL_GRUPO",
+    "TOOL_FECHA_ACTUAL",
     "TOOL_FICHA_PRODUCTO",
     "TOOL_GUIA_MATERIALES",
+    "TOOL_HISTORIA_CARVAJAL",
+    "TOOL_INDICADORES_DISPONIBLES",
     "TOOL_INDICADOR_FINANCIERO",
     "TOOL_LISTAR_MEMORIA",
     "TOOL_NAMES",
     "TOOL_OLVIDAR_PREFERENCIA",
+    "TOOL_PREGUNTAS_FRECUENTES",
     "TOOL_RECORDAR_PREFERENCIA",
     "TOOL_SIN_CONSULTA",
     "TOOL_STATUSES",
@@ -55,6 +61,12 @@ ToolName = Literal[
     "guia_materiales",
     "convertir_presentacion",
     "ciudades_con_cobertura",
+    "consultar_cotizacion",
+    "indicadores_disponibles",
+    "historia_carvajal",
+    "empresas_del_grupo",
+    "preguntas_frecuentes",
+    "fecha_actual",
     "recordar_preferencia",
     "listar_memoria",
     "olvidar_preferencia",
@@ -62,7 +74,7 @@ ToolName = Literal[
 ToolStatus = Literal["ok", "empty", "needs_input", "error"]
 ModePath = Literal["shortcut", "agent"]
 
-# Nombres de las seis herramientas de contracts/agent-tools.md.
+# Nombres de las seis herramientas de contracts/agent-tools.md (spec 044).
 TOOL_BUSCAR_CORPUS: Final = "buscar_corpus"
 TOOL_BUSCAR_PRODUCTO: Final = "buscar_producto"
 TOOL_COTIZAR: Final = "cotizar"
@@ -75,6 +87,13 @@ TOOL_COMPARAR_REFERENCIAS: Final = "comparar_referencias"
 TOOL_GUIA_MATERIALES: Final = "guia_materiales"
 TOOL_CONVERTIR_PRESENTACION: Final = "convertir_presentacion"
 TOOL_CIUDADES_CON_COBERTURA: Final = "ciudades_con_cobertura"
+# Institucionales, cotizaciones guardadas y fecha (spec 045, US4).
+TOOL_CONSULTAR_COTIZACION: Final = "consultar_cotizacion"
+TOOL_INDICADORES_DISPONIBLES: Final = "indicadores_disponibles"
+TOOL_HISTORIA_CARVAJAL: Final = "historia_carvajal"
+TOOL_EMPRESAS_DEL_GRUPO: Final = "empresas_del_grupo"
+TOOL_PREGUNTAS_FRECUENTES: Final = "preguntas_frecuentes"
+TOOL_FECHA_ACTUAL: Final = "fecha_actual"
 # Memoria del dueño (spec 045, US2).
 TOOL_RECORDAR_PREFERENCIA: Final = "recordar_preferencia"
 TOOL_LISTAR_MEMORIA: Final = "listar_memoria"

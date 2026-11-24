@@ -24,15 +24,18 @@ from typing import Any
 import structlog
 from langgraph.store.base import BaseStore
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session, sessionmaker
 
 from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.llm.deepseek import build_deepseek_chat
+from carvajal.adapters.storage.quotes import QuoteRecord, SqlQuoteRepository
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
 from carvajal.agent.graph import AgentDeps, build_agent
 from carvajal.agent.router import decide_route
 from carvajal.agent.routers import Router, build_router, router_name
 from carvajal.agent.toolagent.graph import build_tool_agent
-from carvajal.agent.toolagent.tools import ToolDeps
+from carvajal.agent.toolagent.tools import FaqSource, ToolDeps
+from carvajal.application.faq import MAX_PROMPT_CHARS
 from carvajal.application.ports import Embedder, VectorStore
 from carvajal.application.retrieval import LayerPriorityStore
 from carvajal.infrastructure.agent_mode import agent_mode_status
@@ -149,9 +152,13 @@ def _graphs(
                 settings=settings,
                 # Spec 045: el mismo Store del grafo guarda la memoria del dueño; la capa
                 # institucional se carga una vez y declara ``no_disponible`` si falta.
-                # ``quote_lookup`` (T080) y ``faq`` (T067) llegan con sus herramientas.
+                # ``quote_lookup`` lee las cotizaciones guardadas con su propia sesión
+                # (T080) y ``faq`` reutiliza el corpus y el LLM de ``/api/faq`` (T067);
+                # si no se pueden construir, sus herramientas devuelven ``error`` declarado.
                 memory=store if isinstance(store, BaseStore) else None,
                 institutional=load_institutional(),
+                quote_lookup=_quote_lookup(),
+                faq=_faq_source(settings),
             ),
             _tool_chat(settings),
             checkpointer=checkpointer,
@@ -169,6 +176,68 @@ def _graphs(
     if router is not decide_route:
         logger.info("agent.fallback_router", configured=router_name(router), fallback="rules")
     return routes_graph(decide_route), tool_graph
+
+
+class _SqlQuoteLookup:
+    """``QuoteLookup`` sobre ``SqlQuoteRepository`` con su propia sesión (spec 045, T080).
+
+    Devuelve el hilo completo: ``consultar_cotizacion`` filtra la procedencia ``real`` y
+    recorta a las cinco más recientes después, así una simulada no desplaza a una real.
+    ``QuoteRecord`` copia la fila, así que sigue siendo válido al cerrar la sesión.
+    """
+
+    def __init__(self, factory: sessionmaker[Session]) -> None:
+        self._factory = factory
+
+    def get(self, folio: str, owner_key: str) -> QuoteRecord | None:
+        with self._factory() as session:
+            return SqlQuoteRepository(session).get(folio, owner_key)
+
+    def for_conversation(self, conversation_id: str, owner_key: str) -> list[QuoteRecord]:
+        with self._factory() as session:
+            return SqlQuoteRepository(session).for_conversation(conversation_id, owner_key)
+
+
+def _quote_lookup() -> _SqlQuoteLookup | None:
+    """Lector de cotizaciones guardadas; ``None`` si la base no está configurada."""
+
+    try:
+        from apps.api import runtime
+
+        return _SqlQuoteLookup(runtime.session_factory())
+    except Exception as error:
+        logger.warning("agent.quote_lookup_unavailable", error=str(error))
+        return None
+
+
+def _faq_prompt_chars(settings: Settings) -> int:
+    """El mismo tope de prompt que ``faq_service`` (``apps/api/views/faq.py``)."""
+
+    if settings.llm_provider.strip().lower() == "ollama":
+        return min(MAX_PROMPT_CHARS, max(20_000, settings.ollama_num_ctx * 3))
+    return MAX_PROMPT_CHARS
+
+
+def _faq_source(settings: Settings) -> FaqSource | None:
+    """Corpus núcleo de PostgreSQL y LLM de ``/api/faq`` para ``preguntas_frecuentes``.
+
+    Se construye una vez por proceso, así la caché de lotes verificados sobrevive entre
+    turnos. Si falla (base o proveedor sin configurar), la herramienta devuelve ``error``.
+    """
+
+    try:
+        from apps.api import runtime
+        from apps.api.views.faq import SqlFaqCorpus
+
+        return FaqSource(
+            corpus=SqlFaqCorpus(runtime.session_factory()),
+            llm=runtime.llm_provider(),
+            timeout_s=settings.agent_faq_timeout_s,
+            max_prompt_chars=_faq_prompt_chars(settings),
+        )
+    except Exception as error:
+        logger.warning("agent.faq_unavailable", error=str(error))
+        return None
 
 
 def _tool_chat(settings: Settings) -> Any:

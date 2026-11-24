@@ -789,3 +789,86 @@ def test_la_compuerta_lee_el_papel_corpus_del_registro(monkeypatch: pytest.Monke
     assert evidence.gate([vacia]) == evidence.GATE_ABSTAIN
     assert evidence.neutral_only([vacia, pide])
     assert evidence.abstention([("faq_falsa", {"status": "empty"})])[0].endswith(NO_CONTEXT_ANSWER)
+
+
+# --- Herramientas institucionales (spec 045, US4) --------------------------------------------
+
+
+def test_preguntas_frecuentes_vacia_se_abstiene_como_buscar_corpus() -> None:
+    # Arrange: ninguna entrada generada pasó la verificación contra su pasaje.
+    from carvajal.agent.toolagent.evidence import GATE_ABSTAIN, abstention, gate
+
+    results = [
+        make_tool_outcome(
+            tool="preguntas_frecuentes", args={}, status="empty", source_ids=[], elapsed_ms=3
+        )
+    ]
+
+    # Act
+    path = gate(results)
+    text, abstained = abstention([("preguntas_frecuentes", {"status": "empty"})])
+
+    # Assert
+    assert path == GATE_ABSTAIN
+    assert abstained
+    assert NO_CONTEXT_ANSWER in text
+
+
+def test_de_preguntas_frecuentes_solo_respalda_el_fragmento() -> None:
+    # Arrange: la pregunta y la respuesta las redactó un LLM.
+    from carvajal.agent.toolagent.evidence import backing_data
+
+    data = {
+        "status": "ok",
+        "preguntas": [
+            {
+                "n": 1,
+                "tema": "Historia",
+                "pregunta": "¿Cuándo se fundó?",
+                "respuesta": "En 1850, en Bogotá.",
+                "fragmento": "El sábado 29 de octubre de 1904 se fundó en Cali.",
+            }
+        ],
+    }
+
+    # Act
+    backing = json.dumps(backing_data("preguntas_frecuentes", data), ensure_ascii=False)
+
+    # Assert
+    assert "1904" in backing
+    assert "1850" not in backing
+    assert "Bogotá" not in backing
+    assert backing_data("historia_carvajal", data) is data
+
+
+def test_el_servicio_no_respalda_con_la_respuesta_generada_de_la_faq() -> None:
+    # Arrange
+    from apps.api.chat.agent import _tool_backing
+
+    payload = {
+        "status": "ok",
+        "preguntas": [{"respuesta": "Se fundó en 1850.", "fragmento": "Se fundó en 1904."}],
+    }
+
+    # Act
+    texts = _tool_backing([("preguntas_frecuentes", payload)])
+
+    # Assert
+    assert len(texts) == 1
+    assert "1904" in texts[0] and "1850" not in texts[0]
+
+
+def test_un_anio_sin_hito_se_declara_con_los_anios_cercanos() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.evidence import tool_misses
+
+    payloads = [("historia_carvajal", {"status": "empty", "anios_cercanos": [1961, 1964]})]
+
+    # Act
+    lines = tool_misses(payloads)
+
+    # Assert
+    assert lines == [
+        "La historia oficial no registra un hito en ese año; no lo interpolo. Los años más "
+        "cercanos con hitos son: 1961 y 1964."
+    ]

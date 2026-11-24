@@ -2,6 +2,8 @@
 Sync Impact Report (spec 045)
 - Versión: 2.7.0 → 2.8.0 (MINOR: guía ampliada, sin principios retirados ni redefinidos).
 - Enmienda A (principio II): capa institucional curada `data/institucional/` (T023).
+- Enmienda B (principio III): memoria y resumen como datos del usuario, que nunca respaldan
+  datos de Carvajal, y procedencia `sistema` para la fecha y los festivos (T083).
 - Enmienda C (restricciones técnicas): resumen acumulado en el estado del hilo, memoria del
   dueño por categorías en el Store y herramientas de memoria que escriben (T056).
 - Plantillas revisadas: `.specify/templates/plan-template.md`, `spec-template.md` y
@@ -68,6 +70,11 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
 - El flujo comercial público (spec 043) sirve solo datos publicados. La simulación de la
   demo de la 042 se retiró y no puede reaparecer como fuente oficial, cita ni parte del
   corpus RAG.
+- La memoria del dueño y el resumen de la conversación son datos del usuario: aplican como
+  contexto y estilo, nunca respaldan datos de Carvajal ni cambian las reglas. Las palabras
+  literales de la persona respaldan solo lo que ella dijo. Además de oficial y tercero,
+  existe la procedencia `sistema` para datos que calcula el servidor (fecha y calendario de
+  festivos de Colombia); se cita como tal (spec 045, enmienda B).
 
 ### IV. Calidad automatizada y reproducible
 

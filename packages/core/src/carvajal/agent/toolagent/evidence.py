@@ -74,7 +74,9 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_PRODUCTO,
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
+    TOOL_HISTORIA_CARVAJAL,
     TOOL_INDICADOR_FINANCIERO,
+    TOOL_PREGUNTAS_FRECUENTES,
 )
 from carvajal.agent.toolagent.tools.registry import CORPUS_TOOLS, DECLARATION_TOOLS
 from carvajal.application.evidence import _KNOWN_ENTITIES, _entities
@@ -93,6 +95,7 @@ __all__ = [
     "GatePath",
     "abstention",
     "ask_for_missing",
+    "backing_data",
     "filter_unsupported",
     "gate",
     "has_evidence",
@@ -639,7 +642,33 @@ def tool_misses(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> list[str]:
             add("No encontré un precio publicado que cumpla esa solicitud.")
         elif tool == TOOL_INDICADOR_FINANCIERO:
             add("No hay un registro publicado de ese indicador para ese período; no lo estimo.")
+        elif tool == TOOL_HISTORIA_CARVAJAL:
+            # Los años cercanos son datos de la herramienta (los hitos de la historia oficial).
+            years = [str(year) for year in data.get("anios_cercanos") or []]
+            line = "La historia oficial no registra un hito en ese año; no lo interpolo."
+            if years:
+                line += f" Los años más cercanos con hitos son: {_join(years)}."
+            add(line)
     return lines
+
+
+def backing_data(tool: str, data: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Parte de los datos de una herramienta que puede respaldar texto en ``no_query``.
+
+    ``preguntas_frecuentes`` devuelve preguntas y respuestas que redactó un LLM: solo su
+    ``fragmento`` (el pasaje literal del núcleo que las verificó) respalda algo, nunca la
+    ``pregunta`` ni la ``respuesta`` (spec 045, R18). Las demás herramientas devuelven
+    datos deterministas y se usan enteros.
+    """
+
+    if tool == TOOL_PREGUNTAS_FRECUENTES:
+        entries = data.get("preguntas") or []
+        return {
+            "fragmentos": [
+                str(entry.get("fragmento") or "") for entry in entries if isinstance(entry, Mapping)
+            ]
+        }
+    return data
 
 
 def abstention(

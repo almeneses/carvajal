@@ -33,6 +33,7 @@ from carvajal.agent.toolagent.evidence import (
     GatePath,
     abstention,
     ask_for_missing,
+    backing_data,
     gate,
     missing_fields,
     neutral_only,
@@ -884,12 +885,16 @@ def _tool_backing(payloads: Sequence[tuple[str, Mapping[str, Any]]]) -> list[str
     lo escribe el modelo), las de memoria (sus valores respaldan solo según el camino,
     spec 045 FR-017, en :meth:`_TurnStream._allowed`) y las claves de ``_ECHO_KEYS``
     (``message``, que repite argumentos, y la prosa y los conteos de la búsqueda por
-    nombre).
+    nombre). De ``preguntas_frecuentes`` solo cuentan los fragmentos (:func:`backing_data`).
     """
 
     return [
         json.dumps(
-            {key: value for key, value in data.items() if key not in _ECHO_KEYS},
+            {
+                key: value
+                for key, value in backing_data(tool, data).items()
+                if key not in _ECHO_KEYS
+            },
             ensure_ascii=False,
             default=str,
         )

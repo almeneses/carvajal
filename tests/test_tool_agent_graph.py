@@ -126,6 +126,7 @@ def _build(
     settings: Settings | None = None,
     checkpointer: Any = None,
     memory: Any = None,
+    deps_extra: dict[str, Any] | None = None,
 ) -> tuple[Any, ScriptedToolChat, QueueStore]:
     chat = ScriptedToolChat(steps=list(steps))
     vector_store = store or QueueStore()
@@ -133,6 +134,7 @@ def _build(
         vector_store=vector_store,
         embedder=FakeEmbedder(),
         settings=settings or Settings(),
+        **(deps_extra or {}),
     )
     graph = build_tool_agent(deps, chat, checkpointer=checkpointer or InMemorySaver(), store=memory)
     return graph, chat, vector_store
@@ -1668,7 +1670,54 @@ NEW_TOOL_CALLS: dict[str, tuple[dict[str, Any], str]] = {
         "Estoy calculando cuántas unidades son…",
     ),
     "ciudades_con_cobertura": ({}, "Estoy revisando en qué ciudades hay distribuidores…"),
+    "consultar_cotizacion": ({}, "Estoy buscando tu cotización…"),
+    "indicadores_disponibles": ({}, "Estoy revisando qué cifras financieras tengo…"),
+    "historia_carvajal": ({"anio": 1960}, "Estoy buscando en la historia de Carvajal…"),
+    "empresas_del_grupo": ({}, "Estoy revisando las empresas y marcas del grupo…"),
+    "preguntas_frecuentes": (
+        {"tema": "historia", "cantidad": 2},
+        "Estoy preparando preguntas frecuentes sobre Carvajal…",
+    ),
+    "fecha_actual": ({}, "Estoy revisando la fecha de hoy…"),
 }
+
+
+class _NoQuotes:
+    """``QuoteLookup`` vacío: el hilo no tiene cotizaciones guardadas."""
+
+    def get(self, folio: str, owner_key: str) -> None:
+        return None
+
+    def for_conversation(self, conversation_id: str, owner_key: str) -> list[Any]:
+        return []
+
+
+class _NoDocuments:
+    """``FaqCorpus`` sin documentos: el tema no tiene fragmentos y no se llama al LLM."""
+
+    def documents(self) -> tuple[Any, ...]:
+        return ()
+
+
+class _UnusedLLM:
+    def complete(self, *, system: str, prompt: str) -> str:
+        raise AssertionError("Sin fragmentos del núcleo no se llama al LLM.")
+
+    def stream(self, *, system: str, prompt: str) -> Any:
+        raise AssertionError("Sin fragmentos del núcleo no se llama al LLM.")
+
+
+def _new_tool_deps() -> dict[str, Any]:
+    """Dependencias de las herramientas de la US4 sin base ni red (T081)."""
+
+    from carvajal.agent.toolagent.tools import FaqSource
+    from carvajal.institutional import load_institutional
+
+    return {
+        "institutional": load_institutional(),
+        "quote_lookup": _NoQuotes(),
+        "faq": FaqSource(corpus=_NoDocuments(), llm=_UnusedLLM()),
+    }
 
 
 def _counting(monkeypatch: pytest.MonkeyPatch, name: str) -> list[int]:
@@ -1702,7 +1751,7 @@ def test_una_herramienta_nueva_publica_su_estado_y_no_se_repite(
         ScriptStep(tool_calls=[_call(name, "a", **args), _call(name, "b", **args)]),
         ScriptStep(text="Listo."),
     ]
-    graph, _, _ = _build(steps)
+    graph, _, _ = _build(steps, deps_extra=_new_tool_deps())
 
     # Act
     stream = list(
@@ -1738,7 +1787,9 @@ def test_una_herramienta_nueva_respeta_el_limite_de_consultas(
         ),
         ScriptStep(text="Carvajal se fundó en 1904 [1]."),
     ]
-    graph, chat, _ = _build(steps, store=QueueStore([FUNDACION]), settings=settings)
+    graph, chat, _ = _build(
+        steps, store=QueueStore([FUNDACION]), settings=settings, deps_extra=_new_tool_deps()
+    )
 
     # Act
     state = graph.invoke(_input(), _config(settings=settings))
@@ -1782,7 +1833,7 @@ def test_una_herramienta_nueva_no_corre_tras_cancelar_el_turno(
         ),
         ScriptStep(text="No debería llegar."),
     ]
-    graph, chat, _ = _build(steps, store=QueueStore([FUNDACION]))
+    graph, chat, _ = _build(steps, store=QueueStore([FUNDACION]), deps_extra=_new_tool_deps())
 
     # Act / Assert
     with pytest.raises(TurnCancelled):
