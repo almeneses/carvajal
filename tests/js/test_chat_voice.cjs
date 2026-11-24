@@ -2809,3 +2809,116 @@ test("047 cancelar el dictado aborta la subida de la transcripción", async () =
   assert.equal(peticiones[0].opciones.signal.aborted, true);
   assert.equal(capturado.name, "AbortError");
 });
+
+// ---------------------------------------------------------------------------
+// 048: estados de la voz en <html> para el rediseño (049), solo atributos.
+// ---------------------------------------------------------------------------
+
+function conEstilo(montaje) {
+  const propiedades = new Map();
+  montaje.documento.documentElement.style = {
+    setProperty: (nombre, valor) => propiedades.set(nombre, valor),
+    removeProperty: (nombre) => propiedades.delete(nombre),
+  };
+  return propiedades;
+}
+
+test("048 el dictado del servidor expone grabando con su progreso y luego transcribiendo", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ transcripcionColgada: true });
+  const montaje = montarServidor({ servidor });
+  const propiedades = conEstilo(montaje);
+  const raiz = montaje.documento.documentElement;
+
+  // Act: empieza a grabar y pasan 15 s de 60.
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+  montaje.reloj.avanzar(15000);
+
+  // Assert
+  assert.equal(raiz.dataset.vozGrabando, "1");
+  assert.equal(raiz.dataset.vozTranscribiendo, undefined);
+  assert.equal(propiedades.get("--voz-progreso"), "0.250");
+
+  // Act: detiene; la transcripción queda pendiente.
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(raiz.dataset.vozGrabando, undefined);
+  assert.equal(propiedades.has("--voz-progreso"), false);
+  assert.equal(raiz.dataset.vozTranscribiendo, "1");
+
+  // Act: cancelar con Escape limpia el estado.
+  tecla(montaje.documento, "Escape");
+
+  // Assert
+  assert.equal(raiz.dataset.vozTranscribiendo, undefined);
+  assert.equal(raiz.dataset.vozGrabando, undefined);
+});
+
+test("048 al terminar el dictado del servidor no queda ningún estado de grabación", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  const raiz = montaje.documento.documentElement;
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.vista.entrada.value, "cotiza 400 vasos de 12 onzas");
+  assert.equal(raiz.dataset.vozGrabando, undefined);
+  assert.equal(raiz.dataset.vozTranscribiendo, undefined);
+});
+
+test("048 la lectura del servidor marca sintetizando con el id mientras llega el audio", async () => {
+  // Arrange
+  const montaje = montarServidor();
+  const raiz = montaje.documento.documentElement;
+  const turno = turnoConMensaje("Hola, soy Carva.", "m-321");
+
+  // Act
+  montaje.controlador.leerTurno(turno);
+
+  // Assert: antes de que llegue el audio.
+  assert.equal(raiz.dataset.vozSintetizando, "m-321");
+
+  // Act
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(raiz.dataset.vozSintetizando, undefined);
+});
+
+test("048 detener la lectura mientras se sintetiza limpia el estado", () => {
+  // Arrange
+  const montaje = montarServidor();
+  const raiz = montaje.documento.documentElement;
+  montaje.controlador.leerTurno(turnoConMensaje("Hola.", "m-9"));
+
+  // Act
+  montaje.controlador.detenerLectura();
+
+  // Assert
+  assert.equal(raiz.dataset.vozSintetizando, undefined);
+});
+
+test("048 el respaldo del navegador queda expuesto cuando el servidor se apaga", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(503, "cap") });
+  const montaje = montarServidor({ servidor });
+  const raiz = montaje.documento.documentElement;
+  assert.equal(raiz.dataset.vozRespaldo, undefined);
+
+  // Act
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(raiz.dataset.vozRespaldo, "1");
+});

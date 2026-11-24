@@ -171,3 +171,20 @@ conserva la política por defecto. El micrófono sigue permitido solo en el docu
   duración declarada y un tope de bytes derivado de ella. Queda un riesgo acotado: un
   cliente que falsee la cabecera puede subir, dentro del tope de bytes, Opus a 6 kbps (unos
   10 minutos en 480 KB); los límites por IP y global lo frenan.
+
+## Estados de la voz para el estilo
+
+`chat-voice.js` expone el estado de la voz solo con atributos en `<html>`. El CSS los estila
+y el JavaScript no conoce clases de diseño.
+
+| Atributo | Cuándo |
+|---|---|
+| `data-voz="1"` / `data-voz-tts="1"` | Hay voz, o hay síntesis, disponible en la página |
+| `data-voz-escuchando="1"` | Dictado en curso, del navegador o del servidor |
+| `data-voz-grabando="1"` + `--voz-progreso` (0–1) | El servidor graba; el progreso se mide frente a `VOICE_MAX_AUDIO_SECONDS` |
+| `data-voz-transcribiendo="1"` | El audio se está transcribiendo en el servidor |
+| `data-voz-sintetizando="<message_id>"` | Se pide al servidor el audio de esa respuesta |
+| `data-voz-respaldo="1"` | La voz del servidor se apagó en esta sesión y se usa la del navegador |
+| `data-voz-manos="1"` | Modo manos libres activo |
+
+Por turno, los botones `data-voz-accion` usan `aria-pressed` y `aria-busy`.
