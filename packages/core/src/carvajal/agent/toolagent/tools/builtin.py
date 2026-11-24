@@ -51,6 +51,7 @@ from carvajal.agent.toolagent.tools._base import (
     _book,
     _Draft,
     _is_official,
+    _now_bogota,
     _Sources,
     merge_quote,
 )
@@ -330,7 +331,8 @@ DESCRIPTIONS: dict[str, str] = {
 
 
 def _today(deps: ToolDeps) -> date:
-    return deps.today or (deps.now.date() if deps.now else date.today())
+    # ``deps.today`` (pruebas) manda; si no, la fecha de Bogotá del reloj único (R11).
+    return deps.today or _now_bogota(deps).date()
 
 
 # --- buscar_corpus (T017) ------------------------------------------------------------------

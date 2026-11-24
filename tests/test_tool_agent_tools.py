@@ -2250,3 +2250,38 @@ def test_las_dependencias_nuevas_son_opcionales() -> None:
     assert deps.quote_lookup is None
     assert deps.institutional is None
     assert deps.faq is None
+
+
+# --- Reloj único de Bogotá (spec 045, T018; research R11) -------------------------------------
+
+
+def test_today_usa_la_fecha_de_bogota_y_no_la_utc() -> None:
+    """A las 04:30 UTC del 25 todavía es el 24 en Bogotá (UTC-5)."""
+
+    # Arrange
+    from datetime import UTC, datetime
+
+    from carvajal.agent.toolagent.tools._base import BOGOTA, _now_bogota
+    from carvajal.agent.toolagent.tools.builtin import _today
+
+    deps = _deps(today=None, now=datetime(2026, 11, 25, 4, 30, tzinfo=UTC))
+
+    # Act
+    now = _now_bogota(deps)
+    day = _today(deps)
+
+    # Assert
+    assert now.tzinfo == BOGOTA
+    assert (now.hour, now.minute) == (23, 30)
+    assert day == date(2026, 11, 24)
+
+
+def test_today_respeta_deps_today_y_un_now_sin_zona() -> None:
+    # Arrange
+    from datetime import datetime
+
+    from carvajal.agent.toolagent.tools.builtin import _today
+
+    # Act / Assert
+    assert _today(_deps(today=date(2026, 1, 2))) == date(2026, 1, 2)
+    assert _today(_deps(today=None, now=datetime(2026, 11, 25, 4, 30))) == date(2026, 11, 25)

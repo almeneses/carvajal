@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from langgraph.store.base import BaseStore
 
@@ -375,6 +376,26 @@ def merge_quote(
 
 
 # --- Ayudantes comunes ---------------------------------------------------------------------
+
+# Zona de todas las fechas que ven las herramientas (spec 045, research R11): en un
+# contenedor en UTC, entre las 19:00 y la medianoche de Bogotá la fecha UTC ya es mañana.
+BOGOTA = ZoneInfo("America/Bogota")
+
+
+def _now_bogota(deps: ToolDeps) -> datetime:
+    """Reloj único de las herramientas, en ``America/Bogota`` (R11).
+
+    ``deps.now`` con zona se convierte con ``astimezone``; sin zona se toma como hora de
+    Bogotá (así lo usaban las pruebas de la 044). Sin ``deps.now``, el reloj del sistema en
+    Bogotá. Lo usan ``_today`` de ``cotizar`` y ``buscar_sedes``, ``fecha_actual`` y
+    ``consultar_cotizacion``, así que nunca se contradicen cerca de la medianoche.
+    """
+
+    if deps.now is None:
+        return datetime.now(BOGOTA)
+    if deps.now.tzinfo is None:
+        return deps.now.replace(tzinfo=BOGOTA)
+    return deps.now.astimezone(BOGOTA)
 
 
 def _is_official(url: str) -> bool:
