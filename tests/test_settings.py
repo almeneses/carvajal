@@ -1,6 +1,7 @@
 """Pruebas de la configuración tipada (pydantic-settings)."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -52,11 +53,14 @@ def test_semillas_por_defecto_no_vacias() -> None:
 
 
 def test_proveedor_llm_por_defecto() -> None:
-    """El proveedor por defecto es Ollama, es decir, sin API key."""
+    """El chat usa DeepSeek por defecto; la clave nunca trae un valor por defecto."""
 
+    # Arrange / Act
     settings = Settings(_env_file=None)
 
-    assert settings.llm_provider == "ollama"
+    # Assert
+    assert settings.llm_provider == "deepseek"
+    assert settings.deepseek_api_key == ""
 
 
 def test_operator_token_por_defecto_vacio_y_alias(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -539,3 +543,72 @@ def test_modo_y_limites_invalidos(monkeypatch: pytest.MonkeyPatch, nombre: str, 
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+# --- Jev de TypeSafe (spec 046, T001) ---------------------------------------------------------
+
+
+def test_jev_por_defecto_apagado_y_con_valores_del_data_model() -> None:
+    # Arrange / Act
+    settings = Settings(_env_file=None)
+
+    # Assert
+    assert settings.jev_enabled is False
+    assert settings.jev_active is False
+    assert settings.jev_ledger == ""
+    assert settings.typesafe_api_key.get_secret_value() == ""
+    assert settings.jev_base_url == "https://api.typesafe.ai/v1"
+    assert settings.jev_model == "jev-1.14.0"
+    assert settings.jev_timeout_s == 0.8
+    assert settings.jev_router_mode == "on"
+    assert settings.jev_router_min_confidence == 0.6
+    assert settings.jev_router_direct_min_confidence == 0.8
+    assert settings.jev_claims_mode == "enforce"
+    assert settings.jev_claims_threshold == 0.5
+    assert settings.jev_max_calls_per_day == 1000
+    assert settings.jev_max_evidence_chars == 12000
+
+
+def test_la_clave_sola_no_enciende_jev(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange: el ``.env`` local trae la clave pero no ``JEV_ENABLED``.
+    monkeypatch.delenv("JEV_ENABLED", raising=False)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "clave-local")
+
+    # Act
+    settings = Settings(_env_file=None)
+
+    # Assert
+    assert settings.jev_enabled is False
+    assert settings.jev_active is False
+    assert Settings(_env_file=None, jev_enabled=True).jev_active is True
+
+
+def test_la_clave_de_jev_nunca_sale_en_repr() -> None:
+    settings = Settings(_env_file=None, typesafe_api_key="secreto-typesafe")
+
+    assert "secreto-typesafe" not in repr(settings)
+    assert "secreto-typesafe" not in str(settings)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"jev_timeout_s": 0.1},
+        {"jev_timeout_s": 3.5},
+        {"jev_router_min_confidence": 1.2},
+        {"jev_claims_threshold": -0.1},
+        {"jev_max_calls_per_day": -1},
+        {"jev_max_evidence_chars": 500},
+        {"jev_router_mode": "auto"},
+        {"jev_claims_mode": "a-veces"},
+        {"jev_router_min_confidence": 0.7, "jev_router_direct_min_confidence": 0.6},
+    ],
+)
+def test_rangos_de_jev(overrides: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
+
+
+def test_on_es_alias_de_enforce_en_la_compuerta() -> None:
+    assert Settings(_env_file=None, jev_claims_mode="on").jev_claims_mode == "enforce"
+    assert Settings(_env_file=None, jev_claims_mode="shadow").jev_claims_mode == "shadow"

@@ -155,11 +155,16 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
 
 @cache
 def default_bridge() -> WhatsAppBridge:
-    """Puente real: servicio de chat, cotizaciones y cupo, construidos al primer mensaje."""
+    """Puente real: chat, cotizaciones y su PDF, cupo, reintentos y reservas, al primer uso.
+
+    Lo comparten el servidor MCP y el webhook firmado (``apps.api.views.webhooks``): el
+    mismo número cae en el mismo ``owner_key`` por cualquiera de los dos canales.
+    """
 
     from apps.api import runtime
     from apps.api.chat.service import default_chat_service
     from carvajal.adapters.storage.chat import SqlChatRepository
+    from carvajal.adapters.storage.deliveries import SqlDeliveryStore
     from carvajal.adapters.storage.quotes import SqlQuoteRepository
     from carvajal.adapters.storage.usage import SqlUsageRepository
     from carvajal.application.quota import DailyQuota, QuotaResult
@@ -175,6 +180,10 @@ def default_bridge() -> WhatsAppBridge:
         with factory() as session:
             record = SqlQuoteRepository(session).get(folio, owner_key)
             return None if record is None else dict(record.payload)
+
+    def turns(owner_key: str, client_turn_id: str) -> str | None:
+        with factory() as session:
+            return SqlChatRepository(session).find_turn_thread(owner_key, client_turn_id)
 
     def quota(owner_key: str) -> QuotaResult:
         with factory.begin() as session:
@@ -216,8 +225,11 @@ def default_bridge() -> WhatsAppBridge:
         secret=secret,
         quotes=quotes,
         quota=quota,
+        turns=turns,
         latest_quote=latest_quote,
         # Sin URL pública no hay a dónde enlazar: el chat no ofrece el PDF.
         pdf_link=pdf_link if base_url else None,
         photo_url=photo_url if base_url else None,
+        # Reserva compartida entre workers: un reintento en vuelo no repite el turno.
+        deliveries=SqlDeliveryStore(factory),
     )

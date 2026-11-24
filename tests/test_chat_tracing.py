@@ -246,7 +246,7 @@ def servicio(
         llm or LLMFalso(),
         agent=agente,
         tracer=tracer,
-        settings=settings or Settings(_env_file=None, agent_mode="routes"),
+        settings=settings or Settings(_env_file=None, agent_mode="routes", llm_provider="ollama"),
     )
 
 

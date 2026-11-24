@@ -1,0 +1,1338 @@
+{
+  "questions": "data/eval/gatekeeper_046.json",
+  "frozen_at": "2026-11-24",
+  "thresholds": {
+    "min_confidence": 0.6,
+    "direct_min_confidence": 0.8
+  },
+  "smoke": null,
+  "judges": {
+    "rules": {
+      "total": 20,
+      "hits": 14,
+      "accuracy": 0.7,
+      "quota_skipped": 0,
+      "failed": 0,
+      "items": [
+        {
+          "id": "gk-01",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-02",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial_custom",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-03",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/commercial_clarify",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-04",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/commercial_clarify",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-05",
+          "expected": "herramienta_estructurada",
+          "rules_route": "tool/indicator",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-06",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/missing_period",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-07",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-08",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-09",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-10",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-11",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-12",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-13",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-14",
+          "expected": "mixta",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-15",
+          "expected": "mixta",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-16",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-17",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-18",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-19",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-20",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "rules",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        }
+      ]
+    },
+    "llm": {
+      "total": 20,
+      "hits": 18,
+      "accuracy": 0.9,
+      "quota_skipped": 0,
+      "failed": 0,
+      "items": [
+        {
+          "id": "gk-01",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-02",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial_custom",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-03",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/commercial_clarify",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-04",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/commercial_clarify",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-05",
+          "expected": "herramienta_estructurada",
+          "rules_route": "tool/indicator",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-06",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/missing_period",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-07",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-08",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-09",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-10",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-11",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-12",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-13",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-14",
+          "expected": "mixta",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-15",
+          "expected": "mixta",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-16",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-17",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": false,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-18",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-19",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        },
+        {
+          "id": "gk-20",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "llm",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": null,
+          "probabilities": {},
+          "clarity": null,
+          "clarity_confidence": null,
+          "latency_ms": null,
+          "decision": null
+        }
+      ]
+    },
+    "jev": {
+      "total": 20,
+      "hits": 20,
+      "accuracy": 1.0,
+      "quota_skipped": 0,
+      "failed": 0,
+      "items": [
+        {
+          "id": "gk-01",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": 0.99,
+          "probabilities": {
+            "herramienta_estructurada": 0.99,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.01
+          },
+          "clarity": 2.52,
+          "clarity_confidence": 0.51,
+          "latency_ms": 326,
+          "decision": {
+            "gate_class": "herramienta_estructurada",
+            "scope": "structured",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.99
+          }
+        },
+        {
+          "id": "gk-02",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial_custom",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": 0.93,
+          "probabilities": {
+            "herramienta_estructurada": 0.95,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.05
+          },
+          "clarity": 2.6,
+          "clarity_confidence": 0.49,
+          "latency_ms": 235,
+          "decision": {
+            "gate_class": "herramienta_estructurada",
+            "scope": "structured",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.93
+          }
+        },
+        {
+          "id": "gk-03",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/commercial_clarify",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 1.0,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 2.18,
+          "clarity_confidence": 0.79,
+          "latency_ms": 136,
+          "decision": {
+            "gate_class": "herramienta_estructurada",
+            "scope": "structured",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-04",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/commercial_clarify",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": 0.99,
+          "probabilities": {
+            "herramienta_estructurada": 0.99,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.01
+          },
+          "clarity": 3.0,
+          "clarity_confidence": 0.57,
+          "latency_ms": 149,
+          "decision": {
+            "gate_class": "herramienta_estructurada",
+            "scope": "structured",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.99
+          }
+        },
+        {
+          "id": "gk-05",
+          "expected": "herramienta_estructurada",
+          "rules_route": "tool/indicator",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 1.0,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 3.34,
+          "clarity_confidence": 0.45,
+          "latency_ms": 137,
+          "decision": {
+            "gate_class": "herramienta_estructurada",
+            "scope": "structured",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-06",
+          "expected": "herramienta_estructurada",
+          "rules_route": "direct/missing_period",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": 0.99,
+          "probabilities": {
+            "herramienta_estructurada": 0.99,
+            "rag": 0.01,
+            "mixta": 0.0,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 2.63,
+          "clarity_confidence": 0.46,
+          "latency_ms": 150,
+          "decision": {
+            "gate_class": "herramienta_estructurada",
+            "scope": "structured",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.99
+          }
+        },
+        {
+          "id": "gk-07",
+          "expected": "herramienta_estructurada",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "herramienta_estructurada",
+          "correct": true,
+          "confidence": 0.93,
+          "probabilities": {
+            "herramienta_estructurada": 0.95,
+            "rag": 0.0,
+            "mixta": 0.05,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 1.72,
+          "clarity_confidence": 0.38,
+          "latency_ms": 146,
+          "decision": {
+            "gate_class": "herramienta_estructurada",
+            "scope": "all",
+            "source": "jev",
+            "cautious": false,
+            "reason": "mixta_reglas",
+            "rule": "",
+            "confidence": 0.93
+          }
+        },
+        {
+          "id": "gk-08",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 1.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 2.03,
+          "clarity_confidence": 0.54,
+          "latency_ms": 140,
+          "decision": {
+            "gate_class": "rag",
+            "scope": "rag",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-09",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": 0.92,
+          "probabilities": {
+            "herramienta_estructurada": 0.06,
+            "rag": 0.94,
+            "mixta": 0.0,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 2.39,
+          "clarity_confidence": 0.41,
+          "latency_ms": 116,
+          "decision": {
+            "gate_class": "rag",
+            "scope": "rag",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.92
+          }
+        },
+        {
+          "id": "gk-10",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": 0.99,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 0.99,
+            "mixta": 0.0,
+            "respuesta_directa": 0.01
+          },
+          "clarity": 2.03,
+          "clarity_confidence": 0.74,
+          "latency_ms": 131,
+          "decision": {
+            "gate_class": "rag",
+            "scope": "rag",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.99
+          }
+        },
+        {
+          "id": "gk-11",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": 0.84,
+          "probabilities": {
+            "herramienta_estructurada": 0.04,
+            "rag": 0.88,
+            "mixta": 0.0,
+            "respuesta_directa": 0.08
+          },
+          "clarity": 3.24,
+          "clarity_confidence": 0.38,
+          "latency_ms": 128,
+          "decision": {
+            "gate_class": "rag",
+            "scope": "rag",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.84
+          }
+        },
+        {
+          "id": "gk-12",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 1.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 2.2,
+          "clarity_confidence": 0.82,
+          "latency_ms": 150,
+          "decision": {
+            "gate_class": "rag",
+            "scope": "rag",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-13",
+          "expected": "rag",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "rag",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 1.0,
+            "mixta": 0.0,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 2.15,
+          "clarity_confidence": 0.68,
+          "latency_ms": 165,
+          "decision": {
+            "gate_class": "rag",
+            "scope": "rag",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-14",
+          "expected": "mixta",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": true,
+          "confidence": 0.59,
+          "probabilities": {
+            "herramienta_estructurada": 0.03,
+            "rag": 0.28,
+            "mixta": 0.69,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 1.47,
+          "clarity_confidence": 0.51,
+          "latency_ms": 146,
+          "decision": {
+            "gate_class": "mixta",
+            "scope": "all",
+            "source": "jev",
+            "cautious": false,
+            "reason": "mixta_reglas",
+            "rule": "",
+            "confidence": 0.59
+          }
+        },
+        {
+          "id": "gk-15",
+          "expected": "mixta",
+          "rules_route": "commercial/commercial_mixed",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "mixta",
+          "correct": true,
+          "confidence": 0.91,
+          "probabilities": {
+            "herramienta_estructurada": 0.05,
+            "rag": 0.02,
+            "mixta": 0.93,
+            "respuesta_directa": 0.0
+          },
+          "clarity": 1.16,
+          "clarity_confidence": 0.81,
+          "latency_ms": 144,
+          "decision": {
+            "gate_class": "mixta",
+            "scope": "all",
+            "source": "jev",
+            "cautious": false,
+            "reason": "mixta_reglas",
+            "rule": "",
+            "confidence": 0.91
+          }
+        },
+        {
+          "id": "gk-16",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 1.0
+          },
+          "clarity": 3.84,
+          "clarity_confidence": 0.88,
+          "latency_ms": 159,
+          "decision": {
+            "gate_class": "respuesta_directa",
+            "scope": "direct",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-17",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 1.0
+          },
+          "clarity": 2.3,
+          "clarity_confidence": 0.68,
+          "latency_ms": 132,
+          "decision": {
+            "gate_class": "respuesta_directa",
+            "scope": "direct",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-18",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 1.0
+          },
+          "clarity": 3.04,
+          "clarity_confidence": 0.22,
+          "latency_ms": 158,
+          "decision": {
+            "gate_class": "respuesta_directa",
+            "scope": "direct",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        },
+        {
+          "id": "gk-19",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": 0.95,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 0.04,
+            "mixta": 0.0,
+            "respuesta_directa": 0.96
+          },
+          "clarity": 3.82,
+          "clarity_confidence": 0.87,
+          "latency_ms": 148,
+          "decision": {
+            "gate_class": "respuesta_directa",
+            "scope": "direct",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 0.95
+          }
+        },
+        {
+          "id": "gk-20",
+          "expected": "respuesta_directa",
+          "rules_route": "rag/documental",
+          "judge": "jev",
+          "status": "ok",
+          "predicted": "respuesta_directa",
+          "correct": true,
+          "confidence": 1.0,
+          "probabilities": {
+            "herramienta_estructurada": 0.0,
+            "rag": 0.0,
+            "mixta": 0.0,
+            "respuesta_directa": 1.0
+          },
+          "clarity": 2.73,
+          "clarity_confidence": 0.38,
+          "latency_ms": 132,
+          "decision": {
+            "gate_class": "respuesta_directa",
+            "scope": "direct",
+            "source": "jev",
+            "cautious": false,
+            "reason": "aplicada",
+            "rule": "",
+            "confidence": 1.0
+          }
+        }
+      ],
+      "grid": [
+        {
+          "threshold": 0.5,
+          "applied": 20,
+          "applied_hits": 20,
+          "accuracy": 1.0,
+          "coverage": 1.0,
+          "data_to_direct": 0
+        },
+        {
+          "threshold": 0.6,
+          "applied": 19,
+          "applied_hits": 19,
+          "accuracy": 1.0,
+          "coverage": 0.95,
+          "data_to_direct": 0
+        },
+        {
+          "threshold": 0.7,
+          "applied": 19,
+          "applied_hits": 19,
+          "accuracy": 1.0,
+          "coverage": 0.95,
+          "data_to_direct": 0
+        },
+        {
+          "threshold": 0.8,
+          "applied": 19,
+          "applied_hits": 19,
+          "accuracy": 1.0,
+          "coverage": 0.95,
+          "data_to_direct": 0
+        }
+      ],
+      "recommend": {
+        "min_confidence": 0.6,
+        "direct_min_confidence": 0.6,
+        "note": "la rejilla no separa: se queda el valor vigente"
+      },
+      "confidence_vs_score": {
+        "correct": 20,
+        "errors": 0,
+        "confidence_correct": 0.9515,
+        "confidence_wrong": null,
+        "clarity_correct": 2.5195,
+        "clarity_wrong": null,
+        "errors_by_clarity": {
+          "1.16": {
+            "errors": 0,
+            "total": 1
+          },
+          "1.47": {
+            "errors": 0,
+            "total": 1
+          },
+          "1.72": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.03": {
+            "errors": 0,
+            "total": 2
+          },
+          "2.15": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.18": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.2": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.3": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.39": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.52": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.6": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.63": {
+            "errors": 0,
+            "total": 1
+          },
+          "2.73": {
+            "errors": 0,
+            "total": 1
+          },
+          "3.0": {
+            "errors": 0,
+            "total": 1
+          },
+          "3.04": {
+            "errors": 0,
+            "total": 1
+          },
+          "3.24": {
+            "errors": 0,
+            "total": 1
+          },
+          "3.34": {
+            "errors": 0,
+            "total": 1
+          },
+          "3.82": {
+            "errors": 0,
+            "total": 1
+          },
+          "3.84": {
+            "errors": 0,
+            "total": 1
+          }
+        }
+      },
+      "production": {
+        "decided": 20,
+        "applied": 20,
+        "applied_hits": 20,
+        "applied_accuracy": 1.0,
+        "cautious": [],
+        "direct": [
+          "gk-16",
+          "gk-17",
+          "gk-18",
+          "gk-19",
+          "gk-20"
+        ],
+        "data_to_direct": []
+      }
+    }
+  }
+}

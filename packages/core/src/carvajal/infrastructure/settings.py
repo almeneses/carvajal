@@ -1,12 +1,13 @@
 """Configuración tipada del pipeline, leída del entorno y de ``.env``."""
 
+import json
 from logging import getLevelNamesMapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Holgura entre el plazo de ``preguntas_frecuentes`` y el del turno cuando se recorta el
@@ -87,7 +88,10 @@ class Settings(BaseSettings):
         "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
     )
 
-    llm_provider: str = "ollama"
+    # LLM del chat en la nube por defecto (DeepSeek); Ollama queda para los embeddings y,
+    # solo si se fija ``LLM_PROVIDER=ollama``, para el chat sin red. Sin DEEPSEEK_API_KEY la
+    # app arranca igual y avisa (``agent_mode.chat_llm_blocker``).
+    llm_provider: str = "deepseek"
     anthropic_api_key: str = ""
     claude_model: str = "claude-sonnet-4-5"
     deepseek_api_key: str = ""
@@ -147,6 +151,14 @@ class Settings(BaseSettings):
     # URL pública de la web (p. ej. http://203.0.113.10:8080) para los enlaces
     # firmados al PDF de una cotización. Vacía: WhatsApp no ofrece el PDF.
     public_base_url: str = ""
+
+    # Webhook firmado de mensajería (``POST /api/webhooks/whatsapp``, docs/webhooks.md).
+    # Sin WEBHOOK_SECRET el endpoint no existe (404). La allowlist es una lista E.164
+    # separada por comas o una lista JSON; vacía rechaza todo. Se guarda tal cual y se
+    # normaliza al usarla: una entrada inválida se descarta con un aviso en vez de tumbar
+    # la app (y sin que el error de validación repita los números en los logs).
+    webhook_secret: str = Field(default="", repr=False)
+    webhook_allowed_numbers: Annotated[tuple[str, ...], NoDecode] = Field(default=(), repr=False)
 
     # Captura web desde la consola de Configuración, solo para operadores
     # autorizados con OPERATOR_TOKEN. El máximo de URLs por ejecución sigue al
@@ -215,6 +227,30 @@ class Settings(BaseSettings):
     # research R18): siempre menor que ``agent_turn_timeout_s``.
     agent_faq_timeout_s: float = Field(default=25, ge=5, le=40)
 
+    # Jev de TypeSafe (spec 046): gatekeeper del modo ``tools`` y compuerta de afirmaciones.
+    # Apagado por defecto aunque haya clave (research R9, FR-031): el ``.env`` local puede
+    # traerla y cada ``make api`` gastaría créditos fuera del libro. Producción lo enciende
+    # en su ``.env``. La clave solo sale del entorno y nunca aparece en ``repr`` ni en logs.
+    jev_enabled: bool = False
+    # Libro de llamadas (JSONL sin texto); vacío, no se anota nada.
+    jev_ledger: str = ""
+    typesafe_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    jev_base_url: str = "https://api.typesafe.ai/v1"
+    # Modelo fijado: un alias móvil cambiaría los umbrales sin aviso.
+    jev_model: str = "jev-1.14.0"
+    jev_timeout_s: float = Field(default=0.8, ge=0.2, le=3.0)
+    jev_router_mode: Literal["on", "shadow", "off"] = "on"
+    jev_router_min_confidence: float = Field(default=0.6, ge=0, le=1)
+    jev_router_direct_min_confidence: float = Field(default=0.8, ge=0, le=1)
+    # Compuerta de afirmaciones (decisión del owner): ``enforce`` sustituye la respuesta no
+    # respaldada, ``shadow`` solo juzga y registra, ``off`` la apaga. ``on`` es alias de
+    # ``enforce``.
+    jev_claims_mode: Literal["enforce", "shadow", "off"] = "enforce"
+    jev_claims_threshold: float = Field(default=0.5, ge=0, le=1)
+    # Tope por proceso; se reinicia a medianoche de Bogotá. ``0`` = sin llamadas.
+    jev_max_calls_per_day: int = Field(default=1000, ge=0, le=100_000)
+    jev_max_evidence_chars: int = Field(default=12_000, ge=1_000, le=40_000)
+
     # Observabilidad (W6.3). Sin SENTRY_DSN no se envía nada fuera; los logs
     # son JSON en stdout y el nivel se ajusta por entorno. El muestreo de
     # trazas es explícito y por defecto queda apagado.
@@ -240,14 +276,37 @@ class Settings(BaseSettings):
     monitoring_include_content: bool = False
     monitoring_timeout_ms: int = Field(default=2000, ge=1, le=60_000)
 
-    @field_validator("capture_allowed_domains", mode="before")
+    @field_validator("capture_allowed_domains", "webhook_allowed_numbers", mode="before")
     @classmethod
     def _dominios_separados_por_coma(cls, value: Any) -> Any:
-        """Acepta ``a.com,b.com`` en el entorno además de una lista JSON."""
+        """Acepta ``a.com,b.com`` (o números E.164) en el entorno además de una lista JSON.
+
+        Con ``NoDecode`` el valor llega crudo: un texto que empieza por ``[`` se lee como
+        JSON antes de partirlo por comas. Si no es una lista JSON válida se parte por comas
+        y las entradas inválidas se descartan con un aviso al usarlas, sin tumbar la app.
+        """
 
         if isinstance(value, str):
-            return tuple(part.strip() for part in value.split(",") if part.strip())
+            raw = value.strip()
+            if raw.startswith("["):
+                try:
+                    parsed = json.loads(raw)
+                except ValueError:
+                    parsed = None
+                if isinstance(parsed, list):
+                    items = (str(item).strip() for item in parsed if item is not None)
+                    return tuple(item for item in items if item)
+            return tuple(part.strip() for part in raw.split(",") if part.strip())
         return value
+
+    @field_validator("jev_claims_mode", mode="before")
+    @classmethod
+    def _modo_de_compuerta(cls, value: Any) -> Any:
+        """Acepta ``on`` como alias de ``enforce`` (el nombre de la spec 046)."""
+
+        if isinstance(value, str) and value.strip().lower() == "on":
+            return "enforce"
+        return value.strip().lower() if isinstance(value, str) else value
 
     @field_validator("log_level")
     @classmethod
@@ -292,6 +351,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _umbrales_de_jev(self) -> "Settings":
+        """El umbral de la respuesta directa nunca es menor que el general (research R4)."""
+
+        if self.jev_router_direct_min_confidence < self.jev_router_min_confidence:
+            raise ValueError(
+                "JEV_ROUTER_DIRECT_MIN_CONFIDENCE debe ser mayor o igual que "
+                "JEV_ROUTER_MIN_CONFIDENCE"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _completar_database_url(self) -> "Settings":
         """Deriva la URL del contenedor local si no se dio una explícita.
 
@@ -313,6 +383,12 @@ class Settings(BaseSettings):
         """Alias del token de operador que usaba la Configuración anterior."""
 
         return self.operator_token
+
+    @property
+    def jev_active(self) -> bool:
+        """Jev encendido de forma explícita y con clave (la clave sola no lo enciende)."""
+
+        return self.jev_enabled and bool(self.typesafe_api_key.get_secret_value().strip())
 
     @property
     def index_file(self) -> Path:

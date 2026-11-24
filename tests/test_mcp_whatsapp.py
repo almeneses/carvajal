@@ -415,3 +415,22 @@ def test_extremo_a_extremo_con_chat_service_y_cotizaciones_guardadas(sqlite_engi
     assert "💰 *Total: $3.751 COP*" in answer
     assert "💰 *Total: $7.502 COP*" in answer
     assert "*Fuentes:*" in answer
+
+
+def test_extremo_a_extremo_la_compuerta_de_jev_entrega_solo_el_sustituto(
+    sqlite_engine: Any,
+) -> None:
+    """Spec 046 (T033): por WhatsApp llega el texto neutro, no la afirmación sin fuente."""
+
+    from tests.test_chat_service_tools import jev_service
+
+    from carvajal.prompts import NO_CONTEXT_ANSWER
+
+    service, _ = jev_service(sqlite_engine)
+
+    answer = WhatsAppBridge(chat=service, secret=SECRET).consult(
+        "¿Cuándo se fundó Carvajal?", "+573100000000"
+    )
+
+    assert "más usada" not in answer
+    assert NO_CONTEXT_ANSWER.split(".")[0] in answer

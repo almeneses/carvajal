@@ -312,6 +312,135 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    agent_parser.add_argument(
+        "--jev-ledger",
+        type=Path,
+        default=None,
+        help=(
+            "Activa Jev en el modo tools (gatekeeper y compuerta, como producción) y anota cada "
+            "llamada en este libro, sin texto (spec 046, FR-031). Sin esta bandera no se "
+            "construye el juez aunque haya TYPESAFE_API_KEY. Gasta créditos de TypeSafe: solo "
+            "con permiso del owner."
+        ),
+    )
+    agent_parser.add_argument(
+        "--max-jev-router-calls",
+        type=int,
+        default=None,
+        help="Cuota de llamadas del gatekeeper en esta corrida (con --jev-ledger).",
+    )
+    agent_parser.add_argument(
+        "--max-jev-claims-calls",
+        type=int,
+        default=None,
+        help="Cuota de llamadas de la compuerta de afirmaciones en esta corrida.",
+    )
+
+    gatekeeper_parser = subparsers.add_parser(
+        "eval-gatekeeper",
+        help=(
+            "Mide el gatekeeper del modo tools (spec 046): exactitud de las reglas, el "
+            "enrutador LLM y Jev sobre un conjunto congelado, rejilla de umbrales y Score. Con "
+            "--judge jev o --smoke llama a TypeSafe y exige --ledger."
+        ),
+    )
+    gatekeeper_parser.add_argument(
+        "--questions",
+        type=Path,
+        default=Path("data") / "eval" / "gatekeeper_046.json",
+        help="Conjunto (gatekeeper_046.json o routing_questions.json).",
+    )
+    gatekeeper_parser.add_argument(
+        "--judge",
+        action="append",
+        choices=("rules", "llm", "jev"),
+        help="Juez a medir; se puede repetir. Por defecto, rules (jev con --replay-ledger).",
+    )
+    gatekeeper_parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Antes de medir, una llamada de humo a GET /v1/models (cuenta en la cuota).",
+    )
+    gatekeeper_parser.add_argument(
+        "--ledger",
+        type=Path,
+        default=None,
+        help="Libro de llamadas a Jev (JSONL sin texto); obligatorio con jev o --smoke.",
+    )
+    gatekeeper_parser.add_argument(
+        "--max-jev-calls",
+        type=int,
+        default=None,
+        help="Tope de llamadas a Jev de la corrida, humo incluido (research R11).",
+    )
+    gatekeeper_parser.add_argument(
+        "--replay-ledger",
+        type=Path,
+        default=None,
+        help="Reproduce los veredictos grabados en este libro, sin llamar a Jev (FR-032).",
+    )
+    gatekeeper_parser.add_argument(
+        "--agent",
+        action="store_true",
+        help=(
+            "Con --replay-ledger: corre el agente real (solo DeepSeek) sobre los ítems que "
+            "terminaron en cautela o en respuesta directa."
+        ),
+    )
+    gatekeeper_parser.add_argument(
+        "--only",
+        default="cautious,direct",
+        help="Con --agent: categorías a correr (cautious, direct), separadas por comas.",
+    )
+    gatekeeper_parser.add_argument(
+        "--output", type=Path, default=None, help="Archivo Markdown donde guardar el informe."
+    )
+    gatekeeper_parser.add_argument(
+        "--json", type=Path, default=None, help="Archivo JSON con los resultados por ítem."
+    )
+    gatekeeper_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Permite que --output o --json sobrescriban un archivo versionado en git.",
+    )
+
+    claims_parser = subparsers.add_parser(
+        "eval-claims",
+        help=(
+            "Mide la compuerta de afirmaciones con Jev (spec 046): detección y falsas alarmas "
+            "por umbral sobre respuestas congeladas. Llama a TypeSafe y exige --ledger."
+        ),
+    )
+    claims_parser.add_argument(
+        "--questions",
+        type=Path,
+        default=Path("data") / "eval" / "claims_046.json",
+        help="Conjunto de respuestas con su evidencia y su etiqueta.",
+    )
+    claims_parser.add_argument(
+        "--ledger",
+        type=Path,
+        default=None,
+        help="Libro de llamadas a Jev (JSONL sin texto); obligatorio.",
+    )
+    claims_parser.add_argument(
+        "--max-jev-calls",
+        type=int,
+        default=None,
+        help="Tope de llamadas a Jev de la corrida (research R11).",
+    )
+    claims_parser.add_argument(
+        "--output", type=Path, default=None, help="Archivo Markdown donde guardar el informe."
+    )
+    claims_parser.add_argument(
+        "--json", type=Path, default=None, help="Archivo JSON con los resultados por ítem."
+    )
+    claims_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Permite que --output o --json sobrescriban un archivo versionado en git.",
+    )
+
     simulate_parser = subparsers.add_parser(
         "simulate-chat",
         help=(
@@ -633,6 +762,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "eval-agent":
         return _eval_agent(args)
+
+    if args.command == "eval-gatekeeper":
+        return _eval_gatekeeper(args)
+
+    if args.command == "eval-claims":
+        return _eval_claims(args)
 
     if args.command == "simulate-chat":
         return _simulate_chat(args)
@@ -960,8 +1095,25 @@ def _eval_agent(args: argparse.Namespace) -> int:
         print(f"No se pudo cargar el conjunto {args.questions}: {error}", file=sys.stderr)
         return 1
     settings = Settings()
+    quotas = (args.max_jev_router_calls, args.max_jev_claims_calls)
+    if args.jev_ledger is None and any(quota is not None for quota in quotas):
+        print("Las cuotas de Jev necesitan --jev-ledger.", file=sys.stderr)
+        return 1
+    judge = None
+    if args.jev_ledger is not None:
+        # Spec 046 (FR-031): Jev solo con libro explícito, con las cuotas de la corrida.
+        judge = _measurement_judge(settings, args.jev_ledger, "eval-agent --jev-ledger")
+        if judge is None:
+            return 1
+        from carvajal.agent.gatekeeper.evaluation import QuotaJudge
+
+        judge = QuotaJudge(judge, router_calls=quotas[0], claims_calls=quotas[1])
     try:
-        runtime = build_runtime(settings, modes)
+        runtime = (
+            build_runtime(settings, modes)
+            if judge is None
+            else build_runtime(settings, modes, judge=judge)
+        )
     except ModuleNotFoundError as error:
         print(f"eval-agent necesita el checkout del repositorio (apps/): {error}", file=sys.stderr)
         return 1
@@ -981,12 +1133,20 @@ def _eval_agent(args: argparse.Namespace) -> int:
         for mode in modes:
             report = ModeReport(mode=mode)
             reports.append(report)
-            evaluate_mode(runtime.drivers[mode], items, progress=progress, report=report)
+            for item in items:
+                if judge is not None:
+                    # Cada llamada del ítem queda en el libro con su etiqueta.
+                    from carvajal.agent.gatekeeper.evaluation import label_judge
+
+                    label_judge(judge, "v3", item.id)
+                evaluate_mode(runtime.drivers[mode], [item], progress=progress, report=report)
     except KeyboardInterrupt:
         interrupted = True
         print("Corrida interrumpida: se guarda lo ya corrido.", file=sys.stderr)
     finally:
         runtime.close()
+        if judge is not None:
+            judge.close()
     prices = {"price_in": args.price_input, "price_out": args.price_output}
     table = render_report(reports, question_set, interrupted=interrupted, **prices)
     print(table)
@@ -1014,6 +1174,178 @@ def _eval_agent(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    return 0
+
+
+def _measurement_judge(settings: Any, ledger: Path, command: str) -> Any:
+    """Juez de Jev para una medición: exige la clave y anota en ``ledger`` (FR-031).
+
+    Se construye aunque ``JEV_ENABLED`` sea ``false``: el libro explícito es el opt-in.
+    """
+
+    from carvajal.adapters import judge as judge_module
+
+    judge = judge_module.build_judge(settings, ledger=ledger, force=True)
+    if judge is None:
+        print(f"{command} necesita TYPESAFE_API_KEY en el entorno.", file=sys.stderr)
+    return judge
+
+
+def _write_outputs(args: argparse.Namespace, text: str, payload: dict[str, Any]) -> None:
+    print(text)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text + "\n", encoding="utf-8")
+        print(f"Informe guardado en {args.output}", file=sys.stderr)
+    if args.json is not None:
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Resultados por ítem guardados en {args.json}", file=sys.stderr)
+
+
+def _refuse_outputs(args: argparse.Namespace) -> bool:
+    problems = _unsafe_outputs(args)
+    for problem in problems:
+        print(
+            f"No se escribe el informe: {problem} (usa --force si es a propósito).",
+            file=sys.stderr,
+        )
+    return bool(problems)
+
+
+def _eval_gatekeeper(args: argparse.Namespace) -> int:
+    """``carvajal eval-gatekeeper``: exactitud por juez, rejilla de umbrales y Score.
+
+    Con ``jev`` o ``--smoke`` llama a TypeSafe: exige ``--ledger`` y respeta
+    ``--max-jev-calls`` (humo incluido). Con ``--replay-ledger`` reproduce los veredictos sin
+    red y, con ``--agent``, corre el agente real sobre los ítems en cautela o directos.
+    """
+
+    from carvajal.agent.gatekeeper import evaluation as gk_eval
+    from carvajal.infrastructure.settings import Settings
+
+    if args.agent and args.replay_ledger is None:
+        print("--agent necesita --replay-ledger.", file=sys.stderr)
+        return 1
+    judges = list(dict.fromkeys(args.judge or (["jev"] if args.replay_ledger else ["rules"])))
+    live = args.replay_ledger is None and ("jev" in judges or args.smoke)
+    if live and args.ledger is None:
+        print(
+            "eval-gatekeeper con Jev (--judge jev o --smoke) exige --ledger (FR-031).",
+            file=sys.stderr,
+        )
+        return 1
+    if _refuse_outputs(args):
+        return 1
+    try:
+        gate_set = gk_eval.load_gate_items(args.questions)
+    except (OSError, ValueError, KeyError) as error:
+        print(f"No se pudo cargar el conjunto {args.questions}: {error}", file=sys.stderr)
+        return 1
+    settings = Settings()
+
+    if args.replay_ledger is not None:
+        try:
+            replay = gk_eval.ReplayJudge.from_ledger(args.replay_ledger)
+        except (OSError, ValueError) as error:
+            print(f"No se pudo leer el libro {args.replay_ledger}: {error}", file=sys.stderr)
+            return 1
+        if args.agent:
+            only = {part.strip() for part in str(args.only).split(",") if part.strip()}
+            driver, close = gk_eval.build_replay_driver(settings, replay)
+            try:
+                rows = gk_eval.replay_agent(
+                    gate_set.items, replay, driver, settings=settings, only=only
+                )
+            finally:
+                if close is not None:
+                    close()
+            context = {"questions": args.questions, "ledger": args.replay_ledger}
+            _write_outputs(
+                args,
+                gk_eval.render_replay_report(rows, **context),
+                gk_eval.replay_payload(rows, **context),
+            )
+            return 0
+        jev: Any = replay
+    elif live:
+        jev = _measurement_judge(settings, args.ledger, "eval-gatekeeper")
+        if jev is None:
+            return 1
+    else:
+        jev = None
+
+    budget = args.max_jev_calls
+    smoke = None
+    try:
+        if args.smoke and args.replay_ledger is None:
+            smoke = gk_eval.run_smoke(jev)
+            budget = None if budget is None else max(0, budget - 1)
+        llm_router = None
+        if "llm" in judges:
+            from carvajal.agent.routers import build_router
+
+            llm_router = build_router("llm")
+        reports = gk_eval.eval_gatekeeper(
+            gate_set.items,
+            judges=judges,
+            jev=jev,
+            llm_router=llm_router,
+            settings=settings,
+            max_jev_calls=budget,
+        )
+    finally:
+        if jev is not None and hasattr(jev, "close"):
+            jev.close()
+    context = {
+        "questions": args.questions,
+        "settings": settings,
+        "smoke": smoke,
+        "gate_set": gate_set,
+    }
+    _write_outputs(
+        args,
+        gk_eval.render_gatekeeper_report(reports, **context),
+        gk_eval.gatekeeper_payload(reports, **context),
+    )
+    return 0
+
+
+def _eval_claims(args: argparse.Namespace) -> int:
+    """``carvajal eval-claims``: detección y falsas alarmas de la compuerta por umbral."""
+
+    from carvajal.agent.gatekeeper import evaluation as gk_eval
+    from carvajal.infrastructure.settings import Settings
+
+    if args.ledger is None:
+        print("eval-claims llama a Jev y exige --ledger (FR-031).", file=sys.stderr)
+        return 1
+    if _refuse_outputs(args):
+        return 1
+    try:
+        claims_set = gk_eval.load_claims_set(args.questions)
+    except (OSError, ValueError, KeyError) as error:
+        print(f"No se pudo cargar el conjunto {args.questions}: {error}", file=sys.stderr)
+        return 1
+    settings = Settings()
+    judge = _measurement_judge(settings, args.ledger, "eval-claims")
+    if judge is None:
+        return 1
+    try:
+        report = gk_eval.eval_claims(
+            claims_set.items, judge, settings=settings, max_jev_calls=args.max_jev_calls
+        )
+    finally:
+        judge.close()
+    context = {"questions": args.questions, "claims_set": claims_set}
+    _write_outputs(
+        args,
+        gk_eval.render_claims_report(report, **context),
+        gk_eval.claims_payload(report, **context),
+    )
     return 0
 
 

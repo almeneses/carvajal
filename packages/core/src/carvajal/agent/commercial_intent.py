@@ -40,6 +40,7 @@ __all__ = [
     "COMMERCIAL_KEYS",
     "USES",
     "USE_TEMPERATURE",
+    "commercial_signal",
     "empty_request",
     "extract_commercial",
     "is_custom_need",
@@ -124,6 +125,13 @@ _CUSTOM = re.compile(
     r"|agricol\w*|exporta\w*|corrugad\w*|flexibles?|maquila\w*|big ?bags?|estibas?)\b"
 )
 _PACKAGING = re.compile(r"\b(empaques?|embalajes?|bolsas?|cajas?|sacos?|etiquetas?)\b")
+# Señal de compra más estrecha que ``_INTENT`` para :func:`commercial_signal`: «busco» o
+# «quiero» acompañan también a preguntas institucionales («quiero saber quién fundó…»).
+_BUYING = re.compile(
+    r"\b(precios?|cuesta|cuestan|cuanto vale\w*|cotiz\w*"
+    r"|compr(?:a|ar|as|o|amos|an|e|en)|distribuidor\w*"
+    r"|donde (?:compro|consigo|se consigue\w*|se compra\w*|venden))\b"
+)
 # Temas ajenos a la compra: una parte solo se aparta cuando pregunta por la empresa, su
 # historia o sus cifras. «¿Cuál es el tiempo de entrega?» es de la misma compra.
 _OTHER_TOPIC = re.compile(
@@ -439,6 +447,25 @@ def extract_commercial(question: str, turns: list[Turn] | None = None) -> dict[s
         return None
     previous = _previous_request(turns)
     return _inherit(previous, data) if previous else None
+
+
+def commercial_signal(question: str) -> bool:
+    """La pregunta nombra un producto del catálogo, un precio, una cantidad o dónde comprar.
+
+    Más amplia que :func:`extract_commercial`: no exige señal de compra junto al producto,
+    así que «¿qué tiene que ver el bagazo con los portacomidas Bioform?» la tiene aunque sea
+    institucional. La usa el gatekeeper para no quitar las consultas estructuradas cuando
+    Jev elige ``rag`` (spec 046, R1 de la evidencia). Sin red ni servicios.
+    """
+
+    product, data = _extract(question)
+    text = _plain(question)
+    return (
+        product
+        or _BUYING.search(text) is not None
+        or data["quantity"] is not None
+        or data["capacity_oz"] is not None
+    )
 
 
 def empty_request() -> dict[str, Any]:

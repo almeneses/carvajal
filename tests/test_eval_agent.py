@@ -2353,3 +2353,295 @@ def test_el_informe_da_el_crudo_estricto_y_con_equivalencias(
         True,
         False,
     ]
+
+
+def test_el_ejecutor_de_evaluacion_recibe_solo_el_sustituto_de_la_compuerta() -> None:
+    """Spec 046 (T033): con p = 0,2 la observación lleva el texto neutro."""
+
+    from langgraph.checkpoint.memory import InMemorySaver
+    from tests.fakes.judge import FakeJudge
+    from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
+    from tests.test_tool_agent_stream import FUNDACION, FakeEmbedder, QueueStore
+
+    from apps.api.chat.agent import ToolAgentRunner
+    from carvajal.agent.toolagent.evaluation import ToolsDriver
+    from carvajal.agent.toolagent.graph import build_tool_agent
+    from carvajal.agent.toolagent.tools import ToolDeps
+    from carvajal.infrastructure.settings import Settings
+    from carvajal.prompts import NO_CONTEXT_ANSWER
+
+    # Arrange
+    settings = Settings()
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "buscar_corpus", "args": {"consulta": "fundación"}}]),
+            ScriptStep(text="Se fundó en 1904 [1] y es la empresa más querida del país."),
+        ]
+    )
+    graph = build_tool_agent(
+        ToolDeps(vector_store=QueueStore([FUNDACION]), embedder=FakeEmbedder(), settings=settings),
+        chat,
+        checkpointer=InMemorySaver(),
+    )
+    driver = ToolsDriver(
+        ToolAgentRunner(graph, settings, claims_judge=FakeJudge(p=0.2)), graph=graph
+    )
+
+    # Act
+    observation = driver.run_turn(owner_key="o", thread_id="t", question="¿Cuándo?", seed_turns=[])
+
+    # Assert
+    assert observation.answer == NO_CONTEXT_ANSWER
+    assert observation.path == "agent"
+
+
+# --- Jev en ``eval-agent`` (spec 046, T047) -------------------------------------------------
+
+
+def _jev_call(kind: str, latency: int, status: str = "ok") -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "status": status,
+        "latency_ms": latency,
+        "model": "jev-1.14.0",
+        "input_tokens": 400,
+        "output_tokens": 9,
+    }
+
+
+def _gk(source: str, scope: str, **extra: Any) -> dict[str, Any]:
+    return {"source": source, "scope": scope, "cautious": False, "reason": "", **extra}
+
+
+def test_tools_observation_lleva_la_decision_y_el_veredicto() -> None:
+    final = _tools_final(
+        gatekeeper=_gk("jev", "rag", jev=_jev_call("router", 210)),
+        claims={"status": "supported", "p": 0.9, "substituted": False},
+    )
+
+    observation = tools_observation(final, "Respuesta [1].")
+
+    assert observation.gatekeeper["source"] == "jev"
+    assert observation.claims["status"] == "supported"
+
+
+def test_la_respuesta_directa_de_jev_no_cuenta_como_atajo_de_reglas() -> None:
+    # Arrange: el ítem espera el atajo de las reglas (044) y Jev respondió directo.
+    item = _item({"shortcut": True}, "quiubo pues")
+    observation = _obs("¡Todo bien!", path="shortcut", gatekeeper=_gk("jev", "direct"))
+    rules = _obs("¡Hola!", path="shortcut", gatekeeper=_gk("reglas", "direct", rule="greeting"))
+
+    # Assert
+    assert observation.shortcut is False and observation.jev_direct is True
+    assert _check(item, observation, "shortcut") is False
+    assert _check(item, rules, "shortcut") is True
+
+
+def _jev_report() -> ModeReport:
+    data = EvalItem(id="d1", group="simple", turns=("q",), expect={"tools_any": [["x"]]})
+    chat = EvalItem(id="d2", group="simple", turns=("q",), expect={"no_tool_allowed": True})
+    greeting = EvalItem(id="s1", group="simple", turns=("hola",), expect={"shortcut": True})
+    plain = EvalItem(id="p1", group="simple", turns=("q",), expect={})
+    return ModeReport(
+        mode="tools",
+        results=[
+            _result(
+                plain,
+                _obs(
+                    gatekeeper=_gk("jev", "rag", jev=_jev_call("router", 200)),
+                    claims={"status": "supported", "p": 0.9, "jev": _jev_call("claims", 300)},
+                ),
+            ),
+            _result(
+                plain,
+                _obs(
+                    gatekeeper=_gk(
+                        "jev",
+                        "all",
+                        cautious=True,
+                        reason="confianza_baja",
+                        jev=_jev_call("router", 400),
+                    ),
+                    claims={
+                        "status": "unsupported",
+                        "p": 0.2,
+                        "substituted": True,
+                        "jev": _jev_call("claims", 500),
+                    },
+                ),
+            ),
+            # Una pregunta con datos enviada a la respuesta directa por Jev: error del gatekeeper.
+            _result(
+                data,
+                _obs(
+                    path="shortcut", gatekeeper=_gk("jev", "direct", jev=_jev_call("router", 100))
+                ),
+            ),
+            _result(
+                chat,
+                _obs(
+                    path="shortcut", gatekeeper=_gk("jev", "direct", jev=_jev_call("router", 150))
+                ),
+            ),
+            _result(greeting, _obs("¡Hola!", path="shortcut", gatekeeper=_gk("reglas", "direct"))),
+            # Sin decisión por la cuota de la corrida: fuera del denominador de SC-004.
+            _result(
+                plain,
+                _obs(
+                    gatekeeper=_gk("llm", "all", reason="sin_jev:cuota"),
+                    claims={"status": "unavailable", "reason": "cuota"},
+                ),
+            ),
+            _result(
+                plain,
+                _obs(
+                    gatekeeper=_gk(
+                        "llm",
+                        "all",
+                        reason="sin_jev:timeout",
+                        jev=_jev_call("router", 800, "timeout"),
+                    )
+                ),
+            ),
+        ],
+    )
+
+
+def test_metricas_de_jev_del_modo_tools() -> None:
+    # Act
+    jev = _jev_report().metrics()["jev"]
+
+    # Assert
+    assert jev["router_calls"] == 5 and jev["claims_calls"] == 2
+    assert jev["latency_p50_ms"] == 300 and jev["latency_p95_ms"] == 800
+    assert jev["input_tokens"] == 7 * 400 and jev["output_tokens"] == 7 * 9
+    assert jev["statuses"] == {"ok": 6, "timeout": 1}
+    assert jev["scopes"] == {"rag": 1, "all": 3, "direct": 3}
+    assert jev["sources"] == {"jev": 4, "reglas": 1, "llm": 2}
+    assert jev["cautious"] == 1
+    assert jev["substituted"] == 1
+    assert jev["claims_statuses"] == {"supported": 1, "unsupported": 1, "unavailable": 1}
+    assert jev["rules_shortcut"] == 1 and jev["jev_direct"] == 2
+    assert jev["jev_direct_errors"] == ["d1"]
+    assert jev["quota_router"] == 1 and jev["quota_claims"] == 1
+    # 5 turnos sin regla y sin cuota; 4 con decisión de Jev.
+    assert (jev["jev_decided"], jev["jev_eligible"]) == (4, 5)
+
+
+def test_el_informe_trae_la_seccion_de_jev_solo_si_hubo_gatekeeper() -> None:
+    question_set = QuestionSet(path=Path("x.json"), items=(), version=1)
+
+    with_jev = render_report([_jev_report()], question_set)
+    without = render_report([_report()], question_set)
+
+    assert "## Gatekeeper y compuerta (spec 046)" in with_jev
+    assert "d1" in with_jev  # el error del gatekeeper se lista
+    assert "## Gatekeeper y compuerta (spec 046)" not in without
+
+
+def _jev_runtime(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """``build_runtime`` falso que registra el juez recibido y su etiqueta por ítem."""
+
+    from carvajal.agent.toolagent import evaluation
+
+    state = SimpleNamespace(judge=None, labels=[])
+
+    class LabelDriver(ScriptedDriver):
+        def run_turn(self, **kwargs: Any) -> TurnObservation:
+            client = getattr(state.judge, "client", None)
+            state.labels.append((getattr(client, "run", ""), getattr(client, "item", "")))
+            return super().run_turn(**kwargs)
+
+    def fake_build(settings: Any, modes: Sequence[str], **kwargs: Any) -> Any:
+        state.judge = kwargs.get("judge")
+        answers = {
+            "¿Qué es Carvajal?": _obs("Carvajal es un grupo empresarial [1].", path="agent"),
+            "hola": _obs("¡Hola! ¿En qué te ayudo?", path="shortcut"),
+        }
+        return evaluation.EvalRuntime(drivers={"tools": LabelDriver(answers)})
+
+    monkeypatch.setattr(evaluation, "build_runtime", fake_build)
+    return state
+
+
+def test_eval_agent_sin_jev_ledger_no_construye_juez_aunque_haya_clave(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    from carvajal import cli
+    from carvajal.adapters import judge as judge_module
+
+    _fake_runtime(monkeypatch)
+    monkeypatch.setenv("JEV_ENABLED", "true")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "clave-falsa")
+
+    def forbidden(*_: Any, **__: Any) -> Any:
+        raise AssertionError("Sin --jev-ledger no se construye el juez.")
+
+    monkeypatch.setattr(judge_module, "build_judge", forbidden)
+
+    # Act
+    code = cli.main(["eval-agent", "--mode", "tools", "--questions", str(_questions(tmp_path))])
+
+    # Assert
+    assert code == 0
+
+
+def test_eval_agent_con_jev_ledger_usa_el_juez_con_cuotas_y_etiquetas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    from carvajal import cli
+    from carvajal.adapters import judge as judge_module
+    from carvajal.agent.gatekeeper.evaluation import QuotaJudge
+
+    state = _jev_runtime(monkeypatch)
+    built: list[dict[str, Any]] = []
+    fake = FakeJudge()
+    holder: Any = fake
+    holder.client = SimpleNamespace(run="dev", item="")
+
+    def fake_build(settings: Any, **kwargs: Any) -> Any:
+        built.append(kwargs)
+        return fake
+
+    monkeypatch.setattr(judge_module, "build_judge", fake_build)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "clave-falsa")
+    ledger = tmp_path / "jev-calls.jsonl"
+
+    # Act
+    code = cli.main(
+        [
+            *("eval-agent", "--mode", "tools", "--questions", str(_questions(tmp_path))),
+            *("--jev-ledger", str(ledger), "--max-jev-router-calls", "45"),
+            *("--max-jev-claims-calls", "30"),
+        ]
+    )
+
+    # Assert
+    assert code == 0
+    assert built == [{"ledger": ledger, "force": True}]
+    judge = state.judge
+    assert isinstance(judge, QuotaJudge)
+    assert (judge.router_calls, judge.claims_calls) == (45, 30)
+    assert state.labels == [("v3", "q1"), ("v3", "q2")]
+
+
+def test_eval_agent_con_jev_ledger_sin_clave_falla(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from carvajal import cli
+
+    _fake_runtime(monkeypatch)
+
+    code = cli.main(
+        [
+            *("eval-agent", "--mode", "tools", "--questions", str(_questions(tmp_path))),
+            *("--jev-ledger", str(tmp_path / "l.jsonl")),
+        ]
+    )
+
+    assert code == 1
+    assert "TYPESAFE_API_KEY" in capsys.readouterr().err

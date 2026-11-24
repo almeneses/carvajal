@@ -466,7 +466,43 @@
     }
     const thread = campo("thread");
     if (thread) thread.textContent = String(datos.thread_id || "");
+    const decisionWrap = campo("decision-wrap");
+    const decision = campo("decision");
+    if (decision && decisionWrap) {
+      const texto = textoDecision(datos.gatekeeper);
+      decisionWrap.hidden = !texto;
+      decision.textContent = texto;
+    }
     traza.hidden = false;
+  }
+
+  // Spec 046: «rag · jev 0,83», «saludo · reglas», «todas · llm», «cautela · jev 0,41».
+  // Solo metadatos de la decisión; solo se ve con ``?debug=1``.
+  const ALCANCES = { direct: "directa", rag: "rag", structured: "estructurada", all: "todas" };
+  const REGLAS = {
+    greeting: "saludo",
+    farewell: "despedida",
+    memory_forget: "olvido",
+    memory_unavailable: "olvido",
+    memory_write: "preferencia",
+    commercial_follow_up: "seguimiento",
+  };
+
+  function textoDecision(gatekeeper) {
+    if (!gatekeeper || typeof gatekeeper !== "object") return "";
+    const fuente = String(gatekeeper.source || "");
+    if (!fuente) return "";
+    let etiqueta;
+    if (gatekeeper.cautious) etiqueta = "cautela";
+    else if (fuente === "reglas" && gatekeeper.rule)
+      etiqueta = REGLAS[gatekeeper.rule] || String(gatekeeper.rule);
+    else etiqueta = ALCANCES[gatekeeper.scope] || String(gatekeeper.gate_class || "");
+    const confianza = Number(gatekeeper.confidence);
+    const cifra =
+      fuente === "jev" && Number.isFinite(confianza)
+        ? ` ${confianza.toFixed(2).replace(".", ",")}`
+        : "";
+    return `${etiqueta} · ${fuente}${cifra}`;
   }
 
   function quitarVacio() {

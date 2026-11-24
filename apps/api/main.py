@@ -38,17 +38,28 @@ from apps.api.views import (
     documents,
     faq,
     stream,
+    webhooks,
 )
+from carvajal.adapters.judge import jev_health
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.application.quota import DailyQuota, QuotaResult
-from carvajal.infrastructure.agent_mode import agent_mode_status
+from carvajal.infrastructure.agent_mode import agent_mode_status, chat_llm_blocker
 from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
 DB_UNAVAILABLE = "La base de datos no responde."
+# Qué variable falta para el LLM del chat, por motivo de ``chat_llm_blocker``.
+LLM_UNCONFIGURED_DETAIL = {
+    "missing_deepseek_api_key": (
+        "Falta DEEPSEEK_API_KEY: el chat atiende por routes y las respuestas redactadas "
+        "por el LLM fallarán hasta definirla."
+    ),
+    "missing_deepseek_model": "DEEPSEEK_MODEL está vacío: define el modelo de DeepSeek.",
+    "missing_deepseek_base_url": "DEEPSEEK_BASE_URL está vacía: define la URL de DeepSeek.",
+}
 SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este momento."
 
 
@@ -162,6 +173,42 @@ def _unhandled(request: Request, error: Exception) -> Response:
     return _message(request, 500, SERVICE_UNAVAILABLE)
 
 
+def _jev_block(settings: Settings) -> dict[str, object]:
+    """Bloque ``jev`` de ``/health`` con el juez y el modo del runtime si ya se construyó.
+
+    ``/health`` nunca construye el runtime; sin él, ``mode`` es ``None`` y
+    :func:`jev_health` informa la configuración (FR-024).
+    """
+
+    module = sys.modules.get("apps.api.agent_runtime")
+    runtime = getattr(module, "_runtime", None)
+    if runtime is None:
+        return jev_health(settings)
+    mode = getattr(runtime, "mode", None)
+    return jev_health(
+        settings, getattr(runtime, "judge", None), mode=mode if isinstance(mode, str) else None
+    )
+
+
+def _log_webhook_status(settings: Settings) -> None:
+    """Deja constancia del webhook de mensajería al arrancar, sin números ni secretos."""
+
+    if not settings.webhook_secret.strip():
+        return
+    if webhooks.allows_any_sender(settings):
+        # Modo abierto: decisión explícita del operador, visible en cada arranque.
+        logger.warning("webhook.open", reason="any_sender")
+        return
+    allowed = len(webhooks.allowed_numbers(settings))
+    invalid = webhooks.invalid_allowlist_entries(settings)
+    if invalid:
+        logger.warning("webhook.allowlist_invalid_entries", invalid=invalid)
+    if allowed == 0:
+        logger.warning("webhook.allowlist_empty", reason="rejects_all_senders")
+    else:
+        logger.info("webhook.enabled", allowed_numbers=allowed)
+
+
 def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
@@ -176,6 +223,18 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     if not settings.operator_token.strip():
         # La lectura sigue abierta; la escritura web queda solo en la CLI.
         logger.warning("operator.write_disabled", reason="missing_operator_token")
+    llm_blocker = chat_llm_blocker(settings)
+    if llm_blocker is not None:
+        # Mismo motivo que publica /health en ``agent.tools_unavailable_reason``: el
+        # arranque no falla (``/live`` y ``/health`` siguen sirviendo), pero el aviso queda
+        # una vez y sin valores de credenciales.
+        logger.warning(
+            "llm.provider_unconfigured",
+            llm_provider=settings.llm_provider,
+            reason=llm_blocker,
+            detail=LLM_UNCONFIGURED_DETAIL.get(llm_blocker, llm_blocker),
+        )
+    _log_webhook_status(settings)
     # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
     app.state.monitoring = monitoring_status(settings).enabled
     # Captura web: un registro por app para que las pruebas inyecten su runner.
@@ -200,6 +259,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         cotizador,
         cotizacion_pdf,
         catalogo_imagenes,
+        webhooks,
     ):
         app.include_router(module.router)
     app.include_router(faq.page_router)
@@ -225,6 +285,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "index": {"status": "unknown"},
                     "monitoring": monitoring_status(settings).as_health(),
                     "agent": agent_mode_status(settings).as_health(),
+                    "jev": _jev_block(settings),
                 },
                 status_code=503,
             )
@@ -244,6 +305,9 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 # de que el modo ``tools`` no arrancará. No cambia el estado: ``routes``
                 # atiende igual.
                 "agent": agent_mode_status(settings).as_health(),
+                # Spec 046 (FR-024): Jev sin llamar a TypeSafe; no cambia el estado global
+                # porque el asistente atiende igual sin Jev.
+                "jev": _jev_block(settings),
             },
             status_code=200 if healthy else 503,
         )

@@ -2073,3 +2073,259 @@ def test_el_trace_lleva_memoria_por_categorias_y_el_resumen_sin_texto(engine: An
     # Assert
     assert trace["memory"] == 2
     assert trace["summary"] == {"covered_turns": 4, "method": "llm"}
+
+
+# --- Compuerta de afirmaciones con Jev (spec 046, T033) ---------------------------------------
+
+UNSUPPORTED_ANSWER = "Carvajal fue fundada en Cali en 1904 [1]; la de 16 oz es la más usada."
+
+
+def jev_service(engine: Any, p: float = 0.2) -> tuple[ChatService, Any]:
+    """Servicio con el grafo real, una búsqueda con evidencia y un juez falso de Noul."""
+
+    from tests.fakes.judge import FakeJudge
+
+    hit = ScoredChunk(
+        chunk=Chunk(
+            id="historia:1",
+            document_id="historia",
+            text="Carvajal fue fundada en Cali en 1904.",
+            position=0,
+            section="historia",
+            layer="core",
+        ),
+        score=0.9,
+        metadata={
+            "url": "https://www.carvajal.com/historia/",
+            "title": "Historia",
+            "source_type": "oficial",
+        },
+    )
+    settings = tools_settings()
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "buscar_corpus", "args": {"consulta": "fundación"}}]),
+            ScriptStep(text=UNSUPPORTED_ANSWER),
+        ]
+    )
+    judge = FakeJudge(p=p)
+    graph = build_tool_agent(
+        ToolDeps(vector_store=SingleBatchStore([hit]), embedder=FakeEmbedder(), settings=settings),
+        chat,
+        checkpointer=InMemorySaver(),
+    )
+    runner = ToolAgentRunner(graph, settings, claims_judge=judge)
+    return build_service(engine, runner, settings=settings), judge
+
+
+def test_no_respaldada_el_servicio_emite_y_guarda_solo_el_sustituto(engine: Any) -> None:
+    # Arrange
+    service, judge = jev_service(engine)
+
+    # Act
+    events = list(service.stream("dueno-jev", "¿Cuándo se fundó Carvajal?"))
+    history = list(service.history("dueno-jev"))
+
+    # Assert
+    tokens = "".join(e.data["text"] for e in events if e.name == "token")
+    assert "más usada" not in tokens
+    assert tokens == NO_CONTEXT_ANSWER
+    assert history[1].content == NO_CONTEXT_ANSWER
+    assert names(events)[-1] == "done"
+    assert len(judge.claims) == 1
+
+
+def test_no_respaldada_ask_devuelve_solo_el_sustituto(engine: Any) -> None:
+    service, _ = jev_service(engine)
+
+    answer = service.ask("dueno-jev-ask", "¿Cuándo se fundó Carvajal?")
+
+    assert answer.text == NO_CONTEXT_ANSWER
+    assert "más usada" not in answer.text
+
+
+# --- Visibilidad de la decisión y del veredicto (spec 046, T044, T045 y T042) -------------------
+
+GATEKEEPER_KEYS = {
+    "gate_class",
+    "scope",
+    "source",
+    "confidence",
+    "cautious",
+    "rule",
+    "reason",
+    "jev_status",
+    "llm_class",
+}
+
+
+def graph_service(
+    engine: Any,
+    steps: Sequence[ScriptStep],
+    *,
+    judge: Any = None,
+    tracer: FakeTracer | None = None,
+    agent: Any = None,
+) -> ChatService:
+    """Servicio con el grafo real, la búsqueda con evidencia y el mismo juez en ambos lados."""
+
+    hit = ScoredChunk(
+        chunk=Chunk(
+            id="historia:1",
+            document_id="historia",
+            text="Carvajal fue fundada en Cali en 1904.",
+            position=0,
+            section="historia",
+            layer="core",
+        ),
+        score=0.9,
+        metadata={"url": "https://www.carvajal.com/historia/", "title": "Historia"},
+    )
+    settings = tools_settings()
+    graph = build_tool_agent(
+        ToolDeps(vector_store=SingleBatchStore([hit]), embedder=FakeEmbedder(), settings=settings),
+        ScriptedToolChat(steps=list(steps)),
+        checkpointer=InMemorySaver(),
+        judge=judge,
+    )
+    runner = ToolAgentRunner(graph, settings, claims_judge=judge)
+    return build_service(engine, runner, settings=settings, tracer=tracer, agent=agent)
+
+
+EVIDENCE_STEPS = [
+    ScriptStep(tool_calls=[{"name": "buscar_corpus", "args": {"consulta": "fundación"}}]),
+    ScriptStep(text="Carvajal fue fundada en Cali en 1904 [1]."),
+]
+
+
+def test_el_trace_lleva_la_decision_de_jev_y_el_veredicto(engine: Any) -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    tracer = FakeTracer()
+    judge = FakeJudge(choice="rag", confidence=0.83, p=0.91)
+    service = graph_service(engine, EVIDENCE_STEPS, judge=judge, tracer=tracer)
+
+    # Act
+    events = list(service.stream("dueno-trace-jev", "¿Cuándo se fundó Carvajal?"))
+
+    # Assert
+    trace = named(events, "trace").data
+    assert set(trace["gatekeeper"]) == GATEKEEPER_KEYS
+    assert trace["gatekeeper"]["gate_class"] == "rag"
+    assert trace["gatekeeper"]["scope"] == "rag"
+    assert trace["gatekeeper"]["source"] == "jev"
+    assert trace["gatekeeper"]["confidence"] == 0.83
+    assert trace["gatekeeper"]["jev_status"] == "ok"
+    assert trace["claims"] == {"status": "supported", "p": 0.91, "reason": "", "substituted": False}
+    # LangSmith (T045): metadatos en la raíz y un hijo ``jev`` por llamada.
+    span = tracer.turns[0]
+    assert span.metadata["gatekeeper_route"] == "rag"
+    assert span.metadata["gatekeeper_scope"] == "rag"
+    assert span.metadata["gatekeeper_source"] == "jev"
+    assert span.metadata["gatekeeper_confidence"] == 0.83
+    assert span.metadata["claims_status"] == "supported"
+    assert span.metadata["claims_p"] == 0.91
+    jev = [(meta, child) for name, kind, meta, child in span.children if name == "jev"]
+    assert [meta["kind"] for meta, _ in jev] == ["router", "claims"]
+    assert jev[0][0]["choice"] == "rag"
+    assert jev[1][0]["p_supported"] == 0.91
+    assert all(child.outputs == {} for _, child in jev)
+
+
+def test_el_trace_del_atajo_y_de_la_cautela(engine: Any) -> None:
+    from tests.fakes.judge import FakeJudge
+
+    shortcut = graph_service(engine, [ScriptStep(text="¡Hola! Soy Carva.")], judge=FakeJudge())
+    cautious = graph_service(
+        engine,
+        [
+            ScriptStep(tool_calls=[{"name": "sin_consulta", "args": {"motivo": "conversacion"}}]),
+            ScriptStep(text="¡Todo bien! ¿En qué te ayudo?"),
+        ],
+        judge=FakeJudge(choice="respuesta_directa", confidence=0.7),
+    )
+
+    greeting = named(list(shortcut.stream("dueno-atajo", "hola")), "trace").data
+    doubt = named(list(cautious.stream("dueno-cautela", "quiubo pues, todo bien?")), "trace").data
+
+    assert greeting["gatekeeper"]["source"] == "reglas"
+    assert greeting["gatekeeper"]["rule"] == "greeting"
+    assert greeting["gatekeeper"]["scope"] == "direct"
+    assert greeting["claims"]["status"] == "skipped"
+    assert greeting["claims"]["reason"] == "atajo"
+    assert doubt["gatekeeper"]["cautious"] is True
+    assert doubt["gatekeeper"]["reason"] == "confianza_baja_directa"
+
+
+def test_sin_jev_el_trace_lleva_la_clase_del_llm(engine: Any) -> None:
+    service = graph_service(engine, EVIDENCE_STEPS)
+
+    trace = named(list(service.stream("dueno-llm", "¿Cuándo se fundó Carvajal?")), "trace").data
+
+    assert trace["gatekeeper"]["source"] == "llm"
+    assert trace["gatekeeper"]["reason"] == "sin_jev:off"
+    assert trace["gatekeeper"]["llm_class"] == "rag"
+    assert trace["claims"]["status"] == "off"
+
+
+def test_el_respaldo_lleva_gatekeeper_y_claims(engine: Any) -> None:
+    agent = RoutesAgent(sources=(SOURCE,))
+    runner = FakeToolRunner([final(answer="", sources=(SOURCE,))])
+    service = build_service(engine, runner, agent=agent)
+
+    trace = named(list(service.stream("dueno-respaldo-jev", QUESTION)), "trace").data
+
+    assert trace["path"] == "fallback"
+    assert set(trace["gatekeeper"]) == GATEKEEPER_KEYS
+    assert trace["claims"]["status"] == "off"
+
+
+def test_en_routes_el_trace_muestra_la_decision_de_las_reglas(engine: Any) -> None:
+    # Arrange
+    agent = RoutesAgent(route="rag")
+    tracer = FakeTracer()
+    service = build_service(
+        engine,
+        agent=agent,
+        tracer=tracer,
+        settings=Settings(_env_file=None, agent_mode="routes"),  # type: ignore[call-arg]
+    )
+
+    # Act
+    trace = named(list(service.stream("dueno-routes-gk", QUESTION)), "trace").data
+
+    # Assert
+    assert trace["gatekeeper"]["source"] == "reglas"
+    assert trace["gatekeeper"]["gate_class"] == "rag"
+    assert trace["gatekeeper"]["scope"] == ""
+    assert trace["claims"] == {"status": "off"}
+    assert tracer.turns[0].metadata["gatekeeper_source"] == "reglas"
+
+
+def test_el_respaldo_routes_y_la_replica_no_llaman_al_juez(engine: Any) -> None:
+    """FR-009 (T042): el respaldo tras un fallo de DeepSeek y la réplica no usan Jev."""
+
+    from tests.fakes.judge import FakeJudge
+
+    # Arrange: el proveedor falla antes del primer texto.
+    judge = FakeJudge(p=0.1)
+    failing = graph_service(
+        engine,
+        [ScriptStep(error=_connection_error())],
+        judge=judge,
+        agent=RoutesAgent(sources=(SOURCE,)),
+    )
+    replayed = graph_service(engine, EVIDENCE_STEPS, judge=FakeJudge(p=0.9))
+
+    # Act
+    events = list(failing.stream("dueno-falla", "¿Cuándo se fundó Carvajal?"))
+    list(replayed.stream("dueno-replica", "¿Cuándo se fundó?", client_turn_id="t-1"))
+    replay_judge = cast(Any, replayed)._tool_agent._claims_judge
+    calls_before = len(replay_judge.claims)
+    list(replayed.stream("dueno-replica", "¿Cuándo se fundó?", client_turn_id="t-1"))
+
+    # Assert
+    assert named(events, "trace").data["path"] == "fallback"
+    assert judge.claims == []
+    assert len(replay_judge.claims) == calls_before == 1

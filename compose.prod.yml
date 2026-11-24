@@ -65,7 +65,10 @@ services:
       # Versión del aprovisionamiento comercial (captura más reciente del
       # catálogo/precios). El bootstrap falla si no coincide con `version`.
       EXPECTED_COMMERCIAL_VERSION: ${EXPECTED_COMMERCIAL_VERSION:-2026-11-18}
-      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      # LLM del chat en la nube (DeepSeek) por defecto: Ollama queda solo para los
+      # embeddings. Sin DEEPSEEK_API_KEY el chat degrada a routes y la app lo avisa al
+      # arrancar (llm.provider_unconfigured); /health lo muestra en agent.
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
       # La FAQ envía el corpus completo; sin esta ventana Ollama recorta el prompt.
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
@@ -92,6 +95,21 @@ services:
       AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-4}
       AGENT_TURN_TIMEOUT_S: ${AGENT_TURN_TIMEOUT_S:-45}
       AGENT_MAX_QUOTES: ${AGENT_MAX_QUOTES:-3}
+      # Spec 046: Jev de TypeSafe (gatekeeper y compuerta de afirmaciones). Apagado salvo
+      # JEV_ENABLED=true en el .env del servidor; sin clave o apagado, reglas + LLM como antes.
+      JEV_ENABLED: ${JEV_ENABLED:-false}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      JEV_LEDGER: ${JEV_LEDGER:-}
+      JEV_BASE_URL: ${JEV_BASE_URL:-https://api.typesafe.ai/v1}
+      JEV_MODEL: ${JEV_MODEL:-jev-1.14.0}
+      JEV_TIMEOUT_S: ${JEV_TIMEOUT_S:-0.8}
+      JEV_ROUTER_MODE: ${JEV_ROUTER_MODE:-on}
+      JEV_ROUTER_MIN_CONFIDENCE: ${JEV_ROUTER_MIN_CONFIDENCE:-0.6}
+      JEV_ROUTER_DIRECT_MIN_CONFIDENCE: ${JEV_ROUTER_DIRECT_MIN_CONFIDENCE:-0.8}
+      JEV_CLAIMS_MODE: ${JEV_CLAIMS_MODE:-enforce}
+      JEV_CLAIMS_THRESHOLD: ${JEV_CLAIMS_THRESHOLD:-0.5}
+      JEV_MAX_CALLS_PER_DAY: ${JEV_MAX_CALLS_PER_DAY:-1000}
+      JEV_MAX_EVIDENCE_CHARS: ${JEV_MAX_EVIDENCE_CHARS:-12000}
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
@@ -102,6 +120,12 @@ services:
       # escritura web y deja solo la CLI interna. `CONFIG_TOKEN` sigue siendo
       # un alias aceptado por Settings.
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
+      # Webhook firmado de mensajería en POST /api/webhooks/whatsapp (docs/webhooks.md).
+      # Sin secreto responde 404; la allowlist E.164 separada por comas vacía rechaza
+      # todos los remitentes. La app se publica por HTTP: sin TLS delante, el relé
+      # debe llegar por un túnel o una red privada (el HMAC no cifra el contenido).
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      WEBHOOK_ALLOWED_NUMBERS: ${WEBHOOK_ALLOWED_NUMBERS:-}
       # Captura web solo para operadores. El máximo por ejecución lo deriva
       # Settings de las semillas (24 por defecto); aquí solo se ajustan el
       # valor inicial, el tamaño y el timeout.
@@ -235,7 +259,7 @@ services:
       - qdrantdata:/qdrant/storage
 
   ollama:
-    # Solo se usa para embeddings (nomic-embed-text); el LLM puede ser DeepSeek.
+    # Solo se usa para embeddings (nomic-embed-text); el chat usa DeepSeek.
     # El modelo se descarga aparte: docker compose exec ollama ollama pull nomic-embed-text
     image: ollama/ollama:0.40.16
     restart: unless-stopped

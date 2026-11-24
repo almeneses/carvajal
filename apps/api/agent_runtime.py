@@ -27,6 +27,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from carvajal.adapters.embeddings import OllamaEmbedder
+from carvajal.adapters.judge import build_judge
 from carvajal.adapters.llm.deepseek import build_deepseek_chat
 from carvajal.adapters.storage.quotes import QuoteRecord, SqlQuoteRepository
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
@@ -53,7 +54,9 @@ class AgentRuntime:
 
     ``graph`` es el grafo ``routes`` (siempre presente: atajo y respaldo);
     ``tool_graph`` es el grafo ``tools`` y solo existe si ``AGENT_MODE=tools`` y la
-    configuración lo permite (``agent_mode_status``).
+    configuración lo permite (``agent_mode_status``). ``judge`` es el juez de Jev (spec
+    046) que usan el gatekeeper del grafo ``tools`` y la compuerta de afirmaciones del
+    streaming; ``None`` si Jev no está encendido o no hay grafo ``tools``.
     """
 
     graph: Any
@@ -62,6 +65,7 @@ class AgentRuntime:
     store: Any
     _stack: ExitStack
     tool_graph: Any = None
+    judge: Any = None
 
     @property
     def mode(self) -> str:
@@ -111,6 +115,7 @@ def _graphs(
     checkpointer: Any,
     store: Any,
     router: Router,
+    judge: Any = None,
 ) -> tuple[Any, Any | None]:
     """Compila el grafo ``routes`` y, con ``AGENT_MODE=tools``, también el ``tools``.
 
@@ -163,6 +168,8 @@ def _graphs(
             _tool_chat(settings),
             checkpointer=checkpointer,
             store=store,
+            # Spec 046: gatekeeper con Jev si está encendido; sin él, reglas + LLM.
+            judge=judge,
         )
     except Exception as error:
         logger.error(
@@ -257,6 +264,19 @@ def _tool_chat(settings: Settings) -> Any:
     )
 
 
+def _judge(settings: Settings) -> Any:
+    """Juez de Jev si está encendido de forma explícita (``JEV_ENABLED`` y clave).
+
+    Un fallo al construirlo no impide atender: el gatekeeper y la compuerta siguen sin Jev.
+    """
+
+    try:
+        return build_judge(settings)
+    except Exception as error:
+        logger.warning("agent.jev_unavailable", error_type=type(error).__name__)
+        return None
+
+
 def _build(settings: Settings) -> AgentRuntime:
     stack = ExitStack()
     qdrant = QdrantVectorStore(
@@ -285,6 +305,8 @@ def _build(settings: Settings) -> AgentRuntime:
             store = stack.enter_context(PostgresStore.from_conn_string(url))
             store.setup()
         router = _router(settings)
+        # El modo ``routes`` nunca llama a Jev (FR-009): ni siquiera se construye el cliente.
+        judge = _judge(settings) if settings.agent_mode == "tools" else None
         graph, tool_graph = _graphs(
             settings,
             vector_store=LayerPriorityStore(qdrant, min_score=settings.rag_min_score),
@@ -292,7 +314,15 @@ def _build(settings: Settings) -> AgentRuntime:
             checkpointer=checkpointer,
             store=store,
             router=router,
+            judge=judge,
         )
+        if judge is not None:
+            if tool_graph is None:
+                # Sin grafo ``tools`` el proceso atiende con ``routes``: el juez sobra.
+                judge.close()
+                judge = None
+            else:
+                stack.callback(judge.close)
         runtime = AgentRuntime(
             graph=graph,
             qdrant=qdrant,
@@ -300,6 +330,8 @@ def _build(settings: Settings) -> AgentRuntime:
             store=store,
             _stack=stack,
             tool_graph=tool_graph,
+            # El modo ``routes`` nunca usa Jev (FR-009): sin grafo ``tools``, sin juez.
+            judge=judge,
         )
         logger.info(
             "agent.runtime_ready",
@@ -309,6 +341,7 @@ def _build(settings: Settings) -> AgentRuntime:
             # modelo evaluado y este campo permite comprobar que es el mismo.
             tools_model=settings.deepseek_model.strip() if runtime.mode == "tools" else None,
             router=router_name(router),
+            jev=runtime.judge is not None,
             checkpointer=settings.agent_checkpointer,
             collection=settings.qdrant_collection,
         )

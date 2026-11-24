@@ -8,18 +8,31 @@ pasar las pruebas de contrato de ``tests/test_ports.py``.
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from carvajal.domain.entities import Chunk, Document, DocumentVersion
 
 __all__ = [
+    "GATE_CLASSES",
     "ChunkRepository",
+    "ClaimsJudge",
+    "ClaimsQuery",
+    "ClaimsVerdict",
     "DocumentRepository",
     "Embedder",
     "Extractor",
     "Fetcher",
+    "GateClass",
+    "GateScope",
+    "JevStatus",
+    "JudgeCall",
+    "JudgeKind",
+    "JudgeUnavailable",
     "LLMProvider",
     "ModelAwareEmbedder",
+    "RouteJudge",
+    "RouteQuery",
+    "RouteVerdict",
     "ScoredChunk",
     "UsageRepository",
     "VectorStore",
@@ -222,5 +235,138 @@ class UsageRepository(Protocol):
         Debe ser atómico: dos peticiones simultáneas del mismo visitante no
         pueden superar ``limit``. ``limit`` no positivo no concede nada.
         """
+
+        ...
+
+
+# --- Juez externo (spec 046: Jev de TypeSafe) ------------------------------------------------
+#
+# Los tipos viven aquí, sin dependencias: ``agent/gatekeeper/model.py`` los reexporta y el
+# registro de herramientas importa ``GateScope`` solo de este módulo (research R1). Ningún
+# valor de estos tipos lleva el texto enviado al juez: solo metadatos (FR-021).
+
+GateClass = Literal["herramienta_estructurada", "rag", "mixta", "respuesta_directa"]
+GateScope = Literal["direct", "rag", "structured", "all"]
+JevStatus = Literal[
+    "ok", "off", "timeout", "error", "cap", "circuit_open", "auth", "invalid", "skipped"
+]
+JudgeKind = Literal["router", "claims"]
+# Orden de las opciones de la pregunta Choice (contrato §2): la más costosa de equivocar,
+# la respuesta directa, va al final por el sesgo posicional que advierte la documentación.
+GATE_CLASSES: tuple[GateClass, ...] = (
+    "herramienta_estructurada",
+    "rag",
+    "mixta",
+    "respuesta_directa",
+)
+
+
+@dataclass(frozen=True)
+class JudgeCall:
+    """Metadatos de una llamada al juez; nunca el texto enviado ni recibido."""
+
+    kind: JudgeKind
+    status: JevStatus
+    latency_ms: int
+    model: str = ""  # el que devolvió la API; vacío si no hubo respuesta
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def to_value(self) -> dict[str, object]:
+        """Forma JSON para el estado del grafo, la traza y el monitoreo."""
+
+        return {
+            "kind": self.kind,
+            "status": self.status,
+            "latency_ms": self.latency_ms,
+            "model": self.model,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+        }
+
+
+@dataclass(frozen=True)
+class RouteQuery:
+    """Carga del gatekeeper: la pregunta ya redactada y, si aplica, una línea de contexto."""
+
+    question: str
+    context: str = ""
+
+
+@dataclass(frozen=True)
+class RouteVerdict:
+    """Respuesta Choice: clase, confianza y probabilidades (Score solo en la medición)."""
+
+    choice: GateClass
+    confidence: float
+    probabilities: Mapping[GateClass, float]
+    call: JudgeCall
+    # Valor esperado del nivel de Score (real en [0, 4]); la API no devuelve un entero.
+    clarity: float | None = None
+    clarity_confidence: float | None = None
+
+
+@dataclass(frozen=True)
+class ClaimsQuery:
+    """Carga de la compuerta: respuesta sin datos de la persona y evidencia mínima.
+
+    ``evidence`` son pares ``(consulta, texto)`` ya acotados; puede incluir
+    ``("dicho_por_la_persona", valores estructurados)``. La pregunta no viaja (FR-018).
+    """
+
+    answer: str
+    evidence: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class ClaimsVerdict:
+    """Respuesta Noul: probabilidad de que todas las afirmaciones estén respaldadas."""
+
+    p_supported: float
+    call: JudgeCall
+
+
+class JudgeUnavailable(Exception):
+    """El juez no respondió: apagado, tope, circuito, plazo, error o salida inválida.
+
+    Es la única excepción que ``classify`` y ``check`` pueden lanzar; el gatekeeper y la
+    compuerta la convierten en el comportamiento sin Jev (FR-006, FR-015). El mensaje es
+    solo el estado: nunca lleva el texto enviado ni la clave.
+    """
+
+    def __init__(self, status: JevStatus, call: JudgeCall | None = None, reason: str = "") -> None:
+        super().__init__(status)
+        self.status: JevStatus = status
+        self.call = call
+        # Motivo sin llamada distinto del estado (``cuota`` de una corrida de evaluación).
+        self.reason = reason
+
+
+@runtime_checkable
+class RouteJudge(Protocol):
+    """Clasificador del turno para el gatekeeper (pregunta Choice)."""
+
+    def available(self) -> bool:
+        """Configurado, encendido, con el circuito cerrado y bajo el tope; sin red."""
+
+        ...
+
+    def classify(self, query: RouteQuery, *, with_score: bool = False) -> RouteVerdict:
+        """Clase del turno; lanza :class:`JudgeUnavailable` ante cualquier fallo."""
+
+        ...
+
+
+@runtime_checkable
+class ClaimsJudge(Protocol):
+    """Juez del respaldo de una respuesta (pregunta Noul)."""
+
+    def available(self) -> bool:
+        """Configurado, encendido, con el circuito cerrado y bajo el tope; sin red."""
+
+        ...
+
+    def check(self, query: ClaimsQuery) -> ClaimsVerdict:
+        """Probabilidad de respaldo; lanza :class:`JudgeUnavailable` ante cualquier fallo."""
 
         ...

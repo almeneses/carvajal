@@ -220,6 +220,28 @@ class SqlChatRepository:
             return first, None
         return first, ChatMessage(**rows[1])
 
+    def find_turn_thread(self, owner_key: str, client_turn_id: str) -> str | None:
+        """Hilo del dueño que ya guarda el turno ``client_turn_id``, en cualquier hilo.
+
+        ``find_turn`` busca dentro de un hilo conocido; un reintento del webhook puede
+        llegar después de abrir un hilo nuevo, así que aquí se busca por dueño.
+        """
+
+        if not client_turn_id:
+            return None
+        return self._session.scalar(
+            select(tables.messages.c.conversation_id)
+            .join(
+                tables.conversations,
+                tables.conversations.c.id == tables.messages.c.conversation_id,
+            )
+            .where(
+                tables.conversations.c.owner_key == owner_key,
+                tables.messages.c.client_turn_id == client_turn_id,
+            )
+            .limit(1)
+        )
+
     def history(
         self,
         conversation_id: str,

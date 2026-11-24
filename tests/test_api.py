@@ -6,6 +6,7 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
+from structlog.testing import capture_logs
 
 from apps.api import main, runtime
 from apps.api.chat import service as chat_service
@@ -16,6 +17,7 @@ from apps.api.main import (
     HealthStatus,
     create_app,
 )
+from carvajal.adapters.judge import jev_health
 from carvajal.application.ask import Answer, Source
 from carvajal.application.quota import QuotaResult
 from carvajal.infrastructure.agent_mode import agent_mode_status
@@ -65,6 +67,8 @@ def test_health_devuelve_estado_y_conteos() -> None:
     payload = response.json()
     assert payload.pop("monitoring") == monitoring_status(Settings()).as_health()
     assert payload.pop("agent") == agent_mode_status(Settings()).as_health()
+    # Spec 046 (FR-024): bloque ``jev`` sin llamar a TypeSafe (apagado en las pruebas).
+    assert payload.pop("jev") == jev_health(Settings())
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-18"
@@ -88,6 +92,7 @@ def test_health_degradado_no_filtra_detalles() -> None:
     payload = response.json()
     payload.pop("monitoring")
     assert payload.pop("agent") == agent_mode_status(Settings()).as_health()
+    assert payload.pop("jev") == jev_health(Settings())
     assert payload == {
         "status": "degraded",
         "detail": DB_UNAVAILABLE,
@@ -300,6 +305,41 @@ def test_chat_carga_los_controles_de_voz_sin_estilos_inline() -> None:
     assert ".voz-estado" in css.text
 
 
+def test_create_app_avisa_si_falta_la_clave_del_llm_del_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: DeepSeek es el proveedor por defecto y la clave falta.
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+
+    # Act
+    with capture_logs() as logs:
+        create_app()
+
+    # Assert: el aviso nombra la variable que falta, no el valor de ninguna clave.
+    avisos = [log for log in logs if log["event"] == "llm.provider_unconfigured"]
+    assert len(avisos) == 1
+    assert avisos[0]["log_level"] == "warning"
+    assert avisos[0]["reason"] == "missing_deepseek_api_key"
+    assert "DEEPSEEK_API_KEY" in avisos[0]["detail"]
+
+
+def test_create_app_no_avisa_con_la_clave_del_llm_configurada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-prueba")
+
+    # Act
+    with capture_logs() as logs:
+        create_app()
+
+    # Assert
+    assert all(log["event"] != "llm.provider_unconfigured" for log in logs)
+    assert "sk-prueba" not in repr(logs)
+
+
 def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -323,6 +363,7 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     payload = response.json()
     payload.pop("monitoring")
     payload.pop("agent")
+    payload.pop("jev")
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-18"

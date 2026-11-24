@@ -70,6 +70,7 @@ from carvajal.adapters.storage.chat import (
     SqlChatRepository,
 )
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
+from carvajal.agent.gatekeeper.model import map_route
 from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns, pair_turns
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
@@ -81,6 +82,7 @@ from carvajal.application.ports import Embedder, LLMProvider
 from carvajal.infrastructure.monitoring import (
     TurnTracer,
     build_tracer,
+    record_judge_calls,
     record_tool_calls,
     thread_hash,
     token_metadata,
@@ -439,7 +441,14 @@ class ChatService:
                         "memory": _memory_count(turn.preferences),
                         "summary": _summary_trace(turn.summary),
                         "retrieved": len(turn.sources),
+                        # Spec 046 (FR-009): el modo ``routes`` no usa Jev; la traza muestra
+                        # la decisión de las reglas con la forma del gatekeeper.
+                        "gatekeeper": _routes_gatekeeper(turn.route, turn.intent),
+                        "claims": {"status": "off"},
                     },
+                )
+                span.add_metadata(
+                    **_gate_metadata(_routes_gatekeeper(turn.route, turn.intent), {"status": "off"})
                 )
                 yield ChatEvent("meta", {"sources": _sources(turn.sources)})
                 if turn.products and has_cards(turn.products):
@@ -798,6 +807,8 @@ class ChatService:
         )
         monitored, no_query = _monitored_results(closing.results)
         tool_names = [str(r["tool"]) for r in monitored]
+        gatekeeper = _gatekeeper_trace(closing.gatekeeper)
+        claims = _claims_trace(closing.claims)
         span.add_metadata(
             route=route,
             path=closing.mode_path,
@@ -810,8 +821,10 @@ class ChatService:
             retrieved=len(sources),
             quote_count=len(quote_records),
             **token_metadata(closing.usage),
+            **_gate_metadata(gatekeeper, claims),
         )
         record_tool_calls(span, monitored, include_content=config.monitoring_include_content)
+        record_judge_calls(span, _judge_calls(closing.gatekeeper, closing.claims))
         structlog.contextvars.bind_contextvars(route=route)
 
         answer_text = "".join(fragments)
@@ -853,6 +866,8 @@ class ChatService:
                 "mode": "tools",
                 "path": closing.mode_path,
                 "gate": closing.gate,
+                "gatekeeper": gatekeeper,
+                "claims": claims,
             },
         )
         if products and has_cards(products):
@@ -973,6 +988,21 @@ class ChatService:
             )
             summary = turn.summary
             recorder, turns = runner, turn.turns
+        # Spec 046: la decisión del gatekeeper del intento (si la hubo) o la de las reglas; el
+        # respaldo determinista no se juzga (``reemplazo``).
+        if obtained is not None and obtained.gatekeeper:
+            gatekeeper = _gatekeeper_trace(obtained.gatekeeper)
+        else:
+            gatekeeper = _routes_gatekeeper(*_rules_route(question, tools.seed))
+        claims_active = obtained is not None and (obtained.claims or {}).get("status") not in (
+            None,
+            "off",
+        )
+        claims = (
+            {"status": "skipped", "p": None, "reason": "reemplazo", "substituted": False}
+            if claims_active
+            else {"status": "off", "p": None, "reason": "", "substituted": False}
+        )
         span.add_metadata(
             route="agent",
             path="fallback",
@@ -985,10 +1015,13 @@ class ChatService:
             retrieved=len(sources),
             quote_count=len(quote_records),
             **token_metadata(obtained.usage if obtained is not None else None),
+            **_gate_metadata(gatekeeper, claims),
         )
         if error is not None:
             span.add_metadata(error_type=type(error).__name__)
         record_tool_calls(span, monitored, include_content=config.monitoring_include_content)
+        if obtained is not None:
+            record_judge_calls(span, _judge_calls(obtained.gatekeeper, obtained.claims))
         structlog.contextvars.bind_contextvars(route="agent")
         span.add_outputs(answer=answer_text)
 
@@ -1047,6 +1080,8 @@ class ChatService:
                 "path": "fallback",
                 "gate": "",
                 "fallback_route": fallback_route,
+                "gatekeeper": gatekeeper,
+                "claims": claims,
             },
         )
         if products and has_cards(products):
@@ -1294,6 +1329,103 @@ def _memory_count(preferences: Sequence[str]) -> int:
     """Categorías de la memoria con valor (las notas cuentan como una), para ``trace``."""
 
     return len({"nota" if str(line).startswith("nota:") else str(line) for line in preferences})
+
+
+# Campos de la decisión del gatekeeper que viajan en ``trace`` (contrato §6): sin texto.
+_GATEKEEPER_TRACE_KEYS = (
+    "gate_class",
+    "scope",
+    "source",
+    "confidence",
+    "cautious",
+    "rule",
+    "reason",
+    "jev_status",
+    "llm_class",
+)
+
+
+def _gatekeeper_trace(decision: Mapping[str, Any] | None) -> dict[str, Any]:
+    """``trace.gatekeeper`` (spec 046): clase, alcance, fuente, confianza, cautela y regla."""
+
+    decision = decision or {}
+    if not decision:
+        return {
+            "gate_class": None,
+            "scope": "",
+            "source": "",
+            "confidence": None,
+            "cautious": False,
+            "rule": "",
+            "reason": "",
+            "jev_status": "off",
+            "llm_class": None,
+        }
+    return {key: decision.get(key) for key in _GATEKEEPER_TRACE_KEYS}
+
+
+def _routes_gatekeeper(route: str, intent: str) -> dict[str, Any]:
+    """Decisión de las reglas del modo ``routes`` con la forma del gatekeeper (FR-009)."""
+
+    return {
+        "gate_class": map_route(route, intent),
+        "scope": "",
+        "source": "reglas",
+        "confidence": None,
+        "cautious": False,
+        "rule": intent,
+        "reason": "",
+        "jev_status": "off",
+        "llm_class": None,
+    }
+
+
+def _claims_trace(claims: Mapping[str, Any] | None) -> dict[str, Any]:
+    """``trace.claims`` (spec 046): estado, probabilidad, motivo y si se sustituyó."""
+
+    claims = claims or {}
+    return {
+        "status": str(claims.get("status") or "off"),
+        "p": claims.get("p"),
+        "reason": str(claims.get("reason") or ""),
+        "substituted": bool(claims.get("substituted")),
+    }
+
+
+def _gate_metadata(gatekeeper: Mapping[str, Any], claims: Mapping[str, Any]) -> dict[str, Any]:
+    """Metadatos de la raíz del turno en LangSmith (contrato §6); claves en ``SAFE_KEYS``."""
+
+    return {
+        "gatekeeper_route": gatekeeper.get("gate_class"),
+        "gatekeeper_scope": gatekeeper.get("scope") or None,
+        "gatekeeper_source": gatekeeper.get("source") or None,
+        "gatekeeper_llm_class": gatekeeper.get("llm_class"),
+        "gatekeeper_confidence": gatekeeper.get("confidence"),
+        "gatekeeper_cautious": bool(gatekeeper.get("cautious")),
+        "gatekeeper_rule": gatekeeper.get("rule") or None,
+        "gatekeeper_reason": gatekeeper.get("reason") or None,
+        "jev_status": gatekeeper.get("jev_status"),
+        "claims_status": claims.get("status"),
+        "claims_p": claims.get("p"),
+        "claims_substituted": bool(claims.get("substituted")),
+    }
+
+
+def _judge_calls(gatekeeper: Mapping[str, Any], claims: Mapping[str, Any]) -> list[Any]:
+    """Llamadas a Jev del turno (metadatos de ``JudgeCall`` y la decisión o el veredicto)."""
+
+    return [
+        call for call in (gatekeeper.get("jev"), claims.get("jev")) if isinstance(call, Mapping)
+    ]
+
+
+def _rules_route(question: str, seed: Sequence[Turn]) -> tuple[str, str]:
+    """Ruta e intención de las reglas (sin red), para la traza del respaldo."""
+
+    from carvajal.agent.router import decide_route
+
+    decision = decide_route(question, list(seed))
+    return decision.route, decision.intent
 
 
 def _summary_trace(summary: Mapping[str, Any] | None) -> dict[str, Any]:

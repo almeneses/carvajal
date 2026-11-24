@@ -7,6 +7,7 @@ la app real usa el grafo con PostgresSaver/Store y Qdrant.
 
 import contextvars
 import json
+import math
 import queue
 import threading
 import time
@@ -17,6 +18,8 @@ from typing import Any, Final, Protocol, runtime_checkable
 import structlog
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
+from carvajal.agent.gatekeeper.claims import ECHO_KEYS, build_claims_query, judgeable
+from carvajal.agent.gatekeeper.model import GatekeeperDecision, llm_class
 from carvajal.agent.memory.store import CATEGORIES, MemoryProfile
 from carvajal.agent.memory.summary import ConversationSummary, seed_turn_count
 from carvajal.agent.state import Turn
@@ -55,14 +58,16 @@ from carvajal.agent.toolagent.state import (
     TOOL_COTIZAR,
     validate_question,
 )
+from carvajal.agent.toolagent.status import REVIEW_STATUS
 from carvajal.agent.toolagent.tools import (
     CORPUS_TOOLS,
     DECLARATION_TOOLS,
     MEMORY_TOOLS,
+    ROUTE_GROUPS,
     content_data,
 )
 from carvajal.application.ask import Source
-from carvajal.application.ports import LLMProvider
+from carvajal.application.ports import ClaimsJudge, JudgeUnavailable, LLMProvider
 from carvajal.prompts import NO_CONTEXT_ANSWER
 
 __all__ = [
@@ -271,7 +276,7 @@ _RECALL_NODE: Final = "recall"
 # («No hay sedes del directorio en {ciudad}»). ``aviso`` y ``busqueda_nombre`` de
 # ``buscar_producto`` son prosa y conteos sobre la búsqueda por ``nombre`` (un argumento
 # del modelo): ya no lo repiten, pero sus cifras son conteos, no datos del catálogo.
-_ECHO_KEYS: Final = frozenset({"message", "aviso", "busqueda_nombre"})
+_ECHO_KEYS: Final = ECHO_KEYS
 # ``updates`` se suma a ``messages`` y ``custom``: marca el fin de cada paso del modelo y
 # trae los canales del estado (resultados, fuentes, tarjetas) sin leer el checkpointer.
 _STREAM_MODES: Final = ["messages", "custom", "updates"]
@@ -323,6 +328,9 @@ class ToolAgentFinal:
     - ``turns``: los ``seed_turns`` recibidos, para ``record``.
     - ``usage``: tokens sumados de todos los pasos del modelo (SC-008).
     - ``summary``: ``covered_turns`` y ``method`` del resumen del hilo (spec 045), sin texto.
+    - ``gatekeeper``: decisión del gatekeeper del turno (spec 046, canal del estado), con
+      ``llm_class`` derivada de las consultas ejecutadas cuando decidió el LLM.
+    - ``claims``: veredicto de la compuerta de afirmaciones (spec 046, data-model).
     """
 
     answer: str
@@ -339,6 +347,8 @@ class ToolAgentFinal:
     turns: tuple[Turn, ...] = ()
     usage: dict[str, int] = field(default_factory=dict)
     summary: dict[str, Any] = field(default_factory=dict)
+    gatekeeper: dict[str, Any] = field(default_factory=dict)
+    claims: dict[str, Any] = field(default_factory=dict)
 
 
 ToolAgentEvent = ToolAgentStatus | ToolAgentSources | ToolAgentToken | ToolAgentFinal
@@ -413,6 +423,39 @@ def _text(content: Any) -> str:
     return ""
 
 
+# Margen sobre ``JEV_TIMEOUT_S`` que debe quedar del plazo del turno para llamar a la
+# compuerta (FR-030).
+CLAIMS_MARGIN_S: Final = 0.2
+
+
+@dataclass
+class _ClaimsGate:
+    """Compuerta de afirmaciones del turno (spec 046, R6 y R7).
+
+    ``mode`` se fija al empezar el turno: ``enforce`` (retiene el texto con evidencia
+    completo y sustituye lo no respaldado), ``shadow`` (juzga y registra sin sustituir ni
+    retener) u ``off`` (juez apagado o no disponible: la retención de la 044).
+    ``remaining`` da los segundos que quedan del plazo del turno y ``begin_text`` marca el
+    inicio del texto antes de la llamada, para que el plazo no descarte la respuesta.
+    """
+
+    judge: ClaimsJudge | None = None
+    mode: str = "off"
+    threshold: float = 0.5
+    timeout_s: float = 0.8
+    settings: Any = None
+    remaining: Callable[[], float] = lambda: math.inf
+    begin_text: Callable[[], bool] = lambda: True
+
+    @property
+    def active(self) -> bool:
+        return self.judge is not None and self.mode in ("enforce", "shadow")
+
+    @property
+    def holds(self) -> bool:
+        return self.active and self.mode == "enforce"
+
+
 @dataclass
 class _ModelStep:
     """Un paso del modelo mientras se transmite, con el camino vigente al empezar."""
@@ -435,9 +478,20 @@ class _TurnStream:
     """
 
     def __init__(
-        self, question: str, seed_turns: Sequence[Turn] = (), turn_count: int | None = None
+        self,
+        question: str,
+        seed_turns: Sequence[Turn] = (),
+        turn_count: int | None = None,
+        claims: _ClaimsGate | None = None,
     ) -> None:
         self.question = question
+        self.gate_claims = claims or _ClaimsGate()
+        # Línea de estado de la revisión: se emite una vez, tras la última de herramienta.
+        self.reviewing = False
+        # Veredicto pendiente: la línea de revisión sale antes de la llamada a Jev y el
+        # runner ejecuta esto después de emitirla (:meth:`take_deferred`).
+        self._deferred: Callable[[], list[ToolAgentEvent]] | None = None
+        self.last_status_step = 0
         # Semilla del turno: las preguntas anteriores de la persona respaldan lo que ella
         # dijo (spec 045, R4); los turnos anteriores a «olvidar todo» no.
         self.seed = [dict(turn) for turn in seed_turns if isinstance(turn, Mapping)]
@@ -457,12 +511,25 @@ class _TurnStream:
         # El turno ya tiene respuesta (abstención anticipada): el runner detiene el grafo.
         self.finished = False
         self.usage: dict[str, int] = {}
+        # Veredicto de la compuerta de afirmaciones (spec 046, data-model).
+        self.claims: dict[str, Any] = {
+            "status": "skipped" if self.gate_claims.active else "off",
+            "p": None,
+            "threshold": self.gate_claims.threshold,
+            "reason": "",
+            "substituted": False,
+            "jev": None,
+        }
+        if self.gate_claims.active:
+            self.claims["mode"] = self.gate_claims.mode
 
     # -- Eventos del grafo --
 
     def on_custom(self, payload: Any) -> list[ToolAgentEvent]:
         if isinstance(payload, Mapping) and payload.get("type") == "status":
-            return [ToolAgentStatus(text=str(payload.get("text", "")), step=int(payload["step"]))]
+            step = int(payload["step"])
+            self.last_status_step = max(self.last_status_step, step)
+            return [ToolAgentStatus(text=str(payload.get("text", "")), step=step)]
         return []
 
     def on_message(self, chunk: Any, metadata: Any) -> list[ToolAgentEvent]:
@@ -492,7 +559,14 @@ class _TurnStream:
                 return []
             self.finished = True
             self.step = None
+            self._skip_claims("abstencion")
             return self._abstain(GATE_ABSTAIN, 0)
+        if step.path == GATE_EVIDENCE and self.gate_claims.holds:
+            # Compuerta de afirmaciones activa (FR-014): el paso con evidencia se retiene
+            # completo hasta el veredicto. La línea de revisión no sale aquí: el paso aún
+            # puede terminar en una llamada a herramienta; sale al cerrar el paso final.
+            step.pending.append(piece)
+            return []
         if step.path != GATE_EVIDENCE or step.filtered:
             # ``no_query`` (o evidencia sin corpus tras una búsqueda vacía): no sale nada
             # mientras el paso corre; se filtra al cerrarlo.
@@ -555,7 +629,23 @@ class _TurnStream:
             turns=tuple(turns),
             usage=dict(self.usage),
             summary=_summary_meta(values.get("conversation_summary")),
+            gatekeeper=self._gatekeeper(),
+            claims=dict(self.claims),
         )
+
+    def _gatekeeper(self) -> dict[str, Any]:
+        """Decisión del turno; con ``source=llm``, la clase derivada de lo consultado (FR-006)."""
+
+        decision = GatekeeperDecision.from_value(self.values.get("gatekeeper"))
+        if decision is None:
+            return {}
+        if decision.source == "llm":
+            groups = [ROUTE_GROUPS.get(str(r.get("tool")), "") for r in self._results()]
+            decision = replace(decision, llm_class=llm_class(groups))
+        return decision.to_value()
+
+    def _results(self) -> list[Mapping[str, Any]]:
+        return [r for r in self.values.get("results") or [] if isinstance(r, Mapping)]
 
     # -- Internos --
 
@@ -612,8 +702,16 @@ class _TurnStream:
                 return []
             text = _text(message.content) if message is not None else "".join(step.pending)
             if step.path == GATE_EVIDENCE and not step.filtered:
-                return self._emit(self._remainder(text, step))
+                if self.gate_claims.holds:
+                    return self._judged(text, step.path)
+                began = bool(self.answer)
+                events = self._emit(self._remainder(text, step))
+                if self.gate_claims.active:
+                    # Sombra: se juzga lo ya emitido y solo se registra (no hay retención).
+                    self._judge(text, began=began)
+                return events
             if step.path == GATE_ABSTAIN:
+                self._skip_claims("abstencion")
                 return self._abstain(GATE_ABSTAIN, 0)
             if neutral_only(self.values.get("results") or []):
                 # Búsqueda documental vacía: la petición del dato o las sedes no respaldan lo
@@ -621,7 +719,9 @@ class _TurnStream:
                 # reemplazo neutro (con la ausencia del corpus) o la abstención.
                 replacement = self._replacement(corpus_miss=True)
                 if replacement:
+                    self._skip_claims("reemplazo")
                     return self._replace(replacement, 0)
+                self._skip_claims("abstencion")
                 return self._abstain(GATE_NO_QUERY, 0)
             terms = unsupported_terms(text, allowed=self._allowed())
             if terms:
@@ -631,11 +731,122 @@ class _TurnStream:
                     # ausencia; sin ellas, el turno se abstiene (FR-004).
                     replacement = self._replacement(corpus_miss=True)
                 if replacement:
+                    self._skip_claims("reemplazo")
                     return self._replace(replacement, len(terms))
+                self._skip_claims("abstencion")
                 return self._abstain(step.path, len(terms))
-            return self._emit(text)
+            if node == _DIRECT_NODE:
+                # Respuesta directa (atajo por reglas o decidida por Jev): no consulta nada y
+                # ya pasó el filtro de ``no_query``; no se juzga (contrato §3).
+                source = (self._decision() or GatekeeperDecision("direct", "reglas")).source
+                _judgeable, reason = judgeable(text, shortcut=True, source=source)
+                self._skip_claims(reason)
+                return self._emit(text)
+            return self._judged(text, step.path)
         finally:
             self.step = None
+
+    # -- Compuerta de afirmaciones (spec 046) --
+
+    def _decision(self) -> GatekeeperDecision | None:
+        return GatekeeperDecision.from_value(self.values.get("gatekeeper"))
+
+    def _review_status(self) -> list[ToolAgentEvent]:
+        if self.reviewing:
+            return []
+        self.reviewing = True
+        return [ToolAgentStatus(text=REVIEW_STATUS, step=self.last_status_step + 1)]
+
+    def _skip_claims(self, reason: str) -> None:
+        if self.gate_claims.active and self.claims["status"] == "skipped":
+            self.claims["reason"] = reason
+
+    def take_deferred(self) -> Callable[[], list[ToolAgentEvent]] | None:
+        """Veredicto pendiente del paso final, si lo hay; el runner lo ejecuta una vez."""
+
+        deferred, self._deferred = self._deferred, None
+        return deferred
+
+    def _judged(self, text: str, path: str) -> list[ToolAgentEvent]:
+        """Texto del modelo que pasó la compuerta determinista: Noul y, si no, sustituto.
+
+        Con la compuerta reteniendo, la línea de revisión sale ya (el paso final cerró sin
+        llamadas a herramientas) y el veredicto queda pendiente: el runner la emite y luego
+        llama a Jev, así que la línea se ve mientras se revisa (FR-014).
+        """
+
+        if self.gate_claims.holds and text.strip():
+            self._deferred = lambda: self._verdict(text, path)
+            return self._review_status()
+        return self._verdict(text, path)
+
+    def _verdict(self, text: str, path: str) -> list[ToolAgentEvent]:
+        verdict = self._judge(text)
+        if verdict == "unsupported" and self.gate_claims.holds:
+            self.claims["substituted"] = True
+            replacement = self._replacement()
+            if replacement:
+                return self._replace(replacement, 0)
+            return self._abstain(path, 0)
+        return self._emit(text)
+
+    def _judge(self, text: str, *, began: bool = False) -> str:
+        """Llama a la compuerta si el texto es juzgable y queda plazo; devuelve el estado.
+
+        El plazo vale en los dos modos (FR-030): en sombra el texto de ``no_query`` (o uno
+        corto con evidencia) sigue retenido mientras se juzga, y una llamada lenta haría
+        vencer el turno y perder una respuesta buena. ``began`` indica que el texto ya salió
+        antes de este paso (sombra con evidencia larga): el plazo del turno ya no aplica.
+        """
+
+        gate = self.gate_claims
+        if not gate.active or gate.judge is None:
+            return "off"
+        ok, reason = judgeable(text, results=self._results())
+        if not ok:
+            self._skip_claims(reason)
+            return "skipped"
+        if not began and gate.remaining() <= gate.timeout_s + CLAIMS_MARGIN_S:
+            return self._claims_unavailable("sin_plazo")
+        if not gate.begin_text():
+            return self._claims_unavailable("sin_plazo")
+        query = build_claims_query(
+            text,
+            self.question,
+            self.tool_payloads,
+            self.values.get("memory"),
+            settings=gate.settings,
+            prior_questions=self._prior_person_texts(),
+        )
+        try:
+            verdict = gate.judge.check(query)
+        except JudgeUnavailable as error:
+            jev = error.call.to_value() if error.call is not None else None
+            return self._claims_unavailable(error.reason or error.status, jev)
+        status = "unsupported" if verdict.p_supported < gate.threshold else "supported"
+        self.claims.update(
+            status=status,
+            p=round(verdict.p_supported, 2),
+            reason="sombra" if gate.mode == "shadow" else "",
+            jev={
+                **verdict.call.to_value(),
+                "p_supported": verdict.p_supported,
+                "threshold": gate.threshold,
+            },
+        )
+        logger.info(
+            "claims.judged",
+            status=status,
+            p=self.claims["p"],
+            substituted=status == "unsupported" and gate.holds,
+            mode=gate.mode,
+        )
+        return status
+
+    def _claims_unavailable(self, reason: str, jev: Mapping[str, Any] | None = None) -> str:
+        self.claims.update(status="unavailable", reason=reason, jev=dict(jev) if jev else None)
+        logger.info("claims.judged", status="unavailable", reason=reason, substituted=False)
+        return "unavailable"
 
     def _remainder(self, text: str, step: _ModelStep) -> str:
         """Lo que falta emitir del paso final: el retenido o el texto que se descartó."""
@@ -781,6 +992,19 @@ class _TurnStream:
             json.dumps(context, ensure_ascii=False, default=str) if context else "",
             *_preferred_names(memory),
             *(_memory_values(memory) if _memory_only(results) else ()),
+        ]
+
+    def _prior_person_texts(self) -> list[str]:
+        """Todo lo que la persona escribió en turnos anteriores (semilla y citas del resumen).
+
+        No viaja a Jev: solo indica qué datos suyos sustituir si la respuesta los repite
+        (FR-020). Incluye los turnos anteriores a «olvidar todo»: enmascarar de más es seguro.
+        """
+
+        summary = ConversationSummary.from_value(self.values.get("conversation_summary"))
+        return [
+            *(str(turn.get("question") or "") for turn in self.seed),
+            *(summary.user_quotes if summary is not None else ()),
         ]
 
     def _seed_questions(self) -> list[str]:
@@ -970,10 +1194,21 @@ class ToolAgentRunner:
         settings: Any,
         *,
         clock: Callable[[], float] = time.monotonic,
+        claims_judge: ClaimsJudge | None = None,
     ) -> None:
         self._graph = graph
         self._settings = settings
         self._clock = clock
+        self._claims_judge = claims_judge
+
+    def _claims_mode(self) -> str:
+        """Modo de la compuerta para el turno, evaluado una vez al empezar (FR-014)."""
+
+        mode = str(getattr(self._settings, "jev_claims_mode", "off") or "off")
+        judge = self._claims_judge
+        if mode not in ("enforce", "shadow") or judge is None or not judge.available():
+            return "off"
+        return mode
 
     def stream(
         self,
@@ -987,7 +1222,18 @@ class ToolAgentRunner:
         cleaned = validate_question(question)
         turns = list(seed_turns)
         turn_count = _turn_count(seed_turns)
-        state = _TurnStream(cleaned, turns, turn_count)
+        timeout_s = float(self._settings.agent_turn_timeout_s)
+        mode = self._claims_mode()
+        gate = _ClaimsGate(
+            judge=self._claims_judge if mode != "off" else None,
+            mode=mode,
+            threshold=float(getattr(self._settings, "jev_claims_threshold", 0.5)),
+            timeout_s=float(getattr(self._settings, "jev_timeout_s", 0.8)),
+            settings=self._settings,
+            remaining=lambda: timeout_s - (self._clock() - started),
+            begin_text=lambda: deadline.begin_text(),
+        )
+        state = _TurnStream(cleaned, turns, turn_count, gate)
         cancel = TurnCancel()
         config = cancel.config(
             {
@@ -1003,7 +1249,6 @@ class ToolAgentRunner:
             # Spec 045 (FR-008): turnos persistidos antes de este (``SeedTurns``).
             "turn_count": turn_count,
         }
-        timeout_s = float(self._settings.agent_turn_timeout_s)
         pump = _GraphPump(
             lambda: self._graph.stream(payload, config, stream_mode=list(_STREAM_MODES))
         )
@@ -1026,13 +1271,23 @@ class ToolAgentRunner:
                         out = state.on_update(data)
                     else:
                         out = []
-                    if any(isinstance(e, ToolAgentToken) for e in out) and not (
-                        deadline.begin_text()
-                    ):
-                        out = []
-                    if deadline.expired:
+                    stop = False
+                    while True:
+                        if any(isinstance(e, ToolAgentToken) for e in out) and not (
+                            deadline.begin_text()
+                        ):
+                            out = []
+                        if deadline.expired:
+                            stop = True
+                            break
+                        yield from out
+                        # Veredicto de la compuerta tras emitir la línea de revisión.
+                        deferred = state.take_deferred()
+                        if deferred is None:
+                            break
+                        out = deferred()
+                    if stop:
                         break
-                    yield from out
                     if state.finished:
                         logger.info("tool_agent.stopped_early", reason="abstain")
                         break
@@ -1065,6 +1320,7 @@ class ToolAgentRunner:
             abstained=final.abstained,
             tools=[r.get("tool") for r in final.results],
             answer_chars=len(final.answer),
+            claims=final.claims.get("status"),
         )
         yield final
 
@@ -1241,7 +1497,8 @@ def default_tool_agent_runner() -> ToolAgentRunner | None:
     runtime = agent_runtime()
     if runtime.mode != "tools" or runtime.tool_graph is None:
         return None
-    return ToolAgentRunner(runtime.tool_graph, Settings())
+    # Spec 046: la compuerta de afirmaciones usa el mismo juez que el gatekeeper.
+    return ToolAgentRunner(runtime.tool_graph, Settings(), claims_judge=runtime.judge)
 
 
 # ``LLMProvider`` se reexporta en el contrato para documentar que la generación

@@ -12,7 +12,7 @@
 #   make down      lo detiene conservando los volúmenes
 #
 # `make up` activa el perfil `full`: la app en modo desarrollo (recarga y
-# directorios del repo montados), Ollama con los modelos descargados y un
+# directorios del repo montados), Ollama con el modelo de embeddings y un
 # servicio de preparación de una sola ejecución que aplica migraciones, importa
 # el corpus Gold a Postgres y lo indexa en Qdrant. Sin el perfil, el archivo se
 # comporta como antes: solo db y qdrant.
@@ -39,7 +39,10 @@ x-dev-app: &dev-app
     QDRANT_COLLECTION: ${QDRANT_COLLECTION:-carvajal_chunks}
     QDRANT_DIMENSIONS: ${QDRANT_DIMENSIONS:-768}
     QDRANT_DISTANCE: ${QDRANT_DISTANCE:-Cosine}
-    LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+    # LLM del chat en la nube (DeepSeek) por defecto: Ollama queda solo para los
+    # embeddings. Sin DEEPSEEK_API_KEY el chat degrada a routes y la app lo avisa al
+    # arrancar (llm.provider_unconfigured). LLM_PROVIDER=ollama vuelve al chat local.
+    LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
     OLLAMA_BASE_URL: http://ollama:11434
     OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
     OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
@@ -71,6 +74,10 @@ x-dev-app: &dev-app
     SESSION_SECRET: ${SESSION_SECRET:-dev-carvajal-inseguro-solo-local}
     # Token de operador para la carga y captura web; vacío las deshabilita.
     OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
+    # Webhook firmado de mensajería (docs/webhooks.md). Sin secreto responde 404; la
+    # allowlist E.164 separada por comas vacía rechaza todos los remitentes.
+    WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+    WEBHOOK_ALLOWED_NUMBERS: ${WEBHOOK_ALLOWED_NUMBERS:-}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     # El perfil local no envía nada a Sentry ni a LangSmith salvo que se pida.
     SENTRY_DSN: ${SENTRY_DSN:-}
@@ -134,7 +141,7 @@ services:
       - qdrantdata:/qdrant/storage
 
   ollama:
-    # Solo dentro de `make up`: embeddings y, si LLM_PROVIDER=ollama, el chat.
+    # Solo dentro de `make up`: embeddings (y el chat solo si LLM_PROVIDER=ollama).
     # No publica el puerto: la app nativa (`make api`) sigue usando el Ollama
     # del host en 127.0.0.1:11434, y publicarlo aquí chocaría con él. Para
     # exponerlo, añade `ports: ["127.0.0.1:11434:11434"]` a este servicio.
@@ -151,8 +158,9 @@ services:
       start_period: 20s
 
   ollama-pull:
-    # Descarga los modelos que el stack necesita. Es idempotente: si ya están
-    # en el volumen, la comprobación termina en segundos.
+    # Descarga los modelos que el stack necesita: siempre el de embeddings y el de
+    # chat solo si LLM_PROVIDER=ollama. Es idempotente: si ya están en el volumen,
+    # la comprobación termina en segundos.
     profiles: ["full"]
     image: ollama/ollama:0.40.16
     restart: "no"
@@ -160,7 +168,10 @@ services:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - ollama pull nomic-embed-text && ollama pull "${OLLAMA_MODEL:-llama3.2}"
+      - >-
+        ollama pull nomic-embed-text &&
+        if [ "${LLM_PROVIDER:-deepseek}" = "ollama" ]; then
+        ollama pull "${OLLAMA_MODEL:-llama3.2}"; fi
     depends_on:
       ollama:
         condition: service_healthy

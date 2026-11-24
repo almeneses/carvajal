@@ -2024,3 +2024,380 @@ def test_un_guardado_rechazado_por_el_filtro_recibe_la_confirmacion() -> None:
 
     # Assert
     assert _tokens(events) == ["Listo, lo guardé."]
+
+
+# --- Compuerta de afirmaciones con Jev (spec 046, T032 y T039) --------------------------------
+
+
+def _claims_runner(
+    steps: Sequence[ScriptStep],
+    judge: Any,
+    *,
+    store: QueueStore | None = None,
+    settings: Settings | None = None,
+    clock: Any = None,
+    route_judge: Any = None,
+) -> ToolAgentRunner:
+    settings = settings or Settings()
+    deps = ToolDeps(vector_store=store or QueueStore(), embedder=FakeEmbedder(), settings=settings)
+    chat = ScriptedToolChat(steps=list(steps))
+    graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), judge=route_judge)
+    kwargs: dict[str, Any] = {"claims_judge": judge}
+    if clock is not None:
+        kwargs["clock"] = clock
+    return ToolAgentRunner(graph, settings, **kwargs)
+
+
+def _evidence_steps(text: str = ANSWER) -> list[ScriptStep]:
+    return [
+        ScriptStep(tool_calls=[_call("buscar_corpus", consulta="fundación de Carvajal")]),
+        ScriptStep(text=text),
+    ]
+
+
+def test_no_respaldada_no_emite_el_texto_del_modelo_y_emite_el_sustituto() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.2)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]))
+
+    # Act
+    events = _stream(runner)
+
+    # Assert
+    tokens = _tokens(events)
+    assert all("imprenta familiar" not in token for token in tokens)
+    final = _final(events)
+    assert final.answer == NO_CONTEXT_ANSWER
+    assert final.abstained is True
+    assert final.claims["status"] == "unsupported"
+    assert final.claims["substituted"] is True
+    assert final.claims["p"] == 0.2
+    assert len(judge.claims) == 1
+
+
+def test_respaldada_emite_el_texto_completo_en_un_bloque_tras_la_revision() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    from carvajal.agent.toolagent.status import REVIEW_STATUS
+
+    judge = FakeJudge(p=0.8)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]))
+
+    # Act
+    events = _stream(runner)
+
+    # Assert
+    assert _tokens(events) == [ANSWER]
+    reviews = [e for e in events if isinstance(e, ToolAgentStatus) and e.text == REVIEW_STATUS]
+    assert len(reviews) == 1
+    assert events.index(reviews[0]) < next(
+        i for i, e in enumerate(events) if isinstance(e, ToolAgentToken)
+    )
+    assert reviews[0].step == 2  # siguiente a la línea de ``buscar_corpus``
+    final = _final(events)
+    assert final.claims["status"] == "supported"
+    assert final.claims["substituted"] is False
+    assert final.claims["jev"]["kind"] == "claims"
+
+
+@pytest.mark.parametrize("status", ["timeout", "error", "auth", "invalid", "cap", "circuit_open"])
+def test_si_jev_falla_sale_el_texto_de_la_compuerta_determinista(status: str) -> None:
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(claims_fail=cast(Any, status))
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]))
+
+    events = _stream(runner)
+
+    assert "".join(_tokens(events)) == ANSWER
+    assert _final(events).claims["status"] == "unavailable"
+    assert _final(events).claims["reason"] == status
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param("off", id="compuerta-off"),
+        pytest.param("no-disponible", id="juez-no-disponible"),
+        pytest.param("sin-juez", id="sin-juez"),
+    ],
+)
+def test_compuerta_apagada_conserva_la_retencion_de_48_caracteres(case: str) -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    judge: Any = FakeJudge(p=0.1, is_available=case != "no-disponible")
+    settings = Settings(jev_claims_mode="off") if case == "off" else None
+    if case == "sin-juez":
+        judge = None
+    runner = _claims_runner(
+        _evidence_steps(), judge, store=QueueStore([FUNDACION]), settings=settings
+    )
+
+    # Act
+    events = _stream(runner)
+
+    # Assert: como en la 044, el texto sale en varios trozos y sin juzgar.
+    tokens = _tokens(events)
+    assert len(tokens) > 1
+    assert "".join(tokens) == ANSWER
+    final = _final(events)
+    assert final.claims["status"] == "off"
+    if judge is not None:
+        assert judge.claims == []
+
+
+def test_no_query_rechazado_por_el_filtro_no_llama_a_jev() -> None:
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.9)
+    steps = [
+        ScriptStep(tool_calls=[_call("sin_consulta", motivo="conversacion")]),
+        ScriptStep(text="Carvajal factura 3 billones desde 1904."),
+    ]
+    runner = _claims_runner(steps, judge)
+
+    events = _stream(runner, "Cuéntame algo")
+
+    assert judge.claims == []
+    assert _final(events).claims["status"] == "skipped"
+    assert "3 billones" not in _final(events).answer
+
+
+def test_el_atajo_por_reglas_no_llama_a_jev() -> None:
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.1)
+    runner = _claims_runner([ScriptStep(text="¡Hola! Soy Carva.")], judge, route_judge=judge)
+
+    events = _stream(runner, "Hola")
+
+    assert judge.claims == [] and judge.routes == []
+    assert _final(events).claims == {
+        **_final(events).claims,
+        "status": "skipped",
+        "reason": "atajo",
+    }
+
+
+def test_la_respuesta_directa_de_jev_no_se_juzga() -> None:
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(choice="respuesta_directa", confidence=0.95, p=0.1)
+    runner = _claims_runner(
+        [ScriptStep(text="Soy el asistente virtual de Carva.")], judge, route_judge=judge
+    )
+
+    events = _stream(runner, "¿eres una persona o un bot?")
+
+    final = _final(events)
+    assert judge.claims == []
+    assert (final.claims["status"], final.claims["reason"]) == ("skipped", "directa")
+
+
+def test_needs_input_rechazado_pide_el_dato_sin_llamar_a_jev() -> None:
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.1)
+    call = _call("buscar_sedes", ciudad="Yumbo planta de 1961 con 3.500 empleados")
+    steps = [ScriptStep(tool_calls=[call]), ScriptStep(text="La planta de Yumbo abrió en 1961.")]
+    runner = _claims_runner(steps, judge)
+
+    events = _stream(runner, "Hola, ¿qué me cuentas?")
+
+    assert judge.claims == []
+    assert "ciudad" in _final(events).answer
+    assert _final(events).claims["reason"] == "reemplazo"
+
+
+class _Clock:
+    def __init__(self, *values: float) -> None:
+        self.values = list(values)
+        self.t = values[0]
+
+    def __call__(self) -> float:
+        if self.values:
+            self.t = self.values.pop(0)
+        return self.t
+
+
+def test_sin_plazo_para_la_compuerta_no_llama_y_emite_lo_determinista() -> None:
+    # Arrange: al cerrar el paso quedan 0,5 s de 45 (< 0,8 + 0,2).
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.1)
+    clock = _Clock(0.0, 44.5)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]), clock=clock)
+
+    # Act
+    events = _stream(runner)
+
+    # Assert: no es ``TurnTimeout``; sale el texto que pasó la compuerta determinista.
+    assert judge.claims == []
+    assert "".join(_tokens(events)) == ANSWER
+    final = _final(events)
+    assert (final.claims["status"], final.claims["reason"]) == ("unavailable", "sin_plazo")
+
+
+def test_con_plazo_el_texto_se_marca_antes_de_la_llamada() -> None:
+    # Arrange: la llamada a Noul «tarda» hasta pasar el plazo del turno; como el texto se
+    # marcó antes, el plazo no descarta la respuesta ya redactada.
+    from tests.fakes.judge import FakeJudge
+
+    clock = _Clock(0.0, 10.0)
+
+    class SlowJudge(FakeJudge):
+        def check(self, query: Any) -> Any:
+            clock.t = 50.0
+            return super().check(query)
+
+    judge = SlowJudge(p=0.9)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]), clock=clock)
+
+    # Act
+    events = _stream(runner)
+
+    # Assert
+    assert "".join(_tokens(events)) == ANSWER
+    assert _final(events).claims["status"] == "supported"
+
+
+def test_llm_class_se_deriva_de_lo_consultado_cuando_decide_el_llm() -> None:
+    runner = _claims_runner(_evidence_steps(), None, store=QueueStore([FUNDACION]))
+
+    final = _final(_stream(runner))
+
+    assert final.gatekeeper["source"] == "llm"
+    assert final.gatekeeper["llm_class"] == "rag"
+
+
+def test_sombra_juzga_sin_sustituir_ni_retener() -> None:
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.1)
+    runner = _claims_runner(
+        _evidence_steps(),
+        judge,
+        store=QueueStore([FUNDACION]),
+        settings=Settings(jev_claims_mode="shadow"),
+    )
+
+    events = _stream(runner)
+
+    assert len(_tokens(events)) > 1
+    assert "".join(_tokens(events)) == ANSWER
+    final = _final(events)
+    assert (final.claims["status"], final.claims["substituted"]) == ("unsupported", False)
+    assert final.claims["reason"] == "sombra"
+
+
+def _no_query_steps() -> list[ScriptStep]:
+    return [
+        ScriptStep(tool_calls=[_call("sin_consulta", motivo="conversacion")]),
+        ScriptStep(text="Con gusto te ayudo con lo que necesites."),
+    ]
+
+
+def test_sombra_lenta_en_no_query_no_pierde_la_respuesta() -> None:
+    # Arrange: en sombra el texto de ``no_query`` sigue retenido mientras se juzga; la
+    # llamada «tarda» hasta pasar el plazo del turno (FR-030).
+    from tests.fakes.judge import FakeJudge
+
+    clock = _Clock(0.0, 10.0)
+
+    class SlowJudge(FakeJudge):
+        def check(self, query: Any) -> Any:
+            clock.t = 50.0
+            return super().check(query)
+
+    judge = SlowJudge(p=0.9)
+    runner = _claims_runner(
+        _no_query_steps(), judge, settings=Settings(jev_claims_mode="shadow"), clock=clock
+    )
+
+    # Act
+    events = _stream(runner, "¿me ayudas?")
+
+    # Assert: no es ``TurnTimeout``; sale la respuesta del modelo.
+    assert len(judge.claims) == 1
+    assert "".join(_tokens(events)) == "Con gusto te ayudo con lo que necesites."
+    assert (_final(events).claims["status"], _final(events).claims["reason"]) == (
+        "supported",
+        "sombra",
+    )
+
+
+def test_sombra_sin_plazo_en_no_query_no_llama_y_emite() -> None:
+    # Arrange: al cerrar el paso quedan 0,5 s de 45 (< 0,8 + 0,2).
+    from tests.fakes.judge import FakeJudge
+
+    judge = FakeJudge(p=0.1)
+    runner = _claims_runner(
+        _no_query_steps(),
+        judge,
+        settings=Settings(jev_claims_mode="shadow"),
+        clock=_Clock(0.0, 44.5),
+    )
+
+    # Act
+    events = _stream(runner, "¿me ayudas?")
+
+    # Assert
+    assert judge.claims == []
+    assert "".join(_tokens(events)) == "Con gusto te ayudo con lo que necesites."
+    final = _final(events)
+    assert (final.claims["status"], final.claims["reason"]) == ("unavailable", "sin_plazo")
+
+
+def test_la_linea_de_revision_no_sale_en_un_paso_que_termina_en_herramienta() -> None:
+    # Arrange: un paso intermedio redacta más de 48 caracteres y luego pide otra búsqueda.
+    from tests.fakes.judge import FakeJudge
+
+    from carvajal.agent.toolagent.status import REVIEW_STATUS
+
+    judge = FakeJudge(p=0.9)
+    steps = [
+        ScriptStep(tool_calls=[_call("buscar_corpus", consulta="fundación")]),
+        ScriptStep(
+            text="Voy a buscar un poco más de información sobre la historia antes de responder.",
+            tool_calls=[_call("buscar_corpus", consulta="historia")],
+        ),
+        ScriptStep(text=ANSWER),
+    ]
+    runner = _claims_runner(steps, judge, store=QueueStore([FUNDACION]))
+
+    # Act
+    events = _stream(runner)
+
+    # Assert: una sola línea de revisión, después de la última búsqueda y con el paso
+    # siguiente; luego el texto revisado.
+    statuses = [(e.step, e.text) for e in events if isinstance(e, ToolAgentStatus)]
+    assert [text for _, text in statuses].count(REVIEW_STATUS) == 1
+    assert statuses[-1][1] == REVIEW_STATUS
+    assert statuses[-1][0] == statuses[-2][0] + 1
+    assert _tokens(events) == [ANSWER]
+    review = next(i for i, e in enumerate(events) if getattr(e, "text", "") == REVIEW_STATUS)
+    assert review < next(i for i, e in enumerate(events) if isinstance(e, ToolAgentToken))
+
+
+def test_la_linea_de_revision_sale_antes_de_llamar_a_jev() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    from carvajal.agent.toolagent.status import REVIEW_STATUS
+
+    judge = FakeJudge(p=0.9)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]))
+    calls_at_review: list[int] = []
+
+    # Act: se consume el stream evento a evento.
+    for event in runner.stream("d", "h", "¿Cuándo se fundó Carvajal?", []):
+        if isinstance(event, ToolAgentStatus) and event.text == REVIEW_STATUS:
+            calls_at_review.append(len(judge.claims))
+
+    # Assert: cuando la línea llega a la persona, Jev aún no se ha consultado.
+    assert calls_at_review == [0]
+    assert len(judge.claims) == 1

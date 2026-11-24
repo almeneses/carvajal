@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -197,3 +198,115 @@ def test_health_publica_el_modo_del_agente_sin_construir_el_runtime(
     assert response.json()["agent"] == esperado
     assert "sk-prueba" not in response.text
     assert "deepseek-flash" not in response.text
+
+
+# --- Bloque ``jev`` (spec 046, T046; FR-024) ---------------------------------------------------
+
+
+def test_health_publica_jev_sin_runtime_ni_clave(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange: el runtime no está construido.
+    import apps.api.agent_runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "_runtime", None)
+
+    # Act
+    body = _app(monkeypatch).get("/health").json()
+
+    # Assert
+    assert body["jev"] == {
+        "configured": False,
+        "enabled": False,
+        "available": False,
+        "model": "jev-1.14.0",
+        "router": "on",
+        "claims": "enforce",
+        "calls_today": 0,
+        "last_error": None,
+    }
+
+
+def test_health_con_clave_y_encendido_sin_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    import apps.api.agent_runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "_runtime", None)
+
+    body = (
+        _app(monkeypatch, JEV_ENABLED="true", TYPESAFE_API_KEY="clave-falsa").get("/health").json()
+    )
+
+    assert body["jev"]["configured"] is True
+    assert body["jev"]["available"] is True
+    assert "clave-falsa" not in str(body)
+
+
+def test_health_en_modo_routes_no_ofrece_jev(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange: runtime construido en ``routes`` (interruptor de emergencia): sin juez.
+    import apps.api.agent_runtime as runtime_module
+
+    class Runtime:
+        judge = None
+        mode = "routes"
+
+    monkeypatch.setattr(runtime_module, "_runtime", Runtime())
+
+    # Act
+    body = (
+        _app(monkeypatch, JEV_ENABLED="true", TYPESAFE_API_KEY="clave-falsa").get("/health").json()
+    )
+
+    # Assert
+    assert body["jev"]["available"] is False
+    assert body["jev"]["router"] == "off"
+    assert body["jev"]["claims"] == "off"
+
+
+def _runtime_with_judge(monkeypatch: pytest.MonkeyPatch, client: Any) -> None:
+    import apps.api.agent_runtime as runtime_module
+    from carvajal.adapters.judge.jev import JevJudge
+
+    class Runtime:
+        judge = JevJudge(client)
+
+    monkeypatch.setattr(runtime_module, "_runtime", Runtime())
+
+
+def test_health_con_circuito_abierto_o_tope_no_esta_disponible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    import httpx
+
+    from carvajal.adapters.judge.jev import JevClient
+
+    requests: list[httpx.Request] = []
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(500)
+
+    circuit = JevClient(api_key="x", transport=httpx.MockTransport(transport))
+    circuit.open_until = circuit._clock() + 60
+    circuit.last_error = "http_5xx"
+    capped = JevClient(api_key="x", max_calls_per_day=0, transport=httpx.MockTransport(transport))
+
+    # Act
+    _runtime_with_judge(monkeypatch, circuit)
+    open_body = _app(monkeypatch, JEV_ENABLED="true", TYPESAFE_API_KEY="x").get("/health").json()
+    _runtime_with_judge(monkeypatch, capped)
+    cap_body = _app(monkeypatch, JEV_ENABLED="true", TYPESAFE_API_KEY="x").get("/health").json()
+
+    # Assert: sin peticiones a TypeSafe y sin cambiar el estado global.
+    assert open_body["jev"]["available"] is False
+    assert open_body["jev"]["last_error"] == "http_5xx"
+    assert cap_body["jev"]["available"] is False
+    assert open_body["status"] == "ok"
+    assert requests == []
+
+
+def test_health_degradado_tambien_publica_jev(monkeypatch: pytest.MonkeyPatch) -> None:
+    def caida() -> HealthStatus:
+        raise SQLAlchemyError("sin base")
+
+    body = TestClient(create_app(_handlers(caida))).get("/health").json()
+
+    assert body["jev"]["enabled"] is False

@@ -9,7 +9,7 @@ cambian con el movimiento (FR-027). Si una tarea cambia una descripciÃ³n a propÃ
 
 import json
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, cast, get_args
 
 import pytest
 from langchain_core.utils.function_calling import convert_to_openai_tool
@@ -164,3 +164,59 @@ def test_ningun_esquema_tiene_campos_de_identidad() -> None:
 
     for name, schema in TOOL_SCHEMAS.items():
         assert not set(schema.model_fields) & IDENTITY_FIELDS, name
+
+
+# --- Grupos del gatekeeper (spec 046, T012; research R3) --------------------------------------
+
+RAG_GROUP = ("buscar_corpus", "historia_carvajal", "empresas_del_grupo", "preguntas_frecuentes")
+
+
+def test_cada_consulta_declara_su_grupo_y_solo_sin_consulta_es_any() -> None:
+    from carvajal.agent.toolagent.tools import ROUTE_GROUPS
+
+    # Assert
+    assert set(ROUTE_GROUPS) == set(TOOL_NAMES)
+    assert {name for name, group in ROUTE_GROUPS.items() if group == "any"} == {"sin_consulta"}
+    assert {name for name, group in ROUTE_GROUPS.items() if group == "rag"} == set(RAG_GROUP)
+    assert all(spec.route_group in ("rag", "structured", "any") for spec in TOOLS)
+
+
+def test_la_asignacion_de_research_r3() -> None:
+    from carvajal.agent.toolagent.tools import ROUTE_GROUPS
+
+    structured = {
+        "buscar_producto",
+        "cotizar",
+        "buscar_sedes",
+        "indicador_financiero",
+        "ficha_producto",
+        "comparar_referencias",
+        "guia_materiales",
+        "convertir_presentacion",
+        "ciudades_con_cobertura",
+        "consultar_cotizacion",
+        "indicadores_disponibles",
+        "fecha_actual",
+        "recordar_preferencia",
+        "listar_memoria",
+        "olvidar_preferencia",
+    }
+
+    assert {n for n, g in ROUTE_GROUPS.items() if g == "structured"} == structured
+    assert len(structured) + len(RAG_GROUP) + 1 == len(TOOL_NAMES) == 20
+
+
+def test_tools_by_scope_respeta_el_orden_y_es_de_solo_lectura() -> None:
+    from carvajal.agent.toolagent.tools import TOOLS_BY_SCOPE
+
+    # Assert
+    assert TOOLS_BY_SCOPE["all"] == TOOL_NAMES
+    assert TOOLS_BY_SCOPE["direct"] == ()
+    for scope in ("rag", "structured"):
+        names = TOOLS_BY_SCOPE[scope]
+        assert list(names) == [name for name in TOOL_NAMES if name in names]
+        assert "sin_consulta" in names
+    assert set(TOOLS_BY_SCOPE["rag"]) == {*RAG_GROUP, "sin_consulta"}
+    assert set(TOOLS_BY_SCOPE["rag"]) | set(TOOLS_BY_SCOPE["structured"]) == set(TOOL_NAMES)
+    with pytest.raises(TypeError):
+        cast(Any, TOOLS_BY_SCOPE)["rag"] = ()

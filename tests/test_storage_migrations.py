@@ -24,6 +24,7 @@ _SCHEMA_TABLES = {
     "messages",
     "usage_day",
     "chat_feedback",
+    "webhook_deliveries",
 }
 
 
@@ -89,6 +90,22 @@ def _assert_head_schema(engine: Engine) -> None:
 
     usage_pk = inspector.get_pk_constraint("usage_day")["constrained_columns"]
     assert usage_pk == ["owner_key", "day"]
+
+    assert columns["webhook_deliveries"] == {
+        "owner_key",
+        "delivery_id",
+        "status",
+        "reply",
+        "created_at",
+        "updated_at",
+        "attempt",
+        "quota_charged",
+        "thread_opened",
+    }
+    delivery_pk = inspector.get_pk_constraint("webhook_deliveries")["constrained_columns"]
+    assert delivery_pk == ["owner_key", "delivery_id"]
+    delivery_indexes = {index["name"] for index in inspector.get_indexes("webhook_deliveries")}
+    assert "ix_webhook_deliveries_updated" in delivery_indexes
 
     document_indexes = {index["name"] for index in inspector.get_indexes("documents")}
     version_indexes = {index["name"] for index in inspector.get_indexes("document_versions")}

@@ -17,7 +17,14 @@ import re
 from collections.abc import Iterator
 from typing import Final, Literal
 
-__all__ = ["REDACTED", "SENSITIVE_KINDS", "SensitiveKind", "find_sensitive", "redact"]
+__all__ = [
+    "REDACTED",
+    "SENSITIVE_KINDS",
+    "SensitiveKind",
+    "find_sensitive",
+    "redact",
+    "sensitive_spans",
+]
 
 SensitiveKind = Literal["documento", "telefono", "correo", "tarjeta", "cuenta", "clave"]
 SENSITIVE_KINDS: Final[tuple[str, ...]] = (
@@ -149,21 +156,32 @@ def find_sensitive(text: str) -> list[SensitiveKind]:
     return found
 
 
-def redact(text: str) -> str:
-    """El texto con cada dato sensible sustituido por :data:`REDACTED`.
+def sensitive_spans(text: str) -> list[tuple[int, int]]:
+    """Tramos ``(inicio, fin)`` con datos sensibles, ordenados y unidos si se solapan.
 
-    Los tramos que se solapan se unen; lo demás queda igual (espacios incluidos).
+    Mismos patrones y exenciones que :func:`redact` (spec 046 los usa para sustituir en la
+    respuesta solo lo que la persona dijo, research R8).
     """
 
     spans = sorted((start, end) for start, end, _kind in _matches(text or ""))
-    if not spans:
-        return text
     merged: list[list[int]] = []
     for start, end in spans:
         if merged and start <= merged[-1][1]:
             merged[-1][1] = max(merged[-1][1], end)
         else:
             merged.append([start, end])
+    return [(start, end) for start, end in merged]
+
+
+def redact(text: str) -> str:
+    """El texto con cada dato sensible sustituido por :data:`REDACTED`.
+
+    Los tramos que se solapan se unen; lo demás queda igual (espacios incluidos).
+    """
+
+    merged = sensitive_spans(text)
+    if not merged:
+        return text
     pieces: list[str] = []
     cursor = 0
     for start, end in merged:

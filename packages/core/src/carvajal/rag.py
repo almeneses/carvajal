@@ -202,12 +202,19 @@ def build_llm() -> Runnable:
     """Construye el LLM configurado mediante variables de entorno.
 
     Returns:
-        ``ChatOllama`` con ``LLM_PROVIDER=ollama`` (por defecto),
-        ``ChatOpenAI`` apuntando a DeepSeek con ``LLM_PROVIDER=deepseek`` o
-        ``ChatAnthropic`` con ``LLM_PROVIDER=claude``.
+        ``ChatOpenAI`` apuntando a DeepSeek con ``LLM_PROVIDER=deepseek`` (por
+        defecto), ``ChatOllama`` con ``LLM_PROVIDER=ollama`` o ``ChatAnthropic`` con
+        ``LLM_PROVIDER=claude``.
+
+    Raises:
+        ValueError: con DeepSeek y sin ``DEEPSEEK_API_KEY``.
     """
 
     if LLM_PROVIDER == "deepseek":
+        if not DEEPSEEK_API_KEY.strip():
+            raise ValueError(
+                "Falta DEEPSEEK_API_KEY: defínela o usa LLM_PROVIDER=ollama para la CLI local."
+            )
         return ChatOpenAI(
             model=DEEPSEEK_MODEL,
             api_key=DEEPSEEK_API_KEY,

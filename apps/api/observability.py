@@ -10,6 +10,7 @@ import time
 import uuid
 from collections.abc import Callable
 from logging import getLevelNamesMapping
+from typing import Any
 
 import structlog
 from fastapi import Request, Response
@@ -61,6 +62,27 @@ def _configurar_logs(level: str) -> None:
     )
 
 
+def strip_local_variables(event: Any, hint: Any = None) -> Any:
+    """Quita las variables locales de todos los frames del evento (spec 046, FR-021).
+
+    Segunda defensa además de ``include_local_variables=False``: si una integración las
+    añade, los frames de ``adapters/judge/`` y ``agent/gatekeeper/`` (y los demás) salen sin
+    ``vars``.
+    """
+
+    if not isinstance(event, dict):
+        return event
+    for exception in (event.get("exception") or {}).get("values") or []:
+        for frame in (exception.get("stacktrace") or {}).get("frames") or []:
+            if isinstance(frame, dict):
+                frame.pop("vars", None)
+    for thread in (event.get("threads") or {}).get("values") or []:
+        for frame in (thread.get("stacktrace") or {}).get("frames") or []:
+            if isinstance(frame, dict):
+                frame.pop("vars", None)
+    return event
+
+
 def init_sentry(settings: Settings) -> bool:
     """Inicializa Sentry si hay DSN; devuelve si quedó activo.
 
@@ -83,6 +105,10 @@ def init_sentry(settings: Settings) -> bool:
         environment=settings.sentry_environment,
         traces_sample_rate=settings.sentry_traces_sample_rate,
         send_default_pii=False,
+        # Spec 046 (FR-021): sin variables locales, una excepción en el gatekeeper o en el
+        # adaptador de Jev no envía a otro tercero la pregunta, la respuesta ni la evidencia.
+        include_local_variables=False,
+        before_send=strip_local_variables,
         integrations=[StarletteIntegration(), FastApiIntegration()],
     )
     _sentry_iniciado = True

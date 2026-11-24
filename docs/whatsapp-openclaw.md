@@ -6,6 +6,10 @@ recibe los mensajes y llama a una sola herramienta MCP, `consultar_carvajal`, qu
 respaldo determinista, el tope de cotizaciones y los folios). OpenClaw no redacta datos:
 reenvía el texto que devuelve la herramienta.
 
+> Para un relé que no hable MCP (WhatsApp Business API, Twilio u otro), el mismo turno se
+> expone como webhook firmado en `POST /api/webhooks/whatsapp`: ver
+> [`webhooks.md`](webhooks.md).
+
 ```text
 WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel SSH ══► 127.0.0.1:8765 (VPS)
                 agente «ventas»                                       servicio mcp
@@ -25,7 +29,9 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
 
 - **Identidad**: el número nunca se guarda en claro. El `owner_key` es
   `wa_` + HMAC-SHA256(`SESSION_SECRET`, número normalizado): cada chat tiene su hilo, su
-  memoria comercial y su cupo diario (`DAILY_REQUESTS_LIMIT`), como un visitante web.
+  memoria comercial y su cupo diario (`DAILY_REQUESTS_LIMIT`), como un visitante web. El
+  número o JID se reduce a E.164 (`573100000000@s.whatsapp.net`, `whatsapp:+57…` y
+  `+57 310 000 0000` dan `+573100000000`), el mismo que usa el webhook firmado.
 - **Cotizaciones**: se leen de la tabla `quotes` por folio y se redactan como texto
   (`fallback.quote_text`), con folio, presentación, subtotal, IVA, envío y total.
 - **Formato**: el Markdown del modelo pasa a formato de WhatsApp sin LLM

@@ -118,7 +118,47 @@ SAFE_KEYS: frozenset[str] = frozenset(
         "retrieved",
         "fallback_reason",
         "fallback_route",
+        # Spec 046 (FR-021, FR-025): decisión del gatekeeper, veredicto de la compuerta y
+        # metadatos de cada llamada a Jev. Solo códigos, números y nombres de clase; nunca
+        # el texto enviado a Jev, ni con ``content=full``.
+        "gatekeeper_route",
+        "gatekeeper_scope",
+        "gatekeeper_source",
+        "gatekeeper_llm_class",
+        "gatekeeper_confidence",
+        "gatekeeper_cautious",
+        "gatekeeper_rule",
+        "gatekeeper_reason",
+        "claims_status",
+        "claims_p",
+        "claims_reason",
+        "claims_substituted",
+        "kind",
+        "choice",
+        "confidence",
+        "probabilities",
+        "p_supported",
+        "threshold",
+        "jev_status",
+        "herramienta_estructurada",
+        "rag",
+        "mixta",
+        "respuesta_directa",
     }
+)
+# Campos de una llamada a Jev que viajan como metadatos del hijo ``jev`` (data-model).
+JUDGE_CALL_KEYS: tuple[str, ...] = (
+    "kind",
+    "status",
+    "latency_ms",
+    "model",
+    "input_tokens",
+    "output_tokens",
+    "choice",
+    "confidence",
+    "probabilities",
+    "p_supported",
+    "threshold",
 )
 
 # Conteos de tokens que se suben a la raíz del turno (SC-008).
@@ -631,6 +671,26 @@ def record_tool_calls(
                         status=status,
                         source_ids=source_ids,
                     )
+        except Exception as error:
+            _registrar_fallo(error)
+
+
+def record_judge_calls(turn: Turn, calls: Sequence[Mapping[str, Any]]) -> None:
+    """Abre un hijo ``jev`` (``run_type="tool"``) por llamada a Jev del turno (spec 046).
+
+    Solo metadatos (:data:`JUDGE_CALL_KEYS`): tipo, estado, latencia, modelo, tokens y la
+    decisión o el veredicto. Nunca entradas ni salidas, aunque el monitoreo incluya el
+    contenido (FR-021): lo que se envió a Jev no sale del proceso por esta vía. Un fallo
+    del SDK se registra y nunca llega al chat.
+    """
+
+    for call in calls:
+        if not isinstance(call, Mapping):
+            continue
+        metadata = {key: call[key] for key in JUDGE_CALL_KEYS if call.get(key) is not None}
+        try:
+            with turn.child("jev", run_type="tool", metadata=metadata):
+                pass
         except Exception as error:
             _registrar_fallo(error)
 

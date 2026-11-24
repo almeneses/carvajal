@@ -1,7 +1,12 @@
-"""Fixtures compartidas: Postgres efímero para las pruebas de integración.
+"""Fixtures compartidas: Postgres efímero para las pruebas de integración y Jev apagado.
 
 ``testcontainers`` se importa dentro del fixture para que las pruebas unitarias
 no necesiten Docker ni el paquete instalado.
+
+Spec 046 (T003, research R13): ninguna prueba llama a Jev. La fixture *autouse*
+:func:`_jev_apagado` fija ``JEV_ENABLED=false`` y ``TYPESAFE_API_KEY`` vacía aunque el
+``.env`` local traiga la clave, y hace fallar cualquier conexión de httpx a TypeSafe. Las
+pruebas del adaptador usan ``httpx.MockTransport``, que no pasa por el transporte de red.
 """
 
 import os
@@ -9,6 +14,7 @@ import uuid
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
+import httpx
 import pytest
 from sqlalchemy import Engine, create_engine, make_url, text
 from sqlalchemy.orm import Session
@@ -18,6 +24,39 @@ from carvajal.adapters.storage.database import normalize_database_url
 
 if TYPE_CHECKING:
     from testcontainers.community.postgres import PostgresContainer
+
+# Host de la API de Jev: cualquier conexión real desde las pruebas es un error (SC-008).
+JEV_HOST = "api.typesafe.ai"
+
+
+class JevNetworkBlocked(AssertionError):
+    """Una prueba intentó conectarse a TypeSafe."""
+
+
+@pytest.fixture(autouse=True)
+def _jev_apagado(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jev apagado y sin red hacia TypeSafe en todas las pruebas (FR-029, SC-008)."""
+
+    monkeypatch.setenv("JEV_ENABLED", "false")
+    monkeypatch.setenv("TYPESAFE_API_KEY", "")
+    monkeypatch.delenv("JEV_LEDGER", raising=False)
+    original = httpx.HTTPTransport.handle_request
+    original_async = httpx.AsyncHTTPTransport.handle_async_request
+
+    def guarded(self: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        if request.url.host == JEV_HOST:
+            raise JevNetworkBlocked(f"Conexión a {JEV_HOST} bloqueada en las pruebas.")
+        return original(self, request)
+
+    async def guarded_async(
+        self: httpx.AsyncHTTPTransport, request: httpx.Request
+    ) -> httpx.Response:
+        if request.url.host == JEV_HOST:
+            raise JevNetworkBlocked(f"Conexión a {JEV_HOST} bloqueada en las pruebas.")
+        return await original_async(self, request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", guarded)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", guarded_async)
 
 
 @pytest.fixture(scope="session")
