@@ -137,6 +137,16 @@ Vistas derivadas (solo lectura): `TOOL_NAMES = tuple(spec.name for spec in TOOLS
 `get_args(ToolName)`), `TOOL_SCHEMAS`, `TOOL_DESCRIPTIONS`, `_IMPLEMENTATIONS`,
 `STATUS_TEMPLATES`, `BUDGET_FREE = {"sin_consulta"}`, `MEMORY_TOOLS`, `CITY_KEYS`.
 
+**Implementado en la fase 2 (2026-11-24)**: `ToolSpec`, `TOOLS` y las vistas viven en
+`tools/registry.py` (con `EVIDENCE_ROLES`, `CORPUS_TOOLS`, `DECLARATION_TOOLS`,
+`IMPLEMENTATIONS` y `spec_for(name)`); `runner.py` y `tools/__init__.py` las reexportan
+(`_IMPLEMENTATIONS` es el alias de `IMPLEMENTATIONS`). Los módulos de herramienta **no**
+importan el registro: exportan su esquema, `DESCRIPTION`, `status(args) -> str` y
+`run(args, deps, context, sources) -> _Draft`, y el registro escribe su `ToolSpec`.
+`call_fingerprint` quedó en `runner.py` (necesita los esquemas; en `_base.py` crearía un
+ciclo). `state.TOOL_NAMES` sigue derivado del `Literal` (lo usa `make_tool_outcome`) y una
+prueba exige que coincida con el del registro.
+
 ## ToolDeps, ToolContext y ToolCallResult (ampliados)
 
 | Objeto | Campo nuevo | Tipo | Regla |

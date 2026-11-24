@@ -265,8 +265,9 @@ recién creada desde `main`); no se ejecutaron LLM ni servicios externos para es
   1. `toolagent/tools.py` pasa a ser el paquete `toolagent/tools/` **moviendo el código en
      bloque, sin reescribirlo**:
      - `_base.py`: `ToolDeps`, `ToolContext`, `ToolCallResult`, `_Draft`, `_Sources`,
-       `DATA_OPEN`/`DATA_CLOSE`, `format_tool_content`, `content_data`, `call_fingerprint`,
-       `merge_quote`, `quote_key`, `last_answer` y ayudantes de fuentes;
+       `DATA_OPEN`/`DATA_CLOSE`, `format_tool_content`, `content_data`,
+       `merge_quote`, `quote_key`, `last_answer` y ayudantes de fuentes (`call_fingerprint`
+       quedó en `runner.py` al implementar: necesita los esquemas del registro);
      - `builtin.py`: las seis herramientas de la 044 con sus esquemas y ayudantes
        compartidos (`_name_search`, `_option_payload`, `_city_said`…);
      - `runner.py`: `run_tool`, `_execute`, `_outcome` y `build_tools`;
