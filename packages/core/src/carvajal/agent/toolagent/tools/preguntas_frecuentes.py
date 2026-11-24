@@ -90,6 +90,7 @@ DESCRIPTION: Final = (
     "empresas_del_grupo)."
 )
 NOTICE: Final = "preguntas generadas con las páginas oficiales de Carvajal; cada una cita su fuente"
+_OWN_NAME: Final = re.compile(r"\bCarvajal\b", re.IGNORECASE)
 _STATUS_TEXT: Final = "Estoy preparando preguntas frecuentes sobre Carvajal…"
 _UNAVAILABLE: Final = (
     "No puedo generar preguntas frecuentes en este momento; no hay datos. Puedes buscar "
@@ -266,7 +267,10 @@ def _topic_slugs(
     if not results:
         return []
     texts = [result.chunk.text for result in results]
-    if not _entities_supported(context.question or topic, topic, texts, _book(deps).cities()):
+    # Las páginas núcleo son de Carvajal aunque el fragmento no repita el nombre: exigir
+    # «Carvajal» en el texto vaciaba temas legítimos («sostenibilidad de Carvajal»).
+    question = _OWN_NAME.sub(" ", context.question or topic)
+    if not _entities_supported(question, _OWN_NAME.sub(" ", topic), texts, _book(deps).cities()):
         return []
     by_id = {document.id: slug for slug, document in core.items()}
     slugs: list[str] = []

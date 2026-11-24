@@ -401,6 +401,24 @@ def test_tema_con_un_nombre_propio_que_los_fragmentos_no_mencionan_es_empty() ->
     assert llm.calls == []
 
 
+def test_carvajal_en_la_pregunta_no_exige_la_palabra_en_los_fragmentos_del_nucleo() -> None:
+    # Arrange: las páginas núcleo son de Carvajal aunque el fragmento no repita el nombre
+    # (caso h045-16 de la evidencia: «sostenibilidad de Carvajal»).
+    llm = FakeLLM(NACIMIENTO)
+    hit = _hit(HISTORIA, "El sábado 29 de octubre de 1904 salió el primer número de El Día.")
+
+    # Act
+    draft, _registry = _run(
+        _deps(llm, hits=[hit]),
+        {"tema": "historia de Carvajal"},
+        question="¿Qué preguntas frecuentes hay sobre la historia de Carvajal?",
+    )
+
+    # Assert
+    assert llm.calls, "con fragmentos núcleo del tema debe generar, no devolver empty"
+    assert draft.status == "ok"
+
+
 def test_el_tema_llega_neutralizado_dentro_de_su_bloque() -> None:
     # Arrange
     llm = FakeLLM(NACIMIENTO)

@@ -124,7 +124,7 @@ devolvió `error` declarado; el evaluador no cuenta una llamada en `error` como 
 respuesta dice que no pudo revisar la vigencia y ofrece cotizar de nuevo, sin inventar
 valores. **Auditado: 26/26 eligen la consulta correcta.**
 
-**Fallo real que el evaluador no detecta, `h045-16` (`preguntas_frecuentes`).** La
+**Fallo real que el evaluador no detecta, `h045-16` (`preguntas_frecuentes`) — corregido después de la medición:** la comprobación de nombres propios ya no exige «Carvajal» en los fragmentos núcleo (prueba `test_carvajal_en_la_pregunta_no_exige_la_palabra_en_los_fragmentos_del_nucleo`); no se volvió a medir con el proveedor real. La
 herramienta devolvió `empty` en 155 ms y el agente respondió «Eso no está en el corpus
 público de Carvajal», aunque el corpus núcleo sí trae páginas de sostenibilidad. El
 evaluador lo da por bueno porque la abstención está permitida. Reproducción sin LLM
