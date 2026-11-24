@@ -33,10 +33,14 @@ import structlog
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
 
-from carvajal.agent.commercial import CommercialRequest, check_material, search_packaging
+from carvajal.agent.commercial import (
+    CAPACITY_TOLERANCE_OZ,
+    CommercialRequest,
+    check_material,
+    search_packaging,
+)
 from carvajal.agent.commercial_flow import (
     MAX_DISCARDED,
-    MAX_OPTIONS,
     _channel,
     _contract_sites,
     _option,
@@ -62,7 +66,7 @@ from carvajal.application.ask import Source, _neutralize, _source
 from carvajal.application.evidence import _entities, proper_entities_supported
 from carvajal.application.ports import Embedder, ScoredChunk, VectorStore
 from carvajal.catalog.loader import Catalog, load_catalog
-from carvajal.catalog.models import Family
+from carvajal.catalog.models import Family, Reference
 from carvajal.commercial.book import CommercialBook, plain
 from carvajal.commercial.loader import load_commercial_book
 from carvajal.infrastructure.settings import Settings
@@ -100,6 +104,12 @@ DATA_CLOSE = "</datos>"
 CORE_LAYER = "core"  # capa núcleo de ``LayerPriorityStore`` (alcance «oficial»)
 FRAGMENT_CHARS = 1500  # texto máximo de un fragmento del corpus que ve el modelo
 MAX_ERROR_CHARS = 300
+# Opciones aptas que ve el modelo en ``buscar_producto``. Con tres (``MAX_OPTIONS`` de la
+# ruta comercial) el modelo daba por inexistentes referencias que sí estaban (simulación de
+# la spec 044: CO-PCOM-J2, CO-CTER-34); el resto se declara con ``total_coincidencias``.
+MAX_TOOL_OPTIONS = 8
+MAX_OUTSIDE_FILTERS = 5  # coincidencias por nombre fuera de los filtros que se nombran
+MAX_NAME_CHARS = 120
 OFFICIAL_HOSTS = ("carvajal.com", "carvajalempaques.com")
 _AVAILABILITY_LABELS = {"verificado": "confirmada", "no_disponible": "no disponible"}
 _PRODUCT_FIELDS = ("family", "use", "capacity_oz", "temperature", "microwave")
@@ -301,8 +311,19 @@ class BuscarProductoArgs(BaseModel):
     pais: Literal["CO", "MX"] | None = Field(
         default=None, description="País de compra (CO o MX); sin país no hay precio."
     )
+    nombre: str | None = Field(
+        default=None,
+        max_length=MAX_NAME_CHARS,
+        description=(
+            "Texto libre para una referencia concreta: código (P1, J2, 14x14), SKU "
+            "(CO-PCOM-J2) o nombre comercial o coloquial (icopor, portacomidas, bowl, pando). "
+            "Filtra por coincidencia en nombre, SKU y material; se combina con los demás "
+            "filtros."
+        ),
+    )
 
     _uso = field_validator("uso", mode="before")(_optional_text)
+    _nombre = field_validator("nombre", mode="before")(_optional_text)
 
     @field_validator("uso")
     @classmethod
@@ -399,9 +420,11 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
         "noticias, sedes institucionales). Devuelve fragmentos numerados [n] con su fuente."
     ),
     TOOL_BUSCAR_PRODUCTO: (
-        "Busca empaques del catálogo según uso, temperatura, microondas, capacidad y "
-        "familia. Devuelve opciones aptas numeradas [n] y las descartadas con su motivo. "
-        "No calcula totales; sirve para explorar y comparar."
+        "Busca empaques del catálogo según uso, temperatura, microondas, capacidad, "
+        "familia y nombre (código como P1 o J2, SKU o nombre comercial o coloquial como "
+        f"icopor). Devuelve hasta {MAX_TOOL_OPTIONS} opciones aptas numeradas [n], el total "
+        "de coincidencias y las descartadas con su motivo. No calcula totales; sirve para "
+        "explorar y comparar."
     ),
     TOOL_COTIZAR: (
         "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con "
@@ -701,6 +724,156 @@ def _buscar_corpus(
 
 # --- buscar_producto (T018) ----------------------------------------------------------------
 
+# Búsqueda por nombre. El texto de la persona y la ficha se comparan por términos
+# normalizados (sin tildes ni mayúsculas): todos los términos de la búsqueda deben estar en
+# el nombre, el SKU, la familia, el material o sus nombres coloquiales.
+_NAME_STOPWORDS = frozenset(
+    {
+        "a", "al", "con", "de", "del", "el", "en", "la", "las", "lo", "los", "o", "para",
+        "por", "sin", "un", "una", "unas", "unos", "y", "x",
+        "oz", "onza", "onzas", "cm", "mm", "ml", "centimetro", "centimetros", "pzs", "und",
+        "unidad", "unidades", "caja", "cajas", "paca", "pacas", "paquete", "paquetes",
+        "codigo", "modelo", "numero", "ref", "referencia", "sku", "tipo",
+    }
+)  # fmt: skip
+# Nombres coloquiales del material: «icopor» (Colombia), «unicel» (México) y «anime»
+# (Venezuela) son el EPS. Se agregan a los términos de la ficha, no a la búsqueda.
+_MATERIAL_ALIASES = {
+    "EPS": "icopor unicel anime foam espuma espumado poliestireno expandido termico",
+    "PS": "poliestireno plastico",
+    "PP": "polipropileno plastico",
+    # «rpet» no es alias del PET: solo coincide con las fichas que dicen RPET (reciclado).
+    "PET": "plastico",
+    "PULPA": "pulpa bagazo cana fibra",
+    "PAPEL": "papel carton",
+}
+_FAMILY_ALIASES = {"charola": "bandeja", "tapa": "domo", "cubierto": "cubiertos"}
+_DIMENSION = re.compile(r"(\d)\s*[x\u00d7]\s*(\d)")  # «14 x 14» → «14x14»
+_NUMBER_UNIT = re.compile(r"(\d)(oz|cm|mm|ml|pzs)\b")  # «8oz» → «8 oz»
+_NAME_TOKEN = re.compile(r"[a-z0-9]+(?:[.,][0-9]+)*")
+# Tamaño del empaque: «(paquete x 50)», «(paca x 200)», «Caja con 1000 pzs», «Caja 20X50
+# 1000», «300 unidades». No identifica la referencia y se quita antes de comparar: una
+# búsqueda que trae la cantidad no debe coincidir con fichas que no tienen nada que ver.
+_PACK_SIZE = re.compile(
+    r"\b(?:caja|paca|paquete)s?\s+(?:(?:con|de|x)\s*)?\d+(?:x\d+)?(?:\s+\d+)?"
+    r"|\bx\s*\d+"
+    r"|\b\d+\s*(?:pzs|piezas|und|unidades)\b"
+)
+# Capacidad declarada en el nombre de una ficha sin ``capacity_oz``: «3,5 a 7 oz» es un
+# rango; «12 y 16 oz», dos medidas.
+_OZ_PAIR = re.compile(r"(\d+(?:\.\d+)?)\s*(?:oz)?\s*\b(a|y)\b\s*(\d+(?:\.\d+)?)\s*oz")
+_OZ_SINGLE = re.compile(r"(\d+(?:\.\d+)?)\s*oz")
+
+
+def _name_terms(text: str) -> list[str]:
+    """Términos normalizados de un texto: «Tapa 3,5 a 7 oz» → tapa, 3.5, a, 7, oz.
+
+    Sin el tamaño del empaque: «Vaso 3,5 oz (paquete x 50)» → vaso, 3.5, oz.
+    """
+
+    folded = _NUMBER_UNIT.sub(r"\1 \2", _DIMENSION.sub(r"\1x\2", plain(text)))
+    folded = _PACK_SIZE.sub(" ", folded)
+    return [term.replace(",", ".") for term in _NAME_TOKEN.findall(folded)]
+
+
+def _stems(term: str) -> frozenset[str]:
+    """Raíces de un término sin plural ni género («vasos», «térmica») para comparar.
+
+    Los códigos y números («P1», «J2», «34», «14x14») se comparan enteros: «P1» no
+    coincide con «P1S».
+    """
+
+    if not term.isalpha() or len(term) < 4:
+        return frozenset({term})
+    bases = {term}
+    if term.endswith("s"):
+        bases.add(term[:-1])
+    if term.endswith("es"):
+        bases.add(term[:-2])
+    return frozenset(base[:-1] if len(base) > 4 and base[-1] in "aeo" else base for base in bases)
+
+
+def _query_terms(name: str | None) -> list[frozenset[str]]:
+    """Términos de la búsqueda por nombre (sin palabras vacías ni unidades)."""
+
+    if not name:
+        return []
+    return [_stems(term) for term in _name_terms(name) if term not in _NAME_STOPWORDS]
+
+
+def _reference_stems(reference: Reference) -> frozenset[str]:
+    """Raíces de la ficha: nombre, SKU, familia, material y sus nombres coloquiales."""
+
+    capacity = f"{reference.capacity_oz:g}" if reference.capacity_oz is not None else ""
+    text = " ".join(
+        (
+            reference.name,
+            reference.sku,
+            reference.family,
+            _FAMILY_ALIASES.get(reference.family, ""),
+            reference.material,
+            _MATERIAL_ALIASES.get(reference.material, ""),
+            capacity,
+        )
+    )
+    return frozenset(stem for term in _name_terms(text) for stem in _stems(term))
+
+
+def _matched_terms(reference: Reference, query: Sequence[frozenset[str]]) -> int:
+    """Cuántos términos de la búsqueda están en la ficha."""
+
+    stems = _reference_stems(reference)
+    return sum(1 for term in query if term & stems)
+
+
+def _name_capacities(name: str) -> list[tuple[float, float]]:
+    """Capacidades en onzas que declara el nombre, como rangos ``(mínima, máxima)``."""
+
+    text = plain(name).replace(",", ".")
+    found: list[tuple[float, float]] = []
+    for low, joiner, high in _OZ_PAIR.findall(text):
+        if joiner == "a":
+            found.append((float(low), float(high)))
+        else:
+            found.extend(((float(low), float(low)), (float(high), float(high))))
+    found.extend((float(value), float(value)) for value in _OZ_SINGLE.findall(text))
+    return found
+
+
+def _capacity_fits(reference: Reference, capacity: float) -> bool:
+    """Capacidad de la ficha o, si no la tiene, la que declara su nombre (tapas «3,5 a 7 oz»)."""
+
+    tolerance = CAPACITY_TOLERANCE_OZ
+    if reference.capacity_oz is not None:
+        return abs(reference.capacity_oz - capacity) <= tolerance
+    return any(
+        low - tolerance <= capacity <= high + tolerance
+        for low, high in _name_capacities(reference.name)
+    )
+
+
+def _candidates(req: CommercialRequest, catalog: Catalog) -> list[Reference]:
+    """``search_packaging`` con la capacidad también leída del nombre de la ficha."""
+
+    found = search_packaging(replace(req, capacity_oz=None), catalog=catalog)
+    if req.capacity_oz is None:
+        return found
+    capacity = req.capacity_oz
+    return [reference for reference in found if _capacity_fits(reference, capacity)]
+
+
+def _temperature(
+    explicit: Temperature | None, use: str | None, microwave: bool | None
+) -> Temperature | None:
+    """Temperatura dada, la que implica el uso o, con microondas, «caliente».
+
+    Calentar en microondas implica contenido caliente (como ``commercial_intent``): sin
+    esto, un vaso de PP declarado solo para bebida fría pasaba como apto (s-clientes-20).
+    """
+
+    implied = cast(Temperature | None, USE_TEMPERATURE.get(use or ""))
+    return explicit or implied or ("caliente" if microwave else None)
+
 
 def _temperature_matters(refs: list[Any], req: CommercialRequest, catalog: Catalog) -> bool:
     """Sin temperatura, ¿cambiaría el resultado según sea caliente o fría? (FR-005)."""
@@ -761,6 +934,168 @@ def _option_payload(option: Mapping[str, Any], sources: _Sources) -> dict[str, A
     return payload
 
 
+@dataclass(frozen=True)
+class _NameMatch:
+    """Resultado de la búsqueda por nombre dentro de los filtros y fuera de ellos.
+
+    ``outside`` son las coincidencias fuera de los filtros aptas por material para la
+    búsqueda; ``outside_rejected``, las que no lo son, con su motivo de descarte.
+    """
+
+    named: list[Reference]
+    partial: bool = False
+    outside: list[Reference] = field(default_factory=list)
+    outside_rejected: list[tuple[Reference, str]] = field(default_factory=list)
+
+
+def _family_words(req: CommercialRequest, catalog: Catalog) -> frozenset[str]:
+    """Raíces de los nombres de familia del catálogo y del alias de la familia pedida."""
+
+    families = {reference.family for reference in catalog.references}
+    text = " ".join((*families, _FAMILY_ALIASES.get(req.family or "", "")))
+    return frozenset(stem for term in _name_terms(text) for stem in _stems(term))
+
+
+def _informative_terms(
+    query: Sequence[frozenset[str]],
+    found: Sequence[Reference],
+    req: CommercialRequest,
+    catalog: Catalog,
+) -> list[frozenset[str]]:
+    """Términos que distinguen una referencia de otra dentro de la búsqueda.
+
+    No lo son el nombre de una familia («vaso», «tapa», «plato») ni el término que está en
+    todas las candidatas: con ellos, «vaso J2» daba por coincidencia parcial todos los
+    vasos y escondía el J2 (contenedor) que la persona nombró.
+    """
+
+    family = _family_words(req, catalog)
+    stems = [_reference_stems(reference) for reference in found]
+    return [
+        term
+        for term in query
+        if not term & family and not (len(stems) > 1 and all(term & item for item in stems))
+    ]
+
+
+def _name_search(
+    query: Sequence[frozenset[str]],
+    name: str,
+    found: list[Reference],
+    req: CommercialRequest,
+    catalog: Catalog,
+) -> _NameMatch:
+    """Referencias de ``found`` que coinciden con el nombre.
+
+    Primero las que tienen todos los términos; si no hay y la búsqueda tiene varios, las
+    que tienen todos menos uno con al menos un término informativo (``partial``: «vaso de
+    icopor 16 oz» trae los vasos de EPS de otra capacidad y los de 16 oz de otro material,
+    con su motivo de descarte; «vaso J2» no trae todos los vasos). Si tampoco, las del mismo
+    país que tienen los términos informativos fuera de la familia, el uso o la capacidad
+    (``outside``), separadas por material como las opciones (``check_material``): una
+    referencia no apta nunca se nombra como candidata. El SKU exacto va primero.
+    """
+
+    exact = plain(name)
+    informative = _informative_terms(query, found, req, catalog)
+    counts = [(reference, _matched_terms(reference, query)) for reference in found]
+    named = [reference for reference, count in counts if count == len(query)]
+    partial = False
+    if not named and len(query) >= 2 and informative:
+        named = [
+            reference
+            for reference, count in counts
+            if count == len(query) - 1 and _matched_terms(reference, informative)
+        ]
+        partial = bool(named)
+    named.sort(key=lambda reference: plain(reference.sku) != exact)
+    if named:
+        return _NameMatch(named=named, partial=partial)
+    skus = {reference.sku for reference in found}
+    wanted = informative or list(query)
+    outside = [
+        reference
+        for reference in catalog.references
+        if reference.sku not in skus
+        and (req.country is None or reference.country == req.country)
+        and _matched_terms(reference, wanted) == len(wanted)
+    ]
+    outside.sort(key=lambda reference: plain(reference.sku) != exact)
+    valid, discarded = check_material(outside, req, catalog=catalog)
+    by_sku = {reference.sku: reference for reference in outside}
+    rejected = [(by_sku[item.sku], item.reason) for item in discarded]
+    return _NameMatch(named=[], outside=valid, outside_rejected=rejected)
+
+
+def _product_notices(
+    *,
+    match: _NameMatch | None,
+    shown: int,
+    valid: int,
+    discarded: int,
+) -> list[str]:
+    """Avisos para que el modelo no dé por inexistente lo que no vio (simulación spec 044).
+
+    No repiten el ``nombre`` que escribió el modelo: el aviso va en los datos de la
+    herramienta y un eco del argumento respaldaría sus propias cifras en el filtro.
+    """
+
+    notices: list[str] = []
+    named = len(match.named) if match is not None else 0
+    outside = match.outside if match is not None else []
+    rejected = match.outside_rejected if match is not None else []
+    if match is not None and match.partial:
+        notices.append(
+            "Ninguna referencia coincide con todos los términos del nombre buscado con estos "
+            "filtros; se listan las que coinciden con todos menos uno (coincidencia parcial), "
+            "que no son exactamente la referencia nombrada."
+        )
+    if match is not None and not named:
+        notices.append(
+            "Ninguna referencia coincide con el nombre buscado con estos filtros (familia, "
+            "uso, capacidad y país)."
+        )
+        if outside:
+            listed = ", ".join(
+                f"{reference.sku} ({reference.family})"
+                for reference in outside[:MAX_OUTSIDE_FILTERS]
+            )
+            notices.append(
+                f"El nombre sí coincide con {len(outside)} referencia(s) fuera de estos "
+                f"filtros, aptas por material para esta búsqueda: {listed}."
+            )
+        if rejected:
+            notices.append(
+                f"Otras {len(rejected)} referencia(s) fuera de estos filtros coinciden con el "
+                "nombre pero no son aptas por material o uso (apto: false, con su motivo); no "
+                "son opciones."
+            )
+        if shown:
+            notices.append(
+                "Las opciones listadas son otras referencias aptas de la misma búsqueda y no "
+                "son la referencia nombrada."
+            )
+    elif match is not None and not valid:
+        notices.append(
+            f"Las {named} referencia(s) que coinciden con el nombre buscado quedaron "
+            "descartadas por material o uso para esta búsqueda."
+        )
+    if valid > shown:
+        how = (
+            "un nombre más preciso acota la lista"
+            if match is not None
+            else "una referencia concreta (código como P1 o J2, SKU o nombre comercial) se "
+            "encuentra con el argumento nombre"
+        )
+        notices.append(
+            f"Se muestran {shown} de {valid} referencias aptas; las demás no se listan. Que una "
+            f"referencia no esté en esta lista no significa que no exista: {how}."
+        )
+    if discarded > MAX_DISCARDED:
+        notices.append(f"Se listan {MAX_DISCARDED} de {discarded} referencias descartadas.")
+    return notices
+
+
 def _buscar_producto(
     args: BuscarProductoArgs, deps: ToolDeps, context: ToolContext, sources: _Sources
 ) -> _Draft:
@@ -770,10 +1105,9 @@ def _buscar_producto(
     microwave = args.microondas
     if microwave is None:
         microwave = microwave_for(context.question, args.familia)
-    temperature = args.temperatura or cast(Temperature | None, USE_TEMPERATURE.get(args.uso or ""))
     req = CommercialRequest(
         use=args.uso,
-        temperature=temperature,
+        temperature=_temperature(args.temperatura, args.uso, microwave),
         microwave=microwave,
         capacity_oz=args.capacidad_oz,
         family=args.familia,
@@ -785,6 +1119,7 @@ def _buscar_producto(
     update = {
         _PRODUCT_CONTEXT_KEYS[key]: value
         for key, value in args.model_dump(exclude_unset=True, exclude_none=True).items()
+        if key in _PRODUCT_CONTEXT_KEYS  # el nombre describe esta búsqueda, no la necesidad
     }
     if args.pais and args.pais not in data.countries:
         return _Draft(
@@ -792,47 +1127,91 @@ def _buscar_producto(
             f"El catálogo cargado no tiene referencias de {args.pais}.",
             context_update=update,
         )
-    found = search_packaging(req, catalog=data)
+    found = _candidates(req, data)
+    query = _query_terms(args.nombre)
+    name = args.nombre if query else None
+    match: _NameMatch | None = None
+    name_data: dict[str, Any] = {}
+    if name is not None:
+        match = _name_search(query, name, found, req, data)
+        # Sin el ``nombre``: lo escribe el modelo y su eco respaldaría sus cifras (FR-003).
+        search: dict[str, Any] = {"coincidencias": len(match.named)}
+        if match.partial:
+            search["parcial"] = True
+        name_data["busqueda_nombre"] = search
+        outside = [
+            {"sku": item.sku, "nombre": item.name, "familia": item.family, "apto": True}
+            for item in match.outside
+        ] + [
+            {"sku": item.sku, "familia": item.family, "apto": False, "motivo": reason}
+            for item, reason in match.outside_rejected
+        ]
+        if outside:
+            name_data["fuera_de_filtros"] = outside[:MAX_OUTSIDE_FILTERS]
+        if match.named:
+            found = match.named  # sin coincidencias se ofrecen las de la familia, con aviso
     if _temperature_matters(found, req, data):
         return _Draft(
             "needs_input",
             "Falta la temperatura del contenido: de ella depende qué materiales son aptos.",
+            data=name_data,
             missing=["temperatura"],
             context_update=update,
         )
     valid, discarded = check_material(found, req, catalog=data)
+    shown = valid[:MAX_TOOL_OPTIONS]
+    notices = _product_notices(
+        match=match,
+        shown=len(shown),
+        valid=len(valid),
+        discarded=len(discarded),
+    )
     if not valid and not discarded:
+        notice_data = {"aviso": " ".join(notices)} if notices else {}
         return _Draft(
             "empty",
             "Ninguna referencia del catálogo coincide con la familia, el uso y la capacidad.",
+            data={**name_data, **notice_data},
             context_update=update,
         )
-    options = [_option(reference, req, deps.today, data) for reference in valid[:MAX_OPTIONS]]
+    options = [_option(reference, req, deps.today, data) for reference in shown]
     payload_options = [_option_payload(option, sources) for option in options]
     shown_discarded = discarded[:MAX_DISCARDED]
-    message = (
-        f"{len(payload_options)} opción(es) apta(s) y {len(discarded)} descartada(s) por "
-        "material o uso; las descartadas no son aptas."
-    )
+    if len(valid) > len(shown):
+        message = (
+            f"Se muestran {len(shown)} de {len(valid)} opción(es) apta(s); "
+            f"{len(discarded)} descartada(s) por material o uso, que no son aptas."
+        )
+    else:
+        message = (
+            f"{len(shown)} opción(es) apta(s) y {len(discarded)} descartada(s) por "
+            "material o uso; las descartadas no son aptas."
+        )
     if args.pais is None:
         message += " Sin país no se muestran precios."
-    return _Draft(
-        "ok",
-        message,
-        data={
-            "opciones": payload_options,
-            "descartadas": [{"sku": item.sku, "motivo": item.reason} for item in shown_discarded],
-            "cantidad_descartadas": len(discarded),
-        },
-        context_update=update,
-        cards={
-            "request": asdict(req),
-            "options": options,
-            "discarded": [asdict(item) for item in shown_discarded],
-            "discarded_total": len(discarded),
-            "channel": _channel(req, data),
-        },
-    )
+    payload: dict[str, Any] = {
+        "opciones": payload_options,
+        "total_coincidencias": len(valid),
+        "truncado": len(valid) > len(shown),
+        "descartadas": [{"sku": item.sku, "motivo": item.reason} for item in shown_discarded],
+        "cantidad_descartadas": len(discarded),
+        **name_data,
+    }
+    if notices:
+        payload["aviso"] = " ".join(notices)
+    cards: dict[str, Any] = {
+        "request": asdict(req),
+        "options": options,
+        "discarded": [asdict(item) for item in shown_discarded],
+        "discarded_total": len(discarded),
+        "channel": _channel(req, data),
+    }
+    if match is not None:
+        # La interfaz rotula las tarjetas como alternativas cuando no son la referencia
+        # nombrada (sin coincidencias o con coincidencia parcial); el aviso solo lo ve el
+        # modelo.
+        cards["name_search"] = {"matches": len(match.named), "partial": match.partial}
+    return _Draft("ok", message, data=payload, context_update=update, cards=cards)
 
 
 # --- cotizar (T019) ------------------------------------------------------------------------
@@ -989,12 +1368,20 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})
+    # El contexto comercial guarda lo que dijo la persona, no lo que se infiere.
     update = {**filled.model_dump(exclude_none=True), "country": "CO"}
+    request = filled
+    temperature = _temperature(filled.temperature, filled.use, filled.microwave)
+    if filled.temperature is None and temperature == "caliente" and filled.microwave:
+        # Microondas sin temperatura: contenido caliente, como en ``buscar_producto``. Solo
+        # para esta cotización: guardado, un turno posterior sin microondas lo reutilizaría
+        # y descartaría sin motivo el PP y el PET de bebida fría.
+        request = filled.model_copy(update={"temperature": temperature})
     base = {"reutilizado": reused}
     day = _today(deps)
     dataset = deps.dataset or load_dataset(day.isoformat())
     quoted = quote_request(
-        QuoteRequest(**filled.model_dump()), today=day, now=deps.now, dataset=dataset
+        QuoteRequest(**request.model_dump()), today=day, now=deps.now, dataset=dataset
     )
     kind = quoted.get("kind")
     if kind == "aclaracion":

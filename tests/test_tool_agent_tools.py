@@ -457,7 +457,8 @@ def test_buscar_producto_nunca_da_totales() -> None:
     )
 
     # Assert
-    assert "total" not in result.content
+    # «total_coincidencias» cuenta referencias, no es un importe.
+    assert "total" not in result.content.replace('"total_coincidencias"', "")
     assert all("total" not in option for option in result.cards["options"])
     assert result.payload["opciones"][0]["precio_referencia"]["precio_por_caja"]
 
@@ -574,6 +575,418 @@ def test_buscar_producto_entradas_invalidas(args: dict[str, Any]) -> None:
     # Assert
     assert result.status == "error"
     assert result.cards == {}
+
+
+# --- buscar_producto: búsqueda por nombre y truncado (bug 2 de la simulación) ---------------
+
+
+REAL: dict[str, Any] = {"catalog": None}
+CO_CALIENTE = {"temperatura": "caliente", "pais": "CO"}
+
+
+def _skus(result: ToolCallResult) -> list[str]:
+    return [item["sku"] for item in result.payload["opciones"]]
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        pytest.param({"nombre": "P1"}, ["CO-PCOM-P1"], id="codigo-P1"),
+        pytest.param({"nombre": "J2", "familia": "contenedor"}, ["CO-PCOM-J2"], id="codigo-J2"),
+        pytest.param({"nombre": "portacomidas icopor J2"}, ["CO-PCOM-J2"], id="coloquial-J2"),
+        pytest.param({"nombre": "CO-PCOM-J2"}, ["CO-PCOM-J2"], id="sku"),
+        pytest.param(
+            {"nombre": "icopor", "familia": "contenedor", "capacidad_oz": 34},
+            ["CO-CTER-34"],
+            id="icopor-34oz",
+        ),
+        pytest.param({"nombre": "contenedor de icopor 34 oz"}, ["CO-CTER-34"], id="texto-34oz"),
+        pytest.param({"nombre": "plato pando 23 cm"}, ["CO-PPAN-23"], id="pando-23"),
+        pytest.param({"nombre": "pando 26"}, ["CO-PPAN-26"], id="pando-26"),
+    ],
+)
+def test_buscar_producto_encuentra_referencias_por_nombre(
+    args: dict[str, Any], expected: list[str]
+) -> None:
+    # Act
+    result = _run("buscar_producto", {**CO_CALIENTE, **args}, _deps(**REAL))
+
+    # Assert
+    assert result.status == "ok"
+    assert _skus(result) == expected
+    assert result.payload["total_coincidencias"] == len(expected)
+    assert result.payload["truncado"] is False
+    assert result.cards["options"][0]["sku"] == expected[0]
+
+
+def test_buscar_producto_icopor_trae_todos_los_portacomidas_espumados() -> None:
+    # Act
+    result = _run(
+        "buscar_producto", {**CO_CALIENTE, "nombre": "portacomidas de icopor"}, _deps(**REAL)
+    )
+
+    # Assert
+    assert set(_skus(result)) == {f"CO-PCOM-{code}" for code in ("C1", "P1", "J1", "J2", "P3")}
+    assert {MATERIALS[sku] for sku in _skus(result)} == {"EPS"}
+
+
+def test_buscar_producto_nombre_tipo_medida_14x14() -> None:
+    # Act
+    result = _run(
+        "buscar_producto",
+        {"nombre": "delibisagra 14 x 14", "temperatura": "fria", "pais": "MX"},
+        _deps(**REAL),
+    )
+
+    # Assert
+    assert _skus(result) == ["2864513273"]
+
+
+def test_buscar_producto_tapa_sin_capacidad_se_encuentra_por_la_medida_del_nombre() -> None:
+    # Arrange: la tapa 3,5 a 7 oz no tiene capacidad_oz en el catálogo (s-clientes-06).
+    args = {"familia": "tapa", "capacidad_oz": 3.5, "temperatura": "fria", "pais": "CO"}
+
+    # Act
+    result = _run("buscar_producto", args, _deps(**REAL))
+    by_name = _run(
+        "buscar_producto", {**args, "capacidad_oz": None, "nombre": "3,5"}, _deps(**REAL)
+    )
+
+    # Assert
+    assert "7704918100816" in _skus(result)
+    assert _skus(by_name) == ["7704918100816"]
+
+
+def test_buscar_producto_muestra_hasta_ocho_opciones_con_total_y_aviso() -> None:
+    # Arrange
+    args = {"familia": "contenedor", **CO_CALIENTE}
+
+    # Act
+    result = _run("buscar_producto", args, _deps(**REAL))
+
+    # Assert
+    data = _data(result)
+    assert len(data["opciones"]) == 8
+    assert data["total_coincidencias"] > 8
+    assert data["truncado"] is True
+    assert str(data["total_coincidencias"]) in data["aviso"]
+    assert "nombre" in data["aviso"]
+    assert "no significa que no exista" in data["aviso"]
+    for imperative in ("responde", "di ", "dile", "ignora", "debes", "pídele"):
+        assert imperative not in data["aviso"].casefold()
+    assert len(result.cards["options"]) == 8
+
+
+def test_buscar_producto_sin_truncado_no_lleva_aviso_de_mas_coincidencias() -> None:
+    # Act
+    result = _run("buscar_producto", {**CO_CALIENTE, "nombre": "J2"}, _deps(**REAL))
+
+    # Assert
+    assert result.payload["truncado"] is False
+    assert "aviso" not in result.payload
+
+
+def test_buscar_producto_nombre_sin_coincidencias_avisa_y_ofrece_la_familia() -> None:
+    # Act
+    result = _run(
+        "buscar_producto",
+        {**CO_CALIENTE, "familia": "contenedor", "nombre": "J9"},
+        _deps(**REAL),
+    )
+
+    # Assert
+    data = _data(result)
+    assert result.status == "ok"
+    assert data["busqueda_nombre"] == {"coincidencias": 0}
+    assert "no son la referencia nombrada" in data["aviso"]
+    assert data["opciones"], "se ofrecen otras referencias aptas de la familia"
+    assert "CO-PCOM-J9" not in _skus(result)
+    # Las tarjetas también se marcan: la interfaz las rotula como alternativas.
+    assert result.cards["name_search"] == {"matches": 0, "partial": False}
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param({"familia": "contenedor", **CO_CALIENTE}, id="ok-sin-coincidencias"),
+        pytest.param({"familia": "vaso", "pais": "CO"}, id="needs-input"),
+        pytest.param(
+            {"familia": "vaso", "capacidad_oz": 99, "temperatura": "fria", "pais": "CO"},
+            id="empty",
+        ),
+    ],
+)
+def test_buscar_producto_no_repite_el_nombre_que_escribio_el_modelo(args: dict[str, Any]) -> None:
+    # Arrange: el ``nombre`` lo escribe el modelo; un eco en los datos respaldaría sus
+    # cifras y nombres propios en el filtro ``no_query``.
+    nombre = "Termogreen 7319 86421 Zentrix"
+
+    # Act
+    result = _run("buscar_producto", {**args, "nombre": nombre}, _deps(**REAL))
+
+    # Assert
+    assert result.payload["busqueda_nombre"]["coincidencias"] == 0
+    data = json.dumps(_data(result), ensure_ascii=False)
+    for term in ("Termogreen", "7319", "86421", "Zentrix"):
+        assert term not in data
+
+
+def test_buscar_producto_lista_fuera_de_filtros_solo_como_apto_lo_que_lo_es() -> None:
+    # Arrange: el J1 en icopor (EPS) y en pulpa para microondas; el modelo filtró por vasos.
+    args = {"nombre": "J1", "familia": "vaso", "microondas": True, "temperatura": "caliente"}
+
+    # Act
+    result = _run("buscar_producto", {**args, "pais": "CO"}, _deps(**REAL))
+
+    # Assert: ninguno es apto para microondas; salen con su motivo y no como candidatos.
+    data = _data(result)
+    outside = {item["sku"]: item for item in data["fuera_de_filtros"]}
+    assert set(outside) == {"CO-PCOM-J1", "7704918105071"}
+    assert all(item["apto"] is False for item in outside.values())
+    assert "microondas" in outside["CO-PCOM-J1"]["motivo"]
+    assert "microondas" in outside["7704918105071"]["motivo"]
+    assert "CO-PCOM-J1" not in data["aviso"]
+    assert "no son aptas" in data["aviso"]
+
+
+def test_buscar_producto_fuera_de_filtros_apto_lleva_la_marca() -> None:
+    # Act: J1 de icopor para comida caliente sin microondas (el EPS sí es apto).
+    result = _run(
+        "buscar_producto", {**CO_CALIENTE, "familia": "vaso", "nombre": "J1"}, _deps(**REAL)
+    )
+
+    # Assert
+    outside = {item["sku"]: item for item in _data(result)["fuera_de_filtros"]}
+    assert outside["CO-PCOM-J1"]["apto"] is True
+    assert "CO-PCOM-J1" in _data(result)["aviso"]
+
+
+def test_una_palabra_de_familia_no_basta_para_la_coincidencia_parcial() -> None:
+    # Act: «vaso J2» con familia vaso; el J2 es un contenedor (simulación spec 044).
+    result = _run(
+        "buscar_producto", {**CO_CALIENTE, "familia": "vaso", "nombre": "vaso J2"}, _deps(**REAL)
+    )
+
+    # Assert: no se dan todos los vasos como coincidencia parcial; se nombra el J2.
+    data = _data(result)
+    assert data["busqueda_nombre"] == {"coincidencias": 0}
+    assert [item["sku"] for item in data["fuera_de_filtros"]] == ["CO-PCOM-J2"]
+    assert "CO-PCOM-J2" in data["aviso"]
+
+
+def test_la_coincidencia_parcial_sigue_valiendo_con_terminos_informativos() -> None:
+    # Act: «contenedor de icopor 20 oz»: no hay EPS de 20 oz; sí EPS de otras medidas.
+    result = _run(
+        "buscar_producto",
+        {**CO_CALIENTE, "familia": "contenedor", "nombre": "contenedor icopor 20 oz"},
+        _deps(**REAL),
+    )
+
+    # Assert
+    data = _data(result)
+    assert data["busqueda_nombre"]["parcial"] is True
+    assert "CO-CTER-24" in _skus(result)
+    matches = data["busqueda_nombre"]["coincidencias"]
+    assert result.cards["name_search"] == {"matches": matches, "partial": True}
+
+
+def match_skus(result: ToolCallResult) -> list[str]:
+    return [*_skus(result), *(item["sku"] for item in result.payload["descartadas"])]
+
+
+@pytest.mark.parametrize(
+    "nombre",
+    [pytest.param("50", id="paquete-x-50"), pytest.param("vaso 1000", id="caja-con-1000-pzs")],
+)
+def test_el_tamano_del_empaque_no_cuenta_como_termino_del_nombre(nombre: str) -> None:
+    # Act: «(paquete x 50)» y «Caja con 1000 pzs» son la presentación, no la referencia.
+    result = _run("buscar_producto", {"nombre": nombre, "temperatura": "fria"}, _deps(**REAL))
+
+    # Assert
+    assert result.payload["busqueda_nombre"]["coincidencias"] == 0
+    for sku in ("7704918100083", "CO-VBL-035", "CO-VRP-07", "CO-VCAN-09", "2864513236"):
+        assert sku not in _skus(result)
+
+
+def test_rpet_solo_coincide_con_las_fichas_que_dicen_rpet() -> None:
+    # Act
+    result = _run(
+        "buscar_producto",
+        {"nombre": "tapa rpet", "temperatura": "fria", "pais": "CO"},
+        _deps(**REAL),
+    )
+
+    # Assert: el PET virgen (domo perforado, tapa del bowl) no es RPET.
+    found = set(match_skus(result))
+    assert found == {"CO-TBP28", "CO-TGOLD-PL", "CO-TGOLD-PI", "CO-DGOLD-SP"}
+
+
+def test_buscar_producto_nombre_fuera_de_los_filtros_lo_dice() -> None:
+    # Act: la persona nombra el J2 pero el modelo filtró por vasos.
+    result = _run(
+        "buscar_producto",
+        {**CO_CALIENTE, "familia": "vaso", "nombre": "J2"},
+        _deps(**REAL),
+    )
+
+    # Assert
+    data = _data(result)
+    assert "CO-PCOM-J2" not in _skus(result)
+    [outside] = data["fuera_de_filtros"]
+    assert outside["sku"] == "CO-PCOM-J2"
+    assert outside["familia"] == "contenedor"
+    assert "CO-PCOM-J2" in data["aviso"]
+
+
+def test_buscar_producto_nombre_no_saca_de_las_descartadas_un_material_no_apto() -> None:
+    # Act: «icopor» para microondas: el EPS nunca es opción.
+    result = _run(
+        "buscar_producto",
+        {"nombre": "portacomidas icopor", "microondas": True, "pais": "CO"},
+        _deps(**REAL),
+    )
+
+    # Assert
+    assert result.payload["opciones"] == []
+    assert result.payload["cantidad_descartadas"] == 5
+    assert all("microondas" in item["motivo"] for item in result.payload["descartadas"])
+    assert result.payload["total_coincidencias"] == 0
+
+
+def test_buscar_producto_nombre_no_entra_al_contexto_comercial() -> None:
+    # Act
+    result = _run("buscar_producto", {**CO_CALIENTE, "nombre": "J2"}, _deps(**REAL))
+
+    # Assert
+    assert "nombre" not in result.context_update
+    assert result.context_update == {"temperature": "caliente", "country": "CO"}
+
+
+@pytest.mark.parametrize(
+    ("nombre", "status"),
+    [pytest.param("   ", "ok", id="vacio-ignorado"), pytest.param("x" * 121, "error", id="largo")],
+)
+def test_buscar_producto_valida_el_nombre(nombre: str, status: str) -> None:
+    # Arrange
+    args = {"familia": "vaso", "temperatura": "caliente", "pais": "MX", "nombre": nombre}
+
+    # Act
+    result = _run("buscar_producto", args)
+
+    # Assert
+    assert result.status == status
+
+
+# --- Microondas implica contenido caliente (bug 3 de la simulación) ------------------------
+
+
+def test_buscar_producto_microondas_sin_temperatura_descarta_vasos_de_bebida_fria() -> None:
+    # Act: «calentar el almuerzo en microondas», s-clientes-20.
+    result = _run(
+        "buscar_producto",
+        {"familia": "vaso", "capacidad_oz": 16, "microondas": True, "pais": "CO"},
+        _deps(**REAL),
+    )
+
+    # Assert
+    assert "CO-VGOLD-16" not in _skus(result)
+    reasons = {item["sku"]: item["motivo"] for item in result.payload["descartadas"]}
+    assert "fría" in reasons["CO-VGOLD-16"]
+
+
+def test_buscar_producto_microondas_de_la_pregunta_tambien_implica_caliente() -> None:
+    # Arrange: el modelo no pasó microondas; lo pidió la persona.
+    context = ToolContext(
+        question="Necesito vasos de 16 oz para calentar el almuerzo en microondas"
+    )
+
+    # Act
+    result = _run(
+        "buscar_producto",
+        {"familia": "vaso", "capacidad_oz": 16, "pais": "CO"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert
+    assert result.status == "ok"
+    assert "CO-VGOLD-16" not in _skus(result)
+
+
+def test_buscar_producto_microondas_con_temperatura_explicita_la_respeta() -> None:
+    # Act
+    result = _run(
+        "buscar_producto",
+        {
+            "familia": "vaso",
+            "capacidad_oz": 16,
+            "microondas": True,
+            "temperatura": "fria",
+            "pais": "CO",
+        },
+        _deps(**REAL),
+    )
+
+    # Assert: con «fría» explícita, el vaso Gold (PP, solo bebida fría) sigue siendo apto.
+    assert "CO-VGOLD-16" in _skus(result)
+
+
+def test_cotizar_microondas_sin_temperatura_no_cotiza_un_vaso_de_bebida_fria() -> None:
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "vaso", "microwave": True, "quantity": 1000, "city": "Bogotá"},
+        _deps(catalog=None),
+    )
+
+    # Assert
+    cold_only = {
+        ref.sku
+        for ref in REAL_CATALOG.references
+        if "bebida_fria" in ref.uses and "bebida_caliente" not in ref.uses
+    }
+    assert result.status in {"ok", "empty"}
+    if result.quote is not None:
+        recommended = [result.quote["primary"], *(result.quote.get("alternatives") or [])]
+        assert not {item["sku"] for item in recommended} & cold_only
+    # Lo inferido no se guarda como si lo hubiera dicho la persona.
+    assert "temperature" not in result.context_update
+
+
+def test_cotizar_no_reutiliza_la_temperatura_inferida_del_microondas() -> None:
+    # Arrange: primer turno con microondas (caliente inferido), segundo sin microondas.
+    first = _run(
+        "cotizar",
+        {"family": "vaso", "microwave": True, "quantity": 1000, "city": "Bogotá"},
+        _deps(catalog=None),
+    )
+    context = ToolContext(commercial_context=first.context_update)
+
+    # Act
+    second = _run("cotizar", {"microwave": False, "use": None}, _deps(catalog=None), context)
+
+    # Assert: la segunda cotización no hereda un «caliente» que nadie pidió.
+    assert "temperature" not in second.payload["reutilizado"]
+    assert "temperature" not in second.context_update
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param({"familia": "tapa", "temperatura": "caliente"}, id="caliente"),
+        pytest.param({"familia": "tapa", "microondas": True}, id="microondas"),
+        pytest.param({"nombre": "tapa bowl 32", "uso": "comida_caliente"}, id="por-nombre"),
+        pytest.param({"nombre": "tapa", "temperatura": "caliente"}, id="todas-las-tapas"),
+    ],
+)
+def test_una_tapa_pet_nunca_es_apta_para_caliente(args: dict[str, Any]) -> None:
+    # Act
+    result = _run("buscar_producto", {**args, "pais": "CO"}, _deps(**REAL))
+
+    # Assert
+    assert "PET" not in {MATERIALS[sku] for sku in _skus(result)}
+    assert "PET" not in {option["material"] for option in result.cards.get("options", [])}
+    assert "PET" in {MATERIALS[item["sku"]] for item in result.payload["descartadas"]}
 
 
 # --- cotizar -------------------------------------------------------------------------------

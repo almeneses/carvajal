@@ -363,8 +363,13 @@ def test_sin_consulta_no_valida_su_propio_dato() -> None:
     # Act
     events = _stream(runner, "¿Desde cuándo existe?")
 
-    # Assert
-    assert _tokens(events) == [NO_CONTEXT_ANSWER]
+    # Assert: la cifra no sale; al pedir un dato el reemplazo es una petición neutra, no
+    # la abstención del corpus, y tampoco repite el ``dato`` del modelo.
+    [token] = _tokens(events)
+    assert token != NO_CONTEXT_ANSWER
+    assert "1904" not in token
+    assert token.rstrip().endswith("?")
+    assert _final(events).abstained is False
 
 
 # --- Resultado final -----------------------------------------------------------------------
@@ -732,14 +737,31 @@ def test_las_aclaraciones_que_nombran_colombia_o_el_iva_no_se_abstienen(
             id="sedes-vacias",
         ),
         pytest.param(
-            _call("cotizar", family="vaso", use="bebida_caliente", quantity=1904),
-            "Carvajal se fundó en 1904 en Cali.",
-            id="cotizar-needs-input",
-        ),
-        pytest.param(
             _call("indicador_financiero", nombre="ebitda", periodo="1950"),
             "En 1950 el ebitda fue récord.",
             id="indicador-vacio",
+        ),
+        pytest.param(
+            _call(
+                "buscar_producto",
+                familia="vaso",
+                capacidad_oz=99,
+                temperatura="fria",
+                nombre="Termogreen lanzado 2019 inversión 4500 millones EDEXA",
+            ),
+            "Termogreen se lanzó en 2019 con una inversión de 4500 millones junto a EDEXA.",
+            id="buscar-producto-nombre-vacio",
+        ),
+        pytest.param(
+            _call(
+                "buscar_producto",
+                familia="vaso",
+                capacidad_oz=99,
+                temperatura="fria",
+                nombre="vaso Pando 2500 pesos",
+            ),
+            "El vaso Pando cuesta 2500 pesos.",
+            id="buscar-producto-nombre-con-precio",
         ),
     ],
 )
@@ -755,6 +777,367 @@ def test_los_argumentos_del_modelo_no_respaldan_sus_propias_cifras(
     # Assert
     assert _tokens(events) == [NO_CONTEXT_ANSWER]
     assert _final(events).abstained is True
+
+
+def test_los_argumentos_de_cotizar_no_respaldan_sus_cifras_al_pedir_un_dato() -> None:
+    # Arrange: la cantidad 1904 la escribió el modelo; ``cotizar`` pide la ciudad.
+    call = _call("cotizar", family="vaso", use="bebida_caliente", quantity=1904)
+    runner, _ = _runner([ScriptStep(tool_calls=[call]), ScriptStep(text="Carvajal nació en 1904.")])
+
+    # Act
+    events = _stream(runner, "Hola, ¿qué me cuentas?")
+
+    # Assert: la cifra no sale y la respuesta sigue pidiendo el dato que falta.
+    [token] = _tokens(events)
+    assert "1904" not in token
+    assert token != NO_CONTEXT_ANSWER
+    assert "ciudad" in token
+    assert _final(events).abstained is False
+
+
+# --- Datos de herramientas sin evidencia (simulación spec 044) -----------------------------
+
+# Turnos reales de la simulación (``scratchpad/sim/completa``): llamadas y redacción del
+# modelo tal como quedaron en el checkpoint.
+VASOS_7_OZ = "Necesito 300 vasitos de 7 onzas pa una fiesta, cuánto sería?"
+SHOTS = (
+    "Fría, es para una fiesta de quince. Aunque pensándolo bien, mejor cotízame también los "
+    "de 3,5 oz que son para los shots."
+)
+PIDE_CIUDAD = (
+    "Me falta la ciudad para darte el precio de los vasos de 7 oz. Tengo disponibles: "
+    "Barranquilla, Bogotá, Bucaramanga, Cali, Manizales, Medellín, Neiva, Pasto, Pereira y "
+    "Villavicencio.\n\nPara los de 3,5 oz, ¿los shots van fríos o a temperatura ambiente? "
+    "Con eso te muestro las opciones."
+)
+GOLD_14 = (
+    "Buenas tardes. Quisiera cotizar vasos Gold de 14 oz con tapa pitillera para jugos naturales."
+)
+GOLD_MANIZALES = "Serían para empezar unas 2.000 unidades, y los recibiría acá en Manizales."
+SEDES_MANIZALES = (
+    "No hay precio publicado para vasos de 14 oz en Manizales, así que la cotización queda "
+    "pendiente. Sí hay dos sedes del directorio con contacto:\n\n"
+    "- Kive Andina — Parque Industrial Juanchito, terraza 3, lote 12 — 606 874 7455 [1]\n"
+    "- Representaciones Lastra Eje Cafetero — misma dirección — 874 7455 [2]\n\n"
+    "Un siguiente paso: llama a una de esas sedes para confirmar precio y disponibilidad, o "
+    "dime si quieres que busque el vaso en otra ciudad o con otra capacidad."
+)
+J1_CALI = (
+    "Listo, entonces cotízame una caja de 250 del J1 con el IVA ya incluido, a ver si me sirve "
+    "por 200. Y los vasos de 14 oz fríos toca pedirlos por teléfono a Bonniplast, ¿cierto?"
+)
+# El precio de EDEXA salió de ``buscar_producto`` en el turno anterior: este turno no lo
+# respalda y el texto no puede salir.
+J1_SIN_RESPALDO = (
+    "La cotización del J1 en Cali salió vacía: no hay precio publicado para esa búsqueda, solo "
+    "las sedes del directorio [1]. El único precio que tengo del J1 es el de referencia de "
+    "EDEXA, 180.166 COP por caja de 250 con impuestos incluidos [2].\n\n"
+    "Sobre los vasos: sí, la vía es el teléfono. Bonniplast, Carrera 26 No. 8-37 Local 13, "
+    "Galería Alameda, (602) 556 6514 [1]."
+)
+COTIZAR_J1_CALI = _call(
+    "cotizar",
+    family="contenedor",
+    use="comida_caliente",
+    quantity=250,
+    city="Cali",
+    temperature="caliente",
+    microwave=False,
+    capacity_oz=14,
+)
+COTIZAR_GOLD = {"family": "vaso", "capacity_oz": 14, "temperature": "fria", "use": "bebida_fria"}
+
+
+def _two_turns(
+    first: tuple[str, Sequence[ScriptStep]], second: tuple[str, Sequence[ScriptStep]]
+) -> list[Any]:
+    """Dos turnos en el mismo hilo: el segundo empieza con el contexto comercial del primero."""
+
+    runner, _ = _runner([*first[1], *second[1]])
+    list(runner.stream("dueno-1", "hilo-1", first[0], []))
+    return list(runner.stream("dueno-1", "hilo-1", second[0], []))
+
+
+def test_pedir_la_ciudad_con_la_capacidad_del_turno_anterior_no_se_abstiene() -> None:
+    # Arrange: s-clientes-06 turno 1. Las dos herramientas piden un dato y el «7» viene del
+    # contexto comercial (``capacity_oz: 7.0``).
+    first = [
+        ScriptStep(tool_calls=[_call("cotizar", family="vaso", capacity_oz=7, quantity=300)]),
+        ScriptStep(text="Para cotizar los 300 vasos de 7 oz me falta un dato: ¿la bebida es fría?"),
+    ]
+    second = [
+        ScriptStep(
+            tool_calls=[
+                _call("cotizar", family="vaso", capacity_oz=7, quantity=300, temperature="fria"),
+                _call("buscar_producto", familia="vaso", capacidad_oz=3.5),
+            ]
+        ),
+        ScriptStep(text=PIDE_CIUDAD),
+    ]
+
+    # Act
+    events = _two_turns((VASOS_7_OZ, first), (SHOTS, second))
+
+    # Assert
+    final = _final(events)
+    assert [r["status"] for r in final.results] == ["needs_input", "needs_input"]
+    assert final.gate == "no_query"
+    assert _tokens(events) == [PIDE_CIUDAD]
+    assert final.abstained is False
+
+
+def test_cotizar_vacio_deja_pasar_las_sedes_que_devolvio() -> None:
+    # Arrange: s-clientes-07 turno 1. ``cotizar`` sin precio en Manizales, con dos sedes.
+    first = [
+        ScriptStep(tool_calls=[_call("cotizar", **COTIZAR_GOLD)]),
+        ScriptStep(text="Para cotizar los vasos de 14 oz me falta la cantidad de unidades."),
+    ]
+    second = [
+        ScriptStep(tool_calls=[_call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD)]),
+        ScriptStep(text=SEDES_MANIZALES),
+    ]
+
+    # Act
+    events = _two_turns((GOLD_14, first), (GOLD_MANIZALES, second))
+
+    # Assert
+    final = _final(events)
+    assert [(r["status"], r["source_ids"]) for r in final.results] == [("empty", [1, 2])]
+    assert final.gate == "no_query"
+    assert _tokens(events) == [SEDES_MANIZALES]
+    assert final.abstained is False
+    assert [s.chunk_id[:5] for s in final.sources] == ["sede:", "sede:"]
+
+
+def test_cotizar_vacio_sin_respaldo_se_reemplaza_por_las_sedes_y_no_por_el_corpus() -> None:
+    # Arrange: s-clientes-26 turno 2. El texto repite un precio de otro turno: no sale, pero
+    # el reemplazo muestra las sedes del directorio que sí devolvió la herramienta.
+    steps = [ScriptStep(tool_calls=[COTIZAR_J1_CALI]), ScriptStep(text=J1_SIN_RESPALDO)]
+    runner, _ = _runner(steps)
+
+    # Act
+    events = _stream(runner, J1_CALI)
+
+    # Assert
+    [token] = _tokens(events)
+    assert token != NO_CONTEXT_ANSWER
+    assert "180.166" not in token
+    assert "EDEXA" not in token
+    assert "- Bonniplast — Carrera 26 No. 8-37 Local 13, Galería Alameda — (602) 556 6514 [1]" in (
+        token
+    )
+    final = _final(events)
+    assert final.gate == "no_query"
+    assert final.abstained is False
+    announced = next(e for e in events if isinstance(e, ToolAgentSources))
+    assert announced.sources == final.sources
+    assert final.sources[0].chunk_id.startswith("sede:")
+
+
+def test_una_cifra_inventada_junto_a_las_sedes_sigue_sustituyendose() -> None:
+    # Arrange: las sedes no respaldan una cifra que no traen.
+    call = _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD)
+    text = "Carvajal tiene 13.000 empleados en Manizales; llama a Kive Andina [1]."
+    runner, _ = _runner([ScriptStep(tool_calls=[call]), ScriptStep(text=text)])
+
+    # Act
+    events = _stream(runner, GOLD_MANIZALES)
+
+    # Assert
+    [token] = _tokens(events)
+    assert "13.000" not in token
+    assert "empleados" not in token
+    assert "Kive Andina" in token
+    assert _final(events).abstained is False
+
+
+def test_un_nombre_propio_sin_respaldo_al_pedir_un_dato_se_sustituye_por_la_peticion() -> None:
+    # Arrange: la cotización pide la ciudad; la marca del grupo no la trae ninguna fuente.
+    call = _call("cotizar", family="vaso", use="bebida_caliente", quantity=2000)
+    text = "Los vasos de Bioform son los mejores. ¿En qué ciudad los recibes?"
+    runner, _ = _runner([ScriptStep(tool_calls=[call]), ScriptStep(text=text)])
+
+    # Act
+    events = _stream(runner, "Necesito 2000 vasos para café")
+
+    # Assert
+    [token] = _tokens(events)
+    assert "Bioform" not in token
+    assert token != NO_CONTEXT_ANSWER
+    assert "ciudad" in token
+    assert "Bogotá" in token  # ``ciudades_disponibles`` de la herramienta
+    assert _final(events).abstained is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(SEDES_MANIZALES, id="texto-limpio"),
+        # La «terraza 3» de la dirección respaldaría el plazo inventado en el filtro.
+        pytest.param("Kive Andina [1] entrega en 3 días.", id="plazo-respaldado-por-casualidad"),
+        # «Manizales» viene de la ciudad de la sede, no de un dato del corpus.
+        pytest.param("Carvajal nació en Manizales. Llama a Kive Andina [1].", id="dato-del-corpus"),
+    ],
+)
+def test_buscar_corpus_vacio_con_sedes_de_cotizar_emite_solo_las_sedes(text: str) -> None:
+    # Arrange: pregunta compuesta; el corpus no responde, pero la cotización trajo sedes.
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("buscar_corpus", consulta="fundador de Carvajal"),
+                _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD),
+            ]
+        ),
+        ScriptStep(text=text),
+    ]
+    runner, _ = _runner(steps, store=QueueStore([]))
+
+    # Act
+    events = _stream(runner, "¿Quién fundó Carvajal? Y cotízame 2000 vasos de 14 oz en Manizales")
+
+    # Assert: la redacción del modelo no sale, ni filtrada; sale el aviso neutro con las
+    # sedes que trajo la herramienta, con sus citas.
+    final = _final(events)
+    assert [r["status"] for r in final.results] == ["empty", "empty"]
+    assert final.gate == "no_query"
+    [token] = _tokens(events)
+    assert token.startswith("No encontré un precio publicado")
+    assert "- Kive Andina — Parque Industrial Juanchito, terraza 3, lote 12" in token
+    assert "[1]" in token
+    assert "días" not in token
+    assert "nació" not in token
+    assert final.abstained is False
+    assert [s.chunk_id[:5] for s in final.sources] == ["sede:", "sede:"]
+
+
+def test_buscar_corpus_vacio_y_pedir_dato_no_libera_afirmaciones_del_modelo() -> None:
+    # Arrange: el modelo declara que pide un dato (sin ``dato``) y afirma hechos del corpus
+    # en minúscula, que el filtro no marca. Ninguna herramienta pidió nada.
+    text = (
+        "Sí, carvajal es una empresa certificada como sostenible y la fundó don manuel "
+        "sinisterra. ¿Qué producto buscas?"
+    )
+    steps = [
+        ScriptStep(tool_calls=[_call("buscar_corpus", consulta="certificación")]),
+        ScriptStep(tool_calls=[_call("sin_consulta", motivo="pedir_dato")]),
+        ScriptStep(text=text),
+    ]
+    runner, _ = _runner(steps, store=QueueStore([]))
+
+    # Act
+    events = _stream(runner, "¿Carvajal tiene certificación B Corp?")
+
+    # Assert: sale la petición neutra, no la redacción del modelo.
+    final = _final(events)
+    assert final.gate == "no_query"
+    [token] = _tokens(events)
+    assert "certificada" not in token
+    assert "sinisterra" not in token
+    assert token != NO_CONTEXT_ANSWER
+    assert token.rstrip().endswith("?")
+    assert final.abstained is False
+
+
+def test_sin_consulta_invalido_tras_buscar_corpus_vacio_se_abstiene() -> None:
+    # Arrange: ``pedir_dato`` con un ``dato`` demasiado largo falla la validación.
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("buscar_corpus", consulta="sedes"),
+                _call("sin_consulta", motivo="pedir_dato", dato="x" * 5000),
+            ]
+        ),
+        ScriptStep(text="Carvajal tiene 40 sedes. ¿En qué ciudad estás?"),
+    ]
+    runner, _ = _runner(steps, store=QueueStore([]))
+
+    # Act
+    events = _stream(runner, "¿Dónde compro vasos?")
+
+    # Assert: un ``sin_consulta`` inválido no cuenta como petición, ni en la compuerta ni en
+    # el reemplazo: el turno se abstiene de forma coherente.
+    final = _final(events)
+    assert [r["status"] for r in final.results] == ["empty", "error"]
+    assert final.gate == "abstain"
+    assert _tokens(events) == [NO_CONTEXT_ANSWER]
+    assert final.abstained is True
+
+
+# Un ``nombre`` de ``buscar_producto`` que el modelo llena con hechos inventados.
+NOMBRE_INVENTADO = "Termogreen lanzado 2019 inversión 4500 millones EDEXA"
+TEXTO_INVENTADO = "Termogreen se lanzó en 2019 con una inversión de 4500 millones junto a EDEXA."
+
+
+def test_el_nombre_de_buscar_producto_no_respalda_sus_cifras_al_pedir_un_dato() -> None:
+    # Arrange: ``buscar_producto`` pide la temperatura (``needs_input``).
+    call = _call("buscar_producto", familia="vaso", nombre=NOMBRE_INVENTADO)
+    text = f"{TEXTO_INVENTADO} ¿La bebida va caliente o fría?"
+    runner, _ = _runner([ScriptStep(tool_calls=[call]), ScriptStep(text=text)])
+
+    # Act
+    events = _stream(runner, "Háblame de los vasos térmicos")
+
+    # Assert
+    final = _final(events)
+    assert [r["status"] for r in final.results] == ["needs_input"]
+    [token] = _tokens(events)
+    for term in ("2019", "4500", "EDEXA", "Termogreen"):
+        assert term not in token
+    assert "caliente, frío" in token
+    assert final.abstained is False
+
+
+def test_buscar_corpus_vacio_y_pedir_dato_no_se_convierte_en_no_esta_en_el_corpus() -> None:
+    # Arrange: la búsqueda no encuentra nada, el modelo pide la ciudad e inventa una cifra.
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("buscar_corpus", consulta="sedes de Carvajal"),
+                _call("sin_consulta", motivo="pedir_dato", dato="ciudad de entrega"),
+            ]
+        ),
+        ScriptStep(text="Carvajal tiene 40 sedes. ¿En qué ciudad estás?"),
+    ]
+    runner, _ = _runner(steps, store=QueueStore([]))
+
+    # Act
+    events = _stream(runner, "¿Dónde compro vasos?")
+
+    # Assert
+    final = _final(events)
+    assert final.gate == "no_query"
+    [token] = _tokens(events)
+    assert token != NO_CONTEXT_ANSWER
+    assert "40" not in token
+    assert "la ciudad" in token
+    assert final.abstained is False
+
+
+def test_sedes_sin_precio_y_un_dato_pendiente_se_combinan_en_el_reemplazo() -> None:
+    # Arrange: una cotización sin precio (con sedes) y otra que pide la temperatura.
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                COTIZAR_J1_CALI,
+                _call("cotizar", family="vaso", capacity_oz=14, quantity=125, city="Cali"),
+            ]
+        ),
+        ScriptStep(text="El P1 cuesta 114.463 COP según EDEXA. ¿Los vasos son fríos?"),
+    ]
+    runner, _ = _runner(steps)
+
+    # Act
+    events = _stream(runner, "Cotízame 250 portacomidas y 125 vasos de 14 oz en Cali")
+
+    # Assert
+    final = _final(events)
+    assert [r["status"] for r in final.results] == ["empty", "needs_input"]
+    [token] = _tokens(events)
+    assert "114.463" not in token
+    assert "Bonniplast" in token
+    assert "caliente, frío" in token
+    assert token.rstrip().endswith("?")
+    assert final.abstained is False
 
 
 # --- Atajo (T039) --------------------------------------------------------------------------
