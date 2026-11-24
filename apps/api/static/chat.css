@@ -2181,6 +2181,27 @@ html[data-voz-manos="1"] .chat-cuerpo .composer {
   border-color: var(--cian);
 }
 
+/* Aviso visible de la nota (spec 050): el JS lo muestra solo en «bloqueada» y «error»
+   (hidden en los demás estados), en su propia línea alineada con la onda. */
+.turno-nota-aviso {
+  flex-basis: 100%;
+  padding-left: 60px;
+  color: var(--secundario);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.turno-nota:has(.turno-nota-aviso:not([hidden])) {
+  padding-bottom: 12px;
+  border-radius: 24px;
+}
+
+@media (max-width: 560px) {
+  .turno-nota-aviso {
+    padding-left: 4px;
+  }
+}
+
 /* La cuenta regresiva de la cotización también espera mientras suena la nota. */
 .turno:has(.turno-nota[data-nota-estado="sonando"]) .coti-barra-relleno {
   animation-play-state: paused;
