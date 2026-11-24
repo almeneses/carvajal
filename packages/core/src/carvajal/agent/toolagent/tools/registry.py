@@ -29,10 +29,18 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
     TOOL_INDICADOR_FINANCIERO,
+    TOOL_LISTAR_MEMORIA,
+    TOOL_OLVIDAR_PREFERENCIA,
+    TOOL_RECORDAR_PREFERENCIA,
     TOOL_SIN_CONSULTA,
     ToolName,
 )
-from carvajal.agent.toolagent.tools import builtin
+from carvajal.agent.toolagent.tools import (
+    builtin,
+    listar_memoria,
+    olvidar_preferencia,
+    recordar_preferencia,
+)
 from carvajal.agent.toolagent.tools._base import ToolContext, ToolDeps, _Draft, _Sources
 
 __all__ = [
@@ -137,6 +145,32 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         status_template=None,
         consumes_budget=False,
         evidence_role="declaration",
+    ),
+    # Memoria del dueño (spec 045, US2, T050): sin fuentes; ``_outcome`` guarda solo la
+    # categoría como argumento (FR-012, FR-018).
+    ToolSpec(
+        name=TOOL_RECORDAR_PREFERENCIA,
+        args_schema=recordar_preferencia.RecordarPreferenciaArgs,
+        description=recordar_preferencia.DESCRIPTION,
+        run=recordar_preferencia.run,
+        status_template=recordar_preferencia.status,
+        evidence_role="memory",
+    ),
+    ToolSpec(
+        name=TOOL_LISTAR_MEMORIA,
+        args_schema=listar_memoria.ListarMemoriaArgs,
+        description=listar_memoria.DESCRIPTION,
+        run=listar_memoria.run,
+        status_template=listar_memoria.status,
+        evidence_role="memory",
+    ),
+    ToolSpec(
+        name=TOOL_OLVIDAR_PREFERENCIA,
+        args_schema=olvidar_preferencia.OlvidarPreferenciaArgs,
+        description=olvidar_preferencia.DESCRIPTION,
+        run=olvidar_preferencia.run,
+        status_template=olvidar_preferencia.status,
+        evidence_role="memory",
     ),
 )
 

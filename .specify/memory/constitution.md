@@ -1,3 +1,13 @@
+<!--
+Sync Impact Report (spec 045)
+- Versión: 2.7.0 → 2.8.0 (MINOR: guía ampliada, sin principios retirados ni redefinidos).
+- Enmienda A (principio II): capa institucional curada `data/institucional/` (T023).
+- Enmienda C (restricciones técnicas): resumen acumulado en el estado del hilo, memoria del
+  dueño por categorías en el Store y herramientas de memoria que escriben (T056).
+- Plantillas revisadas: `.specify/templates/plan-template.md`, `spec-template.md` y
+  `tasks-template.md` no requieren cambios (el *Constitution Check* ya lee esta proyección).
+- Pendiente: ninguno.
+-->
 # Constitución de Carvajal Corpus
 
 > Proyección de la constitución del proyecto para el flujo de Spec-Driven Development.
@@ -5,7 +15,7 @@
 > repositorio**: este archivo resume sus principios y su estado técnico para que los comandos
 > de Spec Kit (`/speckit.*`) los verifiquen. Si hay discrepancia, manda la raíz.
 >
-> **Sincronizada**: 2026-11-23, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
+> **Sincronizada**: 2026-11-24, con las decisiones de `CONSTITUTION.md` §9 hasta esa fecha.
 
 ## Principios fundamentales
 
@@ -145,6 +155,11 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   emergencia). El router por reglas atiende en ambos el atajo de saludos y el respaldo
   cuando el proveedor falla, y todos los turnos si `tools` no arranca (`LLM_PROVIDER`
   distinto de `deepseek` o sin `DEEPSEEK_API_KEY`).
+- El estado del hilo guarda un resumen acumulado (`conversation_summary`) calculado en
+  segundo plano; el Store guarda la memoria del dueño por categorías, sin datos sensibles y
+  con caducidad de 180 días. El modo `tools` dispone de consultas registradas en
+  `toolagent/tools/registry.py` (20 al cerrar la spec 045); solo las de memoria escriben
+  (spec 045, enmienda C).
 - Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con
   LangSmith (spec 038) es opcional, sin PII y en producción solo con metadatos.
 - Precios del catálogo: referencias fechadas con moneda, una oferta por fuente. Los de

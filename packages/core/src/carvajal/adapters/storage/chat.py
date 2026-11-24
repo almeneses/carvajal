@@ -247,6 +247,37 @@ class SqlChatRepository:
         )
         return [ChatMessage(**row) for row in reversed(rows)]
 
+    def history_all(self, conversation_id: str) -> list[ChatMessage]:
+        """Todos los mensajes del hilo en orden ascendente, sin tope (spec 045, R1).
+
+        Lo usa el ``SummaryWorker`` para resumir los turnos que salieron de la ventana;
+        :meth:`history` exige un ``limit`` y lo acota a ``HISTORY_LIMIT``.
+        """
+
+        rows = (
+            self._session.execute(
+                select(tables.messages)
+                .where(tables.messages.c.conversation_id == conversation_id)
+                .order_by(tables.messages.c.created_at, tables.messages.c.id)
+            )
+            .mappings()
+            .all()
+        )
+        return [ChatMessage(**row) for row in rows]
+
+    def count_turns(self, conversation_id: str) -> int:
+        """Turnos persistidos del hilo: cada turno guarda una respuesta del asistente."""
+
+        total = self._session.execute(
+            select(func.count())
+            .select_from(tables.messages)
+            .where(
+                tables.messages.c.conversation_id == conversation_id,
+                tables.messages.c.role == "assistant",
+            )
+        ).scalar_one()
+        return int(total or 0)
+
     def append_turn(
         self,
         conversation_id: str,

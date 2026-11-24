@@ -19,6 +19,7 @@ from apps.api.chat.agent import GraphAgentRunner
 from carvajal.adapters.vector.qdrant_store import point_id
 from carvajal.agent.graph import AgentDeps, build_agent, memory_namespace
 from carvajal.agent.router import decide_route
+from carvajal.agent.state import Turn
 from carvajal.agent.tools import IndicatorResult, indicator_lookup
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
@@ -244,13 +245,15 @@ def test_la_preferencia_se_recupera_en_otro_hilo_del_mismo_dueno() -> None:
     # Y abre el hilo B del mismo dueño.
     segundo = agent.prepare("dueno-1", "hilo-b", "Hola", [])
 
-    # Assert
+    # Assert: el atajo del respaldo la guarda por categoría (spec 045, FR-015).
     assert primero.route == "direct"
-    assert "respuestas breves" in (segundo.prompt or "")
-    assert segundo.preferences == ("Recuerda que prefiero respuestas breves",)
-    item = store.get(memory_namespace("dueno-1"), "profile")
+    assert primero.intent == "memory_write"
+    assert "formato preferido: corto" in (segundo.prompt or "")
+    assert segundo.preferences == ("formato preferido: corto",)
+    item = store.get(memory_namespace("dueno-1"), "formato_preferido")
     assert item is not None
-    assert "respuestas breves" in item.value["items"][0]
+    assert item.value["value"] == "corto"
+    assert item.value["origin"] == "shortcut"
 
 
 def test_otro_dueno_no_hereda_la_preferencia() -> None:
@@ -271,7 +274,7 @@ def test_otro_dueno_no_hereda_la_preferencia() -> None:
 
     # Assert
     assert otro.preferences == ()
-    assert "respuestas breves" not in (otro.prompt or "")
+    assert "formato preferido" not in (otro.prompt or "")
 
 
 def test_el_checkpointer_recupera_el_turno_para_un_seguimiento() -> None:
@@ -511,3 +514,188 @@ def test_sin_resultados_registra_el_hueco_con_motivo() -> None:
     evento = next(item for item in logs if item["event"] == "rag.no_context")
     assert evento["reason"] == "sin_resultados"
     assert evento["topic"] == "mision carvajal"
+
+
+# --- Resumen y memoria en el respaldo ``routes`` (spec 045, T028 y T043) ------------------------
+
+
+def _seed(count: int, start: int = 0) -> list[Turn]:
+    return [
+        {"question": f"pregunta número {i}", "answer": f"respuesta {i}", "incomplete": False}
+        for i in range(start, start + count)
+    ]
+
+
+def test_el_atajo_de_routes_recibe_el_resumen_y_la_ventana_configurada() -> None:
+    # Arrange: 10 turnos persistidos; la semilla los trae (ventana 8 + holgura 2).
+    from carvajal.agent.memory.summary import SeedTurns
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    agent = GraphAgentRunner(
+        build_agent(
+            AgentDeps(FakeVectorStore([]), FakeEmbedder(), settings),
+            checkpointer=InMemorySaver(),
+            store=InMemoryStore(),
+        ),
+        settings,
+    )
+    seed = SeedTurns(_seed(10), turn_count=10)
+
+    # Act
+    turn = agent.prepare("dueno-1", "hilo-r", "Hola", seed)
+
+    # Assert: ocho turnos completos (no cuatro) y el resumen de los que salieron.
+    prompt = turn.prompt or ""
+    assert turn.route == "direct"
+    assert len(turn.turns) == 8
+    assert "Usuario: pregunta número 2" in prompt
+    assert "Usuario: pregunta número 9" in prompt
+    assert "<resumen_conversacion>" in prompt
+    assert "Turno 1 — la persona: «pregunta número 0»" in prompt
+    assert "Turno 2 — la persona: «pregunta número 1»" in prompt
+    assert "Usuario: pregunta número 1\n" not in prompt
+
+
+def test_un_turno_de_respaldo_conserva_el_canal_del_resumen() -> None:
+    # Arrange
+    from carvajal.agent.memory.summary import ConversationSummary, SeedTurns
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    graph = build_agent(
+        AgentDeps(FakeVectorStore([]), FakeEmbedder(), settings),
+        checkpointer=InMemorySaver(),
+        store=InMemoryStore(),
+    )
+    config = {"configurable": {"thread_id": "hilo-r"}}
+    previous = ConversationSummary(
+        text="La persona tiene una cafetería.", covered_turns=4, method="llm"
+    ).to_value()
+    graph.update_state(config, {"conversation_summary": {**previous, "updated_at": "2026-11-24"}})
+
+    # Act
+    GraphAgentRunner(graph, settings).prepare(
+        "dueno-1", "hilo-r", "Hola", SeedTurns(_seed(8, start=4), turn_count=12)
+    )
+
+    # Assert
+    channel = graph.get_state(config).values["conversation_summary"]
+    assert channel["text"] == "La persona tiene una cafetería."
+    assert channel["covered_turns"] == 4
+
+
+def test_el_nodo_rag_no_recibe_el_bloque_del_resumen() -> None:
+    # Arrange: excepción declarada en FR-002.
+    from carvajal.agent.memory.summary import SeedTurns
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    agent = GraphAgentRunner(
+        build_agent(
+            AgentDeps(FakeVectorStore([HIT]), FakeEmbedder(), settings),
+            checkpointer=InMemorySaver(),
+            store=InMemoryStore(),
+        ),
+        settings,
+    )
+
+    # Act
+    turn = agent.prepare(
+        "dueno-1",
+        "hilo-r",
+        "¿En qué ciudad fue fundada Carvajal?",
+        SeedTurns(_seed(10, start=2), turn_count=12),
+    )
+
+    # Assert
+    assert turn.route == "rag"
+    assert "<resumen_conversacion>" not in (turn.prompt or "")
+
+
+def test_routes_clasifica_la_preferencia_por_categoria() -> None:
+    # Arrange
+    from carvajal.agent.memory.store import load
+
+    store = InMemoryStore()
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    agent = GraphAgentRunner(
+        build_agent(
+            AgentDeps(FakeVectorStore([]), FakeEmbedder(), settings),
+            checkpointer=InMemorySaver(),
+            store=store,
+        ),
+        settings,
+    )
+
+    # Act
+    turn = agent.prepare(
+        "dueno-1",
+        "hilo-a",
+        "Llámame Ana, trabajo en Panadería La Espiga y suelo comprar en Cali",
+        [],
+    )
+
+    # Assert
+    assert turn.intent == "memory_write"
+    assert load(store, "dueno-1").values == {
+        "nombre": "Ana",
+        "empresa": "Panadería La Espiga",
+        "ciudad_habitual": "Cali",
+    }
+
+
+def test_routes_no_guarda_un_dato_sensible_y_lo_explica() -> None:
+    # Arrange
+    from carvajal.prompts import DIRECT_INSTRUCTIONS
+
+    store = InMemoryStore()
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    agent = GraphAgentRunner(
+        build_agent(
+            AgentDeps(FakeVectorStore([]), FakeEmbedder(), settings),
+            checkpointer=InMemorySaver(),
+            store=store,
+        ),
+        settings,
+    )
+
+    # Act
+    turn = agent.prepare("dueno-1", "hilo-a", "Recuerda que mi cédula es 1.234.567.890", [])
+
+    # Assert
+    assert turn.intent == "memory_rejected"
+    assert DIRECT_INSTRUCTIONS["memory_rejected"] in (turn.prompt or "")
+    assert store.search(memory_namespace("dueno-1")) == []
+    assert turn.preferences == ()
+
+
+def test_routes_atiende_olvidar_todo_sin_enrutador() -> None:
+    # Arrange: un enrutador que falla si se consulta.
+    from carvajal.agent.memory.store import load, remember
+    from carvajal.prompts import DIRECT_INSTRUCTIONS
+
+    def router(question: str, turns: Any = None) -> Any:
+        raise AssertionError("«olvidar todo» no pasa por el enrutador")
+
+    store = InMemoryStore()
+    remember(store, "dueno-1", "nombre", "Ana")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    graph = build_agent(
+        AgentDeps(FakeVectorStore([]), FakeEmbedder(), settings),
+        checkpointer=InMemorySaver(),
+        store=store,
+        router=router,
+    )
+
+    # Act
+    turn = GraphAgentRunner(graph, settings).prepare(
+        "dueno-1", "hilo-a", "Olvida todo lo que sabes de mí", _seed(2)
+    )
+
+    # Assert
+    assert turn.intent == "memory_forget"
+    assert DIRECT_INSTRUCTIONS["memory_forget"] in (turn.prompt or "")
+    assert "pregunta número" not in (turn.prompt or "")
+    assert turn.preferences == ()
+    assert load(store, "dueno-1").values == {}
+    channel = graph.get_state({"configurable": {"thread_id": "hilo-a"}}).values
+    assert channel["conversation_summary"]["method"] == "forgotten"
+    assert channel["conversation_summary"]["forgotten_through"] == 3

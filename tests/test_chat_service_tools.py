@@ -1808,3 +1808,224 @@ def test_el_respaldo_por_plazo_tampoco_registra_nombres_inventados(engine: Any) 
     assert span.metadata["tools"] == ["desconocida"]
     assert "dime_tu_cedula_123" not in repr(span.metadata)
     assert [c[0] for c in span.children if c[1] == "tool"] == ["desconocida"]
+
+
+# --- Resumen en segundo plano (spec 045, T027) ------------------------------------------------
+
+
+class RecordingWorker:
+    """Doble del ``SummaryWorker``: anota cada ``submit`` y lo que ya se había emitido."""
+
+    def __init__(self, emitted: list[str] | None = None) -> None:
+        self.submits: list[tuple[str, str]] = []
+        self.emitted = emitted if emitted is not None else []
+        self.seen_at_submit: list[list[str]] = []
+
+    def submit(self, owner_key: str, conversation_id: str) -> bool:
+        self.submits.append((owner_key, conversation_id))
+        self.seen_at_submit.append(list(self.emitted))
+        return True
+
+
+def _with_worker(engine: Any, runner: Any = None, **kwargs: Any) -> tuple[ChatService, Any]:
+    worker = RecordingWorker()
+    service = build_service(engine, runner, **kwargs)
+    service._summary_worker = cast(Any, worker)
+    return service, worker
+
+
+def _consume(service: ChatService, worker: RecordingWorker, *args: Any, **kwargs: Any) -> list[Any]:
+    events = []
+    for event in service.stream(*args, **kwargs):
+        worker.emitted.append(event.name)
+        events.append(event)
+    return events
+
+
+def test_el_turno_tools_encola_el_resumen_tras_persistir_y_despues_del_texto(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events())
+    service, worker = _with_worker(engine, runner)
+
+    # Act
+    events = _consume(service, worker, "dueno-resumen", QUESTION)
+
+    # Assert: una sola vez, con el dueño del turno, después de todo el texto y antes de
+    # ``trace``/``done`` (no se espera: el doble vuelve de inmediato).
+    conversation_id = named(events, "done").data["thread_id"]
+    assert worker.submits == [("dueno-resumen", conversation_id)]
+    assert worker.seen_at_submit[0].count("token") == len(ANSWER_PARTS)
+    assert "done" not in worker.seen_at_submit[0]
+
+
+def test_el_respaldo_y_el_modo_routes_tambien_encolan(engine: Any) -> None:
+    # Arrange
+    failing = FakeToolRunner(scripted_events(), error=LLMError("caído"), error_at=2)
+    fallback_service, fallback_worker = _with_worker(engine, failing, agent=RoutesAgent())
+    routes_service, routes_worker = _with_worker(
+        engine,
+        agent=RoutesAgent(prompt="prompt"),
+        settings=Settings(_env_file=None, agent_mode="routes"),  # type: ignore[call-arg]
+    )
+    routes_service._llm = cast(Any, Mock(stream=Mock(return_value=iter(["Hola."]))))
+
+    # Act
+    fallback_events = list(fallback_service.stream("dueno-respaldo", QUESTION))
+    routes_events = list(routes_service.stream("dueno-routes", QUESTION))
+
+    # Assert
+    assert "fallback" in names(fallback_events)
+    assert [owner for owner, _ in fallback_worker.submits] == ["dueno-respaldo"]
+    assert "done" in names(routes_events)
+    assert [owner for owner, _ in routes_worker.submits] == ["dueno-routes"]
+
+
+def test_un_turno_incompleto_tambien_encola(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(), error=RuntimeError("corte"), error_at=4)
+    service, worker = _with_worker(engine, runner)
+
+    # Act
+    list(service.stream("dueno-parcial", QUESTION))
+
+    # Assert
+    assert [owner for owner, _ in worker.submits] == ["dueno-parcial"]
+
+
+def test_la_replica_idempotente_no_encola(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events())
+    service, worker = _with_worker(engine, runner)
+    list(service.stream("dueno-replica", QUESTION, client_turn_id="turno-x"))
+
+    # Act
+    replay = list(service.stream("dueno-replica", QUESTION, client_turn_id="turno-x"))
+
+    # Assert
+    assert named(replay, "trace").data["route"] == "replay"
+    assert len(worker.submits) == 1
+
+
+def test_un_worker_que_falla_no_rompe_el_turno(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events())
+    service = build_service(engine, runner)
+    service._summary_worker = cast(Any, Mock(submit=Mock(side_effect=RuntimeError("cola"))))
+
+    # Act
+    events = list(service.stream("dueno-falla-worker", QUESTION))
+
+    # Assert
+    assert names(events)[-1] == "done"
+
+
+def test_el_resumidor_real_nunca_corre_antes_del_primer_token(engine: Any) -> None:
+    # Arrange: un resumidor que anota si ya salió algún token cuando se le llama.
+    from langchain_core.messages import AIMessage
+
+    from apps.api.chat.summary_worker import SummaryWorker
+
+    emitted: list[str] = []
+    calls: list[int] = []
+
+    class Model:
+        def invoke(self, *args: Any, **kwargs: Any) -> Any:
+            calls.append(emitted.count("token"))
+            return AIMessage(content="Resumen.")
+
+    settings = tools_settings(agent_summary_mode="llm", agent_history_turns=1)
+    worker = SummaryWorker(
+        build_session_factory(engine), settings, store=InMemoryStore(), model=Model()
+    )
+    runner = FakeToolRunner(scripted_events())
+    service = build_service(engine, runner, settings=settings)
+    service._summary_worker = worker
+
+    # Act: dos turnos (el segundo deja el primero fuera de la ventana de 1).
+    for question in (QUESTION, "¿Y en Cali?"):
+        runner.events = scripted_events()
+        for event in service.stream("dueno-real", question):
+            emitted.append(event.name)
+    worker.close(wait=True)
+
+    # Assert
+    assert calls and all(count > 0 for count in calls)
+
+
+def test_la_semilla_trae_la_ventana_mas_la_holgura_y_el_total(engine: Any) -> None:
+    # Arrange: 15 turnos persistidos.
+    from carvajal.adapters.storage.chat import SqlChatRepository
+
+    session_factory = build_session_factory(engine)
+    with session_factory() as session:
+        repository = SqlChatRepository(session)
+        conversation = repository.create("dueno-semilla")
+        for index in range(15):
+            repository.append_turn(conversation.id, question=f"p{index}", answer=f"r{index}")
+        session.commit()
+
+        # Act
+        seed = service_module._seed_turns(repository, conversation.id, 8)
+
+    # Assert: 8 + 2 turnos, los más recientes, y el total del hilo.
+    assert [turn["question"] for turn in seed] == [f"p{i}" for i in range(5, 15)]
+    assert seed.turn_count == 15
+
+
+def test_el_runner_recibe_la_semilla_con_turn_count(engine: Any) -> None:
+    # Arrange
+    received: list[Any] = []
+
+    class SeedRunner(FakeToolRunner):
+        def stream(self, owner_key: str, thread_id: str, question: str, seed_turns: Any) -> Any:
+            received.append(seed_turns)
+            return super().stream(owner_key, thread_id, question, seed_turns)
+
+    runner = SeedRunner(scripted_events())
+    service = build_service(engine, runner)
+    list(service.stream("dueno-tc", QUESTION))
+    runner.events = scripted_events()
+
+    # Act
+    list(service.stream("dueno-tc", "¿Y en Cali?"))
+
+    # Assert
+    assert [getattr(seed, "turn_count", None) for seed in received] == [0, 1]
+
+
+def test_la_entrada_del_grafo_lleva_turn_count() -> None:
+    # Arrange
+    from carvajal.agent.memory.summary import SeedTurns
+
+    payloads: list[Any] = []
+
+    class Graph:
+        def stream(self, payload: Any, config: Any = None, **kwargs: Any) -> Any:
+            payloads.append(payload)
+            return iter([])
+
+    runner = ToolAgentRunner(Graph(), tools_settings())
+    seed = SeedTurns([{"question": "hola", "answer": "hola", "incomplete": False}], turn_count=12)
+
+    # Act
+    list(runner.stream("dueno", "hilo", "¿Y ahora?", seed))
+
+    # Assert
+    assert payloads[0]["turn_count"] == 12
+    assert payloads[0]["seed_turns"] == list(seed)
+
+
+def test_el_trace_lleva_memoria_por_categorias_y_el_resumen_sin_texto(engine: Any) -> None:
+    # Arrange
+    closing = replace(
+        final(preferences=("nombre: Ana", "nota: una", "nota: dos")),
+        summary={"covered_turns": 4, "method": "llm"},
+    )
+    service = build_service(engine, FakeToolRunner(scripted_events(closing)))
+
+    # Act
+    trace = named(list(service.stream("dueno-trace-045", QUESTION)), "trace").data
+
+    # Assert
+    assert trace["memory"] == 2
+    assert trace["summary"] == {"covered_turns": 4, "method": "llm"}

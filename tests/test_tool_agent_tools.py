@@ -2285,3 +2285,104 @@ def test_today_respeta_deps_today_y_un_now_sin_zona() -> None:
     # Act / Assert
     assert _today(_deps(today=date(2026, 1, 2))) == date(2026, 1, 2)
     assert _today(_deps(today=None, now=datetime(2026, 11, 25, 4, 30))) == date(2026, 11, 25)
+
+
+# --- Ciudad habitual solo como sugerencia (spec 045, T044, FR-013) ----------------------------
+
+CALI_MEMORY = {"ciudad_habitual": {"v": 2, "value": "Cali"}}
+
+
+def test_buscar_sedes_con_una_ciudad_no_dicha_pide_la_ciudad_y_sugiere_la_habitual() -> None:
+    # Arrange: el modelo copia la ciudad habitual de ``<preferencias>``.
+    context = ToolContext(question="¿Dónde puedo comprar vasos?", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("buscar_sedes", {"ciudad": "Cali"}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["ciudad"]
+    assert "Cali" in result.payload["ciudades_disponibles"]
+    assert result.payload["sugerencia_ciudad"] == "Cali"
+    assert result.sources == []
+    assert "sedes" not in result.payload
+
+
+def test_buscar_sedes_sin_ciudad_habitual_no_sugiere_nada() -> None:
+    # Act
+    result = _run(
+        "buscar_sedes", {"ciudad": "Cali"}, _deps(), ToolContext(question="¿Dónde compro?")
+    )
+
+    # Assert
+    assert result.status == "needs_input"
+    assert "sugerencia_ciudad" not in result.payload
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        pytest.param(ToolContext(question="Sedes en Cali, por favor"), id="pregunta"),
+        pytest.param(
+            ToolContext(question="¿Y dónde compro?", history=["Estoy en Cali"]), id="historial"
+        ),
+        pytest.param(
+            ToolContext(
+                question="sí",
+                last_answer="¿Te busco sedes en Cali, tu ciudad habitual?",
+                memory=CALI_MEMORY,
+            ),
+            id="confirmada",
+        ),
+        pytest.param(
+            ToolContext(question="¿Dónde compro?", commercial_context={"city": "Cali"}),
+            id="contexto",
+        ),
+    ],
+)
+def test_buscar_sedes_con_la_ciudad_dicha_o_confirmada_busca(context: ToolContext) -> None:
+    # Act
+    result = _run("buscar_sedes", {"ciudad": "Cali"}, _deps(), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["sedes"]
+
+
+def test_cotizar_sin_ciudad_sugiere_la_habitual_sin_usarla() -> None:
+    # Arrange
+    context = ToolContext(question="Cotízame 500 vasos de 14 oz fríos", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert "ciudad" in result.payload["missing"]
+    assert result.payload["sugerencia_ciudad"] == "Cali"
+    assert result.quote is None
+    assert "city" not in result.context_update
+
+
+def test_cotizar_con_la_ciudad_habitual_copiada_por_el_modelo_no_cotiza() -> None:
+    # Arrange
+    context = ToolContext(question="Cotízame 500 vasos de 14 oz fríos", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Cali"}, _deps(), context)
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.payload["sugerencia_ciudad"] == "Cali"
+    assert result.quote is None
+
+
+def test_cotizar_con_la_ciudad_dicha_no_sugiere() -> None:
+    # Arrange
+    context = ToolContext(question="Cotízame 500 vasos de 14 oz fríos en Cali", memory=CALI_MEMORY)
+
+    # Act
+    result = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Cali"}, _deps(), context)
+
+    # Assert
+    assert "sugerencia_ciudad" not in result.payload

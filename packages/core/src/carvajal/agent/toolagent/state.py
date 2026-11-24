@@ -22,7 +22,10 @@ __all__ = [
     "TOOL_BUSCAR_SEDES",
     "TOOL_COTIZAR",
     "TOOL_INDICADOR_FINANCIERO",
+    "TOOL_LISTAR_MEMORIA",
     "TOOL_NAMES",
+    "TOOL_OLVIDAR_PREFERENCIA",
+    "TOOL_RECORDAR_PREFERENCIA",
     "TOOL_SIN_CONSULTA",
     "TOOL_STATUSES",
     "UNKNOWN_TOOL",
@@ -42,6 +45,9 @@ ToolName = Literal[
     "buscar_sedes",
     "indicador_financiero",
     "sin_consulta",
+    "recordar_preferencia",
+    "listar_memoria",
+    "olvidar_preferencia",
 ]
 ToolStatus = Literal["ok", "empty", "needs_input", "error"]
 ModePath = Literal["shortcut", "agent"]
@@ -53,6 +59,10 @@ TOOL_COTIZAR: Final = "cotizar"
 TOOL_BUSCAR_SEDES: Final = "buscar_sedes"
 TOOL_INDICADOR_FINANCIERO: Final = "indicador_financiero"
 TOOL_SIN_CONSULTA: Final = "sin_consulta"
+# Memoria del dueño (spec 045, US2).
+TOOL_RECORDAR_PREFERENCIA: Final = "recordar_preferencia"
+TOOL_LISTAR_MEMORIA: Final = "listar_memoria"
+TOOL_OLVIDAR_PREFERENCIA: Final = "olvidar_preferencia"
 
 # Los nombres del ``Literal``: valida ``make_tool_outcome``. El registro de herramientas
 # (``tools/registry.py``) deriva su propio ``TOOL_NAMES`` del orden de ``TOOLS`` y una prueba
@@ -88,9 +98,11 @@ class ToolAgentState(TypedDict, total=False):
     reductor ``add_messages`` (sistema, historial, pregunta y pasos del turno).
     ``seen_calls`` es una lista (no ``set``) de huellas ``nombre+args`` normalizados.
     ``results`` guarda un :class:`ToolOutcome` por herramienta, en orden.
-    ``shortcut_intent`` es la intención que decidió el nodo ``shortcut`` (``greeting`` o
-    ``memory_write``; vacía si el turno va al agente): ``direct`` la lee en vez de
-    recalcularla. ``recall`` la reinicia en cada turno, porque el checkpoint persiste.
+    ``shortcut_intent`` es la intención que decidió el nodo ``shortcut`` (``greeting``,
+    ``farewell``, ``memory_forget`` o ``memory_unavailable``; vacía si el turno va al
+    agente): ``direct`` la lee en vez de recalcularla. ``recall`` la reinicia en cada
+    turno, porque el checkpoint persiste. Desde la spec 045 (R15) ``memory_write`` ya no es
+    del atajo: la preferencia la guarda el agente con ``recordar_preferencia``.
 
     Spec 045 (data-model *Estado de los grafos*): ``conversation_summary`` es el resumen
     acumulado de los turnos que salieron de la ventana (``recall`` no lo reinicia);

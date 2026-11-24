@@ -6,7 +6,7 @@ en la raíz. Los argumentos y los resultados solo viajan con el contenido comple
 """
 
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, cast
 
 from carvajal.infrastructure.monitoring import (
     SAFE_KEYS,
@@ -151,3 +151,47 @@ def test_token_metadata_toma_solo_los_conteos_enteros() -> None:
     # Act / Assert
     assert token_metadata(uso) == {"input_tokens": 120, "output_tokens": 30, "total_tokens": 150}
     assert token_metadata({}) == {}
+
+
+# --- Memoria (spec 045, T042) ----------------------------------------------------------------
+
+
+def _memory_outcome() -> dict[str, Any]:
+    """``ToolOutcome`` real de ``recordar_preferencia``: la redacción ocurre en origen."""
+
+    from langgraph.store.memory import InMemoryStore
+
+    from carvajal.agent.toolagent.tools import ToolContext, ToolDeps, run_tool
+    from carvajal.infrastructure.settings import Settings
+
+    deps = ToolDeps(
+        vector_store=cast(Any, None),
+        embedder=cast(Any, None),
+        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        memory=InMemoryStore(),
+    )
+    result = run_tool(
+        "recordar_preferencia",
+        {"categoria": "nombre", "valor": "Ana Secreta"},
+        deps,
+        ToolContext(question="Llámame Ana Secreta", owner_key="dueno-1", thread_id="h1"),
+    )
+    assert result.status == "ok"
+    return dict(result.outcome)
+
+
+def test_la_memoria_viaja_solo_con_su_categoria_con_y_sin_contenido() -> None:
+    # Arrange
+    outcome = _memory_outcome()
+    con, sin = SpanFalso(), SpanFalso()
+
+    # Act
+    record_tool_calls(con, [outcome], include_content=True)
+    record_tool_calls(sin, [outcome], include_content=False)
+
+    # Assert
+    assert outcome["args"] == {"categoria": "nombre"}
+    assert con.children[0][3].outputs["args"] == {"categoria": "nombre"}
+    assert "Ana" not in str(con.children) and "Ana" not in str(sin.children)
+    assert sin.children[0][3].outputs == {}
+    assert sin.children[0][2]["tool"] == "recordar_preferencia"

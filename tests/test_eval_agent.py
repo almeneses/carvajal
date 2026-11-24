@@ -2170,3 +2170,65 @@ def test_tools_observation_lee_needs_input_del_turno_y_no_las_omitidas() -> None
     # Assert
     assert observation.requested == ("temperatura",)
     assert observation.missing == ('buscar_sedes {"ciudad": "Cali"}',)
+
+
+# --- Semilla acotada como en producción (spec 045, T030) --------------------------------------
+
+
+class SeedDriver(ScriptedDriver):
+    """Registra la semilla tal como llega (con ``turn_count``)."""
+
+    def __init__(self, answers: dict[str, Any]) -> None:
+        super().__init__(answers)
+        self.seeds: list[Any] = []
+
+    def run_turn(
+        self, *, owner_key: str, thread_id: str, question: str, seed_turns: Sequence[Turn]
+    ) -> TurnObservation:
+        self.seeds.append(seed_turns)
+        return super().run_turn(
+            owner_key=owner_key, thread_id=thread_id, question=question, seed_turns=seed_turns
+        )
+
+
+def test_el_ejecutor_acota_la_semilla_y_pasa_turn_count() -> None:
+    # Arrange: 12 turnos; la ventana es de 8 y la holgura del resumen de 2.
+    from carvajal.agent.toolagent.evaluation import _run_item
+
+    questions = tuple(f"pregunta {i}" for i in range(12))
+    item = EvalItem(id="m-largo", group="memoria", turns=questions, expect={})
+    driver = SeedDriver({question: _obs(f"r {question}") for question in questions})
+
+    # Act
+    _run_item(driver, item, history_turns=8)
+
+    # Assert
+    last = driver.seeds[-1]
+    assert len(last) == 10
+    assert last.turn_count == 11
+    assert last[0]["question"] == "pregunta 1"
+    assert [seed.turn_count for seed in driver.seeds[:3]] == [0, 1, 2]
+
+
+def test_los_drivers_conservan_turn_count_al_llamar_al_runner() -> None:
+    # Arrange
+    from carvajal.agent.memory.summary import SeedTurns
+
+    received: list[Any] = []
+
+    class Runner:
+        def prepare(self, owner_key: str, thread_id: str, question: str, seed: Any) -> Any:
+            received.append(seed)
+            return _routes_turn(route="direct", intent="greeting", prompt=None, sources=())
+
+        def record(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    driver = RoutesDriver(Runner(), FakeLLM("hola"))
+    seed = SeedTurns([{"question": "q", "answer": "a", "incomplete": False}], turn_count=7)
+
+    # Act
+    driver.run_turn(owner_key="o", thread_id="t", question="hola", seed_turns=seed)
+
+    # Assert
+    assert received[0].turn_count == 7

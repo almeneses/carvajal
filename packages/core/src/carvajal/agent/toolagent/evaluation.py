@@ -44,6 +44,7 @@ from typing import Any, Final, Protocol
 import structlog
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
+from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
 from carvajal.agent.toolagent.graph import SHORTCUT_INTENTS
@@ -53,9 +54,16 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_SEDES,
     TOOL_COTIZAR,
     TOOL_INDICADOR_FINANCIERO,
+    TOOL_RECORDAR_PREFERENCIA,
     TOOL_SIN_CONSULTA,
 )
-from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, TOOL_NAMES, content_data
+from carvajal.agent.toolagent.tools import (
+    DECLARATION_TOOLS,
+    MEMORY_TOOLS,
+    TOOL_NAMES,
+    content_data,
+)
+from carvajal.infrastructure.settings import Settings
 from carvajal.prompts import ABSENCE_POLICY, NO_CONTEXT_ANSWER
 
 __all__ = [
@@ -190,6 +198,10 @@ def _check_expect(item_id: str, expect: Mapping[str, Any]) -> None:
         raise ValueError(f"El ítem {item_id} trae claves de expect desconocidas: {unknown}")
 
 
+# Intenciones de memoria que el grafo ``routes`` atiende como atajo (spec 045, R15).
+_ROUTES_MEMORY_INTENTS: Final = frozenset({"memory_write", "memory_rejected", "memory_unavailable"})
+
+
 def _routing_expect(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Expectativas de un ítem de ``routing_questions.json`` (ruta esperada → herramientas)."""
 
@@ -198,6 +210,9 @@ def _routing_expect(raw: Mapping[str, Any]) -> dict[str, Any]:
     expect: dict[str, Any] = {"language": "es"}
     if route in ROUTE_TOOLS:
         expect["tools_any"] = [list(ROUTE_TOOLS[route])]
+    elif intent == "memory_write":
+        # Spec 045 (R15): en ``tools`` la preferencia la guarda el agente con la herramienta.
+        expect["tools_any"] = [[TOOL_RECORDAR_PREFERENCIA]]
     elif intent in SHORTCUT_INTENTS:
         expect["shortcut"] = True
     elif intent == "missing_period":
@@ -477,7 +492,8 @@ def routes_tools(turn: Any) -> tuple[tuple[ToolCall, ...], bool]:
             corpus = "ok" if _corpus_sources(sources) else "empty"
             calls.append(ToolCall(TOOL_BUSCAR_CORPUS, corpus))
         return tuple(calls), False
-    if intent in SHORTCUT_INTENTS:
+    if intent in SHORTCUT_INTENTS or intent in _ROUTES_MEMORY_INTENTS:
+        # En ``routes`` la preferencia (``memory_write``) y su rechazo siguen siendo atajo.
         return (), True
     motivo = "pedir_dato" if intent in _ASKING_INTENTS else "conversacion"
     return (ToolCall(TOOL_SIN_CONSULTA, "ok", {"motivo": motivo}),), False
@@ -672,7 +688,7 @@ class RoutesDriver:
         started = self._clock()
         if self._usage is not None:
             self._usage.reset()
-        turn = self._runner.prepare(owner_key, thread_id, question, list(seed_turns))
+        turn = self._runner.prepare(owner_key, thread_id, question, _as_seed(seed_turns))
         first: float | None = None
         if turn.prompt is None:
             answer = NO_CONTEXT_ANSWER
@@ -730,12 +746,24 @@ def fallback_reason(error: BaseException) -> str | None:
     return None
 
 
+def _as_seed(seed_turns: Sequence[Turn]) -> list[Turn]:
+    """La semilla como lista, conservando ``turn_count`` si es una ``SeedTurns``."""
+
+    return seed_turns if isinstance(seed_turns, SeedTurns) else list(seed_turns)
+
+
 def _tool_backing(messages: Sequence[Any]) -> list[str]:
-    """Datos de las herramientas del turno (sin ``message`` ni ``sin_consulta``)."""
+    """Datos de las herramientas del turno (sin ``message``, ``sin_consulta`` ni memoria).
+
+    Las de memoria quedan fuera como en ``_tool_backing`` del servicio (spec 045, FR-017):
+    sus valores son de la persona y nunca respaldan datos de Carvajal.
+    """
 
     texts: list[str] = []
     for message in messages:
         if not isinstance(message, ToolMessage) or message.name in DECLARATION_TOOLS:
+            continue
+        if message.name in MEMORY_TOOLS:
             continue
         content = message.content if isinstance(message.content, str) else _dumps(message.content)
         data = content_data(content)
@@ -871,7 +899,7 @@ class ToolsDriver:
         parts: list[str] = []
         final: Any = None
         try:
-            for event in self._runner.stream(owner_key, thread_id, question, list(seed_turns)):
+            for event in self._runner.stream(owner_key, thread_id, question, _as_seed(seed_turns)):
                 if isinstance(event, ToolAgentStatus) and first_status is None:
                     first_status = self._clock()
                 elif isinstance(event, ToolAgentToken):
@@ -963,7 +991,7 @@ class ToolsDriver:
                 turns=tuple(obtained.turns) or tuple(seed_turns),
             )
         else:
-            turn = self._fallback.prepare(owner_key, thread_id, question, list(seed_turns))
+            turn = self._fallback.prepare(owner_key, thread_id, question, _as_seed(seed_turns))
             products = dict(turn.products or {})
             sources = tuple(_plain(source) for source in turn.sources)
             answer = fallback.render(products, sources)
@@ -2514,13 +2542,23 @@ class ModeReport:
         }
 
 
-def _run_item(driver: ModeDriver, item: EvalItem) -> TurnObservation:
+def _run_item(
+    driver: ModeDriver, item: EvalItem, *, history_turns: int | None = None
+) -> TurnObservation:
     """Ejecuta los turnos del ítem en su hilo; devuelve la observación del último.
 
     Antes de cada índice de ``new_thread_before`` se abre otra conversación del mismo dueño:
     ``thread_id`` con sufijo ``-h{n}`` y semilla vacía, con el mismo ``owner_key``.
+
+    Como el servicio (spec 045, research R13): la semilla se acota a
+    ``agent_history_turns + SUMMARY_SLACK_TURNS`` turnos y lleva ``turn_count``. El ejecutor
+    no tiene ``SummaryWorker``: los turnos que salen de la ventana solo los resume ``recall``
+    con el relleno determinista de la holgura (limitación declarada en la evidencia).
     """
 
+    if history_turns is None:
+        history_turns = Settings().agent_history_turns
+    window = history_turns + SUMMARY_SLACK_TURNS
     base = f"eval-{driver.mode}-{item.id}"
     thread_id = base
     owner_key = f"eval-{driver.mode}-{item.id}"
@@ -2531,7 +2569,10 @@ def _run_item(driver: ModeDriver, item: EvalItem) -> TurnObservation:
             thread_id = f"{base}-h{item.new_thread_before.index(index) + 1}"
             seed = []
         observation = driver.run_turn(
-            owner_key=owner_key, thread_id=thread_id, question=question, seed_turns=list(seed)
+            owner_key=owner_key,
+            thread_id=thread_id,
+            question=question,
+            seed_turns=SeedTurns(seed[-window:], turn_count=len(seed)),
         )
         seed.append(Turn(question=question, answer=observation.answer, incomplete=False))
     if observation is None:  # ``_item`` exige al menos un turno

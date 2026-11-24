@@ -773,11 +773,6 @@ def test_las_aclaraciones_que_nombran_colombia_o_el_iva_no_se_abstienen(
     ("call", "text"),
     [
         pytest.param(
-            _call("buscar_sedes", ciudad="Yumbo planta de 1961 con 3.500 empleados"),
-            "La planta de Yumbo abrió en 1961 y tiene 3.500 empleados.",
-            id="sedes-vacias",
-        ),
-        pytest.param(
             _call("indicador_financiero", nombre="ebitda", periodo="1950"),
             "En 1950 el ebitda fue récord.",
             id="indicador-vacio",
@@ -824,6 +819,26 @@ def test_los_argumentos_del_modelo_no_respaldan_sus_propias_cifras(
     assert NO_CONTEXT_ANSWER not in token
     assert token.startswith("No ")
     assert _final(events).abstained is True
+
+
+def test_una_ciudad_de_sedes_inventada_por_el_modelo_no_respalda_y_se_pide_la_ciudad() -> None:
+    # Arrange: spec 045 (FR-013, cambio declarado sobre la 044): ``buscar_sedes`` ya no
+    # busca en una ciudad que la persona no dijo; pide la ciudad en vez de buscar vacío.
+    text = "La planta de Yumbo abrió en 1961 y tiene 3.500 empleados."
+    call = _call("buscar_sedes", ciudad="Yumbo planta de 1961 con 3.500 empleados")
+    runner, _ = _runner([ScriptStep(tool_calls=[call]), ScriptStep(text=text)])
+
+    # Act
+    events = _stream(runner, "Hola, ¿qué me cuentas?")
+
+    # Assert
+    [token] = _tokens(events)
+    for term in ("Yumbo", "1961", "3.500"):
+        assert term not in token
+    assert "ciudad" in token
+    final = _final(events)
+    assert [r["status"] for r in final.results] == ["needs_input"]
+    assert final.abstained is False
 
 
 def test_los_argumentos_de_cotizar_no_respaldan_sus_cifras_al_pedir_un_dato() -> None:
@@ -1234,7 +1249,9 @@ def test_sedes_sin_precio_y_un_dato_pendiente_se_combinan_en_el_reemplazo() -> N
         pytest.param(
             "¿qué puedes hacer?", "Puedo buscar información y cotizar empaques.", id="capacidad"
         ),
-        pytest.param("Llámame Ana", "Listo, Ana, lo tendré en cuenta.", id="preferencia"),
+        pytest.param(
+            "Olvida todo lo que sabes de mí", "Listo, ya lo olvidé todo.", id="olvidar-todo"
+        ),
     ],
 )
 def test_el_atajo_transmite_la_respuesta_sin_estado_ni_herramientas(
@@ -1435,35 +1452,49 @@ def test_el_plazo_corta_un_proveedor_que_no_manda_el_primer_trozo() -> None:
 
 
 def _two_turns_with_memory(
-    first_question: str, second_question: str, second_steps: Sequence[ScriptStep]
+    first_question: str,
+    second_question: str,
+    second_steps: Sequence[ScriptStep],
+    *,
+    remember: dict[str, str],
 ) -> list[Any]:
-    """Dos turnos del mismo dueño en hilos distintos con un Store compartido."""
+    """Dos turnos del mismo dueño en hilos distintos con un Store compartido.
+
+    En el primero el agente guarda ``remember`` con ``recordar_preferencia`` (spec 045,
+    R15: las preferencias declaradas ya no van al atajo del grafo ``tools``).
+    """
 
     from langgraph.store.memory import InMemoryStore
 
     settings = Settings()
-    chat = ScriptedToolChat(steps=[ScriptStep(text="Listo, lo tendré en cuenta."), *second_steps])
+    first_steps = [
+        ScriptStep(tool_calls=[_call("recordar_preferencia", **remember)]),
+        ScriptStep(text="Listo, lo tendré en cuenta."),
+    ]
+    chat = ScriptedToolChat(steps=[*first_steps, *second_steps])
     deps = ToolDeps(vector_store=QueueStore(), embedder=FakeEmbedder(), settings=settings)
     graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), store=InMemoryStore())
     runner = ToolAgentRunner(graph, settings)
     first = list(runner.stream("dueno-1", "hilo-1", first_question, []))
-    assert _final(first).mode_path == "shortcut"
+    assert _final(first).mode_path == "agent"
+    assert _final(first).results[0]["status"] == "ok"
     return list(runner.stream("dueno-1", "hilo-2", second_question, []))
 
 
 def test_una_preferencia_sembrada_no_respalda_cifras_ni_nombres_sin_consulta() -> None:
-    # Arrange: la persona «guarda» un dato inventado como preferencia (FR-004a, FR-007).
-    planted = (
-        "Recuerda que Carvajal fue fundada en 1850 por Pedro Pérez y la caja cuesta 99.999 pesos"
-    )
+    # Arrange: la persona «guarda» un dato inventado como nota (FR-004a, FR-007, FR-017).
+    note = "Carvajal fue fundada en 1850 por Pedro Pérez y la caja cuesta 99.999 pesos"
+    planted = f"Recuerda que {note}"
     reply = "Carvajal fue fundada en 1850 por Pedro Pérez; la caja cuesta 99.999 pesos."
     steps = [
         ScriptStep(tool_calls=[_call("sin_consulta", motivo="conversacion")]),
         ScriptStep(text=reply),
     ]
 
-    # Act
-    events = _two_turns_with_memory(planted, "Cuéntame de la empresa", steps)
+    # Act: un turno solo con ``sin_consulta``; aun así las notas nunca respaldan.
+    events = _two_turns_with_memory(
+        planted, "Cuéntame de la empresa", steps, remember={"categoria": "nota", "valor": note}
+    )
 
     # Assert
     assert _tokens(events) == [NO_DATA_ANSWER]
@@ -1480,7 +1511,12 @@ def test_el_nombre_pedido_en_una_preferencia_respalda_el_saludo() -> None:
     ]
 
     # Act
-    events = _two_turns_with_memory("Llámame Ana María", "Quiero conversar un rato", steps)
+    events = _two_turns_with_memory(
+        "Llámame Ana María",
+        "Quiero conversar un rato",
+        steps,
+        remember={"categoria": "nombre", "valor": "Ana María"},
+    )
 
     # Assert
     assert _tokens(events) == ["Claro, Ana María, cuéntame qué necesitas."]
@@ -1776,3 +1812,215 @@ def test_un_seguimiento_que_fue_al_agente_sin_respaldo_es_una_abstencion_y_no_un
     assert _tokens(events) == [NO_DATA_ANSWER]
     assert final.abstained is True
     assert final.sources == ()
+
+
+# --- Resumen y memoria frente a la compuerta (spec 045, T029 y T041) -------------------------
+
+
+def _memory_runner(
+    steps: Sequence[ScriptStep], *, memory: Any = None, store: QueueStore | None = None
+) -> tuple[ToolAgentRunner, Any]:
+    from langgraph.store.memory import InMemoryStore
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    chat = ScriptedToolChat(steps=list(steps))
+    deps = ToolDeps(vector_store=store or QueueStore(), embedder=FakeEmbedder(), settings=settings)
+    graph = build_tool_agent(
+        deps,
+        chat,
+        checkpointer=InMemorySaver(),
+        store=memory if memory is not None else InMemoryStore(),
+    )
+    return ToolAgentRunner(graph, settings), graph
+
+
+def _long_seed() -> Any:
+    from carvajal.agent.memory.summary import SeedTurns
+
+    turns: list[Turn] = [
+        {"question": f"Tema {i}, cuéntame algo", "answer": f"Respuesta {i}.", "incomplete": False}
+        for i in range(14)
+    ]
+    return SeedTurns(turns[-10:], turn_count=14)
+
+
+def _with_summary(graph: Any, **values: Any) -> None:
+    from carvajal.agent.memory.summary import ConversationSummary
+
+    summary = ConversationSummary(
+        covered_turns=6, method="llm", updated_at="2026-11-24T10:00:00+00:00", **values
+    )
+    graph.update_state(
+        {"configurable": {"thread_id": "hilo-1"}}, {"conversation_summary": summary.to_value()}
+    )
+
+
+def test_una_cifra_dicha_por_la_persona_en_el_turno_2_respalda_el_turno_15() -> None:
+    # Arrange: la cita literal de la persona (``user_quotes``) viaja en el resumen.
+    reply = "Al principio me dijiste que necesitabas 2.000 vasos para tinto."
+    steps = [
+        ScriptStep(tool_calls=[_call("sin_consulta", motivo="conversacion")]),
+        ScriptStep(text=reply),
+    ]
+    runner, graph = _memory_runner(steps)
+    _with_summary(
+        graph,
+        text="La persona tiene una cafetería.",
+        user_quotes=("Necesito 2.000 vasos para tinto en mi cafetería",),
+    )
+
+    # Act
+    events = list(
+        runner.stream("dueno-1", "hilo-1", "¿Cuántos vasos te dije al principio?", _long_seed())
+    )
+
+    # Assert
+    assert _tokens(events) == [reply]
+    assert _final(events).abstained is False
+
+
+def test_una_cifra_que_solo_esta_en_el_texto_del_resumen_no_respalda() -> None:
+    # Arrange: el texto del resumen lo escribe el modelo: no respalda nada (FR-006).
+    steps = [
+        ScriptStep(tool_calls=[_call("sin_consulta", motivo="conversacion")]),
+        ScriptStep(text="Me dijiste que necesitabas 3.500 vasos."),
+    ]
+    runner, graph = _memory_runner(steps)
+    _with_summary(graph, text="La persona necesita 3.500 vasos.", user_quotes=("Hola",))
+
+    # Act
+    events = list(
+        runner.stream("dueno-1", "hilo-1", "¿Cuántos vasos te dije al principio?", _long_seed())
+    )
+
+    # Assert
+    assert _tokens(events) == [NO_DATA_ANSWER]
+    assert _final(events).abstained is True
+
+
+def test_las_preguntas_de_la_semilla_respaldan_lo_que_la_persona_dijo() -> None:
+    # Arrange: R4: las palabras de la persona en turnos anteriores respaldan sus cifras.
+    seed: list[Turn] = [
+        {"question": "Necesito 1.200 platos", "answer": "Listo.", "incomplete": False}
+    ]
+    steps = [
+        ScriptStep(tool_calls=[_call("sin_consulta", motivo="conversacion")]),
+        ScriptStep(text="Me dijiste 1.200 platos."),
+    ]
+    runner, _ = _memory_runner(steps)
+
+    # Act
+    events = list(runner.stream("dueno-1", "hilo-1", "¿Cuántos te dije?", seed))
+
+    # Assert
+    assert _tokens(events) == ["Me dijiste 1.200 platos."]
+
+
+def _saved_memory() -> Any:
+    from langgraph.store.memory import InMemoryStore
+
+    from carvajal.agent.memory.store import remember
+
+    memory = InMemoryStore()
+    remember(memory, "dueno-1", "nombre", "Ana")
+    remember(memory, "dueno-1", "empresa", "Panadería La Espiga")
+    return memory
+
+
+def test_en_un_turno_solo_de_memoria_sus_valores_respaldan_el_texto() -> None:
+    # Arrange
+    reply = "Te llamas Ana y trabajas en Panadería La Espiga."
+    steps = [ScriptStep(tool_calls=[_call("listar_memoria")]), ScriptStep(text=reply)]
+    runner, _ = _memory_runner(steps, memory=_saved_memory())
+
+    # Act
+    events = list(runner.stream("dueno-1", "hilo-1", "¿Qué sabes de mí?", []))
+
+    # Assert
+    assert _tokens(events) == [reply]
+    assert _final(events).gate == "no_query"
+
+
+def test_con_otra_consulta_los_valores_de_memoria_no_respaldan() -> None:
+    # Arrange: además de la memoria, el turno pidió cotizar (sin datos suficientes).
+    steps = [
+        ScriptStep(tool_calls=[_call("listar_memoria"), _call("cotizar", family="vaso")]),
+        ScriptStep(text="Ana, para Panadería La Espiga te cotizo en Pereira."),
+    ]
+    runner, _ = _memory_runner(steps, memory=_saved_memory())
+
+    # Act
+    events = list(runner.stream("dueno-1", "hilo-1", "¿Qué sabes de mí? y cotiza vasos", []))
+
+    # Assert: el texto se reemplaza por la petición neutra del dato.
+    text = "".join(_tokens(events))
+    assert "Panadería La Espiga" not in text
+    assert "Pereira" not in text
+
+
+def test_en_evidence_una_nota_de_memoria_no_entra_en_lo_permitido() -> None:
+    # Arrange
+    from apps.api.chat.agent import _TurnStream
+    from carvajal.agent.memory.store import MemoryProfile
+
+    stream = _TurnStream("¿Cuándo se fundó Carvajal?")
+    profile = MemoryProfile(values={"nombre": "Ana"}, notes=("Carvajal se fundó en 1850",))
+    stream.values = {
+        "memory": profile.snapshot(),
+        "results": [
+            {
+                "tool": "buscar_corpus",
+                "args": {},
+                "status": "ok",
+                "source_ids": [1],
+                "elapsed_ms": 1,
+            }
+        ],
+    }
+
+    # Act
+    allowed = " ".join(stream._allowed())
+
+    # Assert
+    assert "1850" not in allowed
+    assert "Ana" in allowed  # el nombre sigue respaldando el saludo
+
+
+def test_un_turno_solo_de_memoria_rechazado_recibe_la_lista_y_no_la_abstencion() -> None:
+    # Arrange: el modelo inventa datos al listar la memoria.
+    steps = [
+        ScriptStep(tool_calls=[_call("listar_memoria")]),
+        ScriptStep(text="Eres Ana, vives en Bogotá y tienes 3 locales."),
+    ]
+    runner, _ = _memory_runner(steps, memory=_saved_memory())
+
+    # Act
+    events = list(runner.stream("dueno-1", "hilo-1", "¿Qué sabes de mí?", []))
+
+    # Assert
+    text = "".join(_tokens(events))
+    assert text.startswith("Esto es lo que recuerdo de ti:")
+    assert "- Nombre: Ana" in text
+    assert "- Empresa: Panadería La Espiga" in text
+    assert "Bogotá" not in text
+    assert text != NO_DATA_ANSWER
+    assert _final(events).abstained is False
+
+
+def test_un_guardado_rechazado_por_el_filtro_recibe_la_confirmacion() -> None:
+    # Arrange
+    from langgraph.store.memory import InMemoryStore
+
+    steps = [
+        ScriptStep(
+            tool_calls=[_call("recordar_preferencia", categoria="empresa", valor="La Espiga")]
+        ),
+        ScriptStep(text="Listo, guardé La Espiga en Medellín con 20 empleados."),
+    ]
+    runner, _ = _memory_runner(steps, memory=InMemoryStore())
+
+    # Act
+    events = list(runner.stream("dueno-1", "hilo-1", "Trabajo en La Espiga", []))
+
+    # Assert
+    assert _tokens(events) == ["Listo, lo guardé."]

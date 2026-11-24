@@ -29,6 +29,7 @@ from carvajal.agent.commercial_flow import (
     commercial_sources,
 )
 from carvajal.agent.commercial_intent import USE_TEMPERATURE, USES, microwave_for
+from carvajal.agent.memory.store import MemoryProfile
 from carvajal.agent.reference_names import (
     capacity_fits,
     informative_terms,
@@ -1089,7 +1090,32 @@ def _quote_payload(
     }
 
 
+def _habitual_city(context: ToolContext) -> str | None:
+    """Ciudad habitual de la memoria del dueño: solo para sugerirla (spec 045, FR-013).
+
+    Nunca se añade a lo que ``_city_said`` toma como dicho.
+    """
+
+    return MemoryProfile.from_snapshot(context.memory).values.get("ciudad_habitual") or None
+
+
+def _suggest_city(draft: _Draft, context: ToolContext, said: bool) -> _Draft:
+    """Añade ``sugerencia_ciudad`` a un ``needs_input`` que pide una ciudad no dicha."""
+
+    habitual = _habitual_city(context)
+    if habitual and not said and draft.status == "needs_input" and "ciudad" in draft.missing:
+        draft.data["sugerencia_ciudad"] = habitual
+    return draft
+
+
 def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
+    """``cotizar`` con la ciudad habitual como sugerencia cuando falta la ciudad (FR-013)."""
+
+    said = args.city is not None and (not context.question or _city_said(args.city, context))
+    return _suggest_city(_quote(args, deps, context, sources), context, said)
+
+
+def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
     # Una ciudad que la persona no dijo no se usa (FR-005: se pregunta, no se supone). Solo
     # se comprueba dentro de un turno: una llamada suelta no tiene pregunta con qué comparar.
     unsaid_city = bool(
@@ -1474,6 +1500,18 @@ def _buscar_sedes(
     args: BuscarSedesArgs, deps: ToolDeps, context: ToolContext, sources: _Sources
 ) -> _Draft:
     book = _book(deps)
+    if context.question and not _city_said(args.ciudad, context):
+        # Cambio declarado sobre la 044 (spec 045, FR-013): la misma regla de ``cotizar``.
+        # Una ciudad copiada de las preferencias o de una respuesta anterior no se usa; la
+        # ciudad habitual de la memoria solo se sugiere.
+        draft = _Draft(
+            "needs_input",
+            "La persona no ha dicho la ciudad de las sedes; no se buscaron sedes. Falta que "
+            "la diga o la confirme.",
+            data={"ciudades_disponibles": list(book.cities())},
+            missing=["ciudad"],
+        )
+        return _suggest_city(draft, context, said=False)
     sites = _contract_sites(book, sku=args.sku, city=args.ciudad, as_of=_today(deps))
     if not sites:
         return _Draft(

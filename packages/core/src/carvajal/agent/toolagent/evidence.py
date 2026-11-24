@@ -82,10 +82,12 @@ from carvajal.prompts import NO_CONTEXT_ANSWER
 
 __all__ = [
     "FAREWELL_ANSWER",
+    "FORGET_ANSWER",
     "GATE_ABSTAIN",
     "GATE_EVIDENCE",
     "GATE_NO_QUERY",
     "GREETING_ANSWER",
+    "MEMORY_UNAVAILABLE_ANSWER",
     "NO_DATA_ANSWER",
     "PREFERENCE_ANSWER",
     "GatePath",
@@ -578,6 +580,11 @@ GREETING_ANSWER: Final = (
     "comprar) y con información pública de Carvajal. ¿Qué necesitas?"
 )
 PREFERENCE_ANSWER: Final = "Listo, lo tendré en cuenta."
+# «Olvida todo lo que sabes de mí» (spec 045): confirmación fija, sin repetir ningún dato.
+FORGET_ANSWER: Final = "Listo, ya olvidé lo que sabía de ti."
+MEMORY_UNAVAILABLE_ANSWER: Final = (
+    "Ahora no puedo gestionar lo que recuerdo de ti; intenta de nuevo en un momento."
+)
 NO_DATA_ANSWER: Final = (
     "No tengo un dato verificado para responder eso. Si me cuentas qué necesitas (un "
     "producto, un precio, dónde comprar o un dato de Carvajal), lo busco."
@@ -657,5 +664,11 @@ def abstention(
         parts.append(_MISS_OFFER)
     if parts:
         return " ".join(parts), True
-    conversational = conversation in {FAREWELL_ANSWER, GREETING_ANSWER, PREFERENCE_ANSWER}
+    conversational = conversation in {
+        FAREWELL_ANSWER,
+        GREETING_ANSWER,
+        PREFERENCE_ANSWER,
+        FORGET_ANSWER,
+        MEMORY_UNAVAILABLE_ANSWER,
+    }
     return conversation, not conversational

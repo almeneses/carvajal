@@ -146,7 +146,8 @@ def run_tool(
     outcome = _outcome(name, outcome_args, draft.status, sources.ids, elapsed)
     return ToolCallResult(
         tool=name,
-        args=outcome_args,
+        # Los mismos argumentos que el ``ToolOutcome``: sin valores de memoria (FR-012).
+        args=dict(outcome["args"]),
         payload=payload,
         content=format_tool_content(name, payload),
         outcome=outcome,
@@ -176,9 +177,14 @@ def _outcome(
     """``ToolOutcome`` validado; una herramienta desconocida se registra como ``UNKNOWN_TOOL``.
 
     El nombre inventado lo escribe el modelo y puede llevar datos de la persona: no llega
-    al estado ni al monitoreo (FR-014).
+    al estado ni al monitoreo (FR-014). Las herramientas de memoria guardan solo la
+    categoría como argumento (spec 045, FR-012 y FR-018): el canal ``results``, la traza,
+    la evaluación y el monitoreo heredan la redacción, también con ``content=full``.
     """
 
+    if name in MEMORY_TOOLS:
+        category = args.get("categoria")
+        args = {"categoria": category} if isinstance(category, str) else {}
     if name in TOOL_NAMES:
         return make_tool_outcome(
             tool=name, args=args, status=status, source_ids=ids, elapsed_ms=elapsed

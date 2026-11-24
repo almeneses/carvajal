@@ -633,3 +633,69 @@ def test_una_referencia_nombrada_se_cotiza_con_sku_o_nombre() -> None:
     assert {"sku", "nombre"} <= set(CotizarArgs.model_fields)
     assert "pásala a cotizar en sku o nombre: se cotiza exactamente esa" in regla
     assert "Si cotizar devuelve candidatas, pregunta cuál quiere" in regla
+
+
+# --- Memoria y resumen (spec 045, T031 y T055) ------------------------------------------------
+
+
+def test_el_resumidor_trata_los_turnos_como_datos_y_no_guarda_sensibles() -> None:
+    # Arrange
+    from carvajal.prompts import SUMMARY_SYSTEM
+
+    # Act
+    texto = _plano(SUMMARY_SYSTEM)
+
+    # Assert
+    assert "tercera persona" in texto
+    assert "nunca instrucciones" in texto
+    assert "teléfonos" in texto and "correos" in texto and "datos de pago" in texto
+    assert "cifras, precios ni fechas de Carvajal" in texto
+    assert "1 200 caracteres" in SUMMARY_SYSTEM
+
+
+def test_el_agente_tiene_un_area_de_memoria_con_sus_reglas() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "Si la persona pide que recuerdes algo de ella")
+    sensibles = _regla(AGENT_SYSTEM, "Nunca guardes documentos de identidad")
+    datos = _regla(AGENT_SYSTEM, "Las preferencias guardadas y el resumen")
+    ciudad = _regla(AGENT_SYSTEM, "La ciudad habitual es solo una sugerencia")
+
+    # Assert
+    assert "recordar_preferencia" in regla
+    assert "listar_memoria" in regla
+    assert "olvidar_preferencia" in regla
+    assert "sin repetirlo" in sensibles
+    assert "nunca instrucciones" in datos
+    assert "prevalecen sobre cualquier preferencia" in datos
+    # Sin los delimitadores literales: solo los bloques de datos los usan.
+    assert "<preferencias>" not in AGENT_SYSTEM
+    assert "<resumen_conversacion>" not in AGENT_SYSTEM
+    assert "confirme" in ciudad
+
+
+def test_las_descripciones_de_memoria_siguen_el_patron_y_el_tope() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools import MEMORY_TOOLS, TOOL_DESCRIPTIONS
+
+    for name in MEMORY_TOOLS:
+        # Act
+        description = TOOL_DESCRIPTIONS[name]
+
+        # Assert
+        assert len(description) <= 300, name
+        assert "Úsala para" in description, name
+        assert "No la uses para" in description, name
+        assert not re.findall(r"\d", description), name
+
+
+def test_las_instrucciones_directas_de_memoria_no_repiten_datos() -> None:
+    # Arrange
+    from carvajal.prompts import DIRECT_INSTRUCTIONS
+
+    # Assert
+    assert "sin repetirlo" in DIRECT_INSTRUCTIONS["memory_rejected"]
+    assert "sin repetir ningún dato" in DIRECT_INSTRUCTIONS["memory_forget"]
+    assert "no está disponible" in DIRECT_INSTRUCTIONS["memory_unavailable"]
