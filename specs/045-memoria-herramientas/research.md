@@ -21,12 +21,19 @@ recién creada desde `main`); no se ejecutaron LLM ni servicios externos para es
      llena, se descarta y se registra `agent.summary_dropped`) se inyecta en `ChatService` y
      se construye en `default_chat_service` con su propia `session_factory` y su propio
      `PostgresStore` (R17: el Store del grafo usa una sola conexión con candado). Nunca se
-     espera: `submit` corre antes de que salgan `trace`, `products` y `done`.
-  3. El trabajo lee el historial completo de la conversación con `history_all()` (nuevo en
-     `adapters/storage/chat.py`; `history` exige un `limit`), empareja los mensajes con
-     `pair_turns` (la misma función que usa `_seed_turns`, para que ambos cuenten turnos
-     igual), decide qué turnos salieron de la ventana y aún no están cubiertos, y escribe un
-     **borrador** en el Store (R2).
+     espera: `submit` corre antes de que salgan `trace`, `products` y `done`. Si el hilo
+     ya tiene un trabajo en cola que aún no arrancó, el envío se fusiona con él
+     (`agent.summary_coalesced`): los turnos seguidos de un hilo no ocupan cupos de la cola
+     ni descartan los de otros hilos. La marca se retira al arrancar el trabajo, así que
+     un turno que llega con el trabajo en curso encola otro y no se pierde.
+  3. El trabajo cuenta los turnos con `count_turns()` (el mismo `COUNT` que `_seed_turns`)
+     y lee el borrador y la lápida del Store. Si no hay turnos fuera de la ventana o el
+     borrador ya los cubre, termina sin leer mensajes. Si faltan, lee solo esos turnos con
+     `history_turns(start, stop)` (nuevo en `adapters/storage/chat.py`; límites por
+     *keyset* sobre las respuestas del asistente), los empareja con `paired_messages` (la
+     misma cuenta que `pair_turns`) y escribe un **borrador** en el Store (R2). Los turnos
+     olvidados por la lápida se cuentan con un `COUNT` de preguntas anteriores a ella más
+     la primera pregunta posterior (R16). Nunca carga el hilo entero.
   4. En el turno siguiente, `recall` lee el borrador y el canal del hilo y adopta el que
      cubre más turnos. Para saber qué turnos de la semilla faltan, el servicio añade a la
      entrada del grafo `turn_count` (total de turnos persistidos, un `COUNT` en la misma
@@ -37,8 +44,8 @@ recién creada desde `main`); no se ejecutaron LLM ni servicios externos para es
      `agent_history_turns + SUMMARY_SLACK_TURNS` turnos, con `SUMMARY_SLACK_TURNS = 2`).
   5. `recall` solo cubre los turnos que ve y nunca avanza `covered_turns` más allá de ellos.
      Si el hueco supera la holgura (cola descartada, reinicio del proceso), usa lo que haya
-     y registra `agent.summary_gap`; el siguiente trabajo del worker, que lee el historial
-     completo, lo completa.
+     y registra `agent.summary_gap`; el siguiente trabajo del worker, que lee desde la
+     marca `covered_turns` del borrador, lo completa.
 - **Rationale**: cubre la web y WhatsApp por igual (el puente MCP consume el generador
   entero en `apps/mcp/bridge.py:165-180`, así que cualquier trabajo síncrono después del
   `done` retrasaría la respuesta); no depende de la conexión; el primer texto no cambia
@@ -565,7 +572,7 @@ revisada.
 | Ejemplo del J1 imposible | US3 usa CO-VTER-04; J1 como `no_convertible` | spec, T060 |
 | Reglas de `test_prompts.py` sobre cifras y ciudades | Declaradas en T055 y T084 | T055, T084 |
 | `build_conversation_prompt` a 8 turnos y nodo `rag` | **Parcial**: se declara la excepción del nodo `rag` en FR-002 (cambiar su prompt sin medir no cabe en el presupuesto) y se registra en la evidencia que `routes` ve 8 turnos | FR-002, T028, T095 |
-| Detalles de API (`for_conversation`, `history`, candado del Store) | Recorte en Python, `history_all()`, `PostgresStore` propio del worker | R1, T033, T080 |
+| Detalles de API (`for_conversation`, `history`, candado del Store) | Recorte en Python, `count_turns()` + `history_turns()` acotado, `PostgresStore` propio del worker | R1, T033, T080 |
 | Línea de estado de `ficha_producto` con valores del modelo | **Parcial**: plantillas sin valores para las de catálogo nuevas, en lugar de generalizar `city_keys` a `said_keys` (menos superficie) | contrato |
 
 ## R18. `preguntas_frecuentes` en lugar de `listar_familias` (cambio del owner, 2026-11-24)

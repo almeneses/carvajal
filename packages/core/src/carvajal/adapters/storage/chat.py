@@ -12,7 +12,7 @@ from time import time_ns
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage import tables
@@ -248,10 +248,11 @@ class SqlChatRepository:
         return [ChatMessage(**row) for row in reversed(rows)]
 
     def history_all(self, conversation_id: str) -> list[ChatMessage]:
-        """Todos los mensajes del hilo en orden ascendente, sin tope (spec 045, R1).
+        """Todos los mensajes del hilo en orden ascendente, sin tope.
 
-        Lo usa el ``SummaryWorker`` para resumir los turnos que salieron de la ventana;
-        :meth:`history` exige un ``limit`` y lo acota a ``HISTORY_LIMIT``.
+        :meth:`history` exige un ``limit`` y lo acota a ``HISTORY_LIMIT``. El
+        ``SummaryWorker`` no la usa: lee solo los turnos que le faltan con
+        :meth:`history_turns`.
         """
 
         rows = (
@@ -277,6 +278,91 @@ class SqlChatRepository:
             )
         ).scalar_one()
         return int(total or 0)
+
+    def history_turns(self, conversation_id: str, *, start: int, stop: int) -> list[ChatMessage]:
+        """Mensajes de los turnos ``[start, stop)`` del hilo, en orden ascendente (spec 045, R1).
+
+        Los turnos se cuentan como en :meth:`count_turns` (una respuesta del asistente por
+        turno). Los límites del rango salen de las respuestas que cierran el turno
+        ``start - 1`` y el turno ``stop - 1`` (orden ``(created_at, id)``), así que solo se
+        cargan los mensajes de esos turnos y nunca el hilo entero.
+        """
+
+        if start < 0 or stop < start:
+            raise ValueError(f"rango de turnos inválido: [{start}, {stop}).")
+        if stop == start:
+            return []
+        upper = self._assistant_key(conversation_id, stop - 1)
+        if upper is None:
+            return []
+        column = tables.messages.c
+        query = select(tables.messages).where(
+            column.conversation_id == conversation_id,
+            or_(
+                column.created_at < upper[0],
+                and_(column.created_at == upper[0], column.id <= upper[1]),
+            ),
+        )
+        if start > 0:
+            lower = self._assistant_key(conversation_id, start - 1)
+            if lower is None:
+                return []
+            query = query.where(
+                or_(
+                    column.created_at > lower[0],
+                    and_(column.created_at == lower[0], column.id > lower[1]),
+                )
+            )
+        rows = self._session.execute(query.order_by(column.created_at, column.id)).mappings().all()
+        return [ChatMessage(**row) for row in rows]
+
+    def _assistant_key(self, conversation_id: str, index: int) -> tuple[datetime, str] | None:
+        """``(created_at, id)`` de la respuesta del asistente que cierra el turno ``index``."""
+
+        column = tables.messages.c
+        row = self._session.execute(
+            select(column.created_at, column.id)
+            .where(column.conversation_id == conversation_id, column.role == "assistant")
+            .order_by(column.created_at, column.id)
+            .offset(index)
+            .limit(1)
+        ).first()
+        return None if row is None else (row[0], row[1])
+
+    def count_questions_until(self, conversation_id: str, moment: datetime) -> int:
+        """Preguntas de la persona guardadas hasta ``moment`` inclusive (un ``COUNT``)."""
+
+        column = tables.messages.c
+        total = self._session.execute(
+            select(func.count())
+            .select_from(tables.messages)
+            .where(
+                column.conversation_id == conversation_id,
+                column.role == "user",
+                column.created_at <= _utc(moment),
+            )
+        ).scalar_one()
+        return int(total or 0)
+
+    def first_question_after(self, conversation_id: str, moment: datetime) -> ChatMessage | None:
+        """Primera pregunta de la persona guardada después de ``moment``."""
+
+        column = tables.messages.c
+        row = (
+            self._session.execute(
+                select(tables.messages)
+                .where(
+                    column.conversation_id == conversation_id,
+                    column.role == "user",
+                    column.created_at > _utc(moment),
+                )
+                .order_by(column.created_at, column.id)
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+        return None if row is None else ChatMessage(**row)
 
     def append_turn(
         self,
@@ -345,6 +431,12 @@ class SqlChatRepository:
         if updated is None:
             raise LookupError(f"No existe la conversación {conversation_id!r}.")
         self._session.flush()
+
+
+def _utc(moment: datetime) -> datetime:
+    """El momento en UTC (sin zona se toma como UTC), como se guarda ``created_at``."""
+
+    return moment.astimezone(UTC) if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 def _message_ids() -> tuple[str, str]:

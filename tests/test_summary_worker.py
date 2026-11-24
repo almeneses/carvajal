@@ -137,7 +137,9 @@ def test_la_cola_llena_descarta_y_lo_registra(session_factory: Any) -> None:
     # Arrange
     release = threading.Event()
     model = FakeSummarizer(release=release)
+    # Dos hilos distintos: dos envíos del mismo hilo se fusionarían en un solo trabajo.
     conversation = _conversation(session_factory, 10)
+    other = _conversation(session_factory, 10, start=100)
     worker = SummaryWorker(
         session_factory,
         _settings(agent_summary_mode="llm"),
@@ -149,7 +151,7 @@ def test_la_cola_llena_descarta_y_lo_registra(session_factory: Any) -> None:
     # Act
     with capture_logs() as logs:
         first = worker.submit(OWNER, conversation)
-        second = worker.submit(OWNER, conversation)
+        second = worker.submit(OWNER, other)
     release.set()
     worker.close(wait=True)
 
@@ -158,6 +160,140 @@ def test_la_cola_llena_descarta_y_lo_registra(session_factory: Any) -> None:
     dropped = [log for log in logs if log["event"] == "agent.summary_dropped"]
     assert len(dropped) == 1
     assert "pregunta" not in str(logs)
+
+
+def test_envios_repetidos_de_un_hilo_en_cola_se_fusionan(session_factory: Any) -> None:
+    # Arrange: el trabajo del hilo B ocupa el único hilo del ejecutor.
+    release = threading.Event()
+    model = FakeSummarizer(release=release)
+    store = InMemoryStore()
+    busy = _conversation(session_factory, 10, start=100)
+    conversation = _conversation(session_factory, 10)
+    worker = SummaryWorker(
+        session_factory, _settings(agent_summary_mode="llm"), store=store, model=model
+    )
+    assert worker.submit(OWNER, busy)
+    assert model.started.wait(timeout=5)
+
+    # Act: cinco turnos seguidos de A mientras su trabajo sigue en cola.
+    with capture_logs() as logs:
+        accepted = []
+        for index in range(5):
+            _append(session_factory, conversation, 1, start=10 + index)
+            accepted.append(worker.submit(OWNER, conversation))
+        pending = worker._pending
+    release.set()
+    worker.close(wait=True)
+
+    # Assert: un solo trabajo para A que cubre todos sus turnos.
+    assert all(accepted)
+    assert pending == 2
+    assert sum(log["event"] == "agent.summary_coalesced" for log in logs) == 4
+    assert model.calls == 2
+    summary = _draft(store, conversation)
+    assert summary is not None
+    assert summary.covered_turns == 15 - 8
+
+
+def test_los_envios_repetidos_de_un_hilo_no_descartan_otro(session_factory: Any) -> None:
+    # Arrange: el primer trabajo de A queda bloqueado en el modelo; cola de 3.
+    release = threading.Event()
+    model = FakeSummarizer(release=release)
+    store = InMemoryStore()
+    conv_a = _conversation(session_factory, 10)
+    conv_b = _conversation(session_factory, 10, start=100)
+    worker = SummaryWorker(
+        session_factory,
+        _settings(agent_summary_mode="llm"),
+        store=store,
+        model=model,
+        max_queue=3,
+    )
+    assert worker.submit(OWNER, conv_a)
+    assert model.started.wait(timeout=5)
+
+    # Act: A envía cuatro turnos más y después llega B.
+    with capture_logs() as logs:
+        for index in range(4):
+            _append(session_factory, conv_a, 1, start=10 + index)
+            worker.submit(OWNER, conv_a)
+        accepted_b = worker.submit(OWNER, conv_b)
+    release.set()
+    worker.close(wait=True)
+
+    # Assert
+    assert accepted_b
+    assert not any(log["event"] == "agent.summary_dropped" for log in logs)
+    summary_b = _draft(store, conv_b)
+    assert summary_b is not None
+    assert summary_b.covered_turns == 2
+
+
+def test_un_turno_con_el_trabajo_en_curso_encola_otro(session_factory: Any) -> None:
+    # Arrange: el trabajo de A ya leyó el historial y espera al modelo.
+    release = threading.Event()
+    model = FakeSummarizer(release=release)
+    store = InMemoryStore()
+    conversation = _conversation(session_factory, 10)
+    worker = SummaryWorker(
+        session_factory, _settings(agent_summary_mode="llm"), store=store, model=model
+    )
+    assert worker.submit(OWNER, conversation)
+    assert model.started.wait(timeout=5)
+
+    # Act: llega un turno nuevo mientras el trabajo sigue en curso.
+    _append(session_factory, conversation, 1, start=10)
+    with capture_logs() as logs:
+        accepted = worker.submit(OWNER, conversation)
+        pending = worker._pending
+    release.set()
+    worker.close(wait=True)
+
+    # Assert: no se fusiona con el trabajo en curso y el turno nuevo entra al resumen.
+    assert accepted
+    assert pending == 2
+    assert not any(log["event"] == "agent.summary_coalesced" for log in logs)
+    summary = _draft(store, conversation)
+    assert summary is not None
+    assert summary.covered_turns == 3
+
+
+def test_un_trabajo_lee_solo_los_turnos_que_faltan(
+    session_factory: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: hilo largo ya resumido; luego llega un único turno nuevo.
+    store = InMemoryStore()
+    conversation = _conversation(session_factory, 300)
+    worker = SummaryWorker(session_factory, _settings(), store=store)
+    worker.summarize_now(OWNER, conversation)
+    before = _draft(store, conversation)
+    assert before is not None
+    _append(session_factory, conversation, 1, start=300)
+    loaded: list[int] = []
+    for name in ("history_all", "history_turns"):
+        original = getattr(SqlChatRepository, name, None)
+        if original is None:
+            continue
+
+        def spy(self: Any, *args: Any, _original: Any = original, **kwargs: Any) -> Any:
+            rows = _original(self, *args, **kwargs)
+            loaded.append(len(rows))
+            return rows
+
+        monkeypatch.setattr(SqlChatRepository, name, spy)
+
+    # Act: un trabajo con un turno nuevo y otro idempotente (nada que resumir).
+    summary = worker.summarize_now(OWNER, conversation)
+    first_job = list(loaded)
+    worker.summarize_now(OWNER, conversation)
+    second_job = loaded[len(first_job) :]
+
+    # Assert: solo se leen los dos mensajes del turno nuevo; el idempotente no lee ninguno.
+    assert summary is not None
+    assert summary.covered_turns == before.covered_turns + 1
+    assert summary.text.splitlines()[-1] == "Turno 293 — la persona: «pregunta 292»"
+    assert sum(first_job) <= 2, f"el trabajo cargó {first_job} mensajes"
+    assert second_job == [], f"el trabajo idempotente cargó {second_job} mensajes"
 
 
 def test_el_plazo_vencido_usa_el_determinista(session_factory: Any) -> None:

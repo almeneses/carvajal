@@ -21,12 +21,12 @@ La memoria silenciosa del Cotizador (`visitor_memory`, dueño `cot:<owner_key>`)
 turno N persiste ─► ChatService: summary_worker.submit(owner_key, conversation_id)  (no espera)
    (tras cada _persist/_persist_owned: service.py:514, 614, 644, 804, 976)
                                               │
-                                              ▼  (hilo de trabajo, cola ≤ 32)
-                     history_all(conversation_id) con su propia session_factory
-                     turnos = pair_turns(mensajes)        # misma función que _seed_turns
-                     fuera = turnos[forgotten_through : total - agent_history_turns]
-                     si borrador.covered_turns == total - agent_history_turns: fin (idempotente)
-                     nuevos = turnos[max(borrador.covered_turns, forgotten_through) : …]
+                                              ▼  (hilo de trabajo, cola ≤ 32; si el hilo ya está en cola, se fusiona)
+                     total = count_turns(conversation_id)  # su propia session_factory
+                     si total <= agent_history_turns: fin (sin leer mensajes)
+                     si borrador.covered_turns >= total - agent_history_turns: fin (idempotente)
+                     inicio = max(borrador.covered_turns, forgotten_through)
+                     nuevos = paired_messages(history_turns(inicio, total - agent_history_turns))
                      texto = resumir(borrador.text, nuevos)     # modelo, plazo 8 s
                              └─ si falla, vence o no hay DeepSeek ─► determinista(borrador, nuevos)
                      redact(texto y citas)

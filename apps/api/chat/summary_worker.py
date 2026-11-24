@@ -7,11 +7,12 @@ retrasa el primer texto ni el final de la respuesta (FR-003).
 
 Cada trabajo:
 
-1. lee el historial completo del hilo con su propia sesión (``history_all``) y lo
-   empareja con ``pair_turns`` (la misma cuenta de turnos que la semilla del servicio);
-2. si el borrador del Store ya cubre todos los turnos que salieron de la ventana, termina
-   sin llamar al modelo (idempotencia, FR-005);
-3. resume los turnos nuevos con el modelo (``AGENT_SUMMARY_MODE=llm``) o con el respaldo
+1. cuenta los turnos del hilo con su propia sesión (``count_turns``, la misma cuenta que
+   la semilla del servicio) y lee el borrador y la lápida del Store;
+2. si no hay turnos fuera de la ventana o el borrador ya los cubre todos, termina sin leer
+   mensajes ni llamar al modelo (idempotencia, FR-005);
+3. lee solo los turnos que faltan por resumir (``history_turns``), los empareja con
+   ``paired_messages`` y los resume con el modelo (``AGENT_SUMMARY_MODE=llm``) o con el respaldo
    determinista; cualquier falla del modelo cae al determinista (FR-004);
 4. relee la lápida de «olvidar todo» y descarta su resultado si es posterior a la lectura
    del historial; si no, escribe el borrador en el Store (``recall`` lo adopta en el turno
@@ -22,7 +23,7 @@ advertencia (FR-009). Los eventos de log nunca llevan texto de la conversación.
 """
 
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import replace
@@ -89,6 +90,10 @@ class SummaryWorker:
         self._timeout_s = settings.agent_summary_timeout_s if timeout_s is None else timeout_s
         self._lock = threading.Lock()
         self._pending = 0
+        # Hilos con un trabajo en cola que aún no arrancó: otro envío del mismo hilo se
+        # fusiona con él. Se retira al arrancar el trabajo, no al terminar, para que un
+        # turno que llega con el trabajo en curso encole otro y no se pierda.
+        self._queued: set[tuple[str, str]] = set()
         self._closed = False
         self._executor: ThreadPoolExecutor | None = None
         mode = settings.agent_summary_mode
@@ -106,17 +111,26 @@ class SummaryWorker:
     # -- Encolar ------------------------------------------------------------------------------
 
     def submit(self, owner_key: str, conversation_id: str) -> bool:
-        """Encola el resumen del hilo y vuelve de inmediato; ``False`` si no se encoló."""
+        """Encola el resumen del hilo y vuelve de inmediato; ``False`` si no se encoló.
+
+        Si el hilo ya tiene un trabajo en cola que no arrancó, el envío se fusiona con él
+        (``agent.summary_coalesced``) y devuelve ``True``: ese trabajo leerá el turno nuevo.
+        """
 
         if self.mode == "off" or not owner_key or not conversation_id:
             return False
+        key = (owner_key, conversation_id)
         with self._lock:
             if self._closed:
                 return False
+            if key in self._queued:
+                logger.info("agent.summary_coalesced")
+                return True
             if self._pending >= self._max_queue:
                 logger.warning("agent.summary_dropped", pending=self._pending)
                 return False
             self._pending += 1
+            self._queued.add(key)
             if self._executor is None:
                 self._executor = ThreadPoolExecutor(
                     max_workers=1, thread_name_prefix="summary-worker"
@@ -127,11 +141,14 @@ class SummaryWorker:
         except RuntimeError:  # el ejecutor se cerró entre medias
             with self._lock:
                 self._pending -= 1
+                self._queued.discard(key)
             return False
         logger.info("agent.summary_scheduled")
         return True
 
     def _run(self, owner_key: str, conversation_id: str) -> None:
+        with self._lock:
+            self._queued.discard((owner_key, conversation_id))
         try:
             self.summarize_now(owner_key, conversation_id)
         except Exception as error:  # el worker nunca tumba el proceso
@@ -185,9 +202,8 @@ class SummaryWorker:
         started = perf_counter()
         read_at = datetime.now(UTC)
         with self._session_factory() as session:
-            messages = SqlChatRepository(session).history_all(conversation_id)
-        paired = paired_messages(messages)
-        needed = len(paired) - self._settings.agent_history_turns
+            total = SqlChatRepository(session).count_turns(conversation_id)
+        needed = total - self._settings.agent_history_turns
         if needed <= 0:
             return None
         store = self._get_store()
@@ -209,14 +225,23 @@ class SummaryWorker:
             updated = parse_time(draft.updated_at)
             if updated is None or updated < tomb_at:
                 draft = None
-        forgotten = draft.forgotten_through if draft is not None else 0
-        if tomb_at is not None:
-            forgotten = max(forgotten, _forgotten_turns(paired, tomb_at))
         if draft is not None and draft.covered_turns >= needed:
             return draft
-        start = max(draft.covered_turns if draft is not None else 0, forgotten)
+        forgotten = draft.forgotten_through if draft is not None else 0
+        with self._session_factory() as session:
+            repository = SqlChatRepository(session)
+            if tomb_at is not None:
+                forgotten = max(forgotten, _forgotten_turns(repository, conversation_id, tomb_at))
+            start = max(draft.covered_turns if draft is not None else 0, forgotten)
+            # Solo los turnos por resumir; si todo estaba olvidado, el último basta para
+            # ``last_message_id``.
+            first = min(start, needed - 1)
+            messages = repository.history_turns(conversation_id, start=first, stop=needed)
+        paired = paired_messages(messages)
+        if not paired:
+            return None
         previous = draft if draft is not None and draft.covered_turns >= forgotten else None
-        last_id = str(getattr(paired[needed - 1][1], "id", "") or "") or None
+        last_id = str(getattr(paired[-1][1], "id", "") or "") or None
         if start >= needed:
             # Todo lo que salió de la ventana estaba olvidado: solo avanza la marca.
             summary = replace(
@@ -226,7 +251,7 @@ class SummaryWorker:
                 updated_at=datetime.now(UTC).isoformat(),
             )
         else:
-            turns = [turn for turn, _user, _answer in paired[start:needed]]
+            turns = [turn for turn, _user, _answer in paired[start - first :]]
             summary, cause = summarize(
                 previous,
                 turns,
@@ -276,23 +301,20 @@ def _forgotten_since(store: Any, namespace: tuple[str, ...], read_at: datetime) 
     return latest_at is not None and latest_at > read_at
 
 
-def _forgotten_turns(paired: Sequence[tuple[Any, Any, Any]], tomb_at: datetime) -> int:
+def _forgotten_turns(repository: SqlChatRepository, conversation_id: str, tomb_at: datetime) -> int:
     """Turnos que «olvidar todo» deja fuera del resumen (R16).
 
     Son los turnos cuya pregunta se guardó antes de la lápida y, además, el propio turno que
     pidió olvidar: ``append_turn`` lo persiste después de que el grafo escribiera la lápida,
     pero el grafo ya lo marcó como olvidado (``forgotten_through = turn_count + 1``). Se
-    reconoce con el mismo patrón que exigen el atajo y ``olvidar_preferencia(todo)``.
+    reconoce con el mismo patrón que exigen el atajo y ``olvidar_preferencia(todo)``. Se
+    resuelve con un ``COUNT`` y la primera pregunta posterior, sin leer el hilo entero.
     """
 
-    moments = [parse_time(getattr(user, "created_at", None)) for _turn, user, _answer in paired]
-    before = sum(1 for moment in moments if moment is not None and moment <= tomb_at)
-    after = next(
-        (index for index, moment in enumerate(moments) if moment is not None and moment > tomb_at),
-        None,
-    )
-    if after is not None and forget_all_requested(str(getattr(paired[after][1], "content", ""))):
-        before = max(before, after + 1)
+    before = repository.count_questions_until(conversation_id, tomb_at)
+    after = repository.first_question_after(conversation_id, tomb_at)
+    if after is not None and forget_all_requested(str(after.content)):
+        before += 1
     return before
 
 
