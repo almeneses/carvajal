@@ -4156,3 +4156,22 @@ test("050 la respuesta con nota marca la <li> con data-voz-nota para el rediseñ
   // Assert
   assert.equal(turno.dataset.vozNota, "1");
 });
+
+test("050 en el respaldo del navegador el avance de la nota crece al terminar cada parte", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
+  const montaje = montarNotas({ servidor, sintesis });
+  const turno = crearTurnoDom({ mensaje: "m-b", texto: "Primera parte. Segunda parte." });
+  turno.dataset.vozResumen = "Primera parte.\n\nSegunda parte.";
+  completarTurno(montaje, turno);
+  pulsar(montaje, partesDeNota(turno).boton);
+  await vaciarPromesas();
+
+  // Act: termina la primera de dos partes.
+  sintesis.terminar();
+
+  // Assert
+  assert.equal(sintesis.locuciones.length, 2);
+  assert.equal(partesDeNota(turno).barra.getAttribute("aria-valuenow"), "50");
+});

@@ -1913,6 +1913,11 @@
       locucion.onend = () => {
         if (ciclo !== cicloLectura) return;
         indiceLectura += 1;
+        // Respaldo dentro de una nota: al cerrar cada parte, el avance llega a su final.
+        const notaLeida = notaDe(turnoLectura);
+        if (notaLeida && segmentosLectura.length) {
+          pintarAvance(notaLeida, indiceLectura / segmentosLectura.length, 0);
+        }
         if (indiceLectura < segmentosLectura.length) hablarSegmento(ciclo, voz, alEmpezar);
         else terminarLectura();
       };
