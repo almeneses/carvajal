@@ -329,11 +329,11 @@ recién creada desde `main`); no se ejecutaron LLM ni servicios externos para es
      prohíbe. Las parejas que se confunden se desambiguan entre sí: `ficha_producto` ↔
      `buscar_producto` ↔ `cotizar`; `ciudades_con_cobertura` ↔ `buscar_sedes`;
      `indicadores_disponibles` ↔ `indicador_financiero`;
-     `historia_carvajal`/`empresas_del_grupo` ↔ `buscar_corpus`; `convertir_presentacion` ↔
-     `cotizar`.
+     `historia_carvajal`/`empresas_del_grupo`/`preguntas_frecuentes` ↔ `buscar_corpus`;
+     `convertir_presentacion` ↔ `cotizar`.
   3. **Agrupación por área en `AGENT_SYSTEM`**: documental (`buscar_corpus`,
-     `historia_carvajal`, `empresas_del_grupo`), catálogo (`buscar_producto`,
-     `ficha_producto`, `comparar_referencias`, `guia_materiales`, `listar_familias`,
+     `historia_carvajal`, `empresas_del_grupo`, `preguntas_frecuentes`), catálogo
+     (`buscar_producto`, `ficha_producto`, `comparar_referencias`, `guia_materiales`,
      `convertir_presentacion`), comercial (`cotizar`, `consultar_cotizacion`,
      `buscar_sedes`, `ciudades_con_cobertura`), finanzas (`indicador_financiero`,
      `indicadores_disponibles`), memoria (las tres) y utilidades (`fecha_actual`,
@@ -365,7 +365,7 @@ recién creada desde `main`); no se ejecutaron LLM ni servicios externos para es
   `chunk_id` con prefijo estable; el `excerpt` contiene literalmente los números, años,
   ciudades y nombres que la herramienta devuelve (si no, la compuerta los marca):
   - `ficha:{sku}:{pais}` (URL de la ficha, `reference.source_url`), `precio:{sku}:{site}`
-    (ya existe), `guia:{material}`, `catalogo:{pais}`, `directorio:CO`,
+    (ya existe), `guia:{material}`, `faq:{slug}:{huella}`, `directorio:CO`,
     `empresa:{slug}`, `historia:{anio}`, `tool:indicadores:catalogo`,
     `cotizacion:{folio}` y `reloj:{fecha}`.
   - `reloj:` usa `source_type="sistema"` (reloj del servidor en `America/Bogota` y
@@ -565,3 +565,61 @@ revisada.
 | `build_conversation_prompt` a 8 turnos y nodo `rag` | **Parcial**: se declara la excepción del nodo `rag` en FR-002 (cambiar su prompt sin medir no cabe en el presupuesto) y se registra en la evidencia que `routes` ve 8 turnos | FR-002, T028, T095 |
 | Detalles de API (`for_conversation`, `history`, candado del Store) | Recorte en Python, `history_all()`, `PostgresStore` propio del worker | R1, T033, T080 |
 | Línea de estado de `ficha_producto` con valores del modelo | **Parcial**: plantillas sin valores para las de catálogo nuevas, en lugar de generalizar `city_keys` a `said_keys` (menos superficie) | contrato |
+
+## R18. `preguntas_frecuentes` en lugar de `listar_familias` (cambio del owner, 2026-11-24)
+
+- **Decision**:
+  1. `listar_familias` sale del alcance; su lugar en las 20 lo ocupa
+     `preguntas_frecuentes(tema?, cantidad?)`, del área documental, en el módulo
+     `toolagent/tools/preguntas_frecuentes.py` (T061, T067). Orden en el registro: después
+     de `empresas_del_grupo` y antes de `fecha_actual` (posición 16); las cinco que iban
+     entre `convertir_presentacion` y `fecha_actual` suben un puesto.
+  2. **Reutiliza la generación existente sin bifurcarla**: `GenerateFaq`
+     (`application/faq.py`), el caso de uso de `POST /api/faq`. `build_faq_prompt` y
+     `GenerateFaq.prepare` ganan dos argumentos opcionales (`topic: str | None = None`,
+     `max_questions: int = MAX_QUESTIONS`) y `prepare` acepta un subconjunto de slugs; con
+     los valores por defecto el prompt de `/api/faq` queda idéntico byte a byte (prueba).
+     `FAQ_INSTRUCTIONS` no cambia; el tema va en la petición como dato neutralizado
+     (`<tema>…</tema>`), igual que `<preguntas_previas>`. La página `/faq`, `faq.js`,
+     `faq.css` y `POST /api/faq` no se tocan.
+  3. **LLM inyectado**: `ToolDeps.faq: FaqSource | None`, con el `FaqCorpus`
+     (`SqlFaqCorpus` de `apps/api/views/faq.py`), el `LLMProvider` (`runtime.llm_provider()`,
+     el mismo de `/api/faq`), el plazo y la caché. La herramienta nunca construye un
+     proveedor; sin `FaqSource` devuelve `error` declarado. En pruebas, un corpus en memoria
+     y un `LLMProvider` falso que devuelve Markdown fijo.
+  4. **Evidencia (`evidence_role="corpus"`)**: el LLM escribe las respuestas, así que cada
+     `FaqEntry` se verifica antes de devolverla: su `_Fuente:_ slug` debe resolver a un
+     documento núcleo de los que alimentaron el prompt; el `excerpt` registrado es el pasaje
+     literal del documento (párrafos contiguos, ≤ 1 500 caracteres) que contiene las
+     cifras, años, fechas y nombres propios de la pregunta y la respuesta; si alguno falta,
+     la entrada se descarta (`descartadas`). Sin entradas verificadas, `empty` y abstención,
+     como `buscar_corpus`. `_tool_backing` (servicio y evaluación) solo lee `fragmento` de
+     sus entradas, no `pregunta` ni `respuesta`: el texto generado nunca se respalda a sí
+     mismo.
+  5. **Latencia**: es la única consulta que llama a un LLM dentro del turno. La FAQ completa
+     de `/api/faq` (núcleo de unos 94 000 caracteres) tarda decenas de segundos con DeepSeek.
+     Mitigaciones: (a) plazo propio `AGENT_FAQ_TIMEOUT_S` (25 s, 5–40, siempre menor que
+     `AGENT_TURN_TIMEOUT_S` = 45); (b) con `tema`, el prompt se limita a los documentos de
+     los fragmentos que la búsqueda de `buscar_corpus` (`alcance="oficial"`) recupera para
+     ese tema; (c) `cantidad` de 1 a 5 (5 por defecto), que acorta la salida; (d) caché en
+     memoria del proceso dentro del `FaqSource`, por (tema normalizado, cantidad), de 24 h,
+     con las entradas ya verificadas. La línea de estado sale antes de generar. El primer
+     texto de un turno con FAQ no cumple el p95 de 5 s de SC-002 y se declara en la
+     evidencia; la simulación corta no tiene escenarios de FAQ.
+  6. **Respaldo**: proveedor caído, plazo vencido, `FAQError` o salida sin entradas
+     verificables → el último lote verificado del mismo tema si está en caché (aunque haya
+     caducado), con `desde_cache: true`; si no, `error` declarado y el turno sigue (el modelo
+     puede usar `buscar_corpus`). Nunca se genera una FAQ determinista sin LLM: no hay una
+     lista curada de preguntas y crearla sería curaduría nueva (principio II).
+  7. **Visualización**: web y WhatsApp muestran el texto final con citas [n] y la lista de
+     fuentes, como cualquier respuesta documental; sin tarjetas nuevas.
+- **Rationale**: las familias del catálogo ya se exploran con `buscar_producto`; la FAQ es
+  una funcionalidad existente que el chat y WhatsApp no ofrecían. Reutilizar `GenerateFaq`
+  evita dos prompts de FAQ; verificar cada entrada contra su documento conserva el
+  principio III aunque el texto lo escriba un LLM.
+- **Alternatives considered**: (a) llamar a `GenerateFaq` sin verificar y registrar el
+  documento completo como fuente: la compuerta aceptaría cifras que el LLM inventó si
+  aparecen en cualquier parte del documento, y el `excerpt` sería enorme; (b) generar en
+  segundo plano y responder en el turno siguiente: rompe la conversación; (c) una FAQ
+  curada a mano: curaduría nueva sin pedido del owner; (d) quitar la página `/faq`: el
+  owner pidió conservarla.

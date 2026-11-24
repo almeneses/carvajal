@@ -11,11 +11,14 @@ sigue vigente para las seis herramientas originales. Todas las herramientas:
 - Devuelven la salida común `{status, message, missing, ...datos}` dentro del bloque
   `<datos>` neutralizado. `status ∈ ok | empty | needs_input | error`.
 - Son deterministas y no tienen efectos persistentes, **salvo** `recordar_preferencia` y
-  `olvidar_preferencia`, que escriben en el Store en el momento (research R7).
+  `olvidar_preferencia`, que escriben en el Store en el momento (research R7), y
+  `preguntas_frecuentes`, la única que llama a un LLM (inyectado por `ToolDeps.faq`) y que
+  verifica cada entrada contra su documento antes de devolverla (research R18).
 - Ningún esquema tiene campos de identidad (`owner_key`, `thread_id`, conversación): salen
   del estado del grafo.
 - Cada dato devuelto (cifra, año, ciudad, nombre propio) aparece en el `excerpt` de una
-  fuente registrada con `n`, salvo en las de memoria, que no registran fuentes.
+  fuente registrada con `n`, salvo en las de memoria, que no registran fuentes. En
+  `preguntas_frecuentes` lo garantiza la verificación de cada entrada (R18).
 - La descripción de las 14 nuevas sigue el patrón «Qué hace. Úsala para: … No la uses
   para: … (usa X)», con ≤ 300 caracteres y sin cifras, ciudades ni SKU (R10).
 - `TOOL_NAMES` se deriva del registro; el `Literal` `ToolName` crece con cada grupo
@@ -36,12 +39,12 @@ Columnas de la tabla resumen: **Rol** = `evidence_role`; **Cupo** = consume
 | 8 | `comparar_referencias` | `comparar_referencias.py` | data | sí | `ficha:`, `precio:` | «Estoy comparando las referencias que me pediste…» |
 | 9 | `guia_materiales` | `guia_materiales.py` | data | sí | `guia:{material}` | «Estoy revisando la guía de materiales…» |
 | 10 | `convertir_presentacion` | `convertir_presentacion.py` | data | sí | `ficha:`, `precio:` | «Estoy calculando cuántas unidades son…» |
-| 11 | `listar_familias` | `listar_familias.py` | data | sí | `catalogo:{pais}` | «Estoy revisando qué productos hay en el catálogo…» |
-| 12 | `ciudades_con_cobertura` | `ciudades_con_cobertura.py` | data | sí | `directorio:CO`, `precio:` | «Estoy revisando en qué ciudades hay distribuidores…» |
-| 13 | `consultar_cotizacion` | `consultar_cotizacion.py` | data | sí | `cotizacion:{folio}` + fuentes guardadas, solo procedencia `real` | «Estoy buscando tu cotización…» |
-| 14 | `indicadores_disponibles` | `indicadores_disponibles.py` | data | sí | `tool:indicadores:catalogo` | «Estoy revisando qué cifras financieras tengo…» |
-| 15 | `historia_carvajal` | `historia_carvajal.py` | data | sí | `historia:{anio}` | «Estoy buscando en la historia de Carvajal…» |
-| 16 | `empresas_del_grupo` | `empresas_del_grupo.py` | data | sí | `empresa:{slug}` | «Estoy revisando las empresas y marcas del grupo…» |
+| 11 | `ciudades_con_cobertura` | `ciudades_con_cobertura.py` | data | sí | `directorio:CO`, `precio:` | «Estoy revisando en qué ciudades hay distribuidores…» |
+| 12 | `consultar_cotizacion` | `consultar_cotizacion.py` | data | sí | `cotizacion:{folio}` + fuentes guardadas, solo procedencia `real` | «Estoy buscando tu cotización…» |
+| 13 | `indicadores_disponibles` | `indicadores_disponibles.py` | data | sí | `tool:indicadores:catalogo` | «Estoy revisando qué cifras financieras tengo…» |
+| 14 | `historia_carvajal` | `historia_carvajal.py` | data | sí | `historia:{anio}` | «Estoy buscando en la historia de Carvajal…» |
+| 15 | `empresas_del_grupo` | `empresas_del_grupo.py` | data | sí | `empresa:{slug}` | «Estoy revisando las empresas y marcas del grupo…» |
+| 16 | `preguntas_frecuentes` | `preguntas_frecuentes.py` | corpus | sí | `faq:{slug}:{huella}` (pasaje literal del núcleo) | «Estoy preparando preguntas frecuentes sobre Carvajal…» |
 | 17 | `fecha_actual` | `fecha_actual.py` | data | sí | `reloj:{fecha}` (`source_type="sistema"`) | «Estoy revisando la fecha de hoy…» |
 | 18 | `recordar_preferencia` | `recordar_preferencia.py` | memory | sí | — | «Estoy guardando lo que me pediste recordar…» |
 | 19 | `listar_memoria` | `listar_memoria.py` | memory | sí | — | «Estoy revisando lo que recuerdo de ti…» |
@@ -156,16 +159,6 @@ que aportó la persona (regla de la 044; FR-018).
 - **`empty`**: `no_convertible: true`, `presentaciones_publicadas: [str]`.
 - **`needs_input`**: referencia ambigua (`candidatas`).
 
-### listar_familias
-
-- **Entrada** (`ListarFamiliasArgs`): `pais: "CO" | "MX" | None`, `familia: Family | None`
-  (`catalog/models.py:29`).
-- **Comportamiento**: agrega `Catalog.references`; etiquetas de `engine._FAMILIES_LABEL`.
-- **`ok`**: `familias: [{n, familia, pais, referencias, materiales, capacidad_oz_min,
-  capacidad_oz_max, marcas, usos_frecuentes (≤ 3)}]`, `aviso: "catálogo curado de 200
-  referencias, no el portafolio completo"`. Sin precios.
-- **`empty`**: familia sin referencias en ese país.
-
 ### ciudades_con_cobertura
 
 - **Entrada** (`CiudadesConCoberturaArgs`): `sku: str | None`, `nombre: str | None`.
@@ -180,7 +173,7 @@ que aportó la persona (regla de la 044; FR-018).
 
 ---
 
-## Institucional, cotizaciones y fecha
+## Institucional, preguntas frecuentes, cotizaciones y fecha
 
 ### consultar_cotizacion
 
@@ -233,6 +226,63 @@ que aportó la persona (regla de la 044; FR-018).
   ese dato en las fuentes de Carvajal"`; nunca afirma que no pertenece.
 - **`error`**: `empresas.json` ausente (despliegue incompleto) → error declarado, nunca una
   excepción.
+
+### preguntas_frecuentes
+
+Sustituye a `listar_familias` por pedido del owner (research R18). Es la única herramienta
+generativa: el texto lo escribe un LLM y la herramienta lo verifica antes de devolverlo.
+
+- **Entrada** (`PreguntasFrecuentesArgs`): `tema: str | None` (1–80 caracteres, espacios
+  colapsados; un área como «sostenibilidad», «historia» o «empaques»), `cantidad: int`
+  (1–5, por defecto 5). Sin campos de identidad.
+- **Dependencia**: `ToolDeps.faq: FaqSource | None` (`corpus`, `llm`, `timeout_s`,
+  `max_prompt_chars`, `cache`; data-model). Sin `FaqSource` → `error` («no puedo generar
+  preguntas frecuentes en este momento»). La herramienta nunca construye un proveedor.
+- **Comportamiento**:
+  1. Caché: si hay un lote verificado del mismo (tema normalizado, cantidad) de menos de
+     24 h, se devuelve sin llamar al LLM (`desde_cache: true`).
+  2. Documentos: con `tema`, la misma búsqueda de `buscar_corpus` con `alcance="oficial"`
+     (`_retrieve` y `_entities_supported` de `builtin.py`) da los slugs de los fragmentos
+     recuperados, y el prompt se compone solo con esos documentos núcleo; si no recupera
+     nada → `empty`. Sin `tema`, todos los documentos núcleo con el tope
+     `max_prompt_chars`.
+  3. Generación: `GenerateFaq(corpus, llm, max_prompt_chars=...).prepare(previous=(),
+     topic=tema, max_questions=cantidad, slugs=...)` y `.complete(...)`, en un hilo con plazo
+     `timeout_s` (`AGENT_FAQ_TIMEOUT_S`). `build_faq_prompt` gana `topic` y `max_questions`
+     opcionales; con los valores por defecto el prompt de `POST /api/faq` no cambia (prueba
+     byte a byte). `FAQ_INSTRUCTIONS` no cambia; el tema va en la petición como
+     `<tema>…</tema>` neutralizado.
+  4. Verificación de cada `FaqEntry`: el slug de `source` (antes de « (oficial|tercero)»)
+     debe ser un documento núcleo de los que alimentaron el prompt; se toma como `fragmento`
+     el pasaje literal del documento (párrafos contiguos, ≤ 1 500 caracteres) que contiene
+     las cifras, años, fechas y nombres propios de `question` y `answer` (criterio de
+     `proper_entities_supported` y de las cifras de `filter_unsupported`); si alguno no
+     aparece en ese pasaje, la entrada se descarta. Se conservan como mucho `cantidad`.
+  5. Registro: una fuente por entrada, `chunk_id = "faq:{slug}:{huella}"` (huella de 8
+     caracteres del pasaje), `slug`, `url`, `title` y `section` del documento,
+     `layer="core"`, `source_type` del documento y `excerpt` = `fragmento`.
+- **`ok`**: `preguntas: [{n, tema, pregunta, respuesta, fragmento}]`, `descartadas: int`,
+  `desde_cache: bool`, `aviso: "preguntas generadas con las páginas oficiales de Carvajal;
+  cada una cita su fuente"`.
+- **`empty`**: el tema no recupera fragmentos del núcleo o ninguna entrada pasa la
+  verificación. Con `evidence_role="corpus"`, un turno que solo tiene esto se abstiene como
+  `buscar_corpus` (`NO_CONTEXT_ANSWER`).
+- **`error`**: sin `FaqSource`, proveedor caído, plazo vencido o `FAQError`, **sin** lote en
+  caché para ese tema. Con lote en caché (aunque haya caducado), se devuelve `ok` con
+  `desde_cache: true` (respaldo).
+- **Compuerta**: `_tool_backing` de `apps/api/chat/agent.py` y de `ta/evaluation.py` solo
+  leen `fragmento` de sus entradas, nunca `pregunta` ni `respuesta`: el texto generado no se
+  respalda a sí mismo.
+- **Latencia**: única consulta con un LLM dentro del turno. Plazo propio de 25 s (5–40,
+  menor que `AGENT_TURN_TIMEOUT_S`); con `tema`, prompt reducido a los documentos
+  recuperados; `cantidad` ≤ 5; caché de 24 h. La línea de estado sale antes de generar. El
+  primer texto de un turno con FAQ queda fuera del p95 de SC-002 y se declara en la
+  evidencia.
+- **Visualización**: web y WhatsApp muestran el texto final con citas [n] y la lista de
+  fuentes, como cualquier respuesta documental. La FAQ existente (`/faq` → `/chat`,
+  `faq.html`, `faq.js`, `faq.css`, `POST /api/faq`) no cambia.
+- **No** responde una pregunta concreta (eso es `buscar_corpus`, `historia_carvajal` o
+  `empresas_del_grupo`).
 
 ### fecha_actual
 

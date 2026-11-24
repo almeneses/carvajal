@@ -35,7 +35,7 @@ de artefactos (research R17).
 **Purpose**: ajustes, *golden* de las herramientas actuales, soporte del ejecutor de
 evaluación y datos que deben existir antes de implementar (F0 del plan).
 
-- [ ] T001 Añadir `agent_summary_mode: Literal["llm", "deterministic", "off"] = "deterministic"` (por defecto determinista hasta medir el prompt del resumidor, T097), `agent_summary_timeout_s: float = 8` (1–30), `agent_summary_max_chars: int = 1500` (300–4000) y `agent_memory_days: int = 180` (1–730) en `packages/core/src/carvajal/infrastructure/settings.py`, documentarlos en `.env.example` y probarlos en `tests/test_settings.py`. FR-003, FR-004, FR-019.
+- [ ] T001 Añadir `agent_summary_mode: Literal["llm", "deterministic", "off"] = "deterministic"` (por defecto determinista hasta medir el prompt del resumidor, T097), `agent_summary_timeout_s: float = 8` (1–30), `agent_summary_max_chars: int = 1500` (300–4000), `agent_memory_days: int = 180` (1–730) y `agent_faq_timeout_s: float = 25` (5–40, plazo de `preguntas_frecuentes`, research R18) en `packages/core/src/carvajal/infrastructure/settings.py`, documentarlos en `.env.example` y probarlos en `tests/test_settings.py`. FR-003, FR-004, FR-019, FR-022a.
 - [ ] T002 [P] Capturar el *golden* de `convert_to_openai_tool` de las seis herramientas de la 044 **antes de mover código** en `tests/golden/tool_schemas_044.json`, con la prueba de comparación en `tests/test_tool_registry.py`. FR-027, research R9.
 - [ ] T003 [P] Permitir en el ejecutor de evaluación que un ítem abra otra conversación del mismo dueño (campo `new_thread_before: [índice de turno]` del ítem: mismo `owner_key`, `thread_id` nuevo) y aceptar ese campo en el parser de ítems de `ta/evaluation.py`, con prueba sin red en `tests/test_eval_agent.py`. Data-model *HerramientasEvalItem*.
 - [ ] T004 Redactar y congelar `data/eval/herramientas_045.json` (formato del v3: una pregunta por cada una de las 20 herramientas con `tools_any`, más 6 ítems `memoria`: Ana en otra conversación con `new_thread_before`, listar, olvidar, olvidar todo, dato sensible, ciudad habitual), con `frozen_at` y `origin` que declare que lo redactó el asistente de desarrollo. Las preguntas de `recordar_preferencia` no llevan marcas del atajo («Soy Ana, de la Panadería La Espiga», «suelo comprar en Cali»); el ítem «olvidar todo» declara `tools_any: []` y `path: "shortcut"`, que cuenta como equivalente (US5-1). Validar su formato en `tests/test_generalization_set.py`. Depende de T003. FR-030.
@@ -64,7 +64,7 @@ sensibles. Sin cambios de comportamiento visibles.
 - [ ] T013 Hacer que los consumidores del grafo lean el registro en lugar de nombres a mano: `_CITY_KEYS`, la regla de `sin_consulta` y `_status_step` en `ta/graph.py`; `_TEMPLATES` y `_clean` en `ta/status.py`; `gate` y `neutral_only` por `evidence_role` en `ta/evidence.py`. `tests/test_tool_agent_status.py` y `tests/test_tool_agent_graph.py` en verde. Depende de T012. Research R9.
 - [ ] T014 Hacer que los consumidores del servicio lean el registro: `_tool_backing` y `_replacement` en `apps/api/chat/agent.py`; `_monitored_results` y `_has_evidence` en `apps/api/chat/service.py`. `tests/test_chat_service_tools.py` en verde. Depende de T013.
 - [ ] T015 Hacer que los consumidores de evaluación lean el registro: `_tool_backing` y `ROUTE_TOOLS` en `ta/evaluation.py` y el literal de `ta/simulation.py:1262`. `tests/test_eval_agent.py` en verde. Depende de T013.
-- [ ] T016 Ampliar `ToolContext` con `owner_key`, `thread_id` y `memory`, y `ToolDeps` con `memory`, `quote_lookup` e `institutional` en `ta/tools/_base.py`; llenarlos desde el estado en `_TurnProgress` de `ta/graph.py` y desde `apps/api/agent_runtime.py`. Limitar `ToolContext.history` en `from_state` a los últimos `agent_history_turns` de la semilla, para que la holgura no cambie `_city_said` de `cotizar` ni `buscar_sedes`. Pruebas en `tests/test_tool_registry.py` (ningún esquema tiene campos de identidad) y `tests/test_tool_agent_tools.py` (una ciudad dicha 9 turnos atrás no cuenta). Depende de T014, T015. FR-014, FR-027.
+- [ ] T016 Ampliar `ToolContext` con `owner_key`, `thread_id` y `memory`, y `ToolDeps` con `memory`, `quote_lookup`, `institutional` y `faq` (`FaqSource`, data-model) en `ta/tools/_base.py`; llenarlos desde el estado en `_TurnProgress` de `ta/graph.py` y desde `apps/api/agent_runtime.py`. Limitar `ToolContext.history` en `from_state` a los últimos `agent_history_turns` de la semilla, para que la holgura no cambie `_city_said` de `cotizar` ni `buscar_sedes`. Pruebas en `tests/test_tool_registry.py` (ningún esquema tiene campos de identidad) y `tests/test_tool_agent_tools.py` (una ciudad dicha 9 turnos atrás no cuenta). Depende de T014, T015. FR-014, FR-027.
 - [ ] T017 Añadir `state_update: dict` a `ToolCallResult` y `_Draft` (`ta/tools/_base.py`), volcarlo en `_TurnProgress` y `update()` de `ta/graph.py` para los canales `memory`, `preferences` y `conversation_summary`, hacer que el nodo `tools` reemplace el `SystemMessage` (mismo `SYSTEM_MESSAGE_ID`, como el nodo `shortcut`) cuando cambie la memoria, e invalidar la huella de `listar_memoria` en `contents` tras una herramienta de memoria que escribe. Prueba con una herramienta falsa en `tests/test_tool_agent_graph.py`. Depende de T016. Research R7.
 - [ ] T018 Crear un único `_now_bogota(deps)` en `ta/tools/_base.py` (`deps.now` convertido con `astimezone(BOGOTA)`, o el reloj del sistema en `America/Bogota`) y hacer que `_today` de `ta/tools/builtin.py` lo use; prueba con `deps.now` a las 04:30 UTC en `tests/test_tool_agent_tools.py`, y `make eval-cotizador` 18/18 antes y después. Depende de T008. Research R11.
 - [ ] T019 [P] Escribir `tests/test_memory_sensitive.py`: ≥ 30 frases sensibles (cédulas con y sin puntos, «CC 123456», celulares, fijos, `+57`, correos, tarjetas que pasan Luhn, CVV, cuentas, claves) rechazadas y ≥ 30 válidas aceptadas, entre ellas «2.000 vasos», «10.000 unidades», «1.000.000 de vasos», «entre 2.000 y 10.000», «tamaños 8 10 12 16 oz», «presupuesto de $2.500.000», «1.250.000 pesos», «pedido del 2026-11-24», «8 oz», «caja x 1000», «Cali», «Panadería La Espiga» y los folios `a1b2c3d4e5f6` y `123456789abc`; `redact` sustituye por `[dato omitido]`. SC-004.
@@ -153,7 +153,8 @@ pasan sin red.
 
 ## Phase 5: User Story 3 - Consultas más finas sobre el catálogo (Priority: P2)
 
-**Goal**: seis herramientas nuevas de catálogo, una por módulo, con fuente por dato.
+**Goal**: cinco herramientas nuevas de catálogo, una por módulo, con fuente por dato
+(`listar_familias` se sustituyó por `preguntas_frecuentes`, que pasa a la US4; research R18).
 
 **Independent Test**: una prueba de contrato por herramienta sin red contra el catálogo
 versionado.
@@ -164,7 +165,6 @@ versionado.
 - [ ] T058 [P] [US3] Escribir `tests/test_tool_comparar_referencias.py`: CO-CTT-08 frente a CO-CTT-16 (ambas con precio de EDEXA) → precio unitario con `Decimal` y `mas_economica`; CO-VTER-08 frente a CO-VTER-10 (sin precio) → diferencias sin veredicto; distinto `tax_status`, país o moneda → `mas_economica: null` con `aviso`; CO frente a MX sin veredicto; una ambigua → `needs_input`.
 - [ ] T059 [P] [US3] Escribir `tests/test_tool_guia_materiales.py`: PET y comida caliente, «icopor» → EPS, solo aplicación ordenada por nivel, PAPEL/PULPA → `sin_regla`, `refrigeracion_deducida` para PS y aluminio.
 - [ ] T060 [P] [US3] Escribir `tests/test_tool_convertir_presentacion.py`: 3 cajas del CO-VTER-04 = 3000 unidades, paca del nombre en fichas CO, portacomidas J1 («paca x 200», oferta «caja de 200») → `no_convertible`, tamaños contradictorios → `no_convertible`, MX desde el catálogo, paridad con el motor de cotización.
-- [ ] T061 [P] [US3] Escribir `tests/test_tool_listar_familias.py`: conteos por familia y país coherentes con `data/catalog/empaques/referencias.csv` (CO 102, MX 98), sin precios, aviso de catálogo curado.
 - [ ] T062 [P] [US3] Escribir `tests/test_tool_ciudades_con_cobertura.py`: 10 ciudades y 29 sedes, con referencia separa `con_precio` de `con_sede`, aviso de existencias.
 
 ### Implementation for User Story 3
@@ -173,24 +173,26 @@ versionado.
 - [ ] T064 [US3] Implementar `comparar_referencias` en `ta/tools/comparar_referencias.py` (reutiliza la resolución de `ficha_producto`; precio unitario = importe ÷ unidades de la base con `Decimal`: CO desde `Offer.units_in_basis`, MX con `amount / units_per_box`). Depende de T063, T058.
 - [ ] T065 [P] [US3] Implementar `guia_materiales` en `ta/tools/guia_materiales.py`. Depende de T016, T059.
 - [ ] T066 [P] [US3] Implementar `convertir_presentacion` en `ta/tools/convertir_presentacion.py` con `engine.published_presentations(product, dataset, city=None)`. Depende de T021, T060.
-- [ ] T067 [P] [US3] Implementar `listar_familias` en `ta/tools/listar_familias.py`. Depende de T016, T061.
 - [ ] T068 [P] [US3] Implementar `ciudades_con_cobertura` en `ta/tools/ciudades_con_cobertura.py`. Depende de T016, T062.
-- [ ] T069 [US3] Registrar las seis herramientas de catálogo en `ta/tools/registry.py` en el orden de data-model *ToolSpec* y ampliar `ToolName` con sus nombres en `ta/state.py`. Depende de T063–T068.
+- [ ] T069 [US3] Registrar las cinco herramientas de catálogo en `ta/tools/registry.py` en el orden de data-model *ToolSpec* y ampliar `ToolName` con sus nombres en `ta/state.py`. Depende de T063–T068.
 - [ ] T070 [US3] Verificar con `tests/test_tool_agent_graph.py` que una herramienta de catálogo nueva respeta el límite, la deduplicación, la cancelación y la emisión de `status` (una prueba parametrizada por herramienta nueva). Depende de T069. FR-024, FR-025.
 
-**Checkpoint**: 15 herramientas registradas; las de catálogo funcionan solas.
+**Checkpoint**: 14 herramientas registradas; las de catálogo funcionan solas.
 
 ---
 
 ## Phase 6: User Story 4 - Consultas institucionales, de cotizaciones guardadas y de fecha (Priority: P2)
 
-**Goal**: cinco herramientas nuevas sobre historia, empresas, indicadores, cotizaciones y
-calendario.
+**Goal**: seis herramientas nuevas sobre historia, empresas, preguntas frecuentes,
+indicadores, cotizaciones y calendario. T061 y T067 conservan su número de la revisión
+anterior (eran de `listar_familias` en la US3).
 
-**Independent Test**: una prueba de contrato por herramienta sin red ni base de datos real.
+**Independent Test**: una prueba de contrato por herramienta sin red ni base de datos real
+(`preguntas_frecuentes` con un corpus en memoria y un LLM falso).
 
 ### Tests for User Story 4
 
+- [ ] T061 [P] [US4] Escribir `tests/test_tool_preguntas_frecuentes.py` con un `FaqCorpus` en memoria (documentos núcleo y uno de la capa extendida) y un `LLMProvider` falso que devuelve Markdown fijo: lote verificado con fuentes `faq:{slug}:{huella}` de la capa núcleo cuyo `excerpt` contiene las cifras y nombres propios de cada entrada; entrada con una cifra que su documento no tiene → descartada y contada en `descartadas`; `_Fuente:_` con un slug inexistente o de la capa extendida → descartada; ninguna verificada → `empty` (y el turno se abstiene como con `buscar_corpus`); tema sin fragmentos del núcleo → `empty` sin llamar al LLM; `cantidad` limita el lote; el tema llega neutralizado dentro de `<tema>`; sin `FaqSource` → `error`; LLM que lanza o que tarda más que `timeout_s` → `error` sin caché y `ok` con `desde_cache: true` con un lote anterior en caché; segunda llamada igual dentro de 24 h sale de la caché sin llamar al LLM; línea de estado sin valores; esquema sin campos de identidad; `build_faq_prompt` y `GenerateFaq.prepare` con los valores por defecto producen el mismo prompt que hoy (comparación byte a byte) y `tests/test_faq.py` y `tests/test_api_faq.py` siguen en verde sin cambios. FR-022a, research R18.
 - [ ] T071 [P] [US4] Escribir `tests/test_tool_historia_carvajal.py`: año con hito (1960) literal, año sin hito → `anios_cercanos`, rango con más de 10 hitos → `hay_mas`, fuente `historia:{anio}` oficial, `historia.md` ausente → `error` declarado.
 - [ ] T072 [P] [US4] Escribir `tests/test_tool_empresas_del_grupo.py`: lista completa con cita (incluye las unidades de «Nuestros Sectores»), nombre listado, alias («Propal» → Carvajal Pulpa y Papel con su cita), nombre que Gold no menciona («Alpina») → `empty` sin «no pertenece», `empresas.json` ausente → `error` declarado.
 - [ ] T073 [P] [US4] Escribir `tests/test_tool_indicadores_disponibles.py`: 6 indicadores con períodos y sin valores, excerpt con nombres y períodos.
@@ -199,12 +201,13 @@ calendario.
 
 ### Implementation for User Story 4
 
+- [ ] T067 [P] [US4] Implementar `preguntas_frecuentes` (`evidence_role="corpus"`, plantilla de estado sin valores) en `ta/tools/preguntas_frecuentes.py`, reutilizando `GenerateFaq` con los argumentos opcionales `topic`, `max_questions` y `slugs` que se añaden a `build_faq_prompt` y `GenerateFaq.prepare` en `core/application/faq.py` (sin cambio con los valores por defecto; `FAQ_INSTRUCTIONS` intacto); construir el `FaqSource` en `apps/api/agent_runtime.py` con `SqlFaqCorpus`, `runtime.llm_provider()`, el tope de `faq_service` y `agent_faq_timeout_s` (y en `ta/evaluation.py` si hay base configurada; si no, `error` declarado en la evidencia); hacer que `_tool_backing` de `apps/api/chat/agent.py` y de `ta/evaluation.py` lea solo `fragmento` de sus entradas. No se tocan `apps/api/views/faq.py`, `faq.html`, `faq.js` ni `faq.css`. Depende de T016, T061. FR-022a, research R18.
 - [ ] T076 [P] [US4] Implementar `historia_carvajal` en `ta/tools/historia_carvajal.py`. Depende de T022, T071.
 - [ ] T077 [P] [US4] Implementar `empresas_del_grupo` en `ta/tools/empresas_del_grupo.py`. Depende de T022, T072.
 - [ ] T078 [P] [US4] Implementar `indicadores_disponibles` en `ta/tools/indicadores_disponibles.py`. Depende de T016, T073.
 - [ ] T079 [P] [US4] Implementar `fecha_actual` con `_now_bogota` en `ta/tools/fecha_actual.py`. Depende de T018, T074. Research R11.
 - [ ] T080 [P] [US4] Implementar `consultar_cotizacion` (solo `provenance == "real"`) en `ta/tools/consultar_cotizacion.py`, y el `QuoteLookup` sobre `SqlQuoteRepository.get`/`for_conversation` (recorte `[-5:]` en Python) con su propia sesión en `apps/api/agent_runtime.py`. Depende de T016, T018, T075. FR-026.
-- [ ] T081 [US4] Registrar las cinco herramientas en `ta/tools/registry.py`, ampliar `ToolName` con sus nombres en `ta/state.py` (20 en total) y ampliar la prueba parametrizada de T070 a ellas. Depende de T076–T080.
+- [ ] T081 [US4] Registrar las seis herramientas en `ta/tools/registry.py` (con `preguntas_frecuentes` en la posición 16 del orden de data-model *ToolSpec*), ampliar `ToolName` con sus nombres en `ta/state.py` (20 en total) y ampliar la prueba parametrizada de T070 a ellas (con un `FaqSource` falso). Depende de T067, T076–T080.
 - [ ] T082 [US4] Comprobar que `source_type="sistema"` no rompe la API, el replay ni `_productos.html` (prueba en `tests/test_chat_service_tools.py`). Depende de T079.
 - [ ] T083 [US4] Aplicar la enmienda B (memoria y resumen como datos del usuario; procedencia `sistema`) en `CONSTITUTION.md` y `.specify/memory/constitution.md` (2.8.0), en el mismo commit que T079. Depende de T079, T053. Plan *Enmienda B*.
 
@@ -283,9 +286,9 @@ medición, R13) y cerrar la documentación.
 - Fase 2: T018–T023 en paralelo con la cadena T008–T017 (T018 tras T008).
 - US1: T024–T030 en paralelo.
 - US2: T038–T044 en paralelo; T047, T048 y T049 en paralelo.
-- US3: T057–T062 en paralelo; T063, T065, T066, T067 y T068 en paralelo (T064 espera
+- US3: T057–T060 y T062 en paralelo; T063, T065, T066 y T068 en paralelo (T064 espera
   T063).
-- US4: T071–T075 en paralelo; T076–T080 en paralelo.
+- US4: T061 y T071–T075 en paralelo; T067 y T076–T080 en paralelo.
 - US3 y US4 pueden avanzar a la vez entre sí y con US1/US2 (módulos distintos); solo el
   registro y el `Literal` se serializan (T050, T069, T081).
 
@@ -295,12 +298,12 @@ medición, R13) y cerrar la documentación.
 # Pruebas en paralelo (un archivo cada una):
 T057 tests/test_tool_ficha_producto.py      T071 tests/test_tool_historia_carvajal.py
 T059 tests/test_tool_guia_materiales.py     T073 tests/test_tool_indicadores_disponibles.py
-T061 tests/test_tool_listar_familias.py     T074 tests/test_tool_fecha_actual.py
+T061 tests/test_tool_preguntas_frecuentes.py T074 tests/test_tool_fecha_actual.py
 
 # Implementación en paralelo (un módulo cada una):
 T063 ta/tools/ficha_producto.py             T076 ta/tools/historia_carvajal.py
 T065 ta/tools/guia_materiales.py            T078 ta/tools/indicadores_disponibles.py
-T067 ta/tools/listar_familias.py            T079 ta/tools/fecha_actual.py
+T067 ta/tools/preguntas_frecuentes.py       T079 ta/tools/fecha_actual.py
 
 # Luego, una sola persona: T069 y T081 (ta/tools/registry.py y ta/state.py)
 ```
@@ -333,6 +336,8 @@ T067 ta/tools/listar_familias.py            T079 ta/tools/fecha_actual.py
 - `[P]` = archivos distintos y sin dependencias pendientes.
 - Ninguna tarea cambia el catálogo, el corpus ni los precios; la única curaduría nueva es
   T005.
+- `listar_familias` se sustituyó por `preguntas_frecuentes` por pedido del owner
+  (2026-11-24, research R18); T061 y T067 conservan su número y pasan a la US4.
 - Las corridas con proveedor real (T094–T097) se hacen una vez cada una por pedido del
   owner; los resultados con su limitación (sin repeticiones ni intervalos) van a la
   evidencia.

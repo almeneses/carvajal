@@ -121,16 +121,16 @@ Se registra en el monitoreo solo `action`, `category`, `outcome` y `reason`; nun
 | `run` | `(args, deps, context, sources) -> _Draft` | Determinista; nunca lanza hacia el grafo (`run_tool` convierte excepciones en `error`). |
 | `status_template` | `Callable[[Mapping], str] \| None` | `None` solo para `sin_consulta`. Las de memoria y las de catálogo nuevas no interpolan valores. |
 | `consumes_budget` | `bool` | `False` solo para `sin_consulta`. |
-| `evidence_role` | `"corpus" \| "data" \| "declaration" \| "memory"` | `corpus`: `buscar_corpus` (abstención si vacío); `declaration`: `sin_consulta`; `memory`: las tres de memoria (sin fuentes, R11; `_outcome` guarda solo `{"categoria"}`); el resto `data`. |
+| `evidence_role` | `"corpus" \| "data" \| "declaration" \| "memory"` | `corpus`: `buscar_corpus` y `preguntas_frecuentes` (abstención si vacío); `declaration`: `sin_consulta`; `memory`: las tres de memoria (sin fuentes, R11; `_outcome` guarda solo `{"categoria"}`); el resto `data`. |
 | `city_keys` | `tuple[str, ...]` | Argumentos que son ciudad (para FR-018 de la 044 y FR-013). |
 
 `TOOLS: tuple[ToolSpec, ...]` en el orden que ve el modelo:
 
 1. `buscar_corpus` 2. `buscar_producto` 3. `cotizar` 4. `buscar_sedes`
 5. `indicador_financiero` 6. `sin_consulta` 7. `ficha_producto` 8. `comparar_referencias`
-9. `guia_materiales` 10. `convertir_presentacion` 11. `listar_familias`
-12. `ciudades_con_cobertura` 13. `consultar_cotizacion` 14. `indicadores_disponibles`
-15. `historia_carvajal` 16. `empresas_del_grupo` 17. `fecha_actual`
+9. `guia_materiales` 10. `convertir_presentacion` 11. `ciudades_con_cobertura`
+12. `consultar_cotizacion` 13. `indicadores_disponibles` 14. `historia_carvajal`
+15. `empresas_del_grupo` 16. `preguntas_frecuentes` 17. `fecha_actual`
 18. `recordar_preferencia` 19. `listar_memoria` 20. `olvidar_preferencia`
 
 Vistas derivadas (solo lectura): `TOOL_NAMES = tuple(spec.name for spec in TOOLS)` (ya no
@@ -144,10 +144,19 @@ Vistas derivadas (solo lectura): `TOOL_NAMES = tuple(spec.name for spec in TOOLS
 | `ToolDeps` | `memory` | `MemoryStore \| None` | Envoltorio del Store; `None` sin Store (las herramientas de memoria devuelven `error` con `store_no_disponible`). |
 | `ToolDeps` | `quote_lookup` | `QuoteLookup \| None` | `get(folio, owner_key)` y `for_conversation(conversation_id, owner_key)` (recorta `[-5:]` en Python: el repositorio no acepta `limit`); en pruebas, un doble en memoria. |
 | `ToolDeps` | `institutional` | `InstitutionalData \| None` | Empresas (`empresas.json`) e hitos de `historia.md`, cargados una vez; estado `no_disponible` si falta un archivo. |
+| `ToolDeps` | `faq` | `FaqSource \| None` | Lo que necesita `preguntas_frecuentes` (ver abajo); `None` sin base o sin proveedor (la herramienta devuelve `error` declarado). |
 | `ToolContext` | `owner_key`, `thread_id` | `str` | Del estado del grafo; nunca de argumentos. |
 | `ToolContext` | `memory` | `Mapping[str, Any]` | Instantánea de la memoria (la de `recall`, actualizada por `state_update` en el mismo turno). |
 | `ToolContext` | `history` (cambio) | `tuple[Turn, ...]` | Limitada en `from_state` a los últimos `agent_history_turns` de la semilla (la holgura no cambia `_city_said`). |
 | `ToolCallResult` / `_Draft` | `state_update` | `dict` | Solo claves `memory`, `preferences` y `conversation_summary`; el nodo `tools` lo vuelca en el estado y reemplaza el `SystemMessage` si cambia la memoria (R7). |
+
+**`FaqSource`** (`_base.py`, R18): `corpus: FaqCorpus` (en producción `SqlFaqCorpus` de
+`apps/api/views/faq.py`; en pruebas, documentos en memoria), `llm: LLMProvider` (el mismo
+`runtime.llm_provider()` de `/api/faq`; en pruebas, uno falso con Markdown fijo),
+`timeout_s: float` (`AGENT_FAQ_TIMEOUT_S`, 25 por defecto), `max_prompt_chars: int` (el
+tope de `faq_service` según el proveedor) y `cache: dict` (privado del proceso, por (tema
+normalizado, cantidad) → entradas verificadas con su hora; vigencia de 24 h, y como
+respaldo se usa aunque haya caducado). No se serializa: vive en `ToolDeps`, no en el estado.
 
 Ayudante común: `_now_bogota(deps)` en `_base.py`, usado por `_today`, `fecha_actual` y
 `consultar_cotizacion` (R11).

@@ -139,9 +139,9 @@ dato sensible rechazado y ciudad habitual sugerida, para un dueño web y uno de 
 
 El dueño de un restaurante pregunta «¿qué trae el vaso CO-VTER-04?», «¿qué diferencia hay
 entre el vaso de 8 y el de 10 oz?», «¿el PET sirve para comida caliente?», «¿cuántas
-unidades son 3 cajas del vaso CO-VTER-04?», «¿qué tipos de vasos tienen en Colombia?» y
-«¿en qué ciudades tienen distribuidores?». Cada pregunta se responde con una consulta
-directa al catálogo, con su fuente, sin cotizar ni recomendar cuando no se pidió.
+unidades son 3 cajas del vaso CO-VTER-04?» y «¿en qué ciudades tienen distribuidores?».
+Cada pregunta se responde con una consulta directa al catálogo, con su fuente, sin cotizar
+ni recomendar cuando no se pidió.
 
 **Why this priority**: amplía lo que el asistente responde con datos exactos y reduce el uso
 de `cotizar` y `buscar_corpus` para preguntas que no son de cotización ni documentales.
@@ -169,15 +169,17 @@ versionado; y una pregunta por herramienta en el quickstart.
 ### User Story 4 - Consultas institucionales, de cotizaciones guardadas y de fecha (Priority: P2)
 
 Una persona pregunta «¿qué pasó en Carvajal en 1960?», «¿qué empresas tiene Carvajal?»,
-«¿qué cifras financieras puedes darme?», «¿mañana es día hábil?» y «¿mi cotización
-a1b2c3d4e5f6 sigue vigente?». Cada pregunta se responde con datos del repositorio y su
-fuente; la cotización solo si es de esa misma persona.
+«¿qué preguntas frecuentes hay sobre la sostenibilidad de Carvajal?», «¿qué cifras
+financieras puedes darme?», «¿mañana es día hábil?» y «¿mi cotización a1b2c3d4e5f6 sigue
+vigente?». Cada pregunta se responde con datos del repositorio y su fuente; la cotización
+solo si es de esa misma persona, y las preguntas frecuentes solo con las que el núcleo del
+corpus respalda.
 
 **Why this priority**: completa las 20 herramientas con datos que ya existen y cubre
 preguntas frecuentes de la demostración; cada una es independiente.
 
 **Independent Test**: una prueba de contrato por herramienta, sin red ni base de datos real
-(cotizaciones con un doble en memoria).
+(cotizaciones con un doble en memoria; preguntas frecuentes con un corpus y un LLM falsos).
 
 **Acceptance Scenarios**:
 
@@ -194,6 +196,12 @@ preguntas frecuentes de la demostración; cada una es independiente.
    recotizar.
 5. **Given** una pregunta de fecha o día hábil, **When** se responde, **Then** la fecha viene
    del reloj del servidor en la zona de Bogotá y del calendario de festivos de Colombia.
+6. **Given** una petición de preguntas frecuentes (con o sin tema), **When** se responde,
+   **Then** se muestran preguntas con su respuesta y su fuente del núcleo del corpus, tanto
+   en la web como por WhatsApp; una pregunta cuya respuesta trae una cifra, fecha o nombre
+   propio que su fuente no contiene no se muestra. **Given** que el proveedor no responde a
+   tiempo, **Then** se devuelve el último lote verificado de ese tema si existe o se
+   declara que no se pudieron generar, sin romper el turno.
 
 ---
 
@@ -272,6 +280,14 @@ ronda 4 de la 044.
 - Falta `data/institucional/empresas.json` o `data/gold/historia.md` en el despliegue:
   `empresas_del_grupo` e `historia_carvajal` devuelven `error` declarado, nunca una
   excepción.
+- `preguntas_frecuentes` sin proveedor de lenguaje, con el proveedor caído o con el plazo
+  `AGENT_FAQ_TIMEOUT_S` vencido: devuelve el último lote verificado del mismo tema si está
+  en caché (`desde_cache: true`) o `error` declarado; el turno sigue y el modelo puede usar
+  `buscar_corpus`. Si el LLM devuelve una respuesta con una cifra que el documento citado
+  no contiene, esa pregunta se descarta y se cuenta en `descartadas`.
+- La página de FAQ existente (`POST /api/faq`, `faq.html`, `faq.js`, `faq.css`) sigue
+  funcionando igual: `preguntas_frecuentes` reutiliza el mismo caso de uso con argumentos
+  opcionales cuyo valor por defecto deja su prompt idéntico.
 
 ## Requirements *(mandatory)*
 
@@ -366,17 +382,27 @@ ronda 4 de la 044.
 - **FR-020**: El asistente MUST disponer de exactamente 20 consultas: `buscar_corpus`,
   `buscar_producto`, `cotizar`, `buscar_sedes`, `indicador_financiero`, `sin_consulta`,
   `recordar_preferencia`, `listar_memoria`, `olvidar_preferencia`, `ficha_producto`,
-  `comparar_referencias`, `guia_materiales`, `convertir_presentacion`, `listar_familias`,
-  `ciudades_con_cobertura`, `empresas_del_grupo`, `historia_carvajal`,
+  `comparar_referencias`, `guia_materiales`, `convertir_presentacion`,
+  `ciudades_con_cobertura`, `preguntas_frecuentes`, `empresas_del_grupo`, `historia_carvajal`,
   `indicadores_disponibles`, `fecha_actual` y `consultar_cotizacion`.
 - **FR-021**: Cada consulta MUST declararse con un esquema de entrada tipado y una
   descripción explícita, vivir en su propio módulo y registrarse en un único registro
   central del que se derivan nombres, esquemas, descripciones, línea de estado, consumo del
   límite y papel ante la compuerta.
-- **FR-022**: Las 11 consultas nuevas MUST ser deterministas y leer solo datos que ya existen
-  en el repositorio (catálogo, directorio, guía de materiales, indicadores, historia y
-  páginas del núcleo, cotizaciones guardadas y calendario de festivos); ninguna estima,
-  interpola ni completa datos ausentes, y toda ausencia se declara.
+- **FR-022**: Diez de las 11 consultas nuevas MUST ser deterministas y leer solo datos que
+  ya existen en el repositorio (catálogo, directorio, guía de materiales, indicadores,
+  historia y páginas del núcleo, cotizaciones guardadas y calendario de festivos); ninguna
+  estima, interpola ni completa datos ausentes, y toda ausencia se declara. La excepción
+  declarada es `preguntas_frecuentes` (FR-022a).
+- **FR-022a**: `preguntas_frecuentes(tema?, cantidad?)` MUST generar las preguntas con el caso
+  de uso existente de la FAQ (`GenerateFaq`, el de `POST /api/faq`) y un proveedor de
+  lenguaje inyectado por `ToolDeps`, nunca construido por la herramienta; MUST devolver solo
+  entradas cuya fuente resuelve a un documento del núcleo y cuyas cifras, fechas y nombres
+  propios aparecen en el pasaje literal registrado como fuente (`evidence_role="corpus"`:
+  sin entradas verificadas, abstención); MUST respetar un plazo propio menor que el del
+  turno, con caché del último lote verificado como respaldo y `error` declarado sin él; y
+  MUST NOT cambiar ni romper la FAQ existente (`/api/faq`, `faq.html`, `faq.js`,
+  `faq.css`).
 - **FR-023**: Toda consulta MUST devolver la salida común de la 044 (`status`, `message`,
   `missing` y datos) y registrar fuentes citables para cada dato que devuelve; todas pasan
   por la compuerta de evidencia.
@@ -551,6 +577,12 @@ en [research.md](./research.md).
   escenarios cortos de la simulación, con juez y verificador una sola vez, y el escenario de
   15 turnos con el resumidor del modelo. Los demás escenarios de memoria se validan sin red.
   El owner pidió no hacer pruebas extensas (R13).
+- Q: ¿Por qué `preguntas_frecuentes` y no `listar_familias`? → A: cambio pedido por el
+  owner (2026-11-24). Las familias del catálogo ya se exploran con `buscar_producto`; las
+  preguntas frecuentes sobre Carvajal son una funcionalidad existente (`/api/faq`) que el
+  chat y WhatsApp no podían ofrecer. La herramienta reutiliza `GenerateFaq` y es la única
+  generativa: verifica cada entrada contra su documento, tiene plazo, caché y respaldo
+  (FR-022a, R18).
 - Revisión de artefactos (2026-11-24): los hallazgos de la revisión se aplicaron a spec,
   plan, investigación, modelo de datos, contratos, quickstart y tareas; las decisiones
   parciales y su justificación están en research R17.
@@ -566,6 +598,9 @@ en [research.md](./research.md).
   al reiniciar, como hoy.
 - Las 11 consultas nuevas no cambian el catálogo, el corpus ni los precios; la única
   curaduría nueva es la lista de empresas del grupo con cita literal.
+- `preguntas_frecuentes` usa el mismo proveedor de lenguaje que `/api/faq`
+  (`LLM_PROVIDER`) y el corpus núcleo de Postgres; en modo sin base o en el ejecutor de
+  evaluación sin corpus inyectado devuelve `error` declarado.
 - Fuera de alcance: Jev (spec 046), OpenClaw, el README general, embeddings o búsqueda
   semántica sobre la memoria, borrar conversaciones, interfaz para editar la memoria y la
   memoria silenciosa del Cotizador (sigue como está).

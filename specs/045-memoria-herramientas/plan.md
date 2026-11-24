@@ -25,10 +25,12 @@ Se añaden tres cosas al modo `tools` de la 044, sin cambiar qué se puede afirm
    olvidado reaparezca en el resumen.
 3. **20 herramientas** declaradas con `@tool(args_schema=...)` desde un registro central:
    `tools.py` pasa a ser el paquete `tools/` (las seis de la 044 se mueven en bloque; las 14
-   nuevas, una por módulo, implementables en paralelo). Las 11 nuevas leen solo datos del
-   repositorio (catálogo, guía de materiales, directorio, indicadores, historia, núcleo,
-   cotizaciones guardadas y calendario). Todas pasan por la compuerta, los límites y la
-   traza de la 044.
+   nuevas, una por módulo, implementables en paralelo). Diez de las 11 nuevas leen solo
+   datos del repositorio (catálogo, guía de materiales, directorio, indicadores, historia,
+   núcleo, cotizaciones guardadas y calendario); `preguntas_frecuentes` reutiliza la
+   generación de la FAQ existente (`GenerateFaq`) con un LLM inyectado y verifica cada
+   entrada contra su documento (research R18). Todas pasan por la compuerta, los límites y
+   la traza de la 044.
 
 La medición combina pruebas sin red para todo lo determinista y una sola corrida con
 proveedor real de un conjunto nuevo por herramienta, del v3 y de la simulación corta.
@@ -76,8 +78,8 @@ Evaluado contra `.specify/memory/constitution.md` (versión 2.7.0) y `CONSTITUTI
 |---|---|---|
 | I. La constitución manda | El plan propone tres enmiendas (abajo). Cada una se aplica en el commit que introduce el cambio (A con los datos institucionales, T023; C con el registro de las herramientas de memoria, T056; B con `fecha_actual`, T083), y la PR se integra con *squash*: en `main` queda un solo commit con el código y las enmiendas. | Enmienda |
 | II. El corpus es el contrato | No cambia `data/gold/`, el catálogo ni la capa extendida. `historia_carvajal` lee Gold sin copiarlo. **Nuevo**: `data/institucional/empresas.json`, derivado solo de Gold con cita literal verificada por prueba: es una capa curada que la constitución no nombra. | Enmienda A |
-| III. Sin fuentes no hay respuesta | Las 11 herramientas nuevas registran una fuente por dato; la compuerta, la abstención y el filtro de `sin_consulta` se conservan. Memoria y resumen son datos y **no respaldan datos de Carvajal** (FR-006, FR-017). Fuente nueva de tipo `sistema` para el reloj y el calendario: la constitución solo nombra oficial y tercero. | Enmienda B |
-| III. Prompts medidos | Las descripciones y el bloque de agrupación de `AGENT_SYSTEM` se miden con el conjunto nuevo y el v3 antes de entregar (FR-030, FR-031). `SUMMARY_SYSTEM` se mide una vez con el escenario de 15 turnos y el caso de inyección (T097); hasta entonces el modo por defecto es `deterministic`. | OK |
+| III. Sin fuentes no hay respuesta | Las 11 herramientas nuevas registran una fuente por dato (`preguntas_frecuentes`, el pasaje literal que respalda cada entrada generada; las que no se verifican se descartan, R18); la compuerta, la abstención y el filtro de `sin_consulta` se conservan. Memoria y resumen son datos y **no respaldan datos de Carvajal** (FR-006, FR-017). Fuente nueva de tipo `sistema` para el reloj y el calendario: la constitución solo nombra oficial y tercero. | Enmienda B |
+| III. Prompts medidos | Las descripciones y el bloque de agrupación de `AGENT_SYSTEM` se miden con el conjunto nuevo y el v3 antes de entregar (FR-030, FR-031). `preguntas_frecuentes` reutiliza `FAQ_INSTRUCTIONS` sin cambios; solo la petición añade el tema y la cantidad, y el prompt de `/api/faq` queda idéntico (prueba byte a byte); su pregunta del conjunto nuevo es su medición (R18). `SUMMARY_SYSTEM` se mide una vez con el escenario de 15 turnos y el caso de inyección (T097); hasta entonces el modo por defecto es `deterministic`. | OK |
 | III. Flujo comercial con datos publicados | `ficha_producto`, `comparar_referencias`, `convertir_presentacion` y `ciudades_con_cobertura` leen solo catálogo y contrato publicados; `consultar_cotizacion` solo lee y solo cotizaciones de procedencia `real` (la simulación de la 042 nunca vuelve como fuente). Sin estimar ni convertir entre monedas. | OK |
 | IV. Calidad automatizada | Todo lo nuevo con pruebas sin red; `make check` en verde; `uv` sin dependencias nuevas. | OK |
 | V. Captura responsable | No aplica. | OK |
@@ -156,24 +158,25 @@ packages/core/src/carvajal/
 │           ├── comparar_referencias.py
 │           ├── guia_materiales.py
 │           ├── convertir_presentacion.py
-│           ├── listar_familias.py
 │           ├── ciudades_con_cobertura.py
 │           ├── consultar_cotizacion.py
 │           ├── indicadores_disponibles.py
 │           ├── historia_carvajal.py
 │           ├── empresas_del_grupo.py
+│           ├── preguntas_frecuentes.py  # reutiliza application/faq.py (GenerateFaq), R18
 │           ├── fecha_actual.py
 │           ├── recordar_preferencia.py
 │           ├── listar_memoria.py
 │           └── olvidar_preferencia.py
+├── application/faq.py            # topic, max_questions y slugs opcionales (sin cambio con los valores por defecto)
 ├── quotation/engine.py           # declared_sizes, conversion, published_presentations públicas
 ├── institutional.py              # NUEVO: carga empresas.json e hitos de historia.md (error declarado si faltan)
 ├── adapters/storage/chat.py      # history_all() para el SummaryWorker
 ├── prompts.py                    # AGENT_SYSTEM agrupado; SUMMARY_SYSTEM; DIRECT_INSTRUCTIONS memoria
-└── infrastructure/settings.py    # agent_summary_mode/_timeout_s/_max_chars, agent_memory_days
+└── infrastructure/settings.py    # agent_summary_mode/_timeout_s/_max_chars, agent_memory_days, agent_faq_timeout_s
 
 apps/api/
-├── agent_runtime.py              # ToolDeps con memory, quote_lookup, institutional; SummaryWorker
+├── agent_runtime.py              # ToolDeps con memory, quote_lookup, institutional, faq; SummaryWorker
 ├── chat/agent.py                 # record encola; _allowed con user_quotes y memoria
 ├── chat/service.py               # submit tras cada _persist; _seed_turns con holgura y turn_count; trace
 └── chat/summary_worker.py        # NUEVO: ejecutor acotado, idempotente, session_factory y Store propios
@@ -194,7 +197,7 @@ tests/
 ├── test_summary_worker.py
 ├── test_tool_memory_tools.py
 ├── test_tool_agent_memory_flow.py
-├── test_tool_<nombre>.py         # una por herramienta nueva (11)
+├── test_tool_<nombre>.py         # una por herramienta nueva (11, con test_tool_preguntas_frecuentes.py)
 ├── test_institutional_data.py
 ├── test_deploy_packaging.py      # data/institucional en la imagen y la siembra
 └── (ampliaciones) test_tool_agent_history.py, test_tool_agent_graph.py,
@@ -224,8 +227,9 @@ que se implementen en paralelo sin conflictos; las seis de la 044 se mueven en b
 3. **F2 — US1 resumen** (P1).
 4. **F3 — US2 memoria** (P1). F2 y F3 pueden avanzar en paralelo tras F1 (tocan
    `recall` en el mismo archivo: una persona a la vez en `graph.py`).
-5. **F4 — US3 catálogo** y **F5 — US4 institucional**: 11 herramientas en paralelo, un
-   módulo cada una; luego un solo cambio para registrarlas.
+5. **F4 — US3 catálogo** (5 herramientas) y **F5 — US4 institucional** (6, con
+   `preguntas_frecuentes`): 11 herramientas en paralelo, un módulo cada una; luego un solo
+   cambio por grupo para registrarlas.
 6. **F6 — US5 selección y medición**: compuerta de tokens, descripciones, agrupación del
    prompt, mapa de equivalencias, quickstart, corridas únicas con proveedor real (incluida
    la medición de `SUMMARY_SYSTEM`), evidencia, revisión de enmiendas y PR con *squash*.
@@ -242,6 +246,8 @@ que se implementen en paralelo sin conflictos; las seis de la 044 se mueven en b
 | Mover `tools.py` rompe importaciones | Movimiento en bloque, reexportación completa, *golden* y las 117 pruebas existentes | `make check` |
 | Resumen perdido por escrituras cruzadas | El grafo escribe su canal; el trabajo solo escribe un borrador (R2) | prueba de respaldo `routes` |
 | Resumen o memoria como respaldo falso | Solo palabras literales de la persona; memoria solo en turnos de memoria (R4, FR-017) | prueba de nota falsa sobre Carvajal |
+| `preguntas_frecuentes` lenta o caída (LLM dentro del turno) | Plazo propio de 25 s, prompt reducido con `tema`, `cantidad` ≤ 5, caché de 24 h y lote en caché como respaldo; si no, `error` declarado (R18) | prueba con LLM falso lento; fila 16 del quickstart |
+| Texto generado por la FAQ usado como respaldo | Verificación de cada entrada contra su pasaje; `_tool_backing` solo lee `fragmento` (R18) | `tests/test_tool_preguntas_frecuentes.py` |
 | Datos sensibles guardados | Filtro determinista por forma en los cuatro caminos (R8); redacción en origen de los argumentos | SC-004 |
 | Ciudad habitual usada sin confirmar | No entra en `_city_said`; `buscar_sedes` adopta la regla; `needs_input` con sugerencia | SC-005 |
 | Créditos | Una corrida por medición, sin `routes` ni simulación larga (R13) | — |

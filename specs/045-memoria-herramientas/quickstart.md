@@ -13,6 +13,9 @@
 - En producción, `data/institucional/empresas.json` viaja en la imagen y en la siembra
   (`.dockerignore`, `Dockerfile`, `compose.prod.yml`, `scripts/deploy.sh`), y
   `/app/data/gold` debe estar sembrado para `historia_carvajal`.
+- `preguntas_frecuentes` necesita el corpus núcleo en Postgres (el mismo de `/api/faq`) y
+  un `LLM_PROVIDER` configurado; sin ellos devuelve `error` declarado. Sus pruebas usan un
+  corpus y un LLM falsos.
 
 ## 1. Sin red (CI)
 
@@ -23,9 +26,10 @@ uv run pytest tests/test_tool_registry.py tests/test_memory_sensitive.py \
   tests/test_summary_worker.py tests/test_tool_memory_tools.py \
   tests/test_tool_agent_memory_flow.py -q
 uv run pytest tests -q -k "ficha_producto or comparar_referencias or guia_materiales \
-  or convertir_presentacion or listar_familias or ciudades_con_cobertura \
+  or convertir_presentacion or ciudades_con_cobertura \
   or consultar_cotizacion or indicadores_disponibles or historia_carvajal \
-  or empresas_del_grupo or fecha_actual"
+  or empresas_del_grupo or preguntas_frecuentes or fecha_actual"
+uv run pytest tests/test_faq.py tests/test_api_faq.py -q   # la FAQ existente no cambia
 make eval-cotizador          # 18/18
 ```
 
@@ -56,12 +60,12 @@ todas: una línea de estado amigable (salvo `sin_consulta`), la herramienta en
 | 8 | `comparar_referencias` | «¿Qué diferencia hay entre el CO-VTER-08 y el CO-VTER-10?» | Tabla de diferencias; sin «más barata» si falta precio |
 | 9 | `guia_materiales` | «¿El PET sirve para comida caliente?» | Nivel de la guía con su aviso de procedencia |
 | 10 | `convertir_presentacion` | «¿Cuántas unidades son 3 cajas del vaso CO-VTER-04?» | «3 cajas × 1000 = 3000 unidades» |
-| 11 | `listar_familias` | «¿Qué tipos de productos tienen en Colombia?» | Familias con conteos, aviso de catálogo curado |
-| 12 | `ciudades_con_cobertura` | «¿En qué ciudades tienen distribuidores?» | 10 ciudades con su número de sedes |
-| 13 | `consultar_cotizacion` | (en el hilo de la fila 3) «¿Mi cotización sigue vigente?» | La misma cotización (procedencia real), con vigencia en fecha de Bogotá y sin recotizar |
-| 14 | `indicadores_disponibles` | «¿Qué cifras financieras me puedes dar?» | 6 indicadores con períodos, sin valores |
-| 15 | `historia_carvajal` | «¿Qué pasó en Carvajal en 1960?» | Texto literal del hito de 1960 con cita |
-| 16 | `empresas_del_grupo` | «¿Qué empresas y marcas tiene Carvajal?» | Unidades de «Nuestros Sectores» y marcas del núcleo, con cita |
+| 11 | `ciudades_con_cobertura` | «¿En qué ciudades tienen distribuidores?» | 10 ciudades con su número de sedes |
+| 12 | `consultar_cotizacion` | (en el hilo de la fila 3) «¿Mi cotización sigue vigente?» | La misma cotización (procedencia real), con vigencia en fecha de Bogotá y sin recotizar |
+| 13 | `indicadores_disponibles` | «¿Qué cifras financieras me puedes dar?» | 6 indicadores con períodos, sin valores |
+| 14 | `historia_carvajal` | «¿Qué pasó en Carvajal en 1960?» | Texto literal del hito de 1960 con cita |
+| 15 | `empresas_del_grupo` | «¿Qué empresas y marcas tiene Carvajal?» | Unidades de «Nuestros Sectores» y marcas del núcleo, con cita |
+| 16 | `preguntas_frecuentes` | «¿Qué preguntas frecuentes hay sobre la sostenibilidad de Carvajal?» | Hasta 5 preguntas con respuesta y cita [n] de una página núcleo; repetida en otro hilo, sale de la caché sin esperar al LLM. Por WhatsApp, el mismo texto con sus fuentes |
 | 17 | `fecha_actual` | «¿Mañana es día hábil?» | Fecha de Bogotá, hábil o no y el próximo hábil, fuente «sistema» |
 | 18 | `recordar_preferencia` | «Soy Ana, de la Panadería La Espiga» | Confirma lo guardado (nombre y empresa), sin repetir datos sensibles |
 | 19 | `listar_memoria` | (otro hilo, mismo navegador) «¿Qué sabes de mí?» | Nombre y empresa |
