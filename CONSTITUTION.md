@@ -220,6 +220,7 @@ carvajal/
 │           │   └── ports.py     # repositorios, vector store, LLM, embedder, fetcher
 │           ├── agent/         # router, herramienta, memoria y grafo LangGraph
 │           ├── catalog/       # catálogo curado de empaques: modelos, carga y construcción (spec 036)
+│           ├── institutional.py # empresas curadas e hitos de historia.md, sin excepciones (spec 045)
 │           ├── indexing/      # indexación Gold → Qdrant
 │           ├── adapters/      # adaptadores de infraestructura
 │           │   ├── storage/     # SQLAlchemy Core
@@ -251,6 +252,7 @@ carvajal/
 │   ├── eval/                # consultas etiquetadas para Recall@10 / nDCG@10
 │   ├── indicators.json      # herramienta estructurada del M2
 │   ├── catalog/empaques/    # catálogo curado versionado (CSV + manifest.json, spec 036)
+│   ├── institucional/       # capa institucional curada con cita literal de Gold (spec 045)
 │   ├── retrieval_cards.json # fichas de recuperación (no son fuente de respuesta)
 │   └── index/               # índice FAISS legado (regenerable, ignorado por Git)
 ├── migrations/              # migraciones Alembic (esquema relacional)
@@ -304,6 +306,10 @@ carvajal/
   - La capa de catálogo (`data/catalog/`) contiene datos estructurados curados a partir
     del corpus; cada fila conserva `source_url` y `captured_at`, y los precios se
     presentan siempre como referencia fechada, nunca como oferta ni con disponibilidad.
+  - La capa institucional curada (`data/institucional/`, spec 045) guarda listas pequeñas
+    derivadas solo del núcleo (empresas y marcas del grupo), cada fila con su cita literal
+    y su URL de `index.jsonl`, verificadas por prueba contra `data/gold/`; no añade hechos
+    que el núcleo no diga. Viaja en la imagen y en la siembra de producción.
   - Un precio del catálogo puede venir de un tercero identificado (un distribuidor):
     se muestra con su nombre, su página y su fecha, y nunca se presenta como precio de
     Carvajal. Un precio ausente no se estima ni se convierte de otra moneda (spec 039).
@@ -523,6 +529,7 @@ git push
 | 2026-11-24 | `deploy.sh` siembra y valida el aprovisionamiento comercial antes de migrar | Desde la 043, `/health` exige un catálogo comercial válido, pero el volumen `appdata` tapa el `/app/data` de la imagen y solo el perfil `bootstrap` sembraba los archivos nuevos. Siete despliegues seguidos fallaron con `catalog: invalid` (faltaba `data/catalog/empaques/referencias.csv`) y volvieron al tag anterior; el runbook pedía `deploy.sh` y luego el bootstrap, un orden imposible porque el rollback llega antes. Ahora `deploy.sh` copia solo los archivos ausentes de `/app/seed-data`, comprueba la versión y valida antes de migrar, sin reindexar. Si no valida, se detiene sin tocar la versión en marcha. |
 | 2026-11-23 | Cotización en PDF y formato de WhatsApp para el canal MCP | El bloque de cotización de WhatsApp sale de una vista común (`apps/api/quote_view.py`) que lee el payload de `quotes` sin calcular nada, y ofrece el PDF. La palabra «PDF» devuelve, sin LLM pero con el mismo cupo diario, un enlace firmado (HMAC con `SESSION_SECRET` sobre folio, dueño y vencimiento, máximo 7 días y 5 minutos de tolerancia de reloj) a la última cotización del hilo activo en `GET /cotizaciones/{folio}.pdf`, que verifica la firma contra el `owner_key` guardado y responde 404 ante cualquier fallo. El PDF se genera al vuelo con fpdf2 (Python puro, compatible con el contenedor de solo lectura) con el logo de Carvajal y DM Sans (OFL) en TTF. Se activa con `PUBLIC_BASE_URL`. |
 | 2026-11-24 | Fotos del catálogo para cotizaciones (PDF y WhatsApp) | Una foto por SKU, versionada en `data/catalog/empaques/imagenes/` con su procedencia en `imagenes.csv`, curada con `scripts/curar_imagenes_co.py` desde las fichas oficiales de Carvajal Empaques (`og:image`, respetando `robots.txt`). Las de terceros solo con `--incluir-terceros` y permiso del dueño. No se enlaza en vivo a sitios externos: el PDF incrusta la foto y WhatsApp enlaza `/catalogo/imagenes/{sku}.jpg`, que solo sirve SKU del manifiesto. Las fotos son opcionales: sin foto, la cotización sale igual. |
+| 2026-11-24 | Enmienda A de la spec 045: capa institucional curada (`data/institucional/empresas.json`) | `empresas_del_grupo` necesita una lista estructurada que Gold no tiene. Se deriva solo del núcleo («Nuestros Sectores» de `quienes_somos.md`, las páginas de unidad y `home.md`), con cita literal y URL de `index.jsonl` por fila y alias citados (PROPAL → Carvajal Pulpa y Papel); una prueba verifica cada cita contra `data/gold/`. Leer `home.md` con expresiones era frágil y `buscar_corpus` no da una lista completa. El archivo viaja en la imagen y en la siembra (`.dockerignore`, `Dockerfile`, `compose.prod.yml`, `scripts/deploy.sh`); si falta, la herramienta devuelve `error` declarado. Proyección de la constitución: versión 2.8.0 |
 
 ## 10. Notas y tareas pendientes
 

@@ -313,6 +313,7 @@ services:
         if [ -d /seed ]; then
           seed_dir /seed/catalog /app/data/catalog
           seed_dir /seed/commercial /app/data/commercial
+          seed_dir /seed/institucional /app/data/institucional
           seed_dir /seed/gold /app/data/gold
         fi
         # El aprovisionamiento incluido en la imagen cubre actualizaciones
@@ -320,6 +321,7 @@ services:
         if [ -d /app/seed-data ]; then
           seed_dir /app/seed-data/catalog /app/data/catalog
           seed_dir /app/seed-data/commercial /app/data/commercial
+          seed_dir /app/seed-data/institucional /app/data/institucional
         fi
         ACTUAL="$$(python -m carvajal.commercial version)"
         if [ -n "$${EXPECTED_COMMERCIAL_VERSION:-}" ] && [ "$$ACTUAL" != "$$EXPECTED_COMMERCIAL_VERSION" ]; then

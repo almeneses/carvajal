@@ -31,6 +31,9 @@ Bronze (`data/raw/`) y silver (`data/processed/`) se regeneran y no se versionan
 - La capa de catálogo (`data/catalog/`, specs 036 y 039) guarda datos estructurados curados con
   fuente y fecha por fila; sus precios son siempre referencias fechadas, una oferta por fuente,
   y un tercero se nombra como tal.
+- La capa institucional curada (`data/institucional/`, spec 045) guarda listas pequeñas
+  derivadas solo del núcleo, cada fila con su cita literal y su URL de `index.jsonl`,
+  verificadas por prueba contra `data/gold/`; no añade hechos que el núcleo no diga.
 
 ### III. Sin fuentes no hay respuesta (NO NEGOCIABLE)
 
@@ -177,4 +180,4 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.7.0 - 2026-11-23, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.8.0 - 2026-11-24, sincronizada con `CONSTITUTION.md` del repositorio.

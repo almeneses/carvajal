@@ -208,7 +208,8 @@ que aportó la persona (regla de la 044; FR-018).
 
 - **Entrada** (`HistoriaCarvajalArgs`): `anio: int | None` (1900–2100), `desde: int | None`,
   `hasta: int | None`. Al menos `anio` o `desde`; `hasta ≥ desde`.
-- **Comportamiento**: hitos de `data/gold/historia.md` partidos por `## AAAA` (68 hitos,
+- **Comportamiento**: hitos de `data/gold/historia.md` partidos por `## AAAA` (68 encabezados, 67
+  con texto: 1962 está vacío en la captura y se trata como año sin hito;
   1904–2024); URL de `index.jsonl`.
 - **`ok`**: `hitos: [{n, anio, texto}]` (texto literal, ≤ 10 hitos; `hay_mas: bool`).
 - **`empty`**: año sin hito → `anios_cercanos: [int]` (anterior y siguiente con hito); nunca

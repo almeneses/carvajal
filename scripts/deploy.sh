@@ -190,6 +190,7 @@ seed_dir() {
 [ -d /app/seed-data ] || { echo "    la imagen no trae /app/seed-data; se omite"; exit 0; }
 seed_dir /app/seed-data/catalog /app/data/catalog
 seed_dir /app/seed-data/commercial /app/data/commercial
+seed_dir /app/seed-data/institucional /app/data/institucional
 cd /app
 actual="$(python -m carvajal.commercial version)"
 if [ -n "${EXPECTED_COMMERCIAL_VERSION:-}" ] && [ "$actual" != "$EXPECTED_COMMERCIAL_VERSION" ]; then

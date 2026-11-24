@@ -66,7 +66,8 @@ créditos limitados (una corrida por medición); entrega en unos 2 días.
 
 **Scale/Scope**: 20 herramientas; 5 categorías de memoria; resumen ≤ 1 500 caracteres;
 catálogo de 200 referencias, 29 precios CO, 29 sedes en 10 ciudades, 10 registros de
-indicadores, 68 hitos históricos, unas 11 empresas y marcas curadas.
+indicadores, 67 hitos históricos con texto (68 encabezados; 1962 está vacío), 14 empresas
+y marcas curadas.
 
 ## Constitution Check
 

@@ -25,6 +25,9 @@ data/*
 !data/catalog/**
 !data/commercial
 !data/commercial/**
+# Capa institucional curada (spec 045): la lee `empresas_del_grupo` en runtime.
+!data/institucional
+!data/institucional/**
 docs
 specs
 tests
