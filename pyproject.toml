@@ -28,6 +28,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=3.0",
     "langsmith>=0.14.14",
     "markdown>=3.11.3",
+    "mcp>=2.3,<3",
     "nh3>=0.3.7",
     "ollama>=0.6",
     "psycopg[binary]>=3.3.9",

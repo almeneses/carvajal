@@ -134,6 +134,13 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Servidor MCP para WhatsApp (apps/mcp, vía OpenClaw). ``mcp_token`` es el
+    # bearer que exige el endpoint ``/mcp``; sin él, el servidor no arranca. El
+    # puerto se publica solo en loopback y se alcanza por un túnel SSH.
+    mcp_token: str = Field(default="", repr=False)
+    mcp_host: str = "127.0.0.1"
+    mcp_port: int = Field(default=8765, ge=1, le=65535)
+
     # Captura web desde la consola de Configuración, solo para operadores
     # autorizados con OPERATOR_TOKEN. El máximo de URLs por ejecución sigue al
     # de la primera versión (todas las semillas configuradas) y el valor
