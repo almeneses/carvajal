@@ -55,6 +55,7 @@ __all__ = [
     "WhatsAppMessage",
     "WhatsAppReply",
     "allowed_numbers",
+    "allows_any_sender",
     "invalid_allowlist_entries",
     "router",
     "signature_for",
@@ -128,10 +129,25 @@ def turn_id_for(message_id: str) -> str:
     return f"{TURN_PREFIX}{digest[:40]}"
 
 
+OPEN_ALLOWLIST = "*"
+
+
+def allows_any_sender(settings: Settings) -> bool:
+    """``WEBHOOK_ALLOWED_NUMBERS=*``: modo abierto, cualquier remitente E.164 válido.
+
+    La protección del endpoint no es la lista sino la firma con ``WEBHOOK_SECRET`` (solo el
+    relé la conoce); el cupo diario por número y el tope de Jev limitan el gasto.
+    """
+
+    return any(entry.strip() == OPEN_ALLOWLIST for entry in settings.webhook_allowed_numbers)
+
+
 def _normalized(entries: tuple[str, ...]) -> tuple[frozenset[str], int]:
     valid: set[str] = set()
     invalid = 0
     for entry in entries:
+        if entry.strip() == OPEN_ALLOWLIST:
+            continue
         try:
             valid.add(normalize_e164(entry))
         except ValueError:
@@ -222,7 +238,7 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
         fields = sorted({".".join(str(part) for part in item["loc"]) for item in error.errors()})
         logger.warning("webhook.invalid_body", channel="whatsapp", fields=fields)
         return JSONResponse({"detail": INVALID_BODY}, status_code=422)
-    if message.sender not in allowed_numbers(settings):
+    if not allows_any_sender(settings) and message.sender not in allowed_numbers(settings):
         return _reject(403, SENDER_NOT_ALLOWED, "sender_not_allowed")
 
     try:

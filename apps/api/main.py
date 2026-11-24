@@ -195,6 +195,10 @@ def _log_webhook_status(settings: Settings) -> None:
 
     if not settings.webhook_secret.strip():
         return
+    if webhooks.allows_any_sender(settings):
+        # Modo abierto: decisión explícita del operador, visible en cada arranque.
+        logger.warning("webhook.open", reason="any_sender")
+        return
     allowed = len(webhooks.allowed_numbers(settings))
     invalid = webhooks.invalid_allowlist_entries(settings)
     if invalid:

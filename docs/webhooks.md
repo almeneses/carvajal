@@ -29,6 +29,12 @@ WEBHOOK_ALLOWED_NUMBERS=+573100000000,+573110000000
 # Equivale a: WEBHOOK_ALLOWED_NUMBERS=["+573100000000","+573110000000"]
 ```
 
+**Modo abierto.** `WEBHOOK_ALLOWED_NUMBERS=*` acepta cualquier remitente con un número E.164
+válido, para un bot al que cualquiera puede escribirle. La firma con `WEBHOOK_SECRET` sigue
+siendo obligatoria (solo el relé puede llamar al endpoint), cada número conserva su hilo, su
+memoria y su cupo diario (`DAILY_REQUESTS_LIMIT`), y Jev su tope diario. Al arrancar se
+registra `webhook.open`.
+
 `SESSION_SECRET` también debe estar definido: firma el `owner_key` de cada número (en
 producción ya es obligatorio). El mismo número cae en el mismo hilo por el webhook y por
 el servidor MCP: antes del HMAC, el identificador del MCP se reduce al mismo E.164 que el
@@ -91,7 +97,7 @@ el cupo diario; `quote_ids` va vacío porque no se emite cotización nueva.
 | 413 | El cuerpo supera 16 KiB. |
 | 401 | Falta el timestamp, está fuera de la ventana o la firma no coincide. |
 | 422 | El cuerpo no es JSON o no cumple el esquema (por ejemplo, `from` sin `+`). |
-| 403 | El remitente no está en `WEBHOOK_ALLOWED_NUMBERS`. No se procesa nada. |
+| 403 | El remitente no está en `WEBHOOK_ALLOWED_NUMBERS` (no aplica en modo abierto, `*`). No se procesa nada. |
 | 409 | Ese `message_id` se está atendiendo en otro intento. Trae `Retry-After: 5`; reintenta con el mismo `message_id`. |
 | 503 | No se pudo preparar el turno (por ejemplo, falta `SESSION_SECRET`). |
 

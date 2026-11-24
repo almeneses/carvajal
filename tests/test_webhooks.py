@@ -366,6 +366,42 @@ def test_allowlist_vacia_rechaza_todo(monkeypatch: pytest.MonkeyPatch) -> None:
     assert chat.calls == []
 
 
+def test_modo_abierto_acepta_cualquier_remitente_e164(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    chat = FakeChat(events=_events())
+    client = _app(monkeypatch, WhatsAppBridge(chat=chat, secret=SESSION), allowed="*")
+
+    # Act
+    response = _post(client, _message(**{"from": "+14155552671"}))
+
+    # Assert
+    assert response.status_code == 200
+    assert len(chat.calls) == 1
+
+
+def test_modo_abierto_sigue_exigiendo_la_firma(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    chat = FakeChat(events=_events())
+    client = _app(monkeypatch, WhatsAppBridge(chat=chat, secret=SESSION), allowed="*")
+    body = json.dumps(_message()).encode()
+    timestamp = str(int(time.time()))
+
+    # Act
+    response = client.post(
+        "/api/webhooks/whatsapp",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Carvajal-Timestamp": timestamp,
+            "X-Carvajal-Signature": _sign(body, timestamp, secret="otro-secreto"),
+        },
+    )
+
+    # Assert
+    assert response.status_code == 401
+    assert chat.calls == []
+
+
 def test_la_allowlist_compara_numeros_normalizados(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
     chat = FakeChat(events=_events())
@@ -696,6 +732,23 @@ def test_el_arranque_avisa_de_la_allowlist_sin_revelar_numeros(
     assert events["webhook.allowlist_invalid_entries"]["invalid"] == 2
     assert "webhook.allowlist_empty" in events
     assert DIGITS not in repr(logs)
+    assert SECRET not in repr(logs)
+
+
+def test_el_arranque_avisa_del_modo_abierto(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    monkeypatch.setenv("WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("WEBHOOK_ALLOWED_NUMBERS", "*")
+
+    # Act
+    with capture_logs() as logs:
+        create_app(Handlers(health=lambda: HealthStatus(0, 0)))
+
+    # Assert
+    events = {log["event"]: log for log in logs}
+    assert events["webhook.open"]["reason"] == "any_sender"
+    assert "webhook.allowlist_empty" not in events
+    assert "webhook.allowlist_invalid_entries" not in events
     assert SECRET not in repr(logs)
 
 
