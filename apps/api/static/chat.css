@@ -1539,6 +1539,52 @@ html[data-voz-manos="1"] .chat-cuerpo .composer {
   border: 2px solid var(--cian);
 }
 
+/* Nota de voz por respuesta (spec 050): solo lo funcional. Con nota, el JS oculta la
+   franja «Escuchar/…» con `hidden`, que la regla de arriba (display: flex) taparía. */
+html[data-voz-tts="1"] .turno-assistant .turno-voz[hidden] {
+  display: none;
+}
+
+/* Mínimo para que la nota se vea y se use sin el rediseño (049). Todo va en :where()
+   (especificidad cero): cualquier regla .turno-nota-* del rediseño lo sustituye sin
+   tocarlo. Contrato de clases y data-nota-estado en docs/voz-web.md. */
+:where(.turno-nota) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+:where(.turno-nota-boton) {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+:where(.turno-nota-boton)::before {
+  content: "▶";
+}
+
+:where(.turno-nota-boton[aria-pressed="true"])::before {
+  content: "❚❚";
+}
+
+:where(.turno-nota[data-nota-estado="cargando"] .turno-nota-boton)::before {
+  content: "…";
+}
+
+:where(.turno-nota-duracion:not(:empty))::before {
+  content: "/ ";
+}
+
+:where(.turno-nota-estado) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Cotizador (spec 042): la cotización vive dentro del turno, sin panel aparte.
    Tokens del mockup institucional: azul Carvajal, cian de acento y radios 14-17 px. */
 .coti-aviso {

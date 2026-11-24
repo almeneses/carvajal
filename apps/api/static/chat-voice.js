@@ -3,10 +3,13 @@
 // Con la voz del servidor (spec 047, `data-voz-servidor="1"`), el dictado graba con
 // MediaRecorder y sube el audio a /api/voz/transcribir, y la lectura pide a
 // /api/voz/hablar el audio de la respuesta guardada (por su id, nunca por el texto
-// de la página). Ante cualquier error, 503 o 429 el controlador vuelve a la voz del
-// navegador del resto de la sesión. Sin voz del servidor el audio nunca sale del
-// navegador hacia el servidor del proyecto. La detección es por capacidad, no por
-// marca ni versión.
+// de la página). Un fallo del dictado del servidor vuelve al reconocimiento del
+// navegador el resto de la sesión. La lectura (spec 050) es una nota de voz por
+// respuesta: suena sola solo si la persona habló (o con la lectura automática), y un
+// fallo de reproducción o de un turno nunca cambia de voz ni apaga la del servidor;
+// solo un 503 o un 401/403 la dan por no disponible, y se vuelve a probar a los 60 s.
+// Sin voz del servidor el audio nunca sale del navegador hacia el servidor del
+// proyecto. La detección es por capacidad, no por marca ni versión.
 (() => {
   "use strict";
 
@@ -21,6 +24,10 @@
   // Plazo de cada petición a /api/voz/* si la página no trae el del servidor: sin él, una
   // red colgada dejaría «Transcribiendo…» para siempre.
   const PLAZO_SERVIDOR_MS = 35000;
+  // Notas de voz (spec 050): audios guardados en memoria (LRU) y espera antes de volver
+  // a probar la voz del servidor tras un 503 o un 401/403.
+  const MAX_NOTAS_EN_CACHE = 6;
+  const REINTENTO_LECTURA_MS = 60000;
   const CLAVES = {
     aviso: "carvajal_voz_aviso_dictado",
     // El aviso de la voz del servidor dice otra cosa (el audio pasa por el sitio): se
@@ -59,14 +66,45 @@
     manosLectura: "Manos libres se apagó al detener la lectura.",
     manosHilo: "Manos libres se apagó porque cambió el hilo visible.",
     transcribiendo: "Transcribiendo el dictado…",
-    preparandoLectura: "Preparando la lectura…",
     servidorDictado:
       "La transcripción del servidor no respondió. Dicta de nuevo: se usará el reconocimiento de tu navegador.",
     servidorSinRespaldo: "No se pudo transcribir el dictado. Puedes escribir tu pregunta.",
     manosSinSoporte: "Manos libres necesita dictado, lectura y streaming disponibles.",
     manosOcupado: "Espera a que termine la respuesta en curso para activar manos libres.",
     manosLeyendo: "Espera a que termine la lectura para activar manos libres.",
+    manosBloqueo:
+      "Manos libres se apagó: el navegador no dejó reproducir la respuesta. Toca reproducir para escucharla.",
+    notaCargando: "Preparando la nota de voz…",
+    notaSonando: "Reproduciendo la nota de voz.",
+    notaPausada: "Nota de voz en pausa.",
+    notaBloqueada: "El navegador no dejó reproducirla sola. Toca reproducir para escucharla.",
+    notaError: "No se pudo preparar la nota de voz. Inténtalo de nuevo.",
+    notaOcupada: "Hay muchas lecturas seguidas. Inténtalo de nuevo en un momento.",
+    vozNoDisponible: "La voz no está disponible ahora.",
   };
+
+  // Estados de la nota de voz (data-nota-estado) y la etiqueta de su botón principal.
+  const ETIQUETAS_NOTA = {
+    lista: "Reproducir la nota de voz",
+    cargando: "Preparando la nota de voz",
+    sonando: "Pausar la nota de voz",
+    pausada: "Reanudar la nota de voz",
+    bloqueada: "Reproducir la nota de voz",
+    error: "Reintentar la nota de voz",
+  };
+  const ANUNCIOS_NOTA = {
+    cargando: MENSAJES.notaCargando,
+    sonando: MENSAJES.notaSonando,
+    pausada: MENSAJES.notaPausada,
+    bloqueada: MENSAJES.notaBloqueada,
+    error: MENSAJES.notaError,
+  };
+
+  /** «m:ss» para el tiempo de la nota; cualquier valor raro cuenta como 0. */
+  function formatoTiempo(segundos) {
+    const total = Number.isFinite(segundos) && segundos > 0 ? Math.floor(segundos) : 0;
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  }
 
   // --- Normalización conservadora de cantidades dictadas ---------------------
   // Solo convierte números escritos con palabras cuando van seguidos de una
@@ -392,8 +430,11 @@
       now: () => window.performance.now(),
     };
     const segura = Boolean(opciones.segura);
-    // Voz del servidor (spec 047): opcional; cada capacidad se apaga sola al primer fallo
-    // y el resto de la sesión sigue con la voz del navegador.
+    // `pagehide` llega a window, no al documento: ahí se cortan los audios pendientes.
+    const ventana = opciones.ventana || null;
+    // Voz del servidor (spec 047): opcional. El dictado se apaga al primer fallo y el
+    // resto de la sesión sigue con el navegador; la lectura (spec 050) solo se suspende
+    // ante un 503 o un 401/403 y se vuelve a probar pasado REINTENTO_LECTURA_MS.
     const servidor = opciones.servidor || null;
     const servidorActivo = {
       dictado: Boolean(servidor && servidor.dictado) && segura,
@@ -442,7 +483,8 @@
           : null,
       );
       soporte.dictado = navegador.dictado || servidorActivo.dictado;
-      soporte.sintesis = navegador.sintesis || servidorActivo.lectura;
+      // La lectura del servidor solo se suspende un rato: la página la sigue ofreciendo.
+      soporte.sintesis = navegador.sintesis || servidorInicial.lectura;
       soporte.manosLibres = soporte.dictado && soporte.sintesis && soporte.streaming;
       soporte.servidor = { dictado: servidorActivo.dictado, lectura: servidorActivo.lectura };
     }
@@ -466,6 +508,15 @@
     let subida = null;
     let reproduccion = null;
     let temporizadorProgreso = null;
+    // Notas de voz (spec 050): una por respuesta guardada, el audio de cada mensaje en
+    // un LRU pequeño y como mucho una síntesis en vuelo por mensaje.
+    const notas = new Map();
+    const audios = new Map();
+    const pedidos = new Map();
+    let lecturaReintentoEn = 0;
+    // ¿El borrador actual trae texto dictado? ¿La pregunta enviada salió de la voz?
+    let borradorDictado = false;
+    let turnoHablado = false;
 
     function mount() {
       // Montar dos veces no debe duplicar listeners ni ciclos de voz.
@@ -502,7 +553,11 @@
       if (vista.nota) vista.nota.hidden = true;
       boton.addEventListener("click", () => {
         if (estado.escuchando) detenerDictado();
-        else iniciarDictado();
+        else {
+          // Gesto de la persona: deja listo el reproductor para la respuesta hablada.
+          desbloquearAudio();
+          iniciarDictado();
+        }
       });
     }
 
@@ -523,12 +578,467 @@
       documento.addEventListener("chat:turn-complete", alCompletarTurno);
       documento.addEventListener("visibilitychange", alCambiarVisibilidad);
       documento.addEventListener("click", alClicTurno);
+      // En captura: corre antes que el envío del stream, que marca el formulario ocupado.
+      documento.addEventListener("submit", alEnviar, true);
+      if (ventana && typeof ventana.addEventListener === "function") {
+        ventana.addEventListener("pagehide", liberarNotas);
+      }
+      if (vista.entrada) {
+        vista.entrada.addEventListener("input", () => {
+          if (String(vista.entrada.value || "").trim() === "") borradorDictado = false;
+        });
+      }
+      montarNotasDelHistorial();
+    }
+
+    // --- Notas de voz por respuesta (spec 050) ---------------------------------
+    // Contrato con el rediseño (049): solo clases .turno-nota-* y atributos; el estado va
+    // en data-nota-estado y el avance en --nota-avance. Ver docs/voz-web.md.
+
+    /** En el gesto de la persona (clic o envío): Safari/iOS exigen un play() dentro. */
+    function desbloquearAudio() {
+      if (!servidorInicial.lectura || typeof servidor.desbloquear !== "function") return;
+      try {
+        servidor.desbloquear();
+      } catch {
+        // Sin desbloqueo la nota puede quedar «bloqueada» y se toca para escucharla.
+      }
+    }
+
+    function alEnviar(evento) {
+      const formulario = vista.formulario;
+      if (!formulario || !evento || evento.target !== formulario) return;
+      // El stream ignora un envío vacío o mientras otra respuesta sigue en curso.
+      const ocupado =
+        typeof formulario.getAttribute === "function" &&
+        formulario.getAttribute("aria-busy") === "true";
+      const vacio = Boolean(vista.entrada) && String(vista.entrada.value || "").trim() === "";
+      if (ocupado || vacio) return;
+      turnoHablado =
+        borradorDictado ||
+        Boolean(formulario.dataset && formulario.dataset.vozOrigen === "manos-libres");
+      borradorDictado = false;
+      if (turnoHablado || preferencias.autoLectura) desbloquearAudio();
+    }
+
+    function crearNodo(etiqueta, clase, atributos = {}) {
+      const nodo = documento.createElement(etiqueta);
+      nodo.className = clase;
+      for (const [nombre, valor] of Object.entries(atributos)) nodo.setAttribute(nombre, valor);
+      return nodo;
+    }
+
+    // Un solo elemento dentro del turno, justo después de la burbuja; sin DOM (pruebas,
+    // documentos raros) la nota existe igual y solo guarda su estado.
+    function construirNota(turno, mensaje) {
+      const nota = { turno, mensaje, estado: "lista", segundos: null, raiz: null };
+      if (typeof documento.createElement !== "function") return nota;
+      try {
+        const raiz = crearNodo("div", "turno-nota", {
+          role: "group",
+          "aria-label": "Nota de voz de la respuesta",
+        });
+        raiz.dataset.notaEstado = "lista";
+        raiz.dataset.notaMensaje = mensaje;
+        const boton = crearNodo("button", "turno-nota-boton", {
+          type: "button",
+          "aria-pressed": "false",
+          "aria-label": ETIQUETAS_NOTA.lista,
+        });
+        boton.dataset.notaAccion = "alternar";
+        const barra = crearNodo("span", "turno-nota-barra", {
+          role: "progressbar",
+          "aria-label": "Avance de la nota de voz",
+          "aria-valuemin": "0",
+          "aria-valuemax": "100",
+          "aria-valuenow": "0",
+          "aria-valuetext": formatoTiempo(0),
+        });
+        const tiempo = crearNodo("span", "turno-nota-tiempo");
+        tiempo.textContent = formatoTiempo(0);
+        const duracion = crearNodo("span", "turno-nota-duracion");
+        const estadoTexto = crearNodo("span", "turno-nota-estado", {
+          role: "status",
+          "aria-live": "polite",
+        });
+        // Texto visible en «bloqueada» y «error»; el lector de pantalla ya lo oye arriba.
+        const aviso = crearNodo("span", "turno-nota-aviso", { "aria-hidden": "true" });
+        aviso.hidden = true;
+        const reintentar = crearNodo("button", "turno-nota-reintentar", { type: "button" });
+        reintentar.dataset.notaAccion = "reintentar";
+        reintentar.textContent = "Reintentar";
+        reintentar.hidden = true;
+        raiz.append(boton, barra, tiempo, duracion, estadoTexto, aviso, reintentar);
+        const burbuja = turno.querySelector(".burbuja");
+        if (burbuja && typeof burbuja.after === "function") burbuja.after(raiz);
+        else turno.appendChild(raiz);
+        Object.assign(nota, { raiz, boton, barra, tiempo, duracion, estadoTexto, aviso, reintentar });
+        // Con nota, la franja «Escuchar/Pausar/…» sobra: la nota es el único control.
+        const franja = turno.querySelector("[data-voz-turno]");
+        if (franja) {
+          const activo = documento.activeElement;
+          const teniaFoco = Boolean(
+            activo && typeof franja.contains === "function" && franja.contains(activo),
+          );
+          franja.hidden = true;
+          if (teniaFoco && typeof boton.focus === "function") boton.focus();
+        }
+      } catch {
+        nota.raiz = null;
+      }
+      return nota;
+    }
+
+    function notaDe(turno) {
+      return turno ? notas.get(turno) || null : null;
+    }
+
+    /** La nota del turno; se crea si la voz del servidor existe y el turno trae su id. */
+    function asegurarNota(turno) {
+      if (!turno || !servidorInicial.lectura) return null;
+      const existente = notas.get(turno);
+      if (existente) return existente;
+      if (typeof turno.className === "string" && turno.className.includes("turno-user")) {
+        return null;
+      }
+      const mensaje = turno.dataset ? String(turno.dataset.vozMensaje || "") : "";
+      if (!mensaje) return null;
+      const nota = construirNota(turno, mensaje);
+      notas.set(turno, nota);
+      return nota;
+    }
+
+    // El historial llega del servidor sin nota: se crea aquí, sin pedir ningún audio.
+    function montarNotasDelHistorial() {
+      if (!servidorInicial.lectura || typeof documento.querySelectorAll !== "function") return;
+      for (const turno of Array.from(documento.querySelectorAll(".turno-assistant[data-voz-mensaje]") || [])) {
+        asegurarNota(turno);
+      }
+    }
+
+    function pintarAvance(nota, avance, actual) {
+      const raiz = nota.raiz;
+      if (!raiz) return;
+      if (raiz.style && typeof raiz.style.setProperty === "function") {
+        raiz.style.setProperty("--nota-avance", avance.toFixed(3));
+      }
+      nota.barra.setAttribute("aria-valuenow", String(Math.round(avance * 100)));
+      nota.barra.setAttribute(
+        "aria-valuetext",
+        nota.segundos
+          ? `${formatoTiempo(actual)} de ${formatoTiempo(nota.segundos)}`
+          : formatoTiempo(actual),
+      );
+      nota.tiempo.textContent = formatoTiempo(actual);
+      nota.duracion.textContent = nota.segundos ? formatoTiempo(nota.segundos) : "";
+    }
+
+    function fijarAvance(nota, actual, total) {
+      if (Number.isFinite(total) && total > 0) nota.segundos = total;
+      const avance = nota.segundos ? Math.min(1, Math.max(0, (Number(actual) || 0) / nota.segundos)) : 0;
+      pintarAvance(nota, avance, Number(actual) || 0);
+    }
+
+    function pintarNota(nota, estadoNota, aviso = "") {
+      if (!nota) return;
+      nota.estado = estadoNota;
+      if (estadoNota === "lista") fijarAvance(nota, 0, null);
+      const raiz = nota.raiz;
+      if (!raiz) return;
+      raiz.dataset.notaEstado = estadoNota;
+      nota.boton.setAttribute("aria-pressed", estadoNota === "sonando" ? "true" : "false");
+      nota.boton.setAttribute("aria-label", ETIQUETAS_NOTA[estadoNota] || ETIQUETAS_NOTA.lista);
+      if (estadoNota === "cargando") nota.boton.setAttribute("aria-busy", "true");
+      else nota.boton.removeAttribute("aria-busy");
+      const texto = aviso || ANUNCIOS_NOTA[estadoNota] || "";
+      if (nota.estadoTexto.textContent !== texto) nota.estadoTexto.textContent = texto;
+      const visible = estadoNota === "bloqueada" || estadoNota === "error";
+      nota.aviso.hidden = !visible;
+      nota.aviso.textContent = visible ? texto : "";
+      // Ocultar el botón con foco lo tiraría al body: pasa al botón principal.
+      const focoEnReintentar = documento.activeElement === nota.reintentar;
+      nota.reintentar.hidden = estadoNota !== "error";
+      if (focoEnReintentar && nota.reintentar.hidden && typeof nota.boton.focus === "function") {
+        nota.boton.focus();
+      }
+    }
+
+    function lecturaServidorDisponible() {
+      if (servidorActivo.lectura) return true;
+      if (!servidorInicial.lectura || reloj.now() < lecturaReintentoEn) return false;
+      servidorActivo.lectura = true;
+      calcularSoporte();
+      return true;
+    }
+
+    function marcarLecturaNoDisponible() {
+      servidorActivo.lectura = false;
+      lecturaReintentoEn = reloj.now() + REINTENTO_LECTURA_MS;
+      calcularSoporte();
+    }
+
+    // Solo el proveedor caído o apagado (503) o un rechazo de la sesión (401/403) dejan
+    // la voz del servidor sin uso un rato; 404, 422, 429, la red o el plazo son del turno.
+    function esServidorNoDisponible(error) {
+      const status = error && error.status;
+      return status === 503 || status === 401 || status === 403;
+    }
+
+    function esCancelado(error) {
+      return Boolean(error && error.name === "AbortError");
+    }
+
+    function mensajeDeFallo(error) {
+      if (esServidorNoDisponible(error)) return MENSAJES.vozNoDisponible;
+      if (error && error.status === 429) return MENSAJES.notaOcupada;
+      return MENSAJES.notaError;
+    }
+
+    function audioEnCache(mensaje) {
+      if (!audios.has(mensaje)) return null;
+      const audio = audios.get(mensaje);
+      audios.delete(mensaje);
+      audios.set(mensaje, audio);
+      return audio;
+    }
+
+    function guardarAudio(mensaje, audio) {
+      audios.delete(mensaje);
+      audios.set(mensaje, audio);
+      while (audios.size > MAX_NOTAS_EN_CACHE) audios.delete(audios.keys().next().value);
+    }
+
+    function marcarSintetizandoVoz() {
+      const ultimo = Array.from(pedidos.keys()).pop();
+      marcarEstadoVoz("vozSintetizando", ultimo || null);
+    }
+
+    /** El audio de la respuesta: de la caché, del pedido en vuelo o de una síntesis nueva. */
+    function obtenerAudio(mensaje) {
+      const enCache = audioEnCache(mensaje);
+      if (enCache) return Promise.resolve(enCache);
+      const vigente = pedidos.get(mensaje);
+      if (vigente) return vigente.promesa;
+      const control = crearAbortador();
+      let pendiente;
+      try {
+        pendiente = Promise.resolve(
+          servidor.sintetizar(mensaje, { signal: control ? control.signal : undefined }),
+        );
+      } catch (error) {
+        pendiente = Promise.reject(error);
+      }
+      const pedido = { control, promesa: null };
+      const soltar = () => {
+        if (pedidos.get(mensaje) === pedido) pedidos.delete(mensaje);
+        marcarSintetizandoVoz();
+      };
+      pedido.promesa = pendiente.then(
+        (audio) => {
+          const vivo = pedidos.get(mensaje) === pedido;
+          soltar();
+          if (vivo) guardarAudio(mensaje, audio);
+          return audio;
+        },
+        (error) => {
+          soltar();
+          if (esServidorNoDisponible(error)) marcarLecturaNoDisponible();
+          throw error;
+        },
+      );
+      pedidos.set(mensaje, pedido);
+      marcarSintetizandoVoz();
+      return pedido.promesa;
+    }
+
+    /** Pide el audio sin reproducirlo, para que la nota esté lista en pocos segundos. */
+    function precargarNota(nota) {
+      if (!nota || audios.has(nota.mensaje) || !lecturaServidorDisponible()) return;
+      if (nota.estado !== "lista") return;
+      pintarNota(nota, "cargando");
+      obtenerAudio(nota.mensaje).then(
+        () => {
+          if (nota.estado === "cargando" && notaDe(turnoLectura) !== nota) pintarNota(nota, "lista");
+        },
+        (error) => {
+          if (notaDe(turnoLectura) === nota) return;
+          if (esCancelado(error) || (esServidorNoDisponible(error) && navegador.sintesis)) {
+            pintarNota(nota, "lista");
+            return;
+          }
+          pintarNota(nota, "error", mensajeDeFallo(error));
+        },
+      );
+    }
+
+    function alternarNota(nota) {
+      const actual = notaDe(turnoLectura) === nota;
+      if (actual && nota.estado === "sonando") {
+        pausarLectura();
+        return;
+      }
+      if (actual && nota.estado === "pausada") {
+        reanudarLectura();
+        return;
+      }
+      if (actual && nota.estado === "cargando") {
+        // Cancela la reproducción; la síntesis en vuelo termina y queda en la caché.
+        detenerLectura();
+        return;
+      }
+      if (nota.estado === "error") {
+        reintentarNota(nota);
+        return;
+      }
+      // Con el audio en caché, el play() ocurre dentro de este gesto; sin él se
+      // desbloquea el reproductor antes de esperar la síntesis.
+      if (!audios.has(nota.mensaje)) desbloquearAudio();
+      reproducirNota(nota);
+    }
+
+    function reintentarNota(nota) {
+      // Un reintento explícito vuelve a probar el servidor aunque siga en espera.
+      lecturaReintentoEn = 0;
+      if (!audios.has(nota.mensaje)) desbloquearAudio();
+      reproducirNota(nota);
+    }
+
+    function soltarTurnoLectura() {
+      cicloLectura += 1;
+      turnoLectura = null;
+      segmentosLectura = [];
+      indiceLectura = 0;
+      estado.leyendo = false;
+    }
+
+    function reproducirNota(nota, opciones = {}) {
+      if (!lecturaServidorDisponible()) return leerNotaConRespaldo(nota, opciones);
+      if (!opciones.automatico && nota.turno.dataset) delete nota.turno.dataset.vozAutoLeido;
+      detenerLectura();
+      turnoLectura = nota.turno;
+      segmentosLectura = [];
+      indiceLectura = 0;
+      cicloLectura += 1;
+      const ciclo = cicloLectura;
+      avisar("");
+      const enCache = audioEnCache(nota.mensaje);
+      if (enCache) {
+        sonarNota(nota, enCache, ciclo, opciones);
+        return true;
+      }
+      pintarNota(nota, "cargando");
+      obtenerAudio(nota.mensaje).then(
+        (audio) => {
+          if (ciclo === cicloLectura) sonarNota(nota, audio, ciclo, opciones);
+        },
+        (error) => {
+          if (ciclo === cicloLectura) fallarNota(nota, error, opciones);
+        },
+      );
+      return true;
+    }
+
+    function sonarNota(nota, audio, ciclo, opciones) {
+      const alEmpezar = typeof opciones.alEmpezar === "function" ? opciones.alEmpezar : null;
+      pintarNota(nota, "cargando");
+      let control;
+      try {
+        control = servidor.reproducir(audio, {
+          alEmpezar: () => {
+            if (ciclo !== cicloLectura) return;
+            estado.leyendo = true;
+            if (alEmpezar) alEmpezar();
+            actualizarControles(nota.turno, "leyendo");
+          },
+          alProgreso: (actual, total) => {
+            if (ciclo === cicloLectura) fijarAvance(nota, actual, total);
+          },
+          alTerminar: () => {
+            if (ciclo !== cicloLectura) return;
+            reproduccion = null;
+            terminarLectura();
+          },
+          alFallar: (error) => {
+            if (ciclo !== cicloLectura) return;
+            reproduccion = null;
+            fallarReproduccion(nota, error);
+          },
+        });
+      } catch (error) {
+        if (ciclo === cicloLectura) fallarReproduccion(nota, error);
+        return;
+      }
+      if (ciclo === cicloLectura) reproduccion = control;
+    }
+
+    // El audio llegó pero no suena. Autoplay bloqueado (NotAllowedError): la nota queda
+    // «bloqueada» con su audio en caché y un toque la reproduce. Otro fallo (decodificar,
+    // CSP): «error» y el reintento vuelve a pedir el audio. Nunca se cambia de voz.
+    function fallarReproduccion(nota, error) {
+      const bloqueo = Boolean(error && error.name === "NotAllowedError");
+      const eraManos = manosLibres.activo;
+      manosLibres.reanudarTrasLeer = false;
+      soltarTurnoLectura();
+      actualizarControles(nota.turno, "detenido");
+      if (bloqueo) pintarNota(nota, "bloqueada");
+      else {
+        audios.delete(nota.mensaje);
+        pintarNota(nota, "error", MENSAJES.notaError);
+      }
+      if (eraManos) desactivarManosLibres(bloqueo ? "bloqueo" : "error");
+    }
+
+    // La síntesis falló. Con el servidor no disponible (503, 401/403) este turno lo lee
+    // la voz del navegador si existe; un 404, 422, 429 o la red dejan la nota en «error».
+    function fallarNota(nota, error, opciones) {
+      if (esCancelado(error)) {
+        soltarTurnoLectura();
+        pintarNota(nota, "lista");
+        return;
+      }
+      if (esServidorNoDisponible(error)) {
+        leerNotaConRespaldo(nota, opciones);
+        return;
+      }
+      const eraManos = manosLibres.activo;
+      manosLibres.reanudarTrasLeer = false;
+      soltarTurnoLectura();
+      actualizarControles(nota.turno, "detenido");
+      pintarNota(nota, "error", mensajeDeFallo(error));
+      if (eraManos) desactivarManosLibres("error");
+    }
+
+    function leerNotaConRespaldo(nota, opciones = {}) {
+      soltarTurnoLectura();
+      actualizarControles(nota.turno, "detenido");
+      if (navegador.sintesis && leerConNavegador(nota.turno, opciones)) return true;
+      pintarNota(nota, "error", MENSAJES.vozNoDisponible);
+      manosLibres.reanudarTrasLeer = false;
+      if (manosLibres.activo) desactivarManosLibres("error");
+      return false;
+    }
+
+    // Navegación (otro hilo, /chat/new) o destrucción: se cortan las síntesis en vuelo,
+    // el audio y su URL blob:, y la caché.
+    function liberarNotas() {
+      detenerLectura();
+      for (const pedido of pedidos.values()) {
+        if (pedido.control) pedido.control.abort();
+      }
+      pedidos.clear();
+      marcarSintetizandoVoz();
+      audios.clear();
+      if (servidor && typeof servidor.liberar === "function") servidor.liberar();
+      for (const nota of notas.values()) {
+        if (nota.estado === "cargando") pintarNota(nota, "lista");
+      }
     }
 
     function prepararAviso() {
       if (!vista.aviso) return;
       if (vista.avisoAceptar) {
         vista.avisoAceptar.addEventListener("click", () => {
+          desbloquearAudio();
           preferencias.aceptarAviso();
           cerrarAviso();
           const pendientes = opcionesPendientes || {};
@@ -1016,11 +1526,13 @@
         entrada.setSelectionRange(cursor, cursor);
       }
       if (typeof entrada.focus === "function") entrada.focus();
+      // Solo el dictado escribe por aquí: si se envía este borrador, la persona habló.
+      borradorDictado = true;
       return { insertado: true, recortado };
     }
 
     function hayVozEspanola() {
-      if (servidorActivo.lectura) return true;
+      if (lecturaServidorDisponible()) return true;
       if (!sintesis) return false;
       const voces = typeof sintesis.getVoices === "function" ? sintesis.getVoices() : [];
       return Boolean(elegirVoz(voces));
@@ -1054,12 +1566,16 @@
           boton.setAttribute("aria-label", "Activar manos libres");
           boton.addEventListener("click", () => {
             if (manosLibres.activo) desactivarManosLibres("manual");
-            else intentarActivarManosLibres();
+            else {
+              desbloquearAudio();
+              intentarActivarManosLibres();
+            }
           });
         }
       }
       if (vista.manosAceptar) {
         vista.manosAceptar.addEventListener("click", () => {
+          desbloquearAudio();
           cerrarAvisoManos();
           activarManosLibres();
         });
@@ -1153,6 +1669,7 @@
         oculto: MENSAJES.manosOculto,
         lectura: MENSAJES.manosLectura,
         hilo: MENSAJES.manosHilo,
+        bloqueo: MENSAJES.manosBloqueo,
       };
       avisar(mensajes[motivo] || MENSAJES.manosApagado);
     }
@@ -1199,6 +1716,11 @@
       const turno = detalle.turno;
       if (!turno) return;
       if (typeof turno.className === "string" && turno.className.includes("turno-user")) return;
+      // Spec 050: la respuesta suena sola solo si la pregunta se dictó (manos libres o un
+      // borrador dictado) o con la lectura automática encendida. Escrita, la nota espera.
+      const hablado = detalle.handsFree === true || turnoHablado;
+      turnoHablado = false;
+      const nota = asegurarNota(turno);
       const hiloActual = vista.hilo && vista.hilo.value ? String(vista.hilo.value) : "";
       const hiloTurno =
         detalle.threadId === undefined || detalle.threadId === null
@@ -1222,16 +1744,20 @@
         }
         return;
       }
-      if (!preferencias.autoLectura) return;
-      if (documento.visibilityState === "hidden") return;
-      if (estado.escuchando) return;
+      if (!hablado && !preferencias.autoLectura) return;
       if (hiloActual && hiloTurno && hiloActual !== hiloTurno) return;
       if (turno.dataset && turno.dataset.vozAutoLeido === "1") return;
       if (turnoLectura === turno) return;
+      if (documento.visibilityState === "hidden" || estado.escuchando) {
+        // No suena ahora (pestaña oculta o un dictado nuevo), pero queda lista al tocarla.
+        precargarNota(nota);
+        return;
+      }
       // Se marca al arrancar la primera locución: si el navegador bloquea el
       // audio o faltan voces, el turno queda reintentable.
       leerTurno(turno, {
         automatico: true,
+        hablado,
         alEmpezar: () => {
           if (turno.dataset) turno.dataset.vozAutoLeido = "1";
         },
@@ -1250,6 +1776,14 @@
     function alClicTurno(evento) {
       const objetivo = evento && evento.target;
       if (!objetivo || typeof objetivo.closest !== "function") return;
+      const accionNota = objetivo.closest("[data-nota-accion]");
+      if (accionNota) {
+        const nota = notaDe(accionNota.closest(".turno"));
+        if (!nota) return;
+        if (accionNota.dataset && accionNota.dataset.notaAccion === "reintentar") reintentarNota(nota);
+        else alternarNota(nota);
+        return;
+      }
       const boton = objetivo.closest("[data-voz-accion]");
       if (!boton) return;
       const turno = boton.closest(".turno");
@@ -1263,92 +1797,17 @@
 
     function leerTurno(turno, opciones = {}) {
       if (!turno || !soporte.sintesis) return false;
-      if (opciones.automatico && !opciones.manosLibres && !preferencias.autoLectura) return false;
-      const mensaje = turno.dataset ? String(turno.dataset.vozMensaje || "") : "";
-      if (servidorActivo.lectura && mensaje) return leerConServidor(turno, mensaje, opciones);
-      return leerConNavegador(turno, opciones);
-    }
-
-    function leerConServidor(turno, mensaje, opciones) {
-      if (!opciones.automatico && turno.dataset) delete turno.dataset.vozAutoLeido;
-      const alEmpezar = typeof opciones.alEmpezar === "function" ? opciones.alEmpezar : null;
-      detenerLectura();
-      turnoLectura = turno;
-      segmentosLectura = [];
-      indiceLectura = 0;
-      cicloLectura += 1;
-      const ciclo = cicloLectura;
-      avisar(MENSAJES.preparandoLectura);
-      actualizarControles(turno, "cargando");
-      marcarEstadoVoz("vozSintetizando", mensaje);
-      let pendiente;
-      try {
-        pendiente = Promise.resolve(servidor.sintetizar(mensaje));
-      } catch (error) {
-        pendiente = Promise.reject(error);
+      if (
+        opciones.automatico &&
+        !opciones.manosLibres &&
+        !opciones.hablado &&
+        !preferencias.autoLectura
+      ) {
+        return false;
       }
-      pendiente.then(
-        (audio) => {
-          if (ciclo !== cicloLectura) return;
-          marcarEstadoVoz("vozSintetizando", null);
-          reproduccion = servidor.reproducir(audio, {
-            alEmpezar: () => {
-              if (ciclo !== cicloLectura) return;
-              estado.leyendo = true;
-              if (alEmpezar) alEmpezar();
-              avisar(MENSAJES.leyendo);
-              actualizarControles(turnoLectura, "leyendo");
-            },
-            alTerminar: () => {
-              if (ciclo !== cicloLectura) return;
-              reproduccion = null;
-              terminarLectura();
-            },
-            alFallar: () => {
-              if (ciclo !== cicloLectura) return;
-              reproduccion = null;
-              // El audio llegó pero no suena (autoplay bloqueado tras el await, CSP,
-              // decodificación): repetir pagaría otra síntesis que fallaría igual. Se
-              // apaga la lectura del servidor y este turno lo lee el navegador.
-              servidorActivo.lectura = false;
-              calcularSoporte();
-              if (leerConRespaldo(turno, opciones)) return;
-              const eraManos = manosLibres.activo;
-              manosLibres.reanudarTrasLeer = false;
-              terminarLectura();
-              avisar(MENSAJES.lecturaError);
-              if (eraManos) desactivarManosLibres("error");
-            },
-          });
-        },
-        (error) => {
-          if (ciclo !== cicloLectura) return;
-          marcarEstadoVoz("vozSintetizando", null);
-          // Un 404 o un 422 son de este turno (no existe, no tiene texto que leer o el
-          // id no vale); cualquier otro fallo apaga la lectura del servidor el resto de
-          // la sesión. Se lee con la voz del navegador.
-          if (!esFalloDelTurno(error)) {
-            servidorActivo.lectura = false;
-            calcularSoporte();
-          }
-          if (leerConRespaldo(turno, opciones)) return;
-          terminarLectura();
-          avisar(MENSAJES.lecturaError);
-        },
-      );
-      return true;
-    }
-
-    function esFalloDelTurno(error) {
-      return Boolean(error && (error.status === 404 || error.status === 422));
-    }
-
-    // Deja el turno sin lectura en curso y lo intenta con la voz del navegador.
-    function leerConRespaldo(turno, opciones) {
-      cicloLectura += 1;
-      turnoLectura = null;
-      estado.leyendo = false;
-      actualizarControles(turno, "detenido");
+      // Con la voz del servidor y el id de la respuesta, la lectura es su nota de voz.
+      const nota = asegurarNota(turno);
+      if (nota) return reproducirNota(nota, opciones);
       return leerConNavegador(turno, opciones);
     }
 
@@ -1390,8 +1849,11 @@
         if (ciclo !== cicloLectura) return;
         estado.leyendo = true;
         if (indiceLectura === 0 && alEmpezar) alEmpezar();
-        avisar(MENSAJES.leyendo);
+        avisarLectura(MENSAJES.leyendo);
         actualizarControles(turnoLectura, "leyendo");
+        // Respaldo dentro de una nota: el avance es la parte que se está leyendo.
+        const nota = notaDe(turnoLectura);
+        if (nota) pintarAvance(nota, indiceLectura / segmentosLectura.length, 0);
       };
       locucion.onend = () => {
         if (ciclo !== cicloLectura) return;
@@ -1402,9 +1864,11 @@
       locucion.onerror = () => {
         if (ciclo !== cicloLectura) return;
         const eraManos = manosLibres.activo;
+        const nota = notaDe(turnoLectura);
         manosLibres.reanudarTrasLeer = false;
         terminarLectura();
-        avisar(MENSAJES.lecturaError);
+        if (nota) pintarNota(nota, "error", MENSAJES.lecturaError);
+        else avisar(MENSAJES.lecturaError);
         if (eraManos) desactivarManosLibres("error");
       };
       sintesis.speak(locucion);
@@ -1417,7 +1881,7 @@
       estado.leyendo = false;
       const turno = turnoLectura;
       actualizarControles(turno, "pausado");
-      avisar(MENSAJES.pausa);
+      avisarLectura(MENSAJES.pausa);
     }
 
     function reanudarLectura() {
@@ -1426,7 +1890,7 @@
       else if (sintesis && typeof sintesis.resume === "function") sintesis.resume();
       estado.leyendo = true;
       actualizarControles(turnoLectura, "leyendo");
-      avisar(MENSAJES.leyendo);
+      avisarLectura(MENSAJES.leyendo);
     }
 
     function detenerLectura() {
@@ -1436,7 +1900,8 @@
       const turno = turnoLectura;
       cicloLectura += 1;
       turnoLectura = null;
-      marcarEstadoVoz("vozSintetizando", null);
+      // Una síntesis en vuelo sigue (para la caché): el atributo refleja los pedidos.
+      marcarSintetizandoVoz();
       segmentosLectura = [];
       indiceLectura = 0;
       estado.leyendo = false;
@@ -1456,7 +1921,8 @@
       const turno = turnoLectura;
       cicloLectura += 1;
       turnoLectura = null;
-      marcarEstadoVoz("vozSintetizando", null);
+      // Una síntesis en vuelo sigue (para la caché): el atributo refleja los pedidos.
+      marcarSintetizandoVoz();
       segmentosLectura = [];
       indiceLectura = 0;
       estado.leyendo = false;
@@ -1479,6 +1945,13 @@
     }
 
     function actualizarControles(turno, modo) {
+      const nota = notaDe(turno);
+      if (nota) {
+        const estados = { leyendo: "sonando", pausado: "pausada", cargando: "cargando" };
+        pintarNota(nota, estados[modo] || "lista");
+        // La franja está oculta: el foco se queda en el botón de la nota.
+        if (nota.raiz) return;
+      }
       if (!turno || typeof turno.querySelector !== "function") return;
       // El foco se decide antes de ocultar botones: si estaba dentro del turno,
       // pasa a uno visible en lugar de caer al body.
@@ -1501,6 +1974,12 @@
       if (!teniaFoco) return;
       const destino = modo === "pausado" ? reanudar : modo === "detenido" ? escuchar : null;
       if (destino && typeof destino.focus === "function") destino.focus();
+    }
+
+    // Un turno con nota anuncia su estado en la nota: no se repite en la línea global.
+    function avisarLectura(mensaje) {
+      if (notaDe(turnoLectura)) return;
+      avisar(mensaje);
     }
 
     function avisar(mensaje) {
@@ -1528,17 +2007,22 @@
       reanudarLectura,
       detenerLectura,
       manejarTurnoCompleto: alCompletarTurno,
+      notaDe,
       manosLibres,
       activarManosLibres,
       desactivarManosLibres,
       destruir() {
-        detenerLectura();
+        liberarNotas();
         soltarGrabacion();
         documento.removeEventListener("keydown", alPulsarTecla);
         documento.removeEventListener("click", alClicTurno);
         documento.removeEventListener("chat:turn-complete", alCompletarTurno);
         documento.removeEventListener("chat:turn-failed", alFallarTurno);
         documento.removeEventListener("visibilitychange", alCambiarVisibilidad);
+        documento.removeEventListener("submit", alEnviar, true);
+        if (ventana && typeof ventana.removeEventListener === "function") {
+          ventana.removeEventListener("pagehide", liberarNotas);
+        }
       },
     };
   }
@@ -1546,8 +2030,9 @@
   // --- Adaptador de la voz del servidor (spec 047) ----------------------------
   // Envuelve MediaRecorder, el detector de voz (Web Audio), fetch y <audio>. El
   // controlador solo ve promesas: grabar → {detener, cancelar}, transcribir(audio)
-  // → texto, sintetizar(id) → audio y reproducir(audio) → {pausar, reanudar,
-  // detener}. Los errores HTTP llevan `status` y `reason` para decidir el respaldo.
+  // → texto, sintetizar(id, {signal}) → audio y reproducir(audio, llamadas) →
+  // {pausar, reanudar, detener}; desbloquear() va dentro del gesto y liberar() al salir.
+  // Los errores HTTP llevan `status` y `reason` para decidir el respaldo.
 
   function errorHttp(status, cuerpo) {
     const reason = cuerpo && typeof cuerpo.reason === "string" ? cuerpo.reason : "";
@@ -1768,57 +2253,199 @@
       return String((cuerpo && cuerpo.texto) || "");
     }
 
-    async function sintetizar(mensaje) {
+    async function sintetizar(mensaje, opciones = {}) {
       const datos = new win.URLSearchParams();
       datos.append("message_id", mensaje);
       datos.append("csrf_token", csrf());
-      const respuesta = await enviar("/api/voz/hablar", datos);
+      const respuesta = await enviar("/api/voz/hablar", datos, opciones);
       return respuesta.blob();
     }
 
-    function reproducir(audio, llamadas = {}) {
-      const url = URLApi.createObjectURL(audio);
-      const elemento = new AudioEl(url);
-      let liberado = false;
-      const liberar = () => {
-        if (liberado) return;
-        liberado = true;
-        URLApi.revokeObjectURL(url);
+    // Un solo <audio> para todas las notas (spec 050). Safari/iOS solo dejan sonar tras
+    // un await al elemento que ya hizo play() dentro de un gesto: desbloquear() lo hace
+    // con un silencio en el clic o el envío, y las notas reutilizan ese elemento. Como
+    // mucho hay una URL blob: viva, la de la nota cargada.
+    let elemento = null;
+    let urlActual = null;
+    let ficha = 0;
+    let desbloqueado = false;
+
+    function asegurarElemento() {
+      if (!elemento && AudioEl) {
+        elemento = new AudioEl();
+        elemento.preload = "auto";
+      }
+      return elemento;
+    }
+
+    function limpiarManejadores(audio) {
+      audio.onplaying = null;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.ontimeupdate = null;
+      audio.onloadedmetadata = null;
+      audio.ondurationchange = null;
+    }
+
+    function soltarUrl() {
+      if (!urlActual) return;
+      URLApi.revokeObjectURL(urlActual);
+      urlActual = null;
+    }
+
+    // WAV de 0,1 s en silencio (8 kHz, 8 bits). Va por blob: porque la CSP del chat
+    // permite `media-src 'self' blob:` y no data:.
+    function silencio() {
+      const muestras = 800;
+      const bytes = new Uint8Array(44 + muestras);
+      const vista = new DataView(bytes.buffer);
+      const escribir = (posicion, texto) => {
+        for (let indice = 0; indice < texto.length; indice += 1) {
+          bytes[posicion + indice] = texto.charCodeAt(indice);
+        }
       };
-      elemento.onplaying = () => {
+      escribir(0, "RIFF");
+      vista.setUint32(4, 36 + muestras, true);
+      escribir(8, "WAVE");
+      escribir(12, "fmt ");
+      vista.setUint32(16, 16, true);
+      vista.setUint16(20, 1, true);
+      vista.setUint16(22, 1, true);
+      vista.setUint32(24, 8000, true);
+      vista.setUint32(28, 8000, true);
+      vista.setUint16(32, 1, true);
+      vista.setUint16(34, 8, true);
+      escribir(36, "data");
+      vista.setUint32(40, muestras, true);
+      bytes.fill(128, 44);
+      return new win.Blob([bytes], { type: "audio/wav" });
+    }
+
+    /** Síncrono, dentro del gesto. Con una nota cargada el elemento ya está desbloqueado. */
+    function desbloquear() {
+      if (desbloqueado || urlActual) return;
+      const audio = asegurarElemento();
+      if (!audio || !win.Blob) return;
+      let url;
+      try {
+        url = URLApi.createObjectURL(silencio());
+      } catch {
+        return;
+      }
+      ficha += 1;
+      const propia = ficha;
+      limpiarManejadores(audio);
+      const soltar = () => URLApi.revokeObjectURL(url);
+      audio.src = url;
+      let inicio;
+      try {
+        inicio = audio.play();
+      } catch {
+        soltar();
+        return;
+      }
+      if (!inicio || typeof inicio.then !== "function") {
+        soltar();
+        return;
+      }
+      inicio.then(
+        () => {
+          desbloqueado = true;
+          // Si mientras tanto empezó una nota, el silencio ya no manda.
+          if (propia === ficha) audio.pause();
+          soltar();
+        },
+        soltar,
+      );
+    }
+
+    function reproducir(audioNota, llamadas = {}) {
+      const audio = asegurarElemento();
+      ficha += 1;
+      const propia = ficha;
+      const vigente = () => propia === ficha;
+      limpiarManejadores(audio);
+      try {
+        audio.pause();
+      } catch {
+        // nada sonaba
+      }
+      soltarUrl();
+      urlActual = URLApi.createObjectURL(audioNota);
+      const terminar = () => {
+        if (!vigente()) return;
+        ficha += 1;
+        limpiarManejadores(audio);
+        soltarUrl();
+      };
+      const fallar = (error) => {
+        if (!vigente()) return;
+        terminar();
+        if (llamadas.alFallar) llamadas.alFallar(error);
+      };
+      const progreso = () => {
+        if (vigente() && llamadas.alProgreso) {
+          llamadas.alProgreso(Number(audio.currentTime) || 0, Number(audio.duration));
+        }
+      };
+      audio.onplaying = () => {
+        if (!vigente()) return;
+        desbloqueado = true;
         if (llamadas.alEmpezar) llamadas.alEmpezar();
       };
-      elemento.onended = () => {
-        liberar();
+      audio.ontimeupdate = progreso;
+      audio.onloadedmetadata = progreso;
+      audio.ondurationchange = progreso;
+      audio.onended = () => {
+        if (!vigente()) return;
+        progreso();
+        terminar();
         if (llamadas.alTerminar) llamadas.alTerminar();
       };
-      elemento.onerror = () => {
-        liberar();
-        if (llamadas.alFallar) llamadas.alFallar();
+      audio.onerror = () => {
+        const fallo = new Error("media");
+        fallo.name = "MediaError";
+        fallar(fallo);
       };
-      const inicio = elemento.play();
-      if (inicio && typeof inicio.catch === "function") {
-        inicio.catch(() => {
-          liberar();
-          if (llamadas.alFallar) llamadas.alFallar();
-        });
-      }
+      audio.src = urlActual;
+      const tocar = () => {
+        let inicio;
+        try {
+          inicio = audio.play();
+        } catch (error) {
+          fallar(error);
+          return;
+        }
+        if (inicio && typeof inicio.catch === "function") inicio.catch(fallar);
+      };
+      tocar();
       return {
         pausar() {
-          elemento.pause();
+          if (vigente()) audio.pause();
         },
         reanudar() {
-          const reanudacion = elemento.play();
-          if (reanudacion && typeof reanudacion.catch === "function") reanudacion.catch(() => {});
+          if (vigente()) tocar();
         },
         detener() {
-          elemento.onended = null;
-          elemento.onerror = null;
-          elemento.onplaying = null;
-          elemento.pause();
-          liberar();
+          if (!vigente()) return;
+          terminar();
+          audio.pause();
         },
       };
+    }
+
+    /** Al salir de la página: nada suena y no queda ninguna URL blob: viva. */
+    function liberar() {
+      ficha += 1;
+      if (elemento) {
+        limpiarManejadores(elemento);
+        try {
+          elemento.pause();
+        } catch {
+          // ya estaba en pausa
+        }
+      }
+      soltarUrl();
     }
 
     return {
@@ -1841,7 +2468,9 @@
       grabar,
       transcribir,
       sintetizar,
+      desbloquear,
       reproducir,
+      liberar,
     };
   }
 
@@ -1899,6 +2528,7 @@
       sintesis,
       Utterance,
       servidor,
+      ventana: win,
       segura: Boolean(win.isSecureContext),
       streaming:
         typeof win.fetch === "function" &&
