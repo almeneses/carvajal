@@ -5,9 +5,12 @@ todo», la preferencia declarada y el seguimiento comercial; si no decide, devue
 """
 
 import pytest
+from tests.fakes.judge import FakeJudge
 
-from carvajal.agent.gatekeeper.rules import RuleDecision, rule_decision, rules_route
+from carvajal.agent.gatekeeper.decide import decide_gate
+from carvajal.agent.gatekeeper.rules import RuleDecision, is_greeting, rule_decision, rules_route
 from carvajal.agent.toolagent import graph as graph_module
+from carvajal.infrastructure.settings import Settings
 
 
 @pytest.mark.parametrize(
@@ -59,10 +62,50 @@ def test_el_seguimiento_comercial_va_a_las_estructuradas() -> None:
         "¿Qué es Propal?",
         "Cotízame 500 vasos en Cali",
         "quiubo pues, todo bien?",
+        "Hola Ana",
+        "Buenas, necesito 500 vasos",
+        "Saludos desde Cali",
+        "¿Qué más?",
+        "¿Qué tal los vasos de 9 oz?",
+        "Buenas tardes, ¿cómo estás? Quiero precios",
     ],
 )
 def test_si_ninguna_regla_decide_devuelve_none(question: str) -> None:
     assert rule_decision(question) is None
+
+
+GREETINGS = [
+    "Buenas",
+    "Hola, buenas tardes",
+    "Hola, ¿cómo estás?",
+    "holaaa",
+    "Holi",
+    "hey",
+    "Buen día",
+    "hola buen dia",
+    "Saludos",
+    "Hola, qué tal?",
+    "Buenas noches, cómo va?",
+    "Hola Carvajal",
+    "Muy buenos días a todos",
+]
+
+
+@pytest.mark.parametrize("question", GREETINGS)
+def test_los_saludos_con_cortesia_van_al_atajo_sin_jev(question: str) -> None:
+    # Arrange
+    judge = FakeJudge(choice="respuesta_directa", confidence=0.7)
+
+    # Act
+    decision = decide_gate(question, (), None, None, judge, Settings(_env_file=None))
+
+    # Assert: regla de saludo, sin llamar a Jev ni consultar nada.
+    assert is_greeting(question)
+    assert rule_decision(question) == RuleDecision(
+        scope="direct", rule="greeting", gate_class="respuesta_directa"
+    )
+    assert (decision.source, decision.scope) == ("reglas", "direct")
+    assert judge.routes == []
 
 
 def test_rules_route_y_reexportes_del_grafo() -> None:

@@ -1,7 +1,8 @@
 """Reglas del gatekeeper del modo ``tools`` (spec 046, FR-002; antes en ``toolagent/graph``).
 
-Las reglas deciden primero y sin servicios externos: saludo o capacidad (``greeting``),
-despedida o agradecimiento sin pedido (``farewell``, :func:`is_closing`) y «olvida todo»
+Las reglas deciden primero y sin servicios externos: saludo o capacidad (``greeting``,
+también los saludos coloquiales sin pedido de :func:`is_greeting`), despedida o
+agradecimiento sin pedido (``farewell``, :func:`is_closing`) y «olvida todo»
 (``memory_forget``) van al atajo sin herramientas; una preferencia declarada
 (``memory_write``) va al agente con las 20 consultas; una corrección de cantidad o de entrega
 sobre el contexto comercial del hilo (``_commercial_follow_up``) va a las consultas
@@ -35,6 +36,7 @@ __all__ = [
     "UNAVAILABLE_INTENT",
     "RuleDecision",
     "is_closing",
+    "is_greeting",
     "rule_decision",
     "rules_route",
     "shortcut_intent",
@@ -190,6 +192,63 @@ _REQUEST_WORDS: Final = frozenset(
 )
 _REQUEST_STEMS: Final = ("cotiz",)
 _WORDS_RE: Final = re.compile(r"[^\W_]+")
+# Saludos y cortesías que, solos o combinados, no piden nada (texto plegado: sin tildes ni
+# mayúsculas). «¿Qué más?» suelto no: a mitad de conversación pide más opciones. Los saludos
+# regionales («quiubo pues, todo bien?») quedan fuera a propósito: los decide Jev (spec 046,
+# casos límite y SC-002; ítem gk-20 del conjunto congelado).
+_GREETING_MARKERS: Final = (
+    "muy buenos dias",
+    "muy buenas tardes",
+    "muy buenas noches",
+    "buenos dias",
+    "buenas tardes",
+    "buenas noches",
+    "buen dia",
+    "buenas",
+    "saludos",
+    "saluditos",
+    "que tal",
+    "como estas",
+    "como esta",
+    "como estan",
+    "como va",
+    "como vas",
+    "como le va",
+    "como te va",
+    "como les va",
+    "hey",
+    "alo",
+)
+_GREETING_WORD_RE: Final = re.compile(r"hola+|holi+s?|ola+")
+# Lo que puede acompañar a un saludo sin pedir nada.
+_GREETING_FILLER: Final = frozenset(
+    {
+        "a",
+        "amigo",
+        "amiga",
+        "amigos",
+        "bien",
+        "carva",
+        "carvajal",
+        "como",
+        "de",
+        "don",
+        "dona",
+        "equipo",
+        "gente",
+        "muy",
+        "nuevo",
+        "pues",
+        "senor",
+        "senora",
+        "senorita",
+        "todo",
+        "todos",
+        "usted",
+        "ustedes",
+        "y",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -223,8 +282,12 @@ def shortcut_intent(
     decision = decide_route(question, list(turns))
     preference = decision.preference
     context = dict(commercial_context or {})
-    if not preference and is_closing(question) and _commercial_follow_up(question, context) is None:
+    follow_up = _commercial_follow_up(question, context) is not None
+    if not preference and not follow_up and is_closing(question):
         return FAREWELL_INTENT, ""
+    if not preference and not follow_up and is_greeting(question):
+        # Saludo coloquial («Buenas», «Hola, ¿cómo estás?»): no busca ni llama a Jev.
+        return "greeting", ""
     if decision.route != "direct" or decision.intent not in SHORTCUT_INTENTS:
         return "", preference
     if decision.intent == FORGET_INTENT and _carries_request(question):
@@ -271,6 +334,27 @@ def is_closing(question: str) -> bool:
     if any(sentence[0] == "y" for sentence in sentences[:-1]):
         return False
     return not names_city(question)
+
+
+def is_greeting(question: str) -> bool:
+    """El mensaje es solo un saludo o una cortesía, sin nada que pedir.
+
+    Quitadas las marcas de saludo («hola», «buenas», «buen día», «saludos», «¿cómo estás?»,
+    «qué tal», «quiubo») y el relleno («pues», «Carvajal», «a todos»), no queda nada: ni
+    productos, ni cifras, ni ciudades, ni otra pregunta («Hola, ¿tienen vasos?» no es un
+    saludo). Puede llevar «?» («Hola, ¿cómo estás?»). Ante la duda no es saludo.
+    """
+
+    words = _WORDS_RE.findall(_fold(question))
+    if not words:
+        return False
+    text = " ".join("hola" if _GREETING_WORD_RE.fullmatch(word) else word for word in words)
+    if "hola" not in text.split() and not _has_marker(text.split(), _GREETING_MARKERS):
+        return False
+    text = re.sub(r"(?<!\S)hola(?!\S)", " ", text)
+    for marker in _GREETING_MARKERS:
+        text = re.sub(rf"(?<!\S){marker}(?!\S)", " ", text)
+    return not [word for word in text.split() if word not in _GREETING_FILLER]
 
 
 def _has_marker(words: Sequence[str], markers: Sequence[str]) -> bool:
