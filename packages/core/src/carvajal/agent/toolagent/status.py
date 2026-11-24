@@ -31,6 +31,7 @@ from carvajal.agent.toolagent.state import (
 __all__ = [
     "BUILTIN_TEMPLATES",
     "MAX_VALUE_CHARS",
+    "REVIEW_STATUS",
     "StatusEvent",
     "emit_status",
     "status_text",
@@ -38,6 +39,8 @@ __all__ = [
 
 # Largo máximo del dato de la persona dentro del texto de estado.
 MAX_VALUE_CHARS: Final = 40
+# Línea de estado mientras la compuerta de afirmaciones revisa la respuesta (spec 046, R6).
+REVIEW_STATUS: Final = "Reviso que lo que te digo tenga fuente…"
 # Cantidades por encima de este tope se consideran ruido y no se muestran.
 _MAX_QUANTITY: Final = 10**12
 

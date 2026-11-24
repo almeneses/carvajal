@@ -6,7 +6,10 @@ Sync Impact Report (spec 046)
   Jev (T026).
 - Plantillas revisadas: `.specify/templates/plan-template.md`, `spec-template.md` y
   `tasks-template.md` no requieren cambios (el *Constitution Check* ya lee esta proyección).
-- Pendiente: enmienda E (principio III, compuerta de afirmaciones), en el commit de T034–T036.
+- Enmienda E (principio III): compuerta de afirmaciones con Jev (pregunta Noul, umbral 0,5)
+  después de la compuerta determinista, retención completa del camino con evidencia con la
+  compuerta activa y *fail-open* a la determinista (T038).
+- Pendiente: ninguno.
 -->
 # Constitución de Carvajal Corpus
 
@@ -73,6 +76,12 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
   literales de la persona respaldan solo lo que ella dijo. Además de oficial y tercero,
   existe la procedencia `sistema` para datos que calcula el servidor (fecha y calendario de
   festivos de Colombia); se cita como tal (spec 045, enmienda B).
+- En el modo `tools`, después de la compuerta determinista, una compuerta de afirmaciones
+  (Jev, pregunta Noul, umbral 0,5) sustituye por el texto neutro existente toda respuesta del
+  modelo que marca como no respaldada por las consultas del turno. Una valoración presentada
+  como hecho sin fuente cuenta como no respaldada; un dato reformateado no. Con esa compuerta
+  activa, el camino con evidencia retiene el texto completo antes de emitirlo; si Jev no
+  responde, rige la compuerta determinista sola (spec 046, enmienda E).
 
 ### IV. Calidad automatizada y reproducible
 

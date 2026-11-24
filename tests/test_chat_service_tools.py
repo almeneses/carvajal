@@ -2073,3 +2073,72 @@ def test_el_trace_lleva_memoria_por_categorias_y_el_resumen_sin_texto(engine: An
     # Assert
     assert trace["memory"] == 2
     assert trace["summary"] == {"covered_turns": 4, "method": "llm"}
+
+
+# --- Compuerta de afirmaciones con Jev (spec 046, T033) ---------------------------------------
+
+UNSUPPORTED_ANSWER = "Carvajal fue fundada en Cali en 1904 [1]; la de 16 oz es la más usada."
+
+
+def jev_service(engine: Any, p: float = 0.2) -> tuple[ChatService, Any]:
+    """Servicio con el grafo real, una búsqueda con evidencia y un juez falso de Noul."""
+
+    from tests.fakes.judge import FakeJudge
+
+    hit = ScoredChunk(
+        chunk=Chunk(
+            id="historia:1",
+            document_id="historia",
+            text="Carvajal fue fundada en Cali en 1904.",
+            position=0,
+            section="historia",
+            layer="core",
+        ),
+        score=0.9,
+        metadata={
+            "url": "https://www.carvajal.com/historia/",
+            "title": "Historia",
+            "source_type": "oficial",
+        },
+    )
+    settings = tools_settings()
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "buscar_corpus", "args": {"consulta": "fundación"}}]),
+            ScriptStep(text=UNSUPPORTED_ANSWER),
+        ]
+    )
+    judge = FakeJudge(p=p)
+    graph = build_tool_agent(
+        ToolDeps(vector_store=SingleBatchStore([hit]), embedder=FakeEmbedder(), settings=settings),
+        chat,
+        checkpointer=InMemorySaver(),
+    )
+    runner = ToolAgentRunner(graph, settings, claims_judge=judge)
+    return build_service(engine, runner, settings=settings), judge
+
+
+def test_no_respaldada_el_servicio_emite_y_guarda_solo_el_sustituto(engine: Any) -> None:
+    # Arrange
+    service, judge = jev_service(engine)
+
+    # Act
+    events = list(service.stream("dueno-jev", "¿Cuándo se fundó Carvajal?"))
+    history = list(service.history("dueno-jev"))
+
+    # Assert
+    tokens = "".join(e.data["text"] for e in events if e.name == "token")
+    assert "más usada" not in tokens
+    assert tokens == NO_CONTEXT_ANSWER
+    assert history[1].content == NO_CONTEXT_ANSWER
+    assert names(events)[-1] == "done"
+    assert len(judge.claims) == 1
+
+
+def test_no_respaldada_ask_devuelve_solo_el_sustituto(engine: Any) -> None:
+    service, _ = jev_service(engine)
+
+    answer = service.ask("dueno-jev-ask", "¿Cuándo se fundó Carvajal?")
+
+    assert answer.text == NO_CONTEXT_ANSWER
+    assert "más usada" not in answer.text

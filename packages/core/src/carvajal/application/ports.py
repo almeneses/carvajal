@@ -333,10 +333,12 @@ class JudgeUnavailable(Exception):
     solo el estado: nunca lleva el texto enviado ni la clave.
     """
 
-    def __init__(self, status: JevStatus, call: JudgeCall | None = None) -> None:
+    def __init__(self, status: JevStatus, call: JudgeCall | None = None, reason: str = "") -> None:
         super().__init__(status)
         self.status: JevStatus = status
         self.call = call
+        # Motivo sin llamada distinto del estado (``cuota`` de una corrida de evaluación).
+        self.reason = reason
 
 
 @runtime_checkable

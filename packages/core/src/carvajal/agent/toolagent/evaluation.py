@@ -3151,7 +3151,8 @@ def build_runtime(
             # como el runtime de la app (FR-009).
             fallback_graph = routes_graph(decide_route, checkpointer, store)
             drivers["tools"] = ToolsDriver(
-                ToolAgentRunner(tool_graph, settings),
+                # Spec 046: la compuerta de afirmaciones usa el mismo juez que el gatekeeper.
+                ToolAgentRunner(tool_graph, settings, claims_judge=judge),
                 graph=tool_graph,
                 fallback_runner=GraphAgentRunner(fallback_graph, settings),
                 clock=clock,

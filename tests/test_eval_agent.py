@@ -2353,3 +2353,43 @@ def test_el_informe_da_el_crudo_estricto_y_con_equivalencias(
         True,
         False,
     ]
+
+
+def test_el_ejecutor_de_evaluacion_recibe_solo_el_sustituto_de_la_compuerta() -> None:
+    """Spec 046 (T033): con p = 0,2 la observación lleva el texto neutro."""
+
+    from langgraph.checkpoint.memory import InMemorySaver
+    from tests.fakes.judge import FakeJudge
+    from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
+    from tests.test_tool_agent_stream import FUNDACION, FakeEmbedder, QueueStore
+
+    from apps.api.chat.agent import ToolAgentRunner
+    from carvajal.agent.toolagent.evaluation import ToolsDriver
+    from carvajal.agent.toolagent.graph import build_tool_agent
+    from carvajal.agent.toolagent.tools import ToolDeps
+    from carvajal.infrastructure.settings import Settings
+    from carvajal.prompts import NO_CONTEXT_ANSWER
+
+    # Arrange
+    settings = Settings()
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "buscar_corpus", "args": {"consulta": "fundación"}}]),
+            ScriptStep(text="Se fundó en 1904 [1] y es la empresa más querida del país."),
+        ]
+    )
+    graph = build_tool_agent(
+        ToolDeps(vector_store=QueueStore([FUNDACION]), embedder=FakeEmbedder(), settings=settings),
+        chat,
+        checkpointer=InMemorySaver(),
+    )
+    driver = ToolsDriver(
+        ToolAgentRunner(graph, settings, claims_judge=FakeJudge(p=0.2)), graph=graph
+    )
+
+    # Act
+    observation = driver.run_turn(owner_key="o", thread_id="t", question="¿Cuándo?", seed_turns=[])
+
+    # Assert
+    assert observation.answer == NO_CONTEXT_ANSWER
+    assert observation.path == "agent"
