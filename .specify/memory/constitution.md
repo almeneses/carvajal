@@ -10,6 +10,8 @@ Sync Impact Report (spec 046)
   después de la compuerta determinista, retención completa del camino con evidencia con la
   compuerta activa y *fail-open* a la determinista (T038).
 - Pendiente: ninguno.
+- Sincronización posterior (sin cambio de versión): estado técnico de la 046 tras la
+  medición y sus correcciones (CONSTITUTION.md §9, 2026-11-24).
 -->
 # Constitución de Carvajal Corpus
 
@@ -159,6 +161,11 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 - La 046 (router y System One) añade al modo `tools` un gatekeeper explícito: reglas
   primero y, si no deciden y Jev está encendido, una pregunta Choice de Jev de TypeSafe que
   restringe las consultas del turno; sin Jev, reglas + LLM como en la 045 (enmienda D).
+  Medida el 2026-11-24 con `jev-1.14.0` (gatekeeper 20/20, compuerta 10/10 y 0/6, v3 28/40
+  con Jev frente a 29/40 sin Jev); umbrales 0,6 / 0,8 / 0,5 sin cambio. Un `rag` de Jev con
+  señal comercial en la pregunta se trata como `mixta` (todas las consultas, sin cautela).
+  Jev sigue apagado por defecto (`JEV_ENABLED=false`); activarlo en producción es decisión
+  del owner tras revisar el DPA de TypeSafe.
 
 ## Restricciones técnicas
 

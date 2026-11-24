@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-24
 
-**Status**: Draft (decisiones del owner y decisiones autónomas registradas en *Clarifications*; pendiente de revisión del owner)
+**Status**: Implemented (2026-11-24). Medida una vez con `jev-1.14.0` ([evidencia](./evidencia.md)); D1, D2 y R1 corregidos después sin llamar a Jev. Jev sigue apagado por defecto (`JEV_ENABLED=false`): activarlo en producción (T060) es decisión del owner tras el DPA de TypeSafe (T063). Decisiones autónomas en *Clarifications*, pendientes de revisión del owner
 
 **Input**: Requisito obligatorio de la entrega, texto literal: «Router y System One (Jev):
 Decisión entre herramienta estructurada, RAG o respuesta directa; no buscar en saludos;
