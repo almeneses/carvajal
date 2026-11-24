@@ -10,4 +10,5 @@
 - [`aceptacion-m2.md`](aceptacion-m2.md) — matriz de aceptación con evidencia.
 - [`eval/retrieval-report.md`](eval/retrieval-report.md) — Recall@10 y nDCG@10.
 - [`evidence/m2/`](evidence/m2/) — smoke, salud, capturas y pruebas.
+- [`research/jev.md`](research/jev.md) — prueba previa de Jev (TypeSafe): juez de respaldo, reranker, costos y riesgos (spec 046).
 - Decisiones de arquitectura (ADRs) — se acumulan en `docs/decisions/`.
