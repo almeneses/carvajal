@@ -747,6 +747,17 @@ def test_normaliza_los_miles_al_estilo_colombiano(heard: str, expected: str) -> 
 
 @pytest.mark.parametrize(
     "heard",
+    ["Cotiza 1,800 vasos", "12,500,000 pesos", "son 2,500.50 pesos", "1,5 litros", ""],
+)
+def test_normalizar_no_cambia_la_longitud(heard: str) -> None:
+    # El puente de WhatsApp mide MAX_MESSAGE_CHARS sobre el texto normalizado: solo es
+    # equivalente a medir lo que envió el cliente si la normalización no lo alarga.
+    # Act / Assert
+    assert len(normalize_transcript(heard)) == len(heard)
+
+
+@pytest.mark.parametrize(
+    "heard",
     [
         "1,5 litros",
         "0,75",
