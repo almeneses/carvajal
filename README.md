@@ -306,9 +306,12 @@ el bloque `jev`. Resultados de la medición
   es un **resumen hablado** de unos 15-20 s (extractivo, sin LLM: primera frase, la lista
   en una frase, la pregunta final y «El detalle completo está en pantalla.»), también en
   la voz de respaldo del navegador. CSRF, la identidad del chat, límites por sesión, por IP y global, la
-  duración máxima del audio, un tope diario y un circuito protegen el gasto; ante
-  cualquier fallo el chat vuelve a la voz del navegador.
-  Detalle en [`docs/voz-web.md`](docs/voz-web.md).
+  duración máxima del audio, un tope diario y un circuito protegen el gasto. Cada
+  respuesta trae una **nota de voz** (spec 050) que suena sola solo si la persona dictó
+  la pregunta (o con la lectura automática); escrita, se sintetiza al pulsar ▶. Un
+  autoplay bloqueado deja la nota para tocarla sin cambiar de voz; solo un 503 o un
+  401/403 pasan la lectura a la voz del navegador, y por 60 s.
+  Detalle en [`docs/voz-web.md`](docs/voz-web.md#notas-de-voz-por-respuesta).
 - **WhatsApp.** Con `voz=true`, `consultar_carvajal` devuelve un resumen para la nota de
   voz (sin citas, Markdown ni URL) y, si omitió algo, la respuesta escrita completa tras
   la línea `TEXTO` para enviarla como mensaje; si no, los enlaces aparte. La transcripción
