@@ -1576,6 +1576,11 @@ html[data-voz-tts="1"] .turno-assistant .turno-voz[hidden] {
   content: "/ ";
 }
 
+/* El aviso de bloqueo o error es texto largo: va en su propia línea. */
+:where(.turno-nota-aviso) {
+  flex-basis: 100%;
+}
+
 :where(.turno-nota-estado) {
   position: absolute;
   width: 1px;

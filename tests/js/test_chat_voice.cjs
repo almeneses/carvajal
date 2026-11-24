@@ -3156,7 +3156,27 @@ test("050 la nota nace tras la burbuja con su contrato accesible y oculta la fra
   assert.equal(turno.querySelector("[data-voz-turno]").hidden, true);
 });
 
-test("050 una pregunta escrita no suena sola ni pide el audio hasta que se pulsa", async () => {
+/** Una nota en «sonando» del servidor: se pulsa, llega el audio y empieza. */
+async function notaQueSuena(montaje, turno) {
+  pulsar(montaje, partesDeNota(turno).boton);
+  await vaciarPromesas();
+  const reproduccion = montaje.servidor.registro.reproducciones.at(-1);
+  reproduccion.llamadas.alEmpezar();
+  return reproduccion;
+}
+
+/** Activa manos libres y dicta una pregunta que se envía sola. */
+async function preguntarConManosLibres(montaje) {
+  clic(montaje.vista.botonManosLibres);
+  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
+  await vaciarPromesas();
+  montaje.servidor.registro.llamadas.alVoz();
+  montaje.servidor.registro.llamadas.alPausa();
+  await vaciarPromesas();
+  montaje.vista.entrada.value = "";
+}
+
+test("050 una pregunta escrita no suena sola ni pide el audio", async () => {
   // Arrange
   const montaje = montarNotas();
   const turno = crearTurnoDom({ mensaje: "m-escrita" });
@@ -3170,15 +3190,40 @@ test("050 una pregunta escrita no suena sola ni pide el audio hasta que se pulsa
   assert.equal(montaje.servidor.registro.sintetizados.length, 0);
   assert.equal(montaje.servidor.registro.desbloqueos, 0);
   assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "lista");
+});
 
-  // Act: la persona pulsa reproducir.
+test("050 pulsar la nota la deja cargando y pulsada mientras llega el audio", () => {
+  // Arrange
+  const servidor = crearServidorFalso({ sintesisPendiente: true });
+  const montaje = montarNotas({ servidor });
+  const turno = crearTurnoDom({ mensaje: "m-escrita" });
+  enviarPregunta(montaje, "¿Qué vasos tienen?");
+  completarTurno(montaje, turno);
+
+  // Act
   pulsar(montaje, partesDeNota(turno).boton);
 
-  // Assert: se desbloquea en el gesto y se pide el audio.
-  assert.equal(montaje.servidor.registro.desbloqueos, 1);
-  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "cargando");
-  assert.equal(partesDeNota(turno).boton.getAttribute("aria-busy"), "true");
+  // Assert: se desbloquea en el gesto; el nombre del botón no cambia.
+  const nota = partesDeNota(turno);
+  assert.equal(servidor.registro.desbloqueos, 1);
+  assert.equal(nota.raiz.dataset.notaEstado, "cargando");
+  assert.equal(nota.boton.getAttribute("aria-busy"), "true");
+  assert.equal(nota.boton.getAttribute("aria-pressed"), "true");
+  assert.equal(nota.boton.getAttribute("aria-label"), "Reproducir la nota de voz");
+});
+
+test("050 pulsar la nota de una pregunta escrita pide el audio una vez y lo reproduce", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-escrita" });
+  enviarPregunta(montaje, "¿Qué vasos tienen?");
+  completarTurno(montaje, turno);
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
   await vaciarPromesas();
+
+  // Assert
   assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-escrita"]);
   assert.equal(montaje.servidor.registro.reproducciones.length, 1);
 });
@@ -3187,45 +3232,85 @@ test("050 una pregunta dictada desbloquea el audio en el gesto y la respuesta su
   // Arrange
   const montaje = montarNotas();
   const turno = crearTurnoDom({ mensaje: "m-dictada" });
-
-  // Act: dictar (clic) y enviar el borrador dictado.
-  clic(montaje.vista.botonDictar);
+  await dictarConServidor(montaje);
   const desbloqueosAlDictar = montaje.servidor.registro.desbloqueos;
-  await vaciarPromesas();
-  clic(montaje.vista.botonDictar);
-  await vaciarPromesas();
+
+  // Act
   enviarPregunta(montaje);
   completarTurno(montaje, turno);
   await vaciarPromesas();
   const [reproduccion] = montaje.servidor.registro.reproducciones;
   reproduccion.llamadas.alEmpezar();
   reproduccion.llamadas.alProgreso(4.2, 17.5);
+  montaje.reloj.avanzar(0);
 
-  // Assert
+  // Assert: sin anuncio «reproduciendo» que tape el audio; el estado va en aria-pressed.
   const nota = partesDeNota(turno);
   assert.equal(desbloqueosAlDictar, 1);
   assert.equal(montaje.servidor.registro.desbloqueos, 2);
   assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-dictada"]);
   assert.equal(nota.raiz.dataset.notaEstado, "sonando");
   assert.equal(nota.boton.getAttribute("aria-pressed"), "true");
-  assert.equal(nota.boton.getAttribute("aria-label"), "Pausar la nota de voz");
-  assert.equal(nota.estado.textContent, montaje.api.MENSAJES.notaSonando);
+  assert.equal(nota.boton.getAttribute("aria-label"), "Reproducir la nota de voz");
+  assert.equal(nota.estado.textContent, "");
   assert.equal(nota.raiz.style.propiedades.get("--nota-avance"), "0.240");
   assert.equal(nota.barra.getAttribute("aria-valuenow"), "24");
   assert.equal(nota.barra.getAttribute("aria-valuetext"), "0:04 de 0:17");
   assert.equal(nota.tiempo.textContent, "0:04");
   assert.equal(nota.duracion.textContent, "0:17");
+});
 
-  // Act: pausa con el mismo botón, reanuda y termina.
-  pulsar(montaje, nota.boton);
+test("050 pulsar una nota que suena la pausa sin cambiar el nombre del botón", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-pausa" });
+  completarTurno(montaje, turno);
+  const reproduccion = await notaQueSuena(montaje, turno);
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Assert
+  const nota = partesDeNota(turno);
+  assert.equal(reproduccion.pausas, 1);
   assert.equal(nota.raiz.dataset.notaEstado, "pausada");
-  pulsar(montaje, nota.boton);
+  assert.equal(nota.boton.getAttribute("aria-pressed"), "false");
+  assert.equal(nota.boton.getAttribute("aria-label"), "Reproducir la nota de voz");
+  assert.equal(nota.estado.textContent, "");
+});
+
+test("050 pulsar una nota en pausa la reanuda", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-reanuda" });
+  completarTurno(montaje, turno);
+  const reproduccion = await notaQueSuena(montaje, turno);
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Assert
+  assert.equal(reproduccion.reanudaciones, 1);
+  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "sonando");
+  assert.equal(partesDeNota(turno).boton.getAttribute("aria-pressed"), "true");
+});
+
+test("050 al terminar la nota vuelve a lista con el avance a cero y conserva la duración", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-fin" });
+  completarTurno(montaje, turno);
+  const reproduccion = await notaQueSuena(montaje, turno);
+  reproduccion.llamadas.alProgreso(17.5, 17.5);
+
+  // Act
   reproduccion.llamadas.alTerminar();
 
   // Assert
-  assert.equal(reproduccion.pausas, 1);
-  assert.equal(reproduccion.reanudaciones, 1);
+  const nota = partesDeNota(turno);
   assert.equal(nota.raiz.dataset.notaEstado, "lista");
+  assert.equal(nota.boton.getAttribute("aria-pressed"), "false");
   assert.equal(nota.raiz.style.propiedades.get("--nota-avance"), "0.000");
   assert.equal(nota.duracion.textContent, "0:17");
 });
@@ -3245,6 +3330,65 @@ test("050 borrar el dictado y escribir otra pregunta cuenta como escrita", async
 
   // Assert
   assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+});
+
+test("050 una sugerencia sobre un borrador dictado cuenta como escrita", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-sugerencia" });
+  await dictarConServidor(montaje);
+  const desbloqueosAntes = montaje.servidor.registro.desbloqueos;
+
+  // Act: la sugerencia sustituye el valor y dispara `input` sin vaciar el campo.
+  montaje.vista.entrada.value = "¿Qué cajas plegadizas tienen?";
+  montaje.vista.entrada.dispatch("input", {});
+  enviarPregunta(montaje);
+  completarTurno(montaje, turno);
+  await vaciarPromesas();
+
+  // Assert: ni síntesis pagada ni desbloqueo (que en iOS pausaría la música).
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+  assert.equal(montaje.servidor.registro.desbloqueos, desbloqueosAntes);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 0);
+});
+
+test("050 reescribir todo el dictado sin vaciar el campo cuenta como escrita", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-encima" });
+  await dictarConServidor(montaje);
+  const desbloqueosAntes = montaje.servidor.registro.desbloqueos;
+
+  // Act: seleccionar todo y escribir encima, letra a letra.
+  for (const valor of ["Q", "Qu", "Quiero una resma de papel"]) {
+    montaje.vista.entrada.value = valor;
+    montaje.vista.entrada.dispatch("input", {});
+  }
+  enviarPregunta(montaje);
+  completarTurno(montaje, turno);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+  assert.equal(montaje.servidor.registro.desbloqueos, desbloqueosAntes);
+});
+
+test("050 corregir una palabra del dictado sigue contando como hablada", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-corregida" });
+  await dictarConServidor(montaje);
+
+  // Act: «cotiza 400 vasos de 12 onzas» → «cotiza 500 vasos de 12 onzas».
+  montaje.vista.entrada.value = "cotiza 500 vasos de 12 onzas";
+  montaje.vista.entrada.dispatch("input", {});
+  enviarPregunta(montaje);
+  completarTurno(montaje, turno);
+  await vaciarPromesas();
+
+  // Assert
+  assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-corregida"]);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 1);
 });
 
 test("050 con la lectura automática encendida una pregunta escrita también suena", async () => {
@@ -3276,11 +3420,12 @@ test("050 el autoplay bloqueado deja la nota bloqueada sin cambiar de voz ni apa
   enviarPregunta(montaje);
   completarTurno(montaje, turno);
   await vaciarPromesas();
-
-  // Act: play() rechazado por la política de autoplay.
   const error = new Error("bloqueado");
   error.name = "NotAllowedError";
+
+  // Act: play() rechazado por la política de autoplay.
   montaje.servidor.registro.reproducciones[0].llamadas.alFallar(error);
+  montaje.reloj.avanzar(0);
 
   // Assert
   const nota = partesDeNota(turno);
@@ -3288,50 +3433,71 @@ test("050 el autoplay bloqueado deja la nota bloqueada sin cambiar de voz ni apa
   assert.equal(nota.aviso.hidden, false);
   assert.equal(nota.aviso.textContent, montaje.api.MENSAJES.notaBloqueada);
   assert.equal(nota.estado.textContent, montaje.api.MENSAJES.notaBloqueada);
+  assert.equal(nota.boton.getAttribute("aria-label"), "Reproducir la nota de voz");
   assert.equal(sintesis.locuciones.length, 0);
   assert.equal(montaje.controlador.soporte.servidor.lectura, true);
   assert.equal(montaje.documento.documentElement.dataset.vozRespaldo, undefined);
+});
 
-  // Act: un toque la reproduce desde la caché, dentro del gesto.
-  pulsar(montaje, nota.boton);
+test("050 tocar una nota bloqueada la reproduce desde la caché dentro del gesto", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-bloqueada" });
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+  completarTurno(montaje, turno);
+  await vaciarPromesas();
+  const error = new Error("bloqueado");
+  error.name = "NotAllowedError";
+  montaje.servidor.registro.reproducciones[0].llamadas.alFallar(error);
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
 
   // Assert: sin otra síntesis y con play() síncrono.
   assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-bloqueada"]);
   assert.equal(montaje.servidor.registro.reproducciones.length, 2);
 });
 
-test("050 la caché evita pagar dos síntesis y olvida la más vieja al pasar el límite", async () => {
+test("050 repetir una nota no paga otra síntesis", async () => {
   // Arrange
   const montaje = montarNotas();
-  const turnos = Array.from({ length: 8 }, (_, indice) => crearTurnoDom({ mensaje: `m-${indice}` }));
-  for (const turno of turnos) completarTurno(montaje, turno);
+  const turno = crearTurnoDom({ mensaje: "m-0" });
+  completarTurno(montaje, turno);
+  const reproduccion = await notaQueSuena(montaje, turno);
+  reproduccion.llamadas.alTerminar();
 
-  // Act: escucha m-0 dos veces.
-  pulsar(montaje, partesDeNota(turnos[0]).boton);
-  await vaciarPromesas();
-  montaje.servidor.registro.reproducciones[0].llamadas.alTerminar();
-  pulsar(montaje, partesDeNota(turnos[0]).boton);
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
 
   // Assert
   assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-0"]);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 2);
+});
 
-  // Act: escucha seis más (el límite es seis) y vuelve a m-0.
-  for (const turno of turnos.slice(1, 7)) {
+test("050 la caché olvida la nota más vieja al pasar el límite de seis", async () => {
+  // Arrange: se escuchan siete notas, una más que el límite.
+  const montaje = montarNotas();
+  const turnos = Array.from({ length: 7 }, (_, indice) => crearTurnoDom({ mensaje: `m-${indice}` }));
+  for (const turno of turnos) completarTurno(montaje, turno);
+  for (const turno of turnos) {
     pulsar(montaje, partesDeNota(turno).boton);
     await vaciarPromesas();
   }
+
+  // Act
   pulsar(montaje, partesDeNota(turnos[0]).boton);
   await vaciarPromesas();
+  pulsar(montaje, partesDeNota(turnos[6]).boton);
 
   // Assert: m-0 salió de la caché y se pide de nuevo; m-6 sigue en ella.
-  const veces = montaje.servidor.registro.sintetizados.filter((id) => id === "m-0").length;
-  assert.equal(veces, 2);
-  pulsar(montaje, partesDeNota(turnos[6]).boton);
-  assert.equal(montaje.servidor.registro.sintetizados.filter((id) => id === "m-6").length, 1);
+  const veces = (id) => montaje.servidor.registro.sintetizados.filter((cada) => cada === id).length;
+  assert.equal(veces("m-0"), 2);
+  assert.equal(veces("m-6"), 1);
 });
 
-test("050 la precarga y el clic comparten una sola síntesis en vuelo por mensaje", async () => {
-  // Arrange: la pestaña está oculta cuando llega la respuesta dictada.
+test("050 una respuesta dictada con la pestaña oculta se precarga sin sonar ni marcar el botón", async () => {
+  // Arrange
   const servidor = crearServidorFalso({ sintesisPendiente: true });
   const montaje = montarNotas({ servidor });
   const turno = crearTurnoDom({ mensaje: "m-vuelo" });
@@ -3342,14 +3508,27 @@ test("050 la precarga y el clic comparten una sola síntesis en vuelo por mensaj
   // Act
   completarTurno(montaje, turno);
 
-  // Assert: precarga sin sonar.
-  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "cargando");
+  // Assert
+  const nota = partesDeNota(turno);
+  assert.equal(nota.raiz.dataset.notaEstado, "cargando");
+  assert.equal(nota.boton.getAttribute("aria-busy"), "true");
+  assert.equal(nota.boton.getAttribute("aria-pressed"), "false");
   assert.equal(montaje.documento.documentElement.dataset.vozSintetizando, "m-vuelo");
+  assert.equal(servidor.registro.reproducciones.length, 0);
+});
 
-  // Act: vuelve y pulsa antes de que llegue el audio.
+test("050 la precarga y el clic comparten una sola síntesis en vuelo por mensaje", async () => {
+  // Arrange: la respuesta dictada llega con la pestaña oculta y se precarga.
+  const servidor = crearServidorFalso({ sintesisPendiente: true });
+  const montaje = montarNotas({ servidor });
+  const turno = crearTurnoDom({ mensaje: "m-vuelo" });
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+  montaje.documento.visibilityState = "hidden";
+  completarTurno(montaje, turno);
   montaje.documento.visibilityState = "visible";
-  pulsar(montaje, partesDeNota(turno).boton);
-  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Act: pulsa antes de que llegue el audio.
   pulsar(montaje, partesDeNota(turno).boton);
   servidor.registro.pendientes[0].resolver({ size: 10 });
   await vaciarPromesas();
@@ -3357,6 +3536,7 @@ test("050 la precarga y el clic comparten una sola síntesis en vuelo por mensaj
   // Assert
   assert.deepEqual(servidor.registro.sintetizados, ["m-vuelo"]);
   assert.equal(servidor.registro.reproducciones.length, 1);
+  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "cargando");
   assert.equal(montaje.documento.documentElement.dataset.vozSintetizando, undefined);
 });
 
@@ -3367,44 +3547,132 @@ test("050 una precarga sin clic deja la nota lista con el audio en caché", asyn
   await dictarConServidor(montaje);
   enviarPregunta(montaje);
   montaje.documento.visibilityState = "hidden";
-
-  // Act
   completarTurno(montaje, turno);
   await vaciarPromesas();
   montaje.documento.visibilityState = "visible";
+
+  // Act
   pulsar(montaje, partesDeNota(turno).boton);
 
-  // Assert: el clic reproduce al instante (sin desbloqueo ni otra síntesis).
+  // Assert: el clic reproduce al instante (sin otra síntesis).
   assert.equal(montaje.servidor.registro.sintetizados.length, 1);
   assert.equal(montaje.servidor.registro.reproducciones.length, 1);
 });
 
-test("050 un 503 lee con el navegador si existe y vuelve a probar el servidor a los 60 s", async () => {
+test("050 una respuesta que llega durante un dictado nuevo se precarga sin sonar", async () => {
+  // Arrange: la pregunta fue dictada y la persona ya está dictando otra.
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-durante" });
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+  clic(montaje.vista.botonDictar);
+  await vaciarPromesas();
+
+  // Act
+  completarTurno(montaje, turno);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.controlador.estado.escuchando, true);
+  assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-durante"]);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 0);
+  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "lista");
+});
+
+test("050 pulsar la nota mientras carga cancela la reproducción y la síntesis sigue", () => {
+  // Arrange
+  const servidor = crearServidorFalso({ sintesisPendiente: true });
+  const montaje = montarNotas({ servidor });
+  const turno = crearTurnoDom({ mensaje: "m-cancela" });
+  completarTurno(montaje, turno);
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Assert
+  const nota = partesDeNota(turno);
+  assert.equal(nota.raiz.dataset.notaEstado, "lista");
+  assert.equal(nota.boton.getAttribute("aria-pressed"), "false");
+  assert.equal(nota.boton.getAttribute("aria-busy"), null);
+  assert.equal(montaje.documento.documentElement.dataset.vozSintetizando, "m-cancela");
+});
+
+test("050 una nota cancelada al cargar no suena al llegar el audio y queda en caché", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ sintesisPendiente: true });
+  const montaje = montarNotas({ servidor });
+  const turno = crearTurnoDom({ mensaje: "m-cancela" });
+  completarTurno(montaje, turno);
+  pulsar(montaje, partesDeNota(turno).boton);
+  pulsar(montaje, partesDeNota(turno).boton);
+  servidor.registro.pendientes[0].resolver({ size: 10 });
+  await vaciarPromesas();
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Assert: solo suena con el último clic, sin otra síntesis.
+  assert.deepEqual(servidor.registro.sintetizados, ["m-cancela"]);
+  assert.equal(servidor.registro.reproducciones.length, 1);
+});
+
+test("050 un 503 lee con el navegador dentro de la misma nota", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
+  const montaje = montarNotas({ servidor, sintesis });
+  const turno = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta." });
+  completarTurno(montaje, turno);
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(sintesis.locuciones[0].text, "Primera respuesta.");
+  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "sonando");
+  assert.equal(montaje.controlador.soporte.servidor.lectura, false);
+  assert.equal(montaje.documento.documentElement.dataset.vozRespaldo, "1");
+});
+
+test("050 tras un 503 no se vuelve a pedir el audio al servidor antes de 60 s", async () => {
   // Arrange
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
   const montaje = montarNotas({ servidor, sintesis });
   const primero = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta." });
   const segundo = crearTurnoDom({ mensaje: "m-b", texto: "Segunda respuesta." });
-  const tercero = crearTurnoDom({ mensaje: "m-c", texto: "Tercera respuesta." });
-  for (const turno of [primero, segundo, tercero]) completarTurno(montaje, turno);
-
-  // Act
+  for (const turno of [primero, segundo]) completarTurno(montaje, turno);
   pulsar(montaje, partesDeNota(primero).boton);
-  await vaciarPromesas();
-
-  // Assert: este turno lo lee el navegador dentro de la misma nota.
-  assert.equal(sintesis.locuciones[0].text, "Primera respuesta.");
-  assert.equal(partesDeNota(primero).raiz.dataset.notaEstado, "sonando");
-  assert.equal(montaje.controlador.soporte.servidor.lectura, false);
-  assert.equal(montaje.documento.documentElement.dataset.vozRespaldo, "1");
-
-  // Act: antes de 60 s no se vuelve a pedir; después sí.
-  sintesis.terminar();
-  pulsar(montaje, partesDeNota(segundo).boton);
   await vaciarPromesas();
   sintesis.terminar();
   servidor.registro.falloSintetizar = null;
+
+  // Act
+  montaje.reloj.avanzar(59000);
+  pulsar(montaje, partesDeNota(segundo).boton);
+  await vaciarPromesas();
+
+  // Assert
+  assert.deepEqual(servidor.registro.sintetizados, ["m-a"]);
+  assert.equal(sintesis.locuciones.at(-1).text, "Segunda respuesta.");
+});
+
+test("050 a los 60 s de un 503 se vuelve a probar la voz del servidor", async () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
+  const montaje = montarNotas({ servidor, sintesis });
+  const primero = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta." });
+  const tercero = crearTurnoDom({ mensaje: "m-c", texto: "Tercera respuesta." });
+  for (const turno of [primero, tercero]) completarTurno(montaje, turno);
+  pulsar(montaje, partesDeNota(primero).boton);
+  await vaciarPromesas();
+  sintesis.terminar();
+  servidor.registro.falloSintetizar = null;
+
+  // Act
   montaje.reloj.avanzar(60000);
   pulsar(montaje, partesDeNota(tercero).boton);
   await vaciarPromesas();
@@ -3414,6 +3682,58 @@ test("050 un 503 lee con el navegador si existe y vuelve a probar el servidor a 
   assert.equal(servidor.registro.reproducciones.length, 1);
   assert.equal(montaje.controlador.soporte.servidor.lectura, true);
   assert.equal(montaje.documento.documentElement.dataset.vozRespaldo, undefined);
+});
+
+/**
+ * La voz del servidor queda en espera mientras suena la nota A: se pide C (sin caché),
+ * se pasa a A (en caché) y la síntesis de C falla con 503.
+ */
+async function notaSonandoConServidorEnEspera() {
+  const sintesis = crearSintesis();
+  const servidor = crearServidorFalso({ sintesisPendiente: true });
+  const montaje = montarNotas({ servidor, sintesis });
+  const [a, b, c] = ["m-a", "m-b", "m-c"].map((mensaje) =>
+    crearTurnoDom({ mensaje, texto: `Respuesta ${mensaje}.` }),
+  );
+  for (const turno of [a, b, c]) completarTurno(montaje, turno);
+  pulsar(montaje, partesDeNota(a).boton);
+  servidor.registro.pendientes[0].resolver({ size: 10 });
+  await vaciarPromesas();
+  pulsar(montaje, partesDeNota(c).boton);
+  pulsar(montaje, partesDeNota(a).boton);
+  const reproduccionA = servidor.registro.reproducciones.at(-1);
+  reproduccionA.llamadas.alEmpezar();
+  servidor.registro.pendientes[1].rechazar(errorHttp(503, "circuit_open"));
+  await vaciarPromesas();
+  return { montaje, sintesis, reproduccionA, a, b };
+}
+
+test("050 con el servidor en espera tocar otra nota corta la que sonaba antes del respaldo", async () => {
+  // Arrange
+  const { montaje, sintesis, reproduccionA, a, b } = await notaSonandoConServidorEnEspera();
+
+  // Act
+  pulsar(montaje, partesDeNota(b).boton);
+
+  // Assert: una sola voz a la vez.
+  assert.equal(reproduccionA.detenciones, 1);
+  assert.equal(partesDeNota(a).raiz.dataset.notaEstado, "lista");
+  assert.equal(partesDeNota(b).raiz.dataset.notaEstado, "sonando");
+  assert.equal(sintesis.locuciones.at(-1).text, "Respuesta m-b.");
+});
+
+test("050 con el servidor en espera la pausa llega a la voz del navegador", async () => {
+  // Arrange
+  const { montaje, sintesis, reproduccionA, b } = await notaSonandoConServidorEnEspera();
+  pulsar(montaje, partesDeNota(b).boton);
+
+  // Act
+  pulsar(montaje, partesDeNota(b).boton);
+
+  // Assert
+  assert.equal(sintesis.paused, true);
+  assert.equal(reproduccionA.pausas, 0);
+  assert.equal(partesDeNota(b).raiz.dataset.notaEstado, "pausada");
 });
 
 test("050 sin voz del navegador un 503 avisa que la voz no está disponible", async () => {
@@ -3468,43 +3788,108 @@ test("050 un 429 deja la nota en error con reintento y no apaga el servidor", as
   assert.equal(nota.raiz.dataset.notaEstado, "error");
   assert.equal(nota.aviso.textContent, montaje.api.MENSAJES.notaOcupada);
   assert.equal(nota.reintentar.hidden, false);
+  assert.equal(nota.boton.getAttribute("aria-label"), "Reproducir la nota de voz");
   assert.equal(sintesis.locuciones.length, 0);
   assert.equal(montaje.controlador.soporte.servidor.lectura, true);
+});
 
-  // Act: reintenta con el foco en «Reintentar» y el servidor ya responde.
+test("050 reintentar con el foco en «Reintentar» lo pasa al botón principal y pide el audio", async () => {
+  // Arrange
+  const servidor = crearServidorFalso({ falloSintetizar: errorHttp(429, "rate_limited") });
+  const montaje = montarNotas({ servidor });
+  const turno = crearTurnoDom({ mensaje: "m-429" });
+  completarTurno(montaje, turno);
+  pulsar(montaje, partesDeNota(turno).boton);
+  await vaciarPromesas();
   servidor.registro.falloSintetizar = null;
+  const nota = partesDeNota(turno);
   montaje.documento.activeElement = nota.reintentar;
-  pulsar(montaje, nota.reintentar);
 
-  // Assert: al ocultarse, el foco pasa al botón principal.
+  // Act
+  pulsar(montaje, nota.reintentar);
+  await vaciarPromesas();
+
+  // Assert: al ocultarse «Reintentar», el foco no cae al body.
   assert.equal(nota.reintentar.hidden, true);
   assert.equal(nota.boton.focused, true);
-  await vaciarPromesas();
   assert.deepEqual(servidor.registro.sintetizados, ["m-429", "m-429"]);
   assert.equal(servidor.registro.reproducciones.length, 1);
 });
 
-test("050 manos libres usa la nota y vuelve a escuchar cuando termina", async () => {
+test("050 si el foco estaba en la franja al nacer la nota pasa a su botón", () => {
   // Arrange
   const montaje = montarNotas();
-  clic(montaje.vista.botonManosLibres);
-  if (montaje.vista.avisoManos.open) clic(montaje.vista.manosAceptar);
-  await vaciarPromesas();
-  montaje.servidor.registro.llamadas.alVoz();
-  montaje.servidor.registro.llamadas.alPausa();
-  await vaciarPromesas();
-  montaje.vista.entrada.value = "";
+  const turno = crearTurnoDom({ mensaje: "m-foco" });
+  const franja = turno.querySelector("[data-voz-turno]");
+  const escuchar = crearNodoDom("button");
+  franja.appendChild(escuchar);
+  montaje.documento.activeElement = escuchar;
+
+  // Act
+  completarTurno(montaje, turno);
+
+  // Assert
+  assert.equal(franja.hidden, true);
+  assert.equal(partesDeNota(turno).boton.focused, true);
+});
+
+test("050 el primer anuncio de una nota nueva no se escribe en la misma tarea", () => {
+  // Arrange: la región viva acaba de entrar en el árbol de accesibilidad.
+  const servidor = crearServidorFalso({ sintesisPendiente: true });
+  const montaje = montarNotas({ servidor });
+  const turno = crearTurnoDom({ mensaje: "m-anuncio" });
+  enviarPregunta(montaje, "Hola");
+  completarTurno(montaje, turno);
+
+  // Act
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Assert
+  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "cargando");
+  assert.equal(partesDeNota(turno).estado.textContent, "");
+});
+
+test("050 el primer anuncio de una nota nueva llega en la tarea siguiente", () => {
+  // Arrange
+  const servidor = crearServidorFalso({ sintesisPendiente: true });
+  const montaje = montarNotas({ servidor });
+  const turno = crearTurnoDom({ mensaje: "m-anuncio" });
+  enviarPregunta(montaje, "Hola");
+  completarTurno(montaje, turno);
+  pulsar(montaje, partesDeNota(turno).boton);
+
+  // Act
+  montaje.reloj.avanzar(0);
+
+  // Assert
+  assert.equal(partesDeNota(turno).estado.textContent, montaje.api.MENSAJES.notaCargando);
+});
+
+test("050 manos libres usa la nota y la respuesta suena sola", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  await preguntarConManosLibres(montaje);
   const turno = crearTurnoDom({ mensaje: "m-manos" });
 
   // Act
   completarTurno(montaje, turno, { handsFree: true });
   await vaciarPromesas();
-  const [reproduccion] = montaje.servidor.registro.reproducciones;
-  reproduccion.llamadas.alEmpezar();
+  montaje.servidor.registro.reproducciones[0].llamadas.alEmpezar();
 
   // Assert
   assert.equal(montaje.servidor.registro.desbloqueos >= 1, true);
   assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "sonando");
+});
+
+test("050 en manos libres al terminar la nota se vuelve a escuchar", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  await preguntarConManosLibres(montaje);
+  const turno = crearTurnoDom({ mensaje: "m-manos" });
+  completarTurno(montaje, turno, { handsFree: true });
+  await vaciarPromesas();
+  const [reproduccion] = montaje.servidor.registro.reproducciones;
+  reproduccion.llamadas.alEmpezar();
 
   // Act
   reproduccion.llamadas.alTerminar();
@@ -3514,6 +3899,41 @@ test("050 manos libres usa la nota y vuelve a escuchar cuando termina", async ()
   assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "lista");
   assert.equal(montaje.servidor.registro.grabaciones, 2);
   assert.equal(montaje.controlador.manosLibres.activo, true);
+});
+
+test("050 en manos libres una nota que no se puede preparar apaga el modo sin culpar al micrófono", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  await preguntarConManosLibres(montaje);
+  montaje.servidor.registro.falloSintetizar = errorHttp(422, "invalid");
+  const turno = crearTurnoDom({ mensaje: "m-manos-422" });
+
+  // Act
+  completarTurno(montaje, turno, { handsFree: true });
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.manosNota);
+  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "error");
+});
+
+test("050 en manos libres un audio que no suena apaga el modo con el aviso de la nota", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  await preguntarConManosLibres(montaje);
+  const turno = crearTurnoDom({ mensaje: "m-manos-decodificar" });
+  completarTurno(montaje, turno, { handsFree: true });
+  await vaciarPromesas();
+  const error = new Error("no se pudo decodificar");
+  error.name = "NotSupportedError";
+
+  // Act
+  montaje.servidor.registro.reproducciones[0].llamadas.alFallar(error);
+
+  // Assert
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.manosNota);
 });
 
 test("050 en manos libres un autoplay bloqueado apaga el modo y deja la nota para tocarla", async () => {

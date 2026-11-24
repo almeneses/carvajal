@@ -62,6 +62,8 @@
     manosEscritura: "Manos libres se apagó porque escribiste. Tu texto se conserva sin enviarse.",
     manosFallo: "Manos libres se apagó: no se pudo completar el envío. Revisa el borrador.",
     manosError: "Manos libres se apagó por un error del micrófono. Puedes escribir o dictar de nuevo.",
+    manosNota:
+      "Manos libres se apagó: no se pudo reproducir la respuesta. Toca la nota para reintentarla.",
     manosOculto: "Manos libres se apagó al ocultar la pestaña.",
     manosLectura: "Manos libres se apagó al detener la lectura.",
     manosHilo: "Manos libres se apagó porque cambió el hilo visible.",
@@ -75,27 +77,19 @@
     manosBloqueo:
       "Manos libres se apagó: el navegador no dejó reproducir la respuesta. Toca reproducir para escucharla.",
     notaCargando: "Preparando la nota de voz…",
-    notaSonando: "Reproduciendo la nota de voz.",
-    notaPausada: "Nota de voz en pausa.",
     notaBloqueada: "El navegador no dejó reproducirla sola. Toca reproducir para escucharla.",
     notaError: "No se pudo preparar la nota de voz. Inténtalo de nuevo.",
     notaOcupada: "Hay muchas lecturas seguidas. Inténtalo de nuevo en un momento.",
     vozNoDisponible: "La voz no está disponible ahora.",
   };
 
-  // Estados de la nota de voz (data-nota-estado) y la etiqueta de su botón principal.
-  const ETIQUETAS_NOTA = {
-    lista: "Reproducir la nota de voz",
-    cargando: "Preparando la nota de voz",
-    sonando: "Pausar la nota de voz",
-    pausada: "Reanudar la nota de voz",
-    bloqueada: "Reproducir la nota de voz",
-    error: "Reintentar la nota de voz",
-  };
+  // El botón principal de la nota es un botón de alternancia: su nombre no cambia (ARIA
+  // APG) y el estado va en aria-pressed (y aria-busy al cargar) y en data-nota-estado.
+  const ETIQUETA_NOTA = "Reproducir la nota de voz";
+  // La región viva solo anuncia lo que el botón no dice: «sonando» y «pausada» ya los
+  // da aria-pressed, y anunciarlos taparía el propio audio con el lector de pantalla.
   const ANUNCIOS_NOTA = {
     cargando: MENSAJES.notaCargando,
-    sonando: MENSAJES.notaSonando,
-    pausada: MENSAJES.notaPausada,
     bloqueada: MENSAJES.notaBloqueada,
     error: MENSAJES.notaError,
   };
@@ -515,7 +509,9 @@
     const pedidos = new Map();
     let lecturaReintentoEn = 0;
     // ¿El borrador actual trae texto dictado? ¿La pregunta enviada salió de la voz?
+    // `palabrasDictadas` son las del texto que escribió el dictado en este borrador.
     let borradorDictado = false;
+    let palabrasDictadas = new Set();
     let turnoHablado = false;
 
     function mount() {
@@ -584,8 +580,11 @@
         ventana.addEventListener("pagehide", liberarNotas);
       }
       if (vista.entrada) {
+        // El dictado escribe el valor sin evento `input`: todo `input` es de la persona
+        // (o de una sugerencia). Corregir una palabra mantiene el borrador como dictado;
+        // vaciarlo o sustituirlo (una sugerencia, seleccionar todo y escribir) no.
         vista.entrada.addEventListener("input", () => {
-          if (String(vista.entrada.value || "").trim() === "") borradorDictado = false;
+          if (borradorDictado && !conservaDictado(vista.entrada.value)) olvidarDictado();
         });
       }
       montarNotasDelHistorial();
@@ -605,6 +604,27 @@
       }
     }
 
+    function palabrasDe(texto) {
+      return String(texto || "")
+        .toLocaleLowerCase("es")
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean);
+    }
+
+    /** ¿El borrador conserva al menos la mitad de las palabras dictadas? */
+    function conservaDictado(valor) {
+      if (palabrasDictadas.size === 0) return false;
+      const actuales = new Set(palabrasDe(valor));
+      let conservadas = 0;
+      for (const palabra of palabrasDictadas) if (actuales.has(palabra)) conservadas += 1;
+      return conservadas * 2 >= palabrasDictadas.size;
+    }
+
+    function olvidarDictado() {
+      borradorDictado = false;
+      palabrasDictadas = new Set();
+    }
+
     function alEnviar(evento) {
       const formulario = vista.formulario;
       if (!formulario || !evento || evento.target !== formulario) return;
@@ -617,7 +637,7 @@
       turnoHablado =
         borradorDictado ||
         Boolean(formulario.dataset && formulario.dataset.vozOrigen === "manos-libres");
-      borradorDictado = false;
+      olvidarDictado();
       if (turnoHablado || preferencias.autoLectura) desbloquearAudio();
     }
 
@@ -631,7 +651,14 @@
     // Un solo elemento dentro del turno, justo después de la burbuja; sin DOM (pruebas,
     // documentos raros) la nota existe igual y solo guarda su estado.
     function construirNota(turno, mensaje) {
-      const nota = { turno, mensaje, estado: "lista", segundos: null, raiz: null };
+      const nota = {
+        turno,
+        mensaje,
+        estado: "lista",
+        segundos: null,
+        raiz: null,
+        anuncioPendiente: null,
+      };
       if (typeof documento.createElement !== "function") return nota;
       try {
         const raiz = crearNodo("div", "turno-nota", {
@@ -643,7 +670,7 @@
         const boton = crearNodo("button", "turno-nota-boton", {
           type: "button",
           "aria-pressed": "false",
-          "aria-label": ETIQUETAS_NOTA.lista,
+          "aria-label": ETIQUETA_NOTA,
         });
         boton.dataset.notaAccion = "alternar";
         const barra = crearNodo("span", "turno-nota-barra", {
@@ -673,6 +700,12 @@
         if (burbuja && typeof burbuja.after === "function") burbuja.after(raiz);
         else turno.appendChild(raiz);
         Object.assign(nota, { raiz, boton, barra, tiempo, duracion, estadoTexto, aviso, reintentar });
+        nota.anuncioPendiente = "";
+        reloj.setTimeout(() => {
+          const texto = nota.anuncioPendiente;
+          nota.anuncioPendiente = null;
+          if (texto) estadoTexto.textContent = texto;
+        }, 0);
         // Con nota, la franja «Escuchar/Pausar/…» sobra: la nota es el único control.
         const franja = turno.querySelector("[data-voz-turno]");
         if (franja) {
@@ -687,6 +720,16 @@
         nota.raiz = null;
       }
       return nota;
+    }
+
+    // Una región viva recién añadida al árbol de accesibilidad no se anuncia en muchos
+    // lectores: el primer texto de una nota nueva espera a la siguiente tarea.
+    function anunciarNota(nota, texto) {
+      if (nota.anuncioPendiente !== null) {
+        nota.anuncioPendiente = texto;
+        return;
+      }
+      if (nota.estadoTexto.textContent !== texto) nota.estadoTexto.textContent = texto;
     }
 
     function notaDe(turno) {
@@ -746,12 +789,15 @@
       const raiz = nota.raiz;
       if (!raiz) return;
       raiz.dataset.notaEstado = estadoNota;
-      nota.boton.setAttribute("aria-pressed", estadoNota === "sonando" ? "true" : "false");
-      nota.boton.setAttribute("aria-label", ETIQUETAS_NOTA[estadoNota] || ETIQUETAS_NOTA.lista);
+      // Pulsada mientras suena y mientras carga la reproducción pedida (soltarla la
+      // cancela); una precarga que nadie pidió reproducir sigue sin pulsar.
+      const pulsada =
+        estadoNota === "sonando" || (estadoNota === "cargando" && notaDe(turnoLectura) === nota);
+      nota.boton.setAttribute("aria-pressed", pulsada ? "true" : "false");
       if (estadoNota === "cargando") nota.boton.setAttribute("aria-busy", "true");
       else nota.boton.removeAttribute("aria-busy");
       const texto = aviso || ANUNCIOS_NOTA[estadoNota] || "";
-      if (nota.estadoTexto.textContent !== texto) nota.estadoTexto.textContent = texto;
+      anunciarNota(nota, texto);
       const visible = estadoNota === "bloqueada" || estadoNota === "error";
       nota.aviso.hidden = !visible;
       nota.aviso.textContent = visible ? texto : "";
@@ -912,7 +958,12 @@
     }
 
     function reproducirNota(nota, opciones = {}) {
-      if (!lecturaServidorDisponible()) return leerNotaConRespaldo(nota, opciones);
+      if (!lecturaServidorDisponible()) {
+        // La nota que suena (del servidor, antes de la espera) se corta de verdad: si no,
+        // sonarían dos voces y la pausa llegaría a la reproducción vieja.
+        detenerLectura();
+        return leerNotaConRespaldo(nota, opciones);
+      }
       if (!opciones.automatico && nota.turno.dataset) delete nota.turno.dataset.vozAutoLeido;
       detenerLectura();
       turnoLectura = nota.turno;
@@ -985,7 +1036,7 @@
         audios.delete(nota.mensaje);
         pintarNota(nota, "error", MENSAJES.notaError);
       }
-      if (eraManos) desactivarManosLibres(bloqueo ? "bloqueo" : "error");
+      if (eraManos) desactivarManosLibres(bloqueo ? "bloqueo" : "nota");
     }
 
     // La síntesis falló. Con el servidor no disponible (503, 401/403) este turno lo lee
@@ -1005,7 +1056,7 @@
       soltarTurnoLectura();
       actualizarControles(nota.turno, "detenido");
       pintarNota(nota, "error", mensajeDeFallo(error));
-      if (eraManos) desactivarManosLibres("error");
+      if (eraManos) desactivarManosLibres("nota");
     }
 
     function leerNotaConRespaldo(nota, opciones = {}) {
@@ -1014,7 +1065,7 @@
       if (navegador.sintesis && leerConNavegador(nota.turno, opciones)) return true;
       pintarNota(nota, "error", MENSAJES.vozNoDisponible);
       manosLibres.reanudarTrasLeer = false;
-      if (manosLibres.activo) desactivarManosLibres("error");
+      if (manosLibres.activo) desactivarManosLibres("nota");
       return false;
     }
 
@@ -1528,6 +1579,7 @@
       if (typeof entrada.focus === "function") entrada.focus();
       // Solo el dictado escribe por aquí: si se envía este borrador, la persona habló.
       borradorDictado = true;
+      for (const palabra of palabrasDe(fragmento)) palabrasDictadas.add(palabra);
       return { insertado: true, recortado };
     }
 
@@ -1665,6 +1717,7 @@
         terminar: MENSAJES.manosTerminar,
         escritura: MENSAJES.manosEscritura,
         error: MENSAJES.manosError,
+        nota: MENSAJES.manosNota,
         fallo: MENSAJES.manosFallo,
         oculto: MENSAJES.manosOculto,
         lectura: MENSAJES.manosLectura,
@@ -1869,7 +1922,7 @@
         terminarLectura();
         if (nota) pintarNota(nota, "error", MENSAJES.lecturaError);
         else avisar(MENSAJES.lecturaError);
-        if (eraManos) desactivarManosLibres("error");
+        if (eraManos) desactivarManosLibres(nota ? "nota" : "error");
       };
       sintesis.speak(locucion);
     }

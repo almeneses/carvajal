@@ -180,7 +180,9 @@ de reproducción.
 | se dictó (borrador dictado y enviado, o manos libres) | cualquiera | Se pide el audio y suena sola |
 
 «Se dictó» quiere decir que el borrador enviado trae texto del dictado (del servidor o del
-navegador): si la persona lo vacía y escribe otra pregunta, cuenta como escrita. Con la
+navegador) y conserva al menos la mitad de sus palabras: corregir una palabra mal
+transcrita sigue contando como dictado, pero vaciarlo, sustituirlo por una sugerencia o
+seleccionarlo todo y escribir encima cuenta como escrita (ni desbloqueo ni síntesis). Con la
 pestaña oculta o un dictado nuevo en curso, la nota se precarga pero no suena. La casilla
 «Leer respuestas en voz alta» conserva su sentido: encendida, también suenan las preguntas
 escritas. Sin voz del servidor la regla es la misma con la voz del navegador.
@@ -196,7 +198,9 @@ pregunta escrita sin lectura automática: en iOS ese `play()` pausaría la músi
 persona. Si aun así el navegador bloquea el audio, la nota queda `bloqueada` con el audio en
 caché y un toque lo reproduce dentro del gesto; no se cambia de voz ni se apaga el
 servidor. En manos libres un bloqueo apaga el modo (no puede quedar «activo» sin sonar ni
-escuchar) y lo explica.
+escuchar) y lo explica. Una nota que no se pudo preparar o reproducir (404, 422, 429, la
+red, un audio que no decodifica o sin ninguna voz disponible) también lo apaga, con su
+propio aviso («no se pudo reproducir la respuesta»), no con el del micrófono.
 
 ### Precarga, caché y coste
 
@@ -234,21 +238,33 @@ oculta con `hidden`:
 </div>
 ```
 
-| `data-nota-estado` | Cuándo | Botón |
-|---|---|---|
-| `lista` | Sin reproducir, o terminada (avance a 0) | `aria-pressed="false"`, «Reproducir la nota de voz» |
-| `cargando` | Se pide el audio o va a empezar | `aria-busy="true"`; pulsarlo cancela la reproducción (la síntesis sigue y queda en caché) |
-| `sonando` | Suena (servidor o respaldo del navegador) | `aria-pressed="true"`, «Pausar la nota de voz» |
-| `pausada` | En pausa | «Reanudar la nota de voz» |
-| `bloqueada` | El navegador no dejó sonar sola | «Reproducir la nota de voz»; `.turno-nota-aviso` visible |
-| `error` | Falló la síntesis o el audio | «Reintentar…»; `.turno-nota-reintentar` y `.turno-nota-aviso` visibles |
+El botón principal es un botón de alternancia: su nombre es siempre «Reproducir la nota de
+voz» (la guía ARIA APG pide no cambiarlo con el estado) y el estado va en `aria-pressed`,
+`aria-busy` y `data-nota-estado`.
+
+| `data-nota-estado` | Cuándo | Botón | Al pulsarlo |
+|---|---|---|---|
+| `lista` | Sin reproducir, o terminada (avance a 0) | `aria-pressed="false"` | Reproduce |
+| `cargando` (pedida) | Se pulsó o suena sola y el audio aún no llega | `aria-pressed="true"`, `aria-busy="true"` | Cancela la reproducción; la síntesis sigue y queda en caché |
+| `cargando` (precarga) | Pestaña oculta o dictado nuevo en curso | `aria-pressed="false"`, `aria-busy="true"` | Reproduce al llegar el audio, sin otra síntesis |
+| `sonando` | Suena (servidor o respaldo del navegador) | `aria-pressed="true"` | Pausa |
+| `pausada` | En pausa | `aria-pressed="false"` | Reanuda |
+| `bloqueada` | El navegador no dejó sonar sola | `aria-pressed="false"`; `.turno-nota-aviso` visible | Reproduce desde la caché |
+| `error` | Falló la síntesis o el audio | `aria-pressed="false"`; `.turno-nota-reintentar` y `.turno-nota-aviso` visibles | Reintenta |
 
 - `--nota-avance` (0–1, en la raíz) y `aria-valuenow` (0–100) siguen al audio; con el
   respaldo del navegador avanzan por partes leídas. `.turno-nota-duracion` queda vacía hasta
   conocer la duración y después muestra «m:ss».
-- `.turno-nota-estado` es la región viva: anuncia «Preparando…», «Reproduciendo…», «En
-  pausa», el bloqueo o el error; con nota, la línea de estado global no repite la lectura.
-  `.turno-nota-aviso` repite el texto del bloqueo o del error para quien ve la pantalla.
+- `.turno-nota-estado` es la región viva y solo anuncia lo que el botón no dice:
+  «Preparando…», el bloqueo o el error. En `sonando` y `pausada` queda vacía: el cambio de
+  `aria-pressed` ya se anuncia y un aviso encima del audio lo taparía. En una nota recién
+  creada el primer texto se escribe en la tarea siguiente, para que el lector ya tenga la
+  región en su árbol. Con nota, la línea de estado global no repite la lectura.
+- `.turno-nota-aviso` repite el texto del bloqueo o del error para quien ve la pantalla
+  (es `aria-hidden`). Es el único hijo con texto largo: ocupa su propia línea
+  (`flex-basis: 100%` en el mínimo de abajo) y el rediseño debe estilarlo.
+- Si el foco estaba en la franja `.turno-voz` cuando nace la nota, pasa a su botón; si
+  estaba en «Reintentar» al ocultarse, también.
 - `chat.css` solo añade lo funcional: `.turno-voz[hidden]` oculto y un mínimo dentro de
   `:where()` (especificidad cero) que cualquier regla `.turno-nota-*` del rediseño sustituye.
 
