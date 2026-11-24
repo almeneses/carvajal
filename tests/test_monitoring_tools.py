@@ -195,3 +195,35 @@ def test_la_memoria_viaja_solo_con_su_categoria_con_y_sin_contenido() -> None:
     assert "Ana" not in str(con.children) and "Ana" not in str(sin.children)
     assert sin.children[0][3].outputs == {}
     assert sin.children[0][2]["tool"] == "recordar_preferencia"
+
+
+# --- Las 20 herramientas (spec 045, T089; FR-025) ---------------------------------------------
+
+
+def test_cada_herramienta_del_registro_es_un_hijo_tool_con_estado_y_latencia() -> None:
+    # Arrange: un resultado por herramienta, en el orden del registro, salvo sin_consulta
+    # (cubierta arriba).
+    from carvajal.agent.toolagent.tools import TOOL_NAMES
+
+    nombres = [name for name in TOOL_NAMES if name != "sin_consulta"]
+    resultados = [
+        {"tool": name, "args": {}, "status": "ok", "source_ids": [1], "elapsed_ms": 10 + i}
+        for i, name in enumerate(nombres)
+    ]
+    raiz = SpanFalso()
+
+    # Act
+    record_tool_calls(raiz, resultados, include_content=False)
+
+    # Assert
+    assert len(nombres) == 19
+    assert [nombre for nombre, *_ in raiz.children] == nombres
+    for i, (nombre, tipo, meta, _) in enumerate(raiz.children):
+        assert tipo == "tool"
+        assert meta == {
+            "tool": nombre,
+            "step": i + 1,
+            "status": "ok",
+            "latency_ms": 10 + i,
+            "source_count": 1,
+        }

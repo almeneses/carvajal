@@ -699,3 +699,106 @@ def test_las_instrucciones_directas_de_memoria_no_repiten_datos() -> None:
     assert "sin repetirlo" in DIRECT_INSTRUCTIONS["memory_rejected"]
     assert "sin repetir ningún dato" in DIRECT_INSTRUCTIONS["memory_forget"]
     assert "no está disponible" in DIRECT_INSTRUCTIONS["memory_unavailable"]
+
+
+# --- Elegir entre 20 herramientas (spec 045, US5, T084; FR-028, research R10) --------------
+
+# Longitud de las descripciones de la 044 antes de la spec 045 (golden capturado en T002):
+# solo pueden crecer con una frase final «No la uses para…» de 160 caracteres como máximo.
+DESCRIPCIONES_044 = {
+    "buscar_corpus": 164,
+    "buscar_producto": 320,
+    "cotizar": 688,
+    "buscar_sedes": 122,
+    "indicador_financiero": 153,
+}
+SIN_CONSULTA_044 = (
+    "Declara que este paso se responde sin consultar datos: para pedir un dato que falta, "
+    "para conversación (saludo, agradecimiento) o para algo fuera del alcance."
+)
+AREAS = {
+    "Documental": (
+        "buscar_corpus",
+        "historia_carvajal",
+        "empresas_del_grupo",
+        "preguntas_frecuentes",
+    ),
+    "Catálogo": (
+        "buscar_producto",
+        "ficha_producto",
+        "comparar_referencias",
+        "guia_materiales",
+        "convertir_presentacion",
+    ),
+    "Comercial": ("cotizar", "consultar_cotizacion", "buscar_sedes", "ciudades_con_cobertura"),
+    "Finanzas": ("indicador_financiero", "indicadores_disponibles"),
+    "Memoria": ("recordar_preferencia", "listar_memoria", "olvidar_preferencia"),
+    "Utilidades": ("fecha_actual", "sin_consulta"),
+}
+
+
+def test_las_catorce_nuevas_siguen_el_patron_y_el_tope() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools import TOOL_DESCRIPTIONS, TOOL_NAMES
+
+    nuevas = TOOL_NAMES[6:]
+
+    for name in nuevas:
+        # Act
+        description = TOOL_DESCRIPTIONS[name]
+
+        # Assert: qué hace, «Úsala para…», «No la uses para… (usa X)», sin cifras.
+        assert len(nuevas) == 14
+        assert len(description) <= 300, name
+        assert description.index("Úsala para") < description.index("No la uses para"), name
+        assert "(usa " in description or name in {"recordar_preferencia"}, name
+        assert not re.findall(r"\d", description), name
+
+
+def test_las_de_la_044_solo_ganan_una_frase_final_no_la_uses_para() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools import TOOL_DESCRIPTIONS
+
+    for name, base in DESCRIPCIONES_044.items():
+        # Act
+        description = TOOL_DESCRIPTIONS[name]
+        frase = description[base:]
+
+        # Assert: el texto de la 044 queda intacto (lo fija el golden) y solo se añade la
+        # frase que desambigua con las nuevas.
+        assert frase.startswith(" No la uses para"), name
+        assert frase.count(". ") == 0, name
+        assert 0 < len(frase) <= 160, name
+        assert "(usa " in frase, name
+    assert TOOL_DESCRIPTIONS["sin_consulta"] == SIN_CONSULTA_044
+
+
+def test_cada_no_la_uses_para_remite_a_una_herramienta_registrada() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools import TOOL_DESCRIPTIONS, TOOL_NAMES
+
+    for name, description in TOOL_DESCRIPTIONS.items():
+        # Act
+        remitidas = re.findall(r"\(usa ([^)]*)\)", description)
+        palabras = {w for grupo in remitidas for w in re.findall(r"[a-z_]+", grupo)}
+        nombres = palabras - {"o", "u", "y", "ni"}
+
+        # Assert
+        assert nombres <= set(TOOL_NAMES), (name, nombres)
+        assert name not in nombres, name
+
+
+def test_el_agente_nombra_las_veinte_herramientas_por_area() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.tools import TOOL_NAMES
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    areas = {area: _regla(AGENT_SYSTEM, f"{area}:") for area in AREAS}
+
+    # Assert: seis áreas que cubren las 20, cada herramienta en la suya.
+    assert sorted(name for names in AREAS.values() for name in names) == sorted(TOOL_NAMES)
+    for area, names in AREAS.items():
+        for name in names:
+            assert re.search(rf"\b{name}\b", areas[area]), (area, name)
+    assert "nunca supongas la fecha" in areas["Utilidades"]

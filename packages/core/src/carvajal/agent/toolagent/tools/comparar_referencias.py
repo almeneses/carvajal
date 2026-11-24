@@ -87,8 +87,8 @@ class CompararReferenciasArgs(BaseModel):
         min_length=MIN_REFERENCES,
         max_length=MAX_REFERENCES,
         description=(
-            "Entre dos y cuatro referencias a comparar, cada una por su SKU o por su nombre "
-            "comercial, tal como las nombró la persona."
+            "De dos a cuatro referencias, cada una por su SKU o nombre comercial, como las "
+            "nombró la persona."
         ),
     )
     pais: Literal["CO", "MX"] | None = Field(

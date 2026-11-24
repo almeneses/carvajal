@@ -100,8 +100,8 @@ class ConsultarCotizacionArgs(BaseModel):
     folio: str | None = Field(
         default=None,
         description=(
-            "Folio de la cotización, el código hexadecimal que aparece tras «Folio #». "
-            "Omítelo para ver las últimas cotizaciones de esta conversación."
+            "Folio de la cotización (el código tras «Folio #»); omítelo para ver las últimas "
+            "de esta conversación."
         ),
     )
 

@@ -39,6 +39,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final, Protocol
 
 import structlog
@@ -53,7 +54,12 @@ from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_CORPUS,
     TOOL_BUSCAR_PRODUCTO,
     TOOL_BUSCAR_SEDES,
+    TOOL_CIUDADES_CON_COBERTURA,
+    TOOL_COMPARAR_REFERENCIAS,
     TOOL_COTIZAR,
+    TOOL_EMPRESAS_DEL_GRUPO,
+    TOOL_FICHA_PRODUCTO,
+    TOOL_HISTORIA_CARVAJAL,
     TOOL_INDICADOR_FINANCIERO,
     TOOL_RECORDAR_PREFERENCIA,
     TOOL_SIN_CONSULTA,
@@ -71,6 +77,7 @@ __all__ = [
     "EXPECT_KEYS",
     "MODES",
     "ROUTE_TOOLS",
+    "TOOL_EQUIVALENTS",
     "CombinedUsage",
     "EvalItem",
     "EvalRuntime",
@@ -142,6 +149,34 @@ ROUTE_TOOLS: Final[dict[str, tuple[str, ...]]] = {
 # alguna, la conversión de ``routing_questions.json`` no podría esperarla (spec 045, T015).
 if not {name for names in ROUTE_TOOLS.values() for name in names} <= set(TOOL_NAMES):
     raise RuntimeError("ROUTE_TOOLS nombra herramientas fuera del registro.")
+# Equivalencias congeladas de ``tools_any`` (spec 045, T090; research R10.6). Los conjuntos
+# congelados antes de la 045 nombran solo las seis herramientas de la 044: elegir la nueva
+# que hace lo mismo con más precisión bajaría el crudo sin ser una regresión. Cada par vale
+# en los dos sentidos y no es transitivo (``ficha_producto`` no equivale a
+# ``comparar_referencias``). El informe da el crudo estricto y el crudo con equivalencias.
+_EQUIVALENT_PAIRS: Final[tuple[tuple[str, str], ...]] = (
+    (TOOL_BUSCAR_SEDES, TOOL_CIUDADES_CON_COBERTURA),
+    (TOOL_BUSCAR_PRODUCTO, TOOL_FICHA_PRODUCTO),
+    (TOOL_BUSCAR_PRODUCTO, TOOL_COMPARAR_REFERENCIAS),
+    (TOOL_BUSCAR_CORPUS, TOOL_HISTORIA_CARVAJAL),
+    (TOOL_BUSCAR_CORPUS, TOOL_EMPRESAS_DEL_GRUPO),
+)
+
+
+def _equivalents() -> Mapping[str, frozenset[str]]:
+    found: dict[str, set[str]] = {}
+    for left, right in _EQUIVALENT_PAIRS:
+        found.setdefault(left, set()).add(right)
+        found.setdefault(right, set()).add(left)
+    return MappingProxyType({name: frozenset(names) for name, names in found.items()})
+
+
+TOOL_EQUIVALENTS: Final[Mapping[str, frozenset[str]]] = _equivalents()
+if not set(TOOL_EQUIVALENTS) <= set(TOOL_NAMES):
+    raise RuntimeError("TOOL_EQUIVALENTS nombra herramientas fuera del registro.")
+# Caminos que un ítem puede declarar (``path``): con ``shortcut``, que el atajo atienda el
+# turno cuenta como equivalente a las herramientas esperadas (US5-1).
+ITEM_PATHS: Final = frozenset({"", "shortcut", "agent"})
 # Intenciones de la ruta directa que piden un dato a la persona.
 _ASKING_INTENTS: Final = frozenset({"commercial_clarify", "missing_period"})
 
@@ -166,6 +201,9 @@ class EvalItem:
     expect: Mapping[str, Any]
     history: tuple[Turn, ...] = ()
     new_thread_before: tuple[int, ...] = ()
+    # Camino declarado por el ítem (spec 045, T090): ``shortcut`` acepta el atajo como
+    # equivalente en el crudo con equivalencias.
+    path: str = ""
 
     @property
     def question(self) -> str:
@@ -273,12 +311,16 @@ def _item(raw: Mapping[str, Any]) -> EvalItem:
         raise ValueError(f"El ítem {item_id} no tiene turnos.")
     expect = dict(raw.get("expect") or {})
     _check_expect(item_id, expect)
+    path = str(raw.get("path") or "")
+    if path not in ITEM_PATHS:
+        raise ValueError(f"El ítem {item_id} declara un path desconocido: {path!r}")
     return EvalItem(
         id=item_id,
         group=str(raw.get("group", "")),
         turns=turns,
         expect=expect,
         new_thread_before=_new_threads(item_id, raw.get("new_thread_before"), len(turns)),
+        path=path,
     )
 
 
@@ -2171,26 +2213,59 @@ class CheckResult:
 _USED_STATUSES: Final = frozenset({"ok", "needs_input", "empty"})
 
 
+def _with_equivalents(group: Sequence[str]) -> set[str]:
+    """El grupo de ``tools_any`` más sus equivalentes congelados (:data:`TOOL_EQUIVALENTS`)."""
+
+    names = set(group)
+    for name in group:
+        names |= TOOL_EQUIVALENTS.get(name, frozenset())
+    return names
+
+
 def _tools_any(
-    observation: TurnObservation, groups: Sequence[Sequence[str]], allow: bool
+    observation: TurnObservation,
+    groups: Sequence[Sequence[str]],
+    allow: bool,
+    *,
+    equivalences: bool = False,
+    path: str = "",
 ) -> CheckResult:
     used = {call.name for call in observation.tools if call.status in _USED_STATUSES}
     if allow and (observation.shortcut or used <= DECLARATION_TOOLS):
         return CheckResult("tools_any", True)
-    missing = [list(group) for group in groups if not used & set(group)]
+    if equivalences and path == "shortcut" and observation.shortcut:
+        # El ítem declara que el atajo atiende el turno (US5-1).
+        return CheckResult("tools_any", True)
+    expand = _with_equivalents if equivalences else set
+    missing = [list(group) for group in groups if not used & expand(group)]
     detail = f"faltan {missing}; usó {sorted(used) or 'ninguna'}" if missing else ""
     return CheckResult("tools_any", not missing, detail)
 
 
-def check_item(item: EvalItem, observation: TurnObservation) -> list[CheckResult]:
-    """Verificaciones del ítem (claves presentes de ``expect``) y la global de SC-001."""
+def check_item(
+    item: EvalItem, observation: TurnObservation, *, equivalences: bool = False
+) -> list[CheckResult]:
+    """Verificaciones del ítem (claves presentes de ``expect``) y la global de SC-001.
+
+    Con ``equivalences``, ``tools_any`` acepta las herramientas equivalentes de
+    :data:`TOOL_EQUIVALENTS` y el atajo si el ítem declara ``path: "shortcut"`` (T090); el
+    resto de las verificaciones no cambia.
+    """
 
     expect = item.expect
     used = set(observation.tool_names)
     allow = bool(expect.get("no_tool_allowed"))
     checks: list[CheckResult] = []
     if "tools_any" in expect:
-        checks.append(_tools_any(observation, expect["tools_any"], allow))
+        checks.append(
+            _tools_any(
+                observation,
+                expect["tools_any"],
+                allow,
+                equivalences=equivalences,
+                path=item.path,
+            )
+        )
     elif "no_tool_allowed" in expect and not allow:
         # Sin herramientas esperadas, ``no_tool_allowed: false`` exige alguna consulta real.
         queried = {
@@ -2282,6 +2357,8 @@ class ItemResult:
     mode: str
     observation: TurnObservation | None = None
     checks: list[CheckResult] = field(default_factory=list)
+    # Las mismas verificaciones con las equivalencias de ``tools_any`` (T090).
+    equivalent_checks: list[CheckResult] = field(default_factory=list)
     error: str = ""
     # Segundos de todo el ítem (todos sus turnos) hasta terminar o fallar.
     elapsed_s: float | None = None
@@ -2289,6 +2366,11 @@ class ItemResult:
     @property
     def passed(self) -> bool:
         return not self.error and all(check.passed for check in self.checks)
+
+    @property
+    def passed_with_equivalences(self) -> bool:
+        checks = self.equivalent_checks or self.checks
+        return not self.error and all(check.passed for check in checks)
 
     @property
     def failures(self) -> list[CheckResult]:
@@ -2306,6 +2388,7 @@ class ItemResult:
             "turns": list(self.item.turns),
             "expect": dict(self.item.expect),
             "passed": self.passed,
+            "passed_with_equivalences": self.passed_with_equivalences,
             "error": self.error,
             "checks": {check.name: check.passed for check in self.checks},
             "failures": [{"check": c.name, "detail": c.detail} for c in self.failures],
@@ -2358,6 +2441,10 @@ class ModeReport:
     @property
     def resolved(self) -> int:
         return sum(r.passed for r in self.results)
+
+    @property
+    def resolved_with_equivalences(self) -> int:
+        return sum(r.passed_with_equivalences for r in self.results)
 
     @property
     def errors(self) -> int:
@@ -2517,6 +2604,8 @@ class ModeReport:
             "items": self.total,
             "resolved": self.resolved,
             "resolved_rate": rate(self.resolved, self.total),
+            "resolved_with_equivalences": self.resolved_with_equivalences,
+            "resolved_with_equivalences_rate": rate(self.resolved_with_equivalences, self.total),
             "compound_total": self.compound_total,
             "compound_complete": self.compound_complete,
             "compound_rate": rate(self.compound_complete, self.compound_total),
@@ -2611,6 +2700,7 @@ def evaluate_mode(
         else:
             result.observation = observation
             result.checks = check_item(item, observation)
+            result.equivalent_checks = check_item(item, observation, equivalences=True)
         result.elapsed_s = clock() - started
         report.results.append(result)
         if progress is not None:
@@ -2669,6 +2759,10 @@ def render_report(
     modes = [report.mode for report in reports]
     rows: list[tuple[str, Callable[[ModeReport], str]]] = [
         ("Ítems resueltos (todas las verificaciones)", lambda r: _pct(r.resolved, r.total)),
+        (
+            "Ítems resueltos con equivalencias de herramientas",
+            lambda r: _pct(r.resolved_with_equivalences, r.total),
+        ),
         (
             "Compuestas con todas las partes",
             lambda r: _pct(r.compound_complete, r.compound_total),

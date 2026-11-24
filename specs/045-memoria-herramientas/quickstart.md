@@ -59,9 +59,9 @@ todas: una línea de estado amigable (salvo `sin_consulta`), la herramienta en
 | 7 | `ficha_producto` | «¿Qué trae el vaso CO-VTER-04?» | 4 oz, EPS, 20 × 50 = 1000 por caja; temperatura solo de la guía, rotulada |
 | 8 | `comparar_referencias` | «¿Qué diferencia hay entre el CO-VTER-08 y el CO-VTER-10?» | Tabla de diferencias; sin «más barata» si falta precio |
 | 9 | `guia_materiales` | «¿El PET sirve para comida caliente?» | Nivel de la guía con su aviso de procedencia |
-| 10 | `convertir_presentacion` | «¿Cuántas unidades son 3 cajas del vaso CO-VTER-04?» | «3 cajas × 1000 = 3000 unidades» |
+| 10 | `convertir_presentacion` | «¿Cuántas unidades son 3 cajas del vaso CO-VTER-04?» | «3 cajas × 1.000 = 3.000 unidades» (el mismo texto que publica `cotizar`) |
 | 11 | `ciudades_con_cobertura` | «¿En qué ciudades tienen distribuidores?» | 10 ciudades con su número de sedes |
-| 12 | `consultar_cotizacion` | (en el hilo de la fila 3) «¿Mi cotización sigue vigente?» | La misma cotización (procedencia real), con vigencia en fecha de Bogotá y sin recotizar |
+| 12 | `consultar_cotizacion` | (en el hilo de la fila 3) «¿Mi cotización sigue vigente?» | La misma cotización (procedencia real), sin recotizar. Con los datos de hoy ningún vendedor publica vigencia: dice la fecha del precio, no la declara vigente ni vencida y ofrece cotizar de nuevo |
 | 13 | `indicadores_disponibles` | «¿Qué cifras financieras me puedes dar?» | 6 indicadores con períodos, sin valores |
 | 14 | `historia_carvajal` | «¿Qué pasó en Carvajal en 1960?» | Texto literal del hito de 1960 con cita |
 | 15 | `empresas_del_grupo` | «¿Qué empresas y marcas tiene Carvajal?» | Unidades de «Nuestros Sectores» y marcas del núcleo, con cita |

@@ -94,8 +94,7 @@ class EmpresasDelGrupoArgs(BaseModel):
         min_length=1,
         max_length=MAX_NAME,
         description=(
-            "Nombre de una empresa, unidad o marca por la que pregunta la persona, tal como "
-            "lo escribió. Omítelo para listar todas las unidades y marcas del grupo."
+            "Empresa, unidad o marca como la escribió la persona; omítelo para listarlas todas."
         ),
     )
 

@@ -350,3 +350,35 @@ guarda solo `{"categoria"}` como argumentos; las que escriben devuelven un `stat
   devuelve lo que ese mismo dueño guardó.
 - El texto final de un turno no puede afirmar datos de Carvajal respaldados solo por la
   memoria o por el resumen (FR-006, FR-017).
+
+---
+
+## Ajustes al implementar (2026-11-24)
+
+Cambios sobre lo escrito arriba, elegidos por ser la opción más segura; las pruebas de cada
+herramienta los fijan.
+
+- **Fuentes compartidas**: `ficha:{sku}:{pais}` y `precio:{sku}:{sede}` las registran
+  varias herramientas con campos distintos. `_Sources.add` añade al extracto de la fuente
+  ya registrada el texto que trae la nueva, así cada cifra queda en el extracto de su `[n]`.
+- **`comparar_referencias`**: `needs_input` devuelve `candidatas: [{posicion, opciones,
+  total_coincidencias}]` y `no_encontradas` como posiciones, sin repetir el texto del
+  modelo (la compuerta lee los datos de la herramienta como respaldo). Registra además
+  `guia:{material}` para microondas y temperatura. Una coincidencia parcial cuenta como
+  ambigua y un empate de precio no da `mas_economica`.
+- **`convertir_presentacion`**: `texto` es el del motor, con separador de miles
+  («3 cajas × 1.000 = 3.000 unidades»). `unidad="unidad"` devuelve `needs_input` con las
+  presentaciones declaradas. En México, una ficha sin `units_per_pack` no se convierte.
+- **`empresas_del_grupo`**: el `chunk_id` es `empresa:{clave}` con el nombre normalizado
+  (siete filas comparten la página `quienes_somos`); el `slug` de la fuente sigue siendo la
+  página de Gold.
+- **`consultar_cotizacion`**: `vigente` puede ser `null` cuando el vendedor no publicó
+  vigencia (hoy, todas); nunca usa la retención de 7 días como vigencia. Las fuentes
+  guardadas son `cotizacion:{folio}:precio` y `cotizacion:{folio}:envio`. El recorte a 5
+  se hace en la herramienta después de filtrar la procedencia: el `QuoteLookup` devuelve el
+  hilo completo.
+- **`historia_carvajal`**: `anio` junto con `desde`/`hasta` es un error de validación; un
+  año sin hito se declara con los años cercanos (`tool_misses`).
+- **`preguntas_frecuentes`**: en la compuerta solo respalda `fragmento`
+  (`evidence.backing_data`), nunca la pregunta ni la respuesta generadas.
+- **Descripciones**: todas las nuevas respetan el tope de 300 caracteres de R10.

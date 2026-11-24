@@ -283,8 +283,14 @@ def test_tool_choice_required_solo_en_el_primer_paso() -> None:
     assert all("tool_choice" not in kwargs for kwargs in chat.call_kwargs[1:])
     assert all(kwargs.get("tools") for kwargs in chat.call_kwargs)
     bound = [tool["function"]["name"] for tool in chat.call_kwargs[0]["tools"]]
-    # El orden del registro (spec 045, data-model *ToolSpec*): las seis de la 044 primero.
+    # El orden del registro (spec 045, data-model *ToolSpec*, T088): las 20, con las seis de
+    # la 044 primero, en cada paso que lleva herramientas.
     assert bound == list(REGISTRY_NAMES)
+    assert len(bound) == 20
+    assert all(
+        [tool["function"]["name"] for tool in kwargs["tools"]] == bound
+        for kwargs in chat.call_kwargs
+    )
     assert bound[:6] == [
         "buscar_corpus",
         "buscar_producto",

@@ -478,7 +478,8 @@ ronda 4 de la 044.
   caché, que se informa aparte) se reportan y no superan 1,5 veces la línea base de 6 900
   tokens por turno de la 044 (`evidencia.md` §1), es decir, 10 350. Una estimación sin
   proveedor antes de redactar las descripciones (T085) hace de compuerta; si 1,5× no es
-  alcanzable, el umbral se ajusta con su justificación en *Clarifications*.
+  alcanzable, el umbral se ajusta con su justificación en *Clarifications*. **Ajustado por
+  T085 a 1,9× (13 110 tokens por turno)**; ver *Clarifications* y `evidencia.md` §1.
 
 ## Clarifications
 
@@ -583,6 +584,16 @@ en [research.md](./research.md).
   chat y WhatsApp no podían ofrecer. La herramienta reutiliza `GenerateFaq` y es la única
   generativa: verifica cada entrada contra su documento, tiene plazo, caché y respaldo
   (FR-022a, R18).
+- Q: ¿Cabe la 045 en 1,5× los tokens por turno (SC-009)? → A: no. La compuerta de T085
+  (`evidencia.md` §1) estima el prefijo del paso en 26 865 caracteres frente a 14 267 de la
+  044 (1,88×) y los tokens por turno entre 1,55× y 1,85×. Las 14 descripciones ya están por
+  debajo de 300 caracteres y lo que más pesa es la estructura JSON de los campos; acortar
+  las descripciones de campo ahorró unos 230 caracteres. Llegar a 1,5× exigiría quitar
+  herramientas o recortar reglas que miden los conjuntos de la 044. Decisión autónoma por
+  la regla de T085: el umbral pasa a 1,9× (13 110 tokens por turno), la cota que da el
+  prefijo si el número de pasos por turno no crece; la caché de prefijo de DeepSeek reduce
+  el costo y este se informa aparte. Pendiente de revisión del owner con la corrida del v3
+  (T095).
 - Revisión de artefactos (2026-11-24): los hallazgos de la revisión se aplicaron a spec,
   plan, investigación, modelo de datos, contratos, quickstart y tareas; las decisiones
   parciales y su justificación están en research R17.

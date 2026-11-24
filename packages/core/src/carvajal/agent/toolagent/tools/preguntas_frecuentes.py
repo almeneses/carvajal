@@ -131,8 +131,8 @@ class PreguntasFrecuentesArgs(BaseModel):
         Field(
             default=None,
             description=(
-                "Área de las preguntas, como «sostenibilidad», «historia» o «empaques» (de 1 a "
-                "80 caracteres). Sin tema, preguntas generales sobre Carvajal."
+                "Área, como «sostenibilidad», «historia» o «empaques»; sin tema, preguntas "
+                "generales."
             ),
         )
     )
@@ -140,7 +140,7 @@ class PreguntasFrecuentesArgs(BaseModel):
         default=MAX_FAQ_QUESTIONS,
         ge=1,
         le=MAX_FAQ_QUESTIONS,
-        description="Cuántas preguntas devolver, de 1 a 5 (5 por defecto).",
+        description="Cuántas preguntas, de 1 a 5.",
     )
 
     _tema = field_validator("tema", mode="before")(_collapse)

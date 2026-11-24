@@ -47,7 +47,8 @@ __all__ = [
 DESCRIPTION = (
     "Da la fecha de hoy en Colombia, el día de la semana, si es día hábil o festivo y el "
     "próximo día hábil. Úsala para: preguntas sobre qué día es hoy o si hoy o mañana se "
-    "atiende. No la uses para: plazos de entrega o vigencia de una cotización (usa cotizar)."
+    "atiende. No la uses para: plazos de entrega (usa cotizar) ni la vigencia de una "
+    "cotización emitida (usa consultar_cotizacion)."
 )
 
 SOURCE_TYPE = "sistema"

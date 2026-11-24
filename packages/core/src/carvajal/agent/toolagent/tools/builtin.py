@@ -294,14 +294,17 @@ class SinConsultaArgs(BaseModel):
 DESCRIPTIONS: dict[str, str] = {
     TOOL_BUSCAR_CORPUS: (
         "Busca en los documentos públicos de Carvajal (historia, empresas, sostenibilidad, "
-        "noticias, sedes institucionales). Devuelve fragmentos numerados [n] con su fuente."
+        "noticias, sedes institucionales). Devuelve fragmentos numerados [n] con su fuente. "
+        "No la uses para: hitos por año (usa historia_carvajal), las empresas del grupo (usa "
+        "empresas_del_grupo) ni preguntas frecuentes (usa preguntas_frecuentes)."
     ),
     TOOL_BUSCAR_PRODUCTO: (
         "Busca empaques del catálogo según uso, temperatura, microondas, capacidad, "
         "familia y nombre (código como P1 o J2, SKU o nombre comercial o coloquial como "
         f"icopor). Devuelve hasta {MAX_TOOL_OPTIONS} opciones aptas numeradas [n], el total "
         "de coincidencias y las descartadas con su motivo. No calcula totales; sirve para "
-        "explorar y comparar."
+        "explorar y comparar. No la uses para: la ficha de una referencia ya nombrada (usa "
+        "ficha_producto) ni comparar referencias ya nombradas (usa comparar_referencias)."
     ),
     TOOL_COTIZAR: (
         "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con "
@@ -312,15 +315,19 @@ DESCRIPTIONS: dict[str, str] = {
         "ambiguo devuelve las candidatas. La cantidad va en "
         "la unidad que dijo la persona (unidad: cajas, paquetes, pacas); la herramienta la "
         "convierte y devuelve la conversión: no la calcules tú. Sin ciudad dicha por la "
-        "persona, o con una ciudad fuera del directorio, pide la ciudad."
+        "persona, o con una ciudad fuera del directorio, pide la ciudad. No la uses para: "
+        "convertir una cantidad sin pedir precio (usa convertir_presentacion) ni leer una "
+        "cotización ya emitida (usa consultar_cotizacion)."
     ),
     TOOL_BUSCAR_SEDES: (
         "Lista las sedes de distribuidores de una ciudad de Colombia con dirección y teléfono; "
-        "con un SKU marca las que lo ofrecen."
+        "con un SKU marca las que lo ofrecen. No la uses para: saber en qué ciudades hay "
+        "distribuidores (usa ciudades_con_cobertura)."
     ),
     TOOL_INDICADOR_FINANCIERO: (
         "Consulta un indicador financiero publicado de Carvajal (ingresos, ebitda, utilidad, "
-        "activos, empleados) para un año o un año-mes. No estima ni interpola."
+        "activos, empleados) para un año o un año-mes. No estima ni interpola. No la uses "
+        "para: saber qué indicadores o períodos hay (usa indicadores_disponibles)."
     ),
     TOOL_SIN_CONSULTA: (
         "Declara que este paso se responde sin consultar datos: para pedir un dato que falta, "

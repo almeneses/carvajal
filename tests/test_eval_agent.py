@@ -2232,3 +2232,124 @@ def test_los_drivers_conservan_turn_count_al_llamar_al_runner() -> None:
 
     # Assert
     assert received[0].turn_count == 7
+
+
+# --- Equivalencias de herramientas (spec 045, T090; US5-1) -----------------------------------
+
+
+def _check_equivalent(item: EvalItem, observation: TurnObservation, name: str) -> bool:
+    result = next(c for c in check_item(item, observation, equivalences=True) if c.name == name)
+    return result.passed
+
+
+@pytest.mark.parametrize(
+    ("expected", "used"),
+    [
+        ("buscar_sedes", "ciudades_con_cobertura"),
+        ("ciudades_con_cobertura", "buscar_sedes"),
+        ("buscar_producto", "ficha_producto"),
+        ("buscar_producto", "comparar_referencias"),
+        ("buscar_corpus", "historia_carvajal"),
+        ("buscar_corpus", "empresas_del_grupo"),
+    ],
+)
+def test_una_herramienta_equivalente_solo_cuenta_en_el_crudo_con_equivalencias(
+    expected: str, used: str
+) -> None:
+    # Arrange
+    item = _item({"tools_any": [[expected]]})
+    observation = _obs(tools=(ToolCall(used),))
+
+    # Act / Assert
+    assert not _check(item, observation, "tools_any")
+    assert _check_equivalent(item, observation, "tools_any")
+
+
+def test_las_equivalencias_no_son_transitivas_ni_cubren_otras_herramientas() -> None:
+    # Arrange
+    from carvajal.agent.toolagent.evaluation import TOOL_EQUIVALENTS
+
+    item = _item({"tools_any": [["ficha_producto"]]})
+
+    # Act / Assert: ficha_producto ↔ buscar_producto, pero no ↔ comparar_referencias.
+    assert not _check_equivalent(item, _obs(tools=(ToolCall("comparar_referencias"),)), "tools_any")
+    assert not _check_equivalent(item, _obs(tools=(ToolCall("cotizar"),)), "tools_any")
+    assert "cotizar" not in TOOL_EQUIVALENTS
+    # Una llamada con error no cuenta ni con equivalencias.
+    assert not _check_equivalent(
+        item, _obs(tools=(ToolCall("buscar_producto", "error"),)), "tools_any"
+    )
+
+
+def test_el_atajo_declarado_por_el_item_cuenta_como_equivalente() -> None:
+    # Arrange: «olvidar todo» lo atiende el atajo (path: "shortcut" en el ítem).
+    declared = EvalItem(
+        id="m", group="memoria", turns=("q",), expect={"tools_any": [["x"]]}, path="shortcut"
+    )
+    undeclared = EvalItem(id="n", group="memoria", turns=("q",), expect={"tools_any": [["x"]]})
+    observation = _obs("Listo.", path="shortcut")
+
+    # Act / Assert
+    assert not _check(declared, observation, "tools_any")
+    assert _check_equivalent(declared, observation, "tools_any")
+    assert not _check_equivalent(undeclared, observation, "tools_any")
+
+
+def test_el_parser_acepta_path_y_rechaza_uno_desconocido(tmp_path: Path) -> None:
+    # Arrange
+    good = {"items": [{"id": "a", "turns": ["q"], "expect": {"tools_any": []}, "path": "shortcut"}]}
+    bad = {"items": [{"id": "b", "turns": ["q"], "expect": {}, "path": "atajo"}]}
+    (tmp_path / "good.json").write_text(json.dumps(good), encoding="utf-8")
+    (tmp_path / "bad.json").write_text(json.dumps(bad), encoding="utf-8")
+
+    # Act
+    loaded = load_question_set(tmp_path / "good.json")
+
+    # Assert
+    assert loaded.items[0].path == "shortcut"
+    with pytest.raises(ValueError, match="path desconocido"):
+        load_question_set(tmp_path / "bad.json")
+
+
+def test_el_informe_da_el_crudo_estricto_y_con_equivalencias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: un ítem pasa estricto, otro solo con equivalencias y otro en ninguno.
+    class Driver:
+        mode = "tools"
+
+        def __init__(self) -> None:
+            self.observations = {
+                "estricto": _obs(tools=(ToolCall("buscar_sedes"),)),
+                "equivalente": _obs(tools=(ToolCall("ciudades_con_cobertura"),)),
+                "ninguno": _obs(tools=(ToolCall("cotizar"),)),
+            }
+
+    items = [
+        EvalItem(
+            id=key, group="herramienta", turns=(key,), expect={"tools_any": [["buscar_sedes"]]}
+        )
+        for key in ("estricto", "equivalente", "ninguno")
+    ]
+    driver = Driver()
+
+    def run_item(_driver: Any, item: EvalItem) -> TurnObservation:
+        return driver.observations[item.id]
+
+    # Act
+    import carvajal.agent.toolagent.evaluation as evaluation
+
+    monkeypatch.setattr(evaluation, "_run_item", run_item)
+    report = evaluate_mode(driver, items)  # ty: ignore[invalid-argument-type]
+    metrics = report.metrics()
+    text = render_report([report], QuestionSet(path=Path("x.json"), items=tuple(items)))
+
+    # Assert
+    assert metrics["resolved"] == 1
+    assert metrics["resolved_with_equivalences"] == 2
+    assert "Ítems resueltos con equivalencias de herramientas" in text
+    assert [r.to_dict()["passed_with_equivalences"] for r in report.results] == [
+        True,
+        True,
+        False,
+    ]
