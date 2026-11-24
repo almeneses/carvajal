@@ -2008,3 +2008,201 @@ html[data-voz-manos="1"] .chat-cuerpo .composer {
     animation-duration: 10s !important;
   }
 }
+
+/* Nota de voz por respuesta (spec 050, rama de voz): reproductor estilo WhatsApp. Contrato con
+   chat-voice.js: raíz .turno-nota hija de la <li> tras .burbuja, data-nota-estado =
+   cargando|lista|sonando|pausada|bloqueada|error, --nota-avance de 0 a 1 en la raíz,
+   .turno-nota-boton con aria-pressed, .turno-nota-barra (progressbar), .turno-nota-tiempo,
+   .turno-nota-duracion, .turno-nota-estado (oculto) y .turno-nota-reintentar en error.
+   Cuando hay nota, el JS oculta la franja .turno-voz del turno. */
+@property --nota-avance {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+.turno-nota {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-self: start;
+  gap: 8px 12px;
+  width: min(100%, 26rem);
+  padding: 8px 16px 8px 8px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--fondo);
+  box-shadow: var(--sombra);
+  animation: aparece-suave 360ms var(--curva) both;
+}
+
+.turno-nota[data-nota-estado="sonando"] {
+  border-color: color-mix(in srgb, var(--cian) 45%, var(--borde));
+  transition: --nota-avance 260ms linear;
+}
+
+.turno-nota-boton {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--azul);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color var(--transicion), filter var(--transicion);
+}
+
+.turno-nota-boton:active {
+  filter: brightness(0.88);
+}
+
+/* El icono sale de aria-pressed: reproducir o pausar. */
+.turno-nota-boton::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8 5.5v13l11-6.5z' fill='black'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.turno-nota-boton[aria-pressed="true"]::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6.5' y='5' width='4' height='14' rx='1.2' fill='black'/%3E%3Crect x='13.5' y='5' width='4' height='14' rx='1.2' fill='black'/%3E%3C/svg%3E");
+}
+
+/* Cargando: aro que gira en lugar del icono. */
+.turno-nota[data-nota-estado="cargando"] .turno-nota-boton {
+  background: var(--fondo-suave);
+  color: var(--azul);
+  cursor: progress;
+}
+
+.turno-nota[data-nota-estado="cargando"] .turno-nota-boton::before {
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  background: none;
+  mask: none;
+  animation: voz-gira 0.8s linear infinite;
+}
+
+/* Bloqueada (el navegador no dejó sonar sola): el botón invita a tocarlo. */
+.turno-nota[data-nota-estado="bloqueada"] .turno-nota-boton {
+  background: var(--cian);
+  color: #002233;
+  animation: voz-halo 1.6s ease-in-out infinite;
+}
+
+.turno-nota[data-nota-estado="error"] .turno-nota-boton {
+  background: var(--borde);
+  color: var(--secundario);
+}
+
+/* Forma de onda: la pista gris y el relleno cian recortado según el avance. */
+.turno-nota-barra {
+  position: relative;
+  flex: 1 1 8rem;
+  min-width: 0;
+  height: 28px;
+  background: var(--borde);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 140 100' preserveAspectRatio='none'%3E%3Crect x='0' y='35.0' width='3' height='30' rx='1.5'/%3E%3Crect x='5' y='22.5' width='3' height='55' rx='1.5'/%3E%3Crect x='10' y='30.0' width='3' height='40' rx='1.5'/%3E%3Crect x='15' y='15.0' width='3' height='70' rx='1.5'/%3E%3Crect x='20' y='5.0' width='3' height='90' rx='1.5'/%3E%3Crect x='25' y='20.0' width='3' height='60' rx='1.5'/%3E%3Crect x='30' y='27.5' width='3' height='45' rx='1.5'/%3E%3Crect x='35' y='10.0' width='3' height='80' rx='1.5'/%3E%3Crect x='40' y='0.0' width='3' height='100' rx='1.5'/%3E%3Crect x='45' y='17.5' width='3' height='65' rx='1.5'/%3E%3Crect x='50' y='25.0' width='3' height='50' rx='1.5'/%3E%3Crect x='55' y='12.5' width='3' height='75' rx='1.5'/%3E%3Crect x='60' y='2.5' width='3' height='95' rx='1.5'/%3E%3Crect x='65' y='22.5' width='3' height='55' rx='1.5'/%3E%3Crect x='70' y='32.5' width='3' height='35' rx='1.5'/%3E%3Crect x='75' y='20.0' width='3' height='60' rx='1.5'/%3E%3Crect x='80' y='7.5' width='3' height='85' rx='1.5'/%3E%3Crect x='85' y='15.0' width='3' height='70' rx='1.5'/%3E%3Crect x='90' y='27.5' width='3' height='45' rx='1.5'/%3E%3Crect x='95' y='5.0' width='3' height='90' rx='1.5'/%3E%3Crect x='100' y='20.0' width='3' height='60' rx='1.5'/%3E%3Crect x='105' y='30.0' width='3' height='40' rx='1.5'/%3E%3Crect x='110' y='12.5' width='3' height='75' rx='1.5'/%3E%3Crect x='115' y='22.5' width='3' height='55' rx='1.5'/%3E%3Crect x='120' y='35.0' width='3' height='30' rx='1.5'/%3E%3Crect x='125' y='25.0' width='3' height='50' rx='1.5'/%3E%3Crect x='130' y='30.0' width='3' height='40' rx='1.5'/%3E%3Crect x='135' y='37.5' width='3' height='25' rx='1.5'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+
+.turno-nota-barra::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--cian);
+  clip-path: inset(0 calc((1 - var(--nota-avance, 0)) * 100%) 0 0);
+}
+
+.turno-nota[data-nota-estado="sonando"] .turno-nota-barra::after,
+.turno-nota[data-nota-estado="pausada"] .turno-nota-barra::after {
+  background: var(--azul);
+}
+
+.turno-nota[data-nota-estado="cargando"] .turno-nota-barra {
+  animation: nota-respira 1.4s ease-in-out infinite;
+}
+
+@keyframes nota-respira {
+  50% { opacity: 0.45; }
+}
+
+.turno-nota-tiempo,
+.turno-nota-duracion {
+  color: var(--secundario);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.turno-nota-duracion:empty {
+  display: none;
+}
+
+/* «0:17 / 0:42» se lee como una sola cifra: la duración se pega al tiempo transcurrido. */
+.turno-nota-tiempo + .turno-nota-duracion {
+  margin-left: -8px;
+}
+
+.turno-nota-tiempo + .turno-nota-duracion::before {
+  content: "/ ";
+}
+
+.turno-nota-estado {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.turno-nota-reintentar {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--fondo);
+  color: var(--azul);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.turno-nota-reintentar:hover {
+  border-color: var(--cian);
+}
+
+/* La cuenta regresiva de la cotización también espera mientras suena la nota. */
+.turno:has(.turno-nota[data-nota-estado="sonando"]) .coti-barra-relleno {
+  animation-play-state: paused;
+}
+
+@media (max-width: 560px) {
+  .turno-assistant > .turno-nota {
+    grid-column: 1 / -1;
+  }
+
+  .turno-nota {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turno-nota[data-nota-estado="sonando"] {
+    transition: none;
+  }
+
+  .turno-nota[data-nota-estado="bloqueada"] .turno-nota-boton,
+  .turno-nota[data-nota-estado="cargando"] .turno-nota-barra {
+    animation: none !important;
+  }
+}
