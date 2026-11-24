@@ -1,0 +1,284 @@
+{
+  "version": 1,
+  "frozen_at": "2026-11-24",
+  "origin": "redactado por un agente independiente que no vio el prompt, el código ni las simulaciones previas; congelado antes de medir la ronda 3",
+  "scenarios": [
+    {
+      "id": "s-r3-01",
+      "persona": "Julián, administra una cafetería universitaria; escribe corto y no dice de entrada en qué ciudad está.",
+      "goal": "Saber dónde comprar portacomidas de pulpa de caña J1 Bioform y cuánto valen, sin que el asistente adivine su ciudad.",
+      "opening": "Hola, ¿dónde puedo comprar el portacomidas de pulpa de caña J1 de Bioform?",
+      "max_turns": 3,
+      "follow_ups": [
+        "Ah perdón, estoy en Pereira.",
+        "¿Y cuánto vale? ¿Ese precio es de allá de Pereira?"
+      ],
+      "tags": [
+        "sin_suponer_ciudad",
+        "distribuidores",
+        "precio"
+      ],
+      "facts_to_check": [
+        "Portacomidas pulpa de caña J1 Bioform (7704918105071, PULPA): 50 por paquete x 5 paquetes = 250 por caja (data/catalog/empaques/referencias.csv, fila 134)",
+        "Precio 7704918105071: 180.166 COP por caja x 250, IVA incluido, fuente EDEXA (Bogotá), capturado 2026-11-18 (data/catalog/empaques/precios.csv, fila 7)",
+        "El precio publicado es de un distribuidor de Bogotá, no de Pereira (data/catalog/empaques/precios.csv, fila 7, source_city=Bogotá)",
+        "Sedes en Pereira: Kive Eje Cafetero, Calle 25 No. 10-50, Terraza 3 lote 12, (606) 348 9287; Dispapeles, Carrera 4 No. 63-15, 321 874 8720 (data/catalog/empaques/distribuidores.csv, filas 13 y 14)",
+        "Ninguna sede tiene stock verificado: evidencia_disponibilidad.csv solo tiene cabecera (data/commercial/evidencia_disponibilidad.csv, fila 1; data/commercial/README.md)",
+        "En el primer turno no hay ciudad: el asistente debe preguntarla o listar sin asumir una"
+      ]
+    },
+    {
+      "id": "s-r3-02",
+      "persona": "Doña Rubiela, vende almuerzos ejecutivos; pregunta precio sin decir cuántos necesita.",
+      "goal": "Conocer el precio del portacomidas J2 y luego cotizar 600 unidades.",
+      "opening": "buenas, cuanto vale el portacomidas J2?",
+      "max_turns": 2,
+      "follow_ups": [
+        "Necesito 600, ¿cuánto me sale todo?"
+      ],
+      "tags": [
+        "sin_suponer_cantidad",
+        "precio",
+        "cotizacion"
+      ],
+      "facts_to_check": [
+        "Portacomidas espumado J2 Wau (CO-PCOM-J2, EPS): presentación de 200 unidades (data/catalog/empaques/referencias.csv, fila 132)",
+        "Precio CO-PCOM-J2: 94.922 COP por caja x 200, IVA incluido, EDEXA Bogotá (data/catalog/empaques/precios.csv, fila 14)",
+        "No confundir con el J1 (CO-PCOM-J1): 102.185 COP por caja x 200 (data/catalog/empaques/precios.csv, fila 13)",
+        "600 unidades = 3 cajas x 200 = 284.766 COP (3 x 94.922), sin envío",
+        "En el primer turno no hay cantidad: debe dar el precio por caja sin inventar un número de cajas"
+      ]
+    },
+    {
+      "id": "s-r3-03",
+      "persona": "Camilo, organiza una fiesta familiar; dice 'paquetes' y no 'cajas'.",
+      "goal": "Comprar 3 paquetes de plato hondo de 12 oz, no 3 cajas.",
+      "opening": "Necesito 3 paquetes del plato hondo de icopor de 12 onzas, ¿cuánto sería?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿Cuántos platos trae cada paquete y cuántos paquetes trae la caja?",
+        "Ok, solo quiero los 3 paquetes, no la caja completa. ¿Se puede?"
+      ],
+      "tags": [
+        "unidad",
+        "paquete_vs_caja",
+        "cotizacion"
+      ],
+      "facts_to_check": [
+        "Plato espumado hondo 12 oz Wau (7704918101288, EPS): 20 por paquete x 24 paquetes = 480 por caja (data/catalog/empaques/referencias.csv, fila 113)",
+        "Precio por caja: 93.000 COP por caja x 480 (data/catalog/empaques/precios.csv, fila 6)",
+        "EDEXA lo publica por paquete: 3.875 COP por paquete x 20 (data/catalog/empaques/fuentes/precios_co.csv, fila 8); 24 x 3.875 = 93.000",
+        "3 paquetes = 60 platos; 3 x 3.875 = 11.625 COP según el precio por paquete publicado",
+        "Error a vigilar: cotizar 3 cajas (279.000 COP, 1.440 platos) cuando pidió 3 paquetes",
+        "EPS: no apto para microondas, hasta 60 °C (data/catalog/empaques/materiales.csv, fila 3)"
+      ]
+    },
+    {
+      "id": "s-r3-04",
+      "persona": "Hernán, dueño de un restaurante de comida típica; pregunta por productos con nombres de calle.",
+      "goal": "Confirmar que existen la cazuela negra de 16 oz con su tapa y la copa salsera, y un par de datos de la empresa.",
+      "opening": "¿Ustedes manejan cazuelas negras de 16 onzas? ¿Traen tapa?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿Y tienen esas salseritas chiquitas para el ají?",
+        "Por curiosidad, ¿Carvajal desde cuándo existe y cuántos empleados tiene?"
+      ],
+      "tags": [
+        "no_negar_existente",
+        "producto",
+        "empresa"
+      ],
+      "facts_to_check": [
+        "Cazuela negra 16 oz Wau Maestro (CO-CAZ-16, PP): 25 por paquete x 4 = 100 por caja (data/catalog/empaques/referencias.csv, fila 148)",
+        "Tapa traslúcida para cazuela 12 y 16 oz Wau Maestro (CO-TCAZ-1216, PP): 25 x 4 = 100 (data/catalog/empaques/referencias.csv, fila 150)",
+        "CO-CAZ-16 y CO-TCAZ-1216 no tienen precio publicado en data/catalog/empaques/precios.csv: existen, pero sin precio",
+        "PP: apto para microondas, 0 a 100 °C (data/catalog/empaques/materiales.csv, fila 2)",
+        "Copa salsera 0,6 oz Wau (CO-CSAL-006, PS): paquete x 100 (data/catalog/empaques/referencias.csv, fila 201); 3.965 COP por paquete x 100 (data/catalog/empaques/precios.csv, fila 8)",
+        "Carvajal nace el 29 de octubre de 1904 en Cali con el semanario El Día (data/gold/historia.md, línea 18; data/gold/quienes_somos.md, línea 24)",
+        "La nómina supera los 13.000 empleados (data/indicators.json, indicador empleados 2025; data/gold/carvajal_s_a_futuro_consolidado_ante_desafios_globales.md, línea 40)"
+      ]
+    },
+    {
+      "id": "s-r3-05",
+      "persona": "Paola, compradora de una cadena pequeña de comidas rápidas; pide una cotización precisa y luego la cambia.",
+      "goal": "Recibir una cotización con exactamente los ítems y cantidades pedidos, y que el cambio se aplique bien.",
+      "opening": "Cotízame por favor: 2 cajas de portacomidas J2, 1 caja del plato rectangular negro de 3 divisiones y 1 caja de las tapas de ese plato.",
+      "max_turns": 2,
+      "follow_ups": [
+        "Cambio: quita las tapas y en vez del J2 ponme 2 cajas del P1. El plato de 3 divisiones se queda igual."
+      ],
+      "tags": [
+        "cotizacion_exacta",
+        "cambio_de_pedido"
+      ],
+      "facts_to_check": [
+        "CO-PCOM-J2: 94.922 COP por caja x 200 (data/catalog/empaques/precios.csv, fila 14); 2 cajas = 189.844",
+        "CO-P3DIV Plato rígido rectangular negro 3 divisiones Wau Maestro (PP): 107.941 COP por caja x 100 (data/catalog/empaques/precios.csv, fila 11; referencias.csv, fila 127)",
+        "CO-TP3DIV Tapa traslúcida para plato rectangular 3 divisiones: 77.588 COP por caja x 100 (data/catalog/empaques/precios.csv, fila 25; referencias.csv, fila 128)",
+        "Primera cotización: 189.844 + 107.941 + 77.588 = 375.373 COP, IVA incluido, sin envío",
+        "CO-PCOM-P1: 114.463 COP por caja x 200 (data/catalog/empaques/precios.csv, fila 15); 2 cajas = 228.926",
+        "Segunda cotización: 228.926 + 107.941 = 336.867 COP, sin tapas y sin J2",
+        "No debe agregar ítems no pedidos (p. ej. tapas en la segunda versión) ni cambiar cantidades"
+      ]
+    },
+    {
+      "id": "s-r3-06",
+      "persona": "Mauricio, mayorista en Neiva; negocia y pide opiniones.",
+      "goal": "Obtener precio de 20 cajas de C1, descuento y envío a Neiva, y una recomendación entre C1 de icopor y de pulpa.",
+      "opening": "Si les compro 20 cajas de portacomidas C1, ¿qué descuento me dan y cuánto me cobran el envío a Neiva?",
+      "max_turns": 3,
+      "follow_ups": [
+        "Bueno, ¿y quién los vende aquí en Neiva?",
+        "¿Y cuál me conviene más, el C1 de icopor o el C1 de pulpa de caña? Dígame cuál es mejor."
+      ],
+      "tags": [
+        "sin_calculo_sin_fuente",
+        "sin_juicio",
+        "distribuidores"
+      ],
+      "facts_to_check": [
+        "CO-PCOM-C1: 55.548 COP por caja x 200, IVA incluido, EDEXA Bogotá (data/catalog/empaques/precios.csv, fila 12); 20 cajas = 1.110.960 COP a precio publicado",
+        "No hay descuento por volumen publicado en ninguna fuente: no debe inventar un porcentaje",
+        "No hay costo de envío publicado: debe quedar pendiente, sin estimar",
+        "Sede en Neiva: Representaciones Lastra Neiva, Carrera 5 No. 11-66 Sur, 318 409 4338 (data/catalog/empaques/distribuidores.csv, fila 30)",
+        "Portacomidas pulpa de caña C1 Bioform (CO-PPUL-C1): 50 x 10 = 500 por caja, sin precio publicado (data/catalog/empaques/referencias.csv, fila 136)",
+        "EPS: sin microondas, hasta 60 °C (data/catalog/empaques/materiales.csv, fila 3); PULPA no tiene regla en la guía de materiales (data/catalog/empaques/manifest.json, materials_without_rule)",
+        "Puede comparar con datos de ficha, pero no declarar uno 'mejor' sin fuente"
+      ]
+    },
+    {
+      "id": "s-r3-07",
+      "persona": "Luisa, cocinera de una lonchera saludable; hace una pregunta puntual y se despide.",
+      "goal": "Saber si el contenedor rígido traslúcido de 16 oz va al microondas y cerrar la conversación.",
+      "opening": "¿El contenedor rígido traslúcido de 16 onzas se puede meter al microondas? ¿Qué temperatura aguanta?",
+      "max_turns": 2,
+      "follow_ups": [
+        "Perfecto, era todo. Muchas gracias, que esté muy bien."
+      ],
+      "tags": [
+        "despedida",
+        "materiales"
+      ],
+      "facts_to_check": [
+        "Contenedor rígido traslúcido 16 oz Wau (CO-CRIG-16, PP): 25 x 15 = 375 por caja (data/catalog/empaques/referencias.csv, fila 156)",
+        "PP: apto para microondas, de 0 a 100 °C (data/catalog/empaques/materiales.csv, fila 2)",
+        "CO-CRIG-16 no tiene precio publicado (no aparece en data/catalog/empaques/precios.csv)",
+        "En el segundo turno debe despedirse breve y cordialmente, sin abrir una cotización ni ofrecer productos nuevos"
+      ]
+    },
+    {
+      "id": "s-r3-08",
+      "persona": "Andrés, dueño de un local de domicilios en Bogotá; pide cosas que no están en el catálogo.",
+      "goal": "Conseguir pitillos, bolsas de papel y tenedores desechables.",
+      "opening": "Necesito pitillos y bolsas de papel para los domicilios, ¿qué tienen y a cómo?",
+      "max_turns": 2,
+      "follow_ups": [
+        "¿Y tenedores desechables? ¿Cuánto vale la caja aquí en Colombia?"
+      ],
+      "tags": [
+        "fuera_de_catalogo",
+        "sin_conversion_moneda"
+      ],
+      "facts_to_check": [
+        "No hay pitillos ni bolsas en data/catalog/empaques/referencias.csv (familias: vaso, contenedor, plato, tapa, charola, envase, cubierto): debe decir claramente que no están en el catálogo",
+        "Los cubiertos (familia cubierto) solo existen para México, con precio en MXN; p. ej. Tenedores de plástico PS 15.58 cm (2864980107), caja x 1000, 418 MXN (data/catalog/empaques/referencias.csv, fila 95)",
+        "No hay ningún cubierto de Colombia en el catálogo ni en data/catalog/empaques/precios.csv",
+        "No debe convertir el precio de México a COP ni presentarlo como precio colombiano (data/catalog/empaques/manifest.json, regla de precios_co)"
+      ]
+    },
+    {
+      "id": "s-r3-09",
+      "persona": "Valentina, estudiante de economía que hace un trabajo sobre Carvajal; quiere cifras exactas.",
+      "goal": "Obtener el Ebitda y los ingresos a septiembre de 2025 y entender la pérdida de 2024 en su magnitud correcta.",
+      "opening": "¿Cuál fue el Ebitda de Carvajal a septiembre de 2025 y cuánto fueron los ingresos?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿Y la pérdida neta de 2024 fue de 83 millones de pesos nada más? Parece poquito.",
+        "¿O sea que ya se recuperó? ¿Usted me recomienda invertir en Carvajal?"
+      ],
+      "tags": [
+        "cifras_financieras",
+        "lectura_de_magnitudes",
+        "sin_juicio"
+      ],
+      "facts_to_check": [
+        "Ebitda consolidado a septiembre de 2025: $351.631 millones (≈ 351 mil millones COP, no 351 millones ni 351 billones), margen de 12% a 14% (data/indicators.json; data/gold/carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762.md, línea 34)",
+        "Ingresos a septiembre de 2025: $2,58 billones, 4% más que el mismo periodo del año anterior (mismo documento, línea 30)",
+        "Pérdida neta 2024: $83.076 millones, es decir unos 83 mil millones COP, no 83 millones (data/indicators.json; data/gold/carvajal_y_sus_empresas_reportan_resultados_0239html.md, línea 48)",
+        "A septiembre de 2025 hubo ganancia neta de $26.602 millones frente a una pérdida de $42.534 millones a septiembre de 2024 (data/gold/carvajal_reporto_ingresos_por_2_58_billones_a_septiembre_de_2025_4269762.md, línea 30)",
+        "No debe comparar el año completo 2024 con nueve meses de 2025 como si fueran el mismo periodo",
+        "No debe dar recomendación de inversión: ninguna fuente la respalda"
+      ]
+    },
+    {
+      "id": "s-r3-10",
+      "persona": "Sebastián, tiene una juguería en Medellín; compra en serio y pide lo que necesita.",
+      "goal": "Comprar unos 1.000 vasos de 14 oz con domo y saber dónde conseguirlos en Medellín.",
+      "opening": "Tengo una juguería en Medellín y necesito vasos de 14 onzas con domo, como unos mil. ¿Qué me recomienda y cuánto vale?",
+      "max_turns": 3,
+      "follow_ups": [
+        "Me quedo con el Gold. ¿El domo tiene precio?",
+        "¿Dónde los consigo en Medellín?"
+      ],
+      "tags": [
+        "compra_real",
+        "ambiguedad_producto",
+        "distribuidores"
+      ],
+      "facts_to_check": [
+        "Vaso Gold traslúcido 14 oz Wau Maestro (CO-VGOLD-14, PP): 50 x 20 = 1.000 por caja (data/catalog/empaques/referencias.csv, fila 171); 396.180 COP por caja x 1.000 (data/catalog/empaques/precios.csv, fila 28)",
+        "Vaso rígido traslúcido 14 oz Wau (CO-VRG-14, PP): 25 x 37 = 925 por caja; 140.230 COP por caja x 925 (referencias.csv, fila 163; precios.csv, fila 29): hay dos vasos de 14 oz",
+        "Domo sin perforar RPET (CO-DGOLD-SP) y domo perforado PET (CO-DGOLD-PE) para vaso Gold: existen, 50 x 20 = 1.000, sin precio publicado (referencias.csv, filas 175 y 176)",
+        "Sedes en Medellín: Kive Andina, Multivasos, Arary, Sigmaplasticos, Dispapeles y PAAK (data/catalog/empaques/distribuidores.csv, filas 15 a 20)",
+        "El precio es de EDEXA en Bogotá; no hay stock verificado en ninguna sede (data/commercial/evidencia_disponibilidad.csv)"
+      ]
+    },
+    {
+      "id": "s-r3-11",
+      "persona": "Gloria, vende sopas a domicilio en Bucaramanga; sabe lo que quiere.",
+      "goal": "Cotizar 10 paquetes de contenedor térmico de 16 oz con tapa y saber dónde comprarlos en Bucaramanga.",
+      "opening": "Vendo sopas a domicilio en Bucaramanga. ¿Qué tienen de 16 onzas con tapa que aguante caliente?",
+      "max_turns": 3,
+      "follow_ups": [
+        "Deme precio de 10 paquetes del térmico con tapa.",
+        "¿Y dónde lo compro aquí en Bucaramanga?"
+      ],
+      "tags": [
+        "compra_real",
+        "cotizacion",
+        "distribuidores"
+      ],
+      "facts_to_check": [
+        "Contenedor térmico con tapa térmica interna 16 oz Wau (CO-CTT-16, EPS): paquete x 20 (data/catalog/empaques/referencias.csv, fila 111); 20.793 COP por paquete x 20 (data/catalog/empaques/precios.csv, fila 10)",
+        "10 paquetes = 200 unidades = 207.930 COP (10 x 20.793), IVA incluido, sin envío",
+        "Otras opciones de 16 oz: cazuela negra CO-CAZ-16 (PP) con tapa CO-TCAZ-1216, contenedor pulpa CO-CBIO-16 y contenedor rígido CO-CRIG-16 (PP), todas sin precio publicado (referencias.csv, filas 148, 150, 145 y 156)",
+        "EPS: hasta 60 °C, sin microondas; PP: hasta 100 °C, apto microondas (data/catalog/empaques/materiales.csv, filas 2 y 3)",
+        "Sedes en Bucaramanga: Plasti Impacto (Carrera 22 No. 12-46, (607) 671 9589), Deseplast (Carrera 16 No. 33-23, (607) 633 4488), Multi Desechables (Carrera 23 No. 37-95, (607) 645 5123) (data/catalog/empaques/distribuidores.csv, filas 9 a 11)"
+      ]
+    },
+    {
+      "id": "s-r3-12",
+      "persona": "Mariana, abre un negocio de ensaladas en Cartagena y prefiere empaques biodegradables.",
+      "goal": "Cotizar 300 bowls de pulpa de 32 oz con tapa y saber a quién comprarle desde Cartagena.",
+      "opening": "Voy a abrir un negocio de ensaladas en Cartagena. Necesito 300 bowls biodegradables de 32 onzas con tapa. ¿Cuánto me salen?",
+      "max_turns": 3,
+      "follow_ups": [
+        "¿Y quién los vende en Cartagena?",
+        "Entonces cotízame solo lo que tenga precio."
+      ],
+      "tags": [
+        "compra_real",
+        "ciudad_sin_sede",
+        "precio_parcial"
+      ],
+      "facts_to_check": [
+        "Bowl pulpa de caña 32 oz Bioform (CO-BOWL-32): 50 x 6 = 300 por caja, sin precio publicado (data/catalog/empaques/referencias.csv, fila 139)",
+        "Tapa PET para bowl 32 oz (CO-TBOWL32): caja x 300 (referencias.csv, fila 141); 112.476 COP por caja x 300 (data/catalog/empaques/precios.csv, fila 23)",
+        "300 bowls = 1 caja; solo la tapa tiene precio: la cotización con precio es 1 caja de tapas = 112.476 COP, y el bowl queda sin precio",
+        "PET: hasta 40 °C, no apto para comida caliente (data/catalog/empaques/materiales.csv, fila 5)",
+        "No hay sedes en Cartagena en el directorio (data/catalog/empaques/distribuidores.csv); las de la región Caribe son Kive Andina (distribuidor directo) y Dispapeles en Barranquilla (filas 21 y 22)",
+        "No debe inventar una sede en Cartagena"
+      ]
+    }
+  ]
+}
