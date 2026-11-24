@@ -1449,3 +1449,27 @@ def test_cotizar_no_usa_una_ciudad_que_nadie_dijo_en_el_hilo() -> None:
     assert [r["status"] for r in state["results"]] == ["needs_input"]
     assert state["quotes"] == []
     assert "city" not in state["commercial_context"]
+
+
+def test_el_progreso_del_turno_pasa_dueno_hilo_memoria_y_ventana_a_las_herramientas() -> None:
+    """Spec 045 (T016): el nodo ``tools`` arma el ``ToolContext`` desde el estado."""
+
+    # Arrange
+    from carvajal.agent.toolagent.graph import _TurnProgress
+
+    seed = [{"question": f"p{i}", "answer": "r", "incomplete": False} for i in range(10)]
+    state = {
+        "question": "hola",
+        "owner_key": "owner-1",
+        "thread_id": "hilo-1",
+        "memory": {"nombre": {"v": 2, "value": "Ana"}},
+        "seed_turns": seed,
+    }
+
+    # Act
+    context = _TurnProgress.from_state(state, 8).context()
+
+    # Assert
+    assert (context.owner_key, context.thread_id) == ("owner-1", "hilo-1")
+    assert context.memory == {"nombre": {"v": 2, "value": "Ana"}}
+    assert list(context.history) == [f"p{i}" for i in range(2, 10)]

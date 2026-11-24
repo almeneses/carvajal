@@ -33,6 +33,9 @@ Este módulo reexporta lo que antes se importaba de ``toolagent.tools``.
 from carvajal.agent.toolagent.tools._base import (
     DATA_CLOSE,
     DATA_OPEN,
+    FaqSource,
+    MemoryStore,
+    QuoteLookup,
     QuoteMerge,
     ToolCallResult,
     ToolContext,
@@ -42,6 +45,7 @@ from carvajal.agent.toolagent.tools._base import (
     last_answer,
     merge_quote,
     quote_key,
+    seed_questions,
 )
 from carvajal.agent.toolagent.tools.builtin import (
     BuscarCorpusArgs,
@@ -90,7 +94,10 @@ __all__ = [
     "BuscarSedesArgs",
     "CotizarArgs",
     "EvidenceRole",
+    "FaqSource",
     "IndicadorFinancieroArgs",
+    "MemoryStore",
+    "QuoteLookup",
     "QuoteMerge",
     "SinConsultaArgs",
     "ToolCallResult",
@@ -105,5 +112,6 @@ __all__ = [
     "merge_quote",
     "quote_key",
     "run_tool",
+    "seed_questions",
     "spec_for",
 ]

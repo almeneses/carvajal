@@ -13,8 +13,10 @@ import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
+
+from langgraph.store.base import BaseStore
 
 from carvajal.agent.toolagent.sources import SourceRegistry
 from carvajal.agent.toolagent.state import (
@@ -22,11 +24,13 @@ from carvajal.agent.toolagent.state import (
     ToolStatus,
 )
 from carvajal.application.ask import Source, _neutralize
-from carvajal.application.ports import Embedder, VectorStore
+from carvajal.application.faq import MAX_PROMPT_CHARS, FaqCorpus
+from carvajal.application.ports import Embedder, LLMProvider, VectorStore
 from carvajal.catalog.loader import Catalog
 from carvajal.commercial.book import CommercialBook, plain
 from carvajal.commercial.loader import load_commercial_book
 from carvajal.infrastructure.settings import Settings
+from carvajal.institutional import InstitutionalData
 from carvajal.quotation import Dataset
 
 # Movido en bloque desde ``toolagent/tools.py`` (spec 045, T008; research R9): el código
@@ -41,6 +45,48 @@ OFFICIAL_HOSTS = ("carvajal.com", "carvajalempaques.com")
 
 # --- Dependencias, contexto y resultado ----------------------------------------------------
 
+# Memoria del dueño (spec 045): el Store de LangGraph del grafo (``PostgresStore`` en
+# producción, ``InMemoryStore`` en pruebas y en modo ``sqlite``). Las operaciones por
+# categoría viven en ``carvajal.agent.memory.store``.
+type MemoryStore = BaseStore
+
+
+class QuoteLookup(Protocol):
+    """Lectura de cotizaciones guardadas para ``consultar_cotizacion`` (spec 045).
+
+    En producción envuelve ``SqlQuoteRepository`` con su propia sesión
+    (``apps/api/agent_runtime.py``); en pruebas, un doble en memoria. Ambos métodos filtran
+    por dueño: un folio ajeno se comporta como inexistente.
+    """
+
+    def get(self, folio: str, owner_key: str) -> Any | None:
+        """Cotización del folio si es de ``owner_key``; ``None`` si no existe o es ajena."""
+
+        ...
+
+    def for_conversation(self, conversation_id: str, owner_key: str) -> Sequence[Any]:
+        """Cotizaciones de la conversación del dueño, de la más antigua a la más reciente."""
+
+        ...
+
+
+@dataclass(frozen=True)
+class FaqSource:
+    """Lo que necesita ``preguntas_frecuentes`` para generar (spec 045, research R18).
+
+    ``corpus`` y ``llm`` son los mismos de ``POST /api/faq`` (``SqlFaqCorpus`` y
+    ``runtime.llm_provider()``); en pruebas, un corpus en memoria y un LLM falso.
+    ``timeout_s`` es ``AGENT_FAQ_TIMEOUT_S`` y ``max_prompt_chars`` el tope de
+    ``faq_service`` según el proveedor. ``cache`` es privada del proceso: (tema normalizado,
+    cantidad) → lote verificado con su hora; no se serializa ni entra en el estado.
+    """
+
+    corpus: FaqCorpus
+    llm: LLMProvider
+    timeout_s: float = 25.0
+    max_prompt_chars: int = MAX_PROMPT_CHARS
+    cache: dict[tuple[str, int], Any] = field(default_factory=dict, compare=False, repr=False)
+
 
 @dataclass(frozen=True)
 class ToolDeps:
@@ -51,6 +97,13 @@ class ToolDeps:
     mismos overrides que ``AgentDeps``; ``book``, ``dataset`` y ``now`` permiten fijar el
     contrato comercial, el read model del cotizador y el reloj en pruebas. Sin ellos se usan
     los datos versionados del repositorio y la fecha del sistema.
+
+    Spec 045 (data-model): ``memory`` es el Store de la memoria del dueño (sin él, las
+    herramientas de memoria devuelven ``error`` con ``store_no_disponible``);
+    ``quote_lookup`` lee las cotizaciones guardadas; ``institutional`` trae empresas e
+    hitos de la historia (``carvajal.institutional``); ``faq`` lo que necesita
+    ``preguntas_frecuentes``. Todos son opcionales: sin ellos la herramienta que los usa
+    devuelve un ``error`` declarado y el turno sigue.
     """
 
     vector_store: VectorStore
@@ -61,6 +114,24 @@ class ToolDeps:
     book: CommercialBook | None = None
     dataset: Dataset | None = None
     now: datetime | None = None
+    memory: MemoryStore | None = None
+    quote_lookup: QuoteLookup | None = None
+    institutional: InstitutionalData | None = None
+    faq: FaqSource | None = None
+
+
+def seed_questions(state: Mapping[str, Any], history_turns: int | None = None) -> list[str]:
+    """Preguntas de la persona en ``seed_turns``, limitadas a los últimos ``history_turns``.
+
+    La semilla trae una holgura de turnos para el resumen (spec 045, FR-008); las
+    herramientas solo ven la ventana configurada, así que esa holgura no cambia
+    ``_city_said`` de ``cotizar`` ni de ``buscar_sedes``. ``None`` no limita.
+    """
+
+    turns = [turn for turn in state.get("seed_turns") or [] if isinstance(turn, Mapping)]
+    if history_turns is not None:
+        turns = turns[-history_turns:] if history_turns > 0 else []
+    return [str(turn.get("question") or "") for turn in turns]
 
 
 @dataclass(frozen=True)
@@ -73,6 +144,12 @@ class ToolContext:
     las preguntas anteriores de la persona en el hilo (para saber si dijo la ciudad) y
     ``last_answer`` la última respuesta del asistente (una confirmación como «sí» acepta la
     ciudad que el asistente propuso).
+
+    Spec 045: ``owner_key`` y ``thread_id`` salen del estado del grafo, nunca de los
+    argumentos del modelo (FR-014); vacíos fuera del grafo, y entonces las herramientas de
+    memoria responden ``sin_dueno``. ``memory`` es la instantánea de la memoria del dueño
+    (la de ``recall``, actualizada por el ``state_update`` de una herramienta de memoria en
+    el mismo turno).
     """
 
     question: str = ""
@@ -81,22 +158,30 @@ class ToolContext:
     quotes: Sequence[Mapping[str, Any]] = ()
     history: Sequence[str] = ()
     last_answer: str = ""
+    owner_key: str = ""
+    thread_id: str = ""
+    memory: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_state(cls, state: Mapping[str, Any]) -> "ToolContext":
-        """Contexto desde ``ToolAgentState`` (canales ausentes quedan vacíos)."""
+    def from_state(
+        cls, state: Mapping[str, Any], *, history_turns: int | None = None
+    ) -> "ToolContext":
+        """Contexto desde ``ToolAgentState`` (canales ausentes quedan vacíos).
+
+        ``history_turns`` (``agent_history_turns``) limita ``history`` a la ventana: la
+        holgura de la semilla no cuenta como ciudad dicha.
+        """
 
         return cls(
             question=str(state.get("question") or ""),
             sources=list(state.get("sources") or []),
             commercial_context=dict(state.get("commercial_context") or {}),
             quotes=list(state.get("quotes") or []),
-            history=[
-                str(turn.get("question") or "")
-                for turn in state.get("seed_turns") or []
-                if isinstance(turn, Mapping)
-            ],
+            history=seed_questions(state, history_turns),
             last_answer=last_answer(state.get("seed_turns") or []),
+            owner_key=str(state.get("owner_key") or ""),
+            thread_id=str(state.get("thread_id") or ""),
+            memory=dict(state.get("memory") or {}),
         )
 
 

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from langgraph.store.base import BaseStore
 from sqlalchemy.engine import make_url
 
 from carvajal.adapters.embeddings import OllamaEmbedder
@@ -36,6 +37,7 @@ from carvajal.application.ports import Embedder, VectorStore
 from carvajal.application.retrieval import LayerPriorityStore
 from carvajal.infrastructure.agent_mode import agent_mode_status
 from carvajal.infrastructure.settings import Settings
+from carvajal.institutional import load_institutional
 
 __all__ = ["AgentRuntime", "agent_runtime", "close_agent_runtime"]
 
@@ -141,7 +143,16 @@ def _graphs(
         return routes_graph(router), None
     try:
         tool_graph = build_tool_agent(
-            ToolDeps(vector_store=vector_store, embedder=embedder, settings=settings),
+            ToolDeps(
+                vector_store=vector_store,
+                embedder=embedder,
+                settings=settings,
+                # Spec 045: el mismo Store del grafo guarda la memoria del dueño; la capa
+                # institucional se carga una vez y declara ``no_disponible`` si falta.
+                # ``quote_lookup`` (T080) y ``faq`` (T067) llegan con sus herramientas.
+                memory=store if isinstance(store, BaseStore) else None,
+                institutional=load_institutional(),
+            ),
             _tool_chat(settings),
             checkpointer=checkpointer,
             store=store,

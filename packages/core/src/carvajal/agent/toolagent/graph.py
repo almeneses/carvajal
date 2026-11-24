@@ -46,7 +46,7 @@ import re
 import threading
 import unicodedata
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final, cast
 
 import structlog
@@ -92,6 +92,7 @@ from carvajal.agent.toolagent.tools import (
     format_tool_content,
     last_answer,
     run_tool,
+    seed_questions,
 )
 from carvajal.application.ask import _neutralize
 from carvajal.infrastructure.settings import Settings
@@ -651,9 +652,16 @@ class _TurnProgress:
     missing: list[str]
     history: list[str]
     last_answer: str
+    owner_key: str = ""
+    thread_id: str = ""
+    memory: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_state(cls, state: Mapping[str, Any]) -> "_TurnProgress":
+    def from_state(
+        cls, state: Mapping[str, Any], history_turns: int | None = None
+    ) -> "_TurnProgress":
+        """Progreso del turno desde el estado; ``history`` limitada a ``history_turns``."""
+
         return cls(
             question=str(state.get("question") or ""),
             used=int(state.get("tool_calls_used") or 0),
@@ -664,12 +672,11 @@ class _TurnProgress:
             cards=dict(state.get("cards") or {}),
             commercial_context=dict(state.get("commercial_context") or {}),
             missing=list(state.get("missing") or []),
-            history=[
-                str(turn.get("question") or "")
-                for turn in state.get("seed_turns") or []
-                if isinstance(turn, Mapping)
-            ],
+            history=seed_questions(state, history_turns),
             last_answer=last_answer(state.get("seed_turns") or []),
+            owner_key=str(state.get("owner_key") or ""),
+            thread_id=str(state.get("thread_id") or ""),
+            memory=dict(state.get("memory") or {}),
         )
 
     def context(self) -> ToolContext:
@@ -680,6 +687,9 @@ class _TurnProgress:
             quotes=self.quotes,
             history=self.history,
             last_answer=self.last_answer,
+            owner_key=self.owner_key,
+            thread_id=self.thread_id,
+            memory=self.memory,
         )
 
     def update(self) -> dict[str, Any]:
@@ -846,7 +856,7 @@ def build_tool_agent(
         last = _last_ai(messages)
         if last is None:
             return {}
-        progress = _TurnProgress.from_state(state)
+        progress = _TurnProgress.from_state(state, settings.agent_history_turns)
         contents = _previous_contents(_turn_messages(messages))
         replies: list[BaseMessage] = []
         for call in last.tool_calls:

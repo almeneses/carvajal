@@ -2193,3 +2193,60 @@ def test_cotizar_la_referencia_nombrada_sin_conversion_la_nombra_con_su_presenta
     assert "referencia nombrada" in result.content
     assert "paca de 200" in result.content
     assert "las referencias que aplican" not in result.content
+
+
+# --- Contexto ampliado de la spec 045 (T016) --------------------------------------------------
+
+
+def _seed(*questions: str) -> list[dict[str, Any]]:
+    return [{"question": q, "answer": "Entendido.", "incomplete": False} for q in questions]
+
+
+def test_una_ciudad_dicha_nueve_turnos_atras_no_cuenta_para_cotizar() -> None:
+    """La holgura de la semilla (spec 045, FR-008) no amplía ``_city_said``."""
+
+    # Arrange: diez turnos sembrados; Cali solo aparece en el primero (fuera de la ventana).
+    seed = _seed("Estoy en Cali", *[f"pregunta {i}" for i in range(9)])
+    state = {"question": "Serían 500 vasos de 14 oz fríos", "seed_turns": seed}
+    window = ToolContext.from_state(state, history_turns=8)
+    unlimited = ToolContext.from_state(state)
+
+    # Act
+    in_window = _run("cotizar", {**FRIA_14, "quantity": 500, "city": "Cali"}, _deps(), window)
+
+    # Assert
+    assert len(window.history) == 8
+    assert "Estoy en Cali" not in window.history
+    assert "Estoy en Cali" in unlimited.history
+    assert in_window.status == "needs_input"
+    assert in_window.payload["missing"] == ["ciudad"]
+
+
+def test_el_contexto_lleva_dueno_hilo_y_memoria_del_estado() -> None:
+    # Arrange
+    state = {
+        "question": "hola",
+        "owner_key": "owner-1",
+        "thread_id": "hilo-1",
+        "memory": {"nombre": {"v": 2, "value": "Ana"}},
+    }
+
+    # Act
+    context = ToolContext.from_state(state)
+
+    # Assert
+    assert context.owner_key == "owner-1"
+    assert context.thread_id == "hilo-1"
+    assert context.memory == {"nombre": {"v": 2, "value": "Ana"}}
+    assert ToolContext().owner_key == ""  # fuera del grafo no hay dueño
+
+
+def test_las_dependencias_nuevas_son_opcionales() -> None:
+    # Act
+    deps = _deps()
+
+    # Assert
+    assert deps.memory is None
+    assert deps.quote_lookup is None
+    assert deps.institutional is None
+    assert deps.faq is None
