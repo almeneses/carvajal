@@ -8,6 +8,7 @@ Recursos en ``apps/api/pdf/``: la marca recortada del logo ``assets/carvajal-log
 tipografía institucional DM Sans (OFL), convertida a TTF para incrustarla.
 """
 
+from functools import lru_cache
 from pathlib import Path
 
 from fpdf import FPDF
@@ -103,6 +104,7 @@ def _section(pdf: FPDF, title: str) -> None:
     pdf.ln(2.5)
 
 
+@lru_cache(maxsize=128)
 def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: bool = True) -> bytes:
     """Bytes del PDF de la cotización (A4, una página en los casos habituales).
 

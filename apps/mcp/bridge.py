@@ -368,7 +368,7 @@ class WhatsAppBridge:
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)
-        if quotes and self.pdf_link is not None and self.latest_quote is not None:
+        if quotes and self.pdf_link is not None and self._latest_view(owner) is not None:
             blocks.append(PDF_OFFER)
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
@@ -400,12 +400,28 @@ class WhatsAppBridge:
             logger.warning("whatsapp.photo_lookup_failed", sku=sku, error=repr(error))
             return None
 
+    def _latest_view(self, owner: str) -> QuoteView | None:
+        """Última cotización del hilo activo; un fallo de BD no ofrece PDF."""
+
+        if self.latest_quote is None:
+            return None
+        try:
+            payload = self.latest_quote(owner)
+        except Exception as error:
+            logger.warning("whatsapp.latest_quote_failed", error=repr(error))
+            return None
+        return quote_view(payload) if payload else None
+
     def _pdf(self, owner: str) -> str:
         """Enlace firmado al PDF de la última cotización del hilo (sin LLM, con cupo)."""
 
         if self.pdf_link is None or self.latest_quote is None:
             return PDF_UNAVAILABLE
-        payload = self.latest_quote(owner)
+        try:
+            payload = self.latest_quote(owner)
+        except Exception as error:
+            logger.warning("whatsapp.latest_quote_failed", error=repr(error))
+            return PDF_UNAVAILABLE
         view = quote_view(payload) if payload else None
         if view is None or not view.folio:
             return NO_QUOTE_FOR_PDF

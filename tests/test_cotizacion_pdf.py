@@ -198,6 +198,23 @@ def test_la_respuesta_con_cotizacion_ofrece_el_pdf() -> None:
     assert answer.endswith(PDF_OFFER)
 
 
+def test_no_ofrece_pdf_si_la_cotizacion_no_es_del_hilo_activo() -> None:
+    payload = stamped()
+    chat = FakeChat(events=[ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]})])
+    bridge = WhatsAppBridge(
+        chat=chat,
+        secret=SECRET,
+        quotes=lambda folio, owner: payload,
+        latest_quote=lambda owner: None,
+        pdf_link=_links,
+    )
+
+    answer = bridge.consult("Cotiza", "+573100000000")
+
+    assert "🧾 *Cotización #Q-7F3A2C*" in answer
+    assert PDF_OFFER not in answer
+
+
 def test_sin_url_publica_no_se_ofrece_el_pdf() -> None:
     payload = stamped()
     chat = FakeChat(events=[ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]})])
@@ -261,6 +278,15 @@ def test_pdf_no_elude_el_cupo() -> None:
     assert chat.calls == [] and charged
 
 
+def test_pdf_responde_si_falla_la_consulta_del_hilo() -> None:
+    def broken(owner: str) -> Mapping[str, Any]:
+        raise RuntimeError("base")
+
+    bridge = WhatsAppBridge(chat=FakeChat(), secret=SECRET, latest_quote=broken, pdf_link=_links)
+
+    assert bridge.consult("PDF", "+573100000000") == PDF_UNAVAILABLE
+
+
 def test_pdf_sin_cotizacion_previa() -> None:
     bridge = WhatsAppBridge(
         chat=FakeChat(), secret=SECRET, latest_quote=lambda owner: None, pdf_link=_links
@@ -305,6 +331,13 @@ def test_firma_y_vencimiento() -> None:
     late = datetime.fromtimestamp(expires + LINK_LEEWAY_SECONDS + 1, UTC)
     assert not verify("Q-1", "wa_dueno", expires, token, SECRET, now=late)
     assert verify("Q-1", "wa_dueno", expires, token.upper(), SECRET, now=MOMENT)
+
+
+def test_firma_rechaza_un_vencimiento_mas_alla_del_tope() -> None:
+    too_far = int((MOMENT + timedelta(days=MAX_LINK_DAYS + 1)).timestamp())
+    token = sign("Q-1", "wa_dueno", too_far, SECRET)
+
+    assert not verify("Q-1", "wa_dueno", too_far, token, SECRET, now=MOMENT)
 
 
 def test_el_enlace_no_pasa_del_tope_ni_de_la_vigencia() -> None:

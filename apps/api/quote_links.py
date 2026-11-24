@@ -39,7 +39,11 @@ def verify(
     """``True`` si la firma corresponde y el enlace no ha vencido."""
 
     moment = now or datetime.now(UTC)
-    if expires + LINK_LEEWAY_SECONDS < int(moment.timestamp()):
+    now_ts = int(moment.timestamp())
+    if expires + LINK_LEEWAY_SECONDS < now_ts:
+        return False
+    max_expiry = int((moment + timedelta(days=MAX_LINK_DAYS)).timestamp())
+    if expires > max_expiry + LINK_LEEWAY_SECONDS:
         return False
     expected = sign(folio, owner_key, expires, secret)
     # Un enlace copiado puede venir con el hexadecimal en mayúsculas.
