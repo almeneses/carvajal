@@ -74,6 +74,10 @@ x-dev-app: &dev-app
     SESSION_SECRET: ${SESSION_SECRET:-dev-carvajal-inseguro-solo-local}
     # Token de operador para la carga y captura web; vacío las deshabilita.
     OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
+    # Webhook firmado de mensajería (docs/webhooks.md). Sin secreto responde 404; la
+    # allowlist E.164 separada por comas vacía rechaza todos los remitentes.
+    WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+    WEBHOOK_ALLOWED_NUMBERS: ${WEBHOOK_ALLOWED_NUMBERS:-}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     # El perfil local no envía nada a Sentry ni a LangSmith salvo que se pida.
     SENTRY_DSN: ${SENTRY_DSN:-}

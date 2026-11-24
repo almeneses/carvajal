@@ -16,6 +16,9 @@ texto listo para WhatsApp.
   consumiendo el mismo cupo diario que cualquier mensaje.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
+- **Reintentos**: :meth:`WhatsAppBridge.respond` acepta un ``client_turn_id`` (el webhook
+  lo deriva del ``message_id``). Si el dueño ya tiene ese turno guardado, el servicio lo
+  reemite sin cobrar cupo, sin abrir hilo nuevo y sin emitir otros folios.
 """
 
 import hmac
@@ -44,7 +47,9 @@ __all__ = [
     "PDF_UNAVAILABLE",
     "SERVICE_UNAVAILABLE",
     "TOO_LONG_MESSAGE",
+    "BridgeReply",
     "ChatTurns",
+    "TurnLookup",
     "WhatsAppBridge",
     "is_pdf_request",
     "owner_key_for",
@@ -113,6 +118,17 @@ PhotoUrl = Callable[[str], str | None]
 """``sku -> URL`` pública de la foto del catálogo, o ``None`` si no tiene."""
 
 Quota = Callable[[str], QuotaResult]
+
+TurnLookup = Callable[[str, str], str | None]
+"""``(owner_key, client_turn_id) -> thread_id`` del turno ya guardado, o ``None``."""
+
+
+@dataclass(frozen=True)
+class BridgeReply:
+    """Texto listo para WhatsApp y folios de las cotizaciones emitidas en el turno."""
+
+    text: str
+    quote_ids: tuple[str, ...] = ()
 
 
 def _no_limit(_owner_key: str) -> QuotaResult:
@@ -318,6 +334,7 @@ class WhatsAppBridge:
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
     photo_url: PhotoUrl | None = None
+    turns: TurnLookup | None = None
 
     def owner_key(self, chat_id: str) -> str:
         """``owner_key`` del chat (ver :func:`owner_key_for`)."""
@@ -331,37 +348,69 @@ class WhatsAppBridge:
         «Nueva conversación» de la web); si además no hay mensaje, solo se confirma.
         """
 
+        return self.respond(message, chat_id, new_conversation=new_conversation).text
+
+    def respond(
+        self,
+        message: str,
+        chat_id: str,
+        *,
+        new_conversation: bool = False,
+        client_turn_id: str | None = None,
+    ) -> BridgeReply:
+        """Como :meth:`consult`, con los folios y un ``client_turn_id`` para reintentos.
+
+        Si ``turns`` encuentra ``client_turn_id`` en un hilo del dueño, el turno se reemite
+        desde ese hilo: no se abre conversación nueva ni se cobra cupo, y el servicio de
+        chat devuelve el mismo texto y los mismos folios. Solo lanza ``ValueError`` si
+        ``chat_id`` no es un identificador válido.
+        """
+
         chat = " ".join(chat_id.split())
         if not chat or len(chat) > MAX_CHAT_ID_CHARS:
             raise ValueError("conversacion debe ser el identificador del chat (1-200 caracteres).")
         text = message.strip()
         if len(text) > MAX_MESSAGE_CHARS:
-            return TOO_LONG_MESSAGE
+            return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)
         structlog.contextvars.bind_contextvars(owner_key=owner, channel="whatsapp")
         try:
-            if new_conversation:
-                self.chat.new_conversation(owner)
+            thread = self._stored_thread(owner, text, client_turn_id)
+            if thread is not None:
+                logger.info("whatsapp.turn_replayed")
+                turn = _collect(
+                    self.chat.stream(owner, text, client_turn_id=client_turn_id, thread_id=thread)
+                )
+            else:
+                if new_conversation:
+                    self.chat.new_conversation(owner)
+                    if not text:
+                        return BridgeReply(NEW_CONVERSATION)
                 if not text:
-                    return NEW_CONVERSATION
-            if not text:
-                return EMPTY_MESSAGE
-            if not self.quota(owner).allowed:
-                logger.info("whatsapp.quota_exhausted")
-                return LIMIT_REACHED
-            if is_pdf_request(text):
-                return self._pdf(owner)
-            turn = _collect(self.chat.stream(owner, text))
+                    return BridgeReply(EMPTY_MESSAGE)
+                if not self.quota(owner).allowed:
+                    logger.info("whatsapp.quota_exhausted")
+                    return BridgeReply(LIMIT_REACHED)
+                if is_pdf_request(text):
+                    return BridgeReply(self._pdf(owner))
+                turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
         except Exception as error:  # el canal nunca recibe una traza interna
             logger.warning("whatsapp.turn_failed", error=repr(error))
-            return SERVICE_UNAVAILABLE
+            return BridgeReply(SERVICE_UNAVAILABLE)
         finally:
             structlog.contextvars.unbind_contextvars("owner_key", "channel")
         return self._render(turn, owner)
 
-    def _render(self, turn: _Turn, owner: str) -> str:
+    def _stored_thread(self, owner: str, text: str, client_turn_id: str | None) -> str | None:
+        """Hilo donde ya está guardado este turno, o ``None`` si es un turno nuevo."""
+
+        if self.turns is None or not client_turn_id or not text:
+            return None
+        return self.turns(owner, client_turn_id)
+
+    def _render(self, turn: _Turn, owner: str) -> BridgeReply:
         if turn.error is not None and not turn.text.strip():
-            return SERVICE_UNAVAILABLE
+            return BridgeReply(SERVICE_UNAVAILABLE)
         blocks = [to_whatsapp(turn.text)] if turn.text.strip() else []
         quotes = self._quote_blocks(turn.folios, owner)
         blocks.extend(quotes)
@@ -373,7 +422,10 @@ class WhatsAppBridge:
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
-        return "\n\n".join(block for block in blocks if block) or SERVICE_UNAVAILABLE
+        reply = "\n\n".join(block for block in blocks if block)
+        if not reply:
+            return BridgeReply(SERVICE_UNAVAILABLE)
+        return BridgeReply(reply, tuple(turn.folios))
 
     def _quote_blocks(self, folios: Sequence[str], owner: str) -> list[str]:
         if self.quotes is None:

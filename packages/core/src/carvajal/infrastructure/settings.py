@@ -151,6 +151,14 @@ class Settings(BaseSettings):
     # firmados al PDF de una cotización. Vacía: WhatsApp no ofrece el PDF.
     public_base_url: str = ""
 
+    # Webhook firmado de mensajería (``POST /api/webhooks/whatsapp``, docs/webhooks.md).
+    # Sin WEBHOOK_SECRET el endpoint no existe (404). La allowlist es una lista E.164
+    # separada por comas; vacía rechaza todo. Se guarda tal cual y se normaliza al usarla:
+    # una entrada inválida se descarta con un aviso en vez de tumbar la app (y sin que el
+    # error de validación repita los números en los logs).
+    webhook_secret: str = Field(default="", repr=False)
+    webhook_allowed_numbers: Annotated[tuple[str, ...], NoDecode] = Field(default=(), repr=False)
+
     # Captura web desde la consola de Configuración, solo para operadores
     # autorizados con OPERATOR_TOKEN. El máximo de URLs por ejecución sigue al
     # de la primera versión (todas las semillas configuradas) y el valor
@@ -243,10 +251,10 @@ class Settings(BaseSettings):
     monitoring_include_content: bool = False
     monitoring_timeout_ms: int = Field(default=2000, ge=1, le=60_000)
 
-    @field_validator("capture_allowed_domains", mode="before")
+    @field_validator("capture_allowed_domains", "webhook_allowed_numbers", mode="before")
     @classmethod
     def _dominios_separados_por_coma(cls, value: Any) -> Any:
-        """Acepta ``a.com,b.com`` en el entorno además de una lista JSON."""
+        """Acepta ``a.com,b.com`` (o números E.164) en el entorno además de una lista JSON."""
 
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())

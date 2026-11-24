@@ -105,6 +105,12 @@ services:
       # escritura web y deja solo la CLI interna. `CONFIG_TOKEN` sigue siendo
       # un alias aceptado por Settings.
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
+      # Webhook firmado de mensajería en POST /api/webhooks/whatsapp (docs/webhooks.md).
+      # Sin secreto responde 404; la allowlist E.164 separada por comas vacía rechaza
+      # todos los remitentes. La app se publica por HTTP: sin TLS delante, el relé
+      # debe llegar por un túnel o una red privada (el HMAC no cifra el contenido).
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      WEBHOOK_ALLOWED_NUMBERS: ${WEBHOOK_ALLOWED_NUMBERS:-}
       # Captura web solo para operadores. El máximo por ejecución lo deriva
       # Settings de las semillas (24 por defecto); aquí solo se ajustan el
       # valor inicial, el tamaño y el timeout.

@@ -155,7 +155,11 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
 
 @cache
 def default_bridge() -> WhatsAppBridge:
-    """Puente real: servicio de chat, cotizaciones y cupo, construidos al primer mensaje."""
+    """Puente real: servicio de chat, cotizaciones, cupo y reintentos, al primer mensaje.
+
+    Lo comparten el servidor MCP y el webhook firmado (``apps.api.views.webhooks``): el
+    mismo número cae en el mismo ``owner_key`` por cualquiera de los dos canales.
+    """
 
     from apps.api import runtime
     from apps.api.chat.service import default_chat_service
@@ -175,6 +179,10 @@ def default_bridge() -> WhatsAppBridge:
         with factory() as session:
             record = SqlQuoteRepository(session).get(folio, owner_key)
             return None if record is None else dict(record.payload)
+
+    def turns(owner_key: str, client_turn_id: str) -> str | None:
+        with factory() as session:
+            return SqlChatRepository(session).find_turn_thread(owner_key, client_turn_id)
 
     def quota(owner_key: str) -> QuotaResult:
         with factory.begin() as session:
@@ -216,6 +224,7 @@ def default_bridge() -> WhatsAppBridge:
         secret=secret,
         quotes=quotes,
         quota=quota,
+        turns=turns,
         latest_quote=latest_quote,
         # Sin URL pública no hay a dónde enlazar: el chat no ofrece el PDF.
         pdf_link=pdf_link if base_url else None,

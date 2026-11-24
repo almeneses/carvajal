@@ -606,6 +606,8 @@ También puedes configurar las variables en la terminal:
 | `RAG_MIN_SCORE` | Umbral mínimo de similitud. | `0.30` |
 | `AGENT_CHECKPOINTER` | `postgres` o `sqlite` para la demo local. | `postgres` |
 | `OPERATOR_TOKEN` | Token compartido para carga y captura web; vacío deshabilita la escritura web. `CONFIG_TOKEN` es alias. | `""` |
+| `WEBHOOK_SECRET` | Secreto HMAC del webhook de mensajería (`POST /api/webhooks/whatsapp`); vacío lo deshabilita (404). Ver [`docs/webhooks.md`](docs/webhooks.md). | `""` |
+| `WEBHOOK_ALLOWED_NUMBERS` | Remitentes autorizados del webhook, E.164 separados por comas; vacía rechaza a todos (403). | `""` |
 | `CAPTURE_DEFAULT_URLS` | Valor inicial del máximo de URLs por captura. | `5` |
 | `CAPTURE_MAX_BYTES` | Tamaño máximo de una respuesta capturada. | `5000000` |
 | `CAPTURE_TIMEOUT_SECONDS` | Timeout por petición de la captura. | `30` |
@@ -697,6 +699,11 @@ despliegue, respaldos y rollback— está en
 | `GET /health` | Conteos de documentos/fragmentos, estado del catálogo comercial, estado de Qdrant y bloque `monitoring` (readiness). Un catálogo inválido se distingue de un índice ausente. | Sí |
 | `GET /api/health` | El mismo readiness en JSON para clientes automatizados. | Sí |
 
+El webhook de mensajería `POST /api/webhooks/whatsapp` atiende mensajes firmados con
+HMAC-SHA256 (timestamp con ventana de 5 minutos, allowlist E.164 e idempotencia por
+`message_id`) con el mismo turno que el servidor MCP de WhatsApp. Está apagado sin
+`WEBHOOK_SECRET`; contrato y ejemplos de firma en [`docs/webhooks.md`](docs/webhooks.md).
+
 ### Monitoreo con LangSmith (opcional)
 
 El agente puede enviar una traza por turno a [LangSmith](https://smith.langchain.com).
@@ -782,6 +789,7 @@ carvajal/
 - [`docs/prompts.md`](docs/prompts.md) - los tres prompts, las variantes probadas y qué se decidió.
 - [`docs/alcance.md`](docs/alcance.md) — alcance del Q&A: tipos de pregunta y cobertura real del corpus.
 - [`docs/arquitectura.md`](docs/arquitectura.md) — diagramas Mermaid del pipeline y del stack.
+- [`docs/webhooks.md`](docs/webhooks.md) — webhook firmado de mensajería: contrato, seguridad y cómo firmar.
 - [`docs/arquitectura.html`](docs/arquitectura.html) — diagrama interactivo (Archify), fuente en `docs/arquitectura.json`.
 - [`docs/informe.md`](docs/informe.md) — informe del proyecto (problema, solución, datos, modelado, resultados).
 - [`docs/presentacion.md`](docs/presentacion.md) — guion de la sustentación (15 min, sin PowerPoint).

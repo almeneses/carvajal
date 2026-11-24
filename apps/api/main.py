@@ -38,6 +38,7 @@ from apps.api.views import (
     documents,
     faq,
     stream,
+    webhooks,
 )
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
@@ -171,6 +172,21 @@ def _unhandled(request: Request, error: Exception) -> Response:
     return _message(request, 500, SERVICE_UNAVAILABLE)
 
 
+def _log_webhook_status(settings: Settings) -> None:
+    """Deja constancia del webhook de mensajería al arrancar, sin números ni secretos."""
+
+    if not settings.webhook_secret.strip():
+        return
+    allowed = len(webhooks.allowed_numbers(settings))
+    invalid = webhooks.invalid_allowlist_entries(settings)
+    if invalid:
+        logger.warning("webhook.allowlist_invalid_entries", invalid=invalid)
+    if allowed == 0:
+        logger.warning("webhook.allowlist_empty", reason="rejects_all_senders")
+    else:
+        logger.info("webhook.enabled", allowed_numbers=allowed)
+
+
 def create_app(handlers: Handlers | None = None) -> FastAPI:
     """Crea la aplicación; sin ``handlers`` usa los reales, diferidos al primer uso."""
 
@@ -196,6 +212,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
             reason=llm_blocker,
             detail=LLM_UNCONFIGURED_DETAIL.get(llm_blocker, llm_blocker),
         )
+    _log_webhook_status(settings)
     # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
     app.state.monitoring = monitoring_status(settings).enabled
     # Captura web: un registro por app para que las pruebas inyecten su runner.
@@ -220,6 +237,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         cotizador,
         cotizacion_pdf,
         catalogo_imagenes,
+        webhooks,
     ):
         app.include_router(module.router)
     app.include_router(faq.page_router)

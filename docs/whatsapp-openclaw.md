@@ -6,6 +6,10 @@ recibe los mensajes y llama a una sola herramienta MCP, `consultar_carvajal`, qu
 respaldo determinista, el tope de cotizaciones y los folios). OpenClaw no redacta datos:
 reenvía el texto que devuelve la herramienta.
 
+> Para un relé que no hable MCP (WhatsApp Business API, Twilio u otro), el mismo turno se
+> expone como webhook firmado en `POST /api/webhooks/whatsapp`: ver
+> [`webhooks.md`](webhooks.md).
+
 ```text
 WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel SSH ══► 127.0.0.1:8765 (VPS)
                 agente «ventas»                                       servicio mcp
