@@ -63,7 +63,8 @@ from carvajal.adapters.storage.chat import (
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
-from carvajal.agent.toolagent.state import TOOL_NAMES, TOOL_SIN_CONSULTA, UNKNOWN_TOOL
+from carvajal.agent.toolagent.state import UNKNOWN_TOOL
+from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, TOOL_NAMES
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
 from carvajal.application.errors import LLMError
 from carvajal.application.ports import Embedder, LLMProvider
@@ -1364,7 +1365,7 @@ def _has_evidence(obtained: ToolAgentFinal) -> bool:
     queried = any(
         r.get("status") == "ok"
         and r.get("tool") in TOOL_NAMES
-        and r.get("tool") != TOOL_SIN_CONSULTA
+        and r.get("tool") not in DECLARATION_TOOLS
         for r in obtained.results
     )
     return queried and (bool(obtained.sources) or has_cards(obtained.products))
@@ -1385,7 +1386,7 @@ def _monitored_results(
     no_query = False
     for result in results:
         name = str(result.get("tool") or "")
-        if name == TOOL_SIN_CONSULTA:
+        if name in DECLARATION_TOOLS:
             no_query = True
             continue
         monitored.append({**result, "tool": name if name in TOOL_NAMES else UNKNOWN_TOOL})

@@ -44,12 +44,10 @@ from carvajal.agent.toolagent.graph import (
     recursion_limit,
 )
 from carvajal.agent.toolagent.state import (
-    TOOL_BUSCAR_CORPUS,
     TOOL_COTIZAR,
-    TOOL_SIN_CONSULTA,
     validate_question,
 )
-from carvajal.agent.toolagent.tools import content_data
+from carvajal.agent.toolagent.tools import CORPUS_TOOLS, DECLARATION_TOOLS, content_data
 from carvajal.application.ask import Source
 from carvajal.application.ports import LLMProvider
 from carvajal.prompts import NO_CONTEXT_ANSWER
@@ -657,7 +655,7 @@ class _TurnStream:
         cities: list[str] = []
         asked = False
         for tool, data in self.tool_payloads:
-            if tool == TOOL_SIN_CONSULTA:
+            if tool in DECLARATION_TOOLS:
                 if data.get("status") == "ok" and data.get("motivo") == "pedir_dato":
                     asked = True
                     fields.extend(missing_fields(str(data.get("dato") or "")))
@@ -673,7 +671,7 @@ class _TurnStream:
                         sites.setdefault(site.get("n", len(sites)), site)
         parts = [sites_without_price(sites.values())]
         if corpus_miss and any(
-            tool == TOOL_BUSCAR_CORPUS and data.get("status") != "error"
+            tool in CORPUS_TOOLS and data.get("status") != "error"
             for tool, data in self.tool_payloads
         ):
             parts.append(NO_CONTEXT_ANSWER)
@@ -776,7 +774,7 @@ def _tool_backing(payloads: Sequence[tuple[str, Mapping[str, Any]]]) -> list[str
             default=str,
         )
         for tool, data in payloads
-        if tool != TOOL_SIN_CONSULTA
+        if tool not in DECLARATION_TOOLS
     ]
 
 
