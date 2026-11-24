@@ -61,6 +61,30 @@ total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *P
   una URL con IP. Sin dominio propio sirve `http://<ip-con-guiones>.sslip.io:8080`
   (p. ej. `http://203-0-113-10.sslip.io:8080`), que resuelve a esa misma IP.
 
+### PDF como documento adjunto (recomendado)
+
+Con `MEDIA_BASE_URL` (p. ej. `http://203.0.113.10:8080`, la IP del servidor), al pedir
+«PDF» la herramienta responde:
+
+```text
+📄 Te envío tu cotización #c0032295af55 en PDF (válida hasta el 1 dic 2026).
+ADJUNTAR_PDF: http://203.0.113.10:8080/cotizaciones/c0032295af55.pdf?t=<vence>.<firma>
+```
+
+OpenClaw descarga esa URL **desde el servidor** y la envía como documento, así que no
+depende de que el navegador del celular abra un enlace `http` (Safari lo fuerza a HTTPS).
+Para eso el agente «ventas» necesita la herramienta `message` (quítala de su `deny`) y
+esta regla en su `AGENTS.md`:
+
+```markdown
+- Si el resultado de consultar_carvajal trae una línea que empieza por "ADJUNTAR_PDF: ",
+  envía esa URL como documento al MISMO chat con la herramienta message (media = la URL,
+  sin texto), y responde al cliente el resto del texto SIN esa línea.
+- Nunca uses message para escribirle a otro chat o número.
+```
+
+Sin `MEDIA_BASE_URL`, el PDF se entrega como enlace con `PUBLIC_BASE_URL`.
+
 ## Fotos del catálogo
 
 Las fotos son opcionales y se versionan con el catálogo:

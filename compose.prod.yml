@@ -136,6 +136,9 @@ services:
       # URL pública de la web para los enlaces firmados al PDF de una cotización
       # (WhatsApp). Vacía: el canal no ofrece el PDF. Ej.: http://203.0.113.10:8080
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # URL desde la que OpenClaw descarga el PDF para adjuntarlo en WhatsApp (lado
+      # servidor; puede ser http con IP). Vacía: el PDF va como enlace.
+      MEDIA_BASE_URL: ${MEDIA_BASE_URL:-}
       # Token de operador para carga y captura web. Vacío deshabilita la
       # escritura web y deja solo la CLI interna. `CONFIG_TOKEN` sigue siendo
       # un alias aceptado por Settings.

@@ -45,6 +45,7 @@ from apps.api.quote_view import format_date, format_money, quote_view
 from apps.api.views import catalogo_imagenes
 from apps.api.views import cotizacion_pdf as cotizacion_pdf_view
 from apps.mcp.bridge import (
+    ATTACH_PDF_PREFIX,
     LIMIT_REACHED,
     NO_QUOTE_FOR_PDF,
     PDF_OFFER,
@@ -755,3 +756,45 @@ def test_split_token() -> None:
     assert split_token("1796136385.abc") == (1796136385, "abc")
     assert split_token("abc", 42) == (42, "abc")
     assert split_token("x.abc", 7) == (7, "x.abc")
+
+
+# --- PDF como documento adjunto (OpenClaw) -------------------------------------------------
+
+MEDIA = "http://198.51.100.7:8080"
+
+
+def _attachment(folio: str, owner: str, valid_until: date | None) -> str:
+    return pdf_url(MEDIA, folio, owner, link_expiry(valid_until, now=MOMENT), SECRET)
+
+
+def test_pdf_como_adjunto_devuelve_la_linea_para_openclaw() -> None:
+    payload = stamped()
+    bridge = WhatsAppBridge(
+        chat=FakeChat(),
+        secret=SECRET,
+        latest_quote=lambda owner: payload,
+        pdf_link=_links,
+        pdf_attachment=_attachment,
+    )
+
+    answer = bridge.consult("PDF", "+573100000000")
+
+    first, second = answer.split("\n")
+    assert first == "📄 Te envío tu cotización #Q-7F3A2C en PDF (válida hasta el 1 dic 2026)."
+    assert second.startswith(f"{ATTACH_PDF_PREFIX}{MEDIA}/cotizaciones/Q-7F3A2C.pdf?t=")
+    assert BASE not in answer  # el adjunto reemplaza al enlace público
+
+
+def test_solo_con_adjunto_tambien_se_ofrece_el_pdf() -> None:
+    payload = stamped()
+    chat = FakeChat(events=[ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]})])
+    bridge = WhatsAppBridge(
+        chat=chat,
+        secret=SECRET,
+        quotes=lambda folio, owner: payload,
+        latest_quote=lambda owner: payload,
+        pdf_attachment=_attachment,
+    )
+
+    assert bridge.consult("Cotiza", "+573100000000").endswith(PDF_OFFER)
+    assert ATTACH_PDF_PREFIX in bridge.consult("pdf", "+573100000000")

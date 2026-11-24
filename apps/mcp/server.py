@@ -232,8 +232,13 @@ def default_bridge() -> WhatsAppBridge:
     secret = settings.session_secret.encode("utf-8")
     base_url = settings.public_base_url.strip()
 
+    media_base = settings.media_base_url.strip()
+
     def pdf_link(folio: str, owner_key: str, valid_until: date | None) -> str:
         return pdf_url(base_url, folio, owner_key, link_expiry(valid_until), secret)
+
+    def pdf_attachment(folio: str, owner_key: str, valid_until: date | None) -> str:
+        return pdf_url(media_base, folio, owner_key, link_expiry(valid_until), secret)
 
     def photo_url(sku: str) -> str | None:
         # El manifiesto usa SKU simples; no se construye una URL que la ruta no
@@ -257,6 +262,8 @@ def default_bridge() -> WhatsAppBridge:
         latest_quote=latest_quote,
         # Sin URL pública no hay a dónde enlazar: el chat no ofrece el PDF.
         pdf_link=pdf_link if base_url else None,
+        # Con MEDIA_BASE_URL, OpenClaw adjunta el PDF como documento en vez de enlazarlo.
+        pdf_attachment=pdf_attachment if media_base else None,
         photo_url=photo_url if base_url else None,
         # Reserva compartida entre workers: un reintento en vuelo no repite el turno.
         deliveries=SqlDeliveryStore(factory),

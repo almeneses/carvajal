@@ -66,6 +66,7 @@ from carvajal.speech import (
 )
 
 __all__ = [
+    "ATTACH_PDF_PREFIX",
     "EMPTY_MESSAGE",
     "LIMIT_REACHED",
     "MAX_CHAT_ID_CHARS",
@@ -119,6 +120,8 @@ NO_QUOTE_FOR_PDF = (
 PDF_UNAVAILABLE = "Por ahora no puedo generar el PDF. Intenta de nuevo más tarde."
 # Para el relé, no para el cliente: el mismo mensaje se está atendiendo en otro intento.
 TURN_IN_PROGRESS = "El mensaje se está atendiendo; reintenta en unos segundos."
+ATTACH_PDF_PREFIX = "ADJUNTAR_PDF: "
+"""Línea que el agente de OpenClaw convierte en un documento adjunto (ver docs)."""
 
 
 class ChatTurns(Protocol):
@@ -587,6 +590,7 @@ class WhatsAppBridge:
     quota: Quota = _no_limit
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
+    pdf_attachment: PdfLink | None = None
     photo_url: PhotoUrl | None = None
     turns: TurnLookup | None = None
     deliveries: DeliveryStore | None = field(default_factory=InMemoryDeliveryStore)
@@ -814,7 +818,8 @@ class WhatsAppBridge:
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)
-        offer = bool(quotes) and self.pdf_link is not None and self._latest_view(owner) is not None
+        pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
+        offer = bool(quotes) and pdf_enabled and self._latest_view(owner) is not None
         if offer:
             blocks.append(PDF_OFFER)
         spoken: list[SpokenReply] = []
@@ -895,7 +900,7 @@ class WhatsAppBridge:
         fallo al leer la última cotización o al firmar el enlace es transitorio.
         """
 
-        if self.pdf_link is None or self.latest_quote is None:
+        if (self.pdf_link is None and self.pdf_attachment is None) or self.latest_quote is None:
             return BridgeReply(PDF_UNAVAILABLE), True
         try:
             payload = self.latest_quote(owner)
@@ -905,7 +910,22 @@ class WhatsAppBridge:
         view = quote_view(payload) if payload else None
         if view is None or not view.folio:
             return BridgeReply(NO_QUOTE_FOR_PDF), True
+        until = f" (válida hasta el {view.valid_until})" if view.valid_until else ""
+        # En voz, solo el final del folio; el PDF y su vigencia van por escrito.
+        said = (
+            "Te mando por escrito el PDF de tu cotización terminada en "
+            f"{speak_folio_tail(view.folio)}."
+        )
         try:
+            if self.pdf_attachment is not None:
+                # OpenClaw descarga la URL desde el servidor y la envía como documento:
+                # no depende de que el navegador del cliente abra un enlace http.
+                url = self.pdf_attachment(view.folio, owner, view.valid_until_date)
+                intro = f"📄 Te envío tu cotización #{view.folio} en PDF{until}."
+                text = f"{intro}\n{ATTACH_PDF_PREFIX}{url}"
+                logger.info("whatsapp.pdf_attachment", folio=view.folio)
+                return BridgeReply(text, spoken=SpokenReply(said)), True
+            assert self.pdf_link is not None
             url = self.pdf_link(view.folio, owner, view.valid_until_date)
         except Exception as error:
             logger.warning("whatsapp.pdf_link_failed", error=repr(error))
@@ -913,13 +933,7 @@ class WhatsAppBridge:
         logger.info("whatsapp.pdf_link", folio=view.folio)
         # El enlace va solo y al final, sin formato alrededor: así WhatsApp lo detecta
         # entero y se puede tocar desde el celular.
-        until = f" (válida hasta el {view.valid_until})" if view.valid_until else ""
         text = f"📄 Tu cotización #{view.folio} en PDF{until}. Ábrela aquí:\n\n{url}"
-        # En voz, solo el final del folio; el enlace y su vigencia van por escrito.
-        said = (
-            "Te mando por escrito el PDF de tu cotización terminada en "
-            f"{speak_folio_tail(view.folio)}."
-        )
         link = SpeechLink(f"Cotización {view.folio} en PDF", url)
         return BridgeReply(text, spoken=SpokenReply(said, (link,))), True
 
