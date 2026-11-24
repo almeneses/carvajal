@@ -847,3 +847,76 @@ def test_cli_simulate_chat_rechaza_argumentos_invalidos(
 
     # Assert
     assert code == 1
+
+
+def test_last_turn_tool_data_lee_solo_las_herramientas_del_ultimo_turno() -> None:
+    # Arrange
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from carvajal.agent.toolagent.simulation import last_turn_tool_data
+    from carvajal.agent.toolagent.tools import format_tool_content
+
+    viejo = format_tool_content("buscar_corpus", {"status": "ok", "texto": "1904"})
+    nuevo = format_tool_content(
+        "buscar_corpus", {"status": "ok", "message": "ignorar", "texto": "56.421 tCO2e"}
+    )
+    mensajes = [
+        HumanMessage("¿fundación?"),
+        ToolMessage(viejo, tool_call_id="a", name="buscar_corpus"),
+        AIMessage("1904"),
+        HumanMessage("¿emisiones?"),
+        ToolMessage(nuevo, tool_call_id="b", name="buscar_corpus"),
+        ToolMessage("x", tool_call_id="c", name="sin_consulta"),
+    ]
+
+    class _Estado:
+        def __init__(self) -> None:
+            self.values = {"messages": mensajes}
+
+    class _Grafo:
+        def get_state(self, config: dict) -> _Estado:
+            return _Estado()
+
+    # Act
+    datos = last_turn_tool_data(_Grafo(), "hilo")
+
+    # Assert
+    assert len(datos) == 1
+    assert "56.421" in datos[0]
+    assert "ignorar" not in datos[0]
+    assert "1904" not in datos[0]
+
+
+def test_last_turn_tool_data_espera_el_checkpoint_del_turno_actual() -> None:
+    # Arrange
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from carvajal.agent.toolagent.simulation import last_turn_tool_data
+    from carvajal.agent.toolagent.tools import format_tool_content
+
+    viejo = [
+        HumanMessage("¿fundación?"),
+        ToolMessage(format_tool_content("buscar_corpus", {"texto": "1904"}), tool_call_id="a"),
+    ]
+    nuevo = [
+        *viejo,
+        HumanMessage("¿emisiones?"),
+        ToolMessage(format_tool_content("buscar_corpus", {"texto": "938.989"}), tool_call_id="b"),
+    ]
+    lecturas = iter([viejo, viejo, nuevo])
+    esperas: list[float] = []
+
+    class _Estado:
+        def __init__(self, mensajes: list) -> None:
+            self.values = {"messages": mensajes}
+
+    class _Grafo:
+        def get_state(self, config: dict) -> _Estado:
+            return _Estado(next(lecturas))
+
+    # Act
+    datos = last_turn_tool_data(_Grafo(), "hilo", question="¿emisiones?", sleep=esperas.append)
+
+    # Assert
+    assert len(esperas) == 2
+    assert datos and "938.989" in datos[0]

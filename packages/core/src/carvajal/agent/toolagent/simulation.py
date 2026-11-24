@@ -29,6 +29,7 @@ La utilidad de las respuestas no se juzga aquí: cada transcripción deja ``judg
 ``None`` para el veredicto de los agentes revisores.
 """
 
+import contextlib
 import json
 import math
 import re
@@ -721,7 +722,15 @@ class ConversationSimulator:
         inner_tracer: TurnTracer | None = None,
         catalog: Catalog | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        tool_backing: Callable[[str, str], list[str]] | None = None,
     ) -> None:
+        # Resultados completos de las herramientas del último turno del hilo (lo que recibió
+        # el modelo). Sin ellos, el respaldo de «datos sin fuente» se limita a los extractos
+        # recortados de ``meta`` y marca como inventadas cifras que sí venían del corpus.
+        self._tool_backing = tool_backing
+        # Respaldo acumulado por hilo: en un seguimiento el modelo puede repetir cifras que
+        # una herramienta ya le dio en un turno anterior (siguen en su historial).
+        self._seen_backing: dict[str, list[str]] = {}
         self._factory = service_factory
         self._client = client
         self._inner_tracer = inner_tracer
@@ -875,6 +884,12 @@ class ConversationSimulator:
 
         said = [turn.message for turn in transcript.turns] + [record.message]
         backing = _source_texts(record.sources)
+        if self._tool_backing is not None and transcript.thread_id:
+            seen = self._seen_backing.setdefault(transcript.thread_id, [])
+            # El respaldo extra no debe tumbar la simulación.
+            with contextlib.suppress(Exception):
+                seen.extend(self._tool_backing(transcript.thread_id, record.message))
+            backing.extend(seen)
         if record.products:
             backing.append(json.dumps(record.products, ensure_ascii=False, default=str))
         record.unsupported_figures = unsupported_figures(record.answer, backing, ignore=said)
@@ -1193,7 +1208,62 @@ def build_real_simulator(settings: Any, *, client_chat: Any = None) -> Conversat
     def factory(tracer: RecordingTracer) -> ChatBackend:
         return ChatService(sessions, embedder, llm, tracer=tracer, settings=settings)
 
-    return ConversationSimulator(factory, SimulatedClient(chat), inner_tracer=inner)
+    def tool_backing(thread_id: str, question: str) -> list[str]:
+        graph = agent_runtime().tool_graph
+        if graph is None:
+            return []
+        return last_turn_tool_data(graph, thread_id, question=question)
+
+    return ConversationSimulator(
+        factory, SimulatedClient(chat), inner_tracer=inner, tool_backing=tool_backing
+    )
+
+
+def last_turn_tool_data(
+    graph: Any,
+    thread_id: str,
+    *,
+    question: str | None = None,
+    attempts: int = 30,
+    wait_s: float = 0.1,
+    sleep: Callable[[float], None] = time.sleep,
+) -> list[str]:
+    """Datos de los ``ToolMessage`` del último turno del hilo, sin ``message`` ni sin_consulta.
+
+    Es el mismo criterio que usa ``eval-agent`` para el respaldo de cifras: lo que la
+    herramienta devolvió al modelo, leído del checkpointer del grafo ``tools``. El grafo
+    escribe su último checkpoint en otro hilo y puede hacerlo después de que el servicio
+    emitió ``done``: con ``question`` se espera (hasta ``attempts`` lecturas) a que el
+    último ``HumanMessage`` del estado sea el de este turno, para no puntuar con el anterior.
+    """
+
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from carvajal.agent.toolagent.tools import content_data
+
+    messages: list[Any] = []
+    last_human = -1
+    for attempt in range(max(1, attempts)):
+        state = graph.get_state({"configurable": {"thread_id": thread_id}})
+        messages = list((state.values or {}).get("messages") or [])
+        humans = [i for i, m in enumerate(messages) if isinstance(m, HumanMessage)]
+        last_human = humans[-1] if humans else -1
+        current = str(messages[last_human].content).strip() if humans else ""
+        if question is None or current == question.strip():
+            break
+        if attempt + 1 < attempts:
+            sleep(wait_s)
+    else:
+        return []
+    out: list[str] = []
+    for message in messages[last_human + 1 :]:
+        if not isinstance(message, ToolMessage) or message.name == "sin_consulta":
+            continue
+        data = content_data(str(message.content))
+        if data:
+            data.pop("message", None)
+            out.append(json.dumps(data, ensure_ascii=False, default=str))
+    return out
 
 
 def runtime_mode() -> str:
