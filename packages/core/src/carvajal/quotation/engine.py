@@ -84,7 +84,11 @@ __all__ = [
     "OUT_OF_SCOPE",
     "QUOTE_VERSION",
     "UNITS",
+    "Conversion",
     "QuoteRequest",
+    "conversion",
+    "declared_sizes",
+    "published_presentations",
     "quote",
     "quote_request",
 ]
@@ -244,7 +248,7 @@ class _Conversion:
         }
 
 
-def _declared_sizes(product: Product, unit: str, dataset: Dataset) -> dict[int, list[str]]:
+def declared_sizes(product: Product, unit: str, dataset: Dataset) -> dict[int, list[str]]:
     """Tamaños que el catálogo y el contrato declaran para la presentación ``unit``.
 
     - Catálogo: ``units_per_pack`` es el paquete; ``units_per_box`` es la caja solo si la
@@ -284,14 +288,17 @@ def _declared_sizes(product: Product, unit: str, dataset: Dataset) -> dict[int, 
     return sizes
 
 
-def _conversion(
+def conversion(
     product: Product, quantity: int, unit: str | None, dataset: Dataset
 ) -> _Conversion | None:
-    """Conversión a unidades de la referencia; ``None`` si no se sabe con certeza."""
+    """Conversión a unidades de la referencia; ``None`` si no se sabe con certeza.
+
+    Pública desde la spec 045 (``convertir_presentacion`` la reutiliza sin duplicarla).
+    """
 
     if unit in (None, "unidad"):
         return _Conversion(quantity=quantity, unit="unidad", units_per=1, source="")
-    sizes = _declared_sizes(product, unit, dataset)
+    sizes = declared_sizes(product, unit, dataset)
     if len(sizes) != 1:
         return None
     [(size, sources)] = sizes.items()
@@ -885,9 +892,15 @@ def _named_reference(
     return _Named(reference, _asked_family(name, reference, request, catalog))
 
 
-def _published_presentations(product: Product, dataset: Dataset, city: str) -> list[str]:
+def published_presentations(
+    product: Product, dataset: Dataset, city: str | None = None
+) -> list[str]:
     """Presentación publicada de la referencia: la del nombre («paca x 200») o, si el nombre
-    no declara ninguna, las de sus ofertas en la ciudad («caja de 1000»)."""
+    no declara ninguna, las de sus ofertas en la ciudad («caja de 1000»).
+
+    Con ``city=None`` (spec 045, ``convertir_presentacion``, que no recibe ciudad) cuentan
+    las ofertas publicadas de todas las ciudades.
+    """
 
     found = [
         f"{_plain(match.group(1))} de {match.group(2)}"
@@ -899,9 +912,17 @@ def _published_presentations(product: Product, dataset: Dataset, city: str) -> l
         {
             f"{offer.basis} de {offer.units_in_basis}"
             for offer in dataset.offers_for(product.sku)
-            if offer.city == city
+            if city is None or offer.city == city
         }
     )
+
+
+# Alias privados de la 044: el motor y quien los importe siguen funcionando igual.
+_declared_sizes = declared_sizes
+_conversion = conversion
+_published_presentations = published_presentations
+# Conversión con certeza (cantidad, presentación, unidades por presentación y fuente).
+Conversion = _Conversion
 
 
 def _priced_cities(reference: Product, dataset: Dataset) -> list[str]:

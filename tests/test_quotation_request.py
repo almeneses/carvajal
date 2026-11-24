@@ -786,3 +786,71 @@ def test_la_referencia_nombrada_sin_conversion_la_nombra_con_su_presentacion() -
     assert "Portacomidas espumado P1" in resultado["reply"]
     assert "en unidades o en pacas" in resultado["reply"]
     assert "esas cajas" not in resultado["reply"]
+
+
+# --- Funciones públicas para convertir_presentacion (spec 045, T021) --------------------------
+
+
+def test_conversion_publica_de_cajas_a_unidades() -> None:
+    """3 cajas del CO-VTER-04 (20 paquetes de 50 = 1000 por caja) son 3000 unidades."""
+
+    # Arrange
+    from carvajal.quotation import engine
+
+    dataset = load_dataset(HOY.isoformat())
+    vaso = dataset.product("CO-VTER-04")
+    assert vaso is not None
+
+    # Act
+    converted = engine.conversion(vaso, 3, "caja", dataset)
+
+    # Assert
+    assert converted is not None
+    assert converted.units_per == 1000
+    assert converted.quantity * converted.units_per == 3000
+    assert engine.declared_sizes(vaso, "caja", dataset) == {1000: ["catálogo"]}
+
+
+def test_la_paca_del_nombre_contra_la_caja_del_contrato_no_se_convierte() -> None:
+    """Portacomidas J1: «paca x 200» en la ficha y «caja de 200» en el contrato."""
+
+    # Arrange
+    from carvajal.quotation import engine
+
+    dataset = load_dataset(HOY.isoformat())
+    j1 = dataset.product("CO-PCOM-J1")
+    assert j1 is not None
+
+    # Act / Assert
+    assert engine.declared_sizes(j1, "caja", dataset) == {}
+    assert engine.conversion(j1, 3, "caja", dataset) is None
+    assert engine.published_presentations(j1, dataset) == ["paca de 200"]
+
+
+def test_presentaciones_publicadas_sin_ciudad_cuentan_todas_las_ofertas() -> None:
+    # Arrange
+    from carvajal.quotation import engine
+
+    dataset = load_dataset(HOY.isoformat())
+    with_offers = next(
+        product
+        for product in (dataset.product(offer.sku) for offer in dataset.offers)
+        if product is not None and not engine._NAME_PRESENTATION.search(product.name)
+    )
+    cities = {offer.city for offer in dataset.offers_for(with_offers.sku)}
+
+    # Act
+    every = engine.published_presentations(with_offers, dataset)
+    per_city = [engine.published_presentations(with_offers, dataset, city) for city in cities]
+
+    # Assert
+    assert every
+    assert set(every) == {item for items in per_city for item in items}
+
+
+def test_los_alias_privados_de_la_044_siguen_vigentes() -> None:
+    from carvajal.quotation import engine
+
+    assert engine._declared_sizes is engine.declared_sizes
+    assert engine._conversion is engine.conversion
+    assert engine._published_presentations is engine.published_presentations
