@@ -14,9 +14,11 @@ hace el servicio de chat. Cubren:
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -44,7 +46,8 @@ from carvajal.quotation import QuoteRequest, quote_request
 
 SECRET = b"secreto-de-prueba"
 MOMENT = datetime(2026, 11, 24, 15, 0, tzinfo=UTC)
-BASE = "http://144.217.80.136:8080"
+BASE = "http://203.0.113.10:8080"
+REPO = Path(__file__).resolve().parents[1]
 
 
 def stamped(quantity: int = 450, folio: str = "Q-7F3A2C") -> dict[str, Any]:
@@ -226,6 +229,24 @@ def test_pdf_sin_cotizacion_previa() -> None:
     )
 
     assert bridge.consult("pdf", "+573100000000") == NO_QUOTE_FOR_PDF
+
+
+def test_el_servicio_mcp_recibe_la_url_publica() -> None:
+    """El enlace al PDF lo arma el proceso MCP: su contenedor debe recibir PUBLIC_BASE_URL.
+
+    ``mcp`` hereda el entorno de ``app`` con ``<<: *app-environment``; esta prueba evita
+    que un cambio en esa fusión deje a WhatsApp sin oferta de PDF en producción.
+    """
+
+    # Arrange
+    compose = yaml.safe_load((REPO / "compose.prod.yml").read_text())
+
+    # Act
+    services = compose["services"]
+
+    # Assert
+    for name in ("app", "mcp"):
+        assert services[name]["environment"]["PUBLIC_BASE_URL"] == "${PUBLIC_BASE_URL:-}"
 
 
 # --- enlaces -------------------------------------------------------------------------------

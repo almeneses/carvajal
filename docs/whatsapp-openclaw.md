@@ -48,7 +48,7 @@ total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *P
   `quotes`: logo de Carvajal, folio y fechas, producto, tabla de importes, total,
   vendedor, fuente del precio y nota legal. Los recursos están en `apps/api/pdf/`.
 - Para activarlo, define `PUBLIC_BASE_URL` en el `.env` del servidor
-  (`http://144.217.80.136:8080` en la demo). Sin ella, no se ofrece el PDF.
+  (p. ej. `http://203.0.113.10:8080`, con la IP del servidor). Sin ella, no se ofrece el PDF.
 
 ## 1. Activarlo en el VPS
 
@@ -100,7 +100,7 @@ After=network-online.target
 ExecStart=/usr/bin/ssh -NT -i %h/.ssh/ovh_tunnel -p 2422 \
   -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
   -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new \
-  -L 127.0.0.1:8765:127.0.0.1:8765 deploy@144.217.80.136
+  -L 127.0.0.1:8765:127.0.0.1:8765 deploy@203.0.113.10
 Restart=always
 RestartSec=5
 

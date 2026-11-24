@@ -4,7 +4,7 @@
 
 ## Antes del despliegue de la 037 (medido el 2026-11-18)
 
-Producción en `144.217.80.136` (`/opt/carvajal`, `compose.prod.yml`):
+Producción en `203.0.113.10` (`/opt/carvajal`, `compose.prod.yml`):
 
 | Dato | Valor |
 |---|---|
