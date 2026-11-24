@@ -305,6 +305,14 @@ falla antes de tocar la base. En una actualización desde la 042 siembra
 migración `0009 → 0010` y conserva Gold, conversaciones, mensajes y
 cotizaciones.
 
+`deploy.sh` hace la misma siembra del aprovisionamiento comercial en cada
+despliegue: copia al volumen los archivos de `catalog/` y `commercial/` que
+falten en `/app/seed-data` (nunca pisa los existentes), compara la versión con
+`EXPECTED_COMMERCIAL_VERSION` y ejecuta `python -m carvajal.commercial validar`
+antes de migrar. Si algo falla, se detiene sin tocar la versión en marcha. No
+reindexa: el bootstrap completo solo hace falta en un servidor limpio o si
+cambia el corpus.
+
 `/health` publica la versión y los conteos que debe ver el despliegue:
 
 ```bash
@@ -603,14 +611,13 @@ Actualización desde la 042:
 cd /opt/carvajal
 # 1. Respalda base y cargas antes de migrar.
 ./backup.sh
-# 2. Cambia la imagen y aplica el bootstrap (migración 0010 y siembra).
+# 2. Despliega: deploy.sh siembra el catálogo que falte, lo valida y migra.
 IMAGE_REPO=ghcr.io/almeneses/carvajal-api bash deploy.sh sha-<tag-043>
-docker compose -f compose.prod.yml --profile bootstrap run --rm bootstrap
 # 3. Verifica versión, conteos y rutas.
 curl -fsS http://127.0.0.1:8080/health | python -m json.tool
 ```
 
-El bootstrap conserva los volúmenes; no uses `-v`. Después del arranque,
+El despliegue conserva los volúmenes; no uses `-v`. Después del arranque,
 ejecuta `tests/browser/arranque_043.cjs` como se describe en la sección 6 y
 confirma que las conversaciones y cotizaciones anteriores siguen abriendo con
 su identidad.
@@ -698,6 +705,8 @@ pon `FORWARDED_ALLOW_IPS=127.0.0.1` y emite el certificado con
 | `Falta /opt/carvajal/.env` | No se creó el `.env` | Sección 2 |
 | `denied` al hacer `docker compose pull` | Falta login a GHCR | Sección 3 |
 | `http://IP:8080` no responde | Firewall de OVH o puerto ocupado | Abre 8080 en OVH; `sudo ss -tulpn \| grep ':8080'` |
+| El despliegue hace rollback con `"catalog":{"status":"invalid"}` en `/health` | Al volumen `appdata` le falta el aprovisionamiento comercial (versiones de `deploy.sh` anteriores al 2026-11-24 no lo sembraban) | Despliega con el `deploy.sh` actual; a mano: `APP_IMAGE=<imagen nueva> docker compose -f compose.prod.yml run --rm --no-deps app sh -c 'cp -Rn /app/seed-data/catalog /app/seed-data/commercial /app/data/'` y relanza el workflow |
+| `El aprovisionamiento comercial no es válido; no se despliega.` | La versión del catálogo no coincide con `EXPECTED_COMMERCIAL_VERSION` o un archivo del volumen está desactualizado | Revisa la salida de la siembra; la siembra no pisa archivos, así que un archivo viejo del volumen hay que actualizarlo a mano |
 | `/health` con `"status":"missing"` | Qdrant sin colección | Sección 6 |
 | `model not found` | Falta el modelo de embeddings | `docker compose exec ollama ollama pull nomic-embed-text` |
 | El despliegue falla en migraciones | Migración incompatible o base caída | `logs db` y `logs app`; el tag anterior sigue activo |
