@@ -188,6 +188,8 @@ def test_no_son_pedidos_de_pdf(message: str) -> None:
         "em pe de efe",
         "sí, mándame el pe de fe",
         "el pe de e\u0444e",  # «ф» cirílica que a veces devuelve el STT
+        "M P D F",  # letras sueltas: la primera sustitución deja espacios dobles
+        "em p d f",
     ],
 )
 def test_pedidos_de_pdf_por_voz_aceptan_lo_que_oye_el_stt(message: str) -> None:

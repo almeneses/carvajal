@@ -252,8 +252,17 @@ def _trim_url(url: str) -> str:
 _NUMBER = r"\d+(?:[.,]\d+)*"
 # El punto de una abreviatura se consume solo si la frase sigue; si no, cierra la frase.
 _ABBR_DOT = r"(?:\.(?=\s*[),;:]|(?-i:\s+[a-záéíóúñ0-9])))?"
+# Importe con signo: miles con punto y centavos con coma (``$1.234.500,50``, como los
+# formatea el proyecto), miles con coma y centavos con punto (``$1,234,500.50``, como a
+# veces los escribe el modelo) o sin separador de miles (``$500``, ``$12,50``). Si sigue
+# otro dígito o separador con dígito, la cifra no encaja en ninguna forma y queda tal cual:
+# nunca se parte un importe en dos.
 _PRICE = re.compile(
-    r"(?:\bCOP\s*)?\$\s?(?P<amount>\d{1,3}(?:\.\d{3})+|\d+)(?:,(?P<cents>\d{1,2}))?"
+    r"(?:\bCOP\s*)?\$\s?(?:"
+    r"(?P<dotted>\d{1,3}(?:\.\d{3})+)(?:,(?P<dotted_cents>\d{1,2}))?"
+    r"|(?P<commas>\d{1,3}(?:,\d{3})+)(?:\.(?P<commas_cents>\d{1,2}))?"
+    r"|(?P<plain>\d+)(?:[.,](?P<plain_cents>\d{1,2}))?"
+    r")(?!\d|[.,]\d)"
     r"(?:\s?(?P<currency>COP|USD|MXN)\b)?"
 )
 _BARE_CURRENCY = re.compile(r"\b(?P<amount>\d{1,3}(?:\.\d{3})+|\d+)\s?(?P<currency>COP|USD|MXN)\b")
@@ -345,8 +354,15 @@ def _plural(count: str, forms: tuple[str, str]) -> str:
 def _money(text: str) -> str:
     def price(match: re.Match[str]) -> str:
         word = _CURRENCY_WORDS.get((match["currency"] or "COP").upper(), "pesos")
-        cents = match["cents"]
-        spoken = f"{match['amount']} {word}"
+        if match["commas"]:
+            # Miles con coma: se dicen con punto, como el resto de las cifras en español
+            # (la voz leería «1,234» como «uno coma dos tres cuatro»). Mismos dígitos.
+            amount, cents = match["commas"].replace(",", "."), match["commas_cents"]
+        elif match["dotted"]:
+            amount, cents = match["dotted"], match["dotted_cents"]
+        else:
+            amount, cents = match["plain"], match["plain_cents"]
+        spoken = f"{amount} {word}"
         if cents and cents.strip("0"):
             spoken += f" con {cents.ljust(2, '0').lstrip('0')} centavos"
         return spoken

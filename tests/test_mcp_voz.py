@@ -197,6 +197,20 @@ def test_spoken_quote_dice_el_iva_y_el_envio(changes: dict[str, Any], expected: 
     assert expected in spoken.text
 
 
+def test_el_envio_de_una_cotizacion_en_mxn_se_dice_en_su_moneda() -> None:
+    # Arrange
+    primary = {**QUOTE["primary"], "currency": "MXN"}
+    view = quote_view({**QUOTE, "primary": primary, "commercial": {"shipping": {"cost": 150}}})
+    assert view is not None
+
+    # Act
+    spoken = spoken_quote(view)
+
+    # Assert: el total y el envío, los dos en pesos mexicanos.
+    assert "por un total de 370.000 pesos mexicanos" in spoken.text
+    assert "El envío cuesta 150 pesos mexicanos." in spoken.text
+
+
 def test_cotizacion_con_total_pendiente_lo_dice() -> None:
     # Arrange
     payload = {**QUOTE, "total": None, "pending_lines": ["Falta el costo de envío"]}

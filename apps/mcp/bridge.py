@@ -351,9 +351,11 @@ def is_pdf_request(message: str, *, spoken: bool = False) -> bool:
     """
 
     folded = _fold(message)
-    folded = _PDF_TYPED.sub(" pdf ", folded)
+    # Cada sustitución deja espacios dobles; se colapsan para que la siguiente vea «m pdf»
+    # (de «M P D F» o «em p d f») y no «m  pdf», que no casaría.
+    folded = " ".join(_PDF_TYPED.sub(" pdf ", folded).split())
     if spoken:
-        folded = _PDF_SPOKEN.sub(" pdf ", folded)
+        folded = " ".join(_PDF_SPOKEN.sub(" pdf ", folded).split())
     words = _PDF_WORDS.findall(folded)
     return "pdf" in words and len(words) <= 8 and all(word in _PDF_FILLER for word in words)
 
@@ -423,8 +425,13 @@ def _spoken_tax(tax: str) -> str:
     return ""
 
 
-def _spoken_shipping(shipping: str) -> str:
+def _spoken_shipping(shipping: str, currency: str) -> str:
+    """El envío en una frase, con la moneda de la cotización (no siempre pesos)."""
+
     if shipping.startswith("$"):
+        return f"El envío cuesta {shipping} {currency}."
+    if shipping[:1].isdigit():
+        # Moneda sin signo: ``format_money`` ya la escribe detrás («1.234 EUR»).
         return f"El envío cuesta {shipping}."
     lowered = shipping.lower()
     if lowered == "gratis":
@@ -470,7 +477,7 @@ def spoken_quote(view: QuoteView, photo_url: str | None = None) -> SpokenReply:
         sentences.append(f"{head}.")
         pending = f": {view.pending[0].rstrip('.')}" if view.pending else ""
         sentences.append(f"El total está pendiente{pending}.")
-    shipping = _spoken_shipping(view.shipping)
+    shipping = _spoken_shipping(view.shipping, view.currency)
     if shipping:
         sentences.append(shipping)
     if view.warning and len(view.warning) <= _SPOKEN_WARNING_CHARS:

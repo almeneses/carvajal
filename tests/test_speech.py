@@ -172,6 +172,12 @@ def test_unidades_y_abreviaturas_en_palabras(text: str, expected: str) -> None:
         ("Son 370.000 COP", "Son 370.000 pesos."),
         ("Precio: $12,50 USD", "Precio: 12 dólares con 50 centavos."),
         ("Precio: $185.000,00", "Precio: 185.000 pesos."),
+        # Miles con coma, como a veces los escribe el modelo: mismos dígitos, sin partir.
+        ("El total es $1,234,500.", "El total es 1.234.500 pesos."),
+        ("$1,234.50 USD", "1.234 dólares con 50 centavos."),
+        ("Precio: $12.50 USD", "Precio: 12 dólares con 50 centavos."),
+        # Una cifra que no encaja en ninguna forma se deja tal cual.
+        ("Código $1.234,5678", "Código $1.234,5678."),
     ],
 )
 def test_importes_conservan_los_digitos(text: str, expected: str) -> None:
@@ -180,6 +186,18 @@ def test_importes_conservan_los_digitos(text: str, expected: str) -> None:
 
     # Assert
     assert spoken.text == expected
+
+
+@pytest.mark.parametrize("amount", ["$1,234,500", "$1.234.500", "$1,234.50", "$12,50"])
+def test_un_importe_nunca_se_parte_ni_cambia_sus_digitos(amount: str) -> None:
+    # Act
+    spoken = to_speech(f"El total es {amount} hoy.").text
+
+    # Assert: los dígitos salen en el mismo orden y sin «centavos» a medias.
+    digits = "".join(character for character in spoken if character.isdigit())
+    assert digits == "".join(character for character in amount if character.isdigit())
+    assert "centavos" not in spoken or spoken.count("centavos") == 1
+    assert "$" not in spoken
 
 
 def test_speak_money() -> None:
