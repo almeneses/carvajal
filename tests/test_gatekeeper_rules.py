@@ -63,6 +63,7 @@ def test_el_seguimiento_comercial_va_a_las_estructuradas() -> None:
         "Cotízame 500 vasos en Cali",
         "quiubo pues, todo bien?",
         "Hola Ana",
+        "Hola de nuevo",
         "Buenas, necesito 500 vasos",
         "Saludos desde Cali",
         "¿Qué más?",
