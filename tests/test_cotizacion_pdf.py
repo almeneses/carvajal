@@ -295,6 +295,57 @@ def test_pdf_sin_cotizacion_previa() -> None:
     assert bridge.consult("pdf", "+573100000000") == NO_QUOTE_FOR_PDF
 
 
+def test_reintento_del_pedido_de_pdf_devuelve_el_mismo_enlace_sin_cobrar_de_nuevo() -> None:
+    # Arrange
+    payload = stamped()
+    chat = FakeChat()
+    charged: list[str] = []
+    asked: list[str] = []
+
+    def latest(owner: str) -> Mapping[str, Any]:
+        asked.append(owner)
+        return payload
+
+    def quota(owner: str) -> QuotaResult:
+        charged.append(owner)
+        return QuotaResult(allowed=True)
+
+    bridge = WhatsAppBridge(
+        chat=chat, secret=SECRET, latest_quote=latest, pdf_link=_links, quota=quota
+    )
+
+    # Act
+    first = bridge.respond("PDF", "+573100000000", client_turn_id="wh-pdf-1")
+    second = bridge.respond("PDF", "+573100000000", client_turn_id="wh-pdf-1")
+
+    # Assert
+    assert first.text.startswith("📄 Aquí está tu cotización #Q-7F3A2C en PDF:")
+    assert second == first
+    assert len(charged) == 1 and len(asked) == 1
+    assert chat.calls == []
+
+
+def test_si_no_se_pudo_generar_el_pdf_el_reintento_lo_vuelve_a_intentar() -> None:
+    # Arrange
+    payload = stamped()
+    failures = [RuntimeError("base")]
+
+    def latest(owner: str) -> Mapping[str, Any]:
+        if failures:
+            raise failures.pop()
+        return payload
+
+    bridge = WhatsAppBridge(chat=FakeChat(), secret=SECRET, latest_quote=latest, pdf_link=_links)
+
+    # Act
+    first = bridge.respond("PDF", "+573100000000", client_turn_id="wh-pdf-2")
+    second = bridge.respond("PDF", "+573100000000", client_turn_id="wh-pdf-2")
+
+    # Assert
+    assert first.text == PDF_UNAVAILABLE
+    assert second.text.startswith("📄 Aquí está tu cotización #Q-7F3A2C en PDF:")
+
+
 def test_el_servicio_mcp_recibe_la_url_publica() -> None:
     """El enlace al PDF lo arma el proceso MCP: su contenedor debe recibir PUBLIC_BASE_URL.
 

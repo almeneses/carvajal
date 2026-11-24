@@ -1,5 +1,6 @@
 """Configuración tipada del pipeline, leída del entorno y de ``.env``."""
 
+import json
 from logging import getLevelNamesMapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -153,9 +154,9 @@ class Settings(BaseSettings):
 
     # Webhook firmado de mensajería (``POST /api/webhooks/whatsapp``, docs/webhooks.md).
     # Sin WEBHOOK_SECRET el endpoint no existe (404). La allowlist es una lista E.164
-    # separada por comas; vacía rechaza todo. Se guarda tal cual y se normaliza al usarla:
-    # una entrada inválida se descarta con un aviso en vez de tumbar la app (y sin que el
-    # error de validación repita los números en los logs).
+    # separada por comas o una lista JSON; vacía rechaza todo. Se guarda tal cual y se
+    # normaliza al usarla: una entrada inválida se descarta con un aviso en vez de tumbar
+    # la app (y sin que el error de validación repita los números en los logs).
     webhook_secret: str = Field(default="", repr=False)
     webhook_allowed_numbers: Annotated[tuple[str, ...], NoDecode] = Field(default=(), repr=False)
 
@@ -254,10 +255,24 @@ class Settings(BaseSettings):
     @field_validator("capture_allowed_domains", "webhook_allowed_numbers", mode="before")
     @classmethod
     def _dominios_separados_por_coma(cls, value: Any) -> Any:
-        """Acepta ``a.com,b.com`` (o números E.164) en el entorno además de una lista JSON."""
+        """Acepta ``a.com,b.com`` (o números E.164) en el entorno además de una lista JSON.
+
+        Con ``NoDecode`` el valor llega crudo: un texto que empieza por ``[`` se lee como
+        JSON antes de partirlo por comas. Si no es una lista JSON válida se parte por comas
+        y las entradas inválidas se descartan con un aviso al usarlas, sin tumbar la app.
+        """
 
         if isinstance(value, str):
-            return tuple(part.strip() for part in value.split(",") if part.strip())
+            raw = value.strip()
+            if raw.startswith("["):
+                try:
+                    parsed = json.loads(raw)
+                except ValueError:
+                    parsed = None
+                if isinstance(parsed, list):
+                    items = (str(item).strip() for item in parsed if item is not None)
+                    return tuple(item for item in items if item)
+            return tuple(part.strip() for part in raw.split(",") if part.strip())
         return value
 
     @field_validator("log_level")

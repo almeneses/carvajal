@@ -37,6 +37,7 @@ __all__ = [
     "quotes",
     "usage_day",
     "visitor_memory",
+    "webhook_deliveries",
 ]
 
 metadata = MetaData()
@@ -255,3 +256,21 @@ quotes = Table(
 )
 
 Index("ix_quotes_owner_created", quotes.c.owner_key, quotes.c.created_at.desc())
+
+# Entregas del webhook de mensajería: reserva atómica por ``message_id`` antes de abrir
+# hilo, cobrar cupo o llamar al LLM. ``delivery_id`` es el ``client_turn_id`` derivado del
+# ``message_id``. ``reply`` solo guarda las respuestas cortas que no dejan turno (nueva
+# conversación sin texto, cupo agotado); el texto de un turno vive en ``messages``.
+webhook_deliveries = Table(
+    "webhook_deliveries",
+    metadata,
+    Column("owner_key", Text, primary_key=True),
+    Column("delivery_id", String(64), primary_key=True),
+    Column("status", String(16), nullable=False),
+    Column("reply", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("status IN ('pending', 'done')", name="ck_webhook_deliveries_status"),
+)
+
+Index("ix_webhook_deliveries_updated", webhook_deliveries.c.updated_at)

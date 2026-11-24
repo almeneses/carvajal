@@ -15,8 +15,12 @@ Seguridad, en el orden en que se comprueba (nada se procesa antes de la firma):
    de lo firmado para que una petición capturada no se pueda refrescar.
 5. Esquema Pydantic (422, sin eco del cuerpo) y remitente en ``WEBHOOK_ALLOWED_NUMBERS``
    tras normalizar a E.164 (403; vacía rechaza todo).
-6. Idempotencia: ``message_id`` se convierte en el ``client_turn_id`` del turno, así un
-   reintento reemite la misma respuesta sin duplicar turnos, cupo ni folios.
+6. Idempotencia: ``message_id`` se convierte en el ``client_turn_id`` del turno y se
+   reserva de forma atómica antes de abrir hilo, cobrar cupo o llamar al LLM
+   (``webhook_deliveries``). Un reintento que llega con el primer intento en curso recibe
+   409 con ``Retry-After`` y no tiene efectos; uno posterior, o la misma petición firmada
+   reenviada dentro de la ventana, reemite la misma respuesta sin duplicar turnos, cupo
+   ni folios.
 
 El número nunca se registra en claro: los logs llevan el ``owner_key`` que ata el puente.
 """
@@ -32,15 +36,22 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from apps.mcp.bridge import MAX_MESSAGE_CHARS, SERVICE_UNAVAILABLE, WhatsAppBridge
+from apps.mcp.bridge import (
+    MAX_MESSAGE_CHARS,
+    SERVICE_UNAVAILABLE,
+    TURN_IN_PROGRESS,
+    WhatsAppBridge,
+)
 from carvajal.domain.phone import normalize_e164
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
     "MAX_BODY_BYTES",
     "MAX_SKEW_SECONDS",
+    "RETRY_AFTER_SECONDS",
     "SIGNATURE_HEADER",
     "TIMESTAMP_HEADER",
+    "TURN_IN_PROGRESS",
     "WhatsAppMessage",
     "WhatsAppReply",
     "allowed_numbers",
@@ -57,6 +68,8 @@ SIGNATURE_HEADER: Final = "X-Carvajal-Signature"
 TIMESTAMP_HEADER: Final = "X-Carvajal-Timestamp"
 SIGNATURE_PREFIX: Final = "sha256="
 MAX_SKEW_SECONDS: Final = 300
+# Pausa sugerida al relé cuando el mismo ``message_id`` se está atendiendo (409).
+RETRY_AFTER_SECONDS: Final = 5
 # Un mensaje de 2 000 caracteres escapados en JSON (\uXXXX) cabe con holgura.
 MAX_BODY_BYTES: Final = 16 * 1024
 MAX_MESSAGE_ID_CHARS: Final = 200
@@ -228,5 +241,12 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
             client_turn_id=turn_id,
         )
     )
+    if reply.in_progress:
+        logger.info("webhook.turn_in_progress", channel="whatsapp")
+        return JSONResponse(
+            {"detail": TURN_IN_PROGRESS},
+            status_code=409,
+            headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+        )
     payload = WhatsAppReply(reply=reply.text, quote_ids=list(reply.quote_ids))
     return JSONResponse(payload.model_dump())

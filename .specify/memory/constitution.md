@@ -154,7 +154,7 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 
 - Python 3.13+, monorepo `uv` con el paquete en `packages/core/src/carvajal` (src-layout).
 - API FastAPI + Jinja2 + HTMX; sin framework de JavaScript en el cliente.
-- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0007).
+- Persistencia Postgres 16 con SQLAlchemy Core y migraciones Alembic (0001–0011).
 - Vectores en Qdrant: 768 dimensiones, métrica coseno e IDs UUID5 estables.
 - Agente LangGraph con `PostgresSaver` y `PostgresStore`, en dos modos elegidos con
   `AGENT_MODE`: `tools` (spec 044, valor por defecto: el modelo encadena consultas tipadas y

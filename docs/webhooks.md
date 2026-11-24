@@ -4,7 +4,8 @@
 propio y responde en el mismo cuerpo HTTP. Ejecuta **el mismo turno** que el servidor MCP
 de [WhatsApp con OpenClaw](whatsapp-openclaw.md) (`apps.mcp.bridge.WhatsAppBridge`):
 el `owner_key` es un HMAC del número, el texto sale en formato de WhatsApp, las cotizaciones
-se redactan como texto con su folio y cualquier fallo devuelve un mensaje legible.
+se redactan como texto con su folio (y, con `PUBLIC_BASE_URL`, ofrecen el PDF) y cualquier
+fallo devuelve un mensaje legible.
 
 Cubre el requisito «Backend/API (FastAPI o equivalente) con webhooks y persistencia»: el
 turno se guarda en Postgres (conversaciones, mensajes, cotizaciones) y la memoria del agente
@@ -23,8 +24,9 @@ En el `.env` (local o `/opt/carvajal/.env` del servidor):
 ```bash
 # Sin secreto el endpoint responde 404.
 WEBHOOK_SECRET=<python -c "import secrets; print(secrets.token_urlsafe(32))">
-# E.164 separados por comas. Vacía = rechaza a todos (403).
+# E.164 separados por comas (o una lista JSON). Vacía = rechaza a todos (403).
 WEBHOOK_ALLOWED_NUMBERS=+573100000000,+573110000000
+# Equivale a: WEBHOOK_ALLOWED_NUMBERS=["+573100000000","+573110000000"]
 ```
 
 `SESSION_SECRET` también debe estar definido: firma el `owner_key` de cada número (en
@@ -33,7 +35,8 @@ el servidor MCP. Al arrancar, la app registra `webhook.enabled` con el número d
 autorizadas, o `webhook.allowlist_empty` / `webhook.allowlist_invalid_entries`, sin
 mostrar ningún número.
 
-> ⚠️ La demo se publica por HTTP sin TLS. La firma impide falsificar o repetir peticiones,
+> ⚠️ La demo se publica por HTTP sin TLS. La firma impide falsificar peticiones y la
+> reserva por `message_id` impide que una petición capturada y reenviada repita efectos,
 > pero **no cifra** el mensaje: mientras no haya un proxy TLS delante, el relé debe llegar
 > por un túnel SSH o una red privada.
 
@@ -72,6 +75,12 @@ serializar el JSON en el emisor después de firmar invalida la firma.
 
 Envía `reply` al cliente tal cual. `quote_ids` son los folios de las cotizaciones emitidas.
 
+**PDF de la cotización.** Igual que por MCP: si `PUBLIC_BASE_URL` está configurada, la
+respuesta con una cotización termina con la oferta del PDF, y un mensaje como `PDF` o
+`sí, el PDF` devuelve en `reply` el enlace firmado a la última cotización de la
+conversación activa (`GET /cotizaciones/{folio}.pdf`), sin llamar al agente pero cobrando
+el cupo diario; `quote_ids` va vacío porque no se emite cotización nueva.
+
 **Errores** (siempre `{"detail": "…"}` en JSON, sin eco del cuerpo ni del número)
 
 | Código | Causa |
@@ -81,16 +90,33 @@ Envía `reply` al cliente tal cual. `quote_ids` son los folios de las cotizacion
 | 401 | Falta el timestamp, está fuera de la ventana o la firma no coincide. |
 | 422 | El cuerpo no es JSON o no cumple el esquema (por ejemplo, `from` sin `+`). |
 | 403 | El remitente no está en `WEBHOOK_ALLOWED_NUMBERS`. No se procesa nada. |
+| 409 | Ese `message_id` se está atendiendo en otro intento. Trae `Retry-After: 5`; reintenta con el mismo `message_id`. |
 | 503 | No se pudo preparar el turno (por ejemplo, falta `SESSION_SECRET`). |
 
 ## Reintentos e idempotencia
 
-`message_id` se convierte en el `client_turn_id` del turno (`wh_` + SHA-256 truncado). Si
-el relé reintenta el mismo mensaje, el servidor encuentra el turno guardado del remitente y
-**reemite la misma respuesta y los mismos folios**: no llama al agente, no cobra cupo, no
-abre otra conversación aunque llegue con `nueva: true` y no emite folios nuevos. Si dos
-entregas del mismo mensaje llegan a la vez, la base sigue sin duplicar el turno (índice
-único por `client_turn_id`), aunque ambas puedan ejecutar el agente.
+`message_id` se convierte en el `client_turn_id` del turno (`wh_` + SHA-256 truncado) y se
+**reserva de forma atómica** en `webhook_deliveries` (`INSERT … ON CONFLICT DO NOTHING`
+sobre `(owner_key, client_turn_id)`) antes de abrir conversación, cobrar cupo o llamar al
+agente:
+
+- **Reintento con el primer intento en curso** (el turno tarda más que el timeout del
+  relé): responde **409** con `Retry-After` y no tiene ningún efecto. Vale también entre
+  workers distintos.
+- **Reintento después**: el servidor encuentra el turno guardado del remitente y
+  **reemite la misma respuesta y los mismos folios**: no llama al agente, no cobra cupo, no
+  abre otra conversación aunque llegue con `nueva: true` y no emite folios nuevos.
+- **Mensaje sin turno** (`nueva: true` con texto vacío, cupo agotado, pedido del PDF): la
+  repetición devuelve la misma respuesta corta (o el mismo enlace al PDF) sin volver a
+  abrir hilo ni cobrar. La misma petición
+  firmada reenviada dentro de la ventana de ±5 minutos tampoco repite efectos.
+- **Fallo** (`SERVICE_UNAVAILABLE`, o no se pudo generar el PDF): la reserva se libera y
+  el reintento vuelve a intentar.
+
+Una reserva pendiente de más de 10 minutos (proceso caído a mitad de turno) la toma el
+siguiente intento. Las filas se purgan al día. Solo guardan el `owner_key`, el
+`client_turn_id`, el estado y, sin turno, la respuesta corta (texto fijo o el enlace
+firmado al PDF, que caduca solo); nunca el número ni el texto del cliente.
 
 ## Privacidad
 
@@ -152,11 +178,14 @@ curl -sS -X POST http://127.0.0.1:8000/api/webhooks/whatsapp \
 
 Usa `--data-binary` (no `-d`) para que curl envíe el cuerpo sin tocarlo. El turno puede
 tardar hasta `AGENT_TURN_TIMEOUT_S` (45 s por defecto): configura el relé con un plazo
-mayor o reintenta con el mismo `message_id`, que no duplica nada.
+mayor o reintenta con el mismo `message_id`, que no duplica nada (un 409 indica que el
+primer intento sigue en curso).
 
 ## Pruebas
 
 `tests/test_webhooks.py` cubre, sin red ni LLM: endpoint deshabilitado, firma inválida o
 malformada, cuerpo alterado, timestamp viejo o futuro, número fuera de la allowlist o
-allowlist vacía, cuerpo inválido o demasiado grande, éxito con el puente falso y la
-idempotencia extremo a extremo con `ChatService` sobre SQLite.
+allowlist vacía, cuerpo inválido o demasiado grande, éxito con el puente falso, la
+idempotencia extremo a extremo con `ChatService` sobre SQLite y los reintentos concurrentes
+(reentrantes y con dos hilos). `tests/test_webhook_deliveries.py` prueba la reserva en
+memoria y en SQL, y contra Postgres real con intentos simultáneos (`integration`).

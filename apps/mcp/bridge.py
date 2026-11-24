@@ -18,13 +18,19 @@ texto listo para WhatsApp.
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
 - **Reintentos**: :meth:`WhatsAppBridge.respond` acepta un ``client_turn_id`` (el webhook
   lo deriva del ``message_id``). Si el dueño ya tiene ese turno guardado, el servicio lo
-  reemite sin cobrar cupo, sin abrir hilo nuevo y sin emitir otros folios.
+  reemite sin cobrar cupo, sin abrir hilo nuevo y sin emitir otros folios. Si no, el
+  ``client_turn_id`` se reserva de forma atómica (:mod:`carvajal.application.deliveries`)
+  antes de abrir hilo, cobrar cupo o llamar al LLM: un reintento que llega con el primer
+  turno en curso recibe ``in_progress`` sin efectos, y uno posterior a una respuesta sin
+  turno (nueva conversación sin texto, cupo agotado, enlace al PDF) recibe la misma
+  respuesta. Así el webhook también entrega el PDF: un reintento del pedido «PDF» no
+  vuelve a cobrar cupo y devuelve el mismo enlace.
 """
 
 import hmac
 import re
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
 from typing import Any, Protocol
@@ -33,6 +39,7 @@ import structlog
 
 from apps.api.chat.streaming import ChatEvent
 from apps.api.quote_view import QuoteView, quote_view
+from carvajal.application.deliveries import DeliveryClaim, DeliveryStore, InMemoryDeliveryStore
 from carvajal.application.quota import QuotaResult
 
 __all__ = [
@@ -47,6 +54,7 @@ __all__ = [
     "PDF_UNAVAILABLE",
     "SERVICE_UNAVAILABLE",
     "TOO_LONG_MESSAGE",
+    "TURN_IN_PROGRESS",
     "BridgeReply",
     "ChatTurns",
     "TurnLookup",
@@ -82,6 +90,8 @@ NO_QUOTE_FOR_PDF = (
     "*Cotiza 400 portacomidas espumados J1 en Bogotá*."
 )
 PDF_UNAVAILABLE = "Por ahora no puedo generar el PDF. Intenta de nuevo más tarde."
+# Para el relé, no para el cliente: el mismo mensaje se está atendiendo en otro intento.
+TURN_IN_PROGRESS = "El mensaje se está atendiendo; reintenta en unos segundos."
 
 
 class ChatTurns(Protocol):
@@ -125,10 +135,15 @@ TurnLookup = Callable[[str, str], str | None]
 
 @dataclass(frozen=True)
 class BridgeReply:
-    """Texto listo para WhatsApp y folios de las cotizaciones emitidas en el turno."""
+    """Texto listo para WhatsApp y folios de las cotizaciones emitidas en el turno.
+
+    ``in_progress`` indica que otro intento atiende el mismo ``client_turn_id``: no hay
+    nada que enviar al cliente y el relé debe reintentar más tarde.
+    """
 
     text: str
     quote_ids: tuple[str, ...] = ()
+    in_progress: bool = False
 
 
 def _no_limit(_owner_key: str) -> QuotaResult:
@@ -335,6 +350,7 @@ class WhatsAppBridge:
     pdf_link: PdfLink | None = None
     photo_url: PhotoUrl | None = None
     turns: TurnLookup | None = None
+    deliveries: DeliveryStore | None = field(default_factory=InMemoryDeliveryStore)
 
     def owner_key(self, chat_id: str) -> str:
         """``owner_key`` del chat (ver :func:`owner_key_for`)."""
@@ -362,8 +378,10 @@ class WhatsAppBridge:
 
         Si ``turns`` encuentra ``client_turn_id`` en un hilo del dueño, el turno se reemite
         desde ese hilo: no se abre conversación nueva ni se cobra cupo, y el servicio de
-        chat devuelve el mismo texto y los mismos folios. Solo lanza ``ValueError`` si
-        ``chat_id`` no es un identificador válido.
+        chat devuelve el mismo texto y los mismos folios. Si no, ``deliveries`` reserva el
+        ``client_turn_id`` antes de cualquier efecto: si otro intento lo tiene, se devuelve
+        ``in_progress``; si ya se atendió sin dejar turno, la misma respuesta. Un fallo
+        libera la reserva. Solo lanza ``ValueError`` si ``chat_id`` no es válido.
         """
 
         chat = " ".join(chat_id.split())
@@ -375,30 +393,37 @@ class WhatsAppBridge:
         owner = self.owner_key(chat)
         structlog.contextvars.bind_contextvars(owner_key=owner, channel="whatsapp")
         try:
-            thread = self._stored_thread(owner, text, client_turn_id)
-            if thread is not None:
-                logger.info("whatsapp.turn_replayed")
-                turn = _collect(
-                    self.chat.stream(owner, text, client_turn_id=client_turn_id, thread_id=thread)
-                )
-            else:
-                if new_conversation:
-                    self.chat.new_conversation(owner)
-                    if not text:
-                        return BridgeReply(NEW_CONVERSATION)
-                if not text:
-                    return BridgeReply(EMPTY_MESSAGE)
-                if not self.quota(owner).allowed:
-                    logger.info("whatsapp.quota_exhausted")
-                    return BridgeReply(LIMIT_REACHED)
-                if is_pdf_request(text):
-                    return BridgeReply(self._pdf(owner))
-                turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
-        except Exception as error:  # el canal nunca recibe una traza interna
-            logger.warning("whatsapp.turn_failed", error=repr(error))
-            return BridgeReply(SERVICE_UNAVAILABLE)
+            try:
+                replayed = self._replay(owner, text, client_turn_id)
+                if replayed is not None:
+                    return replayed
+                claim = self._claim(owner, client_turn_id)
+            except Exception as error:  # el canal nunca recibe una traza interna
+                logger.warning("whatsapp.turn_failed", error=repr(error))
+                return BridgeReply(SERVICE_UNAVAILABLE)
+            if claim is not None and claim.status != "acquired":
+                return self._claimed_elsewhere(claim, owner, text, client_turn_id)
+            try:
+                reply, streamed = self._fresh_turn(owner, text, new_conversation, client_turn_id)
+            except Exception as error:
+                logger.warning("whatsapp.turn_failed", error=repr(error))
+                reply, streamed = BridgeReply(SERVICE_UNAVAILABLE), False
+            if claim is not None and client_turn_id:
+                self._settle(owner, client_turn_id, reply, streamed=streamed)
+            return reply
         finally:
             structlog.contextvars.unbind_contextvars("owner_key", "channel")
+
+    def _replay(self, owner: str, text: str, client_turn_id: str | None) -> BridgeReply | None:
+        """Reemite el turno ya guardado, o ``None`` si este ``client_turn_id`` no tiene turno."""
+
+        thread = self._stored_thread(owner, text, client_turn_id)
+        if thread is None:
+            return None
+        logger.info("whatsapp.turn_replayed")
+        turn = _collect(
+            self.chat.stream(owner, text, client_turn_id=client_turn_id, thread_id=thread)
+        )
         return self._render(turn, owner)
 
     def _stored_thread(self, owner: str, text: str, client_turn_id: str | None) -> str | None:
@@ -407,6 +432,77 @@ class WhatsAppBridge:
         if self.turns is None or not client_turn_id or not text:
             return None
         return self.turns(owner, client_turn_id)
+
+    def _claim(self, owner: str, client_turn_id: str | None) -> DeliveryClaim | None:
+        """Reserva el ``client_turn_id``; ``None`` si no hay reserva (sin id o sin almacén)."""
+
+        if self.deliveries is None or not client_turn_id:
+            return None
+        return self.deliveries.claim(owner, client_turn_id)
+
+    def _claimed_elsewhere(
+        self, claim: DeliveryClaim, owner: str, text: str, client_turn_id: str | None
+    ) -> BridgeReply:
+        """Respuesta para un ``client_turn_id`` que ya tomó otro intento."""
+
+        if claim.status == "pending":
+            logger.info("whatsapp.turn_in_progress")
+            return BridgeReply(TURN_IN_PROGRESS, in_progress=True)
+        if claim.reply is not None:
+            logger.info("whatsapp.delivery_replayed")
+            return BridgeReply(claim.reply)
+        # El primer intento guardó su turno justo después de la primera búsqueda.
+        try:
+            replayed = self._replay(owner, text, client_turn_id)
+        except Exception as error:
+            logger.warning("whatsapp.turn_failed", error=repr(error))
+            return BridgeReply(SERVICE_UNAVAILABLE)
+        return replayed if replayed is not None else BridgeReply(SERVICE_UNAVAILABLE)
+
+    def _fresh_turn(
+        self,
+        owner: str,
+        text: str,
+        new_conversation: bool,
+        client_turn_id: str | None,
+    ) -> tuple[BridgeReply, bool]:
+        """Atiende un turno nuevo; el booleano indica si el servicio de chat lo ejecutó."""
+
+        if new_conversation:
+            self.chat.new_conversation(owner)
+            if not text:
+                return BridgeReply(NEW_CONVERSATION), False
+        if not text:
+            return BridgeReply(EMPTY_MESSAGE), False
+        if not self.quota(owner).allowed:
+            logger.info("whatsapp.quota_exhausted")
+            return BridgeReply(LIMIT_REACHED), False
+        if is_pdf_request(text):
+            # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
+            return BridgeReply(self._pdf(owner)), False
+        turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
+        return self._render(turn, owner), True
+
+    def _settle(
+        self, owner: str, client_turn_id: str, reply: BridgeReply, *, streamed: bool
+    ) -> None:
+        """Cierra la reserva: libera ante un fallo y, si no hubo turno, guarda la respuesta.
+
+        Un turno ejecutado queda en ``messages`` y se reemite desde allí; solo las
+        respuestas cortas sin turno se guardan aquí: constantes o el enlace firmado al PDF,
+        nunca el texto del cliente. No poder generar el PDF cuenta como fallo.
+        """
+
+        if self.deliveries is None:
+            return
+        try:
+            if reply.text in (SERVICE_UNAVAILABLE, PDF_UNAVAILABLE):
+                self.deliveries.release(owner, client_turn_id)
+            else:
+                self.deliveries.finish(owner, client_turn_id, None if streamed else reply.text)
+        except Exception as error:
+            # La reserva caduca sola; un turno guardado se sigue reemitiendo desde ``messages``.
+            logger.warning("whatsapp.delivery_settle_failed", error=repr(error))
 
     def _render(self, turn: _Turn, owner: str) -> BridgeReply:
         if turn.error is not None and not turn.text.strip():
