@@ -23,6 +23,7 @@ from carvajal.agent.gatekeeper.decide import decide_gate
 from carvajal.agent.gatekeeper.privacy import (
     FOLIO_MARK,
     PERSON_MARK,
+    address_spans,
     context_line,
     outgoing_answer,
     outgoing_question,
@@ -75,6 +76,123 @@ def test_enmascara_nombre_y_empresa_declarados(text: str, hidden: list[str]) -> 
     assert PERSON_MARK in sent
     for value in hidden:
         assert value not in sent
+
+
+@pytest.mark.parametrize(
+    ("text", "hidden"),
+    [
+        (
+            "Hola, habla Ana Gómez de Plásticos Ríos, ¿tienen vasos de 9 oz?",
+            ["Ana", "Gómez", "Plásticos Ríos"],
+        ),
+        ("Le habla el doctor Ramírez del Hospital San José", ["Ramírez", "Hospital San José"]),
+        (
+            "Cotiza para Restaurante El Fogón, a nombre de Pedro",
+            ["Restaurante El Fogón", "Pedro"],
+        ),
+        (
+            "Soy Carlos, de la Panadería Doña Rosa en Cali, ¿precio de bolsas?",
+            ["Carlos", "Doña Rosa"],
+        ),
+        ("Necesito factura a nombre de Inversiones Gómez SAS", ["Inversiones Gómez"]),
+        ("Buenas, de parte de la señora Martínez, ¿tienen tapas?", ["Martínez"]),
+    ],
+)
+def test_enmascara_las_presentaciones_habituales(text: str, hidden: list[str]) -> None:
+    # Act
+    sent = outgoing_question(text)
+
+    # Assert
+    assert PERSON_MARK in sent
+    for value in hidden:
+        assert value not in sent, value
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "¿De qué habla el Informe de Sostenibilidad?",
+        "cotízame para Bogotá 500 vasos",
+        "Panadería La Espiga",
+    ],
+)
+def test_sin_presentacion_no_enmascara(text: str) -> None:
+    assert outgoing_question(text) == text
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["Calle 5 # 38-25 apto 301", "Cra 7 No. 45-10", "Av. 3N #12-40 oficina 502", "cl 10 #5"],
+)
+def test_redacta_las_direcciones_de_la_persona(address: str) -> None:
+    # Act
+    sent = outgoing_question(f"Dirección de entrega: {address}, Cali")
+    context = context_line(
+        "¿y en Bogotá?",
+        [{"question": f"Envíen a {address}, ¿tienen vasos?", "answer": "x", "incomplete": False}],
+    )
+
+    # Assert
+    assert sent == f"Dirección de entrega: {REDACTED}, Cali"
+    assert address not in context
+    assert REDACTED in context
+
+
+def test_la_respuesta_conserva_la_direccion_del_directorio() -> None:
+    answer = "La sede queda en la Calle 13 # 100-00 de Cali."
+
+    assert outgoing_answer(answer, "¿Dónde queda la sede de Cali?") == answer
+    assert address_spans("Envíen a Calle 5 # 38-25 apto 301") == ["Calle 5 # 38-25 apto 301"]
+    sent = outgoing_answer(
+        "Te enviamos a Calle 5 # 38-25 apto 301.", "Envíen a Calle 5 # 38-25 apto 301"
+    )
+    assert "38-25" not in sent
+
+
+def test_la_respuesta_redacta_lo_que_la_persona_dio_en_turnos_anteriores() -> None:
+    # Arrange
+    prior = ["Mi celular es 3001234567, llámenme", "Soy Ana Gómez, de la Panadería Doña Rosa"]
+
+    # Act
+    sent = outgoing_answer(
+        "Ana Gómez, de Panadería Doña Rosa: tu celular es 300 123 4567.",
+        "¿Cuál es mi celular?",
+        prior=prior,
+    )
+
+    # Assert
+    assert "3001234567" not in sent and "300 123 4567" not in sent
+    assert "Ana" not in sent and "Doña Rosa" not in sent
+    assert REDACTED in sent and PERSON_MARK in sent
+
+
+def test_el_telefono_de_un_turno_anterior_no_viaja_en_la_compuerta() -> None:
+    # Arrange: el modelo repite un celular que la persona dio en un turno anterior.
+    judge = FakeJudge(choice="mixta", confidence=0.95, p=0.9)
+    settings = Settings(_env_file=None, agent_mode="tools", jev_claims_mode="enforce")
+    chat = ScriptedToolChat(
+        steps=[
+            ScriptStep(tool_calls=[{"name": "sin_consulta", "args": {"motivo": "conversacion"}}]),
+            ScriptStep(text="Tu celular es 3001234567."),
+        ]
+    )
+    deps = ToolDeps(vector_store=QueueStore(), embedder=FakeEmbedder(), settings=settings)
+    graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), judge=judge)
+    runner = ToolAgentRunner(graph, settings, claims_judge=judge)
+    seed: list[Turn] = [
+        {
+            "question": "Mi celular es 3001234567, llámenme",
+            "answer": "Anotado.",
+            "incomplete": False,
+        }
+    ]
+
+    # Act
+    list(runner.stream("d", "h", "¿Cuál es mi celular?", seed))
+
+    # Assert
+    assert judge.claims
+    assert "3001234567" not in _payloads(judge)
 
 
 def test_no_enmascara_ciudades_ni_el_tipo_de_negocio() -> None:

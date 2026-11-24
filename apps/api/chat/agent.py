@@ -791,6 +791,7 @@ class _TurnStream:
             self.tool_payloads,
             self.values.get("memory"),
             settings=gate.settings,
+            prior_questions=self._prior_person_texts(),
         )
         try:
             verdict = gate.judge.check(query)
@@ -966,6 +967,19 @@ class _TurnStream:
             json.dumps(context, ensure_ascii=False, default=str) if context else "",
             *_preferred_names(memory),
             *(_memory_values(memory) if _memory_only(results) else ()),
+        ]
+
+    def _prior_person_texts(self) -> list[str]:
+        """Todo lo que la persona escribió en turnos anteriores (semilla y citas del resumen).
+
+        No viaja a Jev: solo indica qué datos suyos sustituir si la respuesta los repite
+        (FR-020). Incluye los turnos anteriores a «olvidar todo»: enmascarar de más es seguro.
+        """
+
+        summary = ConversationSummary.from_value(self.values.get("conversation_summary"))
+        return [
+            *(str(turn.get("question") or "") for turn in self.seed),
+            *(summary.user_quotes if summary is not None else ()),
         ]
 
     def _seed_questions(self) -> list[str]:

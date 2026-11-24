@@ -259,11 +259,14 @@ def build_claims_query(
     memory: Any = None,
     rules_extraction: Mapping[str, str] | None = None,
     settings: Any = None,
+    prior_questions: Sequence[str] = (),
 ) -> ClaimsQuery:
     """Carga de la pregunta Noul (FR-018): respuesta minimizada y evidencia mínima.
 
     ``question`` solo sirve para saber qué sustituir en la respuesta y para derivar
-    ``dicho_por_la_persona`` (si no llega ``rules_extraction``); nunca viaja.
+    ``dicho_por_la_persona`` (si no llega ``rules_extraction``); nunca viaja. Tampoco
+    ``prior_questions`` (las preguntas anteriores de la persona): solo indican qué datos
+    suyos sustituir si la respuesta los repite (FR-020).
     """
 
     budget = int(getattr(settings, "jev_max_evidence_chars", 12_000))
@@ -273,6 +276,6 @@ def build_claims_query(
         line = "; ".join(f"{label}: {value}" for label, value in said.items())
         extracts.insert(0, (PERSON_EXTRACT, line))
     return ClaimsQuery(
-        answer=outgoing_answer(answer, question, memory, payloads),
+        answer=outgoing_answer(answer, question, memory, payloads, prior=prior_questions),
         evidence=_fit(extracts, budget),
     )
