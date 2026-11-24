@@ -53,13 +53,13 @@
             "anyOf": [
               {
                 "enum": [
-                  "vaso",
-                  "tapa",
-                  "contenedor",
                   "charola",
+                  "contenedor",
                   "cubierto",
                   "envase",
-                  "plato"
+                  "plato",
+                  "tapa",
+                  "vaso"
                 ],
                 "type": "string"
               },
@@ -99,8 +99,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "MX",
-                  "CO"
+                  "CO",
+                  "MX"
                 ],
                 "type": "string"
               },
@@ -120,9 +120,9 @@
             "anyOf": [
               {
                 "enum": [
+                  "ambiente",
                   "caliente",
-                  "fria",
-                  "ambiente"
+                  "fria"
                 ],
                 "type": "string"
               },
@@ -200,13 +200,13 @@
             "anyOf": [
               {
                 "enum": [
-                  "vaso",
-                  "tapa",
-                  "contenedor",
                   "charola",
+                  "contenedor",
                   "cubierto",
                   "envase",
-                  "plato"
+                  "plato",
+                  "tapa",
+                  "vaso"
                 ],
                 "type": "string"
               },
@@ -285,9 +285,9 @@
             "anyOf": [
               {
                 "enum": [
+                  "ambiente",
                   "caliente",
-                  "fria",
-                  "ambiente"
+                  "fria"
                 ],
                 "type": "string"
               },
@@ -302,10 +302,10 @@
             "anyOf": [
               {
                 "enum": [
-                  "unidades",
                   "cajas",
+                  "pacas",
                   "paquetes",
-                  "pacas"
+                  "unidades"
                 ],
                 "type": "string"
               },
@@ -424,9 +424,9 @@
           "motivo": {
             "description": "pedir_dato, conversacion o fuera_de_alcance.",
             "enum": [
-              "pedir_dato",
               "conversacion",
-              "fuera_de_alcance"
+              "fuera_de_alcance",
+              "pedir_dato"
             ],
             "type": "string"
           }

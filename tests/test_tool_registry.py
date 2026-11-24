@@ -29,18 +29,33 @@ def _deps() -> ToolDeps:
     )
 
 
+def _canonical(value: Any) -> Any:
+    """Ordena las listas ``enum``: ``convert_to_openai_tool`` las arma desde un ``set`` al
+    aplanar ``Literal[...] | None`` y su orden cambia con ``PYTHONHASHSEED`` entre procesos
+    (pasa igual desde la 044; el contenido no cambia)."""
+
+    if isinstance(value, dict):
+        return {
+            key: sorted(item) if key == "enum" and isinstance(item, list) else _canonical(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_canonical(item) for item in value]
+    return value
+
+
 def _schemas() -> list[dict[str, Any]]:
     """Lo que ``bind_tools`` envía al proveedor, normalizado como el *golden*."""
 
     converted = [convert_to_openai_tool(tool) for tool in build_tools(_deps())]
-    return json.loads(json.dumps(converted, ensure_ascii=False, sort_keys=True))
+    return _canonical(json.loads(json.dumps(converted, ensure_ascii=False, sort_keys=True)))
 
 
 def test_las_seis_herramientas_de_la_044_coinciden_con_el_golden() -> None:
     """Nombre, descripción y esquema visibles para el modelo no cambian (FR-027, R9)."""
 
     # Arrange
-    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    golden = _canonical(json.loads(GOLDEN.read_text(encoding="utf-8")))
 
     # Act
     schemas = _schemas()[: len(golden)]
