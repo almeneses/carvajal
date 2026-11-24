@@ -37,6 +37,7 @@ from apps.api.quote_links import (
     link_expiry,
     pdf_url,
     sign,
+    split_token,
     verify,
 )
 from apps.api.quote_pdf import build_quote_pdf
@@ -304,9 +305,10 @@ def test_pdf_devuelve_el_enlace_sin_llamar_al_agente_pero_consume_cupo() -> None
     owner = owner_key_for("+573100000000", SECRET)
     assert asked == [owner]
     assert chat.calls == [] and charged == [owner]
-    assert answer.startswith("📄 Aquí está tu cotización #Q-7F3A2C en PDF:")
-    assert f"{BASE}/cotizaciones/Q-7F3A2C.pdf?e=" in answer
-    assert "_El enlace funciona hasta el 1 dic 2026._" in answer
+    assert answer.startswith("📄 Tu cotización #Q-7F3A2C en PDF (válida hasta el 1 dic 2026).")
+    assert f"{BASE}/cotizaciones/Q-7F3A2C.pdf?t=" in answer
+    assert "&" not in answer
+    assert answer.splitlines()[-1].startswith("http")
 
 
 def test_pdf_no_elude_el_cupo() -> None:
@@ -372,7 +374,7 @@ def test_reintento_del_pedido_de_pdf_devuelve_el_mismo_enlace_sin_cobrar_de_nuev
     second = bridge.respond("PDF", "+573100000000", client_turn_id="wh-pdf-1")
 
     # Assert
-    assert first.text.startswith("📄 Aquí está tu cotización #Q-7F3A2C en PDF:")
+    assert first.text.startswith("📄 Tu cotización #Q-7F3A2C en PDF")
     assert second == first
     assert len(charged) == 1 and len(asked) == 1
     assert chat.calls == []
@@ -396,7 +398,7 @@ def test_si_no_se_pudo_generar_el_pdf_el_reintento_lo_vuelve_a_intentar() -> Non
 
     # Assert
     assert first.text == PDF_UNAVAILABLE
-    assert second.text.startswith("📄 Aquí está tu cotización #Q-7F3A2C en PDF:")
+    assert second.text.startswith("📄 Tu cotización #Q-7F3A2C en PDF")
 
 
 def test_el_servicio_mcp_recibe_la_url_publica() -> None:
@@ -732,3 +734,24 @@ def test_script_guarda_jpeg_reducido_y_sin_transparencia(tmp_path: Path) -> None
         assert saved.format == "JPEG"
         assert max(saved.size) == 600
         assert saved.getpixel((0, 0)) == (255, 255, 255)
+
+
+def test_enlace_de_un_solo_parametro_y_compatibilidad_con_el_formato_viejo() -> None:
+    future = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
+    token = sign("Q-7F3A2C", "wa_dueno", future, SECRET)
+    client = _client(stamped())
+
+    nuevo = client.get(f"/cotizaciones/Q-7F3A2C.pdf?t={future}.{token}")
+    viejo = client.get(f"/cotizaciones/Q-7F3A2C.pdf?e={future}&t={token}")
+    alterado = client.get(f"/cotizaciones/Q-7F3A2C.pdf?t={future + 60}.{token}")
+
+    assert _path("Q-7F3A2C", "wa_dueno", future).count("?") == 1
+    assert "&" not in _path("Q-7F3A2C", "wa_dueno", future)
+    assert nuevo.status_code == 200 and viejo.status_code == 200
+    assert alterado.status_code == 404
+
+
+def test_split_token() -> None:
+    assert split_token("1796136385.abc") == (1796136385, "abc")
+    assert split_token("abc", 42) == (42, "abc")
+    assert split_token("x.abc", 7) == (7, "x.abc")

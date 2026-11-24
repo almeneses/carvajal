@@ -47,7 +47,7 @@ total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *P
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
   herramienta busca la **última cotización de la conversación activa** y devuelve un
   enlace. No llama al LLM, pero consume el mismo cupo diario que cualquier mensaje.
-- El enlace es `PUBLIC_BASE_URL/cotizaciones/{folio}.pdf?e=…&t=…`, firmado con HMAC
+- El enlace es `PUBLIC_BASE_URL/cotizaciones/{folio}.pdf?t=<vence>.<firma>` (un solo parámetro, sin `&`, para que WhatsApp lo detecte entero), firmado con HMAC
   (`SESSION_SECRET`) sobre el folio, el dueño y el vencimiento. Vence con la vigencia de
   la cotización (máximo 7 días); al validar se toleran 5 minutos de desfase de reloj
   entre los procesos MCP y web. El dueño no va en la URL: la ruta lee la cotización por
@@ -57,6 +57,9 @@ total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *P
   vendedor, fuente del precio y nota legal. Los recursos están en `apps/api/pdf/`.
 - Para activarlo, define `PUBLIC_BASE_URL` en el `.env` del servidor
   (p. ej. `http://203.0.113.10:8080`, con la IP del servidor). Sin ella, no se ofrece el PDF.
+- Usa un **nombre**, no la IP: WhatsApp en el celular no siempre convierte en enlace
+  una URL con IP. Sin dominio propio sirve `http://<ip-con-guiones>.sslip.io:8080`
+  (p. ej. `http://203-0-113-10.sslip.io:8080`), que resuelve a esa misma IP.
 
 ## Fotos del catálogo
 

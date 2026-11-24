@@ -911,16 +911,17 @@ class WhatsAppBridge:
             logger.warning("whatsapp.pdf_link_failed", error=repr(error))
             return BridgeReply(PDF_UNAVAILABLE), False
         logger.info("whatsapp.pdf_link", folio=view.folio)
-        lines = [f"📄 Aquí está tu cotización #{view.folio} en PDF:", url]
-        if view.valid_until:
-            lines.append(f"_El enlace funciona hasta el {view.valid_until}._")
+        # El enlace va solo y al final, sin formato alrededor: así WhatsApp lo detecta
+        # entero y se puede tocar desde el celular.
+        until = f" (válida hasta el {view.valid_until})" if view.valid_until else ""
+        text = f"📄 Tu cotización #{view.folio} en PDF{until}. Ábrela aquí:\n\n{url}"
         # En voz, solo el final del folio; el enlace y su vigencia van por escrito.
         said = (
             "Te mando por escrito el PDF de tu cotización terminada en "
             f"{speak_folio_tail(view.folio)}."
         )
         link = SpeechLink(f"Cotización {view.folio} en PDF", url)
-        return BridgeReply("\n".join(lines), spoken=SpokenReply(said, (link,))), True
+        return BridgeReply(text, spoken=SpokenReply(said, (link,))), True
 
 
 @dataclass
