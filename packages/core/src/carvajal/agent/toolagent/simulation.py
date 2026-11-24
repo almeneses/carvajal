@@ -49,6 +49,7 @@ import structlog
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from carvajal.agent.commercial import CommercialRequest, check_material
+from carvajal.agent.commercial_intent import mentions_microwave
 from carvajal.agent.toolagent.evaluation import (
     ToolCall,
     TurnObservation,
@@ -469,7 +470,6 @@ _USE_PATTERNS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
 )
 _HOT_USES: Final = frozenset({"bebida_caliente", "comida_caliente", "sopas"})
 _COLD_USES: Final = frozenset({"bebida_fria", "comida_fria"})
-_MICROWAVE: Final = re.compile(r"\bmicro ?ondas\b")
 _TEMPERATURES: Final[dict[str, Literal["caliente", "fria", "ambiente"]]] = {
     "caliente": "caliente",
     "fria": "fria",
@@ -504,7 +504,8 @@ def infer_request(messages: Sequence[str], tags: Iterable[str] = ()) -> Commerci
     folded = [_fold(message) for message in messages]
     if use is None:
         use = next((u for text in reversed(folded) if (u := _use_from(text))), None)
-    microwave = "microondas" in folded_tags or any(_MICROWAVE.search(text) for text in folded)
+    # El mismo detector que el producto: medir con otro daría falsos «materiales aptos».
+    microwave = "microondas" in folded_tags or any(mentions_microwave(m) for m in messages)
     temperature = _TEMPERATURES.get(tagged)
     if temperature is None:
         temperature = _TEMPERATURES.get(

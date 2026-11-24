@@ -2,6 +2,8 @@
 
 import re
 
+import pytest
+
 from carvajal.agent.graph import build_conversation_prompt
 from carvajal.agent.routers.llm import system_prompt
 from carvajal.application import faq as faq_module
@@ -114,7 +116,27 @@ def test_el_cotizador_hereda_la_politica_de_ausencia() -> None:
     assert "asesor" in NO_PRODUCTS
 
 
-VOSEO = re.compile(r"\b(usá|querés|necesitás|decime)\b", re.IGNORECASE)
+def _plano(texto: str) -> str:
+    """El texto en una sola línea: un reflujo del prompt no cambia lo que dice."""
+
+    return " ".join(texto.split())
+
+
+def _regla(texto: str, inicio: str) -> str:
+    """La viñeta del prompt que empieza por ``inicio``, sin saltos de línea."""
+
+    plano = _plano(texto)
+    desde = plano.index(f"- {inicio}")
+    hasta = plano.find(" - ", desde + 2)
+    return plano[desde : hasta if hasta != -1 else None]
+
+
+# Formas de voseo frecuentes; el prompt exige tuteo de Colombia.
+VOSEO = re.compile(
+    r"\b(usá|querés|necesitás|decime|tenés|podés|sabés|mirá|fijate|contame|avisame|"
+    r"pasame|escribime|suponé|calculá|llamá|decí|buscás)\b",
+    re.IGNORECASE,
+)
 
 
 def test_el_agente_trata_resultados_y_contexto_como_datos() -> None:
@@ -152,7 +174,7 @@ def test_el_agente_no_estima_y_cotiza_solo_lo_pedido() -> None:
     from carvajal.prompts import AGENT_SYSTEM
 
     # Act
-    texto = AGENT_SYSTEM
+    texto = _plano(AGENT_SYSTEM)
 
     # Assert
     assert "nunca estimes" in texto
@@ -176,19 +198,164 @@ def test_el_agente_pide_datos_con_sin_consulta() -> None:
     assert "varias herramientas en un mismo paso" in texto
 
 
+def test_el_agente_no_calcula_cajas_ni_totales_por_su_cuenta() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "No calcules por tu cuenta")
+
+    # Assert
+    assert "cajas, paquetes, sobrantes, subtotales ni totales" in regla
+    assert "usa solo los que devuelva una herramienta" in regla
+    # Con producto y cantidad no basta con decir que faltan: se piden a cotizar.
+    assert "dio el producto y la cantidad, obtenlos con cotizar" in regla
+    assert "si no, di que faltan" in regla
+
+
+def test_el_agente_cotiza_un_empaque_concreto_aunque_falten_datos() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "Si la persona pide el precio")
+    plano = _plano(AGENT_SYSTEM)
+
+    # Assert: la regla se limita a un empaque concreto en Colombia y a una sola llamada.
+    assert "de un empaque concreto en Colombia" in regla
+    assert "llama a cotizar una vez aunque falten datos" in regla
+    assert "responde needs_input con lo que falta" in regla
+    assert "No repitas cotizar si ya devolvió needs_input por el mismo dato" in regla
+    assert "un precio, un total o una cotización" not in plano
+    assert plano.index("Si la persona pide el precio") < plano.index(
+        "Si no te piden precio y falta un dato"
+    )
+
+
+def test_el_agente_compara_tamanos_con_buscar_producto() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "Si compara varios tamaños")
+
+    # Assert
+    assert "sin dar cantidad, usa buscar_producto" in regla
+    assert "precio de referencia por caja" in regla
+    assert "Llama a cotizar solo las combinaciones" in regla
+
+
+def test_las_cifras_de_la_empresa_no_disparan_cotizar() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "Las cifras de la empresa")
+
+    # Assert
+    assert "salen de indicador_financiero" in regla
+    assert "aunque la pregunta diga «total»" in regla
+    assert "no es un empaque de Carvajal no se cotiza" in regla
+
+
+def test_el_agente_recotiza_solo_si_la_persona_ajusta_la_cotizacion() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "Si la persona ajusta la cotización anterior")
+    plano = _plano(AGENT_SYSTEM)
+
+    # Assert: un seguimiento que solo pregunta por opciones o sedes no se cotiza.
+    assert "espera el precio nuevo, vuelve a llamar a cotizar" in regla
+    assert "Si solo pregunta por otras opciones o por sedes" in regla
+    assert "usa buscar_producto o buscar_sedes" in regla
+    assert "Si un seguimiento cambia" not in plano
+
+
+def test_el_agente_no_suma_valores_supuestos_por_la_persona() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    regla = _regla(AGENT_SYSTEM, "No sumes ni prometas sumar")
+
+    # Assert: el total publicado por cotizar sigue valiendo; solo sin él queda pendiente.
+    assert "valores que la persona supone (envío, descuentos o precios)" in regla
+    assert "usa solo el total que devuelva cotizar" in regla
+    assert "si no viene, di que queda pendiente" in regla
+
+
+def test_las_reglas_del_agente_no_citan_ids_de_evaluacion() -> None:
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    # Act
+    ids_de_evaluacion = re.findall(r"\b[gq]-\d{3}\b", AGENT_SYSTEM)
+
+    # Assert: este guard solo detecta ids literales; no detecta una paráfrasis de un caso
+    # de evaluación. Las reglas se verifican con conversaciones nuevas, no con esos casos.
+    assert not ids_de_evaluacion
+
+
+def test_el_detector_de_voseo_reconoce_las_formas_rioplatenses() -> None:
+    # Arrange
+    frase_voseo = "Decime la ciudad y fijate si querés domicilio; suponé el envío."
+    frase_tuteo = "Dime la ciudad y fíjate si quieres domicilio; supón el envío."
+
+    # Act
+    en_voseo = VOSEO.findall(frase_voseo)
+    en_tuteo = VOSEO.findall(frase_tuteo)
+
+    # Assert
+    assert len(en_voseo) == 4
+    assert not en_tuteo
+
+
 def test_los_prompts_no_usan_voseo() -> None:
     # Arrange
-    from carvajal.prompts import ABSENCE_POLICY, AGENT_SYSTEM
+    from carvajal.prompts import ABSENCE_POLICY, ABSENCE_RULES, AGENT_SYSTEM
 
     textos_ausencia = [
         texto for caso in ABSENCE_POLICY.values() for texto in (caso["say"], caso["offer"])
     ]
+    prompts = (
+        AGENT_SYSTEM,
+        RAG_SYSTEM,
+        STRUCTURED_SYSTEM,
+        DIRECT_SYSTEM,
+        COMMERCIAL_INSTRUCTIONS,
+        FAQ_INSTRUCTIONS,
+        ABSENCE_RULES,
+        *DIRECT_INSTRUCTIONS.values(),
+    )
 
     # Act
-    encontrados = [VOSEO.findall(texto) for texto in (AGENT_SYSTEM, *textos_ausencia)]
+    encontrados = [VOSEO.findall(texto) for texto in (*prompts, *textos_ausencia)]
 
     # Assert
     assert not any(encontrados), encontrados
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "quotation/engine.py usa voseo en sus respuestas (ASK_PRODUCT, GREETING_REPLY, "
+        "ASK_QUANTITY); se corrige en otra PR. Al corregirlo este test pasa y hay que quitar "
+        "el xfail."
+    ),
+)
+def test_las_respuestas_del_motor_de_cotizacion_no_usan_voseo() -> None:
+    # Arrange
+    from carvajal.quotation import engine
+
+    textos = [valor for valor in vars(engine).values() if isinstance(valor, str)]
+
+    # Act
+    encontrados = [hallado for texto in textos for hallado in VOSEO.findall(texto)]
+
+    # Assert
+    assert not encontrados, encontrados
 
 
 def test_fuera_de_alcance_no_contradice_el_chat_unificado() -> None:
