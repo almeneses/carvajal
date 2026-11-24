@@ -1,10 +1,16 @@
 """Modo del agente que permite la configuración (spec 044, FR-015).
 
 ``AGENT_MODE=tools`` es el valor por defecto, pero el modo ``tools`` solo arranca con
-``LLM_PROVIDER=deepseek`` y DeepSeek completo (clave, modelo y URL base). Con otro
-proveedor (por ejemplo ``ollama``, el de ``Settings`` y de los compose) el chat sigue en
-``routes``: una clave de DeepSeek presente para el enrutador, ``eval-agent`` o la revisión
-automática no debe desviar los turnos a DeepSeek sin que nadie lo decida.
+``LLM_PROVIDER=deepseek`` (el valor por defecto de ``Settings`` y de los compose) y DeepSeek
+completo (clave, modelo y URL base). Con otro proveedor (por ejemplo ``ollama``, elegido a
+mano) el chat sigue en ``routes``: una clave de DeepSeek presente para el enrutador,
+``eval-agent`` o la revisión automática no debe desviar los turnos a DeepSeek sin que nadie
+lo decida.
+
+Sin ``DEEPSEEK_API_KEY`` y con DeepSeek como proveedor, el chat degrada: ``tools`` no arranca
+(``missing_deepseek_api_key``) y ``routes`` atiende saludos, indicadores y cotizaciones, pero
+las respuestas que necesitan redactar con el LLM fallan con el aviso genérico del servicio.
+``chat_llm_blocker`` da ese motivo para que el arranque lo registre una vez.
 
 La política se calcula solo con ``Settings``: no construye clientes ni importa LangChain,
 de modo que ``/health`` la publica sin coste y el runtime la aplica al construir los
@@ -17,7 +23,13 @@ from typing import Final, Literal
 
 from carvajal.infrastructure.settings import Settings
 
-__all__ = ["TOOLS_PROVIDER", "AgentModeStatus", "ToolsBlocker", "agent_mode_status"]
+__all__ = [
+    "TOOLS_PROVIDER",
+    "AgentModeStatus",
+    "ToolsBlocker",
+    "agent_mode_status",
+    "chat_llm_blocker",
+]
 
 # Proveedor que exige el modo ``tools``: el grafo usa ``bind_tools`` sobre DeepSeek.
 TOOLS_PROVIDER: Final = "deepseek"
@@ -71,3 +83,16 @@ def agent_mode_status(settings: Settings) -> AgentModeStatus:
     if reason is not None:
         return AgentModeStatus(configured="tools", expected="routes", reason=reason)
     return AgentModeStatus(configured="tools", expected="tools")
+
+
+def chat_llm_blocker(settings: Settings) -> ToolsBlocker | None:
+    """Motivo por el que el LLM del chat no puede construirse, o ``None``.
+
+    Solo aplica con ``LLM_PROVIDER=deepseek``: es la misma comprobación que bloquea el modo
+    ``tools`` (clave, modelo y URL base), porque ambos usan el mismo cliente. Con otro
+    proveedor no hay nada que comprobar sin red y devuelve ``None``.
+    """
+
+    if settings.llm_provider.strip().lower() != TOOLS_PROVIDER:
+        return None
+    return _tools_blocker(settings)

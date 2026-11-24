@@ -6,6 +6,7 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import SQLAlchemyError
+from structlog.testing import capture_logs
 
 from apps.api import main, runtime
 from apps.api.chat import service as chat_service
@@ -298,6 +299,41 @@ def test_chat_carga_los_controles_de_voz_sin_estilos_inline() -> None:
     assert "SpeechRecognition" in js.text
     assert css.status_code == 200
     assert ".voz-estado" in css.text
+
+
+def test_create_app_avisa_si_falta_la_clave_del_llm_del_chat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: DeepSeek es el proveedor por defecto y la clave falta.
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+
+    # Act
+    with capture_logs() as logs:
+        create_app()
+
+    # Assert: el aviso nombra la variable que falta, no el valor de ninguna clave.
+    avisos = [log for log in logs if log["event"] == "llm.provider_unconfigured"]
+    assert len(avisos) == 1
+    assert avisos[0]["log_level"] == "warning"
+    assert avisos[0]["reason"] == "missing_deepseek_api_key"
+    assert "DEEPSEEK_API_KEY" in avisos[0]["detail"]
+
+
+def test_create_app_no_avisa_con_la_clave_del_llm_configurada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-prueba")
+
+    # Act
+    with capture_logs() as logs:
+        create_app()
+
+    # Assert
+    assert all(log["event"] != "llm.provider_unconfigured" for log in logs)
+    assert "sk-prueba" not in repr(logs)
 
 
 def test_create_app_difiere_los_handlers_a_la_primera_peticion(

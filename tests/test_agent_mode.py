@@ -8,7 +8,7 @@ from typing import Literal
 
 import pytest
 
-from carvajal.infrastructure.agent_mode import agent_mode_status
+from carvajal.infrastructure.agent_mode import agent_mode_status, chat_llm_blocker
 from carvajal.infrastructure.settings import Settings
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1"
@@ -45,8 +45,8 @@ def test_por_defecto_con_deepseek_completo_se_espera_tools() -> None:
     assert (status.configured, status.expected, status.reason) == ("tools", "tools", None)
 
 
-def test_por_defecto_sin_configurar_nada_se_espera_routes_por_el_proveedor() -> None:
-    # Arrange: valores por defecto de ``Settings`` (``LLM_PROVIDER=ollama``, sin clave).
+def test_por_defecto_sin_clave_se_espera_routes_por_la_clave() -> None:
+    # Arrange: valores por defecto de ``Settings`` (``LLM_PROVIDER=deepseek``, sin clave).
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
 
     # Act
@@ -56,8 +56,31 @@ def test_por_defecto_sin_configurar_nada_se_espera_routes_por_el_proveedor() -> 
     assert (status.configured, status.expected, status.reason) == (
         "tools",
         "routes",
-        "llm_provider",
+        "missing_deepseek_api_key",
     )
+
+
+@pytest.mark.parametrize(
+    ("proveedor", "clave", "motivo"),
+    [
+        ("deepseek", "", "missing_deepseek_api_key"),
+        (" DeepSeek ", "  ", "missing_deepseek_api_key"),
+        ("deepseek", "sk-prueba", None),
+        ("ollama", "", None),
+        ("claude", "", None),
+    ],
+)
+def test_chat_llm_blocker_solo_aplica_a_deepseek(
+    proveedor: str, clave: str, motivo: str | None
+) -> None:
+    # Arrange
+    settings = _settings(llm_provider=proveedor, deepseek_api_key=clave)
+
+    # Act
+    resultado = chat_llm_blocker(settings)
+
+    # Assert
+    assert resultado == motivo
 
 
 @pytest.mark.parametrize(

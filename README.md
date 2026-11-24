@@ -65,18 +65,20 @@ segundo solo Docker.
 **Todo en Docker** (recomendado para clonar el repo en otra máquina):
 
 ```bash
-cp .env.example .env                 # opcional; sin él se usa Ollama local
+cp .env.example .env                 # completa DEEPSEEK_API_KEY (LLM del chat)
 make up                              # app + Postgres + Qdrant + Ollama + corpus
                                      # http://localhost:8000  ← entrada única
 make down                            # lo detiene conservando los volúmenes
 ```
 
-> Si copias `.env.example`, cambia `LLM_PROVIDER` a `ollama` o completa
-> `DEEPSEEK_API_KEY`. `make up` ya descarga `nomic-embed-text` y el modelo de
-> chat de Ollama, así que el stack responde sin claves externas.
+> El chat usa DeepSeek por defecto (`LLM_PROVIDER=deepseek`); Ollama queda solo
+> para los embeddings. Sin `DEEPSEEK_API_KEY` el chat degrada a `routes` y la app
+> avisa al arrancar (`llm.provider_unconfigured`). Para trabajar sin red, fija
+> `LLM_PROVIDER=ollama`: `make up` descarga entonces también el modelo de chat.
 
 `make up` activa el perfil `full` de `compose.yml`: construye la imagen de
-desarrollo, descarga `nomic-embed-text` y el modelo de chat de Ollama, aplica
+desarrollo, descarga `nomic-embed-text` (y el modelo de chat de Ollama solo con
+`LLM_PROVIDER=ollama`), aplica
 migraciones, importa `data/gold` a Postgres e indexa en Qdrant antes de arrancar
 la app (recarga en caliente y `./data` montado). Sin el perfil, `make db` y
 `make qdrant` siguen levantando solo la infraestructura.
@@ -383,9 +385,9 @@ mientras consulta. Saludos y preferencias van por un atajo sin decisión del mod
 DeepSeek falla o vence el plazo, responde un respaldo determinista sin LLM.
 
 El modo `tools` usa DeepSeek y **solo arranca con `LLM_PROVIDER=deepseek`** y
-`DEEPSEEK_API_KEY`. Con `LLM_PROVIDER=ollama` (el valor por defecto de `Settings` y de
-`make up`) o `claude`, o sin clave (CI), el chat sigue con el enrutador por reglas y el
-proveedor configurado, aunque haya una clave de DeepSeek para el enrutador o `eval-agent`:
+`DEEPSEEK_API_KEY`; `deepseek` es el valor por defecto de `Settings` y de los compose.
+Con `LLM_PROVIDER=ollama` o `claude`, o sin clave (CI), el chat sigue con el enrutador por
+reglas y el proveedor configurado, aunque haya una clave de DeepSeek para el enrutador o `eval-agent`:
 un aviso `agent.tools_mode_unavailable` registra el motivo y `/health` lo publica en el
 bloque `agent`. La decisión se evaluó con `DEEPSEEK_MODEL=deepseek-flash`.
 `AGENT_MODE=routes` vuelve al enrutador por reglas sin migraciones.
@@ -589,13 +591,13 @@ También puedes configurar las variables en la terminal:
 
 | Variable | Descripción | Default |
 |----------|-------------|---------|
-| `LLM_PROVIDER` | Proveedor LLM: `ollama`, `deepseek` o `claude`. | `ollama` |
+| `LLM_PROVIDER` | Proveedor LLM del chat: `deepseek`, `ollama` o `claude`. Ollama sigue calculando los embeddings con cualquier valor. | `deepseek` |
 | `DEEPSEEK_API_KEY` | Clave API de DeepSeek: chat con `LLM_PROVIDER=deepseek` (también el agente con herramientas, que solo arranca con ese proveedor), enrutador LLM, `eval-agent` y revisión automática. | `""` |
 | `DEEPSEEK_MODEL` | Modelo DeepSeek a utilizar. `.env.example` trae `deepseek-flash`, el evaluado para el modo `tools`. | `deepseek-chat` |
 | `DEEPSEEK_BASE_URL` | Endpoint compatible con OpenAI. | `https://api.deepseek.com/v1` |
 | `ANTHROPIC_API_KEY` | Clave API de Anthropic (solo si `LLM_PROVIDER=claude`). | `""` |
 | `CLAUDE_MODEL` | Modelo Claude a utilizar (p. ej. `claude-sonnet-4-5`). | `claude-sonnet-4-5` |
-| `OLLAMA_MODEL` | Modelo local para el chat y la FAQ. | `llama3.2` |
+| `OLLAMA_MODEL` | Modelo local para el chat y la FAQ, solo con `LLM_PROVIDER=ollama`. | `llama3.2` |
 | `OLLAMA_NUM_CTX` | Ventana de contexto de Ollama; debe caber el prompt de la FAQ. | `32768` |
 | `QDRANT_URL` | Endpoint de Qdrant. | `http://127.0.0.1:6333` |
 | `QDRANT_COLLECTION` | Colección del índice M2. | `carvajal_chunks` |

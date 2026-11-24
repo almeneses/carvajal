@@ -42,13 +42,22 @@ from apps.api.views import (
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
 from carvajal.application.quota import DailyQuota, QuotaResult
-from carvajal.infrastructure.agent_mode import agent_mode_status
+from carvajal.infrastructure.agent_mode import agent_mode_status, chat_llm_blocker
 from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
 DB_UNAVAILABLE = "La base de datos no responde."
+# Qué variable falta para el LLM del chat, por motivo de ``chat_llm_blocker``.
+LLM_UNCONFIGURED_DETAIL = {
+    "missing_deepseek_api_key": (
+        "Falta DEEPSEEK_API_KEY: el chat atiende por routes y las respuestas redactadas "
+        "por el LLM fallarán hasta definirla."
+    ),
+    "missing_deepseek_model": "DEEPSEEK_MODEL está vacío: define el modelo de DeepSeek.",
+    "missing_deepseek_base_url": "DEEPSEEK_BASE_URL está vacía: define la URL de DeepSeek.",
+}
 SERVICE_UNAVAILABLE = "El servicio de respuestas no está disponible en este momento."
 
 
@@ -176,6 +185,17 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     if not settings.operator_token.strip():
         # La lectura sigue abierta; la escritura web queda solo en la CLI.
         logger.warning("operator.write_disabled", reason="missing_operator_token")
+    llm_blocker = chat_llm_blocker(settings)
+    if llm_blocker is not None:
+        # Mismo motivo que publica /health en ``agent.tools_unavailable_reason``: el
+        # arranque no falla (``/live`` y ``/health`` siguen sirviendo), pero el aviso queda
+        # una vez y sin valores de credenciales.
+        logger.warning(
+            "llm.provider_unconfigured",
+            llm_provider=settings.llm_provider,
+            reason=llm_blocker,
+            detail=LLM_UNCONFIGURED_DETAIL.get(llm_blocker, llm_blocker),
+        )
     # La bandera decide si el chat ofrece los botones de marca (spec 038, US4).
     app.state.monitoring = monitoring_status(settings).enabled
     # Captura web: un registro por app para que las pruebas inyecten su runner.

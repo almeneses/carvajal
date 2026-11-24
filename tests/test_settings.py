@@ -52,11 +52,14 @@ def test_semillas_por_defecto_no_vacias() -> None:
 
 
 def test_proveedor_llm_por_defecto() -> None:
-    """El proveedor por defecto es Ollama, es decir, sin API key."""
+    """El chat usa DeepSeek por defecto; la clave nunca trae un valor por defecto."""
 
+    # Arrange / Act
     settings = Settings(_env_file=None)
 
-    assert settings.llm_provider == "ollama"
+    # Assert
+    assert settings.llm_provider == "deepseek"
+    assert settings.deepseek_api_key == ""
 
 
 def test_operator_token_por_defecto_vacio_y_alias(monkeypatch: pytest.MonkeyPatch) -> None:

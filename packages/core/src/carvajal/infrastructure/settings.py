@@ -87,7 +87,10 @@ class Settings(BaseSettings):
         "https://caliescribe.com/2025/04/16/carvajal-s-a-futuro-consolidado-ante-desafios-globales",
     )
 
-    llm_provider: str = "ollama"
+    # LLM del chat en la nube por defecto (DeepSeek); Ollama queda para los embeddings y,
+    # solo si se fija ``LLM_PROVIDER=ollama``, para el chat sin red. Sin DEEPSEEK_API_KEY la
+    # app arranca igual y avisa (``agent_mode.chat_llm_blocker``).
+    llm_provider: str = "deepseek"
     anthropic_api_key: str = ""
     claude_model: str = "claude-sonnet-4-5"
     deepseek_api_key: str = ""

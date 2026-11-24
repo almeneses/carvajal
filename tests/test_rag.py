@@ -101,6 +101,20 @@ def test_build_llm_devuelve_deepseek_cuando_se_configura(monkeypatch: pytest.Mon
     assert isinstance(build_llm(), ChatOpenAI)
 
 
+def test_build_llm_deepseek_sin_clave_falla_con_mensaje_claro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sin ``DEEPSEEK_API_KEY`` la CLI histórica explica qué falta en vez de fallar luego."""
+
+    # Arrange
+    monkeypatch.setattr("carvajal.rag.LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr("carvajal.rag.DEEPSEEK_API_KEY", "  ")
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+        build_llm()
+
+
 def test_build_system_prompt_consolida_corpus() -> None:
     """El prompt de sistema incluye el texto limpio del corpus consolidado."""
 

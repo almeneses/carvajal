@@ -65,7 +65,10 @@ services:
       # Versión del aprovisionamiento comercial (captura más reciente del
       # catálogo/precios). El bootstrap falla si no coincide con `version`.
       EXPECTED_COMMERCIAL_VERSION: ${EXPECTED_COMMERCIAL_VERSION:-2026-11-18}
-      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      # LLM del chat en la nube (DeepSeek) por defecto: Ollama queda solo para los
+      # embeddings. Sin DEEPSEEK_API_KEY el chat degrada a routes y la app lo avisa al
+      # arrancar (llm.provider_unconfigured); /health lo muestra en agent.
+      LLM_PROVIDER: ${LLM_PROVIDER:-deepseek}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
       # La FAQ envía el corpus completo; sin esta ventana Ollama recorta el prompt.
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-32768}
@@ -235,7 +238,7 @@ services:
       - qdrantdata:/qdrant/storage
 
   ollama:
-    # Solo se usa para embeddings (nomic-embed-text); el LLM puede ser DeepSeek.
+    # Solo se usa para embeddings (nomic-embed-text); el chat usa DeepSeek.
     # El modelo se descarga aparte: docker compose exec ollama ollama pull nomic-embed-text
     image: ollama/ollama:0.40.16
     restart: unless-stopped
