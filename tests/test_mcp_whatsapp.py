@@ -156,9 +156,9 @@ def test_cotizacion_se_redacta_desde_el_folio_guardado() -> None:
     answer = _bridge(chat, quotes=quotes).consult("2000 vasos en Cali", "+573100000000")
 
     assert looked == [("Q-ABC123", owner_key_for("+573100000000", SECRET))]
-    assert "Cotización en Cali (Folio #Q-ABC123):" in answer
-    assert "- Producto: Vaso de papel 12 oz" in answer
-    assert "- Total:" in answer
+    assert "🧾 *Cotización #Q-ABC123*" in answer
+    assert "*Vaso de papel 12 oz*" in answer
+    assert "💰 *Total: $370.000 COP*" in answer
 
 
 def test_folio_sin_registro_o_consulta_fallida_no_rompe_el_turno() -> None:
@@ -410,7 +410,8 @@ def test_extremo_a_extremo_con_chat_service_y_cotizaciones_guardadas(sqlite_engi
         "Cotiza 50 y 100 vasos en Bogotá", "+573100000000"
     )
 
-    assert answer.count("Cotización en Bogotá (Folio #") == 2
-    assert "- Producto: Vaso rígido" in answer
-    assert "3.751" in answer and "7.502" in answer
+    assert answer.count("🧾 *Cotización #") == 2
+    assert "*Vaso rígido*" in answer
+    assert "💰 *Total: $3.751 COP*" in answer
+    assert "💰 *Total: $7.502 COP*" in answer
     assert "*Fuentes:*" in answer

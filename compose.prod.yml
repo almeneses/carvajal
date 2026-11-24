@@ -95,6 +95,9 @@ services:
       # Obligatorio: sin él, cualquiera podría firmar cookies con una clave
       # conocida. Compose falla con un mensaje claro si falta o está vacío.
       SESSION_SECRET: "${SESSION_SECRET:?Define SESSION_SECRET en el .env del servidor}"
+      # URL pública de la web para los enlaces firmados al PDF de una cotización
+      # (WhatsApp). Vacía: el canal no ofrece el PDF. Ej.: http://144.217.80.136:8080
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       # Token de operador para carga y captura web. Vacío deshabilita la
       # escritura web y deja solo la CLI interna. `CONFIG_TOKEN` sigue siendo
       # un alias aceptado por Settings.

@@ -1,0 +1,352 @@
+"""Pruebas de la cotización en PDF y su formato en WhatsApp.
+
+Sin red ni Postgres: el payload sale del motor real (``quote_request``) y se sella como lo
+hace el servicio de chat. Cubren:
+
+- vista de lectura (``quote_view``): importes, sobrantes, IVA, envío, vigencia, pendientes;
+- bloque de WhatsApp con folio, total y vigencia, y la oferta del PDF;
+- pedido de «PDF» por WhatsApp: enlace firmado a la última cotización, sin LLM ni cupo;
+- enlaces firmados: firma, vencimiento, alteración y otro dueño;
+- ruta ``/cotizaciones/{folio}.pdf``: 200 con PDF válido y 404 en cualquier otro caso;
+- repositorio: ``latest`` y ``by_folio`` sobre SQLite.
+"""
+
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+
+from apps.api.chat.service import _stamp_quote
+from apps.api.chat.streaming import ChatEvent
+from apps.api.main import create_app
+from apps.api.quote_links import MAX_LINK_DAYS, link_expiry, pdf_url, sign, verify
+from apps.api.quote_pdf import build_quote_pdf
+from apps.api.quote_view import format_date, format_money, quote_view
+from apps.mcp.bridge import (
+    NO_QUOTE_FOR_PDF,
+    PDF_OFFER,
+    PDF_UNAVAILABLE,
+    WhatsAppBridge,
+    is_pdf_request,
+    owner_key_for,
+    whatsapp_quote,
+)
+from carvajal.adapters.storage import tables
+from carvajal.adapters.storage.database import build_session_factory
+from carvajal.adapters.storage.quotes import SqlQuoteRepository
+from carvajal.application.quota import QuotaResult
+from carvajal.quotation import QuoteRequest, quote_request
+
+SECRET = b"secreto-de-prueba"
+MOMENT = datetime(2026, 11, 24, 15, 0, tzinfo=UTC)
+BASE = "http://144.217.80.136:8080"
+
+
+def stamped(quantity: int = 450, folio: str = "Q-7F3A2C") -> dict[str, Any]:
+    """Cotización real del motor (portacomidas J1 en Bogotá), sellada con folio."""
+
+    quoted = quote_request(
+        QuoteRequest(sku="CO-PCOM-J1", quantity=quantity, city="Bogotá", delivery=False)
+    )
+    payload, _record = _stamp_quote(quoted, folio=folio, moment=MOMENT)
+    return payload
+
+
+# --- vista ---------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("204370", "$204.370"), ("510.93", "$510,93"), (None, None), ("x", None)],
+)
+def test_format_money(value: Any, expected: str | None) -> None:
+    assert format_money(value) == expected
+
+
+def test_format_date() -> None:
+    assert format_date("2026-11-18") == "18 nov 2026"
+    assert format_date(datetime(2026, 12, 1, 5, tzinfo=UTC)) == "1 dic 2026"
+    assert format_date("no es fecha") is None
+
+
+def test_quote_view_lee_el_payload_sin_calcular() -> None:
+    view = quote_view(stamped())
+
+    assert view is not None
+    assert view.folio == "Q-7F3A2C"
+    assert view.product.startswith("Portacomidas espumado J1")
+    assert (view.city, view.seller) == ("Bogotá", "EDEXA")
+    assert view.price_per_presentation == "$102.185"
+    assert (view.units_requested, view.presentations, view.units_bought) == (450, 3, 600)
+    assert view.units_surplus == 150
+    assert view.subtotal == view.total == "$306.555"
+    assert view.tax == "Incluido"
+    assert view.shipping == "No solicitado"
+    assert view.price_date == "18 nov 2026"
+    assert view.valid_until_date == date(2026, 12, 1)
+
+
+def test_quote_view_rechaza_lo_que_no_es_cotizacion() -> None:
+    assert quote_view({"kind": "opciones"}) is None
+    assert quote_view({"kind": "cotizacion"}) is None
+
+
+def test_total_ausente_queda_pendiente() -> None:
+    payload = {**stamped(), "total": None, "pending_lines": ["Falta el costo de envío."]}
+
+    view = quote_view(payload)
+    assert view is not None and view.total is None
+    block = whatsapp_quote(view)
+    assert "⏳ *Total pendiente*" in block
+    assert "_Falta el costo de envío._" in block
+    assert "💰" not in block
+
+
+# --- WhatsApp ------------------------------------------------------------------------------
+
+
+def test_bloque_de_whatsapp() -> None:
+    view = quote_view(stamped())
+    assert view is not None
+
+    block = whatsapp_quote(view)
+
+    assert block.startswith("🧾 *Cotización #Q-7F3A2C*\n📍 Bogotá · EDEXA")
+    assert "• Presentación: caja x 200 a $102.185" in block
+    assert "• Pides 450 → compras 3 cajas (600 und., sobran 150)" in block
+    assert "• IVA: incluido" in block
+    assert "💰 *Total: $306.555 COP*" in block
+    assert "_Precio publicado por EDEXA el 18 nov 2026 · válida hasta 1 dic 2026_" in block
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["PDF", "pdf", "Sí, el PDF", "envíame la cotización en pdf por favor", "dale pdf!"],
+)
+def test_pedidos_de_pdf(message: str) -> None:
+    assert is_pdf_request(message)
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["¿el PDF trae el IVA?", "cotiza 400 vasos y mándame el pdf", "hola", ""],
+)
+def test_no_son_pedidos_de_pdf(message: str) -> None:
+    assert not is_pdf_request(message)
+
+
+@dataclass
+class FakeChat:
+    events: list[ChatEvent] = field(default_factory=list)
+    calls: list[str] = field(default_factory=list)
+
+    def stream(self, owner_key: str, question: str, **_: Any) -> Iterator[ChatEvent]:
+        self.calls.append(question)
+        yield from self.events
+
+    def new_conversation(self, owner_key: str) -> Any:
+        return object()
+
+
+def _links(folio: str, owner: str, valid_until: date | None) -> str:
+    return pdf_url(BASE, folio, owner, link_expiry(valid_until, now=MOMENT), SECRET)
+
+
+def test_la_respuesta_con_cotizacion_ofrece_el_pdf() -> None:
+    payload = stamped()
+    chat = FakeChat(
+        events=[
+            ChatEvent("token", {"text": "Aquí está tu cotización."}),
+            ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]}),
+        ]
+    )
+    bridge = WhatsAppBridge(
+        chat=chat,
+        secret=SECRET,
+        quotes=lambda folio, owner: payload,
+        latest_quote=lambda owner: payload,
+        pdf_link=_links,
+    )
+
+    answer = bridge.consult("Cotiza 450 J1 en Bogotá", "+573100000000")
+
+    assert "🧾 *Cotización #Q-7F3A2C*" in answer
+    assert answer.endswith(PDF_OFFER)
+
+
+def test_sin_url_publica_no_se_ofrece_el_pdf() -> None:
+    payload = stamped()
+    chat = FakeChat(events=[ChatEvent("done", {"quote_ids": ["Q-7F3A2C"]})])
+    bridge = WhatsAppBridge(
+        chat=chat, secret=SECRET, quotes=lambda f, o: payload, latest_quote=lambda o: payload
+    )
+
+    answer = bridge.consult("Cotiza", "+573100000000")
+
+    assert PDF_OFFER not in answer
+    assert bridge.consult("PDF", "+573100000000") == PDF_UNAVAILABLE
+
+
+def test_pdf_devuelve_el_enlace_sin_llamar_al_agente_ni_cobrar_cupo() -> None:
+    payload = stamped()
+    chat = FakeChat()
+    charged: list[str] = []
+    asked: list[str] = []
+
+    def latest(owner: str) -> Mapping[str, Any]:
+        asked.append(owner)
+        return payload
+
+    def quota(owner: str) -> QuotaResult:
+        charged.append(owner)
+        return QuotaResult(allowed=True)
+
+    bridge = WhatsAppBridge(
+        chat=chat, secret=SECRET, latest_quote=latest, pdf_link=_links, quota=quota
+    )
+
+    answer = bridge.consult("Sí, el PDF", "+573100000000")
+
+    owner = owner_key_for("+573100000000", SECRET)
+    assert asked == [owner]
+    assert chat.calls == [] and charged == []
+    assert answer.startswith("📄 Aquí está tu cotización #Q-7F3A2C en PDF:")
+    assert f"{BASE}/cotizaciones/Q-7F3A2C.pdf?e=" in answer
+    assert "_El enlace funciona hasta el 1 dic 2026._" in answer
+
+
+def test_pdf_sin_cotizacion_previa() -> None:
+    bridge = WhatsAppBridge(
+        chat=FakeChat(), secret=SECRET, latest_quote=lambda owner: None, pdf_link=_links
+    )
+
+    assert bridge.consult("pdf", "+573100000000") == NO_QUOTE_FOR_PDF
+
+
+# --- enlaces -------------------------------------------------------------------------------
+
+
+def test_firma_y_vencimiento() -> None:
+    expires = link_expiry(date(2026, 12, 1), now=MOMENT)
+    token = sign("Q-1", "wa_dueno", expires, SECRET)
+
+    assert verify("Q-1", "wa_dueno", expires, token, SECRET, now=MOMENT)
+    assert not verify("Q-2", "wa_dueno", expires, token, SECRET, now=MOMENT)
+    assert not verify("Q-1", "wa_otro", expires, token, SECRET, now=MOMENT)
+    assert not verify("Q-1", "wa_dueno", expires + 1, token, SECRET, now=MOMENT)
+    assert not verify("Q-1", "wa_dueno", expires, token, b"otro", now=MOMENT)
+    late = datetime.fromtimestamp(expires + 1, UTC)
+    assert not verify("Q-1", "wa_dueno", expires, token, SECRET, now=late)
+
+
+def test_el_enlace_no_pasa_del_tope_ni_de_la_vigencia() -> None:
+    far = link_expiry(date(2027, 6, 1), now=MOMENT)
+    near = link_expiry(date(2026, 11, 25), now=MOMENT)
+
+    assert far == int((MOMENT + timedelta(days=MAX_LINK_DAYS)).timestamp())
+    assert near == int(datetime(2026, 11, 25, 23, 59, 59, tzinfo=UTC).timestamp())
+
+
+# --- PDF y ruta ----------------------------------------------------------------------------
+
+
+def test_build_quote_pdf_genera_un_pdf() -> None:
+    view = quote_view(stamped())
+    assert view is not None
+
+    document = build_quote_pdf(view)
+
+    assert document.startswith(b"%PDF-")
+    assert len(document) > 10_000  # logo y tipografía incrustados
+
+
+def _client(payload: Mapping[str, Any] | None, owner: str = "wa_dueno") -> TestClient:
+    app = create_app()
+    app.state.quote_link_secret = SECRET
+    app.state.quote_lookup = lambda folio: None if payload is None else (owner, payload)
+    return TestClient(app)
+
+
+def _path(folio: str, owner: str, expires: int, secret: bytes = SECRET) -> str:
+    return pdf_url("", folio, owner, expires, secret)
+
+
+def test_ruta_entrega_el_pdf_con_firma_valida() -> None:
+    expires = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
+    client = _client(stamped())
+
+    response = client.get(_path("Q-7F3A2C", "wa_dueno", expires))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "cotizacion-Q-7F3A2C.pdf" in response.headers["content-disposition"]
+    assert "no-store" in response.headers["cache-control"]
+    assert response.content.startswith(b"%PDF-")
+
+
+@pytest.mark.parametrize("case", ["otro_dueno", "vencido", "sin_firma", "otro_secreto"])
+def test_ruta_responde_404_si_la_firma_no_vale(case: str) -> None:
+    future = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
+    past = int((datetime.now(UTC) - timedelta(minutes=1)).timestamp())
+    paths = {
+        "otro_dueno": _path("Q-7F3A2C", "wa_otro", future),
+        "vencido": _path("Q-7F3A2C", "wa_dueno", past),
+        "sin_firma": f"/cotizaciones/Q-7F3A2C.pdf?e={future}",
+        "otro_secreto": _path("Q-7F3A2C", "wa_dueno", future, b"otro"),
+    }
+
+    response = _client(stamped()).get(paths[case])
+
+    assert response.status_code == 404
+
+
+def test_ruta_responde_404_si_el_folio_no_existe() -> None:
+    expires = int((datetime.now(UTC) + timedelta(days=1)).timestamp())
+
+    response = _client(None).get(_path("Q-NOEXISTE", "wa_dueno", expires))
+
+    assert response.status_code == 404
+
+
+# --- repositorio ---------------------------------------------------------------------------
+
+
+def test_repositorio_latest_y_by_folio() -> None:
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    tables.metadata.create_all(engine)
+    factory = build_session_factory(engine)
+    try:
+        with factory() as session:
+            repo = SqlQuoteRepository(session)
+            for index, (folio, owner) in enumerate(
+                [("Q-1", "wa_a"), ("Q-2", "wa_a"), ("Q-3", "wa_b")]
+            ):
+                repo.record(
+                    folio,
+                    owner,
+                    payload=stamped(folio=folio),
+                    total=None,
+                    currency="COP",
+                    valid_until=date(2026, 12, 1),
+                    issued_at=MOMENT + timedelta(minutes=index),
+                )
+            session.commit()
+        with factory() as session:
+            repo = SqlQuoteRepository(session)
+            latest = repo.latest("wa_a")
+            assert latest is not None and latest.folio in {"Q-1", "Q-2"}
+            assert repo.latest("wa_nadie") is None
+            found = repo.by_folio("Q-3")
+            assert found is not None and found.get("owner_key") == "wa_b"
+    finally:
+        tables.metadata.drop_all(engine)
+        engine.dispose()

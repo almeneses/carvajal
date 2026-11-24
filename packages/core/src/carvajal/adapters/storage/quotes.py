@@ -292,6 +292,30 @@ class SqlQuoteRepository:
             tables.quotes.c.owner_key == owner_key,
         )
 
+    def by_folio(self, quote_id: str) -> QuoteRecord | None:
+        """Cotización por folio sin filtrar dueño.
+
+        Solo para el PDF por enlace firmado: la ruta verifica la firma contra el
+        ``owner_key`` de la fila antes de mostrar nada (``apps.api.quote_links``).
+        """
+
+        return self._row(tables.quotes.c.id == quote_id)
+
+    def latest(self, owner_key: str) -> QuoteRecord | None:
+        """Última cotización emitida para el dueño (la que pide «PDF» por WhatsApp)."""
+
+        row = (
+            self._session.execute(
+                select(tables.quotes)
+                .where(tables.quotes.c.owner_key == owner_key)
+                .order_by(tables.quotes.c.created_at.desc(), tables.quotes.c.id.desc())
+                .limit(1)
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return None if row is None else QuoteRecord(row)
+
     def by_message(self, message_id: str, owner_key: str) -> QuoteRecord | None:
         """Cotización vinculada a un mensaje concreto del dueño."""
 

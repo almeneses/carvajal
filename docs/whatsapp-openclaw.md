@@ -32,6 +32,24 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
   (`*negrita*`, viñetas con `-`, enlaces como `texto (url)`), y se añade `*Fuentes:*`.
 - **Fallos**: el canal recibe siempre un mensaje legible, nunca una traza interna.
 
+## Cotización en PDF
+
+Cada cotización de WhatsApp sale con folio, presentación, unidades, subtotal, IVA, envío,
+total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *PDF*».
+
+- Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
+  herramienta busca la **última cotización de ese chat** y devuelve un enlace. No llama
+  al LLM ni cobra cupo.
+- El enlace es `PUBLIC_BASE_URL/cotizaciones/{folio}.pdf?e=…&t=…`, firmado con HMAC
+  (`SESSION_SECRET`) sobre el folio, el dueño y el vencimiento. Vence con la vigencia de
+  la cotización (máximo 7 días). El dueño no va en la URL: la ruta lee la cotización por
+  folio y verifica la firma contra su `owner_key`. Cualquier fallo responde 404.
+- El PDF se genera al vuelo con fpdf2 (sin dependencias del sistema) desde el payload de
+  `quotes`: logo de Carvajal, folio y fechas, producto, tabla de importes, total,
+  vendedor, fuente del precio y nota legal. Los recursos están en `apps/api/pdf/`.
+- Para activarlo, define `PUBLIC_BASE_URL` en el `.env` del servidor
+  (`http://144.217.80.136:8080` en la demo). Sin ella, no se ofrece el PDF.
+
 ## 1. Activarlo en el VPS
 
 En `/opt/carvajal/.env`:

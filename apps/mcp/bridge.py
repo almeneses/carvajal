@@ -10,7 +10,9 @@ texto listo para WhatsApp.
   propio hilo, su memoria comercial y su cupo diario, igual que un visitante de la web.
 - **Cupo**: se cobra el mismo ``DAILY_REQUESTS_LIMIT`` que en la web, por chat.
 - **Cotizaciones**: la web las pinta como tarjetas HTML; aquí se leen de la tabla
-  ``quotes`` por folio y se redactan con :func:`carvajal.agent.toolagent.fallback.quote_text`.
+  ``quotes`` por folio y se redactan con :func:`whatsapp_quote` (folio, importes, total y
+  vigencia). Si hay URL pública, se ofrece el PDF y la palabra «PDF» devuelve un enlace
+  firmado a la última cotización del chat, sin pasar por el LLM ni cobrar cupo.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
 """
@@ -19,13 +21,14 @@ import hmac
 import re
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from hashlib import sha256
 from typing import Any, Protocol
 
 import structlog
 
 from apps.api.chat.streaming import ChatEvent
-from carvajal.agent.toolagent.fallback import quote_text
+from apps.api.quote_view import QuoteView, quote_view
 from carvajal.application.quota import QuotaResult
 
 __all__ = [
@@ -34,13 +37,18 @@ __all__ = [
     "MAX_CHAT_ID_CHARS",
     "MAX_MESSAGE_CHARS",
     "NEW_CONVERSATION",
+    "NO_QUOTE_FOR_PDF",
     "OWNER_PREFIX",
+    "PDF_OFFER",
+    "PDF_UNAVAILABLE",
     "SERVICE_UNAVAILABLE",
     "TOO_LONG_MESSAGE",
     "ChatTurns",
     "WhatsAppBridge",
+    "is_pdf_request",
     "owner_key_for",
     "to_whatsapp",
+    "whatsapp_quote",
 ]
 
 logger = structlog.get_logger(__name__)
@@ -62,6 +70,12 @@ SERVICE_UNAVAILABLE = (
     "unos minutos."
 )
 NEW_CONVERSATION = "Listo, empezamos una conversación nueva. ¿En qué te puedo ayudar?"
+PDF_OFFER = "¿Quieres esta cotización en PDF? Responde *PDF* 📄"
+NO_QUOTE_FOR_PDF = (
+    "Todavía no tengo una cotización en esta conversación. Pídeme una, por ejemplo: "
+    "*Cotiza 400 portacomidas espumados J1 en Bogotá*."
+)
+PDF_UNAVAILABLE = "Por ahora no puedo generar el PDF. Intenta de nuevo más tarde."
 
 
 class ChatTurns(Protocol):
@@ -87,6 +101,12 @@ class ChatTurns(Protocol):
 
 QuoteLookup = Callable[[str, str], Mapping[str, Any] | None]
 """``(folio, owner_key) -> payload`` de la cotización guardada, o ``None``."""
+
+LatestQuote = Callable[[str], Mapping[str, Any] | None]
+"""``owner_key -> payload`` de la última cotización del chat, o ``None``."""
+
+PdfLink = Callable[[str, str, date | None], str]
+"""``(folio, owner_key, válida_hasta) -> URL`` firmada del PDF."""
 
 Quota = Callable[[str], QuotaResult]
 
@@ -133,6 +153,107 @@ def to_whatsapp(text: str) -> str:
     result = _LINK.sub(r"\1 (\2)", result)
     result = _BLANKS.sub("\n\n", result)
     return result.strip()
+
+
+_PDF_WORDS = re.compile(r"[a-záéíóúñ]+")
+_PDF_FILLER = {
+    "si",
+    "sí",
+    "el",
+    "la",
+    "en",
+    "un",
+    "una",
+    "de",
+    "por",
+    "favor",
+    "porfa",
+    "porfavor",
+    "quiero",
+    "dame",
+    "envia",
+    "envía",
+    "enviame",
+    "envíame",
+    "manda",
+    "mandame",
+    "mándame",
+    "genera",
+    "generar",
+    "generame",
+    "genérame",
+    "pasa",
+    "pasame",
+    "pásame",
+    "me",
+    "lo",
+    "cotizacion",
+    "cotización",
+    "gracias",
+    "ok",
+    "dale",
+    "listo",
+    "pdf",
+}
+
+
+def is_pdf_request(message: str) -> bool:
+    """«PDF», «sí, el PDF», «envíame la cotización en pdf»…: pedido explícito del PDF.
+
+    Solo cuenta si el mensaje es corto y todas sus palabras son de relleno: «¿el PDF trae
+    el IVA?» es una pregunta para el agente, no un pedido del archivo.
+    """
+
+    words = _PDF_WORDS.findall(message.lower())
+    return "pdf" in words and len(words) <= 8 and all(word in _PDF_FILLER for word in words)
+
+
+def _units(value: int | None) -> str:
+    return "?" if value is None else f"{value:,}".replace(",", ".")
+
+
+def whatsapp_quote(view: QuoteView) -> str:
+    """Bloque de WhatsApp de una cotización emitida, con las cifras del payload."""
+
+    lines = [f"🧾 *Cotización #{view.folio}*" if view.folio else "🧾 *Cotización*"]
+    place = " · ".join(part for part in (view.city, view.seller) if part)
+    if place:
+        lines.append(f"📍 {place}")
+    lines += ["", f"*{view.product}*"]
+    if view.basis:
+        detail = view.basis
+        if view.units_per_presentation:
+            detail += f" x {_units(view.units_per_presentation)}"
+        if view.price_per_presentation:
+            detail += f" a {view.price_per_presentation}"
+        lines.append(f"• Presentación: {detail}")
+    if view.units_requested is not None and view.presentations is not None:
+        buy = f"• Pides {_units(view.units_requested)} → compras {_units(view.presentations)}"
+        buy += f" {view.presentations_label} ({_units(view.units_bought)} und."
+        if view.units_surplus:
+            buy += f", sobran {_units(view.units_surplus)}"
+        lines.append(buy + ")")
+    lines += [
+        f"• Subtotal: {view.subtotal or 'pendiente'}",
+        f"• IVA: {view.tax.lower()}",
+        f"• Envío: {view.shipping.lower() if not view.shipping.startswith('$') else view.shipping}",
+        "",
+    ]
+    if view.total:
+        lines.append(f"💰 *Total: {view.total} {view.currency}*")
+    else:
+        lines.append("⏳ *Total pendiente*")
+        lines += [f"_{item}_" for item in view.pending]
+    notes = []
+    if view.source_name and view.price_date:
+        notes.append(f"Precio publicado por {view.source_name} el {view.price_date}")
+    if view.valid_until:
+        notes.append(f"válida hasta {view.valid_until}")
+    if notes:
+        lines.append(f"_{' · '.join(notes)}_")
+    if view.warning:
+        lines.append(f"_⚠️ {view.warning}_")
+    return "\n".join(lines)
 
 
 def _sources_block(sources: Iterable[Mapping[str, Any]]) -> str:
@@ -188,6 +309,8 @@ class WhatsAppBridge:
     secret: bytes
     quotes: QuoteLookup | None = None
     quota: Quota = _no_limit
+    latest_quote: LatestQuote | None = None
+    pdf_link: PdfLink | None = None
 
     def owner_key(self, chat_id: str) -> str:
         """``owner_key`` del chat (ver :func:`owner_key_for`)."""
@@ -216,6 +339,8 @@ class WhatsAppBridge:
                     return NEW_CONVERSATION
             if not text:
                 return EMPTY_MESSAGE
+            if is_pdf_request(text):
+                return self._pdf(owner)
             if not self.quota(owner).allowed:
                 logger.info("whatsapp.quota_exhausted")
                 return LIMIT_REACHED
@@ -231,10 +356,13 @@ class WhatsAppBridge:
         if turn.error is not None and not turn.text.strip():
             return SERVICE_UNAVAILABLE
         blocks = [to_whatsapp(turn.text)] if turn.text.strip() else []
-        blocks.extend(self._quote_blocks(turn.folios, owner))
+        quotes = self._quote_blocks(turn.folios, owner)
+        blocks.extend(quotes)
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)
+        if quotes and self.pdf_link is not None and self.latest_quote is not None:
+            blocks.append(PDF_OFFER)
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
@@ -250,7 +378,23 @@ class WhatsAppBridge:
             except Exception as error:
                 logger.warning("whatsapp.quote_lookup_failed", folio=folio, error=repr(error))
                 continue
-            block = quote_text(payload) if payload else ""
-            if block:
-                blocks.append(to_whatsapp(block))
+            view = quote_view(payload) if payload else None
+            if view is not None:
+                blocks.append(whatsapp_quote(view))
         return blocks
+
+    def _pdf(self, owner: str) -> str:
+        """Enlace firmado al PDF de la última cotización del chat (sin LLM ni cupo)."""
+
+        if self.pdf_link is None or self.latest_quote is None:
+            return PDF_UNAVAILABLE
+        payload = self.latest_quote(owner)
+        view = quote_view(payload) if payload else None
+        if view is None or not view.folio:
+            return NO_QUOTE_FOR_PDF
+        url = self.pdf_link(view.folio, owner, view.valid_until_date)
+        logger.info("whatsapp.pdf_link", folio=view.folio)
+        lines = [f"📄 Aquí está tu cotización #{view.folio} en PDF:", url]
+        if view.valid_until:
+            lines.append(f"_El enlace funciona hasta el {view.valid_until}._")
+        return "\n".join(lines)

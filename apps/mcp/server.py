@@ -15,6 +15,7 @@ Seguridad, en capas:
 
 import hmac
 from collections.abc import Awaitable, Callable, MutableMapping
+from datetime import date
 from functools import cache
 from typing import Annotated, Any
 
@@ -28,6 +29,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 
+from apps.api.quote_links import link_expiry, pdf_url
 from apps.mcp.bridge import MAX_CHAT_ID_CHARS, MAX_MESSAGE_CHARS, WhatsAppBridge
 
 __all__ = [
@@ -45,8 +47,10 @@ TOOL_NAME = "consultar_carvajal"
 TOOL_DESCRIPTION = (
     "Responde un mensaje de un cliente por WhatsApp con el asistente oficial de Carvajal "
     "Empaques: información institucional del corpus, catálogo de empaques, cotizaciones "
-    "con folio, sedes de distribuidores e indicadores financieros. Devuelve el texto "
-    "final, ya en formato de WhatsApp y con sus fuentes: envíalo al cliente tal cual."
+    "con folio, sedes de distribuidores e indicadores financieros. Si el cliente pide "
+    "el PDF de su cotización (p. ej. responde «PDF»), pásale ese mensaje igual: la "
+    "herramienta devuelve el enlace. Devuelve el texto final, ya en formato de WhatsApp "
+    "y con sus fuentes: envíalo al cliente tal cual."
 )
 INSTRUCTIONS = (
     "Usa consultar_carvajal para cada mensaje del cliente. Pasa el mensaje completo en "
@@ -177,9 +181,23 @@ def default_bridge() -> WhatsAppBridge:
                 timezone=settings.quota_timezone,
             ).consume(owner_key)
 
+    def latest_quote(owner_key: str) -> dict[str, Any] | None:
+        with factory() as session:
+            record = SqlQuoteRepository(session).latest(owner_key)
+            return None if record is None else dict(record.payload)
+
+    secret = settings.session_secret.encode("utf-8")
+    base_url = settings.public_base_url.strip()
+
+    def pdf_link(folio: str, owner_key: str, valid_until: date | None) -> str:
+        return pdf_url(base_url, folio, owner_key, link_expiry(valid_until), secret)
+
     return WhatsAppBridge(
         chat=default_chat_service(),
-        secret=settings.session_secret.encode("utf-8"),
+        secret=secret,
         quotes=quotes,
         quota=quota,
+        latest_quote=latest_quote,
+        # Sin URL pública no hay a dónde enlazar: el chat no ofrece el PDF.
+        pdf_link=pdf_link if base_url else None,
     )
