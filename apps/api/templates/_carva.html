@@ -1,0 +1,38 @@
+{#- Carva ilustrado (diseño de Stitch). SVG en línea: la CSP (style-src 'self') no deja
+    animar un SVG cargado como imagen con su propio <style>, así que la animación vive en
+    chat.css. ``carva_estado``: "saluda" (bienvenida) o "celebra" (cotización emitida). -#}
+<svg class="carva-figura carva-{{ carva_estado or 'saluda' }}" viewBox="0 0 240 240" fill="none"
+     xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <ellipse cx="120" cy="216" rx="68" ry="12" fill="#DCE5EA" opacity="0.7" />
+  <g class="carva-estrella carva-estrella-cian">
+    <path d="M46 56 L52 42 L58 56 L72 62 L58 68 L52 82 L46 68 L32 62 Z" fill="#00B5E5" />
+  </g>
+  <g class="carva-estrella carva-estrella-oro">
+    <path d="M182 48 L187 36 L192 48 L204 53 L192 58 L187 70 L182 58 L170 53 Z" fill="#F4A100" />
+  </g>
+  <g class="carva-cuerpo">
+    <g class="carva-brazo carva-brazo-izq">
+      <path d="M48 116 C38 96, 40 76, 52 70 C62 66, 68 84, 62 108 Z" fill="#BA8D5E"
+            stroke="#A77A4D" stroke-width="2.5" />
+    </g>
+    <g class="carva-brazo carva-brazo-der">
+      <path d="M188 116 C198 96, 196 76, 184 70 C174 66, 168 84, 174 108 Z" fill="#BA8D5E"
+            stroke="#A77A4D" stroke-width="2.5" />
+    </g>
+    <rect x="58" y="72" width="124" height="126" rx="28" fill="#C89B6A" stroke="#B08354"
+          stroke-width="3" />
+    <path d="M154 72 L182 100 L154 100 Z" fill="#BA8C5D" stroke="#A77A4D" stroke-width="2.5" />
+    <g class="carva-ojos">
+      <path d="M86 118 Q94 110 102 118" stroke="#072B46" stroke-width="4" stroke-linecap="round" />
+      <path d="M134 118 Q142 110 150 118" stroke="#072B46" stroke-width="4" stroke-linecap="round" />
+    </g>
+    <circle cx="82" cy="126" r="6" fill="#E8A77E" opacity="0.5" />
+    <circle cx="154" cy="126" r="6" fill="#E8A77E" opacity="0.5" />
+    <path d="M108 128 Q118 144 128 128 Z" fill="#072B46" />
+    <path d="M60 148 Q120 162 180 148 C182 154, 180 164, 172 168 Q118 180 68 168 C60 162, 58 154, 60 148 Z"
+          fill="#00B5E5" />
+    <rect x="74" y="156" width="18" height="26" rx="6" fill="#009DC7" transform="rotate(10 74 156)" />
+    <rect x="84" y="192" width="22" height="16" rx="8" fill="#A77A4D" />
+    <rect x="134" y="192" width="22" height="16" rx="8" fill="#A77A4D" />
+  </g>
+</svg>

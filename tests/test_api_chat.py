@@ -186,7 +186,7 @@ def test_get_sin_cookie_muestra_el_estado_vacio_y_emite_cookie() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert "Todavía no hay mensajes" in response.text
+    assert "Hola, soy Carva" in response.text  # bienvenida del rediseño 049
     assert "<textarea" in response.text
     assert "data-chat-sugerencia" in response.text
     assert COOKIE_NAME in response.headers["set-cookie"]
@@ -259,7 +259,7 @@ def test_get_con_cookie_manipulada_regenera_sin_romper() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert "Todavía no hay mensajes" in response.text
+    assert "Hola, soy Carva" in response.text  # bienvenida del rediseño 049
     assert COOKIE_NAME in response.headers["set-cookie"]
     assert chat.history_calls == []
 
