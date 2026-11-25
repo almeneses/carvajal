@@ -162,7 +162,7 @@ Flujo de un turno:
 | Servidor MCP propio | `apps/mcp` (Streamable HTTP, Bearer, solo loopback) | [`apps/mcp/server.py`](apps/mcp/server.py) |
 | Voz | Chat web: OpenAI por el servidor (`VOICE_PROVIDER=openai`) con respaldo en la voz del navegador; WhatsApp: `voz=true` con texto hablado corto | [Voz](#voz), [`docs/voz-web.md`](docs/voz-web.md), [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz) |
 | Fotos de alimentos | Foto en la web o WhatsApp → Jev (Noul, Choice y Score con imagen) → tabla determinista → hasta tres empaques del catálogo, sin LLM | [Fotos](#fotos-de-alimentos), [`specs/051-fotos-alimentos/`](specs/051-fotos-alimentos/spec.md) |
-| Seguridad | Compuertas de evidencia, filtro de sensibles, token MCP, firma, allowlist, errores sin trazas | [Seguridad](#seguridad) |
+| Seguridad | Compuertas de evidencia, filtro de sensibles, token MCP, firma, allowlist, errores sin trazas. En OpenClaw: `tools.deny`, `fs.workspaceOnly`, `exec` cerrado en Carva, HITL en el agente personal, sesiones aisladas, allowlist de plugins y `openclaw security audit` (de 5 a 2 críticos, con los pendientes documentados) | [Seguridad](#seguridad), [`openclaw/SEGURIDAD.md`](openclaw/SEGURIDAD.md) |
 | Licencia, despliegue y reproducibilidad | MIT, guía de despliegue, `.env` fuera del repo, `uv sync`, `make check` | [Licencia](#licencia-y-créditos), [Despliegue](#despliegue), [Instalación](#instalación) |
 
 ### Modelo por API en la nube

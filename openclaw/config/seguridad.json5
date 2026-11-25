@@ -1,0 +1,39 @@
+// Endurecimiento de OpenClaw aplicado el 2026-11-25 en la VPS de OpenClaw (ver openclaw/SEGURIDAD.md).
+// Aplicar con: openclaw config patch --file seguridad.json5 --dry-run, y luego sin --dry-run.
+// Ojo: en config patch los arrays se reemplazan completos (deny, allow). El grupo de WhatsApp no se toca.
+{
+  tools: {
+    elevated: { enabled: false },
+    sessions: { visibility: "tree" },
+    agentToAgent: { enabled: false },
+    openclaw: { autoApproveChanges: false },
+  },
+  approvals: {
+    exec: { enabled: true, mode: "session", agentFilter: ["main"] },
+    plugin: { enabled: true, mode: "session", agentFilter: ["main"] },
+  },
+  agents: {
+    entries: {
+      main: {
+        sandbox: { mode: "off" },
+        tools: {
+          exec: { mode: "ask", strictInlineEval: true },
+          fs: { workspaceOnly: true },
+        },
+      },
+      ventas: {
+        tools: {
+          exec: { mode: "deny" },
+          fs: { workspaceOnly: true },
+          elevated: { enabled: false },
+          deny: ["group:runtime", "group:fs", "group:ui", "group:automation", "group:nodes", "group:web",
+                 "sessions_send", "sessions_spawn", "conversations_send", "conversations_turn", "subagents", "gateway"],
+          message: { crossContext: { allowWithinProvider: false, allowAcrossProviders: false } },
+        },
+      },
+    },
+  },
+  plugins: {
+    allow: ["whatsapp", "deepseek", "openai", "memory-core", "browser", "document-extract", "web-readability", "device-pair", "talk-voice"],
+  },
+}

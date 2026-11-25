@@ -5,6 +5,11 @@ workspace que corre en la VPS de OpenClaw, en `~/.openclaw/workspace/ventas/` de
 usuario que ejecuta el gateway. La configuración y la seguridad del gateway están en
 [`docs/whatsapp-openclaw.md`](../docs/whatsapp-openclaw.md).
 
+La política de seguridad del gateway (allowlists, `tools.deny`, `fs.workspaceOnly`, HITL,
+resultado de `openclaw security audit` y hallazgos aceptados) está en
+[`SEGURIDAD.md`](SEGURIDAD.md), y el parche aplicado en
+[`config/seguridad.json5`](config/seguridad.json5).
+
 | Archivo | Qué es | Cuándo se carga |
 |---|---|---|
 | [`AGENTS.md`](workspace/ventas/AGENTS.md) | Reglas de operación: relé a `consultar_carvajal`, PDF adjunto, notas de voz y memoria | Cada sesión |
