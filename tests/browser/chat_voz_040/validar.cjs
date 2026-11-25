@@ -240,6 +240,8 @@ async function main() {
     pagina.evaluate(() => {
       window.__vozE2E.locuciones.length = 0;
     });
+  // Aislar la medición: nada de pasos anteriores cuenta como locución del turno.
+  await vaciarLocuciones();
   await enviarYEsperar("necesito 12 onzas para café", "turno dictado");
   const locucionesDictado = await locuciones();
   paso(
