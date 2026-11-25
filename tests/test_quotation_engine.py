@@ -95,16 +95,41 @@ def test_producto_agotado_no_se_ofrece() -> None:
         assert resultado["primary"]["sku"] != "CO-VTER-04"
 
 
-def test_cali_sin_precio_ofrece_las_sedes_del_directorio() -> None:
-    """La ciudad sin oferta publicada conserva los contactos y no inventa precio."""
+def test_cali_sin_precio_publicado_cotiza_la_referencia_convertida_y_conserva_sedes() -> None:
+    """Sin oferta publicada: precio convertido, sin vendedor ni sede, y los contactos."""
 
     resultado = quote("cotiza 100 vasos para bebida caliente en Cali", today=HOY, now=MANANA)
 
-    assert resultado["kind"] == "sin_resultados"
+    assert resultado["kind"] == "cotizacion"
     assert "Cali" in resultado["reply"]
+    assert "convertido desde el catálogo de México" in resultado["reply"]
+    assert resultado["primary"]["price_kind"] == "convertido"
+    assert resultado["primary"]["provider"]["address"] is None
+    assert resultado["primary"]["provider"]["phone"] is None
+    assert resultado["primary"]["tax_status"] == "no_indicado"
     assert len(resultado["providers"]) == 4
     assert {sede["city"] for sede in resultado["providers"]} == {"Cali"}
-    assert "primary" not in resultado
+
+
+def test_un_precio_publicado_va_antes_que_uno_convertido_mas_barato() -> None:
+    """La convertida nunca desplaza a la publicada, aunque su subtotal sea menor."""
+
+    for cantidad in (100, 1000, 20000):
+        resultado = quote(
+            f"cotiza {cantidad} vasos para bebida caliente en Bogotá", today=HOY, now=MANANA
+        )
+        assert resultado["primary"]["price_kind"] == "publicado"
+        kinds = [item["price_kind"] for item in resultado["alternatives"]]
+        assert kinds == sorted(kinds, reverse=True)  # publicado antes que convertido
+
+
+def test_el_envio_de_un_precio_convertido_queda_pendiente() -> None:
+    resultado = quote(
+        "cotiza 100 vasos para bebida caliente en Cali con domicilio", today=HOY, now=MANANA
+    )
+
+    assert resultado["total"] is None
+    assert "sin vendedor" in resultado["commercial"]["shipping"]["note"]
 
 
 def test_pregunta_ajena_al_catalogo_queda_fuera_de_alcance() -> None:
@@ -132,7 +157,8 @@ def test_los_proveedores_llevan_coordenadas_para_el_mapa() -> None:
 def test_el_flujo_publico_no_sirve_datos_simulados() -> None:
     dataset = load_dataset(HOY.isoformat())
 
-    assert len(dataset.offers) == 29
+    assert len([offer for offer in dataset.offers if not offer.converted]) == 29
+    assert len({offer.sku for offer in dataset.offers if offer.converted}) == 98
     assert all(offer.country == "CO" for offer in dataset.offers)
     assert all(offer.source_url.startswith("https://") for offer in dataset.offers)
     assert all(offer.source_name for offer in dataset.offers)
@@ -411,7 +437,8 @@ def test_la_ciudad_dicha_gana_sobre_la_recordada() -> None:
 
     resultado = quote("cotiza 20 vasos calientes en Cali", today=HOY, now=MANANA, profile=perfil)
 
-    assert resultado["kind"] == "sin_resultados"
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["price_kind"] == "convertido"
     assert {sede["city"] for sede in resultado["providers"]} == {"Cali"}
     assert resultado["request"]["city"] == "Cali"
 
@@ -463,11 +490,12 @@ def test_un_seguimiento_sigue_cotizando() -> None:
         )
         assert resultado["kind"] == "cotizacion", text
 
-    sin_precio = quote(
+    sin_publicado = quote(
         "en Cali", questions=["cotiza 20 vasos calientes en Bogotá"], today=HOY, now=MANANA
     )
-    assert sin_precio["kind"] == "sin_resultados"
-    assert sin_precio["providers"]
+    assert sin_publicado["kind"] == "cotizacion"
+    assert sin_publicado["primary"]["price_kind"] == "convertido"
+    assert sin_publicado["providers"]
 
 
 # Corrección «tinto» (spec 044, T006): las bebidas calientes por nombre implican temperatura.

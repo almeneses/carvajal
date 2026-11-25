@@ -44,7 +44,7 @@ from carvajal.agent.toolagent.tools.builtin import MAX_NAME_CHARS, MAX_TOOL_OPTI
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import MaterialRule, Reference
 from carvajal.commercial.book import CommercialBook
-from carvajal.commercial.models import Offer
+from carvajal.commercial.models import Offer, price_origin, seller_source_type
 from carvajal.quotation.engine import _NAME_PRESENTATION
 
 __all__ = ["DESCRIPTION", "MAX_CANDIDATES", "FichaProductoArgs", "run", "status"]
@@ -294,8 +294,9 @@ def _price_excerpt(offer: Offer, seller: str) -> str:
     city = f" ({offer.city})" if offer.city else ""
     text = (
         f"Precio {offer.amount} {offer.currency} por {offer.presentation.basis} de "
-        f"{offer.presentation.units_in_basis} · IVA {offer.tax_status} · publicado por "
-        f"{seller}{city} · capturado el {offer.source.captured_at.isoformat()}"
+        f"{offer.presentation.units_in_basis} · IVA {offer.tax_status} · "
+        f"{price_origin(offer.source.type, seller)}{city} · "
+        f"capturado el {offer.source.captured_at.isoformat()}"
     )
     if offer.source.valid_until is not None:
         text += f" · vigente hasta {offer.source.valid_until.isoformat()}"
@@ -305,7 +306,7 @@ def _price_excerpt(offer: Offer, seller: str) -> str:
 def _prices(
     reference: Reference, book: CommercialBook, today: date, sources: _Sources
 ) -> tuple[list[dict[str, Any]], int, bool]:
-    """Precios publicados de la referencia en su país; nunca se estiman ni se convierten.
+    """Precios publicados de la referencia en su país; nunca se estiman (convertidos: ``sistema``).
 
     Devuelve los precios que ve el modelo, el total publicado y si alguna vigencia terminó.
     """
@@ -319,7 +320,7 @@ def _prices(
     expired = False
     for offer, seller_kind in records[:MAX_PRICES]:
         seller = offer.source.name
-        kind = "tercero" if seller_kind == "distribuidor" else "oficial"
+        kind = seller_source_type(seller_kind)
         place = offer.site_id or offer.offer_id
         [number] = sources.add(
             [

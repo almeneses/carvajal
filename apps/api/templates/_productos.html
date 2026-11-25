@@ -112,7 +112,11 @@
         <span class="producto-precio-detalle">por {{ oferta.presentation }}</span>
       </p>
       <p class="producto-oferta-fuente">
+        {%- if oferta.seller_kind == "sistema" %}
+        <strong>Precio de referencia convertido desde México</strong>; nadie lo publica en Colombia
+        {%- else %}
         Vendedor <strong>{{ oferta.seller }}</strong>
+        {%- endif %}
         {%- if oferta.source_url %}
         · <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">fuente</a>
         {%- endif %}
@@ -207,6 +211,9 @@
         {%- else %}Por confirmar{% endif %}
       </dd></div>
     </dl>
+    {%- if coti.primary.price_kind == "convertido" %}
+    <p class="coti-nota" data-campo="precio-convertido">{{ coti.primary.warning }}</p>
+    {%- endif %}
     {%- if coti.pending_lines %}
     <p class="coti-nota">Líneas pendientes:
       {%- for linea in coti.pending_lines %} {{ linea.label }} ({{ linea.status }}){% if not loop.last %},{% endif %}{% endfor %}.
@@ -324,6 +331,9 @@
             {%- if oferta.source_type == "tercero" %}
             Publicado por <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">{{ oferta.source_name }}</a>{% if oferta.source_city %} ({{ oferta.source_city }}){% endif %}
             <span class="etiqueta-tercero">Tercero</span>
+            {%- elif oferta.source_type == "sistema" %}
+            <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">Convertido desde México</a>
+            <span class="etiqueta-tercero">Referencia</span>
             {%- else %}
             Publicado por {{ oferta.source_name }}
             {%- endif %}

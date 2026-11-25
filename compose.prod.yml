@@ -64,7 +64,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
       # Versión del aprovisionamiento comercial (captura más reciente del
       # catálogo/precios). El bootstrap falla si no coincide con `version`.
-      EXPECTED_COMMERCIAL_VERSION: ${EXPECTED_COMMERCIAL_VERSION:-2026-11-18}
+      EXPECTED_COMMERCIAL_VERSION: ${EXPECTED_COMMERCIAL_VERSION:-2026-11-25}
       # LLM del chat en la nube (DeepSeek) por defecto: Ollama queda solo para los
       # embeddings. Sin DEEPSEEK_API_KEY el chat degrada a routes y la app lo avisa al
       # arrancar (llm.provider_unconfigured); /health lo muestra en agent.

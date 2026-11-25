@@ -31,7 +31,7 @@ from carvajal.agent.toolagent.tools._base import (
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import Reference
 from carvajal.commercial.book import CommercialBook, plain
-from carvajal.commercial.models import Site
+from carvajal.commercial.models import Site, seller_source_type
 from carvajal.quotation import Dataset, load_dataset
 from carvajal.quotation.data import CommercialDataError, Offer, dataset_from_book
 from carvajal.quotation.engine import _priced_cities
@@ -241,7 +241,7 @@ def _seller_kind_type(book: CommercialBook, offer: Offer) -> str:
         if item.sku == offer.sku and item.site_id == offer.site_id:
             seller = book.seller(item.seller_id)
             if seller is not None:
-                return "tercero" if seller.kind == "distribuidor" else "oficial"
+                return seller_source_type(seller.kind)
     return "oficial" if _is_official(offer.source_url) else "tercero"
 
 
@@ -320,8 +320,11 @@ def run(
     offers = [
         offer
         for offer in dataset.offers_for(reference.sku)
-        if offer.stock_status != "no_disponible" and offer.city in priced
+        if offer.stock_status != "no_disponible" and offer.city in priced and not offer.converted
     ]
+    # El precio convertido desde México no prueba cobertura en ninguna ciudad.
+    converted = any(offer.converted for offer in dataset.offers_for(reference.sku))
+    priced = sorted({offer.city for offer in offers}, key=plain)
     price_numbers = sources.add(_price_source(book, reference, offer) for offer in offers)
     data["referencia"] = {"sku": reference.sku, "nombre": reference.name}
     data["con_precio"] = priced
@@ -329,6 +332,11 @@ def run(
     data["fuentes_precio"] = list(dict.fromkeys(price_numbers))
     if priced:
         message += f" La referencia tiene precio publicado en: {', '.join(priced)}."
+    elif converted:
+        message += (
+            " La referencia viene del catálogo de México: solo tiene un precio de referencia "
+            "convertido a COP y ninguna sede la publica en Colombia."
+        )
     else:
         message += " Hoy la referencia está sin precio publicado que se pueda cotizar."
     if linked_cities:

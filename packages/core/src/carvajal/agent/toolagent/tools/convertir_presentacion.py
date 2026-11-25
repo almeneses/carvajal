@@ -221,6 +221,12 @@ def _ficha_source(reference: Reference) -> dict[str, Any]:
     }
 
 
+def _origin(offer: Offer) -> str:
+    if offer.converted:
+        return "Precio convertido desde México"
+    return f"Oferta publicada por {offer.provider}"
+
+
 def _offer_sources(
     reference: Reference, offers: Sequence[Offer], deps: ToolDeps
 ) -> list[dict[str, Any]]:
@@ -245,7 +251,7 @@ def _offer_sources(
                 "layer": CORE_LAYER,
                 "score": 1.0,
                 "excerpt": (
-                    f"Oferta publicada por {offer.provider}: {offer.basis} de "
+                    f"{_origin(offer)}: {offer.basis} de "
                     f"{offer.units_in_basis} unidades · capturada el "
                     f"{offer.captured_at.isoformat()}"
                 ),

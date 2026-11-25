@@ -15,6 +15,7 @@ La auditoría dejó tres datos que se confundían entre sí:
 | Dato | Evidencia actual | Qué no prueba |
 |------|------------------|---------------|
 | 102 referencias colombianas | fichas del catálogo curado | que alguien las venda ni a qué precio |
+| 98 copias de México (`CO-MX-…`) con precio convertido | catálogo de México y `fuentes/tasa_mxn_cop.json` | que alguien las venda en Colombia: `source.type` es `sistema`, sin sede ni existencias |
 | 29 precios publicados | tienda de EDEXA, un solo vendedor en Bogotá | existencia, sede ni disponibilidad |
 | 29 sedes en 10 ciudades | directorio oficial de distribuidores | que la sede venda un SKU concreto |
 

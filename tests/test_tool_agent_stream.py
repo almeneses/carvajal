@@ -1632,12 +1632,12 @@ def test_una_despedida_limpia_sale_tal_cual() -> None:
 
 
 def test_catalogo_y_sedes_vacios_no_responden_con_la_frase_del_corpus() -> None:
-    # Arrange: s-clientes-14 turno 1. Sin cubiertos en Colombia y sin sedes en Tunja; el
+    # Arrange: s-clientes-14 turno 1. Sin cubiertos de 12 oz y sin sedes en Tunja; el
     # modelo redacta con datos que nada respalda.
     steps = [
         ScriptStep(
             tool_calls=[
-                _call("buscar_producto", familia="cubierto", temperatura="fria", pais="CO"),
+                _call("buscar_producto", familia="cubierto", capacidad_oz=12, pais="CO"),
                 _call("buscar_sedes", ciudad="Tunja"),
             ]
         ),

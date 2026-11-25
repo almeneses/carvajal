@@ -52,14 +52,17 @@ __all__ = [
     "SourceType",
     "StockEvidence",
     "TaxStatus",
+    "price_origin",
+    "seller_source_type",
 ]
 
 Country = Literal["CO", "MX"]
 Currency = Literal["COP", "MXN"]
 Basis = Literal["unidad", "paquete", "caja"]
 TaxStatus = Literal["incluido", "no_incluido", "no_indicado"]
-SourceType = Literal["oficial", "vendedor", "directorio"]
-SellerKind = Literal["distribuidor", "tienda_en_linea", "fabricante"]
+# ``sistema``: dato que calcula el proyecto (precio convertido desde México), no publicado.
+SourceType = Literal["oficial", "vendedor", "directorio", "sistema"]
+SellerKind = Literal["distribuidor", "tienda_en_linea", "fabricante", "sistema"]
 GeocodePrecision = Literal["direccion", "via", "ciudad", "desconocida"]
 MapMode = Literal["marcador", "zona", "sin_mapa"]
 AvailabilityStatus = Literal["verificado", "por_confirmar", "no_disponible", "desconocido"]
@@ -80,6 +83,20 @@ _CURRENCY_BY_COUNTRY: dict[str, str] = {"CO": "COP", "MX": "MXN"}
 # Solo estas evidencias prueban existencias vigentes. Un pedido pasado no prueba stock actual.
 _STOCK_EVIDENCE = frozenset({"inventario_vendedor", "confirmacion_vendedor", "integracion_pos"})
 _ZOOM = {"direccion": 17, "via": 15, "ciudad": 11}
+
+
+def seller_source_type(kind: str) -> str:
+    """Procedencia que se cita de un precio según quién lo publica (o lo calcula)."""
+
+    return {"distribuidor": "tercero", "sistema": "sistema"}.get(kind, "oficial")
+
+
+def price_origin(source_type: str, name: str) -> str:
+    """«publicado por X», salvo el precio convertido, que nadie publica en Colombia."""
+
+    if source_type == "sistema":
+        return "precio convertido desde México a COP, no publicado en Colombia"
+    return f"publicado por {name}"
 
 
 class _Frozen(BaseModel):

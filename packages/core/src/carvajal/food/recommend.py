@@ -186,6 +186,7 @@ def _rank(reference: Reference, req: Requirements, catalog: Catalog) -> tuple[ob
         _LEVEL_RANK.get(level or "", 2),
         req.families.index(reference.family),
         distance,
+        reference.is_adapted,  # a igual aptitud, primero el portafolio de Colombia
         reference.sku,
     )
 

@@ -189,7 +189,11 @@ def build_prices(directory: Path, country: str) -> PriceBuild:
         result.offers.append(offer)
     result.offers.sort(key=_key)
 
-    before = {_key(offer): offer for offer in _existing(directory) if offer.country == country}
+    before = {
+        _key(offer): offer
+        for offer in _existing(directory)
+        if offer.country == country and offer.source_type != "sistema"
+    }
     after = {_key(offer): offer for offer in result.offers}
     for key in sorted(after.keys() - before.keys()):
         result.added.append(f"{key[1]} · {after[key].source_name}")
@@ -216,11 +220,16 @@ def _cell(value: Any) -> str:
 def write_prices(directory: Path, build: PriceBuild) -> int:
     """Escribe ``precios.csv`` y la sección del manifiesto juntos, o ninguno.
 
-    Conserva las ofertas de otros países. Tras el reemplazo se vuelve a cargar el catálogo:
+    Conserva las ofertas de otros países y las convertidas por el sistema, que regenera
+    ``scripts/adaptar_catalogo_mx.py``. Tras el reemplazo se vuelve a cargar el catálogo:
     si no valida, ambos archivos se restauran.
     """
 
-    others = [offer for offer in _existing(directory) if offer.country != build.country]
+    others = [
+        offer
+        for offer in _existing(directory)
+        if offer.country != build.country or offer.source_type == "sistema"
+    ]
     offers = sorted([*others, *build.offers], key=_key)
     target = directory / PRICES
     temporary = target.with_name(f".{target.name}.tmp")

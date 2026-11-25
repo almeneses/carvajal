@@ -51,6 +51,7 @@ from carvajal.agent.toolagent.tools.ficha_producto import _sizes
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import Reference
 from carvajal.commercial.book import CommercialBook
+from carvajal.commercial.models import price_origin, seller_source_type
 
 __all__ = [
     "DESCRIPTION",
@@ -144,7 +145,7 @@ def _co_prices(reference: Reference, book: CommercialBook) -> list[_UnitPrice]:
         seller = book.seller(offer.seller_id)
         url = offer.source.url or ""
         kind = (
-            ("tercero" if seller.kind == "distribuidor" else "oficial")
+            seller_source_type(seller.kind)
             if seller is not None
             else ("oficial" if _is_official(url) else "tercero")
         )
@@ -262,7 +263,7 @@ def _price_source(reference: Reference, price: _UnitPrice) -> dict[str, Any]:
 
     excerpt = (
         f"Precio {price.amount} {price.currency} por {price.basis} de {price.units} · IVA "
-        f"{price.tax_status} · publicado por {price.seller} · capturado el "
+        f"{price.tax_status} · {price_origin(price.source_type, price.seller)} · capturado el "
         f"{price.captured_at} · precio por unidad: {_decimal_text(price.value)} "
         f"{price.currency}"
     )

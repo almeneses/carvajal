@@ -8,7 +8,8 @@ resultado estructurado y el prompt le prohíbe añadir referencias, cifras o dis
 El precio solo se muestra cuando se conoce el país: mostrarlo sin saberlo sería cotizar a
 quien quizá compra en otro país (FR-002). Desde la spec 039 cada opción lista sus ofertas,
 una por fuente (Carvajal o un distribuidor), en la moneda del país; sin oferta publicada se
-declara la ausencia y no se estima ni se convierte desde otro país.
+declara la ausencia y no se estima. Las referencias copiadas de México traen un precio
+convertido con procedencia ``sistema``, que nunca se presenta como publicado en Colombia.
 """
 
 import json
@@ -33,6 +34,7 @@ from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import Reference
 from carvajal.commercial import load_commercial_book
 from carvajal.commercial.book import CommercialBook, plain
+from carvajal.commercial.models import price_origin, seller_source_type
 from carvajal.prompts import COMMERCIAL_INSTRUCTIONS, CUSTOM_INSTRUCTIONS
 
 __all__ = [
@@ -165,21 +167,29 @@ def _contract_reference(
         if reference.country == "CO" and (req.family is None or reference.family == req.family)
     ]
 
-    def priority(item: tuple[int, Reference]) -> tuple[bool, bool, float, int]:
+    def priority(item: tuple[int, Reference]) -> tuple[bool, bool, bool, float, int]:
         position, reference = item
-        prices = [
-            record.offer.amount
+        offers = [
+            record.offer
             for record in book.offers_for_sku(reference.sku, "CO", as_of=as_of)
             if record.offer is not None
-            and (req.city is None or plain(record.offer.city or "") == plain(req.city))
+            and (
+                req.city is None
+                # El precio convertido desde México no depende de la ciudad.
+                or record.offer.source.type == "sistema"
+                or plain(record.offer.city or "") == plain(req.city)
+            )
         ]
+        prices = [offer.amount for offer in offers]
+        converted = bool(offers) and all(offer.source.type == "sistema" for offer in offers)
         not_renewable = req.prefers_renewable and reference.material not in RENEWABLE
         other_use = req.use is not None and req.use not in reference.uses
         cheapest = float(min(prices)) if prices else float("inf")
-        return (not_renewable, other_use, cheapest, position)
+        # Con precio publicado primero, después convertido y al final sin precio.
+        return (not_renewable, other_use, converted or not offers, cheapest, position)
 
     ranked = sorted(candidates, key=priority)
-    if not ranked or priority(ranked[0])[2] == float("inf"):
+    if not ranked or priority(ranked[0])[3] == float("inf"):
         return None
     return ranked[0][1]
 
@@ -210,7 +220,8 @@ def _contract_offers(
             continue
         site = record.site
         offer_city = (site.city if site else None) or offer.city
-        if city is not None and plain(offer_city or "") != plain(city):
+        converted = offer.source.type == "sistema"
+        if city is not None and not converted and plain(offer_city or "") != plain(city):
             continue
         offers.append(
             {
@@ -451,7 +462,7 @@ def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
         for offer in option.get("offers", []):
-            if offer["source_type"] != "tercero" or offer["source_url"] in seen:
+            if offer["source_type"] == "oficial" or offer["source_url"] in seen:
                 continue
             seen.add(offer["source_url"])
             sources.append(
@@ -462,12 +473,12 @@ def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
                     "layer": "core",
                     "score": 1.0,
                     "excerpt": (
-                        f"Precio publicado por {offer['source_name']} · "
+                        f"Precio {price_origin(offer['source_type'], offer['source_name'])} · "
                         f"capturado el {offer['captured_at']}"
                     ),
                     "url": offer["source_url"],
                     "title": f"{offer['source_name']}: {option['name']}",
-                    "source_type": "tercero",
+                    "source_type": offer["source_type"],
                 }
             )
     ficha = result.get("ficha")
@@ -504,11 +515,12 @@ def commercial_sources(result: dict[str, Any]) -> list[dict[str, Any]]:
                 "excerpt": (
                     f"Precio {offer['amount']} {offer['currency']} por "
                     f"{offer['presentation']} · IVA {offer['tax_status']} · "
-                    f"publicado por {offer['seller']} · capturado el {offer['captured_at']}"
+                    f"{price_origin(seller_source_type(offer['seller_kind']), offer['seller'])} · "
+                    f"capturado el {offer['captured_at']}"
                 ),
                 "url": url,
                 "title": f"{offer['seller']}: {ficha['name'] if ficha else offer['offer_id']}",
-                "source_type": "tercero" if offer["seller_kind"] == "distribuidor" else "oficial",
+                "source_type": seller_source_type(offer["seller_kind"]),
             }
         )
     for site in result.get("sites") or []:

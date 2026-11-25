@@ -213,7 +213,8 @@ class CommercialBook:
     def summary(self) -> dict[str, int]:
         """Conteos que un consumidor o una prueba pueden verificar de un vistazo."""
 
-        countries = Counter(item.country for item in self.offers)
+        published = [item for item in self.offers if item.source.type != "sistema"]
+        countries = Counter(item.country for item in published)
         return {
             "productos": len(self.products),
             "vendedores": len(self.sellers),
@@ -222,6 +223,8 @@ class CommercialBook:
             "ofertas": len(self.offers),
             "ofertas_co": countries["CO"],
             "ofertas_mx": countries["MX"],
+            # Precios convertidos desde México: referencias, no ofertas publicadas.
+            "precios_convertidos": len(self.offers) - len(published),
             "evidencias": len(self.evidence),
         }
 

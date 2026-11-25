@@ -242,8 +242,8 @@ def test_la_guia_de_materiales_va_rotulada_y_con_su_fuente() -> None:
 
 
 def test_vasos_sin_precio_dan_diferencias_sin_veredicto() -> None:
-    # Act: por nombre, con país, como lo pediría la persona.
-    draft, sources = _run(["vaso térmico 8 oz", "vaso térmico 10 oz"], "CO")
+    # Act: por SKU; el nombre también coincide con los vasos térmicos copiados de México.
+    draft, sources = _run(["CO-VTER-08", "CO-VTER-10"], "CO")
 
     # Assert
     assert draft.status == "ok"
@@ -373,8 +373,8 @@ def test_dos_textos_de_la_misma_referencia_no_son_una_comparacion() -> None:
 
 
 def test_el_pais_acota_la_busqueda() -> None:
-    # Act: el SKU de México no existe entre las referencias de Colombia.
-    draft, _ = _run(["CO-CTT-08", "2864108000"], "CO")
+    # Act: un SKU que no existe entre las referencias de Colombia.
+    draft, _ = _run(["CO-CTT-08", "9999999999"], "CO")
 
     # Assert
     assert draft.status == "empty"

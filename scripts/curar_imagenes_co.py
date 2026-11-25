@@ -7,6 +7,8 @@ procedencia en ``imagenes.csv``:
 - **Fichas oficiales** (``colombia.carvajalempaques.com``): la imagen ``og:image`` de la
   ficha y, si no hay, la primera foto de la galería en ``/wp-content/uploads/``. Es la
   foto de la línea de producto: las tallas de una misma línea comparten foto.
+- **Copias de México** (``CO-MX-…``, con ``--desde-mx``): la foto de su ficha en
+  ``mexico.carvajalempaques.com``. La referencia de México comparte el mismo archivo.
 - **Terceros** (p. ej. EDEXA): solo con ``--incluir-terceros``. Son fotos de otro sitio;
   úsalas solo con permiso de su dueño. Quedan marcadas ``tipo_fuente=tercero``.
 
@@ -18,6 +20,7 @@ Uso::
     uv run --extra capture python scripts/curar_imagenes_co.py            # con precio
     uv run --extra capture python scripts/curar_imagenes_co.py --todas    # todo CO
     uv run --extra capture python scripts/curar_imagenes_co.py --sku CO-PCOM-J1
+    uv run --extra capture python scripts/curar_imagenes_co.py --desde-mx         # copias de México
 
 Revisa las fotos (``imagenes/revision.html``) antes de versionarlas: cada una debe
 corresponder a su SKU.
@@ -37,12 +40,13 @@ import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 
+from carvajal.catalog.models import ADAPTED_PREFIX
 from carvajal.fetching import FetchError, WebClient
 
 BASE = Path("data") / "catalog" / "empaques"
 OUT = BASE / "imagenes"
 MANIFEST = BASE / "imagenes.csv"
-OFFICIAL_HOSTS = {"colombia.carvajalempaques.com"}
+OFFICIAL_HOSTS = {"colombia.carvajalempaques.com", "mexico.carvajalempaques.com"}
 FIELDS = ["sku", "archivo", "fuente_url", "imagen_url", "tipo_fuente", "capturada_el"]
 SKIP = ("/icons/", "logo", "thumb_", "wiki-empaques", "ico.png")
 
@@ -58,13 +62,15 @@ class Target:
         return urlparse(self.page).netloc in OFFICIAL_HOSTS
 
 
-def targets(all_refs: bool, only: set[str]) -> list[Target]:
+def targets(all_refs: bool, only: set[str], from_mx: bool = False) -> list[Target]:
     priced = {row["sku"] for row in csv.DictReader((BASE / "precios.csv").open())}
     found: list[Target] = []
     for row in csv.DictReader((BASE / "referencias.csv").open()):
         if row.get("country") != "CO" or not row.get("source_url"):
             continue
         if only and row["sku"] not in only:
+            continue
+        if not only and row["sku"].startswith(ADAPTED_PREFIX) != from_mx:
             continue
         if not only and not all_refs and row["sku"] not in priced:
             continue
@@ -123,6 +129,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--todas", action="store_true", help="todas las referencias CO")
     parser.add_argument("--sku", action="append", default=[], help="solo estos SKU")
+    parser.add_argument("--desde-mx", action="store_true", help="solo las copias de México")
     parser.add_argument("--incluir-terceros", action="store_true", help="fotos de terceros")
     parser.add_argument("--max-px", type=int, default=600)
     args = parser.parse_args()
@@ -135,7 +142,7 @@ def main() -> int:
     today = date.today().isoformat()
     names: dict[str, str] = {}
     pages: dict[str, tuple[str, bytes] | None] = {}  # misma ficha → una sola descarga
-    for target in targets(args.todas, set(args.sku)):
+    for target in targets(args.todas, set(args.sku), args.desde_mx):
         names[target.sku] = target.name
         if not target.official and not args.incluir_terceros:
             print(f"-  {target.sku}: solo tiene ficha de tercero; omitida")
@@ -175,6 +182,10 @@ def main() -> int:
             "tipo_fuente": "oficial" if target.official else "tercero",
             "capturada_el": today,
         }
+        if target.sku.startswith(ADAPTED_PREFIX):
+            # La referencia de México es el mismo producto: comparte el archivo.
+            mx_sku = target.sku.removeprefix(ADAPTED_PREFIX)
+            existing[mx_sku] = {**existing[target.sku], "sku": mx_sku}
         print(f"✓  {target.sku}: {url}")
 
     rows = sorted(existing.values(), key=lambda row: row["sku"])

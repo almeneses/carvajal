@@ -303,7 +303,7 @@ make prod-bootstrap
 ### Arranque nuevo y actualización (spec 043)
 
 El bootstrap compara la versión del aprovisionamiento con
-`EXPECTED_COMMERCIAL_VERSION` (por defecto `2026-11-18`); si no coincide,
+`EXPECTED_COMMERCIAL_VERSION` (por defecto `2026-11-25`); si no coincide,
 falla antes de tocar la base. En una actualización desde la 042 siembra
 `data/commercial/proveedores.csv` aunque el volumen ya exista, aplica la
 migración `0009 → 0010` y conserva Gold, conversaciones, mensajes y
@@ -317,6 +317,12 @@ antes de migrar. Si algo falla, se detiene sin tocar la versión en marcha. No
 reindexa: el bootstrap completo solo hace falta en un servidor limpio o si
 cambia el corpus.
 
+> ⚠️ La siembra **no pisa** archivos existentes. La versión `2026-11-25` cambia cuatro que
+> el volumen ya tiene: `referencias.csv`, `precios.csv`, `imagenes.csv` y `manifest.json` de
+> `catalog/empaques/`. Antes de desplegarla hay que respaldarlos y reemplazarlos por los de
+> `/app/seed-data/catalog/empaques/`; si no, `deploy.sh` se detiene por versión distinta y deja
+> intacta la versión en marcha.
+
 `/health` publica la versión y los conteos que debe ver el despliegue:
 
 ```bash
@@ -328,8 +334,8 @@ curl -fsS http://127.0.0.1:8080/health | python -m json.tool
   "status": "ok",
   "catalog": {
     "status": "ok",
-    "version": "2026-11-18",
-    "products": 200,
+    "version": "2026-11-25",
+    "products": 298,
     "offers_co": 29,
     "offers_mx": 98,
     "sites": 29

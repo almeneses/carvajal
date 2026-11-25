@@ -1081,16 +1081,15 @@ def test_cotizar_pide_el_dato_que_falta(args: dict[str, Any], missing: str) -> N
         assert "Bogotá" in result.payload["ciudades_disponibles"]
 
 
-def test_cotizar_sin_precio_en_la_ciudad_es_empty_con_sedes() -> None:
+def test_cotizar_sin_precio_publicado_en_la_ciudad_usa_el_convertido() -> None:
     # Act
     result = _run("cotizar", {**CALIENTE, "quantity": 100, "city": "Cali"}, _deps())
 
     # Assert
-    assert result.status == "empty"
-    assert result.payload["sedes"]
-    assert all(item["n"] >= 1 for item in result.payload["sedes"])
-    assert "cotizacion" not in result.payload
-    assert result.quote is None
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["tipo_fuente"] == "sistema"
+    assert "ningún vendedor publica en Colombia" in result.content
+    assert result.quote is not None
 
 
 @pytest.mark.parametrize(

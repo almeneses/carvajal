@@ -32,6 +32,7 @@ from pathlib import Path
 
 from carvajal.catalog.build import update_manifest, write_references
 from carvajal.catalog.loader import load_catalog
+from carvajal.catalog.models import ADAPTED_PREFIX
 
 BASE = Path("data") / "catalog" / "empaques"
 CAPTURED = "2026-11-18"
@@ -447,7 +448,10 @@ def main() -> None:
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         header = list(reader.fieldnames or [])
-        keep = [row for row in reader if row["country"] != "CO"]
+        # Las copias de México (``CO-MX-…``) las regenera ``adaptar_catalogo_mx.py``.
+        keep = [
+            row for row in reader if row["country"] != "CO" or row["sku"].startswith(ADAPTED_PREFIX)
+        ]
     rows = keep + REFERENCES
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=header, lineterminator="\n")
