@@ -28,8 +28,11 @@ En la VPS de OpenClaw, como el usuario del gateway:
 ```bash
 W=~/.openclaw/workspace/ventas
 STAMP=$(date +%Y%m%d%H%M%S)
-for f in AGENTS.md SOUL.md IDENTITY.md USER.md MEMORY.md; do
-  [ -f "$W/$f" ] && cp -p "$W/$f" "$W/$f.bak-$STAMP"
+# Bitácoras con fecha incluidas: la copia las sobrescribe. Los resúmenes de sesión
+# (`AAAA-MM-DD-HHMM.md`) no se tocan y no se duplican.
+cd "$W"
+for f in AGENTS.md SOUL.md IDENTITY.md USER.md MEMORY.md memory/????-??-??.md; do
+  [ -f "$f" ] && cp -p "$f" "$f.bak-$STAMP"
 done
 # Copiar los archivos de openclaw/workspace/ventas/ (por scp o git) a $W y luego:
 chmod 600 "$W"/*.md "$W"/memory/*.md
