@@ -10,11 +10,15 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from PIL import Image
+from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from apps.api.chat.service import ChatService
 from apps.api.chat.streaming import ChatEvent
 from apps.mcp.bridge import (
     LIMIT_REACHED,
@@ -23,10 +27,12 @@ from apps.mcp.bridge import (
     WhatsAppBridge,
     read_inbound_photo,
 )
+from carvajal.adapters.storage import tables
 from carvajal.application.ports import JudgeCall, JudgeUnavailable
 from carvajal.application.quota import QuotaResult
 from carvajal.food.photo import PreparedPhoto
 from carvajal.food.profile import FoodProfile
+from carvajal.infrastructure.settings import Settings
 
 CHAT = "+573001234567"
 NAME = "22f1f9db-d6df-4816-912e-db5edca021a2.jpg"
@@ -279,3 +285,62 @@ def test_con_voz_la_foto_normaliza_el_texto_y_responde_en_formato_de_voz(media: 
     assert chat.calls == [(bridge.owner_key(CHAT), "es para 1.800 personas")]
     assert spoken == bridge.photo("", CHAT, NAME).voice_message()
     assert "**" not in spoken and "*frituras*" not in spoken
+
+
+@pytest.mark.parametrize(
+    ("options", "reference", "expected"),
+    [
+        ({}, "../secreto.jpg", PHOTO_REJECTED),
+        ({"reader": False}, NAME, PHOTO_UNAVAILABLE),
+        ({"allowed": False, "room": False}, NAME, LIMIT_REACHED),
+    ],
+)
+def test_con_voz_los_avisos_de_la_foto_llegan_completos(
+    media: Path, options: dict[str, Any], reference: str, expected: str
+) -> None:
+    # Act
+    text = _bridge(media, **options)[0].consult("", CHAT, photo=reference, voice=True)
+
+    # Assert: un aviso sin resumen hablado se lee tal cual, sin cabeceras ni vacío.
+    assert text == expected
+
+
+def test_la_foto_con_conversacion_nueva_queda_en_el_hilo_nuevo(media: Path) -> None:
+    # Arrange: servicio de chat real sobre SQLite.
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    tables.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("DROP INDEX IF EXISTS uq_messages_turn"))
+        connection.execute(text("DROP INDEX IF EXISTS uq_messages_turn_user"))
+    service = ChatService(
+        sessionmaker(engine),
+        embedder=cast(Any, None),
+        llm=cast(Any, None),
+        settings=Settings(_env_file=None),  # type: ignore[call-arg]
+    )
+    bridge = WhatsAppBridge(
+        chat=service,
+        secret=b"secreto",
+        photo_reader=partial(read_inbound_photo, directory=str(media)),
+        food_classifier=FakeClassifier(),
+    )
+    bridge.consult("", CHAT, photo=NAME)
+
+    # Act
+    bridge.consult("", CHAT, photo=NAME, new_conversation=True)
+
+    # Assert: dos hilos con un turno cada uno; el segundo es el activo.
+    owner = bridge.owner_key(CHAT)
+    with engine.connect() as connection:
+        per_thread = connection.execute(
+            select(tables.messages.c.conversation_id, func.count()).group_by(
+                tables.messages.c.conversation_id
+            )
+        ).all()
+    assert sorted(count for _thread, count in per_thread) == [2, 2]
+    assert len(service.history(owner)) == 2
+    engine.dispose()

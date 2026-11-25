@@ -143,6 +143,8 @@ async def chat_foto(request: Request) -> Response:
     if blocked is not None:
         return _reject(PHOTO_OFF, 503, blocked)
     try:
+        # ``max_part_size`` solo limita las partes sin archivo (``texto`` y los ids): Starlette
+        # vuelca el archivo a un temporal y su tamaño ya lo acotó el ``Content-Length``.
         form = await request.form(max_files=1, max_fields=4, max_part_size=4096)
     except Exception:  # multipart roto: no se describe el contenido
         return _reject(BAD_REQUEST, 400, "bad_request")

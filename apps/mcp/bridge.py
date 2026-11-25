@@ -856,8 +856,9 @@ class WhatsAppBridge:
             except ValueError as error:
                 logger.info("whatsapp.photo_rejected", reason=str(error))
                 return BridgeReply(PHOTO_REJECTED)
-            if new_conversation:
-                self.chat.new_conversation(owner)
+            # El hilo recién abierto va explícito: no depende de cuál quede como activo.
+            created = self.chat.new_conversation(owner) if new_conversation else None
+            thread_id = getattr(created, "id", None)
 
             def analyze() -> FoodProfile:
                 profile, _call = classifier.classify(prepared)
@@ -875,7 +876,12 @@ class WhatsAppBridge:
                 return None if allowed else LIMIT_REACHED
 
             events = cast(PhotoTurns, turns).photo_stream(
-                owner, text, analyze=analyze, charge=charge, precheck=precheck
+                owner,
+                text,
+                analyze=analyze,
+                charge=charge,
+                precheck=precheck,
+                thread_id=thread_id,
             )
             turn = _collect(events)
             if turn.error is not None and not turn.text.strip():
