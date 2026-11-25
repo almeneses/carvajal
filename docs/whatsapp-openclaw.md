@@ -550,14 +550,18 @@ En el VPS (`deploy`):
 2. Root, una vez: `apt-get install sshfs` y descomentar `user_allow_other` en
    `/etc/fuse.conf` (el contenedor corre como otro usuario).
 3. Una llave propia (`~/.ssh/ocmedia_ro`) y el script `~/bin/openclaw-media-mount.sh`, en el
-   cron de `deploy` cada minuto y en `@reboot`. Si la carpeta no está montada, o está
-   montada pero colgada (un `stat` que no responde en 10 s, p. ej. tras caerse la VM), la
-   monta con
-   `sshfs -p 2224 ocmedia@127.0.0.1:/inbound ~/openclaw-media -o
-   ro,allow_other,reconnect,cache=no,entry_timeout=0,negative_timeout=0,attr_timeout=0` y
-   recrea `mcp` (`up -d --force-recreate --no-deps mcp`). Docker no propaga un montaje
-   nuevo a un contenedor que ya corre, así que sin esa recreación `mcp` seguiría viendo la
-   carpeta vacía.
+   cron de `deploy` cada minuto y en `@reboot`. En cada ejecución:
+   - Si la carpeta está montada y un `stat` responde en menos de 10 s, no hace nada.
+   - Si no está montada, o está colgada (el `stat` no responde o falla al instante con
+     «Transport endpoint is not connected», p. ej. tras caerse la VM), primero desmonta
+     lo que quede (`fusermount -uz ~/openclaw-media`) y luego monta con
+     `sshfs -p 2224 ocmedia@127.0.0.1:/inbound ~/openclaw-media -o
+     ro,allow_other,reconnect,cache=no,entry_timeout=0,negative_timeout=0,attr_timeout=0`.
+   - Recrea `mcp` (`up -d --force-recreate --no-deps mcp`) **solo si el `sshfs` de esa
+     misma ejecución terminó bien**. Si falla (túnel o llave caídos), sale con error y
+     `mcp` sigue corriendo: se pierden las fotos, no el servicio, y el cron reintenta al
+     minuto siguiente. Docker no propaga un montaje nuevo a un contenedor que ya corre, así
+     que sin esa recreación `mcp` seguiría viendo la carpeta vacía.
 4. `OPENCLAW_MEDIA_DIR=/home/deploy/openclaw-media` en `/opt/carvajal/.env`.
 
 Comprobación: `docker compose -f compose.prod.yml exec -T mcp python -c "from
