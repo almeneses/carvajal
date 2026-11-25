@@ -484,29 +484,53 @@ def _units(value: int | None) -> str:
 
 
 _BULLET_LINE = re.compile(r"^\s*(?:[-*+•·▪◦]|\d+[.)])\s+")
-_MONEY = re.compile(r"\$\s?\d|\d[\d.,]*\s?(?:COP|MXN|USD|pesos)\b", re.IGNORECASE)
+# Un importe como lo escriben el agente y ``format_money``: «$37.510», «$1.234,50»,
+# «1.234 EUR», «37510 pesos». El grupo guarda solo la cifra.
+_AMOUNT = re.compile(
+    r"\$\s?(\d(?:[\d.,]*\d)?)|(\d(?:[\d.,]*\d)?)\s?(?:COP|MXN|USD|EUR|pesos)\b",
+    re.IGNORECASE,
+)
+# Fin de frase: tras «.», «!», «?» o «…» (y una cita «[1]» pegada) viene un espacio.
+# «$37.510» no parte la frase porque tras su punto sigue una cifra.
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
 
 
-def quote_remarks(text: str) -> str:
+def _amounts(text: str) -> set[str]:
+    """Las cifras de los importes de ``text``, sin separadores: «$37.510» → «37510»."""
+
+    return {
+        re.sub(r"[.,]", "", match.group(1) or match.group(2)) for match in _AMOUNT.finditer(text)
+    }
+
+
+def quote_remarks(text: str, quoted: str) -> str:
     """Lo que el agente dijo además de la cotización, sin repetir sus cifras.
 
-    Quita las viñetas, los encabezados que terminan en «:» y todo párrafo con un importe:
-    eso ya está en el bloque de la cotización. Queda lo demás (una advertencia, una
-    pregunta de seguimiento) tal como lo escribió el agente.
+    ``quoted`` es el bloque (o los bloques) de la cotización que ya va en el mensaje. Se
+    quitan las viñetas, los encabezados que terminan en «:» y, frase por frase, las que
+    solo repiten importes de ``quoted``. Se conservan las preguntas («¿Te confirmo por
+    $37.510?»), las frases sin importes y las que traen un importe que el bloque no tiene
+    (p. ej. un costo aparte), tal como las escribió el agente.
     """
 
+    in_quote = _amounts(quoted)
     kept: list[str] = []
     for paragraph in re.split(r"\n\s*\n", text):
-        lines = [
-            line
-            for line in paragraph.splitlines()
-            if line.strip() and not _BULLET_LINE.match(line) and not line.rstrip().endswith(":")
-        ]
-        if not lines:
-            continue
-        block = "\n".join(lines).strip()
-        if block and not _MONEY.search(block):
-            kept.append(block)
+        lines: list[str] = []
+        for line in paragraph.splitlines():
+            if not line.strip() or _BULLET_LINE.match(line) or line.rstrip().endswith(":"):
+                continue
+            sentences = [
+                sentence
+                for sentence in _SENTENCE_END.split(line.strip())
+                if sentence.rstrip().endswith("?")
+                or not (found := _amounts(sentence))
+                or not found <= in_quote
+            ]
+            if sentences:
+                lines.append(" ".join(sentences))
+        if lines:
+            kept.append("\n".join(lines))
     return "\n\n".join(kept)
 
 
@@ -1075,7 +1099,7 @@ class WhatsAppBridge:
         blocks = [whatsapp_quote(view, photo) for view, photo in quotes]
         # Con cotización, el bloque ya trae las cifras: del texto del agente solo quedan
         # sus comentarios (una nota o una pregunta de seguimiento), después del bloque.
-        prose = quote_remarks(turn.text) if quotes else turn.text
+        prose = quote_remarks(turn.text, "\n".join(blocks)) if quotes else turn.text
         if prose.strip():
             blocks.append(to_whatsapp(prose))
         listed = _sources_block(turn.sources)

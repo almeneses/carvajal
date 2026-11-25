@@ -465,13 +465,36 @@ AGENT_QUOTE_TEXT = (
 )
 
 
+QUOTED_BLOCK = (
+    "🧾 *Cotización #Q-ABC123*\n• Presentación: Paquete x 50 a $3.751\n💰 *Total: $37.510 COP*"
+)
+
+
 def test_quote_remarks_deja_solo_los_comentarios() -> None:
-    assert quote_remarks(AGENT_QUOTE_TEXT) == (
+    assert quote_remarks(AGENT_QUOTE_TEXT, QUOTED_BLOCK) == (
         "Sigue siendo PP, no la opción renovable que preferías [1]. "
         "¿Te busco una alternativa de papel o pulpa de 9 oz?"
     )
-    assert quote_remarks("Te comparto la cotización: total $37.510 [1].") == ""
-    assert quote_remarks("") == ""
+    assert quote_remarks("Te comparto la cotización: total $37.510 [1].", QUOTED_BLOCK) == ""
+    assert quote_remarks("", QUOTED_BLOCK) == ""
+
+
+def test_quote_remarks_quita_la_frase_con_importe_y_no_el_parrafo() -> None:
+    text = "El total queda en $37.510 COP [1]. Sigue siendo PP. ¿Te busco una opción de papel?"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == "Sigue siendo PP. ¿Te busco una opción de papel?"
+
+
+def test_quote_remarks_conserva_las_preguntas_con_importe() -> None:
+    text = "Son $37.510 en total. ¿Te confirmo por $37.510?"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == "¿Te confirmo por $37.510?"
+
+
+def test_quote_remarks_conserva_importes_que_no_estan_en_el_bloque() -> None:
+    text = "El precio por paquete es $3.751. El montaje cuesta $12.000 aparte."
+
+    assert quote_remarks(text, QUOTED_BLOCK) == "El montaje cuesta $12.000 aparte."
 
 
 def test_con_cotizacion_no_se_repiten_las_cifras_del_agente() -> None:
