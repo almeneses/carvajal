@@ -215,3 +215,24 @@ def test_la_tarjeta_de_la_propuesta_ofrece_confirmar_y_la_registrada_celebra(eng
     assert "¡Cotización lista!" in registered and f"#{folio}" in registered
     assert "Propuesta de cotización" not in registered
     assert len(assistant_rows(engine)) == 2
+
+
+def test_con_una_sola_opcion_la_primera_es_esa(engine: Any) -> None:
+    # Arrange: un turno de foto con solo la recomendada.
+    runner = FakeToolRunner(scripted_events())
+    service = build_service(engine, runner)
+    options = _photo_turn(service)
+    message = list(service.history(OWNER))[-1]
+    single = {"result_type": "commercial", "result": {"origin": "foto", "options": options[:1]}}
+    with engine.begin() as connection:
+        connection.execute(
+            tables.messages.update()
+            .where(tables.messages.c.id == message.id)
+            .values(sources=[single])
+        )
+
+    # Act
+    _send(service, "la primera")
+
+    # Assert
+    assert f"Elegí la recomendada de la foto: {options[0]['name']}" in runner.calls[-1]["question"]

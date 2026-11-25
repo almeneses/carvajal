@@ -71,7 +71,12 @@ from carvajal.adapters.storage.chat import (
     SqlChatRepository,
 )
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
-from carvajal.agent.followup import ChoiceOutOfRange, is_confirmation, resolve_choice
+from carvajal.agent.followup import (
+    Choice,
+    ChoiceOutOfRange,
+    is_confirmation,
+    resolve_choice,
+)
 from carvajal.agent.gatekeeper.model import map_route
 from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns, pair_turns
 from carvajal.agent.state import Turn
@@ -2079,6 +2084,9 @@ def _photo_choice(options: Sequence[Mapping[str, Any]], text: str) -> _Followup 
     found = resolve_choice(text, len(labelled) - 1)
     if found is None:
         return None
+    if len(labelled) == 1 and found == ChoiceOutOfRange(1):
+        # Con una sola opción no hay alternativas: «la 1» o «la primera» es esa.
+        found = Choice(0)
     if isinstance(found, ChoiceOutOfRange):
         lines = [f"No tengo la alternativa {found.asked}. Te mostré estas opciones:", ""]
         for index, option in enumerate(labelled):
