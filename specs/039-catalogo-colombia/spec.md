@@ -244,3 +244,7 @@ mismo resultado; cambiar un precio en la fuente y ver la diferencia en el manifi
   de la tienda de EDEXA, distribuidor del directorio. Se ajusta el supuesto de la fuente de
   productos; los requisitos no cambian. A pedido del equipo, el catálogo de México se amplía de
   52 a 98 referencias con las fichas de la tienda que no estaban en el corpus.
+- 2026-11-25 (enmienda, uso académico): las 98 referencias de México se copian a Colombia como
+  `CO-MX-<sku>` con el precio convertido a COP. FR-006 y SC-003a siguen rigiendo para las 102
+  referencias propias; para las copias, el precio lleva procedencia `sistema` y nunca se presenta
+  como publicado en Colombia. Ver `CONSTITUTION.md` §9.

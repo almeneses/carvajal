@@ -126,6 +126,8 @@ class QuoteView:
     valid_until: str | None = None
     valid_until_date: date | None = None
     warning: str = ""
+    # Precio convertido desde México: nadie lo publica en Colombia (``price_kind``).
+    converted: bool = False
     pending: Sequence[str] = field(default_factory=tuple)
     # Spec 054: con dos o más productos, una línea por producto bajo el mismo folio.
     lines: tuple[QuoteLine, ...] = ()
@@ -223,6 +225,7 @@ def quote_view(payload: Mapping[str, Any]) -> QuoteView | None:
         valid_until=format_date(valid_date),
         valid_until_date=valid_date,
         warning=str(primary.get("warning") or ""),
+        converted=primary.get("price_kind") == "convertido",
         pending=_pending(payload.get("pending_lines") or commercial.get("pending_lines")),
         lines=_lines(payload.get("lines"), currency),
     )

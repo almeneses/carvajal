@@ -327,7 +327,7 @@ def test_nombre_ambiguo_devuelve_candidatas_sin_fuentes() -> None:
 
 
 def test_candidatas_se_recortan_al_tope_de_opciones() -> None:
-    # Arrange: «vaso térmico» nombra diez referencias de los dos países.
+    # Arrange: «vaso térmico» nombra 16 referencias: los dos países y las copias de México.
     args = {"nombre": "vaso térmico"}
 
     # Act
@@ -336,7 +336,7 @@ def test_candidatas_se_recortan_al_tope_de_opciones() -> None:
     # Assert
     assert draft.status == "needs_input"
     assert len(draft.data["candidatas"]) == mod.MAX_CANDIDATES
-    assert draft.data["total_candidatas"] == 10
+    assert draft.data["total_candidatas"] == 16
 
 
 def test_el_pais_acota_las_candidatas() -> None:

@@ -63,7 +63,9 @@ from carvajal.application.ports import ScoredChunk
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.catalog.models import Family, Reference
 from carvajal.commercial.book import CommercialBook, plain
+from carvajal.commercial.models import price_origin, seller_source_type
 from carvajal.quotation import Dataset, QuoteRequest, load_dataset, quote_request
+from carvajal.quotation.data import REFERENCE_SITE_ID
 
 # Movido en bloque desde ``toolagent/tools.py`` (spec 045, T008; research R9): el código
 # no se reescribió. Ver el docstring de ``toolagent/tools/__init__.py``.
@@ -997,11 +999,13 @@ def _directory_city(city: str, dataset: Dataset) -> str | None:
 def _offer_source_type(book: CommercialBook, sku: str, site_id: str, url: str) -> str:
     """Tercero si lo publica un distribuidor (como ``commercial_sources``)."""
 
+    if site_id == REFERENCE_SITE_ID:
+        return "sistema"
     for offer in book.offers:
         if offer.sku == sku and offer.site_id == site_id:
             seller = book.seller(offer.seller_id)
             if seller is not None:
-                return "tercero" if seller.kind == "distribuidor" else "oficial"
+                return seller_source_type(seller.kind)
     return "oficial" if _is_official(url) else "tercero"
 
 
@@ -1019,7 +1023,8 @@ def _quote_sources(quote: Mapping[str, Any], source_type: str) -> list[dict[str,
             "excerpt": (
                 f"Precio {presentation['price_per_presentation']} {primary['currency']} por "
                 f"{presentation['basis']} de {presentation['units']} · IVA "
-                f"{primary['tax_status']} · publicado por {primary['seller']} · capturado el "
+                f"{primary['tax_status']} · {price_origin(source_type, primary['seller'])} · "
+                "capturado el "
                 f"{primary['captured_at']}"
             ),
             "url": primary["source_url"],
@@ -1300,6 +1305,11 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     numbers = sources.add(_quote_sources(quoted, source_type))
     shipping_n = numbers[1] if len(numbers) > 1 else None
     message = f"Cotización calculada con el precio publicado por {primary['seller']}."
+    if source_type == "sistema":
+        message = (
+            "Cotización calculada con un precio convertido desde el catálogo de México, que "
+            "ningún vendedor publica en Colombia: dilo así y no lo atribuyas a un distribuidor."
+        )
     if primary.get("conversion"):
         message += f" Conversión hecha por la herramienta: {primary['conversion']['text']}."
         others = _other_conversions(quoted)

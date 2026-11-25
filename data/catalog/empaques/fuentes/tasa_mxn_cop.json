@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-25",
+  "cop_per_usd": {
+    "value": "3592.03",
+    "source": "TRM certificada por la Superintendencia Financiera de Colombia (datos.gov.co, 32sa-8pi3)",
+    "url": "https://www.datos.gov.co/resource/32sa-8pi3.json",
+    "valid_on": "2026-11-25"
+  },
+  "mxn_per_usd": {
+    "value": "19.7",
+    "source": "Tasas de referencia del Banco Central Europeo (frankfurter.dev)",
+    "url": "https://api.frankfurter.dev/v1/latest?base=USD&symbols=MXN",
+    "valid_on": "2026-11-25"
+  },
+  "method": "cop_per_mxn = cop_per_usd / mxn_per_usd, con 4 decimales; importes en COP redondeados al peso.",
+  "cross_check": "open.er-api.com publica 182.8835 COP por MXN el 2026-11-25 (diferencia de 0,3 %)."
+}

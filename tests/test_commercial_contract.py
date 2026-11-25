@@ -290,7 +290,9 @@ def test_el_contrato_publicado_conserva_29_ofertas_co_y_paridad_mx() -> None:
     """El contrato público conserva las 29 ofertas CO y la paridad MX."""
 
     book = book_from_paths(CATALOG_DIR, EVIDENCE_PATH)
-    co = [offer for offer in book.offers if offer.country == "CO"]
+    co = [
+        offer for offer in book.offers if offer.country == "CO" and offer.source.type != "sistema"
+    ]
     mx = [offer for offer in book.offers if offer.country == "MX"]
 
     assert len(book.sites) == 29
@@ -698,7 +700,8 @@ def test_numeros_de_la_auditoria_coinciden() -> None:
     assert summary["ciudades"] == 10
     assert summary["ofertas_co"] == 29
     assert summary["ofertas_mx"] == 98
-    assert summary["ofertas"] == 127
+    assert summary["precios_convertidos"] == 98
+    assert summary["ofertas"] == 225
 
 
 def test_disponibilidad_publicada_sin_evidencia_queda_por_confirmar() -> None:
@@ -708,7 +711,7 @@ def test_disponibilidad_publicada_sin_evidencia_queda_por_confirmar() -> None:
     co = [offer for offer in book.offers if offer.country == "CO"]
     statuses = Counter(offer.availability.status for offer in co)
 
-    assert statuses == {"desconocido": 29}
+    assert statuses == {"desconocido": 29 + 98}
     assert all(offer.availability.status not in {"verificado", "no_disponible"} for offer in co)
     for city in book.cities():
         assert book.city_directory(city).counts.get("stock_verificado", 0) == 0
@@ -776,7 +779,7 @@ def test_ejemplos_validan_contra_el_contrato() -> None:
 def test_la_version_del_aprovisionamiento_es_la_captura_mas_reciente() -> None:
     """La versión que compara el despliegue es la fecha de captura más reciente."""
 
-    assert commercial_version() == "2026-11-18"
+    assert commercial_version() == "2026-11-25"
 
 
 def test_el_registro_no_afirma_disponibilidad_sin_evidencia() -> None:

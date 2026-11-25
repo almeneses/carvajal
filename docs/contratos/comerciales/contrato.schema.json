@@ -909,7 +909,8 @@
           "enum": [
             "distribuidor",
             "tienda_en_linea",
-            "fabricante"
+            "fabricante",
+            "sistema"
           ],
           "title": "Kind",
           "type": "string"
@@ -1025,7 +1026,8 @@
           "enum": [
             "oficial",
             "vendedor",
-            "directorio"
+            "directorio",
+            "sistema"
           ],
           "title": "Type",
           "type": "string"

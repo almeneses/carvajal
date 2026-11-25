@@ -215,8 +215,9 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
 - Observabilidad: logs JSON con `request_id` y Sentry opcional. El monitoreo del agente con
   LangSmith (spec 038) es opcional, sin PII y en producción solo con metadatos.
 - Precios del catálogo: referencias fechadas con moneda, una oferta por fuente. Los de
-  Colombia van en COP y solo si alguien los publica en Colombia; nunca se estiman ni se
-  convierten desde México (spec 039).
+  Colombia van en COP y no se estiman (spec 039). Única conversión admitida desde México: las
+  copias `CO-MX-…`, con procedencia `sistema` y sin presentarse como publicadas en Colombia
+  (decisión del 2026-11-25).
 - Cotizador (spec 042): motor determinista sin LLM; el catálogo curado es la única fuente
   de productos reales y la demo solo añade una extensión simulada marcada por campo.
 - Voz en el chat (spec 040): dictado y lectura con las capacidades del navegador; el audio

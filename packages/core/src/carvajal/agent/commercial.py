@@ -13,7 +13,8 @@ Validación de material (FR-003):
   para bebida caliente) se descarta.
 
 Precios (spec 039): cada referencia puede tener varias ofertas, una por fuente. ``quote_offer``
-calcula el total de una oferta; nunca se estima, se convierte ni se promedia un precio.
+calcula el total de una oferta; aquí nunca se estima, se convierte ni se promedia un precio
+(los convertidos desde México ya vienen así en el catálogo, con procedencia ``sistema``).
 """
 
 import unicodedata
@@ -129,7 +130,10 @@ def search_packaging(req: CommercialRequest, *, catalog: Catalog | None = None) 
             )
         )
     ]
-    return sorted(found, key=lambda reference: (req.use not in reference.uses, reference.sku))
+    return sorted(
+        found,
+        key=lambda reference: (req.use not in reference.uses, reference.is_adapted, reference.sku),
+    )
 
 
 def check_material(
@@ -248,6 +252,11 @@ def quote_offer(offer: ReferencePrice, boxes: int, *, today: date | None = None)
     captured = offer.captured_at.isoformat()
     if offer.source_type == "oficial":
         origin = f"capturado el {captured} de la ficha publicada"
+    elif offer.source_type == "sistema":
+        origin = (
+            f"convertido a {offer.currency} el {captured} desde el precio del catálogo de México; "
+            "ningún vendedor lo publica en Colombia"
+        )
     else:
         origin = (
             f"publicado por {offer.source_name} (tercero, no es un precio de Carvajal) "

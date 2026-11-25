@@ -59,10 +59,14 @@
     }
   },
   {
-    "name": "ciudad sin precio conserva sedes",
+    "name": "ciudad sin precio publicado cotiza la referencia convertida y conserva sedes",
     "text": "cotiza 100 vasos para bebida caliente en Cali",
     "expect": {
-      "kind": "sin_resultados",
+      "kind": "cotizacion",
+      "primary.price_kind": "convertido",
+      "primary.sku": "CO-MX-2864632114",
+      "primary.presentation.subtotal": "193459",
+      "primary.provider.address": "none",
       "providers.0.city": "Cali"
     }
   },
@@ -171,12 +175,13 @@
     }
   },
   {
-    "name": "chocolate caliente en Pasto sin precio publicado",
+    "name": "chocolate caliente en Pasto cotiza la referencia convertida",
     "text": "chocolate caliente, 200 vasos en Pasto",
     "expect": {
-      "kind": "sin_resultados",
+      "kind": "cotizacion",
       "request.temperature": "caliente",
-      "primary": "none"
+      "primary.price_kind": "convertido",
+      "primary.presentation.subtotal": "193459"
     }
   },
   {
@@ -186,6 +191,25 @@
       "kind": "aclaracion",
       "missing.0": "temperatura",
       "primary": "none"
+    }
+  },
+  {
+    "name": "con precio publicado en la ciudad, la convertida va después",
+    "text": "cotiza 500 vasos para bebida caliente en Bogotá",
+    "expect": {
+      "kind": "cotizacion",
+      "primary.price_kind": "publicado",
+      "primary.sku": "7704918100199",
+      "primary.presentation.subtotal": "37510"
+    }
+  },
+  {
+    "name": "cubiertos: solo hay referencias convertidas",
+    "text": "cotiza 2000 cubiertos en Bogotá",
+    "expect": {
+      "kind": "cotizacion",
+      "primary.price_kind": "convertido",
+      "primary.presentation.subtotal": "152434"
     }
   }
 ]

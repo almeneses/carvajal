@@ -47,7 +47,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     ),
     "sin ciudad pide ciudad": QuoteRequest(**CALIENTE, quantity=20, delivery=False),
     "pregunta institucional queda fuera": None,
-    "ciudad sin precio conserva sedes": QuoteRequest(
+    "ciudad sin precio publicado cotiza la referencia convertida y conserva sedes": QuoteRequest(
         **CALIENTE, quantity=100, city="Cali", delivery=False
     ),
     "talla agotada no se ofrece": QuoteRequest(
@@ -78,11 +78,17 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     "aromática deduce caliente y pide la cantidad": QuoteRequest(
         **CALIENTE, city="Cali", delivery=False
     ),
-    "chocolate caliente en Pasto sin precio publicado": QuoteRequest(
+    "chocolate caliente en Pasto cotiza la referencia convertida": QuoteRequest(
         **CALIENTE, quantity=200, city="Pasto", delivery=False
     ),
     "vaso sin temperatura pregunta antes de cotizar": QuoteRequest(
         family="vaso", capacity_oz=7.0, quantity=20, city="Bogotá", delivery=False
+    ),
+    "con precio publicado en la ciudad, la convertida va después": QuoteRequest(
+        **CALIENTE, quantity=500, city="Bogotá", delivery=False
+    ),
+    "cubiertos: solo hay referencias convertidas": QuoteRequest(
+        family="cubierto", quantity=2000, city="Bogotá", delivery=False
     ),
 }
 CASES = load_cases()
@@ -380,10 +386,18 @@ def test_con_cajas_de_distinto_tamano_se_ordena_por_precio_por_unidad() -> None:
     assert resultado["kind"] == "cotizacion"
     opciones = _options(resultado)
     assert len({option["units_requested"] for option in opciones}) > 1
-    precios = [Decimal(option["presentation"]["unit_price"]) for option in opciones]
-    assert precios == sorted(precios)
+    # Publicadas primero y convertidas al final, cada grupo por precio por unidad.
+    for kind in ("publicado", "convertido"):
+        precios = [
+            Decimal(option["presentation"]["unit_price"])
+            for option in opciones
+            if option["price_kind"] == kind
+        ]
+        assert precios == sorted(precios)
+    kinds = [option["price_kind"] for option in opciones]
+    assert kinds == sorted(kinds, key=lambda kind: kind == "convertido")
     assert "La más económica" not in resultado["reply"]
-    assert "La de menor precio por unidad es" in resultado["reply"]
+    assert "La de menor precio por unidad con precio publicado es" in resultado["reply"]
     assert "Cada referencia trae una cantidad distinta por caja" in resultado["reply"]
     for option in opciones:
         assert option["conversion"]["text"] in resultado["reply"]
@@ -400,7 +414,20 @@ def test_con_la_misma_conversion_se_ordena_por_subtotal() -> None:
 
     # Assert
     subtotales = [Decimal(option["presentation"]["subtotal"]) for option in _options(resultado)]
-    assert subtotales == sorted(subtotales)
+    publicados = [
+        Decimal(option["presentation"]["subtotal"])
+        for option in _options(resultado)
+        if option["price_kind"] == "publicado"
+    ]
+    convertidos = [
+        Decimal(option["presentation"]["subtotal"])
+        for option in _options(resultado)
+        if option["price_kind"] == "convertido"
+    ]
+    assert subtotales == publicados + convertidos  # los convertidos van al final
+    assert publicados == sorted(publicados)
+    assert convertidos == sorted(convertidos)
+    # La recomendada es la más barata de todas: no hace falta «con precio publicado».
     assert "La más económica es" in resultado["reply"]
 
 

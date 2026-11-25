@@ -17,6 +17,7 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 __all__ = [
+    "ADAPTED_PREFIX",
     "Distributor",
     "Family",
     "MaterialRule",
@@ -30,7 +31,10 @@ Family = Literal["vaso", "tapa", "contenedor", "charola", "cubierto", "envase", 
 Country = Literal["MX", "CO"]
 Currency = Literal["MXN", "COP"]
 TaxStatus = Literal["incluido", "no_incluido", "no_indicado"]
-PriceSource = Literal["oficial", "tercero"]
+# ``sistema``: precio calculado por el proyecto (conversión desde México); ver ``conversion``.
+PriceSource = Literal["oficial", "tercero", "sistema"]
+# SKU de las referencias de México copiadas a Colombia (``carvajal.catalog.conversion``).
+ADAPTED_PREFIX = "CO-MX-"
 _CURRENCY_BY_COUNTRY: dict[str, str] = {"MX": "MXN", "CO": "COP"}
 
 
@@ -93,6 +97,12 @@ class Reference(_Sourced):
         """Usos normalizados de la referencia."""
 
         return tuple(part.strip() for part in self.use.split("|") if part.strip())
+
+    @property
+    def is_adapted(self) -> bool:
+        """Referencia copiada del catálogo de México, sin venta publicada en Colombia."""
+
+        return self.country == "CO" and self.sku.startswith(ADAPTED_PREFIX)
 
     @model_validator(mode="after")
     def _precio_coherente(self) -> Self:
@@ -169,8 +179,9 @@ class ReferencePrice(_Sourced):
     """Precio de referencia de una referencia, publicado por una fuente concreta (spec 039).
 
     ``amount`` es siempre por caja (``units_per_box`` de la referencia): la normalización
-    desde unidad o paquete ocurre antes, en ``carvajal catalog-prices``. Un precio nunca se
-    estima, se convierte de otra moneda ni se promedia entre fuentes (FR-006).
+    desde unidad o paquete ocurre antes, en ``carvajal catalog-prices``. Los precios publicados
+    no se estiman ni se promedian entre fuentes (FR-006). Un precio convertido desde México
+    lleva ``source_type="sistema"`` y nunca se muestra como publicado en Colombia.
     """
 
     sku: str = Field(min_length=1)

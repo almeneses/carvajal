@@ -55,6 +55,12 @@ la referencia («vaso P1» es un contenedor), se cotiza la nombrada y el resulta
 (``family_mismatch``). Un nombre que solo describe un tipo de producto («vaso de icopor»,
 ``is_generic_name``) no nombra una referencia: se cotiza como la búsqueda por familia
 (temperatura, la más económica y alternativas) entre las referencias que coinciden.
+
+Precios convertidos (2026-11-25): las referencias copiadas de México llevan un precio en COP
+convertido con una tasa fechada, sin vendedor ni sede, válido como referencia en cualquier
+ciudad. Un precio publicado en la ciudad siempre va antes: la convertida solo es la opción
+principal si no hay ninguna publicada o si la persona nombró esa referencia. La respuesta, la
+advertencia y la fuente lo dicen.
 """
 
 import re
@@ -77,7 +83,14 @@ from carvajal.agent.reference_names import (
 from carvajal.agent.state import Turn
 from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.prompts import ABSENCE_POLICY
-from carvajal.quotation.data import COUNTRY, Dataset, Offer, Product, load_dataset
+from carvajal.quotation.data import (
+    COUNTRY,
+    REFERENCE_SITE_ID,
+    Dataset,
+    Offer,
+    Product,
+    load_dataset,
+)
 
 __all__ = [
     "MAX_ALTERNATIVES",
@@ -133,6 +146,11 @@ ASK_TEMPERATURE = (
     "¿El contenido va caliente o frío? El material cambia según la temperatura y no quiero "
     "cotizarte una referencia que no sirva."
 )
+CONVERTED_WARNING = (
+    "Precio de referencia convertido desde el catálogo de México: no lo publica ningún vendedor "
+    "en Colombia. Confirma precio, IVA y existencia con un distribuidor."
+)
+CONVERTED_SHIPPING = "Es un precio de referencia sin vendedor: el envío no se puede calcular."
 PENDING_DELIVERY = "Falta saber si va con domicilio o con retiro."
 _QUANTITY = re.compile(
     r"\b(?:mejor|ahora|sean|ser[ií]an|son|para)\s+(\d{1,3}(?:[.,]\d{3})+|\d+)\b", re.I
@@ -605,11 +623,14 @@ def _option(
         },
         "source_url": offer.source_url,
         "captured_at": offer.captured_at.isoformat(),
+        "price_kind": "convertido" if offer.converted else "publicado",
         "warning": _stock_warning(offer, presentation["units_bought"]),
     }
 
 
 def _stock_warning(offer: Offer, needed: int) -> str:
+    if offer.converted:
+        return CONVERTED_WARNING
     if offer.stock_status == "verificado" and offer.stock_units is not None:
         if offer.stock_units < needed:
             return (
@@ -652,7 +673,8 @@ def _shipping(offer: Offer, *, requested: bool | None, as_of: date) -> dict[str,
         return empty
     terms = offer.delivery
     if terms is None:
-        return {**empty, "note": "La sede no publica condiciones de envío."}
+        note = CONVERTED_SHIPPING if offer.converted else "La sede no publica condiciones de envío."
+        return {**empty, "note": note}
     evidence = (
         terms.source_url is not None
         and terms.checked_at is not None
@@ -683,6 +705,21 @@ def _shipping(offer: Offer, *, requested: bool | None, as_of: date) -> dict[str,
         "observed_at": terms.checked_at.isoformat() if terms.checked_at else None,
         "valid_until": terms.valid_until.isoformat() if terms.valid_until else None,
         "note": terms.note,
+    }
+
+
+def _reference_provider(offer: Offer) -> dict[str, Any]:
+    """Lugar del vendedor en un precio convertido: sin sede, dirección ni teléfono."""
+
+    return {
+        "id": REFERENCE_SITE_ID,
+        "name": offer.source_name,
+        "city": offer.city,
+        "address": None,
+        "phone": None,
+        "lat": None,
+        "lon": None,
+        "precision": "desconocida",
     }
 
 
@@ -1064,10 +1101,14 @@ def quote_request(
             continue
         units = converted.units
         offer = min(offers, key=lambda item: _offer_for(item, units)["subtotal"])
-        provider = dataset.provider(offer.site_id)
-        if provider is None:
-            continue
-        option = _option(product, offer, units, _provider(provider))
+        if offer.converted:
+            place = _reference_provider(offer)
+        else:
+            provider = dataset.provider(offer.site_id)
+            if provider is None:
+                continue
+            place = _provider(provider)
+        option = _option(product, offer, units, place)
         if unit != "unidad":
             option["conversion"] = converted.as_dict()
         options.append((product, offer, option))
@@ -1081,17 +1122,25 @@ def quote_request(
         # catálogo y la guía de materiales; entre igual de aptas, la más económica.
         return not use or use in product.uses
 
+    # Orden de la recomendada y las alternativas: la más apta para el uso (spec 054); entre
+    # igual de aptas, un precio publicado antes que uno convertido; después, el más barato
+    # (por unidad si las cantidades difieren). La aptitud manda sobre la procedencia.
     if mixed:
         options.sort(
             key=lambda item: (
                 not apt(item[0]),
+                item[1].converted,
                 Decimal(item[2]["presentation"]["unit_price"]),
                 Decimal(item[2]["presentation"]["subtotal"]),
             )
         )
     else:
         options.sort(
-            key=lambda item: (not apt(item[0]), Decimal(item[2]["presentation"]["subtotal"]))
+            key=lambda item: (
+                not apt(item[0]),
+                item[1].converted,
+                Decimal(item[2]["presentation"]["subtotal"]),
+            )
         )
     if unconvertible:
         # Primero los de conversión: explican por qué falta una referencia pedida. La lista
@@ -1161,6 +1210,10 @@ def quote_request(
         if provider is not None and provider.provider_id not in {p["id"] for p in providers}:
             providers.append(_provider(provider))
 
+    if offer.converted:
+        # Nadie la vende a ese precio: se dan los contactos del directorio de la ciudad.
+        providers = [_provider(item) for item in dataset.providers_in(city)]
+
     wants_delivery = request.delivery
     subtotal = Decimal(primary["presentation"]["subtotal"])
     shipping = _shipping(offer, requested=wants_delivery, as_of=day)
@@ -1214,6 +1267,15 @@ def quote_request(
         cheapest = "Cotizo la referencia que pediste,"
     elif _price_key(primary, mixed) == min(_price_key(item, mixed) for _, _, item in options):
         cheapest = "La de menor precio por unidad es" if mixed else "La más económica es"
+    elif not offer.converted and _price_key(primary, mixed) == min(
+        _price_key(item, mixed) for _, other, item in options if not other.converted
+    ):
+        # Una convertida es más barata: la recomendada es la más económica publicada.
+        cheapest = (
+            "La de menor precio por unidad con precio publicado es"
+            if mixed
+            else "La más económica con precio publicado es"
+        )
     else:
         # La más apta para el uso no es la más barata: se recomienda por aptitud (spec 054).
         cheapest = "Por ser la más apta para el uso, te recomiendo"
@@ -1235,6 +1297,8 @@ def quote_request(
             f" Cada referencia trae una cantidad distinta por {unit} "
             f"({primary['conversion']['text']}{others}): confirma qué {unit} buscas."
         )
+    if offer.converted:
+        reply += f" {CONVERTED_WARNING}"
     if wants_delivery is None:
         reply += f" {PENDING_DELIVERY} El total queda pendiente."
     elif wants_delivery:

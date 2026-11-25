@@ -36,6 +36,11 @@ DISCLAIMER = (
     "vigencia del precio se confirman directamente con el vendedor al momento de comprar."
 )
 
+CONVERTED_DISCLAIMER = (
+    "Cotización referencial elaborada con un precio convertido desde el catálogo de México. "
+    "No constituye pedido, reserva ni compromiso de venta."
+)
+
 
 class _QuotePDF(FPDF):
     def footer(self) -> None:
@@ -271,7 +276,7 @@ def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: boo
             pdf.multi_cell(0, 4.5, f"• {line}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     # Vendedor y fuente.
-    _section(pdf, "Vendedor")
+    _section(pdf, "Precio de referencia" if view.converted else "Vendedor")
     if view.seller:
         _label_value(pdf, "Nombre", view.seller, width=24)
     if view.seller_address:
@@ -282,7 +287,7 @@ def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: boo
     _section(pdf, "Fuente del precio")
     source = view.source_name or view.seller or "Vendedor"
     if view.price_date:
-        source += f", publicado el {view.price_date}"
+        source += f", {'convertido' if view.converted else 'publicado'} el {view.price_date}"
     _label_value(pdf, "Origen", source, width=24)
     if view.source_url:
         pdf.set_font("DMSans", "B", 9)
@@ -298,7 +303,7 @@ def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: boo
     pdf.ln(5)
     pdf.set_font("DMSans", size=8)
     pdf.set_text_color(*GREY)
-    note = DISCLAIMER
+    note = CONVERTED_DISCLAIMER if view.converted else DISCLAIMER
     if view.warning:
         note = f"{view.warning} {note}"
     pdf.multi_cell(0, 4.2, note, new_x=XPos.LMARGIN, new_y=YPos.NEXT)

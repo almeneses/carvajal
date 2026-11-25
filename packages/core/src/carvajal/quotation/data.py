@@ -19,6 +19,7 @@ from carvajal.commercial.models import Offer as ContractOffer
 from carvajal.commercial.models import Site
 
 __all__ = [
+    "REFERENCE_SITE_ID",
     "CommercialDataError",
     "Dataset",
     "Offer",
@@ -29,6 +30,9 @@ __all__ = [
 ]
 
 COUNTRY = "CO"
+# Precio convertido desde México (``catalog.conversion``): no lo vende ninguna sede. Se ofrece
+# como referencia en todas las ciudades con este identificador, que no está en el directorio.
+REFERENCE_SITE_ID = "CO-REFERENCIA"
 
 # La ficha del producto es la referencia curada: no se duplica el catálogo.
 Product = Reference
@@ -61,6 +65,12 @@ class Offer:
     captured_at: date
     evidence: tuple[AvailabilityEvidence, ...] = ()
     delivery: DeliveryTerms | None = None
+
+    @property
+    def converted(self) -> bool:
+        """Precio convertido desde México: referencia, no publicado por un vendedor."""
+
+        return self.site_id == REFERENCE_SITE_ID
 
     @property
     def confirmed(self) -> bool:
@@ -217,9 +227,39 @@ def dataset_from_book(book: CommercialBook, *, as_of: date) -> Dataset:
                 evidence=availability.evidence,
             )
         )
+    offers.extend(_converted_offers(book, {provider.city for provider in providers}))
     if not products:
         raise CommercialDataError("el catálogo curado no tiene referencias de Colombia")
     return Dataset(products=products, offers=tuple(offers), providers=providers)
+
+
+def _converted_offers(book: CommercialBook, cities: set[str]) -> list[Offer]:
+    """Precios convertidos desde México, uno por ciudad: la referencia no depende de una sede."""
+
+    return [
+        Offer(
+            sku=offer.sku,
+            country=offer.country,
+            site_id=REFERENCE_SITE_ID,
+            provider=offer.source.name,
+            city=city,
+            basis=offer.presentation.basis,
+            units_in_basis=offer.presentation.units_in_basis,
+            amount=offer.amount,
+            currency=offer.currency,
+            tax_status=offer.tax_status,
+            tax_rate=offer.tax_rate,
+            stock_status=offer.availability.status,
+            stock_units=None,
+            source_name=offer.source.name,
+            source_url=offer.source.url or "",
+            source_valid_until=offer.source.valid_until,
+            captured_at=offer.source.captured_at,
+        )
+        for offer in book.offers
+        if offer.country == COUNTRY and offer.source.type == "sistema"
+        for city in sorted(cities)
+    ]
 
 
 @cache

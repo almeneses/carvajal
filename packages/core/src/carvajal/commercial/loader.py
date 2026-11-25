@@ -488,14 +488,15 @@ def _published_co_offers(
             raise ContractError(f"precio huérfano de {reference_price.sku}")
         seller_id = seller_id_for(reference_price.country, reference_price.source_name)
         seller = seller_map.get(seller_id)
+        converted = reference_price.source_type == "sistema"
         if seller is None:
             seller = Seller(
                 seller_id=seller_id,
                 name=reference_price.source_name,
                 country=reference_price.country,
-                kind="distribuidor",
+                kind="sistema" if converted else "distribuidor",
                 source=SourceRef(
-                    type="vendedor",
+                    type="sistema" if converted else "vendedor",
                     name=reference_price.source_name,
                     url=reference_price.source_url,
                     captured_at=reference_price.captured_at,
@@ -531,7 +532,11 @@ def _published_co_offers(
             else None
         )
         availability = Availability.unknown(
-            note="El precio se publica sin existencias verificadas."
+            note=(
+                "Precio de referencia convertido: sin vendedor ni existencias en Colombia."
+                if converted
+                else "El precio se publica sin existencias verificadas."
+            )
         )
         offers.append(
             Offer(
@@ -557,17 +562,23 @@ def _published_co_offers(
                 tax_status=reference_price.tax_status,
                 tax_rate=None,
                 source=SourceRef(
-                    type="vendedor",
+                    type="sistema" if converted else "vendedor",
                     name=reference_price.source_name,
                     url=reference_price.source_url,
                     captured_at=reference_price.captured_at,
                     valid_until=reference_price.valid_until,
-                    note="Precio publicado por un tercero; no es precio de Carvajal.",
+                    note=(
+                        "Precio de México convertido a COP; nadie lo publica en Colombia."
+                        if converted
+                        else "Precio publicado por un tercero; no es precio de Carvajal."
+                    ),
                 ),
                 normalized=normalized,
                 availability=availability,
                 note=(
-                    "La presentación y el importe son los publicados; "
+                    "Presentación de la ficha de México con el importe convertido a COP."
+                    if converted
+                    else "La presentación y el importe son los publicados; "
                     "`normalized` es la vista por caja."
                 ),
             )
