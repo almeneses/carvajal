@@ -150,6 +150,36 @@ def test_cada_opcion_cita_su_ficha_con_fecha() -> None:
     assert "2026-10-23" in cita["excerpt"]
 
 
+def test_el_precio_convertido_se_cita_con_su_procedencia_y_no_como_publicado() -> None:
+    # Arrange: una opción con un precio convertido (``sistema``) y uno oficial.
+    oferta = {"source_name": "Carvajal Empaques México", "captured_at": "2026-11-25"}
+    resultado = {
+        "options": [
+            {
+                "sku": "CO-MX-2864108000",
+                "name": "Vasos térmicos 8oz",
+                "material": "EPS",
+                "units_per_box": 1000,
+                "captured_at": "2026-11-25",
+                "source_url": "https://ejemplo.test/mx/vaso-8",
+                "offers": [
+                    {**oferta, "source_type": "sistema", "source_url": "https://ejemplo.test/tasa"},
+                    {**oferta, "source_type": "oficial", "source_url": "https://ejemplo.test/of"},
+                ],
+            }
+        ]
+    }
+
+    # Act
+    ficha, precio = commercial_sources(resultado)
+
+    # Assert: el oficial ya lo cubre la ficha; el convertido se cita y dice que lo es.
+    assert ficha["source_type"] == "oficial"
+    assert precio["source_type"] == "sistema"
+    assert precio["url"] == "https://ejemplo.test/tasa"
+    assert "convertido desde México a COP, no publicado en Colombia" in precio["excerpt"]
+
+
 class _SinRecuperacion:
     def embed(self, text: str) -> list[float]:
         raise AssertionError("La ruta comercial no consulta Qdrant.")

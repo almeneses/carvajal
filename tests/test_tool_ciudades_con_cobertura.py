@@ -197,6 +197,21 @@ def test_con_sku_separa_precio_y_sede_y_cita_el_precio() -> None:
     assert draft.data["fuentes_precio"] == [price["n"]]
 
 
+def test_referencia_solo_convertida_no_tiene_ciudades_con_precio_y_lo_dice() -> None:
+    # Arrange: la copia de México tiene un precio convertido en cada ciudad del directorio.
+    args = {"sku": "CO-MX-2864108000"}
+
+    # Act
+    draft, sources = _run(args)
+
+    # Assert: el convertido no cuenta como cobertura ni se cita como precio publicado.
+    assert draft.status == "ok"
+    assert draft.data["con_precio"] == []
+    assert draft.data["fuentes_precio"] == []
+    assert "viene del catálogo de México" in draft.message
+    assert [entry["chunk_id"] for entry in _new_entries(sources)] == ["directorio:CO"]
+
+
 def test_sin_existencias_cotizables_hay_sede_vinculada_pero_no_precio() -> None:
     # Arrange
     deps = _deps(dataset=_dataset_without_stock("CO-PCOM-J1"))
