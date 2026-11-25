@@ -343,6 +343,15 @@ def consume_quota(request: Request, owner_key: str) -> QuotaResult:
     return quota(owner_key)
 
 
+def peek_quota(request: Request, owner_key: str) -> QuotaResult:
+    """Dice si quedaría cupo sin cobrarlo (``app.state.quota_peek``); sin inyección, sí."""
+
+    peek = getattr(request.app.state, "quota_peek", None)
+    if peek is None:
+        return QuotaResult(allowed=True)
+    return peek(owner_key)
+
+
 def set_identity_cookie(
     response: Response,
     request: Request,
@@ -397,10 +406,22 @@ def _page(
             "voz_servidor": _voice_available(request),
             "voz_max_segundos": _voice_max_seconds(request),
             "voz_plazo_segundos": _voice_client_timeout(request),
+            # Spec 051: el botón de foto solo aparece con el clasificador disponible.
+            "foto_disponible": _photo_available(request),
         },
         status_code=status_code,
         headers=headers,
     )
+
+
+def _photo_available(request: Request) -> bool:
+    from apps.api.views.foto import photo_available
+
+    try:
+        return photo_available(request)
+    except Exception as error:  # la página del chat nunca cae por la foto
+        logger.warning("photo.flag_failed", error_type=type(error).__name__)
+        return False
 
 
 def _voice_available(request: Request) -> bool:

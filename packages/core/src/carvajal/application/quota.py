@@ -66,3 +66,11 @@ class DailyQuota:
         if self._usage.try_consume(owner_key, momento.date(), self._limit):
             return QuotaResult(allowed=True)
         return QuotaResult(allowed=False, retry_after=seconds_until_tomorrow(momento))
+
+    def peek(self, owner_key: str) -> QuotaResult:
+        """Como :meth:`consume`, pero sin reservar: solo dice si quedaría cupo."""
+
+        momento = self._now() if self._now is not None else local_now(self._timezone)
+        if self._usage.has_room(owner_key, momento.date(), self._limit):
+            return QuotaResult(allowed=True)
+        return QuotaResult(allowed=False, retry_after=seconds_until_tomorrow(momento))

@@ -262,6 +262,18 @@ class Settings(BaseSettings):
     jev_max_calls_per_day: int = Field(default=1000, ge=0, le=100_000)
     jev_max_evidence_chars: int = Field(default=12_000, ge=1_000, le=40_000)
 
+    # Fotos de alimentos (spec 051): Jev clasifica la foto y una tabla determinista elige el
+    # empaque. Encendida por defecto (decisión del owner, 2026-11-24): basta la clave de
+    # TypeSafe; no depende de ``JEV_ENABLED`` (el gatekeeper de la 046 sigue aparte). Cliente
+    # propio con su plazo (las imágenes tardan más que el router), su tope y su circuito.
+    food_photo_enabled: bool = True
+    food_photo_timeout_s: float = Field(default=4.0, ge=1.0, le=10.0)
+    food_photo_max_calls_per_day: int = Field(default=500, ge=0, le=100_000)
+    food_photo_min_confidence: float = Field(default=0.6, ge=0, le=1)
+    # Carpeta (solo lectura) donde OpenClaw deja los adjuntos de WhatsApp; vacía, el puente
+    # MCP no acepta fotos.
+    food_photo_media_dir: str = ""
+
     # Voz del chat web por el servidor con OpenAI (spec 047). ``browser`` (por defecto)
     # conserva el dictado y la lectura del navegador (spec 040) y no envía audio al
     # servidor; ``openai`` transcribe y sintetiza aquí, con la clave solo del entorno. Si
@@ -430,6 +442,12 @@ class Settings(BaseSettings):
         """Jev encendido de forma explícita y con clave (la clave sola no lo enciende)."""
 
         return self.jev_enabled and bool(self.typesafe_api_key.get_secret_value().strip())
+
+    @property
+    def food_photo_configured(self) -> bool:
+        """Fotos de alimentos encendidas y con clave de TypeSafe (spec 051)."""
+
+        return self.food_photo_enabled and bool(self.typesafe_api_key.get_secret_value().strip())
 
     @property
     def voice_server_configured(self) -> bool:

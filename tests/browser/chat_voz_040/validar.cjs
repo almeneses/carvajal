@@ -215,36 +215,83 @@ async function main() {
   paso("transcripción normalizada en el campo", borrador === "necesito 12 onzas para café", borrador);
   paso("no se envió sola", enviosAntes === enviosDespues);
 
-  // 3. Turno por SSE: sin autolectura todavía.
-  await pagina.fill("#pregunta", "necesito 12 onzas para café");
-  await pagina.click('form[data-chat-stream] button[type="submit"]');
-  await esperar(
-    () =>
-      pagina.evaluate(
-        () => document.querySelectorAll("#hilo .turno-assistant .texto").length > 0,
-      ),
-    5000,
-    "turno del asistente",
-  );
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  const locucionesSinPreferencia = await pagina.evaluate(
-    () => window.__vozE2E.locuciones.length,
-  );
+  // 3. Turno dictado (spec 050): la persona habló, así que la respuesta suena sola
+  // aunque la autolectura esté apagada. Aquí el doble no tiene voz del servidor, así que
+  // suena con el respaldo del navegador.
+  const enviarYEsperar = async (pregunta, etiqueta) => {
+    const antes = await pagina.evaluate(
+      () => document.querySelectorAll("#hilo .turno-assistant .texto").length,
+    );
+    await pagina.fill("#pregunta", pregunta);
+    await pagina.click('form[data-chat-stream] button[type="submit"]');
+    await esperar(
+      () =>
+        pagina.evaluate(
+          (n) => document.querySelectorAll("#hilo .turno-assistant .texto").length > n,
+          antes,
+        ),
+      5000,
+      etiqueta,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  };
+  const locuciones = () => pagina.evaluate(() => window.__vozE2E.locuciones.length);
+  const vaciarLocuciones = () =>
+    pagina.evaluate(() => {
+      window.__vozE2E.locuciones.length = 0;
+    });
+  // Aislar la medición: nada de pasos anteriores cuenta como locución del turno.
+  await vaciarLocuciones();
+  await enviarYEsperar("necesito 12 onzas para café", "turno dictado");
+  const locucionesDictado = await locuciones();
   paso(
-    "con autolectura apagada no suena el turno",
-    locucionesSinPreferencia === 0,
-    String(locucionesSinPreferencia),
+    "el turno dictado suena solo con la autolectura apagada",
+    locucionesDictado >= 1,
+    String(locucionesDictado),
+  );
+  await completarLectura(pagina);
+
+  // 3b. Turno escrito con la autolectura apagada: no suena.
+  await vaciarLocuciones();
+  await enviarYEsperar("quiero vasos térmicos", "turno escrito");
+  const locucionesEscrito = await locuciones();
+  paso(
+    "con autolectura apagada no suena el turno escrito",
+    locucionesEscrito === 0,
+    String(locucionesEscrito),
   );
 
-  // 4. Lectura manual con tarjetas y citas.
-  await pagina.click("#hilo .turno-assistant [data-voz-accion='escuchar']");
+  // 4. Lectura manual: el resumen hablado del servidor (spec 048). Los datos de las
+  // tarjetas se quedan en pantalla. Este doble manda las tarjetas como HTML, sin el
+  // resultado comercial, así que el resumen tampoco las nombra. Se lee el último turno
+  // (el escrito del paso 3b), que todavía no ha sonado.
+  await vaciarLocuciones();
+  await pagina
+    .locator("#hilo .turno-assistant")
+    .last()
+    .locator("[data-voz-accion='escuchar']")
+    .click();
   const primera = await pagina.evaluate(() => window.__vozE2E.locuciones.slice());
   await completarLectura(pagina);
   const todas = await pagina.evaluate(() => window.__vozE2E.locuciones.slice());
   const textoLeido = todas.join(" ");
+  const resumen = await pagina.evaluate(
+    () =>
+      Array.from(document.querySelectorAll("#hilo .turno-assistant")).at(-1)?.dataset
+        ?.vozResumen || "",
+  );
+  paso("el turno trae el resumen hablado del servidor", resumen.trim() !== "", resumen);
   paso("lee el texto de la respuesta", textoLeido.includes("Tenemos vasos de papel"));
-  paso("lee datos de tarjeta", /7250\.00 MXN/.test(textoLeido) && /Cajas: 5/.test(textoLeido));
-  paso("lee la fuente como «según»", /Según Manual de empaques/.test(textoLeido), textoLeido);
+  paso(
+    "no lee los datos de la tarjeta (quedan en pantalla)",
+    !/7250|Cajas: 5/.test(textoLeido),
+    textoLeido,
+  );
+  paso(
+    "lee la fuente en una frase",
+    /Lo saqué del documento «Manual de empaques»/.test(textoLeido),
+    textoLeido,
+  );
   paso(
     "no lee URLs ni SKU",
     !/https?:|FX-/.test(textoLeido),

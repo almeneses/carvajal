@@ -110,6 +110,12 @@ services:
       JEV_CLAIMS_THRESHOLD: ${JEV_CLAIMS_THRESHOLD:-0.5}
       JEV_MAX_CALLS_PER_DAY: ${JEV_MAX_CALLS_PER_DAY:-1000}
       JEV_MAX_EVIDENCE_CHARS: ${JEV_MAX_EVIDENCE_CHARS:-12000}
+      # Fotos de alimentos (spec 051): encendidas con TYPESAFE_API_KEY, sin depender de
+      # JEV_ENABLED. FOOD_PHOTO_ENABLED=false las apaga y oculta el botón.
+      FOOD_PHOTO_ENABLED: ${FOOD_PHOTO_ENABLED:-true}
+      FOOD_PHOTO_TIMEOUT_S: ${FOOD_PHOTO_TIMEOUT_S:-4.0}
+      FOOD_PHOTO_MAX_CALLS_PER_DAY: ${FOOD_PHOTO_MAX_CALLS_PER_DAY:-500}
+      FOOD_PHOTO_MIN_CONFIDENCE: ${FOOD_PHOTO_MIN_CONFIDENCE:-0.6}
       # Spec 047: voz del chat web por el servidor con OpenAI (dictado y lectura). Apagada
       # salvo VOICE_PROVIDER=openai con OPENAI_API_KEY en el .env del servidor; si falla,
       # el navegador vuelve a su propia voz. El dictado exige HTTPS (docs/voz-web.md).
@@ -251,11 +257,17 @@ services:
       MCP_TOKEN: ${MCP_TOKEN:-}
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8765"
+      # Spec 051: con OPENCLAW_MEDIA_DIR (p. ej. /home/deploy/.openclaw/media/inbound) el
+      # puente lee las fotos de WhatsApp desde ese montaje de solo lectura; sin él, no hay
+      # fotos por WhatsApp. Ver docs/whatsapp-openclaw.md («Fotos de alimentos»).
+      FOOD_PHOTO_MEDIA_DIR: ${OPENCLAW_MEDIA_DIR:+/openclaw-media}
     ports:
       - "127.0.0.1:${MCP_PORT:-8765}:8765"
     read_only: true
     volumes:
       - appdata:/app/data
+      # Sin OPENCLAW_MEDIA_DIR se monta un volumen vacío (y el puente no ofrece fotos).
+      - ${OPENCLAW_MEDIA_DIR:-openclaw-media}:/openclaw-media:ro
     tmpfs:
       - /tmp
     cap_drop:
@@ -395,3 +407,5 @@ volumes:
   pgdata:
   qdrantdata:
   ollamadata:
+  # Vacío: solo existe para que el montaje de adjuntos de OpenClaw tenga un valor por defecto.
+  openclaw-media:

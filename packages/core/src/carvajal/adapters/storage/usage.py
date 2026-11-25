@@ -2,6 +2,7 @@
 
 from datetime import date
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -38,3 +39,16 @@ class SqlUsageRepository:
             .returning(tables.usage_day.c.requests)
         )
         return self._session.execute(statement).first() is not None
+
+    def has_room(self, owner_key: str, day: date, limit: int) -> bool:
+        """Indica si queda cupo sin reservarlo (solo lectura)."""
+
+        if limit <= 0:
+            return False
+        used = self._session.scalar(
+            select(tables.usage_day.c.requests).where(
+                tables.usage_day.c.owner_key == owner_key,
+                tables.usage_day.c.day == day,
+            )
+        )
+        return (used or 0) < limit
