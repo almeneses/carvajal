@@ -33,7 +33,7 @@ jobs:
 
       - name: Instalar uv
         # v8+ ya no publica tags de version mayor: se fija la version completa.
-        uses: astral-sh/setup-uv@v10.3.3
+        uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Instalar uv
-        uses: astral-sh/setup-uv@v10.3.3
+        uses: astral-sh/setup-uv@v10.4.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
