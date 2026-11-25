@@ -41,4 +41,4 @@
 
 - [x] T021 Conjunto de evaluación `specs/051-fotos-alimentos/evaluacion/fotos.json` (≥ 20 fotos con licencia) y `scripts/evaluar_fotos.py`
 - [x] T022 `CONSTITUTION.md` (§2, §3, §4, §9), `.specify/memory/constitution.md`, `README.md` y `specs/README.md`
-- [ ] T023 `make check` y apertura de la PR (etiquetas y assignee, sin merge)
+- [x] T023 `make check` y apertura de la PR (etiquetas y assignee, sin merge)
