@@ -161,7 +161,7 @@ Flujo de un turno:
 | RAG con citas y evaluación | Qdrant con citas por fragmento; Recall@10/nDCG@10 y evaluación del agente | [Evaluación](#evaluación), [`docs/eval/`](docs/eval/) |
 | Servidor MCP propio | `apps/mcp` (Streamable HTTP, Bearer, solo loopback) | [`apps/mcp/server.py`](apps/mcp/server.py) |
 | Voz | Chat web: OpenAI por el servidor (`VOICE_PROVIDER=openai`) con respaldo en la voz del navegador; WhatsApp: `voz=true` con texto hablado corto | [Voz](#voz), [`docs/voz-web.md`](docs/voz-web.md), [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz) |
-| Fotos de alimentos | Foto en la web o WhatsApp → Jev (Noul, Choice y Score con imagen) → tabla determinista → hasta tres empaques del catálogo, sin LLM | [Fotos](#fotos-de-alimentos), [`specs/051-fotos-alimentos/`](specs/051-fotos-alimentos/spec.md) |
+| Fotos de alimentos | Foto en la web o WhatsApp → Jev (Noul, Choice y Score con imagen) → tabla determinista → una recomendada y hasta cuatro alternativas, sin LLM; se eligen por voz o texto y la cotización se confirma antes de registrarse (spec 053) | [Fotos](#fotos-de-alimentos), [`specs/051-fotos-alimentos/`](specs/051-fotos-alimentos/spec.md) |
 | Seguridad | Compuertas de evidencia, filtro de sensibles, token MCP, firma, allowlist, errores sin trazas | [Seguridad](#seguridad) |
 | Licencia, despliegue y reproducibilidad | MIT, guía de despliegue, `.env` fuera del repo, `uv sync`, `make check` | [Licencia](#licencia-y-créditos), [Despliegue](#despliegue), [Instalación](#instalación) |
 
@@ -325,8 +325,8 @@ el bloque `jev`. Resultados de la medición
 ### Fotos de alimentos
 
 La persona adjunta la foto de un plato o una bebida (botón «Foto» del chat web, o una foto
-en WhatsApp) y recibe hasta tres empaques del catálogo de su país aptos para ese alimento
-(spec 051, [`carvajal/food/`](packages/core/src/carvajal/food/)):
+en WhatsApp) y recibe un empaque recomendado y hasta cuatro alternativas del catálogo de su
+país aptos para ese alimento (specs 051 y 053, [`carvajal/food/`](packages/core/src/carvajal/food/)):
 
 1. **Preparación** sin guardar nada: se endereza, se escala (lado ≤ 1568 px) y se
    re-codifica sin metadatos (ubicación, dispositivo).
@@ -335,8 +335,18 @@ en WhatsApp) y recibe hasta tres empaques del catálogo de su país aptos para e
    baja el asistente pregunta en vez de adivinar; si no es comida, lo dice.
 3. **Recomendación determinista**: una tabla traduce el tipo a uso, familias y temperatura,
    y `check_material` (la guía de materiales) descarta lo no apto. La respuesta cita la ficha
-   de cada referencia, explica la aptitud del material y queda en el hilo para cotizar
-   después («cotízame 500 de la CO-CAZ-16»).
+   de cada referencia, explica la aptitud del material y queda en el hilo. En la web, la
+   recomendada va destacada y las alternativas en una cuadrícula de 2×2.
+4. **Elegir y cotizar** (spec 053): «dame esa», «la alternativa 1» o «la 2», escrito o
+   dictado, se resuelve con reglas a la referencia y el asistente pide la cantidad y la
+   ciudad si faltan. La cotización sale como **propuesta** sin folio; con «sí» o el botón
+   «Confirmar cotización» se registra con folio y PDF. Esto vale para toda cotización, venga
+   o no de una foto.
+
+En la web la foto se ve en el compositor y en el mensaje enviado (como en WhatsApp), se
+puede arrastrar o pegar, y mientras se analiza Carva aparece con una lupa («Mirando tu
+foto…»). El historial guarda solo una miniatura de 320 px sin metadatos; la foto original no
+se guarda.
 
 Activa con `TYPESAFE_API_KEY` (sin depender de `JEV_ENABLED`); `FOOD_PHOTO_ENABLED=false` la
 apaga y oculta el botón. El chat avisa que la foto se analiza con un servicio externo

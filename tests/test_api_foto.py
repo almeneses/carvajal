@@ -6,6 +6,7 @@ clasificó, la idempotencia sin volver a clasificar, el turno guardado con la re
 cotizar después), las tarjetas, el botón y el aviso solo con clasificador, y ``/health``.
 """
 
+import base64
 import io
 import json
 from collections.abc import Callable, Iterator
@@ -374,3 +375,52 @@ def test_health_informa_la_foto(session_factory: Callable[[], Any]) -> None:
 
     # Assert
     assert body["food_photo"]["status"] == "off"
+
+
+# --- Spec 053: la foto se ve, la recomendación se elige y la bienvenida la ofrece ----------
+
+
+def test_el_historial_muestra_la_miniatura_y_la_cuadricula_de_alternativas(
+    session_factory: Callable[[], Any],
+) -> None:
+    # Arrange
+    harness = _harness(session_factory, FakeClassifier())
+    token = _session(harness.client)
+    _send(harness.client, token, note="para domicilio", turn="t-53")
+
+    # Act
+    page = harness.client.get("/chat").text
+
+    # Assert (FR-016, FR-017, FR-003, FR-004)
+    stored = harness.chat.history(OWNER)[0].sources or []
+    thumbnail = stored[0]["thumbnail"]
+    assert thumbnail.startswith("data:image/jpeg;base64,")
+    image = Image.open(io.BytesIO(base64.b64decode(thumbnail.split(",", 1)[1])))
+    assert max(image.size) <= 320 and image.getexif() == {}
+    assert f'class="turno-foto" src="{thumbnail}"' in page
+    assert ">para domicilio<" in page
+    assert 'class="productos-lista productos-foto"' in page
+    assert "✓ Recomendada" in page and "Alternativa 1" in page
+    assert 'data-pregunta="Dame esa"' in page
+    assert 'data-pregunta="Vamos con la alternativa 2"' in page
+
+
+def test_la_bienvenida_ofrece_la_foto_solo_con_clasificador(
+    session_factory: Callable[[], Any],
+) -> None:
+    # Act
+    con = _harness(session_factory, FakeClassifier()).client.get("/chat").text
+    sin = _harness(session_factory, None).client.get("/chat").text
+
+    # Assert (FR-022, FR-019)
+    assert "data-foto-sugerencia" in con and "Envía una foto de tu plato" in con
+    assert "guardamos solo una miniatura" in con
+    assert "data-foto-sugerencia" not in sin
+
+
+def test_la_pagina_del_chat_admite_blob_en_imagenes(session_factory: Callable[[], Any]) -> None:
+    # Act
+    response = _harness(session_factory, FakeClassifier()).client.get("/chat")
+
+    # Assert (FR-015): la vista previa local; el resto del sitio no cambia.
+    assert "img-src 'self' data: blob:" in response.headers["content-security-policy"]

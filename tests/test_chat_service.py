@@ -615,7 +615,7 @@ def _commercial_turn() -> AgentTurn:
 
 
 def test_el_turno_comercial_guarda_cotizacion_y_resultado_junto(engine: Engine) -> None:
-    """Mensajes, resultado y cotización se confirman en una transacción."""
+    """Mensajes, resultado y cotización se confirman en una transacción (al decir «sí»)."""
 
     service = ChatService(
         build_session_factory(engine),
@@ -627,7 +627,9 @@ def test_el_turno_comercial_guarda_cotizacion_y_resultado_junto(engine: Engine) 
     owner_key = "comercial-cotiza"
 
     try:
-        events = list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-1"))
+        proposal = list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-1"))
+        assert proposal[-1].data["quote_id"] is None
+        events = list(service.stream(owner_key, "sí", client_turn_id="coti-1-si"))
         done = events[-1].data
         folio = done["quote_id"]
 
@@ -644,11 +646,11 @@ def test_el_turno_comercial_guarda_cotizacion_y_resultado_junto(engine: Engine) 
         assert folio and len(filas) == 1
         assert filas[0]["id"] == folio
         assert filas[0]["conversation_id"] == history[0].conversation_id
-        fuentes = history[1].sources or []
+        fuentes = history[3].sources or []
         assert fuentes[-1]["result_type"] == "commercial"
         assert fuentes[-1]["result"]["quote"]["quote"]["id"] == folio
 
-        replay = list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-1"))
+        replay = list(service.stream(owner_key, "sí", client_turn_id="coti-1-si"))
         assert [event.name for event in replay[1:5]] == ["trace", "meta", "products", "token"]
         assert replay[-1].data["quote_id"] == folio
     finally:
@@ -675,10 +677,11 @@ def test_si_falla_la_cotizacion_no_quedan_mensajes(
     monkeypatch.setattr("apps.api.chat.service._record_quote", fallar)
 
     try:
-        events = list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-2"))
+        list(service.stream(owner_key, "cotiza 20 vasos", client_turn_id="coti-2"))
+        events = list(service.stream(owner_key, "sí", client_turn_id="coti-2-si"))
 
         assert events[-1].name == "error"
-        assert list(service.history(owner_key)) == []
+        assert len(list(service.history(owner_key))) == 2  # solo la propuesta
         with engine.connect() as connection:
             assert (
                 connection.execute(

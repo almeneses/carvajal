@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-slate-50" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Asistente Carvajal · Atención Integral y Empaques</title>
+<!-- Google Fonts: DM Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,400;1,600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Custom Tailwind Config -->
+<script id="tailwind-config">
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            carvajal: {
+              blue: '#003A5D',
+              dark: '#072B46',
+              cyan: '#00B5E5',
+              cyanDark: '#009DC7',
+              kraft: '#C89B6A',
+              sand: '#F7F3EE',
+              border: '#DCE5EA',
+              orange: '#ED7004',
+              purple: '#62358C',
+              lime: '#80A41B'
+            }
+          },
+          fontFamily: {
+            sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: Custom Styles -->
+<style data-purpose="background-heritage">
+    /* Fondo con identidad patrimonial Carvajal Colombia: Farallones de Cali, imprenta histórica y geometría institucional */
+    body {
+      background-color: #F8FAFC;
+      color: #072B46;
+      font-size: 20px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>
+<!-- END: Custom Styles -->
+<meta content="web_standard" name="shell-type"/></head>
+<body class="min-h-full flex flex-col font-sans text-carvajal-dark antialiased relative selection:bg-carvajal-cyan/20 selection:text-carvajal-blue">
+<!-- CAPA DE FONDO ILUSTRATIVA PATRIMONIAL CARVAJAL (Farallones del Valle del Cauca, líneas editoriales y emblemas de colores 10-16%) -->
+<div aria-hidden="true" class="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+<svg class="w-full h-full object-cover" fill="none" preserveaspectratio="none" viewbox="0 0 1440 900" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<!-- Patrón sutil de papel con renglones de cuaderno escolar editorial -->
+<pattern height="32" id="notebook-lines" patternunits="userSpaceOnUse" width="100">
+<line stroke="#003A5D" stroke-dasharray="3 3" stroke-opacity="0.04" stroke-width="1" x1="0" x2="100" y1="31" y2="31"></line>
+</pattern>
+<!-- Degradado suave de cielo cálido vallecaucano -->
+<lineargradient gradientunits="userSpaceOnUse" id="valle-sky" x1="0" x2="0" y1="0" y2="900">
+<stop offset="0%" stop-color="#F8FAFC"></stop>
+<stop offset="50%" stop-color="#F2F6FA"></stop>
+<stop offset="100%" stop-color="#EBF1F6"></stop>
+</lineargradient>
+</defs>
+<!-- Fondo base degradado -->
+<rect fill="url(#valle-sky)" height="900" width="1440"></rect>
+<rect fill="url(#notebook-lines)" height="900" width="1440"></rect>
+<!-- Siluetas vectoriales de la Cordillera Occidental y los Farallones de Cali (opacidad 10-14%) -->
+<path d="M-100 680 Q120 540 380 620 T920 520 Q1180 440 1540 600 L1540 920 L-100 920 Z" fill="#003A5D" fill-opacity="0.07"></path>
+<path d="M-50 720 Q200 590 520 660 T1100 580 Q1300 510 1520 670 L1520 920 L-50 920 Z" fill="#003A5D" fill-opacity="0.09"></path>
+<!-- Homenaje al legado editorial: líneas de páginas y libros abiertos en origami/papel -->
+<path d="M80 220 C180 200 240 240 340 210" fill="none" stroke="#C89B6A" stroke-opacity="0.12" stroke-width="2"></path>
+<path d="M80 240 C180 220 240 260 340 230" fill="none" stroke="#C89B6A" stroke-opacity="0.10" stroke-width="1.5"></path>
+<path d="M1120 180 C1220 160 1280 200 1380 170" fill="none" stroke="#00B5E5" stroke-opacity="0.12" stroke-width="2"></path>
+<path d="M1120 200 C1220 180 1280 220 1380 190" fill="none" stroke="#00B5E5" stroke-opacity="0.10" stroke-width="1.5"></path>
+<!-- Cuadrados geométricos concéntricos de identidad Carvajal en sus 4 colores distintivos (11%-15% opacidad) -->
+<!-- Cuadrante superior izquierdo: Naranja y Morado -->
+<g opacity="0.14" transform="translate(60, 90) rotate(12)">
+<rect fill="#ED7004" height="76" rx="8" width="76" x="0" y="0"></rect>
+<rect fill="#62358C" height="76" rx="8" width="76" x="42" y="32"></rect>
+</g>
+<!-- Cuadrante superior derecho: Cian y Verde Lima -->
+<g opacity="0.14" transform="translate(1260, 110) rotate(-14)">
+<rect fill="#00B5E5" height="84" rx="8" width="84" x="0" y="0"></rect>
+<rect fill="#80A41B" height="84" rx="8" width="84" x="-36" y="36"></rect>
+</g>
+<!-- Cuadrante inferior izquierdo: Carvajal Lima y Cian flotante -->
+<g opacity="0.13" transform="translate(40, 680) rotate(-8)">
+<rect fill="#80A41B" height="90" rx="10" width="90" x="0" y="0"></rect>
+<rect fill="#00B5E5" height="90" rx="10" width="90" x="44" y="-38"></rect>
+</g>
+<!-- Cuadrante inferior derecho: Carvajal Naranja y Morado institucional -->
+<g opacity="0.13" transform="translate(1280, 640) rotate(15)">
+<rect fill="#62358C" height="88" rx="10" width="88" x="0" y="0"></rect>
+<rect fill="#ED7004" height="88" rx="10" width="88" x="-42" y="38"></rect>
+</g>
+</svg>
+</div>
+<!-- BEGIN: MainHeader (TopBar limpia de alta gama) -->
+<header class="w-full bg-white/95 backdrop-blur-md border-b border-carvajal-border sticky top-0 z-30 shadow-xs">
+<div class="max-w-[1280px] mx-auto px-6 h-[88px] flex items-center justify-between">
+<!-- Identidad Corporativa Carvajal -->
+<div class="flex items-center gap-4 sm:gap-6" data-purpose="brand-identity">
+<a aria-label="Inicio Carvajal" class="inline-block transition-transform hover:opacity-95 focus:outline-hidden focus:ring-2 focus:ring-carvajal-cyan rounded-md" href="#">
+<img alt="Carvajal" class="h-10 sm:h-11 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrBrkMIz2w_ma7pIhCSqtteA-IdVSU-hOFlsQ79aMgOKtmOZ2k6ZfEuPl-c465CKW28T-Rz_vhjGyk0R6XKMNAm4zIstGr0nBWKE8xMIhuDTsN2GlWpK7EnwOybxC82TnoGxXxpZXtD_qSZPuwz-43rwQ-MXN8f52Etjeu3tvxkuDIq-CXwHFUK1KHPp3ibr8WoVBBo-lwl5d0JBpSYhk9bnxuzjfMOvi5fI6DIFmrOi"/>
+</a>
+<div class="hidden sm:block h-9 w-[1.5px] bg-slate-200"></div>
+<div class="flex items-center">
+<span class="text-xl sm:text-[20px] font-bold text-carvajal-dark tracking-tight leading-snug">
+            Asistente Carvajal <span class="font-normal text-slate-400 mx-1">·</span> <span class="font-medium text-sky-800">Atención Integral y Empaques</span>
+</span>
+</div>
+</div>
+<!-- Acciones accesibles exclusivas: 'Ayuda' y 'Línea Directa' (min 56px de alto) -->
+<div class="flex items-center gap-3 sm:gap-4" data-purpose="header-support-actions">
+<!-- Botón de Ayuda (56px de altura) -->
+<button aria-label="Centro de ayuda" class="h-14 px-5 rounded-2xl border-2 border-carvajal-border text-carvajal-blue hover:bg-slate-50 transition-colors font-bold text-[18px] inline-flex items-center gap-2.5 focus:ring-2 focus:ring-carvajal-cyan focus:outline-hidden" type="button">
+<svg aria-hidden="true" class="w-6 h-6 text-carvajal-blue" fill="none" stroke="currentColor" stroke-width="2.2" viewbox="0 0 24 24">
+<path d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Ayuda</span>
+</button>
+<!-- Botón Línea Directa (01 8000 910 111) (56px de altura, fondo azul Carvajal #003A5D) -->
+<a aria-label="Llamar a línea directa de atención: 01 8000 910 111" class="h-14 px-6 rounded-2xl bg-carvajal-blue text-white hover:bg-carvajal-dark shadow-sm hover:shadow transition-all font-bold text-[18px] inline-flex items-center gap-3 focus:ring-4 focus:ring-sky-200 focus:outline-hidden" href="tel:018000910111">
+<svg aria-hidden="true" class="w-6 h-6 text-carvajal-cyan flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewbox="0 0 24 24">
+<path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span>Línea Directa <span class="font-normal text-sky-100 text-[16px] ml-1">(01 8000 910 111)</span></span>
+</a>
+</div>
+</div>
+</header>
+<!-- END: MainHeader -->
+<!-- BEGIN: ConversationWorkspace (Columna única centrada de 880px, sin desorden) -->
+<main class="relative z-10 flex-1 w-full max-w-[880px] mx-auto px-4 sm:px-6 py-8 flex flex-col justify-between" id="main-content"><div class="flex flex-col w-full">
+<div class="w-full flex flex-col space-y-8 pb-10">
+<!-- Mensaje del usuario con foto enviada (Alineado a la derecha) -->
+<div class="flex flex-col items-end w-full">
+<div class="bg-primary-container text-on-primary rounded-3xl p-4 shadow-md max-w-sm sm:max-w-md ml-auto">
+<span class="sr-only">📷 Foto adjunta</span>
+<div class="overflow-hidden rounded-2xl mb-3 shadow-xs bg-primary">
+<img alt="Foto de sopa caliente casera enviada por el usuario" class="w-full aspect-[4/3] object-cover transition-transform duration-300 hover:scale-105" data-alt="Delicioso y humeante ajiaco santafereño tradicional servido en un tazón de barro rústico sobre mesa de madera rústica colombiana con vapor visible, maíz tierno, pollo desmechado y alcaparras, acompañado de aguacate fresco en rodajas y arepa caliente." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBdMnAgX46WfUEK60cGBW1pQGeINj1qajWjVoOSz-HYBP-m6KA3t5NCuaIAAuIQNWvd4DkNla6yLJ5I4QQg44IDtxajkBu2MdyCqZA7w6Ltgsjk4hZBnQn8l8DmLtkS9BkVqRR9BAbF20tc8FT80YKs6k71vhI4Qkd6aiLTf9vQoIBXb9QNTk-mfylac5SG1O7HXu46kz4O0o02ZXdWsnQvWmsT6A750g2LxFqLnwMbYDnmNBLdKVsu0mVWcyxIQOM"/>
+</div>
+<p class="font-body-md text-body-md text-on-primary px-1">
+          para domicilio, unas 300 al día
+        </p>
+<div class="flex items-center justify-end gap-1.5 mt-2 text-surface-container-highest/80 font-label-sm text-label-sm">
+<span>10:42 a. m. · Tú (por foto)</span>
+<span class="material-symbols-outlined text-secondary-container" style="font-size: 20px;">done_all</span>
+</div>
+</div>
+</div>
+<!-- Estado de análisis asistido: Carva mirando la foto -->
+<div aria-live="polite" class="flex items-start gap-4 max-w-2xl w-full">
+<div class="relative flex-shrink-0">
+<img alt="Carva analizando foto" class="w-16 h-16 rounded-full object-cover shadow-sm bg-surface" data-alt="Personaje animado de Carvajal llamado Carva con forma de simpática caja de cartón kraft sosteniendo una gran lupa clásica con bufanda cian, examinando con ternura y curiosidad una fotografía." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqZd10_p4CJL-8_xTKAYww8Cmug2xGmKOBDDtbjsHIDd1TjS56cWmKjUObWoxzjiqBnB6_i5T3OEnqQfgUopLvS_2r5xRd4AblEyPAInKrJEmCUdMoGC7gEAH3UJyDaxbkv4AL51TXDztYtRLDVvDPhvmGlCdct1fKD96C1oKIk9_RXv8bFNrUHwBQiNuaG9YAOAllBp5wuNiEKwO4KkSOyeUgf2aDgn36dfbbNH84RhMlkLjTTtDAVm1ewwT-MVc"/>
+<div class="absolute -bottom-1 -right-1 w-5 h-5 bg-secondary-container rounded-full flex items-center justify-center shadow-xs">
+<span class="w-2.5 h-2.5 bg-primary-container rounded-full animate-ping"></span>
+</div>
+</div>
+<div class="flex-1 bg-surface-container-low rounded-3xl p-5 shadow-sm relative overflow-hidden">
+<div class="flex items-center gap-4">
+<!-- Miniatura escaneada con animación de haz láser Carvajal -->
+<div class="relative w-16 h-16 rounded-2xl overflow-hidden flex-shrink-0 shadow-inner bg-surface">
+<img alt="Miniatura procesada" class="w-full h-full object-cover filter blur-[1px] opacity-80" data-alt="Miniatura difuminada de sopa caliente colombiana para análisis visual automático por inteligencia artificial." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAekDLXqe3fNUauMn2Y7Rw-0o18wN44ch3ovZNI0scXOQMyjS71mflSjvlyzNZB6yaNLWKM5j7LAhXiDqAkuOCuE-K8PvXqS8uEzQ-H0V3a7QjB0NQZX5HIRkizetQEObVl-ZT4G0JsGpWtWJ_D8eHcWw-7AniCgR92kLX6ULhKfPj1moyRlG7NJ3eRfHXjt_5nkZCgnlTUCRU4gFGJ7x4F_s51I-qqgEpuIfb0yhkDse8-4b1hX_QbRYYJI466rIM"/>
+<div class="absolute inset-x-0 h-1 bg-secondary-container shadow-[0_0_8px_#3eccfd] animate-[bounce_2s_infinite]"></div>
+</div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary-container"></span>
+<h3 class="font-headline-sm text-headline-sm text-primary-container">
+                Mirando tu foto…
+              </h3>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">
+              Reviso qué alimento es y cómo se entrega con seguridad.
+            </p>
+<span class="mt-1 font-label-sm text-label-sm text-secondary font-medium">
+              Capturado en análisis · Visión por IA Carvajal
+            </span>
+</div>
+</div>
+</div>
+</div>
+<!-- Respuesta estructurada del Asistente con Selección y Alternativas -->
+<div class="flex items-start gap-4 w-full">
+<div class="flex-shrink-0">
+<img alt="Avatar Asistente Carva" class="w-14 h-14 rounded-full object-cover shadow-xs bg-surface" src="https://lh3.googleusercontent.com/aida/ALJJyrDYtXt4WdjG9xlBqeg8IeRHhPsUo8hQti0Z9CLzkaOW7frY_NjqL7TENgzruijO2MvDHUdhYsyDrbDItj_9baiizGYoXQyrOY-iFD-GDWrVTy9-FcF6zcBwvuJOQ5d2a6mXKDnyPwe5-wxylHDT-fhYp6YD5hJAZuk7wS9LgIvNW20RuFnbF_hVrbOpOhLIE5_CXNbQqSrmg7cNgWAcrBE3XVhlasphhfLp7ISEAqMWww"/>
+</div>
+<div class="flex-1 bg-surface rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
+<!-- Diagnóstico visual amigable -->
+<div class="space-y-1">
+<p class="font-body-lg text-body-lg text-on-surface">
+            Veo una <span class="font-bold text-primary-container">sopa caliente</span>, líquida y sustanciosa, con porción mediana lista para despacho.
+          </p>
+<p class="font-body-md text-body-md text-on-surface-variant">
+            Para garantizar que llegue intacta y conserve el calor en moto o bicicleta, preparé esta opción principal:
+          </p>
+</div>
+<!-- Tarjeta Destacada "Recomendada" -->
+<div class="bg-surface-bright rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
+<div class="flex items-center justify-between flex-wrap gap-2">
+<span class="inline-flex items-center gap-1.5 bg-surface-container text-success font-label-sm text-label-sm px-3.5 py-1 rounded-full font-bold">
+<span class="material-symbols-outlined text-success" style="font-size: 20px;">verified</span>
+              Opción recomendada por Carvajal
+            </span>
+<span class="font-label-sm text-label-sm text-outline font-mono bg-surface px-2.5 py-0.5 rounded-lg shadow-xs">
+              ref. CO-CAZ-16
+            </span>
+</div>
+<div class="flex flex-col sm:flex-row gap-6 items-center">
+<div class="w-40 h-40 flex-shrink-0 bg-surface rounded-2xl p-3 flex items-center justify-center shadow-xs">
+<img alt="Contenedor térmico 16 oz con tapa hermética" class="w-full h-full object-contain" data-alt="Contenedor térmico negro mate de 16 onzas con tapa transparente hermética para sopas y alimentos calientes sobre fondo blanco pulcro de estudio de diseño de empaque." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBuwN5WEFv94rVRkLEST7LHPPX9w6BxIPsXfNlqhjn1Gf3X_eoBX5ltYH-_W5dn-f_Ksnvthbtlvo2W34C91HuhmkN7IFqneJ7NHSraCPr-DluUhlpmDuiJ_xfItAVilIbfv1wlQxVae0_9WykdaprSxF5Q2yYi5_Is3rIRsCM6dCKIhve4i48KTSaRKpDCQpPQytJWKCa3dANGmYcYdDPi70rbopNy4nlNf_oXZK8NVJzlikkDzHOWMVU-KEJIfLk"/>
+</div>
+<div class="flex-1 space-y-3">
+<div>
+<h4 class="font-headline-sm text-headline-sm text-primary-container">
+                  Contenedor térmico 16 oz con tapa hermética
+                </h4>
+<div class="flex items-center gap-2 mt-1">
+<span class="inline-block bg-surface-container text-secondary font-label-sm text-label-sm px-3 py-1 rounded-full font-semibold">
+                    Polipropileno · Apto para microondas y calor
+                  </span>
+</div>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                Aguanta altas temperaturas sin deformarse. Su sellado a presión previene derrames ante baches y vibración de reparto.
+              </p>
+<div class="flex flex-wrap items-center gap-3 pt-2">
+<button class="h-14 px-6 rounded-2xl bg-primary-container text-on-primary font-label-md text-label-md shadow-sm hover:bg-primary transition-colors flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-secondary-container">check_circle</span>
+                  Elegir esta recomendación
+                </button>
+<button class="h-14 px-5 rounded-2xl bg-surface-container-low text-primary-container font-label-md text-label-md hover:bg-surface-container transition-colors flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-outline">description</span>
+                  Ver ficha técnica
+                </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Sección de Alternativas Viables en Grilla 2x2 -->
+<div class="space-y-4 pt-2">
+<div class="flex items-center justify-between flex-wrap gap-2">
+<h5 class="font-headline-sm text-headline-sm text-primary-container flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary">tune</span>
+              Otras opciones viables
+            </h5>
+<span class="font-label-sm text-label-sm text-outline">
+              Puedes decir «la 2», «dame esa» o pulsar directamente
+            </span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+<!-- Alternativa 1 -->
+<div class="bg-surface-bright rounded-2xl p-4 shadow-xs flex flex-col justify-between hover:bg-surface-container-low transition-colors">
+<div class="flex items-start gap-3">
+<span class="w-8 h-8 rounded-full bg-surface-container text-primary-container font-label-md text-label-md flex items-center justify-center flex-shrink-0 font-bold">
+                  1
+                </span>
+<div>
+<h6 class="font-label-md text-label-md text-primary-container">Vaso térmico 12 oz</h6>
+<span class="font-label-sm text-label-sm text-outline">ref. VT-12 · Polipapel denso</span>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 text-sm leading-snug">
+                    Porción pequeña de entrada, económico con tapa ventilada.
+                  </p>
+</div>
+</div>
+<div class="mt-4 pt-3 flex justify-end">
+<button class="px-4 py-2 rounded-xl bg-surface text-primary-container font-label-sm text-label-sm shadow-xs hover:bg-surface-container" type="button">
+                  Elegir #1
+                </button>
+</div>
+</div>
+<!-- Alternativa 2 (Seleccionada por el usuario en el hilo) -->
+<div class="bg-surface-container-high rounded-2xl p-4 shadow-sm flex flex-col justify-between relative overflow-hidden">
+<div class="absolute top-2 right-2 flex items-center gap-1 bg-primary-container text-on-primary px-2 py-0.5 rounded-full font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-secondary-container" style="font-size: 16px;">thumb_up</span>
+                Solicitada
+              </div>
+<div class="flex items-start gap-3">
+<span class="w-8 h-8 rounded-full bg-primary-container text-on-primary font-label-md text-label-md flex items-center justify-center flex-shrink-0 font-bold">
+                  2
+                </span>
+<div>
+<h6 class="font-label-md text-label-md text-primary-container">Contenedor PP 24 oz</h6>
+<span class="font-label-sm text-label-sm text-secondary font-medium">ref. CO-CPP-24 · Porción grande</span>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 text-sm leading-snug">
+                    Polipropileno reforzado con cierre estanco de gran volumen.
+                  </p>
+</div>
+</div>
+<div class="mt-4 pt-3 flex justify-end">
+<button class="px-4 py-2 rounded-xl bg-primary-container text-on-primary font-label-sm text-label-sm shadow-xs" type="button">
+                  Elegida ✓
+                </button>
+</div>
+</div>
+<!-- Alternativa 3 -->
+<div class="bg-surface-bright rounded-2xl p-4 shadow-xs flex flex-col justify-between hover:bg-surface-container-low transition-colors">
+<div class="flex items-start gap-3">
+<span class="w-8 h-8 rounded-full bg-surface-container text-primary-container font-label-md text-label-md flex items-center justify-center flex-shrink-0 font-bold">
+                  3
+                </span>
+<div>
+<h6 class="font-label-md text-label-md text-primary-container">Bowl de pulpa 16 oz</h6>
+<span class="font-label-sm text-label-sm text-outline">ref. BP-EKO-16 · Ecológico</span>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 text-sm leading-snug">
+                    Pulpa de caña 100% compostable con revestimiento anti-grasa.
+                  </p>
+</div>
+</div>
+<div class="mt-4 pt-3 flex justify-end">
+<button class="px-4 py-2 rounded-xl bg-surface text-primary-container font-label-sm text-label-sm shadow-xs hover:bg-surface-container" type="button">
+                  Elegir #3
+                </button>
+</div>
+</div>
+<!-- Alternativa 4 -->
+<div class="bg-surface-bright rounded-2xl p-4 shadow-xs flex flex-col justify-between hover:bg-surface-container-low transition-colors">
+<div class="flex items-start gap-3">
+<span class="w-8 h-8 rounded-full bg-surface-container text-primary-container font-label-md text-label-md flex items-center justify-center flex-shrink-0 font-bold">
+                  4
+                </span>
+<div>
+<h6 class="font-label-md text-label-md text-primary-container">Contenedor EPS 16 oz</h6>
+<span class="font-label-sm text-label-sm text-outline">ref. CE-16 · Térmico clásico</span>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1 text-sm leading-snug">
+                    Aislante térmico ultra liviano para entregas rápidas de barrio.
+                  </p>
+</div>
+</div>
+<div class="mt-4 pt-3 flex justify-end">
+<button class="px-4 py-2 rounded-xl bg-surface text-primary-container font-label-sm text-label-sm shadow-xs hover:bg-surface-container" type="button">
+                  Elegir #4
+                </button>
+</div>
+</div>
+</div>
+</div>
+<p class="font-headline-sm text-headline-sm text-primary-container pt-2">
+          ¿Te cotizo alguna de estas referencias?
+        </p>
+</div>
+</div>
+<!-- Mensaje del usuario eligiendo la alternativa 2 -->
+<div class="flex flex-col items-end w-full">
+<div class="bg-primary-container text-on-primary rounded-3xl px-6 py-4 shadow-md max-w-md ml-auto">
+<p class="font-body-lg text-body-lg text-on-primary">
+          vamos con la 2, son 500 para Cali
+        </p>
+<div class="flex items-center justify-end gap-1.5 mt-1 text-surface-container-highest/80 font-label-sm text-label-sm">
+<span>10:44 a. m. · Tú</span>
+<span class="material-symbols-outlined text-secondary-container" style="font-size: 20px;">done_all</span>
+</div>
+</div>
+</div>
+<!-- Propuesta de Cotización Formal (Asistente Carvajal) -->
+<div class="flex items-start gap-4 w-full">
+<div class="flex-shrink-0">
+<img alt="Avatar Asistente Carva" class="w-14 h-14 rounded-full object-cover shadow-xs bg-surface" src="https://lh3.googleusercontent.com/aida/ALJJyrDYtXt4WdjG9xlBqeg8IeRHhPsUo8hQti0Z9CLzkaOW7frY_NjqL7TENgzruijO2MvDHUdhYsyDrbDItj_9baiizGYoXQyrOY-iFD-GDWrVTy9-FcF6zcBwvuJOQ5d2a6mXKDnyPwe5-wxylHDT-fhYp6YD5hJAZuk7wS9LgIvNW20RuFnbF_hVrbOpOhLIE5_CXNbQqSrmg7cNgWAcrBE3XVhlasphhfLp7ISEAqMWww"/>
+</div>
+<div class="flex-1 bg-surface rounded-3xl p-6 sm:p-8 shadow-md space-y-6 max-w-2xl">
+<!-- Cabecera de la propuesta -->
+<div class="flex items-center justify-between flex-wrap gap-3 pb-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-container" style="font-size: 28px;">receipt_long</span>
+<h4 class="font-headline-sm text-headline-sm text-primary-container">
+              Propuesta de cotización
+            </h4>
+</div>
+<span class="bg-surface-container text-warning font-label-sm text-label-sm font-bold px-3.5 py-1 rounded-full">
+            Sin folio · Por confirmar
+          </span>
+</div>
+<!-- Desglose institucional accesible -->
+<div class="bg-surface-bright rounded-2xl p-5 space-y-3 shadow-inner">
+<div class="flex justify-between items-center py-1">
+<span class="font-body-md text-body-md text-on-surface-variant">Producto seleccionado</span>
+<span class="font-label-md text-label-md text-primary-container text-right">Contenedor PP 24 oz (ref. CO-CPP-24)</span>
+</div>
+<div class="flex justify-between items-center py-1">
+<span class="font-body-md text-body-md text-on-surface-variant">Presentación de empaque</span>
+<span class="font-label-md text-label-md text-primary-container">10 paquetes x 50 unidades</span>
+</div>
+<div class="flex justify-between items-center py-1">
+<span class="font-body-md text-body-md text-on-surface-variant">Cantidad total</span>
+<span class="font-label-md text-label-md text-primary-container font-bold">500 unidades</span>
+</div>
+<div class="flex justify-between items-center py-1">
+<span class="font-body-md text-body-md text-on-surface-variant">Destino de entrega</span>
+<span class="font-label-md text-label-md text-primary-container text-right">Cali, Valle del Cauca (24-48 hrs)</span>
+</div>
+<div class="h-px bg-surface-container-highest my-2"></div>
+<div class="flex justify-between items-center py-1">
+<span class="font-body-md text-body-md text-on-surface-variant">Subtotal</span>
+<span class="font-label-md text-label-md text-on-surface">$ 185.000 COP</span>
+</div>
+<div class="flex justify-between items-center py-1">
+<span class="font-body-md text-body-md text-on-surface-variant">IVA estimado (19%)</span>
+<span class="font-label-md text-label-md text-on-surface">$ 35.150 COP</span>
+</div>
+<div class="flex justify-between items-center py-1">
+<span class="font-body-md text-body-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-success" style="font-size: 20px;">local_shipping</span>
+              Envío metropolitano
+            </span>
+<span class="font-label-md text-label-md text-success font-bold">Gratis por cobertura Carvajal</span>
+</div>
+<!-- Total Destacado en tarjeta verde -->
+<div class="bg-surface-container-low rounded-xl p-4 flex justify-between items-center mt-3 shadow-xs">
+<span class="font-label-lg text-label-lg text-primary-container">Total estimado:</span>
+<span class="font-headline-sm text-headline-sm text-success">$ 220.150 COP</span>
+</div>
+</div>
+<!-- Pregunta de confirmación y llamadas a la acción -->
+<div class="space-y-4 pt-1">
+<p class="font-headline-sm text-headline-sm text-primary-container">
+            ¿La confirmo para generar tu pedido formal?
+          </p>
+<div class="flex flex-wrap items-center gap-3">
+<button class="h-16 px-8 rounded-2xl bg-success text-on-primary font-label-lg text-label-lg shadow-md hover:opacity-95 transition-all flex items-center gap-3" type="button">
+<span class="material-symbols-outlined text-on-primary" style="font-size: 26px;">check_circle</span>
+              Confirmar cotización
+            </button>
+<button class="h-16 px-6 rounded-2xl bg-surface-container-low text-primary-container font-label-md text-label-md hover:bg-surface-container transition-colors" type="button">
+              Cambiar datos o cantidad
+            </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Pinned Composer (Área de entrada y voz fija al pie del contenedor) -->
+<div class="sticky bottom-4 z-20 w-full mt-6">
+<div class="bg-surface/95 backdrop-blur-md rounded-3xl p-4 sm:p-5 shadow-xl space-y-3">
+<!-- Ficha de foto adjunta activa con advertencia de privacidad -->
+<div class="flex flex-wrap items-center justify-between gap-3 bg-surface-bright rounded-2xl p-2.5 sm:px-4">
+<div class="flex items-center gap-3">
+<img alt="miniatura foto" class="w-12 h-12 rounded-xl object-cover shadow-xs" data-alt="Miniatura de fotografía de comida casera lista para ser adjuntada a la cotización Carvajal." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCWdE298c_YK37l1EiaWMS-8xas1XUQ0Rbs4eQAhkBwHUULrNnegdRej5nUSV5xrGlgTc0776z01QYW-sjg3PDr3VuAEUnQbvWZ5CwCGK35MGUX3GEYiKjITX7vsaCELlXurIpFMRRieLRN_rHTdb1IFJMI_xf7cOD7EDVGmOjcWj3S9cFpIVefQC15qB1xcSDsW2aF0BRSvAP1p6rVJwC9n8wvVU-C9Go3_WevZyzJtM80UtNXAuK438PmZuAHS5c"/>
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-primary-container font-bold">sopa_domicilios_cali.jpg</span>
+<span class="font-label-sm text-label-sm text-outline">1,2 MB · Imagen analizada correctamente</span>
+</div>
+<button aria-label="Quitar foto adjunta" class="w-8 h-8 rounded-full bg-surface-container text-outline hover:text-error flex items-center justify-center transition-colors ml-2" type="button">
+<span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+</button>
+</div>
+<div class="flex items-center gap-1.5 text-outline font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-secondary" style="font-size: 18px;">lock</span>
+<span>Analizada por TypeSafe (EE. UU.) · Solo miniatura en sesión</span>
+</div>
+</div>
+<!-- Barra de escritura e interacción multi-modal -->
+<form class="flex items-center gap-3" onsubmit="event.preventDefault();">
+<!-- Botón Cámara / Adjuntar -->
+<button aria-label="Tomar o adjuntar foto de comida" class="w-14 h-14 rounded-2xl bg-surface-bright text-primary-container hover:bg-surface-container flex items-center justify-center transition-colors flex-shrink-0" title="Tomar o adjuntar foto" type="button">
+<span class="material-symbols-outlined text-primary-container" style="font-size: 28px;">photo_camera</span>
+</button>
+<!-- Campo de texto espacioso -->
+<div class="relative flex-1">
+<input class="w-full h-14 bg-surface rounded-2xl px-5 text-on-surface placeholder:text-outline font-body-md text-body-md shadow-inner outline-none focus:bg-surface-bright" id="user-prompt" placeholder="Agrega un comentario o indica la cantidad (ej. 500 para Cali)…" type="text"/>
+</div>
+<!-- Botón de Micrófono Proeminente (80px ideal senior) -->
+<button aria-label="Hablar con Carva mediante voz" class="w-14 sm:w-16 h-14 sm:h-16 rounded-2xl bg-secondary-container text-on-secondary-container hover:opacity-90 flex items-center justify-center shadow-md transition-all flex-shrink-0" title="Hablar con Carva" type="button">
+<span class="material-symbols-outlined text-on-secondary-container" style="font-size: 30px;">mic</span>
+</button>
+<!-- Botón Enviar -->
+<button aria-label="Enviar mensaje" class="h-14 px-6 rounded-2xl bg-primary-container text-on-primary font-label-md text-label-md flex items-center gap-2 hover:bg-primary transition-colors flex-shrink-0" type="submit">
+<span class="hidden sm:inline">Enviar</span>
+<span class="material-symbols-outlined text-secondary-container">send</span>
+</button>
+</form>
+</div>
+</div>
+</div></main>
+<!-- END: ConversationWorkspace -->
+<!-- BEGIN: SiteFooter (Pie de página institucional accesible) -->
+<footer class="relative z-10 w-full bg-white/95 border-t border-carvajal-border py-6 px-6 mt-auto">
+<div class="max-w-[1280px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3 text-center md:text-left text-[15px] text-slate-600 font-medium">
+<div class="flex items-center gap-2.5">
+<svg aria-hidden="true" class="w-5 h-5 text-carvajal-blue flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24">
+<path d="M9 12.75L11.25 15 15 9.75m-2.18 7.424A9.06 9.06 0 0112 20.25a9.06 9.06 0 01-6.82-3.076m13.64 0A9.06 9.06 0 0012 3.75a9.06 9.06 0 00-6.82 3.076M12 7.5a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span><strong>Compromiso de Accesibilidad e Inclusión Carvajal</strong> · Línea Gratuita Nacional: <a class="font-bold text-carvajal-blue hover:underline" href="tel:018000910111">01 8000 910 111</a></span>
+</div>
+<div>
+<span>© 2024 Organización Carvajal. Todos los derechos reservados.</span>
+</div>
+</div>
+</footer>
+<!-- END: SiteFooter -->
+<!-- BEGIN: InteractiveScripts -->
+<script data-purpose="chat-speech-interactivity">
+    document.addEventListener('DOMContentLoaded', () => {
+      const talkBtn = document.querySelector('button[aria-label*="Hablar"]');
+      const inputField = document.getElementById('user-prompt');
+
+      if (talkBtn && inputField) {
+        talkBtn.addEventListener('click', () => {
+          const isRecording = talkBtn.getAttribute('data-recording') === 'true';
+          if (!isRecording) {
+            talkBtn.setAttribute('data-recording', 'true');
+            talkBtn.classList.remove('bg-[#00B5E5]');
+            talkBtn.classList.add('bg-rose-600', 'animate-pulse');
+            inputField.placeholder = "Escuchando tu voz... Habla ahora con tranquilidad.";
+          } else {
+            talkBtn.setAttribute('data-recording', 'false');
+            talkBtn.classList.remove('bg-rose-600', 'animate-pulse');
+            talkBtn.classList.add('bg-[#00B5E5]');
+            inputField.placeholder = "Escribe o pulsa el micrófono para hablar...";
+          }
+        });
+      }
+    });
+  </script>
+<!-- END: InteractiveScripts -->
+</body></html>

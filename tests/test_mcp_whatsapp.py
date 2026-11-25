@@ -409,15 +409,18 @@ def test_extremo_a_extremo_con_chat_service_y_cotizaciones_guardadas(sqlite_engi
             record = SqlQuoteRepository(session).get(folio, owner)
             return None if record is None else dict(record.payload)
 
-    answer = WhatsAppBridge(chat=service, secret=SECRET, quotes=quotes).consult(
-        "Cotiza 50 y 100 vasos en Bogotá", "+573100000000"
-    )
+    bridge = WhatsAppBridge(chat=service, secret=SECRET, quotes=quotes)
+    proposal = bridge.consult("Cotiza 50 y 100 vasos en Bogotá", "+573100000000")
+    answer = bridge.consult("sí", "+573100000000")
 
+    # Spec 053: primero la propuesta con sus cifras, sin folio; el «sí» la registra.
+    assert proposal.count("🧾 *Propuesta de cotización*") == 2
+    assert "💰 *Total: $3.751 COP*" in proposal and "#" not in proposal.split("*Fuentes")[0]
+    assert "¿Confirmo la cotización?" in proposal
     assert answer.count("🧾 *Cotización #") == 2
     assert "*Vaso rígido*" in answer
     assert "💰 *Total: $3.751 COP*" in answer
     assert "💰 *Total: $7.502 COP*" in answer
-    assert "*Fuentes:*" in answer
 
 
 def test_extremo_a_extremo_la_compuerta_de_jev_entrega_solo_el_sustituto(

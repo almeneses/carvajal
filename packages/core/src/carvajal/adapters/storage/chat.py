@@ -50,7 +50,11 @@ class ConversationSummary:
 
 @dataclass(frozen=True)
 class ChatMessage:
-    """Mensaje de una conversación; ``sources`` solo existe en respuestas.
+    """Mensaje de una conversación.
+
+    En las respuestas, ``sources`` lleva las citas y el resultado comercial; en las
+    preguntas solo existe si la persona adjuntó una foto (spec 053): la miniatura,
+    ``{"result_type": "photo", "thumbnail": "data:image/jpeg;base64,…"}``.
 
     ``status`` distingue una respuesta completa de una interrumpida y
     ``client_turn_id`` permite reconocer un reintento del mismo turno.
@@ -422,8 +426,11 @@ class SqlChatRepository:
         sources: Sequence[Mapping[str, Any]] | None = None,
         status: str = "complete",
         client_turn_id: str | None = None,
+        question_sources: Sequence[Mapping[str, Any]] | None = None,
     ) -> tuple[ChatMessage, ChatMessage]:
         """Inserta el turno usuario→asistente y toca ``updated_at``.
+
+        ``question_sources`` acompaña a la pregunta (la miniatura de la foto, spec 053).
 
         Bloquea la conversación para serializar turnos concurrentes. Los dos
         mensajes se escriben dentro de la transacción del llamador; si algo
@@ -447,7 +454,7 @@ class SqlChatRepository:
             conversation_id=conversation_id,
             role="user",
             content=question,
-            sources=None,
+            sources=None if not question_sources else [dict(item) for item in question_sources],
             created_at=now,
             status="complete",
             client_turn_id=client_turn_id,

@@ -46,6 +46,7 @@
   const sugerencias = hilo.querySelector("[data-chat-sugerencias]");
   if (sugerencias) sugerencias.hidden = false;
   mostrarCambiar(hilo);
+  actualizarAcciones();
   hilo.addEventListener("click", (event) => {
     const sugerencia = event.target.closest("[data-chat-sugerencia]");
     if (!sugerencia || enCurso) return;
@@ -57,6 +58,9 @@
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.focus({ preventScroll: true });
     if (abierta) input.setSelectionRange?.(input.value.length, input.value.length);
+    // Spec 053: «Elegir» y «Confirmar cotización» envían la frase en el acto, igual que si
+    // la persona la escribiera o la dijera.
+    if ("chatEnviar" in sugerencia.dataset) form.requestSubmit?.();
   });
 
   historial.addEventListener("scroll", () => {
@@ -114,6 +118,38 @@
 
   function marcaFoto(pregunta) {
     return pregunta ? `📷 Foto de un alimento: ${pregunta}` : "📷 Foto de un alimento";
+  }
+
+  // Spec 053 (FR-016): como en WhatsApp, la foto arriba y debajo el texto que la acompaña.
+  // Sin vista local (navegador sin `URL.createObjectURL`) queda la marca de texto de siempre.
+  function pintarFotoEnviada(turno, foto, pregunta) {
+    const api = window.CarvajalFoto;
+    const url = api && typeof api.vista === "function" ? api.vista(foto) : "";
+    const burbuja = turno.querySelector(".burbuja");
+    const texto = turno.querySelector(".texto");
+    if (!url || !burbuja || !texto || typeof burbuja.insertBefore !== "function") return "";
+    const imagen = document.createElement("img");
+    imagen.className = "turno-foto";
+    imagen.alt = "Foto del alimento que enviaste";
+    imagen.src = url;
+    burbuja.insertBefore(imagen, texto);
+    texto.textContent = pregunta;
+    texto.hidden = !pregunta;
+    return url;
+  }
+
+  // Spec 053 (FR-020): Carva con lupa sobre la foto mientras Jev la analiza.
+  function mostrarMirando(turno, url) {
+    const plantilla = document.getElementById("plantilla-mirando");
+    const modelo = plantilla && plantilla.content && plantilla.content.firstElementChild;
+    if (!modelo) return null;
+    const bloque = modelo.cloneNode(true);
+    const imagen = bloque.querySelector("[data-mirando-foto]");
+    if (imagen && url) imagen.src = url;
+    else if (imagen) imagen.closest(".foto-mirando-imagen")?.remove();
+    turno.dataset.mirando = "1";
+    turno.querySelector(".burbuja")?.prepend?.(bloque);
+    return bloque;
   }
 
   function peticion(pregunta, turnId, foto, signal) {
@@ -206,14 +242,18 @@
 
   async function responder(pregunta, turnId, manosLibres, foto = null, porVoz = false) {
     const turnoUsuario = crearTurno("user", foto ? marcaFoto(pregunta) : pregunta);
+    const urlFoto = foto ? pintarFotoEnviada(turnoUsuario, foto, pregunta) : "";
     const marcaVoz = turnoUsuario.querySelector("[data-turno-por-voz]");
     if (porVoz && marcaVoz) {
       turnoUsuario.dataset.porVoz = "1";
       marcaVoz.hidden = false;
     }
     const turnoAsistente = crearTurno("assistant", "");
-    // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css).
+    // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css); con foto,
+    // «mira» con su lupa (spec 053).
     turnoAsistente.dataset.pensando = "1";
+    const mirando = foto ? mostrarMirando(turnoAsistente, urlFoto) : null;
+    const textoEspera = foto ? "Mirando tu foto…" : "Pensando…";
     const controlesVoz = turnoAsistente.querySelector("[data-voz-turno]");
     if (controlesVoz) controlesVoz.hidden = true;
     let lista;
@@ -224,19 +264,22 @@
       lista = asegurarLista();
       lista.append(turnoUsuario, turnoAsistente);
     });
+    actualizarAcciones();
     const texto = turnoAsistente.querySelector(".texto");
     const flujo = formateador.crearFlujo(texto);
-    const espera = setTimeout(() => avisar("Pensando…"), 300);
+    const espera = setTimeout(() => avisar(textoEspera), 300);
     // Progreso del agente (evento status, spec 044): vive en la misma línea de
     // estado que «Pensando…» y desaparece con el primer token, fallback o error.
     let progreso = "";
     let progresoCerrado = false;
     function quitarProgreso() {
       delete turnoAsistente.dataset.pensando;
+      delete turnoAsistente.dataset.mirando;
+      mirando?.remove?.();
       clearTimeout(espera);
       progresoCerrado = true;
       const vigente = estado.textContent;
-      if (vigente === "Pensando…" || (progreso && vigente === progreso)) avisar("");
+      if (vigente === textoEspera || (progreso && vigente === progreso)) avisar("");
       progreso = "";
     }
     let cantidadFuentes = 0;
@@ -509,9 +552,26 @@
     return turno;
   }
 
-  // Los «Cambiar» de «Tu solicitud» solo sirven con este script: sin él quedan ocultos.
+  // Los «Cambiar» de «Tu solicitud» (y los «Elegir» y «Confirmar» de la spec 053) solo
+  // sirven con este script: sin él quedan ocultos.
   function mostrarCambiar(raiz) {
-    for (const boton of raiz.querySelectorAll?.("[data-chat-cambiar]") ?? []) boton.hidden = false;
+    const botones = raiz.querySelectorAll?.("[data-chat-cambiar], [data-chat-enviar]") ?? [];
+    for (const boton of botones) boton.hidden = false;
+  }
+
+  // Spec 053: solo la recomendación de foto más reciente ofrece «Elegir» y solo la propuesta
+  // del último turno ofrece «Confirmar»: una elección o un «sí» se resuelven contra ellas.
+  function actualizarAcciones() {
+    const fotos = Array.from(hilo.querySelectorAll?.(".productos-foto") ?? []);
+    fotos.forEach((lista, indice) => {
+      const vigente = indice === fotos.length - 1;
+      for (const boton of lista.querySelectorAll("[data-chat-enviar]")) boton.hidden = !vigente;
+    });
+    const turnos = Array.from(hilo.querySelectorAll?.(".turno") ?? []);
+    const ultimo = turnos[turnos.length - 1];
+    for (const acciones of hilo.querySelectorAll?.("[data-coti-acciones]") ?? []) {
+      acciones.hidden = !(ultimo && typeof ultimo.contains === "function" && ultimo.contains(acciones));
+    }
   }
 
   // Tarjetas de la ruta comercial (spec 036). El HTML llega renderizado y escapado por
@@ -524,6 +584,7 @@
     const tarjetas = plantilla.content.firstElementChild;
     if (tarjetas) turno.querySelector(".burbuja")?.after(tarjetas);
     if (tarjetas) mostrarCambiar(tarjetas);
+    actualizarAcciones();
   }
 
   function pintarTraza(datos) {

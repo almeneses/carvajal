@@ -7,9 +7,15 @@
   {% set fuentes = message.sources or [] %}
   {% set titulos = [] %}
   {% set resultado_comercial = namespace(valor=none) %}
+  {% set foto = namespace(miniatura=none) %}
   {% for fuente in fuentes %}
     {% if fuente.result_type == "commercial" %}
       {% set resultado_comercial.valor = fuente.result %}
+    {% elif fuente.result_type == "photo" %}
+      {#- Spec 053: miniatura de la foto (data: JPEG generado por el servidor). -#}
+      {% if (fuente.thumbnail or "").startswith("data:image/jpeg;base64,") %}
+      {% set foto.miniatura = fuente.thumbnail %}
+      {% endif %}
     {% else %}
       {% set _ = titulos.append(fuente.title or fuente.slug or "") %}
     {% endif %}
@@ -26,7 +32,12 @@
       {% endif %}
     </p>
     <div class="burbuja">
-      {% if message.role == "user" %}
+      {% if message.role == "user" and foto.miniatura %}
+      {#- Como en WhatsApp: la foto arriba y, debajo, el texto que la acompañó. -#}
+      {% set nota = message.content | replace("📷 Foto de un alimento: ", "", 1) | replace("📷 Foto de un alimento", "", 1) %}
+      <img class="turno-foto" src="{{ foto.miniatura }}" alt="Foto del alimento que enviaste" />
+      {% if nota.strip() %}<div class="texto">{{ nota }}</div>{% endif %}
+      {% elif message.role == "user" %}
       <div class="texto">{{ message.content }}</div>
       {% else %}
       <div class="texto texto-formateado">{{ message.content | respuesta(titulos | length) }}</div>
@@ -84,6 +95,15 @@
   <div class="bienvenida-temas">
     <p class="bienvenida-temas-titulo" id="temas-frecuentes">Temas frecuentes</p>
     <div class="chat-sugerencias temas" data-chat-sugerencias aria-labelledby="temas-frecuentes" role="group" hidden>
+      {%- if foto_disponible %}
+      {#- Spec 053 (FR-022): descubrir la foto; abre el selector (chat-photo.js). -#}
+      <button type="button" class="tema tema-foto" data-foto-sugerencia hidden>
+        <span class="tema-icono" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+        </span>
+        <span class="tema-texto"><strong>📷 Envía una foto de tu plato</strong><span>y te digo qué empaque usar</span></span>
+      </button>
+      {%- endif %}
       <button type="button" class="tema" data-chat-sugerencia data-pregunta="¿Cómo nació Carvajal?">
         <span class="tema-icono" aria-hidden="true">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7c-2-1.6-4.7-2-8-2v13c3.3 0 6 .4 8 2 2-1.6 4.7-2 8-2V5c-3.3 0-6 .4-8 2Z" /><path d="M12 7v13" /></svg>

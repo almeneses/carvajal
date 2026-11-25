@@ -6,6 +6,7 @@ La foto se endereza según su orientación, se escala a los límites de TypeSafe
 en disco (FR-002, FR-003).
 """
 
+import base64
 import io
 import warnings
 from dataclasses import dataclass
@@ -17,9 +18,11 @@ __all__ = [
     "MAX_PHOTO_BYTES",
     "MAX_SIDE_PX",
     "MIN_SIDE_PX",
+    "THUMBNAIL_SIDE_PX",
     "PhotoRejected",
     "PreparedPhoto",
     "prepare_photo",
+    "thumbnail_data_url",
 ]
 
 MAX_PHOTO_BYTES: Final = 10 * 1024 * 1024
@@ -28,6 +31,9 @@ MIN_SIDE_PX: Final = 280
 # Defensa contra bombas de descompresión: una foto de cámara ronda 12-50 Mpx.
 _MAX_SOURCE_PIXELS: Final = 60_000_000
 _JPEG_QUALITY: Final = 85
+# Spec 053 (FR-017): la miniatura del historial; la foto original nunca se guarda.
+THUMBNAIL_SIDE_PX: Final = 320
+_THUMBNAIL_QUALITY: Final = 70
 _FORMATS: Final = frozenset({"JPEG", "PNG", "MPO"})
 
 RejectReason = Literal["formato", "pequena", "grande", "alargada", "ilegible"]
@@ -98,3 +104,19 @@ def prepare_photo(raw: bytes) -> PreparedPhoto:
     # Sin ``exif`` ni ``icc_profile``: el JPEG nuevo no lleva metadatos de la original.
     rgb.save(out, "JPEG", quality=_JPEG_QUALITY, optimize=True)
     return PreparedPhoto(out.getvalue(), rgb.width, rgb.height)
+
+
+def thumbnail_data_url(photo: PreparedPhoto) -> str:
+    """Miniatura de la foto ya preparada como ``data:`` URL (spec 053, FR-017).
+
+    Parte de la foto preparada, así hereda la orientación correcta y la ausencia de
+    metadatos; el lado mayor queda en :data:`THUMBNAIL_SIDE_PX` como máximo. La CSP admite
+    ``data:`` en ``img-src``, así que el historial la pinta sin una ruta nueva.
+    """
+
+    with Image.open(io.BytesIO(photo.data)) as image:
+        small = image.convert("RGB")
+        small.thumbnail((THUMBNAIL_SIDE_PX, THUMBNAIL_SIDE_PX))
+        out = io.BytesIO()
+        small.save(out, "JPEG", quality=_THUMBNAIL_QUALITY, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode("ascii")

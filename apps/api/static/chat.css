@@ -3022,21 +3022,241 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   outline-offset: 2px;
 }
 
+/* Spec 053: la foto adjunta se ve en el compositor (diseño «Flujo Foto a Cotización»). */
 .foto-ficha {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 14rem;
-  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  gap: 10px;
+  max-width: 18rem;
+  padding: 6px 6px 6px 6px;
   border: 1px solid var(--borde);
-  border-radius: 999px;
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--sombra);
   font-size: 0.875rem;
+}
+
+.foto-miniatura {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: var(--fondo-suave);
+}
+
+.foto-miniatura[hidden] {
+  display: none;
+}
+
+.foto-datos {
+  display: grid;
+  min-width: 0;
 }
 
 .foto-nombre {
   overflow: hidden;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.foto-peso {
+  color: var(--secundario);
+  font-size: 0.8125rem;
+}
+
+/* Arrastrar una foto sobre la página: el compositor se marca como zona para soltar. */
+form[data-foto-arrastrando] {
+  outline: 2px dashed var(--cian);
+  outline-offset: 6px;
+}
+
+.foto-soltar {
+  margin: 8px 0 0;
+  color: var(--azul);
+  font-weight: 600;
+  text-align: center;
+}
+
+.foto-soltar[hidden] {
+  display: none;
+}
+
+/* La foto enviada en la burbuja, como en WhatsApp: imagen arriba y texto debajo. */
+.turno-foto {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  aspect-ratio: 4 / 3;
+  margin: 0 0 8px;
+  object-fit: cover;
+  border-radius: 16px;
+  background: var(--fondo-suave);
+}
+
+.burbuja .texto[hidden] {
+  display: none;
+}
+
+/* «Mirando tu foto…»: Carva con lupa y una línea que recorre la foto (spec 053, FR-020). */
+.turno[data-mirando] .texto::before {
+  content: none;
+}
+
+.foto-mirando {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.foto-mirando-carva {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+
+.foto-mirando-carva .carva-figura {
+  width: 64px;
+  height: 64px;
+}
+
+.foto-lupa {
+  position: absolute;
+  right: -10px;
+  bottom: -4px;
+  animation: carva-lupa 1.6s ease-in-out infinite;
+}
+
+.foto-mirando-imagen {
+  position: relative;
+  width: 72px;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.foto-mirando-imagen img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(1px) saturate(0.9);
+}
+
+.foto-escaner {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--cian);
+  box-shadow: 0 0 10px var(--cian);
+  animation: foto-escaner 1.4s ease-in-out infinite alternate;
+}
+
+.foto-mirando-texto {
+  display: grid;
+  margin: 0;
+}
+
+.foto-mirando-texto span {
+  color: var(--secundario);
+  font-size: 0.875rem;
+}
+
+@keyframes carva-lupa {
+  50% { transform: translate(-6px, -4px) rotate(-8deg); }
+}
+
+@keyframes foto-escaner {
+  from { transform: translateY(0); }
+  to { transform: translateY(51px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .foto-lupa,
+  .foto-escaner {
+    animation: none;
+  }
+}
+
+/* Recomendada destacada y alternativas en cuadrícula de 2×2 (spec 053, FR-003). */
+.productos-pista {
+  margin-top: -4px;
+}
+
+.productos-lista.productos-foto {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.productos-foto > .producto-recomendada {
+  grid-column: 1 / -1;
+  border: 2px solid var(--azul);
+  box-shadow: var(--sombra-alta);
+}
+
+.productos-lista.productos-foto > .producto.producto-alternativa {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.productos-foto > .producto-alternativa .producto-visual {
+  max-height: 120px;
+}
+
+.etiqueta-recomendada,
+.etiqueta-alternativa {
+  color: var(--azul);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.etiqueta-numero {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--azul);
+  color: #fff;
+  font-weight: 700;
+}
+
+.producto-elegir[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .productos-lista.productos-foto {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Propuesta de cotización: sin folio hasta que la persona confirma (spec 053, FR-010). */
+.coti-sello-propuesta {
+  background: var(--fondo-suave);
+  color: var(--azul);
+  font-weight: 600;
+}
+
+.coti-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.coti-acciones[hidden],
+.coti-acciones [hidden] {
+  display: none;
+}
+
+.coti-pregunta {
+  flex-basis: 100%;
+  margin: 0;
+  font-weight: 600;
 }
 
 .foto-quitar {
@@ -3055,4 +3275,10 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   margin: 0.5rem 0 0;
   font-size: 0.8125rem;
   opacity: 0.85;
+}
+
+/* Sugerencia de la bienvenida para enviar una foto (spec 053, FR-022); la muestra
+   chat-photo.js solo con el clasificador disponible. */
+.tema[hidden] {
+  display: none;
 }

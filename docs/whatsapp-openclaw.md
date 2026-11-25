@@ -34,16 +34,20 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
   memoria comercial y su cupo diario (`DAILY_REQUESTS_LIMIT`), como un visitante web. El
   número o JID se reduce a E.164 (`573100000000@s.whatsapp.net`, `whatsapp:+57…` y
   `+57 310 000 0000` dan `+573100000000`), el mismo que usa el webhook firmado.
-- **Cotizaciones**: se leen de la tabla `quotes` por folio y se redactan como texto
-  (`fallback.quote_text`), con folio, presentación, subtotal, IVA, envío y total.
+- **Cotizaciones**: una cotización completa llega primero como **propuesta** («🧾
+  *Propuesta de cotización* (sin folio, por confirmar)», con sus cifras y «¿Confirmo la
+  cotización?»). Cuando el cliente responde «sí» (o «dale», «confírmala»), se registra y
+  se lee de la tabla `quotes` por folio, con folio, presentación, subtotal, IVA, envío y
+  total (spec 053).
 - **Formato**: el Markdown del modelo pasa a formato de WhatsApp sin LLM
   (`*negrita*`, viñetas con `-`, enlaces como `texto (url)`), y se añade `*Fuentes:*`.
 - **Fallos**: el canal recibe siempre un mensaje legible, nunca una traza interna.
 
 ## Cotización en PDF
 
-Cada cotización de WhatsApp sale con folio, presentación, unidades, subtotal, IVA, envío,
-total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *PDF*».
+Cada cotización confirmada sale con folio, presentación, unidades, subtotal, IVA, envío,
+total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *PDF*». Una
+propuesta (sin confirmar) no tiene folio ni PDF.
 
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
   herramienta busca la **última cotización de la conversación activa** y devuelve un
@@ -459,10 +463,12 @@ resumen hablado.
 
 ## Fotos de alimentos (spec 051)
 
-El cliente manda la foto de un plato o una bebida y recibe hasta tres empaques del
-catálogo aptos para ese alimento. Jev (TypeSafe) clasifica la foto; la respuesta la arma el
-servidor sin LLM, con las fichas de las referencias, y queda en el hilo para cotizar
-después («cotízame 500 de la CO-CAZ-16»).
+El cliente manda la foto de un plato o una bebida y recibe un empaque recomendado y hasta
+cuatro alternativas numeradas del catálogo, aptos para ese alimento. Jev (TypeSafe)
+clasifica la foto; la respuesta la arma el servidor sin LLM, con las fichas de las
+referencias, y queda en el hilo. El cliente elige por texto o por voz («dame esa», «la
+alternativa 1», «la 2») y el asistente sigue con la cotización: pide la cantidad y la ciudad
+si faltan y presenta la propuesta para confirmar (spec 053).
 
 **Cómo llega la foto**: OpenClaw guarda el adjunto en `~/.openclaw/media/inbound/` y se lo
 muestra al agente como `[media attached: media://inbound/<uuid>.jpg (image/jpeg)]`. El
@@ -514,6 +520,8 @@ el 2026-11-24.
   devuelve la herramienta.
 - Una sola foto por llamada; si mandó varias, usa la primera y pídele que envíe las demás
   de una en una.
+- «dame esa», «la 2», «sí» o «confírmala» son mensajes como cualquier otro: pásalos sin
+  cambios en `mensaje`; la herramienta sabe a qué opción o propuesta responden.
 ```
 
 ## Operación

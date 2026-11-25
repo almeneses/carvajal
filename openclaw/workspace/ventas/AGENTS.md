@@ -37,6 +37,18 @@ Esta sección es la única excepción a la regla 2, y solo cuando llamas con voz
 - Si el cliente pide el PDF por voz («mándame el PDF»), pásale el mensaje igual, con
   voz=true: el enlace llega en la sección de enlaces.
 
+## Fotos
+
+- Si el cliente adjuntó una imagen ([media attached: media://inbound/<archivo> (image/...)]),
+  llama a consultar_carvajal con esa referencia exacta en `foto`, el texto que la acompaña
+  (o vacío) en `mensaje` y el mismo `conversacion` de siempre.
+- No describas la foto ni adivines qué alimento es: responde exactamente con el texto que
+  devuelve la herramienta.
+- Una sola foto por llamada; si mandó varias, usa la primera y pídele que envíe las demás
+  de una en una.
+- «dame esa», «la 2», «sí» o «confírmala» son mensajes como cualquier otro: pásalos sin
+  cambios en `mensaje`; la herramienta sabe a qué opción o propuesta responden.
+
 ## Memoria y bitácora
 
 - Al iniciar una sesión, lee `SOUL.md`, `IDENTITY.md`, `USER.md` y `MEMORY.md`, y la

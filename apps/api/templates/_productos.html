@@ -160,8 +160,15 @@
       </div>
     </div>
     {%- endif %}
+    {%- set propuesta = coti.status == "propuesta" and not folio %}
     <header class="coti-cabecera">
+      {%- if propuesta %}
+      {#- Spec 053 (FR-010): propuesta sin folio; se registra cuando la persona confirma. -#}
+      <h4 class="coti-titulo">Propuesta de cotización para {{ coti.city }}</h4>
+      <span class="coti-sello coti-sello-propuesta">Sin folio · por confirmar</span>
+      {%- else %}
       <h4 class="coti-titulo">Cotización para {{ coti.city }}</h4>
+      {%- endif %}
       {%- if coti.quote %}
       <span class="coti-sello">
         #{{ coti.quote.folio or coti.quote.id }}
@@ -207,6 +214,15 @@
     {%- endif %}
       </div>
     </div>
+    {%- if propuesta and loop.last %}
+    <div class="coti-acciones" data-coti-acciones>
+      <p class="coti-pregunta">¿La confirmo?</p>
+      <button type="button" class="boton coti-confirmar" data-chat-sugerencia data-chat-enviar
+              data-pregunta="Sí, confirma la cotización" hidden>Confirmar cotización</button>
+      <button type="button" class="boton secundario" data-chat-sugerencia data-chat-cambiar
+              data-pregunta="Quiero cambiar" hidden>Cambiar datos o cantidad</button>
+    </div>
+    {%- endif %}
   </section>
   {%- elif coti and coti.reply %}
   <p class="productos-nota">{{ coti.reply }}</p>
@@ -244,14 +260,30 @@
   </p>
   {%- endif %}
   {%- if opciones and not ficha %}
+  {#- Spec 053: la recomendación de una foto es una recomendada y alternativas numeradas,
+      en cuadrícula de 2 columnas (1 en pantallas angostas), cada una con «Elegir». -#}
+  {%- set eleccion = resultado.origin == "foto" and opciones[0].choice is defined %}
+  {%- if eleccion %}
+  <h3 class="productos-titulo">{{ "Te recomiendo" if opciones | length == 1 else "Te recomiendo y alternativas" }}</h3>
+  {%- if opciones | length > 1 %}
+  <p class="productos-nota productos-pista">Puedes decir «dame esa», «la alternativa 2» o «la 3».</p>
+  {%- endif %}
+  {%- else %}
   <h3 class="productos-titulo">{{ "Referencia del catálogo" if opciones | length == 1 else "Referencias del catálogo" }}</h3>
-  <ul class="productos-lista">
+  {%- endif %}
+  <ul class="productos-lista{% if eleccion %} productos-foto{% endif %}">
     {%- for opcion in opciones %}
     {%- set precio = opcion.total or opcion.price_per_box %}
     {%- set destacado = precio and ns.con_precio > 1 and (precio.split(" ")[0] | float) == ns.minimo %}
     {%- set foto = opcion.sku | foto_catalogo %}
-    <li class="producto{% if destacado %} producto-destacado{% endif %}">
-      {%- if destacado %}
+    {%- set recomendada = eleccion and opcion.choice == "recomendada" %}
+    <li class="producto{% if destacado %} producto-destacado{% endif %}{% if eleccion %}{{ ' producto-recomendada' if recomendada else ' producto-alternativa' }}{% endif %}">
+      {%- if eleccion %}
+      <p class="producto-insignia">
+        {%- if recomendada %}<span class="etiqueta-recomendada">✓ Recomendada</span>
+        {%- else %}<span class="etiqueta-numero" aria-hidden="true">{{ opcion.choice }}</span><span class="etiqueta-alternativa">Alternativa {{ opcion.choice }}</span>{% endif %}
+      </p>
+      {%- elif destacado %}
       <p class="producto-insignia"><span class="etiqueta-destacada">Menor precio de referencia</span></p>
       {%- endif %}
       <div class="producto-visual{% if foto %} producto-visual-foto{% endif %}" data-familia="{{ pedido.family or 'empaque' }}">
@@ -316,9 +348,16 @@
       <p class="producto-aviso">Sin precio: indica el país (México o Colombia) para cotizar.</p>
       {%- endif %}
       </div>
-      {%- if opcion.source_url %}
+      {%- if opcion.source_url or eleccion %}
       <p class="producto-acciones">
+        {%- if eleccion %}
+        <button type="button" class="boton{{ '' if recomendada else ' secundario' }} producto-elegir" data-chat-sugerencia data-chat-enviar
+                data-pregunta="{{ 'Dame esa' if recomendada else 'Vamos con la alternativa %s' | format(opcion.choice) }}" hidden>
+          {{- "Elegir esta" if recomendada else "Elegir" }}<span class="sr-solo"> {{ opcion.name }}</span></button>
+        {%- endif %}
+        {%- if opcion.source_url %}
         <a class="boton secundario producto-ficha-enlace" href="{{ opcion.source_url }}" target="_blank" rel="noopener noreferrer">Ficha técnica <span aria-hidden="true">↗</span><span class="sr-solo"> (abre en otra pestaña)</span></a>
+        {%- endif %}
       </p>
       {%- endif %}
       <details class="producto-detalles">
