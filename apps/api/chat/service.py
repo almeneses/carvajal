@@ -1951,6 +1951,19 @@ def _pending_quotes(products: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     ]
 
 
+def _registered_folios(products: Mapping[str, Any] | None) -> list[str]:
+    """Folios de las cotizaciones que el turno registró al confirmar (spec 053)."""
+
+    folios: list[str] = []
+    for quote in result_quotes(products):
+        issued = quote.get("quote")
+        if quote.get("status") == REGISTERED_STATUS and isinstance(issued, Mapping):
+            folio = issued.get("folio") or issued.get("id")
+            if folio:
+                folios.append(str(folio))
+    return folios
+
+
 def _propose_quotes(
     products: Mapping[str, Any] | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -2005,6 +2018,19 @@ def _followup(messages: Sequence[ChatMessage], text: str) -> _Followup | None:
     pending = _pending_quotes(result)
     if pending and is_confirmation(text):
         return _confirmation(last, result, pending)
+    registered = _registered_folios(result)
+    if registered and is_confirmation(text):
+        # Un segundo «sí» justo después de confirmar no vuelve a cotizar ni emite otro folio.
+        listed = " y ".join(f"#{folio}" for folio in registered)
+        noun = (
+            "Esa cotización ya quedó registrada"
+            if len(registered) == 1
+            else "Esas cotizaciones ya quedaron registradas"
+        )
+        return _Followup(
+            route="confirmacion",
+            answer=f"{noun} con el folio {listed}. ¿Quieres cotizar algo más?",
+        )
     for message in reversed(answers):
         found = _result_from_payload(message.sources)
         if not found.get("options"):

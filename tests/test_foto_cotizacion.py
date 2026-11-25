@@ -236,3 +236,21 @@ def test_con_una_sola_opcion_la_primera_es_esa(engine: Any) -> None:
 
     # Assert
     assert f"Elegí la recomendada de la foto: {options[0]['name']}" in runner.calls[-1]["question"]
+
+
+def test_un_segundo_si_no_vuelve_a_cotizar_ni_emite_otro_folio(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+    folio = named(_send(service, "sí"), "done").data["quote_id"]
+
+    # Act
+    again = _send(service, "sí")
+
+    # Assert
+    assert len(runner.calls) == 1
+    assert named(again, "fallback").data["text"] == (
+        f"Esa cotización ya quedó registrada con el folio #{folio}. ¿Quieres cotizar algo más?"
+    )
+    assert [row["id"] for row in stored_quotes(engine)] == [folio]
