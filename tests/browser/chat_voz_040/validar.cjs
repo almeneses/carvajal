@@ -261,15 +261,22 @@ async function main() {
 
   // 4. Lectura manual: el resumen hablado del servidor (spec 048). Los datos de las
   // tarjetas se quedan en pantalla. Este doble manda las tarjetas como HTML, sin el
-  // resultado comercial, así que el resumen tampoco las nombra.
+  // resultado comercial, así que el resumen tampoco las nombra. Se lee el último turno
+  // (el escrito del paso 3b), que todavía no ha sonado.
   await vaciarLocuciones();
-  await pagina.click("#hilo .turno-assistant [data-voz-accion='escuchar']");
+  await pagina
+    .locator("#hilo .turno-assistant")
+    .last()
+    .locator("[data-voz-accion='escuchar']")
+    .click();
   const primera = await pagina.evaluate(() => window.__vozE2E.locuciones.slice());
   await completarLectura(pagina);
   const todas = await pagina.evaluate(() => window.__vozE2E.locuciones.slice());
   const textoLeido = todas.join(" ");
   const resumen = await pagina.evaluate(
-    () => document.querySelector("#hilo .turno-assistant")?.dataset?.vozResumen || "",
+    () =>
+      Array.from(document.querySelectorAll("#hilo .turno-assistant")).at(-1)?.dataset
+        ?.vozResumen || "",
   );
   paso("el turno trae el resumen hablado del servidor", resumen.trim() !== "", resumen);
   paso("lee el texto de la respuesta", textoLeido.includes("Tenemos vasos de papel"));
