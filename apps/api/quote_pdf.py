@@ -37,8 +37,9 @@ DISCLAIMER = (
 )
 
 CONVERTED_DISCLAIMER = (
-    "Cotización referencial elaborada con un precio convertido desde el catálogo de México. "
-    "No constituye pedido, reserva ni compromiso de venta."
+    "Cotización referencial elaborada con un precio de referencia del catálogo. No constituye "
+    "pedido, reserva ni compromiso de venta. La existencia, el envío y el precio final se "
+    "confirman con un distribuidor al momento de comprar."
 )
 
 
@@ -287,7 +288,7 @@ def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: boo
     _section(pdf, "Fuente del precio")
     source = view.source_name or view.seller or "Vendedor"
     if view.price_date:
-        source += f", {'convertido' if view.converted else 'publicado'} el {view.price_date}"
+        source += f", {'del' if view.converted else 'publicado el'} {view.price_date}"
     _label_value(pdf, "Origen", source, width=24)
     if view.source_url:
         pdf.set_font("DMSans", "B", 9)

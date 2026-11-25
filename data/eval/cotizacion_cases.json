@@ -59,14 +59,10 @@
     }
   },
   {
-    "name": "ciudad sin precio publicado cotiza la referencia convertida y conserva sedes",
+    "name": "ciudad sin precio conserva sedes",
     "text": "cotiza 100 vasos para bebida caliente en Cali",
     "expect": {
-      "kind": "cotizacion",
-      "primary.price_kind": "convertido",
-      "primary.sku": "CO-MX-2864632114",
-      "primary.presentation.subtotal": "193459",
-      "primary.provider.address": "none",
+      "kind": "sin_resultados",
       "providers.0.city": "Cali"
     }
   },
@@ -175,13 +171,12 @@
     }
   },
   {
-    "name": "chocolate caliente en Pasto cotiza la referencia convertida",
+    "name": "chocolate caliente en Pasto sin precio publicado",
     "text": "chocolate caliente, 200 vasos en Pasto",
     "expect": {
-      "kind": "cotizacion",
+      "kind": "sin_resultados",
       "request.temperature": "caliente",
-      "primary.price_kind": "convertido",
-      "primary.presentation.subtotal": "193459"
+      "primary": "none"
     }
   },
   {

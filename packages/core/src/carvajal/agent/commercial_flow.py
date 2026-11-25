@@ -9,7 +9,7 @@ El precio solo se muestra cuando se conoce el país: mostrarlo sin saberlo serí
 quien quizá compra en otro país (FR-002). Desde la spec 039 cada opción lista sus ofertas,
 una por fuente (Carvajal o un distribuidor), en la moneda del país; sin oferta publicada se
 declara la ausencia y no se estima. Las referencias copiadas de México traen un precio
-convertido con procedencia ``sistema``, que nunca se presenta como publicado en Colombia.
+convertido con procedencia ``sistema``, que se muestra como precio de referencia en Bogotá.
 """
 
 import json
@@ -173,12 +173,7 @@ def _contract_reference(
             record.offer
             for record in book.offers_for_sku(reference.sku, "CO", as_of=as_of)
             if record.offer is not None
-            and (
-                req.city is None
-                # El precio convertido desde México no depende de la ciudad.
-                or record.offer.source.type == "sistema"
-                or plain(record.offer.city or "") == plain(req.city)
-            )
+            and (req.city is None or plain(record.offer.city or "") == plain(req.city))
         ]
         prices = [offer.amount for offer in offers]
         converted = bool(offers) and all(offer.source.type == "sistema" for offer in offers)
@@ -220,8 +215,7 @@ def _contract_offers(
             continue
         site = record.site
         offer_city = (site.city if site else None) or offer.city
-        converted = offer.source.type == "sistema"
-        if city is not None and not converted and plain(offer_city or "") != plain(city):
+        if city is not None and plain(offer_city or "") != plain(city):
             continue
         offers.append(
             {

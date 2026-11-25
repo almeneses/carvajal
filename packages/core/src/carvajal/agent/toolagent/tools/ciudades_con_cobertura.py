@@ -237,6 +237,8 @@ def _dataset(deps: ToolDeps) -> Dataset:
 def _seller_kind_type(book: CommercialBook, offer: Offer) -> str:
     """Tercero si lo publica un distribuidor (como ``commercial_sources``)."""
 
+    if offer.converted:
+        return "sistema"
     for item in book.offers:
         if item.sku == offer.sku and item.site_id == offer.site_id:
             seller = book.seller(item.seller_id)
@@ -320,25 +322,18 @@ def run(
     offers = [
         offer
         for offer in dataset.offers_for(reference.sku)
-        if offer.stock_status != "no_disponible" and offer.city in priced and not offer.converted
+        if offer.stock_status != "no_disponible" and offer.city in priced
     ]
-    # El precio convertido desde México no prueba cobertura en ninguna ciudad.
-    converted = any(offer.converted for offer in dataset.offers_for(reference.sku))
-    # Ciudades con precio **publicado**: ``priced`` también cuenta las convertidas, que
-    # existen en todas las ciudades del directorio.
-    published = sorted({offer.city for offer in offers}, key=plain)
     price_numbers = sources.add(_price_source(book, reference, offer) for offer in offers)
     data["referencia"] = {"sku": reference.sku, "nombre": reference.name}
-    data["con_precio"] = published
+    data["con_precio"] = priced
     data["con_sede"] = sorted(linked_cities, key=plain)
     data["fuentes_precio"] = list(dict.fromkeys(price_numbers))
-    if published:
-        message += f" La referencia tiene precio publicado en: {', '.join(published)}."
-    elif converted:
-        message += (
-            " La referencia viene del catálogo de México: solo tiene un precio de referencia "
-            "convertido a COP y ninguna sede la publica en Colombia."
-        )
+    if priced and all(offer.converted for offer in offers):
+        # Precio de referencia (copia de México): se cotiza, pero nadie lo publica.
+        message += f" La referencia tiene precio de referencia en: {', '.join(priced)}."
+    elif priced:
+        message += f" La referencia tiene precio publicado en: {', '.join(priced)}."
     else:
         message += " Hoy la referencia está sin precio publicado que se pueda cotizar."
     if linked_cities:

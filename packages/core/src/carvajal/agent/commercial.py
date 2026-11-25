@@ -253,10 +253,7 @@ def quote_offer(offer: ReferencePrice, boxes: int, *, today: date | None = None)
     if offer.source_type == "oficial":
         origin = f"capturado el {captured} de la ficha publicada"
     elif offer.source_type == "sistema":
-        origin = (
-            f"convertido a {offer.currency} el {captured} desde el precio del catálogo de México; "
-            "ningún vendedor lo publica en Colombia"
-        )
+        origin = f"precio de referencia del catálogo del {captured}, sin distribuidor"
     else:
         origin = (
             f"publicado por {offer.source_name} (tercero, no es un precio de Carvajal) "

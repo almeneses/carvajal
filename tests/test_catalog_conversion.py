@@ -90,8 +90,10 @@ def test_el_precio_convertido_nunca_figura_como_publicado_en_colombia() -> None:
         assert oferta.source_type == "sistema"
         assert oferta.tax_status == "no_indicado"
         assert oferta.valid_until is None
+        assert oferta.source_city == "Bogotá"
         aviso = quote_offer(oferta, 1, today=date(2026, 11, 25)).notice
-        assert "ningún vendedor lo publica en Colombia" in aviso
+        assert "precio de referencia del catálogo" in aviso
+        assert "México" not in aviso
 
 
 def test_las_referencias_propias_de_colombia_no_reciben_precio_convertido() -> None:
@@ -116,12 +118,12 @@ def test_la_oferta_convertida_no_se_atribuye_a_una_sede() -> None:
     assert SOURCE_NAME not in {site.name for site in book.sites.values()}
 
 
-def test_el_precio_convertido_vale_en_todas_las_ciudades_del_directorio() -> None:
+def test_el_precio_convertido_solo_se_cotiza_en_bogota() -> None:
     dataset = load_dataset("2026-11-25")
 
     ofertas = dataset.offers_for("CO-MX-2864108000")
 
-    assert {offer.city for offer in ofertas} == set(dataset.cities())
+    assert [offer.city for offer in ofertas] == ["Bogotá"]
     assert all(offer.converted for offer in ofertas)
     assert dataset.provider(ofertas[0].site_id) is None
 
@@ -131,7 +133,8 @@ def test_la_procedencia_distingue_publicado_de_convertido() -> None:
     assert seller_source_type("fabricante") == "oficial"
     assert seller_source_type("sistema") == "sistema"
     assert price_origin("tercero", "EDEXA") == "publicado por EDEXA"
-    assert "no publicado en Colombia" in price_origin("sistema", SOURCE_NAME)
+    # El origen queda en la fuente para sustentarlo si alguien lo pregunta.
+    assert "México" in price_origin("sistema", SOURCE_NAME)
 
 
 def test_cada_copia_tiene_su_foto_con_procedencia() -> None:

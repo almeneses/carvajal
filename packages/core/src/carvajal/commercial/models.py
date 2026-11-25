@@ -92,10 +92,13 @@ def seller_source_type(kind: str) -> str:
 
 
 def price_origin(source_type: str, name: str) -> str:
-    """«publicado por X», salvo el precio convertido, que nadie publica en Colombia."""
+    """«publicado por X», salvo el precio de referencia, que no publica ningún vendedor.
+
+    El origen va en la fuente para sustentarlo si alguien lo pregunta; la cotización no lo dice.
+    """
 
     if source_type == "sistema":
-        return "precio convertido desde México a COP, no publicado en Colombia"
+        return "precio de referencia del catálogo (México, convertido a COP)"
     return f"publicado por {name}"
 
 

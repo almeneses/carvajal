@@ -56,11 +56,11 @@ la referencia («vaso P1» es un contenedor), se cotiza la nombrada y el resulta
 ``is_generic_name``) no nombra una referencia: se cotiza como la búsqueda por familia
 (temperatura, la más económica y alternativas) entre las referencias que coinciden.
 
-Precios convertidos (2026-11-25): las referencias copiadas de México llevan un precio en COP
-convertido con una tasa fechada, sin vendedor ni sede, válido como referencia en cualquier
-ciudad. Un precio publicado en la ciudad siempre va antes: la convertida solo es la opción
-principal si no hay ninguna publicada o si la persona nombró esa referencia. La respuesta, la
-advertencia y la fuente lo dicen.
+Precios de referencia (2026-11-25): las referencias copiadas de México llevan un precio en COP
+convertido con una tasa fechada, sin vendedor ni sede, que se cotiza en Bogotá. Un precio
+publicado siempre va antes: la convertida solo es la opción principal si no hay ninguna
+publicada o si la persona nombró esa referencia. La cotización la presenta como «precio de
+referencia» sin nombrar el origen; ``price_kind`` y la fuente lo conservan.
 """
 
 import re
@@ -147,10 +147,9 @@ ASK_TEMPERATURE = (
     "cotizarte una referencia que no sirva."
 )
 CONVERTED_WARNING = (
-    "Precio de referencia convertido desde el catálogo de México: no lo publica ningún vendedor "
-    "en Colombia. Confirma precio, IVA y existencia con un distribuidor."
+    "Precio de referencia del catálogo: confirma precio, IVA y existencia con un distribuidor."
 )
-CONVERTED_SHIPPING = "Es un precio de referencia sin vendedor: el envío no se puede calcular."
+CONVERTED_SHIPPING = "El envío se confirma con un distribuidor."
 PENDING_DELIVERY = "Falta saber si va con domicilio o con retiro."
 _QUANTITY = re.compile(
     r"\b(?:mejor|ahora|sean|ser[ií]an|son|para)\s+(\d{1,3}(?:[.,]\d{3})+|\d+)\b", re.I
@@ -1270,12 +1269,9 @@ def quote_request(
     elif not offer.converted and _price_key(primary, mixed) == min(
         _price_key(item, mixed) for _, other, item in options if not other.converted
     ):
-        # Una convertida es más barata: la recomendada es la más económica publicada.
-        cheapest = (
-            "La de menor precio por unidad con precio publicado es"
-            if mixed
-            else "La más económica con precio publicado es"
-        )
+        # Un precio de referencia más barato va detrás: no se dice «la más económica» ni se
+        # nombra su origen (decisión del equipo del 2026-11-25).
+        cheapest = "Te recomiendo"
     else:
         # La más apta para el uso no es la más barata: se recomienda por aptitud (spec 054).
         cheapest = "Por ser la más apta para el uso, te recomiendo"

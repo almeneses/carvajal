@@ -27,7 +27,8 @@ el **2026-11-18** respetando `robots.txt`, con una petición cada 1,5 s.
   se promedia entre fuentes.
 - Las copias de México (`CO-MX-<sku>`) llevan el precio por caja convertido con
   `tasa_mxn_cop.json`, procedencia `sistema` e IVA `no_indicado` (decisión del 2026-11-25). No
-  tienen vendedor, sede ni existencias y nunca se presentan como publicadas en Colombia. Para
+  tienen vendedor, sede ni existencias, se cotizan solo en Bogotá (`source_city`) y la
+  cotización las muestra como «precio de referencia del catálogo», sin nombrar el origen. Para
   actualizar la tasa: edita el archivo, corre `adaptar_catalogo_mx.py` y ajusta
   `EXPECTED_COMMERCIAL_VERSION`.
 - Si un producto del distribuidor coincide con una ficha oficial, la referencia toma los
