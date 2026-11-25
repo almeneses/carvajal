@@ -21,6 +21,7 @@ llevan solo :class:`~carvajal.application.ports.JudgeCall` y la decisión o el v
 excepciones se registran sin ``exc_info`` y la clave nunca aparece en mensajes ni ``repr``.
 """
 
+import base64
 import json
 import threading
 import time
@@ -45,6 +46,8 @@ from carvajal.application.ports import (
     RouteQuery,
     RouteVerdict,
 )
+from carvajal.food.photo import PreparedPhoto
+from carvajal.food.profile import PHOTO_REF, FoodProfile, food_questions, parse_food_answers
 from carvajal.prompts import (
     JEV_CLAIMS_CRITERIA,
     JEV_CLAIMS_INSTRUCTIONS,
@@ -58,6 +61,7 @@ __all__ = [
     "FAILURES_TO_OPEN",
     "FAILURE_OPEN_S",
     "JevClient",
+    "JevFoodClassifier",
     "JevJudge",
     "claims_body",
     "route_body",
@@ -179,12 +183,20 @@ class JevClient:
         state: Mapping[str, Any],
         questions: Mapping[str, Any],
         parse: Callable[[Mapping[str, Any]], tuple[T, dict[str, Any]]],
+        *,
+        assets: Mapping[str, Any] | None = None,
+        images: bool = False,
+        timeout_s: float | None = None,
     ) -> tuple[T, JudgeCall]:
         """Una petición al juez; devuelve lo que ``parse`` extrae y los metadatos.
 
         ``parse`` recibe la respuesta JSON y devuelve el valor y los campos del libro
         (decisión o veredicto, sin texto); lanza ``ValueError`` si la forma es inválida.
         Cualquier fallo se convierte en :class:`JudgeUnavailable`.
+
+        Spec 051: ``assets`` añade imágenes al cuerpo e ``images`` la cabecera
+        ``TypeSafe-Danger-Zone-Images`` que TypeSafe exige con ellas; ``timeout_s`` sustituye
+        el plazo del cliente solo en esta llamada.
         """
 
         blocked = self.unavailable_status()
@@ -195,9 +207,16 @@ class JevClient:
             raise JudgeUnavailable(blocked)
         with self._lock:
             self.calls_today += 1
-        body = {"model": self.model, "state": dict(state), "questions": dict(questions)}
+        body: dict[str, Any] = {
+            "model": self.model,
+            "state": dict(state),
+            "questions": dict(questions),
+        }
+        if assets:
+            body["assets"] = dict(assets)
+        headers = {"TypeSafe-Danger-Zone-Images": "true"} if images else {}
         started = self._clock()
-        outcome = self._send(body)
+        outcome = self._send(body, headers=headers, timeout_s=timeout_s)
         latency_ms = max(0, round((self._clock() - started) * 1000))
         status, category = self._classify(outcome)
         model = ""
@@ -230,7 +249,13 @@ class JevClient:
             raise JudgeUnavailable(status, call)
         return value, call
 
-    def _send(self, body: Mapping[str, Any]) -> _Outcome:
+    def _send(
+        self,
+        body: Mapping[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+        timeout_s: float | None = None,
+    ) -> _Outcome:
         """La petición en un hilo propio, esperada como mucho ``timeout_s``.
 
         Un hilo por llamada y no un ejecutor compartido: con una cola, el tiempo de espera
@@ -240,24 +265,34 @@ class JevClient:
 
         box: list[_Outcome] = []
         done = threading.Event()
+        limit = self.timeout_s if timeout_s is None else float(timeout_s)
 
         def run() -> None:
             try:
-                box.append(self._post(body))
+                box.append(self._post(body, headers=headers, timeout_s=limit))
             finally:
                 done.set()
 
         threading.Thread(target=run, name="jev", daemon=True).start()
-        if not done.wait(self.timeout_s) or not box:
+        if not done.wait(limit) or not box:
             return _Outcome(None, None, "timeout" if not done.is_set() else "red")
         return box[0]
 
-    def _post(self, body: Mapping[str, Any]) -> _Outcome:
+    def _post(
+        self,
+        body: Mapping[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+        timeout_s: float | None = None,
+    ) -> _Outcome:
         try:
             response = self._http.post(
                 f"{self.base_url}/systemone",
                 content=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-                headers={"Authorization": f"Bearer {self._key}"},
+                headers={**dict(headers or {}), "Authorization": f"Bearer {self._key}"},
+                timeout=httpx.Timeout(timeout_s)
+                if timeout_s is not None
+                else httpx.USE_CLIENT_DEFAULT,
             )
         except httpx.TimeoutException:
             return _Outcome(None, None, "timeout")
@@ -573,3 +608,45 @@ class JevJudge:
 
     def close(self) -> None:
         self.client.close()
+
+
+class JevFoodClassifier:
+    """Clasificador de fotos de alimentos (spec 051) sobre un :class:`JevClient` propio.
+
+    Una sola petición con la foto en ``assets``: es comida, tipo, consistencia, temperatura
+    y porción. A TypeSafe solo van la imagen preparada (sin metadatos) y preguntas fijas;
+    nunca el texto de la persona, su identidad ni su número (FR-006).
+    """
+
+    def __init__(self, client: JevClient, *, timeout_s: float) -> None:
+        self.client = client
+        self.timeout_s = float(timeout_s)
+
+    def __repr__(self) -> str:
+        return f"JevFoodClassifier({self.client!r})"
+
+    def unavailable_status(self) -> JevStatus | None:
+        return self.client.unavailable_status()
+
+    def available(self) -> bool:
+        return self.client.available()
+
+    def classify(self, photo: PreparedPhoto) -> tuple[FoodProfile, JudgeCall]:
+        """Perfil del alimento o :class:`JudgeUnavailable` (plazo, tope, circuito, forma)."""
+
+        assets = {
+            PHOTO_REF: {
+                "type": "image",
+                "format": "jpeg",
+                "data_base64": base64.b64encode(photo.data).decode("ascii"),
+            }
+        }
+        return self.client.call(
+            "food",
+            {"foto": PHOTO_REF},
+            food_questions(),
+            parse_food_answers,
+            assets=assets,
+            images=True,
+            timeout_s=self.timeout_s,
+        )

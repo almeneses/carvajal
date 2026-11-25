@@ -26,6 +26,9 @@ class FakeUsage:
         self.consumo[clave] = actual + 1
         return True
 
+    def has_room(self, owner_key: str, day: date, limit: int) -> bool:
+        return limit > 0 and self.consumo.get((owner_key, day), 0) < limit
+
 
 AHORA = datetime(2026, 11, 12, 23, 0, tzinfo=BOGOTA)
 
@@ -108,3 +111,20 @@ def test_la_hora_por_defecto_usa_la_zona_del_cupo() -> None:
 
     assert momento.tzinfo is not None
     assert momento.utcoffset() == timedelta(hours=-5)
+
+
+def test_mirar_el_cupo_no_lo_gasta() -> None:
+    """``peek`` dice si quedaría cupo sin reservarlo; al agotarse, cuándo vuelve."""
+
+    # Arrange
+    cuota, uso = _cuota(limit=1)
+
+    # Act
+    antes = [cuota.peek("ana") for _ in range(3)]
+    cuota.consume("ana")
+    despues = cuota.peek("ana")
+
+    # Assert
+    assert all(resultado.allowed for resultado in antes)
+    assert uso.consumo[("ana", AHORA.date())] == 1
+    assert not despues.allowed and despues.retry_after > 0

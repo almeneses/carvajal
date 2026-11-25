@@ -17,7 +17,7 @@ from apps.api.main import (
     HealthStatus,
     create_app,
 )
-from carvajal.adapters.judge import jev_health
+from carvajal.adapters.judge import food_photo_health, jev_health
 from carvajal.adapters.speech import voice_health
 from carvajal.application.ask import Answer, Source
 from carvajal.application.quota import QuotaResult
@@ -71,6 +71,7 @@ def test_health_devuelve_estado_y_conteos() -> None:
     # Spec 046 (FR-024): bloque ``jev`` sin llamar a TypeSafe (apagado en las pruebas).
     assert payload.pop("jev") == jev_health(Settings())
     assert payload.pop("voice") == voice_health(Settings())
+    assert payload.pop("food_photo") == food_photo_health(Settings())
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-18"
@@ -96,6 +97,7 @@ def test_health_degradado_no_filtra_detalles() -> None:
     assert payload.pop("agent") == agent_mode_status(Settings()).as_health()
     assert payload.pop("jev") == jev_health(Settings())
     assert payload.pop("voice") == voice_health(Settings())
+    assert payload.pop("food_photo") == food_photo_health(Settings())
     assert payload == {
         "status": "degraded",
         "detail": DB_UNAVAILABLE,
@@ -368,6 +370,7 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     payload.pop("agent")
     payload.pop("jev")
     payload.pop("voice")
+    payload.pop("food_photo")
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-18"
