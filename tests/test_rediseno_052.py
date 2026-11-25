@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.test_api_corpus import FakeCorpus, make_document
 
+from apps.api import runtime
 from apps.api.main import create_app
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "apps" / "api" / "templates"
@@ -86,3 +87,21 @@ def test_la_consola_del_operador_explica_el_flujo_sin_aviso_de_error(
     assert "Sesión de operador activa" in response.text
     assert 'class="boton secundario">Cerrar sesión de operador' in response.text
     assert '<p class="aviso">' not in response.text
+
+
+@pytest.mark.parametrize(
+    ("slug", "esperado"),
+    [
+        pytest.param("canal-clientes", "Canal clientes", id="guiones"),
+        pytest.param("informe_ESG", "Informe ESG", id="sigla-intacta"),
+        pytest.param("historia-de-Carvajal", "Historia de Carvajal", id="nombre-propio"),
+        pytest.param("120", "120", id="numero"),
+        pytest.param(None, "", id="vacio"),
+    ],
+)
+def test_legible_solo_sube_la_primera_letra(slug: object, esperado: str) -> None:
+    # Arrange / Act
+    texto = runtime._readable_label(slug)
+
+    # Assert
+    assert texto == esperado

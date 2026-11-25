@@ -4,9 +4,8 @@
 <link rel="stylesheet" href="/static/corpus.css" />
 {% endblock %}
 {% block content %}
-{#- Rediseño 052: secciones legibles («canal-clientes» → «Canal clientes»); el valor del
-    filtro sigue siendo el slug. -#}
-{% macro legible(texto) %}{{ (texto or "") | replace("-", " ") | replace("_", " ") | capitalize }}{% endmacro %}
+{#- Rediseño 052: secciones legibles con el filtro `legible` («canal-clientes» → «Canal
+    clientes»); el valor del filtro sigue siendo el slug. -#}
 <section class="seccion" aria-labelledby="titulo-corpus">
   <header class="cabecera-vista cabecera-corpus">
     <p class="sobrelinea"><span class="punto-sobrelinea" aria-hidden="true"></span>Corpus · Explorador</p>
@@ -23,7 +22,7 @@
       <select id="seccion" name="section">
         <option value="">Todas las secciones</option>
         {% for option in sections %}
-        <option value="{{ option }}"{% if option == section %} selected{% endif %}>{{ legible(option) }}</option>
+        <option value="{{ option }}"{% if option == section %} selected{% endif %}>{{ option | legible }}</option>
         {% endfor %}
       </select>
     </div>
@@ -55,7 +54,7 @@
     </p>
     {% if section or layer or source_type %}
     <ul class="corpus-filtros-activos" aria-label="Filtros activos">
-      {% if section %}<li class="chip-filtro">Sección: {{ legible(section) }}</li>{% endif %}
+      {% if section %}<li class="chip-filtro">Sección: {{ section | legible }}</li>{% endif %}
       {% if layer %}<li class="chip-filtro">Capa: {{ {"core": "Núcleo", "extended": "Extendida"}.get(layer, layer) }}</li>{% endif %}
       {% if source_type %}<li class="chip-filtro">Tipo: {{ source_type | capitalize }}</li>{% endif %}
     </ul>
@@ -89,7 +88,7 @@
               <a href="/documents/{{ document.id }}">{{ document.title }}</a>
             </span>
           </th>
-          <td data-label="Sección"><span class="doc-seccion">{{ legible(document.section) }}</span></td>
+          <td data-label="Sección"><span class="doc-seccion">{{ document.section | legible }}</span></td>
           <td data-label="Tipo">
             <span class="etiqueta {{ 'etiqueta-oficial' if oficial else 'etiqueta-externa' }}">{{ (document.source_type or "oficial") | capitalize }}</span>
           </td>

@@ -15,7 +15,7 @@
     <dl class="documento-meta">
       <div>
         <dt>Sección</dt>
-        <dd>{{ (document.section or "") | replace("-", " ") | replace("_", " ") | capitalize }}</dd>
+        <dd>{{ document.section | legible }}</dd>
       </div>
       <div>
         <dt>Capa</dt>
