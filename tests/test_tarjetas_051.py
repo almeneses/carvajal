@@ -99,6 +99,32 @@ def test_la_foto_del_catalogo_solo_se_enlaza_si_existe(monkeypatch: pytest.Monke
     assert larga == ""
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(OSError("sin permiso"), id="oserror"),
+        pytest.param(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalido"), id="utf8"),
+        pytest.param(ValueError("manifiesto roto"), id="valueerror"),
+    ],
+)
+def test_un_manifiesto_roto_deja_la_tarjeta_sin_foto(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    # Arrange
+    import carvajal.catalog.images as imagenes
+
+    def falla(sku: str) -> None:
+        raise error
+
+    monkeypatch.setattr(imagenes, "catalog_image", falla)
+
+    # Act
+    url = runtime._catalog_photo("7704918100199")
+
+    # Assert
+    assert url == ""
+
+
 def test_la_solicitud_ofrece_cambiar_cada_dato_oculto_sin_javascript() -> None:
     # Arrange
     resultado = {

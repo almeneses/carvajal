@@ -88,7 +88,9 @@ def _catalog_photo(sku: object) -> str:
         return ""
     try:
         return f"/catalogo/imagenes/{quote(code)}.jpg" if catalog_image(code) else ""
-    except OSError as error:  # un manifiesto ilegible no tumba la tarjeta: va sin foto
+    # Una foto nunca tumba el turno: un manifiesto ilegible o mal codificado (OSError,
+    # UnicodeDecodeError, csv.Error…) deja la tarjeta con el ícono de su familia.
+    except Exception as error:
         logger.warning("catalog.photo_failed", error_type=type(error).__name__)
         return ""
 
