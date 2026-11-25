@@ -474,9 +474,11 @@ si faltan y presenta la propuesta para confirmar (spec 053).
 muestra al agente como `[media attached: media://inbound/<uuid>.jpg (image/jpeg)]`. El
 agente pasa esa referencia en `foto`. El puente lee el archivo **solo** desde la carpeta
 montada (nombre sin rutas, sin enlaces simbólicos, JPEG o PNG, ≤ 10 MB), le quita los
-metadatos, lo escala y lo descarta al terminar. Requiere que OpenClaw y el servicio `mcp`
-compartan máquina (la configuración del VPS); si OpenClaw vive en otra máquina, WhatsApp no
-ofrece fotos.
+metadatos, lo escala y lo descarta al terminar. Si OpenClaw y el servicio `mcp` comparten
+máquina, basta montar la carpeta; si OpenClaw vive en otra máquina (la configuración actual:
+VM de Google), la carpeta se monta en solo lectura por el túnel (ver
+[OpenClaw en otra máquina](#openclaw-en-otra-máquina-sshfs-por-el-túnel)). Sin carpeta,
+WhatsApp no ofrece fotos.
 
 **Privacidad**: a TypeSafe (EE. UU.) solo va la imagen preparada y preguntas fijas; nunca
 el número, el texto del cliente ni su historial. El owner activó la función en producción
@@ -503,6 +505,61 @@ el 2026-11-24.
    poner `700`, el puente responde «No pude abrir esa foto…» y basta repetir el `chmod`.
 3. `docker compose -f compose.prod.yml up -d mcp` y comprueba:
    `curl -s localhost:8000/health | jq .food_photo` → `"status": "ok"`.
+
+### OpenClaw en otra máquina (sshfs por el túnel)
+
+Configuración vigente desde el 2026-11-25: OpenClaw corre en la VM de Google (usuario
+`marko`) y `mcp` en el VPS de OVH. El VPS monta la carpeta de adjuntos de la VM en solo
+lectura, por el mismo túnel SSH del MCP.
+
+En la VM de OpenClaw (root):
+
+1. Un usuario solo para esto, sin shell: `useradd --system --create-home --shell
+   /usr/sbin/nologin ocmedia`, con la llave pública del VPS en
+   `~ocmedia/.ssh/authorized_keys` precedida de `from="127.0.0.1,::1",restrict`.
+2. Una jaula con solo la carpeta de adjuntos: `/srv/occhroot` (root, `755`) y la unidad
+   `srv-occhroot-inbound.mount` que monta `~marko/.openclaw/media/inbound` en
+   `/srv/occhroot/inbound` con `bind,ro`. El usuario solo tiene paso (no listado) por esa
+   carpeta: `setfacl -m u:ocmedia:x ~marko/.openclaw/media/inbound`. No se le da nada sobre
+   el resto del home de `marko` (allí hay credenciales y respaldos legibles por nombre).
+3. `/etc/ssh/sshd_config.d/70-ocmedia.conf`:
+
+   ```text
+   Match User ocmedia
+       ChrootDirectory /srv/occhroot
+       ForceCommand internal-sftp -R
+       AllowTcpForwarding no
+       AllowAgentForwarding no
+       X11Forwarding no
+       PermitTTY no
+   ```
+
+   `sshd -t && systemctl reload ssh`.
+4. El túnel (`ovh-tunnel.service` de `marko`) abre además un puerto inverso hacia el SSH de
+   la VM: `-R 127.0.0.1:2224:127.0.0.1:22`.
+
+En el VPS (`deploy`):
+
+1. La llave del túnel en `~/.ssh/authorized_keys` permite ese puerto y solo ese:
+   `restrict,port-forwarding,permitopen="127.0.0.1:8765",permitlisten="127.0.0.1:2224",command="/bin/false"`.
+   Añade `permitlisten` **antes** de reiniciar el túnel: con `ExitOnForwardFailure=yes` un
+   puerto rechazado tumba también el MCP.
+2. Root, una vez: `apt-get install sshfs` y descomentar `user_allow_other` en
+   `/etc/fuse.conf` (el contenedor corre como otro usuario).
+3. Una llave propia (`~/.ssh/ocmedia_ro`) y el script `~/bin/openclaw-media-mount.sh`, en el
+   cron de `deploy` cada minuto y en `@reboot`. Si la carpeta no está montada, la monta con
+   `sshfs -p 2224 ocmedia@127.0.0.1:/inbound ~/openclaw-media -o
+   ro,allow_other,reconnect,cache=no,entry_timeout=0,negative_timeout=0,attr_timeout=0` y
+   recrea `mcp` (`up -d --force-recreate --no-deps mcp`). Docker no propaga un montaje
+   nuevo a un contenedor que ya corre, así que sin esa recreación `mcp` seguiría viendo la
+   carpeta vacía.
+4. `OPENCLAW_MEDIA_DIR=/home/deploy/openclaw-media` en `/opt/carvajal/.env`.
+
+Comprobación: `docker compose -f compose.prod.yml exec -T mcp python -c "from
+apps.mcp.bridge import read_inbound_photo as r; print(len(r('media://inbound/<archivo>.jpg',
+'/openclaw-media')))"` imprime el tamaño de una foto real. Desde el VPS,
+`echo 'ls /inbound' | sftp -P 2224 -i ~/.ssh/ocmedia_ro ocmedia@127.0.0.1` debe fallar,
+porque no se puede listar la carpeta.
 
 ### OpenClaw
 
