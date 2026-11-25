@@ -324,14 +324,16 @@ def run(
     ]
     # El precio convertido desde México no prueba cobertura en ninguna ciudad.
     converted = any(offer.converted for offer in dataset.offers_for(reference.sku))
-    priced = sorted({offer.city for offer in offers}, key=plain)
+    # Ciudades con precio **publicado**: ``priced`` también cuenta las convertidas, que
+    # existen en todas las ciudades del directorio.
+    published = sorted({offer.city for offer in offers}, key=plain)
     price_numbers = sources.add(_price_source(book, reference, offer) for offer in offers)
     data["referencia"] = {"sku": reference.sku, "nombre": reference.name}
-    data["con_precio"] = priced
+    data["con_precio"] = published
     data["con_sede"] = sorted(linked_cities, key=plain)
     data["fuentes_precio"] = list(dict.fromkeys(price_numbers))
-    if priced:
-        message += f" La referencia tiene precio publicado en: {', '.join(priced)}."
+    if published:
+        message += f" La referencia tiene precio publicado en: {', '.join(published)}."
     elif converted:
         message += (
             " La referencia viene del catálogo de México: solo tiene un precio de referencia "

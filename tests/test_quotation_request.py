@@ -419,8 +419,14 @@ def test_con_la_misma_conversion_se_ordena_por_subtotal() -> None:
         for option in _options(resultado)
         if option["price_kind"] == "publicado"
     ]
-    assert subtotales[: len(publicados)] == publicados  # los convertidos van al final
+    convertidos = [
+        Decimal(option["presentation"]["subtotal"])
+        for option in _options(resultado)
+        if option["price_kind"] == "convertido"
+    ]
+    assert subtotales == publicados + convertidos  # los convertidos van al final
     assert publicados == sorted(publicados)
+    assert convertidos == sorted(convertidos)
     # La recomendada es la más barata de todas: no hace falta «con precio publicado».
     assert "La más económica es" in resultado["reply"]
 

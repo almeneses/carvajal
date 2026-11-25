@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from carvajal.agent.commercial import quote_offer
+from carvajal.agent.toolagent.tools.builtin import _offer_source_type
 from carvajal.catalog.conversion import (
     SOURCE_NAME,
     ExchangeRate,
@@ -23,6 +24,7 @@ from carvajal.catalog.loader import DEFAULT_DIR, load_catalog
 from carvajal.commercial import load_commercial_book
 from carvajal.commercial.models import price_origin, seller_source_type
 from carvajal.quotation import load_dataset
+from carvajal.quotation.data import REFERENCE_SITE_ID
 
 TASA = ExchangeRate(date(2026, 11, 25), Decimal("3592.03"), Decimal("19.7"))
 
@@ -160,3 +162,22 @@ def test_regenerar_los_precios_publicados_conserva_los_convertidos(tmp_path: Pat
     with (directorio / "precios.csv").open(encoding="utf-8", newline="") as handle:
         assert sum(row["source_type"] == "sistema" for row in csv.DictReader(handle)) == 98
     load_catalog.cache_clear()
+
+
+def test_el_precio_convertido_tiene_la_misma_procedencia_en_todas_las_rutas() -> None:
+    # Arrange: una copia de México, como la ven el cotizador, la ruta comercial y el catálogo.
+
+    sku = "CO-MX-2864108000"
+    book = load_commercial_book()
+    [offer] = [item for item in book.offers if item.sku == sku and item.country == "CO"]
+    seller = book.seller(offer.seller_id)
+
+    # Act
+    cotizador = _offer_source_type(book, sku, REFERENCE_SITE_ID, offer.source.url or "")
+    comercial = seller_source_type(seller.kind) if seller is not None else None
+    [reference] = [ref for ref in load_catalog().references if ref.sku == sku]
+    catalogo = {price.source_type for price in load_catalog().offers(reference)}
+
+    # Assert: «sistema» en las tres; nunca «oficial» ni «tercero».
+    assert cotizador == comercial == "sistema"
+    assert catalogo == {"sistema"}

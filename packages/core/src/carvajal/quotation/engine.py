@@ -1122,21 +1122,26 @@ def quote_request(
         # catálogo y la guía de materiales; entre igual de aptas, la más económica.
         return not use or use in product.uses
 
+    # Orden de la recomendada y las alternativas: la más apta para el uso (spec 054); entre
+    # igual de aptas, un precio publicado antes que uno convertido; después, el más barato
+    # (por unidad si las cantidades difieren). La aptitud manda sobre la procedencia.
     if mixed:
         options.sort(
             key=lambda item: (
                 not apt(item[0]),
+                item[1].converted,
                 Decimal(item[2]["presentation"]["unit_price"]),
                 Decimal(item[2]["presentation"]["subtotal"]),
             )
         )
     else:
         options.sort(
-            key=lambda item: (not apt(item[0]), Decimal(item[2]["presentation"]["subtotal"]))
+            key=lambda item: (
+                not apt(item[0]),
+                item[1].converted,
+                Decimal(item[2]["presentation"]["subtotal"]),
+            )
         )
-    # Entre igual de aptas, un precio publicado va antes que uno convertido (orden estable):
-    # la aptitud para el uso (spec 054) manda sobre la procedencia del precio.
-    options.sort(key=lambda item: (not apt(item[0]), item[1].converted))
     if unconvertible:
         # Primero los de conversión: explican por qué falta una referencia pedida. La lista
         # completa respeta el tope.
