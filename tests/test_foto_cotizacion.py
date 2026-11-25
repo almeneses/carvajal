@@ -2,8 +2,8 @@
 
 Servicio real sobre SQLite con un runner del modo ``tools`` guionado: la elección («la 2»)
 llega al agente resuelta a su referencia, una elección fuera de rango responde sin el agente,
-el «sí» registra la propuesta del turno anterior y la miniatura de la foto queda con la
-pregunta.
+la cotización queda en el borrador (spec 054) y se registra al cerrarla con un «sí», y la
+miniatura de la foto queda con la pregunta.
 """
 
 from collections.abc import Iterator
@@ -176,8 +176,13 @@ def test_un_si_con_cambios_no_registra_la_propuesta(engine: Any) -> None:
     assert stored_quotes(engine) == []
 
 
-def test_la_propuesta_vencida_se_recalcula_en_lugar_de_registrarse(engine: Any) -> None:
-    # Arrange: la vigencia comercial de la propuesta ya pasó.
+def test_la_linea_vencida_se_recalcula_en_lugar_de_registrarse(
+    engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: la vigencia comercial de la línea ya pasó y el motor no la puede recotizar.
+    from carvajal.quotation import flow
+
+    monkeypatch.setattr(flow, "requote", lambda *args, **kwargs: None)
     quote = quote_payload()
     quote["commercial"] = {**quote["commercial"], "valid_until": "2020-01-31"}
     stale = final(products={"quote": quote, "quotes": [quote]}, quotes=(quote,))
@@ -186,35 +191,34 @@ def test_la_propuesta_vencida_se_recalcula_en_lugar_de_registrarse(engine: Any) 
     _send(service, "cotiza 50 vasos en Bogotá")
 
     # Act
-    _send(service, "sí")
+    _send(service, "No, confírmala")
 
-    # Assert
-    assert runner.calls[-1]["question"] == (
-        "Vuelve a cotizar Vaso rígido (ref. 7704918100199), 50 unidades en Bogotá: la "
-        "propuesta anterior venció."
-    )
+    # Assert: el agente recotiza; nada se registra.
+    assert runner.calls[-1]["question"] == "Vuelve a cotizar Vaso rígido: su precio venció."
     assert stored_quotes(engine) == []
 
 
-def test_la_tarjeta_de_la_propuesta_ofrece_confirmar_y_la_registrada_celebra(engine: Any) -> None:
+def test_los_botones_llevan_del_carrito_al_resumen_y_la_registrada_celebra(engine: Any) -> None:
     # Arrange
     service = build_service(engine, FakeToolRunner(scripted_events(commercial_final())))
 
     # Act
-    proposal = _send(service, "cotiza 50 vasos en Bogotá")
+    added = _send(service, "cotiza 50 vasos en Bogotá")
+    summary = _send(service, "Eso es todo")
     confirmed = _send(service, "Sí, confirma la cotización")
 
-    # Assert
-    html = named(proposal, "products").data["html"]
-    assert "Propuesta de cotización para Bogotá" in html
-    assert "Sin folio · por confirmar" in html
-    assert 'data-pregunta="Sí, confirma la cotización"' in html
+    # Assert: cada turno ofrece los botones de su pregunta; nada se registra antes del «sí».
+    html = named(added, "products").data["html"]
+    assert 'data-flujo="algo_mas"' in html and 'data-pregunta="Eso es todo"' in html
     assert "¡Cotización lista!" not in html
+    resumen = named(summary, "fallback").data["text"]
+    assert resumen.startswith("🧾 **Resumen de tu cotización**")
+    assert 'data-pregunta="Sí, confirma la cotización"' in named(summary, "products").data["html"]
     folio = named(confirmed, "done").data["quote_id"]
     registered = named(confirmed, "products").data["html"]
     assert "¡Cotización lista!" in registered and f"#{folio}" in registered
-    assert "Propuesta de cotización" not in registered
-    assert len(assistant_rows(engine)) == 2
+    assert f"✅ **Cotización #{folio} registrada**" in named(confirmed, "fallback").data["text"]
+    assert len(assistant_rows(engine)) == 3
 
 
 def test_con_una_sola_opcion_la_primera_es_esa(engine: Any) -> None:
@@ -243,7 +247,7 @@ def test_un_segundo_si_no_vuelve_a_cotizar_ni_emite_otro_folio(engine: Any) -> N
     runner = FakeToolRunner(scripted_events(commercial_final()))
     service = build_service(engine, runner)
     _send(service, "cotiza 50 vasos en Bogotá")
-    folio = named(_send(service, "sí"), "done").data["quote_id"]
+    folio = named(_send(service, "No, confírmala"), "done").data["quote_id"]
 
     # Act
     again = _send(service, "sí")
@@ -251,7 +255,7 @@ def test_un_segundo_si_no_vuelve_a_cotizar_ni_emite_otro_folio(engine: Any) -> N
     # Assert
     assert len(runner.calls) == 1
     assert named(again, "fallback").data["text"] == (
-        f"Esa cotización ya quedó registrada con el folio #{folio}. ¿Quieres cotizar algo más?"
+        f"Esa cotización ya quedó registrada con el folio **#{folio}**. ¿Quieres cotizar algo más?"
     )
     assert [row["id"] for row in stored_quotes(engine)] == [folio]
 
@@ -275,7 +279,7 @@ def test_la_vigencia_se_compara_con_el_dia_de_bogota(
     _send(service, "cotiza 50 vasos en Bogotá")
 
     # Act
-    confirmed = _send(service, "sí")
+    confirmed = _send(service, "No, confírmala")
 
     # Assert: sigue vigente; se registra sin recalcular.
     assert len(runner.calls) == 1

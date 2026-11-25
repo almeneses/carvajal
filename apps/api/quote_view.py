@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-__all__ = ["QuoteView", "format_date", "format_money", "quote_view"]
+__all__ = ["QuoteLine", "QuoteView", "format_date", "format_money", "quote_view"]
 
 _MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 _BASIS = {
@@ -79,6 +79,20 @@ def _plural(basis: str, count: int | None) -> str:
 
 
 @dataclass(frozen=True)
+class QuoteLine:
+    """Una línea de una cotización con varios productos (spec 054)."""
+
+    product: str
+    sku: str = ""
+    units_requested: int | None = None
+    presentations: int | None = None
+    presentations_label: str = ""
+    units_per_presentation: int | None = None
+    subtotal: str | None = None
+    seller: str = ""
+
+
+@dataclass(frozen=True)
 class QuoteView:
     """Campos de presentación de una cotización emitida."""
 
@@ -115,6 +129,8 @@ class QuoteView:
     # Precio convertido desde México: nadie lo publica en Colombia (``price_kind``).
     converted: bool = False
     pending: Sequence[str] = field(default_factory=tuple)
+    # Spec 054: con dos o más productos, una línea por producto bajo el mismo folio.
+    lines: tuple[QuoteLine, ...] = ()
 
 
 def _shipping(commercial: Mapping[str, Any], delivery: Mapping[str, Any], currency: str) -> str:
@@ -192,7 +208,13 @@ def quote_view(payload: Mapping[str, Any]) -> QuoteView | None:
         units_bought=_int(presentation.get("units_bought")),
         units_surplus=_int(presentation.get("units_surplus")),
         unit_price=format_money(presentation.get("unit_price"), currency),
-        subtotal=format_money(presentation.get("subtotal", commercial.get("subtotal")), currency),
+        subtotal=format_money(
+            # Spec 054: con varias líneas, el subtotal es el del conjunto.
+            commercial.get("subtotal")
+            if isinstance(payload.get("lines"), list) and len(payload["lines"]) > 1
+            else presentation.get("subtotal", commercial.get("subtotal")),
+            currency,
+        ),
         tax=_tax(_map(primary.get("tax")) or _map(commercial.get("tax"))),
         shipping=_shipping(commercial, _map(payload.get("delivery")), currency),
         total=format_money(payload.get("total"), currency),
@@ -205,4 +227,36 @@ def quote_view(payload: Mapping[str, Any]) -> QuoteView | None:
         warning=str(primary.get("warning") or ""),
         converted=primary.get("price_kind") == "convertido",
         pending=_pending(payload.get("pending_lines") or commercial.get("pending_lines")),
+        lines=_lines(payload.get("lines"), currency),
     )
+
+
+def _lines(raw: Any, currency: str) -> tuple[QuoteLine, ...]:
+    """Líneas de una cotización de varios productos; ``()`` si es de uno solo."""
+
+    if not isinstance(raw, list) or len(raw) < 2:
+        return ()
+    lines: list[QuoteLine] = []
+    for item in raw:
+        line = _map(item)
+        primary = _map(line.get("primary"))
+        presentation = _map(primary.get("presentation"))
+        count = _int(presentation.get("count"))
+        basis = str(presentation.get("basis") or "")
+        lines.append(
+            QuoteLine(
+                product=str(primary.get("name") or primary.get("sku") or "Producto"),
+                sku=str(primary.get("sku") or ""),
+                units_requested=_int(
+                    presentation.get("units_requested") or primary.get("units_requested")
+                ),
+                presentations=count,
+                presentations_label=_plural(basis, count) if basis else "",
+                units_per_presentation=_int(presentation.get("units")),
+                subtotal=format_money(presentation.get("subtotal"), currency),
+                seller=str(
+                    primary.get("seller") or _map(primary.get("provider")).get("name") or ""
+                ),
+            )
+        )
+    return tuple(lines)

@@ -34,6 +34,7 @@ __all__ = [
     "documents",
     "messages",
     "metadata",
+    "quote_drafts",
     "quotes",
     "usage_day",
     "visitor_memory",
@@ -256,6 +257,20 @@ quotes = Table(
 )
 
 Index("ix_quotes_owner_created", quotes.c.owner_key, quotes.c.created_at.desc())
+
+# Borrador de cotización de una conversación (spec 054): líneas sin folio, lo último que se
+# mostró (opciones o comparativo) y qué respuesta espera el asistente. Una fila por hilo; al
+# confirmarse, sus líneas pasan a una sola fila de ``quotes`` con un folio.
+quote_drafts = Table(
+    "quote_drafts",
+    metadata,
+    Column("conversation_id", Text, primary_key=True),
+    Column("owner_key", Text, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+Index("ix_quote_drafts_owner", quote_drafts.c.owner_key)
 
 # Entregas del webhook de mensajería: reserva atómica por ``message_id`` antes de abrir
 # hilo, cobrar cupo o llamar al LLM. ``delivery_id`` es el ``client_turn_id`` derivado del

@@ -226,7 +226,9 @@ class Settings(BaseSettings):
     agent_mode: Literal["routes", "tools"] = "tools"
     agent_max_tool_calls: int = Field(default=4, ge=1, le=8)
     agent_turn_timeout_s: float = Field(default=45, gt=0, le=300)
-    agent_max_quotes: int = Field(default=3, ge=1, le=10)
+    # Spec 054: hasta cuatro cotizaciones por turno (comparativo de cuatro cantidades o
+    # varios productos en una frase); el carrito de la conversación vive en el borrador.
+    agent_max_quotes: int = Field(default=4, ge=1, le=10)
     # Spec 045: memoria de corto y largo plazo. El resumen acumulado de los turnos que salen
     # de la ventana es determinista por defecto hasta medir el prompt del resumidor (T097);
     # «off» lo apaga. La memoria del dueño caduca como la del Cotizador.
@@ -273,6 +275,13 @@ class Settings(BaseSettings):
     # Carpeta (solo lectura) donde OpenClaw deja los adjuntos de WhatsApp; vacía, el puente
     # MCP no acepta fotos.
     food_photo_media_dir: str = ""
+
+    # Flujo de cotización (spec 054): Jev (Choice) clasifica una respuesta corta que las
+    # reglas no resolvieron («de una, ciérrala ya»), solo con una pregunta pendiente. Igual
+    # que las fotos, basta la clave de TypeSafe; cliente propio con plazo corto y su tope.
+    quote_flow_jev_enabled: bool = True
+    quote_flow_jev_timeout_s: float = Field(default=1.5, ge=0.3, le=5.0)
+    quote_flow_jev_max_calls_per_day: int = Field(default=500, ge=0, le=100_000)
 
     # Voz del chat web por el servidor con OpenAI (spec 047). ``browser`` (por defecto)
     # conserva el dictado y la lectura del navegador (spec 040) y no envía audio al
@@ -448,6 +457,14 @@ class Settings(BaseSettings):
         """Fotos de alimentos encendidas y con clave de TypeSafe (spec 051)."""
 
         return self.food_photo_enabled and bool(self.typesafe_api_key.get_secret_value().strip())
+
+    @property
+    def quote_flow_jev_configured(self) -> bool:
+        """Jev para las respuestas cortas del flujo de cotización, con clave (spec 054)."""
+
+        return self.quote_flow_jev_enabled and bool(
+            self.typesafe_api_key.get_secret_value().strip()
+        )
 
     @property
     def voice_server_configured(self) -> bool:

@@ -157,6 +157,23 @@
       "name": "cotizar",
       "parameters": {
         "properties": {
+          "cantidades": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Spec 054: de 2 a 4 cantidades del MISMO producto para comparar precios («¿cuánto valen 100, 500 o 1000?»). Se cotizan todas con la referencia de la primera; no pases quantity a la vez."
+          },
           "capacity_oz": {
             "anyOf": [
               {

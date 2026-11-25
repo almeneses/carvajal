@@ -61,6 +61,12 @@ def _units(value: int | None) -> str:
 
 
 def _rows(view: QuoteView) -> list[tuple[str, str]]:
+    if view.lines:  # spec 054: el detalle por producto va en la tabla de productos
+        return [
+            ("Subtotal de productos", view.subtotal or "Pendiente"),
+            ("IVA", view.tax),
+            ("Envío", view.shipping),
+        ]
     presentation = view.basis.capitalize() if view.basis else "Presentación"
     if view.units_per_presentation:
         presentation += f" x {_units(view.units_per_presentation)} unidades"
@@ -87,6 +93,40 @@ def _rows(view: QuoteView) -> list[tuple[str, str]]:
         ("Envío", view.shipping),
     ]
     return rows
+
+
+def _lines_table(pdf: FPDF, view: QuoteView) -> None:
+    """Spec 054: una fila por producto (nombre, cantidad, presentación y subtotal)."""
+
+    width = pdf.w - pdf.l_margin - pdf.r_margin
+    columns = (("Producto", 0.46, "L"), ("Unidades", 0.14, "R"), ("Compras", 0.2, "R"),
+               ("Subtotal", 0.2, "R"))  # fmt: skip
+    pdf.set_fill_color(*NAVY)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("DMSans", "B", 9)
+    for label, share, align in columns:
+        pdf.cell(width * share, 7, f" {label} ", fill=True, align=align)
+    pdf.ln(7)
+    pdf.set_draw_color(220, 226, 232)
+    pdf.set_line_width(0.2)
+    for index, line in enumerate(view.lines):
+        fill = index % 2 == 0
+        pdf.set_fill_color(*LIGHT)
+        pdf.set_text_color(30, 30, 30)
+        pdf.set_font("DMSans", size=9)
+        bought = f"{_units(line.presentations)} {line.presentations_label}".strip()
+        if line.units_per_presentation:
+            bought += f" x {_units(line.units_per_presentation)}"
+        values = (
+            line.product,
+            _units(line.units_requested),
+            bought,
+            line.subtotal or "Pendiente",
+        )
+        for (_, share, align), value in zip(columns, values, strict=True):
+            text = value if len(value) <= 48 else value[:47] + "…"
+            pdf.cell(width * share, 7, f" {text} ", border="B", fill=fill, align=align)
+        pdf.ln(7)
 
 
 def _label_value(pdf: FPDF, label: str, value: str, *, width: float = 38) -> None:
@@ -152,38 +192,50 @@ def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: boo
     pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
     pdf.ln(2)
 
-    # Producto: foto a la izquierda (si hay) y datos a la derecha.
-    _section(pdf, "Producto")
-    start = pdf.get_y()
-    text_x = pdf.l_margin
-    if photo is not None:
-        try:
-            pdf.image(
-                str(photo), x=pdf.l_margin, y=start, w=PHOTO_MM, h=PHOTO_MM, keep_aspect_ratio=True
-            )
-            pdf.set_draw_color(220, 226, 232)
-            pdf.set_line_width(0.2)
-            pdf.rect(pdf.l_margin, start, PHOTO_MM, PHOTO_MM)
-            text_x = pdf.l_margin + PHOTO_MM + 6
-        except (OSError, RuntimeError, ValueError):  # foto ilegible: el PDF sale sin ella
-            text_x = pdf.l_margin
-    pdf.set_left_margin(text_x)
-    pdf.set_xy(text_x, start)
-    pdf.set_font("DMSans", "B", 12)
-    pdf.set_text_color(30, 30, 30)
-    pdf.multi_cell(0, 6.5, view.product, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    details = [
-        ("SKU", view.sku),
-        ("Marca", view.brand),
-        ("Material", view.material),
-        ("Ciudad", view.city),
-    ]
-    for label, value in details:
-        if value:
-            _label_value(pdf, label, value, width=24)
-    pdf.set_left_margin(MARGIN)
-    if text_x != MARGIN:
-        pdf.set_y(max(pdf.get_y(), start + PHOTO_MM) + 1)
+    if view.lines:
+        _section(pdf, f"Productos ({len(view.lines)})")
+        _lines_table(pdf, view)
+        if view.city:
+            pdf.ln(1.5)
+            _label_value(pdf, "Ciudad", view.city, width=24)
+    else:
+        _section(pdf, "Producto")
+    if not view.lines:
+        start = pdf.get_y()
+        text_x = pdf.l_margin
+        if photo is not None:
+            try:
+                pdf.image(
+                    str(photo),
+                    x=pdf.l_margin,
+                    y=start,
+                    w=PHOTO_MM,
+                    h=PHOTO_MM,
+                    keep_aspect_ratio=True,
+                )
+                pdf.set_draw_color(220, 226, 232)
+                pdf.set_line_width(0.2)
+                pdf.rect(pdf.l_margin, start, PHOTO_MM, PHOTO_MM)
+                text_x = pdf.l_margin + PHOTO_MM + 6
+            except (OSError, RuntimeError, ValueError):  # foto ilegible: el PDF sale sin ella
+                text_x = pdf.l_margin
+        pdf.set_left_margin(text_x)
+        pdf.set_xy(text_x, start)
+        pdf.set_font("DMSans", "B", 12)
+        pdf.set_text_color(30, 30, 30)
+        pdf.multi_cell(0, 6.5, view.product, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        details = [
+            ("SKU", view.sku),
+            ("Marca", view.brand),
+            ("Material", view.material),
+            ("Ciudad", view.city),
+        ]
+        for label, value in details:
+            if value:
+                _label_value(pdf, label, value, width=24)
+        pdf.set_left_margin(MARGIN)
+        if text_x != MARGIN:
+            pdf.set_y(max(pdf.get_y(), start + PHOTO_MM) + 1)
 
     # Importes.
     _section(pdf, "Detalle de la cotización")

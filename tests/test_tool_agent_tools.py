@@ -1820,7 +1820,7 @@ def test_cotizar_la_referencia_nombrada_cotiza_esa_y_no_pide_temperatura(
     quote = result.payload["cotizacion"]
     assert quote["sku"] == sku
     assert quote["subtotal"] == subtotal
-    assert quote["alternativas"] == 0
+    assert quote["alternativas"] == []
     assert quote["iva"]["estado"]
     assert quote["envio"]["estado"] == "pending"
     assert quote["total"] is None

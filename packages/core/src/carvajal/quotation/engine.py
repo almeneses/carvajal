@@ -106,7 +106,8 @@ __all__ = [
     "quote_request",
 ]
 
-MAX_ALTERNATIVES = 2
+# Spec 054: una recomendada y hasta cuatro alternativas, como en la foto (spec 053).
+MAX_ALTERNATIVES = 4
 MAX_DISCARDED = 3
 MAX_CANDIDATES = 5  # candidatas de un nombre ambiguo que se listan
 QUOTE_VERSION = 2
@@ -509,6 +510,13 @@ def _candidates(
     chosen = [product for product in possible if product.sku in valid_skus]
     chosen.sort(key=lambda item: (request.get("use") not in item.uses, item.sku))
     return chosen, reasons
+
+
+def _price_key(option: dict[str, Any], mixed: bool) -> Decimal:
+    """Precio con que se comparan las opciones: por unidad si las cantidades difieren."""
+
+    presentation = option["presentation"]
+    return Decimal(presentation["unit_price" if mixed else "subtotal"])
 
 
 def _decimal_text(value: Decimal) -> str:
@@ -954,10 +962,6 @@ def published_presentations(
     )
 
 
-# Alias privados de la 044: el motor y quien los importe siguen funcionando igual.
-_declared_sizes = declared_sizes
-_conversion = conversion
-_published_presentations = published_presentations
 # Conversión con certeza (cantidad, presentación, unidades por presentación y fuente).
 Conversion = _Conversion
 
@@ -1091,11 +1095,11 @@ def quote_request(
         ]
         if not offers:
             continue
-        conversion = _conversion(product, quantity, unit, dataset)
-        if conversion is None:
+        converted = conversion(product, quantity, unit, dataset)
+        if converted is None:
             unconvertible.append(product)
             continue
-        units = conversion.units
+        units = converted.units
         offer = min(offers, key=lambda item: _offer_for(item, units)["subtotal"])
         if offer.converted:
             place = _reference_provider(offer)
@@ -1106,22 +1110,33 @@ def quote_request(
             place = _provider(provider)
         option = _option(product, offer, units, place)
         if unit != "unidad":
-            option["conversion"] = conversion.as_dict()
+            option["conversion"] = converted.as_dict()
         options.append((product, offer, option))
     # Con cajas, paquetes o pacas cada referencia puede convertir a otro número de unidades:
     # el subtotal compara pedidos distintos, así que se ordena por precio por unidad.
     mixed = len({option["units_requested"] for _, _, option in options}) > 1
+    use = data.get("use")
+
+    def apt(product: Product) -> bool:
+        # Decisión del owner (spec 054): la recomendada es la más apta para el uso según el
+        # catálogo y la guía de materiales; entre igual de aptas, la más económica.
+        return not use or use in product.uses
+
     if mixed:
         options.sort(
             key=lambda item: (
+                not apt(item[0]),
                 Decimal(item[2]["presentation"]["unit_price"]),
                 Decimal(item[2]["presentation"]["subtotal"]),
             )
         )
     else:
-        options.sort(key=lambda item: Decimal(item[2]["presentation"]["subtotal"]))
-    # Un precio publicado siempre va antes que uno convertido (orden estable).
-    options.sort(key=lambda item: item[1].converted)
+        options.sort(
+            key=lambda item: (not apt(item[0]), Decimal(item[2]["presentation"]["subtotal"]))
+        )
+    # Entre igual de aptas, un precio publicado va antes que uno convertido (orden estable):
+    # la aptitud para el uso (spec 054) manda sobre la procedencia del precio.
+    options.sort(key=lambda item: (not apt(item[0]), item[1].converted))
     if unconvertible:
         # Primero los de conversión: explican por qué falta una referencia pedida. La lista
         # completa respeta el tope.
@@ -1135,7 +1150,7 @@ def quote_request(
         ][:MAX_DISCARDED]
     if not options and unconvertible and named is not None:
         # La referencia nombrada: su nombre y su presentación publicada, no «esas cajas».
-        published = _published_presentations(named, dataset, city)
+        published = published_presentations(named, dataset, city)
         shown = f" Su presentación publicada es {', '.join(published)}." if published else ""
         bases = [_UNIT_PLURAL.get(item.split()[0]) for item in published]
         other = next((item for item in bases if item and item != _UNIT_PLURAL[unit]), None)
@@ -1245,11 +1260,20 @@ def quote_request(
         )
     elif named is not None:
         cheapest = "Cotizo la referencia que pediste,"
+    elif _price_key(primary, mixed) == min(_price_key(item, mixed) for _, _, item in options):
+        cheapest = "La de menor precio por unidad es" if mixed else "La más económica es"
+    elif not offer.converted and _price_key(primary, mixed) == min(
+        _price_key(item, mixed) for _, other, item in options if not other.converted
+    ):
+        # Una convertida es más barata: la recomendada es la más económica publicada.
+        cheapest = (
+            "La de menor precio por unidad con precio publicado es"
+            if mixed
+            else "La más económica con precio publicado es"
+        )
     else:
-        cheapest = "La de menor precio por unidad" if mixed else "La más económica"
-        if not offer.converted and any(item.converted for _, item, _ in options):
-            cheapest += " con precio publicado"
-        cheapest += " es"
+        # La más apta para el uso no es la más barata: se recomienda por aptitud (spec 054).
+        cheapest = "Por ser la más apta para el uso, te recomiendo"
     reply = (
         f"Cotización para {asked} en {city}. "
         f"{cheapest} {product.name}: "

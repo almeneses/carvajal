@@ -26,8 +26,10 @@ from apps.api.chat.streaming import ChatEvent
 from apps.api.quote_view import quote_view
 from apps.mcp.bridge import (
     LIMIT_REACHED,
+    PDF_CONFIRMATION,
     PDF_OFFER,
     PDF_OFFER_SPOKEN,
+    SERVICE_UNAVAILABLE,
     WhatsAppBridge,
     spoken_quote,
 )
@@ -469,3 +471,145 @@ def test_respuesta_larga_sin_voz_no_cambia() -> None:
     assert TEXT_HEADER not in answer and LINKS_HEADER not in answer
     assert answer.startswith("Para bebidas calientes, Carvajal Empaques ofrece vasos")
     assert "- *Vaso de papel 8 oz*: pared sencilla" in answer
+
+
+# --- Spec 054: flujo de cotización por WhatsApp --------------------------------------------
+
+FLOW_TEXT = (
+    "✅ **Cotización #a3f09c12b7e4 registrada**\n"
+    "2 productos · Total **$281.000** · válida hasta 2 dic\n"
+    "📄 Te envío el PDF."
+)
+
+
+@dataclass
+class AwaitingChat(FakeChat):
+    awaiting: bool = True
+
+    def awaiting_confirmation(self, owner_key: str) -> bool:
+        return self.awaiting
+
+
+def _flow_turn(text: str, *, folios: list[str], spoken: str, prose: str = "") -> list[ChatEvent]:
+    body = f"{prose}\n\n{text}" if prose else text
+    return [
+        ChatEvent("meta", {"sources": []}),
+        ChatEvent("fallback", {"text": body}),
+        ChatEvent(
+            "done",
+            {"quote_ids": folios, "flow": {"text": text, "spoken": spoken, "awaiting": None}},
+        ),
+    ]
+
+
+def test_la_plantilla_del_flujo_sale_en_formato_whatsapp_y_con_su_voz() -> None:
+    # Arrange
+    cart = (
+        "🛒 **Tu cotización · 2 productos**\n**Total parcial: $281.000** (IVA incl.)\n\n¿Algo más?"
+    )
+    chat = FakeChat(
+        _flow_turn(
+            cart,
+            folios=[],
+            spoken="Llevas 2 productos. ¿Algo más?",
+            prose="Te sirve para bebida caliente. El total es $281.000.",
+        )
+    )
+
+    # Act
+    reply = _bridge(chat).respond("sí, 500 vasos", "+573001112233")
+
+    # Assert: las cifras del agente no se repiten; la voz es la de la plantilla.
+    assert "🛒 *Tu cotización · 2 productos*" in reply.text
+    assert "El total es" not in reply.text
+    assert reply.text.endswith("¿Algo más?")
+    assert reply.voice().text.endswith("Llevas 2 productos. ¿Algo más?")
+
+
+def test_al_registrar_el_pdf_se_adjunta_sin_pedirlo() -> None:
+    # Arrange
+    chat = FakeChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))
+
+    # Act
+    reply = _bridge(chat).respond("sí", "+573001112233")
+
+    # Assert
+    assert reply.quote_ids == ("a3f09c12b7e4",)
+    assert "📄 Tu cotización #a3f09c12b7e4 en PDF" in reply.text
+    assert PDF_URL in reply.text
+    assert "Te envío el PDF." not in reply.text
+    assert PDF_OFFER not in reply.text
+
+
+def test_si_mandame_el_pdf_confirma_la_cotizacion_pendiente() -> None:
+    # Arrange
+    chat = AwaitingChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))
+
+    # Act
+    reply = _bridge(chat).respond("sí, mándame el PDF", "+573001112233")
+
+    # Assert: va al turno (que registra) y el PDF sale una sola vez.
+    assert chat.calls == [PDF_CONFIRMATION]
+    assert reply.text.count(PDF_URL) == 1
+
+
+@pytest.mark.parametrize(
+    ("message", "voice"),
+    [
+        ("envíame la cotización en pdf por favor", False),  # el flujo no la lee como «sí»
+        ("quiero el pdf de la cotización por favor", False),  # ni como «agregar»
+        ("sí, mándame el pe de efe", True),  # PDF dictado
+    ],
+)
+def test_todo_pedido_de_pdf_con_cotizacion_pendiente_llega_como_confirmacion(
+    message: str, voice: bool
+) -> None:
+    # Arrange
+    chat = AwaitingChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))
+
+    # Act
+    reply = _bridge(chat).respond(message, "+573001112233", voice=voice)
+
+    # Assert: el turno recibe la forma que el flujo confirma y el PDF sale una vez.
+    assert chat.calls == [PDF_CONFIRMATION]
+    assert reply.text.count(PDF_URL) == 1
+
+
+@pytest.mark.parametrize(
+    "message", ["¿el PDF trae IVA?", "mejor 800", "sí pero sin el pdf", "mejor 800 y el pdf"]
+)
+def test_una_pregunta_o_un_cambio_llega_tal_cual_aunque_haya_cotizacion_pendiente(
+    message: str,
+) -> None:
+    # Arrange
+    chat = AwaitingChat(_flow_turn(FLOW_TEXT, folios=[], spoken="Listo."))
+
+    # Act
+    _bridge(chat).respond(message, "+573001112233")
+
+    # Assert: solo un pedido del PDF se vuelve confirmación; lo demás no se toca.
+    assert chat.calls and chat.calls[0] != PDF_CONFIRMATION
+
+
+def test_si_el_turno_falla_el_pdf_pendiente_no_manda_una_cotizacion_anterior() -> None:
+    # Arrange: hay una cotización por confirmar y el servicio falla en el turno.
+    chat = AwaitingChat([ChatEvent("error", {"message": SERVICE_UNAVAILABLE})])
+
+    # Act
+    reply = _bridge(chat).respond("PDF", "+573001112233")
+
+    # Assert: error transitorio (el relé reintenta el mismo mensaje), sin el PDF viejo.
+    assert reply.text == SERVICE_UNAVAILABLE
+    assert PDF_URL not in reply.text
+
+
+def test_pdf_sin_cotizacion_pendiente_sigue_sin_llm() -> None:
+    # Arrange
+    chat = AwaitingChat(_quote_turn(), awaiting=False)
+
+    # Act
+    reply = _bridge(chat).respond("PDF", "+573001112233")
+
+    # Assert
+    assert chat.calls == []
+    assert PDF_URL in reply.text

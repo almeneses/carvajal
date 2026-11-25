@@ -646,9 +646,9 @@ def test_reintento_con_el_mismo_message_id_no_duplica_turnos_ni_folios(
     quota_calls: list[str] = []
     client = _app(monkeypatch, _real_bridge(sqlite_engine, runner, quota_calls))
     payload = _message(text="Cotiza 50 y 100 vasos en Bogotá", nueva=True)
-    confirmation = _message(message_id="wamid.SI", text="sí")
+    confirmation = _message(message_id="wamid.SI", text="No, confírmala")
 
-    # Act: la propuesta y el «sí» (spec 053), cada uno reintentado.
+    # Act: el carrito y el cierre con «sí» (spec 054), cada uno reintentado.
     proposal = _post(client, payload)
     proposal_again = _post(client, payload)
     first = _post(client, confirmation)
@@ -658,11 +658,11 @@ def test_reintento_con_el_mismo_message_id_no_duplica_turnos_ni_folios(
     assert proposal.json() == proposal_again.json() and proposal.json()["quote_ids"] == []
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
-    assert len(first.json()["quote_ids"]) == 2
+    assert len(first.json()["quote_ids"]) == 1  # un folio con las dos líneas
     assert len(runner.calls) == 1
     assert len(quota_calls) == 2
     assert _count(sqlite_engine, tables.messages) == 4
-    assert _count(sqlite_engine, tables.quotes) == 2
+    assert _count(sqlite_engine, tables.quotes) == 1
     assert _count(sqlite_engine, tables.conversations) == 1
 
 
@@ -831,8 +831,8 @@ def test_reintento_concurrente_con_nueva_no_duplica_hilo_folios_ni_cupo(
     # Assert: el reintento en vuelo no atiende; el posterior reemite el mismo turno.
     assert retried[0].in_progress is True
     assert retried[0].quote_ids == ()
-    assert first.quote_ids == ()  # spec 053: propuesta, sin folios hasta el «sí»
-    assert "Propuesta de cotización" in first.text
+    assert first.quote_ids == ()  # spec 054: borrador, sin folios hasta el «sí»
+    assert "🛒 *Tu cotización · 2 productos*" in first.text
     assert later == first
     assert _count(sqlite_engine, tables.conversations) == 1
     assert _count(sqlite_engine, tables.messages) == 2

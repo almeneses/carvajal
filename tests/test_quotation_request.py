@@ -386,8 +386,16 @@ def test_con_cajas_de_distinto_tamano_se_ordena_por_precio_por_unidad() -> None:
     assert resultado["kind"] == "cotizacion"
     opciones = _options(resultado)
     assert len({option["units_requested"] for option in opciones}) > 1
-    precios = [Decimal(option["presentation"]["unit_price"]) for option in opciones]
-    assert precios == sorted(precios)
+    # Publicadas primero y convertidas al final, cada grupo por precio por unidad.
+    for kind in ("publicado", "convertido"):
+        precios = [
+            Decimal(option["presentation"]["unit_price"])
+            for option in opciones
+            if option["price_kind"] == kind
+        ]
+        assert precios == sorted(precios)
+    kinds = [option["price_kind"] for option in opciones]
+    assert kinds == sorted(kinds, key=lambda kind: kind == "convertido")
     assert "La más económica" not in resultado["reply"]
     assert "La de menor precio por unidad con precio publicado es" in resultado["reply"]
     assert "Cada referencia trae una cantidad distinta por caja" in resultado["reply"]
@@ -413,7 +421,8 @@ def test_con_la_misma_conversion_se_ordena_por_subtotal() -> None:
     ]
     assert subtotales[: len(publicados)] == publicados  # los convertidos van al final
     assert publicados == sorted(publicados)
-    assert "La más económica con precio publicado es" in resultado["reply"]
+    # La recomendada es la más barata de todas: no hace falta «con precio publicado».
+    assert "La más económica es" in resultado["reply"]
 
 
 def test_una_caja_del_contrato_no_convierte_si_la_ficha_declara_paca() -> None:
@@ -858,11 +867,3 @@ def test_presentaciones_publicadas_sin_ciudad_cuentan_todas_las_ofertas() -> Non
     # Assert
     assert every
     assert set(every) == {item for items in per_city for item in items}
-
-
-def test_los_alias_privados_de_la_044_siguen_vigentes() -> None:
-    from carvajal.quotation import engine
-
-    assert engine._declared_sizes is engine.declared_sizes
-    assert engine._conversion is engine.conversion
-    assert engine._published_presentations is engine.published_presentations

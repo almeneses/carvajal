@@ -12,15 +12,17 @@ from typing import Any
 import httpx
 import structlog
 
-from carvajal.adapters.judge.jev import JevClient, JevFoodClassifier, JevJudge
+from carvajal.adapters.judge.jev import JevClient, JevFoodClassifier, JevJudge, JevReplyJudge
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
     "JevClient",
     "JevFoodClassifier",
     "JevJudge",
+    "JevReplyJudge",
     "build_food_classifier",
     "build_judge",
+    "build_reply_judge",
     "food_photo_health",
     "jev_health",
     "usable_key",
@@ -156,3 +158,32 @@ def food_photo_health(settings: Settings, classifier: Any = None) -> dict[str, A
         "calls_today": client.calls_today,
         "last_error": client.last_error,
     }
+
+
+def build_reply_judge(
+    settings: Settings,
+    *,
+    ledger: str | Path | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> JevReplyJudge | None:
+    """Jev para las respuestas cortas del flujo de cotización (spec 054) o ``None``.
+
+    Como las fotos, no depende de ``JEV_ENABLED``: basta la clave. Cliente propio con plazo
+    corto (el turno espera la respuesta) y su tope; comparte el libro ``JEV_LEDGER``.
+    """
+
+    if not settings.quote_flow_jev_configured:
+        return None
+    key = usable_key(settings)
+    if not key:
+        return None
+    client = JevClient(
+        api_key=key,
+        base_url=settings.jev_base_url,
+        model=settings.jev_model,
+        timeout_s=settings.quote_flow_jev_timeout_s,
+        max_calls_per_day=settings.quote_flow_jev_max_calls_per_day,
+        ledger=ledger if ledger is not None else (settings.jev_ledger or None),
+        transport=transport,
+    )
+    return JevReplyJudge(client)

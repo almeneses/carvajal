@@ -6,7 +6,10 @@
     lista sus ofertas, una por fuente, y el precio de un tercero nombra a quien lo publica.
     Diseño «Asistente Carvajal» (Stitch): resumen de lo entendido, insignias de material,
     precio destacado y descartes con su motivo. Solo presentación: los datos son los mismos.
-    Spec 044: ``quotes`` trae una cotización por tarjeta, cada una con su folio. -#}
+    Spec 044: ``quotes`` trae una cotización por tarjeta, cada una con su folio.
+    Spec 054: las cotizaciones del borrador (``status == "borrador"``) no se pintan como
+    tarjeta: sus cifras van en el texto de la plantilla, igual que en WhatsApp. ``flow`` trae
+    los botones de la pregunta pendiente; la cotización registrada lista todas sus líneas. -#}
 {%- set usos = {
   "bebida_caliente": "Bebida caliente", "bebida_fria": "Bebida fría",
   "comida_caliente": "Comida caliente", "comida_fria": "Comida fría", "sopas": "Sopas",
@@ -138,7 +141,7 @@
   {%- set cotizaciones = resultado.quotes if resultado.quotes else ([resultado.quote] if resultado.quote else []) %}
   {%- set coti = cotizaciones[0] if cotizaciones else none %}
   {%- for coti in cotizaciones %}
-  {%- if coti and coti.kind == "cotizacion" %}
+  {%- if coti and coti.kind == "cotizacion" and coti.status != "borrador" %}
   {%- set cp = coti.primary.presentation %}
   {%- set cp_plural = presentaciones.get(cp.basis, cp.basis) if (cp.count | string) != "1" else cp.basis %}
   {%- set folio = (coti.quote.folio or coti.quote.id) if coti.quote else none %}
@@ -164,15 +167,8 @@
       </div>
     </div>
     {%- endif %}
-    {%- set propuesta = coti.status == "propuesta" and not folio %}
     <header class="coti-cabecera">
-      {%- if propuesta %}
-      {#- Spec 053 (FR-010): propuesta sin folio; se registra cuando la persona confirma. -#}
-      <h4 class="coti-titulo">Propuesta de cotización para {{ coti.city }}</h4>
-      <span class="coti-sello coti-sello-propuesta">Sin folio · por confirmar</span>
-      {%- else %}
       <h4 class="coti-titulo">Cotización para {{ coti.city }}</h4>
-      {%- endif %}
       {%- if coti.quote %}
       <span class="coti-sello">
         #{{ coti.quote.folio or coti.quote.id }}
@@ -187,10 +183,23 @@
         <span data-coti-alternar-texto>Ocultar detalle</span>
       </button>
     </header>
+    {%- if coti.lines and coti.lines | length > 1 %}
+    <ol class="coti-lineas" data-coti-lineas>
+      {%- for linea in coti.lines %}
+      {%- set lp = linea.primary.presentation %}
+      <li>{{ linea.primary.name }} · {{ lp.units_requested or linea.primary.units_requested }} unidades
+        ({{ lp.count }} {{ presentaciones.get(lp.basis, lp.basis) if (lp.count | string) != "1" else lp.basis }})
+        {%- if lp.subtotal %} · <strong>{{ lp.subtotal }} COP</strong>{% endif %}</li>
+      {%- endfor %}
+    </ol>
+    <p class="coti-linea">{{ coti.lines | length }} productos
+      {%- if coti.total %} · Total <strong>{{ coti.total }} COP</strong>{% endif %}</p>
+    {%- else %}
     <p class="coti-linea">
       {{ cp.count }} {{ cp_plural }} · {{ cp.units_bought }} unidades
       {%- if coti.total %} · <strong>{{ coti.total }} COP</strong>{% endif %}
     </p>
+    {%- endif %}
     <div class="coti-plegable coti-detalle" data-coti-detalle>
       <div class="coti-plegable-interior">
     <dl class="coti-cifras">
@@ -221,15 +230,6 @@
     {%- endif %}
       </div>
     </div>
-    {%- if propuesta and loop.last %}
-    <div class="coti-acciones" data-coti-acciones>
-      <p class="coti-pregunta">¿La confirmo?</p>
-      <button type="button" class="boton coti-confirmar" data-chat-sugerencia data-chat-enviar
-              data-pregunta="Sí, confirma la cotización" hidden>Confirmar cotización</button>
-      <button type="button" class="boton secundario" data-chat-sugerencia data-chat-cambiar
-              data-pregunta="Quiero cambiar" hidden>Cambiar datos o cantidad</button>
-    </div>
-    {%- endif %}
   </section>
   {%- elif coti and coti.reply %}
   <p class="productos-nota">{{ coti.reply }}</p>
@@ -428,7 +428,17 @@
     {%- endfor %}
   </ul>
   {%- endif %}
-  {%- if resultado.cities %}
+  {%- if resultado.flow and resultado.flow.actions %}
+  {#- Spec 054: botones de la pregunta pendiente; cada uno envía la frase que la persona
+      diría o dictaría, así la web, WhatsApp y la voz siguen el mismo camino. -#}
+  <div class="chat-sugerencias flujo-acciones" data-chat-sugerencias data-flujo="{{ resultado.flow.awaiting or '' }}">
+    {%- for accion in resultado.flow.actions %}
+    <button type="button" class="boton{{ '' if loop.first else ' secundario' }}" data-chat-sugerencia data-chat-enviar
+            data-pregunta="{{ accion.say }}" hidden>{{ accion.label }}</button>
+    {%- endfor %}
+  </div>
+  {%- endif %}
+  {%- if resultado.cities and not resultado.flow %}
   <div class="chat-sugerencias" data-chat-sugerencias>
     {%- for city in resultado.cities %}
     <button type="button" class="boton secundario" data-chat-sugerencia data-ciudad="{{ city }}">En {{ city }}</button>

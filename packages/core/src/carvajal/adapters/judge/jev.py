@@ -51,6 +51,9 @@ from carvajal.food.profile import PHOTO_REF, FoodProfile, food_questions, parse_
 from carvajal.prompts import (
     JEV_CLAIMS_CRITERIA,
     JEV_CLAIMS_INSTRUCTIONS,
+    JEV_FLOW_CRITERIA,
+    JEV_FLOW_INSTRUCTIONS,
+    JEV_FLOW_QUESTIONS,
     JEV_ROUTE_CRITERIA,
     JEV_ROUTE_INSTRUCTIONS,
     JEV_SCORE_CLARITY,
@@ -63,7 +66,9 @@ __all__ = [
     "JevClient",
     "JevFoodClassifier",
     "JevJudge",
+    "JevReplyJudge",
     "claims_body",
+    "flow_body",
     "route_body",
 ]
 
@@ -79,6 +84,7 @@ _BOGOTA: Final = ZoneInfo("America/Bogota")
 ROUTE_QUESTION: Final = "ruta"
 SCORE_QUESTION: Final = "claridad"
 CLAIMS_QUESTION: Final = "respaldo"
+FLOW_QUESTION: Final = "respuesta"
 
 
 class _Invalid(ValueError):
@@ -533,6 +539,64 @@ def claims_body(query: ClaimsQuery) -> tuple[dict, dict]:
         }
     }
     return state, questions
+
+
+def flow_body(awaiting: str, reply: str) -> tuple[dict, dict]:
+    """``state`` y ``questions`` de la pregunta Choice del flujo de cotización (spec 054).
+
+    Solo viajan la pregunta fija del asistente y la respuesta corta de la persona.
+    """
+
+    state = {
+        "pregunta_del_asistente": JEV_FLOW_QUESTIONS.get(awaiting, "¿Algo más?"),
+        "respuesta": reply,
+    }
+    questions = {
+        FLOW_QUESTION: {
+            "type": "choice",
+            "instructions": JEV_FLOW_INSTRUCTIONS,
+            "criteria": dict(JEV_FLOW_CRITERIA),
+        }
+    }
+    return state, questions
+
+
+class JevReplyJudge:
+    """Clasifica respuestas cortas del flujo de cotización (``ReplyJudge`` de la spec 054)."""
+
+    def __init__(self, client: JevClient) -> None:
+        self.client = client
+
+    def __repr__(self) -> str:
+        return f"JevReplyJudge({self.client!r})"
+
+    def available(self) -> bool:
+        return self.client.available()
+
+    def classify_reply(self, *, awaiting: str, reply: str) -> tuple[str, float]:
+        state, questions = flow_body(awaiting, reply)
+        classes = tuple(JEV_FLOW_CRITERIA)
+
+        def parse(payload: Mapping[str, Any]) -> tuple[tuple[str, float], dict[str, Any]]:
+            answer = _answer(payload, FLOW_QUESTION, "choice")
+            choice = answer.get("choice")
+            if choice not in classes:
+                raise _Invalid("choice")
+            raw = answer.get("probabilities")
+            if answer.get("confidence") is not None:
+                confidence = _probability(answer["confidence"])
+            elif isinstance(raw, Mapping) and choice in raw:
+                confidence = _probability(raw[choice])
+            else:
+                raise _Invalid("confidence")
+            parsed = (str(choice), round(confidence, 4))
+            return parsed, {"choice": parsed[0], "confidence": parsed[1]}
+
+        value, _call = self.client.call("flow", state, questions, parse)
+        return value
+
+    def close(self) -> None:
+        self.client.close()
 
 
 class JevJudge:
