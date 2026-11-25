@@ -93,6 +93,19 @@ el puente separa la parte del PDF (`split_pdf_request`), el agente cotiza solo e
 si salió una cotización, el puente añade el PDF (adjunto o enlace) en lugar de la oferta.
 Una pregunta sobre el PDF («¿el PDF trae el IVA?») va al agente sin cambios.
 
+### Una sola versión de la cotización
+
+Cuando el turno emite una cotización, el mensaje empieza por el bloque 🧾 (folio,
+importes, total, vigencia y foto). Del texto del agente solo quedan sus comentarios
+(`quote_remarks`). Frase por frase, en párrafos y en viñetas, se quita lo que solo repite el
+bloque: sus líneas dichas por el agente («Total: …», «Precio por paquete: …») y las frases
+cuyas cifras y palabras ya están en él (o en el SKU, la marca y el material), como «El
+total queda en $37.510». Se conserva toda frase que aporte algo: una pregunta (aunque cite
+el total), una cifra que el bloque no trae (un plazo de entrega, otro precio) o una palabra
+propia aunque repita cifras («el precio de $3.751 sube en enero», «El mínimo es de 10
+paquetes», «- No incluye IVA»). Un encabezado con «:» solo se queda si sobrevive alguna
+línea debajo.
+
 ## Fotos del catálogo
 
 Las fotos son opcionales y se versionan con el catálogo:

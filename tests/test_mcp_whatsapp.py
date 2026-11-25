@@ -22,6 +22,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 
 from apps.api.chat.streaming import ChatEvent
+from apps.api.quote_view import quote_view
 from apps.mcp import bridge as bridge_module
 from apps.mcp.bridge import (
     EMPTY_MESSAGE,
@@ -31,7 +32,9 @@ from apps.mcp.bridge import (
     TOO_LONG_MESSAGE,
     WhatsAppBridge,
     owner_key_for,
+    quote_remarks,
     to_whatsapp,
+    whatsapp_quote,
 )
 from apps.mcp.server import TOOL_NAME, build_app, build_server
 from carvajal.adapters.storage import tables
@@ -450,3 +453,157 @@ def test_fuentes_sin_titulo_no_muestran_el_hash() -> None:
     assert "[1] Documento del corpus de Carvajal" in answer
     assert "[2] carvajal.com — https://www.carvajal.com/gobierno" in answer
     assert "[3] Junta directiva" in answer
+
+
+AGENT_QUOTE_TEXT = (
+    "Cotización para 500 unidades en Bogotá [1]:\n\n"
+    "- Vaso rígido traslúcido 9 oz Wau (PP), SKU 7704918100199 [1]\n"
+    "- 500 unidades = 10 paquetes de 50 unidades [1]\n"
+    "- Precio por paquete: $3.751 [1]\n"
+    "- Subtotal: $37.510, IVA incluido [1]\n"
+    "- Total: pendiente hasta conocer el envío [1]\n\n"
+    "Sigue siendo PP, no la opción renovable que preferías [1]. "
+    "¿Te busco una alternativa de papel o pulpa de 9 oz?"
+)
+
+
+# La cotización que respalda ``AGENT_QUOTE_TEXT``: 500 vasos de 9 oz en paquetes de 50.
+QUOTE_9OZ = {
+    "kind": "cotizacion",
+    "city": "Bogotá",
+    "primary": {
+        "name": "Vaso rígido traslúcido 9 oz Wau",
+        "sku": "7704918100199",
+        "material": "PP",
+        "currency": "COP",
+        "presentation": {
+            "basis": "paquete",
+            "count": 10,
+            "units": 50,
+            "units_requested": 500,
+            "units_bought": 500,
+            "price_per_presentation": 3751,
+            "subtotal": 37510,
+        },
+    },
+    "commercial": {"tax": {"status": "incluido"}},
+    "total": 37510,
+    "quote": {"folio": "Q-ABC123"},
+}
+
+_VIEW_9OZ = quote_view(QUOTE_9OZ)
+assert _VIEW_9OZ is not None
+# Lo que ``_render`` le pasa a ``quote_remarks``: el bloque más SKU, marca y material.
+QUOTED_BLOCK = (
+    f"{whatsapp_quote(_VIEW_9OZ)}\n{_VIEW_9OZ.sku} {_VIEW_9OZ.brand} {_VIEW_9OZ.material}"
+)
+
+
+def test_quote_remarks_deja_solo_los_comentarios() -> None:
+    assert quote_remarks(AGENT_QUOTE_TEXT, QUOTED_BLOCK) == (
+        "Sigue siendo PP, no la opción renovable que preferías [1]. "
+        "¿Te busco una alternativa de papel o pulpa de 9 oz?"
+    )
+    assert quote_remarks("Te comparto la cotización: total $37.510 [1].", QUOTED_BLOCK) == ""
+    assert quote_remarks("", QUOTED_BLOCK) == ""
+
+
+def test_quote_remarks_quita_la_frase_con_importe_y_no_el_parrafo() -> None:
+    text = "El total queda en $37.510 COP [1]. Sigue siendo PP. ¿Te busco una opción de papel?"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == "Sigue siendo PP. ¿Te busco una opción de papel?"
+
+
+def test_quote_remarks_conserva_las_preguntas_con_importe() -> None:
+    text = "Son $37.510 en total. ¿Te confirmo por $37.510?"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == "¿Te confirmo por $37.510?"
+
+
+def test_quote_remarks_conserva_cifras_que_no_estan_en_el_bloque() -> None:
+    text = (
+        "El precio por paquete es $3.751. El montaje cuesta $12.000 aparte. "
+        "El envío llega en 3 a 5 días hábiles."
+    )
+
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "El montaje cuesta $12.000 aparte. El envío llega en 3 a 5 días hábiles."
+    )
+
+
+def test_quote_remarks_conserva_las_vinetas_que_no_repiten_el_bloque() -> None:
+    text = (
+        "Condiciones [1]:\n"
+        "- Total: $37.510 [1]\n"
+        "- No incluye IVA\n"
+        "- Entrega en 5 días\n"
+        "1. Alternativa: vaso de papel 9 oz a $4.100 el paquete"
+    )
+
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "Condiciones [1]:\n"
+        "- No incluye IVA\n"
+        "- Entrega en 5 días\n"
+        "1. Alternativa: vaso de papel 9 oz a $4.100 el paquete"
+    )
+
+
+def test_quote_remarks_conserva_frases_que_dicen_algo_nuevo_con_cifras_del_bloque() -> None:
+    text = (
+        "El total queda en $37.510 COP [1]. "
+        "Recuerda que el precio de $3.751 sube en enero. "
+        "El mínimo es de 10 paquetes (500 unidades). "
+        "El total de $37.510 no incluye el envío."
+    )
+
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "Recuerda que el precio de $3.751 sube en enero. "
+        "El mínimo es de 10 paquetes (500 unidades). "
+        "El total de $37.510 no incluye el envío."
+    )
+
+
+def test_quote_remarks_conserva_lineas_del_bloque_con_cifras_nuevas() -> None:
+    text = (
+        "- Total: pendiente hasta conocer el envío [1]\n"
+        "- Total con envío: $49.510\n"
+        "- Precio de la opción de papel: $4.100"
+    )
+
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "- Total con envío: $49.510\n- Precio de la opción de papel: $4.100"
+    )
+
+
+def test_quote_remarks_pasa_las_vinetas_por_el_filtro_de_frases() -> None:
+    text = "- Subtotal: $37.510\n- ¿Te confirmo por $37.510?\n- No incluye envío"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == "- ¿Te confirmo por $37.510?\n- No incluye envío"
+
+
+def test_quote_remarks_quita_el_encabezado_si_no_queda_nada_debajo() -> None:
+    text = "Resumen [1]:\n- Subtotal: $37.510\n- 500 unidades = 10 paquetes de 50 unidades"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == ""
+
+
+def test_con_cotizacion_no_se_repiten_las_cifras_del_agente() -> None:
+    chat = FakeChat(events=_turn(AGENT_QUOTE_TEXT, folios=["Q-ABC123"]))
+
+    answer = _bridge(chat, quotes=lambda folio, owner: QUOTE_9OZ).consult(
+        "Cotiza 500 vasos de 9 oz en Bogotá", "+57300"
+    )
+
+    assert answer.startswith("🧾 *Cotización #Q-ABC123*")
+    for repeated in ("Precio por paquete", "500 unidades =", "SKU 7704918100199", "- Subtotal"):
+        assert repeated not in answer
+    assert "¿Te busco una alternativa de papel o pulpa de 9 oz?" in answer
+    assert answer.index("🧾") < answer.index("Sigue siendo PP")
+
+
+def test_sin_cotizacion_el_texto_del_agente_queda_completo() -> None:
+    chat = FakeChat(events=_turn(AGENT_QUOTE_TEXT))
+
+    answer = _bridge(chat).consult("hola", "+57300")
+
+    assert "- Precio por paquete: $3.751 [1]" in answer
