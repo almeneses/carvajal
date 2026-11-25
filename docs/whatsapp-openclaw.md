@@ -489,7 +489,7 @@ el 2026-11-24.
 1. En `/opt/carvajal/.env` (además de `TYPESAFE_API_KEY`):
 
    ```bash
-   OPENCLAW_MEDIA_DIR=/home/deploy/.openclaw/media/inbound
+   OPENCLAW_MEDIA_DIR=/srv/openclaw-media
    ```
 
    `compose.prod.yml` monta esa carpeta en `mcp` como `/openclaw-media:ro` y define
@@ -500,7 +500,7 @@ el 2026-11-24.
    lectura, y apunta `OPENCLAW_MEDIA_DIR` a esa vista:
 
    ```bash
-   sudo bindfs -r --perms=og-rwx:od+x:of+r ~/.openclaw/media/inbound /srv/openclaw-media
+   sudo bindfs -r -o allow_other --perms=og-rwx:od+x:of+r ~/.openclaw/media/inbound /srv/openclaw-media
    ```
 
    Los adjuntos que escribe OpenClaw ya son `644`. Para que sobreviva a un reinicio, usa una
@@ -529,10 +529,12 @@ En la VM de OpenClaw (root):
    What=/home/marko/.openclaw/media/inbound
    Where=/srv/occhroot/inbound
    Type=fuse.bindfs
-   Options=ro,perms=og-rwx:od+x:of+r
+   Options=ro,allow_other,perms=og-rwx:od+x:of+r
    ```
 
-   Así el usuario solo tiene paso por la carpeta (sin listado) y lectura de los archivos,
+   `allow_other` deja entrar a otros usuarios que no sean root (bindfs lo activa solo al
+   montar como root, pero va explícito). Así el usuario solo tiene paso por la carpeta
+   (sin listado) y lectura de los archivos,
    sin importar los permisos de la original. Un `chmod 711` o una ACL sobre la carpeta de
    OpenClaw **no sirven**: OpenClaw la vuelve a poner en `700` al guardar cada adjunto (pasó
    el 2026-11-25: el puente respondía «No pude abrir esa foto…» con `adjunto no
