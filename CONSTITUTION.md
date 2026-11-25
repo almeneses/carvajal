@@ -104,12 +104,19 @@ con asistente RAG.
   seguro: `localhost` en desarrollo y HTTPS en despliegue.
 - Sugerir **empaque a partir de una foto del alimento** (spec 051) en el chat web y en
   WhatsApp: Jev (TypeSafe) clasifica la foto con preguntas cerradas (es comida, tipo,
-  consistencia, temperatura, porción) y una tabla determinista elige hasta tres referencias
-  del catálogo del país con la misma regla de materiales del flujo comercial. La respuesta
-  se redacta sin LLM, cita la ficha de cada referencia y queda en el hilo; con confianza
-  baja pregunta, y si no es comida o no hay empaque apto lo dice. La foto no se guarda: se
-  endereza, se escala y se le quitan los metadatos antes de enviarla. Encendida en
-  producción por decisión del owner (2026-11-24), independiente de `JEV_ENABLED`.
+  consistencia, temperatura, porción) y una tabla determinista elige una referencia
+  recomendada y hasta cuatro alternativas del catálogo del país con la misma regla de
+  materiales del flujo comercial (spec 053). La respuesta se redacta sin LLM, cita la ficha
+  de cada referencia y queda en el hilo; con confianza baja pregunta, y si no es comida o no
+  hay empaque apto lo dice. La foto original no se guarda: se endereza, se escala y se le
+  quitan los metadatos antes de enviarla; en la web queda solo una miniatura de 320 px con
+  el mensaje. Encendida en producción por decisión del owner (2026-11-24), independiente de
+  `JEV_ENABLED`.
+- **Elegir y confirmar** (spec 053): «dame esa», «la alternativa 1» o «la 2», por texto o por
+  voz, se resuelven con reglas sobre la recomendación de foto más reciente y el agente cotiza
+  esa referencia. Ninguna cotización se registra sin confirmación: una cotización completa
+  queda como **propuesta** sin folio y solo con un «sí» (o el botón «Confirmar cotización»)
+  recibe folio, fila en `quotes` y PDF.
 - Ofrecer una CLI y un Makefile como interfaz única del proyecto.
 
 **Chat comercial unificado (spec 043, 2026-11-23):** [la especificación](specs/043-chat-comercial-unificado/spec.md)
@@ -592,6 +599,8 @@ git push
 | 2026-11-25 | Rediseño 052: modo de voz del chat (pantalla «Modo de Voz» de Stitch) y Corpus, ficha de documento y Configuración con el sistema de Stitch | El modo de voz se monta sobre la voz existente, sin cambiar su lógica: `chat-voice.js` solo suma dos marcas al contrato de `docs/voz-web.md`, `data-voz-leyendo` en `<html>` y `data-voz-hablado` en el formulario al enviar un dictado. Con ellas, `chat.html` muestra una escena decorativa (`aria-hidden`) sobre el compositor, con Carva que escucha (el SVG de Stitch, en línea por la CSP), transcribe o responde, y ondas animadas. La cabecera lleva un chip «Voz lista en español / Escuchando / Manos libres», y el turno dictado se marca «por voz». El botón «Más despacio» de Stitch queda fuera por decisión del owner. Corpus muestra las secciones legibles («Canal clientes»; el filtro sigue usando el slug), un resumen con chips de los filtros activos, un ícono por tipo de fuente y fichas compactas en móvil. La ficha del documento ordena los metadatos en fichas, con «Volver» como píldora. Configuración cambia el aviso con estilo de error por una barra de sesión del operador y tres pasos (carga → Gold → `carvajal sync --layer core`), y el selector de archivos sigue la marca. La página de FAQ no se rediseña: `/faq` redirige al chat desde que se retiró la generación pública. |
 | 2026-11-24 | Negativa fija para temas fuera de alcance | Una opinión sobre famosos o un programa en Python pasaban el filtro de `no_query` (los nombres vienen en la pregunta y el código no trae cifras) y el agente los respondía. Ahora el prompt pide `sin_consulta(motivo="fuera_de_alcance")` para temas ajenos a Carvajal y, si el turno solo declaró eso, la respuesta es `OUT_OF_SCOPE_ANSWER` (fija, sin la redacción del modelo). Un turno que además consultó datos no se toca. |
 | 2026-11-25 | Workspace del agente «ventas» de OpenClaw versionado en `openclaw/workspace/ventas/` | En la VPS de OpenClaw solo `AGENTS.md` tenía contenido: `SOUL.md`, `IDENTITY.md` y `USER.md` eran las plantillas, y no había `MEMORY.md` ni bitácora diaria. El repositorio pasa a ser la fuente de verdad de esos archivos (persona Carva, límites y defensa ante instrucciones dentro de los mensajes, directivas para todos los clientes, decisiones fechadas y `memory/AAAA-MM-DD.md`). No se versionan los resúmenes del hook `session-memory`, porque traen números y mensajes de clientes, ni la configuración ni las claves del gateway. El despliegue es copiar los archivos con respaldo; el workspace se lee al iniciar cada sesión, sin reiniciar el gateway. |
+
+| 2026-11-25 | De la foto a la cotización (spec 053): recomendada + 4 alternativas, elección por reglas, propuesta sin folio hasta el «sí» y miniatura de la foto | El owner quiere ver la foto como en WhatsApp, elegir entre una recomendada y hasta cuatro alternativas (cuadrícula de 2×2 en la web) «por voz o texto» y seguir a la cotización con confirmación en **todas** las cotizaciones. La elección (`carvajal.agent.followup.resolve_choice`) y el «sí» (`is_confirmation`) se resuelven sin el modelo, porque deciden qué se cotiza y si algo se registra: los números y ordinales nombran alternativas («la primera» = alternativa 1) y los deícticos («esa», «dame esa») la recomendada; una pregunta, una cantidad («2 cajas») o un cambio («la 2 pero en 12 oz») no eligen. El agente recibe la elección resuelta a su SKU, pero el hilo guarda lo que escribió la persona. `cotizar` sigue calculando igual; el servicio marca la cotización como `status: "propuesta"` (sin folio ni fila) y añade «¿Confirmo la cotización?» si el texto no lo pregunta. El «sí» a la propuesta del turno inmediatamente anterior la registra sin LLM, con folio derivado de esa propuesta (confirmar dos veces no emite otro); una propuesta vencida se recalcula. WhatsApp muestra la propuesta sin folio ni PDF. La miniatura (JPEG de 320 px sin metadatos) viaja como `data:` en las fuentes del mensaje de la persona; la vista previa en el compositor y en la burbuja usa `blob:`, que la CSP del chat admite en `img-src`. Diseño de la tarjeta de foto y del estado «Mirando tu foto…» en Stitch («Flujo Foto a Cotización»). Ver [`specs/053-foto-a-cotizacion/`](specs/053-foto-a-cotizacion/spec.md). |
 
 ## 10. Notas y tareas pendientes
 

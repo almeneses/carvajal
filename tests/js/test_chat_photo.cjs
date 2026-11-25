@@ -54,6 +54,9 @@ function crearElemento(etiqueta = "div", selectores = {}) {
     append(...hijos) {
       this.children.push(...hijos);
     },
+    insertBefore(hijo) {
+      this.children.unshift(hijo);
+    },
     closest() {
       return this.formulario || null;
     },
@@ -89,7 +92,7 @@ const esperarTareas = async () => {
   for (let vuelta = 0; vuelta < 6; vuelta++) await new Promise(setImmediate);
 };
 
-function montar({ falla = false } = {}) {
+function montar({ falla = false, vista = false } = {}) {
   const peticiones = [];
   const codificador = new TextEncoder();
   let control;
@@ -146,8 +149,14 @@ function montar({ falla = false } = {}) {
         cloneNode: () => {
           const texto = crearElemento("div");
           const autor = crearElemento("span");
-          const turno = crearElemento("li", { ".texto": texto, "[data-turno-autor]": autor });
+          const burbuja = crearElemento("div");
+          const turno = crearElemento("li", {
+            ".texto": texto,
+            "[data-turno-autor]": autor,
+            ".burbuja": burbuja,
+          });
           turno.texto = texto;
+          turno.burbuja = burbuja;
           turnos.push(turno);
           return turno;
         },
@@ -160,13 +169,18 @@ function montar({ falla = false } = {}) {
     "form[data-chat-stream]": formulario,
     ".historial-chat": historial,
   };
+  const oyentesDocumento = new Map();
   const document = {
     activeElement: null,
     getElementById: (id) => porId[id] || null,
     querySelector: (selector) => porSelector[selector] || null,
     createElement: (etiqueta) => crearElemento(etiqueta),
-    addEventListener() {},
+    addEventListener(tipo, manejador) {
+      if (!oyentesDocumento.has(tipo)) oyentesDocumento.set(tipo, []);
+      oyentesDocumento.get(tipo).push(manejador);
+    },
   };
+  const urls = [];
   const window = {
     document,
     location: { search: "" },
@@ -200,6 +214,15 @@ function montar({ falla = false } = {}) {
     clearTimeout,
     console,
   };
+  if (vista) {
+    window.URL = {
+      createObjectURL: () => {
+        urls.push(`blob:foto-${urls.length + 1}`);
+        return urls[urls.length - 1];
+      },
+      revokeObjectURL() {},
+    };
+  }
   window.window = window;
   const contexto = vm.createContext(window);
   vm.runInContext(FOTO, contexto);
@@ -221,7 +244,14 @@ function montar({ falla = false } = {}) {
     await esperarTareas();
   }
 
-  return { window, raiz, pregunta, ficha, aviso, nombre, estado, turnos, peticiones, elegir, enviar, evento, quitar };
+  function soltar(evento) {
+    for (const manejador of oyentesDocumento.get(evento.type) || []) manejador(evento);
+  }
+
+  return {
+    window, raiz, pregunta, ficha, aviso, nombre, estado, turnos, peticiones, elegir, enviar,
+    evento, quitar, soltar, urls,
+  };
 }
 
 const JPEG = { name: "ajiaco.jpg", type: "image/jpeg", size: 120_000 };
@@ -316,4 +346,73 @@ test("sin foto, la pregunta sigue yendo a /chat/stream", async () => {
 
   // Assert
   assert.equal(chat.peticiones[0].url, "/chat/stream");
+});
+
+// --- Spec 053: la foto se ve, Carva mira y se adjunta arrastrando o pegando -----------------
+
+test("con vista local, la burbuja muestra la foto y debajo el texto", async () => {
+  // Arrange
+  const chat = montar({ vista: true });
+  chat.elegir(JPEG);
+
+  // Act
+  await chat.enviar("para domicilio");
+
+  // Assert
+  const [imagen] = chat.turnos[0].burbuja.children;
+  assert.equal(imagen.className, "turno-foto");
+  assert.match(imagen.src, /^blob:foto-/);
+  assert.equal(imagen.alt, "Foto del alimento que enviaste");
+  assert.equal(chat.turnos[0].texto.textContent, "para domicilio");
+});
+
+test("mientras analiza la foto, la línea de estado dice «Mirando tu foto…»", async () => {
+  // Arrange
+  const chat = montar({ vista: true });
+  chat.elegir(JPEG);
+
+  // Act
+  await chat.enviar("");
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  const durante = chat.estado.textContent;
+  await chat.evento("fallback", { text: "Veo una sopa…", sources: [] });
+
+  // Assert
+  assert.equal(durante, "Mirando tu foto…");
+  assert.equal(chat.estado.textContent, "");
+  assert.equal(chat.turnos[1].dataset.mirando, undefined);
+});
+
+test("pegar una imagen la adjunta; pegar texto sigue pegando texto", () => {
+  // Arrange
+  const chat = montar();
+  let evitado = 0;
+  const pegar = (datos) =>
+    chat.pregunta.dispatch("paste", { clipboardData: datos, preventDefault: () => evitado++ });
+
+  // Act
+  pegar({ files: [], items: [] });
+  const sinImagen = chat.window.CarvajalFoto.tomar();
+  pegar({ files: [JPEG], items: [] });
+
+  // Assert
+  assert.equal(sinImagen, null);
+  assert.equal(evitado, 1);
+  assert.equal(chat.window.CarvajalFoto.tomar(), JPEG);
+});
+
+test("soltar una foto la adjunta con las mismas validaciones del botón", () => {
+  // Arrange
+  const chat = montar();
+  const soltar = (files) =>
+    chat.soltar({ type: "drop", dataTransfer: { types: ["Files"], files }, preventDefault() {} });
+
+  // Act
+  soltar([{ name: "foto.gif", type: "image/gif", size: 10 }]);
+  const gif = chat.window.CarvajalFoto.tomar();
+  soltar([JPEG]);
+
+  // Assert
+  assert.equal(gif, null);
+  assert.equal(chat.window.CarvajalFoto.tomar(), JPEG);
 });

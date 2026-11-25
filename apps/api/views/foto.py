@@ -36,7 +36,13 @@ from apps.api.views.chat import (
     set_identity_cookie,
 )
 from carvajal.adapters.judge import JevFoodClassifier, build_food_classifier
-from carvajal.food.photo import MAX_PHOTO_BYTES, PhotoRejected, PreparedPhoto, prepare_photo
+from carvajal.food.photo import (
+    MAX_PHOTO_BYTES,
+    PhotoRejected,
+    PreparedPhoto,
+    prepare_photo,
+    thumbnail_data_url,
+)
 from carvajal.food.profile import FoodProfile
 from carvajal.infrastructure.settings import Settings
 
@@ -72,6 +78,7 @@ class PhotoChat(Protocol):
         precheck: Callable[[], str | None] | None = None,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
+        thumbnail: str | None = None,
     ) -> Iterator[ChatEvent]: ...
 
 
@@ -169,6 +176,8 @@ async def chat_foto(request: Request) -> Response:
         return _reject(TOO_LONG_QUESTION, 422, "too_long")
     try:
         photo = await anyio.to_thread.run_sync(prepare_photo, raw)
+        # Spec 053 (FR-017): la miniatura del historial; se guarda solo si el turno se guarda.
+        thumbnail = await anyio.to_thread.run_sync(thumbnail_data_url, photo)
     except PhotoRejected as error:
         status = 413 if error.reason == "grande" else 415 if error.reason == "formato" else 422
         return _reject(error.message, status, error.reason)
@@ -197,6 +206,7 @@ async def chat_foto(request: Request) -> Response:
                 precheck=_prechecker(request, owner_key),
                 client_turn_id=client_turn_id,
                 thread_id=thread_id,
+                thumbnail=thumbnail,
             )
         ),
         media_type=SSE_MEDIA_TYPE,

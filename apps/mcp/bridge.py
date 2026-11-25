@@ -587,7 +587,11 @@ def quote_remarks(text: str, quoted: str) -> str:
 def whatsapp_quote(view: QuoteView, photo_url: str | None = None) -> str:
     """Bloque de WhatsApp de una cotización emitida, con las cifras del payload."""
 
-    lines = [f"🧾 *Cotización #{view.folio}*" if view.folio else "🧾 *Cotización*"]
+    if view.folio:
+        lines = [f"🧾 *Cotización #{view.folio}*"]
+    else:
+        # Spec 053: sin folio es una propuesta; se registra cuando la persona dice «sí».
+        lines = ["🧾 *Propuesta de cotización* (sin folio, por confirmar)"]
     place = " · ".join(part for part in (view.city, view.seller) if part)
     if place:
         lines.append(f"📍 {place}")
@@ -773,12 +777,15 @@ class _Turn:
     sources: list[Mapping[str, Any]]
     folios: list[str]
     error: str | None
+    # Spec 053: cotizaciones propuestas del turno (sin folio), que esperan el «sí».
+    proposals: list[Mapping[str, Any]] = field(default_factory=list)
 
 
 def _collect(events: Iterable[ChatEvent]) -> _Turn:
     fragments: list[str] = []
     sources: list[Mapping[str, Any]] = []
     folios: list[str] = []
+    proposals: list[Mapping[str, Any]] = []
     error: str | None = None
     for event in events:
         if event.name in {"token", "fallback"}:
@@ -788,9 +795,11 @@ def _collect(events: Iterable[ChatEvent]) -> _Turn:
             sources = [item for item in raw if isinstance(item, Mapping)]
         elif event.name == "done":
             folios = [str(folio) for folio in event.data.get("quote_ids") or [] if folio]
+            raw = event.data.get("proposals") or []
+            proposals = [item for item in raw if isinstance(item, Mapping)]
         elif event.name == "error":
             error = str(event.data.get("message") or SERVICE_UNAVAILABLE)
-    return _Turn("".join(fragments), sources, folios, error)
+    return _Turn("".join(fragments), sources, folios, error, proposals)
 
 
 @dataclass(frozen=True)
@@ -1145,7 +1154,8 @@ class WhatsAppBridge:
 
         if turn.error is not None and not turn.text.strip():
             return BridgeReply(SERVICE_UNAVAILABLE)
-        quotes = self._quote_views(turn.folios, owner)
+        issued = self._quote_views(turn.folios, owner)
+        quotes = [*issued, *self._proposal_views(turn.proposals)]
         blocks = [whatsapp_quote(view, photo) for view, photo in quotes]
         # Con cotización, el bloque ya trae las cifras: del texto del agente solo quedan
         # sus comentarios (una nota o una pregunta de seguimiento), después del bloque.
@@ -1161,7 +1171,8 @@ class WhatsAppBridge:
         if listed:
             blocks.append(listed)
         pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
-        offer = bool(quotes) and pdf_enabled and self._latest_view(owner) is not None
+        # El PDF solo existe para cotizaciones registradas: una propuesta no lo ofrece.
+        offer = bool(issued) and pdf_enabled and self._latest_view(owner) is not None
         if offer:
             blocks.append(PDF_OFFER)
         spoken: list[SpokenReply] = []
@@ -1209,6 +1220,18 @@ class WhatsAppBridge:
                 logger.warning("whatsapp.quote_lookup_failed", folio=folio, error=repr(error))
                 continue
             view = quote_view(payload) if payload else None
+            if view is not None:
+                views.append((view, self._photo(view.sku)))
+        return views
+
+    def _proposal_views(
+        self, proposals: Sequence[Mapping[str, Any]]
+    ) -> list[tuple[QuoteView, str | None]]:
+        """Propuestas del turno (spec 053), con las cifras del payload y sin folio."""
+
+        views: list[tuple[QuoteView, str | None]] = []
+        for payload in proposals:
+            view = quote_view(payload)
             if view is not None:
                 views.append((view, self._photo(view.sku)))
         return views

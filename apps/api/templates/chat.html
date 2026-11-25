@@ -116,7 +116,12 @@
               <span>Foto</span>
             </label>
             <span class="foto-ficha" data-foto-ficha hidden>
-              <span class="foto-nombre" data-foto-nombre></span>
+              {#- Spec 053 (FR-015): miniatura local (blob:) de la foto adjunta. -#}
+              <img class="foto-miniatura" data-foto-miniatura alt="" width="56" height="56" />
+              <span class="foto-datos">
+                <span class="foto-nombre" data-foto-nombre></span>
+                <span class="foto-peso" data-foto-peso></span>
+              </span>
               <button type="button" class="foto-quitar" data-foto-quitar aria-label="Quitar la foto">×</button>
             </span>
           </div>
@@ -174,11 +179,31 @@
         {% if foto_disponible %}
         <p id="foto-aviso" class="foto-aviso" data-foto-aviso role="note" hidden>
           Envía la foto del alimento y te sugiero el empaque. La foto se analiza con un servicio
-          externo (TypeSafe, EE. UU.) y no se guarda; evita que salgan personas o datos personales.
+          externo (TypeSafe, EE. UU.); guardamos solo una miniatura en tu conversación. Evita que
+          salgan personas o datos personales.
         </p>
+        {% endif %}
+        {% if foto_disponible %}
+        <p class="foto-soltar" data-foto-soltar aria-hidden="true" hidden>Suelta la foto aquí</p>
         {% endif %}
       </form>
       <p id="chat-stream-estado" class="estado-chat" role="status"></p>
+      {% if foto_disponible %}
+      {#- Spec 053 (FR-020): Carva con lupa mientras se analiza la foto (chat-stream.js). -#}
+      <template id="plantilla-mirando">
+        <div class="foto-mirando" aria-hidden="true">
+          <div class="foto-mirando-carva">
+            {% set carva_estado = "mira" %}{% include "_carva.html" %}
+            <svg class="foto-lupa" viewBox="0 0 48 48" width="40" height="40" fill="none" aria-hidden="true">
+              <circle cx="20" cy="20" r="12" stroke="#003A5D" stroke-width="5" fill="#E6F7FC" />
+              <path d="M29 29 L42 42" stroke="#003A5D" stroke-width="6" stroke-linecap="round" />
+            </svg>
+          </div>
+          <div class="foto-mirando-imagen"><img alt="" data-mirando-foto /><span class="foto-escaner"></span></div>
+          <p class="foto-mirando-texto"><strong>Mirando tu foto…</strong><span>Reviso qué alimento es y cómo se entrega.</span></p>
+        </div>
+      </template>
+      {% endif %}
 
       <dialog
         class="voz-aviso"

@@ -221,6 +221,12 @@ Cotización:
   el dato publicado.
 - Si recibes un bloque <contexto_comercial>, úsalo para completar los datos que falten y
   di qué reutilizaste.
+- Lo que devuelve cotizar es una propuesta: preséntala con sus cifras y pregunta si la
+  confirma. No digas que quedó registrada ni inventes un folio: se registra con folio
+  cuando la persona responde «sí».
+- Si el mensaje termina con «(Elegí … de la foto: <nombre>, ref. <SKU>. Cotízala.)», la
+  persona eligió esa referencia de la recomendación anterior: llama a cotizar con ese sku
+  y con la cantidad y la ciudad que diga el mensaje o el hilo.
 - No tomes pedidos, reservas ni pagos.
 
 Memoria:

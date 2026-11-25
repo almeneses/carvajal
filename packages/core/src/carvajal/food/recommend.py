@@ -20,6 +20,7 @@ __all__ = [
     "DEFAULT_COUNTRY",
     "FOOD_THRESHOLD",
     "KIND_RULES",
+    "MAX_ALTERNATIVES",
     "MAX_SUGGESTIONS",
     "KindRule",
     "NoteHints",
@@ -35,7 +36,9 @@ Status = Literal["ok", "not_food", "ask_kind", "ask_temperature", "no_match"]
 
 DEFAULT_COUNTRY: Final[Country] = "CO"
 FOOD_THRESHOLD: Final = 0.5
-MAX_SUGGESTIONS: Final = 3
+# Spec 053 (FR-001): una recomendada y hasta cuatro alternativas.
+MAX_ALTERNATIVES: Final = 4
+MAX_SUGGESTIONS: Final = 1 + MAX_ALTERNATIVES
 _LEVEL_RANK: Final = {"recomendable": 0, "aplicable": 1}
 # Capacidad esperada (oz) por nivel de porción (0-3). Una referencia con menos de la mitad
 # de la capacidad esperada no se sugiere (una salsera no sirve para una sopa).
@@ -194,7 +197,8 @@ def _fits(reference: Reference, req: Requirements) -> bool:
 
 
 def _pick(ranked: list[Reference], req: Requirements, catalog: Catalog) -> tuple[Reference, ...]:
-    """Hasta tres en orden; dentro de un mismo nivel de aptitud, primero materiales distintos.
+    """Hasta cinco en orden (la primera es la recomendada); dentro de un mismo nivel de
+    aptitud, primero materiales distintos.
 
     El nivel es (la ficha declara el uso, nivel de la guía): la variedad nunca pasa una
     referencia menos apta por delante de una más apta.

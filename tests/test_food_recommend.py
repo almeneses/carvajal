@@ -15,6 +15,7 @@ from carvajal.catalog.loader import Catalog, load_catalog
 from carvajal.food.profile import FOOD_KINDS, FoodKind, FoodProfile, Temperature
 from carvajal.food.recommend import (
     KIND_RULES,
+    MAX_ALTERNATIVES,
     application_level,
     read_note,
     recommend,
@@ -54,7 +55,7 @@ def test_sopa_caliente_sugiere_contenedores_aptos_de_colombia(catalog: Catalog) 
 
     # Assert
     assert rec.status == "ok" and rec.country == "CO"
-    assert 1 <= len(rec.references) <= 3
+    assert 1 <= len(rec.references) <= 1 + MAX_ALTERNATIVES
     for reference in rec.references:
         rule = catalog.materials.get(reference.material)
         assert reference.country == "CO"

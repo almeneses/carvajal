@@ -38,7 +38,7 @@ from decimal import Decimal
 from functools import cache
 from hashlib import sha256
 from time import perf_counter
-from typing import Any, Literal, Protocol, TypeGuard, runtime_checkable
+from typing import Any, Final, Literal, Protocol, TypeGuard, runtime_checkable
 from uuid import uuid4
 
 import openai
@@ -63,6 +63,7 @@ from apps.api.chat.agent import (
 from apps.api.chat.products import has_cards, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from apps.api.chat.summary_worker import SummaryWorker, build_summary_worker
+from apps.api.quote_view import format_date, quote_view
 from carvajal.adapters.storage.chat import (
     ChatMessage,
     Conversation,
@@ -70,6 +71,7 @@ from carvajal.adapters.storage.chat import (
     SqlChatRepository,
 )
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
+from carvajal.agent.followup import ChoiceOutOfRange, is_confirmation, resolve_choice
 from carvajal.agent.gatekeeper.model import map_route
 from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns, pair_turns
 from carvajal.agent.state import Turn
@@ -139,6 +141,9 @@ class _ToolTurn:
     persist_attempted: bool = False
     # Fuentes ya enviadas en ``meta`` antes del primer token; ``None`` si aún no.
     announced: tuple[Source, ...] | None = None
+    # Spec 053: lo que lee el agente si difiere de lo que escribió la persona (una
+    # elección «la 2» resuelta a su referencia); la pregunta guardada no cambia.
+    prompt: str | None = None
 
 
 @runtime_checkable
@@ -401,13 +406,37 @@ class ChatService:
                 if replay is not None:
                     yield from _replay(replay, request_id=_request_id())
                     return
+                # Spec 053: «sí» a una propuesta o «la 2» sobre una recomendación de foto.
+                followup = _followup(repository.history(conversation.id, limit=12), text)
                 # El hilo debe existir antes de generar; si el LLM falla, la UI
                 # puede seguir mostrando la conversación sin un turno a medias.
                 session.commit()
             request_id = _request_id()
+            prompt = text
+            if followup is not None:
+                if followup.answer is not None:
+                    yield from self._fixed_turn(
+                        owner_key,
+                        conversation,
+                        text,
+                        followup.answer,
+                        route=followup.route,
+                        products=followup.products,
+                        quotes=followup.quotes,
+                        client_turn_id=client_turn_id,
+                        request_id=request_id,
+                        started=started,
+                    )
+                    return
+                prompt = followup.prompt or text
             monitor = self._monitoring()
             if tool_runner is not None:
-                tools = _ToolTurn(runner=tool_runner, fragments=fragments, seed=seed)
+                tools = _ToolTurn(
+                    runner=tool_runner,
+                    fragments=fragments,
+                    seed=seed,
+                    prompt=prompt if prompt != text else None,
+                )
                 yield from self._stream_tools(
                     tools,
                     monitor,
@@ -427,12 +456,8 @@ class ChatService:
                 router=self._config().agent_router,
                 question=text,
             ) as span:
-                turn = runner.prepare(owner_key, conversation.id, text, seed)
-                products, quote_record = _issue_quote(
-                    turn.products,
-                    conversation_id=conversation.id,
-                    client_turn_id=client_turn_id,
-                )
+                turn = runner.prepare(owner_key, conversation.id, prompt, seed)
+                products, quote_record = _propose_quote(turn.products)
                 if products is not turn.products:
                     turn = replace(turn, products=products)
                 # La ruta ya se conoce aquí: registrarla ahora deja trazas
@@ -545,6 +570,10 @@ class ChatService:
                             {"text": answer, "sources": _sources(turn.sources)},
                         )
 
+                question_suffix = _proposal_question("".join(fragments), turn.products)
+                if question_suffix:
+                    fragments.append(question_suffix)
+                    yield ChatEvent("token", {"text": question_suffix})
                 answer_text = "".join(fragments)
                 span.add_outputs(answer=answer_text)
                 persist_attempted = True
@@ -598,6 +627,7 @@ class ChatService:
                         "request_id": request_id,
                         "quote_id": quote_record["id"] if quote_record else None,
                         "quote_ids": [quote_record["id"]] if quote_record else [],
+                        "proposals": _pending_quotes(turn.products),
                     },
                 )
             yield done_event
@@ -714,8 +744,12 @@ class ChatService:
         precheck: Callable[[], str | None] | None = None,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
+        thumbnail: str | None = None,
     ) -> Iterator[ChatEvent]:
         """Turno de una foto de alimento (spec 051): sin LLM, guardado como cualquier turno.
+
+        ``thumbnail`` (spec 053, FR-017) es la miniatura ``data:`` de la foto; se guarda con
+        la pregunta solo si el turno se guarda (la foto original nunca).
 
         Orden (research R7): reintento con el mismo ``client_turn_id`` → se reemite sin
         clasificar ni cobrar; ``precheck()`` mira el cupo sin reservarlo y, si ya se agotó,
@@ -802,6 +836,9 @@ class ChatService:
                     client_turn_id=client_turn_id,
                     products=products,
                     quotes=(),
+                    question_sources=(
+                        [{"result_type": "photo", "thumbnail": thumbnail}] if thumbnail else None
+                    ),
                 )
             self._summarize(owner_key, conversation.id)
             elapsed = _milliseconds(started)
@@ -975,11 +1012,7 @@ class ChatService:
         route = "shortcut" if closing.mode_path == "shortcut" else "agent"
         tools.route = route
         sources: tuple[Source, ...] = () if closing.abstained else closing.sources
-        products, quote_records = _issue_quotes(
-            closing.products,
-            conversation_id=conversation.id,
-            client_turn_id=client_turn_id,
-        )
+        products, quote_records = _propose_quotes(closing.products)
         monitored, no_query = _monitored_results(closing.results)
         tool_names = [str(r["tool"]) for r in monitored]
         gatekeeper = _gatekeeper_trace(closing.gatekeeper)
@@ -1002,6 +1035,10 @@ class ChatService:
         record_judge_calls(span, _judge_calls(closing.gatekeeper, closing.claims))
         structlog.contextvars.bind_contextvars(route=route)
 
+        question_suffix = _proposal_question("".join(fragments), products)
+        if question_suffix:
+            fragments.append(question_suffix)
+            yield ChatEvent("token", {"text": question_suffix})
         answer_text = "".join(fragments)
         span.add_outputs(answer=answer_text)
         tools.persist_attempted = True
@@ -1073,6 +1110,7 @@ class ChatService:
             elapsed=elapsed,
             request_id=request_id,
             folios=[str(record["id"]) for record in quote_records],
+            products=products,
         )
 
     def _fallback_tools(
@@ -1130,11 +1168,7 @@ class ChatService:
             and obtained is not None
             and _has_evidence(obtained)
         ):
-            products, quote_records = _issue_quotes(
-                obtained.products,
-                conversation_id=conversation.id,
-                client_turn_id=client_turn_id,
-            )
+            products, quote_records = _propose_quotes(obtained.products)
             sources = obtained.sources
             # Solo el plazo vencido declara lo que faltó; un cierre vacío no venció nada.
             note = fallback.timeout_note(len(obtained.missing)) if reason == "timeout" else ""
@@ -1146,12 +1180,8 @@ class ChatService:
             turns: Sequence[Turn] = tools.seed
         else:
             runner = self._runner()
-            turn = runner.prepare(owner_key, conversation.id, question, tools.seed)
-            products, quote_record = _issue_quote(
-                turn.products,
-                conversation_id=conversation.id,
-                client_turn_id=client_turn_id,
-            )
+            turn = runner.prepare(owner_key, conversation.id, tools.prompt or question, tools.seed)
+            products, quote_record = _propose_quote(turn.products)
             quote_records = [quote_record] if quote_record else []
             sources = turn.sources
             answer_text = fallback.render(products, sources)
@@ -1198,6 +1228,7 @@ class ChatService:
         if obtained is not None:
             record_judge_calls(span, _judge_calls(obtained.gatekeeper, obtained.claims))
         structlog.contextvars.bind_contextvars(route="agent")
+        answer_text += _proposal_question(answer_text, products)
         span.add_outputs(answer=answer_text)
 
         tools.persist_attempted = True
@@ -1271,6 +1302,7 @@ class ChatService:
             elapsed=elapsed,
             request_id=request_id,
             folios=[str(record["id"]) for record in quote_records],
+            products=products,
         )
 
     def _persist_owned(
@@ -1284,6 +1316,7 @@ class ChatService:
         client_turn_id: str | None,
         products: Mapping[str, Any] | None,
         quotes: Sequence[Mapping[str, Any]],
+        question_sources: Sequence[Mapping[str, Any]] | None = None,
     ) -> tuple[str, str]:
         """Guarda el turno completo si el hilo sigue siendo del dueño (una transacción)."""
 
@@ -1302,7 +1335,76 @@ class ChatService:
                 client_turn_id=client_turn_id,
                 products=products,
                 quotes=quotes,
+                question_sources=question_sources,
             )
+
+    def _fixed_turn(
+        self,
+        owner_key: str,
+        conversation: Conversation,
+        question: str,
+        answer: str,
+        *,
+        route: str,
+        products: Mapping[str, Any] | None,
+        quotes: Sequence[Mapping[str, Any]],
+        client_turn_id: str | None,
+        request_id: str,
+        started: float,
+    ) -> Iterator[ChatEvent]:
+        """Turno con respuesta determinista, sin LLM (spec 053): confirmar o elegir mal.
+
+        Se guarda como cualquier turno (con sus cotizaciones registradas, si las hay) y se
+        emite como el respaldo: ``meta``, ``fallback``, ``trace``, ``products`` y ``done``.
+        """
+
+        with self._monitoring().turn(
+            request_id=request_id,
+            thread_hash=thread_hash(conversation.id),
+            router=route,
+            question=question,
+        ) as span:
+            span.add_metadata(route=route, path=route, quote_count=len(quotes))
+            span.add_outputs(answer=answer)
+            conversation_id, message_id = self._persist_owned(
+                owner_key,
+                conversation,
+                question,
+                answer,
+                (),
+                client_turn_id=client_turn_id,
+                products=products,
+                quotes=quotes,
+            )
+        self._summarize(owner_key, conversation.id)
+        elapsed = _milliseconds(started)
+        logger.info(
+            "chat.turn_completed",
+            thread_id=conversation.id,
+            route=route,
+            path=route,
+            quotes=len(quotes),
+            duration_ms=elapsed,
+            result="ok",
+        )
+        yield ChatEvent("meta", {"sources": []})
+        yield ChatEvent("fallback", {"text": answer, "sources": []})
+        yield ChatEvent("trace", {"thread_id": conversation.id, "route": route, "path": route})
+        cards = dict(products) if products else None
+        if cards and has_cards(cards):
+            html = safe_render_products(cards)
+            if html:
+                yield ChatEvent("products", {"html": html})
+        yield _done_event(
+            conversation_id,
+            message_id,
+            thread_id=conversation.id,
+            route=route,
+            elapsed=elapsed,
+            request_id=request_id,
+            folios=[str(record["id"]) for record in quotes],
+            products=products,
+        )
 
     def _relay_tool_events(
         self,
@@ -1325,7 +1427,7 @@ class ChatService:
 
         config = self._config()
         fragments = tools.fragments
-        events = tools.runner.stream(owner_key, thread_id, question, tools.seed)
+        events = tools.runner.stream(owner_key, thread_id, tools.prompt or question, tools.seed)
         closing: ToolAgentFinal | None = None
         try:
             with span.child(
@@ -1390,6 +1492,7 @@ class ChatService:
         client_turn_id: str | None,
         products: Mapping[str, Any] | None = None,
         quotes: Sequence[Mapping[str, Any]] = (),
+        question_sources: Sequence[Mapping[str, Any]] | None = None,
     ) -> tuple[str, str]:
         """Guarda mensajes, resultado comercial y cotizaciones en una sola transacción.
 
@@ -1405,6 +1508,7 @@ class ChatService:
             sources=_message_sources(sources, products),
             status=status,
             client_turn_id=client_turn_id,
+            question_sources=question_sources,
         )
         for quote in quotes:
             _record_quote(session, conversation, quote, message_id=assistant.id)
@@ -1653,6 +1757,7 @@ def _replay(
             elapsed=0,
             request_id=request_id,
             folios=folios,
+            products=result,
         )
 
 
@@ -1665,8 +1770,13 @@ def _done_event(
     elapsed: int,
     request_id: str,
     folios: Sequence[str],
+    products: Mapping[str, Any] | None = None,
 ) -> ChatEvent:
-    """Evento ``done``: ``quote_ids`` con todos los folios y ``quote_id`` = el primero."""
+    """Evento ``done``: ``quote_ids`` con todos los folios y ``quote_id`` = el primero.
+
+    ``proposals`` (spec 053) lleva las cotizaciones propuestas del turno, sin folio: el
+    puente de WhatsApp las presenta y pide el «sí»; la web las pinta desde ``products``.
+    """
 
     return ChatEvent(
         "done",
@@ -1679,6 +1789,7 @@ def _done_event(
             "request_id": request_id,
             "quote_id": folios[0] if folios else None,
             "quote_ids": list(folios),
+            "proposals": _pending_quotes(products),
         },
     )
 
@@ -1804,6 +1915,186 @@ def _is_quotation(quoted: Any) -> TypeGuard[Mapping[str, Any]]:
     )
 
 
+PROPOSAL_STATUS: Final = "propuesta"
+REGISTERED_STATUS: Final = "registrada"
+PROPOSAL_QUESTION: Final = "¿Confirmo la cotización? Responde «sí» y la registro con su folio."
+
+
+@dataclass(frozen=True)
+class _Followup:
+    """Cómo atender una respuesta corta (spec 053).
+
+    Con ``answer``, el turno es determinista (confirmación o elección fuera de rango) y
+    puede traer las cotizaciones ya registradas; con ``prompt``, el agente atiende el turno
+    leyendo ese texto en lugar del que escribió la persona.
+    """
+
+    route: str
+    prompt: str | None = None
+    answer: str | None = None
+    products: Mapping[str, Any] | None = None
+    quotes: Sequence[Mapping[str, Any]] = ()
+
+
+def _pending_quotes(products: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Cotizaciones propuestas del resultado: calculadas, sin folio, esperando el «sí»."""
+
+    return [
+        dict(quote)
+        for quote in result_quotes(products)
+        if _is_quotation(quote) and quote.get("status") == PROPOSAL_STATUS
+    ]
+
+
+def _propose_quotes(
+    products: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Marca cada cotización del turno como propuesta: sin folio ni fila (spec 053, FR-009).
+
+    Devuelve la misma forma que :func:`_issue_quotes` (sin registros): el folio se asigna
+    cuando la persona confirma (:func:`_followup`).
+    """
+
+    listed = result_quotes(products)
+    if not products or not any(_is_quotation(item) for item in listed):
+        return dict(products or {}), []
+    marked = [
+        {**item, "status": PROPOSAL_STATUS} if _is_quotation(item) else item for item in listed
+    ]
+    proposed = {**products, "quote": marked[0]}
+    if isinstance(products.get("quotes"), list) and products["quotes"]:
+        proposed["quotes"] = marked
+    return proposed, []
+
+
+def _propose_quote(
+    products: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """:func:`_propose_quotes` con la forma de :func:`_issue_quote` (modo ``routes``)."""
+
+    proposed, _ = _propose_quotes(products)
+    return proposed, None
+
+
+def _proposal_question(answer: str, products: Mapping[str, Any] | None) -> str:
+    """La pregunta de confirmación, si hay propuesta y el texto no la hizo ya (FR-010)."""
+
+    if not _pending_quotes(products) or "confirm" in answer.casefold():
+        return ""
+    return f"\n\n{PROPOSAL_QUESTION}"
+
+
+def _followup(messages: Sequence[ChatMessage], text: str) -> _Followup | None:
+    """«Sí» a la propuesta del turno anterior o elección sobre la recomendación de foto.
+
+    La confirmación solo vale para la propuesta del turno inmediatamente anterior (FR-011).
+    La elección se resuelve contra la lista de productos más reciente del hilo, siempre que
+    sea la de una foto (FR-005): otra lista posterior la reemplaza.
+    """
+
+    answers = [message for message in messages if message.role == "assistant"]
+    if not answers:
+        return None
+    last = answers[-1]
+    result = _result_from_payload(last.sources)
+    pending = _pending_quotes(result)
+    if pending and is_confirmation(text):
+        return _confirmation(last, result, pending)
+    for message in reversed(answers):
+        found = _result_from_payload(message.sources)
+        if not found.get("options"):
+            continue
+        if found.get("origin") != "foto":
+            return None
+        return _photo_choice(found["options"], text)
+    return None
+
+
+def _confirmation(
+    message: ChatMessage, result: Mapping[str, Any], pending: Sequence[Mapping[str, Any]]
+) -> _Followup:
+    """Registra las propuestas del turno o, si vencieron, pide recalcularlas (Edge Cases)."""
+
+    today = datetime.now(UTC).date()
+    for quote in pending:
+        valid = str((quote.get("commercial") or {}).get("valid_until") or "")[:10]
+        if valid and valid < today.isoformat():
+            view = quote_view(quote)
+            if view is None:
+                break
+            detail = f"{view.product} (ref. {view.sku})"
+            if view.units_requested:
+                detail += f", {view.units_requested} unidades"
+            if view.city:
+                detail += f" en {view.city}"
+            prompt = f"Vuelve a cotizar {detail}: la propuesta anterior venció."
+            return _Followup(route="confirmacion", prompt=prompt)
+    issued, records = _issue_quotes(
+        result,
+        conversation_id=message.conversation_id,
+        # El folio sale de la propuesta: confirmarla dos veces no emite otro (FR-013).
+        client_turn_id=f"confirmacion:{message.id}",
+    )
+    if not result.get("quotes"):
+        # Un resultado del modo ``routes`` trae solo ``quote``: se conserva su forma.
+        issued.pop("quotes", None)
+    return _Followup(
+        route="confirmacion",
+        answer=_confirmation_text(issued),
+        products=issued,
+        quotes=records,
+    )
+
+
+def _confirmation_text(issued: Mapping[str, Any]) -> str:
+    """«Listo, registré tu cotización #folio…» con las cifras de la cotización emitida."""
+
+    views = [view for quote in result_quotes(issued) if (view := quote_view(quote)) and view.folio]
+    if not views:
+        return "No encontré la propuesta para registrarla. ¿Me repites qué quieres cotizar?"
+    if len(views) > 1:
+        listed = ", ".join(f"#{view.folio} ({view.product})" for view in views)
+        return f"Listo, registré tus cotizaciones {listed}. Puedes descargarlas en PDF."
+    view = views[0]
+    detail = view.product
+    if view.units_requested:
+        detail += f", {view.units_requested} unidades"
+    if view.city:
+        detail += f" en {view.city}"
+    text = f"Listo, registré tu cotización **#{view.folio}**: {detail}."
+    if view.total:
+        text += f" Total: {view.total}."
+    until = format_date(view.valid_until_date) if view.valid_until_date else None
+    if until:
+        text += f" Es válida hasta el {until}."
+    return text
+
+
+def _photo_choice(options: Sequence[Mapping[str, Any]], text: str) -> _Followup | None:
+    """Elección sobre la recomendación de foto: la referencia para el agente o las válidas."""
+
+    labelled = [option for option in options if "choice" in option]
+    if not labelled:
+        return None
+    found = resolve_choice(text, len(labelled) - 1)
+    if found is None:
+        return None
+    if isinstance(found, ChoiceOutOfRange):
+        lines = [f"No tengo la alternativa {found.asked}. Te mostré estas opciones:", ""]
+        for index, option in enumerate(labelled):
+            label = "Recomendada" if index == 0 else f"Alternativa {index}"
+            lines.append(f"- **{label}**: {option.get('name')} (ref. {option.get('sku')})")
+        lines += ["", "¿Cuál quieres? Di «dame esa» para la recomendada o el número."]
+        return _Followup(route="eleccion", answer="\n".join(lines))
+    option = labelled[found.index]
+    label = "la recomendada" if found.index == 0 else f"la alternativa {found.index}"
+    prompt = (
+        f"{text}\n\n(Elegí {label} de la foto: {option.get('name')}, "
+        f"ref. {option.get('sku')}. Cotízala.)"
+    )
+    return _Followup(route="eleccion", prompt=prompt)
+
+
 def _issue_quote(
     products: Mapping[str, Any],
     *,
@@ -1872,6 +2163,8 @@ def _stamp_quote(
     retention = (moment.date() + timedelta(days=QUOTE_DAYS)).isoformat()
     payload = {
         **quoted,
+        # Spec 053: la propuesta confirmada pasa a registrada al recibir su folio.
+        "status": REGISTERED_STATUS,
         "version": QUOTE_VERSION,
         "quote": {
             "id": folio,

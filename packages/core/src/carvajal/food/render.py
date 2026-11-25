@@ -1,9 +1,11 @@
-"""Respuesta de la foto sin LLM (spec 051, FR-014 a FR-017).
+"""Respuesta de la foto sin LLM (spec 051, FR-014 a FR-017; spec 053, FR-001 a FR-004).
 
-El texto se arma con la clasificación, la tabla y las fichas del catálogo: cada referencia
-lleva su ref. (para que el agente la cotice en el turno siguiente) y el enlace a su ficha, y
-la razón de la aptitud sale de la guía de materiales. Las tarjetas usan el mismo formato que
-``buscar_producto``, así la web las pinta y se reconstruyen al recargar.
+El texto se arma con la clasificación, la tabla y las fichas del catálogo: una referencia
+recomendada y hasta cuatro alternativas numeradas, cada una con su ref. y el enlace a su
+ficha; la razón de la aptitud sale de la guía de materiales. Las tarjetas usan el formato de
+``buscar_producto`` y marcan cada opción con su elección (``choice``: ``"recomendada"`` o el
+número de la alternativa), así la web las pinta como recomendada + cuadrícula, se
+reconstruyen al recargar y la elección por voz o texto («la 2») se resuelve contra ellas.
 """
 
 from dataclasses import asdict
@@ -22,9 +24,11 @@ from carvajal.food.recommend import (
 )
 
 __all__ = [
+    "PHOTO_CHOICE_HINT",
     "PHOTO_QUESTION",
     "PHOTO_REJECTED",
     "PHOTO_UNAVAILABLE",
+    "choice_label",
     "photo_question",
     "recommendation_cards",
     "render_recommendation",
@@ -38,6 +42,11 @@ PHOTO_UNAVAILABLE: Final = (
 PHOTO_REJECTED: Final = (
     "No pude abrir esa foto. Envíala de nuevo como imagen JPEG o PNG, o cuéntame qué alimento "
     "quieres empacar."
+)
+
+PHOTO_CHOICE_HINT: Final = (
+    "¿Te cotizo alguna? Di «dame esa» para la recomendada o el número de una alternativa "
+    "(por ejemplo, «la 2»)."
 )
 
 _COUNTRY: Final = {"CO": "Colombia", "MX": "México"}
@@ -87,14 +96,24 @@ def _seen(rec: Recommendation) -> str:
     return f"Veo {rule.label} de consistencia {_CONSISTENCY[profile.consistency]}"
 
 
-def _reference_line(index: int, reference: Reference) -> str:
+def choice_label(index: int) -> str:
+    """Etiqueta de la opción ``index`` (0 = recomendada; 1-4 = alternativas)."""
+
+    return "Recomendada" if index == 0 else f"Alternativa {index}"
+
+
+def _reference_text(reference: Reference) -> str:
     details = [reference.material]
     if reference.capacity_oz is not None:
         details.append(f"{reference.capacity_oz:g} oz")
     return (
-        f"{index}. **{reference.name}** (ref. {reference.sku}): {', '.join(details)}. "
+        f"**{reference.name}** (ref. {reference.sku}): {', '.join(details)}. "
         f"[Ficha]({reference.source_url})"
     )
+
+
+def _reference_line(index: int, reference: Reference) -> str:
+    return f"{index}. {_reference_text(reference)}"
 
 
 def _why(rec: Recommendation, catalog: Catalog) -> str:
@@ -162,17 +181,18 @@ def render_recommendation(rec: Recommendation, catalog: Catalog) -> str:
             ]
         lines += ["", "Si me cuentas más del producto, busco otra opción."]
         return "\n".join(lines)
-    lines = [intro, "", f"Te sugiero estos empaques del catálogo de {country}:", ""]
-    lines += [_reference_line(i, ref) for i, ref in enumerate(rec.references, start=1)]
+    best, *alternatives = rec.references
+    lines = [intro, "", f"Del catálogo de {country}, te recomiendo:", "", _reference_text(best)]
+    if alternatives:
+        lines += ["", "**Alternativas:**", ""]
+        lines += [_reference_line(i, ref) for i, ref in enumerate(alternatives, start=1)]
     why = _why(rec, catalog)
     if why:
         lines += ["", why]
     if req.closure:
         lines += ["", "Como se puede derramar, pide también la tapa de la referencia que elijas."]
-    lines += [
-        "",
-        "¿Te cotizo alguna? Dime la referencia, cuántas unidades y en qué ciudad.",
-    ]
+    hint = PHOTO_CHOICE_HINT if alternatives else "¿Te la cotizo? Dime «dame esa»."
+    lines += ["", hint]
     return "\n".join(lines)
 
 
@@ -185,9 +205,18 @@ def recommendation_cards(
     if rec.requirements is None or not references:
         return None
     req = commercial_request(rec.requirements, rec.country)
+    options = [_option(reference, req, today, catalog) for reference in references]
+    if rec.references:
+        # Spec 053: la primera es la recomendada; las demás, alternativas numeradas.
+        for index, option in enumerate(options):
+            option["choice"] = "recomendada" if index == 0 else index
+            option["choice_label"] = choice_label(index)
     return {
         "request": asdict(req),
-        "options": [_option(reference, req, today, catalog) for reference in references],
+        # Origen de las opciones: la web las pinta como recomendada + cuadrícula y la
+        # elección «la 2» se resuelve solo contra una recomendación de foto (FR-005).
+        "origin": "foto",
+        "options": options,
         "discarded": [],
         "discarded_total": 0,
         "channel": _channel(req, catalog),
