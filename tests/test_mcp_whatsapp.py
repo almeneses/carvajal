@@ -434,3 +434,19 @@ def test_extremo_a_extremo_la_compuerta_de_jev_entrega_solo_el_sustituto(
 
     assert "más usada" not in answer
     assert NO_CONTEXT_ANSWER.split(".")[0] in answer
+
+
+def test_fuentes_sin_titulo_no_muestran_el_hash() -> None:
+    sources = [
+        {"slug": "f710dd593a8687c3dfdcd8d726051983e0f6af26a35e70bf3bd9ad87a10e8258", "url": ""},
+        {"slug": "a" * 64, "url": "https://www.carvajal.com/gobierno"},
+        {"slug": "b" * 64, "section": "Junta directiva", "url": ""},
+    ]
+    chat = FakeChat(events=_turn("Pedro Felipe Carvajal Cabal [1].", sources=sources))
+
+    answer = _bridge(chat).consult("¿Quién es el presidente?", "+57300")
+
+    assert "f710dd" not in answer and "aaaa" not in answer
+    assert "[1] Documento del corpus de Carvajal" in answer
+    assert "[2] carvajal.com — https://www.carvajal.com/gobierno" in answer
+    assert "[3] Junta directiva" in answer

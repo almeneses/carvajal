@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import structlog
 
@@ -542,8 +543,8 @@ def _listed_sources(sources: Iterable[Mapping[str, Any]]) -> list[tuple[str, str
     for source in sources:
         if len(listed) >= MAX_LISTED_SOURCES:
             break
-        title = str(source.get("title") or source.get("slug") or "").strip()
         url = str(source.get("url") or "").strip()
+        title = _source_label(source, url)
         key = url or title
         if not key or key in seen:
             continue
@@ -560,14 +561,29 @@ def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
     return SpokenReply(spoken_sources(listed), links)
 
 
+_HASH_LIKE = re.compile(r"^[0-9a-f]{16,}$")
+
+
+def _source_label(source: Mapping[str, Any], url: str) -> str:
+    """Nombre legible de la fuente: título, sección o dominio; nunca un hash interno."""
+
+    for key in ("title", "section", "slug"):
+        value = str(source.get(key) or "").strip()
+        if value and not _HASH_LIKE.match(value.lower()):
+            return value
+    if url:
+        return urlparse(url).netloc.removeprefix("www.") or url
+    return "Documento del corpus de Carvajal"
+
+
 def _sources_block(sources: Iterable[Mapping[str, Any]]) -> str:
     lines: list[str] = []
     seen: set[str] = set()
     for number, source in enumerate(sources, start=1):
         if len(lines) >= MAX_LISTED_SOURCES:
             break
-        title = str(source.get("title") or source.get("slug") or "").strip()
         url = str(source.get("url") or "").strip()
+        title = _source_label(source, url)
         key = url or title
         if not key or key in seen:
             continue
