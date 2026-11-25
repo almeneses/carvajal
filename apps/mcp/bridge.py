@@ -497,6 +497,17 @@ _QUOTE_FIELD = re.compile(
 # Fin de frase: tras «.», «!», «?» o «…» (y una cita «[1]» pegada) viene un espacio.
 # «$37.510» no parte la frase porque tras su punto sigue una cifra.
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+_WORD = re.compile(r"[^\W\d_]+")
+# Palabras con las que el agente repite la cotización sin decir nada nuevo («El total queda
+# en $37.510», «Te comparto la cotización»), sin tildes. Ninguna niega ni condiciona: «no»,
+# «sube», «mínimo» o «incluye» no están, y una frase que las use dice algo propio.
+_RESTATEMENT_WORDS = """
+a al aqui cada caja cajas comparto con cop cotizacion cotizo cuesta cuestan de del e el
+en es esta estan este la las le les lo los mi o para paquete paquetes pesos por precio
+precios queda quedan quedaria sale salen se seria serian sku son su sus te tienes total
+tu tus u un una und unidad unidades unitario unos unas vale valen y
+"""
+_RESTATEMENT = frozenset(_RESTATEMENT_WORDS.split())
 
 
 def _numbers(text: str) -> set[str]:
@@ -505,33 +516,45 @@ def _numbers(text: str) -> set[str]:
     return {re.sub(r"[.,]", "", number) for number in _NUMBER.findall(_CITATION.sub("", text))}
 
 
-def _repeats_quote(fragment: str, in_quote: set[str]) -> bool:
-    """``True`` si la frase solo repite la cotización: una línea del bloque o sus cifras.
+def _words(text: str) -> set[str]:
+    """Las palabras de ``text`` en minúsculas y sin tildes: «Envío» → «envio»."""
 
-    Una pregunta nunca se quita («¿Te confirmo por $37.510?»). Una frase con una cifra que
-    el bloque no trae (un plazo de entrega, un costo aparte, otra referencia) se queda.
+    plain = unicodedata.normalize("NFKD", text.lower())
+    plain = "".join(char for char in plain if not unicodedata.combining(char))
+    return set(_WORD.findall(plain))
+
+
+def _repeats_quote(fragment: str, quoted_numbers: set[str], quoted_words: set[str]) -> bool:
+    """``True`` si la frase solo repite la cotización, en cifras y en contenido.
+
+    Se queda toda frase que aporte algo: una pregunta («¿Te confirmo por $37.510?»), una
+    cifra que el bloque no trae (un plazo, otro precio) o una palabra que ni el bloque ni una
+    simple reformulación tienen («sube en enero», «el mínimo es…», «no incluye»). Una línea
+    del bloque dicha por el agente («Total: pendiente…») se quita si no trae cifras nuevas.
     """
 
     if fragment.rstrip().endswith("?"):
         return False
+    if not _numbers(fragment) <= quoted_numbers:
+        return False
     if _QUOTE_FIELD.match(fragment):
         return True
-    found = _numbers(fragment)
-    return bool(found) and found <= in_quote
+    return not (_words(_CITATION.sub("", fragment)) - quoted_words - _RESTATEMENT)
 
 
 def quote_remarks(text: str, quoted: str) -> str:
     """Lo que el agente dijo además de la cotización, sin repetir sus cifras.
 
-    ``quoted`` es lo que el mensaje ya dice de la cotización (sus bloques y el SKU). Frase
-    por frase, en párrafos y en viñetas, se quitan las que solo lo repiten: las líneas del
-    bloque («Total: …», «Precio por paquete: …») y las frases cuyas cifras ya están todas
-    en él. Se conserva lo demás tal como lo escribió el agente: advertencias, preguntas,
-    viñetas sin cifras («- No incluye IVA») o con cifras nuevas («- Entrega en 5 días»).
-    Un encabezado que termina en «:» se queda solo si sobrevive alguna línea debajo.
+    ``quoted`` es lo que el mensaje ya dice de la cotización (sus bloques, el SKU, la marca y
+    el material). Frase por frase, en párrafos y en viñetas, se quitan las que solo lo
+    repiten: las líneas del bloque («Total: …», «Precio por paquete: …») y las frases cuyas
+    cifras y palabras ya están en él («El total queda en $37.510»). Se conserva lo demás tal
+    como lo escribió el agente: preguntas, avisos («el precio de $3.751 sube en enero»),
+    respuestas («El mínimo es de 10 paquetes»), viñetas como «- No incluye IVA» y cifras
+    nuevas («- Entrega en 5 días»). Un encabezado con «:» se queda si sobrevive algo debajo.
     """
 
-    in_quote = _numbers(quoted)
+    quoted_numbers, quoted_words = _numbers(quoted), _words(quoted)
     kept: list[str] = []
     for paragraph in re.split(r"\n\s*\n", text):
         lines: list[str] = []
@@ -548,7 +571,7 @@ def quote_remarks(text: str, quoted: str) -> str:
             sentences = [
                 sentence
                 for sentence in _SENTENCE_END.split(body.strip())
-                if not _repeats_quote(sentence, in_quote)
+                if not _repeats_quote(sentence, quoted_numbers, quoted_words)
             ]
             if not sentences:
                 continue
@@ -1126,8 +1149,11 @@ class WhatsAppBridge:
         blocks = [whatsapp_quote(view, photo) for view, photo in quotes]
         # Con cotización, el bloque ya trae las cifras: del texto del agente solo quedan
         # sus comentarios (una nota o una pregunta de seguimiento), después del bloque.
-        # El SKU no se pinta en el bloque, pero nombra el mismo producto que el agente lista.
-        quoted = "\n".join([*blocks, *(view.sku for view, _ in quotes)])
+        # El SKU, la marca y el material no se pintan en el bloque, pero nombran el mismo
+        # producto que el agente lista («Vaso … Wau (PP), SKU 7704918100199»).
+        quoted = "\n".join(
+            [*blocks, *(f"{view.sku} {view.brand} {view.material}" for view, _ in quotes)]
+        )
         prose = quote_remarks(turn.text, quoted) if quotes else turn.text
         if prose.strip():
             blocks.append(to_whatsapp(prose))

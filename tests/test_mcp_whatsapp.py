@@ -22,6 +22,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 
 from apps.api.chat.streaming import ChatEvent
+from apps.api.quote_view import quote_view
 from apps.mcp import bridge as bridge_module
 from apps.mcp.bridge import (
     EMPTY_MESSAGE,
@@ -33,6 +34,7 @@ from apps.mcp.bridge import (
     owner_key_for,
     quote_remarks,
     to_whatsapp,
+    whatsapp_quote,
 )
 from apps.mcp.server import TOOL_NAME, build_app, build_server
 from carvajal.adapters.storage import tables
@@ -472,6 +474,7 @@ QUOTE_9OZ = {
     "primary": {
         "name": "Vaso rígido traslúcido 9 oz Wau",
         "sku": "7704918100199",
+        "material": "PP",
         "currency": "COP",
         "presentation": {
             "basis": "paquete",
@@ -488,11 +491,11 @@ QUOTE_9OZ = {
     "quote": {"folio": "Q-ABC123"},
 }
 
+_VIEW_9OZ = quote_view(QUOTE_9OZ)
+assert _VIEW_9OZ is not None
+# Lo que ``_render`` le pasa a ``quote_remarks``: el bloque más SKU, marca y material.
 QUOTED_BLOCK = (
-    "🧾 *Cotización #Q-ABC123*\n*Vaso rígido traslúcido 9 oz Wau*\n"
-    "• Presentación: paquete x 50 a $3.751\n"
-    "• Pides 500 → compras 10 paquetes (500 und.)\n"
-    "💰 *Total: $37.510 COP*\n7704918100199"
+    f"{whatsapp_quote(_VIEW_9OZ)}\n{_VIEW_9OZ.sku} {_VIEW_9OZ.brand} {_VIEW_9OZ.material}"
 )
 
 
@@ -543,6 +546,39 @@ def test_quote_remarks_conserva_las_vinetas_que_no_repiten_el_bloque() -> None:
         "- Entrega en 5 días\n"
         "1. Alternativa: vaso de papel 9 oz a $4.100 el paquete"
     )
+
+
+def test_quote_remarks_conserva_frases_que_dicen_algo_nuevo_con_cifras_del_bloque() -> None:
+    text = (
+        "El total queda en $37.510 COP [1]. "
+        "Recuerda que el precio de $3.751 sube en enero. "
+        "El mínimo es de 10 paquetes (500 unidades). "
+        "El total de $37.510 no incluye el envío."
+    )
+
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "Recuerda que el precio de $3.751 sube en enero. "
+        "El mínimo es de 10 paquetes (500 unidades). "
+        "El total de $37.510 no incluye el envío."
+    )
+
+
+def test_quote_remarks_conserva_lineas_del_bloque_con_cifras_nuevas() -> None:
+    text = (
+        "- Total: pendiente hasta conocer el envío [1]\n"
+        "- Total con envío: $49.510\n"
+        "- Precio de la opción de papel: $4.100"
+    )
+
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "- Total con envío: $49.510\n- Precio de la opción de papel: $4.100"
+    )
+
+
+def test_quote_remarks_pasa_las_vinetas_por_el_filtro_de_frases() -> None:
+    text = "- Subtotal: $37.510\n- ¿Te confirmo por $37.510?\n- No incluye envío"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == "- ¿Te confirmo por $37.510?\n- No incluye envío"
 
 
 def test_quote_remarks_quita_el_encabezado_si_no_queda_nada_debajo() -> None:

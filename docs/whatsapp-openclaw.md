@@ -99,10 +99,12 @@ Cuando el turno emite una cotización, el mensaje empieza por el bloque 🧾 (fo
 importes, total, vigencia y foto). Del texto del agente solo quedan sus comentarios
 (`quote_remarks`). Frase por frase, en párrafos y en viñetas, se quita lo que solo repite el
 bloque: sus líneas dichas por el agente («Total: …», «Precio por paquete: …») y las frases
-cuyas cifras ya están todas en él (o en el SKU). Se conservan las advertencias, las
-preguntas (aunque citen el total) y las frases o viñetas sin cifras («- No incluye IVA») o
-con una cifra que el bloque no trae (un plazo de entrega, un costo aparte, otra referencia).
-Un encabezado con «:» solo se queda si sobrevive alguna línea debajo.
+cuyas cifras y palabras ya están en él (o en el SKU, la marca y el material), como «El
+total queda en $37.510». Se conserva toda frase que aporte algo: una pregunta (aunque cite
+el total), una cifra que el bloque no trae (un plazo de entrega, otro precio) o una palabra
+propia aunque repita cifras («el precio de $3.751 sube en enero», «El mínimo es de 10
+paquetes», «- No incluye IVA»). Un encabezado con «:» solo se queda si sobrevive alguna
+línea debajo.
 
 ## Fotos del catálogo
 
