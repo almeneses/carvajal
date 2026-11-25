@@ -410,17 +410,17 @@ def test_extremo_a_extremo_con_chat_service_y_cotizaciones_guardadas(sqlite_engi
             return None if record is None else dict(record.payload)
 
     bridge = WhatsAppBridge(chat=service, secret=SECRET, quotes=quotes)
-    proposal = bridge.consult("Cotiza 50 y 100 vasos en Bogotá", "+573100000000")
-    answer = bridge.consult("sí", "+573100000000")
+    proposal = bridge.consult("Cotiza 50 vasos y 100 platos en Bogotá", "+573100000000")
+    answer = bridge.consult("No, confírmala", "+573100000000")
 
-    # Spec 053: primero la propuesta con sus cifras, sin folio; el «sí» la registra.
-    assert proposal.count("🧾 *Propuesta de cotización*") == 2
-    assert "💰 *Total: $3.751 COP*" in proposal and "#" not in proposal.split("*Fuentes")[0]
-    assert "¿Confirmo la cotización?" in proposal
-    assert answer.count("🧾 *Cotización #") == 2
-    assert "*Vaso rígido*" in answer
-    assert "💰 *Total: $3.751 COP*" in answer
-    assert "💰 *Total: $7.502 COP*" in answer
+    # Spec 054: primero el carrito con el total parcial, sin folio; el cierre lo registra.
+    assert "🛒 *Tu cotización · 2 productos*" in proposal
+    assert "*Total parcial: $11.253* (IVA incl.)" in proposal
+    assert "#" not in proposal.split("*Fuentes")[0]
+    assert proposal.endswith("¿Algo más?")
+    assert "✅ *Cotización #" in answer and "registrada*" in answer
+    assert "2 productos · Total *$11.253*" in answer
+    assert "📄 Te envío el PDF" not in answer  # sin URL pública no se promete el PDF
 
 
 def test_extremo_a_extremo_la_compuerta_de_jev_entrega_solo_el_sustituto(

@@ -260,7 +260,7 @@ GateScope = Literal["direct", "rag", "structured", "all"]
 JevStatus = Literal[
     "ok", "off", "timeout", "error", "cap", "circuit_open", "auth", "invalid", "skipped"
 ]
-JudgeKind = Literal["router", "claims", "food"]
+JudgeKind = Literal["router", "claims", "food", "flow"]
 # Orden de las opciones de la pregunta Choice (contrato §2): la más costosa de equivocar,
 # la respuesta directa, va al final por el sesgo posicional que advierte la documentación.
 GATE_CLASSES: tuple[GateClass, ...] = (

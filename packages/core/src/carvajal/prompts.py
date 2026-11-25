@@ -203,6 +203,10 @@ Cotización:
 - Si compara varios tamaños o referencias sin dar cantidad, usa buscar_producto: trae el
   precio de referencia por caja. Llama a cotizar solo las combinaciones de producto y
   cantidad que la persona pidió.
+- Si pide precios de un mismo producto para varias cantidades, llama a cotizar una sola
+  vez con cantidades (de dos a cuatro) en lugar de quantity.
+  Si pide varios productos distintos («platos y vasos»), llama a cotizar una vez por
+  producto.
 - Las cifras de la empresa (ingresos, ventas, activos, empleados) salen de
   indicador_financiero aunque la pregunta diga «total». Lo que no es un empaque de
   Carvajal no se cotiza.
@@ -224,6 +228,14 @@ Cotización:
 - Llamar a cotizar no registra nada: úsalo como siempre, aunque falten datos. Al
   presentar su resultado, no digas que la cotización quedó registrada ni inventes un
   folio: el sistema la registra cuando la persona la confirma.
+- Cuando cotizar responde ok, el sistema agrega después de tu texto un bloque fijo con la
+  recomendada, las alternativas, el comparativo o el carrito con el total parcial, y la
+  pregunta siguiente («¿Cuál te cotizo?», «¿Algo más?»). Tú escribe como mucho una frase,
+  sin cifras, sin listar opciones ni alternativas y sin preguntar nada: por ejemplo, por
+  qué la recomendada sirve para el uso, con su cita.
+- Si la persona pregunta algo de otro tema en medio de una cotización (Carvajal, su
+  historia o algo ajeno), respóndelo como siempre; el sistema le recuerda la cotización
+  pendiente. No la canceles ni la repitas.
 - Si el mensaje termina con «(Elegí … de la foto: <nombre>, ref. <SKU>. Cotízala.)», la
   persona eligió esa referencia de la recomendación anterior: llama a cotizar con ese sku
   y con la cantidad y la ciudad que diga el mensaje o el hilo.
@@ -344,6 +356,36 @@ JEV_ROUTE_CRITERIA = {
     ),
 }
 # Score solo en la medición (R5): ``clarity`` es la posición en ``criteria`` desde cero.
+# Spec 054: respuestas cortas en el flujo de cotización. Jev solo ve la respuesta de la
+# persona y qué preguntó el asistente (nunca el hilo, el número ni la memoria).
+JEV_FLOW_QUESTIONS = {
+    "eleccion": "¿Cuál de las opciones te cotizo? (una recomendada y alternativas numeradas)",
+    "cantidad": "¿Con cuál de las cantidades armo la cotización?",
+    "algo_mas": "¿Algo más para tu cotización?",
+    "confirmar": "¿La confirmo y te envío el PDF?",
+    "cambio_producto": "¿Cancelo el producto que llevábamos o lo conservo y agrego el nuevo?",
+    "oferta": "¿Te cotizo la opción más económica?",
+}
+JEV_FLOW_INSTRUCTIONS = (
+    "Un asistente de ventas de empaques le hizo a la persona la `pregunta_del_asistente` y "
+    "ella respondió `respuesta` (escrita o dictada por voz). Clasifica qué quiere hacer con "
+    "su cotización. Si la respuesta pregunta otra cosa o no responde a la pregunta, elige "
+    "«otro»."
+)
+# El orden importa (sesgo posicional): la opción más costosa de equivocar va al final.
+JEV_FLOW_CRITERIA = {
+    "otro": (
+        "No responde a la pregunta: pregunta otra cosa, pide un producto, una cantidad o un dato."
+    ),
+    "agregar": "Quiere agregar otro producto a la cotización o dice que sí quiere algo más.",
+    "cerrar": "No quiere agregar nada más y pide ver o cerrar la cotización.",
+    "conservar": "Quiere conservar el producto anterior y agregar el nuevo.",
+    "cancelar": "Quiere cancelar o quitar el producto anterior.",
+    "pausar": "Se despide sin comprar o lo va a pensar.",
+    "confirmar": "Acepta sin cambios: confirma la cotización o la opción ofrecida.",
+    "rechazo_insulto": "Rechaza por el precio insultando al vendedor (ladrones, rateros).",
+}
+
 JEV_SCORE_CLARITY = {
     "instructions": "¿Qué tan clara es la intención de `pregunta` para decidir cómo atenderla?",
     "criteria": [

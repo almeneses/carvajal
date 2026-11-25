@@ -2,65 +2,20 @@
 
 from datetime import UTC, datetime, timedelta
 
-from carvajal.quotation.memory import (
-    EMPTY,
-    MEMORY_DAYS,
-    extract,
-    forget_requested,
-    is_fresh,
-    merge,
-    normalize,
-)
+from carvajal.quotation.memory import EMPTY, MEMORY_DAYS, is_fresh, normalize
 
 
-def test_extrae_nombre_trabajo_ciudad_y_domicilio() -> None:
-    datos = extract(
-        "Hola, me llamo Ana, trabajo en una cafetería en Bogotá y siempre pido a domicilio"
-    )
-
-    assert datos == {
-        "name": "Ana",
-        "workplace": "cafetería en Bogotá",
-        "city": "Bogotá",
-        "delivery": True,
-    }
-
-
-def test_extrae_negocio_y_gustos_sin_confundir_la_ciudad() -> None:
-    datos = extract("Tengo una panadería en Cali y me gustan los vasos de papel")
-
-    assert datos["workplace"] == "panadería en Cali"
-    assert datos["city"] == "Cali"
-    assert datos["preferences"] == ["los vasos de papel"]
-
-
-def test_no_guarda_lo_que_no_coincide_con_un_patron() -> None:
-    assert extract("cotiza 20 vasos para bebida caliente en Bogotá") == {}
-    assert extract("soy de Bogotá") == {}
-
-
-def test_merge_conserva_preferencias_y_recorta_el_perfil() -> None:
+def test_normalize_recorta_y_deduplica_las_preferencias() -> None:
     perfil = normalize(
         {
-            "name": "Ana",
-            "city": "Bogotá",
-            "preferences": [f"gusto {indice}" for indice in range(6)],
+            "name": "A" * 200,
+            "preferences": ["vasos de papel", "Vasos de papel", *[f"p{i}" for i in range(9)]],
         }
     )
-    fusionado = merge(perfil, {"name": "Ana María", "preferences": ["gusto 0", "nuevo"]})
 
-    assert fusionado["name"] == "Ana María"
-    assert fusionado["city"] == "Bogotá"
-    assert len(fusionado["preferences"]) == 5
-    assert "nuevo" in fusionado["preferences"]
-    assert "gusto 0" in fusionado["preferences"]
-
-
-def test_olvidar_se_reconoce_en_varias_formas() -> None:
-    assert forget_requested("olvida mis datos")
-    assert forget_requested("Olvídame, por favor")
-    assert forget_requested("borra mi memoria")
-    assert not forget_requested("cotiza 20 vasos")
+    assert perfil["name"] is not None and len(perfil["name"]) <= 60
+    assert perfil["preferences"][0] == "vasos de papel"
+    assert len(perfil["preferences"]) == 5
 
 
 def test_el_perfil_caduca() -> None:

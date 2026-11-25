@@ -28,6 +28,7 @@ def test_exporta_las_tablas_del_esquema() -> None:
         "usage_day",
         "chat_feedback",
         "visitor_memory",
+        "quote_drafts",
         "quotes",
         "webhook_deliveries",
     }

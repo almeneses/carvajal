@@ -559,8 +559,8 @@
     for (const boton of botones) boton.hidden = false;
   }
 
-  // Spec 053: solo la recomendación de foto más reciente ofrece «Elegir» y solo la propuesta
-  // del último turno ofrece «Confirmar»: una elección o un «sí» se resuelven contra ellas.
+  // Spec 053: solo la recomendación de foto más reciente ofrece «Elegir». Spec 054: solo los
+  // botones del flujo del último turno se muestran, porque responden a la pregunta pendiente.
   function actualizarAcciones() {
     const fotos = Array.from(hilo.querySelectorAll?.(".productos-foto") ?? []);
     fotos.forEach((lista, indice) => {
@@ -569,7 +569,7 @@
     });
     const turnos = Array.from(hilo.querySelectorAll?.(".turno") ?? []);
     const ultimo = turnos[turnos.length - 1];
-    for (const acciones of hilo.querySelectorAll?.("[data-coti-acciones]") ?? []) {
+    for (const acciones of hilo.querySelectorAll?.("[data-flujo]") ?? []) {
       acciones.hidden = !(ultimo && typeof ultimo.contains === "function" && ultimo.contains(acciones));
     }
   }

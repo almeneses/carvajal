@@ -469,3 +469,95 @@ def test_respuesta_larga_sin_voz_no_cambia() -> None:
     assert TEXT_HEADER not in answer and LINKS_HEADER not in answer
     assert answer.startswith("Para bebidas calientes, Carvajal Empaques ofrece vasos")
     assert "- *Vaso de papel 8 oz*: pared sencilla" in answer
+
+
+# --- Spec 054: flujo de cotización por WhatsApp --------------------------------------------
+
+FLOW_TEXT = (
+    "✅ **Cotización #a3f09c12b7e4 registrada**\n"
+    "2 productos · Total **$281.000** · válida hasta 2 dic\n"
+    "📄 Te envío el PDF."
+)
+
+
+@dataclass
+class AwaitingChat(FakeChat):
+    awaiting: bool = True
+
+    def awaiting_confirmation(self, owner_key: str) -> bool:
+        return self.awaiting
+
+
+def _flow_turn(text: str, *, folios: list[str], spoken: str, prose: str = "") -> list[ChatEvent]:
+    body = f"{prose}\n\n{text}" if prose else text
+    return [
+        ChatEvent("meta", {"sources": []}),
+        ChatEvent("fallback", {"text": body}),
+        ChatEvent(
+            "done",
+            {"quote_ids": folios, "flow": {"text": text, "spoken": spoken, "awaiting": None}},
+        ),
+    ]
+
+
+def test_la_plantilla_del_flujo_sale_en_formato_whatsapp_y_con_su_voz() -> None:
+    # Arrange
+    cart = (
+        "🛒 **Tu cotización · 2 productos**\n**Total parcial: $281.000** (IVA incl.)\n\n¿Algo más?"
+    )
+    chat = FakeChat(
+        _flow_turn(
+            cart,
+            folios=[],
+            spoken="Llevas 2 productos. ¿Algo más?",
+            prose="Te sirve para bebida caliente. El total es $281.000.",
+        )
+    )
+
+    # Act
+    reply = _bridge(chat).respond("sí, 500 vasos", "+573001112233")
+
+    # Assert: las cifras del agente no se repiten; la voz es la de la plantilla.
+    assert "🛒 *Tu cotización · 2 productos*" in reply.text
+    assert "El total es" not in reply.text
+    assert reply.text.endswith("¿Algo más?")
+    assert reply.voice().text.endswith("Llevas 2 productos. ¿Algo más?")
+
+
+def test_al_registrar_el_pdf_se_adjunta_sin_pedirlo() -> None:
+    # Arrange
+    chat = FakeChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))
+
+    # Act
+    reply = _bridge(chat).respond("sí", "+573001112233")
+
+    # Assert
+    assert reply.quote_ids == ("a3f09c12b7e4",)
+    assert "📄 Tu cotización #a3f09c12b7e4 en PDF" in reply.text
+    assert PDF_URL in reply.text
+    assert "Te envío el PDF." not in reply.text
+    assert PDF_OFFER not in reply.text
+
+
+def test_si_mandame_el_pdf_confirma_la_cotizacion_pendiente() -> None:
+    # Arrange
+    chat = AwaitingChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))
+
+    # Act
+    reply = _bridge(chat).respond("sí, mándame el PDF", "+573001112233")
+
+    # Assert: va al turno (que registra) y el PDF sale una sola vez.
+    assert chat.calls == ["sí, mándame el PDF"]
+    assert reply.text.count(PDF_URL) == 1
+
+
+def test_pdf_sin_cotizacion_pendiente_sigue_sin_llm() -> None:
+    # Arrange
+    chat = AwaitingChat(_quote_turn(), awaiting=False)
+
+    # Act
+    reply = _bridge(chat).respond("PDF", "+573001112233")
+
+    # Assert
+    assert chat.calls == []
+    assert PDF_URL in reply.text

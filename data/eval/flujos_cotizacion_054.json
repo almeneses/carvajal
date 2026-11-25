@@ -1,0 +1,266 @@
+{
+  "descripcion": "Spec 054: guiones multiturno de los flujos de cotización, por texto y por voz (transcripción). La parte determinista (reglas, borrador y plantillas) se prueba sin tokens en tests/test_flujos_cotizacion.py; el agente se simula con las cotizaciones de 'agente'. 'espera' describe el turno: awaiting (pregunta pendiente después del turno), texto (fragmento del mensaje), registra (folio), al_agente (el turno va al modelo) y prompt (texto que recibe el modelo).",
+  "conversaciones": [
+    {
+      "id": "f1-tendero-directo-texto",
+      "flujo": 1,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "Cotízame 500 vasos térmicos de 12 oz ref. VT12 para Cali",
+          "agente": [{"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas", "texto": "✅ Agregué **500 Vaso térmico 12 oz**"}
+        },
+        {"persona": "No, confírmala", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f1-tendero-directo-voz",
+      "flujo": 1,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "cotízame 500 vasos térmicos de doce onzas los mismos de la vez pasada para cali",
+          "agente": [{"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {"persona": "no eso es todo", "espera": {"awaiting": "confirmar", "texto": "🧾 **Resumen de tu cotización**"}},
+        {"persona": "dale", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f2-foto-producto-nuevo-voz",
+      "flujo": 2,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "la dos son 300 para bogotá",
+          "agente": [{"sku": "PP16", "nombre": "Contenedor PP 16 oz", "unidades": 300, "subtotal": 207000, "familia": "contenedor"}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas", "texto": "Agregué **300 Contenedor PP 16 oz**"}
+        },
+        {
+          "persona": "sí, también 300 tapas",
+          "agente": [{"sku": "TPP16", "nombre": "Tapa PP 16 oz", "unidades": 300, "subtotal": 60000, "familia": "tapa"}],
+          "espera": {"al_agente": true, "prompt": "también 300 tapas", "awaiting": "algo_mas", "texto": "🛒 **Tu cotización · 2 productos**"}
+        },
+        {"persona": "eso es todo", "espera": {"awaiting": "confirmar"}},
+        {"persona": "sí", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f3-cantidades-texto",
+      "flujo": 3,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "¿Cuánto me salen 100, 500 o 1000 vasos para tinto en Medellín?",
+          "agente": [
+            {"sku": "VT7", "nombre": "Vaso térmico 7 oz", "unidades": 100, "subtotal": 31000},
+            {"sku": "VT7", "nombre": "Vaso térmico 7 oz", "unidades": 500, "subtotal": 155000},
+            {"sku": "VT7", "nombre": "Vaso térmico 7 oz", "unidades": 1000, "subtotal": 268000}
+          ],
+          "espera": {"al_agente": true, "awaiting": "cantidad", "texto": "📊 **Vaso térmico 7 oz"}
+        },
+        {"persona": "con mil", "espera": {"awaiting": "algo_mas", "texto": "Agregué **1.000 Vaso térmico 7 oz**"}},
+        {"persona": "no", "espera": {"awaiting": "confirmar"}},
+        {"persona": "sí", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f3-cantidades-voz",
+      "flujo": 3,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "cuánto valen cien quinientos o mil vasos para tinto en medellín",
+          "agente": [
+            {"sku": "VT7", "nombre": "Vaso térmico 7 oz", "unidades": 100, "subtotal": 31000},
+            {"sku": "VT7", "nombre": "Vaso térmico 7 oz", "unidades": 500, "subtotal": 155000}
+          ],
+          "espera": {"al_agente": true, "awaiting": "cantidad"}
+        },
+        {"persona": "la de quinientos", "espera": {"awaiting": "algo_mas", "texto": "Agregué **500"}},
+        {"persona": "no confírmala", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f4-recomendada-texto",
+      "flujo": 4,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "Necesito empaque para 200 almuerzos ejecutivos en Bogotá",
+          "agente": [{"sku": "J1", "nombre": "Portacomida J1 espumado", "unidades": 200, "subtotal": 58000, "alternativas": 4, "familia": "contenedor"}],
+          "espera": {"al_agente": true, "awaiting": "eleccion", "texto": "⭐ **Recomendada: Portacomida J1 espumado**"}
+        },
+        {"persona": "dame esa", "espera": {"awaiting": "algo_mas", "texto": "Agregué **200 Portacomida J1 espumado**"}},
+        {"persona": "eso es todo", "espera": {"awaiting": "confirmar"}},
+        {"persona": "sí, mándame el PDF", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f5-alternativa-voz",
+      "flujo": 5,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "necesito empaque para 200 almuerzos en bogotá",
+          "agente": [{"sku": "J1", "nombre": "Portacomida J1 espumado", "unidades": 200, "subtotal": 58000, "alternativas": 4, "familia": "contenedor"}],
+          "espera": {"al_agente": true, "awaiting": "eleccion"}
+        },
+        {"persona": "mejor la tercera", "espera": {"awaiting": "algo_mas", "texto": "alternativa 3"}},
+        {"persona": "no, confírmala", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f5-fuera-de-rango",
+      "flujo": 5,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "empaques para 200 almuerzos en Bogotá",
+          "agente": [{"sku": "J1", "nombre": "Portacomida J1 espumado", "unidades": 200, "subtotal": 58000, "alternativas": 4, "familia": "contenedor"}],
+          "espera": {"al_agente": true, "awaiting": "eleccion"}
+        },
+        {"persona": "la 5", "espera": {"awaiting": "eleccion", "texto": "No tengo la opción 5"}}
+      ]
+    },
+    {
+      "id": "f6-solo-mira-con-pregunta-fuera-del-flujo",
+      "flujo": 6,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "¿Qué vasos tienen para café? Son 100 en Cali",
+          "agente": [{"sku": "VC8", "nombre": "Vaso cartón 8 oz", "unidades": 100, "subtotal": 35000, "alternativas": 2}],
+          "espera": {"al_agente": true, "awaiting": "eleccion"}
+        },
+        {"persona": "¿Cuándo se fundó Carvajal?", "espera": {"al_agente": true, "awaiting": "eleccion", "texto": "↩️ Sigo con las opciones"}},
+        {"persona": "listo, gracias, lo voy a pensar", "espera": {"awaiting": null, "texto": "Con gusto", "registra": false}}
+      ]
+    },
+    {
+      "id": "f6-esta-caro",
+      "flujo": 6,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "vasos para café 100 en cali",
+          "agente": [{"sku": "VC8", "nombre": "Vaso cartón 8 oz", "unidades": 100, "subtotal": 35000, "alternativas": 2, "alternativas_mas_baratas": true}],
+          "espera": {"al_agente": true, "awaiting": "eleccion"}
+        },
+        {"persona": "uy está caro", "espera": {"awaiting": "oferta", "texto": "La opción más económica"}},
+        {"persona": "no gracias", "espera": {"awaiting": null, "texto": "Con gusto"}}
+      ]
+    },
+    {
+      "id": "f6-rechazo-con-insulto",
+      "flujo": 6,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "vasos para café 100 en cali",
+          "agente": [{"sku": "VC8", "nombre": "Vaso cartón 8 oz", "unidades": 100, "subtotal": 35000, "alternativas": 2}],
+          "espera": {"al_agente": true, "awaiting": "eleccion"}
+        },
+        {"persona": "esta muy caro, muy ladrones", "espera": {"awaiting": null, "texto": "Arrancado, vaya cómprele a su madre entonces 😂"}}
+      ]
+    },
+    {
+      "id": "f6-rechazo-con-insulto-voz",
+      "flujo": 6,
+      "canal": "voz",
+      "turnos": [
+        {"persona": "está caro ladrones", "espera": {"texto": "Arrancado, vaya cómprele a su madre entonces 😂"}}
+      ]
+    },
+    {
+      "id": "f7-multiproducto-texto",
+      "flujo": 7,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "Cotiza 300 platos de pulpa de 9 pulgadas en Cali",
+          "agente": [{"sku": "PL9", "nombre": "Plato pulpa 9″", "unidades": 300, "subtotal": 75000, "familia": "plato"}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {
+          "persona": "Sí, 500 vasos de 12 onzas",
+          "agente": [{"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000}],
+          "espera": {"al_agente": true, "prompt": "500 vasos de 12 onzas", "awaiting": "algo_mas", "texto": "**Total parcial: $281.000**"}
+        },
+        {"persona": "quita los platos", "espera": {"awaiting": "algo_mas", "texto": "Listo, quité **Plato pulpa 9″**"}},
+        {"persona": "no", "espera": {"awaiting": "confirmar"}},
+        {"persona": "sí", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f7-multiproducto-voz",
+      "flujo": 7,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "trescientos platos y quinientos vasos para cali",
+          "agente": [
+            {"sku": "PL9", "nombre": "Plato pulpa 9″", "unidades": 300, "subtotal": 75000, "familia": "plato"},
+            {"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000, "alternativas": 1}
+          ],
+          "espera": {"al_agente": true, "awaiting": "algo_mas", "texto": "Usé la recomendada de cada producto"}
+        },
+        {"persona": "nada más", "espera": {"awaiting": "confirmar"}},
+        {"persona": "listo", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f8-cambio-de-producto-en-curso",
+      "flujo": 8,
+      "canal": "texto",
+      "turnos": [
+        {"persona": "Cotízame platos", "espera": {"al_agente": true}},
+        {"persona": "No, mejor cotízame vasos", "espera": {"awaiting": "cambio_producto", "texto": "Llevábamos **los platos**"}},
+        {"persona": "cancélalos", "espera": {"al_agente": true, "prompt": "No, mejor cotízame vasos"}}
+      ]
+    },
+    {
+      "id": "f8-cambio-de-producto-con-carrito-voz",
+      "flujo": 8,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "trescientos platos de pulpa en cali",
+          "agente": [{"sku": "PL9", "nombre": "Plato pulpa 9″", "unidades": 300, "subtotal": 75000, "familia": "plato"}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {"persona": "no mejor cotízame vasos", "espera": {"awaiting": "cambio_producto", "texto": "Llevábamos **Plato pulpa 9″**"}},
+        {"persona": "consérvalos", "espera": {"al_agente": true, "prompt": "no mejor cotízame vasos"}}
+      ]
+    },
+    {
+      "id": "cancelar-todo",
+      "flujo": 8,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "300 platos en Cali",
+          "agente": [{"sku": "PL9", "nombre": "Plato pulpa 9″", "unidades": 300, "subtotal": 75000, "familia": "plato"}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {"persona": "cancela todo", "espera": {"awaiting": null, "texto": "Listo, cancelé la cotización"}}
+      ]
+    },
+    {
+      "id": "retomar",
+      "flujo": 6,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "300 platos en Cali",
+          "agente": [{"sku": "PL9", "nombre": "Plato pulpa 9″", "unidades": 300, "subtotal": 75000, "familia": "plato"}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {"persona": "después te escribo", "espera": {"awaiting": null, "texto": "Guardé lo que armamos"}},
+        {"persona": "retomar", "espera": {"awaiting": "algo_mas", "texto": "↩️ **Tu cotización · 1 producto**"}}
+      ]
+    }
+  ]
+}

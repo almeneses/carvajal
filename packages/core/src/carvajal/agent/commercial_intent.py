@@ -47,6 +47,7 @@ __all__ = [
     "mentions_microwave",
     "microwave_for",
     "non_commercial_part",
+    "product_family",
 ]
 
 COMMERCIAL_KEYS = (
@@ -246,6 +247,12 @@ def _family(text: str) -> str | None:
         if (match := _search(pattern, text))
     ]
     return min(found)[1] if found else None
+
+
+def product_family(text: str) -> str | None:
+    """Familia del producto que nombra el texto («mejor vasos» → ``vaso``), o ``None``."""
+
+    return _family(_plain(text))
 
 
 def _capacity(text: str) -> float | None:

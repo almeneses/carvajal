@@ -846,11 +846,3 @@ def test_presentaciones_publicadas_sin_ciudad_cuentan_todas_las_ofertas() -> Non
     # Assert
     assert every
     assert set(every) == {item for items in per_city for item in items}
-
-
-def test_los_alias_privados_de_la_044_siguen_vigentes() -> None:
-    from carvajal.quotation import engine
-
-    assert engine._declared_sizes is engine.declared_sizes
-    assert engine._conversion is engine.conversion
-    assert engine._published_presentations is engine.published_presentations

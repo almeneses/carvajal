@@ -28,11 +28,19 @@ modos y en el respaldo), el servicio encola el resumen acumulado del hilo en el
 turno trae ``agent_history_turns`` más la holgura del resumen y el total de turnos del hilo
 (``SeedTurns.turn_count``). ``trace`` lleva ``memory`` (categorías con valor) y
 ``summary`` (``covered_turns`` y ``method``, nunca el texto).
+
+Spec 054 (flujos de cotización): cada conversación tiene un borrador de cotización
+(``quote_drafts``) que se lee al preparar el turno y se guarda en la misma transacción que
+lo persiste. ``carvajal.quotation.flow.before_turn`` atiende sin LLM las respuestas a la
+pregunta pendiente («sí», «la 2», «eso es todo», «cancélalos») y ``after_turn`` convierte
+las cotizaciones del agente en opciones, comparativo o líneas, con las plantillas de
+``carvajal.quotation.render`` (iguales en la web y en WhatsApp). Ninguna cotización se
+registra sin el «sí» de la persona; al confirmar, todas las líneas pasan a un solo folio.
 """
 
 import atexit
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from functools import cache
@@ -63,20 +71,16 @@ from apps.api.chat.agent import (
 from apps.api.chat.products import has_cards, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from apps.api.chat.summary_worker import SummaryWorker, build_summary_worker
-from apps.api.quote_view import format_date, quote_view
+from carvajal.adapters.judge import build_reply_judge
 from carvajal.adapters.storage.chat import (
     ChatMessage,
     Conversation,
     ConversationSummary,
     SqlChatRepository,
 )
+from carvajal.adapters.storage.drafts import SqlDraftRepository
 from carvajal.adapters.storage.quotes import SqlQuoteRepository
-from carvajal.agent.followup import (
-    Choice,
-    ChoiceOutOfRange,
-    is_confirmation,
-    resolve_choice,
-)
+from carvajal.agent.followup import Choice, ChoiceOutOfRange, resolve_choice
 from carvajal.agent.gatekeeper.model import map_route
 from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns, pair_turns
 from carvajal.agent.state import Turn
@@ -105,6 +109,9 @@ from carvajal.infrastructure.monitoring import (
     token_metadata,
 )
 from carvajal.infrastructure.settings import Settings
+from carvajal.quotation import flow as quote_flow
+from carvajal.quotation import render as quote_render
+from carvajal.quotation.draft import QuoteDraft, draft_quote_payload
 from carvajal.quotation.engine import QUOTE_VERSION
 
 __all__ = [
@@ -150,6 +157,8 @@ class _ToolTurn:
     # Spec 053: lo que lee el agente si difiere de lo que escribió la persona (una
     # elección «la 2» resuelta a su referencia); la pregunta guardada no cambia.
     prompt: str | None = None
+    # Spec 054: borrador de cotización de la conversación al empezar el turno.
+    draft: QuoteDraft = field(default_factory=QuoteDraft)
 
 
 @runtime_checkable
@@ -214,8 +223,13 @@ class ChatService:
         tracer: TurnTracer | None = None,
         settings: Settings | None = None,
         summary_worker: SummaryWorker | None = None,
+        reply_judge: quote_flow.ReplyJudge | None = None,
     ) -> None:
         self._session_factory = session_factory
+        # Spec 054: Jev para respuestas cortas ambiguas del flujo de cotización; se construye
+        # en el primer turno que lo necesita (``None`` sin clave de TypeSafe).
+        self._reply_judge_value = reply_judge
+        self._reply_judge_built = reply_judge is not None
         # Spec 045 (US1): resumen en segundo plano tras persistir; ``None`` no resume.
         self._summary_worker = summary_worker
         self._embedder = embedder
@@ -248,6 +262,34 @@ class ChatService:
         if self._agent is not None:
             return None
         return default_tool_agent_runner()
+
+    def _reply_judge(self) -> quote_flow.ReplyJudge | None:
+        """Jev (Choice) para el flujo de cotización, o ``None``; un fallo no rompe el turno."""
+
+        if not self._reply_judge_built:
+            self._reply_judge_built = True
+            try:
+                self._reply_judge_value = build_reply_judge(self._config())
+            except Exception as error:
+                logger.warning("cotizacion.jev_no_construido", error_type=type(error).__name__)
+                self._reply_judge_value = None
+        return self._reply_judge_value
+
+    def awaiting_confirmation(self, owner_key: str) -> bool:
+        """El hilo activo espera el «sí» de una cotización (o tiene líneas por cerrar).
+
+        Lo usa WhatsApp para que «sí, mándame el PDF» confirme en lugar de pedir el PDF de
+        una cotización anterior.
+        """
+
+        with self._session_factory() as session:
+            conversation = SqlChatRepository(session).active(owner_key)
+            if conversation is None:
+                return False
+            draft = SqlDraftRepository(session).get(conversation.id)
+        if draft.expired() or not draft.lines:
+            return False
+        return draft.awaiting in {"confirmar", "algo_mas"}
 
     def _config(self) -> Settings:
         """Configuración del proceso, leída de forma perezosa una sola vez."""
@@ -412,13 +454,33 @@ class ChatService:
                 if replay is not None:
                     yield from _replay(replay, request_id=_request_id())
                     return
-                # Spec 053: «sí» a una propuesta o «la 2» sobre una recomendación de foto.
-                followup = _followup(repository.history(conversation.id, limit=12), text)
+                # Spec 054: borrador de la cotización en curso; spec 053: «la 2» sobre la
+                # recomendación de una foto (se lee del historial).
+                draft = SqlDraftRepository(session).get(conversation.id)
+                recent = repository.history(conversation.id, limit=12)
                 # El hilo debe existir antes de generar; si el LLM falla, la UI
                 # puede seguir mostrando la conversación sin un turno a medias.
                 session.commit()
             request_id = _request_id()
             prompt = text
+            decision = quote_flow.before_turn(
+                draft, text, judge=self._reply_judge(), now=local_now()
+            )
+            if isinstance(decision, quote_flow.Reply):
+                yield from self._flow_reply(
+                    owner_key,
+                    conversation,
+                    text,
+                    decision,
+                    client_turn_id=client_turn_id,
+                    request_id=request_id,
+                    started=started,
+                )
+                return
+            draft = decision.draft
+            followup = _photo_followup(recent, text) if decision.prompt is None else None
+            if decision.prompt is not None:
+                prompt = decision.prompt
             if followup is not None:
                 if followup.answer is not None:
                     yield from self._fixed_turn(
@@ -432,6 +494,7 @@ class ChatService:
                         client_turn_id=client_turn_id,
                         request_id=request_id,
                         started=started,
+                        draft=draft,
                     )
                     return
                 prompt = followup.prompt or text
@@ -442,6 +505,7 @@ class ChatService:
                     fragments=fragments,
                     seed=seed,
                     prompt=prompt if prompt != text else None,
+                    draft=draft,
                 )
                 yield from self._stream_tools(
                     tools,
@@ -463,8 +527,8 @@ class ChatService:
                 question=text,
             ) as span:
                 turn = runner.prepare(owner_key, conversation.id, prompt, seed)
-                products, quote_record = _propose_quote(turn.products)
-                if products is not turn.products:
+                products, draft, flow_suffix = _apply_flow(draft, turn.products, prompt)
+                if products != turn.products:
                     turn = replace(turn, products=products)
                 # La ruta ya se conoce aquí: registrarla ahora deja trazas
                 # útiles aunque el turno falle o se cancele después (T010).
@@ -576,10 +640,9 @@ class ChatService:
                             {"text": answer, "sources": _sources(turn.sources)},
                         )
 
-                question_suffix = _proposal_question("".join(fragments), turn.products)
-                if question_suffix:
-                    fragments.append(question_suffix)
-                    yield ChatEvent("token", {"text": question_suffix})
+                if flow_suffix:
+                    fragments.append(flow_suffix)
+                    yield ChatEvent("token", {"text": flow_suffix})
                 answer_text = "".join(fragments)
                 span.add_outputs(answer=answer_text)
                 persist_attempted = True
@@ -597,7 +660,7 @@ class ChatService:
                         status="complete",
                         client_turn_id=client_turn_id,
                         products=turn.products,
-                        quotes=[quote_record] if quote_record else (),
+                        draft=draft,
                     )
                     persisted = True
                 self._summarize(owner_key, conversation.id)
@@ -631,9 +694,9 @@ class ChatService:
                         "route": turn.route,
                         "elapsed_ms": elapsed,
                         "request_id": request_id,
-                        "quote_id": quote_record["id"] if quote_record else None,
-                        "quote_ids": [quote_record["id"]] if quote_record else [],
-                        "proposals": _pending_quotes(turn.products),
+                        "quote_id": None,
+                        "quote_ids": [],
+                        "flow": _flow_of(turn.products),
                     },
                 )
             yield done_event
@@ -786,6 +849,7 @@ class ChatService:
                 if replay is not None:
                     yield from _replay(replay, request_id=_request_id())
                     return
+                photo_draft = SqlDraftRepository(session).get(conversation.id)
                 session.commit()
             request_id = _request_id()
             denied = precheck() if precheck is not None else None
@@ -845,6 +909,9 @@ class ChatService:
                     question_sources=(
                         [{"result_type": "photo", "thumbnail": thumbnail}] if thumbnail else None
                     ),
+                    # Spec 054: la elección («la 2») se resuelve contra la foto; el carrito se
+                    # conserva y vuelve a preguntar «¿Algo más?» al agregar la línea.
+                    draft=photo_draft.touch(awaiting=None, options=(), comparison=(), current=None),
                 )
             self._summarize(owner_key, conversation.id)
             elapsed = _milliseconds(started)
@@ -1018,7 +1085,12 @@ class ChatService:
         route = "shortcut" if closing.mode_path == "shortcut" else "agent"
         tools.route = route
         sources: tuple[Source, ...] = () if closing.abstained else closing.sources
-        products, quote_records = _propose_quotes(closing.products)
+        # Spec 054: las cotizaciones del agente pasan al borrador (opciones, comparativo o
+        # líneas); ninguna se registra hasta el «sí».
+        products, draft, flow_suffix = _apply_flow(
+            tools.draft, closing.products, tools.prompt or question
+        )
+        quote_records: list[dict[str, Any]] = []
         monitored, no_query = _monitored_results(closing.results)
         tool_names = [str(r["tool"]) for r in monitored]
         gatekeeper = _gatekeeper_trace(closing.gatekeeper)
@@ -1041,10 +1113,9 @@ class ChatService:
         record_judge_calls(span, _judge_calls(closing.gatekeeper, closing.claims))
         structlog.contextvars.bind_contextvars(route=route)
 
-        question_suffix = _proposal_question("".join(fragments), products)
-        if question_suffix:
-            fragments.append(question_suffix)
-            yield ChatEvent("token", {"text": question_suffix})
+        if flow_suffix:
+            fragments.append(flow_suffix)
+            yield ChatEvent("token", {"text": flow_suffix})
         answer_text = "".join(fragments)
         span.add_outputs(answer=answer_text)
         tools.persist_attempted = True
@@ -1057,6 +1128,7 @@ class ChatService:
             client_turn_id=client_turn_id,
             products=products,
             quotes=quote_records,
+            draft=draft,
         )
         self._summarize(owner_key, conversation.id)
         tools.runner.record(
@@ -1174,7 +1246,10 @@ class ChatService:
             and obtained is not None
             and _has_evidence(obtained)
         ):
-            products, quote_records = _propose_quotes(obtained.products)
+            products, draft, flow_suffix = _apply_flow(
+                tools.draft, obtained.products, tools.prompt or question
+            )
+            quote_records: list[dict[str, Any]] = []
             sources = obtained.sources
             # Solo el plazo vencido declara lo que faltó; un cierre vacío no venció nada.
             note = fallback.timeout_note(len(obtained.missing)) if reason == "timeout" else ""
@@ -1187,8 +1262,10 @@ class ChatService:
         else:
             runner = self._runner()
             turn = runner.prepare(owner_key, conversation.id, tools.prompt or question, tools.seed)
-            products, quote_record = _propose_quote(turn.products)
-            quote_records = [quote_record] if quote_record else []
+            products, draft, flow_suffix = _apply_flow(
+                tools.draft, turn.products, tools.prompt or question
+            )
+            quote_records = []
             sources = turn.sources
             answer_text = fallback.render(products, sources)
             fallback_route, intent, tool, preferences = (
@@ -1234,7 +1311,7 @@ class ChatService:
         if obtained is not None:
             record_judge_calls(span, _judge_calls(obtained.gatekeeper, obtained.claims))
         structlog.contextvars.bind_contextvars(route="agent")
-        answer_text += _proposal_question(answer_text, products)
+        answer_text += flow_suffix
         span.add_outputs(answer=answer_text)
 
         tools.persist_attempted = True
@@ -1247,6 +1324,7 @@ class ChatService:
             client_turn_id=client_turn_id,
             products=products,
             quotes=quote_records,
+            draft=draft,
         )
         self._summarize(owner_key, conversation.id)
         recorder.record(
@@ -1323,6 +1401,7 @@ class ChatService:
         products: Mapping[str, Any] | None,
         quotes: Sequence[Mapping[str, Any]],
         question_sources: Sequence[Mapping[str, Any]] | None = None,
+        draft: QuoteDraft | None = None,
     ) -> tuple[str, str]:
         """Guarda el turno completo si el hilo sigue siendo del dueño (una transacción)."""
 
@@ -1342,7 +1421,63 @@ class ChatService:
                 products=products,
                 quotes=quotes,
                 question_sources=question_sources,
+                draft=draft,
             )
+
+    def _flow_reply(
+        self,
+        owner_key: str,
+        conversation: Conversation,
+        question: str,
+        decision: "quote_flow.Reply",
+        *,
+        client_turn_id: str | None,
+        request_id: str,
+        started: float,
+    ) -> Iterator[ChatEvent]:
+        """Turno del flujo de cotización sin LLM (spec 054); con ``register``, el folio.
+
+        Al confirmar, todas las líneas del borrador pasan a una sola cotización con un
+        folio derivado de la revisión del borrador: un reintento del mismo «sí» no emite
+        otro, y un segundo «sí» responde que ya quedó registrada.
+        """
+
+        draft = decision.draft
+        message = decision.message
+        products: dict[str, Any] = {}
+        records: list[dict[str, Any]] = []
+        folio: str | None = None
+        if decision.register:
+            payload = draft_quote_payload(draft)
+            folio = _quote_folio(conversation.id, f"borrador:{draft.revision}:{draft.updated_at}")
+            stamped, record = _stamp_quote(payload, folio=folio, moment=datetime.now(UTC))
+            records.append(record)
+            message = quote_render.registered(draft, folio, record["valid_until"])
+            products = {"quote": stamped, "quotes": [stamped]}
+            draft = draft.touch(
+                state="registrada",
+                folio=folio,
+                awaiting=None,
+                options=(),
+                comparison=(),
+                current=None,
+                offer=None,
+            )
+            logger.info("cotizacion.registrada", lineas=len(decision.draft.lines))
+        products["flow"] = _flow_payload(message, draft, folio=folio)
+        yield from self._fixed_turn(
+            owner_key,
+            conversation,
+            question,
+            message.text,
+            route=decision.route,
+            products=products,
+            quotes=records,
+            client_turn_id=client_turn_id,
+            request_id=request_id,
+            started=started,
+            draft=draft,
+        )
 
     def _fixed_turn(
         self,
@@ -1357,8 +1492,9 @@ class ChatService:
         client_turn_id: str | None,
         request_id: str,
         started: float,
+        draft: QuoteDraft | None = None,
     ) -> Iterator[ChatEvent]:
-        """Turno con respuesta determinista, sin LLM (spec 053): confirmar o elegir mal.
+        """Turno con respuesta determinista, sin LLM (specs 053 y 054).
 
         Se guarda como cualquier turno (con sus cotizaciones registradas, si las hay) y se
         emite como el respaldo: ``meta``, ``fallback``, ``trace``, ``products`` y ``done``.
@@ -1381,6 +1517,7 @@ class ChatService:
                 client_turn_id=client_turn_id,
                 products=products,
                 quotes=quotes,
+                draft=draft,
             )
         self._summarize(owner_key, conversation.id)
         elapsed = _milliseconds(started)
@@ -1499,8 +1636,9 @@ class ChatService:
         products: Mapping[str, Any] | None = None,
         quotes: Sequence[Mapping[str, Any]] = (),
         question_sources: Sequence[Mapping[str, Any]] | None = None,
+        draft: QuoteDraft | None = None,
     ) -> tuple[str, str]:
-        """Guarda mensajes, resultado comercial y cotizaciones en una sola transacción.
+        """Guarda mensajes, resultado comercial, cotizaciones y borrador en una transacción.
 
         Todas las filas ``quotes`` del turno comparten ``message_id`` y se confirman con
         los mensajes en el mismo ``commit`` (FR-012a): si una falla, no queda ninguna.
@@ -1518,6 +1656,8 @@ class ChatService:
         )
         for quote in quotes:
             _record_quote(session, conversation, quote, message_id=assistant.id)
+        if draft is not None:
+            SqlDraftRepository(session).save(conversation.id, conversation.owner_key, draft)
         session.commit()
         return conversation.id, assistant.id
 
@@ -1780,8 +1920,8 @@ def _done_event(
 ) -> ChatEvent:
     """Evento ``done``: ``quote_ids`` con todos los folios y ``quote_id`` = el primero.
 
-    ``proposals`` (spec 053) lleva las cotizaciones propuestas del turno, sin folio: el
-    puente de WhatsApp las presenta y pide el «sí»; la web las pinta desde ``products``.
+    ``flow`` (spec 054) lleva el mensaje de la plantilla del turno (texto y versión hablada)
+    y qué respuesta espera el asistente: WhatsApp lo usa para la voz y el PDF.
     """
 
     return ChatEvent(
@@ -1795,7 +1935,7 @@ def _done_event(
             "request_id": request_id,
             "quote_id": folios[0] if folios else None,
             "quote_ids": list(folios),
-            "proposals": _pending_quotes(products),
+            "flow": _flow_of(products),
         },
     )
 
@@ -1921,18 +2061,16 @@ def _is_quotation(quoted: Any) -> TypeGuard[Mapping[str, Any]]:
     )
 
 
-PROPOSAL_STATUS: Final = "propuesta"
+DRAFT_STATUS: Final = "borrador"
 REGISTERED_STATUS: Final = "registrada"
-PROPOSAL_QUESTION: Final = "¿Confirmo la cotización? Responde «sí» y la registro con su folio."
 
 
 @dataclass(frozen=True)
 class _Followup:
-    """Cómo atender una respuesta corta (spec 053).
+    """Cómo atender la elección sobre la recomendación de una foto (spec 053).
 
-    Con ``answer``, el turno es determinista (confirmación o elección fuera de rango) y
-    puede traer las cotizaciones ya registradas; con ``prompt``, el agente atiende el turno
-    leyendo ese texto en lugar del que escribió la persona.
+    Con ``answer``, el turno es determinista (elección fuera de rango); con ``prompt``, el
+    agente atiende el turno leyendo ese texto en lugar del que escribió la persona.
     """
 
     route: str
@@ -1942,166 +2080,110 @@ class _Followup:
     quotes: Sequence[Mapping[str, Any]] = ()
 
 
-def _pending_quotes(products: Mapping[str, Any] | None) -> list[dict[str, Any]]:
-    """Cotizaciones propuestas del resultado: calculadas, sin folio, esperando el «sí»."""
-
-    return [
-        dict(quote)
-        for quote in result_quotes(products)
-        if _is_quotation(quote) and quote.get("status") == PROPOSAL_STATUS
-    ]
-
-
-def _registered_folios(products: Mapping[str, Any] | None) -> list[str]:
-    """Folios de las cotizaciones que el turno registró al confirmar (spec 053)."""
-
-    folios: list[str] = []
-    for quote in result_quotes(products):
-        issued = quote.get("quote")
-        if quote.get("status") == REGISTERED_STATUS and isinstance(issued, Mapping):
-            folio = issued.get("folio") or issued.get("id")
-            if folio:
-                folios.append(str(folio))
-    return folios
-
-
-def _propose_quotes(
-    products: Mapping[str, Any] | None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Marca cada cotización del turno como propuesta: sin folio ni fila (spec 053, FR-009).
-
-    Devuelve la misma forma que :func:`_issue_quotes` (sin registros): el folio se asigna
-    cuando la persona confirma (:func:`_followup`).
-    """
+def _mark_draft_quotes(products: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Marca las cotizaciones del turno como del borrador: sin folio ni fila (spec 054)."""
 
     listed = result_quotes(products)
     if not products or not any(_is_quotation(item) for item in listed):
-        return dict(products or {}), []
-    marked = [
-        {**item, "status": PROPOSAL_STATUS} if _is_quotation(item) else item for item in listed
-    ]
-    proposed = {**products, "quote": marked[0]}
+        return dict(products) if products is not None else None
+    marked = [{**item, "status": DRAFT_STATUS} if _is_quotation(item) else item for item in listed]
+    result = {**products, "quote": marked[0]}
     if isinstance(products.get("quotes"), list) and products["quotes"]:
-        proposed["quotes"] = marked
-    return proposed, []
+        result["quotes"] = marked
+    return result
 
 
-def _propose_quote(
-    products: Mapping[str, Any] | None,
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """:func:`_propose_quotes` con la forma de :func:`_issue_quote` (modo ``routes``)."""
+def _apply_flow(
+    draft: QuoteDraft, products: Mapping[str, Any] | None, question: str
+) -> tuple[dict[str, Any] | None, QuoteDraft, str]:
+    """Cotizaciones del turno → borrador y mensaje de la plantilla (``"\n\n…"`` o ``""``)."""
 
-    proposed, _ = _propose_quotes(products)
-    return proposed, None
-
-
-def _proposal_question(answer: str, products: Mapping[str, Any] | None) -> str:
-    """La pregunta de confirmación, si hay propuesta y el texto no la hizo ya (FR-010)."""
-
-    if not _pending_quotes(products) or "confirm" in answer.casefold():
-        return ""
-    return f"\n\n{PROPOSAL_QUESTION}"
+    outcome = quote_flow.after_turn(draft, result_quotes(products), question)
+    result = _mark_draft_quotes(products)
+    if outcome.message is None:
+        return result, outcome.draft, ""
+    result = {**(result or {}), "flow": _flow_payload(outcome.message, outcome.draft)}
+    return result, outcome.draft, f"\n\n{outcome.message.text}"
 
 
-def _followup(messages: Sequence[ChatMessage], text: str) -> _Followup | None:
-    """«Sí» a la propuesta del turno anterior o elección sobre la recomendación de foto.
+def _flow_payload(
+    message: quote_render.Message, draft: QuoteDraft, *, folio: str | None = None
+) -> dict[str, Any]:
+    """Lo que la web (botones) y WhatsApp (voz y PDF) necesitan del mensaje del flujo."""
 
-    La confirmación solo vale para la propuesta del turno inmediatamente anterior (FR-011).
-    La elección se resuelve contra la lista de productos más reciente del hilo, siempre que
-    sea la de una foto (FR-005): otra lista posterior la reemplaza.
+    return {
+        "text": message.text,
+        "spoken": message.spoken,
+        "awaiting": draft.awaiting,
+        "actions": _flow_actions(draft),
+        "folio": folio,
+        "lines": len(draft.lines),
+    }
+
+
+def _flow_of(products: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    found = (products or {}).get("flow")
+    return dict(found) if isinstance(found, Mapping) else None
+
+
+def _flow_actions(draft: QuoteDraft) -> list[dict[str, str]]:
+    """Botones de la web: cada uno envía la frase que la persona diría (o dictaría)."""
+
+    if draft.awaiting == "eleccion" and draft.options:
+        alternatives = len(draft.options[0].get("alternatives") or [])
+        actions = [{"label": "Elegir la recomendada", "say": "Dame esa"}]
+        actions += [
+            {"label": f"Alternativa {index}", "say": f"Vamos con la alternativa {index}"}
+            for index in range(1, alternatives + 1)
+        ]
+        return actions
+    if draft.awaiting == "cantidad" and draft.comparison:
+        actions = []
+        for quote in draft.comparison:
+            units = quote_render.format_units(quote_flow.units_of(quote))
+            actions.append({"label": f"{units} und", "say": f"Con {units}"})
+        return actions
+    if draft.awaiting == "algo_mas":
+        return [
+            {"label": "Agregar otro producto", "say": "Agregar otro producto"},
+            {"label": "Eso es todo", "say": "Eso es todo"},
+        ]
+    if draft.awaiting == "confirmar":
+        return [
+            {"label": "Confirmar cotización", "say": "Sí, confirma la cotización"},
+            {"label": "Cambiar algo", "say": "Quiero cambiar algo"},
+        ]
+    if draft.awaiting == "cambio_producto":
+        return [
+            {"label": "Cancelar lo anterior", "say": "Cancelar"},
+            {"label": "Conservar y agregar", "say": "Conservar"},
+        ]
+    if draft.awaiting == "oferta":
+        return [
+            {"label": "Sí, cotízala", "say": "Sí"},
+            {"label": "No, gracias", "say": "No gracias"},
+        ]
+    return []
+
+
+def _photo_followup(messages: Sequence[ChatMessage], text: str) -> _Followup | None:
+    """Elección sobre la recomendación de foto más reciente del hilo (spec 053, FR-005).
+
+    Otra lista de productos posterior la reemplaza; la confirmación de cotizaciones la lleva
+    el borrador (spec 054).
     """
 
     answers = [message for message in messages if message.role == "assistant"]
-    if not answers:
-        return None
-    last = answers[-1]
-    result = _result_from_payload(last.sources)
-    pending = _pending_quotes(result)
-    if pending and is_confirmation(text):
-        return _confirmation(last, result, pending)
-    registered = _registered_folios(result)
-    if registered and is_confirmation(text):
-        # Un segundo «sí» justo después de confirmar no vuelve a cotizar ni emite otro folio.
-        listed = " y ".join(f"#{folio}" for folio in registered)
-        noun = (
-            "Esa cotización ya quedó registrada"
-            if len(registered) == 1
-            else "Esas cotizaciones ya quedaron registradas"
-        )
-        return _Followup(
-            route="confirmacion",
-            answer=f"{noun} con el folio {listed}. ¿Quieres cotizar algo más?",
-        )
     for message in reversed(answers):
         found = _result_from_payload(message.sources)
         if not found.get("options"):
+            if found.get("flow"):
+                return None  # el flujo mostró opciones de texto después de la foto
             continue
         if found.get("origin") != "foto":
             return None
         return _photo_choice(found["options"], text)
     return None
-
-
-def _confirmation(
-    message: ChatMessage, result: Mapping[str, Any], pending: Sequence[Mapping[str, Any]]
-) -> _Followup:
-    """Registra las propuestas del turno o, si vencieron, pide recalcularlas (Edge Cases)."""
-
-    # La vigencia del vendedor es una fecha de Colombia: se compara con el día en Bogotá,
-    # no en UTC (entre las 19:00 y la medianoche, UTC ya va en el día siguiente).
-    today = local_now().date()
-    for quote in pending:
-        valid = str((quote.get("commercial") or {}).get("valid_until") or "")[:10]
-        if valid and valid < today.isoformat():
-            view = quote_view(quote)
-            if view is None:
-                break
-            detail = f"{view.product} (ref. {view.sku})"
-            if view.units_requested:
-                detail += f", {view.units_requested} unidades"
-            if view.city:
-                detail += f" en {view.city}"
-            prompt = f"Vuelve a cotizar {detail}: la propuesta anterior venció."
-            return _Followup(route="confirmacion", prompt=prompt)
-    issued, records = _issue_quotes(
-        result,
-        conversation_id=message.conversation_id,
-        # El folio sale de la propuesta: confirmarla dos veces no emite otro (FR-013).
-        client_turn_id=f"confirmacion:{message.id}",
-    )
-    if not result.get("quotes"):
-        # Un resultado del modo ``routes`` trae solo ``quote``: se conserva su forma.
-        issued.pop("quotes", None)
-    return _Followup(
-        route="confirmacion",
-        answer=_confirmation_text(issued),
-        products=issued,
-        quotes=records,
-    )
-
-
-def _confirmation_text(issued: Mapping[str, Any]) -> str:
-    """«Listo, registré tu cotización #folio…» con las cifras de la cotización emitida."""
-
-    views = [view for quote in result_quotes(issued) if (view := quote_view(quote)) and view.folio]
-    if not views:
-        return "No encontré la propuesta para registrarla. ¿Me repites qué quieres cotizar?"
-    if len(views) > 1:
-        listed = ", ".join(f"#{view.folio} ({view.product})" for view in views)
-        return f"Listo, registré tus cotizaciones {listed}. Puedes descargarlas en PDF."
-    view = views[0]
-    detail = view.product
-    if view.units_requested:
-        detail += f", {view.units_requested} unidades"
-    if view.city:
-        detail += f" en {view.city}"
-    text = f"Listo, registré tu cotización **#{view.folio}**: {detail}."
-    if view.total:
-        text += f" Total: {view.total}."
-    until = format_date(view.valid_until_date) if view.valid_until_date else None
-    if until:
-        text += f" Es válida hasta el {until}."
-    return text
 
 
 def _photo_choice(options: Sequence[Mapping[str, Any]], text: str) -> _Followup | None:
@@ -2130,63 +2212,6 @@ def _photo_choice(options: Sequence[Mapping[str, Any]], text: str) -> _Followup 
         f"ref. {option.get('sku')}. Cotízala.)"
     )
     return _Followup(route="eleccion", prompt=prompt)
-
-
-def _issue_quote(
-    products: Mapping[str, Any],
-    *,
-    conversation_id: str,
-    client_turn_id: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    """Añade folio y vigencia de emisión a la cotización comercial del turno.
-
-    Una sola cotización (``quote``): modo ``routes`` y respaldo del modo ``tools``; el
-    modo ``tools`` usa :func:`_issue_quotes`. El folio se deriva del hilo y del
-    ``client_turn_id`` cuando existe: dos reenvíos simultáneos del mismo turno emiten el
-    mismo folio antes de que el segundo detecte el duplicado y reproduzca el turno
-    guardado.
-    """
-
-    quoted = (products or {}).get("quote")
-    if not _is_quotation(quoted):
-        return dict(products or {}), None
-    payload, record = _stamp_quote(
-        quoted,
-        folio=_quote_folio(conversation_id, client_turn_id),
-        moment=datetime.now(UTC),
-    )
-    return {**products, "quote": payload}, record
-
-
-def _issue_quotes(
-    products: Mapping[str, Any],
-    *,
-    conversation_id: str,
-    client_turn_id: str | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Folio y vigencia para cada cotización del turno del modo ``tools`` (FR-012a).
-
-    Lee ``quotes`` (con caída a ``[quote]``) en el orden del grafo; la posición ``i`` entre
-    las cotizaciones emitidas fija el folio (:func:`_quote_folio`), así un reenvío con el
-    mismo ``client_turn_id`` repite folios y orden. Devuelve el resultado con ``quotes``
-    sellado y ``quote`` = el primero (lectores actuales) y un registro por fila.
-    """
-
-    listed = result_quotes(products)
-    if not any(_is_quotation(item) for item in listed):
-        return dict(products or {}), []
-    moment = datetime.now(UTC)
-    issued: list[dict[str, Any]] = []
-    records: list[dict[str, Any]] = []
-    for item in listed:
-        if not _is_quotation(item):
-            issued.append(item)
-            continue
-        folio = _quote_folio(conversation_id, client_turn_id, len(records))
-        payload, record = _stamp_quote(item, folio=folio, moment=moment)
-        issued.append(payload)
-        records.append(record)
-    return {**products, "quotes": issued, "quote": issued[0]}, records
 
 
 def _stamp_quote(

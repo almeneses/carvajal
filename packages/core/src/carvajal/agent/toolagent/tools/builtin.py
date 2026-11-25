@@ -205,6 +205,16 @@ class CotizarArgs(BaseModel):
         le=10_000_000,
         description="Cantidad tal como la dijo la persona, en la unidad de «unidad».",
     )
+    cantidades: list[int] | None = Field(
+        default=None,
+        min_length=2,
+        max_length=4,
+        description=(
+            "Spec 054: de 2 a 4 cantidades del MISMO producto para comparar precios («¿cuánto "
+            "valen 100, 500 o 1000?»). Se cotizan todas con la referencia de la primera; no "
+            "pases quantity a la vez."
+        ),
+    )
     unidad: Unit | None = Field(
         default=None,
         description=(
@@ -1093,7 +1103,17 @@ def _quote_payload(
         "vigencia": commercial["valid_until"],
         "existencias": primary["stock"]["status"],
         "aviso_existencias": primary["warning"],
-        "alternativas": len(quote.get("alternatives") or []),
+        # Spec 054: las alternativas llegan con su nombre y subtotal; el sistema las muestra
+        # (recomendada + hasta 4) y el modelo no las repite.
+        "alternativas": [
+            {
+                "sku": item.get("sku"),
+                "nombre": item.get("name"),
+                "subtotal": (item.get("presentation") or {}).get("subtotal"),
+                "diferencia": item.get("difference"),
+            }
+            for item in quote.get("alternatives") or []
+        ],
     }
 
 
@@ -1116,10 +1136,36 @@ def _suggest_city(draft: _Draft, context: ToolContext, said: bool) -> _Draft:
 
 
 def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
-    """``cotizar`` con la ciudad habitual como sugerencia cuando falta la ciudad (FR-013)."""
+    """``cotizar`` con la ciudad habitual como sugerencia cuando falta la ciudad (FR-013).
+
+    Spec 054: con ``cantidades`` cotiza la primera como siempre y las demás con la referencia
+    que salió de la primera, para que el comparativo sea del mismo producto.
+    """
 
     said = args.city is not None and (not context.question or _city_said(args.city, context))
-    return _suggest_city(_quote(args, deps, context, sources), context, said)
+    if not args.cantidades:
+        return _suggest_city(_quote(args, deps, context, sources), context, said)
+    amounts = [amount for amount in dict.fromkeys(args.cantidades) if amount >= 1][:4]
+    first = args.model_copy(update={"quantity": amounts[0], "cantidades": None})
+    draft = _suggest_city(_quote(first, deps, context, sources), context, said)
+    if draft.status != "ok" or draft.quote is None:
+        return draft
+    sku = str(draft.quote["primary"]["sku"])
+    compared = [draft.data.get("cotizacion")]
+    for amount in amounts[1:]:
+        following = first.model_copy(update={"quantity": amount, "sku": sku, "nombre": None})
+        turn = replace(context, quotes=draft.quotes or context.quotes)
+        step = _quote(following, deps, turn, sources)
+        if step.status != "ok":
+            break
+        compared.append(step.data.get("cotizacion"))
+        draft = replace(
+            draft,
+            quotes=step.quotes,
+            message=f"{draft.message} Comparativo de {len(compared)} cantidades del producto.",
+        )
+    draft.data["comparativo"] = [item for item in compared if item]
+    return draft
 
 
 def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
@@ -1148,6 +1194,7 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     # el grafo olvide la de una cotización anterior.
     update = {**filled.model_dump(exclude_none=True), "country": "CO", "sku": filled.sku}
     update.pop("nombre", None)
+    update.pop("cantidades", None)
     if "quantity" in update:
         # La unidad viaja con la cantidad: una cantidad nueva sin unidad deja de ser de cajas.
         update["unidad"] = filled.unidad or "unidades"
@@ -1179,6 +1226,7 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
             context_update=update,
         )
     fields = request.model_dump()
+    fields.pop("cantidades", None)
     unit = _UNIT_BASIS.get(fields.pop("unidad") or "unidades", "unidad")
     name = fields.pop("nombre")
     quoted = quote_request(
