@@ -126,7 +126,7 @@ class QuoteView:
     valid_until: str | None = None
     valid_until_date: date | None = None
     warning: str = ""
-    # Precio convertido desde México: nadie lo publica en Colombia (``price_kind``).
+    # Precio de referencia del catálogo, sin vendedor (``price_kind == "convertido"``).
     converted: bool = False
     pending: Sequence[str] = field(default_factory=tuple)
     # Spec 054: con dos o más productos, una línea por producto bajo el mismo folio.

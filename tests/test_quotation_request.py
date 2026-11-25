@@ -47,7 +47,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     ),
     "sin ciudad pide ciudad": QuoteRequest(**CALIENTE, quantity=20, delivery=False),
     "pregunta institucional queda fuera": None,
-    "ciudad sin precio publicado cotiza la referencia convertida y conserva sedes": QuoteRequest(
+    "ciudad sin precio conserva sedes": QuoteRequest(
         **CALIENTE, quantity=100, city="Cali", delivery=False
     ),
     "talla agotada no se ofrece": QuoteRequest(
@@ -78,7 +78,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     "aromática deduce caliente y pide la cantidad": QuoteRequest(
         **CALIENTE, city="Cali", delivery=False
     ),
-    "chocolate caliente en Pasto cotiza la referencia convertida": QuoteRequest(
+    "chocolate caliente en Pasto sin precio publicado": QuoteRequest(
         **CALIENTE, quantity=200, city="Pasto", delivery=False
     ),
     "vaso sin temperatura pregunta antes de cotizar": QuoteRequest(
@@ -397,7 +397,7 @@ def test_con_cajas_de_distinto_tamano_se_ordena_por_precio_por_unidad() -> None:
     kinds = [option["price_kind"] for option in opciones]
     assert kinds == sorted(kinds, key=lambda kind: kind == "convertido")
     assert "La más económica" not in resultado["reply"]
-    assert "La de menor precio por unidad con precio publicado es" in resultado["reply"]
+    assert "Te recomiendo" in resultado["reply"]
     assert "Cada referencia trae una cantidad distinta por caja" in resultado["reply"]
     for option in opciones:
         assert option["conversion"]["text"] in resultado["reply"]

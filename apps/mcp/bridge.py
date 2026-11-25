@@ -630,7 +630,7 @@ def whatsapp_quote(view: QuoteView, photo_url: str | None = None) -> str:
     notes = []
     if view.source_name and view.price_date:
         if view.converted:
-            notes.append(f"Precio convertido desde México el {view.price_date}")
+            notes.append(f"Precio de referencia del {view.price_date}")
         else:
             notes.append(f"Precio publicado por {view.source_name} el {view.price_date}")
     if view.valid_until:

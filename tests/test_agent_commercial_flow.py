@@ -177,7 +177,7 @@ def test_el_precio_convertido_se_cita_con_su_procedencia_y_no_como_publicado() -
     assert ficha["source_type"] == "oficial"
     assert precio["source_type"] == "sistema"
     assert precio["url"] == "https://ejemplo.test/tasa"
-    assert "convertido desde México a COP, no publicado en Colombia" in precio["excerpt"]
+    assert "precio de referencia del catálogo (México, convertido a COP)" in precio["excerpt"]
 
 
 class _SinRecuperacion:

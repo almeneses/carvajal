@@ -116,7 +116,7 @@
       </p>
       <p class="producto-oferta-fuente">
         {%- if oferta.seller_kind == "sistema" %}
-        <strong>Precio de referencia convertido desde México</strong>; nadie lo publica en Colombia
+        <strong>Precio de referencia del catálogo</strong>
         {%- else %}
         Vendedor <strong>{{ oferta.seller }}</strong>
         {%- endif %}
@@ -332,8 +332,7 @@
             Publicado por <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">{{ oferta.source_name }}</a>{% if oferta.source_city %} ({{ oferta.source_city }}){% endif %}
             <span class="etiqueta-tercero">Tercero</span>
             {%- elif oferta.source_type == "sistema" %}
-            <a href="{{ oferta.source_url }}" target="_blank" rel="noopener noreferrer">Convertido desde México</a>
-            <span class="etiqueta-tercero">Referencia</span>
+            Precio de referencia del catálogo
             {%- else %}
             Publicado por {{ oferta.source_name }}
             {%- endif %}

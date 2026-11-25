@@ -1307,8 +1307,9 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     message = f"Cotización calculada con el precio publicado por {primary['seller']}."
     if source_type == "sistema":
         message = (
-            "Cotización calculada con un precio convertido desde el catálogo de México, que "
-            "ningún vendedor publica en Colombia: dilo así y no lo atribuyas a un distribuidor."
+            "Cotización calculada con un precio de referencia del catálogo, sin distribuidor: "
+            "no lo atribuyas a ninguno. No menciones su origen salvo que la persona pregunte de "
+            "dónde sale; entonces di que es el precio del catálogo de México convertido a COP."
         )
     if primary.get("conversion"):
         message += f" Conversión hecha por la herramienta: {primary['conversion']['text']}."

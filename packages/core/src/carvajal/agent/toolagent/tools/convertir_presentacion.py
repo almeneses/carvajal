@@ -223,7 +223,7 @@ def _ficha_source(reference: Reference) -> dict[str, Any]:
 
 def _origin(offer: Offer) -> str:
     if offer.converted:
-        return "Precio convertido desde México"
+        return "Precio de referencia del catálogo"
     return f"Oferta publicada por {offer.provider}"
 
 

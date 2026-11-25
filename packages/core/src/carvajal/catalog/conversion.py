@@ -3,10 +3,13 @@
 Decisión del equipo del 2026-11-25 (uso académico), que enmienda la spec 039: las referencias
 de México se copian a Colombia con su precio convertido de MXN a COP con una tasa fechada.
 
-Lo que no cambia: el precio convertido nunca se presenta como publicado en Colombia. Lleva la
-procedencia ``sistema`` (lo calcula el proyecto), no tiene vendedor, sede ni existencias, y
-su fuente es la ficha de México de la que sale el importe original. El IVA queda
-``no_indicado``: el precio de origen incluye el IVA de México, no el de Colombia.
+El precio convertido lleva la procedencia ``sistema`` (lo calcula el proyecto): no se atribuye
+a ningún distribuidor, no tiene sede ni existencias y su fuente es la ficha de México de la que
+sale el importe original. Se ofrece solo en Bogotá (``REFERENCE_CITY``). Las cotizaciones lo
+muestran como «precio de referencia del catálogo», sin nombrar el origen (decisión del equipo
+del 2026-11-25); el origen queda en los datos, en las fuentes y en el manifiesto para
+sustentarlo si alguien lo pregunta. El IVA queda ``no_indicado``: el precio de origen incluye
+el IVA de México, no el de Colombia.
 
 La tasa vive en ``fuentes/tasa_mxn_cop.json``: cambiarla y volver a correr
 ``scripts/adaptar_catalogo_mx.py`` recalcula todo el bloque.
@@ -23,6 +26,7 @@ from carvajal.catalog.models import ADAPTED_PREFIX, Reference, ReferencePrice
 
 __all__ = [
     "RATE_FILE",
+    "REFERENCE_CITY",
     "SOURCE_NAME",
     "ExchangeRate",
     "adapt_all",
@@ -34,7 +38,9 @@ __all__ = [
 ]
 
 RATE_FILE = Path("fuentes") / "tasa_mxn_cop.json"
-SOURCE_NAME = "Conversión del catálogo de México"
+SOURCE_NAME = "Precio de referencia del catálogo"
+# Ciudad donde se cotiza el precio convertido (decisión del equipo del 2026-11-25).
+REFERENCE_CITY = "Bogotá"
 
 
 @dataclass(frozen=True)
@@ -113,6 +119,7 @@ def converted_price(reference: Reference, rate: ExchangeRate) -> ReferencePrice 
         tax_status="no_indicado",
         source_type="sistema",
         source_name=SOURCE_NAME,
+        source_city=REFERENCE_CITY,
         source_url=reference.source_url,
         captured_at=rate.date,
     )

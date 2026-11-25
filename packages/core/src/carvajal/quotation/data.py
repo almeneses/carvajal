@@ -31,7 +31,7 @@ __all__ = [
 
 COUNTRY = "CO"
 # Precio convertido desde México (``catalog.conversion``): no lo vende ninguna sede. Se ofrece
-# como referencia en todas las ciudades con este identificador, que no está en el directorio.
+# como referencia en su ciudad (Bogotá) con este identificador, que no está en el directorio.
 REFERENCE_SITE_ID = "CO-REFERENCIA"
 
 # La ficha del producto es la referencia curada: no se duplica el catálogo.
@@ -227,14 +227,14 @@ def dataset_from_book(book: CommercialBook, *, as_of: date) -> Dataset:
                 evidence=availability.evidence,
             )
         )
-    offers.extend(_converted_offers(book, {provider.city for provider in providers}))
+    offers.extend(_converted_offers(book))
     if not products:
         raise CommercialDataError("el catálogo curado no tiene referencias de Colombia")
     return Dataset(products=products, offers=tuple(offers), providers=providers)
 
 
-def _converted_offers(book: CommercialBook, cities: set[str]) -> list[Offer]:
-    """Precios convertidos desde México, uno por ciudad: la referencia no depende de una sede."""
+def _converted_offers(book: CommercialBook) -> list[Offer]:
+    """Precios convertidos desde México, en su ciudad y sin sede del directorio."""
 
     return [
         Offer(
@@ -242,7 +242,7 @@ def _converted_offers(book: CommercialBook, cities: set[str]) -> list[Offer]:
             country=offer.country,
             site_id=REFERENCE_SITE_ID,
             provider=offer.source.name,
-            city=city,
+            city=offer.city or "",
             basis=offer.presentation.basis,
             units_in_basis=offer.presentation.units_in_basis,
             amount=offer.amount,
@@ -258,7 +258,6 @@ def _converted_offers(book: CommercialBook, cities: set[str]) -> list[Offer]:
         )
         for offer in book.offers
         if offer.country == COUNTRY and offer.source.type == "sistema"
-        for city in sorted(cities)
     ]
 
 
