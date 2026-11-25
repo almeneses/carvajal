@@ -242,6 +242,14 @@ def default_bridge() -> WhatsAppBridge:
                 timezone=settings.quota_timezone,
             ).consume(owner_key)
 
+    def quota_peek(owner_key: str) -> QuotaResult:
+        with factory() as session:
+            return DailyQuota(
+                SqlUsageRepository(session),
+                limit=settings.daily_requests_limit,
+                timezone=settings.quota_timezone,
+            ).peek(owner_key)
+
     def latest_quote(owner_key: str) -> dict[str, Any] | None:
         with factory() as session:
             conversation = SqlChatRepository(session).active(owner_key)
@@ -280,6 +288,7 @@ def default_bridge() -> WhatsAppBridge:
         secret=secret,
         quotes=quotes,
         quota=quota,
+        quota_peek=quota_peek,
         turns=turns,
         latest_quote=latest_quote,
         # Sin URL pública no hay a dónde enlazar: el chat no ofrece el PDF.

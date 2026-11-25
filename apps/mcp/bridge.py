@@ -194,6 +194,7 @@ class PhotoTurns(Protocol):
         *,
         analyze: Callable[[], FoodProfile],
         charge: Callable[[], str | None],
+        precheck: Callable[[], str | None] | None = None,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
     ) -> Iterator[ChatEvent]: ...
@@ -698,6 +699,8 @@ class WhatsAppBridge:
     secret: bytes
     quotes: QuoteLookup | None = None
     quota: Quota = _no_limit
+    # Mira el cupo sin reservarlo: una foto no va a Jev si el cupo ya se agotó (spec 051).
+    quota_peek: Quota = _no_limit
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
     pdf_attachment: PdfLink | None = None
@@ -728,11 +731,15 @@ class WhatsAppBridge:
         «Nueva conversación» de la web); si además no hay mensaje, solo se confirma. Con
         ``voice`` la respuesta es un resumen apto para leerse en voz alta y lo escrito va
         aparte (:meth:`BridgeReply.voice_message`). Con ``photo`` (spec 051), el adjunto de
-        OpenClaw se analiza y ``message`` es el texto opcional que lo acompaña.
+        OpenClaw se analiza y ``message`` es el texto opcional que lo acompaña; ``voice``
+        aplica igual (OpenClaw puede juntar una nota de voz y una foto en el mismo turno).
         """
 
         if photo.strip():
-            return self.photo(message, chat_id, photo, new_conversation=new_conversation).text
+            reply = self.photo(
+                message, chat_id, photo, new_conversation=new_conversation, voice=voice
+            )
+            return reply.voice_message() if voice else reply.text
         reply = self.respond(message, chat_id, new_conversation=new_conversation, voice=voice)
         return reply.voice_message() if voice else reply.text
 
@@ -808,18 +815,24 @@ class WhatsAppBridge:
         photo: str,
         *,
         new_conversation: bool = False,
+        voice: bool = False,
     ) -> BridgeReply:
         """Turno de una foto de alimento (spec 051, US4); nunca lanza.
 
         Sin carpeta de adjuntos, sin clasificador o con el clasificador caído responde
         :data:`PHOTO_UNAVAILABLE`; un adjunto inválido, :data:`PHOTO_REJECTED`. En ninguno de
-        esos casos se cobra cupo: se cobra solo si el clasificador respondió.
+        esos casos se cobra cupo: se cobra solo si el clasificador respondió. Con el cupo ya
+        agotado responde :data:`LIMIT_REACHED` sin enviar la foto al clasificador. Con
+        ``voice``, el texto que acompaña la foto es una transcripción y se normaliza como en
+        :meth:`respond`.
         """
 
         chat = " ".join(chat_id.split())
         if not chat or len(chat) > MAX_CHAT_ID_CHARS:
             raise ValueError("conversacion debe ser el identificador del chat (1-200 caracteres).")
         text = message.strip()
+        if voice:
+            text = normalize_transcript(text)
         if len(text) > MAX_MESSAGE_CHARS:
             return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)
@@ -853,8 +866,16 @@ class WhatsAppBridge:
             def charge() -> str | None:
                 return None if self.quota(owner).allowed else LIMIT_REACHED
 
+            def precheck() -> str | None:
+                try:
+                    allowed = self.quota_peek(owner).allowed
+                except Exception as error:  # sin poder mirarlo, decide ``charge``
+                    logger.warning("whatsapp.quota_peek_failed", error_type=type(error).__name__)
+                    return None
+                return None if allowed else LIMIT_REACHED
+
             events = cast(PhotoTurns, turns).photo_stream(
-                owner, text, analyze=analyze, charge=charge
+                owner, text, analyze=analyze, charge=charge, precheck=precheck
             )
             turn = _collect(events)
             if turn.error is not None and not turn.text.strip():

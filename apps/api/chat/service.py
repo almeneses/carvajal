@@ -711,15 +711,18 @@ class ChatService:
         *,
         analyze: Callable[[], FoodProfile],
         charge: Callable[[], str | None],
+        precheck: Callable[[], str | None] | None = None,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
     ) -> Iterator[ChatEvent]:
         """Turno de una foto de alimento (spec 051): sin LLM, guardado como cualquier turno.
 
         Orden (research R7): reintento con el mismo ``client_turn_id`` → se reemite sin
-        clasificar ni cobrar; ``analyze()`` clasifica (cualquier fallo → ``error`` con
-        :data:`PHOTO_UNAVAILABLE`, sin guardar ni cobrar); ``charge()`` cobra el cupo y
-        devuelve el mensaje de límite si no hay; después se recomienda, se guarda el turno
+        clasificar ni cobrar; ``precheck()`` mira el cupo sin reservarlo y, si ya se agotó,
+        responde el límite sin enviar la foto a Jev; ``analyze()`` clasifica (cualquier
+        fallo → ``error`` con :data:`PHOTO_UNAVAILABLE`, sin guardar ni cobrar); ``charge()``
+        cobra el cupo (otra petición pudo gastarlo entre medias) y devuelve el mensaje de
+        límite si no hay; después se recomienda, se guarda el turno
         (marca de la foto, texto determinista y tarjetas) y se emite como el respaldo del
         modo ``tools``: ``meta``, ``fallback``, ``trace``, ``products`` y ``done``.
         """
@@ -745,6 +748,10 @@ class ChatService:
                     return
                 session.commit()
             request_id = _request_id()
+            denied = precheck() if precheck is not None else None
+            if denied:
+                yield ChatEvent("error", {"message": denied, "incomplete": False})
+                return
             try:
                 profile = analyze()
             except Exception as error:  # plazo, tope, circuito o respuesta inválida de Jev

@@ -12,7 +12,8 @@
 - Éxito: `text/event-stream` con los eventos de `/chat/stream`: `open`, `meta`, `fallback`
   (texto completo), `trace` (`path: "foto"`, `foto: {status, tipo}`), `products` (si hay
   tarjetas) y `done`. Fallo del clasificador: `error` con `PHOTO_UNAVAILABLE` e
-  `incomplete: false`; cupo agotado: `error` con el mensaje de límite.
+  `incomplete: false`; cupo agotado: `error` con el mensaje de límite (si ya estaba
+  agotado al llegar, la foto no se envía a Jev).
 - Emite la cookie de identidad si el visitante es nuevo, como `/chat/stream`.
 
 ## 2. MCP `consultar_carvajal`
@@ -24,6 +25,9 @@ acompaña la foto). Respuestas:
 - Foto aceptada: la recomendación en formato WhatsApp.
 - Nombre inválido, archivo ausente o no imagen: `PHOTO_REJECTED` (sin cupo).
 - Sin carpeta de adjuntos o sin clasificador: `PHOTO_UNAVAILABLE` (sin cupo).
+- Cupo agotado: `LIMIT_REACHED`, sin enviar la foto a Jev.
+- Con `voz=true` (OpenClaw puede juntar una nota de voz y una foto en un turno), el texto se
+  normaliza como transcripción y la respuesta sale en el formato de voz de la spec 048.
 
 ## 3. Jev (`JevClient.call`)
 

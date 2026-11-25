@@ -101,12 +101,19 @@
 
 ## R7. Cupo, idempotencia y fallos
 
-- **Decision**: `ChatService.photo_stream(owner, note, *, analyze, charge, client_turn_id,
-  thread_id)`: primero busca el turno por `client_turn_id` (reemite sin clasificar ni cobrar),
-  después llama a `analyze()` (clasificador) y solo si clasificó llama a `charge()` (cupo);
-  después recomienda, guarda y emite. Un fallo del clasificador emite `error` con el mensaje
-  «no pude analizar la foto, descríbela por texto» y no guarda ni cobra.
-- **Rationale**: FR-019 y FR-020 con una sola implementación para la web y WhatsApp.
+- **Decision**: `ChatService.photo_stream(owner, note, *, analyze, charge, precheck,
+  client_turn_id, thread_id)`: primero busca el turno por `client_turn_id` (reemite sin
+  clasificar ni cobrar); después `precheck()` mira el cupo sin reservarlo
+  (`DailyQuota.peek` → `UsageRepository.has_room`) y, si ya se agotó, responde el límite sin
+  enviar la foto a Jev; después llama a `analyze()` (clasificador) y solo si clasificó llama
+  a `charge()` (cupo, que sigue siendo la única reserva: otra petición pudo gastarlo entre
+  medias); después recomienda, guarda y emite. Un fallo del clasificador emite `error` con el
+  mensaje «no pude analizar la foto, descríbela por texto» y no guarda ni cobra. Si la
+  consulta previa falla, decide `charge()`.
+- **Rationale**: FR-019 y FR-020 con una sola implementación para la web y WhatsApp. Sin la
+  consulta previa, quien agotó su cupo podía seguir enviando fotos a Jev y gastar el tope
+  diario compartido (`FOOD_PHOTO_MAX_CALLS_PER_DAY`) de todas las personas (revisión de la
+  PR #247).
 
 ## R8. WhatsApp: adjunto de OpenClaw
 

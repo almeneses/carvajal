@@ -7,7 +7,7 @@ el cupo solo si el clasificador respondió y entrega la recomendación en format
 import io
 import os
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -76,9 +76,14 @@ class FakePhotoChat:
         *,
         analyze: Callable[[], FoodProfile],
         charge: Callable[[], str | None],
+        precheck: Callable[[], str | None] | None = None,
         **_: Any,
     ) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, note))
+        denied = precheck() if precheck is not None else None
+        if denied:
+            yield ChatEvent("error", {"message": denied, "incomplete": False})
+            return
         try:
             profile = analyze()
         except Exception:
@@ -103,6 +108,7 @@ def _bridge(
     *,
     classifier: FakeClassifier | None = None,
     allowed: bool = True,
+    room: bool = True,
     reader: bool = True,
 ) -> tuple[WhatsAppBridge, FakePhotoChat, list[str]]:
     chat = FakePhotoChat()
@@ -116,6 +122,7 @@ def _bridge(
         chat=chat,
         secret=b"secreto",
         quota=quota,
+        quota_peek=lambda _owner: QuotaResult(allowed=room),
         photo_reader=partial(read_inbound_photo, directory=str(media)) if reader else None,
         food_classifier=classifier if classifier is not None else FakeClassifier(),
     )
@@ -230,3 +237,45 @@ def test_sin_cupo_responde_el_limite(media: Path) -> None:
 
     # Assert
     assert text == LIMIT_REACHED
+
+
+def test_sin_cupo_la_foto_no_llega_al_clasificador(media: Path) -> None:
+    # Arrange
+    classifier = FakeClassifier()
+    bridge, _chat, charges = _bridge(media, classifier=classifier, allowed=False, room=False)
+
+    # Act
+    text = bridge.consult("", CHAT, photo=NAME)
+
+    # Assert
+    assert text == LIMIT_REACHED
+    assert classifier.photos == [] and charges == []
+
+
+def test_si_no_se_puede_mirar_el_cupo_decide_el_cobro(media: Path) -> None:
+    # Arrange
+    bridge, _chat, charges = _bridge(media)
+
+    def broken(_owner: str) -> QuotaResult:
+        raise RuntimeError("base caída")
+
+    bridge = replace(bridge, quota_peek=broken)
+
+    # Act
+    text = bridge.consult("", CHAT, photo=NAME)
+
+    # Assert
+    assert "Veo *frituras*." in text and charges == [bridge.owner_key(CHAT)]
+
+
+def test_con_voz_la_foto_normaliza_el_texto_y_responde_en_formato_de_voz(media: Path) -> None:
+    # Arrange
+    bridge, chat, _charges = _bridge(media)
+
+    # Act
+    spoken = bridge.consult("es para 1,800 personas", CHAT, photo=NAME, voice=True)
+
+    # Assert: el texto que acompaña la foto se trata como cualquier transcripción.
+    assert chat.calls == [(bridge.owner_key(CHAT), "es para 1.800 personas")]
+    assert spoken == bridge.photo("", CHAT, NAME).voice_message()
+    assert "**" not in spoken and "*frituras*" not in spoken

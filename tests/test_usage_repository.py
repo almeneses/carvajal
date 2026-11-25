@@ -45,6 +45,20 @@ def test_visitantes_y_dias_son_independientes(session: Session) -> None:
     assert uso.try_consume("ana", DIA + timedelta(days=1), 1)
 
 
+def test_mirar_el_cupo_no_escribe(session: Session) -> None:
+    """``has_room`` solo lee: sin fila hay cupo y no la crea; al llegar al límite, no."""
+
+    # Arrange
+    uso = SqlUsageRepository(session)
+
+    # Act / Assert
+    assert uso.has_room("ana", DIA, 1)
+    assert session.scalar(select(tables.usage_day)) is None
+    assert uso.try_consume("ana", DIA, 1)
+    assert not uso.has_room("ana", DIA, 1)
+    assert not uso.has_room("ana", DIA, 0)
+
+
 def test_limite_cero_no_escribe(session: Session) -> None:
     """Sin cupo no se crea fila alguna."""
 

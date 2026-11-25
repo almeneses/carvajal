@@ -87,6 +87,8 @@ class Handlers:
 
     health: Callable[[], HealthStatus]
     quota: Callable[[str], QuotaResult] = _sin_limite
+    # Mira el cupo sin reservarlo: la foto (spec 051) no va a Jev si ya se agotó.
+    quota_peek: Callable[[str], QuotaResult] = _sin_limite
 
 
 @cache
@@ -118,7 +120,15 @@ def _default_handlers() -> Handlers:
                 timezone=settings.quota_timezone,
             ).consume(owner_key)
 
-    return Handlers(health=health, quota=quota)
+    def quota_peek(owner_key: str) -> QuotaResult:
+        with factory() as session:
+            return DailyQuota(
+                SqlUsageRepository(session),
+                limit=settings.daily_requests_limit,
+                timezone=settings.quota_timezone,
+            ).peek(owner_key)
+
+    return Handlers(health=health, quota=quota, quota_peek=quota_peek)
 
 
 def force_global_tracing_off() -> None:
@@ -146,6 +156,12 @@ def _default_quota(owner_key: str) -> QuotaResult:
     """Cuota real, diferida hasta la primera petición que la necesita."""
 
     return _default_handlers().quota(owner_key)
+
+
+def _default_quota_peek(owner_key: str) -> QuotaResult:
+    """Consulta real del cupo (sin reservar), diferida como :func:`_default_quota`."""
+
+    return _default_handlers().quota_peek(owner_key)
 
 
 def _message(
@@ -244,6 +260,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     settings = Settings()
     app.state.settings = settings
     app.state.quota = handlers.quota if handlers is not None else _default_quota
+    app.state.quota_peek = handlers.quota_peek if handlers is not None else _default_quota_peek
     if not settings.operator_token.strip():
         # La lectura sigue abierta; la escritura web queda solo en la CLI.
         logger.warning("operator.write_disabled", reason="missing_operator_token")

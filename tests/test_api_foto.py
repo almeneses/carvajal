@@ -91,6 +91,7 @@ def _harness(
     classifier: FakeClassifier | None = None,
     *,
     allowed: bool = True,
+    room: bool | None = None,
 ) -> Harness:
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
     chat = ChatService(
@@ -109,6 +110,8 @@ def _harness(
     app.state.chat = chat
     app.state.chat_identity = IDENTITY
     app.state.quota = quota
+    # Lo que ve la consulta previa; por defecto, lo mismo que el cobro.
+    app.state.quota_peek = lambda _owner: QuotaResult(allowed=allowed if room is None else room)
     app.state.food_classifier = classifier
     return Harness(TestClient(app), chat, classifier, charges)
 
@@ -219,9 +222,12 @@ def test_si_el_clasificador_falla_pide_texto_sin_guardar_ni_cobrar(
     assert harness.chat.history(OWNER) == []
 
 
-def test_sin_cupo_no_guarda_el_turno(session_factory: Callable[[], Any]) -> None:
+def test_sin_cupo_no_envia_la_foto_a_jev_ni_guarda_el_turno(
+    session_factory: Callable[[], Any],
+) -> None:
     # Arrange
-    harness = _harness(session_factory, FakeClassifier(), allowed=False)
+    classifier = FakeClassifier()
+    harness = _harness(session_factory, classifier, allowed=False)
     token = _session(harness.client)
 
     # Act
@@ -229,6 +235,24 @@ def test_sin_cupo_no_guarda_el_turno(session_factory: Callable[[], Any]) -> None
 
     # Assert
     assert dict(events)["error"]["message"] == LIMITE_ALCANZADO
+    assert classifier.photos == [] and harness.charges == []
+    assert harness.chat.history(OWNER) == []
+
+
+def test_si_el_cupo_se_agota_durante_el_analisis_no_guarda_el_turno(
+    session_factory: Callable[[], Any],
+) -> None:
+    # Arrange: la consulta previa veía cupo, pero otra petición lo gastó antes del cobro.
+    classifier = FakeClassifier()
+    harness = _harness(session_factory, classifier, allowed=False, room=True)
+    token = _session(harness.client)
+
+    # Act
+    events = _events(_send(harness.client, token).text)
+
+    # Assert
+    assert dict(events)["error"]["message"] == LIMITE_ALCANZADO
+    assert len(classifier.photos) == 1 and harness.charges == [OWNER]
     assert harness.chat.history(OWNER) == []
 
 

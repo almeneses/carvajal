@@ -343,6 +343,15 @@ def consume_quota(request: Request, owner_key: str) -> QuotaResult:
     return quota(owner_key)
 
 
+def peek_quota(request: Request, owner_key: str) -> QuotaResult:
+    """Dice si quedaría cupo sin cobrarlo (``app.state.quota_peek``); sin inyección, sí."""
+
+    peek = getattr(request.app.state, "quota_peek", None)
+    if peek is None:
+        return QuotaResult(allowed=True)
+    return peek(owner_key)
+
+
 def set_identity_cookie(
     response: Response,
     request: Request,

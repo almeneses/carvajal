@@ -31,6 +31,7 @@ from apps.api.views.chat import (
     TOO_LONG_QUESTION,
     chat_provider,
     consume_quota,
+    peek_quota,
     request_identity,
     set_identity_cookie,
 )
@@ -68,6 +69,7 @@ class PhotoChat(Protocol):
         *,
         analyze: Callable[[], FoodProfile],
         charge: Callable[[], str | None],
+        precheck: Callable[[], str | None] | None = None,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
     ) -> Iterator[ChatEvent]: ...
@@ -187,6 +189,7 @@ async def chat_foto(request: Request) -> Response:
                 note,
                 analyze=_analyzer(classifier, photo),
                 charge=_charger(request, owner_key),
+                precheck=_prechecker(request, owner_key),
                 client_turn_id=client_turn_id,
                 thread_id=thread_id,
             )
@@ -217,3 +220,17 @@ def _charger(request: Request, owner_key: str) -> Callable[[], str | None]:
         return None if quota.allowed else LIMITE_ALCANZADO
 
     return charge
+
+
+def _prechecker(request: Request, owner_key: str) -> Callable[[], str | None]:
+    """Sin cupo, la foto no se envía a Jev; un fallo al consultarlo lo deja a ``charge``."""
+
+    def precheck() -> str | None:
+        try:
+            quota = peek_quota(request, owner_key)
+        except SQLAlchemyError as error:
+            logger.warning("chat.quota_peek_failed", error_type=type(error).__name__)
+            return None
+        return None if quota.allowed else LIMITE_ALCANZADO
+
+    return precheck
