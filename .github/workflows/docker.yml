@@ -97,7 +97,7 @@ jobs:
       - name: Construir imagen de desarrollo
         # `make up` usa la etapa `dev`; se valida aquí para que un cambio en el
         # Dockerfile no rompa el stack local sin que CI lo note.
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: dev
