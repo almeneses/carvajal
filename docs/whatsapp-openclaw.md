@@ -489,20 +489,23 @@ el 2026-11-24.
 1. En `/opt/carvajal/.env` (además de `TYPESAFE_API_KEY`):
 
    ```bash
-   OPENCLAW_MEDIA_DIR=/home/deploy/.openclaw/media/inbound
+   OPENCLAW_MEDIA_DIR=/srv/openclaw-media
    ```
 
    `compose.prod.yml` monta esa carpeta en `mcp` como `/openclaw-media:ro` y define
    `FOOD_PHOTO_MEDIA_DIR`. `FOOD_PHOTO_ENABLED=false` apaga las fotos en la web y en WhatsApp.
-2. El contenedor corre como `app` (uid 100) y la carpeta de OpenClaw es `700`: dale permiso
-   de **paso** (no de lectura del listado) para que el puente abra archivos por nombre:
+2. El contenedor corre como `app` (uid 100) y la carpeta de OpenClaw es `700`, y OpenClaw
+   la vuelve a poner en `700` al guardar cada adjunto: un `chmod 711` dura hasta la
+   siguiente foto. Monta para `mcp` una vista con bindfs que solo dé paso (sin listado) y
+   lectura, y apunta `OPENCLAW_MEDIA_DIR` a esa vista:
 
    ```bash
-   chmod 711 ~/.openclaw/media/inbound
+   sudo bindfs -r -o allow_other --perms=og-rwx:od+x:of+r ~/.openclaw/media/inbound /srv/openclaw-media
    ```
 
-   Los adjuntos que escribe OpenClaw ya son `644`. Si una actualización de OpenClaw vuelve a
-   poner `700`, el puente responde «No pude abrir esa foto…» y basta repetir el `chmod`.
+   Los adjuntos que escribe OpenClaw ya son `644`. Para que sobreviva a un reinicio, usa una
+   unidad `.mount` como la de [OpenClaw en otra
+   máquina](#openclaw-en-otra-máquina-sshfs-por-el-túnel).
 3. `docker compose -f compose.prod.yml up -d mcp` y comprueba:
    `curl -s localhost:8000/health | jq .food_photo` → `"status": "ok"`.
 
@@ -519,9 +522,24 @@ En la VM de OpenClaw (root):
    `~ocmedia/.ssh/authorized_keys` precedida de `from="127.0.0.1,::1",restrict`.
 2. Una jaula con solo la carpeta de adjuntos: `/srv/occhroot` (root, `755`) y la unidad
    `srv-occhroot-inbound.mount` que monta `~marko/.openclaw/media/inbound` en
-   `/srv/occhroot/inbound` con `bind,ro`. El usuario solo tiene paso (no listado) por esa
-   carpeta: `setfacl -m u:ocmedia:x ~marko/.openclaw/media/inbound`. No se le da nada sobre
-   el resto del home de `marko` (allí hay credenciales y respaldos legibles por nombre).
+   `/srv/occhroot/inbound` con bindfs (`apt-get install bindfs`):
+
+   ```ini
+   [Mount]
+   What=/home/marko/.openclaw/media/inbound
+   Where=/srv/occhroot/inbound
+   Type=fuse.bindfs
+   Options=ro,allow_other,perms=og-rwx:od+x:of+r
+   ```
+
+   `allow_other` deja entrar a otros usuarios que no sean root (bindfs lo activa solo al
+   montar como root, pero va explícito). Así el usuario solo tiene paso por la carpeta
+   (sin listado) y lectura de los archivos,
+   sin importar los permisos de la original. Un `chmod 711` o una ACL sobre la carpeta de
+   OpenClaw **no sirven**: OpenClaw la vuelve a poner en `700` al guardar cada adjunto (pasó
+   el 2026-11-25: el puente respondía «No pude abrir esa foto…» con `adjunto no
+   encontrado` en el log de `mcp`). No se le da nada sobre el resto del home de `marko`
+   (allí hay credenciales y respaldos legibles por nombre).
 3. `/etc/ssh/sshd_config.d/70-ocmedia.conf`:
 
    ```text
