@@ -52,8 +52,10 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
 Spec 054: al confirmar, la cotización se registra con su folio y **el PDF se adjunta en
 el mismo mensaje** (o va como enlace sin `MEDIA_BASE_URL`); sin URL pública, el mensaje no
 promete el PDF. Una cotización sin confirmar no tiene folio ni PDF. Con una cotización por
-confirmar (resumen o carrito), «sí, mándame el PDF» o «PDF» la **confirman** y adjuntan el
-PDF; sin nada pendiente, «PDF» devuelve la última cotización registrada.
+confirmar (resumen o carrito), cualquier pedido del PDF («PDF», «sí, mándame el PDF»,
+«envíame la cotización en pdf», «el pe de efe» dictado) la **confirma** y adjunta el PDF:
+el puente le pasa al turno la forma `PDF_CONFIRMATION` («sí, mándame el PDF»), que el flujo
+reconoce siempre. Sin nada pendiente, «PDF» devuelve la última cotización registrada.
 
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
   herramienta busca la **última cotización de la conversación activa** y devuelve un

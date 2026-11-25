@@ -27,6 +27,7 @@ from tests.test_chat_service_tools import (
 
 from apps.api.chat.service import ChatService
 from apps.api.chat.streaming import ChatEvent
+from apps.mcp.bridge import PDF_CONFIRMATION
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
 
@@ -107,6 +108,44 @@ def test_el_carrito_se_cierra_con_el_resumen_y_registra_una_sola_vez(engine: Any
     (row,) = stored_quotes(engine)
     assert named(confirmed, "done").data["quote_ids"] == [row["id"]]
     assert len(runner.calls) == 1  # «no» y «sí» no pasan por el modelo
+
+
+def test_reintentar_el_si_con_el_mismo_turno_no_emite_otro_folio(engine: Any) -> None:
+    # Arrange: carrito y resumen; el «sí» llega dos veces con el mismo ``client_turn_id``.
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+    _send(service, "no")
+
+    # Act
+    first = list(service.stream(OWNER, "sí", client_turn_id="turno-si"))
+    retry = list(service.stream(OWNER, "sí", client_turn_id="turno-si"))
+
+    # Assert: el reintento reproduce el turno guardado (mismo folio) y hay una sola fila.
+    (row,) = stored_quotes(engine)
+    assert named(first, "done").data["quote_ids"] == [row["id"]]
+    assert named(retry, "done").data["quote_ids"] == [row["id"]]
+
+
+@pytest.mark.parametrize("closing", [False, True])
+def test_la_confirmacion_del_puente_registra_desde_algo_mas_y_desde_el_resumen(
+    engine: Any, closing: bool
+) -> None:
+    # Arrange: «¿Algo más?» (tras cotizar) o «¿La confirmo?» (tras «no»).
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+    if closing:
+        _send(service, "no")
+    assert service.awaiting_confirmation(OWNER)
+
+    # Act
+    events = _send(service, PDF_CONFIRMATION)
+
+    # Assert
+    (row,) = stored_quotes(engine)
+    assert named(events, "done").data["quote_ids"] == [row["id"]]
+    assert len(runner.calls) == 1
 
 
 def test_una_pregunta_de_otro_tema_se_responde_y_recuerda_la_cotizacion(engine: Any) -> None:

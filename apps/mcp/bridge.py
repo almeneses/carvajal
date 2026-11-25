@@ -131,6 +131,11 @@ NO_QUOTE_FOR_PDF = (
     "*Cotiza 400 portacomidas espumados J1 en Bogotá*."
 )
 PDF_UNAVAILABLE = "Por ahora no puedo generar el PDF. Intenta de nuevo más tarde."
+# Spec 054: con una cotización por confirmar, pedir el PDF es confirmarla. El turno recibe
+# esta forma, que el flujo reconoce por reglas, y no la del cliente: «envíame la cotización
+# en pdf por favor» o «el pe de efe» dictado no son «sí» para el flujo, y «quiero el pdf de
+# la cotización» se leería como agregar un producto.
+PDF_CONFIRMATION = "sí, mándame el PDF"
 # Para el relé, no para el cliente: el mismo mensaje se está atendiendo en otro intento.
 TURN_IN_PROGRESS = "El mensaje se está atendiendo; reintenta en unos segundos."
 ATTACH_PDF_PREFIX = "ADJUNTAR_PDF: "
@@ -1086,13 +1091,16 @@ class WhatsAppBridge:
                 logger.info("whatsapp.quota_exhausted")
                 return BridgeReply(LIMIT_REACHED), False, True
             effects.quota = True
-        if is_pdf_request(text, spoken=voice) and not self._awaiting_confirmation(owner):
-            # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
-            pdf, final = self._pdf(owner)
-            return pdf, False, final
-        # Spec 054: con una cotización por confirmar, «sí, mándame el PDF» es un «sí»: el
-        # turno la registra y el PDF se adjunta solo.
-        question, wants_pdf = split_pdf_request(text)
+        pending = False
+        if is_pdf_request(text, spoken=voice):
+            pending = self._awaiting_confirmation(owner)
+            if not pending:
+                # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
+                pdf, final = self._pdf(owner)
+                return pdf, False, final
+        # Spec 054: con una cotización por confirmar, pedir el PDF es un «sí»: el turno la
+        # registra y el PDF se adjunta solo.
+        question, wants_pdf = (PDF_CONFIRMATION, False) if pending else split_pdf_request(text)
         turn = _collect(self.chat.stream(owner, question, client_turn_id=client_turn_id))
         reply = self._render(turn, owner)
         attached = turn.flow is not None and bool(turn.folios)  # el flujo ya adjuntó el PDF

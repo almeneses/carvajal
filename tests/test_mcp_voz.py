@@ -26,6 +26,7 @@ from apps.api.chat.streaming import ChatEvent
 from apps.api.quote_view import quote_view
 from apps.mcp.bridge import (
     LIMIT_REACHED,
+    PDF_CONFIRMATION,
     PDF_OFFER,
     PDF_OFFER_SPOKEN,
     WhatsAppBridge,
@@ -547,7 +548,29 @@ def test_si_mandame_el_pdf_confirma_la_cotizacion_pendiente() -> None:
     reply = _bridge(chat).respond("sí, mándame el PDF", "+573001112233")
 
     # Assert: va al turno (que registra) y el PDF sale una sola vez.
-    assert chat.calls == ["sí, mándame el PDF"]
+    assert chat.calls == [PDF_CONFIRMATION]
+    assert reply.text.count(PDF_URL) == 1
+
+
+@pytest.mark.parametrize(
+    ("message", "voice"),
+    [
+        ("envíame la cotización en pdf por favor", False),  # el flujo no la lee como «sí»
+        ("quiero el pdf de la cotización por favor", False),  # ni como «agregar»
+        ("sí, mándame el pe de efe", True),  # PDF dictado
+    ],
+)
+def test_todo_pedido_de_pdf_con_cotizacion_pendiente_llega_como_confirmacion(
+    message: str, voice: bool
+) -> None:
+    # Arrange
+    chat = AwaitingChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))
+
+    # Act
+    reply = _bridge(chat).respond(message, "+573001112233", voice=voice)
+
+    # Assert: el turno recibe la forma que el flujo confirma y el PDF sale una vez.
+    assert chat.calls == [PDF_CONFIRMATION]
     assert reply.text.count(PDF_URL) == 1
 
 
