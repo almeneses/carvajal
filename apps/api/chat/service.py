@@ -86,6 +86,7 @@ from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, TOOL_NAMES
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
 from carvajal.application.errors import LLMError
 from carvajal.application.ports import Embedder, LLMProvider
+from carvajal.application.quota import local_now
 from carvajal.catalog.loader import load_catalog
 from carvajal.food.profile import FoodProfile
 from carvajal.food.recommend import recommend
@@ -2046,7 +2047,9 @@ def _confirmation(
 ) -> _Followup:
     """Registra las propuestas del turno o, si vencieron, pide recalcularlas (Edge Cases)."""
 
-    today = datetime.now(UTC).date()
+    # La vigencia del vendedor es una fecha de Colombia: se compara con el día en Bogotá,
+    # no en UTC (entre las 19:00 y la medianoche, UTC ya va en el día siguiente).
+    today = local_now().date()
     for quote in pending:
         valid = str((quote.get("commercial") or {}).get("valid_until") or "")[:10]
         if valid and valid < today.isoformat():

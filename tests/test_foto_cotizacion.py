@@ -254,3 +254,29 @@ def test_un_segundo_si_no_vuelve_a_cotizar_ni_emite_otro_folio(engine: Any) -> N
         f"Esa cotización ya quedó registrada con el folio #{folio}. ¿Quieres cotizar algo más?"
     )
     assert [row["id"] for row in stored_quotes(engine)] == [folio]
+
+
+def test_la_vigencia_se_compara_con_el_dia_de_bogota(
+    engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: 21:00 en Bogotá (ya es el día siguiente en UTC); la propuesta vale hasta hoy.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import apps.api.chat.service as service_module
+
+    night = datetime(2026, 11, 25, 21, 0, tzinfo=ZoneInfo("America/Bogota"))
+    monkeypatch.setattr(service_module, "local_now", lambda: night)
+    quote = quote_payload()
+    quote["commercial"] = {**quote["commercial"], "valid_until": "2026-11-25"}
+    proposal = final(products={"quote": quote, "quotes": [quote]}, quotes=(quote,))
+    runner = FakeToolRunner(scripted_events(proposal))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Act
+    confirmed = _send(service, "sí")
+
+    # Assert: sigue vigente; se registra sin recalcular.
+    assert len(runner.calls) == 1
+    assert named(confirmed, "done").data["quote_id"]
