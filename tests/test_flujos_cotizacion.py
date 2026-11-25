@@ -460,6 +460,30 @@ def test_un_si_sin_lineas_nunca_registra(awaiting: str) -> None:
     assert not (isinstance(decision, Reply) and decision.register)
 
 
+def test_un_si_con_precios_vencidos_los_recalcula_y_no_registra() -> None:
+    # Arrange: la vigencia del vendedor de la primera línea venció ayer.
+    draft = _cart()
+    first = dict(draft.lines[0])
+    first["commercial"] = {**first["commercial"], "valid_until": "2026-11-24"}
+    draft = draft.touch(
+        AHORA, lines=(first, *draft.lines[1:]), state="resumen", awaiting="confirmar"
+    )
+
+    # Act
+    decision = before_turn(draft, "sí", requote_fn=fake_requote, now=AHORA)
+
+    # Assert: resumen recalculado que vuelve a pedir el «sí», sin folio.
+    assert isinstance(decision, Reply) and not decision.register
+    assert "vencieron; los recalculé" in decision.message.text
+    assert decision.draft.awaiting == "confirmar"
+
+
+def test_un_si_sobre_un_borrador_caducado_no_registra() -> None:
+    draft = _cart().touch(AHORA - timedelta(days=8), state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, "sí", requote_fn=fake_requote, now=AHORA)
+    assert not (isinstance(decision, Reply) and decision.register)
+
+
 def test_jev_decide_cuando_las_reglas_no_y_solo_ve_la_respuesta() -> None:
     draft = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
     judge = FakeJudge("cerrar")

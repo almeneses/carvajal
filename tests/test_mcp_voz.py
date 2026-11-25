@@ -29,6 +29,7 @@ from apps.mcp.bridge import (
     PDF_CONFIRMATION,
     PDF_OFFER,
     PDF_OFFER_SPOKEN,
+    SERVICE_UNAVAILABLE,
     WhatsAppBridge,
     spoken_quote,
 )
@@ -588,6 +589,18 @@ def test_una_pregunta_o_un_cambio_llega_tal_cual_aunque_haya_cotizacion_pendient
 
     # Assert: solo un pedido del PDF se vuelve confirmación; lo demás no se toca.
     assert chat.calls and chat.calls[0] != PDF_CONFIRMATION
+
+
+def test_si_el_turno_falla_el_pdf_pendiente_no_manda_una_cotizacion_anterior() -> None:
+    # Arrange: hay una cotización por confirmar y el servicio falla en el turno.
+    chat = AwaitingChat([ChatEvent("error", {"message": SERVICE_UNAVAILABLE})])
+
+    # Act
+    reply = _bridge(chat).respond("PDF", "+573001112233")
+
+    # Assert: error transitorio (el relé reintenta el mismo mensaje), sin el PDF viejo.
+    assert reply.text == SERVICE_UNAVAILABLE
+    assert PDF_URL not in reply.text
 
 
 def test_pdf_sin_cotizacion_pendiente_sigue_sin_llm() -> None:
