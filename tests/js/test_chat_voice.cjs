@@ -4197,6 +4197,12 @@ test("052 un borrador dictado marca el envío como hablado; uno escrito no", asy
 
   // Assert: chat-stream.js leerá y borrará la marca para mostrar «por voz».
   assert.equal(montaje.vista.formulario.dataset.vozHablado, "1");
+
+  // Act: si nadie la leyó, el siguiente envío escrito la borra.
+  enviarPregunta(montaje, "Ahora la escribo");
+
+  // Assert
+  assert.equal(montaje.vista.formulario.dataset.vozHablado, undefined);
 });
 
 test("052 leer una respuesta marca data-voz-leyendo y detenerla la quita", () => {

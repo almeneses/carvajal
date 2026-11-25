@@ -644,7 +644,11 @@
         borradorDictado ||
         Boolean(formulario.dataset && formulario.dataset.vozOrigen === "manos-libres");
       // Rediseño 052: el stream marca el turno «por voz»; lee y borra la marca al enviar.
-      if (turnoHablado && formulario.dataset) formulario.dataset.vozHablado = "1";
+      // Un envío escrito la borra: una marca vieja nunca pasa a la pregunta siguiente.
+      if (formulario.dataset) {
+        if (turnoHablado) formulario.dataset.vozHablado = "1";
+        else delete formulario.dataset.vozHablado;
+      }
       olvidarDictado();
       if (turnoHablado || preferencias.autoLectura) desbloquearAudio();
     }
