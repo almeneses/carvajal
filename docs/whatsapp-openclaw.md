@@ -97,9 +97,12 @@ Una pregunta sobre el PDF («¿el PDF trae el IVA?») va al agente sin cambios.
 
 Cuando el turno emite una cotización, el mensaje empieza por el bloque 🧾 (folio,
 importes, total, vigencia y foto). Del texto del agente solo quedan sus comentarios
-(`quote_remarks`): se quitan las viñetas, los encabezados y, frase por frase, las que solo
-repiten importes del bloque. Se conservan las advertencias, las preguntas de seguimiento
-(aunque citen el total) y las frases con un importe que el bloque no trae.
+(`quote_remarks`). Frase por frase, en párrafos y en viñetas, se quita lo que solo repite el
+bloque: sus líneas dichas por el agente («Total: …», «Precio por paquete: …») y las frases
+cuyas cifras ya están todas en él (o en el SKU). Se conservan las advertencias, las
+preguntas (aunque citen el total) y las frases o viñetas sin cifras («- No incluye IVA») o
+con una cifra que el bloque no trae (un plazo de entrega, un costo aparte, otra referencia).
+Un encabezado con «:» solo se queda si sobrevive alguna línea debajo.
 
 ## Fotos del catálogo
 

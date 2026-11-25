@@ -465,8 +465,34 @@ AGENT_QUOTE_TEXT = (
 )
 
 
+# La cotización que respalda ``AGENT_QUOTE_TEXT``: 500 vasos de 9 oz en paquetes de 50.
+QUOTE_9OZ = {
+    "kind": "cotizacion",
+    "city": "Bogotá",
+    "primary": {
+        "name": "Vaso rígido traslúcido 9 oz Wau",
+        "sku": "7704918100199",
+        "currency": "COP",
+        "presentation": {
+            "basis": "paquete",
+            "count": 10,
+            "units": 50,
+            "units_requested": 500,
+            "units_bought": 500,
+            "price_per_presentation": 3751,
+            "subtotal": 37510,
+        },
+    },
+    "commercial": {"tax": {"status": "incluido"}},
+    "total": 37510,
+    "quote": {"folio": "Q-ABC123"},
+}
+
 QUOTED_BLOCK = (
-    "🧾 *Cotización #Q-ABC123*\n• Presentación: Paquete x 50 a $3.751\n💰 *Total: $37.510 COP*"
+    "🧾 *Cotización #Q-ABC123*\n*Vaso rígido traslúcido 9 oz Wau*\n"
+    "• Presentación: paquete x 50 a $3.751\n"
+    "• Pides 500 → compras 10 paquetes (500 und.)\n"
+    "💰 *Total: $37.510 COP*\n7704918100199"
 )
 
 
@@ -491,21 +517,50 @@ def test_quote_remarks_conserva_las_preguntas_con_importe() -> None:
     assert quote_remarks(text, QUOTED_BLOCK) == "¿Te confirmo por $37.510?"
 
 
-def test_quote_remarks_conserva_importes_que_no_estan_en_el_bloque() -> None:
-    text = "El precio por paquete es $3.751. El montaje cuesta $12.000 aparte."
+def test_quote_remarks_conserva_cifras_que_no_estan_en_el_bloque() -> None:
+    text = (
+        "El precio por paquete es $3.751. El montaje cuesta $12.000 aparte. "
+        "El envío llega en 3 a 5 días hábiles."
+    )
 
-    assert quote_remarks(text, QUOTED_BLOCK) == "El montaje cuesta $12.000 aparte."
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "El montaje cuesta $12.000 aparte. El envío llega en 3 a 5 días hábiles."
+    )
+
+
+def test_quote_remarks_conserva_las_vinetas_que_no_repiten_el_bloque() -> None:
+    text = (
+        "Condiciones [1]:\n"
+        "- Total: $37.510 [1]\n"
+        "- No incluye IVA\n"
+        "- Entrega en 5 días\n"
+        "1. Alternativa: vaso de papel 9 oz a $4.100 el paquete"
+    )
+
+    assert quote_remarks(text, QUOTED_BLOCK) == (
+        "Condiciones [1]:\n"
+        "- No incluye IVA\n"
+        "- Entrega en 5 días\n"
+        "1. Alternativa: vaso de papel 9 oz a $4.100 el paquete"
+    )
+
+
+def test_quote_remarks_quita_el_encabezado_si_no_queda_nada_debajo() -> None:
+    text = "Resumen [1]:\n- Subtotal: $37.510\n- 500 unidades = 10 paquetes de 50 unidades"
+
+    assert quote_remarks(text, QUOTED_BLOCK) == ""
 
 
 def test_con_cotizacion_no_se_repiten_las_cifras_del_agente() -> None:
     chat = FakeChat(events=_turn(AGENT_QUOTE_TEXT, folios=["Q-ABC123"]))
 
-    answer = _bridge(chat, quotes=lambda folio, owner: QUOTE).consult(
+    answer = _bridge(chat, quotes=lambda folio, owner: QUOTE_9OZ).consult(
         "Cotiza 500 vasos de 9 oz en Bogotá", "+57300"
     )
 
     assert answer.startswith("🧾 *Cotización #Q-ABC123*")
-    assert "Precio por paquete" not in answer and "500 unidades =" not in answer
+    for repeated in ("Precio por paquete", "500 unidades =", "SKU 7704918100199", "- Subtotal"):
+        assert repeated not in answer
     assert "¿Te busco una alternativa de papel o pulpa de 9 oz?" in answer
     assert answer.index("🧾") < answer.index("Sigue siendo PP")
 

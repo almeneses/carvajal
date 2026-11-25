@@ -484,10 +484,14 @@ def _units(value: int | None) -> str:
 
 
 _BULLET_LINE = re.compile(r"^\s*(?:[-*+•·▪◦]|\d+[.)])\s+")
-# Un importe como lo escriben el agente y ``format_money``: «$37.510», «$1.234,50»,
-# «1.234 EUR», «37510 pesos». El grupo guarda solo la cifra.
-_AMOUNT = re.compile(
-    r"\$\s?(\d(?:[\d.,]*\d)?)|(\d(?:[\d.,]*\d)?)\s?(?:COP|MXN|USD|EUR|pesos)\b",
+# Una cifra como la escriben el agente y ``format_money``: «$37.510», «1.234,50», «9 oz».
+_NUMBER = re.compile(r"\d(?:[\d.,]*\d)?")
+# Las citas «[1]» no son cifras de la cotización.
+_CITATION = re.compile(r"\[\d+\]")
+# Una línea del bloque dicha por el agente: «Total: …», «*Precio por paquete:* …».
+_QUOTE_FIELD = re.compile(
+    r"^\W*(?:total|subtotal|iva|env[ií]o|presentaci[oó]n|precio|producto|referencia|sku"
+    r"|cantidad|vigencia|ciudad|folio)\b[^:\n]{0,30}:",
     re.IGNORECASE,
 )
 # Fin de frase: tras «.», «!», «?» o «…» (y una cita «[1]» pegada) viene un espacio.
@@ -495,40 +499,63 @@ _AMOUNT = re.compile(
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
 
 
-def _amounts(text: str) -> set[str]:
-    """Las cifras de los importes de ``text``, sin separadores: «$37.510» → «37510»."""
+def _numbers(text: str) -> set[str]:
+    """Las cifras de ``text`` sin separadores ni citas: «$37.510 [1]» → {«37510»}."""
 
-    return {
-        re.sub(r"[.,]", "", match.group(1) or match.group(2)) for match in _AMOUNT.finditer(text)
-    }
+    return {re.sub(r"[.,]", "", number) for number in _NUMBER.findall(_CITATION.sub("", text))}
+
+
+def _repeats_quote(fragment: str, in_quote: set[str]) -> bool:
+    """``True`` si la frase solo repite la cotización: una línea del bloque o sus cifras.
+
+    Una pregunta nunca se quita («¿Te confirmo por $37.510?»). Una frase con una cifra que
+    el bloque no trae (un plazo de entrega, un costo aparte, otra referencia) se queda.
+    """
+
+    if fragment.rstrip().endswith("?"):
+        return False
+    if _QUOTE_FIELD.match(fragment):
+        return True
+    found = _numbers(fragment)
+    return bool(found) and found <= in_quote
 
 
 def quote_remarks(text: str, quoted: str) -> str:
     """Lo que el agente dijo además de la cotización, sin repetir sus cifras.
 
-    ``quoted`` es el bloque (o los bloques) de la cotización que ya va en el mensaje. Se
-    quitan las viñetas, los encabezados que terminan en «:» y, frase por frase, las que
-    solo repiten importes de ``quoted``. Se conservan las preguntas («¿Te confirmo por
-    $37.510?»), las frases sin importes y las que traen un importe que el bloque no tiene
-    (p. ej. un costo aparte), tal como las escribió el agente.
+    ``quoted`` es lo que el mensaje ya dice de la cotización (sus bloques y el SKU). Frase
+    por frase, en párrafos y en viñetas, se quitan las que solo lo repiten: las líneas del
+    bloque («Total: …», «Precio por paquete: …») y las frases cuyas cifras ya están todas
+    en él. Se conserva lo demás tal como lo escribió el agente: advertencias, preguntas,
+    viñetas sin cifras («- No incluye IVA») o con cifras nuevas («- Entrega en 5 días»).
+    Un encabezado que termina en «:» se queda solo si sobrevive alguna línea debajo.
     """
 
-    in_quote = _amounts(quoted)
+    in_quote = _numbers(quoted)
     kept: list[str] = []
     for paragraph in re.split(r"\n\s*\n", text):
         lines: list[str] = []
+        header: str | None = None
         for line in paragraph.splitlines():
-            if not line.strip() or _BULLET_LINE.match(line) or line.rstrip().endswith(":"):
+            if not line.strip():
                 continue
+            if line.rstrip().endswith(":") and not _BULLET_LINE.match(line):
+                header = line.strip()
+                continue
+            bullet = _BULLET_LINE.match(line)
+            marker = bullet.group(0).strip() + " " if bullet else ""
+            body = line[bullet.end() :] if bullet else line
             sentences = [
                 sentence
-                for sentence in _SENTENCE_END.split(line.strip())
-                if sentence.rstrip().endswith("?")
-                or not (found := _amounts(sentence))
-                or not found <= in_quote
+                for sentence in _SENTENCE_END.split(body.strip())
+                if not _repeats_quote(sentence, in_quote)
             ]
-            if sentences:
-                lines.append(" ".join(sentences))
+            if not sentences:
+                continue
+            if header is not None:
+                lines.append(header)
+                header = None
+            lines.append(marker + " ".join(sentences))
         if lines:
             kept.append("\n".join(lines))
     return "\n\n".join(kept)
@@ -1099,7 +1126,9 @@ class WhatsAppBridge:
         blocks = [whatsapp_quote(view, photo) for view, photo in quotes]
         # Con cotización, el bloque ya trae las cifras: del texto del agente solo quedan
         # sus comentarios (una nota o una pregunta de seguimiento), después del bloque.
-        prose = quote_remarks(turn.text, "\n".join(blocks)) if quotes else turn.text
+        # El SKU no se pinta en el bloque, pero nombra el mismo producto que el agente lista.
+        quoted = "\n".join([*blocks, *(view.sku for view, _ in quotes)])
+        prose = quote_remarks(turn.text, quoted) if quotes else turn.text
         if prose.strip():
             blocks.append(to_whatsapp(prose))
         listed = _sources_block(turn.sources)
