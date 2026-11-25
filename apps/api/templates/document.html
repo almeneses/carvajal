@@ -7,15 +7,15 @@
 {% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(document.layer, document.layer) %}
 <article class="documento" aria-labelledby="titulo-documento">
   <header class="documento-cabecera panel">
-    <p class="sobrelinea">Corpus · Documento</p>
-    <h1 id="titulo-documento">{{ document.title }}</h1>
     <p class="documento-volver">
-      <a href="/corpus">← Volver al corpus</a>
+      <a href="/corpus"><span aria-hidden="true">←</span> Volver al corpus</a>
     </p>
+    <p class="sobrelinea"><span class="punto-sobrelinea" aria-hidden="true"></span>Corpus · Documento</p>
+    <h1 id="titulo-documento">{{ document.title }}</h1>
     <dl class="documento-meta">
       <div>
         <dt>Sección</dt>
-        <dd>{{ document.section }}</dd>
+        <dd>{{ document.section | legible }}</dd>
       </div>
       <div>
         <dt>Capa</dt>

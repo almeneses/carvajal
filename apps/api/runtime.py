@@ -95,7 +95,19 @@ def _catalog_photo(sku: object) -> str:
         return ""
 
 
+def _readable_label(value: object) -> str:
+    """Slug legible para la interfaz: ``canal-clientes`` → ``Canal clientes``.
+
+    Solo sube la primera letra; el resto se conserva (siglas y nombres propios no se
+    bajan, como haría ``capitalize``).
+    """
+
+    text = str(value or "").replace("-", " ").replace("_", " ").strip()
+    return text[:1].upper() + text[1:]
+
+
 templates.env.filters["fecha_local"] = _local_date
+templates.env.filters["legible"] = _readable_label
 templates.env.filters["foto_catalogo"] = _catalog_photo
 
 __all__ = [

@@ -238,6 +238,16 @@ class UsageRepository(Protocol):
 
         ...
 
+    def has_room(self, owner_key: str, day: date, limit: int) -> bool:
+        """Indica si al visitante le queda cupo hoy, sin reservar nada.
+
+        Sirve para no gastar un servicio externo (la foto de la spec 051 va a Jev antes
+        de cobrar) cuando el cupo ya se agotó. No es una reserva: ``try_consume`` sigue
+        siendo la única operación que concede.
+        """
+
+        ...
+
 
 # --- Juez externo (spec 046: Jev de TypeSafe) ------------------------------------------------
 #
@@ -250,7 +260,7 @@ GateScope = Literal["direct", "rag", "structured", "all"]
 JevStatus = Literal[
     "ok", "off", "timeout", "error", "cap", "circuit_open", "auth", "invalid", "skipped"
 ]
-JudgeKind = Literal["router", "claims"]
+JudgeKind = Literal["router", "claims", "food"]
 # Orden de las opciones de la pregunta Choice (contrato §2): la más costosa de equivocar,
 # la respuesta directa, va al final por el sesgo posicional que advierte la documentación.
 GATE_CLASSES: tuple[GateClass, ...] = (

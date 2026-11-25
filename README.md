@@ -161,6 +161,7 @@ Flujo de un turno:
 | RAG con citas y evaluación | Qdrant con citas por fragmento; Recall@10/nDCG@10 y evaluación del agente | [Evaluación](#evaluación), [`docs/eval/`](docs/eval/) |
 | Servidor MCP propio | `apps/mcp` (Streamable HTTP, Bearer, solo loopback) | [`apps/mcp/server.py`](apps/mcp/server.py) |
 | Voz | Chat web: OpenAI por el servidor (`VOICE_PROVIDER=openai`) con respaldo en la voz del navegador; WhatsApp: `voz=true` con texto hablado corto | [Voz](#voz), [`docs/voz-web.md`](docs/voz-web.md), [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz) |
+| Fotos de alimentos | Foto en la web o WhatsApp → Jev (Noul, Choice y Score con imagen) → tabla determinista → hasta tres empaques del catálogo, sin LLM | [Fotos](#fotos-de-alimentos), [`specs/051-fotos-alimentos/`](specs/051-fotos-alimentos/spec.md) |
 | Seguridad | Compuertas de evidencia, filtro de sensibles, token MCP, firma, allowlist, errores sin trazas | [Seguridad](#seguridad) |
 | Licencia, despliegue y reproducibilidad | MIT, guía de despliegue, `.env` fuera del repo, `uv sync`, `make check` | [Licencia](#licencia-y-créditos), [Despliegue](#despliegue), [Instalación](#instalación) |
 
@@ -320,6 +321,28 @@ el bloque `jev`. Resultados de la medición
   el folio se dice por sus cuatro últimos caracteres y el pedido «PDF» acepta lo que un STT
   suele oír («pe de efe», «impedefe»). Ver
   [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz).
+
+### Fotos de alimentos
+
+La persona adjunta la foto de un plato o una bebida (botón «Foto» del chat web, o una foto
+en WhatsApp) y recibe hasta tres empaques del catálogo de su país aptos para ese alimento
+(spec 051, [`carvajal/food/`](packages/core/src/carvajal/food/)):
+
+1. **Preparación** sin guardar nada: se endereza, se escala (lado ≤ 1568 px) y se
+   re-codifica sin metadatos (ubicación, dispositivo).
+2. **Clasificación** con una sola petición de Jev con la imagen: ¿es comida? (Noul), tipo
+   entre 11 opciones, consistencia y temperatura (Choice) y porción (Score). Con confianza
+   baja el asistente pregunta en vez de adivinar; si no es comida, lo dice.
+3. **Recomendación determinista**: una tabla traduce el tipo a uso, familias y temperatura,
+   y `check_material` (la guía de materiales) descarta lo no apto. La respuesta cita la ficha
+   de cada referencia, explica la aptitud del material y queda en el hilo para cotizar
+   después («cotízame 500 de la CO-CAZ-16»).
+
+Activa con `TYPESAFE_API_KEY` (sin depender de `JEV_ENABLED`); `FOOD_PHOTO_ENABLED=false` la
+apaga y oculta el botón. El chat avisa que la foto se analiza con un servicio externo
+(TypeSafe, EE. UU.). En WhatsApp el agente de OpenClaw pasa la referencia del adjunto en
+`foto` ([guía](docs/whatsapp-openclaw.md#fotos-de-alimentos-spec-051)). Evaluación con fotos
+de licencia libre en [`specs/051-fotos-alimentos/evaluacion/`](specs/051-fotos-alimentos/evaluacion/).
 
 ### Backend FastAPI y persistencia
 
@@ -548,6 +571,9 @@ cp .env.example .env
 | `JEV_ROUTER_MIN_CONFIDENCE` / `JEV_ROUTER_DIRECT_MIN_CONFIDENCE` | `0.6` / `0.8` | Umbrales de cautela del gatekeeper |
 | `JEV_CLAIMS_MODE` / `JEV_CLAIMS_THRESHOLD` | `enforce` / `0.5` | Compuerta de afirmaciones |
 | `JEV_MAX_CALLS_PER_DAY` | `1000` | Tope diario de llamadas a Jev por proceso |
+| `FOOD_PHOTO_ENABLED` / `FOOD_PHOTO_MAX_CALLS_PER_DAY` | `true` / `500` | Fotos de alimentos con Jev (requieren `TYPESAFE_API_KEY`) y su tope diario |
+| `FOOD_PHOTO_TIMEOUT_S` / `FOOD_PHOTO_MIN_CONFIDENCE` | `4.0` / `0.6` | Plazo de Jev con imagen y umbral para preguntar en vez de sugerir |
+| `OPENCLAW_MEDIA_DIR` | vacío | Carpeta de adjuntos de OpenClaw montada en solo lectura en `mcp` (fotos por WhatsApp) |
 | `MCP_TOKEN` | vacío | Bearer del servidor MCP; sin él no arranca |
 | `PUBLIC_BASE_URL` | vacío | URL pública para los enlaces al PDF y a las fotos del catálogo |
 | `WEBHOOK_SECRET` | vacío | Secreto HMAC del webhook; vacío lo deshabilita (404) |

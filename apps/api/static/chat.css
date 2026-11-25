@@ -1100,21 +1100,6 @@ body:has(> .ancho-chat) {
   font-weight: 700;
 }
 
-.punto-vivo {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--exito);
-  box-shadow: 0 0 0 0 rgb(30 122 87 / 45%);
-  animation: punto-vivo 2.4s ease-out infinite;
-}
-
-@keyframes punto-vivo {
-  70%,
-  100% {
-    box-shadow: 0 0 0 9px rgb(30 122 87 / 0%);
-  }
-}
 
 .bienvenida-heroe h2 {
   margin: 4px 0 0;
@@ -1969,6 +1954,357 @@ html[data-voz-manos="1"] .chat-cuerpo .composer {
   border: 2px solid var(--cian);
 }
 
+/* Modo de voz (rediseño 052, Stitch «Modo de Voz»). Todo cuelga de los estados que
+   chat-voice.js deja en <html> (voz, escuchando, grabando, transcribiendo, leyendo, manos):
+   sin JavaScript o sin voz no se ve nada de esto. La escena y el chip son decorativos
+   (aria-hidden); el texto que anuncia el lector de pantalla sigue en data-voz-estado. */
+.voz-chip {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 14px;
+  border: 1px solid #bfddff;
+  border-radius: 999px;
+  background: var(--fondo-suave);
+  color: var(--azul);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+html[data-voz="1"] .voz-chip {
+  display: inline-flex;
+}
+
+.voz-chip [data-chip] {
+  display: none;
+}
+
+html:not([data-voz-escuchando="1"]):not([data-voz-grabando="1"]):not([data-voz-manos="1"])
+  .voz-chip [data-chip="lista"],
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"]):not([data-voz-manos="1"])
+  .voz-chip [data-chip="escucha"],
+html[data-voz-manos="1"] .voz-chip [data-chip="manos"] {
+  display: inline;
+}
+
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"], [data-voz-manos="1"]) .voz-chip {
+  border-color: var(--cian);
+  background: var(--etiqueta-fondo);
+}
+
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"], [data-voz-manos="1"])
+  .voz-chip .punto-vivo {
+  background: var(--cian);
+}
+
+/* Escena: Carva, qué está pasando y ondas. Aparece sobre el compositor mientras se dicta,
+   se transcribe o el modo manos libres sigue activo. */
+.voz-escena {
+  display: none;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: var(--ancho-hilo);
+  margin-inline: auto;
+  padding: 14px 18px;
+  border: 1px solid var(--borde);
+  border-radius: 20px;
+  background: var(--fondo);
+  box-shadow: var(--sombra-alta);
+}
+
+html:is(
+    [data-voz-escuchando="1"],
+    [data-voz-grabando="1"],
+    [data-voz-transcribiendo="1"],
+    [data-voz-manos="1"]
+  )
+  .voz-escena {
+  display: grid;
+  animation: voz-escena-entra 360ms var(--curva) both;
+}
+
+@keyframes voz-escena-entra {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+.voz-escena-carva {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: var(--kraft-fondo);
+}
+
+/* Halo que respira detrás de Carva mientras escucha. */
+.voz-escena-carva::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 22px;
+  background: rgb(0 181 229 / 22%);
+  opacity: 0;
+}
+
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"]) .voz-escena-carva::before {
+  animation: voz-escena-halo 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes voz-escena-halo {
+  0%,
+  100% {
+    opacity: 0.8;
+    transform: scale(0.95);
+  }
+
+  50% {
+    opacity: 0.2;
+    transform: scale(1.12);
+  }
+}
+
+.voz-escena-carva .carva-figura {
+  position: relative;
+  grid-area: 1 / 1;
+  width: 56px;
+  height: 56px;
+}
+
+/* Escucha (mano en la oreja) por defecto; mientras lee la respuesta, Carva «habla». */
+.voz-escena-carva .carva-habla,
+html[data-voz-leyendo="1"]:not([data-voz-escuchando="1"]):not([data-voz-grabando="1"])
+  .voz-escena-carva .carva-escucha {
+  display: none;
+}
+
+html[data-voz-leyendo="1"]:not([data-voz-escuchando="1"]):not([data-voz-grabando="1"])
+  .voz-escena-carva .carva-habla {
+  display: block;
+}
+
+.carva-onda {
+  animation: carva-onda 1.6s ease-out infinite;
+}
+
+.carva-onda-2 {
+  animation-delay: 0.2s;
+}
+
+.carva-onda-3 {
+  animation-delay: 0.4s;
+}
+
+@keyframes carva-onda {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+.carva-habla .carva-cuerpo {
+  animation: carva-habla 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes carva-habla {
+  to {
+    transform: translateY(-4px) scale(1.02);
+  }
+}
+
+.carva-habla :is(.carva-brazo, .carva-estrella) {
+  display: none;
+}
+
+/* Con la escena a la vista, el estado del compositor queda como texto: las ondas ya están
+   en la escena y repetirlas distrae. */
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"]) .composer .voz-estado {
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--secundario);
+  animation: none;
+}
+
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"]) .composer .voz-estado::after {
+  content: none;
+}
+
+.voz-escena-titulo,
+.voz-escena-guia {
+  margin: 0;
+}
+
+.voz-escena-titulo {
+  color: #00799b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.voz-escena-guia {
+  margin-top: 2px;
+  color: var(--tinta);
+  font-size: 1.08rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+
+/* Un solo texto por estado, por prioridad: transcribe > escucha > responde > manos. */
+.voz-escena [data-escena] {
+  display: none;
+}
+
+html[data-voz-transcribiendo="1"] .voz-escena [data-escena="transcribe"],
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"]):not([data-voz-transcribiendo="1"])
+  .voz-escena [data-escena="escucha"],
+html[data-voz-leyendo="1"]:not([data-voz-escuchando="1"]):not([data-voz-grabando="1"]):not(
+    [data-voz-transcribiendo="1"]
+  )
+  .voz-escena [data-escena="responde"],
+html[data-voz-manos="1"]:not([data-voz-escuchando="1"]):not([data-voz-grabando="1"]):not(
+    [data-voz-transcribiendo="1"]
+  ):not([data-voz-leyendo="1"])
+  .voz-escena [data-escena="manos"] {
+  display: inline;
+}
+
+/* Ondas de audio: se mueven al escuchar o al responder; quietas en espera. */
+.voz-escena-ondas {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid #bfddff;
+  border-radius: 14px;
+  background: var(--fondo-suave);
+}
+
+.voz-escena-ondas i {
+  width: 5px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--cian);
+  opacity: 0.5;
+}
+
+.voz-escena-ondas i:nth-child(even) {
+  background: var(--azul);
+}
+
+html:is([data-voz-escuchando="1"], [data-voz-grabando="1"], [data-voz-leyendo="1"])
+  .voz-escena-ondas i {
+  animation: voz-onda 1.2s ease-in-out infinite;
+}
+
+.voz-escena-ondas i:nth-child(1) { animation-delay: 0.1s; }
+.voz-escena-ondas i:nth-child(2) { animation-delay: 0.3s; }
+.voz-escena-ondas i:nth-child(3) { animation-delay: 0.2s; }
+.voz-escena-ondas i:nth-child(4) { animation-delay: 0.4s; }
+.voz-escena-ondas i:nth-child(5) { animation-delay: 0.15s; }
+.voz-escena-ondas i:nth-child(6) { animation-delay: 0.35s; }
+.voz-escena-ondas i:nth-child(7) { animation-delay: 0.25s; }
+
+@keyframes voz-onda {
+  0%,
+  100% {
+    height: 12px;
+    opacity: 0.5;
+  }
+
+  50% {
+    height: 34px;
+    opacity: 1;
+  }
+}
+
+/* Transcribiendo: las ondas se aplanan en una línea que late. */
+html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
+  height: 6px;
+  animation: voz-onda-espera 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes voz-onda-espera {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Mensaje dictado: «Tú · por voz», con el micrófono. Solo en los turnos de esta visita. */
+.turno-por-voz {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 2px 9px 2px 7px;
+  border-radius: 999px;
+  background: var(--etiqueta-fondo);
+  color: var(--etiqueta-texto);
+  font-size: 0.75rem;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+.turno-por-voz[hidden] {
+  display: none;
+}
+
+.turno-por-voz::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'%3E%3Crect x='9' y='2' width='6' height='13' rx='3'/%3E%3Cpath d='M5 10v2a7 7 0 0 0 14 0v-2M12 19v3'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+@media (max-width: 560px) {
+  .voz-chip {
+    order: 3;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+  }
+
+  .voz-escena {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .voz-escena-ondas {
+    display: none;
+  }
+
+  .voz-escena-carva {
+    width: 52px;
+    height: 52px;
+  }
+
+  .voz-escena-carva .carva-figura {
+    width: 46px;
+    height: 46px;
+  }
+
+  .voz-escena-guia {
+    font-size: 0.98rem;
+  }
+}
+
 /* Cotizador (spec 042): la cotización vive dentro del turno, sin panel aparte.
    Tokens del mockup institucional: azul Carvajal, cian de acento y radios 14-17 px. */
 .coti-aviso {
@@ -2656,4 +2992,67 @@ html[data-voz-manos="1"] .chat-cuerpo .composer {
   .turno-nota[data-nota-estado="cargando"] .turno-nota-barra {
     animation: none !important;
   }
+}
+
+/* Foto de un alimento (spec 051). Nace oculta y solo aparece con JavaScript y con el
+   clasificador disponible; el aviso del servicio externo se ve mientras haya foto. */
+.foto[hidden],
+.foto-ficha[hidden],
+.foto-aviso[hidden] {
+  display: none;
+}
+
+.foto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.foto-boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.foto input[type="file"]:focus-visible + .foto-boton {
+  outline: 2px solid var(--cian, #00b5e5);
+  outline-offset: 2px;
+}
+
+.foto-ficha {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 14rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  font-size: 0.875rem;
+}
+
+.foto-nombre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foto-quitar {
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.foto-aviso {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  opacity: 0.85;
 }

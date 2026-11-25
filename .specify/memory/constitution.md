@@ -1,4 +1,9 @@
 <!--
+Sync Impact Report (spec 051)
+- Versión: 2.9.0 → 2.10.0 (MINOR: estado técnico ampliado; sin principios retirados ni
+  redefinidos). Fotos de alimentos con Jev y respuesta determinista (principio III).
+- Plantillas revisadas: sin cambios.
+
 Sync Impact Report (spec 046)
 - Versión: 2.8.0 → 2.9.0 (MINOR: guía ampliada, sin principios retirados ni redefinidos).
 - Enmienda D (restricciones técnicas y estado técnico): gatekeeper del modo `tools` con Jev
@@ -166,6 +171,11 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   señal comercial en la pregunta se trata como `mixta` (todas las consultas, sin cautela).
   Jev sigue apagado por defecto (`JEV_ENABLED=false`); activarlo en producción es decisión
   del owner tras revisar el DPA de TypeSafe.
+- La 051 (fotos de alimentos) clasifica la foto con Jev (preguntas cerradas, cliente propio
+  e independiente de `JEV_ENABLED`, encendida en producción por decisión del owner) y elige
+  hasta tres referencias del catálogo con una tabla determinista y `check_material`. La
+  respuesta no pasa por el LLM, cita la ficha de cada referencia y queda en el hilo; la foto
+  no se guarda y viaja sin metadatos.
 
 ## Restricciones técnicas
 
@@ -229,4 +239,4 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   commit**.
 - Cumplimiento: el plan de cada feature incluye una sección *Constitution Check*; toda
   violación debe justificarse o eliminarse antes de implementar.
-- Versión: 2.9.0 - 2026-11-24, sincronizada con `CONSTITUTION.md` del repositorio.
+- Versión: 2.10.0 - 2026-11-24, sincronizada con `CONSTITUTION.md` del repositorio.

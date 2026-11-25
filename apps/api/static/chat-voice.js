@@ -457,6 +457,12 @@
       else delete raiz.dataset[nombre];
     }
 
+    // Lectura en curso (rediseño 052): la escena de voz muestra «Carva te responde».
+    function fijarLeyendo(valor) {
+      estado.leyendo = Boolean(valor);
+      marcarEstadoVoz("vozLeyendo", estado.leyendo ? "1" : null);
+    }
+
     function fijarProgresoVoz(valor) {
       const raiz = documento && documento.documentElement;
       const estilo = raiz && raiz.style;
@@ -637,6 +643,12 @@
       turnoHablado =
         borradorDictado ||
         Boolean(formulario.dataset && formulario.dataset.vozOrigen === "manos-libres");
+      // Rediseño 052: el stream marca el turno «por voz»; lee y borra la marca al enviar.
+      // Un envío escrito la borra: una marca vieja nunca pasa a la pregunta siguiente.
+      if (formulario.dataset) {
+        if (turnoHablado) formulario.dataset.vozHablado = "1";
+        else delete formulario.dataset.vozHablado;
+      }
       olvidarDictado();
       if (turnoHablado || preferencias.autoLectura) desbloquearAudio();
     }
@@ -956,7 +968,7 @@
       turnoLectura = null;
       segmentosLectura = [];
       indiceLectura = 0;
-      estado.leyendo = false;
+      fijarLeyendo(false);
     }
 
     function reproducirNota(nota, opciones = {}) {
@@ -999,7 +1011,7 @@
         control = servidor.reproducir(audio, {
           alEmpezar: () => {
             if (ciclo !== cicloLectura) return;
-            estado.leyendo = true;
+            fijarLeyendo(true);
             if (alEmpezar) alEmpezar();
             actualizarControles(nota.turno, "leyendo");
           },
@@ -1904,7 +1916,7 @@
       locucion.voice = voz || null;
       locucion.onstart = () => {
         if (ciclo !== cicloLectura) return;
-        estado.leyendo = true;
+        fijarLeyendo(true);
         if (indiceLectura === 0 && alEmpezar) alEmpezar();
         avisarLectura(MENSAJES.leyendo);
         actualizarControles(turnoLectura, "leyendo");
@@ -1942,7 +1954,7 @@
       if (!turnoLectura || !estado.leyendo) return;
       if (reproduccion) reproduccion.pausar();
       else if (sintesis && typeof sintesis.pause === "function") sintesis.pause();
-      estado.leyendo = false;
+      fijarLeyendo(false);
       const turno = turnoLectura;
       actualizarControles(turno, "pausado");
       avisarLectura(MENSAJES.pausa);
@@ -1952,7 +1964,7 @@
       if (!turnoLectura) return;
       if (reproduccion) reproduccion.reanudar();
       else if (sintesis && typeof sintesis.resume === "function") sintesis.resume();
-      estado.leyendo = true;
+      fijarLeyendo(true);
       actualizarControles(turnoLectura, "leyendo");
       avisarLectura(MENSAJES.leyendo);
     }
@@ -1968,7 +1980,7 @@
       marcarSintetizandoVoz();
       segmentosLectura = [];
       indiceLectura = 0;
-      estado.leyendo = false;
+      fijarLeyendo(false);
       if (reproduccion) {
         const anterior = reproduccion;
         reproduccion = null;
@@ -1989,7 +2001,7 @@
       marcarSintetizandoVoz();
       segmentosLectura = [];
       indiceLectura = 0;
-      estado.leyendo = false;
+      fijarLeyendo(false);
       if (turno) actualizarControles(turno, "detenido");
       avisar("");
       const borradorVacio =

@@ -4,6 +4,7 @@
 {% block head_extra %}
 <link rel="stylesheet" href="/static/chat.css" />
 <script src="/static/hilos.js" defer></script>
+<script src="/static/chat-photo.js" defer></script>
 <script src="/static/chat-stream.js" defer></script>
 <script src="/static/chat-voice.js" defer></script>
 <script src="/static/chat-motion.js" defer></script>
@@ -21,6 +22,14 @@
         <p class="sobrelinea">Asistente Carvajal</p>
         <h1 id="titulo-chat">Carva</h1>
       </div>
+      {#- Modo de voz (rediseño 052, Stitch «Modo de Voz»): solo se ve con la voz disponible
+          (html[data-voz]); el estado que lee el lector de pantalla es data-voz-estado. -#}
+      <p class="voz-chip" aria-hidden="true">
+        <span class="punto-vivo"></span>
+        <span data-chip="lista">Voz lista en español</span>
+        <span data-chip="escucha">Escuchando</span>
+        <span data-chip="manos">Manos libres</span>
+      </p>
       <div class="cabecera-acciones">
         <button type="button" class="boton boton-fantasma" data-abrir-hilos>
           Hilos
@@ -45,6 +54,31 @@
       <button type="button" class="boton secundario chat-final" data-chat-final aria-controls="hilo" hidden>
         Ir al final
       </button>
+      {#- Escena de voz (rediseño 052): Carva escucha, transcribe o responde mientras se
+          dicta o con manos libres. Decorativa: los avisos van por data-voz-estado. -#}
+      <div class="voz-escena" aria-hidden="true">
+        <div class="voz-escena-carva">
+          {% include "_carva_escucha.html" %}
+          {% set carva_estado = "habla" %}{% include "_carva.html" %}
+        </div>
+        <div class="voz-escena-texto">
+          <p class="voz-escena-titulo">
+            <span data-escena="escucha">Carva te escucha</span>
+            <span data-escena="transcribe">Pasando tu voz a texto</span>
+            <span data-escena="responde">Carva te responde</span>
+            <span data-escena="manos">Manos libres activo</span>
+          </p>
+          <p class="voz-escena-guia">
+            <span data-escena="escucha">Habla con calma. Cuando termines, haz una pausa.</span>
+            <span data-escena="transcribe">Un momento, ya casi está tu pregunta.</span>
+            <span data-escena="responde">Escucha la respuesta; después vuelvo a escucharte.</span>
+            <span data-escena="manos">Lo que digas se envía solo. Di «terminar» para salir.</span>
+          </p>
+        </div>
+        <div class="voz-escena-ondas">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
       <form class="formulario composer" method="post" action="/chat" data-chat-stream>
         {% include "_csrf.html" %}
         <input type="hidden" name="thread_id" value="{{ thread_id }}" data-thread-id />
@@ -69,6 +103,24 @@
           mensaje; conservo el resto del contexto comercial.
         </p>
         <div class="composer-acciones">
+          {% if foto_disponible %}
+          <div class="foto" data-foto hidden>
+            <input type="file" id="foto-alimento" class="sr-solo" accept="image/jpeg,image/png"
+                   data-foto-input aria-describedby="foto-aviso" />
+            <label for="foto-alimento" class="boton secundario foto-boton" title="Enviar una foto del alimento">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+              <span>Foto</span>
+            </label>
+            <span class="foto-ficha" data-foto-ficha hidden>
+              <span class="foto-nombre" data-foto-nombre></span>
+              <button type="button" class="foto-quitar" data-foto-quitar aria-label="Quitar la foto">×</button>
+            </span>
+          </div>
+          {% endif %}
           <div class="voz" data-voz hidden
                data-voz-servidor="{{ '1' if voz_servidor else '0' }}"
                data-voz-max-segundos="{{ voz_max_segundos or 60 }}"
@@ -119,6 +171,12 @@
           </button>
           <button type="button" class="boton secundario" data-chat-detener aria-label="Detener respuesta" hidden>Detener</button>
         </div>
+        {% if foto_disponible %}
+        <p id="foto-aviso" class="foto-aviso" data-foto-aviso role="note" hidden>
+          Envía la foto del alimento y te sugiero el empaque. La foto se analiza con un servicio
+          externo (TypeSafe, EE. UU.) y no se guarda; evita que salgan personas o datos personales.
+        </p>
+        {% endif %}
       </form>
       <p id="chat-stream-estado" class="estado-chat" role="status"></p>
 

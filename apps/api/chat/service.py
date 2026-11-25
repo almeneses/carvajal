@@ -31,7 +31,7 @@ turno trae ``agent_history_turns`` más la holgura del resumen y el total de tur
 """
 
 import atexit
-from collections.abc import Generator, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -79,6 +79,15 @@ from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, TOOL_NAMES
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
 from carvajal.application.errors import LLMError
 from carvajal.application.ports import Embedder, LLMProvider
+from carvajal.catalog.loader import load_catalog
+from carvajal.food.profile import FoodProfile
+from carvajal.food.recommend import recommend
+from carvajal.food.render import (
+    PHOTO_UNAVAILABLE,
+    photo_question,
+    recommendation_cards,
+    render_recommendation,
+)
 from carvajal.infrastructure.monitoring import (
     TurnTracer,
     build_tracer,
@@ -694,6 +703,161 @@ class ChatService:
             incomplete=True,
             turns=tools.seed,
         )
+
+    def photo_stream(
+        self,
+        owner_key: str,
+        note: str,
+        *,
+        analyze: Callable[[], FoodProfile],
+        charge: Callable[[], str | None],
+        precheck: Callable[[], str | None] | None = None,
+        client_turn_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> Iterator[ChatEvent]:
+        """Turno de una foto de alimento (spec 051): sin LLM, guardado como cualquier turno.
+
+        Orden (research R7): reintento con el mismo ``client_turn_id`` → se reemite sin
+        clasificar ni cobrar; ``precheck()`` mira el cupo sin reservarlo y, si ya se agotó,
+        responde el límite sin enviar la foto a Jev; ``analyze()`` clasifica (cualquier
+        fallo → ``error`` con :data:`PHOTO_UNAVAILABLE`, sin guardar ni cobrar); ``charge()``
+        cobra el cupo (otra petición pudo gastarlo entre medias) y devuelve el mensaje de
+        límite si no hay; después se recomienda, se guarda el turno
+        (marca de la foto, texto determinista y tarjetas) y se emite como el respaldo del
+        modo ``tools``: ``meta``, ``fallback``, ``trace``, ``products`` y ``done``.
+        """
+
+        started = perf_counter()
+        yield ChatEvent("open", {"stream": "chat"})
+        client_turn_id = (client_turn_id or "").strip() or None
+        question = photo_question(note)
+        conversation: Conversation | None = None
+        try:
+            if client_turn_id is not None and len(client_turn_id) > MAX_CLIENT_TURN_ID:
+                raise ValueError("El identificador del turno es demasiado largo.")
+            with self._session_factory() as session:
+                repository = SqlChatRepository(session)
+                conversation = _owned_conversation(repository, owner_key, thread_id)
+                replay = (
+                    repository.find_turn(conversation.id, client_turn_id)
+                    if client_turn_id
+                    else None
+                )
+                if replay is not None:
+                    yield from _replay(replay, request_id=_request_id())
+                    return
+                session.commit()
+            request_id = _request_id()
+            denied = precheck() if precheck is not None else None
+            if denied:
+                yield ChatEvent("error", {"message": denied, "incomplete": False})
+                return
+            try:
+                profile = analyze()
+            except Exception as error:  # plazo, tope, circuito o respuesta inválida de Jev
+                logger.warning("chat.photo_unavailable", error_type=type(error).__name__)
+                yield ChatEvent(
+                    "trace", {"thread_id": conversation.id, "route": "foto", "path": "foto"}
+                )
+                yield ChatEvent("error", {"message": PHOTO_UNAVAILABLE, "incomplete": False})
+                return
+            denied = charge()
+            if denied:
+                yield ChatEvent("error", {"message": denied, "incomplete": False})
+                return
+            config = self._config()
+            catalog = load_catalog()
+            recommendation = recommend(
+                profile,
+                catalog=catalog,
+                note=note,
+                min_confidence=config.food_photo_min_confidence,
+            )
+            answer_text = render_recommendation(recommendation, catalog)
+            products = recommendation_cards(recommendation, catalog, today=date.today())
+            photo_trace = {
+                "status": recommendation.status,
+                "tipo": profile.kind,
+                "sugerencias": len(recommendation.references),
+            }
+            with self._monitoring().turn(
+                request_id=request_id,
+                thread_hash=thread_hash(conversation.id),
+                router="foto",
+                question=question,
+            ) as span:
+                span.add_metadata(
+                    route="foto",
+                    path="foto",
+                    photo_status=recommendation.status,
+                    **{f"photo_{key}": value for key, value in profile.metadata().items()},
+                )
+                span.add_outputs(answer=answer_text)
+                conversation_id, message_id = self._persist_owned(
+                    owner_key,
+                    conversation,
+                    question,
+                    answer_text,
+                    (),
+                    client_turn_id=client_turn_id,
+                    products=products,
+                    quotes=(),
+                )
+            self._summarize(owner_key, conversation.id)
+            elapsed = _milliseconds(started)
+            logger.info(
+                "chat.turn_completed",
+                thread_id=conversation.id,
+                route="foto",
+                path="foto",
+                photo_status=recommendation.status,
+                photo_kind=profile.kind,
+                suggestions=len(recommendation.references),
+                duration_ms=elapsed,
+                result="ok",
+            )
+            yield ChatEvent("meta", {"sources": []})
+            yield ChatEvent("fallback", {"text": answer_text, "sources": []})
+            yield ChatEvent(
+                "trace",
+                {
+                    "thread_id": conversation.id,
+                    "route": "foto",
+                    "path": "foto",
+                    "foto": photo_trace,
+                },
+            )
+            if products and has_cards(products):
+                html = safe_render_products(products)
+                if html:
+                    yield ChatEvent("products", {"html": html})
+            yield _done_event(
+                conversation_id,
+                message_id,
+                thread_id=conversation.id,
+                route="foto",
+                elapsed=elapsed,
+                request_id=request_id,
+                folios=[],
+            )
+        except IntegrityError as error:
+            existing = (
+                self._find_turn(conversation.id, client_turn_id)
+                if conversation is not None and client_turn_id and _is_duplicate_turn(error)
+                else None
+            )
+            if existing is not None:
+                yield from _replay(existing, request_id=_request_id())
+                return
+            logger.warning("chat.photo_failed", error_type=type(error).__name__)
+            yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": False})
+        except Exception as error:
+            logger.warning(
+                "chat.photo_failed",
+                error_type=type(error).__name__,
+                thread_id=getattr(conversation, "id", None),
+            )
+            yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": False})
 
     def _stream_tools(
         self,

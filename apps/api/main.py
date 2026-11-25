@@ -37,11 +37,12 @@ from apps.api.views import (
     cotizador,
     documents,
     faq,
+    foto,
     stream,
     voz,
     webhooks,
 )
-from carvajal.adapters.judge import jev_health
+from carvajal.adapters.judge import food_photo_health, jev_health
 from carvajal.adapters.speech import voice_health
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
@@ -86,6 +87,8 @@ class Handlers:
 
     health: Callable[[], HealthStatus]
     quota: Callable[[str], QuotaResult] = _sin_limite
+    # Mira el cupo sin reservarlo: la foto (spec 051) no va a Jev si ya se agotó.
+    quota_peek: Callable[[str], QuotaResult] = _sin_limite
 
 
 @cache
@@ -117,7 +120,15 @@ def _default_handlers() -> Handlers:
                 timezone=settings.quota_timezone,
             ).consume(owner_key)
 
-    return Handlers(health=health, quota=quota)
+    def quota_peek(owner_key: str) -> QuotaResult:
+        with factory() as session:
+            return DailyQuota(
+                SqlUsageRepository(session),
+                limit=settings.daily_requests_limit,
+                timezone=settings.quota_timezone,
+            ).peek(owner_key)
+
+    return Handlers(health=health, quota=quota, quota_peek=quota_peek)
 
 
 def force_global_tracing_off() -> None:
@@ -145,6 +156,12 @@ def _default_quota(owner_key: str) -> QuotaResult:
     """Cuota real, diferida hasta la primera petición que la necesita."""
 
     return _default_handlers().quota(owner_key)
+
+
+def _default_quota_peek(owner_key: str) -> QuotaResult:
+    """Consulta real del cupo (sin reservar), diferida como :func:`_default_quota`."""
+
+    return _default_handlers().quota_peek(owner_key)
 
 
 def _message(
@@ -203,6 +220,16 @@ def _voice_block(app: FastAPI, settings: Settings, request: Request) -> dict[str
     return voice_health(settings, getattr(runtime, "client", None), detail=detail)
 
 
+def _photo_block(app: FastAPI, settings: Settings) -> dict[str, object]:
+    """Bloque ``food_photo`` de ``/health`` (spec 051): sin red; no cambia el estado global."""
+
+    classifier = getattr(app.state, "food_classifier", None)
+    if classifier is None and hasattr(app.state, "food_classifier"):
+        # Construido (o inyectado) sin clasificador: apagado aunque haya clave.
+        return {"status": "off", "calls_today": 0}
+    return food_photo_health(settings, classifier)
+
+
 def _log_webhook_status(settings: Settings) -> None:
     """Deja constancia del webhook de mensajería al arrancar, sin números ni secretos."""
 
@@ -233,6 +260,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     settings = Settings()
     app.state.settings = settings
     app.state.quota = handlers.quota if handlers is not None else _default_quota
+    app.state.quota_peek = handlers.quota_peek if handlers is not None else _default_quota_peek
     if not settings.operator_token.strip():
         # La lectura sigue abierta; la escritura web queda solo en la CLI.
         logger.warning("operator.write_disabled", reason="missing_operator_token")
@@ -277,6 +305,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         catalogo_imagenes,
         webhooks,
         voz,
+        foto,
     ):
         app.include_router(module.router)
     app.include_router(faq.page_router)
@@ -304,6 +333,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "agent": agent_mode_status(settings).as_health(),
                     "jev": _jev_block(settings),
                     "voice": _voice_block(app, settings, request),
+                    "food_photo": _photo_block(app, settings),
                 },
                 status_code=503,
             )
@@ -328,6 +358,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 "jev": _jev_block(settings),
                 # Spec 047: voz del chat por el servidor; opcional, no cambia el estado.
                 "voice": _voice_block(app, settings, request),
+                # Spec 051: fotos de alimentos con Jev; opcional, no cambia el estado.
+                "food_photo": _photo_block(app, settings),
             },
             status_code=200 if healthy else 503,
         )

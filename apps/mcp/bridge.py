@@ -38,13 +38,15 @@ texto listo para WhatsApp.
 """
 
 import hmac
+import os
 import re
+import stat
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlparse
 
 import structlog
@@ -54,6 +56,9 @@ from apps.api.quote_view import QuoteView, quote_view
 from carvajal.application.deliveries import DeliveryClaim, DeliveryStore, InMemoryDeliveryStore
 from carvajal.application.quota import QuotaResult
 from carvajal.domain.phone import normalize_e164
+from carvajal.food.photo import MAX_PHOTO_BYTES, PhotoRejected, PreparedPhoto, prepare_photo
+from carvajal.food.profile import FoodProfile
+from carvajal.food.render import PHOTO_REJECTED, PHOTO_UNAVAILABLE
 from carvajal.speech import (
     SUMMARY_POINTERS,
     SpeechLink,
@@ -78,6 +83,8 @@ __all__ = [
     "PDF_OFFER",
     "PDF_OFFER_SPOKEN",
     "PDF_UNAVAILABLE",
+    "PHOTO_REJECTED",
+    "PHOTO_UNAVAILABLE",
     "SERVICE_UNAVAILABLE",
     "TOO_LONG_MESSAGE",
     "TURN_IN_PROGRESS",
@@ -88,6 +95,7 @@ __all__ = [
     "canonical_chat_id",
     "is_pdf_request",
     "owner_key_for",
+    "read_inbound_photo",
     "split_pdf_request",
     "spoken_quote",
     "to_whatsapp",
@@ -163,6 +171,68 @@ Quota = Callable[[str], QuotaResult]
 
 TurnLookup = Callable[[str, str], str | None]
 """``(owner_key, client_turn_id) -> thread_id`` del turno ya guardado, o ``None``."""
+
+PhotoReader = Callable[[str], bytes]
+"""``referencia del adjunto -> bytes``; lanza ``ValueError`` si no es un adjunto válido."""
+
+
+class FoodClassifier(Protocol):
+    """Clasificador de fotos (``JevFoodClassifier`` lo cumple)."""
+
+    def unavailable_status(self) -> str | None: ...
+
+    def classify(self, photo: PreparedPhoto) -> tuple[FoodProfile, Any]: ...
+
+
+class PhotoTurns(Protocol):
+    """Turno de foto del servicio de chat (``ChatService.photo_stream``)."""
+
+    def photo_stream(
+        self,
+        owner_key: str,
+        note: str,
+        *,
+        analyze: Callable[[], FoodProfile],
+        charge: Callable[[], str | None],
+        precheck: Callable[[], str | None] | None = None,
+        client_turn_id: str | None = None,
+        thread_id: str | None = None,
+    ) -> Iterator[ChatEvent]: ...
+
+
+# Nombre que OpenClaw da a los adjuntos (UUID + extensión); nunca una ruta.
+_MEDIA_PREFIX = "media://inbound/"
+_MEDIA_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(?:jpe?g|png)", re.IGNORECASE)
+
+
+def read_inbound_photo(reference: str, directory: str) -> bytes:
+    """Lee un adjunto de OpenClaw solo desde ``directory`` (spec 051, FR-024).
+
+    Acepta ``media://inbound/<archivo>`` o ``<archivo>``; rechaza rutas, ``..``, enlaces
+    simbólicos, archivos que no son regulares y los de más de 10 MB, sin leer nada fuera de
+    la carpeta. Lanza ``ValueError`` con un motivo corto (nunca la ruta).
+    """
+
+    name = reference.strip()
+    if name.startswith(_MEDIA_PREFIX):
+        name = name[len(_MEDIA_PREFIX) :]
+    if not directory or not _MEDIA_NAME.fullmatch(name) or ".." in name:
+        raise ValueError("referencia no válida")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(os.path.join(directory, name), flags)
+    except OSError:
+        raise ValueError("adjunto no encontrado") from None
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("no es un archivo")
+        if info.st_size > MAX_PHOTO_BYTES:
+            raise ValueError("demasiado grande")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            return handle.read(MAX_PHOTO_BYTES + 1)
+    finally:
+        os.close(descriptor)
 
 
 @dataclass(frozen=True)
@@ -629,12 +699,17 @@ class WhatsAppBridge:
     secret: bytes
     quotes: QuoteLookup | None = None
     quota: Quota = _no_limit
+    # Mira el cupo sin reservarlo: una foto no va a Jev si el cupo ya se agotó (spec 051).
+    quota_peek: Quota = _no_limit
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
     pdf_attachment: PdfLink | None = None
     photo_url: PhotoUrl | None = None
     turns: TurnLookup | None = None
     deliveries: DeliveryStore | None = field(default_factory=InMemoryDeliveryStore)
+    # Spec 051: adjuntos de OpenClaw y clasificador de fotos; sin ellos, no hay fotos.
+    photo_reader: PhotoReader | None = None
+    food_classifier: FoodClassifier | None = None
 
     def owner_key(self, chat_id: str) -> str:
         """``owner_key`` del chat (ver :func:`owner_key_for`)."""
@@ -648,15 +723,23 @@ class WhatsAppBridge:
         *,
         new_conversation: bool = False,
         voice: bool = False,
+        photo: str = "",
     ) -> str:
         """Responde ``message`` en el hilo del chat ``chat_id``; nunca lanza.
 
         Con ``new_conversation`` se abre un hilo nuevo antes del turno (equivale al botón
         «Nueva conversación» de la web); si además no hay mensaje, solo se confirma. Con
         ``voice`` la respuesta es un resumen apto para leerse en voz alta y lo escrito va
-        aparte (:meth:`BridgeReply.voice_message`).
+        aparte (:meth:`BridgeReply.voice_message`). Con ``photo`` (spec 051), el adjunto de
+        OpenClaw se analiza y ``message`` es el texto opcional que lo acompaña; ``voice``
+        aplica igual (OpenClaw puede juntar una nota de voz y una foto en el mismo turno).
         """
 
+        if photo.strip():
+            reply = self.photo(
+                message, chat_id, photo, new_conversation=new_conversation, voice=voice
+            )
+            return reply.voice_message() if voice else reply.text
         reply = self.respond(message, chat_id, new_conversation=new_conversation, voice=voice)
         return reply.voice_message() if voice else reply.text
 
@@ -722,6 +805,96 @@ class WhatsAppBridge:
                     owner, client_turn_id, reply, claim, effects, streamed=streamed, final=final
                 )
             return reply
+        finally:
+            structlog.contextvars.unbind_contextvars("owner_key", "channel")
+
+    def photo(
+        self,
+        message: str,
+        chat_id: str,
+        photo: str,
+        *,
+        new_conversation: bool = False,
+        voice: bool = False,
+    ) -> BridgeReply:
+        """Turno de una foto de alimento (spec 051, US4); nunca lanza.
+
+        Sin carpeta de adjuntos, sin clasificador o con el clasificador caído responde
+        :data:`PHOTO_UNAVAILABLE`; un adjunto inválido, :data:`PHOTO_REJECTED`. En ninguno de
+        esos casos se cobra cupo: se cobra solo si el clasificador respondió. Con el cupo ya
+        agotado responde :data:`LIMIT_REACHED` sin enviar la foto al clasificador. Con
+        ``voice``, el texto que acompaña la foto es una transcripción y se normaliza como en
+        :meth:`respond`.
+        """
+
+        chat = " ".join(chat_id.split())
+        if not chat or len(chat) > MAX_CHAT_ID_CHARS:
+            raise ValueError("conversacion debe ser el identificador del chat (1-200 caracteres).")
+        text = message.strip()
+        if voice:
+            text = normalize_transcript(text)
+        if len(text) > MAX_MESSAGE_CHARS:
+            return BridgeReply(TOO_LONG_MESSAGE)
+        owner = self.owner_key(chat)
+        structlog.contextvars.bind_contextvars(owner_key=owner, channel="whatsapp")
+        try:
+            classifier = self.food_classifier
+            turns = self.chat
+            if (
+                self.photo_reader is None
+                or classifier is None
+                or classifier.unavailable_status() is not None
+                or not hasattr(turns, "photo_stream")
+            ):
+                logger.info("whatsapp.photo_unavailable")
+                return BridgeReply(PHOTO_UNAVAILABLE)
+            try:
+                prepared = prepare_photo(self.photo_reader(photo))
+            except PhotoRejected as error:
+                logger.info("whatsapp.photo_rejected", reason=error.reason)
+                return BridgeReply(f"{error.message} {PHOTO_REJECTED}")
+            except ValueError as error:
+                logger.info("whatsapp.photo_rejected", reason=str(error))
+                return BridgeReply(PHOTO_REJECTED)
+            # El hilo recién abierto va explícito: no depende de cuál quede como activo.
+            created = self.chat.new_conversation(owner) if new_conversation else None
+            thread_id = getattr(created, "id", None)
+
+            def analyze() -> FoodProfile:
+                profile, _call = classifier.classify(prepared)
+                return profile
+
+            def charge() -> str | None:
+                try:
+                    allowed = self.quota(owner).allowed
+                except Exception as error:  # como ``_charger`` en la web: sin cupo no hay turno
+                    logger.warning("whatsapp.quota_failed", error_type=type(error).__name__)
+                    return SERVICE_UNAVAILABLE
+                return None if allowed else LIMIT_REACHED
+
+            def precheck() -> str | None:
+                try:
+                    allowed = self.quota_peek(owner).allowed
+                except Exception as error:  # sin poder mirarlo, decide ``charge``
+                    logger.warning("whatsapp.quota_peek_failed", error_type=type(error).__name__)
+                    return None
+                return None if allowed else LIMIT_REACHED
+
+            events = cast(PhotoTurns, turns).photo_stream(
+                owner,
+                text,
+                analyze=analyze,
+                charge=charge,
+                precheck=precheck,
+                thread_id=thread_id,
+            )
+            turn = _collect(events)
+            if turn.error is not None and not turn.text.strip():
+                return BridgeReply(turn.error)
+            return self._render(turn, owner)
+        except Exception as error:  # el canal nunca recibe una traza interna
+            logger.warning("whatsapp.photo_failed", error_type=type(error).__name__)
+            return BridgeReply(SERVICE_UNAVAILABLE)
         finally:
             structlog.contextvars.unbind_contextvars("owner_key", "channel")
 
