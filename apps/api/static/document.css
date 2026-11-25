@@ -161,3 +161,52 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Rediseño 052 (sistema de Stitch): «Volver» como píldora, metadatos en fichas y el
+   texto a una medida de lectura cómoda. */
+.documento-volver {
+  margin: 0 0 18px;
+}
+
+.documento-volver a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0.3rem 1rem;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--fondo);
+  color: var(--azul);
+  font-weight: 700;
+}
+
+.documento-volver a:hover {
+  border-color: var(--cian);
+  background: var(--fondo-suave);
+  text-decoration: none;
+}
+
+.documento-cabecera h1 {
+  letter-spacing: -0.02em;
+}
+
+.documento-meta {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 10px;
+  border-top: 0;
+}
+
+.documento-meta div {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--fondo-pagina);
+}
+
+.documento-contenido > * {
+  max-width: 72ch;
+}
+
+.documento-contenido {
+  font-size: 1.04rem;
+}

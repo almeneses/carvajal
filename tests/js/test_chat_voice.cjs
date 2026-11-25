@@ -4175,3 +4175,46 @@ test("050 en el respaldo del navegador el avance de la nota crece al terminar ca
   assert.equal(sintesis.locuciones.length, 2);
   assert.equal(partesDeNota(turno).barra.getAttribute("aria-valuenow"), "50");
 });
+
+// ---------------------------------------------------------------------------
+// 052 · Modo de voz: marcas para la escena y el turno «por voz»
+// ---------------------------------------------------------------------------
+
+test("052 un borrador dictado marca el envío como hablado; uno escrito no", async () => {
+  // Arrange
+  const montaje = montarNotas();
+
+  // Act: primero una pregunta escrita.
+  enviarPregunta(montaje, "¿Qué vasos tienen?");
+
+  // Assert
+  assert.equal(montaje.vista.formulario.dataset.vozHablado, undefined);
+
+  // Act: ahora un dictado enviado tal cual.
+  montaje.vista.entrada.value = "";
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+
+  // Assert: chat-stream.js leerá y borrará la marca para mostrar «por voz».
+  assert.equal(montaje.vista.formulario.dataset.vozHablado, "1");
+});
+
+test("052 leer una respuesta marca data-voz-leyendo y detenerla la quita", () => {
+  // Arrange
+  const sintesis = crearSintesis();
+  const montaje = montar({ sintesis });
+  const turno = crearTurnoFalso({ texto: "Leyendo." });
+
+  // Act
+  montaje.controlador.leerTurno(turno);
+
+  // Assert
+  assert.equal(montaje.documento.documentElement.dataset.vozLeyendo, "1");
+
+  // Act: ocultar la pestaña detiene la lectura.
+  montaje.documento.visibilityState = "hidden";
+  montaje.documento.dispatch("visibilitychange", {});
+
+  // Assert
+  assert.equal(montaje.documento.documentElement.dataset.vozLeyendo, undefined);
+});

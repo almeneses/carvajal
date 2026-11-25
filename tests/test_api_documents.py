@@ -78,7 +78,7 @@ def test_muestra_metadatos_y_contenido_actual() -> None:
     # Assert
     assert response.status_code == 200
     assert '<h1 id="titulo-documento">Historia de Carvajal</h1>' in response.text
-    assert "<dd>historia</dd>" in response.text
+    assert "<dd>Historia</dd>" in response.text  # sección legible (rediseño 052)
     assert "<dd>Núcleo</dd>" in response.text
     assert "<dd>Oficial</dd>" in response.text
     assert "https://www.carvajal.com/historia/" in response.text

@@ -4,9 +4,12 @@
 <link rel="stylesheet" href="/static/corpus.css" />
 {% endblock %}
 {% block content %}
+{#- Rediseño 052: secciones legibles («canal-clientes» → «Canal clientes»); el valor del
+    filtro sigue siendo el slug. -#}
+{% macro legible(texto) %}{{ (texto or "") | replace("-", " ") | replace("_", " ") | capitalize }}{% endmacro %}
 <section class="seccion" aria-labelledby="titulo-corpus">
-  <header class="cabecera-vista">
-    <p class="sobrelinea">Corpus · Explorador</p>
+  <header class="cabecera-vista cabecera-corpus">
+    <p class="sobrelinea"><span class="punto-sobrelinea" aria-hidden="true"></span>Corpus · Explorador</p>
     <h1 id="titulo-corpus">Corpus</h1>
     <p class="entradilla">
       Documentos capturados del sitio de Carvajal y de fuentes externas. Filtra por sección o capa
@@ -20,7 +23,7 @@
       <select id="seccion" name="section">
         <option value="">Todas las secciones</option>
         {% for option in sections %}
-        <option value="{{ option }}"{% if option == section %} selected{% endif %}>{{ option }}</option>
+        <option value="{{ option }}"{% if option == section %} selected{% endif %}>{{ legible(option) }}</option>
         {% endfor %}
       </select>
     </div>
@@ -45,10 +48,24 @@
     <a class="limpiar" href="/corpus">Limpiar</a>
   </form>
 
+  <div class="corpus-resumen">
+    <p class="corpus-cuenta">
+      <strong>{{ documents | length }}</strong>
+      documento{{ "" if documents | length == 1 else "s" }} en la página {{ page }}
+    </p>
+    {% if section or layer or source_type %}
+    <ul class="corpus-filtros-activos" aria-label="Filtros activos">
+      {% if section %}<li class="chip-filtro">Sección: {{ legible(section) }}</li>{% endif %}
+      {% if layer %}<li class="chip-filtro">Capa: {{ {"core": "Núcleo", "extended": "Extendida"}.get(layer, layer) }}</li>{% endif %}
+      {% if source_type %}<li class="chip-filtro">Tipo: {{ source_type | capitalize }}</li>{% endif %}
+    </ul>
+    {% endif %}
+  </div>
+
   {% if documents %}
   <div class="tabla-envoltura" role="region" aria-label="Documentos del corpus" tabindex="0">
     <table class="tabla-corpus">
-      <caption class="ayuda">
+      <caption class="sr-solo">
         Documentos ordenados por slug; se muestran {{ documents | length }} de esta página.
       </caption>
       <thead>
@@ -64,14 +81,20 @@
         {% for document in documents %}
         {% set tipo = (document.source_type or "oficial") | lower %}
         {% set capa = {"core": "Núcleo", "extended": "Extendida"}.get(document.layer, document.layer) %}
+        {% set oficial = tipo in ['oficial', 'official'] %}
         <tr>
-          <th scope="row" data-label="Título"><a href="/documents/{{ document.id }}">{{ document.title }}</a></th>
-          <td data-label="Sección">{{ document.section }}</td>
+          <th scope="row" data-label="Título">
+            <span class="doc-titulo">
+              <span class="doc-icono {{ 'doc-icono-oficial' if oficial else 'doc-icono-externa' }}" aria-hidden="true"></span>
+              <a href="/documents/{{ document.id }}">{{ document.title }}</a>
+            </span>
+          </th>
+          <td data-label="Sección"><span class="doc-seccion">{{ legible(document.section) }}</span></td>
           <td data-label="Tipo">
-            <span class="etiqueta {{ 'etiqueta-oficial' if tipo in ['oficial', 'official'] else 'etiqueta-externa' }}">{{ (document.source_type or "oficial") | capitalize }}</span>
+            <span class="etiqueta {{ 'etiqueta-oficial' if oficial else 'etiqueta-externa' }}">{{ (document.source_type or "oficial") | capitalize }}</span>
           </td>
           <td data-label="Capa"><span class="etiqueta etiqueta-{{ document.layer }}">{{ capa }}</span></td>
-          <td data-label="Fecha">
+          <td data-label="Fecha" class="doc-fecha">
             <time datetime="{{ document.captured_at.strftime('%Y-%m-%d') }}">
               {{ document.captured_at.strftime("%Y-%m-%d") }}
             </time>
@@ -90,11 +113,11 @@
   {% if prev_url or next_url %}
   <nav class="paginacion" aria-label="Paginación del corpus">
     {% if prev_url %}
-    <a class="pagina" rel="prev" href="{{ prev_url }}">Anterior</a>
+    <a class="pagina" rel="prev" href="{{ prev_url }}"><span aria-hidden="true">←</span> Anterior</a>
     {% endif %}
     <span class="pagina-actual" aria-current="page">Página {{ page }}</span>
     {% if next_url %}
-    <a class="pagina" rel="next" href="{{ next_url }}">Siguiente</a>
+    <a class="pagina" rel="next" href="{{ next_url }}">Siguiente <span aria-hidden="true">→</span></a>
     {% endif %}
   </nav>
   {% endif %}

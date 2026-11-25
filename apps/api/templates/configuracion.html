@@ -7,7 +7,7 @@
 {% block content %}
 <section class="seccion" aria-labelledby="titulo-configuracion">
   <header class="cabecera-vista">
-    <p class="sobrelinea">Configuración · Corpus</p>
+    <p class="sobrelinea"><span class="punto-sobrelinea" aria-hidden="true"></span>Configuración · Corpus</p>
     <h1 id="titulo-configuracion">Alimenta el corpus</h1>
     <p class="entradilla">
       Consola de operador para incorporar documentos y páginas al corpus. La
@@ -21,15 +21,31 @@
   {% endif %}
 
   {% if operator_token_required and operator_authorized %}
-  <p class="aviso">
-    La carga y la captura dejan los documentos en <strong>Gold</strong> para
-    revisión. La publicación al chat se hace después con
-    <code>carvajal sync --layer core</code>.
-  </p>
-  <form class="config-salir" method="post" action="/configuracion/salir">
-    {% include "_csrf.html" %}
-    <button type="submit" class="boton boton-secundario">Cerrar sesión de operador</button>
-  </form>
+  {#- Rediseño 052: la sesión es una barra discreta y el flujo Gold → publicación, tres
+      pasos en vez de un aviso con estilo de error. -#}
+  <div class="config-sesion">
+    <p class="config-sesion-estado">
+      <span class="punto-vivo" aria-hidden="true"></span>Sesión de operador activa
+    </p>
+    <form class="config-salir" method="post" action="/configuracion/salir">
+      {% include "_csrf.html" %}
+      <button type="submit" class="boton secundario">Cerrar sesión de operador</button>
+    </form>
+  </div>
+  <ol class="config-flujo" aria-label="Cómo llega un documento al chat">
+    <li class="config-paso config-paso-carga">
+      <strong>Carga o captura</strong>
+      <span>Los archivos y páginas pasan por el pipeline.</span>
+    </li>
+    <li class="config-paso config-paso-gold">
+      <strong>Revisión en Gold</strong>
+      <span>Quedan en <strong>Gold</strong> para revisión; el chat aún no los usa.</span>
+    </li>
+    <li class="config-paso config-paso-publica">
+      <strong>Publicación</strong>
+      <span>Desde la consola: <code>carvajal sync --layer core</code>.</span>
+    </li>
+  </ol>
   {% elif operator_token_required %}
   <section class="panel config-formulario" aria-labelledby="titulo-acceso">
     <h2 id="titulo-acceso">Acceso de operador</h2>
@@ -102,7 +118,7 @@
     </ol>
 
     {% if staged %}
-    <p class="aviso">
+    <p class="aviso aviso-info">
       Publicación pendiente: revisa el Gold y ejecuta
       <code>carvajal sync --layer core</code> para que el chat y el explorador
       incorporen el lote. Hasta entonces no se consulta.
@@ -203,8 +219,8 @@
 </section>
 
 <section class="seccion" aria-labelledby="titulo-captura">
-  <header class="cabecera-vista">
-    <p class="sobrelinea">Configuración · Captura web</p>
+  <header class="cabecera-vista cabecera-captura">
+    <p class="sobrelinea"><span class="punto-sobrelinea" aria-hidden="true"></span>Configuración · Captura web</p>
     <h2 id="titulo-captura">Trae páginas nuevas al corpus</h2>
     <p class="entradilla">
       Captura una o varias URLs públicas y déjalas en Gold para revisión. Cada

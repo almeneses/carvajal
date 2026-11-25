@@ -21,6 +21,14 @@
         <p class="sobrelinea">Asistente Carvajal</p>
         <h1 id="titulo-chat">Carva</h1>
       </div>
+      {#- Modo de voz (rediseño 052, Stitch «Modo de Voz»): solo se ve con la voz disponible
+          (html[data-voz]); el estado que lee el lector de pantalla es data-voz-estado. -#}
+      <p class="voz-chip" aria-hidden="true">
+        <span class="punto-vivo"></span>
+        <span data-chip="lista">Voz lista en español</span>
+        <span data-chip="escucha">Escuchando</span>
+        <span data-chip="manos">Manos libres</span>
+      </p>
       <div class="cabecera-acciones">
         <button type="button" class="boton boton-fantasma" data-abrir-hilos>
           Hilos
@@ -45,6 +53,31 @@
       <button type="button" class="boton secundario chat-final" data-chat-final aria-controls="hilo" hidden>
         Ir al final
       </button>
+      {#- Escena de voz (rediseño 052): Carva escucha, transcribe o responde mientras se
+          dicta o con manos libres. Decorativa: los avisos van por data-voz-estado. -#}
+      <div class="voz-escena" aria-hidden="true">
+        <div class="voz-escena-carva">
+          {% include "_carva_escucha.html" %}
+          {% set carva_estado = "habla" %}{% include "_carva.html" %}
+        </div>
+        <div class="voz-escena-texto">
+          <p class="voz-escena-titulo">
+            <span data-escena="escucha">Carva te escucha</span>
+            <span data-escena="transcribe">Pasando tu voz a texto</span>
+            <span data-escena="responde">Carva te responde</span>
+            <span data-escena="manos">Manos libres activo</span>
+          </p>
+          <p class="voz-escena-guia">
+            <span data-escena="escucha">Habla con calma. Cuando termines, haz una pausa.</span>
+            <span data-escena="transcribe">Un momento, ya casi está tu pregunta.</span>
+            <span data-escena="responde">Escucha la respuesta; después vuelvo a escucharte.</span>
+            <span data-escena="manos">Lo que digas se envía solo. Di «terminar» para salir.</span>
+          </p>
+        </div>
+        <div class="voz-escena-ondas">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+      </div>
       <form class="formulario composer" method="post" action="/chat" data-chat-stream>
         {% include "_csrf.html" %}
         <input type="hidden" name="thread_id" value="{{ thread_id }}" data-thread-id />
