@@ -127,6 +127,24 @@ def test_reintentar_el_si_con_el_mismo_turno_no_emite_otro_folio(engine: Any) ->
     assert named(retry, "done").data["quote_ids"] == [row["id"]]
 
 
+def test_un_segundo_si_con_otro_turno_responde_que_ya_quedo_registrada(engine: Any) -> None:
+    # Arrange: la cotización ya se registró con un «sí».
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+    _send(service, "no")
+    list(service.stream(OWNER, "sí", client_turn_id="turno-1"))
+
+    # Act: otro «sí» (p. ej. un reenvío con otro identificador).
+    again = list(service.stream(OWNER, "sí", client_turn_id="turno-2"))
+
+    # Assert: no hay folio nuevo ni otra fila.
+    (row,) = stored_quotes(engine)
+    assert named(again, "fallback").data["text"].startswith("Esa cotización ya quedó registrada")
+    assert f"#{row['id']}" in named(again, "fallback").data["text"]
+    assert named(again, "done").data["quote_ids"] == []
+
+
 @pytest.mark.parametrize("closing", [False, True])
 def test_la_confirmacion_del_puente_registra_desde_algo_mas_y_desde_el_resumen(
     engine: Any, closing: bool

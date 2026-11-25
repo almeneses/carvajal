@@ -453,6 +453,13 @@ def test_el_borrador_vencido_no_se_retoma() -> None:
     assert decision.message.text == render.empty_cart().text
 
 
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+def test_un_si_sin_lineas_nunca_registra(awaiting: str) -> None:
+    draft = QuoteDraft().touch(AHORA, state="resumen", awaiting=awaiting)
+    decision = before_turn(draft, "sí, mándame el PDF", requote_fn=fake_requote, now=AHORA)
+    assert not (isinstance(decision, Reply) and decision.register)
+
+
 def test_jev_decide_cuando_las_reglas_no_y_solo_ve_la_respuesta() -> None:
     draft = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
     judge = FakeJudge("cerrar")

@@ -574,6 +574,22 @@ def test_todo_pedido_de_pdf_con_cotizacion_pendiente_llega_como_confirmacion(
     assert reply.text.count(PDF_URL) == 1
 
 
+@pytest.mark.parametrize(
+    "message", ["¿el PDF trae IVA?", "mejor 800", "sí pero sin el pdf", "mejor 800 y el pdf"]
+)
+def test_una_pregunta_o_un_cambio_llega_tal_cual_aunque_haya_cotizacion_pendiente(
+    message: str,
+) -> None:
+    # Arrange
+    chat = AwaitingChat(_flow_turn(FLOW_TEXT, folios=[], spoken="Listo."))
+
+    # Act
+    _bridge(chat).respond(message, "+573001112233")
+
+    # Assert: solo un pedido del PDF se vuelve confirmación; lo demás no se toca.
+    assert chat.calls and chat.calls[0] != PDF_CONFIRMATION
+
+
 def test_pdf_sin_cotizacion_pendiente_sigue_sin_llm() -> None:
     # Arrange
     chat = AwaitingChat(_quote_turn(), awaiting=False)
