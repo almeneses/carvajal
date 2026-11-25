@@ -180,6 +180,10 @@ curl -s 127.0.0.1:8765/live    # ok, ya a través del túnel
 
 ## 3. OpenClaw: servidor MCP y agente «ventas»
 
+Los archivos del workspace del agente (`SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `USER.md`,
+`MEMORY.md` y la bitácora diaria) están versionados en [`openclaw/`](../openclaw/README.md),
+con los pasos para desplegarlos.
+
 Registra el servidor (la cabecera lleva el `MCP_TOKEN`; guárdala con el mecanismo de
 secretos de OpenClaw, no como literal):
 

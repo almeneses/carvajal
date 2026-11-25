@@ -155,6 +155,7 @@ Flujo de un turno:
 | ≥ 20 herramientas integradas | 20 `@tool` con `args_schema` Pydantic, visibles en la traza | [Herramientas](#20-herramientas-integradas), [`registry.py`](packages/core/src/carvajal/agent/toolagent/tools/registry.py) |
 | Router y System One (Jev) | Reglas → Jev Choice → LLM; compuerta Noul; cautela con confianza baja | [Router](#router-y-system-one-jev), [`specs/046-jev-router/evidencia.md`](specs/046-jev-router/evidencia.md) |
 | WhatsApp con número real | OpenClaw como gateway → servidor MCP propio → mismo `ChatService`; PDF de cotizaciones | [WhatsApp](#whatsapp-servidor-mcp-y-webhook), [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md) |
+| Workspace del agente de WhatsApp | `SOUL.md`, `IDENTITY.md`, `AGENTS.md`, `USER.md`, `MEMORY.md` y bitácora diaria `memory/AAAA-MM-DD.md` del agente «ventas» (Carva), versionados y desplegados en la VPS de OpenClaw | [`openclaw/`](openclaw/README.md) |
 | Backend con webhooks y persistencia | FastAPI, webhook HMAC, PostgreSQL con `PostgresSaver` y `PostgresStore` | [Backend](#backend-fastapi-y-persistencia), [`docs/webhooks.md`](docs/webhooks.md) |
 | Memoria de corto y largo plazo | Resumen acumulado + memoria del dueño por categorías, datos sensibles y olvido | [Memoria](#memoria-de-corto-y-largo-plazo), [`specs/045-memoria-herramientas/evidencia.md`](specs/045-memoria-herramientas/evidencia.md) |
 | RAG con citas y evaluación | Qdrant con citas por fragmento; Recall@10/nDCG@10 y evaluación del agente | [Evaluación](#evaluación), [`docs/eval/`](docs/eval/) |
@@ -639,6 +640,7 @@ carvajal/
 │   ├── catalog/ commercial/ quotation/   # catálogo, directorio y motor de cotización
 │   └── indexing/       # Gold → Qdrant
 ├── data/               # gold, catálogo, datos curados y conjuntos de evaluación
+├── openclaw/           # workspace del agente «ventas» de WhatsApp (SOUL, AGENTS, USER, MEMORY y bitácora)
 ├── docs/               # guías, evaluación de retrieval, decisiones y diagramas
 ├── specs/              # especificaciones Spec Kit con su evidencia
 ├── migrations/         # Alembic
