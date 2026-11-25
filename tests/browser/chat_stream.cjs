@@ -43,7 +43,11 @@ async function comprobar(pagina) {
 
   const sugerencia = pagina.locator("[data-chat-sugerencia]").first();
   await sugerencia.click();
-  assert.equal(await pregunta.inputValue(), await sugerencia.textContent());
+  // Los temas del inicio (rediseño 049) muestran título y subtítulo; la pregunta que se
+  // escribe en el compositor viaja en data-pregunta.
+  const esperada = (await sugerencia.getAttribute("data-pregunta"))
+    ?? (await sugerencia.textContent()).trim();
+  assert.equal(await pregunta.inputValue(), esperada);
   const altura = (await pregunta.boundingBox()).height;
   await pregunta.press("End");
   await pregunta.press("Shift+Enter");
