@@ -554,9 +554,18 @@ En el VPS (`deploy`):
    - Si la carpeta está montada y un `stat` responde en menos de 10 s, no hace nada.
    - Si no está montada, o está colgada (el `stat` no responde o falla al instante con
      «Transport endpoint is not connected», p. ej. tras caerse la VM), primero desmonta
-     lo que quede (`fusermount -uz ~/openclaw-media`) y luego monta con
-     `sshfs -p 2224 ocmedia@127.0.0.1:/inbound ~/openclaw-media -o
-     ro,allow_other,reconnect,cache=no,entry_timeout=0,negative_timeout=0,attr_timeout=0`.
+     lo que quede (`fusermount -uz ~/openclaw-media`) y luego monta con la llave propia y
+     sin pedir nada por terminal (corre en cron):
+
+     ```bash
+     sshfs -p 2224 ocmedia@127.0.0.1:/inbound ~/openclaw-media \
+       -o ro,allow_other,reconnect,cache=no,entry_timeout=0,negative_timeout=0,attr_timeout=0 \
+       -o ServerAliveInterval=15,ServerAliveCountMax=3,BatchMode=yes \
+       -o IdentityFile=$HOME/.ssh/ocmedia_ro,HostKeyAlias=openclaw-media
+     ```
+
+     `HostKeyAlias` guarda la llave de host de la VM con su propio nombre en
+     `known_hosts`, separada de la de cualquier otro servicio en `127.0.0.1`.
    - Recrea `mcp` (`up -d --force-recreate --no-deps mcp`) **solo si el `sshfs` de esa
      misma ejecución terminó bien**. Si falla (túnel o llave caídos), sale con error y
      `mcp` sigue corriendo: se pierden las fotos, no el servicio, y el cron reintenta al
