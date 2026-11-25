@@ -865,7 +865,12 @@ class WhatsAppBridge:
                 return profile
 
             def charge() -> str | None:
-                return None if self.quota(owner).allowed else LIMIT_REACHED
+                try:
+                    allowed = self.quota(owner).allowed
+                except Exception as error:  # como ``_charger`` en la web: sin cupo no hay turno
+                    logger.warning("whatsapp.quota_failed", error_type=type(error).__name__)
+                    return SERVICE_UNAVAILABLE
+                return None if allowed else LIMIT_REACHED
 
             def precheck() -> str | None:
                 try:

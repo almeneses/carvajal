@@ -172,6 +172,9 @@ async def chat_foto(request: Request) -> Response:
     except PhotoRejected as error:
         status = 413 if error.reason == "grande" else 415 if error.reason == "formato" else 422
         return _reject(error.message, status, error.reason)
+    except Exception as error:  # Pillow u otro fallo inesperado: la foto no se pudo leer
+        logger.warning("chat.photo_prepare_failed", error_type=type(error).__name__)
+        return _reject(PhotoRejected("ilegible").message, 422, "ilegible")
     finally:
         del raw
 

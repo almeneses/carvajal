@@ -24,6 +24,7 @@ from apps.mcp.bridge import (
     LIMIT_REACHED,
     PHOTO_REJECTED,
     PHOTO_UNAVAILABLE,
+    SERVICE_UNAVAILABLE,
     WhatsAppBridge,
     read_inbound_photo,
 )
@@ -344,3 +345,19 @@ def test_la_foto_con_conversacion_nueva_queda_en_el_hilo_nuevo(media: Path) -> N
     assert sorted(count for _thread, count in per_thread) == [2, 2]
     assert len(service.history(owner)) == 2
     engine.dispose()
+
+
+def test_si_el_cobro_falla_responde_servicio_no_disponible(media: Path) -> None:
+    # Arrange
+    bridge, _chat, _charges = _bridge(media)
+
+    def broken(_owner: str) -> QuotaResult:
+        raise RuntimeError("base caída")
+
+    bridge = replace(bridge, quota=broken)
+
+    # Act
+    text = bridge.consult("", CHAT, photo=NAME)
+
+    # Assert
+    assert text == SERVICE_UNAVAILABLE

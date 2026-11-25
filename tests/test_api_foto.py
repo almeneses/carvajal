@@ -23,6 +23,7 @@ from apps.api.chat.identity import COOKIE_NAME, SignedCookieIdentity
 from apps.api.chat.service import ChatService
 from apps.api.main import Handlers, HealthStatus, create_app
 from apps.api.security import CSRF_COOKIE
+from apps.api.views import foto as foto_view
 from apps.api.views.chat import LIMITE_ALCANZADO
 from apps.api.views.foto import CSRF_HEADER
 from carvajal.adapters.storage import tables
@@ -316,6 +317,27 @@ def test_rechaza_fotos_invalidas_sin_clasificar(
     # Assert
     assert response.status_code == status
     assert dict(_events(response.text))["error"]["reason"] == reason
+    assert classifier.photos == [] and harness.charges == []
+
+
+def test_un_fallo_inesperado_al_preparar_es_una_foto_ilegible(
+    session_factory: Callable[[], Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    def broken(_raw: bytes) -> PreparedPhoto:
+        raise RuntimeError("Pillow")
+
+    monkeypatch.setattr(foto_view, "prepare_photo", broken)
+    classifier = FakeClassifier()
+    harness = _harness(session_factory, classifier)
+    token = _session(harness.client)
+
+    # Act
+    response = _send(harness.client, token)
+
+    # Assert
+    assert response.status_code == 422
+    assert dict(_events(response.text))["error"]["reason"] == "ilegible"
     assert classifier.photos == [] and harness.charges == []
 
 
