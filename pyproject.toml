@@ -84,7 +84,7 @@ module-root = "packages/core/src"
 dev = [
     "pre-commit>=4.0.1",
     "pytest>=8.3",
-    "ruff>=0.8.0",
+    "ruff>=0.17.6",
     "testcontainers>=4.9",
     "ty>=0.0.100",
 ]
