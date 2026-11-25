@@ -211,6 +211,46 @@ def test_cambiar_de_producto_pregunta_antes_de_cancelar(engine: Any) -> None:
     )
 
 
+def test_cancelar_y_confirmar_nunca_registra_una_cotizacion_vacia(engine: Any) -> None:
+    # Arrange: vasos; «cancela todo» deja el borrador sin líneas.
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+    _send(service, "cancela todo")
+
+    # Act
+    events = _send(service, "sí, mándame el PDF")
+
+    # Assert: ningún folio; el «sí» no confirma un borrador cancelado.
+    assert stored_quotes(engine) == []
+    assert named(events, "done").data["quote_ids"] == []
+
+
+def test_cancelar_al_cambiar_de_producto_registra_solo_el_nuevo(engine: Any) -> None:
+    # Arrange: vasos y luego «mejor platos» → «cancélalos».
+    vaso = quote_payload()
+    vaso["primary"]["family"] = "vaso"
+    runner = FakeToolRunner(
+        scripted_events(final(products={"quote": vaso, "quotes": [vaso]}, quotes=(vaso,)))
+    )
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+    plato = quote_payload(100, "7502", sku="PL9", name="Plato pulpa")
+    plato["primary"]["family"] = "plato"
+    runner.events = scripted_events(
+        final(products={"quote": plato, "quotes": [plato]}, quotes=(plato,))
+    )
+    _send(service, "No, mejor cotízame platos")
+    _send(service, "cancélalos")
+
+    # Act
+    _send(service, "sí, mándame el PDF")
+
+    # Assert: una cotización con la línea del plato y sin los vasos cancelados.
+    (row,) = stored_quotes(engine)
+    assert [line["primary"]["sku"] for line in row["payload"]["lines"]] == ["PL9"]
+
+
 def test_jev_resuelve_una_respuesta_que_las_reglas_no_entienden(engine: Any) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(commercial_final()))
