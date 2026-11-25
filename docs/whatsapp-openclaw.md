@@ -93,6 +93,13 @@ el puente separa la parte del PDF (`split_pdf_request`), el agente cotiza solo e
 si salió una cotización, el puente añade el PDF (adjunto o enlace) en lugar de la oferta.
 Una pregunta sobre el PDF («¿el PDF trae el IVA?») va al agente sin cambios.
 
+### Una sola versión de la cotización
+
+Cuando el turno emite una cotización, el mensaje empieza por el bloque 🧾 (folio,
+importes, total, vigencia y foto). Del texto del agente solo quedan sus comentarios
+(`quote_remarks`): se quitan las viñetas, los encabezados y los párrafos con importes, que
+ya están en el bloque. Una advertencia o una pregunta de seguimiento se conservan.
+
 ## Fotos del catálogo
 
 Las fotos son opcionales y se versionan con el catálogo:

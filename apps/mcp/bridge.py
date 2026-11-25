@@ -95,6 +95,7 @@ __all__ = [
     "canonical_chat_id",
     "is_pdf_request",
     "owner_key_for",
+    "quote_remarks",
     "read_inbound_photo",
     "split_pdf_request",
     "spoken_quote",
@@ -480,6 +481,33 @@ def split_pdf_request(message: str) -> tuple[str, bool]:
 
 def _units(value: int | None) -> str:
     return "?" if value is None else f"{value:,}".replace(",", ".")
+
+
+_BULLET_LINE = re.compile(r"^\s*(?:[-*+•·▪◦]|\d+[.)])\s+")
+_MONEY = re.compile(r"\$\s?\d|\d[\d.,]*\s?(?:COP|MXN|USD|pesos)\b", re.IGNORECASE)
+
+
+def quote_remarks(text: str) -> str:
+    """Lo que el agente dijo además de la cotización, sin repetir sus cifras.
+
+    Quita las viñetas, los encabezados que terminan en «:» y todo párrafo con un importe:
+    eso ya está en el bloque de la cotización. Queda lo demás (una advertencia, una
+    pregunta de seguimiento) tal como lo escribió el agente.
+    """
+
+    kept: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", text):
+        lines = [
+            line
+            for line in paragraph.splitlines()
+            if line.strip() and not _BULLET_LINE.match(line) and not line.rstrip().endswith(":")
+        ]
+        if not lines:
+            continue
+        block = "\n".join(lines).strip()
+        if block and not _MONEY.search(block):
+            kept.append(block)
+    return "\n\n".join(kept)
 
 
 def whatsapp_quote(view: QuoteView, photo_url: str | None = None) -> str:
@@ -1043,9 +1071,13 @@ class WhatsAppBridge:
 
         if turn.error is not None and not turn.text.strip():
             return BridgeReply(SERVICE_UNAVAILABLE)
-        blocks = [to_whatsapp(turn.text)] if turn.text.strip() else []
         quotes = self._quote_views(turn.folios, owner)
-        blocks.extend(whatsapp_quote(view, photo) for view, photo in quotes)
+        blocks = [whatsapp_quote(view, photo) for view, photo in quotes]
+        # Con cotización, el bloque ya trae las cifras: del texto del agente solo quedan
+        # sus comentarios (una nota o una pregunta de seguimiento), después del bloque.
+        prose = quote_remarks(turn.text) if quotes else turn.text
+        if prose.strip():
+            blocks.append(to_whatsapp(prose))
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)

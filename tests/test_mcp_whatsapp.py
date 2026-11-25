@@ -31,6 +31,7 @@ from apps.mcp.bridge import (
     TOO_LONG_MESSAGE,
     WhatsAppBridge,
     owner_key_for,
+    quote_remarks,
     to_whatsapp,
 )
 from apps.mcp.server import TOOL_NAME, build_app, build_server
@@ -450,3 +451,45 @@ def test_fuentes_sin_titulo_no_muestran_el_hash() -> None:
     assert "[1] Documento del corpus de Carvajal" in answer
     assert "[2] carvajal.com — https://www.carvajal.com/gobierno" in answer
     assert "[3] Junta directiva" in answer
+
+
+AGENT_QUOTE_TEXT = (
+    "Cotización para 500 unidades en Bogotá [1]:\n\n"
+    "- Vaso rígido traslúcido 9 oz Wau (PP), SKU 7704918100199 [1]\n"
+    "- 500 unidades = 10 paquetes de 50 unidades [1]\n"
+    "- Precio por paquete: $3.751 [1]\n"
+    "- Subtotal: $37.510, IVA incluido [1]\n"
+    "- Total: pendiente hasta conocer el envío [1]\n\n"
+    "Sigue siendo PP, no la opción renovable que preferías [1]. "
+    "¿Te busco una alternativa de papel o pulpa de 9 oz?"
+)
+
+
+def test_quote_remarks_deja_solo_los_comentarios() -> None:
+    assert quote_remarks(AGENT_QUOTE_TEXT) == (
+        "Sigue siendo PP, no la opción renovable que preferías [1]. "
+        "¿Te busco una alternativa de papel o pulpa de 9 oz?"
+    )
+    assert quote_remarks("Te comparto la cotización: total $37.510 [1].") == ""
+    assert quote_remarks("") == ""
+
+
+def test_con_cotizacion_no_se_repiten_las_cifras_del_agente() -> None:
+    chat = FakeChat(events=_turn(AGENT_QUOTE_TEXT, folios=["Q-ABC123"]))
+
+    answer = _bridge(chat, quotes=lambda folio, owner: QUOTE).consult(
+        "Cotiza 500 vasos de 9 oz en Bogotá", "+57300"
+    )
+
+    assert answer.startswith("🧾 *Cotización #Q-ABC123*")
+    assert "Precio por paquete" not in answer and "500 unidades =" not in answer
+    assert "¿Te busco una alternativa de papel o pulpa de 9 oz?" in answer
+    assert answer.index("🧾") < answer.index("Sigue siendo PP")
+
+
+def test_sin_cotizacion_el_texto_del_agente_queda_completo() -> None:
+    chat = FakeChat(events=_turn(AGENT_QUOTE_TEXT))
+
+    answer = _bridge(chat).consult("hola", "+57300")
+
+    assert "- Precio por paquete: $3.751 [1]" in answer
