@@ -87,7 +87,7 @@ from carvajal.agent.toolagent.state import (
     TOOL_INDICADOR_FINANCIERO,
     TOOL_PREGUNTAS_FRECUENTES,
 )
-from carvajal.agent.toolagent.tools.registry import CORPUS_TOOLS, DECLARATION_TOOLS
+from carvajal.agent.toolagent.tools.registry import CORPUS_TOOLS, DECLARATION_TOOLS, MEMORY_TOOLS
 from carvajal.application.evidence import _KNOWN_ENTITIES, _entities
 from carvajal.prompts import NO_CONTEXT_ANSWER
 
@@ -101,6 +101,7 @@ __all__ = [
     "MEMORY_DATA_KEYS",
     "MEMORY_UNAVAILABLE_ANSWER",
     "NO_DATA_ANSWER",
+    "OUT_OF_SCOPE_ANSWER",
     "PREFERENCE_ANSWER",
     "GatePath",
     "abstention",
@@ -113,6 +114,7 @@ __all__ = [
     "missing_fields",
     "names_city",
     "neutral_only",
+    "out_of_scope",
     "sites_without_price",
     "tool_misses",
     "unsupported_terms",
@@ -624,6 +626,11 @@ FORGET_ANSWER: Final = "Listo, ya olvidé lo que sabía de ti."
 MEMORY_UNAVAILABLE_ANSWER: Final = (
     "Ahora no puedo gestionar lo que recuerdo de ti; intenta de nuevo en un momento."
 )
+OUT_OF_SCOPE_ANSWER: Final = (
+    "Eso no está en mi corpus ni corresponde a Carvajal: solo respondo sobre Carvajal (su "
+    "historia, sus empresas y sus cifras públicas) y sobre los empaques de Carvajal "
+    "Empaques (qué referencia te sirve, precios y dónde comprar). ¿Te ayudo con algo de eso?"
+)
 NO_DATA_ANSWER: Final = (
     "No tengo un dato verificado para responder eso. Si me cuentas qué necesitas (un "
     "producto, un precio, dónde comprar o un dato de Carvajal), lo busco."
@@ -741,3 +748,22 @@ def abstention(
         MEMORY_UNAVAILABLE_ANSWER,
     }
     return conversation, not conversational
+
+
+def out_of_scope(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> bool:
+    """El modelo declaró el tema fuera del alcance y no consultó ningún dato.
+
+    Entonces su redacción no sale: la respuesta es :data:`OUT_OF_SCOPE_ANSWER`. Una opinión
+    sobre famosos o un programa en Python pasarían el filtro de ``no_query`` (los nombres
+    vienen en la pregunta y el código no trae cifras), así que la negativa es fija. Si el
+    turno además consultó algo (por ejemplo, una pregunta mixta), no aplica.
+    """
+
+    declared = False
+    for tool, data in payloads:
+        if tool in DECLARATION_TOOLS:
+            if data.get("status") == "ok" and data.get("motivo") == "fuera_de_alcance":
+                declared = True
+        elif tool not in MEMORY_TOOLS:
+            return False
+    return declared

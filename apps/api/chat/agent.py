@@ -32,6 +32,7 @@ from carvajal.agent.toolagent.evidence import (
     GREETING_ANSWER,
     MEMORY_UNAVAILABLE_ANSWER,
     NO_DATA_ANSWER,
+    OUT_OF_SCOPE_ANSWER,
     PREFERENCE_ANSWER,
     GatePath,
     abstention,
@@ -41,6 +42,7 @@ from carvajal.agent.toolagent.evidence import (
     gate,
     missing_fields,
     neutral_only,
+    out_of_scope,
     sites_without_price,
     tool_misses,
     unsupported_terms,
@@ -701,6 +703,11 @@ class _TurnStream:
             if message is not None and (message.tool_calls or message.invalid_tool_calls):
                 return []
             text = _text(message.content) if message is not None else "".join(step.pending)
+            if out_of_scope(self.tool_payloads):
+                # Tema ajeno a Carvajal: negativa fija, sin la redacción del modelo.
+                self._skip_claims("fuera_de_alcance")
+                logger.info("tool_agent.out_of_scope")
+                return self._emit(OUT_OF_SCOPE_ANSWER)
             if step.path == GATE_EVIDENCE and not step.filtered:
                 if self.gate_claims.holds:
                     return self._judged(text, step.path)

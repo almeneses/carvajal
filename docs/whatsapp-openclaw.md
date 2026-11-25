@@ -47,7 +47,7 @@ total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *P
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
   herramienta busca la **última cotización de la conversación activa** y devuelve un
   enlace. No llama al LLM, pero consume el mismo cupo diario que cualquier mensaje.
-- El enlace es `PUBLIC_BASE_URL/cotizaciones/{folio}.pdf?e=…&t=…`, firmado con HMAC
+- El enlace es `PUBLIC_BASE_URL/cotizaciones/{folio}.pdf?t=<vence>.<firma>` (un solo parámetro, sin `&`, para que WhatsApp lo detecte entero), firmado con HMAC
   (`SESSION_SECRET`) sobre el folio, el dueño y el vencimiento. Vence con la vigencia de
   la cotización (máximo 7 días); al validar se toleran 5 minutos de desfase de reloj
   entre los procesos MCP y web. El dueño no va en la URL: la ruta lee la cotización por
@@ -57,6 +57,40 @@ total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *P
   vendedor, fuente del precio y nota legal. Los recursos están en `apps/api/pdf/`.
 - Para activarlo, define `PUBLIC_BASE_URL` en el `.env` del servidor
   (p. ej. `http://203.0.113.10:8080`, con la IP del servidor). Sin ella, no se ofrece el PDF.
+- Usa un **nombre**, no la IP: WhatsApp en el celular no siempre convierte en enlace
+  una URL con IP. Sin dominio propio sirve `http://<ip-con-guiones>.sslip.io:8080`
+  (p. ej. `http://203-0-113-10.sslip.io:8080`), que resuelve a esa misma IP.
+
+### PDF como documento adjunto (recomendado)
+
+Con `MEDIA_BASE_URL` (p. ej. `http://203.0.113.10:8080`, la IP del servidor), al pedir
+«PDF» la herramienta responde:
+
+```text
+📄 Te envío tu cotización #c0032295af55 en PDF (válida hasta el 1 dic 2026).
+ADJUNTAR_PDF: http://203.0.113.10:8080/cotizaciones/c0032295af55.pdf?t=<vence>.<firma>
+```
+
+OpenClaw descarga esa URL **desde el servidor** y la envía como documento, así que no
+depende de que el navegador del celular abra un enlace `http` (Safari lo fuerza a HTTPS).
+Para eso el agente «ventas» necesita la herramienta `message` (quítala de su `deny`) y
+esta regla en su `AGENTS.md`:
+
+```markdown
+- Si el resultado de consultar_carvajal trae una línea que empieza por "ADJUNTAR_PDF: ",
+  envía esa URL como documento al MISMO chat con la herramienta message (media = la URL,
+  sin texto), y responde al cliente el resto del texto SIN esa línea.
+- Nunca uses message para escribirle a otro chat o número.
+```
+
+Sin `MEDIA_BASE_URL`, el PDF se entrega como enlace con `PUBLIC_BASE_URL`.
+
+### Cotización y PDF en un solo mensaje
+
+«Cotiza 400 portacomidas J1 en Bogotá y genera el PDF» no se le pasa entero al agente:
+el puente separa la parte del PDF (`split_pdf_request`), el agente cotiza solo el pedido y,
+si salió una cotización, el puente añade el PDF (adjunto o enlace) en lugar de la oferta.
+Una pregunta sobre el PDF («¿el PDF trae el IVA?») va al agente sin cambios.
 
 ## Fotos del catálogo
 

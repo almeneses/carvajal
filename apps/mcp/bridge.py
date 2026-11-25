@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import structlog
 
@@ -66,6 +67,7 @@ from carvajal.speech import (
 )
 
 __all__ = [
+    "ATTACH_PDF_PREFIX",
     "EMPTY_MESSAGE",
     "LIMIT_REACHED",
     "MAX_CHAT_ID_CHARS",
@@ -86,6 +88,7 @@ __all__ = [
     "canonical_chat_id",
     "is_pdf_request",
     "owner_key_for",
+    "split_pdf_request",
     "spoken_quote",
     "to_whatsapp",
     "whatsapp_quote",
@@ -119,6 +122,8 @@ NO_QUOTE_FOR_PDF = (
 PDF_UNAVAILABLE = "Por ahora no puedo generar el PDF. Intenta de nuevo más tarde."
 # Para el relé, no para el cliente: el mismo mensaje se está atendiendo en otro intento.
 TURN_IN_PROGRESS = "El mensaje se está atendiendo; reintenta en unos segundos."
+ATTACH_PDF_PREFIX = "ADJUNTAR_PDF: "
+"""Línea que el agente de OpenClaw convierte en un documento adjunto (ver docs)."""
 
 
 class ChatTurns(Protocol):
@@ -379,6 +384,30 @@ def is_pdf_request(message: str, *, spoken: bool = False) -> bool:
     return "pdf" in words and len(words) <= 8 and all(word in _PDF_FILLER for word in words)
 
 
+# «… en Bogotá y genérame el PDF», «…, y mándalo en pdf»: cláusula final con «pdf».
+_PDF_TAIL = re.compile(
+    r"(?:\s*[,;.]\s*|\s+)(?:y|e)\s+[^,;.\n]*\bp\.?\s?d\.?\s?f\b[^,;.\n]*[.!?¡¿]*\s*$",
+    re.IGNORECASE,
+)
+# «cotiza en PDF 400 vasos», «cotízame con pdf…»: «en/con (el) pdf» dentro del pedido.
+_PDF_INLINE = re.compile(r"\s*\b(?:en|con)\s+(?:un\s+|el\s+)?pdf\b", re.IGNORECASE)
+
+
+def split_pdf_request(message: str) -> tuple[str, bool]:
+    """``(pedido sin la parte del PDF, si además pidió el PDF)``.
+
+    «Cotiza 400 J1 en Bogotá y genera el PDF» → («Cotiza 400 J1 en Bogotá», True): el
+    agente cotiza y el puente adjunta el PDF de esa cotización, sin pedirle al modelo que
+    entienda el archivo. Una pregunta sobre el PDF («¿el PDF trae el IVA?») no se toca.
+    """
+
+    for pattern in (_PDF_TAIL, _PDF_INLINE):
+        cleaned = " ".join(pattern.sub("", message).split())
+        if cleaned != " ".join(message.split()) and cleaned:
+            return cleaned, True
+    return message, False
+
+
 def _units(value: int | None) -> str:
     return "?" if value is None else f"{value:,}".replace(",", ".")
 
@@ -514,8 +543,8 @@ def _listed_sources(sources: Iterable[Mapping[str, Any]]) -> list[tuple[str, str
     for source in sources:
         if len(listed) >= MAX_LISTED_SOURCES:
             break
-        title = str(source.get("title") or source.get("slug") or "").strip()
         url = str(source.get("url") or "").strip()
+        title = _source_label(source, url)
         key = url or title
         if not key or key in seen:
             continue
@@ -532,14 +561,29 @@ def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
     return SpokenReply(spoken_sources(listed), links)
 
 
+_HASH_LIKE = re.compile(r"^[0-9a-f]{16,}$")
+
+
+def _source_label(source: Mapping[str, Any], url: str) -> str:
+    """Nombre legible de la fuente: título, sección o dominio; nunca un hash interno."""
+
+    for key in ("title", "section", "slug"):
+        value = str(source.get(key) or "").strip()
+        if value and not _HASH_LIKE.match(value.lower()):
+            return value
+    if url:
+        return urlparse(url).netloc.removeprefix("www.") or url
+    return "Documento del corpus de Carvajal"
+
+
 def _sources_block(sources: Iterable[Mapping[str, Any]]) -> str:
     lines: list[str] = []
     seen: set[str] = set()
     for number, source in enumerate(sources, start=1):
         if len(lines) >= MAX_LISTED_SOURCES:
             break
-        title = str(source.get("title") or source.get("slug") or "").strip()
         url = str(source.get("url") or "").strip()
+        title = _source_label(source, url)
         key = url or title
         if not key or key in seen:
             continue
@@ -587,6 +631,7 @@ class WhatsAppBridge:
     quota: Quota = _no_limit
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
+    pdf_attachment: PdfLink | None = None
     photo_url: PhotoUrl | None = None
     turns: TurnLookup | None = None
     deliveries: DeliveryStore | None = field(default_factory=InMemoryDeliveryStore)
@@ -759,9 +804,26 @@ class WhatsAppBridge:
             # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
             pdf, final = self._pdf(owner)
             return pdf, False, final
-        turn = _collect(self.chat.stream(owner, text, client_turn_id=client_turn_id))
+        question, wants_pdf = split_pdf_request(text)
+        turn = _collect(self.chat.stream(owner, question, client_turn_id=client_turn_id))
         reply = self._render(turn, owner)
+        if wants_pdf and reply.quote_ids:
+            reply = self._with_pdf(reply, owner)
         return reply, True, reply.text != SERVICE_UNAVAILABLE
+
+    def _with_pdf(self, reply: BridgeReply, owner: str) -> BridgeReply:
+        """La cotización del turno con su PDF ya entregado, en vez de la oferta."""
+
+        pdf, _final = self._pdf(owner)
+        if pdf.text in {PDF_UNAVAILABLE, NO_QUOTE_FOR_PDF}:
+            return reply
+        text = reply.text.removesuffix(PDF_OFFER).rstrip()
+        said = reply.voice()
+        without_offer = SpokenReply(
+            said.text.replace(PDF_OFFER_SPOKEN, "").strip(), said.links, said.omitted
+        )
+        spoken = combine([without_offer, pdf.voice()])
+        return BridgeReply(f"{text}\n\n{pdf.text}", reply.quote_ids, spoken=spoken)
 
     def _settle(
         self,
@@ -814,7 +876,8 @@ class WhatsAppBridge:
         listed = _sources_block(turn.sources)
         if listed:
             blocks.append(listed)
-        offer = bool(quotes) and self.pdf_link is not None and self._latest_view(owner) is not None
+        pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
+        offer = bool(quotes) and pdf_enabled and self._latest_view(owner) is not None
         if offer:
             blocks.append(PDF_OFFER)
         spoken: list[SpokenReply] = []
@@ -895,7 +958,7 @@ class WhatsAppBridge:
         fallo al leer la última cotización o al firmar el enlace es transitorio.
         """
 
-        if self.pdf_link is None or self.latest_quote is None:
+        if (self.pdf_link is None and self.pdf_attachment is None) or self.latest_quote is None:
             return BridgeReply(PDF_UNAVAILABLE), True
         try:
             payload = self.latest_quote(owner)
@@ -905,22 +968,32 @@ class WhatsAppBridge:
         view = quote_view(payload) if payload else None
         if view is None or not view.folio:
             return BridgeReply(NO_QUOTE_FOR_PDF), True
+        until = f" (válida hasta el {view.valid_until})" if view.valid_until else ""
+        # En voz, solo el final del folio; el PDF y su vigencia van por escrito.
+        said = (
+            "Te mando por escrito el PDF de tu cotización terminada en "
+            f"{speak_folio_tail(view.folio)}."
+        )
         try:
+            if self.pdf_attachment is not None:
+                # OpenClaw descarga la URL desde el servidor y la envía como documento:
+                # no depende de que el navegador del cliente abra un enlace http.
+                url = self.pdf_attachment(view.folio, owner, view.valid_until_date)
+                intro = f"📄 Te envío tu cotización #{view.folio} en PDF{until}."
+                text = f"{intro}\n{ATTACH_PDF_PREFIX}{url}"
+                logger.info("whatsapp.pdf_attachment", folio=view.folio)
+                return BridgeReply(text, spoken=SpokenReply(said)), True
+            assert self.pdf_link is not None
             url = self.pdf_link(view.folio, owner, view.valid_until_date)
         except Exception as error:
             logger.warning("whatsapp.pdf_link_failed", error=repr(error))
             return BridgeReply(PDF_UNAVAILABLE), False
         logger.info("whatsapp.pdf_link", folio=view.folio)
-        lines = [f"📄 Aquí está tu cotización #{view.folio} en PDF:", url]
-        if view.valid_until:
-            lines.append(f"_El enlace funciona hasta el {view.valid_until}._")
-        # En voz, solo el final del folio; el enlace y su vigencia van por escrito.
-        said = (
-            "Te mando por escrito el PDF de tu cotización terminada en "
-            f"{speak_folio_tail(view.folio)}."
-        )
+        # El enlace va solo y al final, sin formato alrededor: así WhatsApp lo detecta
+        # entero y se puede tocar desde el celular.
+        text = f"📄 Tu cotización #{view.folio} en PDF{until}. Ábrela aquí:\n\n{url}"
         link = SpeechLink(f"Cotización {view.folio} en PDF", url)
-        return BridgeReply("\n".join(lines), spoken=SpokenReply(said, (link,))), True
+        return BridgeReply(text, spoken=SpokenReply(said, (link,))), True
 
 
 @dataclass

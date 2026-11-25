@@ -2329,3 +2329,69 @@ def test_el_respaldo_routes_y_la_replica_no_llaman_al_juez(engine: Any) -> None:
     assert named(events, "trace").data["path"] == "fallback"
     assert judge.claims == []
     assert len(replay_judge.claims) == calls_before == 1
+
+
+# --- Fuera de alcance: negativa fija (no se emite la redacción del modelo) ----------------
+
+
+def _texto(events: list[Any]) -> str:
+    return "".join(e.data.get("text", "") for e in events if e.name in {"token", "fallback"})
+
+
+@pytest.mark.parametrize(
+    ("pregunta", "redaccion"),
+    [
+        (
+            "¿Quién es mejor Shakira o Beyoncé?",
+            "Yo diría que Beyoncé es más completa en vivo, pero Shakira gana.",
+        ),
+        (
+            "crea una función en python para imprimir hola mundo",
+            "Así:\n\ndef hola_mundo():\n    print('hola mundo')",
+        ),
+    ],
+)
+def test_tema_fuera_de_alcance_responde_la_negativa_fija(
+    engine: Any, pregunta: str, redaccion: str
+) -> None:
+    from carvajal.agent.toolagent.evidence import OUT_OF_SCOPE_ANSWER
+
+    service = graph_service(
+        engine,
+        [
+            ScriptStep(
+                tool_calls=[{"name": "sin_consulta", "args": {"motivo": "fuera_de_alcance"}}]
+            ),
+            ScriptStep(text=redaccion),
+        ],
+    )
+
+    answer = _texto(list(service.stream(f"dueno-alcance-{len(pregunta)}", pregunta)))
+
+    assert answer == OUT_OF_SCOPE_ANSWER
+    assert "Beyoncé" not in answer and "def " not in answer
+
+
+def test_la_conversacion_sigue_respondiendo_normal(engine: Any) -> None:
+    service = graph_service(
+        engine,
+        [
+            ScriptStep(tool_calls=[{"name": "sin_consulta", "args": {"motivo": "conversacion"}}]),
+            ScriptStep(text="¡Con gusto! ¿En qué más te ayudo?"),
+        ],
+    )
+
+    answer = _texto(list(service.stream("dueno-charla", "qué chévere hablar contigo")))
+
+    assert answer == "¡Con gusto! ¿En qué más te ayudo?"
+
+
+def test_out_of_scope_no_aplica_si_el_turno_consulto_datos() -> None:
+    from carvajal.agent.toolagent.evidence import out_of_scope
+
+    fuera = ("sin_consulta", {"status": "ok", "motivo": "fuera_de_alcance"})
+
+    assert out_of_scope([fuera])
+    assert not out_of_scope([fuera, ("buscar_corpus", {"status": "ok"})])
+    assert not out_of_scope([("sin_consulta", {"status": "ok", "motivo": "conversacion"})])
+    assert not out_of_scope([])

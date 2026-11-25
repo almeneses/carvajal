@@ -285,9 +285,8 @@ def test_pdf_sin_voz_no_cambia() -> None:
 
     # Assert
     assert answer == (
-        "📄 Aquí está tu cotización #a3f09c12b7e4 en PDF:\n"
-        f"{PDF_URL}\n"
-        "_El enlace funciona hasta el 1 dic 2026._"
+        "📄 Tu cotización #a3f09c12b7e4 en PDF (válida hasta el 1 dic 2026). Ábrela aquí:\n\n"
+        f"{PDF_URL}"
     )
 
 

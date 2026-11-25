@@ -158,6 +158,10 @@ class Settings(BaseSettings):
     # URL pública de la web (p. ej. http://203.0.113.10:8080) para los enlaces
     # firmados al PDF de una cotización. Vacía: WhatsApp no ofrece el PDF.
     public_base_url: str = ""
+    # URL desde la que OpenClaw DESCARGA el PDF para adjuntarlo en WhatsApp (lado
+    # servidor, puede ser http con IP: p. ej. http://203.0.113.10:8080). Vacía: el PDF
+    # se entrega como enlace con ``public_base_url``.
+    media_base_url: str = ""
 
     # Webhook firmado de mensajería (``POST /api/webhooks/whatsapp``, docs/webhooks.md).
     # Sin WEBHOOK_SECRET el endpoint no existe (404). La allowlist es una lista E.164

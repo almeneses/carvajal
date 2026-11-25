@@ -1,4 +1,4 @@
-"""Enlaces firmados al PDF de una cotización: ``/cotizaciones/{folio}.pdf?e=…&t=…``.
+"""Enlaces firmados al PDF de una cotización: ``/cotizaciones/{folio}.pdf?t=<vence>.<firma>``.
 
 La firma es HMAC-SHA256 con ``SESSION_SECRET`` sobre el folio, el dueño de la cotización y
 el vencimiento. El dueño no viaja en la URL: la ruta lee la cotización por folio y vuelve a
@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from hashlib import sha256
 from urllib.parse import quote
 
-__all__ = ["MAX_LINK_DAYS", "link_expiry", "pdf_url", "sign", "verify"]
+__all__ = ["MAX_LINK_DAYS", "link_expiry", "pdf_url", "sign", "split_token", "verify"]
 
 MAX_LINK_DAYS = 7
 # Tolerancia de reloj entre el proceso MCP y el proceso web al validar el enlace.
@@ -65,4 +65,15 @@ def pdf_url(base_url: str, folio: str, owner_key: str, expires: int, secret: byt
     """URL pública del PDF firmada para ``owner_key``."""
 
     token = sign(folio, owner_key, expires, secret)
-    return f"{base_url.rstrip('/')}/cotizaciones/{quote(folio, safe='')}.pdf?e={expires}&t={token}"
+    # Un solo parámetro (``t=<vence>.<firma>``) y sin ``&``: algunos clientes de WhatsApp
+    # cortan el enlace en el primer ``&`` al tocarlo desde el celular.
+    return f"{base_url.rstrip('/')}/cotizaciones/{quote(folio, safe='')}.pdf?t={expires}.{token}"
+
+
+def split_token(token: str, legacy_expires: int = 0) -> tuple[int, str]:
+    """``(vence, firma)`` desde ``t=<vence>.<firma>``; acepta el formato viejo ``e=…&t=…``."""
+
+    expires, dot, signature = token.strip().partition(".")
+    if dot and expires.isdigit():
+        return int(expires), signature
+    return legacy_expires, token.strip()

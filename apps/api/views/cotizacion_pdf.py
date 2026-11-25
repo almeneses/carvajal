@@ -1,4 +1,6 @@
-"""PDF de una cotización por enlace firmado: ``GET /cotizaciones/{folio}.pdf?e=…&t=…``.
+"""PDF de una cotización por enlace firmado: ``GET /cotizaciones/{folio}.pdf?t=<vence>.<firma>``.
+
+También acepta el formato anterior ``?e=<vence>&t=<firma>`` de los enlaces ya enviados.
 
 No usa cookie ni sesión: el enlace lo entrega el canal (WhatsApp) al dueño de la
 cotización. La ruta lee la cotización por folio, verifica la firma contra el ``owner_key``
@@ -17,7 +19,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 
-from apps.api.quote_links import verify
+from apps.api.quote_links import split_token, verify
 from apps.api.quote_pdf import build_quote_pdf
 from apps.api.quote_view import quote_view
 from carvajal.catalog.images import catalog_image
@@ -61,7 +63,8 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
     """PDF de la cotización si la firma y el vencimiento son válidos; 404 si no."""
 
     secret = _secret(request)
-    if not secret or not t or len(folio) > 64:
+    expires, signature = split_token(t, e)
+    if not secret or not signature or len(folio) > 64:
         return _not_found()
     lookup: QuoteLookup = getattr(request.app.state, "quote_lookup", None) or _default_lookup
     try:
@@ -72,7 +75,7 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
     if found is None:
         return _not_found()
     owner_key, payload = found
-    if not owner_key or not verify(folio, owner_key, e, t, secret):
+    if not owner_key or not verify(folio, owner_key, expires, signature, secret):
         logger.info("quote_pdf.rejected", folio=folio)
         return _not_found()
     view = quote_view(payload)
