@@ -6,8 +6,11 @@ Los clientes de embeddings y LLM se crean además en la primera pregunta, nunca
 al arrancar ni al comprobar la vitalidad del contenedor.
 """
 
+from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import structlog
 from fastapi.templating import Jinja2Templates
@@ -54,6 +57,46 @@ def _spoken_summary(message: object) -> str:
 
 
 templates.env.filters["resumen_hablado"] = _spoken_summary
+
+BOGOTA = ZoneInfo("America/Bogota")
+
+
+def _local_date(value: object) -> str:
+    """Fecha ISO (UTC) como ``AAAA-MM-DD`` en hora de Bogotá; si no se entiende, se deja.
+
+    Una cotización emitida a las 8 p. m. en Bogotá ya es el día siguiente en UTC: cortar
+    el texto ISO mostraba «mañana» como fecha de emisión.
+    """
+
+    text = str(value or "")
+    try:
+        moment = datetime.fromisoformat(text)
+    except ValueError:
+        return text[:10]
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(BOGOTA).date().isoformat()
+
+
+def _catalog_photo(sku: object) -> str:
+    """URL de la foto del SKU (``/catalogo/imagenes``) o ``""`` si no tiene foto."""
+
+    from carvajal.catalog.images import catalog_image
+
+    code = str(sku or "")
+    if not code or len(code) > 64:
+        return ""
+    try:
+        return f"/catalogo/imagenes/{quote(code)}.jpg" if catalog_image(code) else ""
+    # Una foto nunca tumba el turno: un manifiesto ilegible o mal codificado (OSError,
+    # UnicodeDecodeError, csv.Error…) deja la tarjeta con el ícono de su familia.
+    except Exception as error:
+        logger.warning("catalog.photo_failed", error_type=type(error).__name__)
+        return ""
+
+
+templates.env.filters["fecha_local"] = _local_date
+templates.env.filters["foto_catalogo"] = _catalog_photo
 
 __all__ = [
     "APP_DIR",

@@ -45,13 +45,18 @@
   const bienvenida = hilo.querySelector(".chat-bienvenida");
   const sugerencias = hilo.querySelector("[data-chat-sugerencias]");
   if (sugerencias) sugerencias.hidden = false;
+  mostrarCambiar(hilo);
   hilo.addEventListener("click", (event) => {
     const sugerencia = event.target.closest("[data-chat-sugerencia]");
     if (!sugerencia || enCurso) return;
     // Los temas del inicio muestran título y subtítulo; la pregunta va en data-pregunta.
-    input.value = (sugerencia.dataset.pregunta || sugerencia.textContent).trim();
+    const pregunta = (sugerencia.dataset.pregunta || sugerencia.textContent).trim();
+    // «Cambiar» (Tu solicitud) deja la frase empezada para que la persona la complete.
+    const abierta = "chatCambiar" in sugerencia.dataset;
+    input.value = abierta ? `${pregunta} ` : pregunta;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.focus({ preventScroll: true });
+    if (abierta) input.setSelectionRange?.(input.value.length, input.value.length);
   });
 
   historial.addEventListener("scroll", () => {
@@ -496,6 +501,11 @@
     return turno;
   }
 
+  // Los «Cambiar» de «Tu solicitud» solo sirven con este script: sin él quedan ocultos.
+  function mostrarCambiar(raiz) {
+    for (const boton of raiz.querySelectorAll?.("[data-chat-cambiar]") ?? []) boton.hidden = false;
+  }
+
   // Tarjetas de la ruta comercial (spec 036). El HTML llega renderizado y escapado por
   // Jinja en el servidor (_productos.html), igual que los parciales que inserta app.js.
   function pintarProductos(turno, html) {
@@ -505,6 +515,7 @@
     plantilla.innerHTML = html;
     const tarjetas = plantilla.content.firstElementChild;
     if (tarjetas) turno.querySelector(".burbuja")?.after(tarjetas);
+    if (tarjetas) mostrarCambiar(tarjetas);
   }
 
   function pintarTraza(datos) {

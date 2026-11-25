@@ -11,6 +11,9 @@
     <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/app.css" />
     <link rel="stylesheet" href="/static/panel.css" />
+    {#- htmx inserta por defecto un <style> para .htmx-indicator; la CSP (style-src 'self')
+        lo bloquea y llena la consola de errores. La app no usa indicadores de htmx. #}
+    <meta name="htmx-config" content='{"includeIndicatorStyles": false}' />
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/texto.js" defer></script>
     <script src="/static/identidad.js" defer></script>
