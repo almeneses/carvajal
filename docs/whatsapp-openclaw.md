@@ -535,8 +535,11 @@ En la VM de OpenClaw (root):
    ```
 
    `sshd -t && systemctl reload ssh`.
-4. El túnel (`ovh-tunnel.service` de `marko`) abre además un puerto inverso hacia el SSH de
-   la VM: `-R 127.0.0.1:2224:127.0.0.1:22`.
+4. Un túnel aparte, `ovh-media-tunnel.service` (systemd `--user` de `marko`, con linger),
+   abre un puerto inverso hacia el SSH de la VM: `-R 127.0.0.1:2224:127.0.0.1:22`, con la
+   misma llave y `Restart=always`. Va separado de `ovh-tunnel` a propósito: si la VM se cae
+   de golpe, la sesión vieja puede retener el 2224 en OVH hasta que expire, y con
+   `ExitOnForwardFailure=yes` eso tumbaría también el MCP. Así solo se demoran las fotos.
 
 En el VPS (`deploy`):
 
@@ -547,7 +550,9 @@ En el VPS (`deploy`):
 2. Root, una vez: `apt-get install sshfs` y descomentar `user_allow_other` en
    `/etc/fuse.conf` (el contenedor corre como otro usuario).
 3. Una llave propia (`~/.ssh/ocmedia_ro`) y el script `~/bin/openclaw-media-mount.sh`, en el
-   cron de `deploy` cada minuto y en `@reboot`. Si la carpeta no está montada, la monta con
+   cron de `deploy` cada minuto y en `@reboot`. Si la carpeta no está montada, o está
+   montada pero colgada (un `stat` que no responde en 10 s, p. ej. tras caerse la VM), la
+   monta con
    `sshfs -p 2224 ocmedia@127.0.0.1:/inbound ~/openclaw-media -o
    ro,allow_other,reconnect,cache=no,entry_timeout=0,negative_timeout=0,attr_timeout=0` y
    recrea `mcp` (`up -d --force-recreate --no-deps mcp`). Docker no propaga un montaje
