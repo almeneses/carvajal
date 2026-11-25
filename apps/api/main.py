@@ -37,11 +37,12 @@ from apps.api.views import (
     cotizador,
     documents,
     faq,
+    foto,
     stream,
     voz,
     webhooks,
 )
-from carvajal.adapters.judge import jev_health
+from carvajal.adapters.judge import food_photo_health, jev_health
 from carvajal.adapters.speech import voice_health
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.usage import SqlUsageRepository
@@ -203,6 +204,16 @@ def _voice_block(app: FastAPI, settings: Settings, request: Request) -> dict[str
     return voice_health(settings, getattr(runtime, "client", None), detail=detail)
 
 
+def _photo_block(app: FastAPI, settings: Settings) -> dict[str, object]:
+    """Bloque ``food_photo`` de ``/health`` (spec 051): sin red; no cambia el estado global."""
+
+    classifier = getattr(app.state, "food_classifier", None)
+    if classifier is None and hasattr(app.state, "food_classifier"):
+        # Construido (o inyectado) sin clasificador: apagado aunque haya clave.
+        return {"status": "off", "calls_today": 0}
+    return food_photo_health(settings, classifier)
+
+
 def _log_webhook_status(settings: Settings) -> None:
     """Deja constancia del webhook de mensajería al arrancar, sin números ni secretos."""
 
@@ -277,6 +288,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
         catalogo_imagenes,
         webhooks,
         voz,
+        foto,
     ):
         app.include_router(module.router)
     app.include_router(faq.page_router)
@@ -304,6 +316,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "agent": agent_mode_status(settings).as_health(),
                     "jev": _jev_block(settings),
                     "voice": _voice_block(app, settings, request),
+                    "food_photo": _photo_block(app, settings),
                 },
                 status_code=503,
             )
@@ -328,6 +341,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 "jev": _jev_block(settings),
                 # Spec 047: voz del chat por el servidor; opcional, no cambia el estado.
                 "voice": _voice_block(app, settings, request),
+                # Spec 051: fotos de alimentos con Jev; opcional, no cambia el estado.
+                "food_photo": _photo_block(app, settings),
             },
             status_code=200 if healthy else 503,
         )

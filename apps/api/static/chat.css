@@ -2227,3 +2227,66 @@ html[data-voz-manos="1"] .chat-cuerpo .composer {
     animation: none !important;
   }
 }
+
+/* Foto de un alimento (spec 051). Nace oculta y solo aparece con JavaScript y con el
+   clasificador disponible; el aviso del servicio externo se ve mientras haya foto. */
+.foto[hidden],
+.foto-ficha[hidden],
+.foto-aviso[hidden] {
+  display: none;
+}
+
+.foto {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.foto-boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.foto input[type="file"]:focus-visible + .foto-boton {
+  outline: 2px solid var(--cian, #00b5e5);
+  outline-offset: 2px;
+}
+
+.foto-ficha {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 14rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  font-size: 0.875rem;
+}
+
+.foto-nombre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foto-quitar {
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.foto-aviso {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  opacity: 0.85;
+}

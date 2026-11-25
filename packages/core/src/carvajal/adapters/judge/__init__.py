@@ -12,10 +12,19 @@ from typing import Any
 import httpx
 import structlog
 
-from carvajal.adapters.judge.jev import JevClient, JevJudge
+from carvajal.adapters.judge.jev import JevClient, JevFoodClassifier, JevJudge
 from carvajal.infrastructure.settings import Settings
 
-__all__ = ["JevClient", "JevJudge", "build_judge", "jev_health", "usable_key"]
+__all__ = [
+    "JevClient",
+    "JevFoodClassifier",
+    "JevJudge",
+    "build_food_classifier",
+    "build_judge",
+    "food_photo_health",
+    "jev_health",
+    "usable_key",
+]
 
 logger = structlog.get_logger(__name__)
 
@@ -100,4 +109,50 @@ def jev_health(settings: Settings, judge: Any = None, *, mode: str | None = None
         "claims": settings.jev_claims_mode if tools else "off",
         "calls_today": calls_today,
         "last_error": last_error,
+    }
+
+
+def build_food_classifier(
+    settings: Settings,
+    *,
+    ledger: str | Path | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> JevFoodClassifier | None:
+    """Clasificador de fotos (spec 051) o ``None`` si está apagado o falta la clave.
+
+    No depende de ``JEV_ENABLED``: el owner encendió las fotos en producción sin encender el
+    gatekeeper (research R2). Cliente propio, con su plazo, su tope y su circuito; comparte
+    el libro ``JEV_LEDGER``.
+    """
+
+    if not settings.food_photo_configured:
+        return None
+    key = usable_key(settings)
+    if not key:
+        logger.warning("food_photo.invalid_key", reason="caracteres_no_ascii")
+        return None
+    client = JevClient(
+        api_key=key,
+        base_url=settings.jev_base_url,
+        model=settings.jev_model,
+        timeout_s=settings.food_photo_timeout_s,
+        max_calls_per_day=settings.food_photo_max_calls_per_day,
+        ledger=ledger if ledger is not None else (settings.jev_ledger or None),
+        transport=transport,
+    )
+    return JevFoodClassifier(client, timeout_s=settings.food_photo_timeout_s)
+
+
+def food_photo_health(settings: Settings, classifier: Any = None) -> dict[str, Any]:
+    """Bloque ``food_photo`` de ``/health``, sin red. No cambia el ``status`` global."""
+
+    if not settings.food_photo_configured:
+        return {"status": "off", "calls_today": 0}
+    client = getattr(classifier, "client", None)
+    if not isinstance(client, JevClient):
+        return {"status": "ok" if usable_key(settings) else "off", "calls_today": 0}
+    return {
+        "status": client.unavailable_status() or "ok",
+        "calls_today": client.calls_today,
+        "last_error": client.last_error,
     }

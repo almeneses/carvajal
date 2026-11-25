@@ -79,8 +79,10 @@
     delete form.dataset.vozOrigen;
     if (enCurso) return;
 
+    // Spec 051: con una foto adjunta (chat-photo.js) el texto es opcional.
+    const foto = fotoAdjunta();
     const pregunta = input.value.trim();
-    if (!pregunta) {
+    if (!pregunta && !foto) {
       avisar("Escribe una pregunta antes de enviar.", true);
       input.focus();
       return;
@@ -94,8 +96,49 @@
     seguir = true;
     const turnId = nuevoTurnoId();
     if (turnIdInput) turnIdInput.value = turnId;
-    void responder(pregunta, turnId, manosLibres);
+    void responder(pregunta, turnId, manosLibres, foto);
   });
+
+  function fotoAdjunta() {
+    const api = window.CarvajalFoto;
+    return api && typeof api.tomar === "function" ? api.tomar() : null;
+  }
+
+  function marcaFoto(pregunta) {
+    return pregunta ? `📷 Foto de un alimento: ${pregunta}` : "📷 Foto de un alimento";
+  }
+
+  function peticion(pregunta, turnId, foto, signal) {
+    const thread = threadInput ? threadInput.value : "";
+    if (foto) {
+      // Multipart con el token CSRF en cabecera (se valida antes de leer el cuerpo).
+      const cuerpo = new window.FormData();
+      cuerpo.append("foto", foto, foto.name || "foto.jpg");
+      cuerpo.append("texto", pregunta);
+      cuerpo.append("client_turn_id", turnId);
+      cuerpo.append("thread_id", thread);
+      return fetch("/chat/foto", {
+        method: "POST",
+        headers: { Accept: "text/event-stream", "X-CSRF-Token": csrf ? csrf.value : "" },
+        body: cuerpo,
+        signal,
+      });
+    }
+    return fetch("/chat/stream", {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        question: pregunta,
+        csrf_token: csrf ? csrf.value : "",
+        client_turn_id: turnId,
+        thread_id: thread,
+      }),
+      signal,
+    });
+  }
 
   // Marcas del visitante (spec 038, US4): solo con el monitoreo activo y con
   // el request_id del turno. No recargan la página y no fuerzan una traza.
@@ -153,8 +196,8 @@
     return `turno-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  async function responder(pregunta, turnId, manosLibres) {
-    const turnoUsuario = crearTurno("user", pregunta);
+  async function responder(pregunta, turnId, manosLibres, foto = null) {
+    const turnoUsuario = crearTurno("user", foto ? marcaFoto(pregunta) : pregunta);
     const turnoAsistente = crearTurno("assistant", "");
     // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css).
     turnoAsistente.dataset.pensando = "1";
@@ -211,6 +254,7 @@
       );
     };
     input.value = "";
+    if (foto) window.CarvajalFoto.limpiar();
     form.setAttribute("aria-busy", "true");
     const focoEnEnviar = document.activeElement === boton;
     if (boton) boton.hidden = true;
@@ -232,20 +276,7 @@
     let cerrado = false;
     let recibioContenido = false;
     try {
-      const response = await fetch("/chat/stream", {
-        method: "POST",
-        headers: {
-          Accept: "text/event-stream",
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          question: pregunta,
-          csrf_token: csrf ? csrf.value : "",
-          client_turn_id: turnId,
-          thread_id: threadInput ? threadInput.value : "",
-        }),
-        signal: control.signal,
-      });
+      const response = await peticion(pregunta, turnId, foto, control.signal);
       const tipo = response.headers.get("content-type") ?? "";
       // Los errores SSE de la API traen su propio mensaje. Un reenvío
       // automático puede volver a consumir cuota para el mismo turno.
@@ -358,6 +389,7 @@
           turnoAsistente.remove();
           if (!lista.children.length && bienvenida) hilo.append(bienvenida);
           if (!input.value) input.value = pregunta;
+          if (foto) window.CarvajalFoto.restaurar(foto);
         }
         avisar("Respuesta detenida.");
         return;
@@ -374,6 +406,15 @@
         }
         avisar(error && error.name === "AbortError" ? INCOMPLETA : AVISO, true);
         if (!texto.textContent) turnoAsistente.remove();
+      } else if (foto && !recibioContenido && !cerrado) {
+        // La foto no tiene respaldo sin streaming (el formulario sin JS no la lleva):
+        // se devuelven la foto y el texto para reintentar.
+        if (!input.value) input.value = pregunta;
+        window.CarvajalFoto.restaurar(foto);
+        turnoUsuario.remove();
+        turnoAsistente.remove();
+        avisar("No se pudo enviar la foto. Inténtalo de nuevo.", true);
+        return;
       } else if (!recibioContenido && !cerrado && !input.value) {
         // Falló antes del primer token y el servidor no persistió el turno:
         // restaura la pregunta y reintenta por el POST normal del formulario.

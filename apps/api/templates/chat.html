@@ -4,6 +4,7 @@
 {% block head_extra %}
 <link rel="stylesheet" href="/static/chat.css" />
 <script src="/static/hilos.js" defer></script>
+<script src="/static/chat-photo.js" defer></script>
 <script src="/static/chat-stream.js" defer></script>
 <script src="/static/chat-voice.js" defer></script>
 <script src="/static/chat-motion.js" defer></script>
@@ -69,6 +70,24 @@
           mensaje; conservo el resto del contexto comercial.
         </p>
         <div class="composer-acciones">
+          {% if foto_disponible %}
+          <div class="foto" data-foto hidden>
+            <input type="file" id="foto-alimento" class="sr-solo" accept="image/jpeg,image/png"
+                   data-foto-input aria-describedby="foto-aviso" />
+            <label for="foto-alimento" class="boton secundario foto-boton" title="Enviar una foto del alimento">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+              <span>Foto</span>
+            </label>
+            <span class="foto-ficha" data-foto-ficha hidden>
+              <span class="foto-nombre" data-foto-nombre></span>
+              <button type="button" class="foto-quitar" data-foto-quitar aria-label="Quitar la foto">×</button>
+            </span>
+          </div>
+          {% endif %}
           <div class="voz" data-voz hidden
                data-voz-servidor="{{ '1' if voz_servidor else '0' }}"
                data-voz-max-segundos="{{ voz_max_segundos or 60 }}"
@@ -119,6 +138,12 @@
           </button>
           <button type="button" class="boton secundario" data-chat-detener aria-label="Detener respuesta" hidden>Detener</button>
         </div>
+        {% if foto_disponible %}
+        <p id="foto-aviso" class="foto-aviso" data-foto-aviso role="note" hidden>
+          Envía la foto del alimento y te sugiero el empaque. La foto se analiza con un servicio
+          externo (TypeSafe, EE. UU.) y no se guarda; evita que salgan personas o datos personales.
+        </p>
+        {% endif %}
       </form>
       <p id="chat-stream-estado" class="estado-chat" role="status"></p>
 

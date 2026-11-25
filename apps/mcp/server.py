@@ -26,7 +26,7 @@ llega con los miles al estilo colombiano (:func:`carvajal.speech.normalize_trans
 import hmac
 from collections.abc import Awaitable, Callable, MutableMapping
 from datetime import date
-from functools import cache
+from functools import cache, partial
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -41,7 +41,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 
 from apps.api.quote_links import link_expiry, pdf_url
-from apps.mcp.bridge import MAX_CHAT_ID_CHARS, MAX_MESSAGE_CHARS, WhatsAppBridge
+from apps.mcp.bridge import (
+    MAX_CHAT_ID_CHARS,
+    MAX_MESSAGE_CHARS,
+    WhatsAppBridge,
+    read_inbound_photo,
+)
 from carvajal.speech import LINKS_HEADER, TEXT_HEADER
 
 __all__ = [
@@ -66,7 +71,9 @@ TOOL_DESCRIPTION = (
     "llama con voz=true: primero viene un resumen corto para leer en voz alta; si trae la "
     f"línea «{TEXT_HEADER}», lo que sigue es la respuesta completa para enviarla como "
     f"mensaje escrito, y si trae la línea «{LINKS_HEADER}», los enlaces para enviarlos "
-    "como texto."
+    "como texto. Si el cliente mandó una foto de un alimento, pasa en `foto` la referencia "
+    "del adjunto (media://inbound/<archivo>) y en `mensaje` el texto que la acompaña (puede "
+    "ir vacío): la herramienta sugiere el empaque del catálogo."
 )
 INSTRUCTIONS = (
     "Usa consultar_carvajal para cada mensaje del cliente. Pasa el mensaje completo en "
@@ -75,7 +82,8 @@ INSTRUCTIONS = (
     "con el texto que devuelve la herramienta, sin cambiar cifras, precios ni folios. Si "
     "el cliente mandó una nota de voz, pasa voz=true: lee en voz alta solo el resumen del "
     "principio y envía como texto, sin leerlo, lo que venga tras las líneas de TEXTO o de "
-    "ENLACES."
+    "ENLACES. Si el cliente adjuntó una foto ([media attached: media://inbound/...]), pasa "
+    "esa referencia en `foto`; nunca describas la foto tú mismo."
 )
 
 ASGIApp = Callable[
@@ -131,10 +139,22 @@ def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPSe
                 )
             ),
         ] = False,
+        foto: Annotated[
+            str,
+            Field(
+                max_length=200,
+                description=(
+                    "Referencia del adjunto si el cliente mandó una foto de un alimento "
+                    "(media://inbound/<archivo>.jpg); vacío si no hay foto."
+                ),
+            ),
+        ] = "",
     ) -> str:
         # El turno es síncrono (SQLAlchemy y el grafo): se ejecuta fuera del event loop.
         return await anyio.to_thread.run_sync(
-            lambda: resolve().consult(mensaje, conversacion, new_conversation=nueva, voice=voz)
+            lambda: resolve().consult(
+                mensaje, conversacion, new_conversation=nueva, voice=voz, photo=foto
+            )
         )
 
     return server
@@ -191,6 +211,7 @@ def default_bridge() -> WhatsAppBridge:
 
     from apps.api import runtime
     from apps.api.chat.service import default_chat_service
+    from carvajal.adapters.judge import build_food_classifier
     from carvajal.adapters.storage.chat import SqlChatRepository
     from carvajal.adapters.storage.deliveries import SqlDeliveryStore
     from carvajal.adapters.storage.quotes import SqlQuoteRepository
@@ -231,6 +252,7 @@ def default_bridge() -> WhatsAppBridge:
 
     secret = settings.session_secret.encode("utf-8")
     base_url = settings.public_base_url.strip()
+    media_dir = settings.food_photo_media_dir.strip()
 
     media_base = settings.media_base_url.strip()
 
@@ -267,4 +289,7 @@ def default_bridge() -> WhatsAppBridge:
         photo_url=photo_url if base_url else None,
         # Reserva compartida entre workers: un reintento en vuelo no repite el turno.
         deliveries=SqlDeliveryStore(factory),
+        # Spec 051: fotos de WhatsApp desde la carpeta de adjuntos de OpenClaw (solo lectura).
+        photo_reader=partial(read_inbound_photo, directory=media_dir) if media_dir else None,
+        food_classifier=build_food_classifier(settings),
     )

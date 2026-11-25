@@ -19,7 +19,7 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
 
 ## Qué hace la herramienta
 
-`consultar_carvajal(mensaje, conversacion, nueva=false, voz=false)`
+`consultar_carvajal(mensaje, conversacion, nueva=false, voz=false, foto="")`
 
 | Parámetro | Uso |
 |---|---|
@@ -27,6 +27,7 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
 | `conversacion` | Identificador estable del chat: número o JID del remitente. |
 | `nueva` | `true` abre un hilo nuevo (equivale a «Nueva conversación»). |
 | `voz` | `true` si el cliente mandó una nota de voz: resumen hablado apto para TTS y, aparte, el texto escrito completo o los enlaces (ver [Mensajes de voz](#mensajes-de-voz)). |
+| `foto` | Referencia del adjunto (`media://inbound/<archivo>.jpg`) si el cliente mandó una foto de un alimento: la herramienta sugiere el empaque (ver [Fotos de alimentos](#fotos-de-alimentos-spec-051)). |
 
 - **Identidad**: el número nunca se guarda en claro. El `owner_key` es
   `wa_` + HMAC-SHA256(`SESSION_SECRET`, número normalizado): cada chat tiene su hilo, su
@@ -438,6 +439,65 @@ transcripción al agente (OpenClaw la pone en el cuerpo del mensaje dentro de un
 `[Audio]`). Si tu versión no admite `[[tts:text]]`, que el agente envíe el texto escrito y
 los enlaces en un mensaje aparte con su herramienta de mensajes y responda solo con el
 resumen hablado.
+
+## Fotos de alimentos (spec 051)
+
+El cliente manda la foto de un plato o una bebida y recibe hasta tres empaques del
+catálogo aptos para ese alimento. Jev (TypeSafe) clasifica la foto; la respuesta la arma el
+servidor sin LLM, con las fichas de las referencias, y queda en el hilo para cotizar
+después («cotízame 500 de la CO-CAZ-16»).
+
+**Cómo llega la foto**: OpenClaw guarda el adjunto en `~/.openclaw/media/inbound/` y se lo
+muestra al agente como `[media attached: media://inbound/<uuid>.jpg (image/jpeg)]`. El
+agente pasa esa referencia en `foto`. El puente lee el archivo **solo** desde la carpeta
+montada (nombre sin rutas, sin enlaces simbólicos, JPEG o PNG, ≤ 10 MB), le quita los
+metadatos, lo escala y lo descarta al terminar. Requiere que OpenClaw y el servicio `mcp`
+compartan máquina (la configuración del VPS); si OpenClaw vive en otra máquina, WhatsApp no
+ofrece fotos.
+
+**Privacidad**: a TypeSafe (EE. UU.) solo va la imagen preparada y preguntas fijas; nunca
+el número, el texto del cliente ni su historial. El owner activó la función en producción
+el 2026-11-24.
+
+### Activarlo en el VPS
+
+1. En `/opt/carvajal/.env` (además de `TYPESAFE_API_KEY`):
+
+   ```bash
+   OPENCLAW_MEDIA_DIR=/home/deploy/.openclaw/media/inbound
+   ```
+
+   `compose.prod.yml` monta esa carpeta en `mcp` como `/openclaw-media:ro` y define
+   `FOOD_PHOTO_MEDIA_DIR`. `FOOD_PHOTO_ENABLED=false` apaga las fotos en la web y en WhatsApp.
+2. El contenedor corre como `app` (uid 100) y la carpeta de OpenClaw es `700`: dale permiso
+   de **paso** (no de lectura del listado) para que el puente abra archivos por nombre:
+
+   ```bash
+   chmod 711 ~/.openclaw/media/inbound
+   ```
+
+   Los adjuntos que escribe OpenClaw ya son `644`. Si una actualización de OpenClaw vuelve a
+   poner `700`, el puente responde «No pude abrir esa foto…» y basta repetir el `chmod`.
+3. `docker compose -f compose.prod.yml up -d mcp` y comprueba:
+   `curl -s localhost:8000/health | jq .food_photo` → `"status": "ok"`.
+
+### OpenClaw
+
+- Apaga la interpretación de imágenes de OpenClaw para que la foto no vaya a otro
+  proveedor de visión: `openclaw config set tools.media.image.enabled false`.
+- Añade al `AGENTS.md` del agente «ventas»:
+
+```markdown
+## Fotos
+
+- Si el cliente adjuntó una imagen ([media attached: media://inbound/<archivo> (image/...)]),
+  llama a consultar_carvajal con esa referencia exacta en `foto`, el texto que la acompaña
+  (o vacío) en `mensaje` y el mismo `conversacion` de siempre.
+- No describas la foto ni adivines qué alimento es: responde exactamente con el texto que
+  devuelve la herramienta.
+- Una sola foto por llamada; si mandó varias, usa la primera y pídele que envíe las demás
+  de una en una.
+```
 
 ## Operación
 
