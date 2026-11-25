@@ -30,5 +30,5 @@
 
 - [x] T015 `CONSTITUTION.md`, proyección, `README.md`, `specs/README.md`, `docs/whatsapp-openclaw.md` y `openclaw/workspace/ventas/AGENTS.md`
 - [x] T016 `make check`, pruebas de integración y JS
-- [ ] T017 Evaluación del agente contra la línea base (skill `evaluar-agente`; gasta tokens de DeepSeek: requiere permiso del owner)
+- [x] T017 Evaluación del agente contra la línea base ([evidencia](evidencia.md))
 - [x] T018 PR con etiquetas y assignee, sin merge

@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-25
 
-**Status**: Implemented (2026-11-25). Pendiente: evaluación del agente (T017, requiere permiso para gastar tokens).
+**Status**: Implemented (2026-11-25). Evaluación: [evidencia.md](./evidencia.md).
 
 **Input**: User description: «Quiero que en el chat web se vea la foto que se sube, al estilo
 de WhatsApp. También quiero que entre las opciones solo muestre la más probable (o la mejor)
