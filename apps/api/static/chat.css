@@ -3233,30 +3233,16 @@ form[data-foto-arrastrando] {
   }
 }
 
-/* Propuesta de cotización: sin folio hasta que la persona confirma (spec 053, FR-010). */
-.coti-sello-propuesta {
-  background: var(--fondo-suave);
-  color: var(--azul);
-  font-weight: 600;
-}
-
-.coti-acciones {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.coti-acciones[hidden],
-.coti-acciones [hidden] {
-  display: none;
-}
-
-.coti-pregunta {
-  flex-basis: 100%;
+/* Spec 054: líneas de una cotización con varios productos y botones del flujo. */
+.coti-lineas {
   margin: 0;
-  font-weight: 600;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.flujo-acciones[hidden] {
+  display: none;
 }
 
 .foto-quitar {

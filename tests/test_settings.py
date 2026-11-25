@@ -396,7 +396,7 @@ def test_modo_del_agente_por_defecto_y_limites() -> None:
     assert settings.agent_mode == "tools"
     assert settings.agent_max_tool_calls == 4
     assert settings.agent_turn_timeout_s == 45
-    assert settings.agent_max_quotes == 3
+    assert settings.agent_max_quotes == 4  # spec 054: comparativo de hasta cuatro cantidades
 
 
 def test_memoria_del_agente_por_defecto() -> None:

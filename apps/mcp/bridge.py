@@ -9,11 +9,13 @@ texto listo para WhatsApp.
   ``owner_key`` es un HMAC-SHA256 con el secreto del despliegue, así cada chat tiene su
   propio hilo, su memoria comercial y su cupo diario, igual que un visitante de la web.
 - **Cupo**: se cobra el mismo ``DAILY_REQUESTS_LIMIT`` que en la web, por chat.
-- **Cotizaciones**: la web las pinta como tarjetas HTML; aquí se leen de la tabla
-  ``quotes`` por folio y se redactan con :func:`whatsapp_quote` (folio, importes, total y
-  vigencia). Si hay URL pública, se ofrece el PDF y la palabra «PDF» devuelve un enlace
-  firmado a la última cotización de la conversación activa, sin pasar por el LLM pero
-  consumiendo el mismo cupo diario que cualquier mensaje.
+- **Cotizaciones** (spec 054): el servicio arma el mensaje con las plantillas del flujo
+  (``carvajal.quotation.render``: opciones, comparativo, carrito con total parcial,
+  resumen y registro), iguales en la web; aquí solo se pasan a formato de WhatsApp y, del
+  texto del agente, quedan sus comentarios (:func:`quote_remarks`). Al registrarse con el
+  «sí», el PDF se adjunta solo; «sí, mándame el PDF» confirma la cotización pendiente. La
+  palabra «PDF» sigue devolviendo la última cotización registrada, sin LLM y con cupo.
+  Los turnos guardados antes de la 054 se redactan con :func:`whatsapp_quote`.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
 - **Voz**: ``consult(..., voice=True)`` devuelve un **resumen hablado** del turno para el
@@ -129,6 +131,11 @@ NO_QUOTE_FOR_PDF = (
     "*Cotiza 400 portacomidas espumados J1 en Bogotá*."
 )
 PDF_UNAVAILABLE = "Por ahora no puedo generar el PDF. Intenta de nuevo más tarde."
+# Spec 054: con una cotización por confirmar, pedir el PDF es confirmarla. El turno recibe
+# esta forma, que el flujo reconoce por reglas, y no la del cliente: «envíame la cotización
+# en pdf por favor» o «el pe de efe» dictado no son «sí» para el flujo, y «quiero el pdf de
+# la cotización» se leería como agregar un producto.
+PDF_CONFIRMATION = "sí, mándame el PDF"
 # Para el relé, no para el cliente: el mismo mensaje se está atendiendo en otro intento.
 TURN_IN_PROGRESS = "El mensaje se está atendiendo; reintenta en unos segundos."
 ATTACH_PDF_PREFIX = "ADJUNTAR_PDF: "
@@ -777,15 +784,15 @@ class _Turn:
     sources: list[Mapping[str, Any]]
     folios: list[str]
     error: str | None
-    # Spec 053: cotizaciones propuestas del turno (sin folio), que esperan el «sí».
-    proposals: list[Mapping[str, Any]] = field(default_factory=list)
+    # Spec 054: mensaje de la plantilla del flujo (texto y versión hablada), si lo hubo.
+    flow: Mapping[str, Any] | None = None
 
 
 def _collect(events: Iterable[ChatEvent]) -> _Turn:
     fragments: list[str] = []
     sources: list[Mapping[str, Any]] = []
     folios: list[str] = []
-    proposals: list[Mapping[str, Any]] = []
+    flow: Mapping[str, Any] | None = None
     error: str | None = None
     for event in events:
         if event.name in {"token", "fallback"}:
@@ -795,11 +802,11 @@ def _collect(events: Iterable[ChatEvent]) -> _Turn:
             sources = [item for item in raw if isinstance(item, Mapping)]
         elif event.name == "done":
             folios = [str(folio) for folio in event.data.get("quote_ids") or [] if folio]
-            raw = event.data.get("proposals") or []
-            proposals = [item for item in raw if isinstance(item, Mapping)]
+            raw = event.data.get("flow")
+            flow = raw if isinstance(raw, Mapping) and raw.get("text") else None
         elif event.name == "error":
             error = str(event.data.get("message") or SERVICE_UNAVAILABLE)
-    return _Turn("".join(fragments), sources, folios, error, proposals)
+    return _Turn("".join(fragments), sources, folios, error, flow)
 
 
 @dataclass(frozen=True)
@@ -1084,16 +1091,34 @@ class WhatsAppBridge:
                 logger.info("whatsapp.quota_exhausted")
                 return BridgeReply(LIMIT_REACHED), False, True
             effects.quota = True
+        pending = False
         if is_pdf_request(text, spoken=voice):
-            # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
-            pdf, final = self._pdf(owner)
-            return pdf, False, final
-        question, wants_pdf = split_pdf_request(text)
+            pending = self._awaiting_confirmation(owner)
+            if not pending:
+                # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
+                pdf, final = self._pdf(owner)
+                return pdf, False, final
+        # Spec 054: con una cotización por confirmar, pedir el PDF es un «sí»: el turno la
+        # registra y el PDF se adjunta solo.
+        question, wants_pdf = (PDF_CONFIRMATION, False) if pending else split_pdf_request(text)
         turn = _collect(self.chat.stream(owner, question, client_turn_id=client_turn_id))
         reply = self._render(turn, owner)
-        if wants_pdf and reply.quote_ids:
+        attached = turn.flow is not None and bool(turn.folios)  # el flujo ya adjuntó el PDF
+        if wants_pdf and reply.quote_ids and not attached:
             reply = self._with_pdf(reply, owner)
         return reply, True, reply.text != SERVICE_UNAVAILABLE
+
+    def _awaiting_confirmation(self, owner: str) -> bool:
+        """El hilo activo tiene una cotización por confirmar (spec 054); ``False`` si falla."""
+
+        check = getattr(self.chat, "awaiting_confirmation", None)
+        if not callable(check):
+            return False
+        try:
+            return bool(check(owner))
+        except Exception as error:
+            logger.warning("whatsapp.awaiting_failed", error=repr(error))
+            return False
 
     def _with_pdf(self, reply: BridgeReply, owner: str) -> BridgeReply:
         """La cotización del turno con su PDF ya entregado, en vez de la oferta."""
@@ -1154,8 +1179,10 @@ class WhatsAppBridge:
 
         if turn.error is not None and not turn.text.strip():
             return BridgeReply(SERVICE_UNAVAILABLE)
+        if turn.flow is not None:
+            return self._render_flow(turn, owner)
         issued = self._quote_views(turn.folios, owner)
-        quotes = [*issued, *self._proposal_views(turn.proposals)]
+        quotes = issued
         blocks = [whatsapp_quote(view, photo) for view, photo in quotes]
         # Con cotización, el bloque ya trae las cifras: del texto del agente solo quedan
         # sus comentarios (una nota o una pregunta de seguimiento), después del bloque.
@@ -1224,17 +1251,52 @@ class WhatsAppBridge:
                 views.append((view, self._photo(view.sku)))
         return views
 
-    def _proposal_views(
-        self, proposals: Sequence[Mapping[str, Any]]
-    ) -> list[tuple[QuoteView, str | None]]:
-        """Propuestas del turno (spec 053), con las cifras del payload y sin folio."""
+    def _render_flow(self, turn: _Turn, owner: str) -> BridgeReply:
+        """Turno del flujo de cotización (spec 054): comentario del agente y la plantilla.
 
-        views: list[tuple[QuoteView, str | None]] = []
-        for payload in proposals:
-            view = quote_view(payload)
-            if view is not None:
-                views.append((view, self._photo(view.sku)))
-        return views
+        La plantilla ya trae las cifras: del texto del agente solo quedan sus comentarios
+        (una nota o una pregunta que no repite cifras). La voz dice la versión hablada de la
+        plantilla (≤ 45 palabras) y el detalle va por escrito. Al registrarse, el PDF se
+        adjunta en lugar de ofrecerlo.
+        """
+
+        assert turn.flow is not None
+        template = str(turn.flow.get("text") or "")
+        prose = turn.text.replace(template, "").strip()
+        remarks = quote_remarks(prose, template) if prose else ""
+        blocks: list[str] = []
+        if remarks.strip():
+            blocks.append(to_whatsapp(remarks))
+        listed = _sources_block(turn.sources)
+        if listed:
+            blocks.append(listed)
+        written = to_whatsapp(template)
+        pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
+        if turn.folios and not pdf_enabled:
+            written = written.replace("\n📄 Te envío el PDF.", "")
+        blocks.append(written)
+        spoken: list[SpokenReply] = []
+        if remarks.strip():
+            spoken.append(SpokenReply(to_speech(remarks).text))
+        said = str(turn.flow.get("spoken") or "") or to_speech(template).text
+        spoken.append(SpokenReply(said, omitted=True))
+        if turn.error is not None:
+            blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
+        voice = combine(spoken)
+        reply = BridgeReply("\n\n".join(blocks), tuple(turn.folios), spoken=voice)
+        if turn.folios and pdf_enabled:
+            return self._attach_pdf(reply, owner)
+        return reply
+
+    def _attach_pdf(self, reply: BridgeReply, owner: str) -> BridgeReply:
+        """La cotización recién registrada con su PDF ya entregado (spec 054)."""
+
+        pdf, _final = self._pdf(owner)
+        if pdf.text in {PDF_UNAVAILABLE, NO_QUOTE_FOR_PDF}:
+            return reply
+        text = reply.text.replace("\n📄 Te envío el PDF.", "")
+        spoken = combine([reply.voice(), SpokenReply("", pdf.voice().links)])
+        return BridgeReply(f"{text}\n\n{pdf.text}", reply.quote_ids, spoken=spoken)
 
     def _photo(self, sku: str) -> str | None:
         if self.photo_url is None or not sku:

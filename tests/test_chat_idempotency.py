@@ -1,10 +1,16 @@
 """Idempotencia del folio y separación del resultado comercial en el turno."""
 
 from dataclasses import asdict
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 
-from apps.api.chat.service import _is_duplicate_turn, _issue_quote, _sources_from_payload
+from apps.api.chat.service import (
+    _is_duplicate_turn,
+    _quote_folio,
+    _sources_from_payload,
+    _stamp_quote,
+)
 from carvajal.application.ask import Source
 
 
@@ -20,6 +26,20 @@ def _products() -> dict[str, object]:
             "total": "3751",
         }
     }
+
+
+def _issue_quote(
+    products: dict[str, object], *, conversation_id: str, client_turn_id: str | None = None
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Sello de emisión con el folio derivado del hilo y del turno (spec 054: al confirmar)."""
+
+    quote = products["quote"]
+    assert isinstance(quote, dict)
+    folio = _quote_folio(conversation_id, client_turn_id)
+    payload, record = _stamp_quote(
+        {**quote, "primary": {"currency": "COP", "sku": "x"}}, folio=folio, moment=datetime.now(UTC)
+    )
+    return {"quote": payload}, record
 
 
 def _folio(products: dict[str, object]) -> str:

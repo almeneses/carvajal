@@ -34,20 +34,28 @@ WhatsApp ──► OpenClaw (VM aparte) ──► 127.0.0.1:8765 ══ túnel S
   memoria comercial y su cupo diario (`DAILY_REQUESTS_LIMIT`), como un visitante web. El
   número o JID se reduce a E.164 (`573100000000@s.whatsapp.net`, `whatsapp:+57…` y
   `+57 310 000 0000` dan `+573100000000`), el mismo que usa el webhook firmado.
-- **Cotizaciones**: una cotización completa llega primero como **propuesta** («🧾
-  *Propuesta de cotización* (sin folio, por confirmar)», con sus cifras y «¿Confirmo la
-  cotización?»). Cuando el cliente responde «sí» (o «dale», «confírmala»), se registra y
-  se lee de la tabla `quotes` por folio, con folio, presentación, subtotal, IVA, envío y
-  total (spec 053).
+- **Cotizaciones** (spec 054): cada conversación arma una cotización con varias líneas
+  (borrador de 7 días). Los mensajes con cifras salen de plantillas, iguales a las de la
+  web: opciones («⭐ Recomendada» y alternativas 1-4), comparativo de cantidades (📊),
+  línea agregada y carrito con el total parcial (✅ 🛒, «¿Algo más?»), resumen (🧾, «¿La
+  confirmo y te envío el PDF?») y registro (✅ folio). Las respuestas cortas («la 2», «con
+  mil», «eso es todo», «no, confírmala», «cancélalos», «quita los vasos», «retomar», «lo
+  pienso») se resuelven sin LLM; si las reglas no deciden, Jev las clasifica. Solo con el
+  «sí» del resumen se registra **un** folio con todas las líneas y el PDF se adjunta solo.
+  Las preguntas de otro tema se responden y se recuerda la cotización pendiente.
 - **Formato**: el Markdown del modelo pasa a formato de WhatsApp sin LLM
   (`*negrita*`, viñetas con `-`, enlaces como `texto (url)`), y se añade `*Fuentes:*`.
 - **Fallos**: el canal recibe siempre un mensaje legible, nunca una traza interna.
 
 ## Cotización en PDF
 
-Cada cotización confirmada sale con folio, presentación, unidades, subtotal, IVA, envío,
-total y vigencia, y termina con «¿Quieres esta cotización en PDF? Responde *PDF*». Una
-propuesta (sin confirmar) no tiene folio ni PDF.
+Spec 054: al confirmar, la cotización se registra con su folio y **el PDF se adjunta en
+el mismo mensaje** (o va como enlace sin `MEDIA_BASE_URL`); sin URL pública, el mensaje no
+promete el PDF. Una cotización sin confirmar no tiene folio ni PDF. Con una cotización por
+confirmar (resumen o carrito), cualquier pedido del PDF («PDF», «sí, mándame el PDF»,
+«envíame la cotización en pdf», «el pe de efe» dictado) la **confirma** y adjunta el PDF:
+el puente le pasa al turno la forma `PDF_CONFIRMATION` («sí, mándame el PDF»), que el flujo
+reconoce siempre. Sin nada pendiente, «PDF» devuelve la última cotización registrada.
 
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
   herramienta busca la **última cotización de la conversación activa** y devuelve un
@@ -93,11 +101,16 @@ Sin `MEDIA_BASE_URL`, el PDF se entrega como enlace con `PUBLIC_BASE_URL`.
 ### Cotización y PDF en un solo mensaje
 
 «Cotiza 400 portacomidas J1 en Bogotá y genera el PDF» no se le pasa entero al agente:
-el puente separa la parte del PDF (`split_pdf_request`), el agente cotiza solo el pedido y,
-si salió una cotización, el puente añade el PDF (adjunto o enlace) en lugar de la oferta.
-Una pregunta sobre el PDF («¿el PDF trae el IVA?») va al agente sin cambios.
+el puente separa la parte del PDF (`split_pdf_request`) y el agente cotiza solo el pedido.
+Desde la spec 054 nada se registra sin confirmar: el cliente recibe la línea y «¿Algo
+más?»; «no, confírmala» (o «PDF») la registra y adjunta el PDF. Una pregunta sobre el PDF
+(«¿el PDF trae el IVA?») va al agente sin cambios.
 
 ### Una sola versión de la cotización
+
+Spec 054: en los turnos del flujo, el bloque es la plantilla (al final, con la pregunta
+pendiente) y la voz dice su versión hablada (≤ 45 palabras). Los turnos registrados antes de
+la 054 se redactan con el bloque 🧾 de siempre.
 
 Cuando el turno emite una cotización, el mensaje empieza por el bloque 🧾 (folio,
 importes, total, vigencia y foto). Del texto del agente solo quedan sus comentarios
@@ -312,7 +325,10 @@ cotización y oferta del PDF>
   STT escriben «mil ochocientos» como «1,800» (miles de EE. UU.), que aquí se leería «uno
   coma ocho». Se reescribe a «1.800» («12,500,000» → «12.500.000», «2,500.50» →
   «2.500,50»); decimales («1,5», «0,75»), horas («10:30») y listas («2, 3 y 4») no cambian.
-  Por escrito (`voz=false`) el mensaje no se toca.
+  Spec 054: las cantidades dichas con palabras antes de una unidad o un producto pasan a
+  cifras («trescientos vasos» → «300 vasos», «dos mil quinientos platos» → «2.500
+  platos»); «el dos de diciembre» o «un vaso» no cambian. Por escrito (`voz=false`) el
+  mensaje no se toca.
 - El texto hablado se genera sin LLM (`carvajal.speech.to_speech`) desde el mismo turno:
   sin citas `[n]`, sin Markdown ni formato de WhatsApp, sin emojis y sin URL (dentro de una
   frase se dice «el enlace»); las fuentes en una frase («Según el sitio de Carvajal

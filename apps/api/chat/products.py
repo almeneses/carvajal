@@ -48,6 +48,7 @@ def has_cards(result: dict[str, Any]) -> bool:
         or result.get("quotes")
         or result.get("cities")
         or result.get("clarifications")
+        or (result.get("flow") or {}).get("actions")
         or channel.get("distributors")
         or channel.get("cities_with_distributors")
     )

@@ -54,7 +54,7 @@ from apps.api.chat.agent import (
     ToolAgentToken,
     TurnTimeout,
 )
-from apps.api.chat.service import PROPOSAL_QUESTION, ChatFailure, ChatService
+from apps.api.chat.service import ChatFailure, ChatService
 from apps.api.chat.streaming import ChatEvent
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
@@ -364,15 +364,17 @@ def scripted_events(closing: ToolAgentFinal | None = None) -> list[ToolAgentEven
     ]
 
 
-def quote_payload(units: int = 50, total: str = "3751") -> dict[str, Any]:
+def quote_payload(
+    units: int = 50, total: str = "3751", *, sku: str = "7704918100199", name: str = "Vaso rígido"
+) -> dict[str, Any]:
     return {
         "kind": "cotizacion",
         "version": 2,
         "city": "Bogotá",
         "reply": f"Son {total} COP.",
         "primary": {
-            "sku": "7704918100199",
-            "name": "Vaso rígido",
+            "sku": sku,
+            "name": name,
             "currency": "COP",
             "units_requested": units,
             "presentation": {
@@ -431,9 +433,12 @@ def assistant_rows(engine: Any) -> list[dict[str, Any]]:
 
 
 def confirm(service: ChatService, owner: str, *, turn: str | None = "confirma") -> list[ChatEvent]:
-    """Spec 053: la cotización se registra cuando la persona confirma la propuesta."""
+    """Spec 054: «No, confírmala» a «¿Algo más?» cierra y registra el borrador de una vez."""
 
-    return list(service.stream(owner, "sí", client_turn_id=turn))
+    return list(service.stream(owner, "No, confírmala", client_turn_id=turn))
+
+
+ADDED = "¿Algo más"
 
 
 def texts(events: list[ChatEvent]) -> str:
@@ -547,18 +552,20 @@ def test_el_turno_comercial_propone_y_al_confirmar_guarda_la_cotizacion(engine: 
     proposed = assistant_rows(engine)[-1]
     confirmed = confirm(service, "dueno-cotiza")
 
-    # Assert: primero la propuesta, sin folio ni fila (spec 053, FR-009 y FR-010).
+    # Assert: primero la línea del borrador, sin folio ni fila (spec 054; 053 FR-009).
     assert names(events)[-3:] == ["trace", "products", "done"]
     assert names(events).index("meta") < names(events).index("token")
     assert named(events, "done").data["quote_id"] is None
-    assert len(named(events, "done").data["proposals"]) == 1
-    assert texts(events).endswith(PROPOSAL_QUESTION)
+    assert named(events, "done").data["flow"]["awaiting"] == "algo_mas"
+    assert "✅ Agregué **50 Vaso rígido**" in texts(events)
+    assert texts(events).endswith("¿Algo más para tu cotización?")
     proposal = proposed["sources"][-1]["result"]["quote"]
-    assert proposal["status"] == "propuesta" and not (proposal.get("quote") or {}).get("folio")
-    # Assert: el «sí» la registra con folio, fila y resultado en el mismo turno.
+    assert proposal["status"] == "borrador" and not (proposal.get("quote") or {}).get("folio")
+    # Assert: «No, confírmala» la registra con folio, fila y resultado en el mismo turno.
     folio = named(confirmed, "done").data["quote_id"]
-    assert folio == folio_for(proposed["conversation_id"], f"confirmacion:{proposed['id']}", 0)
+    assert folio and len(folio) == 12
     assert named(confirmed, "trace").data["route"] == "confirmacion"
+    assert named(confirmed, "done").data["flow"]["folio"] == folio
     assert f"#{folio}" in named(confirmed, "fallback").data["text"]
     assert 'class="coti' in named(confirmed, "products").data["html"]
     quotes = stored_quotes(engine)
@@ -631,7 +638,7 @@ def test_el_reintento_reproduce_el_turno_sin_volver_al_agente(engine: Any) -> No
     assert names(replay) == ["open", "trace", "meta", "products", "token", "done"]
     assert "status" not in names(replay)
     assert named(replay, "trace").data["route"] == "replay"
-    assert named(replay, "token").data["text"] == ANSWER + "\n\n" + PROPOSAL_QUESTION
+    assert named(replay, "token").data["text"].startswith(ANSWER + "\n\n✅ Agregué")
     assert named(replay, "done").data["quote_id"] is None
     assert named(again, "trace").data["route"] == "replay"
     assert named(again, "done").data["quote_id"] == named(first, "done").data["quote_id"]
@@ -1125,7 +1132,7 @@ def test_un_fallo_del_proveedor_antes_del_primer_token_usa_el_respaldo(
     assert span.outputs["answer"] == expected
 
 
-def test_el_respaldo_muestra_tarjetas_y_propone_la_cotizacion(engine: Any) -> None:
+def test_el_respaldo_agrega_la_linea_y_ofrece_los_botones_del_flujo(engine: Any) -> None:
     # Arrange
     quote = quote_payload()
     agent = RoutesAgent(route="commercial", products={"quote": quote, "cities": ["Bogotá"]})
@@ -1136,13 +1143,13 @@ def test_el_respaldo_muestra_tarjetas_y_propone_la_cotizacion(engine: Any) -> No
     events = list(service.stream("dueno-respaldo-coti", QUESTION, client_turn_id="turno-fc"))
     confirmed = confirm(service, "dueno-respaldo-coti")
 
-    # Assert: el respaldo también propone; el folio llega al confirmar.
+    # Assert: el respaldo también arma el borrador; el folio llega al confirmar.
     done = named(events, "done").data
-    assert done["quote_ids"] == [] and len(done["proposals"]) == 1
+    assert done["quote_ids"] == [] and done["flow"]["awaiting"] == "algo_mas"
     text = named(events, "fallback").data["text"]
     assert text.startswith(fallback.FALLBACK_NOTICE)
-    assert "Folio #" not in text and text.endswith(PROPOSAL_QUESTION)
-    assert 'class="coti' in named(events, "products").data["html"]
+    assert "Folio #" not in text and "¿Algo más" in text
+    assert 'data-flujo="algo_mas"' in named(events, "products").data["html"]
     folio = named(confirmed, "done").data["quote_id"]
     assert [row["id"] for row in stored_quotes(engine)] == [folio]
 
@@ -1299,6 +1306,21 @@ def folio_for(conversation_id: str, client_turn_id: str, index: int) -> str:
 
 
 def two_quotes_final() -> ToolAgentFinal:
+    """Dos productos distintos en un turno («300 platos y 50 vasos»): dos líneas."""
+
+    quotes = (
+        quote_payload(50, "3751"),
+        quote_payload(100, "7502", sku="7700000000001", name="Plato pulpa"),
+    )
+    return final(
+        products={"quote": quotes[0], "quotes": list(quotes), "cities": ["Bogotá"]},
+        quotes=quotes,
+    )
+
+
+def two_quantities_final() -> ToolAgentFinal:
+    """El mismo producto en dos cantidades: comparativo (spec 054, flujo 3)."""
+
     quotes = (quote_payload(50, "3751"), quote_payload(100, "7502"))
     return final(
         products={"quote": quotes[0], "quotes": list(quotes), "cities": ["Bogotá"]},
@@ -1306,39 +1328,57 @@ def two_quotes_final() -> ToolAgentFinal:
     )
 
 
-def test_dos_cotizaciones_dan_dos_tarjetas_dos_folios_y_dos_filas(engine: Any) -> None:
+def test_dos_productos_quedan_en_una_cotizacion_con_un_folio_y_una_fila(engine: Any) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(two_quotes_final()))
     service = build_service(engine, runner)
 
     # Act
     events = list(service.stream("dueno-dos", QUESTION, client_turn_id="turno-2"))
-    proposed = assistant_rows(engine)[-1]
     confirmed = confirm(service, "dueno-dos")
 
-    # Assert: un «sí» confirma las dos propuestas del turno (Edge Cases).
-    assert len(named(events, "done").data["proposals"]) == 2
+    # Assert: el carrito muestra el total parcial; el «sí» registra un solo folio.
+    text = texts(events)
+    assert "🛒 **Tu cotización · 2 productos**" in text
+    assert "**Total parcial: $11.253**" in text
     done = named(confirmed, "done").data
-    seed = f"confirmacion:{proposed['id']}"
-    folios = [folio_for(proposed["conversation_id"], seed, i) for i in range(2)]
-    assert done["quote_ids"] == folios
-    assert done["quote_id"] == folios[0]
+    (folio,) = done["quote_ids"]
     html = named(confirmed, "products").data["html"]
-    assert html.count('class="coti coti-resumen"') == 2
-    assert html.index(f"#{folios[0]}") < html.index(f"#{folios[1]}")
-    rows = stored_quotes(engine)
-    assert sorted(row["id"] for row in rows) == sorted(folios)
+    assert html.count('class="coti coti-resumen"') == 1 and f"#{folio}" in html
+    assert "data-coti-lineas" in html
+    (row,) = stored_quotes(engine)
+    assert row["id"] == folio and str(row["total"]).startswith("11253")
+    assert [line["primary"]["sku"] for line in row["payload"]["lines"]] == [
+        "7704918100199",
+        "7700000000001",
+    ]
     assistant = assistant_rows(engine)[-1]
-    assert {row["message_id"] for row in rows} == {assistant["id"]}
-    totals = {row["id"]: str(row["total"]) for row in rows}
-    assert totals[folios[0]].startswith("3751")
-    assert totals[folios[1]].startswith("7502")
-    result = assistant["sources"][-1]["result"]
-    assert [q["quote"]["id"] for q in result["quotes"]] == folios
-    assert result["quote"] == result["quotes"][0]
+    assert row["message_id"] == assistant["id"]
 
 
-def test_sin_client_turn_id_cada_cotizacion_recibe_un_folio_distinto(engine: Any) -> None:
+def test_dos_cantidades_del_mismo_producto_dan_un_comparativo_y_se_elige_una(
+    engine: Any,
+) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(two_quantities_final()))
+    service = build_service(engine, runner)
+
+    # Act
+    events = list(service.stream("dueno-comparar", "¿cuánto valen 50 o 100?", client_turn_id="c"))
+    chosen = list(service.stream("dueno-comparar", "con 100", client_turn_id="c2"))
+    confirmed = confirm(service, "dueno-comparar")
+
+    # Assert: el comparativo no agrega líneas; la elección sí, sin volver al agente.
+    assert "📊 **Vaso rígido · Bogotá**" in texts(events)
+    assert named(events, "done").data["flow"]["awaiting"] == "cantidad"
+    assert "✅ Agregué **100 Vaso rígido**" in named(chosen, "fallback").data["text"]
+    assert len(runner.calls) == 1
+    (row,) = stored_quotes(engine)
+    assert row["id"] == named(confirmed, "done").data["quote_id"]
+    assert row["payload"]["lines"][0]["primary"]["units_requested"] == 100
+
+
+def test_sin_client_turn_id_el_folio_es_valido_y_unico(engine: Any) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(two_quotes_final()))
     service = build_service(engine, runner)
@@ -1348,23 +1388,16 @@ def test_sin_client_turn_id_cada_cotizacion_recibe_un_folio_distinto(engine: Any
     events = confirm(service, "dueno-dos-azar", turn=None)
 
     # Assert
-    folios = named(events, "done").data["quote_ids"]
-    assert len(folios) == len(set(folios)) == 2
-    assert all(len(folio) == 12 for folio in folios)
+    (folio,) = named(events, "done").data["quote_ids"]
+    assert len(folio) == 12
 
 
-def test_las_cotizaciones_se_guardan_en_la_misma_transaccion_del_turno(
+def test_la_cotizacion_se_guarda_en_la_misma_transaccion_del_turno(
     engine: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Arrange: la segunda fila falla; no debe quedar ni la primera ni el turno del «sí».
-    original = SqlQuoteRepository.record
-    calls: list[str] = []
-
+    # Arrange: la fila falla; no debe quedar ni la cotización ni el turno del «sí».
     def failing(self: SqlQuoteRepository, quote_id: str, *args: Any, **kwargs: Any) -> Any:
-        calls.append(quote_id)
-        if len(calls) == 2:
-            raise RuntimeError("fallo al guardar la segunda cotización")
-        return original(self, quote_id, *args, **kwargs)
+        raise RuntimeError("fallo al guardar la cotización")
 
     monkeypatch.setattr(SqlQuoteRepository, "record", failing)
     runner = FakeToolRunner(scripted_events(two_quotes_final()))
@@ -1374,14 +1407,16 @@ def test_las_cotizaciones_se_guardan_en_la_misma_transaccion_del_turno(
     # Act
     events = confirm(service, "dueno-atomico")
 
-    # Assert
-    assert len(calls) == 2
+    # Assert: el borrador sigue esperando el cierre.
     assert names(events)[-1] == "error"
     assert stored_quotes(engine) == []
-    assert len(stored_messages(engine)) == 2  # solo la propuesta
+    assert len(stored_messages(engine)) == 2  # solo el turno del carrito
+    with engine.connect() as connection:
+        (payload,) = connection.execute(select(tables.quote_drafts.c.payload)).scalars()
+    assert payload["awaiting"] == "algo_mas" and len(payload["lines"]) == 2
 
 
-def test_el_reenvio_devuelve_los_mismos_folios_en_el_mismo_orden(engine: Any) -> None:
+def test_el_reenvio_del_si_devuelve_el_mismo_folio(engine: Any) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(two_quotes_final()))
     service = build_service(engine, runner)
@@ -1390,16 +1425,16 @@ def test_el_reenvio_devuelve_los_mismos_folios_en_el_mismo_orden(engine: Any) ->
 
     # Act
     replay = confirm(service, "dueno-reenvio", turn="turno-rr-si")
+    again = list(service.stream("dueno-reenvio", "sí", client_turn_id="turno-rr-si-2"))
 
-    # Assert
+    # Assert: el reintento reemite; un segundo «sí» dice que ya quedó registrada.
     assert len(runner.calls) == 1
     folios = named(first, "done").data["quote_ids"]
     assert named(replay, "done").data["quote_ids"] == folios
-    assert named(replay, "done").data["quote_id"] == folios[0]
-    html = named(replay, "products").data["html"]
-    assert html.count('class="coti coti-resumen"') == 2
-    assert html.index(f"#{folios[0]}") < html.index(f"#{folios[1]}")
-    assert len(stored_quotes(engine)) == 2
+    assert named(replay, "products").data["html"].count('class="coti coti-resumen"') == 1
+    assert f"#{folios[0]}" in named(again, "fallback").data["text"]
+    assert "ya quedó registrada" in named(again, "fallback").data["text"]
+    assert len(stored_quotes(engine)) == 1
 
 
 def test_un_turno_sin_cotizaciones_cierra_con_quote_ids_vacio(engine: Any) -> None:
@@ -1414,10 +1449,11 @@ def test_un_turno_sin_cotizaciones_cierra_con_quote_ids_vacio(engine: Any) -> No
     done = named(events, "done").data
     assert done["quote_ids"] == []
     assert done["quote_id"] is None
+    assert done["flow"] is None
 
 
-def test_el_reenvio_de_un_turno_routes_conserva_su_unica_cotizacion(engine: Any) -> None:
-    # Arrange: un resultado guardado sin ``quotes`` (modo ``routes``) cae a ``[quote]``.
+def test_el_modo_routes_tambien_arma_el_borrador_y_registra_al_confirmar(engine: Any) -> None:
+    # Arrange: un resultado sin ``quotes`` (modo ``routes``) cae a ``[quote]``.
     quote = quote_payload()
     agent = RoutesAgent(route="commercial", products={"quote": quote})
     service = build_service(
@@ -1426,7 +1462,6 @@ def test_el_reenvio_de_un_turno_routes_conserva_su_unica_cotizacion(engine: Any)
         settings=Settings(_env_file=None, agent_mode="routes"),  # type: ignore[call-arg]
     )
     proposal = list(service.stream("dueno-routes-coti", QUESTION, client_turn_id="turno-rc"))
-    proposed = assistant_rows(engine)[-1]
     first = confirm(service, "dueno-routes-coti", turn="turno-rc-si")
 
     # Act
@@ -1434,13 +1469,10 @@ def test_el_reenvio_de_un_turno_routes_conserva_su_unica_cotizacion(engine: Any)
 
     # Assert
     assert named(proposal, "done").data["quote_ids"] == []
-    assert len(named(proposal, "done").data["proposals"]) == 1
+    assert named(proposal, "done").data["flow"]["awaiting"] == "algo_mas"
     folio = named(first, "done").data["quote_id"]
-    assert folio == folio_for(proposed["conversation_id"], f"confirmacion:{proposed['id']}", 0)
     assert named(first, "done").data["quote_ids"] == [folio]
     assert named(replay, "done").data["quote_ids"] == [folio]
-    assistant = assistant_rows(engine)[-1]
-    assert "quotes" not in assistant["sources"][-1]["result"]
     assert named(replay, "products").data["html"].count('class="coti coti-resumen"') == 1
 
 
@@ -1480,29 +1512,24 @@ def quoting_service(
     return build_service(engine, ToolAgentRunner(graph, settings), settings=settings), chat
 
 
-def test_extremo_a_extremo_dos_cantidades_dan_dos_cotizaciones(engine: Any) -> None:
-    # Arrange
-    calls = [
-        {**CALIENTE, "quantity": 1000, "city": "Bogotá"},
-        {**CALIENTE, "quantity": 2000, "city": "Bogotá"},
-    ]
+def test_extremo_a_extremo_dos_cantidades_dan_un_comparativo(engine: Any) -> None:
+    # Arrange: ``cotizar`` con ``cantidades`` fija la referencia de la primera cotización.
+    calls = [{**CALIENTE, "cantidades": [1000, 2000], "city": "Bogotá"}]
     service, _ = quoting_service(engine, calls)
 
     # Act
     events = list(
         service.stream("dueno-e2e-dos", "cotiza 1000 y 2000 vasos en Bogotá", client_turn_id="t")
     )
-    proposed = assistant_rows(engine)[-1]
-    confirmed = confirm(service, "dueno-e2e-dos")
+    chosen = list(service.stream("dueno-e2e-dos", "con 2000", client_turn_id="t2"))
+    done = named(confirm(service, "dueno-e2e-dos"), "done").data
 
     # Assert
-    assert len(named(events, "done").data["proposals"]) == 2
-    assert named(events, "products").data["html"].count('class="coti coti-resumen"') == 2
-    done = named(confirmed, "done").data
-    seed = f"confirmacion:{proposed['id']}"
-    assert done["quote_ids"] == [folio_for(proposed["conversation_id"], seed, i) for i in (0, 1)]
-    units = [row["payload"]["primary"]["units_requested"] for row in _by_folio(engine, done)]
-    assert units == [1000, 2000]
+    assert named(events, "done").data["flow"]["awaiting"] == "cantidad"
+    assert "📊" in texts(events)
+    assert "✅ Agregué" in named(chosen, "fallback").data["text"]
+    (row,) = _by_folio(engine, done)
+    assert row["payload"]["lines"][0]["primary"]["units_requested"] == 2000
 
 
 def test_extremo_a_extremo_solo_cambia_el_domicilio_y_se_reemplaza(engine: Any) -> None:
@@ -1514,13 +1541,15 @@ def test_extremo_a_extremo_solo_cambia_el_domicilio_y_se_reemplaza(engine: Any) 
     events = list(
         service.stream("dueno-e2e-domicilio", "y sin domicilio, en Bogotá", client_turn_id="d")
     )
+    flow = named(events, "done").data["flow"]
+    if flow["awaiting"] == "eleccion":
+        list(service.stream("dueno-e2e-domicilio", "dame esa", client_turn_id="d2"))
     done = named(confirm(service, "dueno-e2e-domicilio"), "done").data
 
-    # Assert
-    assert len(named(events, "done").data["proposals"]) == 1
+    # Assert: una sola cotización, la que no lleva domicilio.
     assert len(done["quote_ids"]) == 1
     (row,) = _by_folio(engine, done)
-    assert row["payload"]["delivery"]["requested"] is False
+    assert row["payload"]["lines"][0]["delivery"]["requested"] is False
 
 
 def test_extremo_a_extremo_respeta_el_tope_de_cotizaciones(engine: Any) -> None:
@@ -1532,12 +1561,11 @@ def test_extremo_a_extremo_respeta_el_tope_de_cotizaciones(engine: Any) -> None:
     events = list(
         service.stream("dueno-e2e-tope", "cotiza tres cantidades en Bogotá", client_turn_id="m")
     )
-    done = named(confirm(service, "dueno-e2e-tope"), "done").data
 
-    # Assert
-    assert len(named(events, "done").data["proposals"]) == 2
-    assert len(done["quote_ids"]) == 2
-    assert len(stored_quotes(engine)) == 2
+    # Assert: el turno trae como mucho dos cotizaciones (comparativo o carrito).
+    result = assistant_rows(engine)[-1]["sources"][-1]["result"]
+    assert len(result["quotes"]) == 2
+    assert named(events, "done").data["flow"] is not None
 
 
 def _by_folio(engine: Any, done: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -1674,7 +1702,7 @@ def test_desconectar_tras_el_respaldo_conserva_el_turno_completo_con_su_folio(
     list(service.stream("dueno-respaldo-corte", QUESTION, client_turn_id="turno-rc"))
     generator = cast(
         Generator[ChatEvent],
-        service.stream("dueno-respaldo-corte", "sí", client_turn_id="turno-rc-si"),
+        service.stream("dueno-respaldo-corte", "No, confírmala", client_turn_id="turno-rc-si"),
     )
     received = _read_until(generator, "fallback")
 
@@ -1700,10 +1728,9 @@ def test_desconectar_tras_las_tarjetas_conserva_el_turno_completo_con_sus_folios
     runner = FakeToolRunner(scripted_events(two_quotes_final()))
     service = build_service(engine, runner)
     list(service.stream("dueno-tarjetas-corte", QUESTION, client_turn_id="turno-tc"))
-    proposed = assistant_rows(engine)[-1]
     generator = cast(
         Generator[ChatEvent],
-        service.stream("dueno-tarjetas-corte", "sí", client_turn_id="turno-tc-si"),
+        service.stream("dueno-tarjetas-corte", "No, confírmala", client_turn_id="turno-tc-si"),
     )
     received = _read_until(generator, "products")
 
@@ -1711,14 +1738,13 @@ def test_desconectar_tras_las_tarjetas_conserva_el_turno_completo_con_sus_folios
     generator.close()
     history = list(service.history("dueno-tarjetas-corte"))
 
-    # Assert
-    seed = f"confirmacion:{proposed['id']}"
-    folios = [folio_for(proposed["conversation_id"], seed, i) for i in range(2)]
+    # Assert: un solo folio con las dos líneas, ya guardado con su fila.
+    (row,) = stored_quotes(engine)
     html = named(received, "products").data["html"]
-    assert all(f"#{folio}" in html for folio in folios)
-    assert history[1].content == ANSWER + "\n\n" + PROPOSAL_QUESTION
+    assert f"#{row['id']}" in html
+    assert len(row["payload"]["lines"]) == 2
+    assert history[1].content.startswith(ANSWER + "\n\n✅ Agregué **2 productos**")
     assert history[3].status == "complete"
-    assert sorted(row["id"] for row in stored_quotes(engine)) == sorted(folios)
 
 
 def _timeout_with(obtained: ToolAgentFinal) -> TurnTimeout:
@@ -1752,13 +1778,13 @@ def test_el_plazo_vencido_entrega_lo_obtenido_y_declara_lo_que_falto(engine: Any
     done = named(events, "done").data
     text = named(events, "fallback").data["text"]
     assert text.startswith(fallback.FALLBACK_NOTICE)
-    assert "Folio #" not in text and text.endswith(PROPOSAL_QUESTION)
+    assert "Folio #" not in text and "¿Algo más" in text
     assert "[1]" in text
     assert fallback.TIMEOUT_NOTE in text
     assert "Quedó 1 consulta sin hacer" in text
     assert named(events, "meta").data == {"sources": [asdict(SOURCE)]}
-    assert done["quote_ids"] == [] and len(done["proposals"]) == 1
-    assert 'class="coti' in named(events, "products").data["html"]
+    assert done["quote_ids"] == [] and done["flow"]["awaiting"] == "algo_mas"
+    assert 'data-flujo="algo_mas"' in named(events, "products").data["html"]
     assert stored_quotes(engine) == []
     trace = named(events, "trace").data
     assert (trace["path"], trace["reason"], trace["fallback_route"]) == (
@@ -1814,11 +1840,11 @@ def test_un_cierre_sin_texto_con_evidencia_redacta_con_lo_obtenido(engine: Any) 
     done = named(events, "done").data
     text = named(events, "fallback").data["text"]
     assert text.startswith(fallback.FALLBACK_NOTICE)
-    assert "Folio #" not in text and text.endswith(PROPOSAL_QUESTION)
+    assert "Folio #" not in text and "¿Algo más" in text
     assert "[1]" in text
     assert fallback.TIMEOUT_NOTE not in text
-    assert done["quote_ids"] == [] and len(done["proposals"]) == 1
-    assert 'class="coti' in named(events, "products").data["html"]
+    assert done["quote_ids"] == [] and done["flow"]["awaiting"] == "algo_mas"
+    assert 'data-flujo="algo_mas"' in named(events, "products").data["html"]
     assert stored_quotes(engine) == []
     trace = named(events, "trace").data
     assert (trace["path"], trace["reason"], trace["fallback_route"]) == (

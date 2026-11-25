@@ -35,6 +35,8 @@ from dataclasses import dataclass
 from typing import Final, Literal
 from urllib.parse import urlsplit
 
+from carvajal.numbers import spoken_quantities
+
 __all__ = [
     "LINKS_HEADER",
     "SUMMARY_POINTERS",
@@ -1051,6 +1053,8 @@ def normalize_transcript(text: str) -> str:
     leería como uno coma ocho. Se reescribe el separador: «1,800» → «1.800», «12,500,000» →
     «12.500.000», «2,500.50» → «2.500,50». Decimales («1,5», «0,75»), horas («10:30») y
     listas con espacio tras la coma («2, 3 y 4») quedan igual. Determinista y sin LLM.
+    Spec 054: las cantidades dichas con palabras antes de una unidad o un producto pasan a
+    cifras («trescientos vasos» → «300 vasos»; ver :func:`carvajal.numbers.spoken_quantities`).
 
     Decisión ante la ambigüedad: «1,500» con exactamente tres cifras tras la coma se lee
     siempre como miles («1.500»), también delante de unidades como «kg» o «litros». Un
@@ -1065,4 +1069,6 @@ def normalize_transcript(text: str) -> str:
         integer = match["integer"].replace(",", ".")
         return f"{integer},{match['decimals']}" if match["decimals"] else integer
 
-    return _US_THOUSANDS.sub(colombian, text)
+    # Spec 054: «trescientos vasos» → «300 vasos» también en el servidor (WhatsApp no pasa
+    # por ``normalizarCantidades`` del navegador); solo antes de una unidad o un producto.
+    return spoken_quantities(_US_THOUSANDS.sub(colombian, text))
