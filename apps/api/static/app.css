@@ -265,6 +265,36 @@ h2 {
   text-transform: uppercase;
 }
 
+/* Punto verde «en vivo» (chat, voz y sesión de operador). */
+.punto-vivo {
+  flex: none;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--exito);
+  box-shadow: 0 0 0 0 rgb(30 122 87 / 45%);
+  animation: punto-vivo 2.4s ease-out infinite;
+}
+
+@keyframes punto-vivo {
+  70%,
+  100% {
+    box-shadow: 0 0 0 9px rgb(30 122 87 / 0%);
+  }
+}
+
+/* Punto cian de la sobrelínea (rediseño 052, como en Stitch). */
+.punto-sobrelinea {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--cian);
+  vertical-align: 1px;
+}
+
 .cabecera-vista {
   margin: 0 0 22px;
 }

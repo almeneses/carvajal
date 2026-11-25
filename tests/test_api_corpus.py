@@ -240,8 +240,9 @@ def test_las_opciones_de_seccion_vienen_del_proveedor() -> None:
 
     # Assert
     assert response.status_code == 200
-    assert '<option value="historia">historia</option>' in response.text
-    assert '<option value="prensa" selected>prensa</option>' in response.text
+    # Etiqueta legible (rediseño 052); el valor del filtro sigue siendo el slug.
+    assert '<option value="historia">Historia</option>' in response.text
+    assert '<option value="prensa" selected>Prensa</option>' in response.text
     assert "Fecha" in response.text and "2026-11-01" in response.text
 
 

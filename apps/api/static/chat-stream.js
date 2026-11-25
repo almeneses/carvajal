@@ -82,6 +82,9 @@
     // temprana para no tratar un envío manual posterior como manos libres.
     const manosLibres = form.dataset.vozOrigen === "manos-libres";
     delete form.dataset.vozOrigen;
+    // chat-voice.js marca en captura que el borrador se dictó (rediseño 052).
+    const porVoz = form.dataset.vozHablado === "1";
+    delete form.dataset.vozHablado;
     if (enCurso) return;
 
     // Spec 051: con una foto adjunta (chat-photo.js) el texto es opcional.
@@ -101,7 +104,7 @@
     seguir = true;
     const turnId = nuevoTurnoId();
     if (turnIdInput) turnIdInput.value = turnId;
-    void responder(pregunta, turnId, manosLibres, foto);
+    void responder(pregunta, turnId, manosLibres, foto, porVoz);
   });
 
   function fotoAdjunta() {
@@ -201,8 +204,13 @@
     return `turno-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
 
-  async function responder(pregunta, turnId, manosLibres, foto = null) {
+  async function responder(pregunta, turnId, manosLibres, foto = null, porVoz = false) {
     const turnoUsuario = crearTurno("user", foto ? marcaFoto(pregunta) : pregunta);
+    const marcaVoz = turnoUsuario.querySelector("[data-turno-por-voz]");
+    if (porVoz && marcaVoz) {
+      turnoUsuario.dataset.porVoz = "1";
+      marcaVoz.hidden = false;
+    }
     const turnoAsistente = crearTurno("assistant", "");
     // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css).
     turnoAsistente.dataset.pensando = "1";

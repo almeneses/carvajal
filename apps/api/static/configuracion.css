@@ -344,3 +344,180 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Rediseño 052 (sistema de Stitch): barra de sesión, flujo en tres pasos, selector de
+   archivos como zona de carga y avisos informativos en azul en vez de rojo. */
+.config-sesion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 16px;
+  padding: 10px 10px 10px 18px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--sombra);
+}
+
+.config-sesion-estado {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--tinta);
+  font-weight: 700;
+}
+
+.config-salir .boton {
+  width: auto;
+  min-height: 44px;
+  padding: 0.4rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+}
+
+.config-flujo {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+  counter-reset: paso;
+}
+
+.config-paso {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 2px 14px;
+  align-items: start;
+  padding: 16px 18px;
+  border: 1px solid var(--borde);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--sombra);
+  counter-increment: paso;
+}
+
+.config-paso::before {
+  content: "";
+  grid-row: 1 / span 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--fondo-suave) var(--icono-paso) center / 22px no-repeat;
+}
+
+.config-paso::after {
+  content: counter(paso);
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  color: var(--borde-control);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.config-paso > strong {
+  color: var(--tinta);
+  font-size: 1rem;
+}
+
+.config-paso > span {
+  color: var(--secundario);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.config-paso code {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.config-paso-carga {
+  --icono-paso: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23003a5d' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 16V4M7 9l5-5 5 5'/%3E%3Cpath d='M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3'/%3E%3C/svg%3E");
+}
+
+.config-paso-gold {
+  --icono-paso: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23946200' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 11l3 3 8-8'/%3E%3Cpath d='M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9'/%3E%3C/svg%3E");
+}
+
+.config-paso-gold::before {
+  background-color: #fff4dc;
+}
+
+.config-paso-publica {
+  --icono-paso: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231e7a57' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 17l6-6-6-6M12 19h8'/%3E%3C/svg%3E");
+}
+
+.config-paso-publica::before {
+  background-color: var(--exito-fondo);
+}
+
+/* El botón nativo del selector («Choose Files») como píldora de la marca. */
+.config-campo input[type="file"] {
+  padding: 14px;
+  border-width: 2px;
+  border-radius: 16px;
+  transition: border-color var(--transicion), background-color var(--transicion);
+}
+
+.config-campo input[type="file"]:hover,
+.config-campo input[type="file"]:focus-visible {
+  background: var(--superficie-alta);
+}
+
+.config-campo input[type="file"]::file-selector-button {
+  margin-right: 14px;
+  padding: 0.55rem 1.1rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--azul);
+  color: #fff;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.config-campo input[type="file"]:hover::file-selector-button {
+  background: var(--tinta);
+}
+
+.aviso-info {
+  border-color: #bfddff;
+  border-left-color: var(--azul);
+  background: var(--fondo-suave);
+  color: var(--tinta);
+  font-weight: 500;
+}
+
+.cabecera-captura h2 {
+  margin: 0;
+  font-size: clamp(1.4rem, 1.1rem + 1vw, 1.8rem);
+}
+
+.captura-nota {
+  margin: 0 0 12px;
+}
+
+@media (max-width: 900px) {
+  .config-flujo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .config-sesion {
+    border-radius: 18px;
+  }
+
+  .config-salir,
+  .config-salir .boton {
+    width: 100%;
+  }
+}

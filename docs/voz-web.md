@@ -296,6 +296,19 @@ y el JavaScript no conoce clases de diseño.
 | `data-voz-sintetizando="<message_id>"` | Se pide al servidor el audio de esa respuesta (también una precarga; con varias, la última) |
 | `data-voz-respaldo="1"` | Dictado o lectura del servidor apagados (el dictado, el resto de la sesión; la lectura, en espera de 60 s tras un 503 o un 401/403) |
 | `data-voz-manos="1"` | Modo manos libres activo |
+| `data-voz-leyendo="1"` | Una respuesta suena (nota del servidor o voz del navegador); se quita en pausa y al terminar |
+
+Con estos atributos, el **modo de voz** (rediseño 052, pantalla «Modo de Voz» de Stitch)
+muestra sobre el compositor una escena decorativa (`.voz-escena`, `aria-hidden`): Carva
+escucha, transcribe, responde o espera en manos libres, con ondas animadas. En la cabecera,
+el chip `.voz-chip` dice «Voz lista en español», «Escuchando» o «Manos libres». El texto
+que anuncia el lector de pantalla sigue siendo `data-voz-estado`.
+
+Al enviar un borrador dictado (o en manos libres), `chat-voice.js` deja
+`data-voz-hablado="1"` en el formulario durante la captura del `submit`. `chat-stream.js`
+lo lee y lo borra, y muestra en el turno del visitante la marca «por voz»
+(`[data-turno-por-voz]`). La marca solo vive en los turnos de esta visita: el historial
+recargado no la guarda.
 
 Por turno, los botones `data-voz-accion` usan `aria-pressed` y `aria-busy`; con voz del
 servidor la nota los sustituye (ver [su contrato](#contrato-del-marcado-con-el-rediseño-049)).
