@@ -72,8 +72,19 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from carvajal.agent.commercial import CAPACITY_TOLERANCE_OZ, CommercialRequest, check_material
-from carvajal.agent.commercial_intent import USE_TEMPERATURE, empty_request, extract_commercial
+from carvajal.agent.commercial import (
+    CAPACITY_TOLERANCE_OZ,
+    RENEWABLE,
+    CommercialRequest,
+    check_material,
+)
+from carvajal.agent.commercial_intent import (
+    MATERIAL_GROUPS,
+    USE_TEMPERATURE,
+    empty_request,
+    extract_commercial,
+    material_for,
+)
 from carvajal.agent.reference_names import (
     exact_sku,
     is_generic_name,
@@ -227,6 +238,9 @@ class QuoteRequest:
     temperature: str | None = None
     microwave: bool | None = None
     prefers_renewable: bool | None = None
+    # Material que pidió la persona (``commercial_intent.MATERIAL_GROUPS``): filtra las
+    # referencias de una búsqueda por familia o uso. «Vasos de papel» nunca cotiza uno de PP.
+    material: str | None = None
     quantity: int | None = None
     city: str | None = None
     delivery: bool | None = None
@@ -434,11 +448,13 @@ def _possible(
 
     families = _families(request)
     capacity = request.get("capacity_oz")
+    materials = MATERIAL_GROUPS.get(request.get("material") or "")
     return [
         product
         for product in dataset.products
         if product.country == COUNTRY
         and (skus is None or product.sku in skus)
+        and (materials is None or product.material in materials)
         and product.use
         and product.family in families
         and (
@@ -1029,6 +1045,8 @@ def quote_request(
         "city": city,
         "prefers_renewable": bool(request.prefers_renewable),
     }
+    if request.material in MATERIAL_GROUPS:
+        data["material"] = request.material
 
     named: Product | None = None
     asked_family: str | None = None
@@ -1075,6 +1093,16 @@ def quote_request(
         products, discarded = [named], []
     else:
         products, discarded = _candidates(data, dataset, catalog, skus)
+    if not products and data.get("material"):
+        return _empty(
+            "sin_resultados",
+            f"No encontré en el catálogo referencias de {data['material']} que cumplan lo que "
+            "pides; no cotizo otro material en su lugar. Puedo buscar en otro material si "
+            "te sirve.",
+            request=data,
+            reason="material_sin_resultados",
+            discarded=discarded,
+        )
     if not products:
         return _empty(
             "sin_resultados",
@@ -1122,12 +1150,19 @@ def quote_request(
         return not use or use in product.uses
 
     # Orden de la recomendada y las alternativas: la más apta para el uso (spec 054); entre
-    # igual de aptas, un precio publicado antes que uno convertido; después, el más barato
-    # (por unidad si las cantidades difieren). La aptitud manda sobre la procedencia.
+    # igual de aptas, las renovables si la persona las prefiere (papel o pulpa), después un
+    # precio publicado antes que uno convertido y al final el más barato (por unidad si las
+    # cantidades difieren). La aptitud manda sobre la procedencia.
+    renewable_first = bool(data.get("prefers_renewable"))
+
+    def not_preferred(product: Product) -> bool:
+        return renewable_first and product.material not in RENEWABLE
+
     if mixed:
         options.sort(
             key=lambda item: (
                 not apt(item[0]),
+                not_preferred(item[0]),
                 item[1].converted,
                 Decimal(item[2]["presentation"]["unit_price"]),
                 Decimal(item[2]["presentation"]["subtotal"]),
@@ -1137,6 +1172,7 @@ def quote_request(
         options.sort(
             key=lambda item: (
                 not apt(item[0]),
+                not_preferred(item[0]),
                 item[1].converted,
                 Decimal(item[2]["presentation"]["subtotal"]),
             )
@@ -1333,6 +1369,16 @@ def quote_request(
     }
 
 
+def _said_material(text: str, questions: list[str]) -> str | None:
+    """Material del mensaje o, si no dice ninguno, del último mensaje del hilo que lo dijo."""
+
+    for item in (text, *reversed(questions)):
+        material = material_for(item)
+        if material is not None:
+            return material
+    return None
+
+
 def quote(
     text: str,
     *,
@@ -1390,6 +1436,7 @@ def quote(
             temperature=request.get("temperature"),
             microwave=request.get("microwave"),
             prefers_renewable=request.get("prefers_renewable"),
+            material=_said_material(text, questions),
             quantity=quantity,
             city=city,
             delivery=wants_delivery,

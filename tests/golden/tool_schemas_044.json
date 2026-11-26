@@ -234,6 +234,27 @@
             "default": null,
             "description": "Familia: vaso, tapa, contenedor, charola, cubierto, envase o plato."
           },
+          "material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "icopor",
+                  "papel",
+                  "pet",
+                  "plastico",
+                  "pp",
+                  "ps",
+                  "pulpa"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Material que pidió la persona («vasos de papel» → papel; icopor, pulpa, plastico, pet, pp, ps). Filtra las referencias: nunca se cotiza otro material."
+          },
           "microwave": {
             "anyOf": [
               {

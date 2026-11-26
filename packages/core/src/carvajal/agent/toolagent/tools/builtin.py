@@ -28,7 +28,7 @@ from carvajal.agent.commercial_flow import (
     _option,
     commercial_sources,
 )
-from carvajal.agent.commercial_intent import USE_TEMPERATURE, USES, microwave_for
+from carvajal.agent.commercial_intent import USE_TEMPERATURE, USES, material_for, microwave_for
 from carvajal.agent.memory.store import MemoryProfile
 from carvajal.agent.reference_names import (
     capacity_fits,
@@ -78,7 +78,7 @@ MAX_TOOL_OPTIONS = 8
 MAX_OUTSIDE_FILTERS = 5  # coincidencias por nombre fuera de los filtros que se nombran
 MAX_NAME_CHARS = 120
 _AVAILABILITY_LABELS = {"verificado": "confirmada", "no_disponible": "no disponible"}
-_PRODUCT_FIELDS = ("family", "use", "capacity_oz", "temperature", "microwave")
+_PRODUCT_FIELDS = ("family", "use", "capacity_oz", "temperature", "microwave", "material")
 _SHARED_FIELDS = ("quantity", "city", "delivery", "prefers_renewable")
 _PRODUCT_CONTEXT_KEYS = {
     "uso": "use",
@@ -91,6 +91,7 @@ _PRODUCT_CONTEXT_KEYS = {
 }
 
 Temperature = Literal["caliente", "fria", "ambiente"]
+Material = Literal["papel", "pulpa", "icopor", "plastico", "pet", "pp", "ps"]
 Unit = Literal["unidades", "cajas", "paquetes", "pacas"]
 # Unidad de ``cotizar`` → unidad del motor (``QuoteRequest.unit``).
 _UNIT_BASIS: dict[str, str] = {
@@ -201,6 +202,13 @@ class CotizarArgs(BaseModel):
     prefers_renewable: bool | None = Field(
         default=None, description="Si la persona prefiere papel o pulpa."
     )
+    material: Material | None = Field(
+        default=None,
+        description=(
+            "Material que pidió la persona («vasos de papel» → papel; icopor, pulpa, "
+            "plastico, pet, pp, ps). Filtra las referencias: nunca se cotiza otro material."
+        ),
+    )
     quantity: int | None = Field(
         default=None,
         ge=1,
@@ -262,6 +270,15 @@ class CotizarArgs(BaseModel):
     @classmethod
     def _uso_valido(cls, value: str | None) -> str | None:
         return _check_use(value)
+
+    @field_validator("material", mode="before")
+    @classmethod
+    def _material_normalizado(cls, value: object) -> object:
+        # El modelo a veces pasa el código del catálogo («EPS», «PAPEL») o una palabra con
+        # tilde («plástico»): se lleva al nombre del esquema; lo desconocido no valida.
+        if not isinstance(value, str) or not value.strip():
+            return None if isinstance(value, str) else value
+        return material_for(value) or value.strip().lower()
 
 
 class BuscarSedesArgs(BaseModel):
@@ -1194,6 +1211,12 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})
+    if filled.material is None and not (filled.sku or filled.nombre):
+        # Misma red de seguridad para el material: «vasos de papel» no cotiza un vaso de PP
+        # aunque el modelo olvide pasar ``material``.
+        said = material_for(context.question or "")
+        if said is not None:
+            filled = filled.model_copy(update={"material": said})
     # El contexto comercial guarda lo que dijo la persona, no lo que se infiere. La
     # referencia se guarda por su SKU resuelto, no por el texto del nombre; ``None`` hace que
     # el grafo olvide la de una cotización anterior.
