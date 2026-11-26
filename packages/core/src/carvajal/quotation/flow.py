@@ -938,6 +938,11 @@ def after_turn(
             calculated = [item for item in calculated if item not in held]
             logger.info("cotizacion.linea_retenida", retenidas=len(held))
             if not calculated:
+                # Si el turno también trajo candidatas («¿Cuál te cotizo?»), la lista queda
+                # esperando respuesta como en un turno sin cotizaciones (revisión PR #276).
+                waiting = _awaiting_reference(current, choice, moment)
+                if waiting is not None:
+                    return Outcome(waiting)
                 kept = current.touch(
                     moment,
                     current={"family": line_family(held[0]), "label": line_label(held[0])},

@@ -2050,6 +2050,31 @@ def test_una_cotizacion_retenida_deja_el_producto_en_curso_y_no_toca_el_carrito(
     assert decision.draft.lines == draft.lines
 
 
+def test_una_cotizacion_retenida_con_candidatas_deja_la_lista_esperando() -> None:
+    # Arrange: el turno retiene la cotización y trae candidatas de otra llamada a cotizar,
+    # así que el agente pregunta «¿Cuál te cotizo?» (revisión PR #276).
+    vaso = make_quote({"sku": "V7", "nombre": "Vaso 7 oz", "unidades": 500, "subtotal": 9000})
+    draft, _ = add_line(QuoteDraft(), vaso)
+    draft = draft.touch(AHORA, awaiting="algo_mas", state="carrito")
+    choice = {"candidates": [dict(item) for item in CANDIDATAS], "request": dict(SOLICITUD)}
+
+    # Act
+    held = after_turn(
+        draft,
+        [_named(PLATO_HONDO, "herramienta")],
+        "cotízame 500 platos",
+        now=AHORA,
+        choice=choice,
+        asks=True,
+    )
+
+    # Assert: espera la elección entre las candidatas y el carrito no cambia.
+    assert held.draft.awaiting == "referencia"
+    assert len(held.draft.choices) == len(CANDIDATAS)
+    assert held.draft.resume_awaiting == "algo_mas"
+    assert held.draft.lines == draft.lines
+
+
 def test_con_otro_producto_en_curso_la_linea_nombrada_si_cambia() -> None:
     # Arrange
     vaso = make_quote({"sku": "V7", "nombre": "Vaso 7 oz", "unidades": 500, "subtotal": 9000})
