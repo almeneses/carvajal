@@ -136,11 +136,13 @@ def test_turno_con_fuentes_en_formato_whatsapp() -> None:
         {"title": "Historia de Carvajal", "url": "https://www.carvajal.com/historia"},
         {"title": "Sostenibilidad", "url": ""},
     ]
-    chat = FakeChat(events=_turn("## Historia\n**Carvajal** nació en 1904 [1].", sources=sources))
+    chat = FakeChat(
+        events=_turn("## Historia\n**Carvajal** nació en 1904 [1]; informe [3].", sources=sources)
+    )
 
     answer = _bridge(chat).consult("¿Cuándo nació Carvajal?", "+573100000000")
 
-    assert answer.startswith("*Historia*\n*Carvajal* nació en 1904 [1].")
+    assert answer.startswith("*Historia*\n*Carvajal* nació en 1904 [1]; informe [3].")
     assert "*Fuentes:*" in answer
     assert "[1] Historia de Carvajal — https://www.carvajal.com/historia" in answer
     assert answer.count("carvajal.com/historia") == 1
@@ -479,7 +481,7 @@ def test_fuentes_sin_titulo_no_muestran_el_hash() -> None:
         {"slug": "a" * 64, "url": "https://www.carvajal.com/gobierno"},
         {"slug": "b" * 64, "section": "Junta directiva", "url": ""},
     ]
-    chat = FakeChat(events=_turn("Pedro Felipe Carvajal Cabal [1].", sources=sources))
+    chat = FakeChat(events=_turn("Pedro Felipe Carvajal Cabal [1][2][3].", sources=sources))
 
     answer = _bridge(chat).consult("¿Quién es el presidente?", "+57300")
 
@@ -487,6 +489,61 @@ def test_fuentes_sin_titulo_no_muestran_el_hash() -> None:
     assert "[1] Documento del corpus de Carvajal" in answer
     assert "[2] carvajal.com — https://www.carvajal.com/gobierno" in answer
     assert "[3] Junta directiva" in answer
+
+
+DIRECTORIO = "https://colombia.carvajalempaques.com/distribuidores"
+
+
+def test_las_fuentes_listadas_son_las_que_cita_el_texto() -> None:
+    # Arrange: dos sedes con la misma URL del directorio y citas altas, como en el ensayo
+    # (antes: las cinco primeras sin repetir URL; la [2] y la [7] quedaban sin fuente).
+    sources = [
+        {"title": "Sede Dispapeles (Pereira)", "url": DIRECTORIO, "n": 1},
+        {"title": "Sede Kive (Pereira)", "url": DIRECTORIO, "n": 2},
+        *(
+            {"title": f"Documento {n}", "url": f"https://carvajal.com/{n}", "n": n}
+            for n in range(3, 9)
+        ),
+    ]
+    chat = FakeChat(events=_turn("Dos sedes [1][2]; nace en 1904 [7].", sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("¿Dónde compro en Pereira?", "+57300")
+
+    # Assert
+    block = answer.split("*Fuentes:*", 1)[1]
+    assert f"[1] Sede Dispapeles (Pereira) — {DIRECTORIO}" in block
+    assert f"[2] Sede Kive (Pereira) — {DIRECTORIO}" in block
+    assert "[7] Documento 7 — https://carvajal.com/7" in block
+    assert "[3]" not in block and "[8]" not in block
+
+
+def test_una_cita_sin_fuente_se_quita_del_texto() -> None:
+    # Arrange
+    sources = [{"title": "Plato hondo", "url": "https://carvajal.com/plato", "n": 2}]
+    chat = FakeChat(events=_turn("Precio de EDEXA [2][11].", sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("platos", "+57300")
+
+    # Assert
+    assert "Precio de EDEXA [2]." in answer
+    assert "[11]" not in answer
+
+
+def test_dos_citas_de_la_misma_fuente_van_juntas() -> None:
+    # Arrange
+    sources = [
+        {"title": "Sede Bonniplast (Cali)", "url": DIRECTORIO, "n": 1},
+        {"title": "Sede Bonniplast (Cali)", "url": DIRECTORIO, "n": 2},
+    ]
+    chat = FakeChat(events=_turn("Dirección [1] y teléfono [2].", sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("Cali", "+57300")
+
+    # Assert
+    assert f"[1][2] Sede Bonniplast (Cali) — {DIRECTORIO}" in answer
 
 
 AGENT_QUOTE_TEXT = (
