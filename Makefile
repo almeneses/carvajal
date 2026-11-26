@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean ensayo ensayo-completo e2e smoke
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -77,7 +77,16 @@ smoke: ## Smoke tests del monitoreo (sin credenciales)
 	uv run pytest -m smoke
 
 e2e: ## End-to-end del monitoreo con servicios reales y LangSmith
-	uv run pytest -m e2e
+	uv run pytest -m "e2e and not ensayo"
+
+# Ensayo general (docs/ensayo.md): lee .env.ensayo si existe (no se versiona).
+ENSAYO_ENV = $(if $(wildcard .env.ensayo),set -a && . ./.env.ensayo && set +a &&,)
+
+ensayo: ## Ensayo sin gasto: app, repo, CI, VPS, gateway y audit (ENSAYO_BASE_URL)
+	$(ENSAYO_ENV) uv run pytest tests/e2e -m "ensayo and not gasto" -rA -p no:cacheprovider
+
+ensayo-completo: ## Ensayo completo: además memoria, allowlist, flujos y fotos (gasta tokens)
+	$(ENSAYO_ENV) uv run pytest tests/e2e -m ensayo -rA -p no:cacheprovider
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
 	@if grep -rq "pytest.mark.integration" tests; then \
@@ -119,16 +128,19 @@ index-eval: ## Indexa todas las capas y evalúa el retrieval (Recall@10 y nDCG@1
 image: ## Construye la imagen Docker de la app web
 	docker build -t carvajal-api:local .
 
+# Perfiles de `make up`; el ensayo añade el MCP de WhatsApp: make up PERFILES="full whatsapp".
+PERFILES ?= full
+
 up: ## Levanta el stack completo en Docker (app, base, Qdrant, Ollama y corpus)
 	# LOCAL_UID/LOCAL_GID hacen que la app escriba en ./data con el usuario del
 	# host, no como root. El perfil `full` añade app, Ollama y la preparación.
 	@echo "==> Levantando el stack; la primera vez descarga ~2,4 GB de modelos"
 	LOCAL_UID=$$(id -u) LOCAL_GID=$$(id -g) \
-		docker compose --profile full up -d --build --wait --wait-timeout 1800
+		docker compose $(foreach perfil,$(PERFILES),--profile $(perfil)) up -d --build --wait --wait-timeout 1800
 	@echo "==> Chat en http://localhost:8000"
 
 down: ## Detiene el stack completo (conserva los volúmenes)
-	docker compose --profile full down
+	docker compose --profile full --profile whatsapp down
 
 prod-up: ## Levanta app, Postgres, Qdrant y Ollama en APP_PORT (requiere SESSION_SECRET)
 	docker compose -f compose.prod.yml up -d --build

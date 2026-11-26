@@ -113,6 +113,8 @@ markers = [
     "integration: requiere Postgres real vía testcontainers",
     "smoke: comprobación rápida del monitoreo, sin credenciales ni red",
     "e2e: extremo a extremo con servicios reales y LangSmith (excluido de make check)",
+    "ensayo: ensayo general contra una app ya desplegada (docs/ensayo.md; también e2e)",
+    "gasto: gasta tokens de DeepSeek, créditos de Jev o escribe en la base (ensayo completo)",
 ]
 
 [tool.ty.src]

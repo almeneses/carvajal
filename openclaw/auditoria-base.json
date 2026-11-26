@@ -1,0 +1,88 @@
+{
+  "descripcion": "Línea base del gateway OpenClaw para el ensayo general (tests/e2e/test_operacion.py, docs/ensayo.md). Se tomó en vivo, en solo lectura, el 2026-11-25 con 'openclaw security audit --json' y 'openclaw config get'. Un crítico nuevo o más críticos rompen el ensayo; un aviso nuevo solo se registra. Si un cambio intencional mejora o cambia el gateway, actualiza este archivo en la misma PR.",
+  "fecha": "2026-11-25",
+  "openclaw_version": "2026.11.6",
+  "unidades": ["openclaw-gateway", "ovh-tunnel", "ovh-media-tunnel"],
+  "summary": {
+    "critical": 2,
+    "warn": 6,
+    "info": 1
+  },
+  "findings": [
+    {
+      "checkId": "security.exposure.open_groups_with_runtime_or_fs",
+      "severity": "critical",
+      "nota": "groupPolicy=open con el agente personal 'main' (exec en modo ask). Desaparece con groupPolicy=allowlist."
+    },
+    {
+      "checkId": "security.exposure.open_groups_with_control_plane_tools",
+      "severity": "critical",
+      "nota": "Misma causa que el anterior: grupos abiertos y herramientas del plano de control en 'main'."
+    },
+    { "checkId": "gateway.trusted_proxies_missing", "severity": "warn" },
+    { "checkId": "security.exposure.open_channels_with_exec", "severity": "warn" },
+    { "checkId": "security.trust_model.multi_user_heuristic", "severity": "warn" },
+    { "checkId": "plugins.tools_reachable_permissive_policy", "severity": "warn" },
+    { "checkId": "plugins.installs_unpinned_npm_specs", "severity": "warn" },
+    { "checkId": "channels.whatsapp.groups.open", "severity": "warn" },
+    { "checkId": "summary.attack_surface", "severity": "info" }
+  ],
+  "config": {
+    "descripcion": "Endurecimiento vigente (PR #252 aplicado en el gateway). Solo se guardan valores y formas, nunca números ni JID.",
+    "valores": {
+      "channels.whatsapp.dmPolicy": "allowlist",
+      "tools.elevated.enabled": false,
+      "tools.sessions.visibility": "tree",
+      "tools.agentToAgent.enabled": false,
+      "tools.openclaw.autoApproveChanges": false,
+      "tools.media.image.enabled": false,
+      "agents.entries.ventas.tools.exec.mode": "deny",
+      "agents.entries.ventas.tools.elevated.enabled": false,
+      "agents.entries.ventas.tools.fs.workspaceOnly": true
+    },
+    "deny_minimo": {
+      "ruta": "agents.entries.ventas.tools.deny",
+      "contiene": [
+        "group:runtime",
+        "group:fs",
+        "group:ui",
+        "group:automation",
+        "group:nodes",
+        "group:web",
+        "sessions_send",
+        "sessions_spawn",
+        "conversations_send",
+        "conversations_turn",
+        "subagents",
+        "gateway"
+      ]
+    },
+    "plugins_permitidos": {
+      "ruta": "plugins.allow",
+      "maximo": [
+        "whatsapp",
+        "deepseek",
+        "openai",
+        "memory-core",
+        "browser",
+        "document-extract",
+        "web-readability",
+        "device-pair",
+        "talk-voice"
+      ]
+    },
+    "allow_from": {
+      "ruta": "channels.whatsapp.allowFrom",
+      "minimo": 1,
+      "maximo": 1
+    },
+    "bindings": {
+      "ruta": "bindings",
+      "agente": "ventas",
+      "canal": "whatsapp",
+      "tipo": "group",
+      "maximo": 1
+    },
+    "informativo": ["channels.whatsapp.groupPolicy"]
+  }
+}
