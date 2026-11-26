@@ -54,7 +54,9 @@ class ChatMessage:
 
     En las respuestas, ``sources`` lleva las citas y el resultado comercial; en las
     preguntas solo existe si la persona adjuntó una foto (spec 053): la miniatura,
-    ``{"result_type": "photo", "thumbnail": "data:image/jpeg;base64,…"}``.
+    ``{"result_type": "photo", "thumbnail": "data:image/jpeg;base64,…"}``, o si la habló
+    (dictado o manos libres): ``{"result_type": "voice"}``. Solo la respuesta a una
+    pregunta con esa marca ofrece audio en el historial del chat web.
 
     ``status`` distingue una respuesta completa de una interrumpida y
     ``client_turn_id`` permite reconocer un reintento del mismo turno.
@@ -430,7 +432,8 @@ class SqlChatRepository:
     ) -> tuple[ChatMessage, ChatMessage]:
         """Inserta el turno usuario→asistente y toca ``updated_at``.
 
-        ``question_sources`` acompaña a la pregunta (la miniatura de la foto, spec 053).
+        ``question_sources`` acompaña a la pregunta (la miniatura de la foto, spec 053, o
+        la marca ``voice`` de una pregunta hablada).
 
         Bloquea la conversación para serializar turnos concurrentes. Los dos
         mensajes se escriben dentro de la transacción del llamador; si algo

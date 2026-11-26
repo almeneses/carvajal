@@ -55,6 +55,7 @@ class FakeChat:
         *,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
+        spoken: bool = False,
     ) -> Iterator[ChatEvent]:
         self.calls.append(
             {"owner": owner_key, "question": question, "turn": client_turn_id, "thread": thread_id}

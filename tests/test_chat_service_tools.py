@@ -542,6 +542,71 @@ def test_el_modo_tools_persiste_el_turno_y_cierra_el_runner(engine: Any) -> None
     assert runner.records == [{"question": QUESTION, "answer": ANSWER, "incomplete": False}]
 
 
+# --- Origen hablado de la pregunta (audio solo si la persona habló) ------------------------
+
+
+def test_una_pregunta_hablada_guarda_la_marca_voice_en_el_mensaje_del_usuario(
+    engine: Any,
+) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events())
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-hablada", QUESTION, client_turn_id="t-voz", spoken=True))
+    history = list(service.history("dueno-hablada"))
+
+    # Assert: la marca va en la pregunta; la respuesta guarda solo sus fuentes.
+    assert history[0].role == "user"
+    assert history[0].sources == [{"result_type": "voice"}]
+    assert history[1].sources == [asdict(SOURCE)]
+
+
+def test_una_pregunta_escrita_no_guarda_ninguna_marca(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events())
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-escrita", QUESTION, client_turn_id="t-escrita"))
+    history = list(service.history("dueno-escrita"))
+
+    # Assert
+    assert history[0].sources is None
+
+
+def test_el_respaldo_de_una_pregunta_hablada_tambien_guarda_la_marca(engine: Any) -> None:
+    # Arrange: el proveedor falla antes del primer token y el turno lo cierra el respaldo.
+    agent = RoutesAgent(sources=(SOURCE,), prompt="prompt que nadie debe enviar")
+    runner = FakeToolRunner(scripted_events(), error=LLMError("caído"), error_at=2)
+    service = build_service(engine, runner, agent=agent)
+
+    # Act
+    events = list(service.stream("dueno-respaldo-voz", QUESTION, spoken=True))
+    history = list(service.history("dueno-respaldo-voz"))
+
+    # Assert
+    assert "fallback" in names(events)
+    assert history[0].sources == [{"result_type": "voice"}]
+
+
+def test_la_confirmacion_hablada_del_flujo_guarda_la_marca(engine: Any) -> None:
+    # Arrange: un turno escrito deja el borrador esperando «¿Algo más?».
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    list(service.stream("dueno-flujo-voz", QUESTION, client_turn_id="t-1"))
+
+    # Act: la respuesta del flujo (sin LLM) llega dictada.
+    events = list(
+        service.stream("dueno-flujo-voz", "No, confírmala", client_turn_id="t-2", spoken=True)
+    )
+    preguntas = [m for m in service.history("dueno-flujo-voz") if m.role == "user"]
+
+    # Assert: solo la pregunta hablada lleva la marca.
+    assert named(events, "trace").data["route"] == "confirmacion"
+    assert [pregunta.sources for pregunta in preguntas] == [None, [{"result_type": "voice"}]]
+
+
 def test_el_turno_comercial_propone_y_al_confirmar_guarda_la_cotizacion(engine: Any) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(commercial_final()))

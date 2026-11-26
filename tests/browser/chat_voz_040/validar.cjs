@@ -181,14 +181,13 @@ async function main() {
   const visibles = await pagina.evaluate(() => ({
     dictar: !document.querySelector("[data-voz-dictar]").hidden,
     manos: !document.querySelector("[data-voz-manos-libres]").hidden,
-    autolectura: !document.querySelector("[data-voz-autolectura]").hidden,
-    autolecturaMarcada: document.querySelector("[data-voz-autolectura]").checked,
+    autolectura: document.querySelector("[data-voz-autolectura]") !== null,
     tipos: [...document.querySelectorAll(".voz-boton")].map((b) => b.getAttribute("type")),
     etiquetas: [...document.querySelectorAll(".voz-boton")].map((b) => b.getAttribute("aria-label")),
     estado: document.querySelector("[data-voz-estado]").getAttribute("role"),
   }));
   paso("controles visibles con STT/TTS/contexto seguro", visibles.dictar && visibles.manos);
-  paso("autolectura apagada por defecto", visibles.autolectura && !visibles.autolecturaMarcada);
+  paso("sin casilla de lectura automática (audio solo si se habla)", !visibles.autolectura);
   paso("botones type=button y nombre accesible", visibles.tipos.every((t) => t === "button"));
   paso("estado role=status", visibles.estado === "status");
 
@@ -215,9 +214,8 @@ async function main() {
   paso("transcripción normalizada en el campo", borrador === "necesito 12 onzas para café", borrador);
   paso("no se envió sola", enviosAntes === enviosDespues);
 
-  // 3. Turno dictado (spec 050): la persona habló, así que la respuesta suena sola
-  // aunque la autolectura esté apagada. Aquí el doble no tiene voz del servidor, así que
-  // suena con el respaldo del navegador.
+  // 3. Turno dictado (spec 050): la persona habló, así que la respuesta suena sola. Aquí el
+  // doble no tiene voz del servidor, así que suena con el respaldo del navegador.
   const enviarYEsperar = async (pregunta, etiqueta) => {
     const antes = await pagina.evaluate(
       () => document.querySelectorAll("#hilo .turno-assistant .texto").length,
@@ -245,29 +243,38 @@ async function main() {
   await enviarYEsperar("necesito 12 onzas para café", "turno dictado");
   const locucionesDictado = await locuciones();
   paso(
-    "el turno dictado suena solo con la autolectura apagada",
+    "el turno dictado suena solo",
     locucionesDictado >= 1,
     String(locucionesDictado),
   );
   await completarLectura(pagina);
 
-  // 3b. Turno escrito con la autolectura apagada: no suena.
+  // 3b. Turno escrito: no suena ni ofrece audio (enmienda del 2026-11-25).
   await vaciarLocuciones();
   await enviarYEsperar("quiero vasos térmicos", "turno escrito");
   const locucionesEscrito = await locuciones();
+  paso("no suena el turno escrito", locucionesEscrito === 0, String(locucionesEscrito));
+  const audioEscrito = await pagina.evaluate(() => {
+    const turno = Array.from(document.querySelectorAll("#hilo .turno-assistant")).at(-1);
+    return {
+      franja: Boolean(turno?.querySelector("[data-voz-turno]:not([hidden])")),
+      nota: Boolean(turno?.querySelector(".turno-nota")),
+      hablada: turno?.dataset?.vozPreguntaHablada || "",
+    };
+  });
   paso(
-    "con autolectura apagada no suena el turno escrito",
-    locucionesEscrito === 0,
-    String(locucionesEscrito),
+    "el turno escrito no muestra «Escuchar» ni nota de voz",
+    !audioEscrito.franja && !audioEscrito.nota && audioEscrito.hablada === "",
+    JSON.stringify(audioEscrito),
   );
 
   // 4. Lectura manual: el resumen hablado del servidor (spec 048). Los datos de las
   // tarjetas se quedan en pantalla. Este doble manda las tarjetas como HTML, sin el
-  // resultado comercial, así que el resumen tampoco las nombra. Se lee el último turno
-  // (el escrito del paso 3b), que todavía no ha sonado.
+  // resultado comercial, así que el resumen tampoco las nombra. Se vuelve a escuchar el
+  // turno dictado del paso 3: el escrito no tiene control de audio.
   await vaciarLocuciones();
   await pagina
-    .locator("#hilo .turno-assistant")
+    .locator("#hilo .turno-assistant[data-voz-pregunta-hablada]")
     .last()
     .locator("[data-voz-accion='escuchar']")
     .click();
@@ -277,8 +284,8 @@ async function main() {
   const textoLeido = todas.join(" ");
   const resumen = await pagina.evaluate(
     () =>
-      Array.from(document.querySelectorAll("#hilo .turno-assistant")).at(-1)?.dataset
-        ?.vozResumen || "",
+      Array.from(document.querySelectorAll("#hilo .turno-assistant[data-voz-pregunta-hablada]"))
+        .at(-1)?.dataset?.vozResumen || "",
   );
   paso("el turno trae el resumen hablado del servidor", resumen.trim() !== "", resumen);
   paso("lee el texto de la respuesta", textoLeido.includes("Tenemos vasos de papel"));
@@ -302,17 +309,17 @@ async function main() {
   // 5. Pausa, reanudación y parada con teclado.
   const accionActiva = () =>
     pagina.evaluate(() => document.activeElement?.dataset?.vozAccion || "");
-  await pagina.focus("#hilo .turno-assistant [data-voz-accion='escuchar']");
+  await pagina.focus("#hilo .turno-assistant[data-voz-pregunta-hablada] [data-voz-accion='escuchar']");
   await pagina.keyboard.press("Enter");
   const focoEscuchar = await accionActiva();
   await pagina.keyboard.press("Tab");
   const focoTrasTab = await accionActiva();
-  await pagina.click("#hilo .turno-assistant [data-voz-accion='pausar']");
+  await pagina.click("#hilo .turno-assistant[data-voz-pregunta-hablada] [data-voz-accion='pausar']");
   const pausado = await pagina.evaluate(() => window.speechSynthesis.paused);
   const focoTrasPausa = await accionActiva();
-  await pagina.click("#hilo .turno-assistant [data-voz-accion='reanudar']");
+  await pagina.click("#hilo .turno-assistant[data-voz-pregunta-hablada] [data-voz-accion='reanudar']");
   const reanudado = await pagina.evaluate(() => !window.speechSynthesis.paused);
-  await pagina.click("#hilo .turno-assistant [data-voz-accion='detener']");
+  await pagina.click("#hilo .turno-assistant[data-voz-pregunta-hablada] [data-voz-accion='detener']");
   const cancelados = await pagina.evaluate(() => window.__vozE2E.cancelados);
   const focoTrasDetener = await accionActiva();
   paso("Enter inicia la lectura con el control enfocado", focoEscuchar === "escuchar");
@@ -322,19 +329,10 @@ async function main() {
   paso("detener cancela la síntesis", cancelados >= 1);
   paso("al detener el foco vuelve a Escuchar", focoTrasDetener === "escuchar", focoTrasDetener);
 
-  // 6. Autolectura tras done (solo con la preferencia activa).
-  await pagina.click("[data-voz-opciones] > summary");
-  await pagina.check("[data-voz-autolectura]");
-  const locucionesAntes = await pagina.evaluate(() => window.__vozE2E.locuciones.length);
-  await pagina.fill("#pregunta", "otra pregunta");
-  await pagina.click('form[data-chat-stream] button[type="submit"]');
-  await esperar(
-    () => pagina.evaluate((antes) => window.__vozE2E.locuciones.length > antes, locucionesAntes),
-    5000,
-    "autolectura tras done",
-  );
-  paso("autolectura tras done con la preferencia activa", true);
-  await completarLectura(pagina);
+  // 6. Ya no hay lectura automática: otra pregunta escrita tampoco suena tras done.
+  await vaciarLocuciones();
+  await enviarYEsperar("otra pregunta", "otra pregunta escrita");
+  paso("otra pregunta escrita no suena tras done", (await locuciones()) === 0);
 
   // 7. Manos libres: activación, envío único y reescucha tras lectura.
   await pagina.fill("#pregunta", "");
@@ -493,8 +491,10 @@ async function main() {
   paso("sin peticiones de audio al servidor", peticionesAudio.length === 0, JSON.stringify(peticionesAudio));
   const clavesVoz = almacen.filter((clave) => clave.startsWith("carvajal_voz_"));
   paso(
-    "localStorage solo con preferencias booleanas de voz",
-    clavesVoz.length === 2 && !almacen.some((clave) => /audio|voz_texto|transcrip/i.test(clave)),
+    "localStorage solo con el aviso aceptado, sin preferencia de lectura",
+    clavesVoz.length >= 1 &&
+      !clavesVoz.includes("carvajal_voz_autolectura") &&
+      !almacen.some((clave) => /audio|voz_texto|transcrip/i.test(clave)),
     JSON.stringify(almacen),
   );
   paso("sin IndexedDB", bases.length === 0, JSON.stringify(bases));
@@ -505,11 +505,11 @@ async function main() {
       window.__vozE2E.locuciones.push(locucion.text);
     };
   });
-  await pagina.click("#hilo .turno-assistant [data-voz-accion='escuchar']");
+  await pagina.click("#hilo .turno-assistant[data-voz-pregunta-hablada] [data-voz-accion='escuchar']");
   const autoplay = await pagina.evaluate(() => ({
     leyendo: document.querySelector(".voz")._controladorVoz.estado.leyendo,
     pulsado: document
-      .querySelector("#hilo .turno-assistant [data-voz-accion='escuchar']")
+      .querySelector("#hilo .turno-assistant[data-voz-pregunta-hablada] [data-voz-accion='escuchar']")
       .getAttribute("aria-pressed"),
   }));
   paso(
@@ -518,7 +518,7 @@ async function main() {
     JSON.stringify(autoplay),
   );
 
-  // 8b. Fallback sin streaming: POST normal, historial y lectura manual.
+  // 8b. Fallback sin streaming: POST normal sin origen hablado, así que sin audio.
   const ctxSinStream = await navegador.newContext({ locale: "es-CO" });
   const pSinStream = await ctxSinStream.newPage();
   await pSinStream.addInitScript(INIT_FAKES);
@@ -529,23 +529,15 @@ async function main() {
   await pSinStream.waitForLoadState("networkidle");
   const historial = await pSinStream.evaluate(() => ({
     escuchar: document.querySelectorAll("#hilo .turno-assistant [data-voz-accion='escuchar']").length,
+    texto: document.querySelector("#hilo .turno-assistant .texto")?.textContent || "",
     locuciones: window.__vozE2E.locuciones.length,
   }));
   paso(
-    "el fallback sin streaming deja «Escuchar» en el historial",
-    historial.escuchar >= 1,
+    "el fallback sin streaming responde sin ofrecer «Escuchar»",
+    historial.escuchar === 0 && /Respuesta sin streaming/.test(historial.texto),
     JSON.stringify(historial),
   );
   paso("al recargar el historial no suena solo", historial.locuciones === 0);
-  await pSinStream.click("#hilo .turno-assistant [data-voz-accion='escuchar']");
-  const leidoSinStream = await pSinStream.evaluate(() =>
-    window.__vozE2E.locuciones.join(" "),
-  );
-  paso(
-    "la lectura manual funciona tras el POST sin streaming",
-    /Respuesta sin streaming/.test(leidoSinStream),
-    leidoSinStream,
-  );
   await ctxSinStream.close();
 
   // 9. axe: antes (sin chat-voice.js) y después.

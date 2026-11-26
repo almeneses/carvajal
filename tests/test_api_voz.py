@@ -912,9 +912,9 @@ def test_la_pagina_ofrece_la_voz_del_servidor_solo_si_esta_disponible() -> None:
 
 
 def test_el_hilo_expone_el_id_de_las_respuestas_del_asistente() -> None:
-    # Arrange
+    # Arrange: la pregunta se habló (marca «voice»), así que su respuesta trae audio.
     chat = FakeChat()
-    chat.add(_message("m-user", "user", "Hola"))
+    chat.add(_message("m-user", "user", "Hola", sources=[{"result_type": "voice"}]))
     chat.add(_message("m-bot", "assistant", "Hola, soy Carva."))
     client, _ = _app(_runtime(OpenAIFake()), chat)
     browser, _ = _app(chat=chat)
@@ -929,6 +929,38 @@ def test_el_hilo_expone_el_id_de_las_respuestas_del_asistente() -> None:
     assert 'data-voz-mensaje="m-bot"' in page
     assert 'data-voz-mensaje="m-user"' not in page
     assert "data-voz-mensaje" not in browser_page
+
+
+def test_el_hilo_no_expone_el_id_de_una_respuesta_a_una_pregunta_escrita() -> None:
+    # Arrange: con la voz del servidor, una pregunta escrita no da nota de voz al recargar.
+    chat = FakeChat()
+    chat.add(_message("m-user", "user", "necesito 2000 platos desechables"))
+    chat.add(_message("m-bot", "assistant", "Te muestro cuatro opciones."))
+    client, _ = _app(_runtime(OpenAIFake()), chat)
+    client.cookies.set(COOKIE_NAME, IDENTITY.issue(OWNER))
+
+    # Act
+    page = client.get("/chat").text
+
+    # Assert
+    assert "data-voz-mensaje" not in page
+    assert "data-voz-pregunta-hablada" not in page
+
+
+def test_hablar_sigue_sirviendo_la_respuesta_a_una_pregunta_hablada() -> None:
+    # Arrange: el turno se guardó con la marca «voice» en la pregunta.
+    chat = FakeChat()
+    chat.add(_message("m-user", "user", "Hola", sources=[{"result_type": "voice"}]))
+    chat.add(_message("m-bot", "assistant", "Hola, soy Carva."))
+    client, _ = _app(_runtime(OpenAIFake()), chat)
+    token = _session(client)
+
+    # Act
+    response = _speak(client, "m-bot", token)
+
+    # Assert
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/mpeg"
 
 
 def test_solo_el_documento_del_chat_admite_audio_blob() -> None:

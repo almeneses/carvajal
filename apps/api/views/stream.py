@@ -9,6 +9,10 @@ El evento ``done`` añade ``voz_resumen``: el resumen hablado de la respuesta gu
 (:func:`apps.api.voice.spoken_message`, el mismo que lee ``/api/voz/hablar``), para que la
 lectura de respaldo del navegador diga lo mismo que la del servidor. Si no se puede
 preparar, el evento sale sin él y el navegador lee la respuesta como antes.
+
+El campo ``voz=1`` lo envía chat-stream.js solo si la persona habló la pregunta (borrador
+dictado o manos libres): el servicio guarda la marca ``voice`` con la pregunta y el
+historial ofrece audio solo en esas respuestas. Sin el campo, el turno es escrito.
 """
 
 from collections.abc import Iterator, Mapping
@@ -53,6 +57,7 @@ def chat_stream(
     csrf_token: str = Form(default=""),
     client_turn_id: str = Form(default=""),
     thread_id: str = Form(default=""),
+    voz: str = Form(default=""),
 ) -> Response:
     """Responde la pregunta como eventos SSE y persiste el turno al cerrar."""
 
@@ -100,6 +105,7 @@ def chat_stream(
             text,
             client_turn_id=client_turn_id.strip() or None,
             thread_id=thread_id.strip() or None,
+            spoken=voz.strip() == "1",
         ),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
@@ -116,6 +122,7 @@ def _sse(
     *,
     client_turn_id: str | None = None,
     thread_id: str | None = None,
+    spoken: bool = False,
 ) -> Iterator[str]:
     """Traduce los eventos del servicio a bloques SSE.
 
@@ -136,6 +143,7 @@ def _sse(
             question,
             client_turn_id=client_turn_id,
             thread_id=thread_id,
+            spoken=spoken,
         ):
             saw_token = saw_token or event.name == "token"
             cerrado = event.name in {"done", "error"}

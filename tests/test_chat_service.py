@@ -143,6 +143,32 @@ def test_servicio_persiste_usuario_y_asistente_al_terminar_bien(engine: Engine) 
         _delete_owner(engine, owner_key)
 
 
+def test_en_routes_la_pregunta_hablada_guarda_la_marca_voice(engine: Engine) -> None:
+    # Arrange
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        agent=no_context_agent(),
+        settings=routes_settings(),
+    )
+    owner_key = "servicio-voz-routes"
+
+    try:
+        # Act
+        list(service.stream(owner_key, "¿Dato del corpus?", spoken=True))
+        list(service.stream(owner_key, "¿Otro dato?"))
+        preguntas = [item for item in service.history(owner_key) if item.role == "user"]
+
+        # Assert: la hablada lleva la marca; la escrita, ninguna.
+        assert [pregunta.sources for pregunta in preguntas] == [
+            [{"result_type": "voice"}],
+            None,
+        ]
+    finally:
+        _delete_owner(engine, owner_key)
+
+
 def test_stream_persiste_un_solo_turno_y_emite_trace(engine: Engine) -> None:
     # Arrange
     agent = no_context_agent()

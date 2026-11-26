@@ -100,6 +100,7 @@ class FakeChat:
         *,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
+        spoken: bool = False,
     ) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
         self.turn_calls.append((owner_key, client_turn_id, thread_id))
@@ -665,12 +666,15 @@ def test_el_estado_de_voz_y_el_aviso_son_accesibles() -> None:
 
 
 def test_el_historial_ofrece_escuchar_solo_en_los_turnos_del_asistente() -> None:
-    """T013: control de lectura por turno, con pausa, reanudación y parada."""
+    """T013: control de lectura por turno, con pausa, reanudación y parada.
+
+    Solo en la respuesta a una pregunta hablada (marca ``voice`` en la pregunta).
+    """
 
     # Arrange
     client, chat = make_client()
     chat.by_owner["dueno-a"] = [
-        _message("user", "pregunta", sources=None),
+        _message("user", "pregunta", sources=[{"result_type": "voice"}]),
         _message("assistant", "respuesta", sources=None),
     ]
     client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
@@ -706,8 +710,8 @@ def test_el_stream_notifica_el_turno_completo_solo_tras_done() -> None:
     assert "threadId" in js
 
 
-def test_la_autolectura_tiene_control_etiquetado_y_oculto_sin_js() -> None:
-    """B1: FR-007 exige un control real, no solo lógica en el cliente."""
+def test_la_pagina_ya_no_ofrece_leer_en_voz_alta_las_respuestas_escritas() -> None:
+    """Decisión del owner (2026-11-25): el audio solo existe si la persona habló."""
 
     # Arrange
     client, _ = make_client()
@@ -717,12 +721,9 @@ def test_la_autolectura_tiene_control_etiquetado_y_oculto_sin_js() -> None:
 
     # Assert
     html = response.text
-    assert "data-voz-autolectura-campo" in html
-    assert 'type="checkbox"' in html
-    assert "data-voz-autolectura" in html
-    assert "Leer respuestas en voz alta" in html
-    inicio = html.index("data-voz-autolectura-campo")
-    assert "hidden" in html[max(0, inicio - 60) : inicio + 140]
+    assert response.status_code == 200
+    assert "data-voz-autolectura" not in html
+    assert "Leer respuestas en voz alta" not in html
 
 
 def test_el_historial_incluye_sus_propios_controles_de_lectura() -> None:
@@ -731,7 +732,7 @@ def test_el_historial_incluye_sus_propios_controles_de_lectura() -> None:
     # Arrange
     client, chat = make_client()
     chat.by_owner["dueno-a"] = [
-        _message("user", "pregunta", sources=None),
+        _message("user", "pregunta", sources=[{"result_type": "voice"}]),
         _message("assistant", "respuesta", sources=None),
     ]
     client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
@@ -747,6 +748,36 @@ def test_el_historial_incluye_sus_propios_controles_de_lectura() -> None:
     assert historial.count("data-voz-turno") == 1
     inicio = historial.index('data-voz-accion="escuchar"')
     assert 'aria-pressed="false"' in historial[max(0, inicio - 160) : inicio + 120]
+
+
+def test_el_historial_no_ofrece_audio_en_la_respuesta_a_una_pregunta_escrita() -> None:
+    """Una pregunta escrita no trae «Escuchar», nota ni chip «por voz» al recargar."""
+
+    # Arrange
+    client, chat = make_client()
+    chat.by_owner["dueno-a"] = [
+        _message("user", "necesito 2000 platos desechables", sources=None),
+        _message("assistant", "Te muestro cuatro opciones.", sources=None),
+        _message("user", "¿y en Bogotá?", sources=[{"result_type": "voice"}]),
+        _message("assistant", "En Bogotá cuestan…", sources=None),
+    ]
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    # Act
+    response = client.get("/chat")
+
+    # Assert: solo el segundo turno (hablado) trae controles y su marca.
+    historial = response.text.split('id="hilo"', 1)[1].split("</section>", 1)[0]
+    turnos = historial.split('<li class="turno ')[1:]
+    assert len(turnos) == 4
+    assert "data-voz-turno" not in turnos[1]
+    assert "data-voz-pregunta-hablada" not in turnos[1]
+    assert "turno-por-voz" not in turnos[0]
+    assert "data-voz-turno" in turnos[3]
+    assert 'data-voz-pregunta-hablada="1"' in turnos[3]
+    assert "data-turno-por-voz" in turnos[2]
+    # La marca no se pinta como un título de fuente vacío.
+    assert "data-voz-fuentes" not in turnos[2]
 
 
 def test_el_stream_no_notifica_turno_completo_en_la_rama_de_error() -> None:
