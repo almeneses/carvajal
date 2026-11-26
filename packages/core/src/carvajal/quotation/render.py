@@ -80,10 +80,15 @@ _BASIS: Final = {
 
 @dataclass(frozen=True)
 class Message:
-    """Un mensaje del flujo: ``text`` (Markdown) y su versión hablada ``spoken``."""
+    """Un mensaje del flujo: ``text`` (Markdown) y su versión hablada ``spoken``.
+
+    ``photos`` son los SKU que el mensaje presenta (la recomendada de unas opciones, lo
+    recién agregado): WhatsApp les añade la foto del catálogo, como antes de la spec 054.
+    """
 
     text: str
     spoken: str
+    photos: tuple[str, ...] = ()
 
 
 # --- formato ----------------------------------------------------------------------------
@@ -295,7 +300,8 @@ def options(quote: Mapping[str, Any], *, reason: str = "") -> Message:
     if len(rows) > 1:
         count = len(rows) - 1
         spoken += f" Te dejo {count} alternativa{'s' if count > 1 else ''} por escrito."
-    return Message("\n".join(lines), f"{spoken} {question}")
+    photos = (str(best["sku"]),) if best.get("sku") else ()
+    return Message("\n".join(lines), f"{spoken} {question}", photos)
 
 
 def out_of_range(asked: int, alternatives: int) -> Message:
@@ -398,7 +404,7 @@ def added(
         text_lines += ["", "¿Algo más para tu cotización?"]
         said = _spoken_money(line_subtotal(line), _currency(line))
         spoken += f": {said}. ¿Algo más para tu cotización?"
-        return Message("\n".join(text_lines), spoken)
+        return Message("\n".join(text_lines), spoken, _skus(new_lines))
     first = f"{verb} {name}" + (f" · {money}" if money else "")
     text_lines = [first]
     if several_note:
@@ -412,7 +418,14 @@ def added(
         f". Llevas {_count_label(len(draft.lines))} y el total parcial es de "
         f"{_spoken_money(summary.products, summary.currency)}. ¿Algo más?"
     )
-    return Message("\n".join(text_lines), spoken)
+    return Message("\n".join(text_lines), spoken, _skus(new_lines))
+
+
+def _skus(lines: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    """SKU de las líneas, sin repetir y en su orden."""
+
+    found = (str(_map(line.get("primary")).get("sku") or "") for line in lines)
+    return tuple(dict.fromkeys(sku for sku in found if sku))
 
 
 def resume(draft: QuoteDraft) -> Message:

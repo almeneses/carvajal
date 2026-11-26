@@ -2163,6 +2163,7 @@ def _flow_payload(
         "actions": _flow_actions(draft),
         "folio": folio,
         "lines": len(draft.lines),
+        "photos": list(message.photos),
     }
 
 
