@@ -3088,6 +3088,24 @@ def test_un_nombre_que_nadie_dijo_tampoco_se_cotiza() -> None:
     assert result.payload["referencia_no_dicha"] == "J2"
 
 
+def test_un_sku_que_nadie_dijo_sigue_avisado_cuando_no_hay_resultados() -> None:
+    # Arrange: sin la referencia, la familia y la capacidad no dan nada (revisión PR #276).
+    context = ToolContext(question="Necesito 500 vasos de 99 oz para Cali")
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"sku": "XX-1", "family": "vaso", "capacity_oz": 99, "quantity": 500, "city": "Cali"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert: el modelo sabe que no debe volver a pasar la referencia inventada.
+    assert result.status == "empty"
+    assert result.payload["referencia_no_dicha"] == "XX-1"
+    assert "no la nombró la persona" in result.payload["message"]
+
+
 def test_otra_cantidad_con_un_sku_inventado_cotiza_la_referencia_del_contexto() -> None:
     # Arrange: «mejor que sean 800» tras agregar el plato pando (wa y web cambiar_cantidad).
     context = ToolContext(

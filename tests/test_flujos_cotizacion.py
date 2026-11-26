@@ -29,6 +29,7 @@ from carvajal.agent.followup import (
     removes_whole_line,
     resolve_choice,
     resolve_more,
+    resolve_quantity_change,
     resolve_quantity_choice,
     resolve_reference,
     resolve_remove,
@@ -1923,6 +1924,36 @@ def test_olvida_todo_lo_que_sabes_de_mi_no_lo_atrapa_cancelar_todo() -> None:
     assert isinstance(decision, Pass)
     assert decision.prompt is None
     assert decision.draft.lines == () and decision.draft.state == "cancelada"
+
+
+@pytest.mark.parametrize("texto", ["olvida todo lo de la cotización", "olvida todo"])
+def test_olvidar_el_pedido_lo_cancela_sin_ir_al_grafo(texto: str) -> None:
+    # Arrange: solo «lo que sabes de mí» o «mis datos» borra la memoria (revisión PR #276).
+    draft = _cart().touch(AHORA, awaiting="algo_mas", state="carrito")
+
+    # Act
+    decision = before_turn(draft, texto, now=AHORA)
+
+    # Assert: lo cancela la regla de «cancelar todo», sin pasar al grafo ni a la memoria.
+    assert isinstance(decision, Reply)
+    assert decision.draft.lines == () and decision.draft.state == "cancelada"
+
+
+@pytest.mark.parametrize(
+    ("texto", "etiquetas", "esperado"),
+    [
+        ("mejor 800 vasos", ("Plato hondo de icopor 12 oz",), None),
+        ("pon 800 platos", ("Vaso de papel 7 oz",), None),
+        ("mejor 800 vasos", ("Plato hondo de icopor 12 oz", "Vaso de papel 7 oz"), (1, 800, None)),
+        ("mejor 800", ("Plato hondo de icopor 12 oz", "Vaso de papel 7 oz"), None),
+        ("mejor 800", ("Vaso de papel 7 oz",), (0, 800, None)),
+    ],
+)
+def test_otra_cantidad_no_cambia_una_linea_de_otra_familia(
+    texto: str, etiquetas: tuple[str, ...], esperado: tuple[int, int, str | None] | None
+) -> None:
+    # Act / Assert: un producto que no está en el carrito es otro pedido (revisión PR #276).
+    assert resolve_quantity_change(texto, etiquetas) == esperado
 
 
 def test_si_el_agente_pregunta_el_comparativo_de_cantidades_sigue_saliendo() -> None:
