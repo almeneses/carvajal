@@ -68,7 +68,7 @@ from apps.api.chat.agent import (
     default_agent_runner,
     default_tool_agent_runner,
 )
-from apps.api.chat.products import has_cards, result_quotes, safe_render_products
+from apps.api.chat.products import has_cards, presented_options, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from apps.api.chat.summary_worker import SummaryWorker, build_summary_worker
 from carvajal.adapters.judge import build_reply_judge
@@ -1117,6 +1117,8 @@ class ChatService:
             fragments.append(flow_suffix)
             yield ChatEvent("token", {"text": flow_suffix})
         answer_text = "".join(fragments)
+        # Solo las opciones que el texto nombra llegan a las tarjetas, al historial y al done.
+        products = presented_options(products, answer_text)
         span.add_outputs(answer=answer_text)
         tools.persist_attempted = True
         conversation_id, message_id = self._persist_owned(
@@ -1254,6 +1256,7 @@ class ChatService:
             # Solo el plazo vencido declara lo que faltó; un cierre vacío no venció nada.
             note = fallback.timeout_note(len(obtained.missing)) if reason == "timeout" else ""
             answer_text = fallback.render(products, sources, note=note)
+            products = presented_options(products, answer_text)
             fallback_route, intent, preferences = "tools", "", obtained.preferences
             summary = obtained.summary
             tool = ",".join(tool_names)
@@ -1268,6 +1271,7 @@ class ChatService:
             quote_records = []
             sources = turn.sources
             answer_text = fallback.render(products, sources)
+            products = presented_options(products, answer_text)
             fallback_route, intent, tool, preferences = (
                 turn.route,
                 turn.intent,

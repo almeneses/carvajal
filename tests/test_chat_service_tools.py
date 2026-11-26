@@ -1056,6 +1056,105 @@ def test_si_las_fuentes_cambian_tras_anunciarlas_se_reemite_meta(engine: Any) ->
     assert metas == [{"sources": []}, {"sources": [asdict(SOURCE)]}]
 
 
+# --- Tarjetas de las opciones presentadas ---------------------------------------------------
+
+
+def plate_options(count: int = 8) -> list[dict[str, Any]]:
+    """Opciones de ``buscar_producto`` como las deja en ``cards["options"]``."""
+
+    return [
+        {
+            "sku": f"CO-PLT-{index:02d}",
+            "name": f"Plato espumado pando {index + 10} cm Wau",
+            "material": "EPS",
+            "units_per_box": 480,
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+def saved_options(engine: Any) -> list[str]:
+    """SKU de las opciones guardadas con la respuesta (lo que muestra el historial)."""
+
+    sources = assistant_rows(engine)[0]["sources"] or []
+    result = next(item["result"] for item in sources if item.get("result_type") == "commercial")
+    return [option["sku"] for option in result["options"]]
+
+
+def test_las_tarjetas_y_lo_guardado_son_solo_las_opciones_que_nombra_el_texto(
+    engine: Any,
+) -> None:
+    # Arrange: la herramienta trajo ocho opciones y el texto presenta dos.
+    answer = (
+        "Para 2000 platos te sirven:\n\n"
+        "- **Plato espumado pando 12 cm Wau** (CO-PLT-02) [1]\n"
+        "- **Plato espumado pando 15 cm Wau** (CO-PLT-05) [1]\n"
+    )
+    closing = final(answer=answer, products={"options": plate_options()})
+    runner = FakeToolRunner([ToolAgentToken(text=answer), closing])
+    service = build_service(engine, runner)
+
+    # Act
+    events = list(service.stream("dueno-tarjetas", "necesito 2000 platos desechables"))
+    history = list(service.history("dueno-tarjetas"))
+
+    # Assert
+    html = named(events, "products").data["html"]
+    assert html.count('data-campo="producto-nombre"') == 2
+    assert "Plato espumado pando 12 cm Wau" in html
+    assert "Plato espumado pando 11 cm Wau" not in html
+    assert saved_options(engine) == ["CO-PLT-02", "CO-PLT-05"]
+    assert history[1].sources is not None
+
+
+def test_si_el_texto_no_nombra_ninguna_opcion_quedan_tres_tarjetas(engine: Any) -> None:
+    # Arrange
+    answer = "Dime qué tamaño te sirve y te paso el contacto de la sede."
+    closing = final(answer=answer, products={"options": plate_options()})
+    runner = FakeToolRunner([ToolAgentToken(text=answer), closing])
+    service = build_service(engine, runner)
+
+    # Act
+    events = list(service.stream("dueno-tarjetas-tres", "necesito platos"))
+
+    # Assert
+    html = named(events, "products").data["html"]
+    assert html.count('data-campo="producto-nombre"') == 3
+    assert saved_options(engine) == ["CO-PLT-01", "CO-PLT-02", "CO-PLT-03"]
+
+
+def test_la_recomendacion_por_foto_conserva_todas_sus_opciones(engine: Any) -> None:
+    # Arrange
+    options = [{**option, "choice": "1"} for option in plate_options(5)]
+    answer = "Te recomiendo esta referencia y estas alternativas."
+    closing = final(answer=answer, products={"options": options, "origin": "foto"})
+    runner = FakeToolRunner([ToolAgentToken(text=answer), closing])
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-tarjetas-foto", "¿cuál me sirve?"))
+
+    # Assert
+    assert len(saved_options(engine)) == 5
+
+
+def test_el_respaldo_muestra_las_tarjetas_de_las_opciones_que_lista(engine: Any) -> None:
+    # Arrange: el respaldo de reglas trae cinco opciones y su texto lista hasta tres.
+    agent = RoutesAgent(route="commercial", products={"options": plate_options(5)})
+    runner = FakeToolRunner([], error=LLMError("caído"))
+    service = build_service(engine, runner, agent=agent)
+
+    # Act
+    events = list(service.stream("dueno-tarjetas-respaldo", "necesito platos"))
+
+    # Assert
+    text = named(events, "fallback").data["text"]
+    html = named(events, "products").data["html"]
+    assert text.count("- Plato espumado pando") == fallback.MAX_ITEMS
+    assert html.count('data-campo="producto-nombre"') == fallback.MAX_ITEMS
+    assert saved_options(engine) == ["CO-PLT-01", "CO-PLT-02", "CO-PLT-03"]
+
+
 # --- Respaldo determinista (T037, T041, FR-009) --------------------------------------------
 
 
