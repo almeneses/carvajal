@@ -700,8 +700,8 @@ def test_numeros_de_la_auditoria_coinciden() -> None:
     assert summary["ciudades"] == 10
     assert summary["ofertas_co"] == 29
     assert summary["ofertas_mx"] == 98
-    assert summary["precios_convertidos"] == 98
-    assert summary["ofertas"] == 225
+    assert summary["precios_convertidos"] == 98 * 3
+    assert summary["ofertas"] == 29 + 98 + 98 * 3
 
 
 def test_disponibilidad_publicada_sin_evidencia_queda_por_confirmar() -> None:
@@ -711,7 +711,7 @@ def test_disponibilidad_publicada_sin_evidencia_queda_por_confirmar() -> None:
     co = [offer for offer in book.offers if offer.country == "CO"]
     statuses = Counter(offer.availability.status for offer in co)
 
-    assert statuses == {"desconocido": 29 + 98}
+    assert statuses == {"desconocido": 29 + 98 * 3}
     assert all(offer.availability.status not in {"verificado", "no_disponible"} for offer in co)
     for city in book.cities():
         assert book.city_directory(city).counts.get("stock_verificado", 0) == 0

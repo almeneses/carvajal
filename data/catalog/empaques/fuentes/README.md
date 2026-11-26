@@ -8,6 +8,7 @@ el **2026-11-18** respetando `robots.txt`, con una petición cada 1,5 s.
 | `precios_co.csv` | Precios de Colombia tal como los publica cada fuente (por unidad, paquete o caja) | `scripts/curar_catalogo_co.py` |
 | `descartes_co.json` | Lo que se vio en las fuentes y no entró al catálogo, con su motivo | `scripts/curar_catalogo_co.py` |
 | `tasa_mxn_cop.json` | Tasa MXN→COP fechada, con sus dos fuentes, para las copias de México | captura del 2026-11-25 |
+| `mx_atributos.json` | Marca, temperatura y paquete que declaran las fichas de México, para completar campos vacíos de las copias `CO-MX-…`, y los datos omitidos por contradictorios | captura del 2026-11-25 |
 | `mx_ampliacion.json` | Las fichas de la tienda de México que no estaban en el corpus: solo el JSON-LD, la descripción corta y la marca de IVA | captura del 2026-11-18 |
 
 ## De dónde salen los datos
@@ -27,7 +28,7 @@ el **2026-11-18** respetando `robots.txt`, con una petición cada 1,5 s.
   se promedia entre fuentes.
 - Las copias de México (`CO-MX-<sku>`) llevan el precio por caja convertido con
   `tasa_mxn_cop.json`, procedencia `sistema` e IVA `no_indicado` (decisión del 2026-11-25). No
-  tienen vendedor, sede ni existencias, se cotizan solo en Bogotá (`source_city`) y la
+  tienen vendedor, sede ni existencias, se cotizan en Bogotá y en 2 ciudades más (`source_city`, una fila por ciudad) y la
   cotización las muestra como «precio de referencia del catálogo», sin nombrar el origen. Para
   actualizar la tasa: edita el archivo, corre `adaptar_catalogo_mx.py` y ajusta
   `EXPECTED_COMMERCIAL_VERSION`.

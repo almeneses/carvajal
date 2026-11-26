@@ -19,7 +19,7 @@ from carvajal.commercial import (
     build_commercial_book,
 )
 from carvajal.commercial import models as commercial_models
-from carvajal.quotation import quote
+from carvajal.quotation import QuoteRequest, quote, quote_request
 from carvajal.quotation.data import (
     Dataset,
     dataset_from_book,
@@ -95,14 +95,29 @@ def test_producto_agotado_no_se_ofrece() -> None:
         assert resultado["primary"]["sku"] != "CO-VTER-04"
 
 
-def test_cali_sin_precio_ofrece_las_sedes_del_directorio() -> None:
-    """La ciudad sin oferta publicada conserva los contactos y no inventa precio."""
+def test_cali_sin_precio_publicado_cotiza_el_de_referencia_y_da_las_sedes() -> None:
+    """Sin oferta publicada en Cali: precio de referencia sin vendedor, con los contactos."""
 
     resultado = quote("cotiza 100 vasos para bebida caliente en Cali", today=HOY, now=MANANA)
 
-    assert resultado["kind"] == "sin_resultados"
-    assert "Cali" in resultado["reply"]
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["price_kind"] == "convertido"
+    assert resultado["primary"]["provider"]["phone"] is None
     assert len(resultado["providers"]) == 4
+    assert {sede["city"] for sede in resultado["providers"]} == {"Cali"}
+
+
+def test_referencia_nombrada_sin_precio_en_la_ciudad_ofrece_las_sedes() -> None:
+    """Una referencia propia sin oferta en Cali no se sustituye ni recibe precio inventado."""
+
+    resultado = quote_request(
+        QuoteRequest(sku="CO-VTER-08", quantity=100, city="Cali", delivery=False),
+        today=HOY,
+        now=MANANA,
+    )
+
+    assert resultado["kind"] == "sin_resultados"
+    assert resultado["reason"] == "sin_precio"
     assert {sede["city"] for sede in resultado["providers"]} == {"Cali"}
     assert "primary" not in resultado
 
@@ -447,7 +462,7 @@ def test_la_ciudad_dicha_gana_sobre_la_recordada() -> None:
 
     resultado = quote("cotiza 20 vasos calientes en Cali", today=HOY, now=MANANA, profile=perfil)
 
-    assert resultado["kind"] == "sin_resultados"
+    assert resultado["kind"] == "cotizacion"
     assert {sede["city"] for sede in resultado["providers"]} == {"Cali"}
     assert resultado["request"]["city"] == "Cali"
 
@@ -499,11 +514,12 @@ def test_un_seguimiento_sigue_cotizando() -> None:
         )
         assert resultado["kind"] == "cotizacion", text
 
-    sin_precio = quote(
+    en_cali = quote(
         "en Cali", questions=["cotiza 20 vasos calientes en Bogotá"], today=HOY, now=MANANA
     )
-    assert sin_precio["kind"] == "sin_resultados"
-    assert sin_precio["providers"]
+    assert en_cali["kind"] == "cotizacion"
+    assert en_cali["city"] == "Cali"
+    assert en_cali["providers"]
 
 
 # Corrección «tinto» (spec 044, T006): las bebidas calientes por nombre implican temperatura.

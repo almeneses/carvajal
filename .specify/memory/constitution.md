@@ -216,7 +216,7 @@ PR y se detienen: no mergean ni aprueban, ni siquiera con `--admin`.
   LangSmith (spec 038) es opcional, sin PII y en producción solo con metadatos.
 - Precios del catálogo: referencias fechadas con moneda, una oferta por fuente. Los de
   Colombia van en COP y no se estiman (spec 039). Única conversión admitida desde México: las
-  copias `CO-MX-…`, con procedencia `sistema`, solo en Bogotá y presentadas como «precio de
+  copias `CO-MX-…`, con procedencia `sistema`, en Bogotá y 2 ciudades más, presentadas como «precio de
   referencia del catálogo», nunca atribuidas a un distribuidor (decisión del 2026-11-25).
 - Cotizador (spec 042): motor determinista sin LLM; el catálogo curado es la única fuente
   de productos reales y la demo solo añade una extensión simulada marcada por campo.

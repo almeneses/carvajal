@@ -10,6 +10,7 @@ import pytest
 from carvajal.agent.commercial import quote_offer
 from carvajal.agent.toolagent.tools.builtin import _offer_source_type
 from carvajal.catalog.conversion import (
+    REFERENCE_CITY,
     SOURCE_NAME,
     ExchangeRate,
     adapt_all,
@@ -17,7 +18,9 @@ from carvajal.catalog.conversion import (
     adapted_sku,
     convert_price,
     converted_price,
+    load_attributes,
     load_rate,
+    reference_cities,
 )
 from carvajal.catalog.images import catalog_image
 from carvajal.catalog.loader import DEFAULT_DIR, load_catalog
@@ -66,31 +69,65 @@ def test_sin_precio_en_mexico_no_hay_precio_convertido() -> None:
 def test_todo_el_catalogo_de_mexico_esta_copiado_con_los_mismos_datos() -> None:
     campos = {"sku", "country", "price", "currency", "tax_included", "price_valid_until"}
     copias = {ref.sku: ref for ref in _copias()}
+    atributos = load_attributes(DEFAULT_DIR)
 
     assert len(copias) == len(_mexico()) == 98
     for original in _mexico():
         copia = copias[adapted_sku(original.sku)]
-        assert copia.model_dump(exclude=campos) == original.model_dump(exclude=campos)
+        completados = set(atributos.get(original.sku, {}))
+        ignorar = campos | completados
+        assert copia.model_dump(exclude=ignorar) == original.model_dump(exclude=ignorar)
         assert copia.price is None
+        for campo in completados:  # solo se completa lo que la ficha de México dejaba vacío
+            assert getattr(original, campo) is None or getattr(copia, campo) == getattr(
+                original, campo
+            )
+
+
+def test_los_atributos_completados_vienen_de_la_ficha_y_son_coherentes() -> None:
+    atributos = load_attributes(DEFAULT_DIR)
+    copias = {ref.sku: ref for ref in _copias()}
+
+    assert len(atributos) == 15
+    for sku, campos in atributos.items():
+        copia = copias[adapted_sku(sku)]
+        for campo, valor in campos.items():
+            assert getattr(copia, campo) == valor
+        if copia.units_per_pack is not None:
+            assert copia.units_per_pack * (copia.packs_per_box or 0) == copia.units_per_box
+        if "temp_max_c" in campos and "bebida_caliente" in copia.uses:
+            assert copia.temp_max_c >= 60
 
 
 def test_los_archivos_versionados_coinciden_con_lo_que_genera_el_script() -> None:
     catalog = load_catalog()
-    copias, precios = adapt_all(catalog.references, load_rate(DEFAULT_DIR))
+    ciudades = {item.city for item in catalog.distributors}
+    copias, precios = adapt_all(
+        catalog.references,
+        load_rate(DEFAULT_DIR),
+        cities=ciudades,
+        attributes=load_attributes(DEFAULT_DIR),
+    )
+
+    def clave(item):
+        return (item.sku, item.source_city)
 
     assert copias == sorted(_copias(), key=lambda ref: ref.sku)
     publicados = [oferta for ref in _copias() for oferta in catalog.offers(ref)]
-    assert sorted(publicados, key=lambda item: item.sku) == precios
+    assert sorted(publicados, key=clave) == sorted(precios, key=clave)
 
 
 def test_el_precio_convertido_nunca_figura_como_publicado_en_colombia() -> None:
     catalog = load_catalog()
     for ref in _copias():
-        [oferta] = catalog.offers(ref)
+        ofertas = catalog.offers(ref)
+        assert len(ofertas) == 3
+        assert REFERENCE_CITY in {oferta.source_city for oferta in ofertas}
+        oferta = ofertas[0]
+        assert {item.source_type for item in ofertas} == {"sistema"}
         assert oferta.source_type == "sistema"
         assert oferta.tax_status == "no_indicado"
         assert oferta.valid_until is None
-        assert oferta.source_city == "Bogotá"
         aviso = quote_offer(oferta, 1, today=date(2026, 11, 25)).notice
         assert "precio de referencia del catálogo" in aviso
         assert "México" not in aviso
@@ -108,7 +145,8 @@ def test_la_oferta_convertida_no_se_atribuye_a_una_sede() -> None:
     book = load_commercial_book()
     convertidas = [offer for offer in book.offers if offer.source.type == "sistema"]
 
-    assert len(convertidas) == 98
+    assert len(convertidas) == 98 * 3
+    assert len({offer.offer_id for offer in convertidas}) == len(convertidas)
     for offer in convertidas:
         assert offer.site_id is None
         vendedor = book.seller(offer.seller_id)
@@ -118,14 +156,33 @@ def test_la_oferta_convertida_no_se_atribuye_a_una_sede() -> None:
     assert SOURCE_NAME not in {site.name for site in book.sites.values()}
 
 
-def test_el_precio_convertido_solo_se_cotiza_en_bogota() -> None:
+def test_cada_copia_se_cotiza_en_bogota_y_en_dos_ciudades_mas() -> None:
     dataset = load_dataset("2026-11-25")
 
     ofertas = dataset.offers_for("CO-MX-2864108000")
 
-    assert [offer.city for offer in ofertas] == ["Bogotá"]
+    assert sorted(offer.city for offer in ofertas) == ["Barranquilla", "Bogotá", "Bucaramanga"]
     assert all(offer.converted for offer in ofertas)
     assert dataset.provider(ofertas[0].site_id) is None
+
+
+def test_el_reparto_da_todas_las_familias_a_cada_ciudad_del_directorio() -> None:
+    catalog = load_catalog()
+    ciudades = {item.city for item in catalog.distributors}
+    reparto = reference_cities(_copias(), ciudades)
+    familias = {ref.family for ref in _copias()}
+    familia = {ref.sku: ref.family for ref in _copias()}
+
+    assert all(
+        len(set(lugares)) == 3 and lugares[0] == REFERENCE_CITY for lugares in reparto.values()
+    )
+    for ciudad in ciudades:
+        aqui = {familia[sku] for sku, lugares in reparto.items() if ciudad in lugares}
+        assert aqui == familias, ciudad
+    # Sin otras ciudades en el directorio, todo queda en Bogotá.
+    assert set(map(tuple, reference_cities(_copias(), [REFERENCE_CITY]).values())) == {
+        (REFERENCE_CITY,)
+    }
 
 
 def test_la_procedencia_distingue_publicado_de_convertido() -> None:
@@ -163,7 +220,7 @@ def test_regenerar_los_precios_publicados_conserva_los_convertidos(tmp_path: Pat
     assert (directorio / "precios.csv").read_text(encoding="utf-8") == antes
     assert build.removed == []
     with (directorio / "precios.csv").open(encoding="utf-8", newline="") as handle:
-        assert sum(row["source_type"] == "sistema" for row in csv.DictReader(handle)) == 98
+        assert sum(row["source_type"] == "sistema" for row in csv.DictReader(handle)) == 98 * 3
     load_catalog.cache_clear()
 
 
@@ -172,7 +229,7 @@ def test_el_precio_convertido_tiene_la_misma_procedencia_en_todas_las_rutas() ->
 
     sku = "CO-MX-2864108000"
     book = load_commercial_book()
-    [offer] = [item for item in book.offers if item.sku == sku and item.country == "CO"]
+    offer = next(item for item in book.offers if item.sku == sku and item.country == "CO")
     seller = book.seller(offer.seller_id)
 
     # Act
