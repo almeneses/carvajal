@@ -115,11 +115,12 @@ body:has(> .ancho-chat) {
 }
 
 .chat-cuerpo {
+  --hueco-chat: 10px;
   position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--hueco-chat);
   min-height: 0;
   padding: 0 clamp(4px, 2vw, 20px) max(8px, env(safe-area-inset-bottom));
 }
@@ -146,16 +147,31 @@ body:has(> .ancho-chat) {
   margin-inline: auto;
 }
 
-.chat-final {
-  align-self: center;
-  z-index: 2;
+/* «Ir al final» (ensayo del 2026-11-26): antes flotaba centrado 54 px dentro del historial y
+   tapaba el texto y los botones del último turno. Ahora va a la derecha, a caballo entre el
+   historial y el compositor, con fondo opaco: tapa como mucho 12 px del historial. Los
+   márgenes negativos suman su alto más el hueco del flex, así aparecer no mueve el compositor. */
+.chat-cuerpo .chat-final {
+  align-self: flex-end;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   width: auto;
-  margin-top: -3.4rem;
-  min-height: 44px;
-  padding: 0 1rem;
+  height: 36px;
+  min-height: 36px;
+  margin: -22px clamp(8px, 3vw, 24px) calc(-14px - var(--hueco-chat)) 0;
+  padding: 0 14px;
+  border: 1px solid var(--borde);
   border-radius: 100px;
+  background: var(--fondo);
   box-shadow: var(--sombra-alta);
-  font-size: 0.9rem;
+  color: var(--azul);
+  font-size: 0.875rem;
+}
+
+.chat-cuerpo .chat-final[hidden] {
+  display: none;
 }
 
 .cabecera-conversacion .formulario-nuevo-hilo {
@@ -1229,16 +1245,18 @@ body:has(> .ancho-chat) {
   color: var(--azul);
 }
 
-/* Compositor (Stitch): campo, micrófono cian y Enviar en una fila. El bloque de voz y sus
-   envolturas se «disuelven» (display: contents) para ubicar cada control en la rejilla sin
-   tocar el HTML que gobierna chat-voice.js. */
+/* Compositor (Stitch): campo, Foto, micrófono cian y Enviar en una fila. El bloque de voz,
+   la foto y sus envolturas se «disuelven» (display: contents) para ubicar cada control en la
+   rejilla sin tocar el HTML que gobiernan chat-voice.js y chat-photo.js. La rejilla no tiene
+   separación vertical: cada fila de abajo pone su propio margen, así una fila vacía (sin foto
+   o sin voz) no suma altura (ensayo del 2026-11-26). */
 .chat-cuerpo .composer {
   position: relative;
   bottom: auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
-  gap: 8px 10px;
+  gap: 0 10px;
   margin-block: 0;
   padding: 10px;
   background: var(--fondo);
@@ -1307,13 +1325,13 @@ body:has(> .ancho-chat) {
 }
 
 .chat-cuerpo .composer [data-voz-dictar] {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
 }
 
 .composer button[type="submit"],
 .composer [data-chat-detener] {
-  grid-column: 3;
+  grid-column: 4;
   grid-row: 1;
   min-height: 56px;
   padding: 0 1.4rem;
@@ -1330,30 +1348,55 @@ body:has(> .ancho-chat) {
   transform: translateY(-2px);
 }
 
+/* Filas de abajo: 2 la ficha de la foto, 3 su aviso plegable y 4 las opciones de voz (el menú
+   se abre por encima, con posición absoluta). El estado y las notas van a lo ancho: sin
+   columna caían en una «auto», que crecía hasta el largo del texto y aplastaba el campo. */
 .composer .voz-opciones {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  justify-self: start;
+  margin-top: 6px;
+}
+
+.composer .voz-estado,
+.composer .voz-nota,
+.composer .productos-nota {
+  grid-column: 1 / -1;
+}
+
+.composer .voz-nota:not([hidden]),
+.composer .productos-nota {
+  margin-top: 6px;
+}
+
+/* Ensayo del 2026-11-26: «Foto» ya no ocupa una fila propia (con la foto adjunta el botón
+   bajaba a su fila y el aviso sumaba 5 líneas: compositor de 525 px a 320×640). El botón va
+   en la fila del texto, la ficha en la fila 2 y el aviso, plegado en una línea, en la 3. */
+.composer .foto:not([hidden]) {
+  display: contents;
+}
+
+.composer .foto-boton {
+  grid-column: 2;
+  grid-row: 1;
+  justify-content: center;
+  min-height: 56px;
+  border-radius: 18px;
+}
+
+.composer .foto-ficha {
   grid-column: 1 / -1;
   grid-row: 2;
   justify-self: start;
+  max-width: 100%;
+  margin-top: 8px;
 }
 
-/* La foto, su aviso y «Suelta la foto aquí» van a lo ancho: son hijos de la rejilla (por el
-   display: contents de arriba) y sin columna caían en una «auto», que crecía hasta el largo
-   del aviso y aplastaba el campo y «Enviar» (Enviar fuera de la pantalla en el teléfono). */
-.composer .voz-estado,
-.composer .voz-nota,
-.composer .productos-nota,
-.composer .foto,
-.composer .foto-aviso,
-.composer .foto-soltar {
+.composer .foto-aviso {
   grid-column: 1 / -1;
-}
-
-/* «Opciones de voz» y «Foto» comparten la fila (una fila menos de compositor, que en el
-   teléfono le dejaba al hilo menos de 100 px). Con la foto adjunta, la ficha va a lo ancho
-   en su propia fila. El menú de voz se abre por encima (posición absoluta): no choca. */
-.composer .foto:not([data-foto-adjunta="1"]) {
-  grid-row: 2;
-  justify-self: end;
+  grid-row: 3;
+  min-width: 0;
+  margin-top: 6px;
 }
 
 /* Pantallas bajas (teléfono en horizontal): logo y pestañas en una fila y sin pie. Con
@@ -1470,7 +1513,6 @@ body:has(> .ancho-chat) {
   }
 
   .cabecera:has(+ .ancho-chat) .pestanas {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
 
@@ -1492,8 +1534,7 @@ body:has(> .ancho-chat) {
 
   .turno-assistant > .productos,
   .turno-assistant > .burbuja,
-  .turno-assistant > .turno-voz,
-  .turno-assistant > .marcas {
+  .turno-assistant > .turno-voz {
     grid-column: 1 / -1;
   }
 
@@ -1505,33 +1546,45 @@ body:has(> .ancho-chat) {
     align-self: center;
   }
 
+  /* Ensayo del 2026-11-26: una fila con el texto, «Foto» (solo el icono) y Enviar; Dictar y
+     las opciones de voz comparten la fila 4. Antes eran tres filas (285 px a 320×640). */
   .chat-cuerpo .composer {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    column-gap: 8px;
     padding: 8px;
   }
 
-  .composer .campo {
-    grid-column: 1 / -1;
-  }
-
-  .chat-cuerpo .composer [data-voz-dictar] {
-    grid-column: 1;
-    grid-row: 2;
+  .composer .foto-boton {
+    min-width: 52px;
+    padding: 0;
   }
 
   .composer button[type="submit"],
   .composer [data-chat-detener] {
-    grid-column: 2;
-    grid-row: 2;
-    width: 100%;
+    grid-column: 3;
+  }
+
+  .chat-cuerpo .composer [data-voz-dictar] {
+    grid-column: 1;
+    grid-row: 4;
+    justify-self: start;
+    margin-top: 6px;
   }
 
   .composer .voz-opciones {
-    grid-row: 3;
+    grid-column: 2 / -1;
+    justify-self: end;
   }
 
-  .composer .foto:not([data-foto-adjunta="1"]) {
-    grid-row: 3;
+  .composer .foto-boton-texto,
+  .composer .voz-opciones-texto {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .cabecera-conversacion .sobrelinea {
@@ -1553,29 +1606,6 @@ body:has(> .ancho-chat) {
   .tema {
     min-height: 64px;
   }
-}
-
-/* Marcas del visitante (spec 038, US4) */
-.marcas {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  margin-top: 0.5rem;
-  font-size: 0.95rem;
-}
-
-.marcas-pregunta {
-  color: var(--color-texto-suave, #555);
-}
-
-.marcas-gracias {
-  color: var(--color-texto-suave, #555);
-}
-
-.marcas button[disabled] {
-  opacity: 0.6;
-  cursor: default;
 }
 
 /* Chat por voz (spec 040, 047). Los controles nacen ocultos y solo se muestran con
@@ -1773,16 +1803,14 @@ html[data-voz-tts="1"] .turno-assistant .turno-voz:not([hidden]) {
   font-weight: 700;
 }
 
-.turno-voz-boton.boton-fantasma,
-.marcas .boton-fantasma {
+.turno-voz-boton.boton-fantasma {
   width: auto;
   border-color: var(--borde);
   background: var(--fondo);
   color: var(--azul);
 }
 
-.turno-voz-boton.boton-fantasma:hover,
-.marcas .boton-fantasma:hover {
+.turno-voz-boton.boton-fantasma:hover {
   border-color: var(--cian);
   background: var(--fondo);
 }
@@ -3018,21 +3046,111 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   font-size: 0.8125rem;
 }
 
-/* Arrastrar una foto sobre la página: el compositor se marca como zona para soltar. */
-form[data-foto-arrastrando] {
-  outline: 2px dashed var(--cian);
-  outline-offset: 6px;
-}
-
+/* Arrastrar una imagen sobre la conversación (ensayo del 2026-11-26): una capa sobre la
+   ventana (fija: el saludo se desplaza y una capa absoluta se iba con él) dice dónde soltarla. No recibe el puntero (los eventos siguen en el
+   documento) y solo aparece con archivos de imagen. */
 .foto-soltar {
-  margin: 8px 0 0;
-  color: var(--azul);
-  font-weight: 600;
-  text-align: center;
+  position: fixed;
+  inset: clamp(8px, 2vw, 20px);
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  border: 3px dashed var(--cian);
+  border-radius: 28px;
+  background: rgb(227 239 255 / 90%);
+  pointer-events: none;
 }
 
 .foto-soltar[hidden] {
   display: none;
+}
+
+.foto-soltar-caja {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  max-width: 22rem;
+  margin: 0;
+  padding: 20px 28px;
+  border-radius: 22px;
+  background: var(--fondo);
+  box-shadow: var(--sombra-alta);
+  color: var(--azul);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.foto-soltar-caja small {
+  color: var(--secundario);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+form[data-foto-arrastrando] {
+  border-color: var(--cian);
+}
+
+/* Aviso del servicio externo en una línea plegable (ensayo del 2026-11-26). */
+.foto-aviso {
+  color: var(--secundario);
+  font-size: 0.8125rem;
+}
+
+.foto-aviso summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding-inline: 4px;
+  border-radius: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.foto-aviso summary::-webkit-details-marker {
+  display: none;
+}
+
+.foto-aviso summary::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 0;
+  border-block: 4px solid transparent;
+  border-left: 6px solid currentColor;
+  transition: transform var(--transicion);
+}
+
+.foto-aviso[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.foto-aviso-resumen {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foto-aviso-mas {
+  flex: none;
+  color: var(--azul);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.foto-aviso[open] .foto-aviso-mas {
+  display: none;
+}
+
+.foto-aviso-detalle {
+  margin: 4px 0 0;
+  padding-inline: 4px;
+  color: var(--tinta);
+  text-wrap: pretty;
 }
 
 /* La foto enviada en la burbuja, como en WhatsApp: imagen arriba y texto debajo. */
@@ -3205,11 +3323,6 @@ form[data-foto-arrastrando] {
   cursor: pointer;
 }
 
-.foto-aviso {
-  margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
-  opacity: 0.85;
-}
 
 /* Sugerencia de la bienvenida para enviar una foto (spec 053, FR-022); la muestra
    chat-photo.js solo con el clasificador disponible. */
@@ -3217,11 +3330,175 @@ form[data-foto-arrastrando] {
   display: none;
 }
 
-/* Por debajo de 360 px «Opciones de voz» y «Foto» no caben juntos: «Foto» vuelve a su propia
-   fila. Va al final para ganarle a la fila 3 del bloque de 560 px. */
-@media (max-width: 359px) {
-  .composer .foto:not([data-foto-adjunta="1"]) {
-    grid-row: auto;
-    justify-self: start;
+/* Envío solo con el icono en los teléfonos angostos: con el texto, el campo quedaba en ~110 px
+   a 320 px de ancho. El nombre «Enviar» sigue en el texto oculto. */
+@media (max-width: 420px) {
+  .composer .enviar-texto {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .composer button[type="submit"] {
+    min-width: 52px;
+    padding: 0;
+  }
+}
+
+/* Pantallas bajas (ensayo del 2026-11-26): a 320×640 el compositor medía 285 px y al historial
+   le quedaban 94 px (40 px con una foto); a 900×500, 193 px, y el chat vacío dejaba el
+   compositor bajo el pliegue. Cabecera del sitio en una fila, cabecera de Carva más baja,
+   campo y botones de 48 px, nota de voz en una línea y saludo sin la ilustración. */
+@media (max-height: 700px) {
+  .ancho-chat {
+    padding-block: 4px;
+  }
+
+  .ancho-chat + .pie {
+    display: none;
+  }
+
+  .cabecera:has(+ .ancho-chat) .cabecera-interior {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    padding: 4px clamp(10px, 3vw, 24px);
+  }
+
+  .cabecera:has(+ .ancho-chat) .marca {
+    min-height: 40px;
+  }
+
+  .cabecera:has(+ .ancho-chat) .marca img {
+    width: clamp(84px, 24vw, 136px);
+  }
+
+  .cabecera:has(+ .ancho-chat) .pestanas {
+    grid-column: auto;
+    gap: 2px;
+  }
+
+  .cabecera:has(+ .ancho-chat) .pestana {
+    min-height: 40px;
+    padding: 4px 8px;
+    font-size: clamp(0.78rem, 3.4vw, 0.95rem);
+  }
+
+  .chat-cuerpo {
+    --hueco-chat: 6px;
+  }
+
+  .cabecera-conversacion {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 0 0 4px;
+  }
+
+  .cabecera-conversacion .carva {
+    width: 34px;
+    height: 34px;
+    padding: 3px;
+    border-radius: 10px;
+  }
+
+  .cabecera-conversacion h1 {
+    font-size: 1.05rem;
+  }
+
+  .cabecera-conversacion .sobrelinea {
+    display: none;
+  }
+
+  .cabecera-acciones {
+    flex-wrap: nowrap;
+  }
+
+  .cabecera-conversacion .boton {
+    min-height: 40px;
+    padding: 0.2rem 0.8rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  html[data-voz="1"]:not([data-voz-escuchando="1"], [data-voz-grabando="1"], [data-voz-manos="1"])
+    .voz-chip {
+    display: none;
+  }
+
+  .composer textarea {
+    min-height: 48px;
+    padding: 10px 14px;
+  }
+
+  .composer button[type="submit"],
+  .composer [data-chat-detener],
+  .composer .foto-boton {
+    min-height: 48px;
+  }
+
+  .composer .productos-nota {
+    display: none;
+  }
+
+  .composer .voz-nota {
+    overflow: hidden;
+    font-size: 0.8rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .composer .foto-ficha {
+    padding: 4px;
+  }
+
+  .composer .foto-miniatura {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+
+  .chat-cuerpo:has(.chat-bienvenida) {
+    gap: 12px;
+    padding-block: 6px;
+  }
+
+  .chat-cuerpo:has(.chat-bienvenida) .composer {
+    padding: 8px;
+  }
+
+  .bienvenida-carva,
+  .bienvenida-estado {
+    display: none;
+  }
+
+  .bienvenida-heroe {
+    gap: 4px;
+  }
+
+  .bienvenida-heroe h2 {
+    font-size: clamp(1.35rem, 1.1rem + 1.4vw, 1.8rem);
+  }
+
+  .bienvenida-texto {
+    font-size: 0.95rem;
+  }
+}
+
+/* El campo crece con su contenido (field-sizing), y vacío también con el texto de ayuda: en
+   los teléfonos angostos «Escribe o dicta tu pregunta» partía en 3 líneas y el campo vacío
+   medía 104 px. Vacío ocupa una línea y la ayuda se corta con puntos suspensivos. */
+@media (max-width: 560px) {
+  .composer textarea:placeholder-shown {
+    max-height: 3.2em;
+    overflow: hidden;
+  }
+
+  .composer textarea::placeholder {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }

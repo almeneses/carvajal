@@ -30,7 +30,6 @@ from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
 from carvajal.application.ask import LLMError
 from carvajal.application.quota import QuotaResult
-from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
 from carvajal.quotation.render import pdf_offer
 
@@ -414,11 +413,6 @@ def _page(
             "conversations": conversations or [],
             "panel_hilos": panel_hilos,
             "hilo_nuevo": hilo_nuevo,
-            "monitoring": getattr(
-                request.app.state,
-                "monitoring",
-                monitoring_status(Settings()).enabled,
-            ),
             # Spec 047: el chat ofrece la voz del servidor; si falla, vuelve a la del navegador.
             "voz_servidor": _voice_available(request),
             "voz_max_segundos": _voice_max_seconds(request),
