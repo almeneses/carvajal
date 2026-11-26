@@ -51,6 +51,7 @@ uv run python scripts/ampliar_catalogo_mx.py    # fichas nuevas de México
 uv run carvajal catalog-prices --country CO     # precios.csv y manifiesto
 uv run python scripts/adaptar_catalogo_mx.py    # copias CO-MX y precios convertidos
 uv run --extra capture python scripts/curar_imagenes_co.py --desde-mx  # sus fotos
+uv run --extra capture python scripts/curar_imagenes_co.py --todas    # fotos de las fichas oficiales de Colombia
 ```
 
 Las cuatro primeras órdenes son idempotentes: con las mismas fuentes producen los mismos archivos.
