@@ -237,6 +237,21 @@ def _remote_city(option: Mapping[str, Any]) -> str:
     return str(option.get("price_city") or "") if option.get("price_origin") else ""
 
 
+def _remote_shipping(draft: QuoteDraft) -> str:
+    """Nota del resumen cuando un precio se publica en otra ciudad (decisión 4: el envío va
+    en el resumen). Ningún dato declara cobertura, así que llevarlo a la ciudad pedida queda
+    por confirmar con el vendedor; ``""`` si todos los precios son de la ciudad.
+    """
+
+    remote = [_remote_city(_map(line.get("primary"))) for line in draft.lines]
+    cities = list(dict.fromkeys(city for city in remote if city))
+    if not cities:
+        return ""
+    origin = " y ".join(cities)
+    target = f" a {draft.city}" if draft.city else ""
+    return f"🚚 Precios publicados en {origin}: el envío{target} se confirma con el vendedor."
+
+
 def _spoken_price_city(lines: Sequence[Mapping[str, Any]]) -> str:
     """Frase hablada que dice en qué otra ciudad se publican los precios; ``""`` si en ninguna.
 
@@ -678,6 +693,9 @@ def summary(draft: QuoteDraft, *, note: str = "") -> Message:
         lines.append(row)
     products = format_money(result.products, result.currency) or "$0"
     lines += ["", f"Productos {products} · {result.tax} · {_shipping_text(draft)}"]
+    remote = _remote_shipping(draft)
+    if remote:
+        lines.append(remote)
     if result.total is not None:
         total = format_money(result.total, result.currency)
         lines.append(f"💰 **Total: {total} {result.currency}**")

@@ -1311,6 +1311,23 @@ def test_una_cantidad_dicha_con_la_eleccion_recotiza_con_ella() -> None:
     assert spy.calls[0]["unit"] is None
 
 
+@pytest.mark.parametrize(
+    ("texto", "ciudad"),
+    [("la 3, en Cali", "Cali"), ("la 2 pero en Medellín", "Medellín"), ("la primera", "Bogotá")],
+)
+def test_la_ciudad_dicha_con_la_eleccion_manda(texto: str, ciudad: str) -> None:
+    # Arrange
+    spy = RequoteSpy()
+
+    # Act
+    decision = before_turn(_choosing(), texto, requote_fn=spy, now=AHORA)
+
+    # Assert: se cotiza en la ciudad que dijo la persona; sin ciudad, la de la solicitud.
+    assert isinstance(decision, Reply)
+    assert spy.calls[0]["base"]["city"] == ciudad
+    assert spy.calls[0]["base"]["request"]["city"] == ciudad
+
+
 @pytest.mark.parametrize("texto", ["sí", "ok", "esa", "dale", "cualquiera", "el C1", "la de pulpa"])
 def test_una_respuesta_que_no_dice_cual_vuelve_a_mostrar_la_lista(texto: str) -> None:
     # Arrange

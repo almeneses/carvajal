@@ -54,7 +54,8 @@ Fuente: `load_dataset("2026-11-26")`, que lee `data/catalog/empaques/precios.csv
 4. Una ciudad sin sedes en el directorio (p. ej. Leticia) no recibe precios de otra.
 5. El envío desde la ciudad del precio nunca se confirma, porque ningún dato declara
    cobertura: queda «por confirmar con el vendedor». Según la decisión 4 de la spec 054, la
-   nota del envío va en el resumen y no en la línea.
+   nota del envío va en el resumen y no en la línea: «🚚 Precios publicados en Bogotá: el
+   envío a Cali se confirma con el vendedor.»
 
 El orden de las opciones es: aptitud para el uso, preferencia renovable, procedencia
 (ciudad, otra ciudad, referencia) y precio. `make eval-cotizador` cambia en dos casos, que

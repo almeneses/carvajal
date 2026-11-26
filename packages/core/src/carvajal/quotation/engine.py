@@ -132,6 +132,7 @@ __all__ = [
     "QuoteRequest",
     "conversion",
     "declared_sizes",
+    "named_city",
     "published_presentations",
     "quote",
     "quote_request",
@@ -391,6 +392,12 @@ def _delivery(questions: list[str]) -> bool | None:
         elif _DELIVERY.search(text):
             requested = True
     return requested
+
+
+def named_city(text: str, dataset: Dataset | None = None) -> str | None:
+    """Ciudad del directorio que nombra el texto («la 3, en Cali» → «Cali»), o ``None``."""
+
+    return _city(text, dataset or load_dataset())
 
 
 def _city(text: str, dataset: Dataset) -> str | None:

@@ -568,6 +568,18 @@ def _on_choice(
     return _added_reply(draft, [line], now)
 
 
+def _named_city(text: str) -> str | None:
+    """Ciudad del directorio que nombra el mensaje, o ``None``."""
+
+    from carvajal.quotation.engine import named_city
+
+    try:
+        return named_city(text)
+    except Exception as error:  # el flujo nunca tumba el turno por leer la ciudad
+        logger.warning("cotizacion.ciudad_no_leida", error_type=type(error).__name__)
+        return None
+
+
 def _on_reference(
     draft: QuoteDraft, text: str, said: str, requote_fn: Requote, now: datetime
 ) -> Reply | Pass | None:
@@ -601,9 +613,12 @@ def _on_reference(
     candidate = draft.choices[found.index]
     sku = str(candidate.get("sku") or "")
     request = dict(draft.choice_request or {})
+    # «La 3, en Cali»: la ciudad dicha con la elección manda sobre la de la solicitud.
+    city = _named_city(text) or request.get("city")
+    request["city"] = city
     base = {
         "request": request,
-        "city": request.get("city"),
+        "city": city,
         "delivery": {"requested": request.get("delivery")},
         "primary": {},
     }

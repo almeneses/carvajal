@@ -467,3 +467,36 @@ def test_una_cotizacion_con_precio_de_la_ciudad_no_cambia_su_rotulo() -> None:
     assert resultado["primary"]["price_origin"] is None
     assert view is not None and view.price_city == "" and view.price_origin == ""
     assert "📍 Bogotá · Vendedor Capital\n" in whatsapp_quote(view)
+
+
+def test_el_resumen_dice_que_el_envio_de_un_precio_de_otra_ciudad_se_confirma() -> None:
+    # Arrange
+    dataset = _dataset(
+        _offer(VASO_9, BOGOTA, "4000"),
+        _offer(VASO_14, CALI, "9000", units=25),
+    )
+    remota = quote_request(
+        QuoteRequest(sku=VASO_9, quantity=100, city="Cali", delivery=False),
+        today=HOY,
+        now=MANANA,
+        dataset=dataset,
+    )
+    local = quote_request(
+        QuoteRequest(sku=VASO_14, quantity=100, city="Cali", delivery=False),
+        today=HOY,
+        now=MANANA,
+        dataset=dataset,
+    )
+    con_remota, _ = add_line(QuoteDraft(), remota)
+    solo_local, _ = add_line(QuoteDraft(), local)
+
+    # Act
+    resumen_remoto = render.summary(con_remota)
+    resumen_local = render.summary(solo_local)
+
+    # Assert: la decisión 4 deja el envío en el resumen; sin cobertura declarada, se confirma.
+    assert (
+        "🚚 Precios publicados en Bogotá: el envío a Cali se confirma con el vendedor."
+        in resumen_remoto.text
+    )
+    assert "🚚" not in resumen_local.text
