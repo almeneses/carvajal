@@ -1,11 +1,13 @@
-"""Observabilidad del shell: logs JSON, ``request_id`` y Sentry.
+"""Observabilidad del shell: logs JSON, ``request_id``, Sentry y contadores del proceso.
 
 El objetivo es poder seguir una petición de principio a fin sin abrir el código:
 cada línea de log lleva el mismo ``request_id`` que devuelve la respuesta, y los
-errores no controlados se envían a Sentry cuando hay ``SENTRY_DSN``.
+errores no controlados se envían a Sentry cuando hay ``SENTRY_DSN``. :func:`claims_block`
+publica los contadores de la compuerta de afirmaciones en ``/health`` (web y MCP).
 """
 
 import re
+import sys
 import time
 import uuid
 from collections.abc import Callable
@@ -24,6 +26,7 @@ __all__ = [
     "RequestContextMiddleware",
     "UnhandledErrorMiddleware",
     "capture_exception",
+    "claims_block",
     "configure_observability",
     "init_sentry",
 ]
@@ -127,6 +130,25 @@ def capture_exception(error: BaseException) -> None:
     import sentry_sdk
 
     sentry_sdk.capture_exception(error)
+
+
+def claims_block(settings: Settings) -> dict[str, Any]:
+    """Bloque ``claims`` de ``/health``: contadores de la compuerta de este proceso.
+
+    Como el bloque ``jev``, nunca construye el runtime del agente: si ya existe, la
+    compuerta está activa solo si atiende el modo ``tools`` con juez de Jev; si no, se
+    deduce de la configuración. Sin red ni texto; no cambia el ``status`` global.
+    """
+
+    # Diferido: ``carvajal.agent`` arrastra el grafo y este módulo se importa al arrancar.
+    from carvajal.agent.gatekeeper.stats import claims_health
+
+    module = sys.modules.get("apps.api.agent_runtime")
+    runtime = getattr(module, "_runtime", None)
+    if runtime is None:
+        return claims_health(settings)
+    tools = getattr(runtime, "mode", None) == "tools"
+    return claims_health(settings, active=tools and getattr(runtime, "judge", None) is not None)
 
 
 def configure_observability(settings: Settings | None = None) -> None:

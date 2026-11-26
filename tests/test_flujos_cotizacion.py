@@ -16,6 +16,7 @@ import pytest
 
 from carvajal.agent.followup import (
     Choice,
+    ReferencePick,
     is_cancel_all,
     is_confirmation,
     is_leaving,
@@ -24,10 +25,12 @@ from carvajal.agent.followup import (
     is_too_expensive,
     names_amount,
     parse_quantities,
+    reference_quantity,
     removes_whole_line,
     resolve_choice,
     resolve_more,
     resolve_quantity_choice,
+    resolve_reference,
     resolve_remove,
     resolve_switch,
     wants_cart,
@@ -38,7 +41,7 @@ from carvajal.agent.followup import (
 from carvajal.numbers import spoken_quantities, words_to_number
 from carvajal.quotation import render
 from carvajal.quotation.draft import QuoteDraft, add_line, draft_quote_payload, line_label, totals
-from carvajal.quotation.flow import Pass, Reply, after_turn, before_turn
+from carvajal.quotation.flow import Pass, Reply, after_turn, before_turn, requote
 from carvajal.speech import normalize_transcript
 
 GUIONES = Path(__file__).resolve().parents[1] / "data" / "eval" / "flujos_cotizacion_054.json"
@@ -1148,3 +1151,540 @@ def test_el_carrito_vacio_con_opciones_pendientes_las_recuerda() -> None:
     assert render.empty_cart().text in decision.message.text
     assert "¿cuál te cotizo?" in decision.message.text
     assert decision.draft.awaiting == "eleccion"
+
+
+# --- Nombre ambiguo: elegir entre las candidatas sin el modelo ------------------------------
+
+CANDIDATAS = (
+    {
+        "sku": "CO-PCOM-C1",
+        "name": "Portacomidas espumado C1 Wau (paca x 200)",
+        "family": "contenedor",
+        "material": "EPS",
+        "capacity_oz": None,
+    },
+    {
+        "sku": "CO-PPUL-C1",
+        "name": "Portacomidas pulpa de caña C1 Bioform",
+        "family": "contenedor",
+        "material": "PULPA",
+        "capacity_oz": None,
+    },
+    {
+        "sku": "CO-PCH-C1",
+        "name": "Caja hamburguesa Bioform C1 de bagazo de caña",
+        "family": "contenedor",
+        "material": "PULPA",
+        "capacity_oz": None,
+    },
+)
+SOLICITUD = {
+    "quantity": 300,
+    "unit": "unidad",
+    "city": "Bogotá",
+    "delivery": None,
+    "use": None,
+    "temperature": None,
+    "microwave": None,
+}
+
+
+class RequoteSpy:
+    """Recotización que registra la llamada y cotiza la referencia pedida por su SKU."""
+
+    def __init__(
+        self,
+        *,
+        alternatives: int = 0,
+        fails: bool = False,
+        candidates: tuple[dict[str, Any], ...] | None = None,
+    ) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.alternatives = alternatives
+        self.fails = fails
+        self.candidates = candidates if candidates is not None else CANDIDATAS
+
+    def __call__(
+        self, base: Mapping[str, Any], *, sku: str | None = None, **kwargs: Any
+    ) -> dict[str, Any] | None:
+        self.calls.append({"base": base, "sku": sku, **kwargs})
+        if self.fails:
+            return None
+        name = next(item["name"] for item in self.candidates if item["sku"] == sku)
+        units = kwargs.get("quantity") or base["request"]["quantity"]
+        spec = {
+            "sku": sku,
+            "nombre": name,
+            "unidades": units,
+            "subtotal": 100 * units,
+            "familia": "contenedor",
+            "alternativas": self.alternatives,
+        }
+        return make_quote(spec, city=str(base.get("city")))
+
+
+def _choosing(**changes: Any) -> QuoteDraft:
+    """Borrador tras «Cotízame 300 C1 en Bogotá»: tres candidatas esperando respuesta."""
+
+    outcome = after_turn(
+        QuoteDraft(),
+        [],
+        "Cotízame 300 C1 en Bogotá",
+        now=AHORA,
+        choice={"candidates": [dict(item) for item in CANDIDATAS], "request": dict(SOLICITUD)},
+    )
+    return outcome.draft.touch(AHORA, **changes) if changes else outcome.draft
+
+
+def test_las_candidatas_de_un_nombre_ambiguo_quedan_esperando_la_eleccion() -> None:
+    # Act
+    draft = _choosing()
+
+    # Assert: sin mensaje propio (el agente ya listó las candidatas) y con la solicitud.
+    assert draft.awaiting == "referencia"
+    assert [item["sku"] for item in draft.choices] == [item["sku"] for item in CANDIDATAS]
+    assert draft.choice_request == SOLICITUD
+    assert draft.active
+
+
+@pytest.mark.parametrize(
+    ("texto", "sku"),
+    [
+        ("la primera", "CO-PCOM-C1"),
+        ("la 2", "CO-PPUL-C1"),
+        ("2", "CO-PPUL-C1"),
+        ("3", "CO-PCH-C1"),
+        ("dame la tercera", "CO-PCH-C1"),
+        ("CO-PPUL-C1", "CO-PPUL-C1"),
+        ("la co-pch-c1 por favor", "CO-PCH-C1"),
+        ("el de icopor", "CO-PCOM-C1"),
+        ("el Wau", "CO-PCOM-C1"),
+        ("la caja hamburguesa", "CO-PCH-C1"),
+    ],
+)
+def test_elegir_una_candidata_la_cotiza_con_su_sku_sin_el_modelo(texto: str, sku: str) -> None:
+    # Arrange
+    spy = RequoteSpy()
+
+    # Act
+    decision = before_turn(_choosing(), texto, requote_fn=spy, now=AHORA)
+
+    # Assert: el motor cotiza esa referencia con la cantidad, la unidad y la ciudad pedidas.
+    assert isinstance(decision, Reply)
+    [call] = spy.calls
+    assert call["sku"] == sku
+    assert call["quantity"] is None
+    assert call["base"]["request"]["unit"] == "unidad"
+    assert call["base"]["city"] == "Bogotá"
+    assert decision.draft.awaiting == "algo_mas"
+    assert decision.draft.choices == ()
+    assert decision.draft.choice_request is None
+    assert [line["primary"]["sku"] for line in decision.draft.lines] == [sku]
+    assert "✅ Agregué" in decision.message.text
+    assert "¿Algo más para tu cotización?" in decision.message.text
+
+
+def test_la_candidata_elegida_con_alternativas_muestra_las_opciones() -> None:
+    # Arrange: el mismo camino que una cotización del agente con alternativas.
+    spy = RequoteSpy(alternatives=2)
+
+    # Act
+    decision = before_turn(_choosing(), "la 1", requote_fn=spy, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.awaiting == "eleccion"
+    assert decision.draft.lines == ()
+    assert decision.message.text.startswith("🔎 **Opciones")
+
+
+def test_una_cantidad_dicha_con_la_eleccion_recotiza_con_ella() -> None:
+    # Arrange
+    spy = RequoteSpy()
+
+    # Act
+    decision = before_turn(_choosing(), "la 2, son 500", requote_fn=spy, now=AHORA)
+
+    # Assert: 500 es la cantidad (en unidades); el 2 es la posición.
+    assert isinstance(decision, Reply)
+    assert spy.calls[0]["quantity"] == 500
+    assert spy.calls[0]["unit"] is None
+
+
+@pytest.mark.parametrize(
+    ("texto", "ciudad"),
+    [("la 3, en Cali", "Cali"), ("la 2 pero en Medellín", "Medellín"), ("la primera", "Bogotá")],
+)
+def test_la_ciudad_dicha_con_la_eleccion_manda(texto: str, ciudad: str) -> None:
+    # Arrange
+    spy = RequoteSpy()
+
+    # Act
+    decision = before_turn(_choosing(), texto, requote_fn=spy, now=AHORA)
+
+    # Assert: se cotiza en la ciudad que dijo la persona; sin ciudad, la de la solicitud.
+    assert isinstance(decision, Reply)
+    assert spy.calls[0]["base"]["city"] == ciudad
+    assert spy.calls[0]["base"]["request"]["city"] == ciudad
+
+
+@pytest.mark.parametrize("texto", ["sí", "ok", "esa", "dale", "cualquiera", "el C1", "la de pulpa"])
+def test_una_respuesta_que_no_dice_cual_vuelve_a_mostrar_la_lista(texto: str) -> None:
+    # Arrange
+    spy = RequoteSpy()
+    draft = _choosing()
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=spy, judge=FakeJudge("confirmar"), now=AHORA)
+
+    # Assert: ninguna se cotiza; la lista vuelve numerada y el estado sigue.
+    assert isinstance(decision, Reply)
+    assert spy.calls == []
+    assert decision.draft.awaiting == "referencia"
+    assert decision.draft.choices == draft.choices
+    text = decision.message.text
+    assert "1. Portacomidas espumado C1 Wau (paca x 200) (SKU CO-PCOM-C1)" in text
+    assert "3. Caja hamburguesa Bioform C1 de bagazo de caña (SKU CO-PCH-C1)" in text
+    assert "¿Cuál te cotizo?" in text
+
+
+def test_un_numero_fuera_de_la_lista_lo_dice_y_no_elige() -> None:
+    # Arrange
+    spy = RequoteSpy()
+
+    # Act
+    decision = before_turn(_choosing(), "la 5", requote_fn=spy, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert spy.calls == []
+    assert "No tengo la opción 5" in decision.message.text
+    assert "**1 al 3**" in decision.message.text
+    assert decision.draft.awaiting == "referencia"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["¿cuál es más barato?", "mejor cotízame 100 vasos", "¿quién fundó Carvajal?", "300"],
+)
+def test_algo_que_no_es_una_eleccion_sale_del_estado_y_va_al_agente(texto: str) -> None:
+    # Arrange
+    spy = RequoteSpy()
+    judge = FakeJudge("confirmar")
+
+    # Act
+    decision = before_turn(_choosing(), texto, requote_fn=spy, judge=judge, now=AHORA)
+
+    # Assert: sin Jev (las reglas deciden ante la lista) y sin la lista en el borrador.
+    assert isinstance(decision, Pass)
+    assert decision.prompt is None
+    assert spy.calls == []
+    assert judge.calls == []
+    assert decision.draft.awaiting is None
+    assert decision.draft.choices == ()
+    assert decision.draft.choice_request is None
+
+
+def test_si_el_motor_no_cotiza_la_elegida_el_agente_la_cotiza_con_su_sku() -> None:
+    # Arrange: p. ej., faltaba la cantidad y el motor la pide.
+    spy = RequoteSpy(fails=True)
+
+    # Act
+    decision = before_turn(_choosing(), "la 2", requote_fn=spy, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Pass)
+    assert decision.prompt == (
+        "la 2\n\n(Elegí Portacomidas pulpa de caña C1 Bioform, ref. CO-PPUL-C1. "
+        "Cotízala con ese sku.)"
+    )
+    assert decision.draft.awaiting is None
+    assert decision.draft.choices == ()
+
+
+def test_eso_es_todo_ante_la_lista_con_carrito_va_al_resumen() -> None:
+    # Arrange
+    draft = _choosing(lines=_cart().lines)
+
+    # Act
+    decision = before_turn(draft, "eso es todo", requote_fn=RequoteSpy(), now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.awaiting == "confirmar"
+    assert decision.draft.choices == ()
+    assert decision.message.text.startswith("🧾")
+
+
+def test_con_una_sola_candidata_un_si_la_elige() -> None:
+    # Arrange: coincidencia parcial con una sola referencia.
+    draft = _choosing(choices=(dict(CANDIDATAS[1]),))
+    spy = RequoteSpy()
+
+    # Act
+    decision = before_turn(draft, "sí", requote_fn=spy, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert spy.calls[0]["sku"] == "CO-PPUL-C1"
+
+
+def test_un_borrador_viejo_sin_candidatas_se_lee_y_no_elige_nada() -> None:
+    # Arrange: el JSON guardado antes de este cambio no trae ``choices`` ni ``choice_request``.
+    old = _cart().to_json()
+    old.pop("choices")
+    old.pop("choice_request")
+    draft = QuoteDraft.from_json(old)
+
+    # Act
+    decision = before_turn(draft, "la 2", requote_fn=RequoteSpy(), now=AHORA)
+
+    # Assert
+    assert draft.choices == ()
+    assert draft.choice_request is None
+    assert not (isinstance(decision, Reply) and decision.draft.choices)
+
+
+def test_un_borrador_esperando_referencia_sin_candidatas_va_al_agente() -> None:
+    # Arrange: estado incoherente (p. ej. editado a mano): sin lista no se elige nada.
+    draft = QuoteDraft(awaiting="referencia")
+
+    # Act
+    decision = before_turn(draft, "la 2", requote_fn=RequoteSpy(), now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Pass)
+    assert decision.draft.awaiting is None
+
+
+def test_las_candidatas_sobreviven_a_la_serializacion() -> None:
+    # Arrange
+    draft = _choosing()
+
+    # Act
+    loaded = QuoteDraft.from_json(json.loads(json.dumps(draft.to_json())))
+
+    # Assert
+    assert loaded == draft
+
+
+def test_una_cotizacion_del_agente_limpia_la_lista_pendiente() -> None:
+    # Arrange: tras la lista, el agente cotizó (la persona dio el SKU en otra frase).
+    quote = make_quote(
+        {"sku": "CO-PPUL-C1", "nombre": "Portacomidas pulpa", "unidades": 300, "subtotal": 30000}
+    )
+
+    # Act
+    outcome = after_turn(_choosing(), [quote], "el de pulpa de caña de Bioform", now=AHORA)
+
+    # Assert
+    assert outcome.draft.awaiting == "algo_mas"
+    assert outcome.draft.choices == ()
+
+
+def test_el_recordatorio_de_la_lista_pide_el_numero() -> None:
+    # Act
+    message = render.reminder(_choosing())
+
+    # Assert
+    assert message is not None
+    assert "¿Cuál de las referencias te cotizo?" in message.text
+
+
+# --- Nombre ambiguo: revisión (cantidades, medidas, negaciones y el carrito en espera) ------
+
+VASOS = (
+    {
+        "sku": "CO-MX-2864112370",
+        "name": "Vasos térmicos 12 oz - Caja con 1000 pzs",
+        "family": "vaso",
+        "material": "EPS",
+    },
+    {
+        "sku": "CO-MX-2864112631",
+        "name": "Vasos térmicos 12 oz 90mm - Caja con 1000 pzs",
+        "family": "vaso",
+        "material": "EPS",
+    },
+    {
+        "sku": "CO-MX-2864513236",
+        "name": "Vasos de plástico 12 oz PET - Caja con 800 pzs",
+        "family": "vaso",
+        "material": "PET",
+    },
+)
+# «vaso Wau»: el motor lista 5 de 17; ninguna de las listadas es de 12 oz.
+WAU = tuple(
+    {"sku": f"CO-VTER-{oz:02d}", "name": f"Vaso térmico {oz} oz Wau", "family": "vaso"}
+    for oz in (4, 6, 8, 10, 9)
+)
+
+
+def _choosing_from(candidates: tuple[dict[str, Any], ...], draft: QuoteDraft) -> QuoteDraft:
+    choice = {"candidates": [dict(item) for item in candidates], "request": dict(SOLICITUD)}
+    return after_turn(draft, [], "cotízame 300", now=AHORA, choice=choice).draft
+
+
+@pytest.mark.parametrize("texto", ["800", "mejor 200", "200", "dame 2 pacas", "son 1000"])
+def test_una_cantidad_suelta_no_elige_aunque_la_cifra_este_en_un_nombre(texto: str) -> None:
+    # Arrange: «Caja con 800 pzs» y «(paca x 200)» están en los nombres.
+    spy = RequoteSpy(candidates=VASOS + CANDIDATAS)
+    draft = _choosing_from(VASOS + CANDIDATAS, QuoteDraft())
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=spy, now=AHORA)
+
+    # Assert: no es una elección; va al agente con el texto tal cual.
+    assert isinstance(decision, Pass)
+    assert spy.calls == []
+    assert decision.draft.choices == ()
+
+
+@pytest.mark.parametrize(
+    ("texto", "sku", "cantidad", "unidad"),
+    [
+        ("el de 90mm", "CO-MX-2864112631", None, None),
+        ("el de 90 mm", "CO-MX-2864112631", None, None),
+        ("la 2, 1000 unidades", "CO-MX-2864112631", 1000, "unidad"),
+        ("la 3, 800", "CO-MX-2864513236", 800, None),
+        ("la 1, 2 cajas", "CO-MX-2864112370", 2, "caja"),
+        ("la 3, 3 cajas", "CO-MX-2864513236", 3, "caja"),
+        ("el de plástico, son 500", "CO-MX-2864513236", 500, None),
+    ],
+)
+def test_la_cantidad_y_su_unidad_con_la_eleccion_no_se_confunden_con_el_nombre(
+    texto: str, sku: str, cantidad: int | None, unidad: str | None
+) -> None:
+    # Arrange
+    spy = RequoteSpy(candidates=VASOS)
+
+    # Act
+    decision = before_turn(_choosing_from(VASOS, QuoteDraft()), texto, requote_fn=spy, now=AHORA)
+
+    # Assert: la cifra del nombre («90mm», «1000 pzs») no es la cantidad; la dicha, sí.
+    assert isinstance(decision, Reply)
+    [call] = spy.calls
+    assert (call["sku"], call["quantity"], call["unit"]) == (sku, cantidad, unidad)
+
+
+def test_reference_quantity_ignora_la_posicion_el_sku_y_las_medidas() -> None:
+    # Act / Assert
+    assert reference_quantity("la 2, son 300", VASOS[1], 2) == (300, None)
+    assert reference_quantity("CO-MX-2864112631 x 2 pacas", VASOS[1], 2) == (2, "paca")
+    assert reference_quantity("el de 12 oz", VASOS[0], 1) == (None, None)
+    assert reference_quantity("la tercera", VASOS[2], 3) == (None, None)
+
+
+def test_requote_cotiza_la_cantidad_nueva_en_la_unidad_dicha(monkeypatch: Any) -> None:
+    # Arrange: el motor recibe la unidad de la cantidad nueva; sin ella, unidades sueltas.
+    seen: list[Any] = []
+
+    def fake_quote_request(request: Any, **_: Any) -> None:
+        seen.append(request)
+
+    monkeypatch.setattr("carvajal.quotation.engine.quote_request", fake_quote_request)
+    base = {"request": {"quantity": 300, "unit": "paca"}, "city": "Bogotá", "primary": {}}
+
+    # Act
+    requote(base, sku="X", quantity=2, unit="caja")
+    requote(base, sku="X", quantity=500)
+    requote(base, sku="X")
+
+    # Assert
+    assert [(item.quantity, item.unit) for item in seen] == [
+        (2, "caja"),
+        (500, None),
+        (300, "paca"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "texto", ["quiero el vaso Wau de 12 oz", "el de 12 oz", "el de 12", "la de 12 onzas"]
+)
+def test_una_medida_que_no_esta_en_la_lista_va_al_agente_para_afinar(texto: str) -> None:
+    # Arrange: el motor listó solo 5 de 17; la de 12 oz existe pero no se listó.
+    spy = RequoteSpy(candidates=WAU)
+
+    # Act
+    decision = before_turn(_choosing_from(WAU, QuoteDraft()), texto, requote_fn=spy, now=AHORA)
+
+    # Assert: ni se elige ni se repite la misma lista (sin bucle): el agente busca de nuevo.
+    assert isinstance(decision, Pass)
+    assert spy.calls == []
+    assert decision.draft.awaiting is None
+
+
+def test_una_medida_de_la_lista_la_elige() -> None:
+    # Act
+    found = resolve_reference("el de 9 oz", WAU)
+
+    # Assert
+    assert isinstance(found, ReferencePick)
+    assert WAU[found.index]["sku"] == "CO-VTER-09"
+
+
+@pytest.mark.parametrize(
+    "texto", ["la 1 no me sirve", "la primera no, la segunda", "la 1 y la 2", "1 o 2"]
+)
+def test_una_negacion_o_varias_posiciones_no_agregan_nada(texto: str) -> None:
+    # Arrange
+    spy = RequoteSpy()
+
+    # Act
+    decision = before_turn(_choosing(), texto, requote_fn=spy, now=AHORA)
+
+    # Assert: no se cotiza ninguna; lo atiende el agente.
+    assert isinstance(decision, Pass)
+    assert spy.calls == []
+    assert decision.draft.lines == ()
+
+
+def test_con_algo_mas_pendiente_la_lista_no_borra_la_pregunta_del_carrito() -> None:
+    # Arrange: «¿Algo más?» pendiente; otro producto con nombre ambiguo y luego una pregunta.
+    cart = _cart().touch(AHORA, awaiting="algo_mas", state="carrito")
+    listed = _choosing_from(CANDIDATAS, cart)
+    asked = before_turn(listed, "¿de qué material es el de bioform?", now=AHORA)
+    assert isinstance(asked, Pass)
+    after = after_turn(asked.draft, [], "¿de qué material es el de bioform?", now=AHORA).draft
+
+    # Act
+    decision = before_turn(after, "eso es todo", requote_fn=RequoteSpy(), now=AHORA)
+
+    # Assert: vuelve «¿Algo más?» y «eso es todo» lleva al resumen, como sin la lista.
+    assert asked.draft.awaiting == "algo_mas"
+    assert asked.draft.resume_awaiting is None
+    assert isinstance(decision, Reply)
+    assert decision.message.text.startswith("🧾")
+    assert decision.draft.awaiting == "confirmar"
+
+
+def test_con_la_confirmacion_pendiente_un_si_tras_salir_de_la_lista_registra() -> None:
+    # Arrange
+    summary = _cart().touch(AHORA, awaiting="confirmar", state="resumen")
+    listed = _choosing_from(CANDIDATAS, summary)
+    asked = before_turn(listed, "¿cuál es más barato?", now=AHORA)
+    assert isinstance(asked, Pass)
+    after = after_turn(asked.draft, [], "¿cuál es más barato?", now=AHORA).draft
+
+    # Act
+    decision = before_turn(after, "sí", requote_fn=RequoteSpy(), now=AHORA)
+
+    # Assert
+    assert listed.awaiting == "referencia"
+    assert listed.resume_awaiting == "confirmar"
+    assert isinstance(decision, Reply)
+    assert decision.register
+
+
+def test_quitar_una_linea_ante_la_lista_descarta_las_candidatas() -> None:
+    # Arrange
+    draft = _choosing(lines=_cart().lines)
+
+    # Act
+    decision = before_turn(draft, "quita la 2", requote_fn=RequoteSpy(), now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.awaiting == "algo_mas"
+    assert decision.draft.choices == ()
+    assert decision.draft.choice_request is None

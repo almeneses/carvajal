@@ -19,6 +19,9 @@ con reglas, porque de ellas depende qué se cotiza y si una cotización se regis
   :func:`removes_whole_line` (el pedido quita una línea entera, no algo de ella) y los
   detectores de salida, retomar, cancelar todo, «está caro» y el rechazo con insulto
   (:func:`is_price_insult`).
+- :func:`resolve_reference` elige entre las referencias de un nombre ambiguo («la 2», el
+  SKU, «el Gold»); «sí» o «esa» no eligen ninguna y se vuelve a preguntar.
+  :func:`reference_quantity` saca la cantidad (y su unidad) dicha junto a esa elección.
 
 Todas trabajan sobre texto: una nota de voz llega ya transcrita. Ante la duda devuelven
 ``None`` y el turno sigue el camino normal (o pasa por Jev, ver ``carvajal.quotation.flow``).
@@ -26,8 +29,9 @@ Todas trabajan sobre texto: una nota de voz llega ya transcrita. Ante la duda de
 
 import re
 import unicodedata
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from carvajal.numbers import word_numbers as _word_numbers
 from carvajal.numbers import words_to_number
@@ -36,6 +40,8 @@ __all__ = [
     "Choice",
     "ChoiceOutOfRange",
     "MoreAnswer",
+    "ReferenceAnswer",
+    "ReferencePick",
     "SwitchAnswer",
     "is_cancel_all",
     "is_confirmation",
@@ -46,10 +52,12 @@ __all__ = [
     "names_amount",
     "parse_quantities",
     "plain",
+    "reference_quantity",
     "removes_whole_line",
     "resolve_choice",
     "resolve_more",
     "resolve_quantity_choice",
+    "resolve_reference",
     "resolve_remove",
     "resolve_switch",
     "strip_assent",
@@ -624,3 +632,272 @@ def is_price_insult(text: str) -> bool:
 
     folded = plain(text)
     return bool(_EXPENSIVE.search(folded) and _INSULT.search(folded))
+
+
+# --- Elegir entre las referencias de un nombre ambiguo ------------------------------------------
+
+
+@dataclass(frozen=True)
+class ReferencePick:
+    """Candidata elegida: su posición (desde 0) en la lista que se mostró."""
+
+    index: int
+
+
+ReferenceAnswer = ReferencePick | ChoiceOutOfRange | Literal["ask"]
+
+# Palabras que acompañan una elección sin decir cuál: no cuentan a favor ni en contra.
+_PICK_FILLER: Final = frozenset(
+    {
+        "el", "la", "lo", "los", "las", "de", "del", "que", "me", "mi", "y", "en", "para",
+        "con", "por", "a", "un", "una", "uno", "unos", "unas", "ese", "esa", "eso", "este",
+        "esta", "si", "ok", "okay", "bueno", "listo", "dale", "pues", "entonces", "mejor",
+        "porfa", "favor", "gracias", "quiero", "quisiera", "necesito", "dame", "deme",
+        "cotiza", "cotizame", "cotizala", "cotizalo", "prefiero", "elijo", "escojo",
+        "selecciono", "tomo", "vamos", "voy", "quedo", "llevo", "seria", "sera", "sirve",
+        "gusta", "interesa", "referencia", "producto", "opcion", "numero", "son", "serian",
+        "mil", "unidades", "und", "unidad", "cajas", "caja", "paquetes", "paquete", "pacas",
+        "paca",
+    }
+)  # fmt: skip
+# Respuestas que hablan de la lista sin escoger: se vuelve a preguntar, no se elige.
+_PICK_VAGUE: Final = re.compile(
+    r"^(?:(?:si|ok|bueno|listo|dale|pues)\s+)*(?:cualquier\w*|(?:la|el)\s+que\s+sea|"
+    r"(?:la|el)\s+que\s+(?:tu\s+)?(?:digas|quieras|elijas|recomiendes)|"
+    r"(?:elige|escoge)(?:la)?\s+tu|tu\s+(?:elige|escoge|decide)\w*|no\s+se|me\s+da\s+igual)$"
+)
+# Palabras que el material o la familia de una candidata vuelven distintivas («la de icopor»).
+_MATERIAL_WORDS: Final = {
+    "eps": ("eps", "icopor", "espumado", "foam"),
+    "pulpa": ("pulpa", "cana", "bagazo"),
+    "pp": ("pp", "polipropileno", "plastico"),
+    "pet": ("pet", "rpet", "plastico"),
+    "ps": ("ps", "poliestireno", "plastico"),
+    "papel": ("papel", "carton"),
+    "carton": ("carton", "papel"),
+}
+_FAMILY_WORDS: Final = {
+    "contenedor": ("contenedor", "portacomidas"),
+    "charola": ("charola", "bandeja"),
+}
+_NAME_STOP: Final = frozenset({"de", "del", "la", "el", "para", "con", "x", "y", "en"})
+_UNIT_ALIASES: Final = {"onzas": "oz", "onza": "oz"}
+# Una cifra pegada o seguida de una medida nombra la referencia («14 oz», «90mm»).
+_MEASURES: Final = frozenset(
+    {
+        "oz", "onza", "onzas", "ml", "cc", "mm", "cm", "cms", "g", "gr", "grs", "gramos",
+        "kg", "l", "lt", "lts", "litro", "litros", "pulgadas",
+    }
+)  # fmt: skip
+_GLUED_MEASURE: Final = re.compile(
+    r"^(\d+)(oz|onzas?|ml|cc|mm|cms?|gr?s?|gramos|kg|lts?|l|litros?|pulgadas)$"
+)
+# Una cifra seguida de una unidad de compra es una cantidad («2 cajas», «300 unidades»).
+_COUNT_UNITS: Final = {
+    "unidad": "unidad", "unidades": "unidad", "und": "unidad", "unds": "unidad",
+    "uds": "unidad", "caja": "caja", "cajas": "caja", "paquete": "paquete",
+    "paquetes": "paquete", "paca": "paca", "pacas": "paca",
+}  # fmt: skip
+# Tras «de», «el» o «la» una cifra nombra la referencia («el de 9», «la 2»), no una cantidad.
+_NAME_NUMBER_BEFORE: Final = frozenset({"de", "el", "la"})
+# Lo que puede ir antes de una posición cuando se nombran varias («la 1 y la 2», «1 o 2»).
+_POSITION_BEFORE: Final = frozenset({"la", "el", "y", "o", "u", "e", "opcion", "numero", "#"})
+# Una negación ante la lista no elige: «la 1 no me sirve», «la primera no, la segunda».
+_REFERENCE_NO: Final = re.compile(r"\b(?:no|nop|ninguna|ninguno|tampoco)\b")
+
+
+def _words(text: str) -> list[str]:
+    """Palabras de ``text`` sin tildes, con la medida pegada aparte: «90mm» → «90», «mm»."""
+
+    words: list[str] = []
+    for word in plain(text).split():
+        glued = _GLUED_MEASURE.match(word)
+        words.extend(glued.groups() if glued else (word,))
+    return words
+
+
+def _is_amount(word: str) -> bool:
+    return word.isdigit() or word == "mil" or bool(words_to_number(word))
+
+
+def _name_numbers(words: Sequence[str]) -> set[int]:
+    """Posiciones de las cifras que nombran una medida o una posición, no una cantidad.
+
+    «de 14 oz», «90mm», «el de 9» y «la 2» nombran; «300», «son 500» o «2 cajas» son
+    cantidades.
+    """
+
+    found: set[int] = set()
+    for index, word in enumerate(words):
+        if not word.isdigit():
+            continue
+        after = words[index + 1] if index + 1 < len(words) else ""
+        before = words[index - 1] if index else ""
+        if after in _COUNT_UNITS or after == "mil":
+            continue
+        if after in _MEASURES or before in _NAME_NUMBER_BEFORE:
+            found.add(index)
+    return found
+
+
+def _several_positions(words: Sequence[str]) -> bool:
+    """El mensaje nombra más de una posición («la 1 y la 2», «la primera o la segunda»)."""
+
+    seen: set[int] = set()
+    for index, word in enumerate(words):
+        if word not in _NUMBERS:
+            continue
+        before = words[index - 1] if index else ""
+        after = words[index + 1] if index + 1 < len(words) else ""
+        if index and before not in _POSITION_BEFORE:
+            continue
+        if after in _COUNT_UNITS or after in _MEASURES or after == "mil":
+            continue
+        seen.add(_NUMBERS[word])
+    return len(seen) > 1
+
+
+def _candidate_words(candidate: Mapping[str, Any]) -> set[str]:
+    words = set(_words(str(candidate.get("name") or "")))
+    material = plain(str(candidate.get("material") or ""))
+    words.update(_MATERIAL_WORDS.get(material, (material,) if material else ()))
+    family = plain(str(candidate.get("family") or ""))
+    words.update(_FAMILY_WORDS.get(family, (family,) if family else ()))
+    return words - _NAME_STOP
+
+
+def _stem(word: str, known: set[str]) -> str:
+    """«vasos» → «vaso» si así aparece en los nombres; si no, la palabra tal cual."""
+
+    if word not in known and len(word) > 3 and word.endswith("s") and word[:-1] in known:
+        return word[:-1]
+    return word
+
+
+def _by_name(text: str, candidates: Sequence[Mapping[str, Any]]) -> ReferenceAnswer | None:
+    """Candidata que nombra un fragmento distintivo de su nombre («el Gold», «la de 14 oz»).
+
+    Distintiva es una palabra que tienen unas candidatas y otras no. Cada palabra del mensaje
+    debe ser de algún nombre (o de relleno, o una cantidad): «mejor platos» no habla de la
+    lista y devuelve ``None``, como una medida que ninguna tiene («el de 12 oz» entre vasos
+    de 4 a 10 oz: el motor listó solo unas). Una cantidad («800», «2 pacas») no nombra
+    aunque la cifra o la unidad estén en un nombre («Caja con 800 pzs», «paca x 200»). Si
+    gana una sola candidata, esa; si empatan o el mensaje solo usa palabras que comparten
+    todas («el C1»), ``"ask"``.
+    """
+
+    sets = [_candidate_words(item) for item in candidates]
+    known = set().union(*sets)
+    words = [_stem(_UNIT_ALIASES.get(word, word), known) for word in _words(text)]
+    names_at = _name_numbers(words)
+    named: list[str] = []
+    for index, word in enumerate(words):
+        if word.isdigit():
+            if index not in names_at:
+                continue  # una cantidad («300», «son 500») no elige
+            if word not in known:
+                return None  # «el de 12 oz» y ninguna listada lo es: otra búsqueda
+            named.append(word)
+            continue
+        previous = words[index - 1] if index else ""
+        if word in _COUNT_UNITS and _is_amount(previous) and index - 1 not in names_at:
+            continue  # «2 pacas»: la unidad de la cantidad, no la «paca x 200» del nombre
+        if word in known:
+            named.append(word)
+            continue
+        if word in _PICK_FILLER:
+            continue
+        return None  # otra palabra: no es una elección entre las candidatas
+    if not named:
+        return None
+    distinctive = {word for word in named if 0 < sum(word in item for item in sets) < len(sets)}
+    scores = [len(distinctive & item) for item in sets]
+    best = max(scores)
+    if best == 0 or scores.count(best) > 1:
+        return "ask"
+    return ReferencePick(scores.index(best))
+
+
+def resolve_reference(text: str, candidates: Sequence[Mapping[str, Any]]) -> ReferenceAnswer | None:
+    """Respuesta a «¿Cuál quieres?» con las referencias de un nombre ambiguo, en orden.
+
+    Elige una candidata (:class:`ReferencePick`) por su SKU, su posición («la primera», «la
+    2», «3») o un fragmento distintivo de su nombre («el Gold», «la de icopor»). Devuelve
+    ``"ask"`` si la respuesta habla de la lista sin escoger una («sí», «ok», «esa»,
+    «cualquiera», un fragmento que comparten varias), :class:`ChoiceOutOfRange` si nombra
+    una posición que no existe y ``None`` si no es una elección (una pregunta, otro producto,
+    solo una cantidad, una negación o varias posiciones a la vez), que sigue al agente.
+    """
+
+    if "?" in text or not candidates:
+        return None
+    folded = plain(text)
+    if not folded:
+        return None
+    if _PICK_VAGUE.match(folded):
+        return "ask"  # «no sé», «cualquiera»: no dice cuál
+    if _REFERENCE_NO.search(folded) or _several_positions(_words(text)):
+        return None  # «la 1 no me sirve», «la 1 y la 2»: lo atiende el agente
+    tokens = set(folded.split())
+    by_sku = [
+        index
+        for index, item in enumerate(candidates)
+        if plain(str(item.get("sku") or "")) in tokens
+    ]
+    if len(by_sku) == 1:
+        return ReferencePick(by_sku[0])
+    position = resolve_choice(text, len(candidates))
+    if isinstance(position, Choice) and position.index >= 1:
+        return ReferencePick(position.index - 1)
+    named = _by_name(text, candidates)
+    if isinstance(position, ChoiceOutOfRange):
+        # «el 9» entre vasos de 9, 12 y 14 oz es el de 9 oz, no la opción 9.
+        return named if isinstance(named, ReferencePick) else position
+    if isinstance(named, ReferencePick):
+        return named
+    if position == Choice(0) or is_confirmation(text) or _PICK_VAGUE.match(folded):
+        return "ask"  # «esa», «sí», «cualquiera»: no dice cuál
+    return named
+
+
+def reference_quantity(
+    text: str, candidate: Mapping[str, Any], position: int
+) -> tuple[int | None, str | None]:
+    """Cantidad y unidad de compra dichas junto a la elección de una referencia.
+
+    «La 2, son 500» → ``(500, None)``; «la 3, 2 cajas» → ``(2, "caja")``. No cuentan la
+    posición (``position``, desde 1), el SKU de ``candidate`` ni las cifras que nombran una
+    medida («el de 14 oz», «el de 90mm»). Sin cantidad devuelve ``(None, None)``: se cotiza
+    con la de la solicitud.
+    """
+
+    sku = plain(str(candidate.get("sku") or ""))
+    words = _words(text)
+    names_at = _name_numbers(words)
+    kept: list[str] = []
+    dropped_position = False
+    for index, word in enumerate(words):
+        if index in names_at or (sku and word == sku):
+            continue
+        after = words[index + 1] if index + 1 < len(words) else ""
+        if (
+            not dropped_position
+            and _NUMBERS.get(word) == position
+            and after not in _COUNT_UNITS
+            and after != "mil"
+        ):
+            dropped_position = True  # «2, son 300»: el 2 es la posición
+            continue
+        kept.append(word)
+    quantities = parse_quantities(" ".join(kept))
+    if not quantities:
+        return None, None
+    unit = next(
+        (
+            _COUNT_UNITS[word]
+            for index, word in enumerate(kept)
+            if word in _COUNT_UNITS and index and _is_amount(kept[index - 1])
+        ),
+        None,
+    )
+    return quantities[0], unit

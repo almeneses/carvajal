@@ -20,9 +20,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.capture_jobs import CaptureJobs
+from apps.api.https_redirect import HttpsRedirectMiddleware, public_origin
 from apps.api.observability import (
     RequestContextMiddleware,
     UnhandledErrorMiddleware,
+    claims_block,
     configure_observability,
 )
 from apps.api.runtime import APP_DIR, session_factory, templates
@@ -289,6 +291,11 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
+    # Dentro del contexto de la petición para que el 307 quede en el log de acceso.
+    origin = public_origin(settings.public_base_url) if settings.https_redirect else None
+    if origin is not None:
+        app.add_middleware(HttpsRedirectMiddleware, origin=origin)
+        logger.info("https_redirect.enabled", public_host=origin.hostname)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityMiddleware)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
@@ -332,6 +339,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "monitoring": monitoring_status(settings).as_health(),
                     "agent": agent_mode_status(settings).as_health(),
                     "jev": _jev_block(settings),
+                    "claims": claims_block(settings),
                     "voice": _voice_block(app, settings, request),
                     "food_photo": _photo_block(app, settings),
                 },
@@ -356,6 +364,9 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 # Spec 046 (FR-024): Jev sin llamar a TypeSafe; no cambia el estado global
                 # porque el asistente atiende igual sin Jev.
                 "jev": _jev_block(settings),
+                # Compuerta de afirmaciones: juzgadas, sustituidas y su tasa desde que
+                # arrancó el proceso (medición del 2026-11-26); no cambia el estado.
+                "claims": claims_block(settings),
                 # Spec 047: voz del chat por el servidor; opcional, no cambia el estado.
                 "voice": _voice_block(app, settings, request),
                 # Spec 051: fotos de alimentos con Jev; opcional, no cambia el estado.

@@ -561,6 +561,166 @@ def test_buscar_producto_actualiza_el_contexto_comercial() -> None:
     }
 
 
+# Mejora 4 del tercer ensayo (guion «solo_mirar»): «¿Qué tipos de vasos tienen?» y luego
+# «¿y para sopa caliente?»; el modelo arrastraba ``vaso`` y buscaba vasos para sopa.
+SOPA = "¿y para sopa caliente?"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param({"familia": "vaso", "uso": "sopas", "pais": "CO"}, id="con-uso"),
+        pytest.param({"familia": "vaso", "temperatura": "caliente", "pais": "CO"}, id="sin-uso"),
+    ],
+)
+def test_buscar_producto_con_familia_incompatible_busca_la_del_uso(args: dict[str, Any]) -> None:
+    # Act
+    result = _run("buscar_producto", args, _deps(catalog=None), ToolContext(question=SOPA))
+
+    # Assert
+    data = _data(result)
+    assert result.status == "ok"
+    assert data["familia_por_uso"] == {"familia": "contenedor", "uso": "sopas"}
+    assert "no sirve para el uso sopas" in data["aviso"]
+    families = {ref.sku: ref.family for ref in load_catalog().references}
+    assert {families[item["sku"]] for item in data["opciones"]} == {"contenedor"}
+    assert result.context_update["family"] == "contenedor"
+    assert result.context_update["use"] == "sopas"
+
+
+def test_buscar_producto_respeta_la_familia_que_nombra_la_persona() -> None:
+    # Act: «vasos para sopa» lo dijo la persona; no se corrige.
+    result = _run(
+        "buscar_producto",
+        {"familia": "vaso", "uso": "sopas", "pais": "CO"},
+        _deps(catalog=None),
+        ToolContext(question="¿tienen vasos para sopa?"),
+    )
+
+    # Assert
+    assert "familia_por_uso" not in _data(result)
+    assert result.context_update["family"] == "vaso"
+
+
+def test_buscar_producto_un_uso_de_bebida_sigue_en_vasos() -> None:
+    # Act
+    result = _run(
+        "buscar_producto",
+        {"familia": "vaso", "uso": "bebida_caliente", "pais": "CO"},
+        _deps(catalog=None),
+        ToolContext(question="¿y para café?"),
+    )
+
+    # Assert
+    assert result.status == "ok"
+    assert "familia_por_uso" not in _data(result)
+    assert result.context_update["family"] == "vaso"
+
+
+def test_cotizar_con_familia_incompatible_cotiza_la_del_uso() -> None:
+    # Arrange: el contexto traía un vaso de 12 oz cotizado antes.
+    context = ToolContext(
+        question="¿y para sopa caliente? 500 en Cali",
+        commercial_context={"family": "vaso", "capacity_oz": 12.0, "sku": "CO-VASO-X"},
+    )
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "vaso", "use": "sopas", "quantity": 500, "city": "Cali"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert
+    data = _data(result)
+    assert data["familia_por_uso"] == {"familia": "contenedor", "uso": "sopas"}
+    assert "se cotizó en la familia contenedor" in data["aviso"]
+    assert result.context_update["family"] == "contenedor"
+    assert result.context_update["sku"] != "CO-VASO-X"
+    assert result.context_update["capacity_oz"] is None  # olvida los 12 oz del vaso
+
+
+def test_cotizar_corrige_la_familia_aunque_el_modelo_no_pase_el_uso() -> None:
+    # Arrange: el fallo original; el modelo arrastra solo ``family=vaso`` y el contexto trae
+    # el uso del vaso anterior (bebida fría). El uso nuevo lo dice la pregunta.
+    context = ToolContext(
+        question="¿y para sopa caliente? 500",
+        commercial_context={
+            "family": "vaso",
+            "use": "bebida_fria",
+            "temperature": "fria",
+            "sku": "CO-VTER-04",
+            "city": "Cali",
+        },
+    )
+
+    # Act
+    result = _run("cotizar", {"family": "vaso", "quantity": 500}, _deps(**REAL), context)
+
+    # Assert
+    data = _data(result)
+    assert data["familia_por_uso"] == {"familia": "contenedor", "uso": "sopas"}
+    assert data["reutilizado"] == ["city"]
+    assert result.context_update["family"] == "contenedor"
+    assert result.context_update["use"] == "sopas"
+    assert result.context_update["temperature"] == "caliente"
+    assert result.context_update["sku"] is None
+
+
+def test_cotizar_un_seguimiento_de_cantidad_conserva_el_producto_cotizado() -> None:
+    # Arrange: «¿y si son 1000?» no nombra uso; el uso del contexto no corrige la familia.
+    context = ToolContext(
+        question="¿y si son 1000?",
+        commercial_context={
+            "family": "vaso",
+            "use": "sopas",
+            "sku": "CO-VTER-04",
+            "city": "Cali",
+            "quantity": 500,
+        },
+    )
+
+    # Act
+    result = _run("cotizar", {"quantity": 1000}, _deps(**REAL), context)
+
+    # Assert
+    assert "familia_por_uso" not in _data(result)
+    assert result.context_update["family"] == "vaso"
+    assert result.context_update["sku"] == "CO-VTER-04"
+
+
+def test_buscar_producto_un_seguimiento_sin_uso_respeta_el_uso_elegido() -> None:
+    # Arrange: T1 «¿tienen vasos para comida caliente en México?»; el catálogo de México
+    # declara vasos para comida caliente, así que el seguimiento sigue en vasos.
+    args = {"familia": "vaso", "uso": "comida_caliente", "pais": "MX", "capacidad_oz": 16}
+
+    # Act
+    result = _run(
+        "buscar_producto", args, _deps(catalog=None), ToolContext(question="¿y de 16 onzas?")
+    )
+
+    # Assert
+    assert "familia_por_uso" not in _data(result)
+    assert result.context_update["family"] == "vaso"
+    assert result.context_update["use"] == "comida_caliente"
+
+
+def test_buscar_producto_al_corregir_la_familia_olvida_la_capacidad_del_vaso() -> None:
+    # Arrange: el modelo arrastra los 4 oz del vaso anterior (CO-VTER-04).
+    args = {"familia": "vaso", "uso": "sopas", "pais": "CO", "capacidad_oz": 4}
+
+    # Act
+    result = _run("buscar_producto", args, _deps(catalog=None), ToolContext(question=SOPA))
+
+    # Assert
+    data = _data(result)
+    assert data["familia_por_uso"] == {"familia": "contenedor", "uso": "sopas"}
+    assert data["opciones"]
+    assert result.context_update["capacity_oz"] is None
+    assert result.context_update["temperature"] == "caliente"
+
+
 @pytest.mark.parametrize(
     "args",
     [
@@ -2160,8 +2320,9 @@ def test_cotizar_un_nombre_inexistente_es_empty_sin_cotizar_otra() -> None:
     assert result.quote is None
 
 
-def test_cotizar_la_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None:
-    # Act: el J1 de pulpa tiene precio en Bogotá, no en Pereira (s-r3-01).
+def test_cotizar_la_referencia_sin_precio_en_la_ciudad_usa_el_de_otra_y_lo_dice() -> None:
+    # Act: el J1 de pulpa tiene precio en Bogotá, no en Pereira (s-r3-01, «¿ese precio es de
+    # allá de Pereira?»).
     result = _run(
         "cotizar",
         {
@@ -2173,11 +2334,26 @@ def test_cotizar_la_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None
         },
     )
 
+    # Assert: la misma referencia, con la ciudad del precio en el dato y en la instrucción.
+    assert result.status == "ok"
+    cotizacion = result.payload["cotizacion"]
+    assert cotizacion["sku"] == "7704918105071"
+    assert cotizacion["ciudad"] == "Pereira"
+    assert cotizacion["vendedor"] == "EDEXA"
+    assert cotizacion["ciudad_del_precio"] == "Bogotá"
+    assert "en Bogotá" in result.content and "no lo presentes como precio de Pereira" in (
+        result.content
+    )
+
+
+def test_cotizar_la_referencia_sin_ningun_precio_publicado_no_se_sustituye() -> None:
+    # Act: el contenedor térmico de 8 oz no tiene oferta en ninguna ciudad.
+    result = _run("cotizar", {"sku": "CO-VTER-08", "quantity": 100, "city": "Pereira"})
+
     # Assert
     assert result.status == "empty"
-    assert result.payload["referencia"]["sku"] == "7704918105071"
-    assert result.payload["ciudades_con_precio"] == ["Bogotá"]
-    assert result.payload["sedes"]
+    assert result.payload["referencia"]["sku"] == "CO-VTER-08"
+    assert result.payload["ciudades_con_precio"] == []
     assert all(site["city"] == "Pereira" for site in result.cards["sites"])
     assert "cotizacion" not in result.payload
     assert result.quote is None

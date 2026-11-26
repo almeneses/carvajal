@@ -615,21 +615,28 @@ def _which_reference(candidates: Sequence[Mapping[str, Any]], *, partial: bool =
     """«¿Cuál quieres?» con las candidatas que devolvió ``cotizar`` (nombre y SKU, sus datos).
 
     ``partial``: ninguna coincide con todo el nombre; se dice, no se presentan como exactas.
+    Van numeradas en el orden de ``cotizar``: el flujo de la spec 054 resuelve «la 2» contra
+    ese mismo orden.
     """
 
-    lines = [
-        f"- {item['nombre']} (SKU {item['sku']})"
+    listed = [
+        item
         for item in candidates
         if isinstance(item, Mapping) and item.get("nombre") and item.get("sku")
     ]
-    if not lines:
+    if not listed:
         return ""
     lead = (
         "Ninguna referencia coincide exactamente; estas se parecen. ¿Cuál quieres?"
         if partial
         else "Hay varias referencias que coinciden. ¿Cuál quieres?"
     )
-    return f"{lead}\n\n" + "\n".join(lines)
+    lines = [
+        f"{index}. {item['nombre']} (SKU {item['sku']})"
+        for index, item in enumerate(listed, start=1)
+    ]
+    hint = "Dime el número, el nombre o el SKU."
+    return f"{lead}\n\n" + "\n".join(lines) + f"\n\n{hint}"
 
 
 def sites_without_price(sites: Iterable[Mapping[str, Any]]) -> str:
@@ -725,6 +732,9 @@ def tool_misses(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> list[str]:
             if cities:
                 line += f" Las ciudades con sedes son: {_join(cities)}."
             add(line)
+        elif tool == TOOL_COTIZAR and data.get("referencia_encontrada") is False:
+            # «Bolsas de basura»: no está en el catálogo; «sin precio» hacía creer que sí.
+            add("No lo encontré en el catálogo de Colombia.")
         elif tool == TOOL_COTIZAR and not data.get("sedes"):
             add("No encontré un precio publicado que cumpla esa solicitud.")
         elif tool == TOOL_INDICADOR_FINANCIERO:

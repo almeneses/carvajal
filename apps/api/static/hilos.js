@@ -30,8 +30,39 @@
     disparador = null;
   });
 
-  if (panel.dataset.abrir === "1") {
+  if (document.querySelector("[data-hilo-nuevo]")) {
+    // «Nuevo hilo» (decisión del owner, 2026-11-26): el panel no se abre encima del chat.
+    // «Nuevo hilo» es un POST que recarga la página y la plantilla nunca pinta el panel
+    // abierto, así que basta con no abrirlo. El chat vacío queda a la vista y el foco en el
+    // compositor; el aviso del saludo dice que el hilo anterior quedó guardado.
+    enfocarCompositor();
+    limpiarMarcaDeHiloNuevo();
+  } else if (panel.dataset.abrir === "1") {
     abrirPanel(null);
+  }
+
+  function enfocarCompositor() {
+    const compositor = document.getElementById("pregunta");
+    if (!compositor || typeof compositor.focus !== "function") return;
+    compositor.focus({ preventScroll: true });
+    // En un teléfono bajo el compositor puede empezar bajo el pliegue: se acerca lo justo,
+    // sin centrarlo, para que el aviso de justo encima siga a la vista.
+    if (typeof compositor.scrollIntoView === "function") {
+      compositor.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  // Quita «nuevo=1» de la URL: al recargar o compartir el enlace no se repite el aviso.
+  function limpiarMarcaDeHiloNuevo() {
+    if (!window.history || typeof window.history.replaceState !== "function") return;
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("nuevo")) return;
+      url.searchParams.delete("nuevo");
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    } catch {
+      // Sin URL o History utilizables, la marca se queda: el aviso es inofensivo.
+    }
   }
 
   function abrirPanel(origen) {

@@ -82,6 +82,25 @@ shell válido: `CLAVE=valor`, sin espacios alrededor del `=`.
 reinicios, `compose up` ni `compose down`. Tampoco imprime secretos ni números de teléfono:
 los mensajes de fallo pasan por un redactor. Los hosts reales solo viven en `.env.ensayo`.
 
+## Exploración de escenarios
+
+`make ensayo-exploracion` conversa por WhatsApp (`consultar_carvajal`) y por la web con
+unos treinta guiones (`tests/e2e/test_exploracion.py`): los flujos de la spec 054 y sus
+bordes (referencia ambigua, «eso es todo» ante las opciones, ver el carrito, ciudad sin
+distribuidor, cantidad 0, producto que no existe), preguntas fuera del flujo, voz, inglés,
+errores de tipeo, alcance e inyección. No confirma ninguna cotización.
+
+Guarda una transcripción por guion y canal en `ENSAYO_EXPLORA_DIR` (por defecto
+`data/ensayo-exploracion/<run_id>`, ignorada por git) e `informe.md` con alertas: respuestas
+genéricas del verificador («Para seguir necesito un dato más», «No tengo un dato
+verificado»), citas de WhatsApp sin fuente, «Sí, te ayudo» a un tema ajeno y una opción
+agregada tras «eso es todo». Las alertas son pistas para leer la transcripción, no fallos: el
+modelo varía entre corridas. `make ensayo-completo` no la incluye.
+
+Leer las transcripciones encontró, el 2026-11-26, fallos que el ensayo no veía porque no
+compara textos: fuentes que no cuadraban con las citas, reemplazos genéricos del verificador
+y un «Sí, te ayudo» a una tarea de cálculo.
+
 ## Costo y efectos secundarios
 
 | Qué | Dónde | Cuánto |

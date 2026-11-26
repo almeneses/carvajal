@@ -113,12 +113,19 @@ class SqlChatRepository:
     def summarize(self, owner_key: str, *, limit: int = 50) -> list[ConversationSummary]:
         """Lista los hilos del dueño, del más reciente al más antiguo.
 
-        La vista previa es el último mensaje del hilo, recortado para el panel.
-        Un hilo recién creado se conserva con la vista previa vacía.
+        La vista previa es la primera pregunta de la persona en el hilo (de qué trata), recortada
+        para el panel; sin preguntas, el último mensaje. Antes era siempre el último, casi
+        siempre la respuesta del asistente («Para seguir me falta un dato…»), que no distingue
+        un hilo de otro. Un hilo recién creado se conserva con la vista previa vacía.
         """
 
         if limit < 1:
             raise ValueError("limit debe ser mayor que cero.")
+        # Las ventanas solo recorren los mensajes de los hilos de este dueño, no la tabla
+        # entera: el panel no se degrada a medida que crece el historial de todos.
+        del_dueno = select(tables.conversations.c.id).where(
+            tables.conversations.c.owner_key == owner_key
+        )
         ultimo = select(
             tables.messages.c.conversation_id,
             tables.messages.c.content,
@@ -131,20 +138,43 @@ class SqlChatRepository:
                 ),
             )
             .label("posicion"),
-        ).subquery()
+        )
+        ultimo = ultimo.where(tables.messages.c.conversation_id.in_(del_dueno)).subquery()
+        primera = (
+            select(
+                tables.messages.c.conversation_id,
+                tables.messages.c.content,
+                func.row_number()
+                .over(
+                    partition_by=tables.messages.c.conversation_id,
+                    order_by=(tables.messages.c.created_at.asc(), tables.messages.c.id.asc()),
+                )
+                .label("posicion"),
+            )
+            .where(
+                tables.messages.c.role == "user",
+                tables.messages.c.conversation_id.in_(del_dueno),
+            )
+            .subquery()
+        )
         rows = (
             self._session.execute(
                 select(
                     tables.conversations.c.id,
                     tables.conversations.c.created_at,
                     tables.conversations.c.updated_at,
-                    ultimo.c.content,
+                    func.coalesce(primera.c.content, ultimo.c.content).label("content"),
                 )
                 .select_from(tables.conversations)
                 .outerjoin(
                     ultimo,
                     (ultimo.c.conversation_id == tables.conversations.c.id)
                     & (ultimo.c.posicion == 1),
+                )
+                .outerjoin(
+                    primera,
+                    (primera.c.conversation_id == tables.conversations.c.id)
+                    & (primera.c.posicion == 1),
                 )
                 .where(tables.conversations.c.owner_key == owner_key)
                 .order_by(

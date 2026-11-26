@@ -40,9 +40,10 @@ Propuesta revisada por el owner (página «Flujos de cotización Carvajal»).
 ## Modelo
 
 Cada conversación tiene un **borrador** (`quote_drafts`): líneas sin folio, lo último que se
-mostró (opciones o comparativo) y **qué respuesta espera** el asistente (`awaiting`:
-`eleccion`, `cantidad`, `algo_mas`, `confirmar`, `cambio_producto`, `oferta`). Las respuestas
-cortas se interpretan contra esa pregunta:
+mostró (opciones, comparativo o las referencias de un nombre ambiguo) y **qué respuesta
+espera** el asistente (`awaiting`: `eleccion`, `cantidad`, `algo_mas`, `confirmar`,
+`cambio_producto`, `oferta`, `referencia`). Las respuestas cortas se interpretan contra esa
+pregunta:
 
 1. Reglas deterministas (`carvajal.agent.followup`).
 2. Jev (Choice de 8 clases) solo si hay pregunta pendiente, el mensaje es corto, no es una
@@ -135,6 +136,22 @@ borrador no cambia.
   línea). «Quiero sacarla en PDF» cierra y confirma como cualquier pedido del PDF. «Quita
   la 2», «quiero quitar la 2», «saca los platos», «borra los vasos» o «eso es todo, pero
   quita la 2» sí quitan la línea. «Tampoco quiero cambiar nada» niega como «no».
+- Nombre ambiguo (2026-11-26): si `cotizar` devuelve varias referencias para el nombre
+  («C1», «J1»), el borrador guarda las candidatas en su orden y lo demás de la solicitud
+  (cantidad, unidad, ciudad, domicilio, uso, temperatura y microondas) con `awaiting:
+  referencia`. «La primera», «la 2», «3», el SKU o un fragmento distintivo del nombre («el de
+  icopor», «el de 14 oz») cotizan esa referencia con el motor, sin el modelo, y siguen el
+  camino de cualquier cotización (línea con «¿Algo más?» u opciones). «Sí», «ok», «esa» o
+  un fragmento que comparten varias vuelven a mostrar la lista numerada (nunca se elige por
+  la persona; con una sola candidata, «sí» la elige); un número fuera de la lista lo dice.
+  Otra cosa (una pregunta, otro producto, solo una cantidad aunque la cifra esté en un
+  nombre, una negación como «la 1 no me sirve», varias posiciones a la vez o una medida que
+  ninguna listada tiene) sale del estado y va al agente, sin Jev. Si el motor no puede
+  cotizar la elegida (falta un dato o no tiene precio en la ciudad), el agente la cotiza con
+  su SKU. La cantidad dicha con la elección se cotiza con su unidad («la 3, 2 cajas»); las
+  cifras de una medida («el de 90mm», «el de 14 oz») no son cantidad. Si la lista llegó con
+  «¿Algo más?» o «¿La confirmo?» pendientes, salir de ella devuelve esa pregunta. La web
+  muestra un botón por candidata desde el turno que las lista.
 - «Sí, mándame el PDF» con una cotización por confirmar: confirma y adjunta el PDF.
 - Una línea sin precio queda fuera del total y se dice.
 - Borrador de más de 7 días: no se retoma.

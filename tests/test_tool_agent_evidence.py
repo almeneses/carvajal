@@ -887,3 +887,17 @@ def test_la_sugerencia_de_ciudad_de_la_memoria_no_respalda() -> None:
     # Assert: no respalda nada (FR-017); solo se ofrece en la pregunta de confirmación.
     assert "Yumbo" not in backing
     assert ask.endswith("¿O lo hago en Yumbo, tu ciudad habitual?")
+
+
+def test_un_nombre_que_no_esta_en_el_catalogo_no_se_presenta_como_sin_precio() -> None:
+    # Arrange: «Cotízame 200 bolsas de basura» (ensayo): cotizar no encontró la referencia.
+    payloads = [("cotizar", {"status": "empty", "referencia_encontrada": False})]
+
+    # Act
+    lines = tool_misses(payloads)
+
+    # Assert
+    assert lines == ["No lo encontré en el catálogo de Colombia."]
+    assert tool_misses([("cotizar", {"status": "empty"})]) == [
+        "No encontré un precio publicado que cumpla esa solicitud."
+    ]

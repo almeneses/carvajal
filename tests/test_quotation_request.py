@@ -47,7 +47,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     ),
     "sin ciudad pide ciudad": QuoteRequest(**CALIENTE, quantity=20, delivery=False),
     "pregunta institucional queda fuera": None,
-    "Cali sin precio publicado cotiza el de referencia y da las sedes": QuoteRequest(
+    "Cali sin precio publicado cotiza el publicado en Bogotá y da las sedes de Cali": QuoteRequest(
         **CALIENTE, quantity=100, city="Cali", delivery=False
     ),
     "talla agotada no se ofrece": QuoteRequest(
@@ -78,7 +78,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     "aromática deduce caliente y pide la cantidad": QuoteRequest(
         **CALIENTE, city="Cali", delivery=False
     ),
-    "chocolate caliente en Pasto cotiza el precio de referencia": QuoteRequest(
+    "chocolate caliente en Pasto cotiza el precio publicado en Bogotá": QuoteRequest(
         **CALIENTE, quantity=200, city="Pasto", delivery=False
     ),
     "vaso sin temperatura pregunta antes de cotizar": QuoteRequest(
@@ -89,6 +89,9 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     ),
     "cubiertos: solo hay referencias convertidas": QuoteRequest(
         family="cubierto", quantity=2000, city="Bogotá", delivery=False
+    ),
+    "cubiertos en Cali: sin precio publicado en ninguna ciudad, el de referencia de Cali": (
+        QuoteRequest(family="cubierto", quantity=2000, city="Cali", delivery=False)
     ),
 }
 CASES = load_cases()
@@ -613,7 +616,9 @@ def test_un_nombre_que_no_existe_no_cotiza_otra_referencia() -> None:
     assert "primary" not in resultado
 
 
-def test_una_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None:
+def test_una_referencia_sin_precio_en_la_ciudad_cotiza_el_publicado_en_otra_sin_sustituirla() -> (
+    None
+):
     # Arrange: el J1 de pulpa tiene precio publicado en Bogotá, no en Pereira (s-r3-01).
     solicitud = QuoteRequest(
         name="portacomidas de pulpa de caña J1 de Bioform",
@@ -626,14 +631,15 @@ def test_una_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None:
     # Act
     resultado = quote_request(solicitud, today=HOY, now=MANANA)
 
-    # Assert
-    assert resultado["kind"] == "sin_resultados"
-    assert resultado["reason"] == "sin_precio"
-    assert resultado["sku"] == "7704918105071"
-    assert resultado["providers"]
+    # Assert: la misma referencia, con el precio de Bogotá rotulado y las sedes de Pereira.
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["city"] == "Pereira"
+    assert resultado["primary"]["sku"] == "7704918105071"
+    assert resultado["primary"]["price_kind"] == "publicado"
+    assert resultado["primary"]["price_city"] == "Bogotá"
+    assert resultado["primary"]["price_origin"].startswith("Precio publicado por EDEXA en Bogotá")
+    assert resultado["alternatives"] == []
     assert {item["city"] for item in resultado["providers"]} == {"Pereira"}
-    assert resultado["priced_cities"] == ["Bogotá"]
-    assert "primary" not in resultado
 
 
 def test_una_referencia_sin_ningun_precio_publicado_no_pide_mas_datos() -> None:

@@ -188,3 +188,23 @@ def test_regla_de_material_exige_procedencia() -> None:
         sin_fuente = {key: value for key, value in fila.items() if key != faltante}
         with pytest.raises(ValueError, match=faltante):
             MaterialRule.model_validate(sin_fuente)
+
+
+@pytest.mark.parametrize(
+    ("crudo", "legible"),
+    [
+        (
+            "Vaso Papel 8_Oz 80Mm Bebida Caliente Blanco Bioform Caja 20X50 1000",
+            "Vaso Papel 8 oz 80 mm Bebida Caliente Blanco Bioform Caja 20x50 1000",
+        ),
+        (
+            "Vasos de plástico 12oz PET - Caja con 800 pzs",
+            "Vasos de plástico 12 oz PET - Caja con 800 pzs",
+        ),
+        ("Charola Papel 066_1P Cañatek", "Charola Papel 066_1P Cañatek"),
+        ("Vaso rígido traslúcido 9 oz Wau", "Vaso rígido traslúcido 9 oz Wau"),
+    ],
+)
+def test_el_nombre_de_la_referencia_muestra_medidas_legibles(crudo: str, legible: str) -> None:
+    # Los nombres del catálogo de México llegaban tal cual a WhatsApp («8_Oz 80Mm … 20X50»).
+    assert Reference._nombre_legible(crudo) == legible

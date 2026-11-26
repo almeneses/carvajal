@@ -544,8 +544,8 @@ def test_get_thread_selecciona_el_historial_y_marca_el_hilo_activo() -> None:
     assert response.text.index('id="hilo"') < response.text.index('class="formulario composer"')
 
 
-def test_nuevo_hilo_redirige_al_hilo_nuevo_y_abre_el_panel() -> None:
-    # Arrange
+def test_nuevo_hilo_redirige_al_hilo_nuevo_sin_abrir_el_panel() -> None:
+    # Arrange: decisión del owner (2026-11-26), el panel ya no tapa el chat nuevo.
     client, _ = make_client()
 
     # Act
@@ -553,7 +553,93 @@ def test_nuevo_hilo_redirige_al_hilo_nuevo_y_abre_el_panel() -> None:
 
     # Assert
     assert response.status_code == 303
-    assert response.headers["location"] == "/chat?thread=hilo-nuevo&panel=hilos"
+    assert response.headers["location"] == "/chat?thread=hilo-nuevo&nuevo=1"
+    assert "panel=hilos" not in response.headers["location"]
+
+
+def test_el_hilo_nuevo_muestra_el_chat_vacio_con_aviso_y_sin_panel_abierto() -> None:
+    # Arrange
+    client, chat = make_client()
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+    chat.summaries["dueno-a"] = [
+        ConversationSummary("hilo-nuevo", "", WHEN, WHEN),
+        ConversationSummary("hilo-1", "pregunta anterior", WHEN, WHEN),
+    ]
+
+    # Act
+    response = client.get("/chat?thread=hilo-nuevo&nuevo=1")
+
+    # Assert
+    assert response.status_code == 200
+    assert 'data-abrir="0"' in response.text
+    assert "chat-bienvenida" in response.text
+    assert 'id="aviso-hilo-nuevo"' in response.text
+    assert "El anterior quedó guardado en <strong>Hilos</strong>" in response.text
+    assert 'aria-describedby="ayuda-chat aviso-hilo-nuevo"' in response.text
+    assert 'href="/chat?thread=hilo-1"' in response.text
+
+
+def test_sin_la_marca_de_hilo_nuevo_no_hay_aviso() -> None:
+    # Arrange
+    client, _ = make_client()
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+
+    # Act
+    response = client.get("/chat?thread=hilo-nuevo")
+
+    # Assert
+    assert response.status_code == 200
+    assert "data-hilo-nuevo" not in response.text
+    assert 'aria-describedby="ayuda-chat"' in response.text
+
+
+def test_la_marca_de_hilo_nuevo_no_avisa_en_un_hilo_con_mensajes() -> None:
+    # Arrange: recargar o compartir el enlace de un hilo ya usado no repite el aviso.
+    client, chat = make_client()
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+    chat.by_thread["hilo-2"] = [_message("user", "pregunta del hilo 2", sources=None)]
+
+    # Act
+    response = client.get("/chat?thread=hilo-2&nuevo=1")
+
+    # Assert
+    assert response.status_code == 200
+    assert "data-hilo-nuevo" not in response.text
+    assert 'aria-describedby="ayuda-chat"' in response.text
+
+
+def test_el_hilo_nuevo_sin_hilo_anterior_no_dice_que_se_guardo() -> None:
+    # Arrange: un visitante pulsa «Nuevo hilo» sin haber escrito; el único hilo es el nuevo.
+    client, chat = make_client()
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+    chat.summaries["dueno-a"] = [ConversationSummary("hilo-nuevo", "", WHEN, WHEN)]
+
+    # Act
+    response = client.get("/chat?thread=hilo-nuevo&nuevo=1")
+
+    # Assert
+    assert response.status_code == 200
+    assert "data-hilo-nuevo" not in response.text
+    assert "El anterior quedó guardado" not in response.text
+    assert 'aria-describedby="ayuda-chat"' in response.text
+
+
+def test_el_hilo_nuevo_tras_otro_hilo_vacio_no_dice_que_se_guardo() -> None:
+    # Arrange: «Nuevo hilo» dos veces seguidas; lo único «guardado» es un hilo vacío.
+    client, chat = make_client()
+    client.cookies.set(COOKIE_NAME, _cookie("dueno-a"))
+    chat.summaries["dueno-a"] = [
+        ConversationSummary("hilo-nuevo", "", WHEN, WHEN),
+        ConversationSummary("hilo-vacio", "", WHEN, WHEN),
+    ]
+
+    # Act
+    response = client.get("/chat?thread=hilo-nuevo&nuevo=1")
+
+    # Assert
+    assert response.status_code == 200
+    assert "data-hilo-nuevo" not in response.text
+    assert "El anterior quedó guardado" not in response.text
 
 
 def test_el_panel_de_hilos_puede_abrirse_desde_la_url() -> None:

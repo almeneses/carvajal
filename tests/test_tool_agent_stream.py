@@ -34,6 +34,7 @@ from apps.api.chat.agent import (
     ToolStreamRunner,
     TurnTimeout,
 )
+from carvajal.agent.gatekeeper.stats import ClaimsStats
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.evidence import FAREWELL_ANSWER, GREETING_ANSWER, NO_DATA_ANSWER
 from carvajal.agent.toolagent.graph import build_tool_agent, recursion_limit
@@ -872,12 +873,13 @@ PIDE_CIUDAD = (
     "Villavicencio.\n\nPara los de 3,5 oz, ¿los shots van fríos o a temperatura ambiente? "
     "Con eso te muestro las opciones."
 )
-GOLD_14 = (
-    "Buenas tardes. Quisiera cotizar vasos Gold de 14 oz con tapa pitillera para jugos naturales."
-)
+# Desde el 2026-11-26 el vaso de 14 oz frío se cotiza en Manizales con el precio publicado
+# en Bogotá: los guiones de «cotizar vacío con sedes» usan el de 12 oz, que no tiene precio
+# publicado en ninguna ciudad ni de referencia en Manizales.
+VASOS_12 = "Buenas tardes. Quisiera cotizar vasos de 12 oz con tapa pitillera para jugos naturales."
 GOLD_MANIZALES = "Serían para empezar unas 2.000 unidades, y los recibiría acá en Manizales."
 SEDES_MANIZALES = (
-    "No hay precio publicado para vasos de 14 oz en Manizales, así que la cotización queda "
+    "No hay precio publicado para vasos de 12 oz en Manizales, así que la cotización queda "
     "pendiente. Sí hay dos sedes del directorio con contacto:\n\n"
     "- Kive Andina — Parque Industrial Juanchito, terraza 3, lote 12 — 606 874 7455 [1]\n"
     "- Representaciones Lastra Eje Cafetero — misma dirección — 874 7455 [2]\n\n"
@@ -908,6 +910,7 @@ COTIZAR_J1_CALI = _call(
     capacity_oz=14,
 )
 COTIZAR_GOLD = {"family": "vaso", "capacity_oz": 14, "temperature": "fria", "use": "bebida_fria"}
+COTIZAR_12_FRIO = {**COTIZAR_GOLD, "capacity_oz": 12}
 
 
 def _two_turns(
@@ -982,16 +985,18 @@ def test_pedir_la_ciudad_con_la_capacidad_del_turno_anterior_no_se_abstiene() ->
 def test_cotizar_vacio_deja_pasar_las_sedes_que_devolvio() -> None:
     # Arrange: s-clientes-07 turno 1. ``cotizar`` sin precio en Manizales, con dos sedes.
     first = [
-        ScriptStep(tool_calls=[_call("cotizar", **COTIZAR_GOLD)]),
-        ScriptStep(text="Para cotizar los vasos de 14 oz me falta la cantidad de unidades."),
+        ScriptStep(tool_calls=[_call("cotizar", **COTIZAR_12_FRIO)]),
+        ScriptStep(text="Para cotizar los vasos de 12 oz me falta la cantidad de unidades."),
     ]
     second = [
-        ScriptStep(tool_calls=[_call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD)]),
+        ScriptStep(
+            tool_calls=[_call("cotizar", quantity=2000, city="Manizales", **COTIZAR_12_FRIO)]
+        ),
         ScriptStep(text=SEDES_MANIZALES),
     ]
 
     # Act
-    events = _two_turns((GOLD_14, first), (GOLD_MANIZALES, second))
+    events = _two_turns((VASOS_12, first), (GOLD_MANIZALES, second))
 
     # Assert
     final = _final(events)
@@ -1033,7 +1038,7 @@ def test_cotizar_vacio_sin_respaldo_se_reemplaza_por_las_sedes_y_no_por_el_corpu
 
 def test_una_cifra_inventada_junto_a_las_sedes_sigue_sustituyendose() -> None:
     # Arrange: las sedes no respaldan una cifra que no traen.
-    call = _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD)
+    call = _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_12_FRIO)
     text = "Carvajal tiene 13.000 empleados en Manizales; llama a Kive Andina [1]."
     runner, _ = _runner([ScriptStep(tool_calls=[call]), ScriptStep(text=text)])
 
@@ -1082,7 +1087,7 @@ def test_buscar_corpus_vacio_con_sedes_de_cotizar_emite_solo_las_sedes(text: str
         ScriptStep(
             tool_calls=[
                 _call("buscar_corpus", consulta="fundador de Carvajal"),
-                _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD),
+                _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_12_FRIO),
             ]
         ),
         ScriptStep(text=text),
@@ -1090,7 +1095,7 @@ def test_buscar_corpus_vacio_con_sedes_de_cotizar_emite_solo_las_sedes(text: str
     runner, _ = _runner(steps, store=QueueStore([]))
 
     # Act
-    events = _stream(runner, "¿Quién fundó Carvajal? Y cotízame 2000 vasos de 14 oz en Manizales")
+    events = _stream(runner, "¿Quién fundó Carvajal? Y cotízame 2000 vasos de 12 oz en Manizales")
 
     # Assert: la redacción del modelo no sale, ni filtrada; sale el aviso neutro con las
     # sedes que trajo la herramienta, con sus citas.
@@ -2037,12 +2042,14 @@ def _claims_runner(
     settings: Settings | None = None,
     clock: Any = None,
     route_judge: Any = None,
+    stats: ClaimsStats | None = None,
 ) -> ToolAgentRunner:
     settings = settings or Settings()
     deps = ToolDeps(vector_store=store or QueueStore(), embedder=FakeEmbedder(), settings=settings)
     chat = ScriptedToolChat(steps=list(steps))
     graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), judge=route_judge)
-    kwargs: dict[str, Any] = {"claims_judge": judge}
+    # Contadores propios: las pruebas no ensucian los del proceso (``CLAIMS_STATS``).
+    kwargs: dict[str, Any] = {"claims_judge": judge, "claims_stats": stats or ClaimsStats()}
     if clock is not None:
         kwargs["clock"] = clock
     return ToolAgentRunner(graph, settings, **kwargs)
@@ -2423,6 +2430,33 @@ def test_una_referencia_ambigua_rechazada_lista_las_candidatas() -> None:
     assert "Para seguir necesito un dato más" not in token
 
 
+def test_las_candidatas_salen_numeradas_y_viajan_al_flujo_con_la_solicitud() -> None:
+    # Arrange: «la 2» del turno siguiente se resuelve contra este mismo orden (spec 054).
+    steps = [
+        ScriptStep(
+            tool_calls=[_call("cotizar", nombre="C1", quantity=3, unidad="pacas", city="Bogotá")]
+        ),
+        ScriptStep(text="El C1 de Wau cuesta 12.500 pesos en Bogotá."),
+    ]
+    runner, _ = _runner(steps)
+
+    # Act
+    events = _stream(runner, "Cotízame 3 pacas de portacomidas C1 en Bogotá")
+
+    # Assert
+    [token] = _tokens(events)
+    choice = _final(events).products["reference_choice"]
+    skus = [item["sku"] for item in choice["candidates"]]
+    assert skus[0] == "CO-PCOM-C1" and len(skus) > 1
+    for position, sku in enumerate(skus, start=1):
+        assert f"{position}. " in token and f"(SKU {sku})" in token
+    assert token.index("(SKU CO-PCOM-C1)") < token.index(f"(SKU {skus[1]})")
+    assert "Dime el número, el nombre o el SKU." in token
+    assert choice["request"]["quantity"] == 3
+    assert choice["request"]["unit"] == "paca"
+    assert choice["request"]["city"] == "Bogotá"
+
+
 def test_una_ciudad_fuera_del_directorio_no_se_pide_como_si_faltara() -> None:
     # Arrange: «… en Leticia»: la persona sí dio la ciudad.
     steps = [
@@ -2457,3 +2491,182 @@ def test_cotizar_cero_unidades_pide_la_cantidad_en_vez_de_abstenerse() -> None:
     [token] = _tokens(events)
     assert "cuántas unidades necesitas" in token
     assert "No tengo un dato verificado" not in token
+
+
+# --- Contadores de la compuerta (bloque ``claims`` de ``/health``, 2026-11-26) ---------------
+
+
+def test_la_sustitucion_cuenta_como_juzgada_y_sustituida() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(), FakeJudge(p=0.2), store=QueueStore([FUNDACION]), stats=stats
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert (snapshot["judged"], snapshot["unsupported"], snapshot["substituted"]) == (1, 1, 1)
+    assert snapshot["substitution_rate"] == 1.0
+    assert snapshot["p_histogram"][2] == 1
+    assert snapshot["turns"] == 1
+
+
+def test_la_respaldada_cuenta_sin_sustituir() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(), FakeJudge(p=0.8), store=QueueStore([FUNDACION]), stats=stats
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert (snapshot["supported"], snapshot["substituted"]) == (1, 0)
+    assert snapshot["substitution_rate"] == 0.0
+    assert snapshot["turns"] == 1
+
+
+def test_en_sombra_la_no_respaldada_se_cuenta_sin_sustituir() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(),
+        FakeJudge(p=0.1),
+        store=QueueStore([FUNDACION]),
+        settings=Settings(jev_claims_mode="shadow"),
+        stats=stats,
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert (snapshot["unsupported"], snapshot["substituted"]) == (1, 0)
+    assert snapshot["unsupported_rate"] == 1.0
+
+
+def test_jev_sin_veredicto_cuenta_el_motivo_una_vez() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(),
+        FakeJudge(claims_fail=cast(Any, "timeout")),
+        store=QueueStore([FUNDACION]),
+        stats=stats,
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["unavailable"] == {"timeout": 1}
+    assert snapshot["judged"] == 0
+    assert snapshot["turns"] == 1
+
+
+def test_el_atajo_cuenta_como_omitido_con_su_motivo() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    judge = FakeJudge(p=0.1)
+    runner = _claims_runner(
+        [ScriptStep(text="¡Hola! Soy Carva.")], judge, route_judge=judge, stats=stats
+    )
+
+    # Act
+    _stream(runner, "Hola")
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["skipped"] == {"atajo": 1}
+    assert snapshot["judged"] == 0
+
+
+def test_sin_compuerta_el_turno_cuenta_como_off() -> None:
+    # Arrange
+    stats = ClaimsStats()
+    runner = _claims_runner(_evidence_steps(), None, store=QueueStore([FUNDACION]), stats=stats)
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["off"] == 1
+    assert snapshot["turns"] == 1
+
+
+def test_jev_caido_al_empezar_cuenta_como_no_disponible_y_no_como_off() -> None:
+    # Arrange: compuerta en ``enforce`` con juez, pero el circuito de Jev está abierto.
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    judge = FakeJudge(p=0.1, is_available=False)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]), stats=stats)
+
+    # Act
+    events = _stream(runner)
+
+    # Assert: el turno sigue en ``off`` (data-model) pero /health ve la caída de Jev.
+    assert _final(events).claims["status"] == "off"
+    snapshot = stats.snapshot()
+    assert snapshot["unavailable"] == {"circuit_open": 1}
+    assert snapshot["off"] == 0
+    assert snapshot["turns"] == 1
+    assert judge.claims == []
+
+
+def test_compuerta_apagada_por_configuracion_cuenta_como_off() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(),
+        FakeJudge(p=0.1, is_available=False),
+        store=QueueStore([FUNDACION]),
+        settings=Settings(jev_claims_mode="off"),
+        stats=stats,
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["off"] == 1
+    assert snapshot["unavailable"] == {}
+
+
+def test_el_log_de_la_compuerta_lleva_herramientas_y_largo_sin_texto() -> None:
+    # Arrange
+    from structlog.testing import capture_logs
+    from tests.fakes.judge import FakeJudge
+
+    runner = _claims_runner(_evidence_steps(), FakeJudge(p=0.2), store=QueueStore([FUNDACION]))
+
+    # Act
+    with capture_logs() as logs:
+        _stream(runner)
+
+    # Assert
+    [judged] = [log for log in logs if log["event"] == "claims.judged"]
+    assert judged["tools"] == ["buscar_corpus"]
+    assert judged["answer_chars"] == len(ANSWER)
+    assert ANSWER not in str(judged)

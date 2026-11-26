@@ -995,6 +995,18 @@ body:has(> .ancho-chat) {
   text-wrap: pretty;
 }
 
+/* «Nuevo hilo»: aviso breve dentro del saludo, sin tapar el chat ni el compositor. */
+.bienvenida-aviso {
+  max-width: 36rem;
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 12px;
+  background: var(--fondo-suave);
+  color: var(--tinta);
+  font-size: 0.92rem;
+  text-wrap: pretty;
+}
+
 .bienvenida-temas-titulo {
   margin: 0 0 10px;
   color: var(--secundario);

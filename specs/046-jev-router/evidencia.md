@@ -421,3 +421,165 @@ SC-004 y no se puede auditar sin el texto rechazado. Ver §4.3.
 **R5. Dato sin fuente que pasa la compuerta (v3-022).**
 p = 0,52 ≥ 0,5 con «2.58» sin fuente; lo marca la verificación determinista del v3. Mismo
 recuento que sin Jev.
+
+## 10. Compuerta de afirmaciones en producción (2026-11-26)
+
+Pregunta: la compuerta (`JEV_CLAIMS_MODE=enforce`, umbral 0,5) sustituía ~24 % de las
+respuestas juzgadas en producción (24 de 104 en 3 h, eventos `claims.judged`). ¿Atrapa
+afirmaciones sin fuente o sustituye respuestas buenas? **Sin cambios de umbral ni de modo en
+el código**: esta sección mide y recomienda; la decisión es del owner.
+
+### 10.1 Fuentes y limitaciones
+
+- **Logs de producción: perdidos.** El despliegue de la PR #273 recreó los contenedores a
+  las 15:30 UTC del 2026-11-26. `docker logs --since 72h` de `carvajal-prod-app-1` trae 38
+  líneas y ninguna `claims.judged`; `carvajal-prod-mcp-1`, tampoco. Los contadores nuevos de
+  `/health` (§10.6) también se reinician con el proceso.
+- **LangSmith (proyecto `carvajal`), solo lectura.** Raíces `chat_turn` de las últimas 72 h,
+  solo metadatos: `claims_status`, `claims_p`, `claims_substituted`, `tools` y
+  `agent_environment`. Producción tiene `MONITORING_INCLUDE_CONTENT=false`, así que **no hay
+  texto de producción**: ni el rechazado ni el emitido.
+- **Texto para auditar.** Sale solo de las trazas sin `agent_environment=produccion` (las
+  locales, con el contenido encendido en el `.env` del owner, y las que no traen etiqueta de
+  entorno, del 2026-11-26 entre las 01:16 y las 14:21 UTC). Es el mismo código, pero son
+  conversaciones de prueba y no clientes. Las etiquetas de §10.3 las puso un solo revisor.
+- **Tráfico de producción mayormente sintético.** De las 237 juzgadas, 205 son del
+  2026-11-26, el día de los ensayos e2e (§10.2). Corresponden a 124 hilos.
+
+### 10.2 Tasa por umbral (producción, 237 juzgadas)
+
+Del 2026-11-24 16:33 al 2026-11-26 14:41 UTC: 350 turnos con compuerta. Hubo 189
+respaldadas, 48 no respaldadas (las 48 sustituidas), 113 omitidas (62 en el camino del atajo) y 0 sin
+veredicto. «Sustituidas» se cuenta como p < umbral sobre los p registrados. En el conjunto
+congelado, p varió como mucho 0,02 entre corridas (§10.4).
+
+| Umbral | Producción (n = 237) | Sin etiqueta de entorno (n = 127) | Local (n = 42) |
+|---|---|---|---|
+| 0,2 | 16 (6,8 %) | 3 (2,4 %) | 1 (2,4 %) |
+| 0,3 | 31 (13,1 %) | 10 (7,9 %) | 1 (2,4 %) |
+| 0,4 | 40 (16,9 %) | 13 (10,2 %) | 3 (7,1 %) |
+| **0,5 (vigente)** | **48 (20,3 %)** | **17 (13,4 %)** | **10 (23,8 %)** |
+| 0,6 | 65 (27,4 %) | 25 (19,7 %) | 17 (40,5 %) |
+| 0,7 | 99 (41,8 %) | 30 (23,6 %) | 24 (57,1 %) |
+
+La ventana de 3 h con más carga (2026-11-26 desde las 11:52 UTC) da 29 de 142 (20,4 %),
+coherente con el 24/104 de los logs.
+
+**Por herramienta (producción, umbral 0,5).**
+
+| Herramientas del turno | Juzgadas | Sustituidas |
+|---|---|---|
+| solo `cotizar` | 171 | 38 (22 %) |
+| solo `buscar_producto` | 25 | 8 (32 %) |
+| solo `buscar_corpus` | 7 | 1 |
+| `cotizar` + `ficha_producto` | 1 | 1 |
+| resto (sedes, historia, indicadores, combinaciones, sin herramientas) | 33 | 0 |
+
+45 de las 48 sustituciones vinieron con Jev en `herramienta_estructurada`.
+
+### 10.3 Distribución de p y auditoría de las sustituciones
+
+**p de las 48 sustituciones de producción:**
+
+| Rango de p | Sustituciones |
+|---|---|
+| [0; 0,1) | 6 |
+| [0,1; 0,2) | 10 |
+| [0,2; 0,3) | 15 |
+| [0,3; 0,4) | 9 |
+| [0,4; 0,5) | 8 |
+
+La mediana es 0,245 y el rango va de 0,04 a 0,48. En el histograma de las 237 juzgadas, por
+décimas de 0 a 1: 6, 10, 15, 9, 8, 17, 34, 31, 48 y 59. En el conjunto congelado las no
+respaldadas dan p entre 0,03 y 0,15 y las buenas entre 0,58 y 0,94. **32 de las 48
+sustituciones (0,2–0,5) caen en una franja que ese conjunto no tiene.**
+
+**Auditoría con texto: 27 sustituciones fuera de producción (17 sin etiqueta y 10 locales).**
+
+| Veredicto del revisor | n | p | Ejemplos (fragmentos breves, sin datos de personas) |
+|---|---|---|---|
+| Bien atrapadas | 2 | 0,14 y 0,23 | Valoración presentada como hecho: «sirve para porciones pequeñas» (la regla de la Enmienda E) |
+| Dudosas | 7 | 0,15–0,46 | Aptitud al uso dicha con palabras de la persona («sirve para bebidas frías como el jugo», ×3). Lista del portafolio sin fuente al decir que un producto no está (×2). «La anterior quedó cancelada». Precios con «impuestos incluidos» |
+| Falsos positivos | 18 | 0,15–0,49 | **Pedidos del dato que repiten lo ya dicho** (×5): «Listo, dejo las tapas fuera… solo falta la temperatura», «Falta la temperatura… Con eso te cotizo los 1000 vasos de 14 oz en Cali», «¿Le doy?». **Candidatas de `cotizar`** (×2). **Material citado** (×1): «es de PP, material apto para bebida caliente [1]». **Tablas y listas largas citadas** del catálogo o del directorio (×10, seis de ellas con p entre 0,38 y 0,49) |
+
+**Contraste:** textos de la misma forma pasan con p entre 0,51 y 0,64:
+
+- «Para cotizar los 500 vasos de 9 oz en Cali solo me falta un dato: ¿…?» (0,56).
+- «El vaso … es de PP, material apto para bebida fría [1]. Falta definir…» (0,51 y 0,56).
+- Las mismas tablas de vasos para bebida caliente (0,51–0,58).
+
+En cambio, una valoración sin fuente pasó con 0,61: «es la opción de referencia para café».
+**Entre 0,3 y 0,6, Jev no separa estos textos.** El 0,5 parte en dos un grupo de respuestas
+equivalentes.
+
+**Causa probable de los pedidos del dato (verificada en el código).** `build_claims_query`
+solo deriva `dicho_por_la_persona` de la pregunta **del turno**. Las preguntas anteriores
+(`prior_questions`) solo sirven para redactar y no respaldan nada. El borrador de la
+cotización tampoco viaja como evidencia. Por eso «los 500 vasos de 9 oz en Cali», dichos dos
+turnos antes, llegan a Jev sin respaldo. `only_questions` tampoco los omite, porque la
+oración afirma algo antes de preguntar.
+
+En las tablas largas, una hipótesis no verificada: el recorte de la evidencia a
+`JEV_MAX_EVIDENCE_CHARS` (12 000) con «…» deja filas fuera.
+
+### 10.4 `eval-claims` repetido (2026-11-26)
+
+16 llamadas a `jev-1.14.0` (≈ 0,001 USD) con el libro
+[`evaluacion/jev-calls-2026-11-26.jsonl`](evaluacion/jev-calls-2026-11-26.jsonl). El informe
+está en [`evaluacion/claims-2026-11-26.md`](evaluacion/claims-2026-11-26.md) y su
+[`.json`](evaluacion/claims-2026-11-26.json). El resultado es igual al del 2026-11-24:
+
+| Umbral | Detección | Falsas alarmas |
+|---|---|---|
+| 0,3 | 10/10 | 0/6 |
+| 0,4 | 10/10 | 0/6 |
+| **0,5** | **10/10** | **0/6** |
+| 0,6 | 10/10 | 1/6 |
+| 0,7 | 10/10 | 2/6 |
+
+Las p cambiaron como mucho 0,02 (cl-001-orig 0,06 → 0,08; cl-034-orig 0,60 → 0,62). El
+conjunto congelado no tiene respuestas en la franja 0,2–0,5 ni pedidos del dato de varias
+vueltas, así que no decide el umbral de producción.
+
+Reproducción: `uv run --env-file <.env con TYPESAFE_API_KEY> carvajal eval-claims --ledger
+<libro>.jsonl --max-jev-calls 20 --output <informe>.md --json <informe>.json`.
+
+### 10.5 Recomendación (pendiente de decisión del owner)
+
+1. **No cambiar ahora el umbral ni el modo.** La evidencia no es abrumadora. No hay texto
+   de producción, la auditoría sale de 27 casos de prueba con un solo revisor y la tasa de
+   producción viene de un día de ensayos. El costo de cada sustitución ya bajó: tras la
+   PR #273, el reemplazo usa las candidatas, las sedes y la cantidad en vez de «Para seguir
+   necesito un dato más…».
+2. **Primero, el arreglo estructural** (cambia qué se juzga: Enmienda E, decisión del
+   owner). Pasar como `dicho_por_la_persona` los valores estructurados de las preguntas
+   anteriores y las líneas del borrador. Así, un pedido del dato que repite lo que la persona
+   ya dio queda respaldado. Ataca la clase más clara de falsos positivos (5 de 18 en la
+   muestra) sin tocar el umbral.
+3. **Opción de umbral, si el owner la quiere ya:** `JEV_CLAIMS_THRESHOLD=0.3` en el `.env`
+   del servidor, sin cambio de código.
+   - En producción, la tasa bajaría de 20,3 % a 13,1 %.
+   - En la muestra auditada quitaría 14 de los 18 falsos positivos y 1 dudosa, y conservaría
+     las 2 bien atrapadas.
+   - El conjunto congelado sigue en 10/10 y 0/6.
+   - Riesgo: dejar pasar afirmaciones reales con p entre 0,3 y 0,5. En la muestra no hubo
+     ninguna bien atrapada en esa franja, pero n es chico.
+   - Subir el umbral empeora: con 0,6 o 0,7 sustituiría 27 % y 42 %.
+4. **Seguir midiendo** con el bloque `claims` de `/health` (§10.6) y con `claims.judged`,
+   que ahora trae `tools` y `answer_chars`. Conviene leer la tasa por proceso antes de cada
+   despliegue, porque reiniciar el contenedor la pone a cero. Para auditar falsos positivos
+   de verdad hace falta texto: un ensayo local con `MONITORING_INCLUDE_CONTENT=true` sobre
+   los guiones del ensayo, o pasar a `shadow` un tiempo (decisión del owner).
+
+### 10.6 Observabilidad añadida
+
+- **`/health` → `claims`** (app web). Por proceso y desde el arranque: `mode`, `threshold`,
+  `since`, `turns`, `judged`, `supported`, `unsupported`, `substituted`,
+  `substitution_rate`, `unsupported_rate`, `unavailable` y `skipped` por motivo, `off` y
+  `p_histogram` (10 cubetas). Sin texto y sin cambiar el `status` global. Contrato en
+  [`contracts/jev-gatekeeper.md`](contracts/jev-gatekeeper.md#health).
+- **WhatsApp** corre el agente en el proceso `mcp`. Sus contadores salen en el `GET /health`
+  del servidor MCP, con el bearer de `/mcp`.
+- **`claims.judged`** suma `tools` (herramientas del turno) y `answer_chars`.
+- **LangSmith** ya llevaba `claims_status`, `claims_p` y `claims_substituted` en la raíz de
+  cada turno. No se añadió otra métrica: con esos metadatos se rehízo §10.2.

@@ -293,8 +293,11 @@ NO_CONTEXT_ANSWER = " ".join(
 
 DIRECT_INSTRUCTIONS = {
     "greeting": (
-        "Saluda en una frase, di en otra qué puedes hacer y ofrece un ejemplo concreto "
-        "(historia, cifras, empaques). No recuperes documentos ni des datos."
+        "Saluda en una frase. En otra di que puedes cotizar empaques (qué referencia sirve, "
+        "precios por ciudad y dónde comprar) y responder sobre la historia y las cifras "
+        "públicas de Carvajal. Ofrece un ejemplo de pedido sin cifras ni ciudades, como "
+        "«Cotízame vasos para bebida fría» (el filtro de respaldo rechaza cifras y nombres que "
+        "nadie dijo). No recuperes documentos ni des datos."
     ),
     "memory_write": (
         "El usuario declaró una preferencia. Confírmala en una frase breve y di que la "

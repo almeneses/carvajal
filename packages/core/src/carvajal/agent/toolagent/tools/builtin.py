@@ -31,9 +31,13 @@ from carvajal.agent.commercial_flow import (
 from carvajal.agent.commercial_intent import (
     USE_TEMPERATURE,
     USES,
+    family_fits_use,
+    family_for_use,
     material_for,
     microwave_for,
     named_families,
+    named_use,
+    stated_product,
 )
 from carvajal.agent.memory.store import MemoryProfile
 from carvajal.agent.reference_names import (
@@ -701,10 +705,65 @@ def _product_notices(
     return notices
 
 
+@dataclass(frozen=True)
+class _UseFamily:
+    """Familia corregida por el uso: ``previous`` es la que pasó el modelo.
+
+    ``product`` trae la capacidad, la temperatura y el microondas que la persona dijo en el
+    turno (``None`` en lo que calló): los que arrastró el modelo eran del producto anterior.
+    """
+
+    family: str
+    use: str
+    previous: str
+    product: dict[str, Any]
+
+    def notice(self, action: str = "se buscó") -> str:
+        return (
+            f"La familia {self.previous} no sirve para el uso {self.use} y la persona no la "
+            f"nombró en este turno: {action} en la familia {self.family}, la de ese uso. "
+            f"Presenta estas opciones como {self.family}, no como {self.previous}, y dilo."
+        )
+
+
+def _family_for_use(family: str | None, question: str) -> _UseFamily | None:
+    """Corrección de una familia heredada que no sirve para el uso (mejora 4 del ensayo).
+
+    «¿y para sopa caliente?» después de hablar de vasos: el modelo arrastra ``vaso`` del
+    turno anterior y buscaría vasos para sopa. Solo corrige el uso que la persona nombra en
+    este turno, sin nombrar ninguna familia, como ``_inherit`` en las reglas: el uso que
+    pasa el modelo o el del contexto puede ser una elección anterior («vasos para comida
+    caliente» y luego «¿y de 16 onzas?»), y entonces la familia ya era la de la persona.
+    """
+
+    if family is None or named_families(question):
+        return None
+    wanted = named_use(question)
+    if wanted is None or family_fits_use(family, wanted):
+        return None
+    corrected = family_for_use(family, wanted)
+    if corrected is None:
+        return None
+    return _UseFamily(
+        family=corrected, use=wanted, previous=family, product=stated_product(question)
+    )
+
+
 def _buscar_producto(
     args: BuscarProductoArgs, deps: ToolDeps, context: ToolContext, sources: _Sources
 ) -> _Draft:
     data = deps.catalog or load_catalog()
+    by_use = _family_for_use(args.familia, context.question)
+    if by_use is not None:
+        args = args.model_copy(
+            update={
+                "familia": by_use.family,
+                "uso": by_use.use,
+                "capacidad_oz": by_use.product["capacity_oz"],
+                "temperatura": by_use.product["temperature"],
+                "microondas": by_use.product["microwave"],
+            }
+        )
     # Red de seguridad: si la persona pidió microondas y el modelo no lo pasó, se aplica
     # igual, para no recomendar un material que la guía descarta (EPS, evaluación spec 044).
     microwave = args.microondas
@@ -730,6 +789,12 @@ def _buscar_producto(
         # Explorar otro producto (otra familia, uso o capacidad) suelta la referencia de la
         # cotización anterior: un ``cotizar`` genérico posterior no debe volver a cotizarla.
         update["sku"] = None
+    if by_use is not None:
+        # El contexto guarda la familia y el uso corregidos, no el vaso que arrastró el
+        # modelo: un ``cotizar`` posterior sin familia sigue en la del uso.
+        # La capacidad, la temperatura y el microondas son los que dijo la persona; ``None``
+        # olvida los del vaso.
+        update.update({"family": by_use.family, "use": by_use.use, "sku": None, **by_use.product})
     if args.pais and args.pais not in data.countries:
         return _Draft(
             "empty",
@@ -776,6 +841,9 @@ def _buscar_producto(
         valid=len(valid),
         discarded=len(discarded),
     )
+    if by_use is not None:
+        notices.insert(0, by_use.notice())
+        name_data["familia_por_uso"] = {"familia": by_use.family, "uso": by_use.use}
     if not valid and not discarded:
         notice_data = {"aviso": " ".join(notices)} if notices else {}
         return _Draft(
@@ -1089,6 +1157,8 @@ def _quote_sources(quote: Mapping[str, Any], source_type: str) -> list[dict[str,
     primary = quote["primary"]
     presentation = primary["presentation"]
     site_id = (primary.get("provider") or {}).get("id") or ""
+    # Precio publicado en otra ciudad que la de la cotización: la fuente dice cuál.
+    where = f"publicado en {primary['price_city']} · " if primary.get("price_origin") else ""
     entries = [
         {
             "chunk_id": f"precio:{primary['sku']}:{site_id}",
@@ -1100,7 +1170,7 @@ def _quote_sources(quote: Mapping[str, Any], source_type: str) -> list[dict[str,
                 f"Precio {presentation['price_per_presentation']} {primary['currency']} por "
                 f"{presentation['basis']} de {presentation['units']} · IVA "
                 f"{primary['tax_status']} · {price_origin(source_type, primary['seller'])} · "
-                "capturado el "
+                f"{where}capturado el "
                 f"{primary['captured_at']}"
             ),
             "url": primary["source_url"],
@@ -1178,6 +1248,8 @@ def _quote_payload(
         "total": quote["total"],
         "moneda": commercial["currency"],
         "vendedor": primary["seller"],
+        # Ciudad donde el vendedor publica el precio, si no es la de la cotización.
+        **({"ciudad_del_precio": primary["price_city"]} if primary.get("price_origin") else {}),
         "tipo_fuente": source_type,
         "fuente": primary["source_url"],
         "fecha": primary["captured_at"],
@@ -1308,6 +1380,16 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
                 args = args.model_copy(update={"family": next(iter(said))})
     # El mismo catálogo con que ``quote_request`` resuelve el nombre de la referencia.
     filled, reused = _fill_from_context(args, commercial_context, load_catalog())
+    by_use = None if args.sku or filled.nombre else _family_for_use(filled.family, context.question)
+    if by_use is not None:
+        # Como en ``buscar_producto``: el vaso heredado no se cotiza para sopa. La referencia,
+        # la capacidad, la temperatura y el microondas eran del producto anterior, vinieran
+        # del contexto o del argumento; solo quedan los que la persona dijo en el turno.
+        filled = filled.model_copy(
+            update={"family": by_use.family, "use": by_use.use, "sku": None, **by_use.product}
+        )
+        replaced = {"family", "use", "sku", *by_use.product}
+        reused = [key for key in reused if key not in replaced]
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})
@@ -1321,6 +1403,9 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     # referencia se guarda por su SKU resuelto, no por el texto del nombre; ``None`` hace que
     # el grafo olvide la de una cotización anterior.
     update = {**filled.model_dump(exclude_none=True), "country": "CO", "sku": filled.sku}
+    if by_use is not None:
+        # ``None`` olvida en el contexto la capacidad y la temperatura del producto anterior.
+        update = {**by_use.product, **update}
     update.pop("nombre", None)
     update.pop("cantidades", None)
     if "quantity" in update:
@@ -1334,6 +1419,9 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
         # y descartaría sin motivo el PP y el PET de bebida fría.
         request = filled.model_copy(update={"temperature": temperature})
     base: dict[str, Any] = {"reutilizado": reused}
+    if by_use is not None:
+        base["familia_por_uso"] = {"familia": by_use.family, "uso": by_use.use}
+        base["aviso"] = by_use.notice("se cotizó")
     day = _today(deps)
     dataset = deps.dataset or load_dataset(day.isoformat())
     if filled.city is not None and _directory_city(filled.city, dataset) is None:
@@ -1364,7 +1452,19 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     if filled.sku or name:
         _remember_reference(quoted, update, dataset)
     if kind == "aclaracion" and "referencia" in (quoted.get("missing") or []):
-        return _ambiguous_reference(quoted, base, update)
+        asked = dict(quoted.get("request") or {})
+        # Spec 054: lo demás de la solicitud viaja con las candidatas para que el flujo
+        # cotice la que elija la persona («la 2», «el Gold») sin volver al modelo.
+        choice_request = {
+            "quantity": asked.get("quantity"),
+            "unit": unit,
+            "city": asked.get("city"),
+            "delivery": fields.get("delivery"),
+            "use": asked.get("use"),
+            "temperature": asked.get("temperature"),
+            "microwave": asked.get("microwave"),
+        }
+        return _ambiguous_reference(quoted, base, update, choice_request)
     if kind == "sin_resultados" and quoted.get("reason") in _NAMED_EMPTY:
         return _named_empty(quoted, base, update)
     if kind == "aclaracion":
@@ -1428,6 +1528,13 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     numbers = sources.add(_quote_sources(quoted, source_type))
     shipping_n = numbers[1] if len(numbers) > 1 else None
     message = f"Cotización calculada con el precio publicado por {primary['seller']}."
+    if primary.get("price_origin"):
+        message = (
+            f"Cotización calculada con el precio que publica {primary['seller']} en "
+            f"{primary['price_city']}: en {quoted['city']} no hay precio publicado de esta "
+            f"referencia. Dilo así y no lo presentes como precio de {quoted['city']}; las sedes "
+            f"de {quoted['city']} del directorio son dónde consultarla."
+        )
     if source_type == "sistema":
         message = (
             "Cotización calculada con un precio de referencia del catálogo, sin distribuidor: "
@@ -1511,9 +1618,18 @@ def _remember_reference(
 
 
 def _ambiguous_reference(
-    quoted: Mapping[str, Any], base: dict[str, Any], update: dict[str, Any]
+    quoted: Mapping[str, Any],
+    base: dict[str, Any],
+    update: dict[str, Any],
+    choice_request: Mapping[str, Any] | None = None,
 ) -> _Draft:
-    """El nombre coincide con varias referencias (o solo en parte): se pregunta cuál."""
+    """El nombre coincide con varias referencias (o solo en parte): se pregunta cuál.
+
+    Las candidatas, en su orden, y ``choice_request`` (cantidad, unidad, ciudad, domicilio,
+    uso, temperatura y microondas) van en la tarjeta ``reference_choice``: el flujo de la
+    spec 054 las guarda en el borrador y resuelve la respuesta («la 2», el SKU, «el Gold»)
+    con reglas, sin que el modelo elija.
+    """
 
     candidates = [
         {
@@ -1539,7 +1655,10 @@ def _ambiguous_reference(
         )
     else:
         message = "El nombre coincide con varias referencias del catálogo."
-    message += " Pregunta a la persona cuál quiere y cotízala con su sku; no elijas tú."
+    message += (
+        " Pregunta a la persona cuál quiere, con las candidatas numeradas en este orden (1, 2, "
+        "…), y cotízala con su sku; no elijas tú."
+    )
     data: dict[str, Any] = {
         **base,
         "candidatas": candidates,
@@ -1549,7 +1668,16 @@ def _ambiguous_reference(
         data["parcial"] = True
     if conflict:
         data["conflicto_sku_nombre"] = True
-    return _Draft("needs_input", message, data=data, missing=["referencia"], context_update=update)
+    listed = [dict(item) for item in quoted.get("candidates") or [] if isinstance(item, Mapping)]
+    cards = {"reference_choice": {"candidates": listed, "request": dict(choice_request or {})}}
+    return _Draft(
+        "needs_input",
+        message,
+        data=data,
+        missing=["referencia"],
+        context_update=update,
+        cards=cards,
+    )
 
 
 def _named_empty(quoted: Mapping[str, Any], base: dict[str, Any], update: dict[str, Any]) -> _Draft:

@@ -10,6 +10,7 @@ El precio inline de ``referencias.csv`` (tienda de México) sigue siendo válido
 expone como la oferta oficial de esa referencia.
 """
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any, Literal, Self
@@ -65,6 +66,11 @@ class _Sourced(_Row):
         return value
 
 
+_OZ = re.compile(r"\b(\d+(?:[.,]\d+)?)[_ ]?oz\b", re.IGNORECASE)
+_MM = re.compile(r"\b(\d+(?:[.,]\d+)?)Mm\b")
+_BY = re.compile(r"\b(\d+)X(\d+)\b")
+
+
 class Reference(_Sourced):
     """Referencia vendible de Carvajal Empaques."""
 
@@ -91,6 +97,16 @@ class Reference(_Sourced):
     @classmethod
     def _material_mayusculas(cls, value: str) -> str:
         return value.upper()
+
+    @field_validator("name")
+    @classmethod
+    def _nombre_legible(cls, value: str) -> str:
+        """Medidas del catálogo de México en forma legible: «8_Oz 80Mm … 20X50» → «8 oz 80 mm
+        … 20x50». Los códigos de modelo («066_1P») no se tocan."""
+
+        value = _OZ.sub(r"\1 oz", value)
+        value = _MM.sub(r"\1 mm", value)
+        return _BY.sub(r"\1x\2", value)
 
     @property
     def uses(self) -> tuple[str, ...]:

@@ -46,6 +46,9 @@ def test_la_ruta_directa_no_finge_buscar_en_el_corpus() -> None:
     assert "no consulta el corpus" in DIRECT_SYSTEM
     assert "invita a hacerla de nuevo" in DIRECT_SYSTEM
     assert "Saluda" in DIRECT_INSTRUCTIONS["greeting"]
+    # El asistente es comercial: el saludo ofrece cotizar con un ejemplo, no solo historia.
+    assert "cotizar empaques" in DIRECT_INSTRUCTIONS["greeting"]
+    assert "«Cotízame vasos para bebida fría»" in DIRECT_INSTRUCTIONS["greeting"]
 
 
 def test_el_router_tiene_ejemplos_y_desempate() -> None:
