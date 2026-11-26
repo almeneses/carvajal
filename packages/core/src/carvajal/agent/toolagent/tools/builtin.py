@@ -75,6 +75,11 @@ FRAGMENT_CHARS = 1500  # texto máximo de un fragmento del corpus que ve el mode
 # ruta comercial) el modelo daba por inexistentes referencias que sí estaban (simulación de
 # la spec 044: CO-PCOM-J2, CO-CTER-34); el resto se declara con ``total_coincidencias``.
 MAX_TOOL_OPTIONS = 8
+# Opciones que se presentan al cliente (texto y tarjetas), como las alternativas de una
+# cotización (``quotation.engine.MAX_ALTERNATIVES``). El modelo ve ``MAX_TOOL_OPTIONS`` para
+# no negar referencias que existen, pero presenta como mucho estas (pedido del owner,
+# 2026-11-25); ``apps/api/chat/products.presented_options`` recorta las tarjetas igual.
+MAX_PRESENTED_OPTIONS = 4
 MAX_OUTSIDE_FILTERS = 5  # coincidencias por nombre fuera de los filtros que se nombran
 MAX_NAME_CHARS = 120
 _AVAILABILITY_LABELS = {"verificado": "confirmada", "no_disponible": "no disponible"}
@@ -769,6 +774,11 @@ def _buscar_producto(
         message = (
             f"{len(shown)} opción(es) apta(s) y {len(discarded)} descartada(s) por "
             "material o uso; las descartadas no son aptas."
+        )
+    if len(shown) > MAX_PRESENTED_OPTIONS:
+        message += (
+            f" Al cliente se le presentan como mucho {MAX_PRESENTED_OPTIONS}, las que mejor"
+            " encajan; las demás se ven filtrando por capacidad, material o precio."
         )
     if args.pais is None:
         message += " Sin país no se muestran precios."

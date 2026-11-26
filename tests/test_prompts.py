@@ -296,6 +296,7 @@ def test_el_formato_del_sku_en_las_opciones_no_se_lee_en_voz() -> None:
 
     # Assert
     assert "tal como lo trae la herramienta" in regla
+    assert "como mucho cuatro opciones" in regla
     assert formato in regla
     assert "SKU" not in hablado and "2864" not in hablado and "PPAN" not in hablado
 

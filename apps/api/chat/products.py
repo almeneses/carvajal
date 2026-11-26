@@ -24,6 +24,7 @@ import structlog
 
 from apps.api.runtime import templates
 from carvajal.agent.commercial_flow import MAX_OPTIONS
+from carvajal.agent.toolagent.tools.builtin import MAX_PRESENTED_OPTIONS
 
 __all__ = [
     "has_cards",
@@ -153,6 +154,9 @@ def presented_options(result: dict[str, Any] | None, answer: str) -> dict[str, A
     sobren tras descontar esas. Cada línea (o ítem de lista) cuenta como una mención como
     mucho: repetir el nombre en el mismo párrafo no suma tarjetas.
 
+    Las tarjetas siguen el orden en que el texto nombra cada opción y son como mucho
+    ``MAX_PRESENTED_OPTIONS``: si el modelo lista más, se quedan las primeras que nombra.
+
     Si la respuesta no nombra ninguna, se conservan las primeras ``MAX_OPTIONS``. La ficha
     (``ficha``) y la recomendación por foto (``origin == "foto"``) no se tocan: ya son
     exactamente lo presentado. Devuelve el mismo objeto si no cambia nada.
@@ -193,6 +197,16 @@ def presented_options(result: dict[str, Any] | None, answer: str) -> dict[str, A
         kept.update(rest[: max(0, name_lines[name] - len(by_sku))])
     if not kept:
         kept = set(range(min(len(options), MAX_OPTIONS)))
-    if len(kept) == len(options):
+
+    def first_mention(index: int) -> tuple[int, int]:
+        # Posición de la primera mención (SKU o nombre); empata el orden de la herramienta.
+        option = options[index]
+        terms = (_plain(str(option.get(key) or "")) for key in ("sku", "name"))
+        found = [text.find(f" {term} ") for term in terms if term]
+        positions = [position for position in found if position != -1]
+        return (min(positions) if positions else len(text), index)
+
+    ordered = sorted(kept, key=first_mention)[:MAX_PRESENTED_OPTIONS]
+    if ordered == list(range(len(options))):
         return result
-    return {**result, "options": [options[index] for index in sorted(kept)]}
+    return {**result, "options": [options[index] for index in ordered]}

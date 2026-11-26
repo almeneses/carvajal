@@ -10,6 +10,7 @@ from typing import Any
 
 from apps.api.chat.products import presented_options, render_products
 from carvajal.agent.commercial_flow import MAX_OPTIONS
+from carvajal.agent.toolagent.tools.builtin import MAX_PRESENTED_OPTIONS
 
 
 def _option(sku: str, name: str) -> dict[str, Any]:
@@ -140,6 +141,34 @@ def test_si_las_nombra_todas_devuelve_el_mismo_resultado() -> None:
 
     # Assert
     assert filtered is result
+
+
+def test_si_lista_las_ocho_quedan_como_mucho_cuatro_tarjetas() -> None:
+    # Arrange: caso real del 2026-11-25 («necesito 400 vasos para bebida»): el texto listó
+    # las ocho opciones que vio el modelo.
+    answer = "\n".join(f"- {option['name']} (SKU {option['sku']})" for option in PLATOS)
+
+    # Act
+    filtered = presented_options(_result(), answer)
+
+    # Assert
+    assert len(_skus(filtered)) == MAX_PRESENTED_OPTIONS
+    assert _skus(filtered) == [option["sku"] for option in PLATOS[:MAX_PRESENTED_OPTIONS]]
+
+
+def test_las_tarjetas_siguen_el_orden_del_texto() -> None:
+    # Arrange: el texto nombra primero la última opción de la herramienta.
+    answer = (
+        "- Plato espumado pando 20 cm Wau (SKU CO-PPAN-20)\n"
+        "- Plato espumado hondo 12 oz Wau (SKU 7704918101288)\n"
+        "- Plato espumado pando 23 cm Wau\n"
+    )
+
+    # Act
+    filtered = presented_options(_result(), answer)
+
+    # Assert
+    assert _skus(filtered) == ["CO-PPAN-20", "7704918101288", "CO-PPAN-23"]
 
 
 def test_la_ficha_y_la_foto_no_se_filtran() -> None:
