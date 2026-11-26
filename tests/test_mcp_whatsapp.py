@@ -641,3 +641,36 @@ def test_sin_cotizacion_el_texto_del_agente_queda_completo() -> None:
     answer = _bridge(chat).consult("hola", "+57300")
 
     assert "- Precio por paquete: $3.751 [1]" in answer
+
+
+def test_sedes_que_comparten_el_directorio_no_toman_el_nombre_de_la_primera() -> None:
+    # Arrange: 2026-11-26, la sede de EDEXA salía citada como «Sede … Sideral».
+    from apps.mcp.bridge import DIRECTORY_LABEL, _listed_sources, _sources_block
+
+    url = "https://colombia.carvajalempaques.com/distribuidores"
+    sedes = [
+        {
+            "n": 1,
+            "url": url,
+            "title": "Sede Sideral (Bogotá)",
+            "section": "directorio_distribuidores",
+        },
+        {
+            "n": 2,
+            "url": url,
+            "title": "Sede EDEXA (Bogotá)",
+            "section": "directorio_distribuidores",
+        },
+    ]
+    sola = [sedes[0]]
+    otra = [
+        {"n": 1, "url": "https://x.test/a", "title": "Ficha A", "section": "catalogo_empaques"},
+        {"n": 2, "url": "https://x.test/a", "title": "Ficha B", "section": "catalogo_empaques"},
+    ]
+
+    # Act / Assert: varias sedes → el directorio; una sola sede o fichas → sin cambios.
+    assert f"[1] {DIRECTORY_LABEL} — {url}" in _sources_block(sedes)
+    assert "Sideral" not in _sources_block(sedes)
+    assert _listed_sources(sedes) == [(DIRECTORY_LABEL, url)]
+    assert "[1] Sede Sideral (Bogotá)" in _sources_block(sola)
+    assert "[1] Ficha A" in _sources_block(otra)

@@ -2755,3 +2755,36 @@ def test_comparar_tras_ficha_cita_sus_cifras_en_la_ficha_compartida() -> None:
     assert row["unidades_por_caja"] is None
     assert f"paquete de {row['presentacion_nombre']['unidades']} unidades" in excerpt
     assert "unidades por caja" not in excerpt
+
+
+def test_otra_referencia_nombrada_no_hereda_la_cantidad_del_pedido_anterior() -> None:
+    # Arrange: 2026-11-26, elegir la recomendada de una foto cotizó 2.000 unidades que la
+    # persona nunca dijo (quedaban de otra cotización del hilo).
+    question = (
+        "Ese\n\n(Elegí la recomendada de la foto: Contenedor térmico con tapa 8 oz, "
+        "ref. CO-CTT-08. Cotízala.)"
+    )
+    previous = {"family": "vaso", "quantity": 2000, "city": "Bogotá", "sku": "7704918100199"}
+
+    # Act
+    other = _run(
+        "cotizar",
+        {"sku": "CO-CTT-08"},
+        _deps(),
+        ToolContext(question=question, commercial_context=previous),
+    )
+    same = _run(
+        "cotizar",
+        {"sku": "7704918100199"},
+        _deps(),
+        ToolContext(question="¿y con retiro?", commercial_context=previous),
+    )
+
+    # Assert: la otra referencia pide la cantidad (la ciudad sí se conserva); la misma
+    # referencia sigue reutilizándola.
+    assert other.status == "needs_input"
+    assert _data(other)["missing"] == ["cantidad"]
+    assert "quantity" not in _data(other)["reutilizado"]
+    assert "city" in _data(other)["reutilizado"]
+    assert same.status == "ok"
+    assert "quantity" in _data(same)["reutilizado"]

@@ -253,3 +253,15 @@ def test_la_marca_del_turno_guarda_el_texto_sin_la_foto() -> None:
     # Act / Assert
     assert photo_question("") == PHOTO_QUESTION
     assert photo_question("  para  domicilio ") == f"{PHOTO_QUESTION}: para domicilio"
+
+
+@pytest.mark.parametrize("kind", ["frituras", "plato_fuerte", "sopas"])
+def test_a_igual_aptitud_la_recomendada_tiene_precio(catalog: Catalog, kind: FoodKind) -> None:
+    # 2026-11-26: la foto de unas empanadas recomendó un contenedor sin precio en ninguna
+    # ciudad y al elegirlo no se pudo cotizar.
+    rec = recommend(_profile(kind), catalog=catalog)
+
+    assert rec.status == "ok"
+    assert catalog.offers(rec.references[0])
+    priced = [bool(catalog.offers(reference)) for reference in rec.references]
+    assert sum(priced) > len(priced) // 2

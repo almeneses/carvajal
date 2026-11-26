@@ -185,6 +185,9 @@ def _rank(reference: Reference, req: Requirements, catalog: Catalog) -> tuple[ob
         req.use not in reference.uses,
         _LEVEL_RANK.get(level or "", 2),
         req.families.index(reference.family),
+        # Dentro de la misma aptitud y familia, primero lo que tiene precio: una
+        # recomendación que no se puede cotizar deja a la persona sin total (2026-11-26).
+        not catalog.offers(reference),
         distance,
         reference.is_adapted,  # a igual aptitud, primero el portafolio de Colombia
         reference.sku,

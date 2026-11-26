@@ -765,16 +765,44 @@ def spoken_quote(view: QuoteView, photo_url: str | None = None) -> SpokenReply:
     return SpokenReply(spoken.text, spoken.links + links)
 
 
+DIRECTORY_LABEL = "Directorio de distribuidores de Carvajal Empaques"
+
+
+def _shared_url_labels(sources: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """Etiqueta de una URL que citan varias fuentes con títulos distintos.
+
+    Las sedes del directorio comparten la URL del directorio: se listan una sola vez y la
+    primera no puede ponerle su nombre a todas (2026-11-26: la sede de EDEXA salía citada
+    como «Sede Comercializadora de Desechables Sideral»).
+    """
+
+    titles: dict[str, set[str]] = {}
+    sections: dict[str, set[str]] = {}
+    for source in sources:
+        url = str(source.get("url") or "").strip()
+        if not url:
+            continue
+        titles.setdefault(url, set()).add(_source_label(source, url))
+        sections.setdefault(url, set()).add(str(source.get("section") or ""))
+    return {
+        url: DIRECTORY_LABEL
+        for url, found in titles.items()
+        if len(found) > 1 and sections[url] == {"directorio_distribuidores"}
+    }
+
+
 def _listed_sources(sources: Iterable[Mapping[str, Any]]) -> list[tuple[str, str]]:
     """Pares ``(título, url)`` sin repetir de las fuentes que lista :func:`_sources_block`."""
 
+    items = list(sources)
+    shared = _shared_url_labels(items)
     listed: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for source in sources:
+    for source in items:
         if len(listed) >= MAX_LISTED_SOURCES:
             break
         url = str(source.get("url") or "").strip()
-        title = _source_label(source, url)
+        title = shared.get(url) or _source_label(source, url)
         key = url or title
         if not key or key in seen:
             continue
@@ -807,13 +835,15 @@ def _source_label(source: Mapping[str, Any], url: str) -> str:
 
 
 def _sources_block(sources: Iterable[Mapping[str, Any]]) -> str:
+    listed = list(sources)
+    shared = _shared_url_labels(listed)
     lines: list[str] = []
     seen: set[str] = set()
-    for number, source in enumerate(sources, start=1):
+    for number, source in enumerate(listed, start=1):
         if len(lines) >= MAX_LISTED_SOURCES:
             break
         url = str(source.get("url") or "").strip()
-        title = _source_label(source, url)
+        title = shared.get(url) or _source_label(source, url)
         key = url or title
         if not key or key in seen:
             continue

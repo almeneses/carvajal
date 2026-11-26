@@ -849,8 +849,9 @@ def _fill_from_context(
     """Completa los campos ausentes con el contexto comercial vigente.
 
     Los datos del producto (familia, uso, capacidad, temperatura, microondas) solo se
-    reutilizan si la llamada no nombra otro producto; cantidad, ciudad, domicilio y
-    preferencia se reutilizan siempre. Un valor del contexto que no valida se ignora.
+    reutilizan si la llamada no nombra otro producto; ciudad, domicilio y preferencia se
+    reutilizan siempre, y la cantidad salvo que se nombre otra referencia. Un valor del
+    contexto que no valida se ignora.
     """
 
     explicit = args.model_dump(exclude_none=True)
@@ -864,7 +865,12 @@ def _fill_from_context(
     product_fields = [
         key for key in _PRODUCT_FIELDS if not (named and key in ("family", "capacity_oz"))
     ]
-    reusable = [*(product_fields if same_product else ()), *_SHARED_FIELDS]
+    # Otra referencia nombrada (la elegida de una foto, «cotiza el J1») es otro pedido: la
+    # cantidad del anterior no se hereda en silencio, se pregunta (2026-11-26: una elección
+    # de foto cotizó 2.000 unidades que la persona nunca dijo).
+    other_reference = named and str(explicit.get("sku") or "") != str(context.get("sku") or "")
+    shared = [key for key in _SHARED_FIELDS if not (other_reference and key == "quantity")]
+    reusable = [*(product_fields if same_product else ()), *shared]
     filled = dict(explicit)
     reused: list[str] = []
     sku = context.get("sku")
