@@ -70,8 +70,14 @@ def chat(
     request: Request,
     thread: str | None = None,
     panel: str | None = None,
+    nuevo: str | None = None,
 ) -> Response:
-    """Muestra el hilo solicitado o el activo, con el panel de hilos."""
+    """Muestra el hilo solicitado o el activo, con el panel de hilos.
+
+    ``panel=hilos`` abre el panel al cargar; ``nuevo=1`` marca el hilo recién creado por
+    «Nuevo hilo»: el chat vacío queda a la vista con un aviso breve de que el anterior se
+    guardó, y el foco va al compositor.
+    """
 
     identity = request_identity(request)
     owner_key = identity.read(request)
@@ -102,12 +108,14 @@ def chat(
 
     if thread_id is None and messages:
         thread_id = messages[0].conversation_id
+    conversations = [] if new_owner else _conversations(request, owner_key)
     response = _page(
         request,
         messages,
         thread_id=thread_id,
-        conversations=[] if new_owner else _conversations(request, owner_key),
+        conversations=conversations,
         panel_hilos=panel == "hilos",
+        hilo_nuevo=nuevo == "1" and not messages and _has_saved_thread(conversations, thread_id),
     )
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
@@ -123,6 +131,10 @@ def new_chat(
 
     La memoria de largo plazo vive en el Store por dueño, no por hilo: abrir un
     hilo nuevo demuestra que la preferencia se recupera entre hilos.
+
+    Redirige al hilo nuevo sin abrir el panel de hilos (decisión del owner del
+    2026-11-26; antes abría el panel encima del chat, PR #114): ``nuevo=1`` solo
+    muestra el aviso de que el hilo anterior quedó guardado en «Hilos».
     """
 
     identity = request_identity(request)
@@ -155,7 +167,7 @@ def new_chat(
             status_code=503,
         )
     response = RedirectResponse(
-        url=f"/chat?thread={quote(conversation.id)}&panel=hilos",
+        url=f"/chat?thread={quote(conversation.id)}&nuevo=1",
         status_code=303,
     )
     if new_owner:
@@ -385,6 +397,7 @@ def _page(
     thread_id: str | None = None,
     conversations: Sequence[ConversationSummary] | None = None,
     panel_hilos: bool = False,
+    hilo_nuevo: bool = False,
 ) -> Response:
     """Página completa del chat con su hilo, compositor y panel de hilos."""
 
@@ -400,6 +413,7 @@ def _page(
             "thread_id": thread_id or "",
             "conversations": conversations or [],
             "panel_hilos": panel_hilos,
+            "hilo_nuevo": hilo_nuevo,
             "monitoring": getattr(
                 request.app.state,
                 "monitoring",
@@ -520,6 +534,19 @@ def _history(
     except SQLAlchemyError as error:
         logger.warning("chat.history_failed", error=str(error))
         return []
+
+
+def _has_saved_thread(
+    conversations: Sequence[ConversationSummary],
+    thread_id: str | None,
+) -> bool:
+    """Si hay otro hilo con mensajes: solo entonces es cierto que «el anterior quedó guardado».
+
+    Un visitante que pulsa «Nuevo hilo» sin haber escrito no tiene hilo anterior, y pulsarlo
+    dos veces seguidas solo deja un «Hilo vacío»: en ambos casos el aviso no se muestra.
+    """
+
+    return any(c.id != thread_id and c.preview for c in conversations)
 
 
 def _conversations(

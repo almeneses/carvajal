@@ -35,7 +35,7 @@ El visitante recarga el chat y ve sus turnos en orden, con las fuentes citadas. 
 
 1. **Given** una conversación con turnos, **When** se recarga `/chat` con la cookie, **Then** el historial aparece en orden con fuentes citadas (`test_get_con_cookie_muestra_el_historial_en_orden`).
 2. **Given** 30 turnos persistidos (60 mensajes), **When** se pide el historial, **Then** devuelve los 50 mensajes más recientes en orden ascendente (`test_history_limita_a_los_50_mensajes_mas_recientes`).
-3. **Given** un hilo seleccionado, **When** se pide `/chat?thread=...`, **Then** se carga su historial y el hilo se marca activo; `/chat/new` redirige al hilo nuevo (`test_get_thread_selecciona_el_historial_y_marca_el_hilo_activo`, `test_nuevo_hilo_redirige_al_hilo_nuevo_y_abre_el_panel`).
+3. **Given** un hilo seleccionado, **When** se pide `/chat?thread=...`, **Then** se carga su historial y el hilo se marca activo; `/chat/new` redirige al hilo nuevo (`test_get_thread_selecciona_el_historial_y_marca_el_hilo_activo`, `test_nuevo_hilo_redirige_al_hilo_nuevo_sin_abrir_el_panel`; desde el 2026-11-26, por decisión del owner, ya no abre el panel de hilos encima del chat: avisa que el anterior quedó guardado y deja el foco en el compositor).
 4. **Given** un fallo del proveedor, **When** se responde 503, **Then** no se persiste el turno y el historial previo se conserva (`test_fallos_del_proveedor_devuelven_503_sin_filtrar_ni_persistir`, `test_el_error_503_conserva_el_historial_previo`).
 
 ### User Story 3 - Limitar el consumo diario por visitante (Priority: P3)

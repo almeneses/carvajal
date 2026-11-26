@@ -94,7 +94,7 @@
             autocomplete="off"
             enterkeyhint="send"
             placeholder="Escribe o dicta tu pregunta"
-            aria-describedby="ayuda-chat"
+            aria-describedby="ayuda-chat{{ ' aviso-hilo-nuevo' if hilo_nuevo else '' }}"
           >{{ question }}</textarea>
           <span id="ayuda-chat" class="sr-solo">Hasta 500 caracteres. Mayús + Enter añade una línea.</span>
         </div>

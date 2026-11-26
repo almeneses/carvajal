@@ -106,6 +106,15 @@
       Escríbeme o dicta tu pregunta. Te ayudo con empaques, cotizaciones y la historia de
       Carvajal.
     </p>
+    {% if hilo_nuevo %}
+    {#- «Nuevo hilo» ya no abre el panel encima del chat (decisión del owner, 2026-11-26):
+        este aviso breve conserva lo que buscaba la PR #114, que la persona sepa que el hilo
+        anterior quedó guardado. El compositor lo enlaza con aria-describedby y hilos.js le
+        da el foco, así que el lector de pantalla lo lee al llegar. -#}
+    <p class="bienvenida-aviso" id="aviso-hilo-nuevo" data-hilo-nuevo role="status">
+      Empezaste un hilo nuevo. El anterior quedó guardado en <strong>Hilos</strong>.
+    </p>
+    {% endif %}
   </div>
   <div class="bienvenida-temas">
     <p class="bienvenida-temas-titulo" id="temas-frecuentes">Temas frecuentes</p>
