@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.fakes.catalogo import catalog_sin_proyecciones
 
 from carvajal.agent.commercial_flow import run_commercial
 from carvajal.agent.router import decide_route
@@ -38,7 +39,9 @@ def test_hay_al_menos_veinte_preguntas_de_colombia() -> None:
 @pytest.mark.parametrize("item", CON_COTIZACION, ids=_ids(CON_COTIZACION))
 def test_sc004_el_total_de_colombia_es_el_esperado(item: dict[str, Any]) -> None:
     decision = decide_route(item["question"], item.get("turns"))
-    resultado = run_commercial(decision.extra, today=HOY)
+    # SC-004 se midió con los precios publicados: el catálogo sin las proyecciones del
+    # 2026-11-26 (las de «sin precio» declaran la ausencia y no estiman).
+    resultado = run_commercial(decision.extra, today=HOY, catalog=catalog_sin_proyecciones())
 
     assert {opcion["country"] for opcion in resultado["options"]} == {"CO"}
     assert "MXN" not in json.dumps(resultado, ensure_ascii=False)

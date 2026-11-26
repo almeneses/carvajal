@@ -71,10 +71,13 @@
     }
   },
   {
-    "name": "talla agotada no se ofrece",
+    "name": "el vaso térmico de 4 oz se cotiza con precio de referencia",
     "text": "cotiza 20 vasos térmicos de 4 oz en Bogotá",
     "expect": {
-      "kind": "sin_resultados"
+      "kind": "cotizacion",
+      "primary.sku": "CO-VTER-04",
+      "primary.price_kind": "convertido",
+      "primary.presentation.subtotal": "55363"
     }
   },
   {

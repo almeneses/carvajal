@@ -90,11 +90,15 @@ def test_cantidad_seguida_recalcula_presentaciones() -> None:
     assert principal["presentation"]["subtotal"] == "7502"
 
 
-def test_producto_agotado_no_se_ofrece() -> None:
+def test_el_vaso_termico_de_4_oz_se_cotiza_con_precio_de_referencia() -> None:
+    # Antes de la proyección (2026-11-26) no tenía precio y no se ofrecía; no hay evidencia
+    # de que esté agotado, así que ahora se cotiza con su precio de referencia.
     resultado = quote("cotiza 20 vasos térmicos de 4 oz en Bogotá", today=HOY, now=MANANA)
 
-    if resultado["kind"] == "cotizacion":
-        assert resultado["primary"]["sku"] != "CO-VTER-04"
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "CO-VTER-04"
+    assert resultado["primary"]["price_kind"] == "convertido"
+    assert resultado["primary"]["stock"]["status"] != "verificado"
 
 
 def test_cali_sin_precio_publicado_cotiza_el_de_bogota_y_da_las_sedes_de_cali() -> None:
@@ -127,8 +131,9 @@ def test_cali_sin_ningun_precio_publicado_cotiza_el_de_referencia_de_cali() -> N
 def test_referencia_nombrada_sin_precio_en_la_ciudad_ofrece_las_sedes() -> None:
     """Una referencia propia sin oferta en Cali no se sustituye ni recibe precio inventado."""
 
+    # Una copia de México solo tiene precio de referencia en sus tres ciudades: en Cali no.
     resultado = quote_request(
-        QuoteRequest(sku="CO-VTER-08", quantity=100, city="Cali", delivery=False),
+        QuoteRequest(sku="CO-MX-2864108000", quantity=100, city="Cali", delivery=False),
         today=HOY,
         now=MANANA,
     )
@@ -200,7 +205,8 @@ def test_el_flujo_publico_no_sirve_datos_simulados() -> None:
     dataset = load_dataset(HOY.isoformat())
 
     assert len([offer for offer in dataset.offers if not offer.converted]) == 29
-    assert len({offer.sku for offer in dataset.offers if offer.converted}) == 98
+    # Las 98 copias de México y las 73 propias con precio proyectado (2026-11-26).
+    assert len({offer.sku for offer in dataset.offers if offer.converted}) == 98 + 73
     assert all(offer.country == "CO" for offer in dataset.offers)
     assert all(offer.source_url.startswith("https://") for offer in dataset.offers)
     assert all(offer.source_name for offer in dataset.offers)
@@ -731,11 +737,9 @@ def test_sin_uso_ni_temperatura_manda_el_precio() -> None:
 
 
 def test_cafe_en_bogota_con_el_catalogo_real_recomienda_el_pp_de_9_oz_publicado() -> None:
-    """Los vasos de papel «Bebida Caliente» solo tienen precio convertido en Bogotá.
-
-    El vaso de PP traslúcido de 9 oz declara bebida fría y caliente y tiene precio
-    publicado: sigue de recomendado (regla del 2026-11-25) y los de papel van de
-    alternativa con precio de referencia.
+    """El vaso de PP traslúcido de 9 oz declara bebida fría y caliente y tiene precio
+    publicado: sigue de recomendado (regla del 2026-11-25); las alternativas con precio de
+    referencia (copias de México y proyectadas) también sirven para bebida caliente.
     """
 
     # Arrange
@@ -747,9 +751,10 @@ def test_cafe_en_bogota_con_el_catalogo_real_recomienda_el_pp_de_9_oz_publicado(
     # Assert
     assert resultado["primary"]["sku"] == "7704918100199"
     assert resultado["primary"]["price_kind"] == "publicado"
-    papel = [i for i in resultado["alternatives"] if catalogo[i["sku"]].material == "PAPEL"]
-    assert papel
-    assert all(item["price_kind"] == "convertido" for item in papel)
+    referencia = [i for i in resultado["alternatives"] if i["price_kind"] == "convertido"]
+    assert referencia
+    # Las de precio de referencia (copias y proyectadas) también sirven para bebida caliente.
+    assert all("bebida_caliente" in catalogo[i["sku"]].uses for i in referencia)
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tests.fakes.catalogo import (
+    book_sin_proyecciones,
+    catalog_sin_proyecciones,
+    dataset_sin_proyecciones,
+)
 from tests.fakes.tool_chat import ScriptedToolChat
 from tests.test_commercial_contract import TODAY as BOOK_TODAY
 from tests.test_commercial_contract import _verified_book
@@ -123,6 +128,10 @@ def _deps(
     catalog: Any = FIXTURES,
     **extra: Any,
 ) -> ToolDeps:
+    # Datos reales sin los precios proyectados (2026-11-26): las herramientas se prueban con
+    # el catálogo de antes; la proyección se prueba en ``test_catalog_projection``.
+    extra.setdefault("book", book_sin_proyecciones())
+    extra.setdefault("dataset", dataset_sin_proyecciones(extra.get("today", HOY)))
     return ToolDeps(
         vector_store=store or RecordingStore(hits),
         embedder=FakeEmbedder(),
@@ -534,7 +543,7 @@ def test_buscar_producto_precio_ausente_se_declara_sin_estimar() -> None:
     result = _run(
         "buscar_producto",
         {"uso": "bebida_caliente", "temperatura": "caliente", "familia": "vaso", "pais": "CO"},
-        _deps(catalog=None),
+        _deps(catalog=catalog_sin_proyecciones()),
     )
 
     # Assert

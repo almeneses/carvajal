@@ -16,11 +16,17 @@ import re
 import threading
 import time
 from collections.abc import Generator, Iterator, Sequence
+from datetime import date
 from typing import Any, cast
 
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from tests.fakes.catalogo import (
+    book_sin_proyecciones,
+    catalog_sin_proyecciones,
+    dataset_sin_proyecciones,
+)
 from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
 
 from apps.api.chat.agent import (
@@ -123,10 +129,14 @@ def _runner(
 ) -> tuple[ToolAgentRunner, ScriptedToolChat]:
     settings = settings or Settings()
     chat = chat or ScriptedToolChat(steps=list(steps))
+    # Datos reales sin los precios proyectados (2026-11-26); ver ``tests/fakes/catalogo.py``.
     deps = ToolDeps(
         vector_store=store or QueueStore(),
         embedder=embedder or FakeEmbedder(),
         settings=settings,
+        catalog=catalog_sin_proyecciones(),
+        book=book_sin_proyecciones(),
+        dataset=dataset_sin_proyecciones(date.today()),
     )
     graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver())
     return ToolAgentRunner(graph, settings), chat
