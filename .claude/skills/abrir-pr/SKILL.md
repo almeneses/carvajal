@@ -1,6 +1,6 @@
 ---
 name: abrir-pr
-description: Abre una Pull Request en el repositorio de Carvajal cumpliendo AGENTS.md - rama desde main, make check, Conventional Commits en español, CONSTITUTION.md al día, etiquetas del catálogo, assignee y sin merge. Úsala cuando pidan "abre la PR", "sube los cambios", "commit y push", "crea un pull request" o al terminar una tarea que deba entregarse.
+description: Abre una Pull Request en el repositorio de Carvajal cumpliendo AGENTS.md - rama desde main, make check, Conventional Commits en español, CONSTITUTION.md al día, etiquetas del catálogo, assignee y merge con squash en cuanto el check Calidad esté en verde. Úsala cuando pidan "abre la PR", "sube los cambios", "commit y push", "crea un pull request" o al terminar una tarea que deba entregarse.
 ---
 
 # Abrir una PR en Carvajal
@@ -11,8 +11,11 @@ skill y `AGENTS.md` discrepan, manda `AGENTS.md` y hay que corregir esta skill.
 ## Reglas que no se negocian
 
 - La PR apunta a `main`. `dev` no se usa desde el 2026-11-22.
-- El agente **abre la PR y se detiene**: no mergea, no aprueba (ni propias ni
-  ajenas) y **nunca usa `--admin`**, aunque el token lo permita.
+- El agente **fusiona su PR en cuanto `Calidad` esté en verde**, sin esperar
+  aprobación ni otros checks. Nunca con `Calidad` en rojo o pendiente, nunca
+  con `--admin`, nunca `git push --force` a `main` ni borrar `main`. No aprueba
+  PRs ajenas.
+- Fusionar en `main` despliega a producción: solo trabajo terminado y verificado.
 - Toda dependencia pasa por `uv`; `pip` y `requirements.txt` están prohibidos.
 - No se commitean secretos (`.env`, credenciales, `.claude/settings.local.json`).
 
@@ -105,13 +108,25 @@ Si `gh` corre con una cuenta distinta del autor real, asigna al autor con
 `--add-assignee <login>` o pide al owner que lo haga. Si ya hay assignee, no lo
 reemplaces: solo añade al autor si falta.
 
-### 8. Cierre
+### 8. Merge
+
+Espera el check `Calidad` y fusiona en cuanto esté en verde:
+
+```bash
+gh pr checks <número> --watch --required   # espera los checks requeridos
+gh pr merge <número> --squash --delete-branch
+```
+
+Si `Calidad` falla, corrige en la misma rama, sube y vuelve a esperar. No uses
+`--admin` ni fusiones con el check en rojo o pendiente.
+
+### 9. Cierre
 
 Verifica y reporta:
 
 ```bash
-gh pr view <número> --json url,labels,assignees,statusCheckRollup
+gh pr view <número> --json url,state,labels,assignees,statusCheckRollup
 ```
 
-Entrega la URL, las etiquetas, el assignee y el estado del check `Calidad`.
-Termina ahí: la aprobación y el merge son del owner.
+Entrega la URL, las etiquetas, el assignee, el estado de `Calidad` y si quedó
+fusionada (el merge dispara el despliegue a producción).

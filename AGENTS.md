@@ -43,15 +43,19 @@ git push
 ### Regla de merge (obligatoria para agentes)
 
 Toda Pull Request apunta a `main`; `dev` dejó de usarse el 2026-11-22. `main`
-está protegida con un ruleset: exige **1 aprobación de otra persona**, el check
-`Calidad` en verde y la rama al día.
+está protegida con un ruleset: exige el check **`Calidad` en verde**, prohíbe
+**borrar** la rama y prohíbe el **force push**. Desde el 2026-11-25 (decisión
+del owner) no exige aprobaciones.
 
-- Un agente **abre la PR y se detiene ahí**. No mergea, no aprueba y **no usa
-  `--admin`** para saltarse la regla, ni siquiera cuando el autor es el propio
-  agente.
-- La aprobación y el merge los hace el owner. Si el cambio es urgente, la
-  urgencia la decide el owner, no el agente.
-- Un agente tampoco aprueba PRs ajenas: la aprobación es una decisión humana.
+- Un agente **puede fusionar su PR en cuanto `Calidad` esté en verde**, sin
+  esperar aprobación ni ningún otro check. Usa `gh pr merge <número> --squash
+  --delete-branch`.
+- Fusionar en `main` **despliega a producción** (`deploy.yml`): fusiona solo
+  trabajo terminado y verificado con `make check`.
+- Nunca con `Calidad` en rojo o pendiente, y **nunca con `--admin`** para
+  saltarse el check. Nunca `git push --force` a `main` ni borrar `main`.
+- Un agente no aprueba PRs ajenas: la aprobación sigue siendo una decisión
+  humana.
 
 El bypass del ruleset está reservado a la cuenta `almeneses`. Que el agente
 corra con ese token no lo autoriza a usarlo: la restricción es de proceso, no
@@ -170,7 +174,7 @@ Viven en `.claude/skills/` (formato Agent Skills; las leen Claude Code y
 OpenCode). Convierten las reglas de este archivo en pasos ejecutables:
 
 - [`abrir-pr`](./.claude/skills/abrir-pr/SKILL.md) — rama, `make check`,
-  commit, CONSTITUTION, etiquetas, assignee y parada sin merge.
+  commit, CONSTITUTION, etiquetas, assignee y merge con `Calidad` en verde.
 - [`evaluar-agente`](./.claude/skills/evaluar-agente/SKILL.md) — enrutador,
   retrieval y cotizador contra la línea base, con criterios de regresión.
 

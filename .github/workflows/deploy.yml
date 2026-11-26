@@ -1,7 +1,7 @@
 name: Despliegue
 
-# Se dispara cuando CI termina en main: un push a main solo llega ahí tras el
-# PR de release aprobado, así que ese es el punto de publicación. También se
+# Se dispara cuando CI termina en main: un push a main solo llega ahí tras
+# fusionar un PR con Calidad en verde, así que ese es el punto de publicación. También se
 # puede lanzar a mano desde main para el primer despliegue o un reintento.
 on:
   workflow_run:
