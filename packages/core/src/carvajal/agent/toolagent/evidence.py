@@ -681,6 +681,9 @@ def tool_misses(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> list[str]:
             if cities:
                 line += f" Las ciudades con sedes son: {_join(cities)}."
             add(line)
+        elif tool == TOOL_COTIZAR and data.get("referencia_encontrada") is False:
+            # «Bolsas de basura»: no está en el catálogo; «sin precio» hacía creer que sí.
+            add("No lo encontré en el catálogo de Colombia.")
         elif tool == TOOL_COTIZAR and not data.get("sedes"):
             add("No encontré un precio publicado que cumpla esa solicitud.")
         elif tool == TOOL_INDICADOR_FINANCIERO:
