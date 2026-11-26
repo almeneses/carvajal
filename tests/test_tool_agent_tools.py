@@ -2757,6 +2757,83 @@ def test_comparar_tras_ficha_cita_sus_cifras_en_la_ficha_compartida() -> None:
     assert "unidades por caja" not in excerpt
 
 
+def test_otra_referencia_nombrada_no_hereda_la_cantidad_del_pedido_anterior() -> None:
+    # Arrange: 2026-11-26, elegir la recomendada de una foto cotizó 2.000 unidades que la
+    # persona nunca dijo (quedaban de otra cotización del hilo).
+    question = (
+        "Ese\n\n(Elegí la recomendada de la foto: Contenedor térmico con tapa 8 oz, "
+        "ref. CO-CTT-08. Cotízala.)"
+    )
+    previous = {"family": "vaso", "quantity": 2000, "city": "Bogotá", "sku": "7704918100199"}
+
+    # Act
+    other = _run(
+        "cotizar",
+        {"sku": "CO-CTT-08"},
+        _deps(),
+        ToolContext(question=question, commercial_context=previous),
+    )
+    same = _run(
+        "cotizar",
+        {"sku": "7704918100199"},
+        _deps(),
+        ToolContext(question="¿y con retiro?", commercial_context=previous),
+    )
+
+    # Assert: la otra referencia pide la cantidad (la ciudad sí se conserva); la misma
+    # referencia sigue reutilizándola.
+    assert other.status == "needs_input"
+    assert _data(other)["missing"] == ["cantidad"]
+    assert "quantity" not in _data(other)["reutilizado"]
+    assert "city" in _data(other)["reutilizado"]
+    assert same.status == "ok"
+    assert "quantity" in _data(same)["reutilizado"]
+
+
+def test_el_mismo_producto_sin_sku_o_por_su_codigo_conserva_la_cantidad() -> None:
+    # Arrange: revisión de la PR #275, un seguimiento que repite el producto por familia y
+    # capacidad, con su código en ``nombre`` o por su nombre no es otra referencia.
+    previous = {
+        "family": "vaso",
+        "capacity_oz": 9.0,
+        "quantity": 2000,
+        "city": "Bogotá",
+        "sku": "7704918100199",
+    }
+
+    # Act
+    by_family = _run(
+        "cotizar",
+        {"family": "vaso", "capacity_oz": 9.0},
+        _deps(),
+        ToolContext(question="¿y con retiro?", commercial_context=previous),
+    )
+    by_code = _run(
+        "cotizar",
+        {"nombre": "7704918100199"},
+        _deps(),
+        ToolContext(question="¿y con retiro?", commercial_context=previous),
+    )
+    by_name = _run(
+        "cotizar",
+        {"nombre": "vaso rígido traslúcido 9 oz Wau"},
+        _deps(),
+        ToolContext(question="¿y con retiro del vaso de 9 oz?", commercial_context=previous),
+    )
+    other_name = _run(
+        "cotizar",
+        {"nombre": "contenedor térmico con tapa 8 oz"},
+        _deps(),
+        ToolContext(question="¿y el contenedor térmico de 8 oz?", commercial_context=previous),
+    )
+
+    # Assert: la misma referencia conserva la cantidad; otra, por nombre, la pregunta.
+    assert "quantity" in _data(by_family)["reutilizado"]
+    assert "quantity" in _data(by_code)["reutilizado"]
+    assert "quantity" in _data(by_name)["reutilizado"]
+    assert "quantity" not in _data(other_name)["reutilizado"]
+
+
 def test_un_error_en_cantidades_no_se_lee_como_cantidad_faltante() -> None:
     # Revisión: cinco cantidades (máximo cuatro) no es «me falta la cantidad».
     result = _run(
