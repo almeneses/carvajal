@@ -131,13 +131,40 @@ def test_el_calentamiento_no_falla_si_ollama_no_responde() -> None:
     def broken() -> CountingEmbedder:
         raise RuntimeError("sin Ollama")
 
+    waits: list[float] = []
+
     # Act
-    threads = [warm_up(broken), warm_up(lambda: CountingEmbedder(fail=True))]
+    threads = [
+        warm_up(broken, retry_delays=(1, 2), sleep=waits.append),
+        warm_up(lambda: CountingEmbedder(fail=True), retry_delays=(), sleep=waits.append),
+    ]
     for thread in threads:
         thread.join(timeout=5)
 
     # Assert
     assert all(not thread.is_alive() for thread in threads)
+    assert waits == [1, 2]
+
+
+def test_el_calentamiento_reintenta_mientras_ollama_arranca() -> None:
+    """Con ``service_started`` la app arranca antes que Ollama: el primer intento falla."""
+
+    # Arrange: Ollama responde a partir del tercer intento.
+    inner = CountingEmbedder(fail=True)
+    waits: list[float] = []
+
+    def wait(seconds: float) -> None:
+        waits.append(seconds)
+        if len(waits) == 2:
+            inner.fail = False
+
+    # Act
+    thread = warm_up(lambda: inner, retry_delays=(5, 10, 15), sleep=wait)
+    thread.join(timeout=5)
+
+    # Assert: tres intentos, dos esperas y ninguna espera de más.
+    assert inner.calls == [WARM_UP_TEXT] * 3
+    assert waits == [5, 10]
 
 
 def test_la_app_calienta_los_embeddings_al_arrancar(monkeypatch: pytest.MonkeyPatch) -> None:

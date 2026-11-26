@@ -123,14 +123,32 @@ def test_lo_dicho_en_mensajes_anteriores_viaja_tras_lo_del_turno() -> None:
     assert "Cotízame" not in json.dumps(query.evidence, ensure_ascii=False)
 
 
-def test_said_before_omite_lo_repetido_y_junta_valores_distintos() -> None:
+def test_said_before_solo_lleva_el_ultimo_valor_de_cada_campo() -> None:
+    """Un valor corregido no respalda nada: tras «mejor 800» el 500 ya no viaja."""
+
     # Act
     found = said_before(
         ["500 vasos en Cali", "mejor 800 vasos en Cali"], current={"ciudad": "Cali"}
     )
 
     # Assert
-    assert found == {"cantidad": "500 / 800", "familia": "vaso"}
+    assert found == {"cantidad": "800", "familia": "vaso"}
+
+
+def test_said_before_el_turno_reemplaza_la_cantidad_del_mismo_producto() -> None:
+    # Act: el turno dice «800» sin familia; continúa los vasos de antes.
+    found = said_before(["500 vasos en Cali"], current={"cantidad": "800"})
+
+    # Assert
+    assert found == {"familia": "vaso", "ciudad": "Cali"}
+
+
+def test_said_before_conserva_la_cantidad_de_cada_producto() -> None:
+    # Act: «300 tapas» no corrige los 500 vasos: son dos productos.
+    found = said_before(["500 vasos en Cali", "300 tapas"])
+
+    # Assert
+    assert found == {"cantidad": "500 / 300", "familia": "vaso / tapa", "ciudad": "Cali"}
 
 
 def test_draft_extract_trae_lineas_y_referencias_por_elegir_sin_folio() -> None:

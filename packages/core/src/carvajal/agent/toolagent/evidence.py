@@ -739,7 +739,10 @@ def _options_lead(data: Mapping[str, Any], count: int) -> str:
         if criteria.get("microondas") is True:
             wanted.append("uso en microondas")
     if isinstance(search, Mapping) and not search.get("coincidencias"):
-        lead = "No encontré esa referencia por nombre; estas del catálogo sí son aptas"
+        # «No la encontré» sería falso si la herramienta la trajo fuera de los filtros: eso
+        # lo dicen :func:`_outside_notes` al final; aquí solo que no encaja en esta búsqueda.
+        lead = "Ninguna referencia con ese nombre encaja en esta búsqueda; estas del catálogo"
+        lead += " sí son aptas"
     elif isinstance(search, Mapping) and search.get("parcial"):
         lead = "Ninguna referencia coincide exactamente con ese nombre; estas se parecen y son"
         lead += " aptas"
@@ -748,6 +751,42 @@ def _options_lead(data: Mapping[str, Any], count: int) -> str:
     else:
         lead = "Estas referencias del catálogo son aptas"
     return f"{lead} para {_join(wanted)}:" if wanted else f"{lead} para lo que pides:"
+
+
+def _by_use_note(data: Mapping[str, Any]) -> str:
+    """La familia que eligió la herramienta por el uso (``familia_por_uso``), dicha a la persona.
+
+    El ``aviso`` de esa corrección es una instrucción para el modelo, no texto para la
+    persona; esta frase sale de los datos estructurados.
+    """
+
+    by_use = data.get("familia_por_uso")
+    if not isinstance(by_use, Mapping) or not by_use.get("familia") or not by_use.get("uso"):
+        return ""
+    return f"Para el uso {by_use['uso']} busqué en la familia {by_use['familia']}."
+
+
+def _outside_notes(data: Mapping[str, Any]) -> list[str]:
+    """Lo que la búsqueda por nombre trajo fuera de los filtros (``fuera_de_filtros``)."""
+
+    search = data.get("busqueda_nombre")
+    if not isinstance(search, Mapping) or search.get("coincidencias"):
+        return []
+    notes: list[str] = []
+    named = _named_matches(data).strip()
+    if named:
+        notes.append(named)
+    rejected = [
+        f"{item['sku']} ({item['motivo']})" if item.get("motivo") else str(item["sku"])
+        for item in data.get("fuera_de_filtros") or []
+        if isinstance(item, Mapping) and item.get("apto") is False and item.get("sku")
+    ]
+    if rejected:
+        notes.append(
+            "Con ese nombre también aparece fuera de esa búsqueda, pero no es apto para esto: "
+            f"{_join(rejected)}."
+        )
+    return notes
 
 
 def _product_lines(data: Mapping[str, Any]) -> list[str]:
@@ -809,7 +848,9 @@ def presented_data(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> str:
             lines = _product_lines(data)
             if lines:
                 offer = True
-                parts.append(_options_lead(data, len(lines)) + "\n\n" + "\n".join(lines))
+                lead = " ".join(filter(None, [_by_use_note(data), _options_lead(data, len(lines))]))
+                parts.append(lead + "\n\n" + "\n".join(lines))
+                parts.extend(_outside_notes(data))
         elif tool == TOOL_BUSCAR_SEDES:
             lines = _site_lines(data)
             if lines:

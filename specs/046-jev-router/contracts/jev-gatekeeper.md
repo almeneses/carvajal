@@ -167,8 +167,12 @@ antes eran la clase más clara de falsos positivos):
 
 - `dicho_por_la_persona` suma, tras `| en mensajes anteriores: `, los valores estructurados
   de los mensajes anteriores de la ventana del turno (semilla posterior a «olvidar todo» y
-  `user_quotes` del resumen) que el turno no repite. Dos valores distintos del mismo campo
-  viajan los dos, separados por « / ». Nunca el texto de esos mensajes.
+  `user_quotes` del resumen) que el turno no reemplaza. Solo viaja el último valor de cada
+  campo: tras «500 vasos» y «mejor 800 vasos» queda `cantidad: 800`, y una respuesta que
+  repite el 500 corregido no queda respaldada. Cantidad, capacidad, uso y temperatura son
+  del producto del mensaje (su familia o la última nombrada): «500 vasos» sigue vigente tras
+  «300 tapas» y las de productos distintos viajan separadas por « / ». Lo que dice el turno
+  reemplaza lo anterior del mismo campo y producto. Nunca el texto de esos mensajes.
 - `borrador_de_cotizacion` (si el hilo tiene borrador de la spec 054 no cancelado): por
   línea, el producto, las unidades, la ciudad y el subtotal que calculó el motor; con una
   lista de referencias por elegir, sus nombres y la cantidad y la ciudad de la solicitud.

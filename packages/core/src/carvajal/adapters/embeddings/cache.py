@@ -8,19 +8,28 @@ corpus no se repiten y llenarían la caché.
 
 :func:`warm_up` lanza una petición de embedding en un hilo aparte al arrancar la app o el
 MCP, para que el modelo ya esté cargado en Ollama cuando llegue la primera pregunta. No
-bloquea el arranque y no falla si Ollama no responde: solo lo registra.
+bloquea el arranque y no falla si Ollama no responde: reintenta durante unos dos minutos
+(en ``compose.prod.yml`` la app arranca con Ollama apenas iniciado, y su healthcheck da 90 s
+de ``start_period``) y, si sigue sin responder, solo lo registra.
 """
 
 import threading
+import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from time import perf_counter
 
 import structlog
 
 from carvajal.application.ports import Embedder
 
-__all__ = ["DEFAULT_CACHE_SIZE", "WARM_UP_TEXT", "CachedEmbedder", "warm_up"]
+__all__ = [
+    "DEFAULT_CACHE_SIZE",
+    "WARM_UP_RETRY_DELAYS_S",
+    "WARM_UP_TEXT",
+    "CachedEmbedder",
+    "warm_up",
+]
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +38,9 @@ DEFAULT_CACHE_SIZE = 512
 
 WARM_UP_TEXT = "Carvajal empaques"
 """Texto de la petición de calentamiento: corto y sin datos de nadie."""
+
+WARM_UP_RETRY_DELAYS_S: tuple[float, ...] = (5, 10, 15, 30, 30, 30)
+"""Esperas entre intentos: 7 intentos en unos 120 s, más que el ``start_period`` de Ollama."""
 
 
 class CachedEmbedder:
@@ -82,24 +94,43 @@ class CachedEmbedder:
 
 
 def warm_up(
-    embedder: Callable[[], Embedder], *, name: str = "embeddings.warm_up"
+    embedder: Callable[[], Embedder],
+    *,
+    name: str = "embeddings.warm_up",
+    retry_delays: Sequence[float] = WARM_UP_RETRY_DELAYS_S,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> threading.Thread:
     """Calienta el modelo en segundo plano: construye el embedder y embebe un texto corto.
 
     ``embedder`` es una fábrica para que también la construcción (importar LangChain tarda
     segundos) salga del arranque. El hilo es *daemon*: no retiene el cierre del proceso.
-    Cualquier error queda en el log ``embeddings.warm_up_failed`` (sin el mensaje, que puede
-    traer la URL) y el arranque sigue igual.
+    Si falla, reintenta tras cada espera de ``retry_delays`` (Ollama puede estar arrancando
+    todavía); cada fallo intermedio queda en ``embeddings.warm_up_retry`` y el último en
+    ``embeddings.warm_up_failed``, sin el mensaje (puede traer la URL). El arranque sigue
+    igual en todos los casos.
     """
 
     def run() -> None:
         started = perf_counter()
-        try:
-            embedder().embed(WARM_UP_TEXT)
-        except Exception as error:  # Ollama caído, sin el modelo o mal configurado
-            logger.warning("embeddings.warm_up_failed", error=type(error).__name__)
+        attempts = len(retry_delays) + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                embedder().embed(WARM_UP_TEXT)
+            except Exception as error:  # Ollama caído, arrancando, sin el modelo…
+                if attempt == attempts:
+                    logger.warning(
+                        "embeddings.warm_up_failed", error=type(error).__name__, attempts=attempt
+                    )
+                    return
+                logger.info("embeddings.warm_up_retry", error=type(error).__name__, attempt=attempt)
+                sleep(retry_delays[attempt - 1])
+                continue
+            logger.info(
+                "embeddings.warmed_up",
+                elapsed_ms=round((perf_counter() - started) * 1000),
+                attempts=attempt,
+            )
             return
-        logger.info("embeddings.warmed_up", elapsed_ms=round((perf_counter() - started) * 1000))
 
     thread = threading.Thread(target=run, name=name, daemon=True)
     thread.start()

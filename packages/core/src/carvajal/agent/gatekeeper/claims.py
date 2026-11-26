@@ -90,6 +90,8 @@ _PERSON_KEYS: Final = (
     ("temperature", "temperatura"),
     ("city", "ciudad"),
 )
+# Campos que describen un producto: un valor nuevo solo reemplaza al de la misma familia.
+_PRODUCT_LABELS: Final = frozenset({"cantidad", "capacidad", "uso", "temperatura"})
 
 
 def _is_question(sentence: str) -> bool:
@@ -182,23 +184,52 @@ def said_by_person(question: str) -> dict[str, str]:
 def said_before(
     questions: Sequence[str], current: Mapping[str, str] | None = None
 ) -> dict[str, str]:
-    """Valores estructurados de los mensajes anteriores de la persona que el turno no repite.
+    """Valores estructurados vigentes de los mensajes anteriores que el turno no reemplaza.
 
-    Misma extracción que :func:`said_by_person`, mensaje por mensaje y en orden. Si la persona
-    dio dos valores distintos para el mismo campo («500» y luego «1000»), viajan los dos,
-    separados por « / »; se omite el valor que ya está en ``current`` (el del turno).
+    Misma extracción que :func:`said_by_person`, mensaje por mensaje y en orden, pero solo
+    viaja el **último** valor de cada campo: tras «500 vasos» y «mejor 800 vasos» queda
+    ``cantidad: 800``, así que una respuesta que repite el 500 corregido ya no aparece
+    respaldada. Cantidad, capacidad, uso y temperatura pertenecen al producto del mensaje
+    (su familia o, si no la nombra, la última dicha): «500 vasos» sigue vigente después de
+    «300 tapas» y los dos viajan separados por « / ». Las familias distintas se acumulan.
+    ``current`` (lo dicho en el turno) reemplaza lo anterior del mismo campo y del mismo
+    producto; si el turno no nombra familia, continúa la última.
     """
 
     current = current or {}
-    found: dict[str, list[str]] = {}
+    latest: dict[tuple[str, str], str] = {}
+    family = ""
     for question in questions:
-        for label, value in said_by_person(question).items():
-            if current.get(label) == value:
+        said = said_by_person(question)
+        family = said.get("familia", family)
+        for label, value in said.items():
+            scope = _scope_of(label, value, family)
+            latest.pop((label, scope), None)  # el valor nuevo va al final, en su orden
+            latest[(label, scope)] = value
+    current_family = current.get("familia", family)
+    found: dict[str, list[str]] = {}
+    for (label, scope), value in latest.items():
+        if label == "familia":
+            if value == current.get("familia"):
                 continue
-            values = found.setdefault(label, [])
-            if value not in values:
-                values.append(value)
-    return {label: " / ".join(values) for label, values in found.items()}
+        elif label in current and (scope == "" or scope == current_family):
+            continue  # el turno lo reemplaza
+        found.setdefault(label, []).append(value)
+    order = [label for label, _ in _PERSON_KEYS] + ["indicador", "periodo"]
+    return {
+        label: " / ".join(found[label])
+        for label in sorted(found, key=lambda item: order.index(item) if item in order else 99)
+    }
+
+
+def _scope_of(label: str, value: str, family: str) -> str:
+    """A qué se ata un valor: la familia (los atributos del producto), sí mismo o nada."""
+
+    if label == "familia":
+        return value
+    if label in _PRODUCT_LABELS:
+        return family
+    return ""
 
 
 def _line_city(line: Mapping[str, Any]) -> str:

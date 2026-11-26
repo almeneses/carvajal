@@ -966,6 +966,13 @@ def main(argv: list[str] | None = None) -> int:
             distance=settings.qdrant_distance,
         )
         try:
+            # Los índices de payload los crea solo esta CLI, antes de indexar para que la
+            # poda por ``document_id`` ya los use; ``--recreate`` borra la colección y la
+            # nueva nace con ellos (``ensure_collection``).
+            if not args.recreate and store.client.collection_exists(store.collection):
+                created = store.ensure_payload_indexes()
+                if created:
+                    print(f"Índices de payload creados: {', '.join(created)}")
             report = index_gold(
                 gold_dirs=areas,
                 store=store,

@@ -646,6 +646,20 @@ tarjetas) o las sedes con su contacto, y «¿Quieres que te cotice alguna?», en
 (spec 054). La sustitución cuenta igual en `claims.substituted`; el log
 `claims.replaced_with_data` la distingue.
 
+**Revisión del 2026-11-26.** (1) `said_before` solo manda el último valor de cada campo
+(por producto): con «500 vasos» y luego «mejor 800 vasos» viajaba `cantidad: 500 / 800` y
+una respuesta con el 500 corregido aparecía respaldada. (2) El reemplazo con datos ya no dice
+«No encontré esa referencia por nombre» cuando la búsqueda trajo esa referencia fuera de los
+filtros: dice que no encaja en la búsqueda y lista lo que trajo `fuera_de_filtros` (apta o
+no, con su motivo) y la familia elegida por el uso (`familia_por_uso`). (3) Los índices de
+payload los crea solo la CLI `index-qdrant`: `ensure_collection` también corre desde la app
+web (`index_gold` en Configuración y en la captura) y los habría construido sobre los ~118 k
+puntos de producción dentro de una petición HTTP; solo una colección nueva, vacía, nace con
+ellos. (4) El calentamiento reintenta unos 2 min (Ollama arranca con 90 s de
+`start_period`). `eval-agent` (generalization y routing en modo `tools`) no pudo correrse en
+esta rama: el permiso para gastar DeepSeek se denegó; queda pendiente antes de fusionar, por
+el campo `aptas_para` que ahora ve el modelo en `buscar_producto`.
+
 **Sin medición con Jev** (sin créditos): las pruebas `tests/test_claims_ensayo.py` usan un
 juez falso con los p observados (0,38–0,49 de las tablas citadas ya no se sustituyen; 0,06,
 0,14 y 0,23 siguen atrapadas) y comprueban que lo dicho antes y el borrador llegan a la

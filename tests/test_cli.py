@@ -443,12 +443,18 @@ def test_index_qdrant_all_indexa_nucleo_y_fuentes_extendidas_en_una_corrida(
             elapsed_ms=1,
         )
 
+    calls: list[str] = []
+
     class FakeStore:
         collection = "corpus"
         dimensions = 768
 
         def __init__(self, **kwargs: object) -> None:
-            pass
+            self.client = SimpleNamespace(collection_exists=lambda name: True)
+
+        def ensure_payload_indexes(self) -> list[str]:
+            calls.append("indices")
+            return []
 
         def close(self) -> None:
             pass
@@ -481,6 +487,7 @@ def test_index_qdrant_all_indexa_nucleo_y_fuentes_extendidas_en_una_corrida(
 
     assert code == 0
     assert received["gold_dirs"] == [(core, "core"), (extended, "extended")]
+    assert calls == ["indices"]  # solo la CLI crea los índices de payload que falten
     assert "Puntos indexados: 4" in capsys.readouterr().out
 
 

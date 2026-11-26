@@ -14,7 +14,10 @@ cada búsqueda (el núcleo son ~125 de 118 248 puntos) y de la indexación. Sin 
 recorre el grafo HNSW leyendo el payload de cada candidato (``on_disk_payload``) hasta
 reunir los que cumplen el filtro; con el índice estima la cardinalidad y puntúa el núcleo
 entero sin recorrer el grafo. :meth:`QdrantVectorStore.ensure_payload_indexes` los crea si
-faltan: lo llama el indexador (``ensure_collection``), nunca la app ni el MCP.
+faltan y solo lo llama la CLI ``index-qdrant``: nunca la app ni el MCP, que pasan por
+``index_gold`` en cada carga de Configuración y en cada captura web. Construirlos sobre una
+colección grande es una operación de datos que decide el owner. ``ensure_collection`` solo
+los crea junto a una colección nueva, vacía, donde no cuestan nada.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -184,8 +187,11 @@ class QdrantVectorStore:
 
         Devuelve ``True`` si la creó en esta llamada. Una colección existente
         con otra dimensión o distancia es un error de configuración: mezclar
-        vectores incompatibles produce resultados silenciosamente malos. En los dos
-        casos deja creados los índices de payload (:meth:`ensure_payload_indexes`).
+        vectores incompatibles produce resultados silenciosamente malos. Solo una colección
+        nueva (vacía) nace con los índices de payload; a una existente no se los añade, porque
+        también la llama la app web (``index_gold`` en Configuración y en la captura) y
+        construirlos sobre ~118 k puntos dentro de una petición HTTP no le corresponde:
+        eso lo hace ``index-qdrant`` (:meth:`ensure_payload_indexes`).
         """
 
         if not self._client.collection_exists(self._collection):
@@ -211,19 +217,18 @@ class QdrantVectorStore:
                     f"La colección {self._collection!r} usa {vectors.distance}; "
                     f"la configuración exige {self._distance}."
                 )
-        self.ensure_payload_indexes(info)
         return False
 
-    def ensure_payload_indexes(self, info: object | None = None) -> list[str]:
+    def ensure_payload_indexes(self) -> list[str]:
         """Crea los índices de :data:`PAYLOAD_INDEXES` que falten; devuelve los creados.
 
-        Idempotente: lee ``payload_schema`` de la colección y no toca los que ya existen.
+        Solo para la CLI ``index-qdrant``. Idempotente: lee ``payload_schema`` de la
+        colección y no toca los que ya existen.
         Construir el índice de un campo sobre 118 248 puntos tarda segundos y no cambia
         ningún punto; ``wait=True`` deja el índice listo antes de seguir indexando.
         """
 
-        if info is None:
-            info = self._client.get_collection(self._collection)
+        info = self._client.get_collection(self._collection)
         present = set(getattr(info, "payload_schema", None) or {})
         created: list[str] = []
         for field, schema in PAYLOAD_INDEXES.items():

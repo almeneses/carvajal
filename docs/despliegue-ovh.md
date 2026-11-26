@@ -391,8 +391,9 @@ docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
 Índices de payload (2026-11-26). La búsqueda filtra por `layer` (el núcleo son unos 125 de
 118 248 puntos) y por `section`, y la indexación por `document_id`. Una colección indexada
 antes de esa fecha no tiene esos índices (`payload_schema` vacío) y Qdrant recorre el grafo
-leyendo el payload de cada candidato desde disco. `index-qdrant` los crea al empezar si
-faltan; para crearlos sin reindexar ni embeber (idempotente, no cambia ningún punto):
+leyendo el payload de cada candidato desde disco. Solo `index-qdrant` los crea, al empezar
+si faltan; la app web y el MCP nunca (una colección nueva ya nace con ellos). Para crearlos
+sin reindexar ni embeber (idempotente, no cambia ningún punto):
 
 ```bash
 docker compose -f compose.prod.yml exec app carvajal index-qdrant --only-payload-indexes

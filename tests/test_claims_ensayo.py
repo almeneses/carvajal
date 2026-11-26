@@ -4,8 +4,11 @@ El ensayo sustituyó más de un tercio de las respuestas juzgadas (web 18 de 47,
 de 45), 24 de 35 con p entre 0,2 y 0,5. Estas pruebas usan un juez falso que devuelve el p
 observado y comprueban tres cosas sin llamar a Jev:
 
-- con el umbral de 0,3 los falsos positivos de la franja de 0,3 a 0,5 ya no se sustituyen y lo
-  que la compuerta debe atrapar (valoraciones sin fuente, cifras inventadas) sigue atrapado;
+- el umbral: con el p que Jev dio a los falsos positivos (0,38 a 0,49) la respuesta se
+  sustituía con 0,5 y pasa con 0,3, y lo que la compuerta debe atrapar (valoraciones sin
+  fuente, cifras inventadas) sigue atrapado. El juez falso devuelve un p fijo: estas pruebas
+  miden la decisión con el p observado, no cuánto sube p con el contexto nuevo (eso solo lo
+  mide el próximo ensayo con Jev real, evidencia §10.7);
 - lo que la persona dijo en turnos anteriores y el borrador de la cotización viajan como
   evidencia;
 - un turno que solo presentaba datos del catálogo o del directorio recibe esos datos, no
@@ -73,8 +76,11 @@ def _run(
     question: str = MICROONDAS,
     seed: Sequence[Turn] = (),
     draft: QuoteDraft | None = None,
+    threshold: float | None = None,
 ) -> ToolAgentFinal:
     settings = Settings(_env_file=None)
+    if threshold is not None:
+        settings = settings.model_copy(update={"jev_claims_threshold": threshold})
     deps = ToolDeps(vector_store=EmptyStore(), embedder=FakeEmbedder(), settings=settings)
     chat = ScriptedToolChat(steps=[ScriptStep(tool_calls=[call]), ScriptStep(text=text)])
     graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver())
@@ -93,17 +99,20 @@ def test_el_umbral_por_defecto_es_0_3() -> None:
 
 
 @pytest.mark.parametrize("p", [0.38, 0.46, 0.49])
-def test_una_tabla_citada_con_el_p_observado_ya_no_se_sustituye(p: float) -> None:
+def test_una_tabla_citada_con_el_p_observado_se_sustituia_con_0_5_y_ya_no(p: float) -> None:
     # Arrange: las seis tablas citadas auditadas como falsos positivos tenían p de 0,38 a 0,49.
-    judge = FakeJudge(p=p)
+    call = _call("buscar_producto", **BUSCAR_CAZUELAS)
 
     # Act
-    final = _run(_call("buscar_producto", **BUSCAR_CAZUELAS), TABLA, judge)
+    before = _run(call, TABLA, FakeJudge(p=p), threshold=0.5)
+    now = _run(call, TABLA, FakeJudge(p=p))
 
-    # Assert
-    assert final.answer == TABLA
-    assert (final.claims["status"], final.claims["substituted"]) == ("supported", False)
-    assert final.claims["threshold"] == 0.3
+    # Assert: lo único que cambia la decisión es el umbral, que llega a la compuerta.
+    assert (before.claims["threshold"], before.claims["substituted"]) == (0.5, True)
+    assert before.answer != TABLA
+    assert now.answer == TABLA
+    assert (now.claims["status"], now.claims["substituted"]) == ("supported", False)
+    assert now.claims["threshold"] == 0.3
 
 
 @pytest.mark.parametrize(
@@ -287,3 +296,45 @@ def test_presented_data_ignora_declaraciones_y_memoria() -> None:
 def test_presented_data_sin_opciones_ni_sedes_devuelve_vacio() -> None:
     assert presented_data([("buscar_producto", {"status": "ok", "opciones": []})]) == ""
     assert presented_data([]) == ""
+
+
+def test_presented_data_no_niega_lo_que_trajo_fuera_de_los_filtros() -> None:
+    """«No encontré esa referencia» sería falso: la herramienta la trajo fuera de los filtros."""
+
+    # Arrange
+    data = {
+        "status": "ok",
+        "opciones": [{"n": 1, "sku": "CO-1", "nombre": "Vaso PP 9 oz", "material": "PP"}],
+        "busqueda_nombre": {"coincidencias": 0},
+        "fuera_de_filtros": [
+            {"sku": "CO-EPS", "familia": "vaso", "apto": False, "motivo": "EPS"},
+            {"sku": "CO-OK", "nombre": "Vaso cartón 9 oz", "familia": "vaso", "apto": True},
+        ],
+        "aptas_para": {"temperatura": "caliente"},
+    }
+
+    # Act
+    text = presented_data([("buscar_producto", data)])
+
+    # Assert
+    assert "No encontré" not in text
+    assert text.startswith("Ninguna referencia con ese nombre encaja en esta búsqueda")
+    assert "Con ese nombre sí aparece fuera de esa búsqueda: Vaso cartón 9 oz (CO-OK)." in text
+    assert "pero no es apto para esto: CO-EPS (EPS)." in text
+
+
+def test_presented_data_dice_la_familia_que_eligio_por_el_uso() -> None:
+    # Arrange: el ``aviso`` es una instrucción al modelo; la frase sale de ``familia_por_uso``.
+    data = {
+        "status": "ok",
+        "opciones": [{"n": 1, "sku": "C-1", "nombre": "Contenedor sopa 12 oz"}],
+        "familia_por_uso": {"familia": "contenedor", "uso": "sopa"},
+        "aviso": "La familia vaso no sirve para el uso sopa… Presenta estas opciones…",
+    }
+
+    # Act
+    text = presented_data([("buscar_producto", data)])
+
+    # Assert
+    assert text.startswith("Para el uso sopa busqué en la familia contenedor.")
+    assert "Presenta" not in text
