@@ -26,7 +26,6 @@ from langgraph.store.base import BaseStore
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from carvajal.adapters.embeddings import OllamaEmbedder
 from carvajal.adapters.judge import build_judge
 from carvajal.adapters.llm.deepseek import build_deepseek_chat
 from carvajal.adapters.storage.quotes import QuoteRecord, SqlQuoteRepository
@@ -278,6 +277,9 @@ def _judge(settings: Settings) -> Any:
 
 
 def _build(settings: Settings) -> AgentRuntime:
+    # Diferido: ``apps.api.runtime`` arrastra las plantillas de la web.
+    from apps.api.runtime import query_embedder_for
+
     stack = ExitStack()
     qdrant = QdrantVectorStore(
         url=settings.qdrant_url,
@@ -310,7 +312,9 @@ def _build(settings: Settings) -> AgentRuntime:
         graph, tool_graph = _graphs(
             settings,
             vector_store=LayerPriorityStore(qdrant, min_score=settings.rag_min_score),
-            embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
+            # El mismo de ``runtime.query_embedder``: una caché y un ``keep_alive`` por
+            # proceso para las consultas de ``routes`` y de ``buscar_corpus``.
+            embedder=query_embedder_for(settings),
             checkpointer=checkpointer,
             store=store,
             router=router,

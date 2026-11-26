@@ -587,6 +587,22 @@ def _option_payload(option: Mapping[str, Any], sources: _Sources) -> dict[str, A
     return payload
 
 
+def _suitable_for(req: CommercialRequest) -> dict[str, Any]:
+    """Criterios con que ``check_material`` dio por aptas las opciones (``aptas_para``).
+
+    Es un dato de la herramienta: las opciones pasaron la guía de materiales para esa
+    temperatura y, si se pidió, para microondas. Sin él, la compuerta de afirmaciones no veía
+    por qué «se pueden meter al microondas» (ensayo del 2026-11-26, microondas t1).
+    """
+
+    criteria: dict[str, Any] = {}
+    if req.temperature:
+        criteria["temperatura"] = req.temperature
+    if req.microwave:
+        criteria["microondas"] = True
+    return {"aptas_para": criteria} if criteria else {}
+
+
 @dataclass(frozen=True)
 class _NameMatch:
     """Resultado de la búsqueda por nombre dentro de los filtros y fuera de ellos.
@@ -880,6 +896,7 @@ def _buscar_producto(
         message += " Sin país no se muestran precios."
     payload: dict[str, Any] = {
         "opciones": payload_options,
+        **_suitable_for(req),
         "total_coincidencias": len(valid),
         "truncado": len(valid) > len(shown),
         "descartadas": [{"sku": item.sku, "motivo": item.reason} for item in shown_discarded],

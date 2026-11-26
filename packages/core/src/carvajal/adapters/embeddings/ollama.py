@@ -15,6 +15,14 @@ DEFAULT_TIMEOUT = 30.0
 DEFAULT_BASE_URL = "http://localhost:11434"
 """URL por defecto del servidor de Ollama (la misma que usa LangChain)."""
 
+DEFAULT_KEEP_ALIVE_S = 86_400
+"""Segundos que Ollama mantiene el modelo cargado tras cada petición (24 h).
+
+Con los 5 minutos por defecto de Ollama, el tráfico espaciado recargaba el modelo en cada
+consulta (ensayo del 2026-11-26: ``buscar_corpus`` con p50 de 6 s en
+producción frente a 1,3 s en local).
+"""
+
 
 class EmbeddingError(RuntimeError):
     """Ollama no pudo calcular el vector (conexión, timeout o respuesta inválida)."""
@@ -23,8 +31,8 @@ class EmbeddingError(RuntimeError):
 class OllamaEmbedder:
     """Implementación de ``Embedder`` sobre ``OllamaEmbeddings``.
 
-    El modelo, la URL del servidor y el ``timeout`` se inyectan por parámetro;
-    la configuración global sigue en ``Settings`` y no se amplía aquí. Construir
+    El modelo, la URL del servidor, el ``timeout`` y el ``keep_alive`` se inyectan por
+    parámetro; la configuración global sigue en ``Settings``. Construir
     el adaptador no verifica la conectividad: el primer fallo aparece al llamar
     a ``embed`` y se traduce a ``EmbeddingError`` con la causa encadenada.
     """
@@ -35,13 +43,16 @@ class OllamaEmbedder:
         model: str = DEFAULT_MODEL,
         base_url: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        keep_alive: int | None = DEFAULT_KEEP_ALIVE_S,
     ) -> None:
         self._model = model
         self._base_url = base_url or DEFAULT_BASE_URL
+        # ``keep_alive`` viaja en cada petición; ``None`` deja el valor del servidor.
         self._embeddings = OllamaEmbeddings(
             model=model,
             base_url=self._base_url,
             client_kwargs={"timeout": timeout},
+            keep_alive=keep_alive,
         )
 
     @property

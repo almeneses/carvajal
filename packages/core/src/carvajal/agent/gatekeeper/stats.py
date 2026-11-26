@@ -170,6 +170,6 @@ def claims_health(
     mode = str(getattr(settings, "jev_claims_mode", "off") or "off") if active else "off"
     return {
         "mode": mode,
-        "threshold": float(getattr(settings, "jev_claims_threshold", 0.5)),
+        "threshold": float(getattr(settings, "jev_claims_threshold", 0.3)),
         **(stats if stats is not None else CLAIMS_STATS).snapshot(),
     }

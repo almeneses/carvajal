@@ -217,7 +217,7 @@ def test_claims_health_publica_modo_umbral_y_contadores(
 
     # Assert
     assert block["mode"] == expected
-    assert block["threshold"] == 0.5
+    assert block["threshold"] == 0.3
     assert block["substituted"] == 1
     assert block["substitution_rate"] == 1.0
     assert "x" not in {str(value) for value in block.values()}
