@@ -14,6 +14,8 @@ Hechos y decisiones durables. El detalle del día va en la bitácora
 - Las respuestas citan la fuente: la web de Carvajal o el catálogo.
 - Las cotizaciones traen folio y un PDF. La línea `ADJUNTAR_PDF: <url>` se manda como
   documento adjunto al mismo chat.
+- Tras el folio, la herramienta puede ofrecer el pedido en Odoo y pedir nombre y
+  correo; Odoo crea el pedido confirmado y envía la confirmación por correo.
 
 ## Decisiones
 
@@ -31,3 +33,7 @@ Hechos y decisiones durables. El detalle del día va en la bitácora
   antes de consultar.
 - 2026-11-24 — La cotización y su PDF van en un mismo mensaje, y los temas ajenos a
   Carvajal reciben una negativa fija.
+- 2026-11-26 — Pedidos en Odoo (spec 055): tras el folio, consultar_carvajal ofrece el
+  pedido y pide nombre y correo. `ventas` pasa esas respuestas tal cual (en el backend
+  solo van a Odoo, no a Jev ni al LLM), no pide otros datos personales, no da un pedido
+  por hecho sin la confirmación de la herramienta y deja el pago y la entrega al asesor.

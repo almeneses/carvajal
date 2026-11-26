@@ -35,12 +35,16 @@ from tests.e2e.guiones import (
     PRESENTACION,
     DesvioDelAgente,
     Guion,
+    PedidosApagados,
     Respuesta,
     Transcripcion,
     con_reintento,
+    correo_de_prueba,
     ejecutar,
     ejecutar_pasos,
+    ejecutar_pedido,
     inferir_awaiting,
+    nombre_de_prueba,
     pasos_tras_foto,
     registra,
 )
@@ -382,7 +386,7 @@ def test_flujo_definido_en_whatsapp(
 ) -> None:
     # Arrange
     canal = CanalWhatsApp(mcp, conversacion, config)
-    registrar = registra(config.cotizar, guion.designado)
+    registrar = registra(config.cotizar, guion.designado, pedido=config.pedido)
 
     # Act
     transcripcion = ejecutar(canal, guion, registrar=registrar)
@@ -390,6 +394,28 @@ def test_flujo_definido_en_whatsapp(
     # Assert: cada turno ya se comprobó en ``ejecutar``.
     assert transcripcion.turnos, f"{guion.nombre}: no se envió ningún mensaje"
     print(transcripcion.texto())
+
+
+@pytest.mark.gasto
+@pytest.mark.usefixtures("agente", "pedido_permitido")
+def test_pedido_en_odoo_desde_whatsapp(config: Config, mcp: McpOculto, conversacion: str) -> None:
+    # Arrange: comprador ficticio del run; el pedido queda en Odoo (docs/ensayo.md).
+    canal = CanalWhatsApp(mcp, conversacion, config)
+    nombre = nombre_de_prueba(config.run_id)
+    correo = correo_de_prueba(f"{config.run_id}-whatsapp")
+
+    # Act
+    try:
+        pedido = ejecutar_pedido(canal, nombre=nombre, correo=correo)
+    except PedidosApagados as motivo:
+        pytest.skip(str(motivo))
+
+    # Assert: cada turno ya se comprobó; WhatsApp recibe la negrita con un solo «*».
+    _, creado = pedido.transcripcion.turnos[-2]
+    assert f"*Pedido {pedido.numero} confirmado*" in creado.texto, creado.texto
+    assert "**" not in creado.texto, "WhatsApp recibió negrita en Markdown («**»)"
+    print(f"PEDIDO whatsapp: {pedido.numero} · folio #{pedido.folio} · {correo}")
+    print(pedido.transcripcion.texto())
 
 
 # --- Conversación que empieza con una foto ----------------------------------------------

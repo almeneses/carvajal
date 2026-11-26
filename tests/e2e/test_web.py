@@ -22,11 +22,15 @@ from tests.e2e.guiones import (
     PRESENTACION,
     DesvioDelAgente,
     Guion,
+    PedidosApagados,
     Respuesta,
     Transcripcion,
     con_reintento,
+    correo_de_prueba,
     ejecutar,
     ejecutar_pasos,
+    ejecutar_pedido,
+    nombre_de_prueba,
     pasos_tras_foto,
     registra,
 )
@@ -136,7 +140,7 @@ def test_memoria_entre_dos_conversaciones_web(config: Config, web: Web) -> None:
 def test_flujo_definido_en_web(config: Config, web: Web, guion: Guion) -> None:
     # Arrange
     canal = CanalWeb(web)
-    registrar = registra(config.cotizar, guion.designado)
+    registrar = registra(config.cotizar, guion.designado, pedido=config.pedido)
 
     # Act
     transcripcion = ejecutar(canal, guion, registrar=registrar)
@@ -144,6 +148,28 @@ def test_flujo_definido_en_web(config: Config, web: Web, guion: Guion) -> None:
     # Assert: cada turno ya se comprobó en ``ejecutar``; aquí, el recorrido completo.
     assert transcripcion.turnos, f"{guion.nombre}: no se envió ningún mensaje"
     print(transcripcion.texto())
+
+
+@pytest.mark.usefixtures("agente", "pedido_permitido")
+def test_pedido_en_odoo_desde_web(config: Config, web: Web) -> None:
+    # Arrange: comprador ficticio del run; el pedido queda en Odoo (docs/ensayo.md).
+    canal = CanalWeb(web)
+    nombre = nombre_de_prueba(config.run_id)
+    correo = correo_de_prueba(f"{config.run_id}-web")
+
+    # Act
+    try:
+        pedido = ejecutar_pedido(canal, nombre=nombre, correo=correo)
+    except PedidosApagados as motivo:
+        pytest.skip(str(motivo))
+
+    # Assert: cada turno ya se comprobó; el turno del pedido no registra otro folio.
+    _, creado = pedido.transcripcion.turnos[-2]
+    turno: Turno = creado.crudo
+    assert turno.done.get("route") == "pedido", turno.resumen()
+    assert not turno.done.get("quote_ids"), turno.resumen()
+    print(f"PEDIDO web: {pedido.numero} · folio #{pedido.folio} · {correo}")
+    print(pedido.transcripcion.texto())
 
 
 def _foto_correcta(turno: Turno) -> None:

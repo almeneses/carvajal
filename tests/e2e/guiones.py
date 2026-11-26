@@ -1,4 +1,4 @@
-"""Guiones del ensayo general, iguales para el chat web y para WhatsApp (specs 053 y 054).
+"""Guiones del ensayo general, iguales para el chat web y para WhatsApp (specs 053 a 055).
 
 Un guion es una lista de pasos: el mensaje del cliente, el estado ``awaiting`` que debe
 quedar, las marcas de texto de la plantilla (escritas con el formato web, ``**x**``; en
@@ -6,6 +6,11 @@ WhatsApp se comparan como ``*x*``) y si el paso es determinista (reglas del fluj
 o depende del agente. Los pasos deterministas se comprueban estrictos; los del agente,
 contra un conjunto de estados permitidos y, si se desvían, el guion se repite una vez en un
 hilo nuevo. Nunca se comparan precios: cambian con el catálogo y la ciudad.
+
+Con el CRM configurado (spec 055) el folio termina ofreciendo el pedido y deja el flujo en
+``awaiting="pedido"``: un «sí» ya no repite el folio, acepta el pedido. :func:`cierre` lo
+rechaza con «ahora no» cuando hay oferta, y el pedido completo es un escenario aparte
+(:func:`ejecutar_pedido`) que crea un pedido real en Odoo y solo corre con ``ENSAYO_PEDIDO``.
 
 Los canales (``test_web.py`` y ``test_whatsapp.py``) implementan :class:`Canal`; este módulo
 no sabe de HTTP ni de MCP.
@@ -27,6 +32,10 @@ FOTO_NO_DISPONIBLE = "No pude analizar la foto"
 PISTA_FOTO = ("¿Te cotizo alguna?", "¿Te la cotizo?")
 FOLIO = re.compile(r"Cotización #([0-9a-f]{12}) registrada")
 SOLO_FOLIO = re.compile(r"^[0-9a-f]{12}$")
+# Spec 055: la oferta del pedido tras el folio (``render.ORDER_OFFER``) y su número en Odoo.
+OFERTA_PEDIDO = "¿Quieres hacer el pedido?"
+ACEPTAR_PEDIDO = "Sí, quiero hacer el pedido"  # lo que dice el botón «Hacer el pedido»
+PEDIDO_CREADO = re.compile(r"Pedido (\S+) confirmado")
 
 # Pedido explícito (cantidad, producto y ciudad) para que el agente llame a ``cotizar``.
 # Deben ser productos con precio de referencia en Bogotá en el catálogo vigente
@@ -70,19 +79,51 @@ def inferir_awaiting(texto: str) -> str | None:
         ("¿Qué hago con eso?", "cambio_producto"),
         ("La opción más económica que tengo", "oferta"),
         ("¿Algo más", "algo_mas"),
+        (OFERTA_PEDIDO, "pedido"),
+        ("Para el pedido envíame tu", "datos_pedido"),
+        ("te envío la confirmación del pedido?", "datos_pedido"),
+        ("de quién hago el pedido?", "datos_pedido"),
+        ("No alcancé a leer tu nombre y tu correo", "datos_pedido"),
     )
     encontradas = [(texto.rfind(marca), estado) for marca, estado in marcas if marca in texto]
     return max(encontradas)[1] if encontradas else None
 
 
-def registra(politica: str, designado: bool) -> bool:
-    """``ENSAYO_COTIZAR``: ``todas`` registra siempre, ``una`` solo el guion designado."""
+def registra(politica: str, designado: bool, *, pedido: bool = False) -> bool:
+    """``ENSAYO_COTIZAR``: ``todas`` registra siempre, ``una`` solo el guion designado.
+
+    Con ``pedido`` (``ENSAYO_PEDIDO``), el folio único de ``una`` lo registra el escenario del
+    pedido: el guion designado se cierra con «cancela todo» para no dejar dos por canal.
+    """
 
     if politica == "todas":
         return True
     if politica == "una":
-        return designado
+        return designado and not pedido
     return False
+
+
+def nombre_de_prueba(run_id: str) -> str:
+    """Nombre del comprador del ensayo: «Ensayo» y el ``run_id`` escrito con letras.
+
+    El flujo descarta como nombre un texto con dígitos (``order._name_from``), así que cada
+    dígito pasa a una letra (0→a … 9→j). El correo (:func:`correo_de_prueba`) lleva el
+    ``run_id`` tal cual.
+    """
+
+    letras = "".join(
+        "abcdefghij"[int(caracter)] if caracter.isdigit() else caracter
+        for caracter in run_id.lower()
+        if caracter.isascii() and caracter.isalnum()
+    )
+    return f"Ensayo {letras.capitalize() or 'Prueba'}"
+
+
+def correo_de_prueba(run_id: str) -> str:
+    """Correo del comprador del ensayo, en ``example.com`` (RFC 2606): nunca le llega nada."""
+
+    limpio = re.sub(r"[^a-z0-9-]+", "-", run_id.lower()).strip("-") or "prueba"
+    return f"e2e-{limpio}@example.com"
 
 
 @dataclass(frozen=True)
@@ -155,29 +196,47 @@ class Transcripcion:
         return "\n\n".join(partes)
 
 
+REGISTRO = Paso("sí", marcas=("Cotización #", "registrada"), registra=True)
+
+
 def cierre(registrar: bool) -> tuple[Paso, ...]:
-    """Desde ``confirmar``: «sí» registra (y un segundo «sí» no duplica) o «cancela todo»."""
+    """Desde ``confirmar``: «sí» registra (y un segundo «sí» no duplica) o «cancela todo».
+
+    Si el folio ofrece el pedido (spec 055, ``awaiting="pedido"``), un «sí» lo aceptaría y
+    pediría nombre y correo: antes del segundo «sí», «ahora no» rechaza el pedido. Sin el CRM
+    ese paso se salta y el guion queda como en la spec 054.
+    """
 
     if registrar:
         return (
-            Paso("sí", marcas=("Cotización #", "registrada"), registra=True),
+            REGISTRO,
+            Paso(
+                "ahora no",
+                espera=frozenset({None}),
+                marcas=("tu cotización #{folio} queda registrada",),
+                si_previo=frozenset({"pedido"}),
+                ruta="pedido",
+            ),
             Paso("sí", marcas=("ya quedó registrada con el folio **#{folio}**",)),
         )
     return (Paso("cancela todo", espera=frozenset({None}), marcas=(CANCELADA,)),)
 
 
-def _resumen_y_cierre(registrar: bool) -> tuple[Paso, ...]:
-    return (
-        Paso(
-            "eso es todo",
-            espera=frozenset({"confirmar"}),
-            marcas=("**Resumen de tu cotización**", "¿La confirmo y te envío el PDF?"),
-        ),
-        *cierre(registrar),
+def _resumen() -> Paso:
+    return Paso(
+        "eso es todo",
+        espera=frozenset({"confirmar"}),
+        marcas=("**Resumen de tu cotización**", "¿La confirmo y te envío el PDF?"),
     )
 
 
-def _opciones(registrar: bool) -> tuple[Paso, ...]:
+def _resumen_y_cierre(registrar: bool) -> tuple[Paso, ...]:
+    return (_resumen(), *cierre(registrar))
+
+
+def _elegir_opcion() -> tuple[Paso, ...]:
+    """Pide opciones al agente y elige la recomendada (queda ``algo_mas``)."""
+
     eleccion = frozenset({"eleccion"})
     return (
         Paso(PEDIDO_OPCIONES, espera=frozenset({"eleccion", "algo_mas"}), determinista=False),
@@ -194,8 +253,11 @@ def _opciones(registrar: bool) -> tuple[Paso, ...]:
             marcas=("Agregué **", "¿Algo más para tu cotización?"),
             si_previo=eleccion,
         ),
-        *_resumen_y_cierre(registrar),
     )
+
+
+def _opciones(registrar: bool) -> tuple[Paso, ...]:
+    return (*_elegir_opcion(), *_resumen_y_cierre(registrar))
 
 
 def _insulto(_registrar: bool) -> tuple[Paso, ...]:
@@ -272,6 +334,106 @@ def pasos_tras_foto(registrar: bool) -> tuple[Paso, ...]:
     )
 
 
+# --- Pedido en Odoo (spec 055) ----------------------------------------------------------
+
+
+def _hasta_el_folio(_registrar: bool) -> tuple[Paso, ...]:
+    return (*_elegir_opcion(), _resumen(), REGISTRO)
+
+
+GUION_FOLIO_PARA_PEDIDO = Guion("folio_para_pedido", "F4/F5 → T4 → T5 → T6", _hasta_el_folio)
+
+
+def pasos_pedido(nombre: str, correo: str) -> tuple[Paso, ...]:
+    """Tras la oferta del folio: aceptar, nombre y correo en dos mensajes, y no duplicar.
+
+    Todos los pasos son reglas del flujo (``route="pedido"``): el nombre y el correo nunca
+    llegan a Jev ni al modelo.
+    """
+
+    datos = frozenset({"datos_pedido"})
+    return (
+        Paso(
+            ACEPTAR_PEDIDO,
+            espera=datos,
+            marcas=("Para el pedido envíame tu **nombre** y tu **correo**",),
+            ruta="pedido",
+        ),
+        Paso(
+            nombre,
+            espera=datos,
+            marcas=(f"Gracias, {nombre}.", "¿A qué **correo** te envío la confirmación"),
+            ruta="pedido",
+        ),
+        Paso(
+            correo,
+            espera=frozenset({None}),
+            marcas=(
+                "🧾 **Pedido ",
+                " confirmado** · cotización #{folio}",
+                f"Te enviamos la confirmación a **{correo}**",
+            ),
+            ausentes=("No pude crear el pedido",),
+            ruta="pedido",
+        ),
+        Paso(
+            "quiero comprarla",
+            espera=frozenset({None}),
+            marcas=("Ese pedido ya quedó creado con el número **",),
+            ruta="pedido",
+        ),
+    )
+
+
+class PedidosApagados(Exception):
+    """El folio no ofreció el pedido: la app no tiene ``ODOO_*`` (el escenario se salta)."""
+
+
+@dataclass
+class Pedido:
+    """Lo que dejó el escenario del pedido: la conversación, el folio y el número en Odoo."""
+
+    transcripcion: Transcripcion
+    folio: str
+    numero: str
+
+
+def ejecutar_pedido(canal: Canal, *, nombre: str, correo: str) -> Pedido:
+    """Folio → «Sí, quiero hacer el pedido» → nombre → correo → pedido; luego no duplica.
+
+    Llegar al folio depende del agente y se reintenta una vez (:func:`ejecutar`); el resto es
+    determinista. Si el folio no trae la oferta, lanza :class:`PedidosApagados` sin enviar
+    nada más.
+    """
+
+    transcripcion = ejecutar(canal, GUION_FOLIO_PARA_PEDIDO, registrar=True)
+    _, registro = transcripcion.turnos[-1]
+    encontrado = FOLIO.search(registro.texto)
+    assert encontrado, f"no se registró el folio\n{transcripcion.texto()}"
+    folio = encontrado.group(1)
+    if OFERTA_PEDIDO not in registro.texto:
+        raise PedidosApagados(
+            f"el folio #{folio} no ofrece el pedido: la app no tiene ODOO_URL/ODOO_DB/"
+            "ODOO_API_KEY (spec 055)"
+        )
+    ejecutar_pasos(
+        canal,
+        pasos_pedido(nombre, correo),
+        transcripcion,
+        previo=registro.awaiting,
+        folio=folio,
+    )
+    _, creado = transcripcion.turnos[-2]
+    numero = PEDIDO_CREADO.search(creado.texto)
+    assert numero, f"no se leyó el número del pedido\n{transcripcion.texto()}"
+    _, repetido = transcripcion.turnos[-1]
+    assert formato(f"**{numero.group(1)}**", canal.nombre) in repetido.texto, (
+        f"el segundo «quiero comprarla» no nombra el pedido {numero.group(1)}\n"
+        f"{transcripcion.texto()}"
+    )
+    return Pedido(transcripcion, folio, numero.group(1))
+
+
 # --- Ejecución --------------------------------------------------------------------------
 
 
@@ -331,10 +493,13 @@ def ejecutar_pasos(
     transcripcion: Transcripcion,
     *,
     previo: str | None = None,
+    folio: str | None = None,
 ) -> str | None:
-    """Corre los pasos en la conversación activa; devuelve el folio si registró."""
+    """Corre los pasos en la conversación activa; devuelve el folio si registró.
 
-    folio: str | None = None
+    ``folio`` es el que ya registró la conversación, si sigue de un tramo anterior.
+    """
+
     for paso in pasos:
         if paso.si_previo is not None and previo not in paso.si_previo:
             continue

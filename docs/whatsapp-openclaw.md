@@ -639,6 +639,24 @@ porque no se puede listar la carpeta.
   cambios en `mensaje`; la herramienta sabe a qué opción o propuesta responden.
 ```
 
+## Pedidos en Odoo (spec 055)
+
+Con `ODOO_*` configurado, el mensaje del folio termina con «🛒 ¿Quieres hacer el pedido? Te
+pido tu nombre y tu correo y te llega la confirmación.». WhatsApp no tiene los botones de la
+web: el cliente responde por texto o por voz («sí», «hagamos el pedido», «ahora no») y luego
+manda su nombre y su correo, en uno o dos mensajes. La herramienta crea el pedido confirmado
+en Odoo y responde «🧾 *Pedido S… confirmado*»; pago y entrega los coordina un asesor. Flujo,
+datos personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
+
+El agente «ventas» tiene que pasar esas respuestas **sin cambios**: sus reglas de privacidad y
+de defensa ante instrucciones no deben quitar ni enmascarar el nombre o el correo, y él no pide
+otros datos ni da un pedido por hecho. La sección «Pedidos» de
+[`openclaw/workspace/ventas/AGENTS.md`](../openclaw/workspace/ventas/AGENTS.md) lo fija (con
+el límite de `SOUL.md` y la directiva del 2026-11-26 de `USER.md`). Copia el workspace a la
+máquina de OpenClaw con respaldo, como indica [`openclaw/README.md`](../openclaw/README.md#desplegar),
+y abre un chat con `/new` para que lo tome. Se puede copiar antes de desplegar la spec 055:
+sin ella, la herramienta no ofrece el pedido y la sección no se usa.
+
 ## Operación
 
 - Logs: `docker compose -f compose.prod.yml logs -f mcp` (JSON, con `owner_key` opaco).

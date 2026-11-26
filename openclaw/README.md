@@ -7,7 +7,7 @@ usuario que ejecuta el gateway. La configuración y la seguridad del gateway est
 
 | Archivo | Qué es | Cuándo se carga |
 |---|---|---|
-| [`AGENTS.md`](workspace/ventas/AGENTS.md) | Reglas de operación: relé a `consultar_carvajal`, PDF adjunto, notas de voz y memoria | Cada sesión |
+| [`AGENTS.md`](workspace/ventas/AGENTS.md) | Reglas de operación: relé a `consultar_carvajal`, PDF adjunto, notas de voz, fotos, pedidos y memoria | Cada sesión |
 | [`SOUL.md`](workspace/ventas/SOUL.md) | Persona, tono y límites, con la defensa ante instrucciones dentro de los mensajes | Cada sesión |
 | [`IDENTITY.md`](workspace/ventas/IDENTITY.md) | Nombre (Carva), tipo, tono y emoji | Cada sesión |
 | [`USER.md`](workspace/ventas/USER.md) | A quién atiende: directivas fechadas, válidas para todos los clientes | Cada sesión (máx. 4.000 caracteres) |
