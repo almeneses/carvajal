@@ -14,6 +14,10 @@ Reglas deterministas, como el resto del router:
   «capuchino», «té de hierbas» (spec 044, corrección «tinto»); «vino tinto» no. Si falta,
   el router pide aclaración. El uso se deduce de la familia y la temperatura cuando la
   pregunta no lo dice.
+- Un seguimiento que nombra un uso de otra familia sin nombrar la familia («¿y para sopa
+  caliente?» después de hablar de vasos) no hereda la familia anterior: se toma la que
+  corresponde al uso (``USE_FAMILIES``), y la capacidad, la temperatura y el microondas
+  del producto anterior tampoco se heredan.
 - La capacidad en ml o litros se convierte a onzas líquidas.
 
 Casos límite (T031-T033):
@@ -40,17 +44,22 @@ __all__ = [
     "COMMERCIAL_KEYS",
     "MATERIAL_GROUPS",
     "USES",
+    "USE_FAMILIES",
     "USE_TEMPERATURE",
     "commercial_signal",
     "empty_request",
     "extract_commercial",
+    "family_fits_use",
+    "family_for_use",
     "is_custom_need",
     "material_for",
     "mentions_microwave",
     "microwave_for",
     "named_families",
+    "named_use",
     "non_commercial_part",
     "product_family",
+    "stated_product",
 ]
 
 COMMERCIAL_KEYS = (
@@ -119,6 +128,27 @@ USE_TEMPERATURE = {
     "frutas": "fria",
 }
 _FOOD_FAMILIES = {"contenedor", "charola", "plato", "envase"}
+# Familias que sirven a cada uso; la primera es la que se busca cuando la persona nombra el
+# uso y no la familia. La primera tiene en el catálogo referencias que declaran ese uso
+# cuando alguna lo declara («sopas» → contenedores térmicos, cazuelas y Bioform); la
+# prueba ``test_la_familia_de_cada_uso_esta_en_el_catalogo`` lo comprueba. El motor del
+# Cotizador limita a estas familias la búsqueda sin familia.
+USE_FAMILIES: dict[str, tuple[str, ...]] = {
+    "bebida_caliente": ("vaso",),
+    "bebida_fria": ("vaso",),
+    "comida_caliente": ("contenedor", "plato", "charola", "envase"),
+    "comida_fria": ("contenedor", "plato", "charola", "envase"),
+    "sopas": ("contenedor", "envase"),
+    "frituras": ("contenedor", "charola", "plato"),
+    "ensaladas": ("contenedor", "plato"),
+    "panaderia": ("contenedor", "charola", "plato"),
+    "salsas": ("envase", "contenedor"),
+    "sandwiches": ("contenedor", "charola"),
+    "frutas": ("contenedor", "plato"),
+}
+_DRINK_USES = frozenset({"bebida_caliente", "bebida_fria"})
+# Tapas y cubiertos acompañan tanto a la bebida como a la comida: no chocan con ningún uso.
+_ACCESSORY_FAMILIES = frozenset({"tapa", "cubierto"})
 _INTENT = re.compile(
     r"\b(necesit\w*|busc\w*|quier\w*|compr\w*|cotiz\w*|precios?|cuesta|cuanto vale|cajas?"
     r"|recomiend\w*|recomendacion|sugier\w*|me sirve|conviene|donde (?:compro|consigo)|cuest\w*"
@@ -307,6 +337,34 @@ def named_families(text: str) -> frozenset[str]:
     return frozenset(name for name, pattern in _FAMILIES.items() if _search(pattern, plain))
 
 
+def named_use(text: str) -> str | None:
+    """Uso que nombra el texto («¿y para sopa caliente?» → ``sopas``), o ``None``."""
+
+    without_wine = _WINE.sub(" ", _plain(text))
+    return next((name for name, pattern in _USES if _search(pattern, without_wine)), None)
+
+
+def family_fits_use(family: str | None, use: str | None) -> bool:
+    """La familia puede servir para el uso: el vaso es de bebida y el resto, de comida.
+
+    Tapas y cubiertos acompañan a cualquiera; sin familia, sin uso o con un uso sin familia
+    conocida no hay conflicto. Dentro de la comida no se elige: un plato hondo también
+    sirve para sopa (el catálogo lo declara así).
+    """
+
+    if family is None or use not in USE_FAMILIES or family in _ACCESSORY_FAMILIES:
+        return True
+    return (family == "vaso") == (use in _DRINK_USES)
+
+
+def family_for_use(family: str | None, use: str | None) -> str | None:
+    """``family`` si sirve para ``use``; si no, la familia de ese uso (vaso → contenedor)."""
+
+    if family_fits_use(family, use) or use is None:
+        return family
+    return USE_FAMILIES[use][0]
+
+
 def product_family(text: str) -> str | None:
     """Familia del producto que nombra el texto («mejor vasos» → ``vaso``), o ``None``."""
 
@@ -359,8 +417,7 @@ def _extract(question: str) -> tuple[bool, dict[str, Any]]:
 
     text = _plain(question)
     family = _family(text)
-    without_wine = _WINE.sub(" ", text)
-    use = next((name for name, pattern in _USES if _search(pattern, without_wine)), None)
+    use = named_use(text)
     microwave = True if mentions_microwave(text) else None
     temperature: str | None = None
     if _COLD.search(text):
@@ -475,10 +532,33 @@ def _follow_up_quantity(text: str) -> int | None:
     return int(_number(raw))
 
 
+# Datos del producto anterior que no pasan al de otra familia: un vaso de 12 oz para jugo
+# no dice el tamaño ni la temperatura de un contenedor para sopa.
+_PRODUCT_KEYS = ("capacity_oz", "temperature", "microwave")
+
+
+def stated_product(text: str) -> dict[str, Any]:
+    """Capacidad, temperatura y microondas que dice el texto, con ``None`` en lo que calla.
+
+    Al cambiar de familia por el uso solo valen los datos del producto que la persona dijo
+    en ese turno: los del producto anterior describían otra cosa (``_PRODUCT_KEYS``).
+    """
+
+    _, data = _extract(text)
+    return {key: data[key] for key in _PRODUCT_KEYS}
+
+
 def _inherit(previous: list[dict[str, Any]], data: dict[str, Any]) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     for item in [*previous, data]:
         merged = _merge(merged, item)
+        if item["family"] is None and not family_fits_use(merged["family"], item["use"]):
+            # «¿y para sopa caliente?» después de «¿qué vasos tienen?»: el uso nuevo pide
+            # otra familia y la persona no nombró ninguna; heredar el vaso buscaría vasos
+            # para sopa. Se corrige en cada turno de la cadena, no solo en el último: tras
+            # «necesito vasos» → «para sopa», el «500 en Cali» sigue en la familia de la sopa.
+            merged["family"] = family_for_use(merged["family"], item["use"])
+            merged.update({key: item[key] for key in _PRODUCT_KEYS})
     return _complete(merged)
 
 

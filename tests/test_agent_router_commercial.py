@@ -3,9 +3,15 @@
 import pytest
 
 from carvajal.agent.commercial import CommercialRequest
-from carvajal.agent.commercial_intent import COMMERCIAL_KEYS, extract_commercial
+from carvajal.agent.commercial_intent import (
+    COMMERCIAL_KEYS,
+    USE_FAMILIES,
+    extract_commercial,
+    family_for_use,
+)
 from carvajal.agent.router import decide_route
 from carvajal.agent.state import Turn
+from carvajal.catalog.loader import load_catalog
 
 
 def _turno(pregunta: str) -> Turn:
@@ -365,3 +371,166 @@ def test_una_solicitud_nueva_no_hereda_de_una_pregunta_institucional() -> None:
     turnos = [_turno("¿Quién fundó Carvajal?")]
 
     assert decide_route("busco vasos de 16 oz", turnos).intent == "commercial_clarify"
+
+
+# --- Cambio de familia por uso (mejora 4 del tercer ensayo, guion «solo_mirar») -----------
+
+
+def test_un_uso_de_otra_familia_no_hereda_los_vasos() -> None:
+    # Arrange
+    turnos = [_turno("¿Qué tipos de vasos tienen?")]
+
+    # Act
+    solicitud = extract_commercial("¿y para sopa caliente?", turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert solicitud["family"] == "contenedor"
+    assert solicitud["use"] == "sopas"
+    assert solicitud["temperature"] == "caliente"
+
+
+def test_un_uso_de_la_misma_familia_sigue_en_vasos() -> None:
+    # Arrange
+    turnos = [_turno("¿Qué tipos de vasos tienen?")]
+
+    # Act
+    solicitud = extract_commercial("¿y para café?", turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert solicitud["family"] == "vaso"
+    assert solicitud["use"] == "bebida_caliente"
+
+
+def test_al_cambiar_de_familia_no_se_heredan_capacidad_ni_temperatura_del_vaso() -> None:
+    # Arrange: el vaso era de 12 oz para jugo (frío); la cantidad y la ciudad sí siguen.
+    turnos = [_turno("necesito 500 vasos de 12 oz para jugo en Cali")]
+
+    # Act
+    solicitud = extract_commercial("¿y para sopa?", turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert (solicitud["family"], solicitud["use"]) == ("contenedor", "sopas")
+    assert solicitud["capacity_oz"] is None
+    assert solicitud["temperature"] == "caliente"
+    assert (solicitud["quantity"], solicitud["city"]) == (500, "Cali")
+
+
+def test_un_uso_de_bebida_tras_contenedores_vuelve_a_vasos() -> None:
+    # Arrange
+    turnos = [_turno("necesito contenedores para sopa que vayan al microondas")]
+
+    # Act
+    solicitud = extract_commercial("¿y para café?", turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert solicitud["family"] == "vaso"
+    assert solicitud["microwave"] is None
+
+
+def test_un_plato_hondo_sigue_sirviendo_para_sopa() -> None:
+    # Arrange: dentro de la comida no se cambia de familia (el catálogo declara platos
+    # hondos para sopa).
+    turnos = [_turno("busco platos desechables")]
+
+    # Act
+    solicitud = extract_commercial("¿y para sopa?", turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert solicitud["family"] == "plato"
+
+
+def test_el_uso_de_un_turno_intermedio_no_devuelve_la_familia_vieja() -> None:
+    # Arrange: el turno actual no nombra uso; la sopa llegó en el turno intermedio.
+    turnos = [_turno("necesito vasos"), _turno("para sopa")]
+
+    # Act
+    solicitud = extract_commercial("500 unidades en Cali", turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert (solicitud["family"], solicitud["use"]) == ("contenedor", "sopas")
+    assert (solicitud["quantity"], solicitud["city"]) == (500, "Cali")
+
+
+def test_un_seguimiento_sin_uso_conserva_los_vasos_para_comida_caliente() -> None:
+    # Arrange: la persona eligió vasos para comida caliente (el catálogo de México los
+    # declara); el seguimiento de capacidad no nombra uso ni familia.
+    turnos = [_turno("¿tienen vasos para comida caliente en México?")]
+
+    # Act
+    solicitud = extract_commercial("¿y de 16 onzas?", turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert (solicitud["family"], solicitud["use"]) == ("vaso", "comida_caliente")
+    assert solicitud["capacity_oz"] == 16.0
+
+
+@pytest.mark.parametrize(
+    ("pregunta", "esperada"),
+    [
+        # Diseño declarado de la mejora 4: un uso de comida sin familia deja los vasos. La
+        # capacidad que la persona dice en el mismo turno sí vale para el producto nuevo.
+        ("¿y de 16 oz para el almuerzo?", ("contenedor", "comida_caliente", 16.0)),
+        ("¿y para una cafetería que vende postres?", ("contenedor", "panaderia", None)),
+        ("¿y para el evento con pasteles?", ("contenedor", "panaderia", None)),
+    ],
+)
+def test_un_uso_de_comida_tras_vasos_cambia_de_familia(
+    pregunta: str, esperada: tuple[str, str, float | None]
+) -> None:
+    # Arrange
+    turnos = [_turno("necesito 500 vasos de 12 oz en Cali")]
+
+    # Act
+    solicitud = extract_commercial(pregunta, turnos)
+
+    # Assert
+    assert solicitud is not None
+    assert (solicitud["family"], solicitud["use"], solicitud["capacity_oz"]) == esperada
+    assert solicitud["quantity"] == 500
+
+
+@pytest.mark.parametrize(
+    ("familia", "uso", "esperada"),
+    [
+        ("vaso", "sopas", "contenedor"),
+        ("vaso", "ensaladas", "contenedor"),
+        ("vaso", "comida_caliente", "contenedor"),
+        ("vaso", "salsas", "envase"),
+        ("contenedor", "bebida_fria", "vaso"),
+        ("vaso", "bebida_caliente", "vaso"),
+        ("tapa", "sopas", "tapa"),
+        ("cubierto", "comida_caliente", "cubierto"),
+        ("charola", "frituras", "charola"),
+        ("vaso", None, "vaso"),
+        (None, "sopas", None),
+    ],
+)
+def test_family_for_use(familia: str | None, uso: str | None, esperada: str | None) -> None:
+    # Act
+    resultado = family_for_use(familia, uso)
+
+    # Assert
+    assert resultado == esperada
+
+
+def test_la_familia_de_cada_uso_esta_en_el_catalogo() -> None:
+    # Arrange: usos que el catálogo declara en sus fichas → familias que los declaran.
+    declaradas: dict[str, set[str]] = {}
+    for referencia in load_catalog().references:
+        for uso in referencia.uses:
+            declaradas.setdefault(uso, set()).add(referencia.family)
+
+    # Act / Assert: la familia preferida de un uso declarado es una de las que lo declaran.
+    # «comida_fria» solo la declaran las bandejas espumadas de exhibición (charolas): para
+    # un seguimiento como «¿y para comida fría?» se prefiere el contenedor.
+    for uso, familias in USE_FAMILIES.items():
+        if uso in declaradas and uso != "comida_fria":
+            assert familias[0] in declaradas[uso], uso
+    assert USE_FAMILIES["sopas"][0] == "contenedor"

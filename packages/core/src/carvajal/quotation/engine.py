@@ -80,6 +80,7 @@ from carvajal.agent.commercial import (
 )
 from carvajal.agent.commercial_intent import (
     MATERIAL_GROUPS,
+    USE_FAMILIES,
     USE_TEMPERATURE,
     empty_request,
     extract_commercial,
@@ -208,19 +209,6 @@ _LINE = re.compile(
     r"\b(" + "|".join(sorted(_LINE_WORDS, key=len, reverse=True)) + r")\b",
     re.I,
 )
-_USE_FAMILIES = {
-    "bebida_caliente": ("vaso",),
-    "bebida_fria": ("vaso",),
-    "comida_caliente": ("contenedor", "plato", "charola", "envase"),
-    "comida_fria": ("contenedor", "plato", "charola", "envase"),
-    "sopas": ("contenedor", "envase"),
-    "frituras": ("contenedor", "charola", "plato"),
-    "ensaladas": ("contenedor", "plato"),
-    "panaderia": ("charola", "plato", "contenedor"),
-    "salsas": ("envase", "contenedor"),
-    "sandwiches": ("contenedor", "charola"),
-    "frutas": ("contenedor", "plato"),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,7 +424,7 @@ def _families(request: dict[str, Any]) -> tuple[str, ...]:
     family = request.get("family")
     if family:
         return (family,)
-    return _USE_FAMILIES.get(request.get("use") or "", tuple(_FAMILIES_LABEL))
+    return USE_FAMILIES.get(request.get("use") or "", tuple(_FAMILIES_LABEL))
 
 
 def _possible(

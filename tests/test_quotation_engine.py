@@ -576,3 +576,18 @@ def test_la_bebida_nombrada_deduce_la_temperatura(texto: str, temperatura: str |
     resultado = quote(texto, today=HOY, now=MANANA)
 
     assert resultado["request"]["temperature"] == temperatura
+
+
+def test_el_uso_de_un_turno_intermedio_cambia_la_familia_de_la_cadena() -> None:
+    # Arrange: «necesito vasos» → «para sopa» → «500 unidades en Cali» (mejora 4 del tercer
+    # ensayo): el turno actual no nombra el uso, pero la sopa del turno intermedio ya cambió
+    # la familia; mezclar la cadena no debe volver a «vasos para sopa».
+    historial = ["necesito vasos", "para sopa"]
+
+    # Act
+    resultado = quote("500 unidades en Cali", questions=historial, today=HOY, now=MANANA)
+
+    # Assert
+    solicitud = resultado["request"]
+    assert (solicitud["family"], solicitud["use"]) == ("contenedor", "sopas")
+    assert solicitud["temperature"] == "caliente"
