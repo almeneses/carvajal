@@ -2272,6 +2272,23 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   font-weight: 600;
 }
 
+.coti-pdf {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border: 1px solid var(--azul);
+  border-radius: 999px;
+  color: var(--azul);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.coti-pdf:hover,
+.coti-pdf:focus-visible {
+  background: var(--etiqueta-fondo);
+}
+
 .coti-sello-demo {
   background: #fff0e3;
   color: #844219;

@@ -118,6 +118,23 @@ borrador no cambia.
 - Precio vencido al confirmar: se recalcula con el motor y se muestra otro resumen; si no se
   puede, el agente recotiza.
 - «Sí» a «¿Algo más?» pregunta qué producto agregar; «sí, 500 vasos» va directo al agente.
+- «Cambiar algo» (el botón del resumen, o «quiero cambiar algo», «modificar» y un «no» al
+  «¿La confirmo?») muestra el carrito numerado con cómo cambiarlo («quita la 2», otra
+  cantidad u otro producto) sin el modelo; el borrador se conserva y queda en «¿Algo más?»,
+  así que «eso es todo» vuelve al resumen. Un pedido concreto («quiero 500 vasos») agrega.
+  «No quiero cambiar» lo niega y no muestra el carrito.
+- Un cambio dicho («quiero cambiar los vasos por platos», «necesito cambiar la 2 a 800»)
+  va al agente sin consultar a Jev y con el «¿La confirmo?» desarmado (queda en «¿Algo
+  más?»): ni Jev ni un «sí» posterior registran el carrito sin cambiar. Vale también tras
+  un cierre («eso es todo, pero quiero cambiar la 2»): con un cambio pedido nunca se
+  registra.
+- «Quiero sacar una cotización de 500 vasos» pide otra cotización y «quiero sacarle 100 a
+  los vasos» cambia una cantidad: ninguna quita una línea; van al agente con el borrador
+  intacto. Igual con «quiero sacar el pedido / el PDF de los vasos», «quiero sacar los
+  vasos en otro color» o «quiero quitarle la tapa a los vasos» (algo de la línea, no la
+  línea). «Quiero sacarla en PDF» cierra y confirma como cualquier pedido del PDF. «Quita
+  la 2», «quiero quitar la 2», «saca los platos», «borra los vasos» o «eso es todo, pero
+  quita la 2» sí quitan la línea. «Tampoco quiero cambiar nada» niega como «no».
 - «Sí, mándame el PDF» con una cotización por confirmar: confirma y adjunta el PDF.
 - Una línea sin precio queda fuera del total y se dice.
 - Borrador de más de 7 días: no se retoma.
@@ -158,7 +175,8 @@ respuesta al rechazo.
 
 ## Success Criteria *(mandatory)*
 
-- **SC-001**: Los 18 guiones (8 flujos, texto y voz) pasan sin LLM.
+- **SC-001**: Los guiones (8 flujos, texto y voz; 18 al cerrar la spec y 20 con «Cambiar
+  algo») pasan sin LLM.
 - **SC-002**: 0 registros sin «sí» en las pruebas del servicio, de WhatsApp y del webhook.
 - **SC-003**: Las plantillas habituales caben en 14 líneas y su voz en 45 palabras.
 - **SC-004**: La suite completa sigue en verde y la evaluación del agente no empeora frente a

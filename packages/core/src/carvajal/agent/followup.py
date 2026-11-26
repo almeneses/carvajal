@@ -13,8 +13,12 @@ con reglas, porque de ellas depende qué se cotiza y si una cotización se regis
 - Spec 054: :func:`resolve_more` (respuesta a «¿Algo más?»), :func:`resolve_switch`
   (cancelar o conservar el producto anterior), :func:`parse_quantities` (hasta cuatro
   cantidades, también dictadas con palabras), :func:`resolve_quantity_choice`,
-  :func:`resolve_remove`, :func:`wants_switch` y los detectores de salida, retomar,
-  cancelar todo, «está caro» y el rechazo con insulto (:func:`is_price_insult`).
+  :func:`resolve_remove`, :func:`wants_switch`, :func:`wants_change` (editar la cotización
+  sin decir qué), :func:`wants_edit` (pedir un cambio concreto con «quiero cambiar…»),
+  :func:`names_amount` (el mensaje lleva una cantidad y no el número de una línea),
+  :func:`removes_whole_line` (el pedido quita una línea entera, no algo de ella) y los
+  detectores de salida, retomar, cancelar todo, «está caro» y el rechazo con insulto
+  (:func:`is_price_insult`).
 
 Todas trabajan sobre texto: una nota de voz llega ya transcrita. Ante la duda devuelven
 ``None`` y el turno sigue el camino normal (o pasa por Jev, ver ``carvajal.quotation.flow``).
@@ -39,14 +43,18 @@ __all__ = [
     "is_price_insult",
     "is_resume",
     "is_too_expensive",
+    "names_amount",
     "parse_quantities",
     "plain",
+    "removes_whole_line",
     "resolve_choice",
     "resolve_more",
     "resolve_quantity_choice",
     "resolve_remove",
     "resolve_switch",
     "strip_assent",
+    "wants_change",
+    "wants_edit",
     "wants_switch",
     "words_to_number",
 ]
@@ -273,10 +281,24 @@ def resolve_quantity_choice(text: str, quantities: tuple[int, ...]) -> int | Non
     return None
 
 
+# «Sacar una cotización» es pedirla, no quitar nada: tras ``sac…`` no puede seguir «cotiz…».
+_NOT_QUOTE_AHEAD: Final = r"(?!\s+(?:(?:una|un|la|el|otra|otro|mi|nueva|esa|esta)\s+)*cotiz)"
+# «Quiero cambiar algo» o «necesito quitar la 2» no agregan: el verbo que sigue manda.
+# «Sacar» no está: «quiero sacar el pedido / el PDF / los vasos en otro color» es pedir algo,
+# no quitarlo, y sigue siendo agregar (o cerrar con PDF) como antes.
+_EDIT_VERB: Final = (
+    r"(?:cambi\w*|modific\w*|edit\w*|corregi\w*|corrig\w*|ajust\w*|quit\w*|borr\w*|"
+    r"elimin\w*|cancel\w*)"
+)
+# Tras «pero» sí cuenta «saca(r)…» («listo, pero saca los platos»), salvo que pida la
+# cotización o el PDF («eso es todo, pero sácala en PDF» cierra).
+_SACAR_LINE: Final = r"sac\w*(?!.*\b(?:cotiz\w*|pdf)\b)"
 _ADD: Final = re.compile(
     r"^(?:(?:si|claro|ok|dale|bueno|listo|tambien|ah|y|pues)\s+)*"
-    r"(?:agrega\w*|anade\w*|suma\w*|pon\w*|incluye\w*|tambien|otro|otra|mas|quiero|necesito|"
-    r"cotiza\w*|y\s+(?:unos?|unas?)|\d+|un|una|unos|unas)\b"
+    r"(?:agrega\w*|anade\w*|suma\w*|pon\w*|incluye\w*|tambien|otro|otra|mas|"
+    rf"(?:quiero|necesito)(?!\s+{_EDIT_VERB}\b)|"
+    r"cotiza\w*|sac\w*\s+(?:(?:una|un|la|otra|otro|nueva)\s+)*cotiz\w*\s+(?:de|para)\s+\w+|"
+    r"y\s+(?:unos?|unas?)|\d+|un|una|unos|unas)\b"
 )
 _ADD_BARE: Final = frozenset(
     {"si", "claro", "dale", "ok", "obvio", "porfa", "si señor", "sip", "listo", "bueno"}
@@ -335,6 +357,107 @@ def resolve_more(text: str) -> MoreAnswer | None:
     return None
 
 
+_CHANGE_REQUEST: Final = re.compile(
+    r"^(?:(?:si|no|bueno|pues|ok|oye|ah|eh|espera|mejor|un\s+momento|perdon)\s+)*"
+    r"(?:(?:yo\s+)?(?:quiero|quisiera|necesito|deseo|me\s+gustaria|voy\s+a|vamos\s+a|hay\s+que|"
+    r"puedo|podemos|podria|se\s+puede|dejame|tengo\s+que)\s+)?"
+    r"(?:cambiar|modificar|editar|corregir|ajustar|cambia|modifica|edita|corrige|ajusta|"
+    r"cambiemos|modifiquemos|corrijamos|ajustemos)"
+    r"(?:\s+(?:algo|algo\s+mas|una\s+cosa|unas?\s+cosas?|algunas?\s+cosas?|cosas|eso|esto|"
+    r"(?:la|mi|esta|esa)\s+cotizacion|el\s+pedido|el\s+carrito|(?:los|unos)\s+productos|"
+    r"un\s+producto|algo\s+de\s+(?:la|mi)\s+cotizacion))?"
+    r"(?:\s+(?:por\s+favor|porfa|porfavor|antes|primero))*$"
+)
+
+
+# «No quiero cambiar» niega el cambio; «No, quiero cambiar algo» (con la coma) lo pide. Se
+# mira antes de :func:`plain`, que borra la coma. «Tampoco quiero cambiar nada» también niega.
+_NEGATED_INTENT: Final = re.compile(
+    r"^\s*[¿¡]?\s*(?:(?:ok|bueno|pues|no|si|yo)[\s,.;:!]+)*(?:no|tampoco)\s+"
+    r"(?:quiero|quisiera|necesito|deseo|me\s+gustaria|voy\s+a|vamos\s+a|tengo\s+que)\b"
+)
+_EDIT_INTENT: Final = (
+    rf"(?:yo\s+)?(?:quiero|quisiera|necesito|deseo|me\s+gustaria)\s+{_EDIT_VERB}\b"
+)
+# Lo que el «quiero/necesito» de ``_ADD`` deja de leer como agregar: pedir un cambio concreto.
+_EDIT_REQUEST: Final = re.compile(
+    r"^(?:(?:si|no|claro|ok|dale|bueno|listo|tambien|ah|y|pues|oye|espera|mejor|perdon)\s+)*"
+    rf"{_EDIT_INTENT}"
+)
+# El cambio dicho a mitad de frase: «eso es todo, pero quiero cambiar la 2», «listo, pero
+# quita los vasos». Tras «pero» también vale el imperativo; sin «pero», solo «quiero…».
+_EDIT_INSIDE: Final = re.compile(
+    rf"(?<!\bno\s)(?<!\bsin\s)(?<!\btampoco\s)\b{_EDIT_INTENT}"
+    r"|\b(?:pero|aunque|solo\s+que)\s+(?:(?:si|primero|antes|tambien|eso\s+si)\s+)*"
+    r"(?:(?:yo\s+)?(?:quiero|quisiera|necesito|deseo|me\s+gustaria)\s+)?"
+    rf"(?:{_EDIT_VERB}\b|{_SACAR_LINE})"
+)
+# «Quítale la tapa a los vasos», «sácale el logo a los platos»: el pronombre -le/-les y
+# «a los/las…» dicen que se quita algo de la línea, no la línea entera.
+_FROM_LINE: Final = re.compile(
+    r"\b(?:quit|sac|borr|elimin)\w*?les?\b(?:\s+\w+)*?\s+a\s+(?:los|las|la|el)\s+\w"
+)
+# El número de una línea («quita la 2», «el producto 3»), no una cantidad.
+_LINE_NUMBER: Final = re.compile(r"\b(?:la|el|linea|producto|numero|#)\s*(\d{1,2})\b")
+
+
+def _negated(text: str) -> bool:
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    without = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return bool(_NEGATED_INTENT.match(without))
+
+
+def wants_change(text: str) -> bool:
+    """«Quiero cambiar algo», «modificar», «¿puedo cambiar algo?»: editar sin decir qué.
+
+    Solo el pedido genérico; «cambia la 2 a 800» o «quiero cambiar los vasos por platos»
+    ya dicen el cambio y siguen su camino. «No quiero cambiar» lo niega y no cuenta.
+    """
+
+    if _negated(text):
+        return False
+    return bool(_CHANGE_REQUEST.match(plain(text).replace("?", " ").strip()))
+
+
+def wants_edit(text: str) -> bool:
+    """«Quiero cambiar los vasos por platos», «necesito cambiar la 2 a 800»: un cambio dicho.
+
+    Cubre todo lo que ``resolve_more`` ya no cuenta como agregar por llevar un verbo de
+    edición tras «quiero/necesito» (también el pedido genérico de :func:`wants_change`), y el
+    cambio que sigue a un cierre: «eso es todo, pero quiero cambiar la 2». «No quiero
+    cambiar…» lo niega y no cuenta; «quiero sacar una cotización / el PDF» pide algo y tampoco.
+    """
+
+    if _negated(text):
+        return False
+    folded = plain(text)
+    return bool(_EDIT_REQUEST.match(folded) or _EDIT_INSIDE.search(folded))
+
+
+def names_amount(text: str) -> bool:
+    """«Quiero sacarle 100 a los vasos»: el mensaje dice una cantidad, no el número de una línea.
+
+    Con una cantidad el pedido cambia la línea en vez de quitarla; «quita la 2» no la lleva.
+    """
+
+    folded = plain(text)
+    lines = {int(found.group(1)) for found in _LINE_NUMBER.finditer(folded)}
+    return any(value not in lines for value in parse_quantities(text))
+
+
+def removes_whole_line(text: str) -> bool:
+    """«Quiero quitar la 2», «necesito quitar los vasos»: el pedido quita una línea entera.
+
+    No cuando lleva una cantidad (:func:`names_amount`), cuando quita algo de la línea
+    («quiero quitarle la tapa a los vasos») o cuando nombra varias líneas («quiero quitar la 1
+    y la 2»): la regla quita una sola, y esos cambios los hace el agente.
+    """
+
+    folded = plain(text)
+    several = len({found.group(1) for found in _LINE_NUMBER.finditer(folded)}) > 1
+    return not (names_amount(text) or _FROM_LINE.search(folded) or several)
+
+
 _CANCEL_SWITCH: Final = re.compile(
     r"\b(?:cancel\w*|quit\w*|borr\w*|elimin\w*|olvid\w*|descart\w*|ya\s+no|no\s+los?\s+quiero|"
     r"no\s+las?\s+quiero|cambi\w*|reemplaz\w*|no\s+(?:los|las)\s+(?:necesito|conserves))\b"
@@ -376,7 +499,7 @@ def wants_switch(text: str) -> bool:
     return bool(_SWITCH.match(plain(text)))
 
 
-_REMOVE: Final = re.compile(r"\b(?:quit\w*|borr\w*|elimin\w*|sac\w*)\b")
+_REMOVE: Final = re.compile(rf"\b(?:quit\w*|borr\w*|elimin\w*|sac\w*{_NOT_QUOTE_AHEAD})\b")
 _ORDINAL_INDEX: Final = {
     "primera": 1, "primero": 1, "segunda": 2, "segundo": 2, "tercera": 3, "tercero": 3,
     "cuarta": 4, "cuarto": 4, "quinta": 5, "quinto": 5, "ultima": -1, "ultimo": -1,

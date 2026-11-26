@@ -59,7 +59,10 @@ Lo escribe el nodo `shortcut`; `recall` lo reinicia a `{}`; lo leen `after_short
   `memory_forget`, como hoy `shortcut_intent`; el nodo `shortcut` lo reescribe a
   `memory_unavailable` si el olvido falla) → `scope="direct"`,
   sin Jev. Preferencia declarada (`decide_route` con `memory_write`) → `scope="all"`,
-  `source="reglas"`, sin Jev. Seguimiento comercial (`_commercial_follow_up` no vacío) →
+  `source="reglas"`, sin Jev. Cuenta igual un dato para la memoria sin esas marcas
+  (`declares_memory`: pedido de recordar en imperativo, «soy Ana»/«me llamo Ana»,
+  «trabajo en…», «suelo comprar en…»): una presentación no puede ir al atajo
+  `gatekeeper_direct` aunque Jev la dé por `respuesta_directa` (ensayo e2e, 2026-11-25). Seguimiento comercial (`_commercial_follow_up` no vacío) →
   `scope="structured"`, sin Jev. Si no, Jev (si está disponible y `JEV_ROUTER_MODE≠off`);
   si no, `scope="all"`, `source="llm"`.
 - Con Jev: se aplica la clase si `confidence ≥ JEV_ROUTER_MIN_CONFIDENCE` y, para

@@ -21,16 +21,20 @@ from carvajal.agent.followup import (
     is_price_insult,
     is_resume,
     is_too_expensive,
+    names_amount,
     parse_quantities,
+    removes_whole_line,
     resolve_more,
     resolve_quantity_choice,
     resolve_remove,
     resolve_switch,
+    wants_change,
+    wants_edit,
     wants_switch,
 )
 from carvajal.numbers import spoken_quantities, words_to_number
 from carvajal.quotation import render
-from carvajal.quotation.draft import QuoteDraft, add_line, draft_quote_payload, totals
+from carvajal.quotation.draft import QuoteDraft, add_line, draft_quote_payload, line_label, totals
 from carvajal.quotation.flow import Pass, Reply, after_turn, before_turn
 from carvajal.speech import normalize_transcript
 
@@ -234,6 +238,10 @@ def test_las_cantidades_se_leen_en_cifras_y_en_palabras(
         ("sí, 500 vasos", "add"),
         ("también tapas", "add"),
         ("agregar otro producto", "add"),
+        ("quiero 500 vasos de 12 oz", "add"),
+        ("necesito tapas", "add"),
+        ("Quiero cambiar algo", None),  # editar no es agregar
+        ("necesito quitar la 2", None),
         ("¿cuánto llevo?", None),
     ],
 )
@@ -256,6 +264,148 @@ def test_algo_mas_se_resuelve_sin_el_modelo(texto: str, esperado: str | None) ->
 )
 def test_cancelar_o_conservar_el_producto_anterior(texto: str, esperado: str | None) -> None:
     assert resolve_switch(texto) == esperado
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Quiero cambiar algo",  # el botón «Cambiar algo» de la web
+        "cambiar algo",
+        "quiero cambiar",
+        "modificar",
+        "No, quiero cambiar algo",
+        "¿Puedo cambiar algo?",
+        "espera, quiero modificar la cotización",
+        "cambiemos algo por favor",
+    ],
+)
+def test_pedir_un_cambio_sin_decir_cual_se_reconoce(texto: str) -> None:
+    assert wants_change(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "quiero 500 vasos de 12 oz",
+        "cambia la 2 a 800",  # ya dice el cambio
+        "quiero cambiar los vasos por platos",
+        "Cancelar",
+        "no",
+        "sí",
+        "no quiero cambiar",  # niega: sin coma, el «no» va con el «quiero»
+        "no, no quiero cambiar",
+        "ok no quiero cambiar",
+        "no quiero cambiar nada",
+        "ya no quiero cambiar",
+        "tampoco quiero cambiar nada",  # «tampoco» niega como «no»
+    ],
+)
+def test_un_pedido_concreto_no_es_pedir_un_cambio(texto: str) -> None:
+    assert not wants_change(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "quiero cambiar los vasos por platos",
+        "necesito cambiar la 2 a 800",
+        "quiero cambiar la cantidad",
+        "quiero cancelar",
+        "Sí, quisiera modificar la ciudad",
+        "No, quiero cambiar la 2 a 800",  # con la coma, el «no» responde y el pedido sigue
+        "también quiero cambiar la 1",
+        "Quiero cambiar algo",  # el genérico también es un cambio
+        "eso es todo, pero quiero cambiar la 2",  # tras un cierre, el cambio manda
+        "listo, pero quita los vasos",
+        "listo, pero saca los platos",  # tras «pero», «saca» también es un cambio
+        "eso es todo, pero quiero sacar los platos",
+        "sí, pero sácale la tapa a los vasos",
+        "quiero quitarle la tapa a los vasos",
+        "quiero quitarle 100 a los vasos",
+    ],
+)
+def test_un_cambio_dicho_con_quiero_se_reconoce(texto: str) -> None:
+    assert wants_edit(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "quiero 500 vasos de 12 oz",
+        "necesito tapas",
+        "no quiero cambiar la 2",
+        "ok no quiero cambiar nada",
+        "cambia la 2 a 800",  # sin «quiero»: sigue su camino de siempre
+        "sí",
+        "quiero sacar una cotizacion de 500 vasos",  # «sacar cotización» es pedirla
+        "también quiero sacar cotización de platos",
+        "eso es todo, no quiero cambiar nada",
+        "tampoco quiero cambiar nada",
+        "yo tampoco quiero cambiar nada",
+        "eso es todo, tampoco quiero cambiar nada",
+        # «quiero sacar…» pide algo (el pedido, el PDF, otro color): no es un cambio.
+        "quiero sacarle 100 a los vasos",
+        "quiero sacar el pedido de los vasos",
+        "quiero sacar los vasos en otro color",
+        "quiero sacarla en pdf",
+        "sí, quiero sacar el pdf ya",
+        "eso es todo, pero sácala en pdf",
+    ],
+)
+def test_agregar_o_negar_no_es_pedir_un_cambio_dicho(texto: str) -> None:
+    assert not wants_edit(texto)
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("quiero sacarle 100 a los vasos", True),
+        ("necesito sacar 300 platos", True),
+        ("quita la 2", False),  # el número de la línea no es una cantidad
+        ("quiero quitar la 2", False),
+        ("borra los vasos de 12 oz", False),  # la capacidad tampoco
+    ],
+)
+def test_una_cantidad_no_es_el_numero_de_una_linea(texto: str, esperado: bool) -> None:
+    assert names_amount(texto) is esperado
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("quiero quitar la 2", True),
+        ("necesito quitar los vasos", True),
+        ("eso es todo, pero quita la 2", True),
+        ("quiero quitarle 100 a los vasos", False),  # una cantidad: cambia la línea
+        ("quiero quitarle la tapa a los vasos", False),  # algo de la línea, no la línea
+        ("quiero quitarle el logo a los platos", False),
+        ("sí, pero sácale la tapa a los vasos", False),
+        ("quiero quitar la 1 y la 2", False),  # la regla quita una sola línea
+    ],
+)
+def test_que_pedidos_quitan_una_linea_entera(texto: str, esperado: bool) -> None:
+    assert removes_whole_line(texto) is esperado
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("sacar cotización de 500 vasos", "add"),
+        ("sácame una cotización para 300 platos", "add"),
+        ("saca la cotización", None),  # sin producto no agrega: no suelta la confirmación
+        ("sácala", None),
+    ],
+)
+def test_sacar_una_cotizacion_agrega_solo_si_dice_de_que(texto: str, esperado: str | None) -> None:
+    assert resolve_more(texto) == esperado
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["quiero sacar una cotizacion de 500 vasos", "sacar cotización de platos"],
+)
+def test_sacar_una_cotizacion_no_quita_ninguna_linea(texto: str) -> None:
+    assert resolve_remove(texto, ("Plato pulpa 9″", "Vaso térmico 12 oz")) is None
 
 
 def test_detectores_de_salida_retomar_cancelar_y_precio() -> None:
@@ -383,6 +533,7 @@ def test_las_plantillas_son_cortas_y_cierran_con_una_pregunta() -> None:
         render.options(quote),
         render.added(draft, [draft.lines[-1]]),
         render.summary(draft),
+        render.edit_cart(draft),
         render.switch_question("los platos"),
         render.cheaper_offer({"name": "Vaso", "subtotal": "1000", "currency": "COP", "units": 10}),
     ]
@@ -506,10 +657,285 @@ def test_jev_no_se_consulta_sin_pregunta_pendiente_ni_con_preguntas() -> None:
     assert judge.calls == []
 
 
-def test_ninguna_cotizacion_se_registra_sin_el_si() -> None:
+@pytest.mark.parametrize("texto", ["Quiero cambiar algo", "modificar", "no"])
+def test_cambiar_algo_en_el_resumen_muestra_el_carrito_editable_sin_el_modelo(texto: str) -> None:
+    # Arrange: resumen con dos productos, esperando el «sí».
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert: respuesta fija con las líneas numeradas; el borrador sigue y espera «¿Algo más?».
+    assert isinstance(decision, Reply) and not decision.register
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting == "algo_mas" and decision.draft.state == "carrito"
+    text = decision.message.text
+    assert text.startswith("🛒 **Tu cotización · 2 productos**")
+    assert "1. Plato pulpa 9″ × 300 · $75.000" in text  # noqa: RUF001
+    assert "2. Vaso térmico 12 oz × 500 · $206.000" in text  # noqa: RUF001
+    assert "**quita la 2**" in text and "**eso es todo**" in text
+    assert "¿Qué cambio?" in decision.message.spoken
+
+
+def test_cambiar_algo_con_el_carrito_abierto_tambien_lo_muestra() -> None:
     draft = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
-    for text in ("sí", "también tapas", "¿cuánto llevo?", "lo voy a pensar", "cancela todo"):
-        decision = before_turn(draft, text, requote_fn=fake_requote, now=AHORA)
+    decision = before_turn(draft, "quiero cambiar algo", requote_fn=fake_requote, now=AHORA)
+    assert isinstance(decision, Reply)
+    assert decision.message.text.startswith("🛒 **Tu cotización · 2 productos**")
+    assert decision.draft.awaiting == "algo_mas"
+
+
+def test_cambiar_algo_no_consulta_a_jev() -> None:
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, "Quiero cambiar algo", judge=judge, now=AHORA)
+    assert isinstance(decision, Reply) and not decision.register
+    assert judge.calls == []
+
+
+def test_en_el_cambio_de_producto_cambiar_sigue_siendo_la_respuesta_a_la_pregunta() -> None:
+    # Arrange: «¿Cancelo los platos o los conservo?» pendiente.
+    draft = _cart().touch(
+        AHORA,
+        state="carrito",
+        awaiting="cambio_producto",
+        pending_request="mejor vasos",
+        current={"family": "plato", "label": "Plato pulpa 9″"},
+    )
+
+    # Act
+    decision = before_turn(draft, "cambiar", requote_fn=fake_requote, now=AHORA)
+
+    # Assert: lo decide ``resolve_switch`` (cancelar), no el carrito editable.
+    assert isinstance(decision, Pass) and decision.prompt == "mejor vasos"
+
+
+def test_un_pedido_con_quiero_en_el_resumen_sigue_agregando() -> None:
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, "quiero 500 tapas", requote_fn=fake_requote, now=AHORA)
+    assert isinstance(decision, Pass) and decision.prompt == "quiero 500 tapas"
+
+
+CAMBIOS_DICHOS = (
+    "quiero cambiar los vasos por platos",
+    "necesito cambiar la 2 a 800",
+    "quiero cambiar la cantidad",
+    "quiero cancelar",
+)
+
+
+@pytest.mark.parametrize("texto", CAMBIOS_DICHOS)
+def test_un_cambio_dicho_en_el_resumen_va_al_agente_sin_jev_y_sin_registrar(texto: str) -> None:
+    # Arrange: resumen esperando el «sí»; Jev lo leería como confirmar.
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: el cambio lo hace el agente con el borrador intacto y el «¿La confirmo?» desarmado.
+    assert isinstance(decision, Pass)
+    assert decision.prompt == texto
+    assert judge.calls == []
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting != "confirmar"
+    assert decision.draft.awaiting == "algo_mas" and decision.draft.state == "carrito"
+
+
+def test_tras_un_cambio_dicho_un_si_no_registra_el_carrito_sin_cambiar() -> None:
+    # Arrange: «quiero cambiar los vasos por platos» en el resumen; el agente pregunta y la
+    # persona responde «sí».
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    first = before_turn(
+        draft, "quiero cambiar los vasos por platos", judge=FakeJudge("confirmar"), now=AHORA
+    )
+    assert isinstance(first, Pass)
+
+    # Act
+    decision = before_turn(first.draft, "sí", requote_fn=fake_requote, now=AHORA)
+
+    # Assert: el «sí» a «¿Algo más?» pide un producto; no hay folio.
+    assert isinstance(decision, Reply) and not decision.register
+    assert decision.draft.lines == draft.lines
+
+
+def test_un_cambio_dicho_en_el_carrito_no_cierra_por_jev() -> None:
+    judge = FakeJudge("cerrar")
+    draft = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
+    decision = before_turn(draft, "necesito cambiar la 2 a 800", judge=judge, now=AHORA)
+    assert isinstance(decision, Pass) and decision.prompt == "necesito cambiar la 2 a 800"
+    assert judge.calls == []
+    assert decision.draft.awaiting == "algo_mas" and decision.draft.lines == draft.lines
+
+
+def test_quiero_quitar_la_2_en_el_resumen_la_quita_la_regla() -> None:
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, "necesito quitar la 2", judge=FakeJudge("confirmar"), now=AHORA)
+    assert isinstance(decision, Reply) and not decision.register
+    assert len(decision.draft.lines) == 1 and decision.draft.awaiting == "algo_mas"
+
+
+PEDIDOS_QUE_NO_QUITAN = (
+    "quiero sacar una cotizacion de 500 vasos",
+    "también quiero sacar cotización de platos",
+    "quiero sacarle 100 a los vasos",
+    "quiero quitarle 100 a los vasos",
+    "necesito sacar 300 platos",
+    # «Sacar» el pedido, el PDF o un producto en otra versión es pedirlo, no quitarlo.
+    "quiero sacar el pedido de los vasos",
+    "necesito sacar el pedido de los platos",
+    "quiero sacar la orden de los vasos",
+    "quiero sacar la factura de los vasos",
+    "quiero sacar el precio de los vasos",
+    "quiero sacar el presupuesto de los platos",
+    "quiero sacar la proforma de los vasos",
+    "necesito sacar el pdf de los vasos",
+    "quiero sacar los vasos en otro color",
+    "quiero sacar los vasos con tapa",
+    # Quitarle algo a una línea la cambia; no la quita entera.
+    "quiero quitarle la tapa a los vasos",
+    "necesito quitarle la tapa a los vasos",
+    "quiero quitarle el logo a los platos",
+    "quiero sacarle el logo a los vasos",
+    "sí, pero sácale la tapa a los vasos",
+    "quiero quitar la 1 y la 2",
+)
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize("texto", PEDIDOS_QUE_NO_QUITAN)
+def test_pedir_cotizacion_o_cambiar_una_cantidad_no_quita_la_linea(
+    texto: str, awaiting: str
+) -> None:
+    # Arrange: carrito con platos y vasos; Jev leería la respuesta como confirmar.
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: el turno va al agente con el borrador intacto; ni se quita ni se registra.
+    assert isinstance(decision, Pass)
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting != "confirmar"
+    assert judge.calls == []
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize(
+    ("texto", "queda"),
+    [
+        ("quita la 2", "Plato pulpa 9″"),
+        ("quiero quitar la 2", "Plato pulpa 9″"),
+        ("saca los platos", "Vaso térmico 12 oz"),
+        ("borra los vasos", "Plato pulpa 9″"),
+        ("eso es todo, pero quita la 2", "Plato pulpa 9″"),
+        ("quiero quitar los platos", "Vaso térmico 12 oz"),
+        ("listo, pero saca los platos", "Vaso térmico 12 oz"),
+        ("eso es todo, pero quiero sacar los platos", "Vaso térmico 12 oz"),
+    ],
+)
+def test_quitar_una_linea_sigue_quitandola(texto: str, queda: str, awaiting: str) -> None:
+    # Arrange
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: la regla quita la línea nombrada, sin Jev y sin registrar.
+    assert isinstance(decision, Reply) and not decision.register
+    assert [line_label(line) for line in decision.draft.lines] == [queda]
+    assert decision.draft.awaiting == "algo_mas"
+    assert judge.calls == []
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize("texto", ["quiero sacarla en pdf", "sí, quiero sacar el pdf ya"])
+def test_sacar_el_pdf_cierra_y_registra(texto: str, awaiting: str) -> None:
+    # Arrange
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert: pedir el PDF cierra y confirma por la regla del PDF, sin el agente.
+    assert isinstance(decision, Reply) and decision.register
+    assert decision.draft.lines == draft.lines
+
+
+def test_saca_la_cotizacion_sin_producto_no_suelta_la_confirmacion() -> None:
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, "saca la cotización", requote_fn=fake_requote, now=AHORA)
+    assert not (isinstance(decision, Reply) and decision.register)
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting == "confirmar"
+
+
+CIERRES_CON_CAMBIO = (
+    "eso es todo, pero quiero cambiar la 2",
+    "eso es todo pero necesito cambiar la cantidad",
+    "listo, pero cambia la 2 a 800",
+    "sí, pero quiero modificar la ciudad",
+)
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize("texto", CIERRES_CON_CAMBIO)
+def test_un_cierre_con_un_cambio_no_registra_aunque_jev_diga_confirmar(
+    texto: str, awaiting: str
+) -> None:
+    # Arrange: Jev leería «eso es todo…» como confirmar.
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: es un cambio; el borrador sigue en «¿Algo más?» y Jev no se consulta.
+    assert isinstance(decision, Pass)
+    assert judge.calls == []
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting == "algo_mas" and decision.draft.state == "carrito"
+
+
+@pytest.mark.parametrize("texto", ["no quiero cambiar", "no, no quiero cambiar"])
+def test_no_quiero_cambiar_no_muestra_el_carrito_editable(texto: str) -> None:
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+    assert not (isinstance(decision, Reply) and "¿Qué cambio?" in decision.message.text)
+    assert decision.draft.awaiting == "confirmar"
+
+
+def test_ninguna_cotizacion_se_registra_sin_el_si() -> None:
+    # Arrange: Jev leería cualquier respuesta como confirmar.
+    judge = FakeJudge("confirmar")
+    in_cart = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
+    in_summary = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    cases = [
+        (in_cart, text)
+        for text in (
+            "sí",
+            "también tapas",
+            "¿cuánto llevo?",
+            "quiero cambiar algo",
+            "quiero cambiar los vasos por platos",
+            "lo voy a pensar",
+            "cancela todo",
+        )
+    ]
+    cases += [(in_summary, text) for text in ("quiero cambiar algo", *CAMBIOS_DICHOS)]
+    cases += [
+        (draft, text)
+        for draft in (in_cart, in_summary)
+        for text in (*PEDIDOS_QUE_NO_QUITAN, *CIERRES_CON_CAMBIO)
+    ]
+
+    for draft, text in cases:
+        # Act
+        decision = before_turn(draft, text, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+        # Assert
         assert not (isinstance(decision, Reply) and decision.register), text
 
 

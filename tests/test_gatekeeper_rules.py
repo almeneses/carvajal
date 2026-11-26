@@ -1,14 +1,21 @@
 """Reglas del gatekeeper (spec 046, T019; FR-002, SC-002).
 
 ``rule_decision`` es pura: decide sin Jev ni consultas los saludos, las despedidas, «olvida
-todo», la preferencia declarada y el seguimiento comercial; si no decide, devuelve ``None``.
+todo», la preferencia declarada o un dato para la memoria (``declares_memory``) y el
+seguimiento comercial; si no decide, devuelve ``None``.
 """
 
 import pytest
 from tests.fakes.judge import FakeJudge
 
 from carvajal.agent.gatekeeper.decide import decide_gate
-from carvajal.agent.gatekeeper.rules import RuleDecision, is_greeting, rule_decision, rules_route
+from carvajal.agent.gatekeeper.rules import (
+    RuleDecision,
+    declares_memory,
+    is_greeting,
+    rule_decision,
+    rules_route,
+)
 from carvajal.agent.toolagent import graph as graph_module
 from carvajal.infrastructure.settings import Settings
 
@@ -40,6 +47,62 @@ def test_la_preferencia_declarada_va_al_agente_con_todas() -> None:
     decision = rule_decision("llámame Ana")
 
     assert decision == RuleDecision(scope="all", rule="memory_write", gate_class=None)
+
+
+MEMORY_DECLARATIONS = [
+    "Hola, soy Ana Prueba de la Panadería La Espiga y suelo comprar en Cali. "
+    "Recuérdalo para la próxima.",
+    "Soy Ana, de la Panadería La Espiga.",
+    "Gracias, soy Ana",
+    "Soy Ana de La Espiga. Chao",
+    "Trabajo en la Panadería La Espiga",
+    "Suelo comprar en Cali",
+    "No olvides que somos de Medellín",
+    "Recuerde que somos de Cali",
+    "Guarda mi formato: respuestas cortas",
+    "Anota que somos una panadería",
+    "Tenlo en cuenta para la próxima",
+]
+
+
+@pytest.mark.parametrize("question", MEMORY_DECLARATIONS)
+def test_un_dato_para_la_memoria_va_al_agente_sin_jev(question: str) -> None:
+    # Arrange: Jev la daría por respuesta directa con confianza sobre el umbral.
+    judge = FakeJudge(choice="respuesta_directa", confidence=0.9)
+
+    # Act
+    decision = decide_gate(question, (), None, None, judge, Settings(_env_file=None))
+
+    # Assert: la regla de memoria decide; ni atajo ni Jev.
+    assert declares_memory(question)
+    expected = RuleDecision(scope="all", rule="memory_write", gate_class=None)
+    assert rule_decision(question) == expected
+    assert (decision.source, decision.scope, decision.rule) == ("reglas", "all", "memory_write")
+    assert judge.routes == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "hola",
+        "Hola Ana",
+        "Olvida todo lo que sabes de mí",
+        "¿Recuerdas lo que te dije?",
+        "Recordar la historia del edificio de Carvajal",
+        "Guardé lo que armamos",
+        "Anótame 10 pacas de portacomidas",
+        "Recuérdame el precio del vaso de 9 oz",
+        "Tengo un restaurante en Neiva, ¿qué empaque me sirve?",
+        "¿dónde lo compro en Cali?",
+        "Tengo una pregunta",
+        # El nombre de un tercero no es una presentación propia.
+        "Mi jefa Ana Restrepo quiere saber el precio de los vasos",
+        "Mi cliente se llama Ana y quiere 500 vasos",
+        "Le escribo de parte de Ana",
+    ],
+)
+def test_lo_que_no_da_datos_para_la_memoria_no_es_declaracion(question: str) -> None:
+    assert not declares_memory(question)
 
 
 def test_el_seguimiento_comercial_va_a_las_estructuradas() -> None:

@@ -1,16 +1,22 @@
-"""PDF de una cotización por enlace firmado: ``GET /cotizaciones/{folio}.pdf?t=<vence>.<firma>``.
+"""PDF de una cotización: ``GET /cotizaciones/{folio}.pdf`` para su dueño.
 
-También acepta el formato anterior ``?e=<vence>&t=<firma>`` de los enlaces ya enviados.
+Dos pruebas de que quien pide es el dueño, sin revelar nunca si el folio existe:
 
-No usa cookie ni sesión: el enlace lo entrega el canal (WhatsApp) al dueño de la
-cotización. La ruta lee la cotización por folio, verifica la firma contra el ``owner_key``
-guardado y el vencimiento (:mod:`apps.api.quote_links`) y genera el PDF al vuelo. Cualquier
-fallo de verificación responde 404, sin revelar si el folio existe.
+- **Enlace firmado** ``?t=<vence>.<firma>`` (también el formato anterior ``?e=<vence>&t=<firma>``
+  de los enlaces ya enviados). Lo entrega un canal sin cookie (WhatsApp): la ruta verifica
+  la firma contra el ``owner_key`` guardado y el vencimiento (:mod:`apps.api.quote_links`).
+- **Cookie del visitante** del chat web, sin ``t``: la identidad del navegador
+  (:mod:`apps.api.chat.identity`) debe ser el ``owner_key`` guardado. Así la web enlaza
+  ``/cotizaciones/{folio}.pdf`` (:func:`owner_pdf_link`) sin token que guardar ni que venza.
+
+La ruta lee la cotización por folio y genera el PDF al vuelo. Cualquier fallo de verificación
+responde 404.
 
 ``app.state.quote_lookup`` (``folio -> (owner_key, payload) | None``) y
 ``app.state.quote_link_secret`` permiten inyectar dobles en las pruebas.
 """
 
+import hmac
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -24,7 +30,7 @@ from apps.api.quote_pdf import build_quote_pdf
 from apps.api.quote_view import quote_view
 from carvajal.catalog.images import catalog_image
 
-__all__ = ["router"]
+__all__ = ["owner_pdf_link", "router"]
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -58,13 +64,55 @@ def _not_found() -> Response:
     return JSONResponse({"detail": NOT_FOUND}, 404, headers={"Cache-Control": "no-store"})
 
 
+def _visitor(request: Request) -> str | None:
+    """Dueño que la cookie del chat web identifica; ``None`` si no hay o no es válida."""
+
+    # Import diferido: la vista del chat enlaza el PDF con :func:`owner_pdf_link`.
+    from apps.api.views.chat import request_identity
+
+    try:
+        return request_identity(request).read(request)
+    except Exception as error:  # una cookie rara nunca tumba la ruta: responde como sin dueño
+        logger.warning("quote_pdf.identity_failed", error_type=type(error).__name__)
+        return None
+
+
+def owner_pdf_link(request: Request) -> Callable[[str], str | None]:
+    """``folio -> URL`` del PDF para el visitante web dueño: la abre con su cookie, sin token.
+
+    ``None`` si la URL no se puede armar: quien la usa no ofrece el PDF.
+    """
+
+    settings = getattr(request.app.state, "settings", None)
+    base = str(getattr(settings, "public_base_url", "") or "").rstrip("/")
+
+    def link(folio: str) -> str | None:
+        try:
+            if base:
+                # La misma base pública que los enlaces de WhatsApp: detrás de un proxy que
+                # no reenvía ``Host``, ``url_for`` armaría la URL con el host interno.
+                path = request.app.url_path_for("cotizacion_pdf", folio=folio)
+                return f"{base}{path}"
+            return str(request.url_for("cotizacion_pdf", folio=folio))
+        except Exception as error:
+            logger.warning("quote_pdf.link_failed", error_type=type(error).__name__)
+            return None
+
+    return link
+
+
 @router.get("/cotizaciones/{folio}.pdf", include_in_schema=False)
 def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Response:
-    """PDF de la cotización si la firma y el vencimiento son válidos; 404 si no."""
+    """PDF de la cotización para su dueño (enlace firmado o cookie del chat); 404 si no."""
 
     secret = _secret(request)
     expires, signature = split_token(t, e)
-    if not secret or not signature or len(folio) > 64:
+    # Con ``t`` manda solo la firma: un enlace vencido, truncado (``?t=<vence>.``) o
+    # manipulado no se rescata con la cookie, ni siquiera la del dueño (su web enlaza sin
+    # ``t``, ver :func:`owner_pdf_link`). Cuenta la presencia de ``t`` (también ``?t=%20``),
+    # no la de la firma.
+    visitor = None if t else _visitor(request)
+    if len(folio) > 64 or not ((secret and signature) or visitor):
         return _not_found()
     lookup: QuoteLookup = getattr(request.app.state, "quote_lookup", None) or _default_lookup
     try:
@@ -75,8 +123,12 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
     if found is None:
         return _not_found()
     owner_key, payload = found
-    if not owner_key or not verify(folio, owner_key, expires, signature, secret):
-        logger.info("quote_pdf.rejected", folio=folio)
+    if visitor is not None:
+        allowed = bool(owner_key) and hmac.compare_digest(visitor.encode(), owner_key.encode())
+    else:
+        allowed = bool(owner_key) and verify(folio, owner_key, expires, signature, secret)
+    if not allowed:
+        logger.info("quote_pdf.rejected", folio=folio, proof="cookie" if visitor else "firma")
         return _not_found()
     view = quote_view(payload)
     if view is None:

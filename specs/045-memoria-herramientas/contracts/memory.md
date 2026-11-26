@@ -98,7 +98,11 @@ una vez antes de adoptarlo por defecto (T097).
 
 1. **Herramientas** `recordar_preferencia` / `olvidar_preferencia` (`origin="tool"`): con el
    proveedor disponible, todas las preferencias declaradas pasan por aquí (también las
-   frases con «llámame», «recuerda que», «prefiero» o «mi nombre es», R15). Solo guardan lo
+   frases con «llámame», «recuerda que», «prefiero» o «mi nombre es», R15). En el grafo
+   `tools`, esas frases y las que dan un dato para la memoria sin esas marcas
+   (`declares_memory` en `gatekeeper/rules.py`: «recuérdalo», «no lo olvides», «soy Ana»,
+   «trabajo en…», «suelo comprar en…») van siempre al agente por la regla `memory_write`,
+   sin Jev ni atajo; un «hola» solo sigue en el atajo. Solo guardan lo
    dicho en la pregunta del turno y solo olvidan si la pregunta lo pide (R7). Devuelven un
    `state_update` que actualiza `memory`, `preferences` y, con `todo`, deja
    `conversation_summary` como marcador.
