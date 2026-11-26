@@ -1,0 +1,387 @@
+"""Guiones del ensayo general, iguales para el chat web y para WhatsApp (specs 053 y 054).
+
+Un guion es una lista de pasos: el mensaje del cliente, el estado ``awaiting`` que debe
+quedar, las marcas de texto de la plantilla (escritas con el formato web, ``**x**``; en
+WhatsApp se comparan como ``*x*``) y si el paso es determinista (reglas del flujo, sin LLM)
+o depende del agente. Los pasos deterministas se comprueban estrictos; los del agente,
+contra un conjunto de estados permitidos y, si se desvían, el guion se repite una vez en un
+hilo nuevo. Nunca se comparan precios: cambian con el catálogo y la ciudad.
+
+Los canales (``test_web.py`` y ``test_whatsapp.py``) implementan :class:`Canal`; este módulo
+no sabe de HTTP ni de MCP.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+# --- Textos fijos de la app (copiados a propósito: el ensayo no importa la app) ---------
+
+BROMA_RECHAZO = "Arrancado, vaya cómprele a su madre entonces 😂"
+CANCELADA = "Listo, cancelé la cotización"
+FOTO_RECHAZADA = "No pude abrir esa foto"
+FOTO_NO_DISPONIBLE = "No pude analizar la foto"
+PISTA_FOTO = ("¿Te cotizo alguna?", "¿Te la cotizo?")
+FOLIO = re.compile(r"Cotización #([0-9a-f]{12}) registrada")
+SOLO_FOLIO = re.compile(r"^[0-9a-f]{12}$")
+
+# Pedido explícito (cantidad, producto y ciudad) para que el agente llame a ``cotizar``.
+# Deben ser productos con precio de referencia en Bogotá en el catálogo vigente
+# (data/catalog/empaques/precios.csv, #258): sin precio, el agente no abre el flujo.
+PEDIDO_OPCIONES = "Cotízame 1.000 vasos para bebida fría en Bogotá"
+PEDIDO_COMPARACION = "¿Cuánto me salen 500 o 1.000 portacomidas espumados C1 Wau en Bogotá?"
+PEDIDO_CAMBIO = "No, mejor cotízame 500 platos hondos en Bogotá"
+PEDIDO_FOTO = "la 2, son 300 para Bogotá"
+
+# Memoria entre conversaciones (spec 045): datos ficticios, nunca de una persona real.
+OLVIDAR = "Olvida todo lo que sabes de mí"
+PRESENTACION = (
+    "Hola, soy Ana Prueba de la Panadería La Espiga y suelo comprar en Cali. "
+    "Recuérdalo para la próxima."
+)
+PREGUNTA_MEMORIA = "¿Qué sabes de mí?"
+NOMBRE = "Ana"
+EMPRESA = "Espiga"
+OLVIDO = re.compile(r"olvid|no tengo nada|borr|ya no", re.IGNORECASE)
+
+CUALQUIERA: frozenset[str | None] | None = None
+
+
+def formato(marca: str, canal: str) -> str:
+    """La marca con la negrita del canal: ``**x**`` en web, ``*x*`` en WhatsApp."""
+
+    return marca.replace("**", "*") if canal == "whatsapp" else marca
+
+
+def inferir_awaiting(texto: str) -> str | None:
+    """Estado del flujo deducido del texto (WhatsApp no recibe ``done.flow``).
+
+    Usa la última pregunta de la plantilla que aparece en el texto: es la que deja el turno.
+    """
+
+    marcas = (
+        ("¿Cuál te cotizo?", "eleccion"),
+        ("No tengo la opción", "eleccion"),
+        ("¿Con cuál cantidad la armo?", "cantidad"),
+        ("¿La confirmo y te envío el PDF?", "confirmar"),
+        ("¿Qué hago con eso?", "cambio_producto"),
+        ("La opción más económica que tengo", "oferta"),
+        ("¿Algo más", "algo_mas"),
+    )
+    encontradas = [(texto.rfind(marca), estado) for marca, estado in marcas if marca in texto]
+    return max(encontradas)[1] if encontradas else None
+
+
+def registra(politica: str, designado: bool) -> bool:
+    """``ENSAYO_COTIZAR``: ``todas`` registra siempre, ``una`` solo el guion designado."""
+
+    if politica == "todas":
+        return True
+    if politica == "una":
+        return designado
+    return False
+
+
+@dataclass(frozen=True)
+class Paso:
+    """Un mensaje del cliente y lo que se espera del turno."""
+
+    mensaje: str
+    espera: frozenset[str | None] | None = CUALQUIERA  # estados ``awaiting`` permitidos
+    marcas: tuple[str, ...] = ()  # subcadenas (formato web); ``{folio}`` se sustituye
+    ausentes: tuple[str, ...] = ()  # subcadenas que no deben aparecer
+    determinista: bool = True
+    registra: bool = False
+    si_previo: frozenset[str | None] | None = None  # solo si el turno anterior quedó así
+    ruta: str | None = None  # ``trace.route`` esperado (solo web)
+
+
+@dataclass
+class Respuesta:
+    """Lo que un canal devolvió en un turno, normalizado."""
+
+    texto: str
+    awaiting: str | None
+    folio: str | None = None  # web: ``done.quote_id``; WhatsApp: ``None`` (solo texto)
+    ruta: str | None = None  # web: ``trace.route``; WhatsApp: ``None``
+    detalle: str = ""
+    crudo: Any = None
+
+    def resumen(self) -> str:
+        return self.detalle or f"awaiting={self.awaiting}\n--- texto ---\n{self.texto[:1500]}"
+
+
+class Canal(Protocol):
+    """Un canal capaz de mantener una conversación del guion."""
+
+    nombre: str  # "web" o "whatsapp"
+
+    def reiniciar(self) -> None:
+        """Abre una conversación nueva del mismo cliente."""
+
+    def enviar(self, mensaje: str) -> Respuesta:
+        """Envía un mensaje en la conversación activa."""
+
+    def tras_registro(self, respuesta: Respuesta, folio: str) -> None:
+        """Comprobaciones propias del canal tras registrar (PDF, tarjeta, folio)."""
+
+
+@dataclass(frozen=True)
+class Guion:
+    """Un flujo definido de punta a punta."""
+
+    nombre: str
+    flujo: str  # referencia a la spec (F4/F5, F6, F8…)
+    pasos: Callable[[bool], tuple[Paso, ...]]  # recibe si este guion registra
+    designado: bool = False  # el que registra con ``ENSAYO_COTIZAR=una``
+
+
+class DesvioDelAgente(AssertionError):
+    """Un paso del agente cayó fuera de los estados permitidos (se reintenta una vez)."""
+
+
+@dataclass
+class Transcripcion:
+    canal: str
+    turnos: list[tuple[Paso, Respuesta]] = field(default_factory=list)
+
+    def texto(self) -> str:
+        partes = []
+        for numero, (paso, respuesta) in enumerate(self.turnos, start=1):
+            partes.append(f"[{self.canal} #{numero}] «{paso.mensaje}»\n{respuesta.resumen()}")
+        return "\n\n".join(partes)
+
+
+def cierre(registrar: bool) -> tuple[Paso, ...]:
+    """Desde ``confirmar``: «sí» registra (y un segundo «sí» no duplica) o «cancela todo»."""
+
+    if registrar:
+        return (
+            Paso("sí", marcas=("Cotización #", "registrada"), registra=True),
+            Paso("sí", marcas=("ya quedó registrada con el folio **#{folio}**",)),
+        )
+    return (Paso("cancela todo", espera=frozenset({None}), marcas=(CANCELADA,)),)
+
+
+def _resumen_y_cierre(registrar: bool) -> tuple[Paso, ...]:
+    return (
+        Paso(
+            "eso es todo",
+            espera=frozenset({"confirmar"}),
+            marcas=("**Resumen de tu cotización**", "¿La confirmo y te envío el PDF?"),
+        ),
+        *cierre(registrar),
+    )
+
+
+def _opciones(registrar: bool) -> tuple[Paso, ...]:
+    eleccion = frozenset({"eleccion"})
+    return (
+        Paso(PEDIDO_OPCIONES, espera=frozenset({"eleccion", "algo_mas"}), determinista=False),
+        Paso(
+            "la 5",
+            espera=eleccion,
+            marcas=("No tengo la opción 5",),
+            si_previo=eleccion,
+            ruta="eleccion",
+        ),
+        Paso(
+            "dame esa",
+            espera=frozenset({"algo_mas"}),
+            marcas=("Agregué **", "¿Algo más para tu cotización?"),
+            si_previo=eleccion,
+        ),
+        *_resumen_y_cierre(registrar),
+    )
+
+
+def _insulto(_registrar: bool) -> tuple[Paso, ...]:
+    return (Paso("está muy caro, muy ladrones", marcas=(BROMA_RECHAZO,), ruta="rechazo"),)
+
+
+def _retomar_y_cambio(_registrar: bool) -> tuple[Paso, ...]:
+    eleccion = frozenset({"eleccion"})
+    return (
+        Paso(PEDIDO_OPCIONES, espera=frozenset({"eleccion", "algo_mas"}), determinista=False),
+        Paso(
+            "dame esa", espera=frozenset({"algo_mas"}), marcas=("Agregué **",), si_previo=eleccion
+        ),
+        Paso(
+            "después te escribo",
+            espera=frozenset({None}),
+            marcas=("Guardé lo que armamos", "**retomar**"),
+            ruta="salida",
+        ),
+        Paso(
+            "retomar",
+            espera=frozenset({"algo_mas"}),
+            marcas=("↩️ **Tu cotización · 1 producto**",),
+        ),
+        Paso(
+            PEDIDO_CAMBIO,
+            espera=frozenset({"cambio_producto"}),
+            marcas=("Llevábamos **", "¿Qué hago con eso?", "**Cancelar**", "**Conservar**"),
+        ),
+        # Tras cancelar, el pedido pendiente va al agente: su respuesta no es fija.
+        Paso(
+            "cancélalos",
+            espera=frozenset({None, "eleccion", "cantidad", "algo_mas"}),
+            ausentes=("Llevábamos",),
+            determinista=False,
+        ),
+        Paso("cancela todo", espera=frozenset({None}), marcas=(CANCELADA,)),
+    )
+
+
+def _comparacion(registrar: bool) -> tuple[Paso, ...]:
+    return (
+        Paso(PEDIDO_COMPARACION, espera=frozenset({"cantidad"}), determinista=False),
+        Paso(
+            "con 500",
+            espera=frozenset({"algo_mas"}),
+            marcas=("Agregué **500 ", "¿Algo más para tu cotización?"),
+        ),
+        *_resumen_y_cierre(registrar),
+    )
+
+
+GUIONES: tuple[Guion, ...] = (
+    Guion("opciones_y_registro", "F4/F5 → T4 → T5 → T6", _opciones, designado=True),
+    Guion("insulto_por_precio", "F6 (broma fija)", _insulto),
+    Guion("retomar_y_cambiar_producto", "F6 retomar + F8 cambio", _retomar_y_cambio),
+    Guion("comparacion_por_cantidad", "F3 → T4 → T5", _comparacion),
+)
+
+
+def pasos_tras_foto(registrar: bool) -> tuple[Paso, ...]:
+    """Lo que sigue a una conversación que empezó con la foto de un ajiaco (spec 053)."""
+
+    return (
+        Paso(
+            "la 9",
+            marcas=("No tengo la alternativa 9", "Te mostré estas opciones"),
+            ruta="eleccion",
+        ),
+        Paso(
+            PEDIDO_FOTO, espera=frozenset({"algo_mas"}), marcas=("Agregué **",), determinista=False
+        ),
+        *_resumen_y_cierre(registrar),
+    )
+
+
+# --- Ejecución --------------------------------------------------------------------------
+
+
+def _comprobar(
+    canal: Canal, paso: Paso, respuesta: Respuesta, folio: str | None, contexto: str
+) -> str | None:
+    """Comprueba un turno; devuelve el folio registrado (o el que ya había)."""
+
+    nombre = canal.nombre
+    texto = respuesta.texto
+    if paso.espera is not None and respuesta.awaiting not in paso.espera:
+        origen = "inferido del texto" if nombre == "whatsapp" else "done.flow.awaiting"
+        mensaje = (
+            f"«{paso.mensaje}»: awaiting={respuesta.awaiting!r} ({origen}), se esperaba "
+            f"{sorted(map(str, paso.espera))}\n{contexto}"
+        )
+        raise AssertionError(mensaje)
+    for marca in paso.marcas:
+        esperada = formato(marca.replace("{folio}", folio or "?"), nombre)
+        assert esperada in texto, f"«{paso.mensaje}»: falta {esperada!r}\n{contexto}"
+    for marca in paso.ausentes:
+        assert marca not in texto, f"«{paso.mensaje}»: sobra {marca!r}\n{contexto}"
+    if respuesta.ruta is not None:
+        if paso.ruta is not None:
+            assert respuesta.ruta == paso.ruta, (
+                f"«{paso.mensaje}»: ruta {respuesta.ruta!r}, se esperaba {paso.ruta!r}\n{contexto}"
+            )
+        if paso.determinista:
+            assert respuesta.ruta != "agent", (
+                f"«{paso.mensaje}» debía resolverse por reglas, sin el agente\n{contexto}"
+            )
+    if paso.registra:
+        encontrado = FOLIO.search(texto)
+        assert encontrado, f"«{paso.mensaje}»: no registró la cotización\n{contexto}"
+        nuevo = encontrado.group(1)
+        assert SOLO_FOLIO.fullmatch(nuevo)
+        if nombre == "web":
+            assert respuesta.folio == nuevo, (
+                f"done.quote_id={respuesta.folio!r} no coincide con el folio {nuevo}\n{contexto}"
+            )
+        canal.tras_registro(respuesta, nuevo)
+        return nuevo
+    if folio is None:
+        # SC-002 de la spec 054: nada se registra antes del «sí».
+        assert respuesta.folio is None, f"«{paso.mensaje}»: registró antes del «sí»\n{contexto}"
+        assert not FOLIO.search(texto), f"«{paso.mensaje}»: registró antes del «sí»\n{contexto}"
+    else:
+        assert respuesta.folio in {None, folio}, (
+            f"«{paso.mensaje}»: un segundo «sí» emitió otro folio\n{contexto}"
+        )
+    return folio
+
+
+def ejecutar_pasos(
+    canal: Canal,
+    pasos: Sequence[Paso],
+    transcripcion: Transcripcion,
+    *,
+    previo: str | None = None,
+) -> str | None:
+    """Corre los pasos en la conversación activa; devuelve el folio si registró."""
+
+    folio: str | None = None
+    for paso in pasos:
+        if paso.si_previo is not None and previo not in paso.si_previo:
+            continue
+        respuesta = canal.enviar(paso.mensaje)
+        transcripcion.turnos.append((paso, respuesta))
+        try:
+            folio = _comprobar(canal, paso, respuesta, folio, transcripcion.texto())
+        except DesvioDelAgente:
+            raise
+        except AssertionError as error:
+            if paso.determinista:
+                raise
+            raise DesvioDelAgente(str(error)) from error
+        previo = respuesta.awaiting
+    return folio
+
+
+def con_reintento[T](
+    accion: Callable[[], T], aceptable: Callable[[T], bool], *, aviso: str
+) -> tuple[T, bool]:
+    """Un turno del agente con un reintento (en un hilo nuevo, lo abre ``accion``).
+
+    Devuelve el último resultado y si hubo que reintentar, para dejarlo en el informe.
+    """
+
+    resultado = accion()
+    if aceptable(resultado):
+        return resultado, False
+    print(f"AVISO del ensayo: {aviso}; se reintenta una vez en un hilo nuevo")
+    return accion(), True
+
+
+def ejecutar(canal: Canal, guion: Guion, *, registrar: bool) -> Transcripcion:
+    """Corre el guion; si el agente se desvía, lo repite una vez en un hilo nuevo."""
+
+    pasos = guion.pasos(registrar)
+    intentos: list[Transcripcion] = []
+    for _ in range(2):
+        transcripcion = Transcripcion(canal.nombre)
+        intentos.append(transcripcion)
+        canal.reiniciar()
+        try:
+            ejecutar_pasos(canal, pasos, transcripcion)
+        except DesvioDelAgente:
+            continue
+        return transcripcion
+    anteriores = "\n\n=== intento siguiente ===\n\n".join(t.texto() for t in intentos)
+    raise AssertionError(
+        f"[{canal.nombre}] {guion.nombre}: el agente se desvió en los dos intentos\n{anteriores}"
+    )
