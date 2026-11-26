@@ -83,8 +83,16 @@ def owner_pdf_link(request: Request) -> Callable[[str], str | None]:
     ``None`` si la URL no se puede armar: quien la usa no ofrece el PDF.
     """
 
+    settings = getattr(request.app.state, "settings", None)
+    base = str(getattr(settings, "public_base_url", "") or "").rstrip("/")
+
     def link(folio: str) -> str | None:
         try:
+            if base:
+                # La misma base pública que los enlaces de WhatsApp: detrás de un proxy que
+                # no reenvía ``Host``, ``url_for`` armaría la URL con el host interno.
+                path = request.app.url_path_for("cotizacion_pdf", folio=folio)
+                return f"{base}{path}"
             return str(request.url_for("cotizacion_pdf", folio=folio))
         except Exception as error:
             logger.warning("quote_pdf.link_failed", error_type=type(error).__name__)
@@ -99,9 +107,10 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
 
     secret = _secret(request)
     expires, signature = split_token(t, e)
-    # Con ``t`` manda solo la firma: un enlace vencido o manipulado no se rescata con la
-    # cookie, ni siquiera la del dueño (su web enlaza sin ``t``, ver :func:`owner_pdf_link`).
-    visitor = None if signature else _visitor(request)
+    # Con ``t`` manda solo la firma: un enlace vencido, truncado (``?t=<vence>.``) o
+    # manipulado no se rescata con la cookie, ni siquiera la del dueño (su web enlaza sin
+    # ``t``, ver :func:`owner_pdf_link`). Cuenta la presencia de ``t``, no la de la firma.
+    visitor = None if t.strip() else _visitor(request)
     if len(folio) > 64 or not ((secret and signature) or visitor):
         return _not_found()
     lookup: QuoteLookup = getattr(request.app.state, "quote_lookup", None) or _default_lookup

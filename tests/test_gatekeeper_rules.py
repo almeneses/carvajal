@@ -95,6 +95,10 @@ def test_un_dato_para_la_memoria_va_al_agente_sin_jev(question: str) -> None:
         "Tengo un restaurante en Neiva, ¿qué empaque me sirve?",
         "¿dónde lo compro en Cali?",
         "Tengo una pregunta",
+        # El nombre de un tercero no es una presentación propia.
+        "Mi jefa Ana Restrepo quiere saber el precio de los vasos",
+        "Mi cliente se llama Ana y quiere 500 vasos",
+        "Le escribo de parte de Ana",
     ],
 )
 def test_lo_que_no_da_datos_para_la_memoria_no_es_declaracion(question: str) -> None:

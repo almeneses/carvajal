@@ -206,6 +206,24 @@ def test_al_registrar_en_la_web_el_texto_y_la_tarjeta_enlazan_el_pdf(engine: Any
     assert assistant_rows(engine)[-1]["content"].endswith(render.PDF_PROMISE)
 
 
+def test_con_url_publica_el_enlace_de_la_web_no_depende_del_host_de_la_peticion(
+    engine: Any,
+) -> None:
+    # Arrange: detrás de un proxy, ``Host`` puede ser el interno; manda PUBLIC_BASE_URL.
+    app = _app(engine)
+    app.state.settings = app.state.settings.model_copy(
+        update={"public_base_url": "https://carva.example/"}
+    )
+
+    # Act
+    answer = _register(_visitor(app))["fallback"]["text"]
+
+    # Assert
+    (row,) = stored_quotes(engine)
+    assert f"(https://carva.example/cotizaciones/{row['id']}.pdf)" in answer
+    assert "testserver" not in answer
+
+
 def test_la_voz_de_la_web_no_lee_el_enlace_del_pdf(engine: Any) -> None:
     # Arrange
     client = _visitor(_app(engine))
@@ -252,14 +270,19 @@ def test_nadie_mas_abre_el_pdf_sin_la_firma(engine: Any, visitor: str | None) ->
 
 
 @pytest.mark.parametrize("visitor", [VISITOR, OTHER_VISITOR], ids=["dueño", "otro_visitante"])
-def test_una_firma_invalida_no_se_salva_con_la_cookie(engine: Any, visitor: str) -> None:
+@pytest.mark.parametrize(
+    "token", ["1.firma", "4102444800.", "firma"], ids=["manipulado", "truncado", "sin_vence"]
+)
+def test_una_firma_invalida_no_se_salva_con_la_cookie(
+    engine: Any, visitor: str, token: str
+) -> None:
     # Arrange
     app = _app(engine)
     url = WEB_LINK.search(_register(_visitor(app))["fallback"]["text"])
     assert url is not None
 
     # Act
-    response = _visitor(app, visitor).get(f"{url.group(1)}?t=1.firma")
+    response = _visitor(app, visitor).get(f"{url.group(1)}?t={token}")
 
     # Assert: ni la cookie del dueño rescata un enlace vencido o manipulado; la web enlaza
     # sin ``t`` y la cookie solo cuenta cuando no llega ningún token.
