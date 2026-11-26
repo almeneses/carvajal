@@ -276,3 +276,34 @@ def test_render_answer_escapa_la_url_del_enlace_automatico() -> None:
     # Assert
     assert 'href="https://example.com/buscar?q=a&amp;b=c"' in html
     assert 'rel="noopener noreferrer"' in html
+
+
+def test_la_lista_pegada_al_titulo_y_los_saltos_se_conservan_al_recargar() -> None:
+    # Arrange: el texto del flujo de cotización tal como se guarda (spec 054).
+    text = (
+        "**Alternativas**\n"
+        "1. Vaso traslúcido 3,5 oz · $55.880\n"
+        "2. Vaso blanco 3,5 oz · $56.160\n\n"
+        "• **500** → 3 cajas x 200 · $166.644\n"
+        "• **1.000** → 5 cajas x 200 · $277.740"
+    )
+
+    # Act
+    html = render_answer(text)
+
+    # Assert: la lista es lista y las viñetas «•» van en líneas separadas, como en el stream.
+    assert "<p><strong>Alternativas</strong></p>\n<ol>" in html
+    assert "<li>Vaso traslúcido 3,5 oz · $55.880</li>" in html
+    assert "$166.644<br" in html
+
+
+def test_una_linea_sangrada_no_parte_la_lista() -> None:
+    # Arrange: continuación sangrada de un ítem.
+    text = "**Opciones**\n1. Vaso 7 oz\n   PP, 7 oz\n2. Vaso 9 oz"
+
+    # Act
+    html = render_answer(text)
+
+    # Assert
+    assert html.count("<ol>") == 1
+    assert html.count("<li>") == 2
