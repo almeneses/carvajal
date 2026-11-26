@@ -926,6 +926,22 @@ def test_el_operador_ve_el_saldo_de_deepseek(app_metricas: Callable[..., TestCli
     assert "sk-secreta" not in html
 
 
+def test_el_saldo_en_cache_del_operador_no_se_sirve_a_un_visitante(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange: el operador abre la página y deja el saldo en la caché.
+    cliente = app_metricas()
+    operador = cliente.get("/metricas", headers={"X-Operator-Token": OPERATOR_TOKEN}).text
+    assert "4.20" in operador
+
+    # Act: un visitante sin sesión entra dentro de la vigencia del saldo.
+    visitante = cliente.get("/metricas").text
+
+    # Assert
+    assert "4.20" not in visitante
+    assert "Visible solo para el operador." in visitante
+
+
 def test_la_navegacion_enlaza_metricas(app_metricas: Callable[..., TestClient]) -> None:
     cliente = app_metricas()
 

@@ -509,7 +509,9 @@ def channel_usage(factory: sessionmaker[Session], *, now: datetime | None = None
                 func.count(func.distinct(conversations.c.owner_key)),
                 func.max(messages.c.created_at),
             )
-            .select_from(messages.join(conversations))
+            .select_from(
+                messages.join(conversations, messages.c.conversation_id == conversations.c.id)
+            )
             .where(messages.c.role == "user", messages.c.created_at >= since_week)
             .group_by(channel)
         ).all()
