@@ -343,6 +343,35 @@ def test_el_codigo_de_traslado_no_lleva_la_identidad_y_es_de_un_solo_uso(
     assert COOKIE_NAME not in intruso.cookies
 
 
+@pytest.mark.parametrize(
+    ("ruta", "cabeceras"),
+    [
+        ("/chat", {"Accept": "image/avif,image/webp,*/*"}),
+        ("/chat", {**HTML, "Sec-Fetch-Mode": "no-cors"}),
+        ("/chat", {**HTML, "HX-Request": "true"}),
+        ("/static/app.css", HTML),
+        ("/api/voz/hablar", HTML),
+    ],
+)
+def test_solo_una_navegacion_de_pagina_canjea_el_codigo(
+    monkeypatch: pytest.MonkeyPatch, ruta: str, cabeceras: dict[str, str]
+) -> None:
+    # Arrange: un prefetch, una imagen, htmx o un recurso exento con el parámetro.
+    ip = _client(monkeypatch)
+    ip.cookies.set(VISITOR_COOKIE, VISITOR)
+    token = _transfer_token(ip.get("/chat", headers=HTML).headers["location"])
+    public = _client(monkeypatch, base_url=f"https://{PUBLIC_HOST}")
+
+    # Act
+    ajena = public.get(f"{ruta}?{TRANSFER_PARAM}={token}", headers=cabeceras)
+    persona = public.get(f"/chat?{TRANSFER_PARAM}={token}", headers=HTML)
+
+    # Assert: esa petición no se redirige ni gasta el código; la navegación sí lo canjea.
+    assert ajena.status_code != 307
+    assert persona.status_code == 307
+    assert public.cookies.get(VISITOR_COOKIE) == VISITOR
+
+
 def test_el_traslado_solo_se_acepta_en_el_host_publico(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

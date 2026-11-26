@@ -122,6 +122,26 @@ def _host_parts(host: str) -> tuple[str, int | None] | None:
     return parts.hostname.lower(), port
 
 
+def _is_page_navigation(scope: Scope) -> bool:
+    """GET/HEAD de una página en el navegador: ni API, ni estáticos, ni htmx, ni fetch."""
+
+    if str(scope.get("method", "")).upper() not in _NAVIGATION_METHODS:
+        return False
+    path = str(scope.get("path", ""))
+    # Destino en forma absoluta (``GET http://otro/x``): ningún navegador la manda a un
+    # servidor de origen; no se arma un ``Location`` con ella.
+    if not path.startswith("/") or _exempt_path(path):
+        return False
+    headers = Headers(scope=scope)
+    if "text/html" not in headers.get("accept", "").lower():
+        return False
+    # htmx y fetch no son navegaciones: su página ya se cargó (y ya se redirigió).
+    if headers.get("hx-request"):
+        return False
+    mode = headers.get("sec-fetch-mode", "").lower()
+    return not mode or mode == "navigate"
+
+
 class _TransferStore:
     """Identidades pendientes de traslado, por código opaco de un solo uso."""
 
@@ -180,27 +200,10 @@ class HttpsRedirectMiddleware:
         return hostname == self._origin.hostname and port in {None, self._origin.port}
 
     def _should_redirect(self, scope: Scope) -> bool:
-        if str(scope.get("method", "")).upper() not in _NAVIGATION_METHODS:
-            return False
-        # Destino en forma absoluta (``GET http://otro/x``): ningún navegador la manda a
-        # un servidor de origen; no se arma un ``Location`` con ella.
-        if not str(scope.get("path", "")).startswith("/"):
-            return False
         # Ya es seguro (X-Forwarded-Proto de nginx creído por uvicorn): nada que hacer.
-        if scope.get("scheme") == "https":
+        if scope.get("scheme") == "https" or not _is_page_navigation(scope):
             return False
-        if _exempt_path(str(scope.get("path", ""))):
-            return False
-        headers = Headers(scope=scope)
-        if "text/html" not in headers.get("accept", "").lower():
-            return False
-        # htmx y fetch no son navegaciones: su página ya se cargó (y ya se redirigió).
-        if headers.get("hx-request"):
-            return False
-        mode = headers.get("sec-fetch-mode", "").lower()
-        if mode and mode != "navigate":
-            return False
-        host = headers.get("host", "")
+        host = Headers(scope=scope).get("host", "")
         parts = _host_parts(host)
         if parts is None:
             return False
@@ -209,6 +212,20 @@ class HttpsRedirectMiddleware:
         # Mismo host público (con su puerto o sin puerto): nunca se redirige, así no hay
         # bucles aunque el esquema del proxy no llegue.
         return not self._is_public_host(host)
+
+    def _should_accept_transfer(self, scope: Scope) -> bool:
+        """El canje del código: solo en una navegación de página del host público.
+
+        Con las mismas condiciones que la redirección: una imagen, un prefetch, htmx o una
+        ruta exenta (API, estáticos, el PDF) con el parámetro no consumen el código de un
+        solo uso ni dejan de servir su recurso.
+        """
+
+        return (
+            bool(_transfer_value(scope))
+            and _is_page_navigation(scope)
+            and self._is_public_host(Headers(scope=scope).get("host", ""))
+        )
 
     def _location(self, scope: Scope, *, extra: str = "") -> str:
         """``PUBLIC_BASE_URL`` + ruta + query sin traslado previo (+ ``extra``)."""
@@ -293,12 +310,7 @@ class HttpsRedirectMiddleware:
             response = RedirectResponse(self._location(scope, extra=extra), status_code=307)
             await response(scope, receive, send)
             return
-        if (
-            _transfer_value(scope)
-            and str(scope.get("method", "")).upper() in _NAVIGATION_METHODS
-            and str(scope.get("path", "")).startswith("/")
-            and self._is_public_host(Headers(scope=scope).get("host", ""))
-        ):
+        if self._should_accept_transfer(scope):
             await self._accept_transfer(scope, receive, send)
             return
         await self.app(scope, receive, send)
