@@ -10,7 +10,8 @@ hilo nuevo. Nunca se comparan precios: cambian con el catálogo y la ciudad.
 Con el CRM configurado (spec 055) el folio termina ofreciendo el pedido y deja el flujo en
 ``awaiting="pedido"``: un «sí» ya no repite el folio, acepta el pedido. :func:`cierre` lo
 rechaza con «ahora no» cuando hay oferta, y el pedido completo es un escenario aparte
-(:func:`ejecutar_pedido`) que crea un pedido real en Odoo y solo corre con ``ENSAYO_PEDIDO``.
+(:func:`ejecutar_pedido`: nombre y correo, la confirmación de los datos y el pedido) que crea
+un pedido real en Odoo y solo corre con ``ENSAYO_PEDIDO``.
 
 Los canales (``test_web.py`` y ``test_whatsapp.py``) implementan :class:`Canal`; este módulo
 no sabe de HTTP ni de MCP.
@@ -19,6 +20,7 @@ no sabe de HTTP ni de MCP.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -32,10 +34,18 @@ FOTO_NO_DISPONIBLE = "No pude analizar la foto"
 PISTA_FOTO = ("¿Te cotizo alguna?", "¿Te la cotizo?")
 FOLIO = re.compile(r"Cotización #([0-9a-f]{12}) registrada")
 SOLO_FOLIO = re.compile(r"^[0-9a-f]{12}$")
-# Spec 055: la oferta del pedido tras el folio (``render.ORDER_OFFER``) y su número en Odoo.
+# Spec 055: la oferta del pedido tras el folio (``render.ORDER_OFFER``), la confirmación de
+# los datos (``render.confirm_buyer``), el fallo de Odoo (``render.order_failed``) y el número
+# del pedido en Odoo (``render.order_placed``).
 OFERTA_PEDIDO = "¿Quieres hacer el pedido?"
 ACEPTAR_PEDIDO = "Sí, quiero hacer el pedido"  # lo que dice el botón «Hacer el pedido»
+CONFIRMAR_DATOS = "¿Lo confirmo? Si algo está mal, escríbeme el dato correcto."
+CONFIRMAR_PEDIDO = "Sí, confírmalo"  # lo que dice el botón «Confirmar pedido»
+PEDIDO_FALLIDO = "No pude crear el pedido"
 PEDIDO_CREADO = re.compile(r"Pedido (\S+) confirmado")
+# Segundos antes de reintentar con «sí» si Odoo falló al crear el pedido (``order_failed``
+# pide responder «sí» en unos minutos; el borrador conserva los datos y el folio).
+PAUSA_REINTENTO_PEDIDO = 30.0
 
 # Pedido explícito (cantidad, producto y ciudad) para que el agente llame a ``cotizar``.
 # Deben ser productos con precio de referencia en Bogotá en el catálogo vigente
@@ -80,10 +90,18 @@ def inferir_awaiting(texto: str) -> str | None:
         ("La opción más económica que tengo", "oferta"),
         ("¿Algo más", "algo_mas"),
         (OFERTA_PEDIDO, "pedido"),
+        ("¿Seguimos con el pedido", "pedido"),
         ("Para el pedido envíame tu", "datos_pedido"),
         ("te envío la confirmación del pedido?", "datos_pedido"),
         ("de quién hago el pedido?", "datos_pedido"),
         ("No alcancé a leer tu nombre y tu correo", "datos_pedido"),
+        ("Para el pedido me faltan", "datos_pedido"),
+        # La confirmación de los datos y el fallo de Odoo dejan el pedido por confirmar.
+        ("Voy a hacer el pedido con estos datos", "confirmar_pedido"),
+        ("¿Lo confirmo? Si algo está mal", "confirmar_pedido"),
+        ("¿Confirmo el pedido con los datos", "confirmar_pedido"),
+        ("lo intento de nuevo, o *ahora no*", "confirmar_pedido"),
+        ("lo intento de nuevo, o **ahora no**", "confirmar_pedido"),
     )
     encontradas = [(texto.rfind(marca), estado) for marca, estado in marcas if marca in texto]
     return max(encontradas)[1] if encontradas else None
@@ -107,8 +125,11 @@ def nombre_de_prueba(run_id: str) -> str:
     """Nombre del comprador del ensayo: «Ensayo» y el ``run_id`` escrito con letras.
 
     El flujo descarta como nombre un texto con dígitos (``order._name_from``), así que cada
-    dígito pasa a una letra (0→a … 9→j). El correo (:func:`correo_de_prueba`) lleva el
-    ``run_id`` tal cual.
+    dígito pasa a una letra (0→a … 9→j). También descarta o recorta muletillas y respuestas
+    («ok», «sí», «ya», «gracias»…) y partículas como «de»: un ``run_id`` corto (menos de seis
+    letras, p. ej. ``ENSAYO_RUN_ID=ok``) lleva «prueba» al final para no caer en una de ellas.
+    El de por defecto (hora UTC, catorce letras de la «a» a la «j») nunca es una palabra. El
+    correo (:func:`correo_de_prueba`) lleva el ``run_id`` tal cual.
     """
 
     letras = "".join(
@@ -116,7 +137,9 @@ def nombre_de_prueba(run_id: str) -> str:
         for caracter in run_id.lower()
         if caracter.isascii() and caracter.isalnum()
     )
-    return f"Ensayo {letras.capitalize() or 'Prueba'}"
+    if len(letras) < 6:
+        letras += "prueba"
+    return f"Ensayo {letras.capitalize()}"
 
 
 def correo_de_prueba(run_id: str) -> str:
@@ -344,11 +367,13 @@ def _hasta_el_folio(_registrar: bool) -> tuple[Paso, ...]:
 GUION_FOLIO_PARA_PEDIDO = Guion("folio_para_pedido", "F4/F5 → T4 → T5 → T6", _hasta_el_folio)
 
 
-def pasos_pedido(nombre: str, correo: str) -> tuple[Paso, ...]:
-    """Tras la oferta del folio: aceptar, nombre y correo en dos mensajes, y no duplicar.
+def pasos_datos_pedido(nombre: str, correo: str) -> tuple[Paso, ...]:
+    """Tras la oferta del folio: aceptar y dar nombre y correo en dos mensajes.
 
-    Todos los pasos son reglas del flujo (``route="pedido"``): el nombre y el correo nunca
-    llegan a Jev ni al modelo.
+    Con los dos datos llega la confirmación («📋 Voy a hacer el pedido con estos datos…
+    ¿Lo confirmo?», ``awaiting="confirmar_pedido"``): todavía no hay pedido. Todos los pasos
+    son reglas del flujo (``route="pedido"``): el nombre y el correo nunca llegan a Jev ni al
+    modelo.
     """
 
     datos = frozenset({"datos_pedido"})
@@ -367,22 +392,49 @@ def pasos_pedido(nombre: str, correo: str) -> tuple[Paso, ...]:
         ),
         Paso(
             correo,
-            espera=frozenset({None}),
+            espera=frozenset({"confirmar_pedido"}),
             marcas=(
-                "🧾 **Pedido ",
-                " confirmado** · cotización #{folio}",
-                f"Te enviamos la confirmación a **{correo}**",
+                "📋 Voy a hacer el pedido con estos datos:",
+                f"- Nombre: **{nombre}**",
+                f"- Correo: **{correo}**",
+                CONFIRMAR_DATOS,
             ),
-            ausentes=("No pude crear el pedido",),
-            ruta="pedido",
-        ),
-        Paso(
-            "quiero comprarla",
-            espera=frozenset({None}),
-            marcas=("Ese pedido ya quedó creado con el número **",),
+            ausentes=("🧾", PEDIDO_FALLIDO),
             ruta="pedido",
         ),
     )
+
+
+def paso_pedido_creado(correo: str, mensaje: str = CONFIRMAR_PEDIDO) -> Paso:
+    """«Sí, confírmalo» (o el «sí» del reintento): el pedido creado en Odoo con su número."""
+
+    return Paso(
+        mensaje,
+        espera=frozenset({None}),
+        marcas=(
+            "🧾 **Pedido ",
+            " confirmado** · cotización #{folio}",
+            f"La confirmación del pedido llega a **{correo}**",
+        ),
+        ausentes=(PEDIDO_FALLIDO,),
+        ruta="pedido",
+    )
+
+
+# Odoo falló: el pedido sigue por confirmar con los mismos datos y un «sí» lo reintenta.
+PASO_PEDIDO_FALLIDO = Paso(
+    CONFIRMAR_PEDIDO,
+    espera=frozenset({"confirmar_pedido"}),
+    marcas=(PEDIDO_FALLIDO, "responde **sí** en unos minutos y lo intento de nuevo"),
+    ausentes=("🧾",),
+    ruta="pedido",
+)
+PASO_PEDIDO_REPETIDO = Paso(
+    "quiero comprarla",
+    espera=frozenset({None}),
+    marcas=("Ese pedido ya quedó creado con el número **",),
+    ruta="pedido",
+)
 
 
 class PedidosApagados(Exception):
@@ -391,19 +443,64 @@ class PedidosApagados(Exception):
 
 @dataclass
 class Pedido:
-    """Lo que dejó el escenario del pedido: la conversación, el folio y el número en Odoo."""
+    """Lo que dejó el escenario del pedido: la conversación, el folio y el número en Odoo.
+
+    ``reintentado``: Odoo falló al primer «Sí, confírmalo» y el pedido salió con el «sí»
+    del reintento (queda en el informe).
+    """
 
     transcripcion: Transcripcion
     folio: str
     numero: str
+    reintentado: bool = False
 
 
-def ejecutar_pedido(canal: Canal, *, nombre: str, correo: str) -> Pedido:
-    """Folio → «Sí, quiero hacer el pedido» → nombre → correo → pedido; luego no duplica.
+def _confirmar_pedido(
+    canal: Canal, transcripcion: Transcripcion, *, correo: str, folio: str, pausa: float
+) -> bool:
+    """«Sí, confírmalo»; si Odoo falla, comprueba el fallo y reintenta una vez con «sí».
+
+    Devuelve si hubo que reintentar. Un segundo fallo hace fallar el escenario con un mensaje
+    que nombra el folio (el pedido no quedó en Odoo).
+    """
+
+    creado = paso_pedido_creado(correo)
+    respuesta = canal.enviar(creado.mensaje)
+    fallo = PEDIDO_FALLIDO in respuesta.texto
+    paso = PASO_PEDIDO_FALLIDO if fallo else creado
+    transcripcion.turnos.append((paso, respuesta))
+    _comprobar(canal, paso, respuesta, folio, transcripcion.texto())
+    if not fallo:
+        return False
+    print(
+        f"AVISO del ensayo: [{canal.nombre}] Odoo no creó el pedido del folio #{folio}; "
+        f"se reintenta con «sí» en {pausa:g} s"
+    )
+    if pausa > 0:
+        time.sleep(pausa)
+    reintento = paso_pedido_creado(correo, "sí")
+    respuesta = canal.enviar(reintento.mensaje)
+    transcripcion.turnos.append((reintento, respuesta))
+    if PEDIDO_FALLIDO in respuesta.texto:
+        raise AssertionError(
+            f"[{canal.nombre}] Odoo no creó el pedido del folio #{folio} ni al reintentar con "
+            f"«sí»: revisa el log pedido.fallido de la app y que Odoo esté arriba\n"
+            f"{transcripcion.texto()}"
+        )
+    _comprobar(canal, reintento, respuesta, folio, transcripcion.texto())
+    return True
+
+
+def ejecutar_pedido(
+    canal: Canal, *, nombre: str, correo: str, pausa: float = PAUSA_REINTENTO_PEDIDO
+) -> Pedido:
+    """Folio → «Sí, quiero hacer el pedido» → nombre → correo → «¿Lo confirmo?» →
+    «Sí, confírmalo» → pedido; luego «quiero comprarla» no duplica.
 
     Llegar al folio depende del agente y se reintenta una vez (:func:`ejecutar`); el resto es
-    determinista. Si el folio no trae la oferta, lanza :class:`PedidosApagados` sin enviar
-    nada más.
+    determinista. Si Odoo falla al confirmar, el flujo conserva los datos y, tras ``pausa``
+    segundos, un «sí» lo reintenta con el mismo folio (una sola vez). Si el folio no trae la
+    oferta, lanza :class:`PedidosApagados` sin enviar nada más.
     """
 
     transcripcion = ejecutar(canal, GUION_FOLIO_PARA_PEDIDO, registrar=True)
@@ -418,11 +515,13 @@ def ejecutar_pedido(canal: Canal, *, nombre: str, correo: str) -> Pedido:
         )
     ejecutar_pasos(
         canal,
-        pasos_pedido(nombre, correo),
+        pasos_datos_pedido(nombre, correo),
         transcripcion,
         previo=registro.awaiting,
         folio=folio,
     )
+    reintentado = _confirmar_pedido(canal, transcripcion, correo=correo, folio=folio, pausa=pausa)
+    ejecutar_pasos(canal, (PASO_PEDIDO_REPETIDO,), transcripcion, previo=None, folio=folio)
     _, creado = transcripcion.turnos[-2]
     numero = PEDIDO_CREADO.search(creado.texto)
     assert numero, f"no se leyó el número del pedido\n{transcripcion.texto()}"
@@ -431,7 +530,7 @@ def ejecutar_pedido(canal: Canal, *, nombre: str, correo: str) -> Pedido:
         f"el segundo «quiero comprarla» no nombra el pedido {numero.group(1)}\n"
         f"{transcripcion.texto()}"
     )
-    return Pedido(transcripcion, folio, numero.group(1))
+    return Pedido(transcripcion, folio, numero.group(1), reintentado)
 
 
 # --- Ejecución --------------------------------------------------------------------------

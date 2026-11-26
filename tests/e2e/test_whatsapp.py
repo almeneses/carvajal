@@ -414,7 +414,8 @@ def test_pedido_en_odoo_desde_whatsapp(config: Config, mcp: McpOculto, conversac
     _, creado = pedido.transcripcion.turnos[-2]
     assert f"*Pedido {pedido.numero} confirmado*" in creado.texto, creado.texto
     assert "**" not in creado.texto, "WhatsApp recibió negrita en Markdown («**»)"
-    print(f"PEDIDO whatsapp: {pedido.numero} · folio #{pedido.folio} · {correo}")
+    reintento = " · tras reintentar (Odoo falló al primer intento)" if pedido.reintentado else ""
+    print(f"PEDIDO whatsapp: {pedido.numero} · folio #{pedido.folio} · {correo}{reintento}")
     print(pedido.transcripcion.texto())
 
 

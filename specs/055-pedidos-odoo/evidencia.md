@@ -1,7 +1,9 @@
 # Evidencia — Spec 055, pedidos en Odoo
 
 **Fecha**: 2026-11-26 · **Rama**: `feat/odoo-pedidos` (PR #279) · **Commits**: `5e88367`
-(pedidos), `bdc7b57` (prueba local y correo saliente), `eae64f3` (fotos del catálogo)
+(pedidos), `bdc7b57` (prueba local y correo saliente), `eae64f3` (fotos del catálogo),
+`688fb9d` (spec y workspace de WhatsApp), `b893c28` (correcciones de la revisión
+adversarial)
 
 ## 1. Infraestructura (VPS OVH, 2026-11-26)
 
@@ -20,20 +22,24 @@ instalación; se revocó y se emitió otra, que es la que está en `/opt/carvaja
 
 ## 2. Prueba real de punta a punta (SC-001, SC-002)
 
-Contra el Odoo de la VPS:
+Contra el Odoo de la VPS, con la primera versión del adaptador (antes de `b893c28`):
 
 - Pedido **S00001** en estado `sale` (confirmado), con la línea del producto y la línea de
   envío (`ENVIO-CARVAJAL`).
 - Oportunidad del CRM ganada y enlazada al pedido.
 - Correo de confirmación con el PDF del pedido en el chatter, más la nota con el canal y el
-  folio.
+  folio. Sin SMTP, el correo no salió (ver §6).
 - Segundo intento con el mismo folio: devolvió el mismo pedido, sin crear otro
   (idempotente).
 - Los registros de prueba se borraron después.
 
+`b893c28` cambia el orden de las llamadas (oportunidad después de confirmar, cliente por
+correo y nombre, pedido en borrador retomado, `body_is_html=True`). **Falta repetir la
+prueba real con esa versión**; hasta entonces, este apartado vale para la primera.
+
 ## 3. Catálogo (FR-017, FR-018, SC-005)
 
-`scripts/odoo_catalogo.py --imagenes` contra la VPS:
+`scripts/odoo_catalogo.py --imagenes` contra la VPS, con la primera versión:
 
 | Medida | Resultado |
 |---|---|
@@ -42,51 +48,70 @@ Contra el Odoo de la VPS:
 | Productos con foto | 194 (las que tienen imagen en `data/catalog/empaques/imagenes/`) |
 | Segunda pasada | Idempotente: no creó productos ni subió fotos repetidas |
 
-## 4. Pruebas automáticas (SC-003, SC-004, SC-006)
+Con `b893c28` la sincronización busca también los productos archivados y compara `active`:
+la siguiente pasada reactiva un SKU archivado en lugar de duplicarlo. No se ha corrido aún
+contra la VPS.
 
-`tests/test_pedidos_odoo.py`: 23 pruebas (con los casos parametrizados), en verde con
-`uv run pytest tests/test_pedidos_odoo.py -q`.
+## 4. Pruebas automáticas (SC-003, SC-004, SC-006, SC-007)
 
-| Grupo | Pruebas | Qué demuestran |
-|---|---|---|
-| Puro | `test_los_datos_de_quien_compra_salen_del_texto`, `test_los_datos_se_completan_en_dos_mensajes`, `test_la_intencion_de_compra`, `test_ahora_no_rechaza_el_pedido` | Nombre y correo por reglas; «quiero comprar 500 vasos» y las preguntas no aceptan el pedido |
-| Líneas | `test_las_lineas_del_pedido_usan_los_importes_del_motor`, `test_un_envio_sin_costo_queda_como_nota` | 2 cajas a $25.000 y envío de $8.000 como servicio; envío pendiente como nota |
-| Adaptador JSON-2 | `test_el_pedido_se_crea_confirma_y_deja_traza`, `test_el_mismo_folio_no_crea_otro_pedido`, `test_las_fotos_solo_se_suben_a_los_productos_sin_foto` | Orden de llamadas, `client_order_ref`, `action_confirm` con `send_email`, cabeceras; idempotencia; fotos solo donde faltan |
-| Servicio del chat | `test_el_folio_ofrece_el_pedido_y_lo_crea_con_nombre_y_correo`, `test_whatsapp_marca_el_canal_del_pedido`, `test_si_odoo_falla_se_puede_reintentar`, `test_ahora_no_deja_la_cotizacion_sin_pedido`, `test_sin_crm_el_folio_no_ofrece_el_pedido` | Flujo completo sin el modelo, 0 llamadas a Jev en `datos_pedido`, canal, reintento, «ahora no» y sin CRM |
+Antes de la revisión, `tests/test_pedidos_odoo.py` tenía 23 pruebas (con los casos
+parametrizados), en verde con `uv run pytest tests/test_pedidos_odoo.py -q`, y `make check`
+(Ruff, formato, `ty` y pytest sin integración ni e2e) estaba en verde en la rama.
 
-`make check` (Ruff, formato, `ty` y pytest sin integración ni e2e) en verde en la rama con
-estas pruebas.
+| Grupo | Qué cubrían |
+|---|---|
+| Puro | Nombre y correo por reglas; «quiero comprar 500 vasos» y las preguntas no aceptan el pedido; «ahora no» lo rechaza |
+| Líneas | 2 cajas a $25.000 y envío de $8.000 como servicio; envío pendiente como nota |
+| Adaptador JSON-2 | Orden de llamadas, `client_order_ref`, `action_confirm` con `send_email`, cabeceras; idempotencia; fotos solo donde faltan |
+| Servicio del chat | Flujo completo sin el modelo, 0 llamadas a Jev en `datos_pedido`, canal, reintento, «ahora no» y sin CRM |
 
-## 5. Hallazgos pendientes
+`b893c28` cambia el comportamiento que esas pruebas fijaban (paso `confirmar_pedido`,
+reintento con «sí», orden de las llamadas a Odoo, textos de `order_placed` y
+`order_failed`). Las pruebas se actualizan en la misma PR con los casos de §5; el
+resultado de `make check` con el diseño nuevo se anota aquí cuando se corra.
 
-Encontrados al escribir la spec, reproducidos con `quotation.flow.before_turn` y un juez
-simulado; el código no se cambió en esta revisión:
+## 5. Revisión adversarial (2026-11-26)
 
-1. **Datos enviados directamente a la oferta.** Con `awaiting="pedido"`, un mensaje como
-   «Ana Pérez, ana@correo.com» o «ana@correo.com» (sin un «sí» antes) no acepta el pedido:
-   las reglas no deciden, Jev recibe el texto (`awaiting="pedido"` no está excluido de
-   `_ask_judge`) y el turno va al agente. Es plausible porque la oferta dice «Te pido tu
-   nombre y tu correo». Contradice FR-006/FR-019 en espíritu: el texto lleva datos
-   personales. Corrección sugerida: si el texto trae un correo con la oferta pendiente,
-   tratarlo como aceptación y pasar a `datos_pedido` con los datos ya leídos.
-2. **Una pregunta en medio del pedido reinicia el borrador.** Un texto con «?» en
-   `pedido` o `datos_pedido` (o un «gracias» con la oferta pendiente) va al agente con un
-   borrador vacío, como cualquier turno después de T6; la oferta de ese folio ya no se
-   retoma por reglas y «hacer el pedido» después lo atiende el agente. Los datos parciales
-   se descartan (bien para la privacidad).
-3. **Promesa de correo sin SMTP.** La respuesta dice «Te enviamos la confirmación a …»;
-   mientras no haya servidor de correo, el `mail.mail` queda en excepción y el correo no
-   llega.
-4. **Texto de error de Odoo en los logs.** `OdooError` incluye hasta 200 caracteres del
-   mensaje de Odoo (`pedido.oportunidad_fallida` lo registra); un error de validación
-   podría repetir un valor del cliente. Conviene registrar solo el código o el tipo.
+Una revisión adversarial de la primera versión confirmó **24 hallazgos**. `b893c28` los
+corrige agrupados en nueve cambios, que cubren también los cuatro que esta evidencia listaba
+como pendientes (datos enviados directamente a la oferta, pregunta a mitad del pedido que
+reiniciaba el borrador, promesa de correo sin SMTP y texto de Odoo en los logs):
+
+| # | Corrección | Qué fallaba en la primera versión | Diseño nuevo |
+|---|---|---|---|
+| 1 | Paso de confirmación | El pedido se creaba en cuanto se leían nombre y correo: un nombre mal leído o un correo con un error de dedo creaba el cliente y disparaba el correo sin que la persona los viera. Los datos enviados directamente a la oferta no se leían e iban a Jev y al agente. Tras un fallo de Odoo, los datos se borraban y había que repetirlos | `awaiting="confirmar_pedido"` con `render.confirm_buyer` («📋 Voy a hacer el pedido con estos datos… ¿Lo confirmo?») y botones «Confirmar pedido» / «Ahora no»; un dato nuevo corrige y vuelve a mostrar la confirmación; la respuesta a la oferta con nombre o correo se toma como datos (`has_buyer_data`); si Odoo falla, el borrador queda en la confirmación con los datos y un «sí» reintenta con el mismo folio |
+| 2 | Rechazos | Solo se rechazaba con frases exactas y solo en la oferta y en los datos; «no quiero hacer el pedido» aceptaba el pedido | `declines_order` acepta «no, mejor no», «no quiero el pedido», «ya no», «todavía no, gracias»… (`_DECLINE_START`) en cualquier paso; `wants_purchase` devuelve `False` con negación |
+| 3 | Nombres | Muletillas y respuestas se tomaban como nombre («ok gracias»), cualquier palabra posterior reemplazaba el nombre ya dado y las partículas salían en mayúscula | `_name_from` rechaza muletillas y palabras del pedido (`_NOT_NAME`), quita las de los bordes (`_FILLER`), deja «de», «del», «la»… en minúscula; `merge_buyer` solo reemplaza un nombre con un correo o una marca («me llamo…», «a nombre de…», «soy…») |
+| 4 | Correo por voz | El correo dictado («ana punto perez arroba gmail punto com») no se leía | `spoken_email` lo convierte (también «guion» y «guion bajo») cuando el texto dice «arroba» y no trae «@» |
+| 5 | Otro producto y preguntas a mitad | «Quiero 500 vasos» o una pregunta con «?» reiniciaban el borrador y la oferta no se retomaba por reglas | Otro producto o cantidad sale del pedido y va al agente (si cotiza, el borrador se reinicia); una pregunta sin datos va al agente sin perder el paso (`Pass` con el mismo borrador) y la respuesta lleva una vez `render.order_reminder`; a la segunda, el paso se suelta |
+| 6 | Jev | Con la oferta pendiente (`awaiting="pedido"`), una respuesta corta, incluso con datos, iba a Jev | `ORDER_AWAITING` (`pedido`, `datos_pedido`, `confirmar_pedido`) está excluido de `_ask_judge` |
+| 7 | Privacidad de lo guardado | El turno se guardaba con el nombre y el correo en claro: los leían el modelo en los turnos siguientes (historial), el resumen de memoria y LangSmith | `Reply.private` marca los turnos con datos; `ChatService._flow_reply` guarda y monitorea la pregunta como «🛒 (datos para el pedido)» y la respuesta y el flujo guardado con el correo enmascarado (`mask_email`) y el nombre como «(tu nombre)» (`_without_buyer`); la persona ve el texto completo en el turno |
+| 8 | Odoo | El pedido existente se buscaba en cualquier estado (un borrador sin confirmar se anunciaba como confirmado; uno cancelado bloqueaba el folio); el cliente se reutilizaba solo por correo y con `=ilike` sin escapar (`%` y `_` como comodines), así que un correo ajeno ponía el pedido en la ficha de otro cliente; la oportunidad se creaba antes del pedido (huérfana o repetida en fallos); la nota del chatter salía con las etiquetas HTML literales; los productos archivados se duplicaban; los logs guardaban hasta 200 caracteres del mensaje de Odoo | Existente con `state != cancel`: en `sale` se devuelve (`existing=True`) y en borrador se le pone el cliente actual y se confirma; cliente por correo escapado (`_like_literal`) y mismo nombre (`_same_name`), o contacto nuevo; oportunidad después de confirmar, ligada con `opportunity_id` y creada una vez en el reintento; `message_post` con `body_is_html=True`; productos y plantillas con `active in [True, False]`, reactivados; `sync_catalog` compara `active`; los logs llevan solo `OdooError.status` y el tipo |
+| 9 | SMTP | La respuesta decía «Te enviamos la confirmación a …» y la documentación, que el correo «queda en la cola» | «La confirmación del pedido llega a …»; sin SMTP el correo no sale, queda en excepción y se reenvía desde Odoo cuando haya servidor |
+
+**Riesgo residual (aceptado, fuera de alcance)**: no hay verificación del correo. Cualquiera
+puede escribir un correo ajeno y, al confirmar, Odoo le envía a esa persona la confirmación
+del pedido. Lo mitigan el paso de confirmación, el cupo diario (`DAILY_REQUESTS_LIMIT`) y la
+allowlist de WhatsApp (`dmPolicy: allowlist` en OpenClaw y `WEBHOOK_ALLOWED_NUMBERS` en el
+webhook); el chat web solo tiene el cupo. Ya no puede ponerle pedidos a la ficha de un
+cliente existente sin dar también su nombre.
+
+**Matiz de privacidad**: los datos sí quedan en el borrador de la base local mientras se
+piden (se vacían al crear o rechazar el pedido, no al fallar) y en Odoo. Lo guardado conserva
+la primera letra y el dominio del correo. Un nombre dentro de una pregunta que las reglas no
+reconocen como nombre va al agente como cualquier pregunta.
 
 ## 6. Pendiente
 
 - **SMTP**: el correo de confirmación no sale; el `mail.mail` queda en estado de excepción y
-  no se reintenta solo. Falta que el owner entregue las credenciales del servidor de correo
-  saliente y el remitente real de la compañía (hoy `ventas@example.com`). Pasos en
+  no se reintenta solo (se reenvía desde Odoo cuando haya servidor). Falta que el owner
+  entregue las credenciales del servidor de correo saliente y el remitente real de la
+  compañía (hoy `ventas@example.com`). Pasos en
   [`docs/odoo-pedidos.md`](../../docs/odoo-pedidos.md#correo-saliente).
+- **Pruebas del diseño nuevo**: actualizar `tests/test_pedidos_odoo.py` en esta PR y anotar
+  el resultado de `make check` en §4.
+- **Prueba real con `b893c28`**: repetir §2 (y la pasada del catálogo de §3) contra el Odoo
+  de la VPS.
+- **Verificación del correo**: ver el riesgo residual de §5.
 - **Producción**: el pedido queda activo en web y WhatsApp al fusionar la PR #279 y
   desplegar `main`.
-- Los hallazgos 1 y 2 de §5.

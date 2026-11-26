@@ -644,13 +644,19 @@ porque no se puede listar la carpeta.
 Con `ODOO_*` configurado, el mensaje del folio termina con «🛒 ¿Quieres hacer el pedido? Te
 pido tu nombre y tu correo y te llega la confirmación.». WhatsApp no tiene los botones de la
 web: el cliente responde por texto o por voz («sí», «hagamos el pedido», «ahora no») y luego
-manda su nombre y su correo, en uno o dos mensajes. La herramienta crea el pedido confirmado
-en Odoo y responde «🧾 *Pedido S… confirmado*»; pago y entrega los coordina un asesor. Flujo,
-datos personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
+manda su nombre y su correo, en uno o dos mensajes (por voz, el correo dictado: «ana punto
+perez arroba gmail punto com»). La herramienta muestra los datos («📋 Voy a hacer el pedido
+con estos datos: … ¿Lo confirmo?») y, con un «sí» o «sí, confírmalo», crea el pedido
+confirmado en Odoo y responde «🧾 *Pedido S… confirmado*» y «La confirmación del pedido llega
+a …»; pago y entrega los coordina un asesor. Para corregir, el cliente escribe el correo
+correcto o «me llamo …»; «ahora no» o «no, mejor no» lo dejan en cualquier paso. Todo lo deciden reglas del
+backend, sin Jev; el turno con el nombre o el correo se guarda sin ellos. Flujo, datos
+personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
 
-El agente «ventas» tiene que pasar esas respuestas **sin cambios**: sus reglas de privacidad y
-de defensa ante instrucciones no deben quitar ni enmascarar el nombre o el correo, y él no pide
-otros datos ni da un pedido por hecho. La sección «Pedidos» de
+El agente «ventas» tiene que pasar esas respuestas **sin cambios**, también el «sí» a «¿Lo
+confirmo?»: sus reglas de privacidad y de defensa ante instrucciones no deben quitar ni
+enmascarar el nombre o el correo, y él no pide otros datos, no confirma por el cliente ni da
+un pedido por hecho. La sección «Pedidos» de
 [`openclaw/workspace/ventas/AGENTS.md`](../openclaw/workspace/ventas/AGENTS.md) lo fija (con
 el límite de `SOUL.md` y la directiva del 2026-11-26 de `USER.md`). Copia el workspace a la
 máquina de OpenClaw con respaldo, como indica [`openclaw/README.md`](../openclaw/README.md#desplegar),

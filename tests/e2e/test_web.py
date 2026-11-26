@@ -168,7 +168,8 @@ def test_pedido_en_odoo_desde_web(config: Config, web: Web) -> None:
     turno: Turno = creado.crudo
     assert turno.done.get("route") == "pedido", turno.resumen()
     assert not turno.done.get("quote_ids"), turno.resumen()
-    print(f"PEDIDO web: {pedido.numero} · folio #{pedido.folio} · {correo}")
+    reintento = " · tras reintentar (Odoo falló al primer intento)" if pedido.reintentado else ""
+    print(f"PEDIDO web: {pedido.numero} · folio #{pedido.folio} · {correo}{reintento}")
     print(pedido.transcripcion.texto())
 
 
