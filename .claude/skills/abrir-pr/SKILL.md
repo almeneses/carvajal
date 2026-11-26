@@ -1,6 +1,6 @@
 ---
 name: abrir-pr
-description: Abre una Pull Request en el repositorio de Carvajal cumpliendo AGENTS.md - rama desde main, make check, Conventional Commits en español, CONSTITUTION.md al día, etiquetas del catálogo, assignee y sin merge. Úsala cuando pidan "abre la PR", "sube los cambios", "commit y push", "crea un pull request" o al terminar una tarea que deba entregarse.
+description: Abre una Pull Request en el repositorio de Carvajal cumpliendo AGENTS.md - rama desde main, make check, Conventional Commits en español, CONSTITUTION.md al día, etiquetas del catálogo, assignee y merge con squash cuando Calidad pasa. Úsala cuando pidan "abre la PR", "sube los cambios", "commit y push", "crea un pull request" o al terminar una tarea que deba entregarse.
 ---
 
 # Abrir una PR en Carvajal
@@ -11,8 +11,9 @@ skill y `AGENTS.md` discrepan, manda `AGENTS.md` y hay que corregir esta skill.
 ## Reglas que no se negocian
 
 - La PR apunta a `main`. `dev` no se usa desde el 2026-11-22.
-- El agente **abre la PR y se detiene**: no mergea, no aprueba (ni propias ni
-  ajenas) y **nunca usa `--admin`**, aunque el token lo permita.
+- El agente puede mergear la PR (squash) cuando `Calidad` está en verde, la
+  rama está al día y no quedan hilos abiertos; no aprueba PRs, ni propias ni
+  ajenas.
 - Toda dependencia pasa por `uv`; `pip` y `requirements.txt` están prohibidos.
 - No se commitean secretos (`.env`, credenciales, `.claude/settings.local.json`).
 
@@ -114,4 +115,12 @@ gh pr view <número> --json url,labels,assignees,statusCheckRollup
 ```
 
 Entrega la URL, las etiquetas, el assignee y el estado del check `Calidad`.
-Termina ahí: la aprobación y el merge son del owner.
+
+### 9. Merge
+
+Cuando `Calidad` está en verde, la rama está al día y no quedan hilos de revisión
+abiertos, el agente puede fusionar:
+
+```bash
+gh pr merge <número> --squash --admin   # el ruleset pide 1 aprobación; almeneses tiene bypass
+```

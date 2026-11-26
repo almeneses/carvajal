@@ -40,22 +40,20 @@ git push
 - `test:` — pruebas
 - `chore:` — mantenimiento o configuración
 
-### Regla de merge (obligatoria para agentes)
+### Regla de merge
 
 Toda Pull Request apunta a `main`; `dev` dejó de usarse el 2026-11-22. `main`
 está protegida con un ruleset: exige **1 aprobación de otra persona**, el check
 `Calidad` en verde y la rama al día.
 
-- Un agente **abre la PR y se detiene ahí**. No mergea, no aprueba y **no usa
-  `--admin`** para saltarse la regla, ni siquiera cuando el autor es el propio
-  agente.
-- La aprobación y el merge los hace el owner. Si el cambio es urgente, la
-  urgencia la decide el owner, no el agente.
-- Un agente tampoco aprueba PRs ajenas: la aprobación es una decisión humana.
-
-El bypass del ruleset está reservado a la cuenta `almeneses`. Que el agente
-corra con ese token no lo autoriza a usarlo: la restricción es de proceso, no
-solo de permisos.
+- Desde el 2026-11-25 (decisión del owner) un agente **puede mergear** a `main`,
+  también sus propias PRs, cuando el check `Calidad` está en verde, la rama está
+  al día y no quedan hilos de revisión abiertos.
+- El merge es siempre con **squash**. Como el ruleset pide la aprobación de otra
+  persona, con la cuenta `almeneses` (la única con bypass) se fusiona con
+  `gh pr merge <número> --squash --admin`.
+- Un agente no aprueba PRs, ni propias ni ajenas: la aprobación es una decisión
+  humana.
 
 ### Etiquetas de PR (obligatorio para agentes)
 
@@ -170,7 +168,7 @@ Viven en `.claude/skills/` (formato Agent Skills; las leen Claude Code y
 OpenCode). Convierten las reglas de este archivo en pasos ejecutables:
 
 - [`abrir-pr`](./.claude/skills/abrir-pr/SKILL.md) — rama, `make check`,
-  commit, CONSTITUTION, etiquetas, assignee y parada sin merge.
+  commit, CONSTITUTION, etiquetas, assignee y merge con squash cuando `Calidad` pasa.
 - [`evaluar-agente`](./.claude/skills/evaluar-agente/SKILL.md) — enrutador,
   retrieval y cotizador contra la línea base, con criterios de regresión.
 
