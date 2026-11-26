@@ -99,6 +99,8 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
 
     secret = _secret(request)
     expires, signature = split_token(t, e)
+    # Con ``t`` manda solo la firma: un enlace vencido o manipulado no se rescata con la
+    # cookie, ni siquiera la del dueño (su web enlaza sin ``t``, ver :func:`owner_pdf_link`).
     visitor = None if signature else _visitor(request)
     if len(folio) > 64 or not ((secret and signature) or visitor):
         return _not_found()

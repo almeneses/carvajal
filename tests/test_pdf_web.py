@@ -251,16 +251,18 @@ def test_nadie_mas_abre_el_pdf_sin_la_firma(engine: Any, visitor: str | None) ->
     assert response.json() == {"detail": "La cotización no existe o el enlace venció."}
 
 
-def test_una_firma_invalida_no_se_salva_con_la_cookie_de_otro(engine: Any) -> None:
+@pytest.mark.parametrize("visitor", [VISITOR, OTHER_VISITOR], ids=["dueño", "otro_visitante"])
+def test_una_firma_invalida_no_se_salva_con_la_cookie(engine: Any, visitor: str) -> None:
     # Arrange
     app = _app(engine)
     url = WEB_LINK.search(_register(_visitor(app))["fallback"]["text"])
     assert url is not None
 
     # Act
-    response = _visitor(app, OTHER_VISITOR).get(f"{url.group(1)}?t=1.firma")
+    response = _visitor(app, visitor).get(f"{url.group(1)}?t=1.firma")
 
-    # Assert
+    # Assert: ni la cookie del dueño rescata un enlace vencido o manipulado; la web enlaza
+    # sin ``t`` y la cookie solo cuenta cuando no llega ningún token.
     assert response.status_code == 404
 
 
