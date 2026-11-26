@@ -207,6 +207,7 @@ class OdooOrders:
         values: dict[str, Any] = {
             "name": request.buyer.name,
             "email": email,
+            "lang": "es_CO",  # el correo de confirmación sale en español
             "comment": _html([f"Cliente creado por el asistente de Carvajal ({request.channel})."]),
         }
         if request.city:

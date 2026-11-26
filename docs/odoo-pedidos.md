@@ -72,10 +72,15 @@ ssh -N -L 8169:127.0.0.1:8169 deploy@144.217.80.136 -p 2422
 
 ### Correo saliente
 
-Odoo envía la confirmación al confirmar el pedido. Mientras no haya un servidor SMTP
-configurado (Ajustes → Técnico → Servidores de correo saliente), los correos quedan en la cola
-(Ajustes → Técnico → Correos) y se ven en el chatter del pedido; al configurar el SMTP salen
-solos.
+Odoo envía la confirmación al confirmar el pedido, con la plantilla
+`sale.mail_template_sale_confirmation` y el PDF del pedido adjunto; el mensaje queda siempre
+en el chatter del pedido. **Sin servidor SMTP el correo no sale**: el `mail.mail` queda en
+estado de excepción y no se reintenta solo. Para activarlo:
+
+1. Ajustes → Técnico → Servidores de correo saliente → nuevo (p. ej. Gmail con contraseña de
+   aplicación, `smtp.gmail.com:587`, STARTTLS) y «Probar conexión».
+2. Ajustar el correo de la compañía (hoy `ventas@example.com`) al remitente real.
+3. Los correos que ya fallaron se reenvían desde Ajustes → Técnico → Correos → «Reintentar».
 
 ## Catálogo
 
@@ -91,9 +96,23 @@ esté en Odoo se crea en ese momento.
 
 ## Probar en local contra el Odoo de la VPS
 
+La app de `make up` corre en Docker y llega al host por `host.docker.internal`; el túnel debe
+escuchar en la IP del puente de Docker (`172.17.0.1`), no en loopback:
+
 ```bash
-ssh -N -L 8169:127.0.0.1:8169 deploy@144.217.80.136 -p 2422 &
-ODOO_URL=http://127.0.0.1:8169 ODOO_DB=carvajal ODOO_API_KEY=… make api
+ssh -N -L 172.17.0.1:8169:127.0.0.1:8169 deploy@144.217.80.136 -p 2422 &
+# en .env local:
+#   ODOO_URL=http://host.docker.internal:8169
+#   ODOO_DB=carvajal
+#   ODOO_API_KEY=<la de /opt/carvajal/.env de la VPS>
+make up PERFILES=full
 ```
 
-Cotiza algo, confírmalo y acepta el pedido: aparece en Odoo → Ventas → Pedidos.
+Cotiza algo, confírmalo y acepta el pedido: aparece en Odoo → Ventas → Pedidos (abre la UI
+con el túnel de arriba en `localhost:8169`). Con `make api` (app nativa) basta el túnel en
+loopback y `ODOO_URL=http://127.0.0.1:8169`.
+
+## En producción
+
+Ya están `ODOO_*` en `/opt/carvajal/.env`; el despliegue de `main` las pasa a `app` y `mcp`
+(`compose.prod.yml`). Al fusionar, el pedido queda activo en la web y en WhatsApp.

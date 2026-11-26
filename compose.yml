@@ -31,6 +31,9 @@ x-dev-app: &dev-app
     # y sin usuario fijo (Compose lo baja al UID del host con LOCAL_UID).
     target: dev
   image: carvajal-api:dev
+  # Spec 055: llegar al Odoo de la VPS por un túnel en el host (docs/odoo-pedidos.md).
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   environment: &dev-environment
     # Dentro de la red de Compose los hosts son los nombres de los servicios.
     DATABASE_URL: postgresql://${POSTGRES_USER:-carvajal}:${POSTGRES_PASSWORD:-carvajal}@db:5432/${POSTGRES_DB:-carvajal}
