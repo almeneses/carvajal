@@ -38,12 +38,14 @@ from carvajal.agent.state import Turn
 
 __all__ = [
     "COMMERCIAL_KEYS",
+    "MATERIAL_GROUPS",
     "USES",
     "USE_TEMPERATURE",
     "commercial_signal",
     "empty_request",
     "extract_commercial",
     "is_custom_need",
+    "material_for",
     "mentions_microwave",
     "microwave_for",
     "non_commercial_part",
@@ -144,6 +146,55 @@ _OTHER_TOPIC = re.compile(
 # comercial («Carvajal, 5000 vasos para microondas»). La capacidad o la ciudad solas no
 # bastan: «¿Qué vasos vende Carvajal en Cali?» sigue siendo institucional.
 _HARD_DATA = ("quantity", "microwave", "temperature", "use")
+# Material que nombra la persona → materiales del catálogo. Los específicos (PET, PP, PS)
+# ganan al genérico «plástico». «Sin plástico» o «sin icopor» no nombran el material.
+MATERIAL_GROUPS: dict[str, frozenset[str]] = {
+    "papel": frozenset({"PAPEL"}),
+    "pulpa": frozenset({"PULPA"}),
+    "icopor": frozenset({"EPS"}),
+    "pet": frozenset({"PET"}),
+    "pp": frozenset({"PP"}),
+    "ps": frozenset({"PS"}),
+    "plastico": frozenset({"PS", "PP", "PET"}),
+}
+_MATERIAL_WORDS = (
+    ("papel", r"papel|carton(?:cillo)?"),
+    ("pulpa", r"pulpa|bagazo|fibra de cana"),
+    ("icopor", r"icopor|unicel|anime|foam|espumad[oa]s?|eps|poliestireno expandido"),
+    ("pet", r"pet|rpet"),
+    ("pp", r"pp|polipropileno"),
+    ("ps", r"ps|poliestireno"),
+    ("plastico", r"plasticos?"),
+)
+_NO_MATERIAL = re.compile(r"\bsin\s+(?:\w+\s+)?(?:plasticos?|icopor|papel|carton|unicel)\b")
+
+
+def material_for(question: str) -> str | None:
+    """Material que pide la pregunta («vasos de papel» → ``papel``), o ``None``.
+
+    Si nombra dos materiales distintos («papel o icopor») no se deduce nada: la persona
+    compara o duda, y filtrar por uno escondería el otro. Un material específico (PET, PP,
+    PS) gana al genérico «plástico».
+    """
+
+    text = _NO_MATERIAL.sub(" ", _plain(question))
+    text = text.replace("poliestireno expandido", "eps")
+    found = [name for name, pattern in _MATERIAL_WORDS if _search(pattern, text)]
+    if (
+        "plastico" in found
+        and set(found) - {"plastico"}
+        and set(found)
+        <= {
+            "plastico",
+            "pet",
+            "pp",
+            "ps",
+        }
+    ):
+        found.remove("plastico")
+    return found[0] if len(found) == 1 else None
+
+
 _RENEWABLE = re.compile(
     r"\b(renovables?|compostables?|biodegradables?|ecologic\w*|sostenibles?|de papel|de carton"
     r"|fibra|cana|bagazo|pulpa|sin plastico|sin icopor)\b"

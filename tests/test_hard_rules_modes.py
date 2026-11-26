@@ -263,12 +263,14 @@ def test_eps_pedido_por_nombre_no_se_cotiza_para_bebida_caliente(
     # Act
     turn = run_turn(mode, question, script)
 
-    # Assert
+    # Assert: ni EPS para caliente ni otro material en su lugar (reporte del 2026-11-25:
+    # «vasos de papel» cotizaba un vaso de PP). Pedir icopor y recibir otro material es
+    # cotizar algo que la persona no pidió; si quiere otro, lo dice en el siguiente turno.
     quotes = [item for item in _quotes(turn.products) if item.get("kind") == "cotizacion"]
-    assert quotes, "debe cotizarse una alternativa apta para bebida caliente"
     for quote in quotes:
         quoted = [quote["primary"], *(quote.get("alternatives") or [])]
         assert "EPS" not in [item.get("material") for item in quoted]
+    assert quotes == [], "no se cotiza otro material en lugar del icopor pedido"
 
 
 @pytest.mark.parametrize("mode", MODES)
