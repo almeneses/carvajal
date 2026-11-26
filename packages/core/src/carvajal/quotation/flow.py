@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
-from carvajal.agent.commercial_intent import product_family
+from carvajal.agent.commercial_intent import named_families, product_family
 from carvajal.agent.followup import (
     Choice,
     ChoiceOutOfRange,
@@ -783,18 +783,31 @@ def _quantity_change(
     """«Mejor que sean 800», «cambia la 1 a 1000»: otra cantidad para una línea, sin el modelo.
 
     La línea es la que se nombra (su número o su producto), la única del carrito o, ante
-    «¿Algo más?», la que se acaba de agregar. Se recotiza con el motor con la misma
-    referencia, ciudad y entrega; si el motor no la cotiza, el turno sigue al agente. Nunca
-    agrega otro producto (ensayo del 2026-11-26: «mejor que sean 800» agregaba un portacomidas
-    que nadie pidió y «cambia la 1 a 1000» cambiaba la línea 2).
+    «¿Algo más?», la que se acaba de agregar. Con otro producto en curso (el agente pidió su
+    cantidad: «cotízame platos» → «¿cuántos?»), «que sean 500» es de ese producto y lo
+    atiende el agente; solo cambia una línea si se nombra. Sin unidad dicha, la cantidad va
+    en la unidad de compra de la línea («2 paquetes» → «que sean 3» son 3 paquetes). Se
+    recotiza con el motor con la misma referencia, ciudad y entrega; si el motor no la
+    cotiza, el turno sigue al agente. Nunca agrega otro producto (ensayo del 2026-11-26:
+    «mejor que sean 800» agregaba un portacomidas que nadie pidió y «cambia la 1 a 1000»
+    cambiaba la línea 2).
     """
 
     labels = tuple(line_label(line) for line in draft.lines)
-    found = resolve_quantity_change(text, labels, default_last=draft.awaiting == "algo_mas")
+    found = resolve_quantity_change(
+        text,
+        labels,
+        default_last=draft.awaiting == "algo_mas",
+        named_only=draft.awaiting is None and bool(draft.current),
+    )
     if found is None:
         return None
-    index, quantity, unit = found
+    index, quantity, said_unit = found
     line = draft.lines[index]
+    if said_unit is None:
+        unit = str(_mapping(line.get("request")).get("unit") or "") or None
+    else:
+        unit = None if said_unit == "unidad" else said_unit
     family = product_family(text)
     if family is not None and line_family(line) not in {None, family}:
         return None  # «mejor 800 vasos» con la línea de platos: es otro producto
@@ -919,7 +932,8 @@ def after_turn(
     calculated = [dict(item) for item in quotes if is_quote(item)]
     several = {str(item["primary"].get("sku") or "") for item in calculated}
     if asks and not (len(calculated) >= 2 and len(several) == 1):  # un comparativo no agrega
-        held = [item for item in calculated if not _addable(current, item, len(several) > 1)]
+        asked = named_families(text)
+        held = [item for item in calculated if not _addable(current, item, len(several) > 1, asked)]
         if held:
             calculated = [item for item in calculated if item not in held]
             logger.info("cotizacion.linea_retenida", retenidas=len(held))
@@ -975,17 +989,24 @@ def asks_question(answer: str) -> bool:
     return "?" in _URL.sub(" ", answer)
 
 
-def _addable(draft: QuoteDraft, quote: Mapping[str, Any], several: bool) -> bool:
+def _addable(
+    draft: QuoteDraft, quote: Mapping[str, Any], several: bool, asked: frozenset[str]
+) -> bool:
     """La cotización puede entrar al carrito en un turno en que el agente pregunta algo.
 
     Sola y con alternativas es una lista de opciones (no agrega nada); una línea que ya está
     se actualiza; una nueva solo si la persona la nombró o la eligió. Con ``several`` (varios
-    productos en el turno) cada una entra como línea, así que las alternativas no cuentan.
+    productos en el turno) cada una entra como línea, así que las alternativas no cuentan:
+    la cotizada por familia entra si la persona pidió esa familia en el turno (``asked``,
+    «500 vasos para café y 500 platos pandos»), como cuando el agente no pregunta.
     """
 
     if (quote.get("alternatives") and not several) or same_sku_line(draft, quote) is not None:
         return True
-    return quote.get("reference_origin") in _CHOSEN
+    origin = quote.get("reference_origin")
+    if origin in _CHOSEN:
+        return True
+    return several and not origin and line_family(quote) in asked
 
 
 def _present(

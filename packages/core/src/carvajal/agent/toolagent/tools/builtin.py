@@ -1153,10 +1153,17 @@ _REFERENCE_STOP = frozenset(
 )  # fmt: skip
 
 
-def _tokens(text: str) -> list[str]:
-    """Palabras y códigos de ``text`` sin tildes: «CO-PCOM-J2» → «co», «pcom», «j2»."""
+# Una medida pegada a su unidad («7oz», «12cm», «500ml») se separa: el catálogo dice «7 oz».
+_GLUED_UNIT = re.compile(r"(\d)(oz|onzas?|cm|mm|ml|cc|gr?|lb|lts?|l)\b")
 
-    return re.findall(r"[^\W_]+", plain(text))
+
+def _tokens(text: str) -> list[str]:
+    """Palabras y códigos de ``text`` sin tildes: «CO-PCOM-J2» → «co», «pcom», «j2».
+
+    Las medidas pegadas se separan: «7oz» → «7», «oz», como «7 oz» o «7 onzas».
+    """
+
+    return re.findall(r"[^\W_]+", _GLUED_UNIT.sub(r"\1 \2", plain(text)))
 
 
 def _said_word(word: str, said: set[str]) -> bool:

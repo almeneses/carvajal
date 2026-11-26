@@ -3146,3 +3146,44 @@ def test_la_cotizacion_dice_de_donde_sale_la_referencia(context: ToolContext, or
     # Assert
     assert _primary_skus(result) == ["CO-PCOM-J2"]
     assert result.quotes[0]["reference_origin"] == origin
+
+
+@pytest.mark.parametrize(
+    ("pregunta", "referencia"),
+    [
+        pytest.param(
+            "Cotízame 500 vasos rígidos traslúcidos Wau de 7oz en Cali",
+            {"sku": "CO-VRP-07"},
+            id="7oz-pegado-con-sku",
+        ),
+        pytest.param(
+            "Cotízame 500 vasos rígidos traslúcidos Wau de 7oz en Cali",
+            {"nombre": "Vaso rígido Wau 7 oz"},
+            id="7oz-pegado-con-nombre",
+        ),
+        pytest.param(
+            "Cotízame 500 vasos rígidos traslúcidos Wau de 7 onzas en Cali",
+            {"nombre": "Vaso rígido Wau 7oz"},
+            id="7-onzas-y-el-modelo-pega",
+        ),
+    ],
+)
+def test_una_medida_pegada_a_su_unidad_si_nombra_la_referencia(
+    pregunta: str, referencia: dict[str, str]
+) -> None:
+    # Arrange: por WhatsApp se escribe «7oz»; el catálogo dice «7 oz» (revisión de la PR).
+    context = ToolContext(question=pregunta)
+
+    # Act
+    result = _run(
+        "cotizar",
+        {**referencia, "family": "vaso", "capacity_oz": 7, "quantity": 500, "city": "Cali"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert: se cotiza la referencia nombrada, sin pedir la temperatura.
+    assert result.status == "ok", result.payload
+    assert "referencia_no_dicha" not in result.payload
+    assert _primary_skus(result) == ["CO-VRP-07"]
+    assert result.quotes[0]["reference_origin"] == "persona"

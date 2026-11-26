@@ -256,6 +256,8 @@ def test_la_deduccion_coincide_con_la_nota_del_manifiesto() -> None:
         {"aplicacion": "comida_caliente"},
         {"material": "ALUMINIO"},
         {"material": "PS", "aplicacion": "frutas"},
+        {"aplicacion": "bebida_caliente"},
+        {"aplicacion": "bebida_fria"},
     ],
 )
 def test_cada_dato_devuelto_aparece_en_el_excerpt_de_su_fuente(args: dict[str, Any]) -> None:
@@ -377,3 +379,61 @@ def test_el_esquema_no_tiene_identidad_y_describe_cada_campo() -> None:
     assert set(schema["properties"]) == {"material", "aplicacion"}
     assert all(prop.get("description") for prop in schema["properties"].values())
     assert not any(char.isdigit() for char in json.dumps(schema, ensure_ascii=False))
+
+
+# --- Usos de bebida (ensayo del 2026-11-26) ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperada"),
+    [
+        ("bebida_caliente", "bebida_caliente"),
+        ("tinto", "bebida_caliente"),
+        ("Café", "bebida_caliente"),
+        ("bebida_fria", "bebida_fria"),
+        ("jugos", "bebida_fria"),
+    ],
+)
+def test_los_usos_de_bebida_se_aceptan(texto: str, esperada: str) -> None:
+    # Act
+    parsed = mod.GuiaMaterialesArgs.model_validate({"aplicacion": texto})
+
+    # Assert
+    assert parsed.aplicacion == esperada
+
+
+@pytest.mark.parametrize("aplicacion", ["bebida_caliente", "bebida_fria"])
+def test_una_bebida_da_las_reglas_por_temperatura_sin_aptitud_deducida(aplicacion: str) -> None:
+    # Act
+    draft, _ = _run({"aplicacion": aplicacion})
+
+    # Assert: la guía no declara aptitud para bebidas; sin nivel ni «cumple», con el rango.
+    assert draft.status == "ok"
+    rows = draft.data["reglas"]
+    assert rows
+    for row in rows:
+        assert "cumple" not in row
+        assert row["nivel"] is None
+        assert {"temp_min_c", "temp_max_c", row["criterio"]} <= row.keys()
+    assert "rango" in draft.message
+
+
+def test_la_refrigeracion_deducida_se_declara_para_bebida_fria() -> None:
+    # Act
+    draft, _ = _run({"aplicacion": "bebida_fria"})
+
+    # Assert: PS y ALUMINIO no tienen la refrigeración declarada en la guía.
+    deduced = {row["material"] for row in draft.data["reglas"] if row["refrigeracion_deducida"]}
+    assert deduced == {"PS", "ALUMINIO"}
+    assert "refrigeracion_deducida" in draft.message
+
+
+def test_un_material_con_una_bebida_da_su_regla_sin_nivel() -> None:
+    # Act
+    draft, _ = _run({"material": "EPS", "aplicacion": "tinto"})
+
+    # Assert
+    assert draft.status == "ok"
+    [row] = draft.data["reglas"]
+    assert row["material"] == "EPS" and row["criterio"] == "contenido_caliente"
+    assert "cumple" not in row and row["temp_max_c"] == 60

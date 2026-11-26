@@ -343,9 +343,13 @@ DIRECT_INSTRUCTIONS = {
 # el modelo confirmó «olvida todo» con «no guardo nada de ti en esta conversación», que es
 # falso (la memoria es del dueño, entre conversaciones) y no dice que se borró.
 FIXED_DIRECT_ANSWERS = {
+    # Solo lo que hace ``forget(..., "todo")``: borra la memoria (datos y preferencias) y
+    # marca el olvido en el resumen, así que lo anterior no se usa. Los mensajes del hilo
+    # siguen en el historial: no se dice que «ya no están guardados» (revisión de la PR).
     "memory_forget": (
-        "Listo, olvidé todo lo que sabía de ti: tus datos y tus preferencias ya no están "
-        "guardados, en esta ni en otras conversaciones. ¿En qué te ayudo?"
+        "Listo, olvidé lo que sabía de ti: borré tus datos y tus preferencias y no los usaré "
+        "en esta ni en otras conversaciones. Los mensajes que ya enviaste siguen en el "
+        "historial de tus conversaciones. ¿En qué te ayudo?"
     ),
     "memory_unavailable": (
         "No pude olvidar tus datos ahora: la memoria no está disponible. Inténtalo de nuevo "

@@ -222,6 +222,12 @@ def test_el_conjunto_cubre_los_ocho_flujos_por_texto_y_por_voz() -> None:
         ("12 oz, 500 unidades", (500,)),
         ("a $5.000 cada paquete, 300", (300,)),
         ("una caja", ()),
+        ("1.500 vasos", (1500,)),
+        ("1,500 vasos", (1500,)),
+        ("10,000 vasos", (10000,)),
+        # Coma sin espacio entre cantidades de tres cifras: es una lista (revisión de la PR).
+        ("300,500 y 800", (300, 500, 800)),
+        ("comparar 100,200 y 300", (100, 200, 300)),
     ],
 )
 def test_las_cantidades_se_leen_en_cifras_y_en_palabras(
@@ -1733,6 +1739,12 @@ def test_otra_cantidad_cambia_la_linea_correcta_por_reglas(
         "cambia la 1 a 1000 y la 2 a 500",
         "quita la 1",
         "¿y si fueran 800?",
+        # Cambios relativos: cuánto sumar o quitar, no la cantidad nueva (revisión de la PR).
+        "súbele 300 más",
+        "bájale 100",
+        "ponme 300 vasos más",
+        "que sean 200 menos",
+        "ponle otros 200",
     ],
 )
 def test_lo_que_no_es_solo_otra_cantidad_no_cambia_lineas(texto: str) -> None:
@@ -1926,3 +1938,145 @@ def test_si_el_agente_pregunta_el_comparativo_de_cantidades_sigue_saliendo() -> 
     # Assert
     assert outcome.draft.awaiting == "cantidad"
     assert len(outcome.draft.comparison) == 2
+
+
+@pytest.mark.parametrize(("texto", "unidades"), [("bájale a 100", 100), ("súbelo a 800", 800)])
+def test_subir_o_bajar_a_una_cantidad_es_la_cantidad_nueva(texto: str, unidades: int) -> None:
+    # Arrange: una sola línea y «¿Algo más?».
+    draft, _ = add_line(QuoteDraft(), make_quote(PLATO_HONDO))
+    draft = draft.touch(AHORA, awaiting="algo_mas", state="carrito")
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.lines[0]["primary"]["presentation"]["units_requested"] == unidades
+
+
+def test_que_sean_500_no_más_es_la_cantidad_nueva() -> None:
+    # Arrange: «no más» es «solo», no un cambio relativo.
+    draft, _ = add_line(QuoteDraft(), make_quote(PLATO_HONDO))
+    draft = draft.touch(AHORA, awaiting="algo_mas", state="carrito")
+
+    # Act
+    decision = before_turn(draft, "que sean 600 no más", requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.lines[0]["primary"]["presentation"]["units_requested"] == 600
+
+
+def test_con_otro_producto_en_curso_la_cantidad_suelta_es_de_ese_producto() -> None:
+    # Arrange: vaso en el carrito; «cotízame platos para sopa» y el agente pide la cantidad
+    # (sin cotizaciones, ``awaiting`` queda vacío y los platos en curso).
+    draft, _ = add_line(
+        QuoteDraft(), make_quote(PLATO_HONDO | {"sku": "V7", "nombre": "Vaso 7 oz"})
+    )
+    draft = draft.touch(AHORA, awaiting="algo_mas", state="carrito")
+    text = "cotízame platos para sopa en Bogotá"
+    passed = before_turn(draft, text, requote_fn=fake_requote, now=AHORA)
+    assert isinstance(passed, Pass)
+    asked = after_turn(passed.draft, [], text, now=AHORA, asks=True)
+    assert asked.draft.awaiting is None and asked.draft.current
+
+    # Act
+    decision = before_turn(asked.draft, "que sean 500", requote_fn=fake_requote, now=AHORA)
+
+    # Assert: la cantidad es de los platos; la atiende el agente y el vaso no cambia.
+    assert isinstance(decision, Pass)
+    assert decision.draft.lines == asked.draft.lines
+
+
+def test_con_otro_producto_en_curso_la_linea_nombrada_si_cambia() -> None:
+    # Arrange
+    vaso = make_quote({"sku": "V7", "nombre": "Vaso 7 oz", "unidades": 500, "subtotal": 9000})
+    draft, _ = add_line(QuoteDraft(), vaso)
+    draft = draft.touch(AHORA, awaiting=None, current={"family": "plato", "label": "los platos"})
+
+    # Act
+    decision = before_turn(draft, "los vasos que sean 800", requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.lines[0]["primary"]["presentation"]["units_requested"] == 800
+
+
+@pytest.mark.parametrize(
+    ("texto", "unidad"),
+    [
+        ("mejor que sean 3", "paquete"),
+        ("mejor que sean 3 cajas", "caja"),
+        ("que sean 300 unidades", None),
+    ],
+)
+def test_otra_cantidad_conserva_la_unidad_de_compra_de_la_linea(
+    texto: str, unidad: str | None
+) -> None:
+    # Arrange: la línea se pidió en paquetes («2 paquetes»).
+    line = make_quote(PLATO_HONDO)
+    line["request"]["unit"] = "paquete"
+    draft, _ = add_line(QuoteDraft(), line)
+    draft = draft.touch(AHORA, awaiting="algo_mas", state="carrito")
+    calls: list[dict[str, Any]] = []
+
+    def requote_unit(base: Mapping[str, Any], **kwargs: Any) -> dict[str, Any] | None:
+        calls.append(kwargs)
+        return fake_requote(base, **kwargs)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=requote_unit, now=AHORA)
+
+    # Assert: sin unidad dicha, la de la línea; «unidades» dichas son unidades.
+    assert isinstance(decision, Reply)
+    assert calls[-1]["unit"] == unidad
+
+
+def test_si_el_agente_pregunta_varios_productos_pedidos_por_familia_entran() -> None:
+    # Arrange: «500 vasos para café y 500 platos pandos», cada uno cotizado por familia y con
+    # alternativas; el agente cierra con una pregunta.
+    vaso = _named(
+        {"sku": "V1", "nombre": "Vaso", "unidades": 500, "subtotal": 9000, "alternativas": 2}, ""
+    )
+    plato = _named(
+        {
+            "sku": "P1",
+            "nombre": "Plato pando",
+            "familia": "plato",
+            "unidades": 500,
+            "subtotal": 8000,
+            "alternativas": 2,
+        },
+        "",
+    )
+    text = "cotízame 500 vasos para café y 500 platos pandos en Cali"
+
+    # Act
+    outcome = after_turn(QuoteDraft(), [vaso, plato], text, now=AHORA, asks=True)
+
+    # Assert: como sin pregunta, una línea por producto pedido y el mensaje del flujo.
+    assert [line_label(line) for line in outcome.draft.lines] == ["Vaso", "Plato pando"]
+    assert outcome.message is not None
+
+
+def test_si_el_agente_pregunta_un_producto_de_otra_familia_no_entra() -> None:
+    # Arrange: la persona pidió vasos; el turno trae además un portacomidas que no pidió.
+    vaso = _named({"sku": "V1", "nombre": "Vaso", "unidades": 500, "subtotal": 9000}, "")
+    extra = _named(
+        {
+            "sku": "J2",
+            "nombre": "Portacomidas",
+            "familia": "contenedor",
+            "unidades": 500,
+            "subtotal": 8000,
+        },
+        "",
+    )
+
+    # Act
+    outcome = after_turn(
+        QuoteDraft(), [vaso, extra], "cotízame 500 vasos en Cali", now=AHORA, asks=True
+    )
+
+    # Assert
+    assert [line_label(line) for line in outcome.draft.lines] == ["Vaso"]

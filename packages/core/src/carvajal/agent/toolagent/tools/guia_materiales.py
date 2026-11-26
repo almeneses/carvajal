@@ -348,15 +348,16 @@ def _row(
 
 
 def _beverage_row(rule: MaterialRule, number: int, temperature: str) -> dict[str, Any]:
-    """Regla de un material para una bebida: la fila de la guía y el campo que aplica.
+    """Regla de un material para una bebida: la fila de la guía y el campo que se mira.
 
-    ``cumple`` es el valor de ese campo en la guía (``contenido_caliente`` o
-    ``refrigeracion``), no una aptitud deducida: el nivel queda vacío.
+    No lleva un «cumple»: la guía no declara aptitud para bebidas. ``contenido_caliente``
+    no dice a qué temperatura (el EPS y el PS llegan a 60 °C y un tinto se sirve más
+    caliente) y ``refrigeracion`` puede estar deducida de la congelación
+    (``refrigeracion_deducida``). El modelo compara el rango en °C con la bebida.
     """
 
     row = _row(rule, number, None, with_applications=False)
-    field = _BEVERAGE_FIELD[temperature]
-    return {**row, "temperatura": temperature, "criterio": field, "cumple": bool(row[field])}
+    return {**row, "temperatura": temperature, "criterio": _BEVERAGE_FIELD[temperature]}
 
 
 def _beverage(rules: Iterable[MaterialRule], application: str, sources: _Sources) -> _Draft:
@@ -370,14 +371,16 @@ def _beverage(rules: Iterable[MaterialRule], application: str, sources: _Sources
         _beverage_row(rule, number, temperature)
         for rule, number in zip(ordered, numbers, strict=True)
     ]
-    rows.sort(key=lambda row: not row["cumple"])  # estable: sigue el orden de la guía
     without_rule = [
         name for name in materials_without_rule() if name not in {r.material for r in ordered}
     ]
     message = (
         f"La guía no tiene la aplicación {application}: se dan las reglas por temperatura de "
-        f"cada material ({field}, rango en °C), sin nivel recomendable o aplicable. La guía "
-        "no cubre papel ni pulpa; cada ficha declara su uso (buscar_producto filtra por uso)."
+        f"cada material ({field} y su rango temp_min_c a temp_max_c en °C), sin nivel "
+        "recomendable o aplicable ni una aptitud para bebidas: no digas que un material sirve "
+        "para una bebida si su rango no lo cubre, y una refrigeración deducida "
+        "(refrigeracion_deducida) no está declarada. La guía no cubre papel ni pulpa; cada "
+        "ficha declara su uso (buscar_producto filtra por uso)."
     )
     return _Draft(
         "ok",
@@ -411,8 +414,10 @@ def run(
             row = _beverage_row(rule, number, BEVERAGE_USES[args.aplicacion])
             message = (
                 f"La guía no tiene la aplicación {args.aplicacion}: se da la regla por "
-                f"temperatura de {rule.material} ({_BEVERAGE_FIELD[row['temperatura']]}), sin "
-                "nivel. Es la guía de materiales, no la ficha de una referencia."
+                f"temperatura de {rule.material} ({_BEVERAGE_FIELD[row['temperatura']]} y su "
+                "rango en °C), sin nivel ni una aptitud para bebidas: no digas que sirve si el "
+                "rango no cubre la bebida. Es la guía de materiales, no la ficha de una "
+                "referencia."
             )
             return _Draft("ok", message, data={"reglas": [row], "aviso": AVISO})
         row = _row(rule, number, args.aplicacion, with_applications=args.aplicacion is None)
