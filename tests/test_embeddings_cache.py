@@ -5,6 +5,7 @@ el modelo tras 5 minutos sin peticiones y el tráfico espaciado lo recargaba. Si
 """
 
 import threading
+import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -244,6 +245,13 @@ def _embed_in_threads(
     return threads, results
 
 
+def _wait_for_waiters(cached: CachedEmbedder, text: str, count: int) -> None:
+    deadline = time.monotonic() + 5
+    while cached._pending[text].waiters < count:
+        assert time.monotonic() < deadline, "los hilos no llegaron a esperar"
+        time.sleep(0.001)
+
+
 def test_la_misma_consulta_en_varios_hilos_llega_una_vez_a_ollama() -> None:
     # Arrange: el primer hilo queda dentro de Ollama mientras llegan los demás.
     inner = SlowEmbedder()
@@ -252,6 +260,7 @@ def test_la_misma_consulta_en_varios_hilos_llega_una_vez_a_ollama() -> None:
     first.start()
     assert inner.entered.wait(5)
     threads, results = _embed_in_threads(cached, "dónde comprar", 3)
+    _wait_for_waiters(cached, "dónde comprar", 3)
 
     # Act
     other = cached.embed("otra consulta")  # otra consulta no espera al cálculo en curso
@@ -266,8 +275,8 @@ def test_la_misma_consulta_en_varios_hilos_llega_una_vez_a_ollama() -> None:
     assert cached.misses == 2
 
 
-def test_si_el_calculo_en_curso_falla_quien_esperaba_lo_intenta_de_nuevo() -> None:
-    # Arrange
+def test_si_el_calculo_en_curso_falla_quien_esperaba_recibe_el_mismo_fallo() -> None:
+    # Arrange: Ollama caído y tres hilos esperando la misma consulta.
     inner = SlowEmbedder(fail=True)
     cached = CachedEmbedder(inner, maxsize=4)
     errors: list[BaseException] = []
@@ -281,15 +290,17 @@ def test_si_el_calculo_en_curso_falla_quien_esperaba_lo_intenta_de_nuevo() -> No
     first = threading.Thread(target=first_call)
     first.start()
     assert inner.entered.wait(5)
-    threads, results = _embed_in_threads(cached, "hola", 1)
+    threads, results = _embed_in_threads(cached, "hola", 3)
+    _wait_for_waiters(cached, "hola", 3)
 
     # Act
     inner.release.set()
     for thread in [first, *threads]:
         thread.join(5)
 
-    # Assert: el fallo no se cachea ni se contagia; el segundo hilo obtiene su vector.
+    # Assert: una sola llamada a Ollama; todos reciben el mismo fallo, que no se cachea.
+    assert inner.calls == ["hola"]
     assert len(errors) == 1
-    assert results == [[4.0, 1.0]]
-    assert inner.calls == ["hola", "hola"]
-    assert len(cached) == 1
+    assert all(item is errors[0] for item in results)
+    assert len(cached) == 0
+    assert cached.embed("hola") == [4.0, 1.0]  # la siguiente consulta sí reintenta

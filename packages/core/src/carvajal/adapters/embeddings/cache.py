@@ -43,14 +43,26 @@ WARM_UP_RETRY_DELAYS_S: tuple[float, ...] = (5, 10, 15, 30, 30, 30)
 """Esperas entre intentos: 7 intentos en unos 120 s, más que el ``start_period`` de Ollama."""
 
 
+class _Flight:
+    """Un cálculo en curso: quienes esperan leen su vector o su error al terminar."""
+
+    __slots__ = ("done", "error", "vector", "waiters")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.waiters = 0
+        self.vector: tuple[float, ...] = ()
+        self.error: BaseException | None = None
+
+
 class CachedEmbedder:
     """``Embedder`` con caché LRU acotada por texto exacto de la consulta.
 
     Solo guarda vectores calculados con éxito; un fallo se propaga sin cachear. Con la misma
-    consulta en varios hilos, solo uno la calcula y los demás esperan su vector; consultas
-    distintas se calculan en paralelo. ``misses`` cuenta los cálculos iniciados. Devuelve una
-    copia de la lista para que quien la reciba no altere la guardada. Con ``maxsize=0`` no
-    guarda nada y delega siempre.
+    consulta en varios hilos, solo uno la calcula y los demás esperan su resultado (el vector
+    o la misma excepción, sin reintentar); consultas distintas se calculan en paralelo.
+    ``misses`` cuenta los cálculos iniciados. Devuelve una copia de la lista para que quien la
+    reciba no altere la guardada. Con ``maxsize=0`` no guarda nada y delega siempre.
     """
 
     def __init__(self, inner: Embedder, *, maxsize: int = DEFAULT_CACHE_SIZE) -> None:
@@ -62,7 +74,7 @@ class CachedEmbedder:
         self._lock = threading.Lock()
         # Un cálculo en curso por texto: dos hilos con la misma consulta no van los dos a
         # Ollama; el segundo espera el vector del primero (sin retener el candado global).
-        self._pending: dict[str, threading.Event] = {}
+        self._pending: dict[str, _Flight] = {}
         self.hits = 0
         self.misses = 0
 
@@ -79,34 +91,43 @@ class CachedEmbedder:
     def embed(self, text: str) -> list[float]:
         if self._maxsize == 0:
             return list(self._inner.embed(text))
-        while True:
-            with self._lock:
-                cached = self._vectors.get(text)
-                if cached is not None:
-                    self._vectors.move_to_end(text)
-                    self.hits += 1
-                    return list(cached)
-                pending = self._pending.get(text)
-                if pending is None:
-                    # Este hilo calcula el texto; los demás con el mismo texto esperan.
-                    pending = self._pending[text] = threading.Event()
-                    self.misses += 1
-                    break
-            # Otro hilo ya lo pide a Ollama: se espera y se relee la caché. Si aquel falló,
-            # la entrada no existe y este hilo lo intenta por su cuenta en la vuelta.
-            pending.wait()
+        with self._lock:
+            cached = self._vectors.get(text)
+            if cached is not None:
+                self._vectors.move_to_end(text)
+                self.hits += 1
+                return list(cached)
+            flight = self._pending.get(text)
+            owner = flight is None
+            if flight is None:
+                # Este hilo calcula el texto; los demás con el mismo texto esperan.
+                flight = self._pending[text] = _Flight()
+                self.misses += 1
+            else:
+                flight.waiters += 1
+        if not owner:
+            # Otro hilo ya lo pide a Ollama: se espera su resultado, vector o fallo. Con
+            # Ollama caído todos fallan a la vez, sin una llamada más por cada hilo.
+            flight.done.wait()
+            if flight.error is not None:
+                raise flight.error
+            return list(flight.vector)
         try:
-            vector = self._inner.embed(text)
+            flight.vector = tuple(self._inner.embed(text))
+        except BaseException as error:  # también una interrupción: nadie espera un vector vacío
+            flight.error = error
+            raise
+        else:
             with self._lock:
-                self._vectors[text] = tuple(vector)
+                self._vectors[text] = flight.vector
                 self._vectors.move_to_end(text)
                 while len(self._vectors) > self._maxsize:
                     self._vectors.popitem(last=False)
         finally:
             with self._lock:
                 del self._pending[text]
-            pending.set()
-        return list(vector)
+            flight.done.set()
+        return list(flight.vector)
 
     def __len__(self) -> int:
         return len(self._vectors)
