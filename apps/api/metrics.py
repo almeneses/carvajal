@@ -620,6 +620,26 @@ class MetricsBoard:
             logger.info("metrics.session_factory_failed", error_type=type(error).__name__)
             return None
 
+    def _load(
+        self, key: str, title: str, loader: Callable[[httpx.Client], Card]
+    ) -> Callable[[], Card]:
+        """Cargador con su propio cliente HTTP que nunca lanza.
+
+        Cada tarea del pool abre su cliente: ``httpx.Client`` no promete ser seguro entre
+        hilos. Si la fuente devuelve algo inesperado (un JSON con otra forma), la tarjeta
+        queda «no disponible» y el resto de la página sigue.
+        """
+
+        def run() -> Card:
+            try:
+                with self._client() as client:
+                    return loader(client)
+            except Exception as error:
+                logger.info("metrics.card_failed", card=key, error_type=type(error).__name__)
+                return Card(key, title, "unavailable", _failure(error), updated_at=_now())
+
+        return run
+
     def cards(
         self,
         *,
@@ -631,21 +651,30 @@ class MetricsBoard:
         """Las cinco tarjetas; las fuentes con red se consultan en paralelo."""
 
         settings = self.settings
-        with self._client() as client, ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             qdrant = pool.submit(
-                self.cache.get, "qdrant", QDRANT_TTL, lambda: qdrant_card(settings, client)
+                self.cache.get,
+                "qdrant",
+                QDRANT_TTL,
+                self._load("qdrant", "Qdrant", lambda client: qdrant_card(settings, client)),
             )
             langsmith = pool.submit(
                 self.cache.get,
                 "langsmith",
                 LANGSMITH_TTL,
-                lambda: langsmith_card(settings, client),
+                self._load(
+                    "langsmith", "LangSmith", lambda client: langsmith_card(settings, client)
+                ),
             )
             whatsapp = pool.submit(
                 self.cache.get,
                 "whatsapp",
                 WHATSAPP_TTL,
-                lambda: whatsapp_card(settings, client, self._factory()),
+                self._load(
+                    "whatsapp",
+                    "WhatsApp (OpenClaw)",
+                    lambda client: whatsapp_card(settings, client, self._factory()),
+                ),
             )
             balance = None
             if operator and settings.deepseek_api_key.strip():
@@ -653,16 +682,19 @@ class MetricsBoard:
                     self.cache.get,
                     "deepseek_balance",
                     BALANCE_TTL,
-                    lambda: _balance_card(settings, client),
+                    self._load(
+                        "deepseek_balance", "Saldo", lambda client: _balance_card(settings, client)
+                    ),
                 )
+            balance_data: dict[str, Any] | None = None
+            if balance is not None:
+                card = balance.result()
+                balance_data = dict(card.data) or {"status": card.status, "reason": card.reason}
             cards = [
                 qdrant.result(),
                 jev_card(settings, jev=jev, claims=claims, photo=photo),
                 langsmith.result(),
-                deepseek_card(
-                    settings,
-                    balance=dict(balance.result().data) if balance is not None else None,
-                ),
+                deepseek_card(settings, balance=balance_data),
                 whatsapp.result(),
             ]
         return cards

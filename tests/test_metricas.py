@@ -766,6 +766,74 @@ def test_langsmith_en_429_no_se_vuelve_a_consultar_en_diez_minutos() -> None:
     assert tarjeta.ttl_s == LANGSMITH_TTL
 
 
+def test_una_respuesta_con_otra_forma_deja_su_tarjeta_no_disponible_y_no_las_demas() -> None:
+    # Arrange: Qdrant responde 200 con un JSON que no es el esperado (``result`` es lista).
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "qdrant":
+            return httpx.Response(200, json={"result": ["inesperado"]})
+        raise AssertionError(f"petición inesperada: {request.url}")
+
+    board = MetricsBoard(settings=_settings(), transport=httpx.MockTransport(handler))
+
+    # Act
+    tarjetas = {c.key: c for c in board.cards(operator=False, jev={}, claims={}, photo={})}
+
+    # Assert: la tarjeta de Qdrant lo dice y las otras cuatro siguen.
+    assert set(tarjetas) == {"qdrant", "jev", "langsmith", "deepseek", "whatsapp"}
+    assert tarjetas["qdrant"].status == "unavailable"
+    assert tarjetas["qdrant"].reason == "Respuesta inesperada (AttributeError)."
+
+
+def test_cada_fuente_en_paralelo_usa_su_propio_cliente_http() -> None:
+    # Arrange: se registra qué cliente atiende a cada fuente.
+    usados: dict[str, set[int]] = {}
+    candado = threading.Lock()
+
+    class Tablero(MetricsBoard):
+        def _client(self) -> httpx.Client:
+            cliente = super()._client()
+            original = cliente.send
+
+            def send(request: httpx.Request, **kwargs: Any) -> httpx.Response:
+                with candado:
+                    usados.setdefault(request.url.host, set()).add(id(cliente))
+                return original(request, **kwargs)
+
+            cliente.send = send  # type: ignore[method-assign]
+            return cliente
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "qdrant":
+            return httpx.Response(200, json=COLLECTION)
+        if request.url.path == "/user/balance":
+            return httpx.Response(200, json={"is_available": True, "balance_infos": []})
+        if request.url.host == "mcp":
+            return httpx.Response(200, json={"metrics": {}})
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    board = Tablero(
+        settings=_settings(
+            monitoring_enabled=True,
+            langsmith_api_key="k",
+            deepseek_api_key="sk",
+            metrics_mcp_health_url="http://mcp:8765/health",
+            mcp_health_token="t",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    # Act
+    board.cards(operator=True, jev={}, claims={}, photo={})
+
+    # Assert: un cliente por fuente, ninguno compartido entre hilos.
+    clientes = list(usados.values())
+    assert len(usados) == 4
+    assert all(len(ids) == 1 for ids in clientes)
+    assert len(set().union(*clientes)) == 4
+
+
 # --- Vista -------------------------------------------------------------------------------
 
 
