@@ -666,7 +666,8 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
 
 ## 9. Seguridad de la demo
 
-- La demo va por **HTTP**, sin TLS. No la uses para datos sensibles.
+- El puerto `8080` va por **HTTP**, sin TLS; el chat público se sirve por HTTPS
+  a través del nginx del host (`PUBLIC_BASE_URL`). No la uses para datos sensibles.
 - **Chat por voz (spec 040):** el dictado exige un contexto seguro del
   navegador (`localhost` o HTTPS). Por la IP en HTTP, el micrófono no se
   ofrece y el chat explica que se puede escribir. La lectura en voz alta sí
@@ -674,6 +675,56 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
   HTTPS (vhost con TLS delante); no se rebaja la política para la demo.
   El permiso `microphone=(self)` se declara solo en el documento HTML de
   `/chat`; el resto del sitio y el SSE lo mantienen denegado.
+- **Redirección a HTTPS (`HTTPS_REDIRECT`, activa por defecto):** cuando
+  `PUBLIC_BASE_URL` es `https://…` (hoy `https://144-217-80-136.sslip.io`,
+  servido por el nginx del host), la app redirige con **307** a
+  `PUBLIC_BASE_URL` + ruta + query a quien abre `http://144.217.80.136:8080/…`
+  (o el dominio por `:8080`), para que el dictado por voz funcione. No toca
+  nginx: lo hace la app (`apps/api/https_redirect.py`). Solo redirige
+  navegaciones de navegador: `GET`/`HEAD` con `Accept` que incluye `text/html`,
+  sin `HX-Request` y con `Sec-Fetch-Mode` ausente o `navigate`. **Nunca**
+  redirige:
+  - `/live`, `/health`, `/api/*` (webhook de WhatsApp incluido), `/mcp`,
+    `/static/*`, el PDF firmado (`/cotizaciones/*`, que OpenClaw descarga por
+    `MEDIA_BASE_URL` en http) ni las fotos del catálogo;
+  - peticiones con `Host` de loopback (`127.0.0.1`, `localhost`, `::1`): los
+    healthchecks del contenedor, `scripts/deploy.sh` y el ensayo por túnel SSH
+    (`ENSAYO_BASE_URL=http://127.0.0.1:8080`) siguen igual;
+  - peticiones cuyo `Host` ya es el público (sin puerto o con el puerto de
+    `PUBLIC_BASE_URL`), así que no hay bucle aunque `X-Forwarded-Proto` falle;
+  - `POST` ni clientes como `curl`/`httpx` (mandan `Accept: */*`).
+
+  **Hilos y cotizaciones de quien ya usaba la IP.** La identidad anónima del
+  chat (cookies `carvajal_visitante` y `carvajal_sesion`, más el
+  `localStorage` de `identidad.js`) es de cada host: sin más, quien entraba por
+  `http://144.217.80.136:8080` llegaría al dominio con una identidad nueva y
+  dejaría de ver sus hilos y cotizaciones. Por eso el 307 añade
+  `carvajal_traslado`, un testigo firmado con `SESSION_SECRET` que caduca en
+  dos minutos. El host público lo verifica, fija esas cookies **solo si el
+  navegador aún no tiene identidad allí** (nunca pisa una existente) y vuelve a
+  redirigir a la misma URL sin el parámetro; `identidad.js` adopta luego la
+  cookie en su `localStorage`. Riesgos aceptados:
+  - si la persona ya había abierto el dominio con otra identidad, conserva la
+    del dominio y lo hecho por la IP no se fusiona (sigue visible entrando por
+    la IP con `HTTPS_REDIRECT=false` o por el túnel `127.0.0.1`);
+  - el testigo pasa por la query, así que queda en el log de acceso del nginx
+    del host (la app registra solo la ruta). Vale como la identidad anónima
+    durante esos dos minutos; quien abra un enlace ajeno con testigo vigente en
+    un navegador sin identidad en el dominio adopta la identidad de otro. Es
+    una identidad anónima, no autenticación (ver `apps/api/chat/identity.py`);
+  - sin `SESSION_SECRET` el secreto es del proceso: con varios workers o tras un
+    reinicio el testigo puede no validarse y no hay traslado (`compose.prod.yml`
+    ya exige `SESSION_SECRET`).
+
+  Sin `PUBLIC_BASE_URL`, con `http://…` o con `HTTPS_REDIRECT=false` no hace
+  nada. Para desactivarla: `echo 'HTTPS_REDIRECT=false' >> /opt/carvajal/.env`
+  y `docker compose -f compose.prod.yml up -d --no-build app`. Comprobación:
+
+  ```bash
+  curl -sI -H 'Accept: text/html' http://144.217.80.136:8080/chat | grep -i '^location'
+  # location: https://144-217-80-136.sslip.io/chat
+  curl -s -o /dev/null -w '%{http_code}\n' http://144.217.80.136:8080/health   # 200
+  ```
 - **Voz del servidor (spec 047, opcional):** con `VOICE_PROVIDER=openai` y
   `OPENAI_API_KEY` en el `.env`, el dictado y la lectura usan OpenAI a través de
   la app (ver [`voz-web.md`](voz-web.md)); el dictado sigue exigiendo HTTPS. El

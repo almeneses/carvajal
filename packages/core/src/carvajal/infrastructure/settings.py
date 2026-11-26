@@ -158,6 +158,10 @@ class Settings(BaseSettings):
     # URL pública de la web (p. ej. http://203.0.113.10:8080) para los enlaces
     # firmados al PDF de una cotización. Vacía: WhatsApp no ofrece el PDF.
     public_base_url: str = ""
+    # Con ``public_base_url`` https, las navegaciones de navegador que llegan por otro
+    # host (la IP y el puerto publicados) se redirigen con 307 al dominio público, donde
+    # el dictado por voz funciona (apps/api/https_redirect.py). False lo apaga.
+    https_redirect: bool = True
     # URL desde la que OpenClaw DESCARGA el PDF para adjuntarlo en WhatsApp (lado
     # servidor, puede ser http con IP: p. ej. http://203.0.113.10:8080). Vacía: el PDF
     # se entrega como enlace con ``public_base_url``.

@@ -49,6 +49,9 @@ def _jev_apagado(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JEV_LEDGER", raising=False)
     monkeypatch.setenv("VOICE_PROVIDER", "browser")
     monkeypatch.setenv("OPENAI_API_KEY", "")
+    # Un ``.env`` local con PUBLIC_BASE_URL https no debe redirigir las peticiones de
+    # TestClient; las pruebas de la redirección la encienden explícitamente.
+    monkeypatch.setenv("HTTPS_REDIRECT", "false")
     original = httpx.HTTPTransport.handle_request
     original_async = httpx.AsyncHTTPTransport.handle_async_request
 

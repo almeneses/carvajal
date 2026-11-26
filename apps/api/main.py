@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.capture_jobs import CaptureJobs
+from apps.api.https_redirect import HttpsRedirectMiddleware, public_origin
 from apps.api.observability import (
     RequestContextMiddleware,
     UnhandledErrorMiddleware,
@@ -290,6 +291,11 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
     # El error no controlado se maneja dentro de la pila para que la respuesta
     # 500 pase por el request_id y por las cabeceras de seguridad.
     app.add_middleware(UnhandledErrorMiddleware, handler=_unhandled)
+    # Dentro del contexto de la petición para que el 307 quede en el log de acceso.
+    origin = public_origin(settings.public_base_url) if settings.https_redirect else None
+    if origin is not None:
+        app.add_middleware(HttpsRedirectMiddleware, origin=origin)
+        logger.info("https_redirect.enabled", public_host=origin.hostname)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(SecurityMiddleware)
     app.mount("/static", StaticFiles(directory=APP_DIR / "static", check_dir=False), name="static")
