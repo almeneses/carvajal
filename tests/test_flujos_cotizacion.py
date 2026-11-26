@@ -1940,6 +1940,14 @@ def test_olvidar_el_pedido_lo_cancela_sin_ir_al_grafo(texto: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "texto", ["cambia la 1 a 1000 para entrega mañana", "mejor que sean 800 para Bogotá"]
+)
+def test_otra_cantidad_con_otro_dato_va_al_agente(texto: str) -> None:
+    # Act / Assert: la entrega o la ciudad no se pierden en silencio (revisión PR #276).
+    assert resolve_quantity_change(texto, ("Plato hondo 12 oz", "Vaso de papel 7 oz")) is None
+
+
+@pytest.mark.parametrize(
     ("texto", "etiquetas", "esperado"),
     [
         ("mejor 800 vasos", ("Plato hondo de icopor 12 oz",), None),
@@ -2110,6 +2118,26 @@ def test_si_el_agente_pregunta_varios_productos_pedidos_por_familia_entran() -> 
 
     # Assert: como sin pregunta, una línea por producto pedido y el mensaje del flujo.
     assert [line_label(line) for line in outcome.draft.lines] == ["Vaso", "Plato pando"]
+    assert outcome.message is not None
+
+
+def test_si_el_agente_pregunta_la_linea_que_ya_esta_se_actualiza_aunque_otra_se_retenga() -> None:
+    # Arrange: vaso en el carrito; el turno trae el vaso con otra cantidad y un plato que la
+    # persona no eligió (revisión PR #276).
+    vaso = {"sku": "V7", "nombre": "Vaso 7 oz", "unidades": 500, "subtotal": 9000}
+    draft, _ = add_line(QuoteDraft(), make_quote(vaso))
+    draft = draft.touch(AHORA, awaiting=None, state="carrito")
+    quotes = [
+        _named({**vaso, "unidades": 800, "subtotal": 14400}, "contexto"),
+        _named(PLATO_HONDO | {"familia": "plato"}, "herramienta"),
+    ]
+
+    # Act
+    outcome = after_turn(draft, quotes, "que sean 800 y ¿tienen platos?", now=AHORA, asks=True)
+
+    # Assert: el vaso pasa a 800, el plato no entra y el flujo muestra el cambio.
+    assert [line_label(line) for line in outcome.draft.lines] == ["Vaso 7 oz"]
+    assert outcome.draft.lines[0]["primary"]["presentation"]["units_requested"] == 800
     assert outcome.message is not None
 
 
