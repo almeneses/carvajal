@@ -9,6 +9,7 @@ Sin red: dobles de ``VectorStore``/``Embedder`` y los datos versionados del repo
 """
 
 import json
+import re
 from collections.abc import Sequence
 from datetime import date, timedelta
 from pathlib import Path
@@ -2581,9 +2582,30 @@ def test_el_nombre_de_cotizar_no_invita_descripciones_genericas() -> None:
     # Arrange
     description = CotizarArgs.model_fields["nombre"].description or ""
 
-    # Assert: el ejemplo es una referencia concreta, no «portacomidas de icopor».
+    # Assert: no invita «portacomidas de icopor» ni trae una referencia real de ejemplo, que el
+    # modelo copiaba (ensayo del 2026-11-26: el portacomidas J2 entraba al carrito).
     assert "portacomidas de icopor" not in description
-    assert "Vaso Gold de 14 oz" in description
+    assert "Vaso Gold de 14 oz" not in description
+    assert "nombró la persona" in description
+
+
+def test_las_descripciones_no_traen_referencias_reales_del_catalogo() -> None:
+    # Arrange: SKU y códigos cortos del catálogo de Colombia.
+    from carvajal.agent.toolagent.tools import TOOL_DESCRIPTIONS, TOOL_SCHEMAS
+    from carvajal.catalog.loader import load_catalog
+
+    codes = {ref.sku for ref in load_catalog().references} | {"P1", "J2", "C1", "14x14"}
+    visible: list[Any] = [*TOOL_DESCRIPTIONS.values()]
+    visible += [schema.model_json_schema() for schema in TOOL_SCHEMAS.values()]
+    texts = json.dumps(visible, ensure_ascii=False)
+
+    # Act
+    found = sorted(
+        code for code in codes if re.search(rf"(?<![\w-]){re.escape(code)}(?![\w-])", texts)
+    )
+
+    # Assert
+    assert found == []
 
 
 def test_cotizar_un_nombre_generico_sigue_el_flujo_por_familia() -> None:
@@ -3023,3 +3045,163 @@ def test_cotizar_cero_unidades_declara_la_cantidad_como_faltante() -> None:
     result = _run("cotizar", {**CALIENTE, "quantity": 0, "city": "Cali"}, _deps())
     assert result.status == "error"
     assert result.payload["missing"] == ["cantidad"]
+
+
+# --- Referencia que nadie dijo (ensayo del 2026-11-26) ----------------------------------------
+
+TENDERO = "Necesito 500 vasos rígidos traslúcidos de 9 oz Wau para Cali"
+
+
+def _primary_skus(result: ToolCallResult) -> list[str]:
+    return [str(quote["primary"]["sku"]) for quote in result.quotes]
+
+
+def test_un_sku_que_nadie_dijo_no_se_cotiza() -> None:
+    # Arrange: el modelo copió el ejemplo de la descripción («CO-PCOM-J2»).
+    context = ToolContext(question=TENDERO)
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"sku": "CO-PCOM-J2", "family": "vaso", "quantity": 500, "city": "Cali"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert: el portacomidas no se cotiza; se cotiza por familia (o se pide el dato).
+    assert "CO-PCOM-J2" not in _primary_skus(result)
+    assert result.payload["referencia_no_dicha"] == "CO-PCOM-J2"
+    assert "no la nombró la persona" in result.payload["message"]
+
+
+def test_un_nombre_que_nadie_dijo_tampoco_se_cotiza() -> None:
+    # Act
+    result = _run(
+        "cotizar",
+        {"nombre": "J2", "quantity": 500, "city": "Cali"},
+        _deps(**REAL),
+        ToolContext(question=TENDERO),
+    )
+
+    # Assert
+    assert "CO-PCOM-J2" not in _primary_skus(result)
+    assert result.payload["referencia_no_dicha"] == "J2"
+
+
+def test_un_sku_que_nadie_dijo_sigue_avisado_cuando_no_hay_resultados() -> None:
+    # Arrange: sin la referencia, la familia y la capacidad no dan nada (revisión PR #276).
+    context = ToolContext(question="Necesito 500 vasos de 99 oz para Cali")
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"sku": "XX-1", "family": "vaso", "capacity_oz": 99, "quantity": 500, "city": "Cali"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert: el modelo sabe que no debe volver a pasar la referencia inventada.
+    assert result.status == "empty"
+    assert result.payload["referencia_no_dicha"] == "XX-1"
+    assert "no la nombró la persona" in result.payload["message"]
+
+
+def test_otra_cantidad_con_un_sku_inventado_cotiza_la_referencia_del_contexto() -> None:
+    # Arrange: «mejor que sean 800» tras agregar el plato pando (wa y web cambiar_cantidad).
+    context = ToolContext(
+        question="mejor que sean 800",
+        history=["Cotízame 500 platos en Bogotá", "la recomendada"],
+        answers=["Opciones…", "✅ Agregué 500 Plato espumado pando 12 cm Wau"],
+        commercial_context={
+            "sku": "CO-PPAN-12",
+            "family": "plato",
+            "quantity": 500,
+            "city": "Bogotá",
+            "country": "CO",
+        },
+    )
+
+    # Act
+    result = _run("cotizar", {"sku": "CO-PCOM-J2", "quantity": 800}, _deps(**REAL), context)
+
+    # Assert
+    assert _primary_skus(result) == ["CO-PPAN-12"]
+    assert result.quotes[0]["reference_origin"] == "contexto"
+
+
+@pytest.mark.parametrize(
+    ("context", "origin"),
+    [
+        pytest.param(
+            ToolContext(question="Cotízame 500 portacomidas espumados J2 Wau en Bogotá"),
+            "persona",
+            id="la-dijo-la-persona",
+        ),
+        pytest.param(
+            ToolContext(
+                question="ese en Bogotá, 500",
+                answers=["Te sirve el Portacomidas espumado J2 Wau (paca x 200)"],
+            ),
+            "hilo",
+            id="la-mostro-el-asistente",
+        ),
+        pytest.param(
+            ToolContext(
+                question="Cotízame 500 portacomidas en Bogotá",
+                sources=[{"n": 1, "chunk_id": "ficha:CO-PCOM-J2:CO", "title": "Ficha", "url": "u"}],
+            ),
+            "herramienta",
+            id="salio-de-una-herramienta",
+        ),
+    ],
+)
+def test_la_cotizacion_dice_de_donde_sale_la_referencia(context: ToolContext, origin: str) -> None:
+    # Act
+    result = _run(
+        "cotizar", {"sku": "CO-PCOM-J2", "quantity": 500, "city": "Bogotá"}, _deps(**REAL), context
+    )
+
+    # Assert
+    assert _primary_skus(result) == ["CO-PCOM-J2"]
+    assert result.quotes[0]["reference_origin"] == origin
+
+
+@pytest.mark.parametrize(
+    ("pregunta", "referencia"),
+    [
+        pytest.param(
+            "Cotízame 500 vasos rígidos traslúcidos Wau de 7oz en Cali",
+            {"sku": "CO-VRP-07"},
+            id="7oz-pegado-con-sku",
+        ),
+        pytest.param(
+            "Cotízame 500 vasos rígidos traslúcidos Wau de 7oz en Cali",
+            {"nombre": "Vaso rígido Wau 7 oz"},
+            id="7oz-pegado-con-nombre",
+        ),
+        pytest.param(
+            "Cotízame 500 vasos rígidos traslúcidos Wau de 7 onzas en Cali",
+            {"nombre": "Vaso rígido Wau 7oz"},
+            id="7-onzas-y-el-modelo-pega",
+        ),
+    ],
+)
+def test_una_medida_pegada_a_su_unidad_si_nombra_la_referencia(
+    pregunta: str, referencia: dict[str, str]
+) -> None:
+    # Arrange: por WhatsApp se escribe «7oz»; el catálogo dice «7 oz» (revisión de la PR).
+    context = ToolContext(question=pregunta)
+
+    # Act
+    result = _run(
+        "cotizar",
+        {**referencia, "family": "vaso", "capacity_oz": 7, "quantity": 500, "city": "Cali"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert: se cotiza la referencia nombrada, sin pedir la temperatura.
+    assert result.status == "ok", result.payload
+    assert "referencia_no_dicha" not in result.payload
+    assert _primary_skus(result) == ["CO-VRP-07"]
+    assert result.quotes[0]["reference_origin"] == "persona"

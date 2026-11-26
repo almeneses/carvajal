@@ -80,7 +80,7 @@ class FichaProductoArgs(BaseModel):
         default=None,
         max_length=64,
         description=(
-            "SKU exacto, como aparece en los datos de las herramientas (como CO-PCOM-J2)."
+            "SKU exacto, copiado de los datos de las herramientas o de lo que escribió la persona."
         ),
     )
     nombre: str | None = Field(
@@ -88,8 +88,7 @@ class FichaProductoArgs(BaseModel):
         min_length=1,
         max_length=MAX_NAME_CHARS,
         description=(
-            "Código (como P1 o J2) o nombre comercial que nombró la persona; no una "
-            "descripción genérica."
+            "Código corto o nombre comercial que nombró la persona; no una descripción genérica."
         ),
     )
     pais: Literal["CO", "MX"] | None = Field(

@@ -45,6 +45,7 @@ from carvajal.agent.toolagent.tools._base import (
     last_answer,
     merge_quote,
     quote_key,
+    seed_answers,
     seed_questions,
 )
 from carvajal.agent.toolagent.tools.builtin import (
@@ -118,6 +119,7 @@ __all__ = [
     "merge_quote",
     "quote_key",
     "run_tool",
+    "seed_answers",
     "seed_questions",
     "spec_for",
 ]
