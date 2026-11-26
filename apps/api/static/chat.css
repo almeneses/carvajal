@@ -1324,10 +1324,66 @@ body:has(> .ancho-chat) {
   justify-self: start;
 }
 
+/* La foto, su aviso y «Suelta la foto aquí» van a lo ancho: son hijos de la rejilla (por el
+   display: contents de arriba) y sin columna caían en una «auto», que crecía hasta el largo
+   del aviso y aplastaba el campo y «Enviar» (Enviar fuera de la pantalla en el teléfono). */
 .composer .voz-estado,
 .composer .voz-nota,
-.composer .productos-nota {
+.composer .productos-nota,
+.composer .foto,
+.composer .foto-aviso,
+.composer .foto-soltar {
   grid-column: 1 / -1;
+}
+
+/* «Opciones de voz» y «Foto» comparten la fila (una fila menos de compositor, que en el
+   teléfono le dejaba al hilo menos de 100 px). Con la foto adjunta, la ficha va a lo ancho
+   en su propia fila. El menú de voz se abre por encima (posición absoluta): no choca. */
+.composer .foto:not([data-foto-adjunta="1"]) {
+  grid-row: 2;
+  justify-self: end;
+}
+
+/* Pantallas bajas (teléfono en horizontal): logo y pestañas en una fila y sin pie. Con
+   375 px de alto, la cabecera de dos filas y el compositor dejaban el hilo en ~60 px. */
+@media (max-height: 560px) and (min-width: 480px) {
+  /* El mínimo de 27rem (432 px) dejaba «Enviar» bajo el pliegue con 375 px de alto. */
+  body:has(> .ancho-chat) {
+    min-height: 0;
+  }
+
+  .cabecera:has(+ .ancho-chat) .cabecera-interior {
+    padding-block: 4px;
+  }
+
+  .cabecera:has(+ .ancho-chat) .marca {
+    min-height: 40px;
+  }
+
+  .cabecera:has(+ .ancho-chat) .pestanas {
+    grid-column: auto;
+  }
+
+  .cabecera:has(+ .ancho-chat) .pestana {
+    min-height: 40px;
+    padding-block: 4px;
+  }
+
+  .ancho-chat + .pie,
+  .composer .productos-nota {
+    display: none;
+  }
+}
+
+/* «×» de la ficha de la foto: «.formulario button» pesa más que «.foto-quitar» y lo pintaba
+   como un botón primario oscuro. */
+.composer .foto-quitar {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
 }
 
 .composer .productos-nota {
@@ -1462,7 +1518,18 @@ body:has(> .ancho-chat) {
     grid-row: 3;
   }
 
+  .composer .foto:not([data-foto-adjunta="1"]) {
+    grid-row: 3;
+  }
+
   .cabecera-conversacion .sobrelinea {
+    display: none;
+  }
+
+  /* El chip «Voz lista» en reposo ocupaba una fila entera bajo «Carva»; solo se ve cuando
+     la voz está activa (escuchando, grabando o manos libres). Es decorativo (aria-hidden). */
+  html[data-voz="1"]:not([data-voz-escuchando="1"], [data-voz-grabando="1"], [data-voz-manos="1"])
+    .voz-chip {
     display: none;
   }
 
@@ -3136,4 +3203,13 @@ form[data-foto-arrastrando] {
    chat-photo.js solo con el clasificador disponible. */
 .tema[hidden] {
   display: none;
+}
+
+/* Por debajo de 360 px «Opciones de voz» y «Foto» no caben juntos: «Foto» vuelve a su propia
+   fila. Va al final para ganarle a la fila 3 del bloque de 560 px. */
+@media (max-width: 359px) {
+  .composer .foto:not([data-foto-adjunta="1"]) {
+    grid-row: auto;
+    justify-self: start;
+  }
 }

@@ -370,6 +370,18 @@ h2 {
   transition: border-color var(--transicion);
 }
 
+/* Un control oculto a la vista (el selector de foto) sigue oculto aunque esté en un
+   formulario: «.formulario input» pesa más que «.sr-solo» y le daba el ancho completo, con
+   padding, desbordando el compositor por la derecha. */
+.formulario input.sr-solo {
+  width: 1px;
+  min-width: 0;
+  min-height: 0;
+  height: 1px;
+  padding: 0;
+  border: 0;
+}
+
 .formulario input::placeholder {
   color: var(--secundario);
   opacity: 1;
