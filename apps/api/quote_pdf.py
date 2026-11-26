@@ -8,6 +8,8 @@ Recursos en ``apps/api/pdf/``: la marca recortada del logo ``assets/carvajal-log
 tipografía institucional DM Sans (OFL), convertida a TTF para incrustarla.
 """
 
+from collections.abc import Mapping
+from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 
@@ -21,6 +23,7 @@ __all__ = ["DISCLAIMER", "build_quote_pdf"]
 ASSETS = Path(__file__).resolve().parent / "pdf"
 LOGO = ASSETS / "carvajal-logo-marca.png"
 MARGIN = 18
+THUMB_MM = 12  # miniatura por fila de la tabla de productos (spec 054)
 PHOTO_MM = 34
 
 NAVY = (0, 58, 93)  # #003A5D
@@ -96,17 +99,37 @@ def _rows(view: QuoteView) -> list[tuple[str, str]]:
     return rows
 
 
-def _lines_table(pdf: FPDF, view: QuoteView) -> None:
-    """Spec 054: una fila por producto (nombre, cantidad, presentación y subtotal)."""
+def _fit(pdf: FPDF, text: str, width: float) -> str:
+    """El texto recortado con «…» para que quepa en ``width`` mm con la fuente actual."""
+
+    if pdf.get_string_width(text) <= width:
+        return text
+    while text and pdf.get_string_width(text + "…") > width:
+        text = text[:-1]
+    return text.rstrip() + "…"
+
+
+def _lines_table(pdf: FPDF, view: QuoteView, photos: Mapping[str, Path]) -> None:
+    """Spec 054: una fila por producto (foto, nombre, cantidad, presentación y subtotal).
+
+    Con alguna foto en ``photos`` (SKU → archivo del catálogo) la tabla abre una columna
+    de miniaturas y las filas crecen a su alto; sin fotos queda como antes.
+    """
 
     width = pdf.w - pdf.l_margin - pdf.r_margin
+    thumbs = any(line.sku in photos for line in view.lines)
+    thumb_w = THUMB_MM + 2 if thumbs else 0.0
+    row_h = THUMB_MM + 2 if thumbs else 7.0
+    rest = width - thumb_w
     columns = (("Producto", 0.46, "L"), ("Unidades", 0.14, "R"), ("Compras", 0.2, "R"),
                ("Subtotal", 0.2, "R"))  # fmt: skip
     pdf.set_fill_color(*NAVY)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("DMSans", "B", 9)
+    if thumbs:
+        pdf.cell(thumb_w, 7, "", fill=True)
     for label, share, align in columns:
-        pdf.cell(width * share, 7, f" {label} ", fill=True, align=align)
+        pdf.cell(rest * share, 7, f" {label} ", fill=True, align=align)
     pdf.ln(7)
     pdf.set_draw_color(220, 226, 232)
     pdf.set_line_width(0.2)
@@ -124,10 +147,20 @@ def _lines_table(pdf: FPDF, view: QuoteView) -> None:
             bought,
             line.subtotal or "Pendiente",
         )
+        if thumbs:
+            x, y = pdf.get_x(), pdf.get_y()
+            pdf.cell(thumb_w, row_h, "", border="B", fill=fill)
+            photo = photos.get(line.sku)
+            if photo is not None:
+                # Foto ilegible: la celda queda vacía y el PDF sale igual.
+                with suppress(OSError, RuntimeError, ValueError):
+                    pdf.image(
+                        str(photo), x=x + 1, y=y + 1, w=THUMB_MM, h=THUMB_MM, keep_aspect_ratio=True
+                    )
         for (_, share, align), value in zip(columns, values, strict=True):
-            text = value if len(value) <= 48 else value[:47] + "…"
-            pdf.cell(width * share, 7, f" {text} ", border="B", fill=fill, align=align)
-        pdf.ln(7)
+            text = _fit(pdf, value, rest * share - 3)
+            pdf.cell(rest * share, row_h, f" {text} ", border="B", fill=fill, align=align)
+        pdf.ln(row_h)
 
 
 def _label_value(pdf: FPDF, label: str, value: str, *, width: float = 38) -> None:
@@ -151,11 +184,80 @@ def _section(pdf: FPDF, title: str) -> None:
 
 
 @lru_cache(maxsize=128)
-def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: bool = True) -> bytes:
+def _seller_and_source(pdf: FPDF, view: QuoteView) -> None:
+    """Vendedor y fuente del precio de una cotización de un solo producto."""
+
+    _section(pdf, "Precio de referencia" if view.converted else "Vendedor")
+
+    if view.seller:
+        _label_value(pdf, "Nombre", view.seller, width=24)
+    if view.seller_address:
+        _label_value(pdf, "Dirección", view.seller_address, width=24)
+    if view.seller_phone:
+        _label_value(pdf, "Teléfono", view.seller_phone, width=24)
+
+    _section(pdf, "Fuente del precio")
+    source = view.source_name or view.seller or "Vendedor"
+    if view.price_date:
+        source += f", {'del' if view.converted else 'publicado el'} {view.price_date}"
+    _label_value(pdf, "Origen", source, width=24)
+    if view.source_url:
+        pdf.set_font("DMSans", "B", 9)
+        pdf.set_text_color(*NAVY)
+        pdf.cell(24, 5.5, "Enlace")
+        pdf.set_font("DMSans", size=8)
+        pdf.set_text_color(*CYAN)
+        pdf.multi_cell(
+            0, 5, view.source_url, link=view.source_url, new_x=XPos.LMARGIN, new_y=YPos.NEXT
+        )
+
+
+def _lines_sources(pdf: FPDF, view: QuoteView) -> None:
+    """Spec 054: quién publica el precio de cada producto, con su enlace.
+
+    Antes solo salía la fuente del primero, aunque el segundo fuera de otro vendedor.
+    """
+
+    _section(pdf, "Vendedor y fuente de cada producto")
+    for index, line in enumerate(view.lines, start=1):
+        if line.converted:
+            origin = "Precio de referencia del catálogo"
+            if line.price_date:
+                origin += f", del {line.price_date}"
+        else:
+            origin = line.seller or "Vendedor"
+            if line.price_date:
+                origin += f", publicado el {line.price_date}"
+        pdf.set_font("DMSans", "B", 9)
+        name = _fit(pdf, line.product, pdf.w - pdf.l_margin - pdf.r_margin - 8)
+        pdf.set_text_color(*NAVY)
+        pdf.multi_cell(0, 5, f"{index}. {name}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("DMSans", size=8.5)
+        pdf.set_text_color(60, 60, 60)
+        pdf.multi_cell(0, 4.5, f"   {origin}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        if line.source_url:
+            pdf.set_font("DMSans", size=8)
+            pdf.set_text_color(*CYAN)
+            pdf.set_x(pdf.l_margin + 3)
+            pdf.multi_cell(
+                0, 4.5, line.source_url, link=line.source_url,
+                new_x=XPos.LMARGIN, new_y=YPos.NEXT,
+            )  # fmt: skip
+        pdf.ln(1)
+
+
+def build_quote_pdf(
+    view: QuoteView,
+    *,
+    photo: Path | None = None,
+    line_photos: Mapping[str, Path] | None = None,
+    compress: bool = True,
+) -> bytes:
     """Bytes del PDF de la cotización (A4, una página en los casos habituales).
 
     ``photo`` es la foto del catálogo (``carvajal.catalog.images``); sin ella, el bloque
-    del producto ocupa todo el ancho.
+    del producto ocupa todo el ancho. Con varios productos, ``line_photos`` (SKU → foto)
+    pone una miniatura en cada fila de la tabla.
     """
 
     pdf = _QuotePDF(format="A4", unit="mm")
@@ -195,7 +297,7 @@ def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: boo
 
     if view.lines:
         _section(pdf, f"Productos ({len(view.lines)})")
-        _lines_table(pdf, view)
+        _lines_table(pdf, view, line_photos or {})
         if view.city:
             pdf.ln(1.5)
             _label_value(pdf, "Ciudad", view.city, width=24)
@@ -276,29 +378,10 @@ def build_quote_pdf(view: QuoteView, *, photo: Path | None = None, compress: boo
         for line in view.pending:
             pdf.multi_cell(0, 4.5, f"• {line}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    # Vendedor y fuente.
-    _section(pdf, "Precio de referencia" if view.converted else "Vendedor")
-    if view.seller:
-        _label_value(pdf, "Nombre", view.seller, width=24)
-    if view.seller_address:
-        _label_value(pdf, "Dirección", view.seller_address, width=24)
-    if view.seller_phone:
-        _label_value(pdf, "Teléfono", view.seller_phone, width=24)
-
-    _section(pdf, "Fuente del precio")
-    source = view.source_name or view.seller or "Vendedor"
-    if view.price_date:
-        source += f", {'del' if view.converted else 'publicado el'} {view.price_date}"
-    _label_value(pdf, "Origen", source, width=24)
-    if view.source_url:
-        pdf.set_font("DMSans", "B", 9)
-        pdf.set_text_color(*NAVY)
-        pdf.cell(24, 5.5, "Enlace")
-        pdf.set_font("DMSans", size=8)
-        pdf.set_text_color(*CYAN)
-        pdf.multi_cell(
-            0, 5, view.source_url, link=view.source_url, new_x=XPos.LMARGIN, new_y=YPos.NEXT
-        )
+    if view.lines:
+        _lines_sources(pdf, view)
+    else:
+        _seller_and_source(pdf, view)
 
     # Nota legal.
     pdf.ln(5)

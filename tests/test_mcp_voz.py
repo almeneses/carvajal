@@ -574,6 +574,26 @@ def test_sin_foto_en_el_catalogo_el_mensaje_del_flujo_no_cambia() -> None:
     assert "📷" not in previous.text
 
 
+def test_el_fallback_reemplaza_lo_recibido_como_en_la_web() -> None:
+    # Arrange: el servicio reemplaza una abstención por la plantilla con «fallback».
+    text = "✅ Agregué **100 Vaso**"
+    chat = FakeChat(
+        [
+            ChatEvent("meta", {"sources": []}),
+            ChatEvent("token", {"text": "No tengo un dato verificado para responder eso."}),
+            ChatEvent("fallback", {"text": text}),
+            ChatEvent("done", {"quote_ids": [], "flow": {"text": text, "spoken": "Agregué."}}),
+        ]
+    )
+
+    # Act
+    reply = _bridge(chat).respond("2", "+573001112233")
+
+    # Assert
+    assert "No tengo un dato verificado" not in reply.text
+    assert "✅ Agregué *100 Vaso*" in reply.text
+
+
 def test_al_registrar_el_pdf_se_adjunta_sin_pedirlo() -> None:
     # Arrange
     chat = FakeChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))
