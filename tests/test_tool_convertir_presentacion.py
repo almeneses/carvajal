@@ -30,15 +30,18 @@ from carvajal.agent.toolagent.tools._base import (
     format_tool_content,
 )
 from carvajal.application.ports import ScoredChunk
-from carvajal.catalog.loader import load_catalog
 from carvajal.domain.entities import Chunk
 from carvajal.infrastructure.settings import Settings
-from carvajal.quotation import Dataset, QuoteRequest, load_dataset, quote_request
+from carvajal.quotation import Dataset, QuoteRequest, quote_request
 from carvajal.quotation.engine import conversion
 
 HOY = date(2026, 11, 24)
-CATALOG = load_catalog()
-DATASET = load_dataset(HOY.isoformat())
+from tests.fakes.catalogo import catalog_sin_proyecciones, dataset_sin_proyecciones  # noqa: E402
+
+# Datos reales sin los precios proyectados (2026-11-26): la herramienta se prueba con el
+# catálogo de antes; la proyección se prueba en ``test_catalog_projection``.
+CATALOG = catalog_sin_proyecciones()
+DATASET = dataset_sin_proyecciones(HOY)
 BY_SKU = {reference.sku: reference for reference in CATALOG.references}
 MX_CON_PAQUETE = next(
     reference

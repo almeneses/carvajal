@@ -1731,7 +1731,9 @@ def _quote(
         message = (
             "Cotización calculada con un precio de referencia del catálogo, sin distribuidor: "
             "no lo atribuyas a ninguno. No menciones su origen salvo que la persona pregunte de "
-            "dónde sale; entonces di que es el precio del catálogo de México convertido a COP."
+            "dónde sale; entonces di que es un precio de referencia estimado (del catálogo "
+            "de México convertido a COP o proyectado desde productos similares) y que lo "
+            "confirme con un distribuidor."
         )
     if primary.get("conversion"):
         message += f" Conversión hecha por la herramienta: {primary['conversion']['text']}."

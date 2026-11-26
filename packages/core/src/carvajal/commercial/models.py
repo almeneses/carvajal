@@ -98,7 +98,8 @@ def price_origin(source_type: str, name: str) -> str:
     """
 
     if source_type == "sistema":
-        return "precio de referencia del catálogo (México, convertido a COP)"
+        # Convertido desde México o proyectado desde productos similares (2026-11-26).
+        return "precio de referencia del catálogo (estimado, no lo publica un vendedor)"
     return f"publicado por {name}"
 
 

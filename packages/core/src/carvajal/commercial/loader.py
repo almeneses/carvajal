@@ -575,7 +575,8 @@ def _published_co_offers(
                     captured_at=reference_price.captured_at,
                     valid_until=reference_price.valid_until,
                     note=(
-                        "Precio de México convertido a COP; nadie lo publica en Colombia."
+                        "Precio de referencia estimado (de México convertido a COP o "
+                        "proyectado); nadie lo publica en Colombia."
                         if converted
                         else "Precio publicado por un tercero; no es precio de Carvajal."
                     ),
@@ -583,7 +584,7 @@ def _published_co_offers(
                 normalized=normalized,
                 availability=availability,
                 note=(
-                    "Presentación de la ficha de México con el importe convertido a COP."
+                    "Precio de referencia estimado por caja; no lo publica un vendedor."
                     if converted
                     else "La presentación y el importe son los publicados; "
                     "`normalized` es la vista por caja."

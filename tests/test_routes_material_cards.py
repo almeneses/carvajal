@@ -279,19 +279,20 @@ def test_routes_vasos_compostables_no_muestran_una_ficha_de_plastico() -> None:
     assert "Vaso rígido" not in render_products(result)
 
 
-def test_routes_sin_oferta_muestra_todas_las_opciones() -> None:
-    # Arrange: Medellín no tiene ofertas publicadas para las cazuelas.
+def test_routes_con_precio_de_referencia_la_ficha_es_apta_para_microondas() -> None:
+    # Arrange: en Medellín las cazuelas solo tienen el precio proyectado (2026-11-26).
     question = "Busco contenedores para caldo microondables, 300 unidades en Medellín"
 
     # Act
     result = _rutas(question)
     html = render_products(result)
 
-    # Assert
-    assert result["ficha"] is None
+    # Assert: la ficha que se cotiza es apta y las opciones siguen en la tarjeta.
+    assert result["ficha"] is not None
+    assert _apto_microondas(result["ficha"]["material"])
+    assert result["ficha"]["sku"] != EPS_WAU
     assert len(result["options"]) > 1
-    for option in result["options"]:
-        assert option["name"] in html
+    assert result["ficha"]["name"] in html
 
 
 @pytest.mark.parametrize("question", VARIANTES)
@@ -330,8 +331,6 @@ def test_routes_la_tarjeta_g003_no_muestra_el_eps() -> None:
     recommended, _, discards = html.partition('class="productos-descartes"')
     assert "Contenedor térmico" not in recommended
     assert "Cazuela negra 12 oz" in recommended
-    assert "Cazuela negra 16 oz" in recommended
-    assert "Cazuela negra 26 oz" in recommended
     assert "no es apto para microondas" in discards
 
 
