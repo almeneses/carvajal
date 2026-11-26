@@ -19,7 +19,7 @@ otros sitios: **no se toca nginx ni se apaga**.
 Flujo automático desde `main`:
 
 ```text
-merge aprobado a main
+merge a main (con Calidad en verde)
         │
         ▼
 CI (Calidad + Integración + Base de datos)
