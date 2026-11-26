@@ -42,6 +42,7 @@ from carvajal.agent.followup import (
     is_price_insult,
     is_resume,
     is_too_expensive,
+    names_amount,
     parse_quantities,
     plain,
     resolve_choice,
@@ -336,14 +337,14 @@ def _too_expensive(draft: QuoteDraft, now: datetime) -> Reply:
 def _on_confirm(
     draft: QuoteDraft, text: str, said: str, requote_fn: Requote, now: datetime
 ) -> Reply | Pass | None:
+    if wants_edit(text):  # primero: con un cambio pedido nunca se registra
+        return _edit_request(draft, text, said, now)
     if is_confirmation(text) or resolve_more(text) == "close_confirm":
         if not draft.lines:
             return Reply(render.empty_cart(), draft.touch(now, awaiting=None))
         return _register_or_refresh(draft, requote_fn, now)
     if plain(text) in {"no", "nop", "todavia no", "aun no", "espera"}:
         return _edit(draft, now)
-    if wants_edit(text):
-        return _edit_request(draft, text, said, now)
     more = resolve_more(text)
     if more == "add":
         return _add_request(draft, said, now)
@@ -368,12 +369,14 @@ def _edit_request(draft: QuoteDraft, text: str, said: str, now: datetime) -> Rep
 
     Así Jev no puede leerlo como un «sí» y registrar el carrito sin cambiar, y el «¿La
     confirmo?» queda desarmado: un «sí» posterior pide un producto, no registra. «Quiero
-    quitar la 2» lo resuelve la regla de quitar.
+    quitar la 2» lo resuelve la regla de quitar; con una cantidad («quiero sacarle 100 a
+    los vasos») es cambiar la línea, no quitarla, y lo hace el agente.
     """
 
-    removal = _removal(draft, text, now)
-    if removal is not None:
-        return removal
+    if not names_amount(text):
+        removal = _removal(draft, text, now)
+        if removal is not None:
+            return removal
     if not draft.lines:
         return Pass(draft.touch(now, awaiting=None, off_flow=0), prompt=strip_assent(said))
     editing = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
@@ -402,6 +405,8 @@ def _register_or_refresh(draft: QuoteDraft, requote_fn: Requote, now: datetime) 
 def _on_more(
     draft: QuoteDraft, text: str, said: str, requote_fn: Requote, now: datetime
 ) -> Reply | Pass | None:
+    if wants_edit(text):  # antes que cerrar o agregar: «eso es todo, pero quita la 2»
+        return _edit_request(draft, text, said, now)
     more = resolve_more(text)
     if more == "close":
         if not draft.lines:
@@ -410,8 +415,6 @@ def _on_more(
         return Reply(render.summary(closed), closed)
     if more == "close_confirm" and draft.lines:
         return _register_or_refresh(draft, requote_fn, now)
-    if wants_edit(text):  # antes que agregar: «también quiero cambiar la 1» no agrega
-        return _edit_request(draft, text, said, now)
     if more == "add":
         return _add_request(draft, said, now)
     if is_confirmation(text) and draft.lines:

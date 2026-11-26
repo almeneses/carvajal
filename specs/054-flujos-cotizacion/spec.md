@@ -125,7 +125,12 @@ borrador no cambia.
   «No quiero cambiar» lo niega y no muestra el carrito.
 - Un cambio dicho («quiero cambiar los vasos por platos», «necesito cambiar la 2 a 800»)
   va al agente sin consultar a Jev y con el «¿La confirmo?» desarmado (queda en «¿Algo
-  más?»): ni Jev ni un «sí» posterior registran el carrito sin cambiar.
+  más?»): ni Jev ni un «sí» posterior registran el carrito sin cambiar. Vale también tras
+  un cierre («eso es todo, pero quiero cambiar la 2»): con un cambio pedido nunca se
+  registra.
+- «Quiero sacar una cotización de 500 vasos» pide otra cotización y «quiero sacarle 100 a
+  los vasos» cambia una cantidad: ninguna quita una línea; van al agente con el borrador
+  intacto. «Quita la 2», «saca los platos» o «borra los vasos» sí quitan la línea.
 - «Sí, mándame el PDF» con una cotización por confirmar: confirma y adjunta el PDF.
 - Una línea sin precio queda fuera del total y se dice.
 - Borrador de más de 7 días: no se retoma.

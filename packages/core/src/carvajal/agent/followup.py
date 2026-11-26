@@ -14,7 +14,8 @@ con reglas, porque de ellas depende qué se cotiza y si una cotización se regis
   (cancelar o conservar el producto anterior), :func:`parse_quantities` (hasta cuatro
   cantidades, también dictadas con palabras), :func:`resolve_quantity_choice`,
   :func:`resolve_remove`, :func:`wants_switch`, :func:`wants_change` (editar la cotización
-  sin decir qué), :func:`wants_edit` (pedir un cambio concreto con «quiero cambiar…») y los
+  sin decir qué), :func:`wants_edit` (pedir un cambio concreto con «quiero cambiar…»),
+  :func:`names_amount` (el mensaje lleva una cantidad y no el número de una línea) y los
   detectores de salida, retomar, cancelar todo, «está caro» y el rechazo con insulto
   (:func:`is_price_insult`).
 
@@ -41,6 +42,7 @@ __all__ = [
     "is_price_insult",
     "is_resume",
     "is_too_expensive",
+    "names_amount",
     "parse_quantities",
     "plain",
     "resolve_choice",
@@ -277,16 +279,19 @@ def resolve_quantity_choice(text: str, quantities: tuple[int, ...]) -> int | Non
     return None
 
 
+# «Sacar una cotización» es pedirla, no quitar nada: tras ``sac…`` no puede seguir «cotiz…».
+_NOT_QUOTE_AHEAD: Final = r"(?!\s+(?:(?:una|un|la|el|otra|otro|mi|nueva|esa|esta)\s+)*cotiz)"
 # «Quiero cambiar algo» o «necesito quitar la 2» no agregan: el verbo que sigue manda.
 _EDIT_VERB: Final = (
     r"(?:cambi\w*|modific\w*|edit\w*|corregi\w*|corrig\w*|ajust\w*|quit\w*|borr\w*|"
-    r"sac\w*|elimin\w*|cancel\w*)"
+    rf"sac\w*{_NOT_QUOTE_AHEAD}|elimin\w*|cancel\w*)"
 )
 _ADD: Final = re.compile(
     r"^(?:(?:si|claro|ok|dale|bueno|listo|tambien|ah|y|pues)\s+)*"
     r"(?:agrega\w*|anade\w*|suma\w*|pon\w*|incluye\w*|tambien|otro|otra|mas|"
     rf"(?:quiero|necesito)(?!\s+{_EDIT_VERB}\b)|"
-    r"cotiza\w*|y\s+(?:unos?|unas?)|\d+|un|una|unos|unas)\b"
+    r"cotiza\w*|sac\w*\s+(?:(?:una|un|la|otra|otro|nueva)\s+)*cotiz\w*|"
+    r"y\s+(?:unos?|unas?)|\d+|un|una|unos|unas)\b"
 )
 _ADD_BARE: Final = frozenset(
     {"si", "claro", "dale", "ok", "obvio", "porfa", "si señor", "sip", "listo", "bueno"}
@@ -364,12 +369,23 @@ _NEGATED_INTENT: Final = re.compile(
     r"^\s*[¿¡]?\s*(?:(?:ok|bueno|pues|no|si)[\s,.;:!]+)*no\s+"
     r"(?:quiero|quisiera|necesito|deseo|me\s+gustaria|voy\s+a|vamos\s+a|tengo\s+que)\b"
 )
+_EDIT_INTENT: Final = (
+    rf"(?:yo\s+)?(?:quiero|quisiera|necesito|deseo|me\s+gustaria)\s+{_EDIT_VERB}\b"
+)
 # Lo que el «quiero/necesito» de ``_ADD`` deja de leer como agregar: pedir un cambio concreto.
 _EDIT_REQUEST: Final = re.compile(
     r"^(?:(?:si|no|claro|ok|dale|bueno|listo|tambien|ah|y|pues|oye|espera|mejor|perdon)\s+)*"
-    r"(?:yo\s+)?(?:quiero|quisiera|necesito|deseo|me\s+gustaria)\s+"
-    rf"{_EDIT_VERB}\b"
+    rf"{_EDIT_INTENT}"
 )
+# El cambio dicho a mitad de frase: «eso es todo, pero quiero cambiar la 2», «listo, pero
+# quita los vasos». Tras «pero» también vale el imperativo; sin «pero», solo «quiero…».
+_EDIT_INSIDE: Final = re.compile(
+    rf"(?<!\bno\s)(?<!\bsin\s)\b{_EDIT_INTENT}"
+    r"|\b(?:pero|aunque|solo\s+que)\s+(?:(?:si|primero|antes|tambien|eso\s+si)\s+)*"
+    rf"(?:{_EDIT_INTENT}|{_EDIT_VERB}\b)"
+)
+# El número de una línea («quita la 2», «el producto 3»), no una cantidad.
+_LINE_NUMBER: Final = re.compile(r"\b(?:la|el|linea|producto|numero|#)\s*(\d{1,2})\b")
 
 
 def _negated(text: str) -> bool:
@@ -394,13 +410,26 @@ def wants_edit(text: str) -> bool:
     """«Quiero cambiar los vasos por platos», «necesito cambiar la 2 a 800»: un cambio dicho.
 
     Cubre todo lo que ``resolve_more`` ya no cuenta como agregar por llevar un verbo de
-    edición tras «quiero/necesito» (también el pedido genérico de :func:`wants_change`).
-    «No quiero cambiar…» lo niega y no cuenta.
+    edición tras «quiero/necesito» (también el pedido genérico de :func:`wants_change`), y el
+    cambio que sigue a un cierre: «eso es todo, pero quiero cambiar la 2». «No quiero
+    cambiar…» lo niega y no cuenta; «quiero sacar una cotización» pide otra y tampoco.
     """
 
     if _negated(text):
         return False
-    return bool(_EDIT_REQUEST.match(plain(text)))
+    folded = plain(text)
+    return bool(_EDIT_REQUEST.match(folded) or _EDIT_INSIDE.search(folded))
+
+
+def names_amount(text: str) -> bool:
+    """«Quiero sacarle 100 a los vasos»: el mensaje dice una cantidad, no el número de una línea.
+
+    Con una cantidad el pedido cambia la línea en vez de quitarla; «quita la 2» no la lleva.
+    """
+
+    folded = plain(text)
+    lines = {int(found.group(1)) for found in _LINE_NUMBER.finditer(folded)}
+    return any(value not in lines for value in parse_quantities(text))
 
 
 _CANCEL_SWITCH: Final = re.compile(
@@ -444,7 +473,7 @@ def wants_switch(text: str) -> bool:
     return bool(_SWITCH.match(plain(text)))
 
 
-_REMOVE: Final = re.compile(r"\b(?:quit\w*|borr\w*|elimin\w*|sac\w*)\b")
+_REMOVE: Final = re.compile(rf"\b(?:quit\w*|borr\w*|elimin\w*|sac\w*{_NOT_QUOTE_AHEAD})\b")
 _ORDINAL_INDEX: Final = {
     "primera": 1, "primero": 1, "segunda": 2, "segundo": 2, "tercera": 3, "tercero": 3,
     "cuarta": 4, "cuarto": 4, "quinta": 5, "quinto": 5, "ultima": -1, "ultimo": -1,

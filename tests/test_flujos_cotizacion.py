@@ -21,6 +21,7 @@ from carvajal.agent.followup import (
     is_price_insult,
     is_resume,
     is_too_expensive,
+    names_amount,
     parse_quantities,
     resolve_more,
     resolve_quantity_choice,
@@ -32,7 +33,7 @@ from carvajal.agent.followup import (
 )
 from carvajal.numbers import spoken_quantities, words_to_number
 from carvajal.quotation import render
-from carvajal.quotation.draft import QuoteDraft, add_line, draft_quote_payload, totals
+from carvajal.quotation.draft import QuoteDraft, add_line, draft_quote_payload, line_label, totals
 from carvajal.quotation.flow import Pass, Reply, after_turn, before_turn
 from carvajal.speech import normalize_transcript
 
@@ -312,6 +313,9 @@ def test_un_pedido_concreto_no_es_pedir_un_cambio(texto: str) -> None:
         "No, quiero cambiar la 2 a 800",  # con la coma, el «no» responde y el pedido sigue
         "también quiero cambiar la 1",
         "Quiero cambiar algo",  # el genérico también es un cambio
+        "eso es todo, pero quiero cambiar la 2",  # tras un cierre, el cambio manda
+        "listo, pero quita los vasos",
+        "quiero sacarle 100 a los vasos",
     ],
 )
 def test_un_cambio_dicho_con_quiero_se_reconoce(texto: str) -> None:
@@ -327,10 +331,35 @@ def test_un_cambio_dicho_con_quiero_se_reconoce(texto: str) -> None:
         "ok no quiero cambiar nada",
         "cambia la 2 a 800",  # sin «quiero»: sigue su camino de siempre
         "sí",
+        "quiero sacar una cotizacion de 500 vasos",  # «sacar cotización» es pedirla
+        "también quiero sacar cotización de platos",
+        "eso es todo, no quiero cambiar nada",
     ],
 )
 def test_agregar_o_negar_no_es_pedir_un_cambio_dicho(texto: str) -> None:
     assert not wants_edit(texto)
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("quiero sacarle 100 a los vasos", True),
+        ("necesito sacar 300 platos", True),
+        ("quita la 2", False),  # el número de la línea no es una cantidad
+        ("quiero quitar la 2", False),
+        ("borra los vasos de 12 oz", False),  # la capacidad tampoco
+    ],
+)
+def test_una_cantidad_no_es_el_numero_de_una_linea(texto: str, esperado: bool) -> None:
+    assert names_amount(texto) is esperado
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["quiero sacar una cotizacion de 500 vasos", "sacar cotización de platos"],
+)
+def test_sacar_una_cotizacion_no_quita_ninguna_linea(texto: str) -> None:
+    assert resolve_remove(texto, ("Plato pulpa 9″", "Vaso térmico 12 oz")) is None
 
 
 def test_detectores_de_salida_retomar_cancelar_y_precio() -> None:
@@ -700,6 +729,87 @@ def test_quiero_quitar_la_2_en_el_resumen_la_quita_la_regla() -> None:
     assert len(decision.draft.lines) == 1 and decision.draft.awaiting == "algo_mas"
 
 
+PEDIDOS_QUE_NO_QUITAN = (
+    "quiero sacar una cotizacion de 500 vasos",
+    "también quiero sacar cotización de platos",
+    "quiero sacarle 100 a los vasos",
+    "quiero quitarle 100 a los vasos",
+    "necesito sacar 300 platos",
+)
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize("texto", PEDIDOS_QUE_NO_QUITAN)
+def test_pedir_cotizacion_o_cambiar_una_cantidad_no_quita_la_linea(
+    texto: str, awaiting: str
+) -> None:
+    # Arrange: carrito con platos y vasos; Jev leería la respuesta como confirmar.
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: el turno va al agente con el borrador intacto; ni se quita ni se registra.
+    assert isinstance(decision, Pass)
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting != "confirmar"
+    assert judge.calls == []
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize(
+    ("texto", "queda"),
+    [
+        ("quita la 2", "Plato pulpa 9″"),
+        ("quiero quitar la 2", "Plato pulpa 9″"),
+        ("saca los platos", "Vaso térmico 12 oz"),
+        ("borra los vasos", "Plato pulpa 9″"),
+        ("eso es todo, pero quita la 2", "Plato pulpa 9″"),
+    ],
+)
+def test_quitar_una_linea_sigue_quitandola(texto: str, queda: str, awaiting: str) -> None:
+    # Arrange
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: la regla quita la línea nombrada, sin Jev y sin registrar.
+    assert isinstance(decision, Reply) and not decision.register
+    assert [line_label(line) for line in decision.draft.lines] == [queda]
+    assert decision.draft.awaiting == "algo_mas"
+    assert judge.calls == []
+
+
+CIERRES_CON_CAMBIO = (
+    "eso es todo, pero quiero cambiar la 2",
+    "eso es todo pero necesito cambiar la cantidad",
+    "listo, pero cambia la 2 a 800",
+    "sí, pero quiero modificar la ciudad",
+)
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize("texto", CIERRES_CON_CAMBIO)
+def test_un_cierre_con_un_cambio_no_registra_aunque_jev_diga_confirmar(
+    texto: str, awaiting: str
+) -> None:
+    # Arrange: Jev leería «eso es todo…» como confirmar.
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: es un cambio; el borrador sigue en «¿Algo más?» y Jev no se consulta.
+    assert isinstance(decision, Pass)
+    assert judge.calls == []
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting == "algo_mas" and decision.draft.state == "carrito"
+
+
 @pytest.mark.parametrize("texto", ["no quiero cambiar", "no, no quiero cambiar"])
 def test_no_quiero_cambiar_no_muestra_el_carrito_editable(texto: str) -> None:
     draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
@@ -726,6 +836,11 @@ def test_ninguna_cotizacion_se_registra_sin_el_si() -> None:
         )
     ]
     cases += [(in_summary, text) for text in ("quiero cambiar algo", *CAMBIOS_DICHOS)]
+    cases += [
+        (draft, text)
+        for draft in (in_cart, in_summary)
+        for text in (*PEDIDOS_QUE_NO_QUITAN, *CIERRES_CON_CAMBIO)
+    ]
 
     for draft, text in cases:
         # Act
