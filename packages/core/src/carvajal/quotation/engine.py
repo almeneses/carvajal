@@ -61,6 +61,14 @@ convertido con una tasa fechada, sin vendedor ni sede, que se cotiza en Bogotá.
 publicado siempre va antes: la convertida solo es la opción principal si no hay ninguna
 publicada o si la persona nombró esa referencia. La cotización la presenta como «precio de
 referencia» sin nombrar el origen; ``price_kind`` y la fuente lo conservan.
+
+Uso declarado (2026-11-26): sin uso pedido, dentro de cada nivel de precio (publicado o
+convertido) va antes una referencia que declara algún uso de la temperatura pedida («vasos
+para algo frío» → los que declaran «bebida_fria»), y después decide el precio. Declarar
+además otro uso no resta aptitud (spec 054: entre igual de aptas, la más económica): el vaso
+térmico que declara «bebida_fria» y «comida_caliente» compite por precio con uno que solo
+declara «bebida_fria». Preferir la referencia dedicada al uso queda pendiente de decisión
+del owner.
 """
 
 import re
@@ -514,6 +522,23 @@ def _candidates(
     chosen = [product for product in possible if product.sku in valid_skus]
     chosen.sort(key=lambda item: (request.get("use") not in item.uses, item.sku))
     return chosen, reasons
+
+
+def _declares_use(product: Product, use: str | None, temperature: str | None) -> bool:
+    """Si la ficha declara el uso pedido o, sin uso, alguno de la temperatura pedida.
+
+    Sin uso ni temperatura todas valen. La temperatura de cada uso sale de
+    ``USE_TEMPERATURE``, así que la regla sigue al catálogo sin listas de referencias.
+    Declarar además usos de otra temperatura no cuenta en contra (spec 054: entre igual de
+    aptas, la más económica): el vaso térmico de «bebida_fria» y «comida_caliente» sigue
+    compitiendo por precio con el que solo declara «bebida_fria».
+    """
+
+    if use:
+        return use in product.uses
+    if temperature:
+        return any(USE_TEMPERATURE.get(item) == temperature for item in product.uses)
+    return True
 
 
 def _price_key(option: dict[str, Any], mixed: bool) -> Decimal:
@@ -1147,32 +1172,32 @@ def quote_request(
 
     # Orden de la recomendada y las alternativas: la más apta para el uso (spec 054); entre
     # igual de aptas, las renovables si la persona las prefiere (papel o pulpa), después un
-    # precio publicado antes que uno convertido y al final el más barato (por unidad si las
-    # cantidades difieren). La aptitud manda sobre la procedencia.
+    # precio publicado antes que uno convertido (2026-11-25), dentro de cada nivel la que
+    # declara el uso o la temperatura pedidos (``_declares_use``) y al final el más barato
+    # (por unidad si las cantidades difieren). La aptitud manda sobre la procedencia.
     renewable_first = bool(data.get("prefers_renewable"))
+    temperature = data.get("temperature")
 
     def not_preferred(product: Product) -> bool:
         return renewable_first and product.material not in RENEWABLE
 
-    if mixed:
-        options.sort(
-            key=lambda item: (
-                not apt(item[0]),
-                not_preferred(item[0]),
-                item[1].converted,
-                Decimal(item[2]["presentation"]["unit_price"]),
-                Decimal(item[2]["presentation"]["subtotal"]),
-            )
+    def rank(item: tuple[Product, Offer, dict[str, Any]]) -> tuple[Any, ...]:
+        product, offer, option = item
+        presentation = option["presentation"]
+        price = (
+            (Decimal(presentation["unit_price"]), Decimal(presentation["subtotal"]))
+            if mixed
+            else (Decimal(presentation["subtotal"]),)
         )
-    else:
-        options.sort(
-            key=lambda item: (
-                not apt(item[0]),
-                not_preferred(item[0]),
-                item[1].converted,
-                Decimal(item[2]["presentation"]["subtotal"]),
-            )
+        return (
+            not apt(product),
+            not_preferred(product),
+            offer.converted,
+            not _declares_use(product, use, temperature),
+            *price,
         )
+
+    options.sort(key=rank)
     if unconvertible:
         # Primero los de conversión: explican por qué falta una referencia pedida. La lista
         # completa respeta el tope.

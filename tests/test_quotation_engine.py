@@ -1,5 +1,6 @@
 """Pruebas del motor de cotización sobre el contrato publicado (spec 043, US1-US2)."""
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -21,6 +22,7 @@ from carvajal.commercial import (
 from carvajal.commercial import models as commercial_models
 from carvajal.quotation import QuoteRequest, quote, quote_request
 from carvajal.quotation.data import (
+    REFERENCE_SITE_ID,
     Dataset,
     dataset_from_book,
     load_dataset,
@@ -591,3 +593,180 @@ def test_el_uso_de_un_turno_intermedio_cambia_la_familia_de_la_cadena() -> None:
     solicitud = resultado["request"]
     assert (solicitud["family"], solicitud["use"]) == ("contenedor", "sopas")
     assert solicitud["temperature"] == "caliente"
+
+
+# Uso declarado (mejora 3 del 2026-11-26): sin uso pedido, la referencia que declara algún
+# uso de la temperatura pedida va antes; declarar además otro uso no resta aptitud (spec 054:
+# entre igual de aptas, la más económica).
+
+
+def _dataset_de_usos(*filas: tuple[str, str, str, Decimal, bool]) -> Dataset:
+    """Vasos sintéticos de 9 oz en Bogotá: ``(sku, usos, material, precio, convertido)``.
+
+    Copian la ficha y la oferta publicada del vaso de PP de 9 oz; el precio es el del
+    paquete de 50 y ``convertido`` la vuelve un precio de referencia sin vendedor.
+    """
+
+    real = load_dataset(HOY.isoformat())
+    base = real.product("7704918100199")
+    assert base is not None
+    [oferta] = [item for item in real.offers_for(base.sku) if item.city == "Bogotá"]
+    products, offers = [], []
+    for sku, usos, material, precio, convertido in filas:
+        products.append(base.model_copy(update={"sku": sku, "use": usos, "material": material}))
+        offers.append(
+            replace(
+                oferta,
+                sku=sku,
+                amount=precio,
+                site_id=REFERENCE_SITE_ID if convertido else oferta.site_id,
+            )
+        )
+    return Dataset(products=tuple(products), offers=tuple(offers), providers=real.providers)
+
+
+def _cotiza_vasos(dataset: Dataset, **campos: object) -> dict:
+    solicitud = QuoteRequest(family="vaso", quantity=1000, city="Bogotá", delivery=False)
+    return quote_request(replace(solicitud, **campos), today=HOY, now=MANANA, dataset=dataset)
+
+
+def test_declarar_tambien_bebida_fria_no_resta_aptitud_para_cafe() -> None:
+    # Arrange: las dos declaran bebida caliente; la que declara además fría es más barata.
+    dataset = _dataset_de_usos(
+        ("T-VERSATIL", "bebida_fria|bebida_caliente", "PP", Decimal("3000"), False),
+        ("T-CALIENTE", "bebida_caliente|en_tu_negocio", "PP", Decimal("4000"), False),
+    )
+
+    # Act
+    resultado = _cotiza_vasos(dataset, use="bebida_caliente", temperature="caliente")
+
+    # Assert: igual de aptas, decide el precio.
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["sku"] == "T-VERSATIL"
+    assert [item["sku"] for item in resultado["alternatives"]] == ["T-CALIENTE"]
+    assert "Por ser la más apta para el uso" not in resultado["reply"]
+
+
+def test_declarar_tambien_comida_caliente_no_resta_aptitud_para_frio() -> None:
+    # Arrange: el térmico (fría y comida caliente) es más barato que el de solo fría.
+    dataset = _dataset_de_usos(
+        ("T-TERMICO", "bebida_fria|comida_caliente", "PP", Decimal("3000"), False),
+        ("T-FRIA", "bebida_fria|fiestas_y_eventos", "PP", Decimal("4000"), False),
+    )
+
+    # Act
+    resultado = _cotiza_vasos(dataset, use="bebida_fria", temperature="fria")
+
+    # Assert
+    assert resultado["primary"]["sku"] == "T-TERMICO"
+    assert [item["sku"] for item in resultado["alternatives"]] == ["T-FRIA"]
+
+
+def test_sin_uso_la_temperatura_pedida_ordena_por_el_uso_declarado() -> None:
+    # Arrange: sin uso, solo la temperatura; la que no declara ninguna bebida es más barata.
+    dataset = _dataset_de_usos(
+        ("T-SIN-USO", "en_tu_negocio", "PP", Decimal("2000"), False),
+        ("T-VERSATIL", "bebida_fria|bebida_caliente", "PP", Decimal("3000"), False),
+        ("T-CALIENTE", "bebida_caliente", "PP", Decimal("4000"), False),
+    )
+
+    # Act
+    resultado = _cotiza_vasos(dataset, temperature="caliente")
+
+    # Assert: primero las que declaran un uso caliente, por precio; al final la que no.
+    orden = [resultado["primary"]["sku"], *(item["sku"] for item in resultado["alternatives"])]
+    assert orden == ["T-VERSATIL", "T-CALIENTE", "T-SIN-USO"]
+
+
+def test_el_uso_declarado_no_salta_la_regla_del_precio_publicado() -> None:
+    # Arrange: la que declara el uso caliente solo tiene precio convertido; la publicada no
+    # declara ninguno.
+    dataset = _dataset_de_usos(
+        ("T-SIN-USO", "en_tu_negocio", "PP", Decimal("4000"), False),
+        ("T-CALIENTE-REF", "bebida_caliente", "PAPEL", Decimal("2000"), True),
+        ("T-SIN-USO-REF", "en_tu_negocio", "PP", Decimal("1000"), True),
+    )
+
+    # Act
+    resultado = _cotiza_vasos(dataset, temperature="caliente")
+
+    # Assert: publicada primero; entre las convertidas, la que declara el uso.
+    assert resultado["primary"]["sku"] == "T-SIN-USO"
+    assert resultado["primary"]["price_kind"] == "publicado"
+    assert [item["sku"] for item in resultado["alternatives"]] == [
+        "T-CALIENTE-REF",
+        "T-SIN-USO-REF",
+    ]
+
+
+def test_sin_uso_ni_temperatura_manda_el_precio() -> None:
+    # Arrange: con «caliente» la de comida caliente iría primero; sin uso ni temperatura, no.
+    dataset = _dataset_de_usos(
+        ("T-SIN-USO", "en_tu_negocio", "PP", Decimal("3000"), False),
+        ("T-COMIDA", "comida_caliente|en_tu_negocio", "PP", Decimal("4000"), False),
+    )
+
+    # Act
+    sin_temperatura = _cotiza_vasos(dataset)
+    caliente = _cotiza_vasos(dataset, temperature="caliente")
+
+    # Assert
+    assert sin_temperatura["primary"]["sku"] == "T-SIN-USO"
+    assert caliente["primary"]["sku"] == "T-COMIDA"
+
+
+def test_cafe_en_bogota_con_el_catalogo_real_recomienda_el_pp_de_9_oz_publicado() -> None:
+    """Los vasos de papel «Bebida Caliente» solo tienen precio convertido en Bogotá.
+
+    El vaso de PP traslúcido de 9 oz declara bebida fría y caliente y tiene precio
+    publicado: sigue de recomendado (regla del 2026-11-25) y los de papel van de
+    alternativa con precio de referencia.
+    """
+
+    # Arrange
+    catalogo = {item.sku: item for item in load_dataset(HOY.isoformat()).products}
+
+    # Act
+    resultado = quote("necesito 1000 vasos para café en Bogotá", today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["primary"]["sku"] == "7704918100199"
+    assert resultado["primary"]["price_kind"] == "publicado"
+    papel = [i for i in resultado["alternatives"] if catalogo[i["sku"]].material == "PAPEL"]
+    assert papel
+    assert all(item["price_kind"] == "convertido" for item in papel)
+
+
+@pytest.mark.parametrize(
+    ("texto", "sku"),
+    [
+        # Térmicos (bebida fría y comida caliente) más baratos que el PS de 2 oz «Bio».
+        ("necesito 1000 vasos para jugo en Barranquilla", "CO-MX-2864108000"),
+        ("necesito 1000 vasos para bebida fría en Pereira", "CO-MX-2864112370"),
+        ("necesito 1000 vasos de 12 oz para bebida fría en Bogotá", "CO-MX-2864112370"),
+    ],
+)
+def test_vasos_frios_con_el_catalogo_real_recomiendan_el_mas_barato_apto(
+    texto: str, sku: str
+) -> None:
+    # Act
+    resultado = quote(texto, today=HOY, now=MANANA)
+
+    # Assert: declarar también comida caliente no lo baja de recomendado.
+    assert resultado["primary"]["sku"] == sku
+    assert "Por ser la más apta para el uso" not in resultado["reply"]
+
+
+def test_cinco_cajas_de_vasos_frios_recomiendan_el_pp_de_9_oz() -> None:
+    # Arrange: sin capacidad; el Gold de 14 oz solo declara bebida fría y cuesta unas cinco
+    # veces más por unidad.
+    solicitud = QuoteRequest(
+        family="vaso", temperature="fria", unit="caja", quantity=5, city="Bogotá"
+    )
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["primary"]["sku"] == "7704918100199"
+    assert "CO-VGOLD-14" in [item["sku"] for item in resultado["alternatives"]]
