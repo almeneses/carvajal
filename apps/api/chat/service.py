@@ -71,6 +71,7 @@ from apps.api.chat.agent import (
 from apps.api.chat.products import has_cards, presented_options, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from apps.api.chat.summary_worker import SummaryWorker, build_summary_worker
+from carvajal.adapters.crm import OdooError, OrderResult, build_orders
 from carvajal.adapters.judge import build_reply_judge
 from carvajal.adapters.storage.chat import (
     ChatMessage,
@@ -112,8 +113,9 @@ from carvajal.infrastructure.monitoring import (
 from carvajal.infrastructure.settings import Settings
 from carvajal.quotation import flow as quote_flow
 from carvajal.quotation import render as quote_render
-from carvajal.quotation.draft import QuoteDraft, draft_quote_payload
+from carvajal.quotation.draft import QuoteDraft, draft_quote_payload, totals
 from carvajal.quotation.engine import QUOTE_VERSION
+from carvajal.quotation.order import Buyer, OrderRequest, order_lines
 
 __all__ = [
     "ChatFailure",
@@ -168,6 +170,12 @@ class _ToolTurn:
 
 
 @runtime_checkable
+class OrderPlacer(Protocol):
+    """Crea el pedido de venta de una cotización registrada (spec 055; Odoo)."""
+
+    def place(self, request: OrderRequest) -> OrderResult: ...
+
+
 class ChatProvider(Protocol):
     """Contrato que consume la vista; el servicio real y los dobles lo cumplen."""
 
@@ -234,8 +242,13 @@ class ChatService:
         settings: Settings | None = None,
         summary_worker: SummaryWorker | None = None,
         reply_judge: quote_flow.ReplyJudge | None = None,
+        orders: "OrderPlacer | None" = None,
     ) -> None:
         self._session_factory = session_factory
+        # Spec 055: pedidos en el CRM (Odoo); se construye en el primer turno que lo necesita
+        # (``None`` sin ODOO_URL, ODOO_DB y ODOO_API_KEY: no se ofrece el pedido).
+        self._orders_value = orders
+        self._orders_built = orders is not None
         # Spec 054: Jev para respuestas cortas ambiguas del flujo de cotización; se construye
         # en el primer turno que lo necesita (``None`` sin clave de TypeSafe).
         self._reply_judge_value = reply_judge
@@ -284,6 +297,18 @@ class ChatService:
                 logger.warning("cotizacion.jev_no_construido", error_type=type(error).__name__)
                 self._reply_judge_value = None
         return self._reply_judge_value
+
+    def _orders(self) -> "OrderPlacer | None":
+        """Pedidos en Odoo o ``None``; un fallo al construir no rompe el turno."""
+
+        if not self._orders_built:
+            self._orders_built = True
+            try:
+                self._orders_value = build_orders(self._config())
+            except Exception as error:
+                logger.warning("pedido.crm_no_construido", error_type=type(error).__name__)
+                self._orders_value = None
+        return self._orders_value
 
     def awaiting_confirmation(self, owner_key: str) -> bool:
         """El hilo activo espera el «sí» de una cotización (o tiene líneas por cerrar).
@@ -477,7 +502,11 @@ class ChatService:
             request_id = _request_id()
             prompt = text
             decision = quote_flow.before_turn(
-                draft, text, judge=self._reply_judge(), now=local_now()
+                draft,
+                text,
+                judge=self._reply_judge(),
+                now=local_now(),
+                orders=self._orders() is not None,
             )
             if isinstance(decision, quote_flow.Reply):
                 if decision.draft.state == "cancelada" and tool_runner is not None:
@@ -1507,6 +1536,12 @@ class ChatService:
                 offer=None,
             )
             logger.info("cotizacion.registrada", lineas=len(decision.draft.lines))
+            if self._orders() is not None:
+                # Spec 055: con el CRM configurado, el folio ofrece hacer el pedido.
+                message = quote_render.order_offer(message)
+                draft = draft.touch(awaiting="pedido")
+        elif decision.order is not None:
+            message, draft = self._place_order(owner_key, draft, decision.order)
         products["flow"] = _flow_payload(message, draft, folio=folio)
         yield from self._fixed_turn(
             owner_key,
@@ -1522,6 +1557,38 @@ class ChatService:
             draft=draft,
             question_sources=question_sources,
         )
+
+    def _place_order(
+        self, owner_key: str, draft: QuoteDraft, buyer: Buyer
+    ) -> tuple[quote_render.Message, QuoteDraft]:
+        """Crea el pedido de venta en Odoo (spec 055); un fallo deja reintentarlo.
+
+        El pedido es idempotente por folio: repetir «hacer el pedido» tras un fallo, o un
+        reintento del mismo turno, no crea un segundo pedido.
+        """
+
+        orders = self._orders()
+        if orders is None or not draft.folio or not buyer.email:
+            return quote_render.order_failed(), draft.touch(awaiting=None, buyer=None)
+        lines, notes = order_lines(draft.lines)
+        summary_total = totals(draft.lines).total
+        request = OrderRequest(
+            folio=draft.folio,
+            buyer=buyer,
+            channel="WhatsApp" if owner_key.startswith("wa_") else "chat web",
+            city=draft.city,
+            lines=lines,
+            total=summary_total,
+            notes=tuple(notes),
+        )
+        try:
+            result: OrderResult = orders.place(request)
+        except (OdooError, KeyError, ValueError) as error:
+            logger.warning("pedido.fallido", folio=draft.folio, error_type=type(error).__name__)
+            return quote_render.order_failed(), draft.touch(awaiting=None, buyer=None)
+        logger.info("pedido.registrado", folio=draft.folio, pedido=result.name)
+        placed = draft.touch(awaiting=None, buyer=None, order=result.name)
+        return quote_render.order_placed(result.name, buyer.email, draft.folio), placed
 
     def _fixed_turn(
         self,
@@ -2232,6 +2299,11 @@ def _flow_actions(draft: QuoteDraft) -> list[dict[str, str]]:
         return [
             {"label": "Cancelar lo anterior", "say": "Cancelar"},
             {"label": "Conservar y agregar", "say": "Conservar"},
+        ]
+    if draft.awaiting == "pedido":
+        return [
+            {"label": "Hacer el pedido", "say": "Sí, quiero hacer el pedido"},
+            {"label": "Ahora no", "say": "Ahora no"},
         ]
     if draft.awaiting == "oferta":
         return [

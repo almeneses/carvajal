@@ -78,6 +78,7 @@ from carvajal.quotation.draft import (
     same_sku_line,
     units_of,
 )
+from carvajal.quotation.order import Buyer, declines_order, merge_buyer, wants_purchase
 from carvajal.quotation.render import Message, option_rows
 
 __all__ = [
@@ -153,6 +154,8 @@ class Reply:
     draft: QuoteDraft
     route: str = "cotizacion"
     register: bool = False
+    # Spec 055: con los datos completos de quien compra, el servicio crea el pedido.
+    order: Buyer | None = None
 
 
 @dataclass(frozen=True)
@@ -236,8 +239,12 @@ def before_turn(
     requote_fn: Requote | None = None,
     judge: ReplyJudge | None = None,
     now: datetime | None = None,
+    orders: bool = False,
 ) -> Reply | Pass:
     """Atiende sin el modelo la respuesta a la pregunta pendiente, o deja pasar el turno.
+
+    ``orders`` enciende el paso del pedido tras el folio (spec 055): solo con el CRM
+    configurado se acepta «hacer el pedido» y se piden nombre y correo.
 
     ``now`` va en hora de Bogotá: las vigencias de los vendedores son fechas de Colombia y,
     entre las 19:00 y la medianoche, UTC ya va en el día siguiente.
@@ -247,13 +254,20 @@ def before_turn(
     if requote_fn is None:
         requote_fn = requote  # se busca al llamar: las pruebas pueden sustituirla
     current = draft if not draft.expired(moment) else QuoteDraft()
-    decided = _rules(current, text, requote_fn=requote_fn, now=moment)
+    decided = _rules(current, text, requote_fn=requote_fn, now=moment, orders=orders)
     if decided is not None:
         return decided
     if judge is not None and _ask_judge(current, text):
         canonical = _judged(current, text, judge)
         if canonical is not None:
-            again = _rules(current, canonical, requote_fn=requote_fn, now=moment, original=text)
+            again = _rules(
+                current,
+                canonical,
+                requote_fn=requote_fn,
+                now=moment,
+                original=text,
+                orders=orders,
+            )
             if again is not None:
                 logger.info("cotizacion.jev_decidio", awaiting=current.awaiting)
                 return again
@@ -283,11 +297,48 @@ def _fresh_after_registration(draft: QuoteDraft) -> QuoteDraft:
     return QuoteDraft() if draft.state in {"registrada", "cancelada"} else draft
 
 
+def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | None:
+    """Spec 055: «¿Hacemos el pedido?» → nombre y correo → el servicio crea el pedido.
+
+    Devuelve ``None`` para lo que no es del pedido (otra pregunta, otro producto): sigue el
+    camino de una cotización registrada.
+    """
+
+    if draft.order:
+        if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
+            return Reply(render.already_ordered(draft.order), draft, route="pedido")
+        return None
+    if draft.awaiting == "datos_pedido":
+        if "?" in text:
+            return None  # una pregunta va al agente
+        if declines_order(text) or is_cancel_all(text):
+            return Reply(
+                render.order_declined(draft.folio),
+                draft.touch(now, awaiting=None, buyer=None),
+                route="pedido",
+            )
+        buyer = merge_buyer(Buyer.from_json(draft.buyer), text)
+        if buyer.complete:
+            asking = draft.touch(now, buyer=buyer.to_json())
+            return Reply(render.ask_buyer(), asking, route="pedido", order=buyer)
+        waiting = draft.touch(now, buyer=buyer.to_json())
+        return Reply(render.buyer_missing(buyer.name, buyer.email), waiting, route="pedido")
+    accepted = wants_purchase(text) or (draft.awaiting == "pedido" and is_confirmation(text))
+    if accepted and draft.folio:
+        return Reply(render.ask_buyer(), draft.touch(now, awaiting="datos_pedido"), route="pedido")
+    if draft.awaiting == "pedido" and declines_order(text):
+        return Reply(
+            render.order_declined(draft.folio), draft.touch(now, awaiting=None), route="pedido"
+        )
+    return None
+
+
 def _ask_judge(draft: QuoteDraft, text: str) -> bool:
     # Ante la lista de referencias las reglas deciden todo: lo que no elige va al agente.
+    # Los datos del pedido (nombre y correo) nunca salen a Jev.
     return (
         draft.awaiting is not None
-        and draft.awaiting != "referencia"
+        and draft.awaiting not in {"referencia", "datos_pedido"}
         and "?" not in text
         and 0 < len(plain(text).split()) <= JEV_MAX_WORDS
     )
@@ -313,8 +364,13 @@ def _rules(
     requote_fn: Requote,
     now: datetime,
     original: str | None = None,
+    orders: bool = False,
 ) -> Reply | Pass | None:
     said = original or text
+    if draft.state == "registrada" and orders:
+        ordering = _order_step(draft, said if draft.awaiting == "datos_pedido" else text, now)
+        if ordering is not None:
+            return ordering
     if draft.state == "registrada":
         if draft.folio and (is_confirmation(text) or wants_cart(text)):
             # «¿Qué tengo en la cotización?» justo después de registrar: ya tiene folio, no

@@ -287,6 +287,16 @@ class Settings(BaseSettings):
     quote_flow_jev_timeout_s: float = Field(default=1.5, ge=0.3, le=5.0)
     quote_flow_jev_max_calls_per_day: int = Field(default=500, ge=0, le=100_000)
 
+    # Pedidos en Odoo (spec 055): con la cotización registrada, el asistente ofrece hacer el
+    # pedido, pide nombre y correo y crea el pedido de venta confirmado (Odoo envía el correo
+    # de confirmación). Sin las tres variables no se ofrece. ``ODOO_URL`` es la base del
+    # servidor (``http://odoo:8069`` en la red de Docker); la clave es la API key del usuario
+    # técnico.
+    odoo_url: str = ""
+    odoo_db: str = ""
+    odoo_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
+    odoo_timeout_s: float = Field(default=20.0, ge=2.0, le=60.0)
+
     # Voz del chat web por el servidor con OpenAI (spec 047). ``browser`` (por defecto)
     # conserva el dictado y la lectura del navegador (spec 040) y no envía audio al
     # servidor; ``openai`` transcribe y sintetiza aquí, con la clave solo del entorno. Si
@@ -455,6 +465,16 @@ class Settings(BaseSettings):
         """Jev encendido de forma explícita y con clave (la clave sola no lo enciende)."""
 
         return self.jev_enabled and bool(self.typesafe_api_key.get_secret_value().strip())
+
+    @property
+    def odoo_configured(self) -> bool:
+        """Pedidos en Odoo: URL, base y API key definidas (spec 055)."""
+
+        return bool(
+            self.odoo_url.strip()
+            and self.odoo_db.strip()
+            and self.odoo_api_key.get_secret_value().strip()
+        )
 
     @property
     def food_photo_configured(self) -> bool:

@@ -794,6 +794,81 @@ def already_registered(folio: str) -> Message:
     return Message(text, "Esa cotización ya quedó registrada. ¿Quieres cotizar algo más?")
 
 
+# --- Spec 055: pedido en el CRM ---------------------------------------------------------
+
+ORDER_OFFER: Final = (
+    "🛒 ¿Quieres hacer el pedido? Te pido tu nombre y tu correo y te llega la confirmación."
+)
+
+
+def order_offer(message: Message) -> Message:
+    """El folio registrado con la oferta de hacer el pedido al final."""
+
+    return Message(
+        f"{message.text}\n{ORDER_OFFER}",
+        f"{message.spoken} ¿Quieres hacer el pedido?",
+        message.photos,
+    )
+
+
+def ask_buyer() -> Message:
+    text = (
+        "¡Perfecto! Para el pedido envíame tu **nombre** y tu **correo** "
+        "(por ejemplo: «Ana Pérez, ana@correo.com»). A ese correo te llega la confirmación."
+    )
+    return Message(text, "¡Perfecto! Para el pedido dime tu nombre y tu correo.")
+
+
+def buyer_missing(name: str | None, email: str | None) -> Message:
+    if name and not email:
+        text = f"Gracias, {name}. ¿A qué **correo** te envío la confirmación del pedido?"
+        return Message(text, f"Gracias, {name}. ¿A qué correo te envío la confirmación?")
+    if email and not name:
+        text = "¿A **nombre** de quién hago el pedido?"
+        return Message(text, "¿A nombre de quién hago el pedido?")
+    text = (
+        "No alcancé a leer tu nombre y tu correo. Envíamelos así: «Ana Pérez, ana@correo.com». "
+        "Si prefieres no hacer el pedido ahora, escribe «ahora no»."
+    )
+    return Message(text, "No alcancé a entender tu nombre y tu correo. ¿Me los repites?")
+
+
+def order_placed(order: str, email: str, folio: str | None) -> Message:
+    reference = f" · cotización #{folio}" if folio else ""
+    text = (
+        f"🧾 **Pedido {order} confirmado**{reference}\n"
+        f"Te enviamos la confirmación a **{email}**. Un asesor te contacta para coordinar el "
+        "pago y la entrega."
+    )
+    spoken = (
+        "Listo, tu pedido quedó confirmado. Te enviamos la confirmación a tu correo y un "
+        "asesor te contacta para el pago y la entrega."
+    )
+    return Message(text, spoken)
+
+
+def order_failed() -> Message:
+    text = (
+        "No pude crear el pedido en este momento. Tu cotización sigue registrada: escribe "
+        "«hacer el pedido» en unos minutos y lo intento de nuevo."
+    )
+    return Message(text, "No pude crear el pedido ahora. Inténtalo de nuevo en unos minutos.")
+
+
+def already_ordered(order: str) -> Message:
+    text = f"Ese pedido ya quedó creado con el número **{order}**. ¿Quieres cotizar algo más?"
+    return Message(text, "Ese pedido ya quedó creado. ¿Quieres cotizar algo más?")
+
+
+def order_declined(folio: str | None) -> Message:
+    reference = f" #{folio}" if folio else ""
+    text = (
+        f"Listo, tu cotización{reference} queda registrada. Si decides comprar, escribe "
+        "«hacer el pedido». ¿Te ayudo con algo más?"
+    )
+    return Message(text, "Listo, tu cotización queda registrada. ¿Te ayudo con algo más?")
+
+
 # --- T7-T9: cambio, cancelación y salida -----------------------------------------------
 
 

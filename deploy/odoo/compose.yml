@@ -1,0 +1,31 @@
+name: carvajal-odoo
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 1g
+  web:
+    image: odoo:19.0-20261123
+    restart: unless-stopped
+    depends_on: [db]
+    ports:
+      - "127.0.0.1:8169:8069"
+    volumes:
+      - filestore:/var/lib/odoo
+      - ./config:/etc/odoo:ro
+      - ./addons:/mnt/extra-addons:ro
+    networks:
+      default: {}
+      carvajal:
+        aliases: [odoo]
+    mem_limit: 2g
+volumes:
+  pgdata:
+  filestore:
+networks:
+  carvajal:
+    external: true
+    name: carvajal-prod_default

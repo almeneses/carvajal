@@ -83,6 +83,13 @@ x-dev-app: &dev-app
     JEV_ENABLED: ${JEV_ENABLED:-false}
     TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
     JEV_MODEL: ${JEV_MODEL:-jev-1.14.0}
+    # Spec 055: pedidos en Odoo tras el folio (nombre y correo de quien compra). Sin las
+    # tres variables no se ofrece el pedido. En la VPS, Odoo corre en su propio compose
+    # (deploy/odoo/) unido a esta red con el alias `odoo` (docs/odoo-pedidos.md).
+    ODOO_URL: ${ODOO_URL:-}
+    ODOO_DB: ${ODOO_DB:-}
+    ODOO_API_KEY: ${ODOO_API_KEY:-}
+    ODOO_TIMEOUT_S: ${ODOO_TIMEOUT_S:-20}
     FOOD_PHOTO_ENABLED: ${FOOD_PHOTO_ENABLED:-true}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     # El perfil local no envía nada a Sentry ni a LangSmith salvo que se pida.
