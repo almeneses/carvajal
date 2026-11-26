@@ -66,6 +66,22 @@ def _validation_message(error: ValidationError) -> str:
     return message[:MAX_ERROR_CHARS]
 
 
+# Argumentos inválidos que son un dato por pedir («0 vasos»): el reemplazo neutro pide la
+# cantidad en vez de abstenerse con «No tengo un dato verificado».
+# Solo ``quantity``: un error en ``cantidades`` (p. ej. cinco cantidades) no es que falte.
+_ARG_FIELDS: dict[str, str] = {"quantity": "cantidad"}
+
+
+def _missing_from(error: ValidationError) -> list[str]:
+    found = []
+    for item in error.errors():
+        location = item.get("loc", ())
+        field = _ARG_FIELDS.get(str(location[0])) if location else None
+        if field and field not in found:
+            found.append(field)
+    return found
+
+
 def _json_safe(args: Mapping[str, Any]) -> dict[str, Any]:
     try:
         return json.loads(json.dumps(dict(args), ensure_ascii=False, default=str))
@@ -210,7 +226,7 @@ def _execute(
     try:
         validated = schema.model_validate(dict(args))
     except ValidationError as error:
-        return _Draft("error", _validation_message(error)), raw_args
+        return _Draft("error", _validation_message(error), missing=_missing_from(error)), raw_args
     except TypeError:
         return _Draft("error", "Argumentos inválidos; no se consultó nada."), raw_args
     clean_args = validated.model_dump(mode="json", exclude_none=True)

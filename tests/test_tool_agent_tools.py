@@ -2788,3 +2788,18 @@ def test_otra_referencia_nombrada_no_hereda_la_cantidad_del_pedido_anterior() ->
     assert "city" in _data(other)["reutilizado"]
     assert same.status == "ok"
     assert "quantity" in _data(same)["reutilizado"]
+
+
+def test_un_error_en_cantidades_no_se_lee_como_cantidad_faltante() -> None:
+    # Revisión: cinco cantidades (máximo cuatro) no es «me falta la cantidad».
+    result = _run(
+        "cotizar", {**CALIENTE, "cantidades": [100, 200, 300, 400, 500], "city": "Cali"}, _deps()
+    )
+    assert result.status == "error"
+    assert result.payload["missing"] == []
+
+
+def test_cotizar_cero_unidades_declara_la_cantidad_como_faltante() -> None:
+    result = _run("cotizar", {**CALIENTE, "quantity": 0, "city": "Cali"}, _deps())
+    assert result.status == "error"
+    assert result.payload["missing"] == ["cantidad"]

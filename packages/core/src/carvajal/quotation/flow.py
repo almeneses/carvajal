@@ -51,6 +51,7 @@ from carvajal.agent.followup import (
     resolve_remove,
     resolve_switch,
     strip_assent,
+    wants_cart,
     wants_change,
     wants_edit,
     wants_switch,
@@ -274,7 +275,9 @@ def _rules(
 ) -> Reply | Pass | None:
     said = original or text
     if draft.state == "registrada":
-        if draft.folio and is_confirmation(text):
+        if draft.folio and (is_confirmation(text) or wants_cart(text)):
+            # «¿Qué tengo en la cotización?» justo después de registrar: ya tiene folio, no
+            # está vacía.
             return Reply(render.already_registered(draft.folio), draft, route="confirmacion")
         draft = QuoteDraft()
     elif draft.state == "cancelada":
@@ -302,6 +305,28 @@ def _rules(
         return Reply(render.leaving(bool(draft.lines)), paused, route="salida")
     if is_too_expensive(text):
         return _too_expensive(draft, now)
+    if wants_cart(text):
+        # «¿Qué tengo en la cotización?»: el borrador tal cual (o que está vacío), sin el
+        # modelo; antes caía al agente, que buscaba folios registrados y se abstenía.
+        if not draft.lines:
+            pending = render.reminder(draft)
+            empty = render.empty_cart()
+            if pending is not None:
+                # Opciones o comparativo pendientes: el carrito está vacío, la pregunta sigue.
+                empty = render.Message(
+                    f"{empty.text}\n\n{pending.text}", f"{empty.spoken} {pending.spoken}"
+                )
+            return Reply(empty, draft)
+        # «Oferta» espera un sí/no a la opción más económica: tras mostrar el carrito con
+        # «¿Algo más?», un «sí» no debe aceptar la oferta; se vuelve a «¿Algo más?».
+        keep = draft.awaiting if draft.awaiting not in (None, "algo_mas", "oferta") else "algo_mas"
+        shown = draft.touch(
+            now,
+            awaiting=keep,
+            state=draft.state if keep != "algo_mas" else "carrito",
+            offer=None if keep == "algo_mas" else draft.offer,
+        )
+        return Reply(render.cart_view(shown), shown)
     if draft.lines and draft.awaiting in _EDITABLE and wants_change(text):
         return _edit(draft, now)
     handler = _AWAITING.get(draft.awaiting or "")
@@ -471,6 +496,18 @@ def _on_choice(
     found = resolve_choice(text, alternatives)
     if found is None and alternatives == 0 and is_confirmation(text):
         found = Choice(0)
+    if found is None and resolve_more(text) in ("close", "close_confirm"):
+        # «Eso es todo» ante «¿Cuál te cotizo?» no elige la recomendada: con carrito va al
+        # resumen; sin él, la persona no quiso ninguna y se despide como «lo pienso».
+        if draft.lines:
+            # También «eso es todo, confírmala»: el resumen pide el «sí» (nada se registra
+            # mientras se elegía entre opciones).
+            closed = draft.touch(
+                now, state="resumen", awaiting="confirmar", options=(), comparison=(), current=None
+            )
+            return Reply(render.summary(closed), closed)
+        paused = draft.touch(now, state="explorando", awaiting=None, options=(), offer=None)
+        return Reply(render.leaving(False), paused, route="salida")
     if found is None:
         return None
     if alternatives == 0 and found == ChoiceOutOfRange(1):

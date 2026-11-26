@@ -36,6 +36,7 @@ __all__ = [
     "already_registered",
     "ask_product",
     "cancelled",
+    "cart_view",
     "cheaper_offer",
     "comparison",
     "edit_cart",
@@ -458,6 +459,29 @@ def resume(draft: QuoteDraft) -> Message:
     return Message("\n".join(lines), spoken)
 
 
+def cart_view(draft: QuoteDraft) -> Message:
+    """🛒 el carrito a pedido de la persona («¿qué tengo en la cotización?»), sin cambiarlo."""
+
+    if not draft.lines:
+        return empty_cart()
+    summary = totals(draft.lines)
+    lines = [f"🛒 **Tu cotización · {_count_label(len(draft.lines))}**"]
+    lines += _cart_lines(draft.lines)
+    lines += [_partial(draft)]
+    spoken = (
+        f"Llevas {_count_label(len(draft.lines))}, total parcial de "
+        f"{_spoken_money(summary.products, summary.currency)}."
+    )
+    pending = reminder(draft)
+    if pending is not None and draft.awaiting not in (None, "algo_mas"):
+        lines += ["", pending.text]
+        spoken += f" {pending.spoken}"
+    else:
+        lines += ["", "¿Algo más o la cerramos? Di **eso es todo** para cerrarla."]
+        spoken += " ¿Algo más o la cerramos?"
+    return Message("\n".join(lines), spoken)
+
+
 def removed(draft: QuoteDraft, label: str) -> Message:
     if not draft.lines:
         text = f"Listo, quité **{label}**. Tu cotización quedó vacía. ¿Qué quieres cotizar?"
@@ -576,7 +600,8 @@ def summary(draft: QuoteDraft, *, note: str = "") -> Message:
     lines += ["", "¿La confirmo y te envío el PDF? Responde **sí** o dime qué cambio."]
     city = f" para {draft.city}" if draft.city else ""
     spoken = (
-        f"Son {_count_label(len(draft.lines))}{city}, total {said_total}. "
+        f"{'Es' if len(draft.lines) == 1 else 'Son'} {_count_label(len(draft.lines))}{city}, "
+        f"total {said_total}. "
         "¿La confirmo y te mando el PDF?"
     )
     if note:
