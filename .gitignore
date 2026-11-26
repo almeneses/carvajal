@@ -21,6 +21,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!.env.ensayo.example
 
 # Datos del corpus: capas crudas (bronze) y procesadas (silver) se ignoran;
 # el entregable versionado es data/gold/ (capa gold).
@@ -63,3 +64,6 @@ data/index/
 docs/eval/retrieval-results.json
 docs/evidence/m2/tests-*.txt
 data/catalog/empaques/imagenes/revision.html
+
+# Ensayo (docs/ensayo.md): el «inbound» local de OpenClaw y la configuración del ensayo.
+data/openclaw-media/

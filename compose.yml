@@ -78,6 +78,12 @@ x-dev-app: &dev-app
     # allowlist E.164 separada por comas vacía rechaza todos los remitentes.
     WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
     WEBHOOK_ALLOWED_NUMBERS: ${WEBHOOK_ALLOWED_NUMBERS:-}
+    # Jev (spec 046) y fotos de alimentos (spec 051) con las mismas variables que
+    # producción: sin TYPESAFE_API_KEY quedan apagados y el ensayo los salta.
+    JEV_ENABLED: ${JEV_ENABLED:-false}
+    TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+    JEV_MODEL: ${JEV_MODEL:-jev-1.14.0}
+    FOOD_PHOTO_ENABLED: ${FOOD_PHOTO_ENABLED:-true}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     # El perfil local no envía nada a Sentry ni a LangSmith salvo que se pida.
     SENTRY_DSN: ${SENTRY_DSN:-}
@@ -221,6 +227,41 @@ services:
           "python",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Perfil `whatsapp` (ensayo, docs/ensayo.md): el servidor MCP que en producción
+  # atiende a OpenClaw, con el mismo agente que el chat. Solo en el loopback.
+  # `make up PERFILES="full whatsapp"`; las fotos de WhatsApp se leen de
+  # ./data/openclaw-media (el «inbound» de OpenClaw en local).
+  mcp:
+    profiles: ["whatsapp"]
+    <<: *dev-app
+    restart: unless-stopped
+    command: ["python", "-m", "apps.mcp"]
+    environment:
+      <<: *dev-environment
+      MCP_TOKEN: ${MCP_TOKEN:-dev-mcp-solo-local}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8765"
+      FOOD_PHOTO_MEDIA_DIR: /app/data/openclaw-media
+    ports:
+      - "127.0.0.1:8765:8765"
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/live', timeout=3)",
         ]
       interval: 15s
       timeout: 5s
