@@ -43,13 +43,14 @@ git push
 ### Regla de merge (obligatoria para agentes)
 
 Toda Pull Request apunta a `main`; `dev` dejó de usarse el 2026-11-22. `main`
-está protegida con un ruleset: exige el check **`Calidad` en verde**, prohíbe
-**borrar** la rama y prohíbe el **force push**. Desde el 2026-11-25 (decisión
-del owner) no exige aprobaciones.
+está protegida con un ruleset: exige el check **`Calidad` en verde** y la
+**rama al día** con `main`, prohíbe **borrar** la rama y prohíbe el **force
+push**. Desde el 2026-11-25 (decisión del owner) no exige aprobaciones.
 
-- Un agente **puede fusionar su PR en cuanto `Calidad` esté en verde**, sin
-  esperar aprobación ni ningún otro check. Usa `gh pr merge <número> --squash
-  --delete-branch`.
+- Un agente **puede fusionar su PR en cuanto la rama esté al día y `Calidad`
+  esté en verde**, sin esperar aprobación ni ningún otro check. Si la rama va
+  detrás de `main`, la actualiza (`gh pr update-branch <número>`), espera de
+  nuevo `Calidad` y fusiona con `gh pr merge <número> --squash --delete-branch`.
 - Fusionar en `main` **despliega a producción** (`deploy.yml`): fusiona solo
   trabajo terminado y verificado con `make check`.
 - Nunca con `Calidad` en rojo o pendiente, y **nunca con `--admin`** para
@@ -174,7 +175,7 @@ Viven en `.claude/skills/` (formato Agent Skills; las leen Claude Code y
 OpenCode). Convierten las reglas de este archivo en pasos ejecutables:
 
 - [`abrir-pr`](./.claude/skills/abrir-pr/SKILL.md) — rama, `make check`,
-  commit, CONSTITUTION, etiquetas, assignee y merge con `Calidad` en verde.
+  commit, CONSTITUTION, etiquetas, assignee y merge con la rama al día y `Calidad` en verde.
 - [`evaluar-agente`](./.claude/skills/evaluar-agente/SKILL.md) — enrutador,
   retrieval y cotizador contra la línea base, con criterios de regresión.
 

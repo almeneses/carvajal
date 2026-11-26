@@ -81,7 +81,7 @@ Consulta **[`CONSTITUTION.md`](../CONSTITUTION.md)** para los estándares detall
 ## 🚀 Integración y post-merge
 
 - [ ] El check **`Calidad`** está en verde (no se exige aprobación).
-- [ ] La rama **no tiene conflictos** con `main`.
+- [ ] La rama está **al día** con `main` (obligatorio en el ruleset).
 - [ ] Fusionar con **Squash & Merge**. El release se marca después con un tag
       anotado `spec-NNN` sobre `main` (`CONSTITUTION.md` § Repositorio y Git).
 - [ ] **Cerrar** el issue asociado (`Closes #`).
