@@ -479,6 +479,13 @@ class ChatService:
                 draft, text, judge=self._reply_judge(), now=local_now()
             )
             if isinstance(decision, quote_flow.Reply):
+                if decision.draft.state == "cancelada" and tool_runner is not None:
+                    # «Olvida todo» cancela el borrador sin pasar por el grafo: el pedido
+                    # en curso del checkpoint también se olvida, o la próxima cotización
+                    # heredaría el producto anterior.
+                    reset = getattr(tool_runner, "clear_commercial_context", None)
+                    if reset is not None:
+                        reset(str(conversation.id))
                 yield from self._flow_reply(
                     owner_key,
                     conversation,

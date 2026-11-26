@@ -95,6 +95,7 @@ __all__ = [
     "TurnLookup",
     "WhatsAppBridge",
     "canonical_chat_id",
+    "is_new_conversation_request",
     "is_pdf_request",
     "owner_key_for",
     "quote_remarks",
@@ -439,6 +440,47 @@ def _fold(text: str) -> str:
         if not unicodedata.combining(character) and unicodedata.category(character) != "Cf"
     )
     return " ".join(re.sub(r"[^a-z0-9]+", " ", plain.translate(_HOMOGLYPHS)).split())
+
+
+# Mensajes que solo piden empezar de nuevo. Se comparan enteros, ya plegados (sin tildes,
+# mayúsculas ni signos): «empecemos de nuevo, quiero vasos» no es un reinicio sin más.
+_NEW_CONVERSATION_COMMANDS = frozenset(
+    {
+        "new",
+        "nuevo",
+        "nueva",
+        "reset",
+        "reiniciar",
+        "reinicia",
+        "nueva conversacion",
+        "conversacion nueva",
+        "nuevo chat",
+        "chat nuevo",
+        "empezar de nuevo",
+        "empecemos de nuevo",
+        "empieza de nuevo",
+        "comenzar de nuevo",
+        "comencemos de nuevo",
+        "volver a empezar",
+        "borrar conversacion",
+        "borra la conversacion",
+    }
+)
+
+
+def is_new_conversation_request(message: str) -> bool:
+    """«/new», «/nuevo», «Nueva conversación», «empecemos de nuevo»: abrir un hilo nuevo.
+
+    Un comando con barra («/new») cuenta siempre; una frase, solo si es todo el mensaje.
+    """
+
+    text = message.strip()
+    if not text:
+        return False
+    folded = _fold(text)
+    if text.startswith("/"):
+        return folded in {"new", "nuevo", "nueva", "reset", "reiniciar"}
+    return folded in _NEW_CONVERSATION_COMMANDS - {"new", "nuevo", "nueva", "reset"}
 
 
 def is_pdf_request(message: str, *, spoken: bool = False) -> bool:
@@ -895,6 +937,10 @@ class WhatsAppBridge:
         text = message.strip()
         if voice:
             text = normalize_transcript(text)
+        if is_new_conversation_request(text):
+            # «/new», «empezar de nuevo»…: se abre un hilo nuevo aunque el agente de
+            # OpenClaw no pase ``nueva=true`` (lo reenvía como texto o lo olvida).
+            new_conversation, text = True, ""
         if len(text) > MAX_MESSAGE_CHARS:
             return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)

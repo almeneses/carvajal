@@ -231,6 +231,37 @@ def test_conversacion_nueva_con_mensaje_responde_en_el_hilo_nuevo() -> None:
     assert len(chat.created) == 1 and len(chat.calls) == 1
 
 
+@pytest.mark.parametrize(
+    "texto", ["/new", "/New", "/nuevo", "Nueva conversación", "empecemos de nuevo."]
+)
+def test_el_comando_de_reinicio_abre_un_hilo_nuevo_sin_nueva_true(texto: str) -> None:
+    # Arrange: OpenClaw reenvía «/new» como texto, sin ``nueva=true`` (2026-11-25).
+    chat = FakeChat(events=_turn("Hola"))
+
+    # Act
+    answer = _bridge(chat).consult(texto, "+57300")
+
+    # Assert: hilo nuevo, sin turno ni cupo, y la confirmación de siempre.
+    assert answer == NEW_CONVERSATION
+    assert chat.created == [owner_key_for("+57300", SECRET)]
+    assert chat.calls == []
+
+
+@pytest.mark.parametrize(
+    "texto", ["empecemos de nuevo, quiero 100 vasos", "nuevo", "vasos nuevos", "/precios"]
+)
+def test_un_pedido_que_menciona_nuevo_no_reinicia(texto: str) -> None:
+    # Arrange
+    chat = FakeChat(events=_turn("Respuesta"))
+
+    # Act
+    _bridge(chat).consult(texto, "+57300")
+
+    # Assert
+    assert chat.created == []
+    assert chat.calls == [(owner_key_for("+57300", SECRET), texto)]
+
+
 def test_identificador_de_chat_invalido() -> None:
     with pytest.raises(ValueError):
         _bridge(FakeChat()).consult("hola", "   ")

@@ -15,9 +15,9 @@ Spec 044 (T023, T034, T035, T039 y T040).
   con la intención ``farewell``: no hay nada que consultar. Spec 045 (research R15): una
   preferencia declarada («llámame Ana», ``memory_write``) ya no es del atajo: va al agente,
   que la guarda con ``recordar_preferencia``. «Olvida todo lo que sabes de mí»
-  (``memory_forget``) sí: el atajo borra la memoria sin decisión del proveedor, deja el
-  marcador de olvido en el resumen y responde; si además trae un pedido, sigue al agente
-  con el sistema ya sin memoria.
+  (``memory_forget``) sí: el atajo borra la memoria y el contexto comercial sin decisión
+  del proveedor, deja el marcador de olvido en el resumen y responde; si además trae un
+  pedido, sigue al agente con el sistema ya sin memoria.
 - Spec 045 (US1, US2): ``recall`` lee la memoria del dueño una vez (canales ``memory`` y
   ``preferences``) y adopta el resumen acumulado (canal ``conversation_summary``, que no se
   reinicia), que viaja en el bloque ``<resumen_conversacion>`` del sistema.
@@ -746,7 +746,7 @@ def build_tool_agent(
             elif "memory" in update and decision.scope != "direct":
                 # Sigue al agente (trae un pedido): el sistema ya va sin memoria ni resumen.
                 update["messages"] = [
-                    SystemMessage(content=system_prompt(context or {}, []), id=SYSTEM_MESSAGE_ID)
+                    SystemMessage(content=system_prompt({}, []), id=SYSTEM_MESSAGE_ID)
                 ]
         direct = decision.scope == "direct"
         intent = ""
@@ -777,6 +777,9 @@ def build_tool_agent(
             "memory": {},
             "preferences": [],
             "conversation_summary": forgotten_marker(turn_count + 1).to_value(),
+            # El pedido en curso (producto, material, ciudad, referencia) también se olvida:
+            # si no, la siguiente cotización heredaba el producto anterior.
+            "commercial_context": {},
         }
 
     def after_shortcut(state: ToolAgentState) -> str:
