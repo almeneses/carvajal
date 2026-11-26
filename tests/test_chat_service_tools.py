@@ -134,6 +134,8 @@ class FakeToolRunner:
         thread_id: str,
         question: str,
         seed_turns: Sequence[Turn],
+        *,
+        draft: Any = None,
     ) -> Iterator[ToolAgentEvent]:
         self.calls.append(
             {
@@ -141,6 +143,7 @@ class FakeToolRunner:
                 "thread_id": thread_id,
                 "question": question,
                 "seed_turns": list(seed_turns),
+                "draft": draft,
             }
         )
         try:
@@ -2307,9 +2310,11 @@ def test_el_runner_recibe_la_semilla_con_turn_count(engine: Any) -> None:
     received: list[Any] = []
 
     class SeedRunner(FakeToolRunner):
-        def stream(self, owner_key: str, thread_id: str, question: str, seed_turns: Any) -> Any:
+        def stream(
+            self, owner_key: str, thread_id: str, question: str, seed_turns: Any, **kwargs: Any
+        ) -> Any:
             received.append(seed_turns)
-            return super().stream(owner_key, thread_id, question, seed_turns)
+            return super().stream(owner_key, thread_id, question, seed_turns, **kwargs)
 
     runner = SeedRunner(scripted_events())
     service = build_service(engine, runner)

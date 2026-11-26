@@ -103,6 +103,7 @@ __all__ = [
     "NO_DATA_ANSWER",
     "OUT_OF_SCOPE_ANSWER",
     "PREFERENCE_ANSWER",
+    "PRESENTING_TOOLS",
     "GatePath",
     "abstention",
     "ask_for_missing",
@@ -115,6 +116,7 @@ __all__ = [
     "names_city",
     "neutral_only",
     "out_of_scope",
+    "presented_data",
     "sites_without_price",
     "tool_misses",
     "unsupported_terms",
@@ -701,6 +703,125 @@ def _named_matches(data: Mapping[str, Any]) -> str:
     if not found:
         return ""
     return f" Con ese nombre sí aparece fuera de esa búsqueda: {_join(found)}."
+
+
+# --- Reemplazo con los datos que el turno presentó (compuerta de afirmaciones) -------------
+
+# Herramientas cuyos datos el turno puede presentar sin redacción del modelo: sus resultados
+# son deterministas (catálogo, directorio y motor de cotización).
+PRESENTING_TOOLS: Final = frozenset({TOOL_BUSCAR_PRODUCTO, TOOL_BUSCAR_SEDES, TOOL_COTIZAR})
+# Tantas opciones como tarjetas muestra el chat cuando el texto no nombra ninguna.
+_PRESENTED: Final = 3
+_TEMPERATURES: Final = {
+    "caliente": "contenido caliente",
+    "fria": "contenido frío",
+    "ambiente": "contenido a temperatura ambiente",
+}
+
+
+def _cite(item: Mapping[str, Any]) -> str:
+    return f" [{item['n']}]" if isinstance(item.get("n"), int) else ""
+
+
+def _capacity(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return ""
+    return f"{value:g} oz"
+
+
+def _options_lead(data: Mapping[str, Any], count: int) -> str:
+    search = data.get("busqueda_nombre")
+    criteria = data.get("aptas_para")
+    wanted: list[str] = []
+    if isinstance(criteria, Mapping):
+        if criteria.get("temperatura") in _TEMPERATURES:
+            wanted.append(_TEMPERATURES[str(criteria["temperatura"])])
+        if criteria.get("microondas") is True:
+            wanted.append("uso en microondas")
+    if isinstance(search, Mapping) and not search.get("coincidencias"):
+        lead = "No encontré esa referencia por nombre; estas del catálogo sí son aptas"
+    elif isinstance(search, Mapping) and search.get("parcial"):
+        lead = "Ninguna referencia coincide exactamente con ese nombre; estas se parecen y son"
+        lead += " aptas"
+    elif count == 1:
+        lead = "Esta referencia del catálogo es apta"
+    else:
+        lead = "Estas referencias del catálogo son aptas"
+    return f"{lead} para {_join(wanted)}:" if wanted else f"{lead} para lo que pides:"
+
+
+def _product_lines(data: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = []
+    options = [item for item in data.get("opciones") or [] if isinstance(item, Mapping)]
+    for index, item in enumerate(options[:_PRESENTED], start=1):
+        if not item.get("nombre"):
+            continue
+        detail = [str(item["material"])] if item.get("material") else []
+        if _capacity(item.get("capacidad_oz")):
+            detail.append(_capacity(item.get("capacidad_oz")))
+        sku = f" (SKU {item['sku']})" if item.get("sku") else ""
+        extra = f" · {', '.join(detail)}" if detail else ""
+        lines.append(f"{index}. {item['nombre']}{sku}{extra}{_cite(item)}")
+    return lines
+
+
+def _site_lines(data: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for site in data.get("sedes") or []:
+        if not isinstance(site, Mapping) or not site.get("nombre"):
+            continue
+        contact = (str(site[key]) for key in ("direccion", "telefono") if site.get(key))
+        parts = [str(site["nombre"]), *contact]
+        lines.append(f"- {' — '.join(parts)}{_cite(site)}")
+    return lines
+
+
+def presented_data(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> str:
+    """Reemplazo con los datos que presentó el turno, para un texto que la compuerta rechaza.
+
+    Solo si todo lo que consultó el turno (sin ``sin_consulta`` ni memoria) son búsquedas
+    deterministas (:data:`PRESENTING_TOOLS`) y alguna trajo datos: las opciones aptas de
+    ``buscar_producto`` (nombre, SKU, material y capacidad, con su cita, como las tarjetas)
+    y las sedes de ``buscar_sedes`` (nombre, dirección y teléfono). Nada lo escribe el
+    modelo, así que ninguna afirmación sin respaldo pasa; el texto rechazado no se recorta.
+
+    Devuelve ``""`` si el turno consultó otra cosa (el corpus, la historia…: su parte se
+    perdería), si no hay datos que presentar o si ``cotizar`` trajo una cotización: su
+    plantilla (opciones o línea agregada, spec 054) ya responde el turno y el servicio
+    reemplaza la abstención por ella.
+    """
+
+    items = [
+        (tool, data)
+        for tool, data in payloads
+        if tool not in DECLARATION_TOOLS and tool not in MEMORY_TOOLS
+    ]
+    if not items or any(tool not in PRESENTING_TOOLS for tool, _ in items):
+        return ""
+    if any(tool == TOOL_COTIZAR and data.get("status") == "ok" for tool, data in items):
+        return ""
+    parts: list[str] = []
+    offer = False
+    for tool, data in items:
+        if data.get("status") != "ok":
+            continue
+        if tool == TOOL_BUSCAR_PRODUCTO:
+            lines = _product_lines(data)
+            if lines:
+                offer = True
+                parts.append(_options_lead(data, len(lines)) + "\n\n" + "\n".join(lines))
+        elif tool == TOOL_BUSCAR_SEDES:
+            lines = _site_lines(data)
+            if lines:
+                parts.append(
+                    "Estas sedes del directorio tienen contacto para confirmar precio y "
+                    "disponibilidad:\n\n" + "\n".join(lines)
+                )
+    if not parts:
+        return ""
+    if offer:
+        parts.append("¿Quieres que te cotice alguna?")
+    return "\n\n".join(dict.fromkeys([*tool_misses(items), *parts]))
 
 
 def tool_misses(payloads: Iterable[tuple[str, Mapping[str, Any]]]) -> list[str]:

@@ -463,6 +463,7 @@ def test_index_qdrant_all_indexa_nucleo_y_fuentes_extendidas_en_una_corrida(
             qdrant_dimensions=768,
             qdrant_distance="cosine",
             ollama_base_url="http://localhost:11434",
+            ollama_embed_keep_alive_s=86_400,
         ),
     )
     monkeypatch.setattr(
@@ -481,6 +482,54 @@ def test_index_qdrant_all_indexa_nucleo_y_fuentes_extendidas_en_una_corrida(
     assert code == 0
     assert received["gold_dirs"] == [(core, "core"), (extended, "extended")]
     assert "Puntos indexados: 4" in capsys.readouterr().out
+
+
+def test_index_qdrant_solo_indices_de_payload_no_embebe_ni_indexa(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--only-payload-indexes`` crea los índices que falten sin tocar puntos (2026-11-26)."""
+
+    # Arrange
+    from types import SimpleNamespace
+
+    calls: list[str] = []
+
+    class FakeStore:
+        collection = "corpus"
+
+        def __init__(self, **kwargs: object) -> None:
+            self.client = SimpleNamespace(collection_exists=lambda name: True)
+
+        def ensure_payload_indexes(self) -> list[str]:
+            calls.append("indices")
+            return ["layer", "section"]
+
+        def close(self) -> None:
+            calls.append("close")
+
+    def no_index(**kwargs: object) -> None:
+        raise AssertionError("No debe indexar.")
+
+    monkeypatch.setattr(
+        "carvajal.infrastructure.settings.Settings",
+        lambda: SimpleNamespace(
+            qdrant_url="http://localhost:6333",
+            qdrant_api_key=None,
+            qdrant_collection="corpus",
+            qdrant_dimensions=768,
+            qdrant_distance="cosine",
+        ),
+    )
+    monkeypatch.setattr("carvajal.adapters.vector.qdrant_store.QdrantVectorStore", FakeStore)
+    monkeypatch.setattr("carvajal.indexing.qdrant.index_gold", no_index)
+
+    # Act
+    code = cli.main(["index-qdrant", "--only-payload-indexes"])
+
+    # Assert
+    assert code == 0
+    assert calls == ["indices", "close"]
+    assert "Índices de payload creados: layer, section" in capsys.readouterr().out
 
 
 def test_sync_rechaza_adopt_junto_a_verify(

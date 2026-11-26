@@ -79,6 +79,23 @@ def test_deploy_siembra_la_capa_institucional_sin_pisar_el_volumen(tmp_path: Pat
     assert (app / "data" / "institucional" / "nuevo.json").read_text() == "imagen\n"
 
 
+def test_compose_pasa_los_ajustes_de_embeddings_sin_contradecir_settings() -> None:
+    """2026-11-26: ``keep_alive``, caché y calentamiento con los defaults de ``Settings``."""
+
+    from carvajal.infrastructure.settings import Settings
+
+    text = (REPO / "compose.prod.yml").read_text(encoding="utf-8")
+    defaults = Settings(_env_file=None)
+    expected = {
+        "OLLAMA_EMBED_KEEP_ALIVE_S": str(defaults.ollama_embed_keep_alive_s),
+        "EMBED_CACHE_SIZE": str(defaults.embed_cache_size),
+        # El conftest lo apaga en el entorno: se compara con el default del campo.
+        "EMBED_WARM_UP": str(Settings.model_fields["embed_warm_up"].default).lower(),
+    }
+    for name, value in expected.items():
+        assert f"{name}: ${{{name}:-{value}}}" in text, name
+
+
 def test_compose_pasa_las_variables_de_jev_sin_contradecir_settings() -> None:
     """Spec 046 (T002): la app recibe la clave y los ajustes ``JEV_*`` con los defaults."""
 

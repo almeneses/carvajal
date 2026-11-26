@@ -564,7 +564,7 @@ def test_jev_por_defecto_apagado_y_con_valores_del_data_model() -> None:
     assert settings.jev_router_min_confidence == 0.6
     assert settings.jev_router_direct_min_confidence == 0.8
     assert settings.jev_claims_mode == "enforce"
-    assert settings.jev_claims_threshold == 0.5
+    assert settings.jev_claims_threshold == 0.3
     assert settings.jev_max_calls_per_day == 1000
     assert settings.jev_max_evidence_chars == 12000
 

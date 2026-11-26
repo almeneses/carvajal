@@ -361,11 +361,13 @@ muestra el bloque `jev`; las corridas de medición dejan su informe en
   `no_query`, que no deja salir cifras, fechas ni nombres sin respaldo), las abstenciones,
   los reemplazos neutros, los turnos solo de memoria, el respaldo determinista y los textos
   que solo contienen preguntas a la persona.
-- **FR-012**: Si la probabilidad de respaldo es menor que `JEV_CLAIMS_THRESHOLD` (0,5), el
-  texto MUST sustituirse por el mismo texto neutro que la compuerta determinista usa al
-  rechazar (reemplazo neutro si el turno pidió un dato o trajo sedes; si no, la
-  abstención ajustada a lo consultado, sin fuentes), y eso es lo que se emite, se
-  persiste y se devuelve por WhatsApp.
+- **FR-012**: Si la probabilidad de respaldo es menor que `JEV_CLAIMS_THRESHOLD` (0,3 desde
+  el 2026-11-26; antes 0,5, ver `evidencia.md` §10.7), el texto MUST sustituirse por el
+  mismo texto neutro que la compuerta determinista usa al rechazar (reemplazo neutro si el
+  turno pidió un dato o trajo sedes; si el turno solo consultó búsquedas deterministas
+  —opciones del catálogo o sedes del directorio—, esos datos presentados sin redacción del
+  modelo, desde el 2026-11-26; si no, la abstención ajustada a lo consultado, sin fuentes),
+  y eso es lo que se emite, se persiste y se devuelve por WhatsApp.
 - **FR-013**: El criterio de la pregunta Noul MUST contar como no respaldada una valoración o
   recomendación presentada como hecho que ninguna consulta devolvió («la de 16 oz es la más
   usada para sopas») y MUST NOT contar como inventado un dato reformateado (un teléfono con el

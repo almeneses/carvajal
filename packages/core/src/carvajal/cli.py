@@ -190,6 +190,14 @@ def build_parser() -> argparse.ArgumentParser:
     index_parser.add_argument(
         "--batch-size", type=int, default=32, help="Fragmentos por lote de embeddings."
     )
+    index_parser.add_argument(
+        "--only-payload-indexes",
+        action="store_true",
+        help=(
+            "Solo crea los índices de payload que falten (layer, section, document_id); "
+            "no embebe ni toca puntos. Idempotente."
+        ),
+    )
 
     sync_parser = subparsers.add_parser(
         "sync",
@@ -552,6 +560,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _payload_indexes(settings: Any) -> int:
+    """``index-qdrant --only-payload-indexes``: crea los índices de payload que falten.
+
+    Idempotente y sin embeddings: no cambia ningún punto. Sirve para una colección indexada
+    antes del 2026-11-26, que no los tiene (``payload_schema`` vacío en producción).
+    """
+
+    from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
+
+    store = QdrantVectorStore(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        collection=settings.qdrant_collection,
+        dimensions=settings.qdrant_dimensions,
+        distance=settings.qdrant_distance,
+    )
+    try:
+        if not store.client.collection_exists(store.collection):
+            print(f"No existe la colección {store.collection}: indexa primero.")
+            return 1
+        created = store.ensure_payload_indexes()
+    except Exception as error:  # Qdrant inaccesible
+        print(f"No se pudo contactar con Qdrant en {settings.qdrant_url}: {error}")
+        return 1
+    finally:
+        store.close()
+    print(
+        f"Índices de payload creados: {', '.join(created) if created else 'ninguno (ya estaban)'}"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Punto de entrada de la CLI.
 
@@ -906,6 +946,8 @@ def main(argv: list[str] | None = None) -> int:
         from carvajal.infrastructure.settings import Settings
 
         settings = Settings()
+        if args.only_payload_indexes:
+            return _payload_indexes(settings)
         layers = corpus_layers(args.gold, settings.external_dir, which=args.layer)
         areas = [
             (directory, layer.name)
@@ -927,7 +969,10 @@ def main(argv: list[str] | None = None) -> int:
             report = index_gold(
                 gold_dirs=areas,
                 store=store,
-                embedder=OllamaEmbedder(base_url=settings.ollama_base_url),
+                embedder=OllamaEmbedder(
+                    base_url=settings.ollama_base_url,
+                    keep_alive=settings.ollama_embed_keep_alive_s,
+                ),
                 recreate=args.recreate,
                 prune=not args.no_prune,
                 batch_size=max(1, args.batch_size),

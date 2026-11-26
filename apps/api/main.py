@@ -8,7 +8,8 @@ petición abre su propia sesión.
 
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import cache
 
@@ -27,7 +28,7 @@ from apps.api.observability import (
     claims_block,
     configure_observability,
 )
-from apps.api.runtime import APP_DIR, session_factory, templates
+from apps.api.runtime import APP_DIR, session_factory, templates, warm_up_embeddings
 from apps.api.security import SecurityMiddleware, operator_authorized
 from apps.api.views import (
     api,
@@ -256,10 +257,26 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
 
     force_global_tracing_off()
     configure_observability()
+    settings = Settings()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+        # Al arrancar el servidor (no al importar): el modelo de embeddings se carga en
+        # Ollama en segundo plano para que la primera búsqueda no pague la carga en frío.
+        # La configuración se relee aquí: ``app`` se crea al importar el módulo.
+        if handlers is None and Settings().embed_warm_up:
+            warm_up_embeddings()
+        yield
+
     # Sin Swagger público: la interfaz de la app es el formulario HTML y el
     # esquema no aporta a un visitante anónimo.
-    app = FastAPI(title="Corpus Carvajal", docs_url=None, redoc_url=None, openapi_url=None)
-    settings = Settings()
+    app = FastAPI(
+        title="Corpus Carvajal",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
     app.state.settings = settings
     app.state.quota = handlers.quota if handlers is not None else _default_quota
     app.state.quota_peek = handlers.quota_peek if handlers is not None else _default_quota_peek

@@ -13,13 +13,16 @@ import pytest
 from carvajal.agent.gatekeeper.claims import (
     PERSON_EXTRACT,
     build_claims_query,
+    draft_extract,
     judgeable,
     only_questions,
+    said_before,
     said_by_person,
 )
 from carvajal.agent.gatekeeper.privacy import FOLIO_MARK
 from carvajal.agent.memory.sensitive import REDACTED
 from carvajal.infrastructure.settings import Settings
+from carvajal.quotation.draft import QuoteDraft
 
 QUESTION = "Cotízame 500 vasos de 9 oz para café en Cali, mi celular es 3001234567"
 PRODUCT = (
@@ -102,6 +105,67 @@ def test_la_pregunta_no_viaja_y_si_lo_dicho_por_la_persona() -> None:
     everything = json.dumps([query.answer, *query.evidence], ensure_ascii=False)
     assert QUESTION not in everything
     assert "3001234567" not in everything
+
+
+def test_lo_dicho_en_mensajes_anteriores_viaja_tras_lo_del_turno() -> None:
+    # Arrange: pedido del dato que repite lo dicho dos turnos antes (evidencia §10.3).
+    earlier = ["Cotízame 1000 vasos de 14 oz en Cali", "para llevar"]
+    answer = "Falta la temperatura. Con eso te cotizo los 1000 vasos de 14 oz en Cali."
+
+    # Act
+    query = build_claims_query(answer, "¿cuánto sale?", [PRODUCT], earlier_questions=earlier)
+
+    # Assert
+    said = _evidence(query)[PERSON_EXTRACT]
+    assert said == "en mensajes anteriores: cantidad: 1000; familia: vaso; capacidad: 14 oz; " + (
+        "ciudad: Cali"
+    )
+    assert "Cotízame" not in json.dumps(query.evidence, ensure_ascii=False)
+
+
+def test_said_before_omite_lo_repetido_y_junta_valores_distintos() -> None:
+    # Act
+    found = said_before(
+        ["500 vasos en Cali", "mejor 800 vasos en Cali"], current={"ciudad": "Cali"}
+    )
+
+    # Assert
+    assert found == {"cantidad": "500 / 800", "familia": "vaso"}
+
+
+def test_draft_extract_trae_lineas_y_referencias_por_elegir_sin_folio() -> None:
+    # Arrange
+    line = {
+        "primary": {
+            "name": "Vaso PP 9 oz",
+            "presentation": {"units_requested": 500, "subtotal": "52000.00"},
+            "provider": {"city": "Cali", "phone": "6025551234"},
+        },
+        "folio": "CV-7F3A9",
+    }
+    draft = QuoteDraft(
+        lines=(line,),
+        choices=({"sku": "T1", "name": "Tapa 9 oz"}, {"sku": "T2", "name": "Tapa Gold"}),
+        choice_request={"quantity": 300, "city": "Cali"},
+    )
+
+    # Act
+    text = draft_extract(draft)
+
+    # Assert
+    assert text.splitlines() == [
+        "1. Vaso PP 9 oz · 500 und · Cali · subtotal 52000 COP",
+        "referencias por elegir: Tapa 9 oz, Tapa Gold; cantidad: 300; ciudad: Cali",
+    ]
+    assert "CV-7F3A9" not in text and "555" not in text
+
+
+def test_un_borrador_cancelado_o_ausente_no_respalda_nada() -> None:
+    line = {"primary": {"name": "Vaso PP 9 oz"}}
+
+    assert draft_extract(QuoteDraft(lines=(line,), state="cancelada")) == ""
+    assert draft_extract(None) == ""
+    assert draft_extract(QuoteDraft()) == ""
 
 
 def test_sin_valores_estructurados_no_hay_extracto_de_la_persona() -> None:

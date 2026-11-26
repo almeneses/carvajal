@@ -388,6 +388,18 @@ embeddings), usa `--recreate` en la app desplegada:
 docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
 ```
 
+Índices de payload (2026-11-26). La búsqueda filtra por `layer` (el núcleo son unos 125 de
+118 248 puntos) y por `section`, y la indexación por `document_id`. Una colección indexada
+antes de esa fecha no tiene esos índices (`payload_schema` vacío) y Qdrant recorre el grafo
+leyendo el payload de cada candidato desde disco. `index-qdrant` los crea al empezar si
+faltan; para crearlos sin reindexar ni embeber (idempotente, no cambia ningún punto):
+
+```bash
+docker compose -f compose.prod.yml exec app carvajal index-qdrant --only-payload-indexes
+```
+
+Es una operación de datos: la decide y la ejecuta el owner en una ventana tranquila.
+
 El índice queda en el volumen `qdrantdata` y sobrevive a reinicios y despliegues.
 Las cargas de la pestaña Configuración escriben en el volumen `appdata`
 montado en `/app/data`; también sobreviven a los reinicios y a los despliegues.

@@ -816,7 +816,7 @@ def eval_claims(
 ) -> ClaimsReport:
     """Una pregunta Noul por respuesta, hasta ``max_jev_calls``."""
 
-    report = ClaimsReport(threshold=float(getattr(settings, "jev_claims_threshold", 0.5)))
+    report = ClaimsReport(threshold=float(getattr(settings, "jev_claims_threshold", 0.3)))
     used = 0
     for item in items:
         result = ClaimsResult(item=item)

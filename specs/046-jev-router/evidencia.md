@@ -544,7 +544,7 @@ vueltas, así que no decide el umbral de producción.
 Reproducción: `uv run --env-file <.env con TYPESAFE_API_KEY> carvajal eval-claims --ledger
 <libro>.jsonl --max-jev-calls 20 --output <informe>.md --json <informe>.json`.
 
-### 10.5 Recomendación (pendiente de decisión del owner)
+### 10.5 Recomendación (puntos 2 y 3 aplicados el 2026-11-26, ver §10.7)
 
 1. **No cambiar ahora el umbral ni el modo.** La evidencia no es abrumadora. No hay texto
    de producción, la auditoría sale de 27 casos de prueba con un solo revisor y la tasa de
@@ -583,3 +583,70 @@ Reproducción: `uv run --env-file <.env con TYPESAFE_API_KEY> carvajal eval-clai
 - **`claims.judged`** suma `tools` (herramientas del turno) y `answer_chars`.
 - **LangSmith** ya llevaba `claims_status`, `claims_p` y `claims_substituted` en la raíz de
   cada turno. No se añadió otra métrica: con esos metadatos se rehízo §10.2.
+
+### 10.7 Cambios tras el ensayo del 2026-11-26 (umbral 0,3, contexto y reemplazo con datos)
+
+**Dato nuevo.** El ensayo contra producción (despliegue de las 18:36 UTC, `70b9d84`) dio en el
+bloque `claims` de `/health`: web 18 de 47 juzgadas sustituidas (38,3 %) y WhatsApp 17 de 45
+(37,8 %). Histograma de p de las sustituidas, por décimas de 0 a 0,5:
+
+| Rango de p | Web | WhatsApp |
+|---|---|---|
+| [0; 0,1) | 2 | 2 |
+| [0,1; 0,2) | 3 | 4 |
+| [0,2; 0,3) | 9 | 6 |
+| [0,3; 0,4) | 0 | 1 |
+| [0,4; 0,5) | 4 | 4 |
+
+Casos con texto en las transcripciones: microondas t1 (las tarjetas mostraban cazuelas de PP
+aptas y el texto quedó en «No tengo un dato verificado…»), «300 tapas» (si_ante_la_pregunta
+t3) y turnos de opciones de `cotizar` (insulto y retomar t1) cuya sustitución no se vio
+porque el servicio cambia la abstención por la plantilla de opciones.
+
+**Decisión: `JEV_CLAIMS_THRESHOLD` baja de 0,5 a 0,3 (código, `compose.prod.yml` y
+`.env.example`).** Es la opción 3 de §10.5, ahora con el pedido explícito del owner de bajar
+la sustitución:
+
+| | 0,5 | **0,3** |
+|---|---|---|
+| Producción, 7 días (n = 237) | 48 (20,3 %) | **31 (13,1 %)** |
+| Ensayo web (n = 47) | 18 (38,3 %) | **14 (29,8 %)** |
+| Ensayo WhatsApp (n = 45) | 17 (37,8 %) | **12 (26,7 %)** |
+| Conjunto congelado (§10.4) | 10/10 y 0/6 | **10/10 y 0/6** |
+| Auditoría (§10.3): falsos positivos que quedan | 18 | **4** |
+| Auditoría: bien atrapadas que se pierden | — | **0** (p 0,14 y 0,23) |
+
+Por qué no más abajo: con 0,2 se perdería la sustitución bien atrapada de p 0,23 (valoración
+presentada como hecho, la regla de la Enmienda E). Por qué no 0,5: entre 0,3 y 0,6 Jev no
+separa respuestas equivalentes (§10.3, «contraste»), así que 0,5 partía en dos un grupo
+homogéneo. Riesgo aceptado: una afirmación sin fuente con p entre 0,3 y 0,5 pasa. En la
+muestra auditada no hubo ninguna, pero n es chico; el bloque `claims` de `/health` y
+`claims.judged` siguen midiendo. **Si el `.env` del servidor fija `JEV_CLAIMS_THRESHOLD=0.5`
+(como el `.env.example` anterior), producción sigue en 0,5 hasta que el owner lo cambie.**
+Volver atrás no requiere código: `JEV_CLAIMS_THRESHOLD=0.5`.
+
+**Arreglo estructural (§10.5, punto 2).** `build_claims_query` pasa a Jev:
+
+- en `dicho_por_la_persona`, tras `| en mensajes anteriores: `, los valores estructurados de
+  los mensajes anteriores de la ventana del turno (los posteriores a «olvidar todo» y las
+  `user_quotes` del resumen) que el turno no repite. «Cotízame 500 vasos de 9 oz en Bogotá»
+  dicho dos turnos antes ya respalda «para tus 500 vasos de 9 oz en Bogotá»;
+- un extracto `borrador_de_cotizacion` con las líneas del borrador de la spec 054
+  (producto, unidades, ciudad y subtotal del motor) y las referencias por elegir.
+
+`buscar_producto` suma a sus datos `aptas_para` (temperatura y microondas con que la guía de
+materiales dio por aptas las opciones): sin él, «se pueden meter al microondas» no tenía
+respaldo en la evidencia.
+
+**Reemplazo con los datos del turno.** Si el turno solo consultó búsquedas deterministas
+(`buscar_producto`, `buscar_sedes`) y la compuerta rechaza el texto, sale
+`presented_data()`: las opciones aptas (nombre, SKU, material, capacidad y cita, como las
+tarjetas) o las sedes con su contacto, y «¿Quieres que te cotice alguna?», en vez de
+`NO_DATA_ANSWER`. Con `cotizar` sigue la abstención que el servicio cambia por la plantilla
+(spec 054). La sustitución cuenta igual en `claims.substituted`; el log
+`claims.replaced_with_data` la distingue.
+
+**Sin medición con Jev** (sin créditos): las pruebas `tests/test_claims_ensayo.py` usan un
+juez falso con los p observados (0,38–0,49 de las tablas citadas ya no se sustituyen; 0,06,
+0,14 y 0,23 siguen atrapadas) y comprueban que lo dicho antes y el borrador llegan a la
+evidencia. El efecto del contexto sobre p queda por medir con el próximo ensayo.

@@ -1616,7 +1616,9 @@ class ChatService:
 
         config = self._config()
         fragments = tools.fragments
-        events = tools.runner.stream(owner_key, thread_id, tools.prompt or question, tools.seed)
+        events = tools.runner.stream(
+            owner_key, thread_id, tools.prompt or question, tools.seed, draft=tools.draft
+        )
         closing: ToolAgentFinal | None = None
         try:
             with span.child(
