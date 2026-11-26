@@ -23,6 +23,7 @@ from carvajal.agent.followup import (
     is_too_expensive,
     names_amount,
     parse_quantities,
+    removes_whole_line,
     resolve_more,
     resolve_quantity_choice,
     resolve_remove,
@@ -296,6 +297,7 @@ def test_pedir_un_cambio_sin_decir_cual_se_reconoce(texto: str) -> None:
         "ok no quiero cambiar",
         "no quiero cambiar nada",
         "ya no quiero cambiar",
+        "tampoco quiero cambiar nada",  # «tampoco» niega como «no»
     ],
 )
 def test_un_pedido_concreto_no_es_pedir_un_cambio(texto: str) -> None:
@@ -315,7 +317,11 @@ def test_un_pedido_concreto_no_es_pedir_un_cambio(texto: str) -> None:
         "Quiero cambiar algo",  # el genérico también es un cambio
         "eso es todo, pero quiero cambiar la 2",  # tras un cierre, el cambio manda
         "listo, pero quita los vasos",
-        "quiero sacarle 100 a los vasos",
+        "listo, pero saca los platos",  # tras «pero», «saca» también es un cambio
+        "eso es todo, pero quiero sacar los platos",
+        "sí, pero sácale la tapa a los vasos",
+        "quiero quitarle la tapa a los vasos",
+        "quiero quitarle 100 a los vasos",
     ],
 )
 def test_un_cambio_dicho_con_quiero_se_reconoce(texto: str) -> None:
@@ -334,6 +340,16 @@ def test_un_cambio_dicho_con_quiero_se_reconoce(texto: str) -> None:
         "quiero sacar una cotizacion de 500 vasos",  # «sacar cotización» es pedirla
         "también quiero sacar cotización de platos",
         "eso es todo, no quiero cambiar nada",
+        "tampoco quiero cambiar nada",
+        "yo tampoco quiero cambiar nada",
+        "eso es todo, tampoco quiero cambiar nada",
+        # «quiero sacar…» pide algo (el pedido, el PDF, otro color): no es un cambio.
+        "quiero sacarle 100 a los vasos",
+        "quiero sacar el pedido de los vasos",
+        "quiero sacar los vasos en otro color",
+        "quiero sacarla en pdf",
+        "sí, quiero sacar el pdf ya",
+        "eso es todo, pero sácala en pdf",
     ],
 )
 def test_agregar_o_negar_no_es_pedir_un_cambio_dicho(texto: str) -> None:
@@ -352,6 +368,36 @@ def test_agregar_o_negar_no_es_pedir_un_cambio_dicho(texto: str) -> None:
 )
 def test_una_cantidad_no_es_el_numero_de_una_linea(texto: str, esperado: bool) -> None:
     assert names_amount(texto) is esperado
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("quiero quitar la 2", True),
+        ("necesito quitar los vasos", True),
+        ("eso es todo, pero quita la 2", True),
+        ("quiero quitarle 100 a los vasos", False),  # una cantidad: cambia la línea
+        ("quiero quitarle la tapa a los vasos", False),  # algo de la línea, no la línea
+        ("quiero quitarle el logo a los platos", False),
+        ("sí, pero sácale la tapa a los vasos", False),
+        ("quiero quitar la 1 y la 2", False),  # la regla quita una sola línea
+    ],
+)
+def test_que_pedidos_quitan_una_linea_entera(texto: str, esperado: bool) -> None:
+    assert removes_whole_line(texto) is esperado
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("sacar cotización de 500 vasos", "add"),
+        ("sácame una cotización para 300 platos", "add"),
+        ("saca la cotización", None),  # sin producto no agrega: no suelta la confirmación
+        ("sácala", None),
+    ],
+)
+def test_sacar_una_cotizacion_agrega_solo_si_dice_de_que(texto: str, esperado: str | None) -> None:
+    assert resolve_more(texto) == esperado
 
 
 @pytest.mark.parametrize(
@@ -735,6 +781,24 @@ PEDIDOS_QUE_NO_QUITAN = (
     "quiero sacarle 100 a los vasos",
     "quiero quitarle 100 a los vasos",
     "necesito sacar 300 platos",
+    # «Sacar» el pedido, el PDF o un producto en otra versión es pedirlo, no quitarlo.
+    "quiero sacar el pedido de los vasos",
+    "necesito sacar el pedido de los platos",
+    "quiero sacar la orden de los vasos",
+    "quiero sacar la factura de los vasos",
+    "quiero sacar el precio de los vasos",
+    "quiero sacar el presupuesto de los platos",
+    "quiero sacar la proforma de los vasos",
+    "necesito sacar el pdf de los vasos",
+    "quiero sacar los vasos en otro color",
+    "quiero sacar los vasos con tapa",
+    # Quitarle algo a una línea la cambia; no la quita entera.
+    "quiero quitarle la tapa a los vasos",
+    "necesito quitarle la tapa a los vasos",
+    "quiero quitarle el logo a los platos",
+    "quiero sacarle el logo a los vasos",
+    "sí, pero sácale la tapa a los vasos",
+    "quiero quitar la 1 y la 2",
 )
 
 
@@ -766,6 +830,9 @@ def test_pedir_cotizacion_o_cambiar_una_cantidad_no_quita_la_linea(
         ("saca los platos", "Vaso térmico 12 oz"),
         ("borra los vasos", "Plato pulpa 9″"),
         ("eso es todo, pero quita la 2", "Plato pulpa 9″"),
+        ("quiero quitar los platos", "Vaso térmico 12 oz"),
+        ("listo, pero saca los platos", "Vaso térmico 12 oz"),
+        ("eso es todo, pero quiero sacar los platos", "Vaso térmico 12 oz"),
     ],
 )
 def test_quitar_una_linea_sigue_quitandola(texto: str, queda: str, awaiting: str) -> None:
@@ -781,6 +848,28 @@ def test_quitar_una_linea_sigue_quitandola(texto: str, queda: str, awaiting: str
     assert [line_label(line) for line in decision.draft.lines] == [queda]
     assert decision.draft.awaiting == "algo_mas"
     assert judge.calls == []
+
+
+@pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
+@pytest.mark.parametrize("texto", ["quiero sacarla en pdf", "sí, quiero sacar el pdf ya"])
+def test_sacar_el_pdf_cierra_y_registra(texto: str, awaiting: str) -> None:
+    # Arrange
+    draft = _cart().touch(AHORA, state="resumen", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert: pedir el PDF cierra y confirma por la regla del PDF, sin el agente.
+    assert isinstance(decision, Reply) and decision.register
+    assert decision.draft.lines == draft.lines
+
+
+def test_saca_la_cotizacion_sin_producto_no_suelta_la_confirmacion() -> None:
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, "saca la cotización", requote_fn=fake_requote, now=AHORA)
+    assert not (isinstance(decision, Reply) and decision.register)
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting == "confirmar"
 
 
 CIERRES_CON_CAMBIO = (

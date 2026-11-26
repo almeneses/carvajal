@@ -130,7 +130,11 @@ borrador no cambia.
   registra.
 - «Quiero sacar una cotización de 500 vasos» pide otra cotización y «quiero sacarle 100 a
   los vasos» cambia una cantidad: ninguna quita una línea; van al agente con el borrador
-  intacto. «Quita la 2», «saca los platos» o «borra los vasos» sí quitan la línea.
+  intacto. Igual con «quiero sacar el pedido / el PDF de los vasos», «quiero sacar los
+  vasos en otro color» o «quiero quitarle la tapa a los vasos» (algo de la línea, no la
+  línea). «Quiero sacarla en PDF» cierra y confirma como cualquier pedido del PDF. «Quita
+  la 2», «quiero quitar la 2», «saca los platos», «borra los vasos» o «eso es todo, pero
+  quita la 2» sí quitan la línea. «Tampoco quiero cambiar nada» niega como «no».
 - «Sí, mándame el PDF» con una cotización por confirmar: confirma y adjunta el PDF.
 - Una línea sin precio queda fuera del total y se dice.
 - Borrador de más de 7 días: no se retoma.

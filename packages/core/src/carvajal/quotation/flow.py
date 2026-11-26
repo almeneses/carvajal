@@ -42,9 +42,9 @@ from carvajal.agent.followup import (
     is_price_insult,
     is_resume,
     is_too_expensive,
-    names_amount,
     parse_quantities,
     plain,
+    removes_whole_line,
     resolve_choice,
     resolve_more,
     resolve_quantity_choice,
@@ -369,11 +369,12 @@ def _edit_request(draft: QuoteDraft, text: str, said: str, now: datetime) -> Rep
 
     Así Jev no puede leerlo como un «sí» y registrar el carrito sin cambiar, y el «¿La
     confirmo?» queda desarmado: un «sí» posterior pide un producto, no registra. «Quiero
-    quitar la 2» lo resuelve la regla de quitar; con una cantidad («quiero sacarle 100 a
-    los vasos») es cambiar la línea, no quitarla, y lo hace el agente.
+    quitar la 2» lo resuelve la regla de quitar; con una cantidad («quiero quitarle 100 a
+    los vasos»), algo de la línea («quiero quitarle la tapa a los vasos») o varias líneas
+    es cambiar el carrito de otra forma, y lo hace el agente.
     """
 
-    if not names_amount(text):
+    if removes_whole_line(text):
         removal = _removal(draft, text, now)
         if removal is not None:
             return removal
