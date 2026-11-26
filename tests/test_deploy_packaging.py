@@ -12,6 +12,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -103,3 +105,69 @@ def test_compose_pasa_las_variables_de_jev_sin_contradecir_settings() -> None:
     }
     for name, value in expected.items():
         assert f"{name}: ${{{name}:-{value}}}" in text, name
+
+
+@pytest.mark.parametrize("name", ["compose.prod.yml", "compose.yml"])
+def test_qdrant_tiene_healthcheck_sin_curl_y_quien_busca_espera_a_que_este_sano(
+    name: str,
+) -> None:
+    """Spec 055: la imagen de Qdrant no trae curl ni wget; el healthcheck usa bash y /readyz."""
+
+    import yaml
+
+    # Arrange
+    services = yaml.safe_load((REPO / name).read_text(encoding="utf-8"))["services"]
+
+    # Act
+    test = services["qdrant"]["healthcheck"]["test"]
+    dependents = {
+        service: spec["depends_on"]["qdrant"]["condition"]
+        for service, spec in services.items()
+        if isinstance(spec.get("depends_on"), dict) and "qdrant" in spec["depends_on"]
+    }
+
+    # Assert
+    assert test[:3] == ["CMD", "bash", "-c"]
+    assert "/dev/tcp/127.0.0.1/6333" in test[3] and "/readyz" in test[3]
+    assert "curl" not in test[3] and "wget" not in test[3]
+    assert dependents and set(dependents.values()) == {"service_healthy"}
+
+
+def test_compose_lleva_el_precio_de_deepseek_y_el_health_del_mcp_a_la_app() -> None:
+    """Spec 055: /metricas estima el costo con el precio configurado y lee el MCP interno."""
+
+    from carvajal.infrastructure.settings import Settings
+
+    text = (REPO / "compose.prod.yml").read_text(encoding="utf-8")
+    defaults = Settings(_env_file=None)
+
+    assert (
+        "DEEPSEEK_PRICE_INPUT_PER_MILLION: "
+        f"${{DEEPSEEK_PRICE_INPUT_PER_MILLION:-{defaults.deepseek_price_input_per_million:.2f}}}"
+    ) in text
+    assert (
+        "DEEPSEEK_PRICE_OUTPUT_PER_MILLION: "
+        f"${{DEEPSEEK_PRICE_OUTPUT_PER_MILLION:-{defaults.deepseek_price_output_per_million:.2f}}}"
+    ) in text
+    assert "METRICS_MCP_HEALTH_URL: ${METRICS_MCP_HEALTH_URL:-http://mcp:8765/health}" in text
+
+
+def test_la_app_web_no_recibe_el_bearer_de_mcp_sino_el_de_solo_health() -> None:
+    """Spec 055: MCP_TOKEN abre /mcp (cualquier chat de WhatsApp); la app, que da a internet,
+    solo lleva MCP_HEALTH_TOKEN, que el MCP acepta únicamente en /health."""
+
+    import yaml
+
+    # Arrange
+    services = yaml.safe_load((REPO / "compose.prod.yml").read_text(encoding="utf-8"))["services"]
+
+    # Act
+    app = services["app"]["environment"]
+    bootstrap = services["bootstrap"]["environment"]
+    mcp = services["mcp"]["environment"]
+
+    # Assert
+    assert "MCP_TOKEN" not in app and "MCP_TOKEN" not in bootstrap
+    assert app["MCP_HEALTH_TOKEN"] == "${MCP_HEALTH_TOKEN:-}"
+    assert mcp["MCP_TOKEN"] == "${MCP_TOKEN:-}"
+    assert mcp["MCP_HEALTH_TOKEN"] == "${MCP_HEALTH_TOKEN:-}"

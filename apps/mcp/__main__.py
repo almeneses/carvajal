@@ -14,7 +14,11 @@ from carvajal.infrastructure.settings import Settings
 def main() -> None:
     settings = Settings()
     configure_observability(settings)
-    app = build_app(build_server(default_bridge), settings.mcp_token)
+    app = build_app(
+        build_server(default_bridge),
+        settings.mcp_token,
+        health_token=settings.mcp_health_token,
+    )
     uvicorn.run(app, host=settings.mcp_host, port=settings.mcp_port, access_log=False)
 
 

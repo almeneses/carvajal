@@ -140,6 +140,8 @@ function montar({ falla = false, vista = false } = {}) {
   };
   raiz.formulario = formulario;
   const estado = crearElemento("p");
+  const zona = crearElemento("div");
+  zona.hidden = true;
   const hilo = crearElemento("section");
   const historial = crearElemento("div");
   const turnos = [];
@@ -166,6 +168,7 @@ function montar({ falla = false, vista = false } = {}) {
   const porId = { hilo, "chat-stream-estado": estado, "plantilla-turno": plantilla };
   const porSelector = {
     "[data-foto]": raiz,
+    "[data-foto-soltar]": zona,
     "form[data-chat-stream]": formulario,
     ".historial-chat": historial,
   };
@@ -249,8 +252,8 @@ function montar({ falla = false, vista = false } = {}) {
   }
 
   return {
-    window, raiz, pregunta, ficha, aviso, nombre, estado, turnos, peticiones, elegir, enviar,
-    evento, quitar, soltar, urls,
+    window, raiz, formulario, pregunta, ficha, aviso, nombre, estado, zona, turnos, peticiones,
+    elegir, enviar, evento, quitar, soltar, urls,
   };
 }
 
@@ -272,18 +275,22 @@ test("el botón aparece y elegir una foto muestra su nombre y el aviso", () => {
   assert.equal(chat.window.CarvajalFoto.tomar(), JPEG);
 });
 
-test("al adjuntar, la ficha se desplaza a la vista (en el teléfono queda bajo el pliegue)", () => {
-  // Arrange
+test("al adjuntar, el compositor entero se desplaza a la vista (campo y Enviar incluidos)", () => {
+  // Arrange: ensayo del 2026-11-26, hilo nuevo a 320×640: con la ficha a la vista, el campo
+  // y «Enviar» quedaban tapados bajo la cabecera.
   const chat = montar();
-  const llamadas = [];
-  chat.ficha.scrollIntoView = (opciones) => llamadas.push(opciones);
+  const compositor = [];
+  const ficha = [];
+  chat.formulario.scrollIntoView = (opciones) => compositor.push(opciones);
+  chat.ficha.scrollIntoView = (opciones) => ficha.push(opciones);
 
   // Act
   chat.elegir(JPEG);
   chat.quitar.dispatch("click");
 
-  // Assert: solo al adjuntar, sin saltar la página entera.
-  assert.equal(JSON.stringify(llamadas), JSON.stringify([{ block: "nearest" }]));
+  // Assert: solo al adjuntar, sin saltar la página entera, y nunca solo la ficha.
+  assert.equal(JSON.stringify(compositor), JSON.stringify([{ block: "nearest" }]));
+  assert.deepEqual(ficha, []);
 });
 
 test("rechaza en el cliente formatos y tamaños no admitidos", () => {
@@ -429,4 +436,116 @@ test("soltar una foto la adjunta con las mismas validaciones del botón", () => 
   // Assert
   assert.equal(gif, null);
   assert.equal(chat.window.CarvajalFoto.tomar(), JPEG);
+});
+
+// --- Ensayo del 2026-11-26: soltar la imagen en cualquier parte de la conversación ----------
+
+function arrastre(tipo, { types = ["Files"], items, files = [] } = {}) {
+  const evento = {
+    type: tipo,
+    dataTransfer: { types, items, files, dropEffect: "" },
+    evitado: 0,
+    preventDefault() {
+      this.evitado += 1;
+    },
+  };
+  return evento;
+}
+
+const ITEM_JPEG = { kind: "file", type: "image/jpeg" };
+const ITEM_PDF = { kind: "file", type: "application/pdf" };
+
+test("arrastrar una imagen sobre la conversación muestra la zona para soltar y salir la oculta", () => {
+  // Arrange
+  const chat = montar();
+
+  // Act
+  chat.soltar(arrastre("dragenter", { items: [ITEM_JPEG] }));
+  const sobre = arrastre("dragover", { items: [ITEM_JPEG] });
+  chat.soltar(sobre);
+  const visible = chat.zona.hidden;
+  chat.soltar(arrastre("dragleave", { items: [ITEM_JPEG] }));
+
+  // Assert
+  assert.equal(visible, false);
+  assert.equal(sobre.evitado, 1);
+  assert.equal(sobre.dataTransfer.dropEffect, "copy");
+  assert.equal(chat.formulario.dataset.fotoArrastrando, undefined);
+  assert.equal(chat.zona.hidden, true);
+});
+
+test("soltar la imagen la adjunta como el botón Foto y lo anuncia sin marcar error", () => {
+  // Arrange
+  const chat = montar();
+  chat.soltar(arrastre("dragenter", { items: [ITEM_JPEG] }));
+
+  // Act
+  const soltada = arrastre("drop", { items: [ITEM_JPEG], files: [JPEG] });
+  chat.soltar(soltada);
+
+  // Assert
+  assert.equal(soltada.evitado, 1);
+  assert.equal(chat.window.CarvajalFoto.tomar(), JPEG);
+  assert.equal(chat.ficha.hidden, false);
+  assert.equal(chat.aviso.hidden, false);
+  assert.equal(chat.zona.hidden, true);
+  assert.match(chat.estado.textContent, /Foto adjunta: ajiaco\.jpg/);
+  assert.equal(chat.estado.classList.contains("error"), false);
+});
+
+test("un archivo que no es imagen no muestra la zona ni se adjunta, y el navegador no lo abre", () => {
+  // Arrange
+  const chat = montar();
+  const pdf = { name: "catalogo.pdf", type: "application/pdf", size: 1000 };
+
+  // Act
+  chat.soltar(arrastre("dragenter", { items: [ITEM_PDF] }));
+  const sobre = arrastre("dragover", { items: [ITEM_PDF] });
+  chat.soltar(sobre);
+  const zonaVisible = !chat.zona.hidden;
+  const soltada = arrastre("drop", { items: [ITEM_PDF], files: [pdf] });
+  chat.soltar(soltada);
+
+  // Assert: ignorado en silencio; preventDefault evita que el navegador navegue al PDF.
+  assert.equal(zonaVisible, false);
+  assert.equal(sobre.evitado, 1);
+  assert.equal(sobre.dataTransfer.dropEffect, "none");
+  assert.equal(soltada.evitado, 1);
+  assert.equal(chat.window.CarvajalFoto.tomar(), null);
+  assert.equal(chat.estado.textContent, "");
+});
+
+test("arrastrar texto o un enlace no toca la zona ni cancela el comportamiento normal", () => {
+  // Arrange
+  const chat = montar();
+  const tipos = { types: ["text/plain", "text/uri-list"], items: [{ kind: "string", type: "text/plain" }] };
+
+  // Act
+  chat.soltar(arrastre("dragenter", tipos));
+  const sobre = arrastre("dragover", tipos);
+  chat.soltar(sobre);
+  const soltada = arrastre("drop", tipos);
+  chat.soltar(soltada);
+
+  // Assert
+  assert.equal(chat.zona.hidden, true);
+  assert.equal(sobre.evitado, 0);
+  assert.equal(soltada.evitado, 0);
+  assert.equal(chat.window.CarvajalFoto.tomar(), null);
+});
+
+test("sin `items` (navegador viejo) ofrece la zona y valida el archivo al soltar", () => {
+  // Arrange
+  const chat = montar();
+
+  // Act
+  chat.soltar(arrastre("dragenter"));
+  const visible = !chat.zona.hidden;
+  chat.soltar(arrastre("drop", { files: [{ name: "foto.gif", type: "image/gif", size: 10 }] }));
+
+  // Assert
+  assert.equal(visible, true);
+  assert.equal(chat.window.CarvajalFoto.tomar(), null);
+  assert.match(chat.estado.textContent, /JPEG o PNG/);
+  assert.equal(chat.zona.hidden, true);
 });

@@ -87,10 +87,11 @@ informe local se genera igual y no se toca la red. Ver
 
 ## Marcas del visitante
 
-Con el monitoreo activo, cada respuesta ofrece «Útil / No útil». La marca se
-guarda en `chat_feedback` con el `request_id` del turno (migración `0007`), sin
-texto y sin forzar el muestreo: si el turno no se trazó, la marca se conserva
-igual. Con el monitoreo apagado los botones no se muestran.
+Desde el 2026-11-26 la web ya no ofrece «¿Te sirvió esta respuesta? [Útil] [No útil]»
+(decisión del owner tras el ensayo). El endpoint `POST /chat/feedback` y la tabla
+`chat_feedback` (migración `0007`) se conservan sin interfaz que los use: guardan solo el
+`request_id` del turno y la marca, sin texto y sin forzar el muestreo. Las cifras de
+operación están ahora en la página `/metricas` ([spec 055](../specs/055-metricas/spec.md)).
 
 ## Diagnóstico
 
