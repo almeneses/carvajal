@@ -98,7 +98,22 @@
       "raw": "fuentes/tasa_mxn_cop.json",
       "captured_at": "2026-11-25",
       "rows": 98,
-      "prices": 98,
+      "prices": 294,
+      "cities": [
+        "Barranquilla",
+        "Bogotá",
+        "Bucaramanga",
+        "Cali",
+        "Manizales",
+        "Medellín",
+        "Neiva",
+        "Pasto",
+        "Pereira",
+        "Villavicencio"
+      ],
+      "distribution": "Todas en Bogotá y cada una en otras 2 ciudades del directorio, rotando dentro de cada familia.",
+      "attributes": "fuentes/mx_atributos.json",
+      "attributes_applied": 15,
       "cop_per_mxn": "182.3365",
       "authorization": "Decisión del equipo del 2026-11-25 para uso académico; enmienda la regla de la spec 039 de no convertir precios desde México.",
       "rule": "Precio por caja en MXN por la tasa, redondeado al peso. Procedencia «sistema»: no es un precio publicado en Colombia y no tiene vendedor, sede ni existencias. IVA «no_indicado»: el precio de origen incluye el IVA de México."

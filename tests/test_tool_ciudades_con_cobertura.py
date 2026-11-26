@@ -197,8 +197,8 @@ def test_con_sku_separa_precio_y_sede_y_cita_el_precio() -> None:
     assert draft.data["fuentes_precio"] == [price["n"]]
 
 
-def test_referencia_solo_convertida_tiene_precio_de_referencia_en_bogota() -> None:
-    # Arrange: la copia de México tiene un precio convertido que se cotiza solo en Bogotá.
+def test_referencia_solo_convertida_tiene_precio_de_referencia_en_sus_ciudades() -> None:
+    # Arrange: la copia de México se cotiza en Bogotá y en dos ciudades más.
     args = {"sku": "CO-MX-2864108000"}
 
     # Act
@@ -206,11 +206,11 @@ def test_referencia_solo_convertida_tiene_precio_de_referencia_en_bogota() -> No
 
     # Assert: cuenta en Bogotá como precio de referencia, nunca como precio publicado.
     assert draft.status == "ok"
-    assert draft.data["con_precio"] == ["Bogotá"]
-    assert "precio de referencia en: Bogotá" in draft.message
-    assert "publicado" not in draft.message.split("Bogotá")[0]
+    assert draft.data["con_precio"] == ["Barranquilla", "Bogotá", "Bucaramanga"]
+    assert "precio de referencia en: Barranquilla, Bogotá, Bucaramanga" in draft.message
+    assert "precio publicado" not in draft.message
     precios = [entry for entry in _new_entries(sources) if entry["chunk_id"].startswith("precio:")]
-    assert [entry["source_type"] for entry in precios] == ["sistema"]
+    assert {entry["source_type"] for entry in precios} == {"sistema"}
 
 
 def test_sin_existencias_cotizables_hay_sede_vinculada_pero_no_precio() -> None:

@@ -178,7 +178,7 @@ def load_catalog(directory: str = str(DEFAULT_DIR)) -> Catalog:
 
     prices: dict[tuple[str, str], list[ReferencePrice]] = {}
     if (base / PRICES).is_file():
-        offers_seen: dict[tuple[str, str, str], int] = {}
+        offers_seen: dict[tuple[str, str, str, str], int] = {}
         for line, offer in _read(base / PRICES, ReferencePrice):
             key = (offer.sku, offer.country)
             if key not in seen:
@@ -186,7 +186,7 @@ def load_catalog(directory: str = str(DEFAULT_DIR)) -> Catalog:
                     f"{PRICES}:{line}: precio huérfano: no hay referencia {offer.sku} "
                     f"en {offer.country}."
                 )
-            source = (offer.sku, offer.country, offer.source_url)
+            source = (offer.sku, offer.country, offer.source_url, offer.source_city or "")
             if source in offers_seen:
                 raise CatalogError(
                     f"{PRICES}:{line}: precio repetido de {offer.sku} para la misma fuente "

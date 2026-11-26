@@ -1083,7 +1083,7 @@ def test_cotizar_pide_el_dato_que_falta(args: dict[str, Any], missing: str) -> N
 
 def test_cotizar_sin_precio_en_la_ciudad_es_empty_con_sedes() -> None:
     # Act
-    result = _run("cotizar", {**CALIENTE, "quantity": 100, "city": "Cali"}, _deps())
+    result = _run("cotizar", {"sku": "CO-VTER-08", "quantity": 100, "city": "Cali"}, _deps())
 
     # Assert
     assert result.status == "empty"

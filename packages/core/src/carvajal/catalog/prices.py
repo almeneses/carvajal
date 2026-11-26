@@ -142,8 +142,8 @@ def _read_raw(path: Path) -> list[tuple[int, RawPrice]]:
     return rows
 
 
-def _key(offer: ReferencePrice) -> tuple[str, str, str]:
-    return (offer.country, offer.sku, offer.source_url)
+def _key(offer: ReferencePrice) -> tuple[str, str, str, str]:
+    return (offer.country, offer.sku, offer.source_url, offer.source_city or "")
 
 
 def _existing(directory: Path) -> list[ReferencePrice]:
@@ -162,7 +162,7 @@ def build_prices(directory: Path, country: str) -> PriceBuild:
     references = {(ref.sku, ref.country): ref for ref in catalog.references}
     raw_path = directory / SOURCES_DIR / f"precios_{country.lower()}.csv"
     result = PriceBuild(country=country)
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     for line, raw in _read_raw(raw_path):
         where = f"{raw_path.name}:{line} {raw.sku}"
         if raw.country != country:
