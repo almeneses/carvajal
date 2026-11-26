@@ -162,13 +162,18 @@ def offer_id_for(
     units: int,
     amount: Decimal,
     captured_at: date,
+    city: str | None = None,
 ) -> str:
     """Identificador estable de una observación publicada.
 
     El sufijo ``publicada`` se conserva en el hash para que los identificadores emitidos
     antes de retirar la demo sigan siendo válidos; dos ofertas del mismo SKU no colisionan y
-    una recaptura con otro importe o fecha es una observación nueva.
+    una recaptura con otro importe o fecha es una observación nueva. ``city`` solo se pasa en
+    los precios de referencia, que repiten fuente en varias ciudades sin sede; así los
+    identificadores existentes no cambian.
     """
+
+    extra = (city,) if city else ()
 
     return f"{country}-OFERTA-{
         _digest(
@@ -183,6 +188,7 @@ def offer_id_for(
                 str(amount),
                 captured_at.isoformat(),
                 'publicada',
+                *extra,
             ),
             12,
         )
@@ -550,6 +556,7 @@ def _published_co_offers(
                     units=presentation.units_in_basis,
                     amount=amount,
                     captured_at=reference_price.captured_at,
+                    city=reference_price.source_city if converted else None,
                 ),
                 sku=reference_price.sku,
                 country=reference_price.country,

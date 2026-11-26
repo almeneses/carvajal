@@ -47,7 +47,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     ),
     "sin ciudad pide ciudad": QuoteRequest(**CALIENTE, quantity=20, delivery=False),
     "pregunta institucional queda fuera": None,
-    "ciudad sin precio conserva sedes": QuoteRequest(
+    "Cali sin precio publicado cotiza el de referencia y da las sedes": QuoteRequest(
         **CALIENTE, quantity=100, city="Cali", delivery=False
     ),
     "talla agotada no se ofrece": QuoteRequest(
@@ -78,7 +78,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     "aromática deduce caliente y pide la cantidad": QuoteRequest(
         **CALIENTE, city="Cali", delivery=False
     ),
-    "chocolate caliente en Pasto sin precio publicado": QuoteRequest(
+    "chocolate caliente en Pasto cotiza el precio de referencia": QuoteRequest(
         **CALIENTE, quantity=200, city="Pasto", delivery=False
     ),
     "vaso sin temperatura pregunta antes de cotizar": QuoteRequest(

@@ -67,6 +67,7 @@ def _duplicate_offer_key(offer: Offer) -> tuple[str, ...]:
         str(offer.amount),
         offer.currency,
         offer.source.captured_at.isoformat(),
+        offer.city or "",
     )
 
 

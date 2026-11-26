@@ -1,0 +1,119 @@
+{
+  "captured_at": "2026-11-25",
+  "origin": "Atributos de las fichas de la tienda de Carvajal Empaques México («Marca», «Temperatura de uso recomendada», «Caja AxB»), leídos respetando robots.txt",
+  "rule": "Solo se completan campos vacíos de las copias CO-MX y solo si la ficha los declara de forma coherente: la caja AxB debe dar las unidades por caja y una temperatura máxima menor de 60 °C no se aplica a una referencia para bebida caliente.",
+  "items": [
+    {
+      "sku": "2864195007",
+      "source_url": "https://mexico.carvajalempaques.com/producto/envase-carton-32_oz-142mm/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Marca"
+    },
+    {
+      "sku": "2864495003",
+      "source_url": "https://mexico.carvajalempaques.com/producto/contenedor-papel-6x6-burger/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Marca",
+      "temp_min_c": -20.0,
+      "temp_max_c": 40.0,
+      "evidence_temp": "Temperatura de uso recomendada: Desde -20°C / 40",
+      "units_per_pack": 25,
+      "packs_per_box": 18,
+      "evidence_pack": "caja 18X25"
+    },
+    {
+      "sku": "2864632079",
+      "source_url": "https://mexico.carvajalempaques.com/producto/contenedor-papel-9x7/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Color",
+      "temp_min_c": -10.0,
+      "temp_max_c": 40.0,
+      "evidence_temp": "Temperatura de uso recomendada: Desde -10°C / 40"
+    },
+    {
+      "sku": "2864632081",
+      "source_url": "https://mexico.carvajalempaques.com/producto/plato-carton-5-impreso-talavera/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Marca"
+    },
+    {
+      "sku": "2864632106",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-12_oz-90mm-bebida-caliente-blanco-bioform-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864632114",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-8_oz-80mm-bebida-caliente-blanco-bioform-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864632155",
+      "source_url": "https://mexico.carvajalempaques.com/producto/charola-papel-066_1p-canatek-p1s-bioform-caja-24x25-600/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Marca"
+    },
+    {
+      "sku": "2864632156",
+      "source_url": "https://mexico.carvajalempaques.com/producto/charola-papel-855_2p-canatek-p1s-bioform-caja-18x25-450/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Largo"
+    },
+    {
+      "sku": "2864632164",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-12_oz-90mm-canatek-p1s-bebida-caliente-impreso-bioform-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864632165",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-16_oz-90mm-canatek-p1s-bebida-caliente-impreso-bioform-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864632168",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-8_oz-80mm-canatek-p1s-bebida-caliente-impreso-bioform-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864632186",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-8_oz-80mm-bebida-caliente-impreso-coffee-letters-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864632187",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-10_oz-80mm-bebida-caliente-impreso-coffee-letters-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864632247",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-papel-10_oz-80mm-canatek-p1s-bebida-caliente-impreso-bioform-caja-20x50-1000/",
+      "brand": "Bioform",
+      "evidence_brand": "Marca: BIOFORM Materiales"
+    },
+    {
+      "sku": "2864916000",
+      "source_url": "https://mexico.carvajalempaques.com/producto/vaso-plastico-ps-16_oz/",
+      "brand": "Bosco",
+      "evidence_brand": "Marca: BOSCO Materiales",
+      "temp_min_c": -30.0,
+      "temp_max_c": 80.0,
+      "evidence_temp": "Temperatura de uso recomendada: Desde -30°C / 80",
+      "units_per_pack": 20,
+      "packs_per_box": 25,
+      "evidence_pack": "caja 25x20"
+    }
+  ],
+  "skipped": [
+    "2864616013: temperatura (-30, 40) contradice «bebida caliente»; se omite",
+    "2864620001: temperatura (-30, 40) contradice «bebida caliente»; se omite",
+    "2864632054: temperatura (-30, 40) contradice «bebida caliente»; se omite",
+    "2864632079: «Caja de 8x20» y «Cantidad por paquete: 8» se contradicen; se omite",
+    "2864632125: «caja 15x40» no da las 500 unidades de la caja; se omite"
+  ]
+}

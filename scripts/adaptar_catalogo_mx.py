@@ -17,7 +17,14 @@ Uso: ``uv run python scripts/adaptar_catalogo_mx.py``. Las fotos se bajan aparte
 import csv
 
 from carvajal.catalog.build import _replace_all, _stage_manifest
-from carvajal.catalog.conversion import RATE_FILE, adapt_all, load_rate
+from carvajal.catalog.conversion import (
+    ATTRIBUTES_FILE,
+    EXTRA_CITIES,
+    RATE_FILE,
+    adapt_all,
+    load_attributes,
+    load_rate,
+)
 from carvajal.catalog.loader import DEFAULT_DIR, PRICES, REFERENCES, load_catalog
 from carvajal.catalog.models import Reference, ReferencePrice
 
@@ -46,7 +53,9 @@ def main() -> None:
     load_catalog.cache_clear()
     catalog = load_catalog()
     rate = load_rate(DEFAULT_DIR)
-    copies, converted = adapt_all(catalog.references, rate)
+    attributes = load_attributes(DEFAULT_DIR)
+    cities = sorted({item.city for item in catalog.distributors})
+    copies, converted = adapt_all(catalog.references, rate, cities=cities, attributes=attributes)
 
     references: list[Reference] = [item for item in catalog.references if not item.is_adapted]
     published: list[ReferencePrice] = [
@@ -55,8 +64,10 @@ def main() -> None:
         for offer in offers
         if offer.source_type != "sistema"
     ]
+    # El mismo orden que ``carvajal catalog-prices``: regenerar uno no reordena el otro.
     prices = sorted(
-        [*published, *converted], key=lambda item: (item.country, item.sku, item.source_url)
+        [*published, *converted],
+        key=lambda item: (item.country, item.sku, item.source_url, item.source_city or ""),
     )
     targets = [
         (DEFAULT_DIR / REFERENCES, [*references, *copies]),
@@ -84,6 +95,13 @@ def main() -> None:
                     "captured_at": rate.date.isoformat(),
                     "rows": len(copies),
                     "prices": len(converted),
+                    "cities": cities,
+                    "distribution": (
+                        f"Todas en Bogotá y cada una en otras {EXTRA_CITIES} ciudades del "
+                        "directorio, rotando dentro de cada familia."
+                    ),
+                    "attributes": ATTRIBUTES_FILE.as_posix(),
+                    "attributes_applied": len(attributes),
                     "cop_per_mxn": str(rate.cop_per_mxn),
                     "authorization": (
                         "Decisión del equipo del 2026-11-25 para uso académico; enmienda la regla "
@@ -104,6 +122,7 @@ def main() -> None:
             temporary.unlink(missing_ok=True)
     print(
         f"Colombia: {len(copies)} referencias copiadas y {len(converted)} precios convertidos "
+        f"en {len(cities)} ciudades "
         f"(1 MXN = {rate.cop_per_mxn} COP, {rate.date.isoformat()})."
     )
 
