@@ -253,3 +253,39 @@ def test_la_marca_del_turno_guarda_el_texto_sin_la_foto() -> None:
     # Act / Assert
     assert photo_question("") == PHOTO_QUESTION
     assert photo_question("  para  domicilio ") == f"{PHOTO_QUESTION}: para domicilio"
+
+
+@pytest.mark.parametrize("kind", ["frituras", "plato_fuerte", "sopas"])
+def test_a_igual_aptitud_la_recomendada_tiene_precio(catalog: Catalog, kind: FoodKind) -> None:
+    # 2026-11-26: la foto de unas empanadas recomendó un contenedor sin precio en ninguna
+    # ciudad y al elegirlo no se pudo cotizar.
+    # Act
+    rec = recommend(_profile(kind), catalog=catalog)
+
+    # Assert: la recomendada se puede cotizar y el precio no mete tamaños que no sirven para
+    # la porción (porción 2 → 16 oz): ni 8 oz ni referencias sin capacidad declarada.
+    assert rec.status == "ok"
+    assert catalog.offers(rec.references[0])
+    for reference in rec.references:
+        assert reference.capacity_oz is not None
+        assert 16 / 1.5 <= reference.capacity_oz <= 16 * 1.5
+
+
+def test_el_precio_no_pasa_un_tamano_lejano_por_delante_del_pedido(catalog: Catalog) -> None:
+    # Revisión de la PR #275: con 32 oz esperadas, un contenedor de 8 oz con precio no puede
+    # ganarle a uno de 32 oz solo por tener precio.
+    from carvajal.food.recommend import _rank, requirements_for
+
+    req = requirements_for(_profile("frituras", portion=3.0), "caliente", KIND_RULES["frituras"])
+    con_precio = next(
+        r
+        for r in catalog.references
+        if r.family in req.families and r.capacity_oz == 8 and catalog.offers(r)
+    )
+    sin_precio = con_precio.model_copy(update={"sku": "X-32", "capacity_oz": 32.0})
+
+    # Act
+    ranked = sorted([con_precio, sin_precio], key=lambda r: _rank(r, req, catalog))
+
+    # Assert
+    assert ranked[0].sku == "X-32"

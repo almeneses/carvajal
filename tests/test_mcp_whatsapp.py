@@ -751,6 +751,38 @@ def test_sin_cotizacion_el_texto_del_agente_queda_completo() -> None:
     assert "- Precio por paquete: $3.751 [1]" in answer
 
 
+def test_sedes_que_comparten_el_directorio_no_toman_el_nombre_de_la_primera() -> None:
+    # Arrange: 2026-11-26, la sede de EDEXA salía citada como «Sede … Sideral».
+    from apps.mcp.bridge import _listed_sources, _sources_block
+
+    url = "https://colombia.carvajalempaques.com/distribuidores"
+    sedes = [
+        {
+            "n": 1,
+            "url": url,
+            "title": "Sede Sideral (Bogotá)",
+            "section": "directorio_distribuidores",
+        },
+        {
+            "n": 2,
+            "url": url,
+            "title": "Sede EDEXA (Bogotá)",
+            "section": "directorio_distribuidores",
+        },
+    ]
+
+    # Act
+    block = _sources_block(sedes)
+
+    # Assert: cada sede conserva su número y su nombre aunque compartan la URL.
+    assert f"[1] Sede Sideral (Bogotá) — {url}" in block
+    assert f"[2] Sede EDEXA (Bogotá) — {url}" in block
+    assert _listed_sources(sedes) == [
+        ("Sede Sideral (Bogotá)", url),
+        ("Sede EDEXA (Bogotá)", url),
+    ]
+
+
 def test_quitar_una_cita_sin_fuente_no_deja_espacios_sueltos() -> None:
     # Arrange
     sources = [{"title": "Sede", "url": "https://x", "n": 1}]

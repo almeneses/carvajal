@@ -6,6 +6,7 @@ regla del flujo comercial (la guía de materiales manda: contenido caliente exig
 material apto para caliente y la guía no puede marcarlo «no apto» para el uso).
 """
 
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -174,6 +175,18 @@ def _target_oz(profile: FoodProfile) -> float:
     return scale[level]
 
 
+def _size_band(capacity_oz: float | None, target_oz: float) -> float:
+    """Escalones de tamaño (cada uno duplica) entre la capacidad y la porción esperada.
+
+    0 para lo que está entre ~0,7 y ~1,4 veces la porción; 1 para la mitad o el doble. Sin
+    capacidad declarada, lo último.
+    """
+
+    if capacity_oz is None or capacity_oz <= 0 or target_oz <= 0:
+        return math.inf
+    return round(abs(math.log2(capacity_oz / target_oz)))
+
+
 def _rank(reference: Reference, req: Requirements, catalog: Catalog) -> tuple[object, ...]:
     level = application_level(catalog.materials.get(reference.material), req.use)
     distance = (
@@ -185,6 +198,12 @@ def _rank(reference: Reference, req: Requirements, catalog: Catalog) -> tuple[ob
         req.use not in reference.uses,
         _LEVEL_RANK.get(level or "", 2),
         req.families.index(reference.family),
+        # El tamaño para la porción manda sobre el precio: un contenedor de 8 oz con precio
+        # no pasa por delante de uno de 32 oz cuando se esperan 32 (revisión de la PR #275).
+        _size_band(reference.capacity_oz, req.target_oz),
+        # Dentro del mismo escalón de tamaño, primero lo que tiene precio: una
+        # recomendación que no se puede cotizar deja a la persona sin total (2026-11-26).
+        not catalog.offers(reference),
         distance,
         reference.is_adapted,  # a igual aptitud, primero el portafolio de Colombia
         reference.sku,
