@@ -526,6 +526,74 @@ def test_la_plantilla_del_flujo_sale_en_formato_whatsapp_y_con_su_voz() -> None:
     assert reply.voice().text.endswith("Llevas 2 productos. ¿Algo más?")
 
 
+def _flow_with_photos(photos: list[str]) -> list[ChatEvent]:
+    text = "✅ Agregué **100 Vaso de papel 8 oz**\n1 caja x 1.000 · **$193.459**"
+    return [
+        ChatEvent("meta", {"sources": []}),
+        ChatEvent("fallback", {"text": text}),
+        ChatEvent(
+            "done",
+            {
+                "quote_ids": [],
+                "flow": {"text": text, "spoken": "Agregué.", "awaiting": None, "photos": photos},
+            },
+        ),
+    ]
+
+
+def test_el_mensaje_del_flujo_lleva_la_foto_del_producto() -> None:
+    # Arrange: 2026-11-25, la cotización por WhatsApp había dejado de traer las fotos.
+    chat = FakeChat(_flow_with_photos(["CO-MX-2864632114"]))
+
+    def photo(sku: str) -> str | None:
+        return f"https://carvajal.test/catalogo/imagenes/{sku}.jpg"
+
+    # Act
+    reply = _bridge(chat, photo_url=photo).respond("2", "+573001112233")
+
+    # Assert: por escrito y como enlace aparte de la nota de voz (la foto no se lee).
+    url = "https://carvajal.test/catalogo/imagenes/CO-MX-2864632114.jpg"
+    assert f"📷 Foto: {url}" in reply.text
+    assert url in [link.url for link in reply.voice().links]
+    assert url not in reply.voice().text
+
+
+def test_sin_foto_en_el_catalogo_el_mensaje_del_flujo_no_cambia() -> None:
+    # Arrange: un SKU sin foto y un mensaje guardado antes del cambio (sin «photos»).
+    chat = FakeChat(_flow_with_photos(["SIN-FOTO"]))
+    old = FakeChat(_flow_turn(FLOW_TEXT, folios=[], spoken="Listo."))
+
+    # Act
+    reply = _bridge(chat, photo_url=lambda sku: None).respond("2", "+573001112233")
+    previous = _bridge(old, photo_url=lambda sku: "https://x.test/f.jpg").respond(
+        "2", "+573001112233"
+    )
+
+    # Assert
+    assert "📷" not in reply.text
+    assert "📷" not in previous.text
+
+
+def test_el_fallback_reemplaza_lo_recibido_como_en_la_web() -> None:
+    # Arrange: el servicio reemplaza una abstención por la plantilla con «fallback».
+    text = "✅ Agregué **100 Vaso**"
+    chat = FakeChat(
+        [
+            ChatEvent("meta", {"sources": []}),
+            ChatEvent("token", {"text": "No tengo un dato verificado para responder eso."}),
+            ChatEvent("fallback", {"text": text}),
+            ChatEvent("done", {"quote_ids": [], "flow": {"text": text, "spoken": "Agregué."}}),
+        ]
+    )
+
+    # Act
+    reply = _bridge(chat).respond("2", "+573001112233")
+
+    # Assert
+    assert "No tengo un dato verificado" not in reply.text
+    assert "✅ Agregué *100 Vaso*" in reply.text
+
+
 def test_al_registrar_el_pdf_se_adjunta_sin_pedirlo() -> None:
     # Arrange
     chat = FakeChat(_flow_turn(FLOW_TEXT, folios=["a3f09c12b7e4"], spoken="Listo."))

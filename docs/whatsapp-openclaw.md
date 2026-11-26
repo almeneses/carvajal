@@ -248,6 +248,12 @@ El agente «ventas» **no** debe tener el perfil `full`: solo la herramienta
   precios, folios ni fuentes, y no agregues información propia.
 ```
 
+El puente no depende solo de `nueva=true`: si el mensaje es únicamente `/new`, `/nuevo`,
+`/reset`, «nueva conversación» o «empecemos de nuevo», abre el hilo nuevo por su cuenta
+(desde el 2026-11-25, cuando OpenClaw reenviaba `/new` como texto). Un hilo nuevo trae
+el borrador y el pedido en curso vacíos. «Olvida todo» o «cancela todo» en el mismo hilo
+cancelan el borrador y también olvidan el pedido en curso (producto, material, ciudad).
+
 Verifica en los logs del servicio `mcp` que dos chats distintos producen `owner_key`
 distintos (`docker compose -f compose.prod.yml logs mcp | grep owner_key`): si el agente
 no pasa el remitente en `conversacion`, todos los chats compartirían un hilo.

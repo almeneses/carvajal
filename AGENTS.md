@@ -51,6 +51,12 @@ push**. Desde el 2026-11-25 (decisión del owner) no exige aprobaciones.
   esté en verde**, sin esperar aprobación ni ningún otro check. Si la rama va
   detrás de `main`, la actualiza (`gh pr update-branch <número>`), espera de
   nuevo `Calidad` y fusiona con `gh pr merge <número> --squash --delete-branch`.
+- **La rama al día con `main` es obligatoria** para fusionar. GitHub no lo
+  impide cuando el agente corre con la cuenta `almeneses` (está en el bypass y
+  la fusión entra igual), así que el agente lo comprueba justo antes de
+  fusionar: solo fusiona si `gh pr view <número> --json mergeStateStatus` da
+  `CLEAN`. Con `BEHIND` actualiza la rama y vuelve a esperar `Calidad`; con
+  cualquier otro estado no fusiona.
 - Fusionar en `main` **despliega a producción** (`deploy.yml`): fusiona solo
   trabajo terminado y verificado con `make check`.
 - Nunca con `Calidad` en rojo o pendiente, y **nunca con `--admin`** para

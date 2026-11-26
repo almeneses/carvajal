@@ -82,8 +82,16 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
     if view is None:
         return _not_found()
     image = catalog_image(view.sku) if view.sku else None
+    # Varios productos (spec 054): una miniatura por fila con la foto de cada SKU.
+    line_photos = {
+        line.sku: found.path
+        for line in view.lines
+        if line.sku and (found := catalog_image(line.sku)) is not None
+    }
     try:
-        document = build_quote_pdf(view, photo=None if image is None else image.path)
+        document = build_quote_pdf(
+            view, photo=None if image is None else image.path, line_photos=line_photos
+        )
     except Exception:
         # fpdf2 puede fallar con una fuente o una imagen concreta; no se filtra
         # la traza y el enlace responde como inválido, igual que una firma mala.

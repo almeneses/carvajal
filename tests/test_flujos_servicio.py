@@ -285,3 +285,95 @@ def test_sin_cotizacion_pendiente_awaiting_confirmation_es_falso(engine: Any) ->
     assert service.awaiting_confirmation(OWNER) is True
     _send(service, "No, confírmala")
     assert service.awaiting_confirmation(OWNER) is False
+
+
+class _RunnerQueOlvida(FakeToolRunner):
+    """Runner guionado que registra cada pedido de olvidar el contexto comercial."""
+
+    def __init__(self, events: Any) -> None:
+        super().__init__(events)
+        self.cleared: list[str] = []
+
+    def clear_commercial_context(self, thread_id: str) -> None:
+        self.cleared.append(thread_id)
+
+
+@pytest.mark.parametrize("mensaje", ["olvida todo", "cancela todo"])
+def test_cancelar_todo_olvida_tambien_el_pedido_en_curso(engine: Any, mensaje: str) -> None:
+    # Arrange: WhatsApp del 2026-11-25. «olvida todo» cancelaba el borrador, pero el
+    # contexto comercial del grafo seguía y «cotiza 100 vasos» heredaba el vaso de papel.
+    runner = _RunnerQueOlvida(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Act
+    events = _send(service, mensaje)
+
+    # Assert
+    assert named(events, "fallback").data["text"].startswith("Listo, cancelé la cotización")
+    assert len(runner.cleared) == 1
+    assert len(runner.calls) == 1  # la cancelación no pasa por el modelo
+
+
+def test_una_respuesta_corta_que_no_cancela_no_olvida_el_pedido(engine: Any) -> None:
+    # Arrange
+    runner = _RunnerQueOlvida(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Act
+    _send(service, "no")
+
+    # Assert
+    assert runner.cleared == []
+
+
+def test_el_payload_del_flujo_trae_las_fotos_de_lo_agregado(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+
+    # Act
+    added = _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Assert: el SKU de la línea agregada viaja al canal para su foto.
+    flow = named(added, "done").data["flow"]
+    assert flow["photos"]
+    assert flow["photos"] == [_draft(engine)["lines"][-1]["primary"]["sku"]]
+
+
+def test_una_abstencion_delante_de_la_plantilla_se_reemplaza_por_la_plantilla(
+    engine: Any,
+) -> None:
+    # Arrange: WhatsApp del 2026-11-25. La compuerta descartó el comentario del modelo y
+    # «No tengo un dato verificado…» salía antes de las opciones de la plantilla.
+    from apps.api.chat.agent import ToolAgentSources, ToolAgentToken
+    from carvajal.agent.toolagent.evidence import NO_DATA_ANSWER
+
+    quote = quote_payload()
+    closing = final(
+        answer=NO_DATA_ANSWER,
+        products={"quote": quote, "quotes": [quote], "cities": ["Bogotá"]},
+        quotes=(quote,),
+        abstained=True,
+    )
+    events_in = [
+        ToolAgentSources(sources=closing.sources),
+        ToolAgentToken(text=NO_DATA_ANSWER),
+        closing,
+    ]
+    runner = FakeToolRunner(events_in)
+    service = build_service(engine, runner)
+
+    # Act
+    events = _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Assert: la burbuja se reemplaza por la plantilla y el historial guarda solo ella.
+    replaced = named(events, "fallback").data["text"]
+    assert replaced.startswith("✅ Agregué")
+    assert NO_DATA_ANSWER not in replaced
+    with engine.connect() as connection:
+        answers = connection.execute(
+            select(tables.messages.c.content).where(tables.messages.c.role == "assistant")
+        ).scalars()
+        assert all(NO_DATA_ANSWER not in answer for answer in answers)

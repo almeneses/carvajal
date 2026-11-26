@@ -95,6 +95,7 @@ __all__ = [
     "TurnLookup",
     "WhatsAppBridge",
     "canonical_chat_id",
+    "is_new_conversation_request",
     "is_pdf_request",
     "owner_key_for",
     "quote_remarks",
@@ -123,6 +124,8 @@ SERVICE_UNAVAILABLE = (
     "En este momento no puedo consultar la información de Carvajal. Intenta de nuevo en "
     "unos minutos."
 )
+# Fotos por mensaje del flujo (spec 054): la recomendada o lo recién agregado.
+MAX_FLOW_PHOTOS = 3
 NEW_CONVERSATION = "Listo, empezamos una conversación nueva. ¿En qué te puedo ayudar?"
 PDF_OFFER = "¿Quieres esta cotización en PDF? Responde *PDF* 📄"
 PDF_OFFER_SPOKEN = "Si quieres el detalle, respóndeme PDF y te lo mando por escrito."
@@ -439,6 +442,47 @@ def _fold(text: str) -> str:
         if not unicodedata.combining(character) and unicodedata.category(character) != "Cf"
     )
     return " ".join(re.sub(r"[^a-z0-9]+", " ", plain.translate(_HOMOGLYPHS)).split())
+
+
+# Mensajes que solo piden empezar de nuevo. Se comparan enteros, ya plegados (sin tildes,
+# mayúsculas ni signos): «empecemos de nuevo, quiero vasos» no es un reinicio sin más.
+_NEW_CONVERSATION_COMMANDS = frozenset(
+    {
+        "new",
+        "nuevo",
+        "nueva",
+        "reset",
+        "reiniciar",
+        "reinicia",
+        "nueva conversacion",
+        "conversacion nueva",
+        "nuevo chat",
+        "chat nuevo",
+        "empezar de nuevo",
+        "empecemos de nuevo",
+        "empieza de nuevo",
+        "comenzar de nuevo",
+        "comencemos de nuevo",
+        "volver a empezar",
+        "borrar conversacion",
+        "borra la conversacion",
+    }
+)
+
+
+def is_new_conversation_request(message: str) -> bool:
+    """«/new», «/nuevo», «Nueva conversación», «empecemos de nuevo»: abrir un hilo nuevo.
+
+    Un comando con barra («/new») cuenta siempre; una frase, solo si es todo el mensaje.
+    """
+
+    text = message.strip()
+    if not text:
+        return False
+    folded = _fold(text)
+    if text.startswith("/"):
+        return folded in {"new", "nuevo", "nueva", "reset", "reiniciar"}
+    return folded in _NEW_CONVERSATION_COMMANDS - {"new", "nuevo", "nueva", "reset"}
 
 
 def is_pdf_request(message: str, *, spoken: bool = False) -> bool:
@@ -798,8 +842,11 @@ def _collect(events: Iterable[ChatEvent]) -> _Turn:
     flow: Mapping[str, Any] | None = None
     error: str | None = None
     for event in events:
-        if event.name in {"token", "fallback"}:
+        if event.name == "token":
             fragments.append(str(event.data.get("text", "")))
+        elif event.name == "fallback":
+            # Como en la web (``chat-stream.js``): el fallback reemplaza lo recibido.
+            fragments = [str(event.data.get("text", ""))]
         elif event.name == "meta":
             raw = event.data.get("sources") or []
             sources = [item for item in raw if isinstance(item, Mapping)]
@@ -895,6 +942,10 @@ class WhatsAppBridge:
         text = message.strip()
         if voice:
             text = normalize_transcript(text)
+        if is_new_conversation_request(text):
+            # «/new», «empezar de nuevo»…: se abre un hilo nuevo aunque el agente de
+            # OpenClaw no pase ``nueva=true`` (lo reenvía como texto o lo olvida).
+            new_conversation, text = True, ""
         if len(text) > MAX_MESSAGE_CHARS:
             return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)
@@ -1278,11 +1329,20 @@ class WhatsAppBridge:
         if turn.folios and not pdf_enabled:
             written = written.replace("\n📄 Te envío el PDF.", "")
         blocks.append(written)
+        # Spec 054 dejó la cotización en plantillas sin la foto que traía ``whatsapp_quote``
+        # (2026-11-25): la recomendada o lo recién agregado vuelven a llevar su foto.
+        photos = self._flow_photos(turn.flow)
+        if photos:
+            blocks.append("\n".join(f"📷 Foto: {url}" for _, url in photos))
         spoken: list[SpokenReply] = []
         if remarks.strip():
             spoken.append(SpokenReply(to_speech(remarks).text))
         said = str(turn.flow.get("spoken") or "") or to_speech(template).text
         spoken.append(SpokenReply(said, omitted=True))
+        if photos:
+            # La foto no se lee: va como enlace aparte de la nota de voz.
+            links = tuple(SpeechLink("Foto del producto", url) for _, url in photos)
+            spoken.append(SpokenReply("", links))
         if turn.error is not None:
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
         voice = combine(spoken)
@@ -1300,6 +1360,18 @@ class WhatsAppBridge:
         text = reply.text.replace("\n📄 Te envío el PDF.", "")
         spoken = combine([reply.voice(), SpokenReply("", pdf.voice().links)])
         return BridgeReply(f"{text}\n\n{pdf.text}", reply.quote_ids, spoken=spoken)
+
+    def _flow_photos(self, flow: Mapping[str, Any]) -> list[tuple[str, str]]:
+        """``(sku, url)`` de las fotos del mensaje del flujo; hasta tres y sin repetir."""
+
+        found: list[tuple[str, str]] = []
+        for sku in flow.get("photos") or []:
+            url = self._photo(str(sku))
+            if url and all(url != seen for _, seen in found):
+                found.append((str(sku), url))
+            if len(found) == MAX_FLOW_PHOTOS:
+                break
+        return found
 
     def _photo(self, sku: str) -> str | None:
         if self.photo_url is None or not sku:

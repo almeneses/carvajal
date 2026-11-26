@@ -12,7 +12,9 @@ skill y `AGENTS.md` discrepan, manda `AGENTS.md` y hay que corregir esta skill.
 
 - La PR apunta a `main`. `dev` no se usa desde el 2026-11-22.
 - El agente **fusiona su PR en cuanto la rama esté al día con `main` y
-  `Calidad` esté en verde**, sin esperar aprobación ni otros checks. Nunca con `Calidad` en rojo o pendiente, nunca
+  `Calidad` esté en verde**, sin esperar aprobación ni otros checks. La rama al
+  día es **obligatoria** aunque GitHub no la imponga a la cuenta `almeneses`
+  (bypass): solo se fusiona con `mergeStateStatus` = `CLEAN`. Nunca con `Calidad` en rojo o pendiente, nunca
   con `--admin`, nunca `git push --force` a `main` ni borrar `main`. No aprueba
   PRs ajenas.
 - Fusionar en `main` despliega a producción: solo trabajo terminado y verificado.
@@ -110,14 +112,29 @@ reemplaces: solo añade al autor si falta.
 
 ### 8. Merge
 
-La rama debe estar al día con `main` y el check `Calidad` en verde:
+La rama debe estar al día con `main` y el check `Calidad` en verde. Es
+obligatorio aunque GitHub deje pasar la fusión: con la cuenta `almeneses` (bypass
+del ruleset) un `gh pr merge` sobre una rama atrasada entra igual. Por eso la
+comprobación va justo antes del merge y no se salta:
 
 ```bash
-gh pr view <número> --json mergeStateStatus -q .mergeStateStatus   # BEHIND = va detrás
-gh pr update-branch <número>               # solo si va detrás; vuelve a correr Calidad
-gh pr checks <número> --watch --required   # espera los checks requeridos
-gh pr merge <número> --squash --delete-branch
+N=<número>
+estado() { gh pr view "$N" --json mergeStateStatus -q .mergeStateStatus; }
+if [ "$(estado)" = BEHIND ]; then
+  gh pr update-branch "$N"                 # trae main a la rama; vuelve a correr Calidad
+  sleep 5
+fi
+gh pr checks "$N" --watch --required       # espera los checks requeridos
+s="$(estado)"
+if [ "$s" = CLEAN ]; then
+  gh pr merge "$N" --squash --delete-branch
+else
+  echo "No se fusiona: mergeStateStatus=$s (se exige CLEAN)" >&2
+fi
 ```
+
+Si `main` avanzó mientras corría `Calidad`, el estado vuelve a `BEHIND`: repite
+el bloque.
 
 Si la actualización da conflictos, resuélvelos en la rama (`git merge origin/main`),
 corre `make check`, sube y vuelve a esperar.
