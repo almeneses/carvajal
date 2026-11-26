@@ -13,7 +13,8 @@ con reglas, porque de ellas depende qué se cotiza y si una cotización se regis
 - Spec 054: :func:`resolve_more` (respuesta a «¿Algo más?»), :func:`resolve_switch`
   (cancelar o conservar el producto anterior), :func:`parse_quantities` (hasta cuatro
   cantidades, también dictadas con palabras), :func:`resolve_quantity_choice`,
-  :func:`resolve_remove`, :func:`wants_switch` y los detectores de salida, retomar,
+  :func:`resolve_remove`, :func:`wants_switch`, :func:`wants_change` (editar la cotización
+  sin decir qué) y los detectores de salida, retomar,
   cancelar todo, «está caro» y el rechazo con insulto (:func:`is_price_insult`).
 
 Todas trabajan sobre texto: una nota de voz llega ya transcrita. Ante la duda devuelven
@@ -47,6 +48,7 @@ __all__ = [
     "resolve_remove",
     "resolve_switch",
     "strip_assent",
+    "wants_change",
     "wants_switch",
     "words_to_number",
 ]
@@ -273,9 +275,15 @@ def resolve_quantity_choice(text: str, quantities: tuple[int, ...]) -> int | Non
     return None
 
 
+# «Quiero cambiar algo» o «necesito quitar la 2» no agregan: el verbo que sigue manda.
+_EDIT_VERB: Final = (
+    r"(?:cambi\w*|modific\w*|edit\w*|corregi\w*|corrig\w*|ajust\w*|quit\w*|borr\w*|"
+    r"sac\w*|elimin\w*|cancel\w*)"
+)
 _ADD: Final = re.compile(
     r"^(?:(?:si|claro|ok|dale|bueno|listo|tambien|ah|y|pues)\s+)*"
-    r"(?:agrega\w*|anade\w*|suma\w*|pon\w*|incluye\w*|tambien|otro|otra|mas|quiero|necesito|"
+    r"(?:agrega\w*|anade\w*|suma\w*|pon\w*|incluye\w*|tambien|otro|otra|mas|"
+    rf"(?:quiero|necesito)(?!\s+{_EDIT_VERB}\b)|"
     r"cotiza\w*|y\s+(?:unos?|unas?)|\d+|un|una|unos|unas)\b"
 )
 _ADD_BARE: Final = frozenset(
@@ -333,6 +341,29 @@ def resolve_more(text: str) -> MoreAnswer | None:
     if folded in _ADD_BARE or _ADD.match(folded):
         return "add"
     return None
+
+
+_CHANGE_REQUEST: Final = re.compile(
+    r"^(?:(?:si|no|bueno|pues|ok|oye|ah|eh|espera|mejor|un\s+momento|perdon)\s+)*"
+    r"(?:(?:yo\s+)?(?:quiero|quisiera|necesito|deseo|me\s+gustaria|voy\s+a|vamos\s+a|hay\s+que|"
+    r"puedo|podemos|podria|se\s+puede|dejame|tengo\s+que)\s+)?"
+    r"(?:cambiar|modificar|editar|corregir|ajustar|cambia|modifica|edita|corrige|ajusta|"
+    r"cambiemos|modifiquemos|corrijamos|ajustemos)"
+    r"(?:\s+(?:algo|algo\s+mas|una\s+cosa|unas?\s+cosas?|algunas?\s+cosas?|cosas|eso|esto|"
+    r"(?:la|mi|esta|esa)\s+cotizacion|el\s+pedido|el\s+carrito|(?:los|unos)\s+productos|"
+    r"un\s+producto|algo\s+de\s+(?:la|mi)\s+cotizacion))?"
+    r"(?:\s+(?:por\s+favor|porfa|porfavor|antes|primero))*$"
+)
+
+
+def wants_change(text: str) -> bool:
+    """«Quiero cambiar algo», «modificar», «¿puedo cambiar algo?»: editar sin decir qué.
+
+    Solo el pedido genérico; «cambia la 2 a 800» o «quiero cambiar los vasos por platos»
+    ya dicen el cambio y siguen su camino.
+    """
+
+    return bool(_CHANGE_REQUEST.match(plain(text).replace("?", " ").strip()))
 
 
 _CANCEL_SWITCH: Final = re.compile(

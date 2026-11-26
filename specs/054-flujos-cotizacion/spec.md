@@ -118,6 +118,10 @@ borrador no cambia.
 - Precio vencido al confirmar: se recalcula con el motor y se muestra otro resumen; si no se
   puede, el agente recotiza.
 - «Sí» a «¿Algo más?» pregunta qué producto agregar; «sí, 500 vasos» va directo al agente.
+- «Cambiar algo» (el botón del resumen, o «quiero cambiar algo», «modificar» y un «no» al
+  «¿La confirmo?») muestra el carrito numerado con cómo cambiarlo («quita la 2», otra
+  cantidad u otro producto) sin el modelo; el borrador se conserva y queda en «¿Algo más?»,
+  así que «eso es todo» vuelve al resumen. Un pedido concreto («quiero 500 vasos») agrega.
 - «Sí, mándame el PDF» con una cotización por confirmar: confirma y adjunta el PDF.
 - Una línea sin precio queda fuera del total y se dice.
 - Borrador de más de 7 días: no se retoma.
@@ -158,7 +162,8 @@ respuesta al rechazo.
 
 ## Success Criteria *(mandatory)*
 
-- **SC-001**: Los 18 guiones (8 flujos, texto y voz) pasan sin LLM.
+- **SC-001**: Los guiones (8 flujos, texto y voz; 18 al cerrar la spec y 20 con «Cambiar
+  algo») pasan sin LLM.
 - **SC-002**: 0 registros sin «sí» en las pruebas del servicio, de WhatsApp y del webhook.
 - **SC-003**: Las plantillas habituales caben en 14 líneas y su voz en 45 palabras.
 - **SC-004**: La suite completa sigue en verde y la evaluación del agente no empeora frente a

@@ -50,6 +50,7 @@ from carvajal.agent.followup import (
     resolve_remove,
     resolve_switch,
     strip_assent,
+    wants_change,
     wants_switch,
 )
 from carvajal.quotation import render
@@ -299,6 +300,8 @@ def _rules(
         return Reply(render.leaving(bool(draft.lines)), paused, route="salida")
     if is_too_expensive(text):
         return _too_expensive(draft, now)
+    if draft.lines and draft.awaiting in _EDITABLE and wants_change(text):
+        return _edit(draft, now)
     handler = _AWAITING.get(draft.awaiting or "")
     if handler is not None:
         handled = handler(draft, text, said, requote_fn, now)
@@ -337,15 +340,24 @@ def _on_confirm(
             return Reply(render.empty_cart(), draft.touch(now, awaiting=None))
         return _register_or_refresh(draft, requote_fn, now)
     if plain(text) in {"no", "nop", "todavia no", "aun no", "espera"}:
-        message = Message(
-            "¿Qué cambio? Dime otra cantidad, otra ciudad o **quita** un producto.",
-            "¿Qué cambio? Dime otra cantidad, otra ciudad o qué producto quito.",
-        )
-        return Reply(message, draft.touch(now, awaiting="algo_mas", state="carrito"))
+        return _edit(draft, now)
     more = resolve_more(text)
     if more == "add":
         return _add_request(draft, said, now)
     return None
+
+
+def _edit(draft: QuoteDraft, now: datetime) -> Reply:
+    """«Cambiar algo»: el carrito numerado y cómo cambiarlo; el borrador sigue intacto.
+
+    Queda en «¿Algo más?»: «quita la 2» quita, otro producto se agrega (otra cantidad del
+    mismo actualiza su línea) y «eso es todo» vuelve al resumen para confirmar.
+    """
+
+    if not draft.lines:
+        return Reply(render.empty_cart(), draft.touch(now, awaiting=None))
+    edited = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
+    return Reply(render.edit_cart(edited), edited)
 
 
 def _register_or_refresh(draft: QuoteDraft, requote_fn: Requote, now: datetime) -> Reply | Pass:
@@ -507,6 +519,10 @@ def _on_offer(
         return Reply(render.leaving(bool(draft.lines)), paused, route="salida")
     return None
 
+
+# Preguntas tras las que «quiero cambiar algo» edita el carrito; en «¿Cancelo o conservo?»
+# (``cambio_producto``) «cambiar» es otra respuesta y lo decide ``resolve_switch``.
+_EDITABLE: Final = frozenset({"confirmar", "algo_mas", None})
 
 _AWAITING: Final[dict[str, Callable[..., Reply | Pass | None]]] = {
     "confirmar": _on_confirm,

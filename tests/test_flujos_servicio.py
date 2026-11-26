@@ -27,7 +27,7 @@ from tests.test_chat_service_tools import (
 
 from apps.api.chat.service import ChatService
 from apps.api.chat.streaming import ChatEvent
-from apps.mcp.bridge import PDF_CONFIRMATION
+from apps.mcp.bridge import PDF_CONFIRMATION, WhatsAppBridge
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
 
@@ -377,3 +377,65 @@ def test_una_abstencion_delante_de_la_plantilla_se_reemplaza_por_la_plantilla(
             select(tables.messages.c.content).where(tables.messages.c.role == "assistant")
         ).scalars()
         assert all(NO_DATA_ANSWER not in answer for answer in answers)
+
+
+def test_cambiar_algo_en_el_resumen_muestra_el_carrito_y_sigue_el_flujo_en_la_web(
+    engine: Any,
+) -> None:
+    # Arrange: vasos y el resumen pendiente de confirmar.
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+    summary = _send(service, "no")
+    (change,) = [
+        action
+        for action in named(summary, "done").data["flow"]["actions"]
+        if action["label"] == "Cambiar algo"
+    ]
+
+    # Act: el botón «Cambiar algo» envía su frase; luego se cierra y se confirma.
+    edited = _send(service, change["say"])
+    closed = _send(service, "eso es todo")
+    confirmed = _send(service, "sí")
+
+    # Assert: carrito editable sin el modelo, con los botones de «¿Algo más?», y un solo folio.
+    text_out = named(edited, "fallback").data["text"]
+    assert text_out.startswith("🛒 **Tu cotización · 1 producto**")
+    assert "**quita la 1**" in text_out
+    flow = named(edited, "done").data["flow"]
+    assert flow["awaiting"] == "algo_mas"
+    assert [action["say"] for action in flow["actions"]] == [
+        "Agregar otro producto",
+        "Eso es todo",
+    ]
+    assert named(edited, "done").data["quote_ids"] == []
+    assert _draft(engine)["lines"]  # el borrador conserva la línea
+    assert named(closed, "done").data["flow"]["awaiting"] == "confirmar"
+    (row,) = stored_quotes(engine)
+    assert named(confirmed, "done").data["quote_ids"] == [row["id"]]
+    assert len(runner.calls) == 1  # «no», «Cambiar algo», «eso es todo» y «sí» sin el modelo
+
+
+@pytest.mark.parametrize("voice", [False, True])
+def test_cambiar_algo_por_whatsapp_sale_en_su_formato_y_sin_el_modelo(
+    engine: Any, voice: bool
+) -> None:
+    # Arrange: el mismo servicio detrás del puente de WhatsApp.
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    bridge = WhatsAppBridge(chat=service, secret=b"secreto-de-prueba")
+    chat = "+573001112233"
+    bridge.respond("cotiza 50 vasos en Bogotá", chat)
+    bridge.respond("no", chat)
+
+    # Act
+    reply = bridge.respond("quiero cambiar algo", chat, voice=voice)
+
+    # Assert: negrita de WhatsApp, voz corta sin marcas y el flujo sigue en «¿Algo más?».
+    assert "🛒 *Tu cotización · 1 producto*" in reply.text
+    assert "*quita la 1*" in reply.text and "**" not in reply.text
+    assert reply.quote_ids == ()
+    spoken = reply.voice().text
+    assert "¿Qué cambio?" in spoken and "*" not in spoken and "🛒" not in spoken
+    assert _draft(engine)["awaiting"] == "algo_mas"
+    assert len(runner.calls) == 1

@@ -212,6 +212,53 @@
       ]
     },
     {
+      "id": "f7-cambiar-algo-en-el-resumen-texto",
+      "flujo": 7,
+      "canal": "texto",
+      "turnos": [
+        {
+          "persona": "Cotiza 300 platos de pulpa de 9 pulgadas en Cali",
+          "agente": [{"sku": "PL9", "nombre": "Plato pulpa 9″", "unidades": 300, "subtotal": 75000, "familia": "plato"}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {
+          "persona": "Sí, 500 vasos de 12 onzas",
+          "agente": [{"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000}],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {"persona": "eso es todo", "espera": {"awaiting": "confirmar", "texto": "🧾 **Resumen de tu cotización**"}},
+        {"persona": "Quiero cambiar algo", "espera": {"al_agente": false, "awaiting": "algo_mas", "registra": false, "texto": "🛒 **Tu cotización · 2 productos**"}},
+        {"persona": "quita la 2", "espera": {"al_agente": false, "awaiting": "algo_mas", "texto": "Listo, quité **Vaso térmico 12 oz**"}},
+        {
+          "persona": "quiero 500 vasos de 12 oz",
+          "agente": [{"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000}],
+          "espera": {"al_agente": true, "prompt": "quiero 500 vasos de 12 oz", "awaiting": "algo_mas", "texto": "**Total parcial: $281.000**"}
+        },
+        {"persona": "eso es todo", "espera": {"awaiting": "confirmar"}},
+        {"persona": "sí", "espera": {"registra": true}}
+      ]
+    },
+    {
+      "id": "f7-cambiar-algo-en-el-resumen-voz",
+      "flujo": 7,
+      "canal": "voz",
+      "turnos": [
+        {
+          "persona": "trescientos platos y quinientos vasos para cali",
+          "agente": [
+            {"sku": "PL9", "nombre": "Plato pulpa 9″", "unidades": 300, "subtotal": 75000, "familia": "plato"},
+            {"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000}
+          ],
+          "espera": {"al_agente": true, "awaiting": "algo_mas"}
+        },
+        {"persona": "no", "espera": {"awaiting": "confirmar"}},
+        {"persona": "espera, quiero modificar la cotización", "espera": {"al_agente": false, "awaiting": "algo_mas", "texto": "**quita la 2**"}},
+        {"persona": "quita los platos", "espera": {"awaiting": "algo_mas", "texto": "Listo, quité **Plato pulpa 9″**"}},
+        {"persona": "nada más", "espera": {"awaiting": "confirmar"}},
+        {"persona": "dale", "espera": {"registra": true}}
+      ]
+    },
+    {
       "id": "f8-cambio-de-producto-en-curso",
       "flujo": 8,
       "canal": "texto",

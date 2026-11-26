@@ -38,6 +38,7 @@ __all__ = [
     "cancelled",
     "cheaper_offer",
     "comparison",
+    "edit_cart",
     "empty_cart",
     "format_date",
     "format_money",
@@ -464,6 +465,27 @@ def removed(draft: QuoteDraft, label: str) -> Message:
     spoken = (
         f"Listo, quité {_say(label)}. Llevas {_count_label(len(draft.lines))} y el total parcial "
         f"es de {_spoken_money(summary.products, summary.currency)}. ¿Algo más?"
+    )
+    return Message("\n".join(lines), spoken)
+
+
+def edit_cart(draft: QuoteDraft) -> Message:
+    """🛒 el carrito numerado y cómo cambiarlo: «Cambiar algo» o «no» al resumen (T5)."""
+
+    summary = totals(draft.lines)
+    last = len(draft.lines)
+    lines = [f"🛒 **Tu cotización · {_count_label(last)}**"]
+    lines += _cart_lines(draft.lines)
+    lines += [
+        _partial(draft),
+        "",
+        f"Puedes quitar un producto (**quita la {last}**), cambiar una cantidad o agregar "
+        "otro. ¿Qué cambio? Si ya está bien, di **eso es todo**.",
+    ]
+    spoken = (
+        f"Llevas {_count_label(last)} y el total parcial es de "
+        f"{_spoken_money(summary.products, summary.currency)}. "
+        "¿Qué cambio? Puedo quitar un producto, cambiar una cantidad o agregar otro."
     )
     return Message("\n".join(lines), spoken)
 
