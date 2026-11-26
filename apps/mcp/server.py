@@ -13,7 +13,11 @@ Seguridad, en capas:
 - ``/live`` responde sin token y sin tocar la base, para el healthcheck del contenedor.
 - ``/health`` (con el mismo bearer) publica los contadores de la compuerta de afirmaciones
   de este proceso (bloque ``claims``, como el de ``/health`` de la app web): WhatsApp corre
-  el agente aquí, en otro proceso, y sus veredictos no llegan a los de la app.
+  el agente aquí, en otro proceso, y sus veredictos no llegan a los de la app. Desde la spec
+  055 publica también el bloque ``metrics`` (mensajes, errores, no autorizados y PDF del
+  puente, llamadas a Jev y a DeepSeek de este proceso), que lee la página ``/metricas`` de la
+  app por la red interna de compose: por eso ``/health`` acepta además el ``Host`` del
+  servicio (``mcp``), y ``/mcp`` sigue aceptando solo loopback.
 
 Voz: con ``voz=true`` (el cliente mandó una nota de voz y la pasarela responderá con TTS)
 la herramienta sigue devolviendo un solo texto. Primero va un **resumen hablado** (unos
@@ -50,6 +54,7 @@ from apps.mcp.bridge import (
     WhatsAppBridge,
     read_inbound_photo,
 )
+from carvajal.infrastructure.metrics import DEEPSEEK_CALLS, JEV_CALLS, WHATSAPP_EVENTS
 from carvajal.speech import LINKS_HEADER, TEXT_HEADER
 
 if TYPE_CHECKING:
@@ -98,6 +103,8 @@ ASGIApp = Callable[
 ]
 
 _LOOPBACK_HOSTS = ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*"]
+# Nombre del servicio en compose.prod.yml: la app lee ``/health`` como http://mcp:8765/health.
+_INTERNAL_HEALTH_HOSTS = ["mcp", "mcp:*"]
 
 
 def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPServer:
@@ -179,6 +186,7 @@ def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
             supplied = headers.get(b"authorization", b"")
             if not hmac.compare_digest(supplied, expected):
                 logger.warning("mcp.unauthorized", path=scope.get("path"))
+                WHATSAPP_EVENTS.count("no_autorizados")
                 response: Response = JSONResponse({"detail": "No autorizado."}, 401)
                 await response(scope, receive, send)
                 return
@@ -205,7 +213,13 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
     )
     # El transporte solo valida ``Host`` y ``Origin`` en ``/mcp``: las rutas propias lo
     # piden aparte con las mismas reglas.
-    host_check = TransportSecurityMiddleware(security)
+    host_check = TransportSecurityMiddleware(
+        TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[*_LOOPBACK_HOSTS, *_INTERNAL_HEALTH_HOSTS],
+            allowed_origins=[],
+        )
+    )
     # Al arrancar, como el token: si la configuración fallara, el MCP no arranca en vez de
     # responder 500 en /health.
     health_settings = _health_settings()
@@ -218,7 +232,18 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
         # Diferido: el bloque importa el gatekeeper, que arrastra el grafo del agente.
         from apps.api.observability import claims_block
 
-        return JSONResponse({"status": "ok", "claims": claims_block(health_settings)})
+        return JSONResponse(
+            {
+                "status": "ok",
+                "claims": claims_block(health_settings),
+                # Spec 055: contadores de este proceso, solo números y estados.
+                "metrics": {
+                    "whatsapp": WHATSAPP_EVENTS.snapshot(),
+                    "jev": JEV_CALLS.snapshot(),
+                    "deepseek": DEEPSEEK_CALLS.snapshot(),
+                },
+            }
+        )
 
     app: Starlette = server.streamable_http_app(transport_security=security)
     return _bearer_guard(app, token.strip())

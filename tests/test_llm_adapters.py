@@ -11,6 +11,7 @@ from ollama import ResponseError
 from carvajal.adapters.llm import DeepSeekProvider, OllamaProvider, build_llm_provider
 from carvajal.adapters.llm._chat import _LangChainChat
 from carvajal.adapters.llm.deepseek import build_deepseek_chat
+from carvajal.adapters.llm.usage import DEEPSEEK_USAGE
 from carvajal.application.errors import LLMError
 from carvajal.application.ports import LLMProvider
 from carvajal.infrastructure.settings import Settings
@@ -302,6 +303,7 @@ def test_deepseek_configura_el_cliente(monkeypatch: pytest.MonkeyPatch) -> None:
         "base_url": settings.deepseek_base_url,
         "temperature": 0,
         "request_timeout": 60.0,
+        "callbacks": [DEEPSEEK_USAGE],
     }
     assert answer == "respuesta"
 
@@ -325,6 +327,7 @@ def test_build_deepseek_chat_reutiliza_la_configuracion_del_proveedor(
         "base_url": settings.deepseek_base_url,
         "temperature": 0,
         "request_timeout": 60.0,
+        "callbacks": [DEEPSEEK_USAGE],
     }
 
 
