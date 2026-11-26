@@ -19,6 +19,7 @@ MODULES = [
     "carvajal.agent.gatekeeper.rules",
     "carvajal.agent.gatekeeper.decide",
     "carvajal.agent.gatekeeper.claims",
+    "carvajal.agent.gatekeeper.stats",
     "carvajal.agent.gatekeeper.evaluation",
     "carvajal.agent.toolagent.tools.registry",
 ]

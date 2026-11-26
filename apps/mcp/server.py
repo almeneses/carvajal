@@ -11,6 +11,9 @@ Seguridad, en capas:
   token configurado la aplicación no se construye: falla cerrada.
 - Protección contra DNS rebinding: solo se aceptan cabeceras ``Host`` de loopback.
 - ``/live`` responde sin token y sin tocar la base, para el healthcheck del contenedor.
+- ``/health`` (con el mismo bearer) publica los contadores de la compuerta de afirmaciones
+  de este proceso (bloque ``claims``, como el de ``/health`` de la app web): WhatsApp corre
+  el agente aquí, en otro proceso, y sus veredictos no llegan a los de la app.
 
 Voz: con ``voz=true`` (el cliente mandó una nota de voz y la pasarela responderá con TTS)
 la herramienta sigue devolviendo un solo texto. Primero va un **resumen hablado** (unos
@@ -33,7 +36,7 @@ from urllib.parse import quote
 import anyio
 import structlog
 from mcp.server.mcpserver import MCPServer
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import Field
 from starlette.applications import Starlette
@@ -182,7 +185,8 @@ def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
 
 
 def build_app(server: MCPServer, token: str) -> ASGIApp:
-    """Aplicación ASGI: ``/mcp`` con bearer y anti DNS rebinding, ``/live`` abierto."""
+    """Aplicación ASGI: ``/mcp`` y ``/health`` con bearer y anti DNS rebinding, ``/live``
+    abierto."""
 
     if not token.strip():
         raise RuntimeError("Define MCP_TOKEN: el servidor MCP no arranca sin token.")
@@ -191,13 +195,27 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
     async def live(_request: Request) -> Response:
         return PlainTextResponse("ok")
 
-    app: Starlette = server.streamable_http_app(
-        transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=True,
-            allowed_hosts=_LOOPBACK_HOSTS,
-            allowed_origins=[],
-        ),
+    security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_LOOPBACK_HOSTS,
+        allowed_origins=[],
     )
+    # El transporte solo valida ``Host`` y ``Origin`` en ``/mcp``: las rutas propias lo
+    # piden aparte con las mismas reglas.
+    host_check = TransportSecurityMiddleware(security)
+
+    @server.custom_route("/health", methods=["GET"], include_in_schema=False)
+    async def health(request: Request) -> Response:
+        rejected = await host_check.validate_request(request)
+        if rejected is not None:
+            return rejected
+        # Diferido: el bloque importa el gatekeeper, que arrastra el grafo del agente.
+        from apps.api.observability import claims_block
+        from carvajal.infrastructure.settings import Settings
+
+        return JSONResponse({"status": "ok", "claims": claims_block(Settings())})
+
+    app: Starlette = server.streamable_http_app(transport_security=security)
     return _bearer_guard(app, token.strip())
 
 

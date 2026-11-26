@@ -331,6 +331,29 @@ Raíz del turno: `gatekeeper_route`, `gatekeeper_scope`, `gatekeeper_source`,
 Bloque `jev` (data-model). No llama a TypeSafe; no cambia el `status` global (Jev es
 opcional para atender).
 
+Bloque `claims` (añadido el 2026-11-26, `carvajal.agent.gatekeeper.stats`): contadores
+de la compuerta de afirmaciones **de este proceso** desde que arrancó (se reinician con el
+contenedor), sin texto ni red y sin cambiar el `status` global.
+
+| Clave | Significado |
+|---|---|
+| `mode` | `enforce`, `shadow` u `off` (`off` si el bloque `agent` no espera `tools` —`AGENT_MODE`, proveedor o DeepSeek incompleto—, sin Jev encendido o sin juez en el runtime) |
+| `threshold` | `JEV_CLAIMS_THRESHOLD` |
+| `since` | arranque del proceso (UTC) |
+| `turns` | turnos del modo `tools` contados (cada uno con un solo estado) |
+| `judged`, `supported`, `unsupported` | respuestas con veredicto de Jev |
+| `substituted` | no respaldadas sustituidas (`enforce`; en `shadow` queda en 0) |
+| `substitution_rate`, `unsupported_rate` | sobre `judged`; `null` sin juzgadas |
+| `unavailable` | sin veredicto por motivo (`timeout`, `sin_plazo`, …); incluye los turnos en que Jev no estaba disponible al empezar (`circuit_open`, `cap`): el veredicto del turno es `off` (data-model), pero aquí no se confunde con la compuerta apagada |
+| `skipped` | no juzgadas por motivo (`atajo`, `directa`, `reemplazo`, `solo_preguntas`, …) |
+| `off` | turnos con la compuerta apagada por configuración o sin juez |
+| `p_histogram` | 10 cubetas de `p` de las juzgadas: `[0; 0,1)`, …, `[0,9; 1]` |
+
+El servidor MCP de WhatsApp corre el agente en otro proceso: publica el mismo bloque en su
+`GET /health`, con el bearer y la defensa contra DNS rebinding de `/mcp` (`curl -H "Authorization: Bearer $MCP_TOKEN"
+127.0.0.1:8765/health`). El evento `claims.judged` añade `tools` (nombres de las
+herramientas del turno) y `answer_chars` (largo del texto juzgado), sin texto.
+
 ## 7. Bloques nuevos del sistema del agente
 
 Al final del `SystemMessage` del turno (después de `<resumen_conversacion>`), solo cuando

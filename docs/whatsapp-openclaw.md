@@ -642,6 +642,12 @@ porque no se puede listar la carpeta.
 ## Operación
 
 - Logs: `docker compose -f compose.prod.yml logs -f mcp` (JSON, con `owner_key` opaco).
+- Compuerta de afirmaciones de WhatsApp: el agente corre en este proceso, así que sus
+  contadores no salen en el `/health` de la app. `GET /health` del MCP (mismo bearer que
+  `/mcp`, solo `Host` de loopback) publica el bloque `claims` (juzgadas, sustituidas, tasa,
+  umbral y modo desde que arrancó el contenedor; contrato en
+  `specs/046-jev-router/contracts/jev-gatekeeper.md`):
+  `curl -s -H "Authorization: Bearer $MCP_TOKEN" 127.0.0.1:8765/health`.
 - Apagar WhatsApp: quita `COMPOSE_PROFILES=whatsapp` del `.env` y
   `docker compose -f compose.prod.yml stop mcp`.
 - Rotar el token: cambia `MCP_TOKEN`, `docker compose -f compose.prod.yml up -d mcp` y

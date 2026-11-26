@@ -34,6 +34,7 @@ from apps.api.chat.agent import (
     ToolStreamRunner,
     TurnTimeout,
 )
+from carvajal.agent.gatekeeper.stats import ClaimsStats
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.evidence import FAREWELL_ANSWER, GREETING_ANSWER, NO_DATA_ANSWER
 from carvajal.agent.toolagent.graph import build_tool_agent, recursion_limit
@@ -2041,12 +2042,14 @@ def _claims_runner(
     settings: Settings | None = None,
     clock: Any = None,
     route_judge: Any = None,
+    stats: ClaimsStats | None = None,
 ) -> ToolAgentRunner:
     settings = settings or Settings()
     deps = ToolDeps(vector_store=store or QueueStore(), embedder=FakeEmbedder(), settings=settings)
     chat = ScriptedToolChat(steps=list(steps))
     graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), judge=route_judge)
-    kwargs: dict[str, Any] = {"claims_judge": judge}
+    # Contadores propios: las pruebas no ensucian los del proceso (``CLAIMS_STATS``).
+    kwargs: dict[str, Any] = {"claims_judge": judge, "claims_stats": stats or ClaimsStats()}
     if clock is not None:
         kwargs["clock"] = clock
     return ToolAgentRunner(graph, settings, **kwargs)
@@ -2488,3 +2491,182 @@ def test_cotizar_cero_unidades_pide_la_cantidad_en_vez_de_abstenerse() -> None:
     [token] = _tokens(events)
     assert "cuántas unidades necesitas" in token
     assert "No tengo un dato verificado" not in token
+
+
+# --- Contadores de la compuerta (bloque ``claims`` de ``/health``, 2026-11-26) ---------------
+
+
+def test_la_sustitucion_cuenta_como_juzgada_y_sustituida() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(), FakeJudge(p=0.2), store=QueueStore([FUNDACION]), stats=stats
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert (snapshot["judged"], snapshot["unsupported"], snapshot["substituted"]) == (1, 1, 1)
+    assert snapshot["substitution_rate"] == 1.0
+    assert snapshot["p_histogram"][2] == 1
+    assert snapshot["turns"] == 1
+
+
+def test_la_respaldada_cuenta_sin_sustituir() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(), FakeJudge(p=0.8), store=QueueStore([FUNDACION]), stats=stats
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert (snapshot["supported"], snapshot["substituted"]) == (1, 0)
+    assert snapshot["substitution_rate"] == 0.0
+    assert snapshot["turns"] == 1
+
+
+def test_en_sombra_la_no_respaldada_se_cuenta_sin_sustituir() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(),
+        FakeJudge(p=0.1),
+        store=QueueStore([FUNDACION]),
+        settings=Settings(jev_claims_mode="shadow"),
+        stats=stats,
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert (snapshot["unsupported"], snapshot["substituted"]) == (1, 0)
+    assert snapshot["unsupported_rate"] == 1.0
+
+
+def test_jev_sin_veredicto_cuenta_el_motivo_una_vez() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(),
+        FakeJudge(claims_fail=cast(Any, "timeout")),
+        store=QueueStore([FUNDACION]),
+        stats=stats,
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["unavailable"] == {"timeout": 1}
+    assert snapshot["judged"] == 0
+    assert snapshot["turns"] == 1
+
+
+def test_el_atajo_cuenta_como_omitido_con_su_motivo() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    judge = FakeJudge(p=0.1)
+    runner = _claims_runner(
+        [ScriptStep(text="¡Hola! Soy Carva.")], judge, route_judge=judge, stats=stats
+    )
+
+    # Act
+    _stream(runner, "Hola")
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["skipped"] == {"atajo": 1}
+    assert snapshot["judged"] == 0
+
+
+def test_sin_compuerta_el_turno_cuenta_como_off() -> None:
+    # Arrange
+    stats = ClaimsStats()
+    runner = _claims_runner(_evidence_steps(), None, store=QueueStore([FUNDACION]), stats=stats)
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["off"] == 1
+    assert snapshot["turns"] == 1
+
+
+def test_jev_caido_al_empezar_cuenta_como_no_disponible_y_no_como_off() -> None:
+    # Arrange: compuerta en ``enforce`` con juez, pero el circuito de Jev está abierto.
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    judge = FakeJudge(p=0.1, is_available=False)
+    runner = _claims_runner(_evidence_steps(), judge, store=QueueStore([FUNDACION]), stats=stats)
+
+    # Act
+    events = _stream(runner)
+
+    # Assert: el turno sigue en ``off`` (data-model) pero /health ve la caída de Jev.
+    assert _final(events).claims["status"] == "off"
+    snapshot = stats.snapshot()
+    assert snapshot["unavailable"] == {"circuit_open": 1}
+    assert snapshot["off"] == 0
+    assert snapshot["turns"] == 1
+    assert judge.claims == []
+
+
+def test_compuerta_apagada_por_configuracion_cuenta_como_off() -> None:
+    # Arrange
+    from tests.fakes.judge import FakeJudge
+
+    stats = ClaimsStats()
+    runner = _claims_runner(
+        _evidence_steps(),
+        FakeJudge(p=0.1, is_available=False),
+        store=QueueStore([FUNDACION]),
+        settings=Settings(jev_claims_mode="off"),
+        stats=stats,
+    )
+
+    # Act
+    _stream(runner)
+
+    # Assert
+    snapshot = stats.snapshot()
+    assert snapshot["off"] == 1
+    assert snapshot["unavailable"] == {}
+
+
+def test_el_log_de_la_compuerta_lleva_herramientas_y_largo_sin_texto() -> None:
+    # Arrange
+    from structlog.testing import capture_logs
+    from tests.fakes.judge import FakeJudge
+
+    runner = _claims_runner(_evidence_steps(), FakeJudge(p=0.2), store=QueueStore([FUNDACION]))
+
+    # Act
+    with capture_logs() as logs:
+        _stream(runner)
+
+    # Assert
+    [judged] = [log for log in logs if log["event"] == "claims.judged"]
+    assert judged["tools"] == ["buscar_corpus"]
+    assert judged["answer_chars"] == len(ANSWER)
+    assert ANSWER not in str(judged)

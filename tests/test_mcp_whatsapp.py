@@ -380,6 +380,32 @@ def test_mcp_exige_bearer_y_live_queda_abierto() -> None:
         assert response.status_code == 200
 
 
+def test_health_del_mcp_exige_bearer_y_publica_la_compuerta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: WhatsApp corre el agente en este proceso; sus contadores son propios.
+    from carvajal.agent.gatekeeper import stats as stats_module
+
+    stats = stats_module.ClaimsStats()
+    stats.record("supported", p=0.9)
+    stats.record("unsupported", p=0.2, substituted=True)
+    monkeypatch.setattr(stats_module, "CLAIMS_STATS", stats)
+    app = build_app(build_server(_bridge(FakeChat())), "token-correcto")
+
+    # Act
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        anonymous = client.get("/health")
+        response = client.get("/health", headers={"Authorization": "Bearer token-correcto"})
+
+    # Assert
+    assert anonymous.status_code == 401
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert (body["claims"]["judged"], body["claims"]["substituted"]) == (2, 1)
+    assert body["claims"]["substitution_rate"] == 0.5
+
+
 def test_mcp_rechaza_host_que_no_es_loopback() -> None:
     app = build_app(build_server(_bridge(FakeChat())), "token")
     headers = {
@@ -391,6 +417,31 @@ def test_mcp_rechaza_host_que_no_es_loopback() -> None:
         response = client.post("/mcp", json={}, headers=headers)
 
     assert response.status_code in {400, 403, 421}
+
+
+@pytest.mark.parametrize(
+    ("base_url", "origin", "status"),
+    [
+        pytest.param("http://evil.example.com", "", 421, id="host-ajeno"),
+        pytest.param("http://127.0.0.1:8765", "http://evil.example.com", 403, id="origin-ajeno"),
+    ],
+)
+def test_health_del_mcp_rechaza_host_u_origin_que_no_es_loopback(
+    base_url: str, origin: str, status: int
+) -> None:
+    # Arrange: la defensa contra DNS rebinding cubre también ``/health``, no solo ``/mcp``.
+    app = build_app(build_server(_bridge(FakeChat())), "token")
+    headers = {"Authorization": "Bearer token"}
+    if origin:
+        headers["Origin"] = origin
+
+    # Act
+    with TestClient(app, base_url=base_url) as client:
+        response = client.get("/health", headers=headers)
+
+    # Assert
+    assert response.status_code == status
+    assert "claims" not in response.text
 
 
 def test_modulo_no_importa_el_servicio_real() -> None:

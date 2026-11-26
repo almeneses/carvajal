@@ -19,6 +19,7 @@ from apps.api.main import (
 )
 from carvajal.adapters.judge import food_photo_health, jev_health
 from carvajal.adapters.speech import voice_health
+from carvajal.agent.gatekeeper.stats import claims_health
 from carvajal.application.ask import Answer, Source
 from carvajal.application.quota import QuotaResult
 from carvajal.infrastructure.agent_mode import agent_mode_status
@@ -70,6 +71,8 @@ def test_health_devuelve_estado_y_conteos() -> None:
     assert payload.pop("agent") == agent_mode_status(Settings()).as_health()
     # Spec 046 (FR-024): bloque ``jev`` sin llamar a TypeSafe (apagado en las pruebas).
     assert payload.pop("jev") == jev_health(Settings())
+    # Contadores de la compuerta de afirmaciones del proceso (medición 2026-11-26).
+    assert payload.pop("claims") == claims_health(Settings())
     assert payload.pop("voice") == voice_health(Settings())
     assert payload.pop("food_photo") == food_photo_health(Settings())
     catalog = payload.pop("catalog")
@@ -96,6 +99,7 @@ def test_health_degradado_no_filtra_detalles() -> None:
     payload.pop("monitoring")
     assert payload.pop("agent") == agent_mode_status(Settings()).as_health()
     assert payload.pop("jev") == jev_health(Settings())
+    assert payload.pop("claims") == claims_health(Settings())
     assert payload.pop("voice") == voice_health(Settings())
     assert payload.pop("food_photo") == food_photo_health(Settings())
     assert payload == {
@@ -369,6 +373,7 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     payload.pop("monitoring")
     payload.pop("agent")
     payload.pop("jev")
+    payload.pop("claims")
     payload.pop("voice")
     payload.pop("food_photo")
     catalog = payload.pop("catalog")

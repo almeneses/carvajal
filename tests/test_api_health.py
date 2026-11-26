@@ -310,3 +310,151 @@ def test_health_degradado_tambien_publica_jev(monkeypatch: pytest.MonkeyPatch) -
     body = TestClient(create_app(_handlers(caida))).get("/health").json()
 
     assert body["jev"]["enabled"] is False
+
+
+# --- Bloque ``claims``: contadores de la compuerta de afirmaciones (2026-11-26) ---------------
+
+
+def _fresh_stats(monkeypatch: pytest.MonkeyPatch) -> Any:
+    from carvajal.agent.gatekeeper import stats as stats_module
+
+    stats = stats_module.ClaimsStats()
+    monkeypatch.setattr(stats_module, "CLAIMS_STATS", stats)
+    return stats
+
+
+def test_health_publica_los_contadores_de_la_compuerta(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange: el runtime no está construido; Jev encendido por configuración.
+    import apps.api.agent_runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "_runtime", None)
+    stats = _fresh_stats(monkeypatch)
+    for _ in range(3):
+        stats.record("supported", p=0.9)
+    stats.record("unsupported", p=0.3, substituted=True)
+    stats.record("unavailable", reason="timeout")
+    stats.record("skipped", reason="atajo")
+
+    # Act
+    response = _app(
+        monkeypatch,
+        JEV_ENABLED="true",
+        TYPESAFE_API_KEY="clave-falsa",
+        AGENT_MODE="tools",
+        LLM_PROVIDER="deepseek",
+        DEEPSEEK_API_KEY="clave-deepseek-falsa",
+    ).get("/health")
+
+    # Assert: sin cambiar el estado global y sin las claves.
+    assert response.status_code == 200
+    assert response.json()["agent"]["mode_expected"] == "tools"
+    claims = response.json()["claims"]
+    assert claims["mode"] == "enforce"
+    assert claims["threshold"] == 0.5
+    assert (claims["judged"], claims["substituted"]) == (4, 1)
+    assert claims["substitution_rate"] == 0.25
+    assert claims["unavailable"] == {"timeout": 1}
+    assert claims["skipped"] == {"atajo": 1}
+    assert claims["turns"] == 6
+    assert "clave-falsa" not in response.text
+    assert "clave-deepseek-falsa" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("entorno", "motivo"),
+    [
+        pytest.param(
+            {"LLM_PROVIDER": "ollama", "DEEPSEEK_API_KEY": "clave-deepseek-falsa"},
+            "llm_provider",
+            id="otro-proveedor",
+        ),
+        pytest.param(
+            {"LLM_PROVIDER": "deepseek", "DEEPSEEK_API_KEY": ""},
+            "missing_deepseek_api_key",
+            id="sin-clave-deepseek",
+        ),
+    ],
+)
+def test_health_no_publica_enforce_si_el_agente_atendera_routes(
+    monkeypatch: pytest.MonkeyPatch, entorno: dict[str, str], motivo: str
+) -> None:
+    # Arrange: ``AGENT_MODE=tools`` y Jev encendido, pero el modo ``tools`` no arrancará; el
+    # bloque ``claims`` debe coincidir con el ``agent`` del mismo ``/health``.
+    import apps.api.agent_runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "_runtime", None)
+    _fresh_stats(monkeypatch)
+
+    # Act
+    body = (
+        _app(
+            monkeypatch,
+            JEV_ENABLED="true",
+            TYPESAFE_API_KEY="clave-falsa",
+            AGENT_MODE="tools",
+            **entorno,
+        )
+        .get("/health")
+        .json()
+    )
+
+    # Assert
+    assert body["agent"]["mode_expected"] == "routes"
+    assert body["agent"]["tools_unavailable_reason"] == motivo
+    assert body["claims"]["mode"] == "off"
+
+
+def test_health_sin_jev_publica_la_compuerta_apagada(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    import apps.api.agent_runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "_runtime", None)
+    _fresh_stats(monkeypatch)
+
+    # Act
+    claims = _app(monkeypatch).get("/health").json()["claims"]
+
+    # Assert
+    assert claims["mode"] == "off"
+    assert claims["judged"] == 0
+    assert claims["substitution_rate"] is None
+
+
+def test_health_en_modo_routes_publica_la_compuerta_apagada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: runtime construido en ``routes``: sin juez, aunque Jev esté encendido.
+    import apps.api.agent_runtime as runtime_module
+
+    class Runtime:
+        judge = None
+        mode = "routes"
+
+    monkeypatch.setattr(runtime_module, "_runtime", Runtime())
+    _fresh_stats(monkeypatch)
+
+    # Act
+    claims = (
+        _app(monkeypatch, JEV_ENABLED="true", TYPESAFE_API_KEY="clave-falsa")
+        .get("/health")
+        .json()["claims"]
+    )
+
+    # Assert
+    assert claims["mode"] == "off"
+
+
+def test_health_degradado_tambien_publica_la_compuerta(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    def caida() -> HealthStatus:
+        raise SQLAlchemyError("sin base")
+
+    stats = _fresh_stats(monkeypatch)
+    stats.record("unsupported", p=0.1, substituted=True)
+
+    # Act
+    response = TestClient(create_app(_handlers(caida))).get("/health")
+
+    # Assert
+    assert response.status_code == 503
+    assert response.json()["claims"]["substituted"] == 1

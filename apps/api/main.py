@@ -23,6 +23,7 @@ from apps.api.capture_jobs import CaptureJobs
 from apps.api.observability import (
     RequestContextMiddleware,
     UnhandledErrorMiddleware,
+    claims_block,
     configure_observability,
 )
 from apps.api.runtime import APP_DIR, session_factory, templates
@@ -332,6 +333,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "monitoring": monitoring_status(settings).as_health(),
                     "agent": agent_mode_status(settings).as_health(),
                     "jev": _jev_block(settings),
+                    "claims": claims_block(settings),
                     "voice": _voice_block(app, settings, request),
                     "food_photo": _photo_block(app, settings),
                 },
@@ -356,6 +358,9 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 # Spec 046 (FR-024): Jev sin llamar a TypeSafe; no cambia el estado global
                 # porque el asistente atiende igual sin Jev.
                 "jev": _jev_block(settings),
+                # Compuerta de afirmaciones: juzgadas, sustituidas y su tasa desde que
+                # arrancó el proceso (medición del 2026-11-26); no cambia el estado.
+                "claims": claims_block(settings),
                 # Spec 047: voz del chat por el servidor; opcional, no cambia el estado.
                 "voice": _voice_block(app, settings, request),
                 # Spec 051: fotos de alimentos con Jev; opcional, no cambia el estado.

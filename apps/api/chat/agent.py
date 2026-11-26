@@ -20,6 +20,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 from carvajal.agent.gatekeeper.claims import ECHO_KEYS, build_claims_query, judgeable
 from carvajal.agent.gatekeeper.model import GatekeeperDecision, llm_class
+from carvajal.agent.gatekeeper.stats import CLAIMS_STATS, ClaimsStats
 from carvajal.agent.memory.store import CATEGORIES, MemoryProfile
 from carvajal.agent.memory.summary import ConversationSummary, seed_turn_count
 from carvajal.agent.state import Turn
@@ -439,6 +440,8 @@ class _ClaimsGate:
     retener) u ``off`` (juez apagado o no disponible: la retención de la 044).
     ``remaining`` da los segundos que quedan del plazo del turno y ``begin_text`` marca el
     inicio del texto antes de la llamada, para que el plazo no descarte la respuesta.
+    ``stats`` recibe cada veredicto de Jev (juzgada o sin veredicto) para el bloque
+    ``claims`` de ``/health``; ``None`` no cuenta nada.
     """
 
     judge: ClaimsJudge | None = None
@@ -448,6 +451,7 @@ class _ClaimsGate:
     settings: Any = None
     remaining: Callable[[], float] = lambda: math.inf
     begin_text: Callable[[], bool] = lambda: True
+    stats: ClaimsStats | None = None
 
     @property
     def active(self) -> bool:
@@ -831,6 +835,7 @@ class _TurnStream:
             jev = error.call.to_value() if error.call is not None else None
             return self._claims_unavailable(error.reason or error.status, jev)
         status = "unsupported" if verdict.p_supported < gate.threshold else "supported"
+        substituted = status == "unsupported" and gate.holds
         self.claims.update(
             status=status,
             p=round(verdict.p_supported, 2),
@@ -845,14 +850,22 @@ class _TurnStream:
             "claims.judged",
             status=status,
             p=self.claims["p"],
-            substituted=status == "unsupported" and gate.holds,
+            substituted=substituted,
             mode=gate.mode,
+            # Sin texto: solo qué herramientas respaldaban y el largo de lo juzgado, para
+            # separar las sustituciones por tipo de turno (medición del 2026-11-26).
+            tools=sorted({tool for tool, _ in self.tool_payloads}),
+            answer_chars=len(text),
         )
+        if gate.stats is not None:
+            gate.stats.record(status, p=verdict.p_supported, substituted=substituted)
         return status
 
     def _claims_unavailable(self, reason: str, jev: Mapping[str, Any] | None = None) -> str:
         self.claims.update(status="unavailable", reason=reason, jev=dict(jev) if jev else None)
         logger.info("claims.judged", status="unavailable", reason=reason, substituted=False)
+        if self.gate_claims.stats is not None:
+            self.gate_claims.stats.record("unavailable", reason=reason)
         return "unavailable"
 
     def _remainder(self, text: str, step: _ModelStep) -> str:
@@ -1224,20 +1237,34 @@ class ToolAgentRunner:
         *,
         clock: Callable[[], float] = time.monotonic,
         claims_judge: ClaimsJudge | None = None,
+        claims_stats: ClaimsStats | None = None,
     ) -> None:
         self._graph = graph
         self._settings = settings
         self._clock = clock
         self._claims_judge = claims_judge
+        # Contadores de la compuerta (bloque ``claims`` de ``/health``): los del proceso
+        # salvo que una prueba inyecte los suyos.
+        self._claims_stats = claims_stats if claims_stats is not None else CLAIMS_STATS
 
-    def _claims_mode(self) -> str:
-        """Modo de la compuerta para el turno, evaluado una vez al empezar (FR-014)."""
+    def _claims_mode(self) -> tuple[str, str]:
+        """Modo de la compuerta para el turno, evaluado una vez al empezar (FR-014).
+
+        Devuelve el modo y, si la compuerta está pedida (``enforce`` o ``shadow``) con juez
+        pero Jev no está disponible al empezar (circuito abierto, tope diario), el motivo:
+        el turno sigue en ``off`` (data-model) pero los contadores lo cuentan como
+        ``unavailable`` para distinguir una caída de Jev de la compuerta apagada a propósito.
+        """
 
         mode = str(getattr(self._settings, "jev_claims_mode", "off") or "off")
         judge = self._claims_judge
-        if mode not in ("enforce", "shadow") or judge is None or not judge.available():
-            return "off"
-        return mode
+        if mode not in ("enforce", "shadow") or judge is None:
+            return "off", ""
+        if not judge.available():
+            status = getattr(judge, "unavailable_status", None)
+            reason = status() if callable(status) else None
+            return "off", str(reason or "no_disponible")
+        return mode, ""
 
     def stream(
         self,
@@ -1252,7 +1279,7 @@ class ToolAgentRunner:
         turns = list(seed_turns)
         turn_count = _turn_count(seed_turns)
         timeout_s = float(self._settings.agent_turn_timeout_s)
-        mode = self._claims_mode()
+        mode, unavailable = self._claims_mode()
         gate = _ClaimsGate(
             judge=self._claims_judge if mode != "off" else None,
             mode=mode,
@@ -1261,6 +1288,7 @@ class ToolAgentRunner:
             settings=self._settings,
             remaining=lambda: timeout_s - (self._clock() - started),
             begin_text=lambda: deadline.begin_text(),
+            stats=self._claims_stats,
         )
         state = _TurnStream(cleaned, turns, turn_count, gate)
         cancel = TurnCancel()
@@ -1343,6 +1371,13 @@ class ToolAgentRunner:
             partial = state.final(turns)
             raise TurnTimeout(timeout_s, replace(partial, answer=""))
         final = state.final(turns)
+        if final.claims.get("status") == "off" and unavailable:
+            # Compuerta pedida pero Jev caído al empezar: no es un ``off`` a propósito.
+            self._claims_stats.record("unavailable", reason=unavailable)
+        elif final.claims.get("status") in ("skipped", "off"):
+            # Turno sin llamada a Jev: los juzgados y los ``unavailable`` ya se contaron
+            # al decidir el veredicto.
+            self._claims_stats.record_verdict(final.claims)
         logger.info(
             "tool_agent.turn_streamed",
             gate=final.gate,
