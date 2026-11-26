@@ -33,7 +33,7 @@ from carvajal.agent.commercial_intent import (
     USES,
     material_for,
     microwave_for,
-    product_family,
+    named_families,
 )
 from carvajal.agent.memory.store import MemoryProfile
 from carvajal.agent.reference_names import (
@@ -1206,6 +1206,32 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
     return draft
 
 
+def _other_family(said: frozenset[str], context: Mapping[str, Any]) -> _Draft:
+    """La persona nombra otra familia y la llamada no dice cuál cotizar.
+
+    Sin ``family``, el contexto daría por hecho el producto anterior; tomar la familia que
+    se nombra cotizaría en silencio lo que quizá solo se mencionó («esos con cucharas»,
+    «para platos típicos»). Se pide al modelo que la diga y el contexto no cambia, para que
+    una llamada con la familia anterior siga reutilizando su referencia.
+    """
+
+    named = sorted(said)
+    previous = context.get("family")
+    before = f"de la familia {previous}" if previous else "de otra referencia"
+    return _Draft(
+        "needs_input",
+        f"La persona nombra {', '.join(named)} y la cotización anterior era {before}: no se "
+        "reutilizó ese producto ni se cotizó otro. Vuelve a llamar con la family (o el "
+        "nombre) del producto que pide; si sigue siendo el anterior, pasa su familia. No "
+        "elijas la familia por tu cuenta: si no está claro, pregúntaselo a la persona.",
+        data={
+            "reutilizado": [],
+            "familia_por_confirmar": {"nombradas": named, "anterior": previous},
+        },
+        missing=["familia"],
+    )
+
+
 def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
     # Una ciudad que la persona no dijo no se usa (FR-005: se pregunta, no se supone). Solo
     # se comprueba dentro de un turno: una llamada suelta no tiene pregunta con qué comparar.
@@ -1226,10 +1252,17 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     if args.family is None and not (args.sku or args.nombre):
         # Red de seguridad de la familia: sin ``family``, el contexto completaba el producto
         # de la cotización anterior y «Cotízame 1.000 vasos …» tras un portacomidas volvía a
-        # cotizar el portacomidas. Manda la familia que nombró la persona en este turno.
-        said_family = product_family(context.question or "")
-        if said_family is not None:
-            args = args.model_copy(update={"family": said_family})
+        # cotizar el portacomidas.
+        said = named_families(context.question or "")
+        previous = commercial_context.get("family")
+        has_product = bool(previous or commercial_context.get("sku"))
+        if said and previous not in said:
+            if has_product:
+                return _other_family(said, commercial_context)
+            if len(said) == 1:
+                # Sin producto anterior no hay nada que confundir: la única familia que
+                # nombró la persona es la que pide (como ``microwave_for``).
+                args = args.model_copy(update={"family": next(iter(said))})
     filled, reused = _fill_from_context(args, commercial_context)
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.

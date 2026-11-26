@@ -48,6 +48,7 @@ __all__ = [
     "material_for",
     "mentions_microwave",
     "microwave_for",
+    "named_families",
     "non_commercial_part",
     "product_family",
 ]
@@ -280,8 +281,7 @@ def microwave_for(question: str, family: str | None) -> bool | None:
 
     if not mentions_microwave(question):
         return None
-    plain = _plain(question)
-    named = {name for name, pattern in _FAMILIES.items() if _search(pattern, plain)}
+    named = named_families(question)
     return True if named <= {family} or (family is None and len(named) <= 1) else None
 
 
@@ -298,6 +298,13 @@ def _family(text: str) -> str | None:
         if (match := _search(pattern, text))
     ]
     return min(found)[1] if found else None
+
+
+def named_families(text: str) -> frozenset[str]:
+    """Todas las familias que nombra el texto («300 tapas y los vasos» → tapa y vaso)."""
+
+    plain = _plain(text)
+    return frozenset(name for name, pattern in _FAMILIES.items() if _search(pattern, plain))
 
 
 def product_family(text: str) -> str | None:

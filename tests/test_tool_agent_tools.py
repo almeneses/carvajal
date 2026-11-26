@@ -1101,12 +1101,165 @@ def test_cotizar_sin_familia_no_cotiza_el_producto_anterior_si_la_persona_pide_o
     # Act
     result = _run("cotizar", {"quantity": 1000, "city": "Bogotá", **args}, _deps(**REAL), context)
 
-    # Assert: ni el SKU ni la familia del portacomidas pasan a la cotización del vaso.
+    # Assert: no se cotiza el portacomidas ni se elige la familia por el modelo; el contexto
+    # del C1 queda intacto para la llamada que diga la familia.
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["familia"]
+    assert result.payload["reutilizado"] == []
+    assert result.payload["familia_por_confirmar"] == {
+        "nombradas": ["vaso"],
+        "anterior": "contenedor",
+    }
+    assert result.quote is None
+    assert result.context_update == {}
+
+
+def test_cotizar_el_vaso_wau_cuando_el_modelo_dice_la_familia_tras_el_c1() -> None:
+    # Arrange: la llamada siguiente al aviso trae la familia que nombró la persona.
+    context = _contexto_tras_el_c1(PEDIDO_VASO_WAU)
+    args = {
+        "family": "vaso",
+        "capacity_oz": 9,
+        "temperature": "fria",
+        "quantity": 1000,
+        "city": "Bogotá",
+    }
+
+    # Act
+    result = _run("cotizar", args, _deps(**REAL), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["sku"] == VASO_WAU
     assert "sku" not in result.payload["reutilizado"]
-    assert "family" not in result.payload["reutilizado"]
+
+
+@pytest.mark.parametrize(
+    ("pregunta", "nombrada"),
+    [
+        pytest.param("Dame 1000 de esos con cucharas", "cubierto", id="esos-con-cucharas"),
+        pytest.param("¿y 1000 para platos típicos a domicilio?", "plato", id="platos-de-paso"),
+    ],
+)
+def test_cotizar_sin_familia_no_cotiza_en_silencio_otra_familia_nombrada_de_paso(
+    pregunta: str, nombrada: str
+) -> None:
+    # Arrange: la persona sigue hablando del C1 y solo menciona otra familia.
+    context = _contexto_tras_el_c1(pregunta)
+
+    # Act
+    result = _run("cotizar", {"quantity": 1000}, _deps(**REAL), context)
+
+    # Assert: ni el cubierto ni el plato se cotizan sin que el modelo lo diga.
+    assert result.status == "needs_input"
+    assert result.payload["missing"] == ["familia"]
+    assert result.payload["familia_por_confirmar"]["nombradas"] == [nombrada]
+    assert result.quote is None
+    assert result.context_update == {}
+
+
+def test_cotizar_reutiliza_el_c1_cuando_el_modelo_confirma_su_familia() -> None:
+    # Arrange: tras el aviso, el modelo confirma que sigue siendo el portacomidas.
+    context = _contexto_tras_el_c1("¿y 1000 para platos típicos a domicilio?")
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "contenedor", "quantity": 1000, "delivery": True},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert
+    assert result.status == "ok"
+    assert "sku" in result.payload["reutilizado"]
+    assert result.payload["cotizacion"]["sku"] == "CO-PCOM-C1"
+
+
+PEDIDO_VASO_CALIENTE = "Cotízame 1000 vasos para café de 12 oz en Bogotá"
+
+
+def _contexto_tras_un_vaso(question: str) -> tuple[ToolContext, dict[str, Any]]:
+    first = _run(
+        "cotizar",
+        {
+            "family": "vaso",
+            "capacity_oz": 12,
+            "temperature": "caliente",
+            "quantity": 1000,
+            "city": "Bogotá",
+        },
+        _deps(**REAL),
+        ToolContext(question=PEDIDO_VASO_CALIENTE),
+    )
+    assert first.status == "ok" and first.context_update["family"] == "vaso"
+    context = ToolContext(
+        question=question,
+        commercial_context=first.context_update,
+        history=[PEDIDO_VASO_CALIENTE],
+    )
+    return context, first.payload["cotizacion"]
+
+
+def test_cotizar_sin_familia_sigue_con_el_vaso_si_la_persona_lo_nombra_junto_a_otra() -> None:
+    # Arrange: «tapas» va primero, pero la persona también nombra los vasos del contexto.
+    context, previous = _contexto_tras_un_vaso("Agrégale 300 tapas y súbeme los vasos a 2000")
+
+    # Act
+    result = _run("cotizar", {"quantity": 2000}, _deps(**REAL), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["sku"] == previous["sku"]
     assert result.context_update["family"] == "vaso"
-    if result.quote is not None:
-        assert result.quote["primary"]["family"] == "vaso"
+    assert "family" in result.payload["reutilizado"]
+
+
+def test_cotizar_sin_familia_reutiliza_el_sku_del_vaso_si_la_persona_nombra_vasos() -> None:
+    # Arrange: la cotización anterior fue de una referencia nombrada (SKU en el contexto).
+    first = _run(
+        "cotizar",
+        {"nombre": "vaso rígido traslúcido 9 oz Wau", "quantity": 1000, "city": "Bogotá"},
+        _deps(**REAL),
+        ToolContext(question=PEDIDO_VASO_WAU),
+    )
+    assert first.status == "ok" and first.context_update["sku"] == VASO_WAU
+    context = ToolContext(
+        question="¿y 2000 vasos a domicilio?",
+        commercial_context=first.context_update,
+        history=[PEDIDO_VASO_WAU],
+    )
+
+    # Act
+    result = _run("cotizar", {"quantity": 2000, "delivery": True}, _deps(**REAL), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert "sku" in result.payload["reutilizado"]
+    assert result.payload["cotizacion"]["sku"] == VASO_WAU
+
+
+def test_cotizar_sin_familia_ni_contexto_usa_la_unica_familia_nombrada() -> None:
+    # Arrange: hilo nuevo, nada que confundir con un producto anterior.
+    context = ToolContext(question="Cotízame 1.000 vasos rígidos de 9 oz en Bogotá")
+
+    # Act
+    result = _run("cotizar", {"quantity": 1000, "city": "Bogotá"}, _deps(**REAL), context)
+
+    # Assert
+    assert result.context_update["family"] == "vaso"
+    assert "familia_por_confirmar" not in result.payload
+
+
+def test_cotizar_sin_familia_ni_contexto_no_elige_entre_varias_familias() -> None:
+    # Arrange: «vasos y tapas» en un hilo nuevo: no se toma la primera por su cuenta.
+    context = ToolContext(question="Cotízame 1.000 vasos y tapas en Bogotá")
+
+    # Act
+    result = _run("cotizar", {"quantity": 1000, "city": "Bogotá"}, _deps(**REAL), context)
+
+    # Assert
+    assert "family" not in result.context_update
 
 
 def test_cotizar_sin_familia_sigue_reutilizando_la_referencia_en_un_seguimiento() -> None:
