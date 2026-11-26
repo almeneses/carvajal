@@ -48,7 +48,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
-from typing import Any, Protocol, cast
+from typing import Any, Final, Protocol, cast
 from urllib.parse import urlparse
 
 import structlog
@@ -112,6 +112,8 @@ logger = structlog.get_logger(__name__)
 MAX_MESSAGE_CHARS = 500
 MAX_CHAT_ID_CHARS = 200
 MAX_LISTED_SOURCES = 5
+# Con citas en el texto se listan todas las citadas, con este tope por si el modelo cita de más.
+MAX_CITED_SOURCES = 10
 OWNER_PREFIX = "wa_"
 _DOMAIN = b"carvajal:whatsapp:v1:"
 
@@ -765,28 +767,83 @@ def spoken_quote(view: QuoteView, photo_url: str | None = None) -> SpokenReply:
     return SpokenReply(spoken.text, spoken.links + links)
 
 
-def _listed_sources(sources: Iterable[Mapping[str, Any]]) -> list[tuple[str, str]]:
-    """Pares ``(título, url)`` sin repetir de las fuentes que lista :func:`_sources_block`."""
+_CITE: Final = re.compile(r"\[(\d{1,3})\]")
 
-    listed: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for source in sources:
-        if len(listed) >= MAX_LISTED_SOURCES:
-            break
+
+def _numbered(sources: Iterable[Mapping[str, Any]]) -> list[tuple[int, Mapping[str, Any]]]:
+    """Fuentes con su número de cita (``n``, o su posición si no lo trae)."""
+
+    numbered: list[tuple[int, Mapping[str, Any]]] = []
+    for position, source in enumerate(sources, start=1):
+        try:
+            number = int(source.get("n", position))
+        except (TypeError, ValueError):
+            number = position
+        numbered.append((number, source))
+    return numbered
+
+
+def _selected(
+    sources: Iterable[Mapping[str, Any]], text: str = ""
+) -> list[tuple[list[int], str, str]]:
+    """``(números, título, url)`` de las fuentes que se listan bajo el texto.
+
+    Si el texto cita ``[n]``, se listan exactamente esas, cada una con su número: antes se
+    listaban las cinco primeras sin repetir URL, y la cita [2] de la segunda sede (misma URL
+    del directorio) o las [7] y [8] de la historia quedaban sin fuente. Sin citas, las
+    :data:`MAX_LISTED_SOURCES` primeras. Dos citas con el mismo título y URL van juntas.
+    """
+
+    numbered = _numbered(sources)
+    cited = {int(n) for n in _CITE.findall(text or "")}
+    if cited:
+        chosen = sorted(((n, s) for n, s in numbered if n in cited), key=lambda pair: pair[0])
+        if chosen:
+            numbered = list({n: (n, s) for n, s in chosen}.values())[:MAX_CITED_SOURCES]
+        else:
+            numbered = numbered[:MAX_LISTED_SOURCES]
+    rows: list[tuple[list[int], str, str]] = []
+    index: dict[tuple[str, str], int] = {}
+    for number, source in numbered:
         url = str(source.get("url") or "").strip()
         title = _source_label(source, url)
-        key = url or title
-        if not key or key in seen:
+        key = (title, url)
+        if not (title or url):
             continue
-        seen.add(key)
-        listed.append((title, url))
-    return listed
+        if key in index:
+            rows[index[key]][0].append(number)
+            continue
+        if not cited and len(rows) >= MAX_LISTED_SOURCES:
+            break
+        index[key] = len(rows)
+        rows.append(([number], title, url))
+    return rows
 
 
-def _spoken_sources(sources: Iterable[Mapping[str, Any]]) -> SpokenReply:
+def drop_orphan_citations(text: str, sources: Iterable[Mapping[str, Any]]) -> str:
+    """Quita las citas ``[n]`` del texto que no tienen fuente en el turno («[11]» sin lista)."""
+
+    known = {number for number, _ in _numbered(sources)}
+    if not known:
+        return text
+    cleaned = _CITE.sub(lambda m: m.group(0) if int(m.group(1)) in known else "", text)
+    if cleaned == text:
+        return text
+    # Sin dobles espacios ni un espacio antes de la puntuación donde estaba la cita.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return re.sub(r"[ \t]+([.,;:)])", r"\1", cleaned)
+
+
+def _listed_sources(sources: Iterable[Mapping[str, Any]], text: str = "") -> list[tuple[str, str]]:
+    """Pares ``(título, url)`` de las fuentes que lista :func:`_sources_block`."""
+
+    return [(title, url) for _numbers, title, url in _selected(sources, text)]
+
+
+def _spoken_sources(sources: Iterable[Mapping[str, Any]], text: str = "") -> SpokenReply:
     """Las fuentes de :func:`_sources_block` en una frase; sus URL, como enlaces aparte."""
 
-    listed = _listed_sources(sources)
+    listed = _listed_sources(sources, text)
     links = tuple(SpeechLink(title or "Fuente", url) for title, url in listed if url)
     return SpokenReply(spoken_sources(listed), links)
 
@@ -806,19 +863,11 @@ def _source_label(source: Mapping[str, Any], url: str) -> str:
     return "Documento del corpus de Carvajal"
 
 
-def _sources_block(sources: Iterable[Mapping[str, Any]]) -> str:
-    lines: list[str] = []
-    seen: set[str] = set()
-    for number, source in enumerate(sources, start=1):
-        if len(lines) >= MAX_LISTED_SOURCES:
-            break
-        url = str(source.get("url") or "").strip()
-        title = _source_label(source, url)
-        key = url or title
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        label = f"[{source.get('n', number)}] {title}" if title else f"[{number}]"
+def _sources_block(sources: Iterable[Mapping[str, Any]], text: str = "") -> str:
+    lines = []
+    for numbers, title, url in _selected(sources, text):
+        label = "".join(f"[{n}]" for n in numbers)
+        label = f"{label} {title}" if title else label
         lines.append(f"{label} — {url}" if url else label)
     if not lines:
         return ""
@@ -1246,9 +1295,10 @@ class WhatsAppBridge:
             [*blocks, *(f"{view.sku} {view.brand} {view.material}" for view, _ in quotes)]
         )
         prose = quote_remarks(turn.text, quoted) if quotes else turn.text
+        prose = drop_orphan_citations(prose, turn.sources)
         if prose.strip():
             blocks.append(to_whatsapp(prose))
-        listed = _sources_block(turn.sources)
+        listed = _sources_block(turn.sources, prose)
         if listed:
             blocks.append(listed)
         pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
@@ -1264,17 +1314,21 @@ class WhatsAppBridge:
                 spoken.append(SpokenReply("", to_speech(turn.text).links))
             spoken.extend(spoken_quote(view, photo) for view, photo in quotes)
             if listed:
-                spoken.append(_spoken_sources(turn.sources))
+                spoken.append(_spoken_sources(turn.sources, prose))
             # El folio, la presentación con su precio y el subtotal van por escrito.
             closing = PDF_OFFER_SPOKEN if offer else SUMMARY_POINTERS["whatsapp"]
             spoken.append(SpokenReply(closing, omitted=True))
         elif turn.text.strip():
             # Resumen hablado (~15-20 s); el texto completo se envía por escrito.
             spoken.append(
-                spoken_summary(turn.text, channel="whatsapp", sources=_listed_sources(turn.sources))
+                spoken_summary(
+                    drop_orphan_citations(turn.text, turn.sources),
+                    channel="whatsapp",
+                    sources=_listed_sources(turn.sources, prose),
+                )
             )
         elif listed:
-            spoken.append(_spoken_sources(turn.sources))
+            spoken.append(_spoken_sources(turn.sources, prose))
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
@@ -1319,9 +1373,10 @@ class WhatsAppBridge:
         prose = turn.text.replace(template, "").strip()
         remarks = quote_remarks(prose, template) if prose else ""
         blocks: list[str] = []
+        remarks = drop_orphan_citations(remarks, turn.sources)
         if remarks.strip():
             blocks.append(to_whatsapp(remarks))
-        listed = _sources_block(turn.sources)
+        listed = _sources_block(turn.sources, remarks)
         if listed:
             blocks.append(listed)
         written = to_whatsapp(template)

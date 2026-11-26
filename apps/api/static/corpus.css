@@ -183,7 +183,8 @@
     border-collapse: separate;
   }
 
-  .tabla-corpus caption {
+  /* El caption oculto a la vista (sr-solo) no se ensancha: daba scroll horizontal. */
+  .tabla-corpus caption:not(.sr-solo) {
     display: block;
     width: 100%;
     padding: 0 0 10px;
