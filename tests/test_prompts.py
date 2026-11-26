@@ -764,8 +764,8 @@ def test_las_instrucciones_directas_de_memoria_no_repiten_datos() -> None:
 # solo pueden crecer con una frase final «No la uses para…» de 160 caracteres como máximo.
 DESCRIPCIONES_044 = {
     "buscar_corpus": 164,
-    "buscar_producto": 320,
-    "cotizar": 688,
+    "buscar_producto": 307,
+    "cotizar": 684,
     "buscar_sedes": 122,
     "indicador_financiero": 153,
 }

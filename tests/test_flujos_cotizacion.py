@@ -724,7 +724,6 @@ def test_un_pedido_con_quiero_en_el_resumen_sigue_agregando() -> None:
 
 CAMBIOS_DICHOS = (
     "quiero cambiar los vasos por platos",
-    "necesito cambiar la 2 a 800",
     "quiero cambiar la cantidad",
     "quiero cancelar",
 )
@@ -1688,3 +1687,242 @@ def test_quitar_una_linea_ante_la_lista_descarta_las_candidatas() -> None:
     assert decision.draft.awaiting == "algo_mas"
     assert decision.draft.choices == ()
     assert decision.draft.choice_request is None
+
+
+# --- Ensayo del 2026-11-26: cantidades, candidatas, preguntas y olvido -------------------------
+
+
+@pytest.mark.parametrize(
+    ("texto", "awaiting", "linea", "unidades"),
+    [
+        ("mejor que sean 800", "algo_mas", 1, 800),
+        ("cambia la 1 a 1000", "confirmar", 0, 1000),
+        ("necesito cambiar la 2 a 800", "confirmar", 1, 800),
+        ("cambia la 2 a 1.000", "confirmar", 1, 1000),
+        ("los vasos que sean 600", "confirmar", 1, 600),
+        ("sí pero mejor 900", "algo_mas", 1, 900),
+    ],
+)
+def test_otra_cantidad_cambia_la_linea_correcta_por_reglas(
+    texto: str, awaiting: str, linea: int, unidades: int
+) -> None:
+    # Arrange: carrito de dos líneas (plato y vaso), con «¿Algo más?» o «¿La confirmo?».
+    draft = _cart().touch(AHORA, awaiting=awaiting, state="carrito")
+    before = [line_label(line) for line in draft.lines]
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert: sin el modelo, la misma línea con otra cantidad y ningún producto nuevo.
+    assert isinstance(decision, Reply), texto
+    assert [line_label(line) for line in decision.draft.lines] == before
+    changed = decision.draft.lines[linea]
+    assert changed["primary"]["presentation"]["units_requested"] == unidades
+    other = decision.draft.lines[1 - linea]
+    assert other == draft.lines[1 - linea]
+    assert "Actualicé" in decision.message.text
+    assert decision.register is False
+    assert decision.draft.awaiting == "algo_mas"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "No, mejor cotízame 500 platos hondos en Bogotá",
+        "mejor 800 tapas",
+        "cambia la 1 a 1000 y la 2 a 500",
+        "quita la 1",
+        "¿y si fueran 800?",
+    ],
+)
+def test_lo_que_no_es_solo_otra_cantidad_no_cambia_lineas(texto: str) -> None:
+    # Arrange
+    draft = _cart().touch(AHORA, awaiting="algo_mas", state="carrito")
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert: ninguna línea cambia de cantidad por esta regla.
+    if isinstance(decision, Reply):
+        assert "Actualicé" not in decision.message.text, texto
+
+
+def test_sin_nombrar_la_linea_y_con_varias_en_el_resumen_lo_decide_el_agente() -> None:
+    # Arrange: «¿La confirmo?» con dos líneas; «que sean 800» no dice cuál.
+    draft = _cart().touch(AHORA, awaiting="confirmar", state="resumen")
+
+    # Act
+    decision = before_turn(draft, "que sean 800", requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert not (isinstance(decision, Reply) and "Actualicé" in decision.message.text)
+
+
+def _candidates_draft() -> QuoteDraft:
+    choices = (
+        {"sku": "CO-PCOM-C1", "name": "Portacomidas espumado C1 Wau", "material": "EPS"},
+        {"sku": "CO-PPUL-C1", "name": "Portacomidas pulpa de caña C1 Bioform", "material": "pulpa"},
+        {"sku": "CO-PCH-C1", "name": "Caja hamburguesa Bioform C1", "material": "pulpa"},
+    )
+    return QuoteDraft().touch(
+        AHORA,
+        awaiting="referencia",
+        choices=choices,
+        choice_request={"quantity": 300, "unit": "unidad", "city": None},
+    )
+
+
+@pytest.mark.parametrize("texto", ["Medellín", "en Medellín", "Medellín, por favor"])
+def test_una_ciudad_ante_la_lista_de_candidatas_se_guarda_y_vuelve_la_lista(texto: str) -> None:
+    # Arrange: «Cotízame 300 portacomidas C1» listó tres y pidió la ciudad.
+    draft = _candidates_draft()
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert: sin el modelo, la ciudad queda en la solicitud y la lista sigue esperando.
+    assert isinstance(decision, Reply)
+    assert decision.draft.awaiting == "referencia"
+    assert decision.draft.choices == draft.choices
+    assert (decision.draft.choice_request or {})["city"] == "Medellín"
+    assert "Medellín" in decision.message.text
+    assert "1. Portacomidas espumado C1 Wau" in decision.message.text
+
+
+def test_tras_la_ciudad_la_eleccion_cotiza_en_esa_ciudad() -> None:
+    # Arrange
+    asked: list[Mapping[str, Any]] = []
+
+    def requote_city(base: Mapping[str, Any], **kwargs: Any) -> dict[str, Any]:
+        asked.append({"city": base.get("city"), **kwargs})
+        spec = {"sku": kwargs["sku"], "nombre": "Portacomidas", "unidades": 300, "subtotal": 9000}
+        return make_quote(spec, city=str(base.get("city")))
+
+    located = before_turn(_candidates_draft(), "Medellín", requote_fn=requote_city, now=AHORA)
+    assert isinstance(located, Reply)
+
+    # Act
+    decision = before_turn(located.draft, "la 2", requote_fn=requote_city, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert asked[-1]["city"] == "Medellín" and asked[-1]["sku"] == "CO-PPUL-C1"
+
+
+def test_una_ciudad_con_otra_cosa_ante_la_lista_no_es_solo_la_ciudad() -> None:
+    # Act
+    decision = before_turn(
+        _candidates_draft(), "mejor vasos en Medellín", requote_fn=fake_requote, now=AHORA
+    )
+
+    # Assert: no se queda en la lista; lo atiende el agente.
+    assert isinstance(decision, Pass)
+
+
+def _named(spec: Mapping[str, Any], origin: str) -> dict[str, Any]:
+    quote = make_quote(spec)
+    quote["reference_origin"] = origin
+    return quote
+
+
+PLATO_HONDO = {
+    "sku": "PH12",
+    "nombre": "Plato espumado hondo 12 oz",
+    "unidades": 500,
+    "subtotal": 96875,
+}
+
+
+@pytest.mark.parametrize("origin", ["herramienta", "contexto", ""])
+def test_si_el_agente_pregunta_no_agrega_lo_que_la_persona_no_eligio(origin: str) -> None:
+    # Arrange: «¿Cuál te cotizo?» del agente y una cotización de una sola referencia.
+    draft = QuoteDraft()
+
+    # Act
+    outcome = after_turn(
+        draft, [_named(PLATO_HONDO, origin)], "cotízame 500 platos hondos", now=AHORA, asks=True
+    )
+
+    # Assert: ni «✅ Agregué» ni líneas; queda el producto en curso.
+    assert outcome.draft.lines == ()
+    assert outcome.message is None
+    assert (outcome.draft.current or {}).get("label") == "Plato espumado hondo 12 oz"
+
+
+@pytest.mark.parametrize("origin", ["persona", "hilo"])
+def test_si_el_agente_pregunta_si_agrega_lo_que_la_persona_nombro(origin: str) -> None:
+    # Act
+    outcome = after_turn(
+        QuoteDraft(), [_named(PLATO_HONDO, origin)], "el hondo de 12 oz", now=AHORA, asks=True
+    )
+
+    # Assert
+    assert [line_label(line) for line in outcome.draft.lines] == ["Plato espumado hondo 12 oz"]
+
+
+def test_si_el_agente_pregunta_una_linea_que_ya_esta_se_actualiza() -> None:
+    # Arrange: «¿y con domicilio?» recotiza el vaso que ya está en el carrito.
+    draft = _cart().touch(AHORA, awaiting="algo_mas", state="carrito")
+    spec = {"sku": "VT12", "nombre": "Vaso térmico 12 oz", "unidades": 500, "subtotal": 206000}
+
+    # Act
+    outcome = after_turn(
+        draft, [_named(spec, "contexto")], "¿y con domicilio?", now=AHORA, asks=True
+    )
+
+    # Assert
+    assert len(outcome.draft.lines) == 2
+    assert outcome.message is not None and "Actualicé" in outcome.message.text
+
+
+def test_si_el_agente_no_pregunta_la_referencia_unica_se_agrega() -> None:
+    # Act
+    outcome = after_turn(
+        QuoteDraft(), [_named(PLATO_HONDO, "")], "500 platos hondos", now=AHORA, asks=False
+    )
+
+    # Assert
+    assert len(outcome.draft.lines) == 1
+
+
+@pytest.mark.parametrize(
+    ("respuesta", "pregunta"),
+    [
+        ("¿Te sirve este o prefieres otra capacidad?", True),
+        ("Es de EPS [1].\n\n*Fuentes:*\n[1] EDEXA — https://x.co/a?b=1", False),
+        ("Para seguir me falta la temperatura. ¿Me la indicas?", True),
+        ("", False),
+    ],
+)
+def test_asks_question_ignora_las_url(respuesta: str, pregunta: bool) -> None:
+    from carvajal.quotation.flow import asks_question
+
+    assert asks_question(respuesta) is pregunta
+
+
+def test_olvida_todo_lo_que_sabes_de_mi_no_lo_atrapa_cancelar_todo() -> None:
+    # Arrange: con un carrito activo, «olvida todo» era «cancela todo» y la memoria quedaba.
+    draft = _cart().touch(AHORA, awaiting="algo_mas", state="carrito")
+
+    # Act
+    decision = before_turn(draft, "Olvida todo lo que sabes de mí", now=AHORA)
+
+    # Assert: va al grafo (que borra la memoria) y el borrador queda cancelado.
+    assert isinstance(decision, Pass)
+    assert decision.prompt is None
+    assert decision.draft.lines == () and decision.draft.state == "cancelada"
+
+
+def test_si_el_agente_pregunta_el_comparativo_de_cantidades_sigue_saliendo() -> None:
+    # Arrange: «¿500 o 1000?» del mismo producto; el comparativo no agrega líneas.
+    quotes = [
+        _named({**PLATO_HONDO, "unidades": units, "subtotal": 100 * units}, "")
+        for units in (500, 1000)
+    ]
+
+    # Act
+    outcome = after_turn(QuoteDraft(), quotes, "¿500 o 1000?", now=AHORA, asks=True)
+
+    # Assert
+    assert outcome.draft.awaiting == "cantidad"
+    assert len(outcome.draft.comparison) == 2

@@ -585,3 +585,124 @@ def test_los_botones_de_las_candidatas_salen_en_el_turno_que_las_lista(engine: A
     assert flow["awaiting"] == "referencia"
     assert flow["text"] == ""
     assert [action["say"] for action in flow["actions"]] == ["La 1", "La 2"]
+
+
+# --- «Olvida todo» por WhatsApp con el grafo real (ensayo del 2026-11-26) -----------------------
+
+
+def _whatsapp_con_grafo(engine: Any, memory: Any, chat: Any) -> tuple[WhatsAppBridge, Any]:
+    """Puente real sobre el servicio real con el grafo ``tools`` y un modelo guionado."""
+
+    from langgraph.checkpoint.memory import InMemorySaver
+    from tests.test_tool_agent_memory_flow import EmptyIndex
+    from tests.test_tool_agent_memory_flow import FakeEmbedder as GraphEmbedder
+
+    from apps.api.chat.agent import ToolAgentRunner
+    from carvajal.agent.toolagent.graph import build_tool_agent
+    from carvajal.agent.toolagent.tools import ToolDeps
+
+    settings = tools_settings()
+    deps = ToolDeps(vector_store=EmptyIndex(), embedder=GraphEmbedder(), settings=settings)
+    graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), store=memory)
+    service = build_service(engine, ToolAgentRunner(graph, settings), settings=settings)
+    return WhatsAppBridge(chat=service, secret=b"secreto-de-prueba"), graph
+
+
+@pytest.mark.parametrize("con_carrito", [False, True], ids=["hilo-nuevo", "con-carrito"])
+def test_olvida_todo_por_whatsapp_lo_decide_la_regla_y_borra_la_memoria(
+    engine: Any, con_carrito: bool
+) -> None:
+    # Arrange: memoria del dueño de WhatsApp y un modelo que, si redactara, diría lo del
+    # ensayo («no guardo nada de ti en esta conversación»: falso y sin «olvidé»).
+    from langgraph.store.memory import InMemoryStore
+    from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
+
+    from carvajal.agent.memory.store import load, remember
+    from carvajal.prompts import FIXED_DIRECT_ANSWERS
+
+    memory = InMemoryStore()
+    chat = ScriptedToolChat(
+        steps=[ScriptStep(text="Listo, no guardo nada de ti en esta conversación.")]
+    )
+    bridge, _ = _whatsapp_con_grafo(engine, memory, chat)
+    owner = bridge.owner_key("573001112233")
+    remember(memory, owner, "nombre", "Ana")
+    remember(memory, owner, "empresa", "Panadería La Espiga")
+    if con_carrito:
+        # «Olvida todo» con una cotización en curso: antes lo atrapaba «cancelar todo».
+        from datetime import UTC, datetime
+
+        from carvajal.adapters.storage.drafts import SqlDraftRepository
+        from carvajal.quotation.draft import QuoteDraft, add_line
+
+        conversation = bridge.chat.new_conversation(owner)
+        quote = quote_payload()
+        draft, _ = add_line(QuoteDraft(), quote)
+        draft = draft.touch(datetime.now(UTC), state="carrito", awaiting="algo_mas")
+        with build_session_factory(engine)() as session:
+            SqlDraftRepository(session).save(conversation.id, owner, draft)
+            session.commit()
+
+    # Act: como el ensayo, «Olvida todo lo que sabes de mí» con nueva=False/True.
+    reply = bridge.consult(
+        "Olvida todo lo que sabes de mí", "573001112233", new_conversation=not con_carrito
+    )
+
+    # Assert: la memoria se borró, la confirmación es la fija y el modelo no redactó.
+    assert load(memory, owner).empty
+    assert reply.startswith(FIXED_DIRECT_ANSWERS["memory_forget"])
+    assert "olvid" in reply.casefold()
+    assert "en esta conversación." not in reply
+    assert chat.calls == []
+
+
+# --- Pregunta y decisión en el mismo mensaje (ensayo del 2026-11-26) ---------------------------
+
+
+def _asking_events(answer: str, origin: str) -> list[Any]:
+    from apps.api.chat.agent import ToolAgentSources, ToolAgentToken
+
+    quote = {**quote_payload(sku="7704918101288", name="Plato espumado hondo 12 oz Wau")}
+    quote["reference_origin"] = origin
+    closing = final(
+        answer=answer,
+        products={"quote": quote, "quotes": [quote], "cities": ["Bogotá"]},
+        quotes=(quote,),
+    )
+    return [ToolAgentSources(sources=closing.sources), ToolAgentToken(text=answer), closing]
+
+
+@pytest.mark.parametrize("canal", ["web", "whatsapp"])
+def test_si_el_agente_pregunta_no_sale_agregue_en_el_mismo_mensaje(engine: Any, canal: str) -> None:
+    # Arrange: tras «cancélalos», el agente eligió el plato de una búsqueda y preguntó.
+    answer = "Es el plato hondo de 12 oz Wau [1]. ¿Te sirve este o prefieres otra capacidad?"
+    service = build_service(engine, FakeToolRunner(_asking_events(answer, "herramienta")))
+
+    # Act
+    if canal == "web":
+        text = "".join(
+            str(event.data.get("text", ""))
+            for event in _send(service, "No, mejor cotízame 500 platos hondos en Bogotá")
+            if event.name in {"token", "fallback"}
+        )
+    else:
+        bridge = WhatsAppBridge(chat=service, secret=b"secreto-de-prueba")
+        text = bridge.consult("No, mejor cotízame 500 platos hondos en Bogotá", "573001112233")
+
+    # Assert: la pregunta sale sola y el carrito sigue vacío.
+    assert "¿Te sirve este" in text
+    assert "Agregué" not in text
+    assert _draft(engine).get("lines") in (None, [], ())
+
+
+def test_si_el_agente_pregunta_lo_que_nombro_la_persona_si_se_agrega(engine: Any) -> None:
+    # Arrange
+    answer = "Es el plato hondo de 12 oz Wau [1]. ¿Algo más?"
+    service = build_service(engine, FakeToolRunner(_asking_events(answer, "persona")))
+
+    # Act
+    events = _send(service, "Cotízame 500 platos espumados hondos de 12 oz Wau en Bogotá")
+
+    # Assert
+    text = "".join(str(e.data.get("text", "")) for e in events if e.name in {"token", "fallback"})
+    assert "Agregué" in text

@@ -16,7 +16,7 @@ No importa el registro: exporta su esquema, ``DESCRIPTION``, ``status`` y ``run`
 
 import json
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any, Final, Literal, Self
@@ -37,6 +37,7 @@ from carvajal.catalog.models import MaterialRule
 __all__ = [
     "APPLICATIONS",
     "AVISO",
+    "BEVERAGE_USES",
     "DEDUCED_REFRIGERATION",
     "DESCRIPTION",
     "GuiaMaterialesArgs",
@@ -60,6 +61,15 @@ APPLICATIONS: Final[tuple[str, ...]] = (
     "panaderia",
     "frutas",
 )
+# Usos de bebida (``USE_TEMPERATURE`` de ``commercial_intent``): la guía no tiene una
+# aplicación para bebidas, así que se responden con sus reglas por temperatura, sin nivel
+# (ensayo del 2026-11-26: «aplicación desconocida» en 6 de 8 llamadas de una semana).
+# Caliente → ``contenido_caliente`` de la guía; fría → ``refrigeracion``.
+BEVERAGE_USES: Final[dict[str, str]] = {"bebida_caliente": "caliente", "bebida_fria": "fria"}
+_BEVERAGE_FIELD: Final[dict[str, str]] = {
+    "caliente": "contenido_caliente",
+    "fria": "refrigeracion",
+}
 _LEVEL_ORDER: Final[dict[str, int]] = {"recomendable": 0, "aplicable": 1, "no_apto": 2}
 _LEVEL_LABELS: Final[dict[str, str]] = {
     "recomendable": "recomendable",
@@ -138,6 +148,25 @@ _APPLICATION_SYNONYMS: Final[dict[str, str]] = {
     "postres": "panaderia",
     "galletas": "panaderia",
     "fruta": "frutas",
+    **{name.replace("_", " "): name for name in BEVERAGE_USES},
+    "bebida caliente": "bebida_caliente",
+    "bebidas calientes": "bebida_caliente",
+    "cafe": "bebida_caliente",
+    "tinto": "bebida_caliente",
+    "te": "bebida_caliente",
+    "aromatica": "bebida_caliente",
+    "chocolate": "bebida_caliente",
+    "bebida fria": "bebida_fria",
+    "bebidas frias": "bebida_fria",
+    "jugo": "bebida_fria",
+    "jugos": "bebida_fria",
+    "gaseosa": "bebida_fria",
+    "gaseosas": "bebida_fria",
+    "refresco": "bebida_fria",
+    "refrescos": "bebida_fria",
+    "limonada": "bebida_fria",
+    "malteada": "bebida_fria",
+    "granizado": "bebida_fria",
 }
 
 
@@ -169,7 +198,11 @@ class GuiaMaterialesArgs(BaseModel):
     )
     aplicacion: str | None = Field(
         default=None,
-        description=f"Tipo de comida de la guía: {', '.join(APPLICATIONS)}.",
+        description=(
+            f"Tipo de comida de la guía ({', '.join(APPLICATIONS)}) o uso de bebida "
+            f"({', '.join(BEVERAGE_USES)}): para bebidas la guía no da nivel y se responde "
+            "con sus reglas por temperatura."
+        ),
     )
 
     @field_validator("material", mode="before")
@@ -194,9 +227,8 @@ class GuiaMaterialesArgs(BaseModel):
             return value
         canonical = _APPLICATION_SYNONYMS.get(_fold(value))
         if canonical is None:
-            raise ValueError(
-                f"aplicación desconocida: {value!r}; válidas: {', '.join(APPLICATIONS)}"
-            )
+            valid = ", ".join((*APPLICATIONS, *BEVERAGE_USES))
+            raise ValueError(f"aplicación desconocida: {value!r}; válidas: {valid}")
         return canonical
 
     @model_validator(mode="after")
@@ -315,6 +347,50 @@ def _row(
     return row
 
 
+def _beverage_row(rule: MaterialRule, number: int, temperature: str) -> dict[str, Any]:
+    """Regla de un material para una bebida: la fila de la guía y el campo que aplica.
+
+    ``cumple`` es el valor de ese campo en la guía (``contenido_caliente`` o
+    ``refrigeracion``), no una aptitud deducida: el nivel queda vacío.
+    """
+
+    row = _row(rule, number, None, with_applications=False)
+    field = _BEVERAGE_FIELD[temperature]
+    return {**row, "temperatura": temperature, "criterio": field, "cumple": bool(row[field])}
+
+
+def _beverage(rules: Iterable[MaterialRule], application: str, sources: _Sources) -> _Draft:
+    """Materiales de la guía para una bebida, por su regla de temperatura (sin nivel)."""
+
+    temperature = BEVERAGE_USES[application]
+    field = _BEVERAGE_FIELD[temperature]
+    ordered = list(rules)
+    numbers = sources.add([_source(rule) for rule in ordered])
+    rows = [
+        _beverage_row(rule, number, temperature)
+        for rule, number in zip(ordered, numbers, strict=True)
+    ]
+    rows.sort(key=lambda row: not row["cumple"])  # estable: sigue el orden de la guía
+    without_rule = [
+        name for name in materials_without_rule() if name not in {r.material for r in ordered}
+    ]
+    message = (
+        f"La guía no tiene la aplicación {application}: se dan las reglas por temperatura de "
+        f"cada material ({field}, rango en °C), sin nivel recomendable o aplicable. La guía "
+        "no cubre papel ni pulpa; cada ficha declara su uso (buscar_producto filtra por uso)."
+    )
+    return _Draft(
+        "ok",
+        message,
+        data={
+            "reglas": rows,
+            "aviso": AVISO,
+            "uso": application,
+            "materiales_sin_regla": without_rule,
+        },
+    )
+
+
 def run(
     args: GuiaMaterialesArgs, deps: ToolDeps, context: ToolContext, sources: _Sources
 ) -> _Draft:
@@ -331,6 +407,14 @@ def run(
         if rule is None:
             return _Draft("empty", _NO_RULE_MESSAGE, data={"sin_regla": True})
         [number] = sources.add([_source(rule)])
+        if args.aplicacion in BEVERAGE_USES:
+            row = _beverage_row(rule, number, BEVERAGE_USES[args.aplicacion])
+            message = (
+                f"La guía no tiene la aplicación {args.aplicacion}: se da la regla por "
+                f"temperatura de {rule.material} ({_BEVERAGE_FIELD[row['temperatura']]}), sin "
+                "nivel. Es la guía de materiales, no la ficha de una referencia."
+            )
+            return _Draft("ok", message, data={"reglas": [row], "aviso": AVISO})
         row = _row(rule, number, args.aplicacion, with_applications=args.aplicacion is None)
         if args.aplicacion is None:
             message = f"Regla de la guía de materiales para {rule.material}."
@@ -347,6 +431,8 @@ def run(
     application = args.aplicacion
     if application is None:  # el esquema ya exige material o aplicación
         return _Draft("error", "Indica el material, la aplicación o ambos.")
+    if application in BEVERAGE_USES:
+        return _beverage(rules.values(), application, sources)
     ranked = sorted(
         (rule for rule in rules.values() if application in _levels(rule)),
         key=lambda rule: _LEVEL_ORDER[_levels(rule)[application]],

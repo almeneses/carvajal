@@ -319,7 +319,7 @@ def test_sin_material_ni_aplicacion_el_esquema_rechaza_la_llamada() -> None:
 
 
 @pytest.mark.parametrize(
-    "args", [{"material": "vidrio"}, {"aplicacion": "bebida_caliente"}, {"material": "  "}]
+    "args", [{"material": "vidrio"}, {"aplicacion": "mascotas"}, {"material": "  "}]
 )
 def test_valores_desconocidos_se_rechazan(args: dict[str, Any]) -> None:
     # Act / Assert

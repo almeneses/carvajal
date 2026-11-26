@@ -31,6 +31,7 @@ import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any, Final, Literal
 
 from carvajal.numbers import word_numbers as _word_numbers
@@ -56,6 +57,7 @@ __all__ = [
     "removes_whole_line",
     "resolve_choice",
     "resolve_more",
+    "resolve_quantity_change",
     "resolve_quantity_choice",
     "resolve_reference",
     "resolve_remove",
@@ -240,7 +242,9 @@ def parse_quantities(text: str, limit: int = 4) -> tuple[int, ...]:
     «1.500» y «1,500» son 1.500. Quien llama decide si un número suelto es una opción.
     """
 
-    folded = plain(text.replace("$", " $ "))
+    # El separador de miles va antes de :func:`plain`, que borra los puntos: «1.000» era 1.
+    grouped = re.sub(r"(?<=\d)[.,](?=\d{3}(?!\d))", "", text)
+    folded = plain(grouped.replace("$", " $ "))
     found: list[tuple[int, int]] = []
     taken: list[tuple[int, int]] = []
     for match in _DIGITS.finditer(folded):
@@ -565,6 +569,96 @@ def resolve_remove(text: str, labels: tuple[str, ...]) -> int | None:
         if any(re.search(rf"\b{re.escape(stem)}\w*\b", folded) for stem in stems):
             matches.append(index)
     return matches[0] if len(matches) == 1 else None
+
+
+# Palabras que dicen «otra cantidad para esa línea» («mejor que sean 800», «cambia la 1 a
+# 1000», «ponle 2 cajas», «déjalo en 500»).
+_QUANTITY_CHANGE: Final = re.compile(
+    r"\b(?:cambi\w*|pon\w*|dej\w*|sub\w*|baj\w*|ajust\w*|modific\w*|actualiz\w*|corrig\w*|"
+    r"mejor|sean?|serian?|seran?)\b"
+)
+# Lo único que puede acompañar el cambio de cantidad, además de la cantidad, la línea y las
+# palabras del producto de esa línea. Otra palabra («cotízame», «hondos», «Bogotá») es otro
+# pedido y lo atiende el agente.
+_QUANTITY_CHANGE_FILLER: Final = frozenset(
+    {
+        "mejor", "que", "sean", "sea", "son", "serian", "seria", "seran", "sera", "a", "en",
+        "de", "la", "el", "los", "las", "lo", "le", "les", "linea", "producto", "numero", "#",
+        "cantidad", "unidades", "unidad", "und", "unds", "entonces", "por", "favor", "porfa",
+        "si", "no", "ok", "bueno", "mas", "bien", "pero", "y", "quiero", "quisiera",
+        "necesito", "total", "mil", "solo", "pues", "eso", "esa", "ese", "esos",
+        "esas", "ahora", "al", "final", "finalmente", "cajas", "caja", "paquetes",
+        "paquete", "pacas", "paca", "x",
+    }
+)  # fmt: skip
+_QUANTITY_UNIT_AFTER: Final = {
+    "caja": "caja", "cajas": "caja", "paquete": "paquete", "paquetes": "paquete",
+    "paca": "paca", "pacas": "paca",
+}  # fmt: skip
+
+
+def resolve_quantity_change(
+    text: str, labels: tuple[str, ...], *, default_last: bool = False
+) -> tuple[int, int, str | None] | None:
+    """Otra cantidad para una línea del carrito: ``(índice desde 0, cantidad, unidad)``.
+
+    «Mejor que sean 800», «cambia la 1 a 1000», «ponle 2 cajas a los vasos», «los platos que
+    sean 300». La línea es la que se nombra por su número («la 1») o por su producto («los
+    vasos»); sin nombrarla, la única del carrito o, con ``default_last``, la última (la que
+    se acaba de agregar). La unidad es ``caja``, ``paquete`` o ``paca`` si se dice; si no,
+    ``None`` (unidades). Devuelve ``None`` si no es un cambio de cantidad, si dice varias
+    cantidades o si trae otras palabras: «no, mejor cotízame 500 platos hondos» es otro
+    pedido.
+    """
+
+    if "?" in text or not labels:
+        return None
+    folded = plain(text)
+    if not _QUANTITY_CHANGE.search(folded) or _REMOVE.search(folded):
+        return None
+    lines = {int(found.group(1)) for found in _LINE_NUMBER.finditer(folded)}
+    if len(lines) > 1:
+        return None
+    named_line = next(iter(lines), None)
+    quantities = [value for value in parse_quantities(text) if value != named_line]
+    if len(quantities) != 1:
+        return None
+    quantity = quantities[0]
+    label_words = [{word for word in plain(label).split() if len(word) > 2} for label in labels]
+    known = set().union(*label_words)
+    named_by_product: set[int] = set()
+    for word in folded.split():
+        if word.isdigit() or word in _QUANTITY_CHANGE_FILLER or words_to_number(word):
+            continue
+        if _QUANTITY_CHANGE.fullmatch(word):
+            continue
+        stem = _stem(word, known)
+        hits = {index for index, words in enumerate(label_words) if stem in words}
+        if not hits:
+            return None  # otra palabra: otro pedido, no un cambio de cantidad
+        named_by_product |= hits
+    if named_line is not None:
+        index = named_line - 1
+        if not 0 <= index < len(labels):
+            return None
+    elif len(named_by_product) == 1:
+        index = next(iter(named_by_product))
+    elif named_by_product:
+        return None  # nombra palabras de varias líneas: lo decide el agente
+    elif len(labels) == 1 or default_last:
+        index = len(labels) - 1
+    else:
+        return None
+    words = folded.split()
+    unit = next(
+        (
+            _QUANTITY_UNIT_AFTER[after]
+            for word, after in pairwise(words)
+            if after in _QUANTITY_UNIT_AFTER and (word.isdigit() or words_to_number(word))
+        ),
+        None,
+    )
+    return index, quantity, unit
 
 
 _CANCEL_ALL: Final = re.compile(

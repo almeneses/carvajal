@@ -21,6 +21,7 @@ __all__ = [
     "DIRECT_INSTRUCTIONS",
     "DIRECT_SYSTEM",
     "FAQ_INSTRUCTIONS",
+    "FIXED_DIRECT_ANSWERS",
     "GATEKEEPER_CAUTION",
     "IDENTITY",
     "JEV_CLAIMS_CRITERIA",
@@ -334,6 +335,21 @@ DIRECT_INSTRUCTIONS = {
         "La pregunta no necesita datos de Carvajal. Responde en una o dos frases, sin "
         "cifras, fechas ni nombres de Carvajal, y ofrece el siguiente paso. Si en realidad "
         "pide datos de Carvajal, dilo y pide que la precise para buscarlos."
+    ),
+}
+
+# Respuestas fijas del atajo del modo ``tools``: el borrado de la memoria es una acción del
+# sistema y su confirmación no la redacta el modelo. En el ensayo del 2026-11-26, por WhatsApp,
+# el modelo confirmó «olvida todo» con «no guardo nada de ti en esta conversación», que es
+# falso (la memoria es del dueño, entre conversaciones) y no dice que se borró.
+FIXED_DIRECT_ANSWERS = {
+    "memory_forget": (
+        "Listo, olvidé todo lo que sabía de ti: tus datos y tus preferencias ya no están "
+        "guardados, en esta ni en otras conversaciones. ¿En qué te ayudo?"
+    ),
+    "memory_unavailable": (
+        "No pude olvidar tus datos ahora: la memoria no está disponible. Inténtalo de nuevo "
+        "en un rato."
     ),
 }
 
