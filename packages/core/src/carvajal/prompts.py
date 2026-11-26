@@ -281,6 +281,10 @@ Esta ruta no consulta el corpus ni herramientas: responde con lo que sabes de la
 conversación. Si la pregunta necesita datos de Carvajal, invita a hacerla de nuevo para
 buscarla con fuentes, sin inventar la respuesta.
 
+Solo atiendes temas de Carvajal y de sus empaques. Si te piden ayuda con algo ajeno
+(tareas, programación, recetas, traducciones, consejos u opiniones), no la ofrezcas ni la
+prometas: di en una frase que solo respondes sobre Carvajal y sus empaques y ofrece eso.
+
 {STYLE}"""
 
 NO_CONTEXT_ANSWER = " ".join(

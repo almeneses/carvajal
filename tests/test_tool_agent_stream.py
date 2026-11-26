@@ -2401,3 +2401,59 @@ def test_la_linea_de_revision_sale_antes_de_llamar_a_jev() -> None:
     # Assert: cuando la línea llega a la persona, Jev aún no se ha consultado.
     assert calls_at_review == [0]
     assert len(judge.claims) == 1
+
+
+def test_una_referencia_ambigua_rechazada_lista_las_candidatas() -> None:
+    # Arrange: «C1» coincide con varias referencias; el modelo inventa un precio y su texto
+    # se rechaza. Antes salía «Para seguir necesito un dato más…» y se perdía la lista.
+    steps = [
+        ScriptStep(tool_calls=[_call("cotizar", nombre="C1", quantity=300, city="Bogotá")]),
+        ScriptStep(text="El C1 de Wau cuesta 12.500 pesos en Bogotá."),
+    ]
+    runner, _ = _runner(steps)
+
+    # Act
+    events = _stream(runner, "Cotízame 300 portacomidas C1 en Bogotá")
+
+    # Assert
+    [token] = _tokens(events)
+    assert "12.500" not in token
+    assert "Hay varias referencias que coinciden. ¿Cuál quieres?" in token
+    assert "(SKU CO-PCOM-C1)" in token
+    assert "Para seguir necesito un dato más" not in token
+
+
+def test_una_ciudad_fuera_del_directorio_no_se_pide_como_si_faltara() -> None:
+    # Arrange: «… en Leticia»: la persona sí dio la ciudad.
+    steps = [
+        ScriptStep(tool_calls=[_call("cotizar", family="vaso", quantity=1000, city="Leticia")]),
+        ScriptStep(text="En Leticia el vaso sale a 3.000 pesos con Bioform."),
+    ]
+    runner, _ = _runner(steps)
+
+    # Act
+    events = _stream(runner, "Cotízame 1000 vasos de 7 oz en Leticia")
+
+    # Assert
+    [token] = _tokens(events)
+    assert "3.000" not in token
+    assert "No tengo precios ni sedes del directorio en esa ciudad." in token
+    assert "¿En cuál de ellas lo cotizo?" in token
+    assert "la ciudad donde lo recibirías" not in token
+
+
+def test_cotizar_cero_unidades_pide_la_cantidad_en_vez_de_abstenerse() -> None:
+    # Arrange
+    steps = [
+        ScriptStep(tool_calls=[_call("cotizar", family="vaso", quantity=0, city="Cali")]),
+        ScriptStep(text="Cero vasos en Cali cuestan 0 pesos con EDEXA."),
+    ]
+    runner, _ = _runner(steps)
+
+    # Act
+    events = _stream(runner, "Cotízame 0 vasos en Cali")
+
+    # Assert
+    [token] = _tokens(events)
+    assert "cuántas unidades necesitas" in token
+    assert "No tengo un dato verificado" not in token

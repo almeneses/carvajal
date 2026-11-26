@@ -877,3 +877,27 @@ def test_presentaciones_publicadas_sin_ciudad_cuentan_todas_las_ofertas() -> Non
     # Assert
     assert every
     assert set(every) == {item for items in per_city for item in items}
+
+
+def test_un_nombre_con_una_familia_no_ofrece_referencias_de_otra() -> None:
+    # Arrange: «vaso Wau 7 oz» también coincide con «Tapa … para vaso … 7 oz Wau» (ensayo).
+    solicitud = QuoteRequest(name="vaso Wau 7 oz", quantity=500, city="Bogotá")
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["family"] == "vaso"
+
+
+def test_un_nombre_que_nombra_dos_familias_sigue_preguntando() -> None:
+    # Arrange
+    solicitud = QuoteRequest(name="tapa vaso 7 oz", quantity=500, city="Bogotá")
+
+    # Act
+    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+
+    # Assert
+    assert resultado["kind"] == "aclaracion"
+    assert {c["family"] for c in resultado["candidates"]} == {"tapa"}

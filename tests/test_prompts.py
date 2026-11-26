@@ -915,6 +915,13 @@ def test_noul_conserva_el_texto_medido_con_dicho_por_la_persona() -> None:
     assert "«la más usada»" in JEV_CLAIMS_CRITERIA["false"]
 
 
+def test_la_respuesta_directa_no_ofrece_ayuda_ajena_a_carvajal() -> None:
+    # «¿Me ayudas con mi tarea de cálculo?» llegaba al atajo directo y respondía «Sí, te
+    # ayudo»: el atajo no consulta nada, así que la regla de alcance va en su sistema.
+    assert "Solo atiendes temas de Carvajal y de sus empaques" in DIRECT_SYSTEM
+    assert "no la ofrezcas ni la" in DIRECT_SYSTEM
+
+
 def test_instruccion_de_la_respuesta_directa_de_jev() -> None:
     text = DIRECT_INSTRUCTIONS["gatekeeper_direct"]
 

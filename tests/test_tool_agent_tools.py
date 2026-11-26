@@ -2755,3 +2755,18 @@ def test_comparar_tras_ficha_cita_sus_cifras_en_la_ficha_compartida() -> None:
     assert row["unidades_por_caja"] is None
     assert f"paquete de {row['presentacion_nombre']['unidades']} unidades" in excerpt
     assert "unidades por caja" not in excerpt
+
+
+def test_un_error_en_cantidades_no_se_lee_como_cantidad_faltante() -> None:
+    # Revisión: cinco cantidades (máximo cuatro) no es «me falta la cantidad».
+    result = _run(
+        "cotizar", {**CALIENTE, "cantidades": [100, 200, 300, 400, 500], "city": "Cali"}, _deps()
+    )
+    assert result.status == "error"
+    assert result.payload["missing"] == []
+
+
+def test_cotizar_cero_unidades_declara_la_cantidad_como_faltante() -> None:
+    result = _run("cotizar", {**CALIENTE, "quantity": 0, "city": "Cali"}, _deps())
+    assert result.status == "error"
+    assert result.payload["missing"] == ["cantidad"]
