@@ -391,7 +391,10 @@ def test_total_pendiente_si_el_envio_no_tiene_precio(
         assert quote["commercial"]["shipping"]["cost"] is None
         assert quote["commercial"]["total"] is None
         assert quote["total"] is None
-        assert "queda pendiente" in quote["reply"]
+        # Con domicilio pedido el total «queda pendiente»; si no se sabe, el subtotal va «sin
+        # envío» y el envío se resuelve en el resumen (spec 054, decisión 4). Nunca un total.
+        assert "queda pendiente" in quote["reply"] or "sin envío" in quote["reply"]
+        assert "Total:" not in quote["reply"]
 
 
 # --- Abstención sin evidencia (FR-004, FR-004a) --------------------------------------------

@@ -1311,13 +1311,17 @@ def quote_request(
     else:
         # La más apta para el uso no es la más barata: se recomienda por aptitud (spec 054).
         cheapest = "Por ser la más apta para el uso, te recomiendo"
+    presentation = primary["presentation"]
+    basis = str(presentation["basis"])
+    count = int(presentation["count"])
+    # «20 paquetes de 50 unidades a 2.653 COP por paquete»: el precio es de cada presentación,
+    # no el total («20 paquete de 50 unidades por 2.653 COP» se leía como el total).
     reply = (
         f"Cotización para {asked} en {city}. "
         f"{cheapest} {product.name}: "
-        f"{primary['presentation']['count']} "
-        f"{primary['presentation']['basis']} de "
-        f"{_units(Decimal(primary['presentation']['units']))} unidades por "
-        f"{_money(Decimal(primary['presentation']['price_per_presentation']))} COP."
+        f"{count} {basis if count == 1 else _UNIT_PLURAL.get(basis, f'{basis}s')} de "
+        f"{_units(Decimal(presentation['units']))} unidades a "
+        f"{_money(Decimal(presentation['price_per_presentation']))} COP por {basis}."
     )
     if mixed:
         # Cada opción con su propia conversión: no se comparan como si fueran el mismo pedido.
@@ -1332,7 +1336,12 @@ def quote_request(
     if offer.converted:
         reply += f" {CONVERTED_WARNING}"
     if wants_delivery is None:
-        reply += f" {PENDING_DELIVERY} El total queda pendiente."
+        # Spec 054 (decisión 4): el envío solo va en el resumen y el total parcial va sin
+        # envío. No se pregunta aquí por domicilio o retiro: el flujo pregunta lo siguiente.
+        reply += (
+            f" Subtotal: {_money(Decimal(presentation['subtotal']))} COP, sin envío; "
+            "el envío va en el resumen de la cotización."
+        )
     elif wants_delivery:
         if shipping["status"] == "confirmed":
             reply += (

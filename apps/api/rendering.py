@@ -183,6 +183,34 @@ def _escapar_html(text: str) -> str:
     return "\n".join(lineas)
 
 
+# Inicio de un ítem de lista Markdown («1. », «2) », «- », «* », «+ »). «•» no es Markdown:
+# esas líneas quedan como texto con su salto (``nl2br``).
+_LIST_ITEM_RE = re.compile(r"^ {0,3}(?:\d{1,3}[.)]|[-*+])[ \t]+\S")
+
+
+def _listas_separadas(texto: str) -> str:
+    """Línea en blanco antes de una lista pegada a un texto («**Alternativas**\\n1. …»).
+
+    El flujo de cotización (y WhatsApp) escribe la lista justo debajo del título; Python-
+    Markdown solo abre una lista tras una línea en blanco y la pegaba al párrafo. Una línea
+    sangrada es la continuación de un ítem y no corta la lista.
+    """
+
+    salida: list[str] = []
+    anterior = ""
+    for linea in texto.split("\n"):
+        if (
+            _LIST_ITEM_RE.match(linea)
+            and anterior.strip()
+            and not _LIST_ITEM_RE.match(anterior)
+            and not anterior[:1].isspace()
+        ):
+            salida.append("")
+        salida.append(linea)
+        anterior = linea
+    return "\n".join(salida)
+
+
 def render_answer(text: str, source_count: int = 0) -> Markup:
     """Formatea una respuesta generada y devuelve HTML saneado.
 
@@ -203,10 +231,13 @@ def render_answer(text: str, source_count: int = 0) -> Markup:
             preparado,
         )
     preparado = _URL_RE.sub(_enlazar_url, preparado)
+    preparado = _listas_separadas(preparado)
     preparado = _restaurar_fragmentos(preparado, fragmentos)
+    # ``nl2br``: un salto simple es un salto, como en el stream (texto.js) y en WhatsApp. Sin
+    # él, al recargar el historial el carrito o las alternativas salían en un solo párrafo.
     html = markdown.markdown(
         preparado,
-        extensions=["extra", "sane_lists"],
+        extensions=["extra", "sane_lists", "nl2br"],
     )
     limpio = nh3.clean(
         html,

@@ -71,6 +71,9 @@
     texto.required = !hay;
     texto.setAttribute("placeholder", hay ? "Añade un detalle (opcional)" : PLACEHOLDER);
     raiz.dataset.fotoAdjunta = hay ? "1" : "0";
+    // En el teléfono, con la bienvenida, el compositor queda bajo el pliegue: sin esto la
+    // ficha aparece fuera de la vista y parece que la foto no se adjuntó.
+    if (hay && typeof ficha.scrollIntoView === "function") ficha.scrollIntoView({ block: "nearest" });
   }
 
   // Las mismas validaciones para el botón, arrastrar y pegar (FR-021).

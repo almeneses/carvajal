@@ -1400,8 +1400,18 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
                 + "): la principal es la de menor precio por unidad, no la del total más "
                 "bajo. Pregunta qué referencia busca la persona."
             )
-    if quoted["total"] is None:
-        message += f" El total queda pendiente: {quoted['commercial']['shipping']['note']}"
+    shipping = quoted["commercial"]["shipping"]
+    if quoted["total"] is None and shipping.get("requested") is None:
+        # Spec 054 (decisión 4): el envío solo va en el resumen. Si el modelo pregunta aquí
+        # por domicilio o retiro, choca con la pregunta del flujo («¿Algo más?», «¿Cuál te
+        # cotizo?») y el resumen luego cierra con «Envío no incluido» sin usar la respuesta.
+        message += (
+            " El precio va sin envío: en el flujo de cotización el envío solo se resuelve en "
+            "el resumen, así que domicilio o retiro no es un dato pendiente en este turno. Ante "
+            "una consulta explícita por el envío, cotizar acepta delivery."
+        )
+    elif quoted["total"] is None:
+        message += f" El total queda pendiente: {shipping['note']}"
     if merge.action == "replaced":
         message += " Reemplaza a la cotización anterior que solo difería en el domicilio."
     stored = merge.quotes[merge.index] if merge.index is not None else None

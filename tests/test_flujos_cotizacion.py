@@ -951,3 +951,24 @@ def test_las_opciones_y_lo_agregado_llevan_el_sku_de_su_foto() -> None:
     assert render.options(quote).photos == ("J1",)
     assert render.added(draft, nuevas).photos == (sku_nueva,)
     assert render.summary(draft).photos == ()
+
+
+def test_el_comparativo_dice_cuantas_unidades_se_compran_si_sobran() -> None:
+    # Arrange: 500 portacomidas en cajas de 200 son 3 cajas (600 unidades); 1.000 son 5 exactas.
+    quotes = []
+    for units, count, subtotal in ((500, 3, 166644), (1000, 5, 277740)):
+        quote = make_quote({"sku": "CO-PCOM-C1", "nombre": "Portacomidas C1", "unidades": units,
+                            "subtotal": subtotal})  # fmt: skip
+        quote["primary"]["presentation"].update(
+            {"basis": "caja", "units": 200, "count": count, "units_bought": count * 200}
+        )
+        quotes.append(quote)
+
+    # Act
+    message = render.comparison(quotes)
+
+    # Assert: el texto y la voz no callan los 100 que sobran; 1.000 no lleva aclaración.
+    assert "• **500** → 3 cajas x 200 (600 und.) · $166.644" in message.text
+    assert "• **1.000** → 5 cajas x 200 · $277.740" in message.text
+    assert "porque se compran 600 unidades" in message.spoken
+    assert message.spoken.count("se compran") == 1

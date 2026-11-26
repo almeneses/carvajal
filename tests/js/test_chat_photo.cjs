@@ -272,6 +272,20 @@ test("el botón aparece y elegir una foto muestra su nombre y el aviso", () => {
   assert.equal(chat.window.CarvajalFoto.tomar(), JPEG);
 });
 
+test("al adjuntar, la ficha se desplaza a la vista (en el teléfono queda bajo el pliegue)", () => {
+  // Arrange
+  const chat = montar();
+  const llamadas = [];
+  chat.ficha.scrollIntoView = (opciones) => llamadas.push(opciones);
+
+  // Act
+  chat.elegir(JPEG);
+  chat.quitar.dispatch("click");
+
+  // Assert: solo al adjuntar, sin saltar la página entera.
+  assert.equal(JSON.stringify(llamadas), JSON.stringify([{ block: "nearest" }]));
+});
+
 test("rechaza en el cliente formatos y tamaños no admitidos", () => {
   // Arrange
   const chat = montar();

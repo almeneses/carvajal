@@ -340,7 +340,14 @@ def comparison(quotes: Sequence[Mapping[str, Any]]) -> Message:
     for quote in quotes:
         units = units_of(quote)
         money = format_money(line_subtotal(quote), _currency(quote)) or "sin precio"
-        row = f"• **{format_units(units)}** → {_packs(quote)} · {money}"
+        # Si las cajas completas traen más de lo pedido, se dice cuántas unidades se compran:
+        # «500 salen en 166.644» callaba que son 3 cajas de 200 (600 unidades).
+        bought = _decimal(_presentation(quote).get("units_bought"))
+        extra = bought if bought and bought > units else None
+        row = f"• **{format_units(units)}** → {_packs(quote)}"
+        if extra is not None:
+            row += f" ({format_units(extra)} und.)"
+        row += f" · {money}"
         unit = _unit_price(quote)
         if unit:
             row += f" ({unit} c/u)"
@@ -348,7 +355,10 @@ def comparison(quotes: Sequence[Mapping[str, Any]]) -> Message:
         price = _decimal(_presentation(quote).get("unit_price"))
         if price:
             prices.append(price)
-        said.append(f"{format_units(units)} salen en {_spoken_money(line_subtotal(quote))}")
+        phrase = f"{format_units(units)} salen en {_spoken_money(line_subtotal(quote))}"
+        if extra is not None:
+            phrase += f", porque se compran {format_units(extra)} unidades"
+        said.append(phrase)
     if len(prices) == len(quotes) and prices and max(prices) > 0:
         saving = (max(prices) - min(prices)) / max(prices) * 100
         if saving >= 5:
