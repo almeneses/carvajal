@@ -115,6 +115,7 @@ markers = [
     "e2e: extremo a extremo con servicios reales y LangSmith (excluido de make check)",
     "ensayo: ensayo general contra una app ya desplegada (docs/ensayo.md; también e2e)",
     "gasto: gasta tokens de DeepSeek, créditos de Jev o escribe en la base (ensayo completo)",
+    "exploracion: guiones con transcripciones y alertas para leer (make ensayo-exploracion)",
 ]
 
 [tool.ty.src]

@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean ensayo ensayo-completo e2e smoke
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean ensayo ensayo-completo ensayo-exploracion e2e smoke
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -86,7 +86,10 @@ ensayo: ## Ensayo sin gasto: app, repo, CI, VPS, gateway y audit (ENSAYO_BASE_UR
 	$(ENSAYO_ENV) uv run pytest tests/e2e -m "ensayo and not gasto" -rA -p no:cacheprovider
 
 ensayo-completo: ## Ensayo completo: además memoria, allowlist, flujos y fotos (gasta tokens)
-	$(ENSAYO_ENV) uv run pytest tests/e2e -m ensayo -rA -p no:cacheprovider
+	$(ENSAYO_ENV) uv run pytest tests/e2e -m "ensayo and not exploracion" -rA -p no:cacheprovider
+
+ensayo-exploracion: ## ~30 guiones por WhatsApp y web: transcripciones e informe de alertas (gasta tokens)
+	$(ENSAYO_ENV) uv run pytest tests/e2e/test_exploracion.py -m exploracion -q -s -p no:cacheprovider | grep -E "^ALERTA|passed|failed|error" || true
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
 	@if grep -rq "pytest.mark.integration" tests; then \
