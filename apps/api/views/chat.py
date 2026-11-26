@@ -1,6 +1,7 @@
 """Vista del chat (W3.3): formulario, turnos e historial con cookie firmada."""
 
 from collections.abc import Sequence
+from dataclasses import replace
 from urllib.parse import quote
 
 import structlog
@@ -24,12 +25,14 @@ from apps.api.chat.service import (
 from apps.api.observability import REQUEST_ID_PATTERN, capture_exception
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
+from apps.api.views.cotizacion_pdf import owner_pdf_link
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
 from carvajal.application.ask import LLMError
 from carvajal.application.quota import QuotaResult
 from carvajal.infrastructure.monitoring import monitoring_status
 from carvajal.infrastructure.settings import Settings
+from carvajal.quotation.render import pdf_offer
 
 __all__ = [
     "CSRF_INVALIDO",
@@ -391,7 +394,7 @@ def _page(
         request,
         "chat.html",
         {
-            "messages": messages,
+            "messages": _with_pdf_links(request, messages),
             "question": question,
             "error": error,
             "thread_id": thread_id or "",
@@ -412,6 +415,23 @@ def _page(
         status_code=status_code,
         headers=headers,
     )
+
+
+def _with_pdf_links(request: Request, messages: Sequence[ChatMessage]) -> list[ChatMessage]:
+    """Historial con el enlace al PDF en cada cotización registrada (T6, spec 054).
+
+    El texto guardado es el de todos los canales («📄 Te envío el PDF.»); en la web la línea
+    pasa a ser el enlace del folio, que el dueño abre con su cookie. Se arma al mostrar el
+    hilo, así no queda guardada una URL de un host ni un token que venza.
+    """
+
+    link = owner_pdf_link(request)
+    return [
+        replace(message, content=pdf_offer(message.content, link))
+        if message.role == "assistant" and message.content
+        else message
+        for message in messages
+    ]
 
 
 def _photo_available(request: Request) -> bool:

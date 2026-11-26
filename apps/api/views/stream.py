@@ -10,12 +10,17 @@ El evento ``done`` añade ``voz_resumen``: el resumen hablado de la respuesta gu
 lectura de respaldo del navegador diga lo mismo que la del servidor. Si no se puede
 preparar, el evento sale sin él y el navegador lee la respuesta como antes.
 
+La cotización recién registrada (T6, spec 054) promete «📄 Te envío el PDF.»: en la web esa
+línea pasa a ser el enlace al PDF del folio, que el visitante abre con su cookie
+(:func:`apps.api.views.cotizacion_pdf.owner_pdf_link`). Solo cambia lo que se muestra: el
+turno guardado y el resumen hablado no llevan la URL.
+
 El campo ``voz=1`` lo envía chat-stream.js solo si la persona habló la pregunta (borrador
 dictado o manos libres): el servicio guarda la marca ``voice`` con la pregunta y el
 historial ofrece audio solo en esas respuestas. Sin el campo, el turno es escrito.
 """
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,8 +45,10 @@ from apps.api.views.chat import (
     request_identity,
     set_identity_cookie,
 )
+from apps.api.views.cotizacion_pdf import owner_pdf_link
 from apps.api.voice import spoken_message
 from carvajal.adapters.storage.chat import ChatMessage
+from carvajal.quotation.render import pdf_offer
 
 __all__ = ["router"]
 
@@ -106,6 +113,7 @@ def chat_stream(
             client_turn_id=client_turn_id.strip() or None,
             thread_id=thread_id.strip() or None,
             spoken=voz.strip() == "1",
+            pdf_link=owner_pdf_link(request),
         ),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
@@ -123,8 +131,11 @@ def _sse(
     client_turn_id: str | None = None,
     thread_id: str | None = None,
     spoken: bool = False,
+    pdf_link: Callable[[str], str | None] | None = None,
 ) -> Iterator[str]:
     """Traduce los eventos del servicio a bloques SSE.
+
+    Con ``pdf_link`` (``folio -> URL``), la cotización registrada enlaza su PDF.
 
     La red de seguridad evita que un fallo inesperado del proveedor deje la
     conexión sin cierre ni mensaje: siempre se emite un ``error`` genérico.
@@ -151,6 +162,8 @@ def _sse(
                 fragments.append(str(event.data.get("text", "")))
             elif event.name == "fallback":
                 fragments = [str(event.data.get("text", ""))]
+                if pdf_link is not None:
+                    event = _with_pdf_link(event, pdf_link)
             if event.name in {"meta", "fallback"} and isinstance(event.data.get("sources"), list):
                 sources = [item for item in event.data["sources"] if isinstance(item, Mapping)]
             if event.name == "done":
@@ -206,6 +219,14 @@ def _with_spoken_summary(
     if not summary:
         return event
     return ChatEvent("done", {**event.data, "voz_resumen": summary})
+
+
+def _with_pdf_link(event: ChatEvent, link: Callable[[str], str | None]) -> ChatEvent:
+    """``fallback`` de la cotización registrada con el enlace al PDF en vez de la promesa."""
+
+    text = str(event.data.get("text", ""))
+    offered = pdf_offer(text, link)
+    return event if offered == text else ChatEvent("fallback", {**event.data, "text": offered})
 
 
 def _encode(event: ChatEvent) -> str:

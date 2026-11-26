@@ -13,7 +13,8 @@ Reglas de estilo (ver la spec):
 - Formato colombiano: ``$206.000``, «und», «c/u», «IVA incl.», fechas «2 dic».
 """
 
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -29,6 +30,7 @@ from carvajal.quotation.draft import (
 
 __all__ = [
     "JOKE_REJECTION",
+    "PDF_PROMISE",
     "Message",
     "added",
     "already_registered",
@@ -46,6 +48,7 @@ __all__ = [
     "option_rows",
     "options",
     "out_of_range",
+    "pdf_offer",
     "registered",
     "reminder",
     "removed",
@@ -55,6 +58,8 @@ __all__ = [
 ]
 
 JOKE_REJECTION: Final = "Arrancado, vaya cómprele a su madre entonces 😂"
+PDF_PROMISE: Final = "📄 Te envío el PDF."
+"""Última línea de T6: cada canal la cambia por el PDF que entrega (ver :func:`pdf_offer`)."""
 _MONTHS: Final = (
     "ene",
     "feb",
@@ -586,12 +591,32 @@ def registered(draft: QuoteDraft, folio: str, valid_until: date | str | None) ->
         detail += " (envío por confirmar)"
     if until:
         detail += f" · válida hasta {until}"
-    lines += [detail, "📄 Te envío el PDF."]
+    lines += [detail, PDF_PROMISE]
     spoken = (
         f"Listo, quedó registrada tu cotización terminada en {speak_folio_tail(folio)}. "
         "Te envío el PDF."
     )
     return Message("\n".join(lines), spoken)
+
+
+_REGISTERED_FOLIO: Final = re.compile(r"^✅ \*\*Cotización #([^\s*]+) registrada\*\*$", re.M)
+
+
+def pdf_offer(text: str, link: Callable[[str], str | None]) -> str:
+    """T6 en un canal que enlaza el PDF (la web): la promesa pasa a ser el enlace del folio.
+
+    ``link`` da la URL del PDF de un folio o ``None`` si no se puede ofrecer; sin URL la línea
+    se quita para no prometer un PDF que no llega. Un texto que no es T6 vuelve igual. Solo
+    cambia el texto escrito: la versión hablada (``spoken``) no lee enlaces.
+    """
+
+    found = _REGISTERED_FOLIO.search(text)
+    promise = f"\n{PDF_PROMISE}"
+    if found is None or promise not in text:
+        return text
+    url = link(found.group(1))
+    offer = f"\n📄 [Descarga el PDF de tu cotización]({url})" if url else ""
+    return text.replace(promise, offer, 1)
 
 
 def already_registered(folio: str) -> Message:

@@ -111,7 +111,7 @@ flowchart LR
   AG --> GT["Compuertas<br/>evidencia determinista → Noul (Jev)"]
   DI --> CS
   GT --> CS
-  CS --> PDF["GET /cotizaciones/{folio}.pdf<br/>enlace firmado"]
+  CS --> PDF["GET /cotizaciones/{folio}.pdf<br/>enlace firmado o cookie del dueño"]
 
   TL --> QD[("Qdrant<br/>carvajal_chunks")]
   TL --> CAT[("Catálogo y datos curados<br/>data/catalog · data/commercial<br/>indicators.json · institucional")]
@@ -296,6 +296,9 @@ el bloque `jev`. Resultados de la medición
   `/cotizaciones/{folio}.pdf` ([`cotizacion_pdf.py`](apps/api/views/cotizacion_pdf.py),
   [`quote_pdf.py`](apps/api/quote_pdf.py)) que vence con la vigencia de la cotización y se
   genera al vuelo con fpdf2 (logo, folio, producto, importes, vendedor y fuente del precio).
+  En el chat web, la cotización registrada enlaza el mismo `/cotizaciones/{folio}.pdf` en el
+  texto y en la tarjeta, sin firma: la ruta lo entrega si la cookie del visitante es la del
+  dueño y responde 404 a cualquier otro.
 
 ### Voz
 
