@@ -27,10 +27,14 @@ from sqlalchemy.pool import StaticPool
 
 from apps.api.metrics import (
     FAILURE_RETRY_TTL,
+    LANGSMITH_BUDGET,
+    LANGSMITH_CONNECT_TIMEOUT,
+    LANGSMITH_MAX_RETRIES,
     LANGSMITH_PROJECT_TTL,
     LANGSMITH_RETRY_TTL,
     LANGSMITH_STATS_SPACING,
     LANGSMITH_TTL,
+    LANGSMITH_UNSENT,
     RETRY_COOLDOWN,
     Card,
     LangSmithState,
@@ -661,6 +665,124 @@ def test_langsmith_sin_proyecto_ni_dato_queda_no_disponible_con_vigencia_corta()
     assert card.ttl_s == LANGSMITH_RETRY_TTL
 
 
+def test_un_reintento_de_langsmith_que_falla_marca_los_datos_y_reintenta_en_segundos() -> None:
+    # Arrange: las dos ventanas vigentes; luego «Reintentar» y LangSmith responde 429 a todo.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0.5)
+    modo = {"limitado": False}
+    stats: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        stats.append(reloj.t)
+        return httpx.Response(429) if modo["limitado"] else httpx.Response(200, json=STATS)
+
+    settings = _settings(**LANGSMITH)
+    langsmith_card(settings, _client(handler), state=estado)
+    reloj.t = 20
+    modo["limitado"] = True
+    stats.clear()
+
+    # Act: el reintento falla; pasados los 30 s, LangSmith vuelve a responder.
+    estado.force()
+    fallida = langsmith_card(settings, _client(handler), state=estado)
+    peticiones_fallidas = len(stats)
+    modo["limitado"] = False
+    reloj.t += LANGSMITH_RETRY_TTL + 1
+    recuperada = langsmith_card(settings, _client(handler), state=estado)
+
+    # Assert: reintentos dentro del plazo, datos anteriores marcados con el motivo y «se
+    # reintenta en N s», vigencia de 30 s (no 10 min) y recuperación sin otro «Reintentar».
+    assert peticiones_fallidas == 1 + LANGSMITH_MAX_RETRIES + 1
+    assert fallida.status == "ok" and fallida.stale is True
+    assert "HTTP 429" in fallida.reason
+    assert fallida.ttl_s == LANGSMITH_RETRY_TTL
+    assert fallida.retry_at is not None
+    for ventana in fallida.data["windows"].values():
+        assert ventana["status"] == "stale"
+        assert "HTTP 429" in ventana["note"]
+        assert ventana["retry_at"] is not None
+        assert ventana["traces"] == 200
+    assert recuperada.stale is False and recuperada.reason == ""
+    assert [w["note"] for w in recuperada.data["windows"].values()] == ["", ""]
+
+
+def test_un_reintento_de_langsmith_con_una_ventana_fallida_la_marca_y_no_la_otra() -> None:
+    # Arrange: ventanas vigentes; el reintento recibe 500 en la primera y 200 en la segunda.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    respuestas = iter([200, 200, 500, 200])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        codigo = next(respuestas)
+        return httpx.Response(200, json=STATS) if codigo == 200 else httpx.Response(codigo)
+
+    settings = _settings(**LANGSMITH)
+    langsmith_card(settings, _client(handler), state=estado)
+    reloj.t = 20
+
+    # Act
+    estado.force()
+    card = langsmith_card(settings, _client(handler), state=estado)
+
+    # Assert: la fallida va con su dato anterior, marcada y con reintento; la otra, al día.
+    ventanas = card.data["windows"]
+    assert card.status == "ok" and card.stale is True and card.reason == ""
+    assert ventanas["24h"]["status"] == "stale"
+    assert ventanas["24h"]["note"] == "Respondió con error (HTTP 500)."
+    assert ventanas["24h"]["retry_at"] is not None
+    assert ventanas["7d"]["status"] == "ok" and ventanas["7d"]["note"] == ""
+    assert card.ttl_s == LANGSMITH_RETRY_TTL
+
+
+def test_langsmith_sin_plazo_para_las_ventanas_no_dice_que_espera_turno() -> None:
+    # Arrange: ``GET /sessions`` se lleva casi todo el plazo de la carga.
+    reloj = Reloj()
+    estado = _estado(reloj)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            reloj.t += 2.5
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        raise AssertionError("sin plazo no se pide ninguna ventana")
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: nada falló ni hay turno que esperar; se pide en la próxima carga.
+    assert card.status == "unavailable"
+    assert card.reason == LANGSMITH_UNSENT
+    assert card.ttl_s == 1
+
+
+def test_el_plazo_de_cada_peticion_a_langsmith_no_pasa_del_que_queda() -> None:
+    # Arrange: cada petición se lleva 0,8 s del reloj.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    plazos: list[tuple[float, dict[str, float | None]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        plazos.append((LANGSMITH_BUDGET - reloj.t, dict(request.extensions["timeout"])))
+        reloj.t += 0.8
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    # Act
+    langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: conectar y leer juntos caben en lo que queda del plazo de la tarjeta (un
+    # ``float`` en httpx valdría por fase y dejaría durar el doble).
+    assert len(plazos) == 3
+    for restante, plazo in plazos:
+        assert plazo["connect"] is not None and plazo["read"] is not None
+        assert plazo["connect"] + plazo["read"] <= restante + 1e-9
+        assert plazo["connect"] <= LANGSMITH_CONNECT_TIMEOUT
+
+
 # --- DeepSeek ----------------------------------------------------------------------------
 
 
@@ -1062,6 +1184,29 @@ def test_un_reintento_de_langsmith_fuerza_las_ventanas_sin_saltarse_el_turno() -
     assert tarjeta.retry_at is not None
 
 
+def test_reintentar_langsmith_no_espera_a_una_carga_en_curso() -> None:
+    # Arrange: una carga de LangSmith tiene el candado (red y esperas) en otro hilo.
+    board = MetricsBoard(settings=_settings(**LANGSMITH), langsmith=_estado(Reloj()))
+    board.langsmith.lock.acquire()
+    resultado: list[str] = []
+
+    # Act
+    hilo = threading.Thread(
+        target=lambda: resultado.append(board.retry("langsmith", operator=False).status)
+    )
+    hilo.start()
+    hilo.join(timeout=2)
+    bloqueado = hilo.is_alive()
+    board.langsmith.lock.release()
+    hilo.join(timeout=2)
+    board.langsmith.apply_force()
+
+    # Assert: responde sin esperar y la carga siguiente aplica el reintento.
+    assert bloqueado is False
+    assert resultado == ["done"]
+    assert all(w.forced for w in board.langsmith.windows.values())
+
+
 def test_la_cache_vencida_a_mano_conserva_el_dato_anterior() -> None:
     # Arrange
     reloj = Reloj()
@@ -1354,6 +1499,23 @@ def test_reintentar_con_csrf_fuerza_la_recarga_y_luego_pide_esperar(
     assert pronto.headers["location"] == "/metricas?espera=qdrant#reintento-qdrant"
     assert f"Espera {RETRY_COOLDOWN - 3} s para reintentar" in espera
     assert registro == consultas
+
+
+def test_el_aviso_del_reintento_se_marca_para_anunciarlo_tras_la_redireccion(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    cliente = app_metricas(saldo=False)
+
+    # Act
+    con_aviso = cliente.get("/metricas?reintento=qdrant").text
+    sin_aviso = cliente.get("/metricas").text
+
+    # Assert: solo el estado de la fuente reintentada lleva la marca; el script es propio.
+    assert '<script src="/static/metricas.js" defer></script>' in con_aviso
+    assert re.search(r'id="reintento-qdrant"[^>]*data-anunciar', con_aviso)
+    assert con_aviso.count("data-anunciar") == 1
+    assert "data-anunciar" not in sin_aviso
 
 
 @pytest.mark.parametrize(

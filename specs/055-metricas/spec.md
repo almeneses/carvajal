@@ -92,11 +92,17 @@ caducada y responde 303 a `/metricas`, cuya carga la consulta de nuevo; la pági
 a consultar …». **Given** que la fuente se consultó hace menos de 15 s (por cualquier visita),
 **Then** no se consulta y la página dice «Espera N s para reintentar». Funciona sin JS; el botón
 tiene texto («Reintentar» + el nombre de la fuente para lectores de pantalla), foco visible y un
-estado con `role="status"`.
+estado con `role="status"`; como tras el 303 ese estado ya viene escrito y una región viva no
+anuncia lo que trae la página al cargar, `metricas.js` lo vacía y lo vuelve a escribir para que
+se lea (sin JS se ve igual). Si el reintento de LangSmith falla, sus ventanas muestran el dato
+anterior marcado «Desactualizada» con el motivo y «Se reintenta en N s» (30 s), no «Disponible».
 *Evidencia*: `test_reintentar_con_csrf_fuerza_la_recarga_y_luego_pide_esperar`,
 `test_reintentar_sin_csrf_se_rechaza_y_no_consulta_la_fuente`,
 `test_reintentar_solo_acepta_fuentes_conocidas_y_el_saldo_es_del_operador`,
-`test_un_reintento_de_langsmith_fuerza_las_ventanas_sin_saltarse_el_turno`.
+`test_un_reintento_de_langsmith_fuerza_las_ventanas_sin_saltarse_el_turno`,
+`test_un_reintento_de_langsmith_que_falla_marca_los_datos_y_reintenta_en_segundos`,
+`test_reintentar_langsmith_no_espera_a_una_carga_en_curso`,
+`test_el_aviso_del_reintento_se_marca_para_anunciarlo_tras_la_redireccion`.
 
 ### Edge Cases
 
@@ -113,11 +119,27 @@ estado con `role="status"`.
     menos de 9 s; con la caché fría la página trae las 24 h y deja los 7 días «Pendiente» hasta
     su turno (la tarjeta se vuelve a armar a los ~9 s), en vez de chocar con un 429;
   - dentro de una carga solo se espera si cabe en el plazo total de la tarjeta (3 s): hasta 2
-    reintentos ante un 429, respetando `Retry-After` si viene;
+    reintentos ante un 429, esperando lo que diga `Retry-After` o, si no viene, el turno de 9 s.
+    El 429 de LangSmith no trae `Retry-After` y 9 s no caben en 3 s, así que **en producción no
+    hay reintentos dentro de la carga**: la ventana queda pendiente y se reintenta a los 30 s;
+    los reintentos dentro de la carga solo ocurren con un `Retry-After` corto;
+  - el plazo de 3 s acota cada petición entera: conectar (como mucho 1 s) y leer se reparten
+    lo que queda (un `float` en httpx vale por fase y dejaría durar el doble);
   - una ventana que falla (429 u otro error) se reintenta a los 30 s, o cuando diga
     `Retry-After` (como mucho 10 min), conserva su dato anterior marcado «Desactualizada» y la
-    otra ventana sigue disponible;
-  - si fallan las dos y no hay dato anterior, «No disponible» con el motivo y vigencia de 30 s.
+    otra ventana sigue disponible. Vale también si el dato anterior aún estaba vigente (un
+    «Reintentar» que choca con un 429): el fallo no se pierde hasta que la ventana se consulte
+    bien;
+  - si fallan las dos y no hay dato anterior, «No disponible» con el motivo. La tarjeta no se
+    guarda 30 s exactos sino hasta la próxima consulta posible de alguna ventana: como las dos
+    van a 9 s una de otra, su vigencia alterna entre ~9 y ~21 s, y LangSmith recibe dos
+    consultas cada ~30 s (una por ventana), no una por visita;
+  - si el plazo se va antes de pedir una ventana (p. ej. un `GET /sessions` lento con la caché
+    fría), la ventana dice «La consulta a LangSmith se alargó y esta ventana se pide en la
+    próxima carga.» (no que espera turno ni que LangSmith limitó) y se pide en la visita
+    siguiente;
+  - «Reintentar» no espera a una carga de LangSmith en curso: deja la marca y la carga
+    siguiente la aplica.
 - **Una fuente falla por otro motivo**: el fallo se guarda un minuto; las visitas de ese
   minuto ven «No disponible» o los datos anteriores sin consultarla, y la tarjeta se recupera
   al minuto siguiente, no a los diez.
@@ -198,6 +220,7 @@ estado con `role="status"`.
 - **SC-005**: Con caché fría, la página responde en menos de 3 s en local (medido: 1,9 s con
   LangSmith, Qdrant y la base reales). La tarjeta de LangSmith en frío, con la clave real:
   0,93 s (proyecto + 24 h, 7 días pendiente); a los 10 s, 0,62 s y completa; entre medias, sin
-  red (0,01 s).
+  red (0,01 s). Con el plazo repartido entre conectar y leer (medido de nuevo el 2026-11-26):
+  0,88 s en frío y 0,51 s al completarse.
 - **SC-006**: Una recarga o un «Reintentar» nunca lanzan dos `POST /runs/stats` a menos de 9 s
   ni martillan una fuente: como mucho una consulta manual por fuente cada 15 s.

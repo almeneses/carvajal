@@ -2,6 +2,7 @@
 {% block title %}Métricas · Asistente Carvajal{% endblock %}
 {% block head_extra %}
 <link rel="stylesheet" href="/static/metricas.css" />
+<script src="/static/metricas.js" defer></script>
 {% endblock %}
 {#- Spec 055: solo agregados. Los contadores «del proceso» se reinician con cada despliegue. -#}
 {% macro dato(nombre, valor, nota="") -%}
@@ -40,7 +41,10 @@
     <input type="hidden" name="fuente" value="{{ fuente }}" />
     <button type="submit" class="boton secundario boton-reintentar" aria-describedby="reintento-{{ fuente }}">Reintentar<span class="sr-solo"> {{ nombre }}</span></button>
   </form>
-  <p id="reintento-{{ fuente }}" class="reintento-estado" role="status" tabindex="-1">
+  {#- Tras el 303, el resultado ya viene en el HTML y una región viva no anuncia lo que trae al
+      cargar: metricas.js lo reescribe (``data-anunciar``) para que se lea. Sin JS, se ve. -#}
+  <p id="reintento-{{ fuente }}" class="reintento-estado" role="status" tabindex="-1"
+     {%- if notice and notice.source == fuente %} data-anunciar{% endif %}>
     {%- if notice and notice.source == fuente -%}
       {%- if notice.kind == "reintento" -%}
         Se volvió a consultar {{ nombre }} hace un momento.
