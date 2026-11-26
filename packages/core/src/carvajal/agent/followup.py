@@ -162,18 +162,15 @@ def resolve_choice(text: str, alternatives: int) -> Choice | ChoiceOutOfRange | 
             return ChoiceOutOfRange(asked)
         return Choice(asked)
     match = _RECOMMENDED.match(plain)
-    if (
-        match is not None
-        and not _CHANGE.search(match["rest"])
-        and not _CLOSING_REST.match(match["rest"])
-    ):
+    if match is not None and not _CHANGE.search(match["rest"]) and not _CLOSING.search(plain):
         return Choice(0)
     return None
 
 
 # «Eso es todo», «eso sería todo», «eso nada más»: cierran, no eligen «eso» (la recomendada).
-_CLOSING_REST: Final = re.compile(
-    r"^\s*(?:(?:es|seria|era|fue|sera)\s+todo|(?:nada|no)\s+mas|(?:es|seria)\s+lo\s+que)\b"
+# Solo con «eso»: «esa nada más» (solo esa) y «eso es lo que quiero» sí eligen.
+_CLOSING: Final = re.compile(
+    r"^(?:(?:no|ya|bueno|listo|ok|y)\s+)*eso\s+(?:(?:es|seria|era|fue|sera)\s+todo|(?:nada|no)\s+mas)\b"
 )
 
 
@@ -421,7 +418,8 @@ def _negated(text: str) -> bool:
 _CART_PLACE: Final = r"(?:en|de)\s+(?:la|mi|el)\s+(?:cotizacion|carrito|pedido)"
 _CART_QUESTION: Final = re.compile(
     r"^(?:(?:y|oye|bueno|ok|a\s+ver|entonces)\s+)*(?:"
-    rf"(?:que|cuanto|cuantos|cuantas)\s+(?:tengo|llevo|lleva|va|van|llevamos)(?:\s+{_CART_PLACE})?"
+    rf"(?:que|cuanto|cuantos|cuantas)\s+(?:llevo|llevamos)(?:\s+{_CART_PLACE})?"
+    rf"|(?:que|cuanto|cuantos|cuantas)\s+(?:tengo|lleva|va|van)\s+{_CART_PLACE}"
     rf"|(?:que|cuanto)\s+hay\s+{_CART_PLACE}"
     r"|(?:muestrame|ensename|dejame\s+ver|quiero\s+ver|ver|mostrar|mira|revisa)\s+"
     r"(?:la|mi|el)\s+(?:cotizacion|carrito|pedido)"

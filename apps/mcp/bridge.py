@@ -112,6 +112,8 @@ logger = structlog.get_logger(__name__)
 MAX_MESSAGE_CHARS = 500
 MAX_CHAT_ID_CHARS = 200
 MAX_LISTED_SOURCES = 5
+# Con citas en el texto se listan todas las citadas, con este tope por si el modelo cita de más.
+MAX_CITED_SOURCES = 10
 OWNER_PREFIX = "wa_"
 _DOMAIN = b"carvajal:whatsapp:v1:"
 
@@ -797,7 +799,7 @@ def _selected(
     if cited:
         chosen = sorted(((n, s) for n, s in numbered if n in cited), key=lambda pair: pair[0])
         if chosen:
-            numbered = list({n: (n, s) for n, s in chosen}.values())
+            numbered = list({n: (n, s) for n, s in chosen}.values())[:MAX_CITED_SOURCES]
         else:
             numbered = numbered[:MAX_LISTED_SOURCES]
     rows: list[tuple[list[int], str, str]] = []
@@ -824,7 +826,12 @@ def drop_orphan_citations(text: str, sources: Iterable[Mapping[str, Any]]) -> st
     known = {number for number, _ in _numbered(sources)}
     if not known:
         return text
-    return _CITE.sub(lambda m: m.group(0) if int(m.group(1)) in known else "", text)
+    cleaned = _CITE.sub(lambda m: m.group(0) if int(m.group(1)) in known else "", text)
+    if cleaned == text:
+        return text
+    # Sin dobles espacios ni un espacio antes de la puntuación donde estaba la cita.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return re.sub(r"[ \t]+([.,;:)])", r"\1", cleaned)
 
 
 def _listed_sources(sources: Iterable[Mapping[str, Any]], text: str = "") -> list[tuple[str, str]]:

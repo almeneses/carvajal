@@ -565,6 +565,7 @@ def ask_for_missing(
     cities: Sequence[str] = (),
     suggestion: str | None = None,
     candidates: Sequence[Mapping[str, Any]] = (),
+    partial: bool = False,
     outside_directory: bool = False,
 ) -> str:
     """Petición neutra de los datos que faltan, para reemplazar un texto rechazado.
@@ -578,7 +579,7 @@ def ask_for_missing(
     """
 
     fields = list(fields)
-    which = _which_reference(candidates) if "referencia" in fields else ""
+    which = _which_reference(candidates, partial=partial) if "referencia" in fields else ""
     known = list(dict.fromkeys(f for f in fields if f in _MISSING_LABELS))
     if outside_directory and "ciudad" in known:
         # La persona sí dijo una ciudad, pero no está en el directorio: no se le pide «la
@@ -587,9 +588,11 @@ def ask_for_missing(
         place = "No tengo precios ni sedes del directorio en esa ciudad."
         if cities:
             place += f" Ciudades disponibles: {_join([str(c) for c in cities])}."
-        place += " ¿En cuál de ellas lo cotizo?"
+            place += " ¿En cuál de ellas lo cotizo?"
+        else:
+            place += " ¿En qué otra ciudad lo cotizo?"
         rest = ask_for_missing(known) if known else ""
-        return " ".join(part for part in (which, place, rest) if part)
+        return "\n\n".join(part for part in (which, place, rest) if part)
     if which:
         rest = ask_for_missing(known, cities=cities, suggestion=suggestion) if known else ""
         return "\n\n".join(part for part in (which, rest) if part)
@@ -608,8 +611,11 @@ def ask_for_missing(
     return f"{text} {question}"
 
 
-def _which_reference(candidates: Sequence[Mapping[str, Any]]) -> str:
-    """«¿Cuál quieres?» con las candidatas que devolvió ``cotizar`` (nombre y SKU, sus datos)."""
+def _which_reference(candidates: Sequence[Mapping[str, Any]], *, partial: bool = False) -> str:
+    """«¿Cuál quieres?» con las candidatas que devolvió ``cotizar`` (nombre y SKU, sus datos).
+
+    ``partial``: ninguna coincide con todo el nombre; se dice, no se presentan como exactas.
+    """
 
     lines = [
         f"- {item['nombre']} (SKU {item['sku']})"
@@ -618,7 +624,12 @@ def _which_reference(candidates: Sequence[Mapping[str, Any]]) -> str:
     ]
     if not lines:
         return ""
-    return "Hay varias referencias que coinciden. ¿Cuál quieres?\n\n" + "\n".join(lines)
+    lead = (
+        "Ninguna referencia coincide exactamente; estas se parecen. ¿Cuál quieres?"
+        if partial
+        else "Hay varias referencias que coinciden. ¿Cuál quieres?"
+    )
+    return f"{lead}\n\n" + "\n".join(lines)
 
 
 def sites_without_price(sites: Iterable[Mapping[str, Any]]) -> str:

@@ -698,3 +698,15 @@ def test_sin_cotizacion_el_texto_del_agente_queda_completo() -> None:
     answer = _bridge(chat).consult("hola", "+57300")
 
     assert "- Precio por paquete: $3.751 [1]" in answer
+
+
+def test_quitar_una_cita_sin_fuente_no_deja_espacios_sueltos() -> None:
+    # Arrange
+    sources = [{"title": "Sede", "url": "https://x", "n": 1}]
+    chat = FakeChat(events=_turn("Dos sedes [1] [4], y teléfonos [9].", sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("sedes", "+57300")
+
+    # Assert
+    assert answer.startswith("Dos sedes [1], y teléfonos.")

@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from carvajal.agent.followup import (
+    Choice,
     is_cancel_all,
     is_confirmation,
     is_leaving,
@@ -1018,6 +1019,11 @@ def test_eso_es_todo_ante_las_opciones_con_carrito_va_al_resumen() -> None:
         ("¿qué tengo que hacer?", False),
         ("¿qué hay?", False),
         ("¿cuánto vale el vaso?", False),
+        # Revisión: sin «en la cotización» son ambiguas («¿cuánto lleva?» = cuánto tarda).
+        ("¿y cuánto lleva?", False),
+        ("¿cuánto va?", False),
+        ("¿Qué tengo?", False),
+        ("¿qué tengo en mi pedido?", True),
     ],
 )
 def test_detecta_la_pregunta_por_el_carrito(texto: str, es: bool) -> None:
@@ -1079,3 +1085,66 @@ def test_el_resumen_hablado_concuerda_en_numero() -> None:
     # Act / Assert: «Es 1 producto», no «Son 1 producto».
     assert render.summary(one).spoken.startswith("Es 1 producto")
     assert render.summary(_cart()).spoken.startswith("Son 2 productos")
+
+
+@pytest.mark.parametrize("texto", ["eso es lo que quiero", "esa nada más", "esa no más", "eso"])
+def test_elegir_con_eso_o_esa_sigue_eligiendo_la_recomendada(texto: str) -> None:
+    # Revisión: el cierre solo aplica a «eso es todo / eso nada más», no a «esa nada más».
+    assert resolve_choice(texto, 2) == Choice(0)
+
+
+def test_eso_es_todo_confirmala_ante_las_opciones_va_al_resumen_sin_registrar() -> None:
+    # Arrange
+    draft = _with_options().touch(AHORA, lines=_cart().lines)
+
+    # Act
+    decision = before_turn(draft, "eso es todo, confírmala", requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply) and not decision.register
+    assert decision.draft.awaiting == "confirmar"
+
+
+def test_el_carrito_tras_registrar_recuerda_el_folio() -> None:
+    # Arrange: recién registrada (revisión: respondía «Todavía no tienes productos»).
+    draft = _cart().touch(AHORA, state="registrada", folio="COT-1", awaiting=None)
+
+    # Act
+    decision = before_turn(
+        draft, "¿qué tengo en la cotización?", requote_fn=fake_requote, now=AHORA
+    )
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert "COT-1" in decision.message.text
+
+
+def test_el_carrito_con_una_oferta_pendiente_deja_de_esperar_la_oferta() -> None:
+    # Arrange: «¿Te cotizo la más económica?» pendiente; tras ver el carrito con «¿Algo
+    # más?», un «sí» no debe aceptar la oferta.
+    offer = {"sku": "VT12", "name": "Vaso térmico 12 oz", "index": 1}
+    draft = _cart().touch(AHORA, state="carrito", awaiting="oferta", offer=offer)
+
+    # Act
+    decision = before_turn(draft, "¿cuánto llevo?", requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.awaiting == "algo_mas"
+    assert decision.draft.offer is None
+
+
+def test_el_carrito_vacio_con_opciones_pendientes_las_recuerda() -> None:
+    # Arrange
+    draft = _with_options()
+
+    # Act
+    decision = before_turn(
+        draft, "¿qué tengo en la cotización?", requote_fn=fake_requote, now=AHORA
+    )
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert render.empty_cart().text in decision.message.text
+    assert "¿cuál te cotizo?" in decision.message.text
+    assert decision.draft.awaiting == "eleccion"

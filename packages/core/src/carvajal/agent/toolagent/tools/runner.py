@@ -68,7 +68,8 @@ def _validation_message(error: ValidationError) -> str:
 
 # Argumentos inválidos que son un dato por pedir («0 vasos»): el reemplazo neutro pide la
 # cantidad en vez de abstenerse con «No tengo un dato verificado».
-_ARG_FIELDS: dict[str, str] = {"quantity": "cantidad", "cantidades": "cantidad"}
+# Solo ``quantity``: un error en ``cantidades`` (p. ej. cinco cantidades) no es que falte.
+_ARG_FIELDS: dict[str, str] = {"quantity": "cantidad"}
 
 
 def _missing_from(error: ValidationError) -> list[str]:
