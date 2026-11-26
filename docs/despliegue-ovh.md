@@ -309,19 +309,29 @@ falla antes de tocar la base. En una actualización desde la 042 siembra
 migración `0009 → 0010` y conserva Gold, conversaciones, mensajes y
 cotizaciones.
 
-`deploy.sh` hace la misma siembra del aprovisionamiento comercial en cada
-despliegue: copia al volumen los archivos de `catalog/` y `commercial/` que
-falten en `/app/seed-data` (nunca pisa los existentes), compara la versión con
-`EXPECTED_COMMERCIAL_VERSION` y ejecuta `python -m carvajal.commercial validar`
-antes de migrar. Si algo falla, se detiene sin tocar la versión en marcha. No
-reindexa: el bootstrap completo solo hace falta en un servidor limpio o si
-cambia el corpus.
+`deploy.sh` sincroniza el aprovisionamiento comercial en cada despliegue, antes de
+migrar:
 
-> ⚠️ La siembra **no pisa** archivos existentes. La versión `2026-11-25` cambia cuatro que
-> el volumen ya tiene: `referencias.csv`, `precios.csv`, `imagenes.csv` y `manifest.json` de
-> `catalog/empaques/`. Antes de desplegarla hay que respaldarlos y reemplazarlos por los de
-> `/app/seed-data/catalog/empaques/`; si no, `deploy.sh` se detiene por versión distinta y deja
-> intacta la versión en marcha.
+- **`catalog/`** es dato curado en el repositorio y manda el de la imagen. Siembra lo
+  que falta y **reemplaza lo que difiere**. Antes de reemplazar, respalda el archivo
+  del volumen en `data/respaldos/catalogo-<fecha>-<tag>/`. El log lista cada archivo
+  como `sembrado:` o `actualizado:`.
+- **`commercial/` e `institucional/`** solo siembran lo que falta. La evidencia de
+  disponibilidad se registra en el servidor y nunca se pisa.
+
+Luego compara la versión con `EXPECTED_COMMERCIAL_VERSION` y ejecuta
+`python -m carvajal.commercial validar`. Si algo falla, restaura el catálogo
+desde el respaldo y se detiene sin tocar la versión en marcha. Si el despliegue
+falla más tarde (migraciones, `/live` o `/health`), `rollback` también restaura el
+catálogo antes de volver a la imagen anterior. No reindexa: el bootstrap completo
+solo hace falta en un servidor limpio o si cambia el corpus.
+
+> Hasta el 2026-11-25 la siembra **no pisaba** archivos existentes. Como las PRs #256,
+> #257 y #258 comparten la versión `2026-11-25`, producción siguió con el `precios.csv`
+> de la #256 bajo el código de la #258 y no cotizaba los precios de referencia en ninguna
+> ciudad. El primer despliegue con esta corrección reemplaza esos archivos y deja el
+> respaldo en `data/respaldos/`. Los respaldos no se borran solos; límpialos a mano cuando
+> ya no hagan falta.
 
 `/health` publica la versión y los conteos que debe ver el despliegue:
 

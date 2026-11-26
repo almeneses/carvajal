@@ -127,6 +127,15 @@ resolve_port() {
 
 rollback() {
   echo "==> Despliegue fallido; rollback a ${PREV_TAG:-<sin versión anterior>}" >&2
+  # El catálogo que reemplazó este despliegue vuelve a su versión anterior: la imagen
+  # anterior no tiene por qué entender el nuevo (ver SEED_PROVISIONING).
+  if [[ -n "${DEPLOY_STAMP:-}" ]]; then
+    if ! "${COMPOSE[@]}" run --rm --no-deps -T -e DEPLOY_STAMP="$DEPLOY_STAMP" app \
+      sh -c "$RESTORE_CATALOG" >&2; then
+      echo "==> No se pudo restaurar el catálogo; respaldo en" \
+        "data/respaldos/catalogo-${DEPLOY_STAMP}" >&2
+    fi
+  fi
   # Solo se cambia la imagen: las migraciones ya aplicadas no se revierten.
   # Mantén migraciones compatibles hacia atrás (expand/contract).
   if [[ -n "$PREV_TAG" ]]; then
@@ -166,12 +175,21 @@ echo "==> Imagen: ${APP_IMAGE}"
 "${COMPOSE[@]}" pull app
 
 # Aprovisionamiento comercial (catálogo y sedes/precios). La imagen lo trae en
-# /app/seed-data, pero el volumen `appdata` tapa /app/data: sin esta siembra, una
-# versión que añade archivos al contrato arranca con el catálogo inválido,
-# /health falla y el despliegue hace rollback. Se copian solo los archivos
-# ausentes (como el perfil `bootstrap`), sin pisar los del volumen, y se valida
-# antes de migrar: si falla, nada cambió aún y la versión en marcha sigue igual.
-# Imágenes anteriores a la 043 no traen /app/seed-data y se saltan el paso.
+# /app/seed-data, pero el volumen `appdata` tapa /app/data.
+#
+# - `catalog/` es dato curado en el repositorio (CONSTITUTION §5): el de la imagen
+#   manda. Cada archivo que falta se siembra y cada uno que difiere se reemplaza,
+#   con respaldo en /app/data/respaldos/catalogo-<DEPLOY_STAMP>/. Antes solo se
+#   sembraba lo ausente, y un catálogo actualizado con la misma fecha de versión
+#   quedaba viejo en el volumen (2026-11-25: precios.csv de la #256 con el código
+#   de la #258, sin precios en ninguna ciudad).
+# - `commercial/` e `institucional/` solo siembran lo que falta: la evidencia de
+#   disponibilidad se registra en el servidor y no se pisa.
+#
+# Se valida antes de migrar. Si la versión o el catálogo no validan, el respaldo
+# se restaura aquí mismo; si el despliegue falla después, `rollback` lo restaura
+# antes de volver a la imagen anterior. Imágenes anteriores a la 043 no traen
+# /app/seed-data y se saltan el paso.
 SEED_PROVISIONING='
 set -e
 seed_dir() {
@@ -187,22 +205,66 @@ seed_dir() {
     fi
   done
 }
+backup="/app/data/respaldos/catalogo-${DEPLOY_STAMP:-manual}"
+sync_dir() {
+  src="$1"; dest="$2"
+  [ -d "$src" ] || return 0
+  mkdir -p "$dest"
+  find "$src" -type f | while IFS= read -r file; do
+    rel="${file#"$src"/}"
+    target="$dest/$rel"
+    if [ ! -e "$target" ]; then
+      mkdir -p "$(dirname "$target")"
+      cp "$file" "$target"
+      echo "    sembrado: ${target#/app/}"
+    elif ! cmp -s "$file" "$target"; then
+      mkdir -p "$(dirname "$backup/$rel")" "$(dirname "$target")"
+      cp -p "$target" "$backup/$rel"
+      cp "$file" "$target"
+      echo "    actualizado: ${target#/app/}"
+    fi
+  done
+}
+restore_catalog() {
+  [ -d "$backup" ] || return 0
+  (cd "$backup" && find . -type f) | while IFS= read -r rel; do
+    cp -p "$backup/$rel" "/app/data/catalog/${rel#./}"
+  done
+  echo "    catálogo restaurado desde ${backup#/app/}" >&2
+}
 [ -d /app/seed-data ] || { echo "    la imagen no trae /app/seed-data; se omite"; exit 0; }
-seed_dir /app/seed-data/catalog /app/data/catalog
+sync_dir /app/seed-data/catalog /app/data/catalog
 seed_dir /app/seed-data/commercial /app/data/commercial
 seed_dir /app/seed-data/institucional /app/data/institucional
 cd /app
 actual="$(python -m carvajal.commercial version)"
 if [ -n "${EXPECTED_COMMERCIAL_VERSION:-}" ] && [ "$actual" != "$EXPECTED_COMMERCIAL_VERSION" ]; then
   echo "    catálogo comercial $actual; se esperaba $EXPECTED_COMMERCIAL_VERSION" >&2
+  restore_catalog
   exit 1
 fi
-python -m carvajal.commercial validar >/dev/null
+if ! python -m carvajal.commercial validar >/dev/null; then
+  restore_catalog
+  exit 1
+fi
 echo "    catálogo comercial $actual válido"
 '
 
+# Restaura el catálogo que reemplazó este despliegue (ver SEED_PROVISIONING).
+RESTORE_CATALOG='
+backup="/app/data/respaldos/catalogo-${DEPLOY_STAMP:-manual}"
+[ -d "$backup" ] || exit 0
+(cd "$backup" && find . -type f) | while IFS= read -r rel; do
+  cp -p "$backup/$rel" "/app/data/catalog/${rel#./}"
+done
+echo "    catálogo restaurado desde ${backup#/app/}"
+'
+
+DEPLOY_STAMP="$(date -u +%Y%m%dT%H%M%SZ)-${IMAGE_TAG}"
+
 echo "==> Aprovisionamiento comercial"
-if ! "${COMPOSE[@]}" run --rm --no-deps -T app sh -c "$SEED_PROVISIONING"; then
+if ! "${COMPOSE[@]}" run --rm --no-deps -T -e DEPLOY_STAMP="$DEPLOY_STAMP" app \
+  sh -c "$SEED_PROVISIONING"; then
   echo "==> El aprovisionamiento comercial no es válido; no se despliega." >&2
   echo "    La versión en marcha sigue intacta. Revisa docs/despliegue-ovh.md." >&2
   exit 1
