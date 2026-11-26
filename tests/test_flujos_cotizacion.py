@@ -27,6 +27,7 @@ from carvajal.agent.followup import (
     resolve_remove,
     resolve_switch,
     wants_change,
+    wants_edit,
     wants_switch,
 )
 from carvajal.numbers import spoken_quantities, words_to_number
@@ -289,10 +290,47 @@ def test_pedir_un_cambio_sin_decir_cual_se_reconoce(texto: str) -> None:
         "Cancelar",
         "no",
         "sí",
+        "no quiero cambiar",  # niega: sin coma, el «no» va con el «quiero»
+        "no, no quiero cambiar",
+        "ok no quiero cambiar",
+        "no quiero cambiar nada",
+        "ya no quiero cambiar",
     ],
 )
 def test_un_pedido_concreto_no_es_pedir_un_cambio(texto: str) -> None:
     assert not wants_change(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "quiero cambiar los vasos por platos",
+        "necesito cambiar la 2 a 800",
+        "quiero cambiar la cantidad",
+        "quiero cancelar",
+        "Sí, quisiera modificar la ciudad",
+        "No, quiero cambiar la 2 a 800",  # con la coma, el «no» responde y el pedido sigue
+        "también quiero cambiar la 1",
+        "Quiero cambiar algo",  # el genérico también es un cambio
+    ],
+)
+def test_un_cambio_dicho_con_quiero_se_reconoce(texto: str) -> None:
+    assert wants_edit(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "quiero 500 vasos de 12 oz",
+        "necesito tapas",
+        "no quiero cambiar la 2",
+        "ok no quiero cambiar nada",
+        "cambia la 2 a 800",  # sin «quiero»: sigue su camino de siempre
+        "sí",
+    ],
+)
+def test_agregar_o_negar_no_es_pedir_un_cambio_dicho(texto: str) -> None:
+    assert not wants_edit(texto)
 
 
 def test_detectores_de_salida_retomar_cancelar_y_precio() -> None:
@@ -603,17 +641,97 @@ def test_un_pedido_con_quiero_en_el_resumen_sigue_agregando() -> None:
     assert isinstance(decision, Pass) and decision.prompt == "quiero 500 tapas"
 
 
-def test_ninguna_cotizacion_se_registra_sin_el_si() -> None:
+CAMBIOS_DICHOS = (
+    "quiero cambiar los vasos por platos",
+    "necesito cambiar la 2 a 800",
+    "quiero cambiar la cantidad",
+    "quiero cancelar",
+)
+
+
+@pytest.mark.parametrize("texto", CAMBIOS_DICHOS)
+def test_un_cambio_dicho_en_el_resumen_va_al_agente_sin_jev_y_sin_registrar(texto: str) -> None:
+    # Arrange: resumen esperando el «sí»; Jev lo leería como confirmar.
+    judge = FakeJudge("confirmar")
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+    # Assert: el cambio lo hace el agente con el borrador intacto y el «¿La confirmo?» desarmado.
+    assert isinstance(decision, Pass)
+    assert decision.prompt == texto
+    assert judge.calls == []
+    assert decision.draft.lines == draft.lines
+    assert decision.draft.awaiting != "confirmar"
+    assert decision.draft.awaiting == "algo_mas" and decision.draft.state == "carrito"
+
+
+def test_tras_un_cambio_dicho_un_si_no_registra_el_carrito_sin_cambiar() -> None:
+    # Arrange: «quiero cambiar los vasos por platos» en el resumen; el agente pregunta y la
+    # persona responde «sí».
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    first = before_turn(
+        draft, "quiero cambiar los vasos por platos", judge=FakeJudge("confirmar"), now=AHORA
+    )
+    assert isinstance(first, Pass)
+
+    # Act
+    decision = before_turn(first.draft, "sí", requote_fn=fake_requote, now=AHORA)
+
+    # Assert: el «sí» a «¿Algo más?» pide un producto; no hay folio.
+    assert isinstance(decision, Reply) and not decision.register
+    assert decision.draft.lines == draft.lines
+
+
+def test_un_cambio_dicho_en_el_carrito_no_cierra_por_jev() -> None:
+    judge = FakeJudge("cerrar")
     draft = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
-    for text in (
-        "sí",
-        "también tapas",
-        "¿cuánto llevo?",
-        "quiero cambiar algo",
-        "lo voy a pensar",
-        "cancela todo",
-    ):
-        decision = before_turn(draft, text, requote_fn=fake_requote, now=AHORA)
+    decision = before_turn(draft, "necesito cambiar la 2 a 800", judge=judge, now=AHORA)
+    assert isinstance(decision, Pass) and decision.prompt == "necesito cambiar la 2 a 800"
+    assert judge.calls == []
+    assert decision.draft.awaiting == "algo_mas" and decision.draft.lines == draft.lines
+
+
+def test_quiero_quitar_la_2_en_el_resumen_la_quita_la_regla() -> None:
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, "necesito quitar la 2", judge=FakeJudge("confirmar"), now=AHORA)
+    assert isinstance(decision, Reply) and not decision.register
+    assert len(decision.draft.lines) == 1 and decision.draft.awaiting == "algo_mas"
+
+
+@pytest.mark.parametrize("texto", ["no quiero cambiar", "no, no quiero cambiar"])
+def test_no_quiero_cambiar_no_muestra_el_carrito_editable(texto: str) -> None:
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+    assert not (isinstance(decision, Reply) and "¿Qué cambio?" in decision.message.text)
+    assert decision.draft.awaiting == "confirmar"
+
+
+def test_ninguna_cotizacion_se_registra_sin_el_si() -> None:
+    # Arrange: Jev leería cualquier respuesta como confirmar.
+    judge = FakeJudge("confirmar")
+    in_cart = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
+    in_summary = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+    cases = [
+        (in_cart, text)
+        for text in (
+            "sí",
+            "también tapas",
+            "¿cuánto llevo?",
+            "quiero cambiar algo",
+            "quiero cambiar los vasos por platos",
+            "lo voy a pensar",
+            "cancela todo",
+        )
+    ]
+    cases += [(in_summary, text) for text in ("quiero cambiar algo", *CAMBIOS_DICHOS)]
+
+    for draft, text in cases:
+        # Act
+        decision = before_turn(draft, text, requote_fn=fake_requote, judge=judge, now=AHORA)
+
+        # Assert
         assert not (isinstance(decision, Reply) and decision.register), text
 
 

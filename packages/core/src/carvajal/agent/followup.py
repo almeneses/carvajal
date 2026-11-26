@@ -14,8 +14,9 @@ con reglas, porque de ellas depende qué se cotiza y si una cotización se regis
   (cancelar o conservar el producto anterior), :func:`parse_quantities` (hasta cuatro
   cantidades, también dictadas con palabras), :func:`resolve_quantity_choice`,
   :func:`resolve_remove`, :func:`wants_switch`, :func:`wants_change` (editar la cotización
-  sin decir qué) y los detectores de salida, retomar,
-  cancelar todo, «está caro» y el rechazo con insulto (:func:`is_price_insult`).
+  sin decir qué), :func:`wants_edit` (pedir un cambio concreto con «quiero cambiar…») y los
+  detectores de salida, retomar, cancelar todo, «está caro» y el rechazo con insulto
+  (:func:`is_price_insult`).
 
 Todas trabajan sobre texto: una nota de voz llega ya transcrita. Ante la duda devuelven
 ``None`` y el turno sigue el camino normal (o pasa por Jev, ver ``carvajal.quotation.flow``).
@@ -49,6 +50,7 @@ __all__ = [
     "resolve_switch",
     "strip_assent",
     "wants_change",
+    "wants_edit",
     "wants_switch",
     "words_to_number",
 ]
@@ -356,14 +358,49 @@ _CHANGE_REQUEST: Final = re.compile(
 )
 
 
+# «No quiero cambiar» niega el cambio; «No, quiero cambiar algo» (con la coma) lo pide. Se
+# mira antes de :func:`plain`, que borra la coma.
+_NEGATED_INTENT: Final = re.compile(
+    r"^\s*[¿¡]?\s*(?:(?:ok|bueno|pues|no|si)[\s,.;:!]+)*no\s+"
+    r"(?:quiero|quisiera|necesito|deseo|me\s+gustaria|voy\s+a|vamos\s+a|tengo\s+que)\b"
+)
+# Lo que el «quiero/necesito» de ``_ADD`` deja de leer como agregar: pedir un cambio concreto.
+_EDIT_REQUEST: Final = re.compile(
+    r"^(?:(?:si|no|claro|ok|dale|bueno|listo|tambien|ah|y|pues|oye|espera|mejor|perdon)\s+)*"
+    r"(?:yo\s+)?(?:quiero|quisiera|necesito|deseo|me\s+gustaria)\s+"
+    rf"{_EDIT_VERB}\b"
+)
+
+
+def _negated(text: str) -> bool:
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    without = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return bool(_NEGATED_INTENT.match(without))
+
+
 def wants_change(text: str) -> bool:
     """«Quiero cambiar algo», «modificar», «¿puedo cambiar algo?»: editar sin decir qué.
 
     Solo el pedido genérico; «cambia la 2 a 800» o «quiero cambiar los vasos por platos»
-    ya dicen el cambio y siguen su camino.
+    ya dicen el cambio y siguen su camino. «No quiero cambiar» lo niega y no cuenta.
     """
 
+    if _negated(text):
+        return False
     return bool(_CHANGE_REQUEST.match(plain(text).replace("?", " ").strip()))
+
+
+def wants_edit(text: str) -> bool:
+    """«Quiero cambiar los vasos por platos», «necesito cambiar la 2 a 800»: un cambio dicho.
+
+    Cubre todo lo que ``resolve_more`` ya no cuenta como agregar por llevar un verbo de
+    edición tras «quiero/necesito» (también el pedido genérico de :func:`wants_change`).
+    «No quiero cambiar…» lo niega y no cuenta.
+    """
+
+    if _negated(text):
+        return False
+    return bool(_EDIT_REQUEST.match(plain(text)))
 
 
 _CANCEL_SWITCH: Final = re.compile(

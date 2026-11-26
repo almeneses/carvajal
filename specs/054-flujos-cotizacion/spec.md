@@ -122,6 +122,10 @@ borrador no cambia.
   «¿La confirmo?») muestra el carrito numerado con cómo cambiarlo («quita la 2», otra
   cantidad u otro producto) sin el modelo; el borrador se conserva y queda en «¿Algo más?»,
   así que «eso es todo» vuelve al resumen. Un pedido concreto («quiero 500 vasos») agrega.
+  «No quiero cambiar» lo niega y no muestra el carrito.
+- Un cambio dicho («quiero cambiar los vasos por platos», «necesito cambiar la 2 a 800»)
+  va al agente sin consultar a Jev y con el «¿La confirmo?» desarmado (queda en «¿Algo
+  más?»): ni Jev ni un «sí» posterior registran el carrito sin cambiar.
 - «Sí, mándame el PDF» con una cotización por confirmar: confirma y adjunta el PDF.
 - Una línea sin precio queda fuera del total y se dice.
 - Borrador de más de 7 días: no se retoma.

@@ -51,6 +51,7 @@ from carvajal.agent.followup import (
     resolve_switch,
     strip_assent,
     wants_change,
+    wants_edit,
     wants_switch,
 )
 from carvajal.quotation import render
@@ -341,6 +342,8 @@ def _on_confirm(
         return _register_or_refresh(draft, requote_fn, now)
     if plain(text) in {"no", "nop", "todavia no", "aun no", "espera"}:
         return _edit(draft, now)
+    if wants_edit(text):
+        return _edit_request(draft, text, said, now)
     more = resolve_more(text)
     if more == "add":
         return _add_request(draft, said, now)
@@ -358,6 +361,23 @@ def _edit(draft: QuoteDraft, now: datetime) -> Reply:
         return Reply(render.empty_cart(), draft.touch(now, awaiting=None))
     edited = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
     return Reply(render.edit_cart(edited), edited)
+
+
+def _edit_request(draft: QuoteDraft, text: str, said: str, now: datetime) -> Reply | Pass:
+    """«Quiero cambiar los vasos por platos»: un cambio dicho lo hace el agente, sin Jev.
+
+    Así Jev no puede leerlo como un «sí» y registrar el carrito sin cambiar, y el «¿La
+    confirmo?» queda desarmado: un «sí» posterior pide un producto, no registra. «Quiero
+    quitar la 2» lo resuelve la regla de quitar.
+    """
+
+    removal = _removal(draft, text, now)
+    if removal is not None:
+        return removal
+    if not draft.lines:
+        return Pass(draft.touch(now, awaiting=None, off_flow=0), prompt=strip_assent(said))
+    editing = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
+    return Pass(editing, prompt=strip_assent(said))
 
 
 def _register_or_refresh(draft: QuoteDraft, requote_fn: Requote, now: datetime) -> Reply | Pass:
@@ -390,6 +410,8 @@ def _on_more(
         return Reply(render.summary(closed), closed)
     if more == "close_confirm" and draft.lines:
         return _register_or_refresh(draft, requote_fn, now)
+    if wants_edit(text):  # antes que agregar: «también quiero cambiar la 1» no agrega
+        return _edit_request(draft, text, said, now)
     if more == "add":
         return _add_request(draft, said, now)
     if is_confirmation(text) and draft.lines:
