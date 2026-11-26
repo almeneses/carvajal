@@ -2019,6 +2019,29 @@ def test_con_otro_producto_en_curso_la_cantidad_suelta_es_de_ese_producto() -> N
     assert decision.draft.lines == asked.draft.lines
 
 
+def test_una_cotizacion_retenida_deja_el_producto_en_curso_y_no_toca_el_carrito() -> None:
+    # Arrange: vaso en el carrito; el agente cotiza platos y pregunta cuál (revisión PR #276).
+    draft, _ = add_line(
+        QuoteDraft(), make_quote(PLATO_HONDO | {"sku": "V7", "nombre": "Vaso 7 oz"})
+    )
+    draft = draft.touch(AHORA, awaiting="algo_mas", state="carrito")
+    text = "cotízame 500 platos hondos"
+    passed = before_turn(draft, text, requote_fn=fake_requote, now=AHORA)
+    assert isinstance(passed, Pass)
+    held = after_turn(
+        passed.draft, [_named(PLATO_HONDO, "herramienta")], text, now=AHORA, asks=True
+    )
+
+    # Act
+    decision = before_turn(held.draft, "que sean 800", requote_fn=fake_requote, now=AHORA)
+
+    # Assert: ``awaiting`` es el que dejó el turno y la cantidad suelta es de los platos.
+    assert held.draft.awaiting == passed.draft.awaiting
+    assert (held.draft.current or {}).get("label") == "Plato espumado hondo 12 oz"
+    assert isinstance(decision, Pass)
+    assert decision.draft.lines == draft.lines
+
+
 def test_con_otro_producto_en_curso_la_linea_nombrada_si_cambia() -> None:
     # Arrange
     vaso = make_quote({"sku": "V7", "nombre": "Vaso 7 oz", "unidades": 500, "subtotal": 9000})
