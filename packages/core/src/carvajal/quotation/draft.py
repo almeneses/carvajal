@@ -58,6 +58,7 @@ Awaiting = Literal[
     "referencia",  # nombre ambiguo: «¿Cuál quieres?» con las candidatas numeradas
     "pedido",  # cotización registrada: «¿Hacemos el pedido?» (spec 055)
     "datos_pedido",  # pedido aceptado: nombre y correo de quien compra (spec 055)
+    "confirmar_pedido",  # datos leídos: «¿Lo confirmo?» antes de crear el pedido (spec 055)
 ]
 State = Literal["explorando", "carrito", "resumen", "registrada", "pausada", "cancelada"]
 

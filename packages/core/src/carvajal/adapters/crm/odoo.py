@@ -5,13 +5,17 @@ Cada llamada es ``POST {url}/json/2/{modelo}/{método}`` con la API key del usua
 argumentos por nombre (``ids``, ``vals_list``, ``domain``, ``context``…) y la respuesta es el
 valor que devuelve el método.
 
-El pedido es idempotente por folio: ``client_order_ref`` guarda el folio de la cotización y
-un segundo intento devuelve el pedido que ya existe. Al confirmar el pedido Odoo envía al
-cliente el correo de confirmación con la plantilla de ventas; si no hay servidor de correo
-configurado, el correo queda en la cola de Odoo y se ve en el chatter del pedido.
+El pedido es idempotente por folio: ``client_order_ref`` guarda el folio de la cotización.
+Un segundo intento devuelve el pedido confirmado que ya existe; si el primero se quedó a
+medias (creado en borrador, sin confirmar), el reintento le pone el cliente actual y lo
+confirma. Al confirmar, Odoo envía al cliente el correo de confirmación con la plantilla de
+ventas y el PDF, y lo deja en el chatter; sin servidor SMTP el correo no sale (queda en
+excepción y se reintenta desde Odoo cuando haya servidor).
 
-Los datos del cliente (nombre y correo) solo viajan a Odoo; los logs llevan el folio y el
-número de pedido, nunca el nombre ni el correo.
+El cliente se reutiliza solo si coinciden el correo (sin comodines) y el nombre: quien
+escribe el correo de otra persona no le asigna pedidos a su ficha. Los datos del cliente
+solo viajan a Odoo; los logs llevan el folio, el número de pedido y el tipo de error, nunca
+el nombre, el correo ni el mensaje de Odoo.
 """
 
 import base64
@@ -40,7 +44,15 @@ NO_TAXES: Final = [[6, 0, []]]  # los precios llegan calculados por el motor de 
 
 
 class OdooError(RuntimeError):
-    """Odoo no respondió o rechazó la llamada; el mensaje no incluye datos del cliente."""
+    """Odoo no respondió o rechazó la llamada.
+
+    ``status`` es el código HTTP (``None`` si no hubo respuesta). El mensaje puede traer el
+    texto de Odoo: no se registra en los logs.
+    """
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -90,7 +102,10 @@ class OdooClient:
                 detail = str(body.get("message") or body.get("name") or "")[:200]
             except ValueError:
                 detail = response.text[:200]
-            raise OdooError(f"Odoo rechazó {model}.{method} ({response.status_code}): {detail}")
+            raise OdooError(
+                f"Odoo rechazó {model}.{method} ({response.status_code}): {detail}",
+                response.status_code,
+            )
         try:
             return response.json()
         except ValueError as error:
@@ -131,6 +146,20 @@ def _html(lines: Iterable[str]) -> str:
     return "".join(f"<p>{escape(line)}</p>" for line in lines if line)
 
 
+def _like_literal(value: str) -> str:
+    """``value`` para ``=ilike`` sin comodines: ``%`` y ``_`` de un correo son literales."""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _same_name(left: str | None, right: str | None) -> bool:
+    return " ".join((left or "").casefold().split()) == " ".join((right or "").casefold().split())
+
+
+def _log_error(event: str, error: OdooError, **fields: Any) -> None:
+    logger.warning(event, status=error.status, error_type=type(error).__name__, **fields)
+
+
 class OdooOrders:
     """Pedidos de venta y catálogo de Carvajal en una base de Odoo."""
 
@@ -145,45 +174,28 @@ class OdooOrders:
 
         existing = self._odoo.search_read(
             "sale.order",
-            [["client_order_ref", "=", request.folio]],
-            ["id", "name", "opportunity_id"],
+            [["client_order_ref", "=", request.folio], ["state", "!=", "cancel"]],
+            ["id", "name", "state", "partner_id", "opportunity_id"],
             limit=1,
         )
-        if existing:
+        if existing and existing[0].get("state") == "sale":
             found = existing[0]
-            lead = found.get("opportunity_id")
             logger.info("pedido.existente", folio=request.folio, pedido=found["name"])
             return OrderResult(
                 name=str(found["name"]),
                 order_id=int(found["id"]),
-                lead_id=int(lead[0]) if isinstance(lead, list) and lead else None,
+                lead_id=_many2one(found.get("opportunity_id")),
                 existing=True,
             )
         partner_id = self._partner(request)
-        products = self._products(request.lines)
-        lead_id = self._lead(request, partner_id)
-        order_values: dict[str, Any] = {
-            "partner_id": partner_id,
-            "client_order_ref": request.folio,
-            "origin": f"Asistente Carvajal ({request.channel}) · cotización #{request.folio}",
-            "note": _html(request.notes),
-            "order_line": [
-                [
-                    0,
-                    0,
-                    {
-                        "product_id": products[line.code],
-                        "name": line.description,
-                        "product_uom_qty": float(line.quantity),
-                        "price_unit": _money(line.price_unit),
-                    },
-                ]
-                for line in request.lines
-            ],
-        }
-        if lead_id is not None:
-            order_values["opportunity_id"] = lead_id
-        (order_id,) = self._odoo.create("sale.order", [order_values])
+        if existing:  # quedó en borrador: el cliente de ahora y a confirmar
+            order_id = int(existing[0]["id"])
+            lead_id = _many2one(existing[0].get("opportunity_id"))
+            self._odoo.write("sale.order", [order_id], {"partner_id": partner_id})
+            logger.info("pedido.retomado", folio=request.folio, pedido=existing[0]["name"])
+        else:
+            order_id = self._create_order(request, partner_id)
+            lead_id = None
         self._odoo.call("sale.order", "action_confirm", ids=[order_id], context=CONFIRM_CONTEXT)
         self._note(
             "sale.order",
@@ -194,17 +206,60 @@ class OdooOrders:
                 *request.notes,
             ],
         )
-        if lead_id is not None:
-            self._won(lead_id)
+        if lead_id is None:
+            lead_id = self._lead(request, partner_id, order_id)
         (order,) = self._odoo.search_read("sale.order", [["id", "=", order_id]], ["name"])
         logger.info("pedido.creado", folio=request.folio, pedido=order["name"])
         return OrderResult(name=str(order["name"]), order_id=order_id, lead_id=lead_id)
 
+    def _create_order(self, request: OrderRequest, partner_id: int) -> int:
+        products = self._products(request.lines)
+        (order_id,) = self._odoo.create(
+            "sale.order",
+            [
+                {
+                    "partner_id": partner_id,
+                    "client_order_ref": request.folio,
+                    "origin": (
+                        f"Asistente Carvajal ({request.channel}) · cotización #{request.folio}"
+                    ),
+                    "note": _html(request.notes),
+                    "order_line": [
+                        [
+                            0,
+                            0,
+                            {
+                                "product_id": products[line.code],
+                                "name": line.description,
+                                "product_uom_qty": float(line.quantity),
+                                "price_unit": _money(line.price_unit),
+                            },
+                        ]
+                        for line in request.lines
+                    ],
+                }
+            ],
+        )
+        return order_id
+
     def _partner(self, request: OrderRequest) -> int:
+        """Cliente con el mismo correo y el mismo nombre, o uno nuevo.
+
+        Solo el correo no basta: cualquiera puede escribir el de otra persona, y el pedido
+        quedaría en la ficha de un cliente real. Odoo admite contactos con el mismo correo;
+        el equipo los fusiona si hace falta.
+        """
+
         email = request.buyer.email or ""
-        found = self._odoo.search_read("res.partner", [["email", "=ilike", email]], ["id"], limit=1)
-        if found:
-            return int(found[0]["id"])
+        found = self._odoo.search_read(
+            "res.partner",
+            [["email", "=ilike", _like_literal(email)]],
+            ["id", "name"],
+            limit=20,
+        )
+        for item in found:
+            if _same_name(str(item.get("name") or ""), request.buyer.name):
+                return int(item["id"])
         values: dict[str, Any] = {
             "name": request.buyer.name,
             "email": email,
@@ -216,8 +271,12 @@ class OdooOrders:
         (partner_id,) = self._odoo.create("res.partner", [values])
         return partner_id
 
-    def _lead(self, request: OrderRequest, partner_id: int) -> int | None:
-        """Oportunidad del CRM ganada con el pedido; si el CRM falla, el pedido sigue."""
+    def _lead(self, request: OrderRequest, partner_id: int, order_id: int) -> int | None:
+        """Oportunidad del CRM ganada y ligada al pedido; si el CRM falla, el pedido sigue.
+
+        Se crea después de confirmar: un intento que falla antes no deja oportunidades
+        huérfanas, y el reintento sobre un pedido sin oportunidad la crea una sola vez.
+        """
 
         try:
             (lead_id,) = self._odoo.create(
@@ -234,16 +293,18 @@ class OdooOrders:
                     }
                 ],
             )
+            self._odoo.write("sale.order", [order_id], {"opportunity_id": lead_id})
         except OdooError as error:
-            logger.warning("pedido.oportunidad_fallida", folio=request.folio, error=str(error))
+            _log_error("pedido.oportunidad_fallida", error, folio=request.folio)
             return None
+        self._won(lead_id)
         return lead_id
 
     def _won(self, lead_id: int) -> None:
         try:
             self._odoo.call("crm.lead", "action_set_won", ids=[lead_id])
         except OdooError as error:
-            logger.warning("pedido.oportunidad_sin_ganar", error=str(error))
+            _log_error("pedido.oportunidad_sin_ganar", error)
 
     def _note(self, model: str, record_id: int, lines: Sequence[str]) -> None:
         try:
@@ -252,20 +313,26 @@ class OdooOrders:
                 "message_post",
                 ids=[record_id],
                 body=_html(lines),
+                body_is_html=True,  # un str se escapa: las etiquetas saldrían literales
                 message_type="comment",
                 subtype_xmlid="mail.mt_note",
             )
         except OdooError as error:  # la traza es un extra: el pedido ya existe
-            logger.warning("pedido.nota_fallida", error=str(error))
+            _log_error("pedido.nota_fallida", error)
 
     def _products(self, lines: Sequence[OrderLine]) -> dict[str, int]:
         """ID de ``product.product`` por SKU; crea los que el catálogo de Odoo no tenga."""
 
         codes = sorted({line.code for line in lines})
         found = self._odoo.search_read(
-            "product.product", [["default_code", "in", codes]], ["id", "default_code"]
+            "product.product",
+            [["default_code", "in", codes], ["active", "in", [True, False]]],
+            ["id", "default_code", "active"],
         )
         products = {str(item["default_code"]): int(item["id"]) for item in found}
+        archived = [int(item["id"]) for item in found if item.get("active") is False]
+        if archived:  # un SKU archivado se reactiva en lugar de duplicarse
+            self._odoo.write("product.product", archived, {"active": True})
         missing = [line for line in lines if line.code not in products]
         seen: set[str] = set()
         values = []
@@ -316,8 +383,8 @@ class OdooOrders:
         codes = [reference.sku for reference in references]
         found = self._odoo.search_read(
             "product.template",
-            [["default_code", "in", codes]],
-            ["id", "default_code", "name", "list_price", "description_sale"],
+            [["default_code", "in", codes], ["active", "in", [True, False]]],
+            ["id", "default_code", "name", "list_price", "description_sale", "active"],
         )
         current = {str(item["default_code"]): item for item in found}
         created = updated = unchanged = 0
@@ -330,7 +397,7 @@ class OdooOrders:
                 continue
             changed = {
                 key: values[key]
-                for key in ("name", "list_price", "description_sale")
+                for key in ("name", "list_price", "description_sale", "active")
                 if existing.get(key) != values[key]
             }
             if changed:
@@ -374,6 +441,10 @@ class OdooOrders:
         return {"fotos_subidas": len(missing), "fotos_existentes": len(found) - len(missing)}
 
 
+def _many2one(value: Any) -> int | None:
+    return int(value[0]) if isinstance(value, list) and value else None
+
+
 def _reference_values(reference: "Reference", category: int) -> dict[str, Any]:
     details = [
         reference.family,
@@ -396,6 +467,7 @@ def _reference_values(reference: "Reference", category: int) -> dict[str, Any]:
         "categ_id": category,
         "taxes_id": NO_TAXES,
         "description_sale": " · ".join(details),
+        "active": True,
     }
 
 

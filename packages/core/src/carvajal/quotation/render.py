@@ -833,26 +833,58 @@ def buyer_missing(name: str | None, email: str | None) -> Message:
     return Message(text, "No alcancé a entender tu nombre y tu correo. ¿Me los repites?")
 
 
-def order_placed(order: str, email: str, folio: str | None) -> Message:
-    reference = f" · cotización #{folio}" if folio else ""
+def confirm_buyer(name: str, email: str) -> Message:
+    """Los datos leídos, antes de crear el pedido: la persona los ve y los corrige."""
+
     text = (
-        f"🧾 **Pedido {order} confirmado**{reference}\n"
-        f"Te enviamos la confirmación a **{email}**. Un asesor te contacta para coordinar el "
-        "pago y la entrega."
+        "📋 Voy a hacer el pedido con estos datos:\n"
+        f"- Nombre: **{name}**\n"
+        f"- Correo: **{email}**\n"
+        "¿Lo confirmo? Si algo está mal, escríbeme el dato correcto."
     )
     spoken = (
-        "Listo, tu pedido quedó confirmado. Te enviamos la confirmación a tu correo y un "
-        "asesor te contacta para el pago y la entrega."
+        f"Voy a hacer el pedido a nombre de {name}, con el correo que escribiste. ¿Lo confirmo?"
     )
     return Message(text, spoken)
 
 
+def order_placed(order: str, email: str, folio: str | None) -> Message:
+    reference = f" · cotización #{folio}" if folio else ""
+    text = (
+        f"🧾 **Pedido {order} confirmado**{reference}\n"
+        f"La confirmación del pedido llega a **{email}**. Un asesor te contacta para "
+        "coordinar el pago y la entrega."
+    )
+    spoken = (
+        "Listo, tu pedido quedó confirmado. La confirmación llega a tu correo y un asesor te "
+        "contacta para el pago y la entrega."
+    )
+    return Message(text, spoken)
+
+
+def order_reminder(awaiting: str | None) -> Message | None:
+    """↩️ tras una pregunta a mitad del pedido: la pregunta pendiente, una sola vez."""
+
+    if awaiting == "pedido":
+        text = "↩️ ¿Seguimos con el pedido de tu cotización? Responde **sí** o **ahora no**."
+        return Message(text, "¿Seguimos con el pedido de tu cotización?")
+    if awaiting == "datos_pedido":
+        text = "↩️ Para el pedido me faltan tu **nombre** y tu **correo**."
+        return Message(text, "Para el pedido me faltan tu nombre y tu correo.")
+    if awaiting == "confirmar_pedido":
+        text = "↩️ ¿Confirmo el pedido con los datos que me diste? Responde **sí** o corrígelos."
+        return Message(text, "¿Confirmo el pedido con los datos que me diste?")
+    return None
+
+
 def order_failed() -> Message:
     text = (
-        "No pude crear el pedido en este momento. Tu cotización sigue registrada: escribe "
-        "«hacer el pedido» en unos minutos y lo intento de nuevo."
+        "No pude crear el pedido en este momento. Tu cotización sigue registrada: responde "
+        "**sí** en unos minutos y lo intento de nuevo, o **ahora no** para dejarlo."
     )
-    return Message(text, "No pude crear el pedido ahora. Inténtalo de nuevo en unos minutos.")
+    return Message(
+        text, "No pude crear el pedido ahora. Responde sí en unos minutos y lo reintento."
+    )
 
 
 def already_ordered(order: str) -> Message:

@@ -25,8 +25,11 @@ __all__ = [
     "OrderLine",
     "OrderRequest",
     "declines_order",
+    "has_buyer_data",
+    "mask_email",
     "merge_buyer",
     "order_lines",
+    "spoken_email",
     "wants_purchase",
 ]
 
@@ -34,14 +37,43 @@ SHIPPING_CODE: Final = "ENVIO-CARVAJAL"
 MAX_NAME: Final = 80
 
 _EMAIL: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+# Correo dictado por voz: «ana punto perez arroba gmail punto com».
+_SPOKEN_AT: Final = re.compile(r"\s*\b(?:arroba|at)\b\s*", re.IGNORECASE)
+_SPOKEN_DOT: Final = re.compile(r"\s*\bpunto\b\s*", re.IGNORECASE)
+_SPOKEN_UNDERSCORE: Final = re.compile(r"\s*\bgui[oó]n\s+bajo\b\s*", re.IGNORECASE)
+_SPOKEN_DASH: Final = re.compile(r"\s*\bgui[oó]n\b\s*", re.IGNORECASE)
 # Lo que acompaña al nombre y no es parte de él: «me llamo», «mi correo es», «a nombre de»…
 _NAME_NOISE: Final = re.compile(
-    r"\b(?:hola|buenas|listo|ok|dale|claro|si|sí|mi\s+nombre\s+es|me\s+llamo|soy|"
-    r"a\s+nombre\s+de|nombre|y\s+mi\s+correo\s+es|mi\s+correo\s+es|mi\s+correo|correo|"
-    r"electronico|electrónico|email|e-mail|mail|es|y)\b[:,]?",
+    r"\b(?:mi\s+nombre\s+es|me\s+llamo|a\s+nombre\s+de|y\s+mi\s+correo\s+es|"
+    r"mi\s+correo\s+es|mi\s+correo|mi\s+email|el\s+correo\s+es|correo\s+electr[oó]nico|"
+    r"correo|email|e-mail|mail|nombre|soy|es|y)\b[:,]?",
     re.IGNORECASE,
 )
+# Quien da el nombre lo dice así: con estas marcas un nombre nuevo reemplaza al anterior.
+_NAME_MARK: Final = re.compile(r"\b(?:mi nombre es|me llamo|a nombre de|soy)\b")
+# Palabras que nunca forman parte de un nombre: muletillas, respuestas y temas del pedido.
+_NOT_NAME: Final = frozenset(
+    """
+    hola buenas buenos dias tardes noches gracias muchas mil ok okay okey listo lista
+    perfecto perfecta bueno buena vale claro dale una si no nop ya bien super genial
+    excelente mejor ahora todavia aun despues luego tarde pienso pensar voy quiero queria
+    quisiera puedo puede necesito por favor porfa pedido pedidos compra comprar comprarla
+    comprarlo orden cotizacion cotizaciones folio envio entrega pago factura precio confirmo
+    confirma confirmar confirmado cancela cancelar cancelado cambiar cambio corrige corregir
+    otro otra eso esa ese esto todo nada algo mas menos el un una unos unas al lo le que como cuando donde cual mi tu su con sin para en a o u e
+    """.split()  # noqa: SIM905
+)
+# Muletillas que acompañan el nombre al principio o al final («Ana, gracias», «hola, Ana»).
+_FILLER: Final = frozenset(
+    """
+    hola buenas buenos dias tardes noches gracias muchas mil ok okay okey listo perfecto
+    bueno vale claro dale si ya bien super genial excelente porfa favor por
+    """.split()  # noqa: SIM905
+)
+_PARTICLES: Final = frozenset({"de", "del", "la", "las", "los"})
 _LETTERS: Final = re.compile(r"[^\W\d_]", re.UNICODE)
+_NAME_WORD: Final = re.compile(r"^[^\W\d_]+(?:['-][^\W\d_]+)*$", re.UNICODE)
+_NEGATION: Final = re.compile(r"\b(?:no|ni|nunca|tampoco|jamas)\b")
 
 # «Quiero comprarla», «hagamos el pedido», «la compro»: aceptar el pedido con otras palabras.
 _PURCHASE: Final = re.compile(
@@ -59,6 +91,8 @@ _DECLINE: Final = frozenset(
         "no por ahora",
         "todavia no",
         "aun no",
+        "ya no",
+        "mejor no",
         "despues",
         "luego",
         "mas tarde",
@@ -66,7 +100,14 @@ _DECLINE: Final = frozenset(
         "lo voy a pensar",
         "cancelar",
         "cancela",
+        "cancelalo",
+        "olvidalo",
     }
+)
+# «No, mejor no», «no quiero el pedido», «todavía no, gracias»: empieza o se apoya en un no.
+_DECLINE_START: Final = re.compile(
+    r"^(?:no|nop|mejor no|ya no|todavia no|aun no|ahora no|por ahora no)\b"
+    r"|\bno\s+(?:quiero|gracias|por\s+ahora|todavia|aun|hoy)\b"
 )
 
 
@@ -137,39 +178,120 @@ def _map(value: Any) -> Mapping[str, Any]:
 def wants_purchase(text: str) -> bool:
     """«Quiero comprarla», «hagamos el pedido»: aceptar el pedido sin decir «sí».
 
-    «Quiero comprar 500 vasos» es otra cotización, no el pedido de la registrada.
+    «Quiero comprar 500 vasos» es otra cotización, no el pedido de la registrada, y «no
+    quiero hacer el pedido» es un rechazo.
     """
 
     if "?" in text or product_family(text) or parse_quantities(text):
         return False
-    return _PURCHASE.search(plain(text)) is not None
+    folded = plain(text)
+    if _NEGATION.search(folded):
+        return False
+    return _PURCHASE.search(folded) is not None
 
 
 def declines_order(text: str) -> bool:
-    """«No», «ahora no», «lo voy a pensar»: la cotización queda registrada, sin pedido."""
+    """«No», «ahora no», «no, mejor no», «no quiero el pedido»: sin pedido."""
 
-    return plain(text).strip(" .!") in _DECLINE
+    folded = plain(text).strip(" .!")
+    return folded in _DECLINE or _DECLINE_START.search(folded) is not None
+
+
+def spoken_email(text: str) -> str:
+    """El correo dictado («ana punto perez arroba gmail punto com») escrito como correo.
+
+    Solo si el texto dice «arroba» y no trae ya una «@»: así «punto» o «guion» de una frase
+    cualquiera no se tocan.
+    """
+
+    if "@" in text or not re.search(r"\barroba\b", text, re.IGNORECASE):
+        return text
+    parts = _SPOKEN_AT.split(text, maxsplit=1)
+    if len(parts) != 2:
+        return text
+    before, after = parts
+    # El usuario del correo es lo último dicho antes de «arroba», con sus «punto» y «guion».
+    tail = re.search(
+        r"((?:[\w-]+\s*\b(?:punto|gui[oó]n(?:\s+bajo)?)\b\s*)*[\w-]+)\s*$", before, re.IGNORECASE
+    )
+    if tail is None:
+        return text
+    local = tail.group(1)
+    before = before[: tail.start(1)]
+    domain = re.match(r"\s*((?:[\w-]+\s*\bpunto\b\s*)+[A-Za-z]{2,})", after, re.IGNORECASE)
+    if domain is None:
+        return text
+    rest = after[domain.end(1) :]
+
+    def _join(value: str) -> str:
+        value = _SPOKEN_UNDERSCORE.sub("_", value)
+        value = _SPOKEN_DASH.sub("-", value)
+        value = _SPOKEN_DOT.sub(".", value)
+        return re.sub(r"\s+", "", value)
+
+    return f"{before}{_join(local)}@{_join(domain.group(1))}{rest}"
 
 
 def _name_from(text: str) -> str | None:
+    """Un nombre de persona en ``text``, o ``None`` si lo que queda no parece un nombre."""
+
     rest = _EMAIL.sub(" ", text)
     rest = _NAME_NOISE.sub(" ", rest)
-    rest = re.sub(r"[\s,;:|/()<>\"'.!-]+", " ", rest).strip()
-    if len(_LETTERS.findall(rest)) < 2 or any(char.isdigit() for char in rest):
-        return None
+    rest = re.sub(r"[\s,;:|/()<>\"'.!¡¿-]+", " ", rest).strip()
     words = rest.split()
-    if len(words) > 6:  # una frase larga no es un nombre
+    while words and plain(words[0]) in _FILLER:
+        words.pop(0)
+    while words and plain(words[-1]) in _FILLER:
+        words.pop()
+    rest = " ".join(words)
+    if not words or len(words) > 6:  # una frase larga no es un nombre
         return None
-    return " ".join(word if word.isupper() else word.capitalize() for word in words)[:MAX_NAME]
+    if any(not _NAME_WORD.match(word) for word in words):
+        return None  # cifras, símbolos o restos de un correo
+    if any(plain(word) in _NOT_NAME for word in words):
+        return None  # «ok gracias», «mejor no», «quiero el pedido»…
+    if len(_LETTERS.findall(rest)) < 2:
+        return None
+    shaped = [
+        word.lower()
+        if index and word.lower() in _PARTICLES
+        else (word if word.isupper() else word.capitalize())
+        for index, word in enumerate(words)
+    ]
+    return " ".join(shaped)[:MAX_NAME]
 
 
 def merge_buyer(previous: Buyer, text: str) -> Buyer:
-    """Los datos de ``previous`` completados con lo que trae ``text`` (correo y nombre)."""
+    """Los datos de ``previous`` completados con lo que trae ``text`` (correo y nombre).
 
+    El nombre ya dado solo se reemplaza si el mensaje trae un correo nuevo o lo dice con
+    una marca («me llamo…», «a nombre de…»): una palabra suelta no pisa el nombre real.
+    """
+
+    text = spoken_email(text)
     found = _EMAIL.search(text)
     email = found.group(0).lower() if found else previous.email
-    name = _name_from(text) or previous.name
+    candidate = _name_from(text)
+    name = previous.name
+    if candidate and (
+        not previous.name or found is not None or _NAME_MARK.search(plain(text)) is not None
+    ):
+        name = candidate
     return Buyer(name=name, email=email)
+
+
+def has_buyer_data(text: str) -> bool:
+    """El mensaje trae un correo (escrito o dictado) o algo que parece un nombre."""
+
+    spelled = spoken_email(text)
+    return _EMAIL.search(spelled) is not None or _name_from(spelled) is not None
+
+
+def mask_email(email: str) -> str:
+    """«ana.perez@correo.com» → «a***@correo.com»: para lo que se guarda o se registra."""
+
+    user, _, domain = email.partition("@")
+    return f"{user[:1]}***@{domain}" if domain else "***"
 
 
 def _plural(basis: str, count: Decimal) -> str:

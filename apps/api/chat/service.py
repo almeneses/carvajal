@@ -39,6 +39,7 @@ registra sin el «sí» de la persona; al confirmar, todas las líneas pasan a u
 """
 
 import atexit
+import re
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
@@ -115,7 +116,7 @@ from carvajal.quotation import flow as quote_flow
 from carvajal.quotation import render as quote_render
 from carvajal.quotation.draft import QuoteDraft, draft_quote_payload, totals
 from carvajal.quotation.engine import QUOTE_VERSION
-from carvajal.quotation.order import Buyer, OrderRequest, order_lines
+from carvajal.quotation.order import Buyer, OrderRequest, mask_email, order_lines
 
 __all__ = [
     "ChatFailure",
@@ -167,6 +168,25 @@ class _ToolTurn:
     draft: QuoteDraft = field(default_factory=QuoteDraft)
     # Marca de la pregunta (``VOICE_MARK`` si se habló); se guarda con el turno completo.
     question_sources: Sequence[Mapping[str, Any]] | None = None
+
+
+ORDER_DATA_PLACEHOLDER: Final = "🛒 (datos para el pedido)"
+
+
+def _without_buyer(text: str, buyers: Sequence[Buyer | None]) -> str:
+    """``text`` sin el nombre ni el correo de quien compra (correos enmascarados)."""
+
+    for buyer in buyers:
+        if buyer is None:
+            continue
+        if buyer.email:
+            text = text.replace(buyer.email, mask_email(buyer.email))
+        if buyer.name:
+            text = text.replace(buyer.name, "(tu nombre)")
+    return _EMAIL_TEXT.sub(lambda found: mask_email(found.group(0)), text)
+
+
+_EMAIL_TEXT: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 
 
 @runtime_checkable
@@ -1542,20 +1562,37 @@ class ChatService:
                 draft = draft.touch(awaiting="pedido")
         elif decision.order is not None:
             message, draft = self._place_order(owner_key, draft, decision.order)
+        # Spec 055: el nombre y el correo de quien compra solo viajan a Odoo. El turno se
+        # guarda (y llega a LangSmith) sin ellos, así el historial que lee el modelo en los
+        # turnos siguientes y el resumen de memoria tampoco los tienen.
+        private = decision.route == "pedido"
+        buyers = [decision.order, Buyer.from_json(decision.draft.buyer)]
+        stored_question = ORDER_DATA_PLACEHOLDER if decision.private else question
+        stored_answer = _without_buyer(message.text, buyers) if private else message.text
         products["flow"] = _flow_payload(message, draft, folio=folio)
+        stored_products = products
+        if private:
+            stored_flow = {
+                **products["flow"],
+                "text": stored_answer,
+                "spoken": _without_buyer(message.spoken, buyers),
+            }
+            stored_products = {**products, "flow": stored_flow}
         yield from self._fixed_turn(
             owner_key,
             conversation,
-            question,
-            message.text,
+            stored_question,
+            stored_answer,
             route=decision.route,
-            products=products,
+            products=stored_products,
             quotes=records,
             client_turn_id=client_turn_id,
             request_id=request_id,
             started=started,
             draft=draft,
             question_sources=question_sources,
+            shown_answer=message.text,
+            shown_products=products,
         )
 
     def _place_order(
@@ -1563,8 +1600,8 @@ class ChatService:
     ) -> tuple[quote_render.Message, QuoteDraft]:
         """Crea el pedido de venta en Odoo (spec 055); un fallo deja reintentarlo.
 
-        El pedido es idempotente por folio: repetir «hacer el pedido» tras un fallo, o un
-        reintento del mismo turno, no crea un segundo pedido.
+        El pedido es idempotente por folio: repetir el «sí» tras un fallo, o un reintento del
+        mismo turno, no crea un segundo pedido.
         """
 
         orders = self._orders()
@@ -1585,7 +1622,8 @@ class ChatService:
             result: OrderResult = orders.place(request)
         except (OdooError, KeyError, ValueError) as error:
             logger.warning("pedido.fallido", folio=draft.folio, error_type=type(error).__name__)
-            return quote_render.order_failed(), draft.touch(awaiting=None, buyer=None)
+            # Los datos siguen en el borrador: un «sí» lo reintenta con el mismo folio.
+            return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
         logger.info("pedido.registrado", folio=draft.folio, pedido=result.name)
         placed = draft.touch(awaiting=None, buyer=None, order=result.name)
         return quote_render.order_placed(result.name, buyer.email, draft.folio), placed
@@ -1605,11 +1643,16 @@ class ChatService:
         started: float,
         draft: QuoteDraft | None = None,
         question_sources: Sequence[Mapping[str, Any]] | None = None,
+        shown_answer: str | None = None,
+        shown_products: Mapping[str, Any] | None = None,
     ) -> Iterator[ChatEvent]:
         """Turno con respuesta determinista, sin LLM (specs 053 y 054).
 
         Se guarda como cualquier turno (con sus cotizaciones registradas, si las hay) y se
         emite como el respaldo: ``meta``, ``fallback``, ``trace``, ``products`` y ``done``.
+        ``question``, ``answer`` y ``products`` son lo que se guarda y se monitorea;
+        ``shown_answer`` y ``shown_products``, si vienen, lo que ve la persona en este turno
+        (spec 055: los datos del pedido se muestran, pero no se guardan).
         """
 
         with self._monitoring().turn(
@@ -1643,8 +1686,11 @@ class ChatService:
             duration_ms=elapsed,
             result="ok",
         )
+        visible = answer if shown_answer is None else shown_answer
+        if shown_products is not None:
+            products = shown_products
         yield ChatEvent("meta", {"sources": []})
-        yield ChatEvent("fallback", {"text": answer, "sources": []})
+        yield ChatEvent("fallback", {"text": visible, "sources": []})
         yield ChatEvent("trace", {"thread_id": conversation.id, "route": route, "path": route})
         cards = dict(products) if products else None
         if cards and has_cards(cards):
@@ -2303,6 +2349,11 @@ def _flow_actions(draft: QuoteDraft) -> list[dict[str, str]]:
     if draft.awaiting == "pedido":
         return [
             {"label": "Hacer el pedido", "say": "Sí, quiero hacer el pedido"},
+            {"label": "Ahora no", "say": "Ahora no"},
+        ]
+    if draft.awaiting == "confirmar_pedido":
+        return [
+            {"label": "Confirmar pedido", "say": "Sí, confírmalo"},
             {"label": "Ahora no", "say": "Ahora no"},
         ]
     if draft.awaiting == "oferta":

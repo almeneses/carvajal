@@ -78,7 +78,13 @@ from carvajal.quotation.draft import (
     same_sku_line,
     units_of,
 )
-from carvajal.quotation.order import Buyer, declines_order, merge_buyer, wants_purchase
+from carvajal.quotation.order import (
+    Buyer,
+    declines_order,
+    has_buyer_data,
+    merge_buyer,
+    wants_purchase,
+)
 from carvajal.quotation.render import Message, option_rows
 
 __all__ = [
@@ -98,6 +104,8 @@ logger = structlog.get_logger(__name__)
 
 BOGOTA: Final = ZoneInfo("America/Bogota")
 OFF_FLOW_REMINDERS: Final = 2
+# Pasos del pedido (spec 055): las reglas los deciden todos; nada de ellos va a Jev.
+ORDER_AWAITING: Final = frozenset({"pedido", "datos_pedido", "confirmar_pedido"})
 JEV_MIN_CONFIDENCE: Final = 0.7
 JEV_MAX_WORDS: Final = 14
 # Campos del borrador que vacían la lista de referencias de un nombre ambiguo.
@@ -154,8 +162,11 @@ class Reply:
     draft: QuoteDraft
     route: str = "cotizacion"
     register: bool = False
-    # Spec 055: con los datos completos de quien compra, el servicio crea el pedido.
+    # Spec 055: con los datos completos y confirmados de quien compra, el servicio crea el
+    # pedido. ``private``: el mensaje de la persona trae su nombre o su correo; el turno se
+    # guarda y se monitorea sin ellos.
     order: Buyer | None = None
+    private: bool = False
 
 
 @dataclass(frozen=True)
@@ -294,43 +305,92 @@ def _resumed(draft: QuoteDraft) -> Awaiting | None:
 
 
 def _fresh_after_registration(draft: QuoteDraft) -> QuoteDraft:
+    if _order_pending(draft):
+        return draft  # una pregunta a mitad del pedido no lo pierde (spec 055)
     return QuoteDraft() if draft.state in {"registrada", "cancelada"} else draft
 
 
-def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | None:
-    """Spec 055: «¿Hacemos el pedido?» → nombre y correo → el servicio crea el pedido.
+def _order_pending(draft: QuoteDraft) -> bool:
+    """Cotización registrada con el pedido a medias (oferta, datos o confirmación)."""
 
-    Devuelve ``None`` para lo que no es del pedido (otra pregunta, otro producto): sigue el
-    camino de una cotización registrada.
+    return (
+        draft.state == "registrada"
+        and bool(draft.folio)
+        and not draft.order
+        and draft.awaiting in ORDER_AWAITING
+    )
+
+
+def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | None:
+    """Spec 055: «¿Hacemos el pedido?» → nombre y correo → «¿Lo confirmo?» → pedido.
+
+    Devuelve ``None`` para lo que inicia otra cosa (otro producto, otra cantidad): sigue el
+    camino de una cotización registrada y el borrador se reinicia. Una pregunta a mitad del
+    pedido va al agente sin perder el paso (:class:`Pass` con el mismo borrador), salvo que
+    traiga datos de la persona: esos nunca salen de las reglas.
     """
 
     if draft.order:
         if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
             return Reply(render.already_ordered(draft.order), draft, route="pedido")
         return None
-    if draft.awaiting == "datos_pedido":
-        if "?" in text:
-            return None  # una pregunta va al agente
-        if declines_order(text) or is_cancel_all(text):
-            return Reply(
-                render.order_declined(draft.folio),
-                draft.touch(now, awaiting=None, buyer=None),
-                route="pedido",
-            )
-        buyer = merge_buyer(Buyer.from_json(draft.buyer), text)
-        if buyer.complete:
-            asking = draft.touch(now, buyer=buyer.to_json())
-            return Reply(render.ask_buyer(), asking, route="pedido", order=buyer)
-        waiting = draft.touch(now, buyer=buyer.to_json())
-        return Reply(render.buyer_missing(buyer.name, buyer.email), waiting, route="pedido")
-    accepted = wants_purchase(text) or (draft.awaiting == "pedido" and is_confirmation(text))
-    if accepted and draft.folio:
-        return Reply(render.ask_buyer(), draft.touch(now, awaiting="datos_pedido"), route="pedido")
-    if draft.awaiting == "pedido" and declines_order(text):
-        return Reply(
-            render.order_declined(draft.folio), draft.touch(now, awaiting=None), route="pedido"
-        )
+    if not draft.folio:
+        return None
+    awaiting = draft.awaiting
+    starts_other = bool(product_family(text) or parse_quantities(text)) and "@" not in text
+    if awaiting in ORDER_AWAITING and starts_other:
+        return None  # «quiero 500 vasos»: otra cotización
+    if awaiting in ORDER_AWAITING and declines_order(text):
+        declined = draft.touch(now, awaiting=None, buyer=None, off_flow=0)
+        return Reply(render.order_declined(draft.folio), declined, route="pedido")
+    if awaiting == "confirmar_pedido":
+        return _confirm_order(draft, text, now)
+    if awaiting == "datos_pedido" or (awaiting == "pedido" and has_buyer_data(text)):
+        if "?" in text and not has_buyer_data(text):
+            return Pass(draft)  # una pregunta va al agente; el paso sigue
+        return _collect_buyer(draft, text, now)
+    accepted = wants_purchase(text) or (awaiting == "pedido" and is_confirmation(text))
+    if accepted:
+        asking = draft.touch(now, awaiting="datos_pedido", off_flow=0)
+        return Reply(render.ask_buyer(), asking, route="pedido")
+    if awaiting == "pedido" and "?" in text:
+        return Pass(draft)
     return None
+
+
+def _collect_buyer(draft: QuoteDraft, text: str, now: datetime) -> Reply:
+    buyer = merge_buyer(Buyer.from_json(draft.buyer), text)
+    if buyer.complete and buyer.name and buyer.email:
+        confirming = draft.touch(
+            now, awaiting="confirmar_pedido", buyer=buyer.to_json(), off_flow=0
+        )
+        return Reply(
+            render.confirm_buyer(buyer.name, buyer.email),
+            confirming,
+            route="pedido",
+            private=True,
+        )
+    waiting = draft.touch(now, awaiting="datos_pedido", buyer=buyer.to_json(), off_flow=0)
+    return Reply(
+        render.buyer_missing(buyer.name, buyer.email), waiting, route="pedido", private=True
+    )
+
+
+def _confirm_order(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass:
+    """«¿Lo confirmo?»: «sí» crea el pedido; un dato nuevo corrige; una pregunta pasa."""
+
+    buyer = Buyer.from_json(draft.buyer)
+    if (is_confirmation(text) or wants_purchase(text)) and buyer.complete:
+        return Reply(render.ask_buyer(), draft, route="pedido", order=buyer)
+    if has_buyer_data(text):
+        return _collect_buyer(draft, text, now)
+    if "?" in text:
+        return Pass(draft)
+    if buyer.name and buyer.email:
+        return Reply(
+            render.confirm_buyer(buyer.name, buyer.email), draft, route="pedido", private=True
+        )
+    return _collect_buyer(draft, text, now)
 
 
 def _ask_judge(draft: QuoteDraft, text: str) -> bool:
@@ -338,7 +398,7 @@ def _ask_judge(draft: QuoteDraft, text: str) -> bool:
     # Los datos del pedido (nombre y correo) nunca salen a Jev.
     return (
         draft.awaiting is not None
-        and draft.awaiting not in {"referencia", "datos_pedido"}
+        and draft.awaiting not in {"referencia", *ORDER_AWAITING}
         and "?" not in text
         and 0 < len(plain(text).split()) <= JEV_MAX_WORDS
     )
@@ -368,7 +428,7 @@ def _rules(
 ) -> Reply | Pass | None:
     said = original or text
     if draft.state == "registrada" and orders:
-        ordering = _order_step(draft, said if draft.awaiting == "datos_pedido" else text, now)
+        ordering = _order_step(draft, said, now)
         if ordering is not None:
             return ordering
     if draft.state == "registrada":
@@ -885,8 +945,13 @@ def after_turn(
     """
 
     moment = now or datetime.now(UTC)
-    current = _fresh_after_registration(draft)
     calculated = [dict(item) for item in quotes if is_quote(item)]
+    if _order_pending(draft):
+        if calculated:  # cotizó otra cosa: el pedido de la anterior queda sin hacer
+            draft = QuoteDraft()
+        else:
+            return _order_off_flow(draft, moment)
+    current = _fresh_after_registration(draft)
     if not calculated:
         waiting = _awaiting_reference(current, choice, moment)
         if waiting is not None:
@@ -971,6 +1036,15 @@ def _awaiting_reference(
         offer=None,
         off_flow=0,
     )
+
+
+def _order_off_flow(draft: QuoteDraft, now: datetime) -> Outcome:
+    """Pregunta a mitad del pedido: el recordatorio una vez; a la segunda, se suelta."""
+
+    if draft.off_flow >= 1:
+        return Outcome(QuoteDraft())
+    message = render.order_reminder(draft.awaiting)
+    return Outcome(draft.touch(now, off_flow=draft.off_flow + 1), message)
 
 
 def _without_quotes(draft: QuoteDraft, text: str, now: datetime) -> Outcome:
