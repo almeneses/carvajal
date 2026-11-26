@@ -121,6 +121,11 @@ class SqlChatRepository:
 
         if limit < 1:
             raise ValueError("limit debe ser mayor que cero.")
+        # Las ventanas solo recorren los mensajes de los hilos de este dueño, no la tabla
+        # entera: el panel no se degrada a medida que crece el historial de todos.
+        del_dueno = select(tables.conversations.c.id).where(
+            tables.conversations.c.owner_key == owner_key
+        )
         ultimo = select(
             tables.messages.c.conversation_id,
             tables.messages.c.content,
@@ -133,7 +138,8 @@ class SqlChatRepository:
                 ),
             )
             .label("posicion"),
-        ).subquery()
+        )
+        ultimo = ultimo.where(tables.messages.c.conversation_id.in_(del_dueno)).subquery()
         primera = (
             select(
                 tables.messages.c.conversation_id,
@@ -145,7 +151,10 @@ class SqlChatRepository:
                 )
                 .label("posicion"),
             )
-            .where(tables.messages.c.role == "user")
+            .where(
+                tables.messages.c.role == "user",
+                tables.messages.c.conversation_id.in_(del_dueno),
+            )
             .subquery()
         )
         rows = (

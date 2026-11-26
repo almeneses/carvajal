@@ -699,22 +699,22 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
   `localStorage` de `identidad.js`) es de cada host: sin más, quien entraba por
   `http://144.217.80.136:8080` llegaría al dominio con una identidad nueva y
   dejaría de ver sus hilos y cotizaciones. Por eso el 307 añade
-  `carvajal_traslado`, un testigo firmado con `SESSION_SECRET` que caduca en
-  dos minutos. El host público lo verifica, fija esas cookies **solo si el
-  navegador aún no tiene identidad allí** (nunca pisa una existente) y vuelve a
-  redirigir a la misma URL sin el parámetro; `identidad.js` adopta luego la
-  cookie en su `localStorage`. Riesgos aceptados:
+  `carvajal_traslado`: un código opaco y aleatorio, de un solo uso, que caduca
+  en un minuto. La identidad **no viaja en la URL**: se guarda en memoria del
+  proceso bajo ese código, así que el log de acceso del nginx del host solo ve
+  un código que ya se canjeó o caducó. El host público lo canjea, fija esas
+  cookies **solo si el navegador aún no tiene identidad allí** (nunca pisa una
+  existente) y vuelve a redirigir a la misma URL sin el parámetro;
+  `identidad.js` adopta luego la cookie en su `localStorage`. Riesgos aceptados:
   - si la persona ya había abierto el dominio con otra identidad, conserva la
     del dominio y lo hecho por la IP no se fusiona (sigue visible entrando por
     la IP con `HTTPS_REDIRECT=false` o por el túnel `127.0.0.1`);
-  - el testigo pasa por la query, así que queda en el log de acceso del nginx
-    del host (la app registra solo la ruta). Vale como la identidad anónima
-    durante esos dos minutos; quien abra un enlace ajeno con testigo vigente en
-    un navegador sin identidad en el dominio adopta la identidad de otro. Es
-    una identidad anónima, no autenticación (ver `apps/api/chat/identity.py`);
-  - sin `SESSION_SECRET` el secreto es del proceso: con varios workers o tras un
-    reinicio el testigo puede no validarse y no hay traslado (`compose.prod.yml`
-    ya exige `SESSION_SECRET`).
+  - quien obtenga un código antes de que la persona lo canjee (un minuto, un
+    solo uso) adoptaría su identidad anónima, que no es autenticación (ver
+    `apps/api/chat/identity.py`);
+  - con varios procesos de uvicorn un código emitido en otro no se encuentra y
+    no hay traslado; la imagen corre con un solo proceso. Tras un reinicio los
+    códigos pendientes se pierden.
 
   Sin `PUBLIC_BASE_URL`, con `http://…` o con `HTTPS_REDIRECT=false` no hace
   nada. Para desactivarla: `echo 'HTTPS_REDIRECT=false' >> /opt/carvajal/.env`

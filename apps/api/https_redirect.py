@@ -16,15 +16,19 @@ contexto seguro. Decidir por ``Host`` y no por el esquema evita bucles aunque
 Traslado de la identidad anónima: los hilos y las cotizaciones web cuelgan de las
 cookies ``carvajal_visitante`` y ``carvajal_sesion``, que el navegador separa por host.
 Para que quien ya usaba la IP no pierda su historial al cambiar de host, el 307 lleva
-``carvajal_traslado``: un testigo firmado con el secreto de la identidad que caduca en
-dos minutos. El host público lo verifica, fija esas cookies solo si el navegador aún
-no tiene las suyas (nunca pisa una identidad existente) y redirige a la misma URL sin
-el parámetro. ``identidad.js`` adopta después la cookie de visitante en su
-``localStorage``.
+``carvajal_traslado``: un código opaco y aleatorio, de un solo uso, que caduca en un
+minuto. La identidad no viaja en la URL (quedaría en el log de acceso de nginx y serviría
+para suplantar al visitante): se guarda en memoria del proceso bajo ese código. El host
+público lo canjea, fija esas cookies solo si el navegador aún no tiene las suyas (nunca
+pisa una identidad existente) y redirige a la misma URL sin el parámetro.
+``identidad.js`` adopta después la cookie de visitante en su ``localStorage``. Con
+varios procesos, un código emitido en otro no se encuentra y no hay traslado (la app
+corre con un solo proceso de uvicorn).
 """
 
 import hmac
 import re
+import secrets
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -47,8 +51,11 @@ __all__ = ["TRANSFER_PARAM", "HttpsRedirectMiddleware", "PublicOrigin", "public_
 
 # Parámetro de la URL que lleva la identidad anónima del host de la IP al público.
 TRANSFER_PARAM = "carvajal_traslado"
-# Vigencia del testigo: basta para seguir el 307 y acota su reutilización.
-_TRANSFER_TTL_SECONDS = 120
+# Vigencia del código: basta para seguir el 307 y acota su reutilización.
+_TRANSFER_TTL_SECONDS = 60
+# Tope de códigos pendientes en memoria: los más viejos se descartan primero.
+_MAX_PENDING_TRANSFERS = 1024
+_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _VISITOR_RE = re.compile(r"^[0-9a-f]{64}$")
 _OWNER_RE = re.compile(r"^[0-9a-f]{32,64}$")
 
@@ -113,6 +120,35 @@ def _host_parts(host: str) -> tuple[str, int | None] | None:
     if not parts.hostname:
         return None
     return parts.hostname.lower(), port
+
+
+class _TransferStore:
+    """Identidades pendientes de traslado, por código opaco de un solo uso."""
+
+    def __init__(self) -> None:
+        self._pending: dict[str, tuple[str, str, float]] = {}
+
+    def put(self, visitor: str, owner: str, now: float) -> str:
+        self._purge(now)
+        while len(self._pending) >= _MAX_PENDING_TRANSFERS:
+            self._pending.pop(next(iter(self._pending)))
+        code = secrets.token_urlsafe(32)
+        self._pending[code] = (visitor, owner, now + _TRANSFER_TTL_SECONDS)
+        return code
+
+    def take(self, code: str, now: float) -> tuple[str, str] | None:
+        entry = self._pending.pop(code, None)  # canjeado una vez, nunca más
+        if entry is None or entry[2] < now:
+            return None
+        return entry[0], entry[1]
+
+    def _purge(self, now: float) -> None:
+        for code in [code for code, entry in self._pending.items() if entry[2] < now]:
+            del self._pending[code]
+
+
+# Del proceso: el 307 del host de la IP y el canje en el host público lo comparten.
+_TRANSFERS = _TransferStore()
 
 
 def _exempt_path(path: str) -> bool:
@@ -186,7 +222,7 @@ class HttpsRedirectMiddleware:
         return f"{self._origin.base}{path}" + (f"?{query}" if query else "")
 
     def _transfer_token(self, identity: ChatIdentity, headers: Headers) -> str | None:
-        """Testigo firmado con la identidad del host actual, o ``None`` si no hay."""
+        """Código de traslado de la identidad del host actual, o ``None`` si no hay."""
 
         cookies = _cookies(headers)
         visitor = cookies.get(VISITOR_COOKIE, "").strip().lower()
@@ -194,22 +230,17 @@ class HttpsRedirectMiddleware:
         owner = _signed_owner(identity, cookies.get(COOKIE_NAME, ""))
         if not visitor and not owner:
             return None
-        expires = int(self._clock()) + _TRANSFER_TTL_SECONDS
-        return identity.issue(f"traslado-{expires}-{visitor}-{owner}")
+        return _TRANSFERS.put(visitor, owner, self._clock())
 
-    def _read_transfer(self, identity: ChatIdentity, token: str) -> tuple[str, str] | None:
-        """Devuelve ``(visitante, dueño)`` si el testigo es auténtico y vigente."""
+    def _read_transfer(self, code: str) -> tuple[str, str] | None:
+        """Canjea el código: ``(visitante, dueño)`` si existe y está vigente."""
 
-        payload, _, _ = token.partition(".")
-        if not hmac.compare_digest(identity.issue(payload).encode(), token.encode()):
+        if not _CODE_RE.fullmatch(code):
             return None
-        kind, _, rest = payload.partition("-")
-        expires, _, rest = rest.partition("-")
-        visitor, _, owner = rest.partition("-")
-        if kind != "traslado" or not expires.isdigit():
+        transfer = _TRANSFERS.take(code, self._clock())
+        if transfer is None:
             return None
-        if int(expires) < self._clock():
-            return None
+        visitor, owner = transfer
         if visitor and not _VISITOR_RE.fullmatch(visitor):
             return None
         if owner and not _OWNER_RE.fullmatch(owner):
@@ -222,7 +253,7 @@ class HttpsRedirectMiddleware:
         headers = Headers(scope=scope)
         identity = _identity(scope)
         response = RedirectResponse(self._location(scope), status_code=307)
-        transfer = self._read_transfer(identity, _transfer_value(scope))
+        transfer = self._read_transfer(_transfer_value(scope))
         if transfer is not None:
             visitor, owner = transfer
             cookies = _cookies(headers)

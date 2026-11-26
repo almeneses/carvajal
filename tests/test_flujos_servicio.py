@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.pool import StaticPool
 from tests.test_chat_service_tools import (
+    ANSWER_PARTS,
     FakeEmbedder,
     FakeLLM,
     FakeToolRunner,
@@ -555,6 +556,20 @@ def test_whatsapp_elige_la_candidata_por_el_nombre_sin_el_modelo(engine: Any) ->
     assert reply.quote_ids == ()
     assert _draft(engine)["awaiting"] == "algo_mas"
     assert len(runner.calls) == 1
+
+
+def test_whatsapp_muestra_las_candidatas_que_escribio_el_agente(engine: Any) -> None:
+    # Arrange: el ``flow`` del turno solo trae los botones de la web, sin texto.
+    runner = FakeToolRunner(scripted_events(_ambiguous_final()))
+    service = build_service(engine, runner)
+    bridge = WhatsAppBridge(chat=service, secret=b"secreto-de-prueba")
+
+    # Act
+    reply = bridge.respond("Cotízame 300 portacomidas J1 en Bogotá", "+573001112233")
+
+    # Assert: WhatsApp ignora ese ``flow`` y entrega el texto del agente (la lista).
+    assert ANSWER_PARTS[0].split(" [")[0] in reply.text
+    assert _draft(engine)["awaiting"] == "referencia"
 
 
 def test_los_botones_de_las_candidatas_salen_en_el_turno_que_las_lista(engine: Any) -> None:

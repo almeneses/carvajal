@@ -293,15 +293,20 @@ def test_el_traslado_no_pisa_la_identidad_del_host_publico(
     assert public.cookies.get(VISITOR_COOKIE) == existing
 
 
-@pytest.mark.parametrize("kind", ["falsificado", "caducado"])
+@pytest.mark.parametrize("kind", ["inventado", "caducado", "con-la-identidad"])
 def test_un_traslado_falso_o_caducado_solo_limpia_la_url(
     monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
     # Arrange
-    if kind == "falsificado":
-        token = f"traslado-9999999999-{VISITOR}-.{'0' * 64}"
-    else:
-        token = IDENTITY.issue(f"traslado-1-{VISITOR}-")
+    if kind == "inventado":
+        token = "x" * 43
+    elif kind == "caducado":
+        monkeypatch.setattr("apps.api.https_redirect._TRANSFER_TTL_SECONDS", -1)
+        ip = _client(monkeypatch)
+        ip.cookies.set(VISITOR_COOKIE, VISITOR)
+        token = _transfer_token(ip.get("/chat", headers=HTML).headers["location"])
+    else:  # el formato firmado anterior ya no se acepta
+        token = IDENTITY.issue(f"traslado-9999999999-{VISITOR}-")
     public = _client(monkeypatch, base_url=f"https://{PUBLIC_HOST}")
 
     # Act
@@ -313,11 +318,38 @@ def test_un_traslado_falso_o_caducado_solo_limpia_la_url(
     assert VISITOR_COOKIE not in public.cookies
 
 
+def test_el_codigo_de_traslado_no_lleva_la_identidad_y_es_de_un_solo_uso(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: el código queda en el log de nginx; no debe servir para suplantar a nadie.
+    ip = _client(monkeypatch)
+    ip.cookies.set(VISITOR_COOKIE, VISITOR)
+    ip.cookies.set(COOKIE_NAME, IDENTITY.issue(OWNER))
+    location = ip.get("/chat", headers=HTML).headers["location"]
+    token = _transfer_token(location)
+    primero = _client(monkeypatch, base_url=f"https://{PUBLIC_HOST}")
+    intruso = _client(monkeypatch, base_url=f"https://{PUBLIC_HOST}")
+
+    # Act
+    primero.get(f"/chat?{TRANSFER_PARAM}={token}", headers=HTML)
+    reuso = intruso.get(f"/chat?{TRANSFER_PARAM}={token}", headers=HTML)
+
+    # Assert
+    assert VISITOR not in location
+    assert OWNER not in location
+    assert primero.cookies.get(VISITOR_COOKIE) == VISITOR
+    assert reuso.status_code == 307
+    assert VISITOR_COOKIE not in intruso.cookies
+    assert COOKIE_NAME not in intruso.cookies
+
+
 def test_el_traslado_solo_se_acepta_en_el_host_publico(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange: por loopback el parámetro se ignora y la página responde normal.
-    token = IDENTITY.issue(f"traslado-9999999999-{VISITOR}-")
+    ip = _client(monkeypatch)
+    ip.cookies.set(VISITOR_COOKIE, VISITOR)
+    token = _transfer_token(ip.get("/chat", headers=HTML).headers["location"])
     client = _client(monkeypatch, base_url="http://127.0.0.1:8080")
 
     # Act

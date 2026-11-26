@@ -30,7 +30,7 @@ import hmac
 from collections.abc import Awaitable, Callable, MutableMapping
 from datetime import date
 from functools import cache, partial
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from urllib.parse import quote
 
 import anyio
@@ -51,6 +51,9 @@ from apps.mcp.bridge import (
     read_inbound_photo,
 )
 from carvajal.speech import LINKS_HEADER, TEXT_HEADER
+
+if TYPE_CHECKING:
+    from carvajal.infrastructure.settings import Settings
 
 __all__ = [
     "INSTRUCTIONS",
@@ -211,12 +214,20 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
             return rejected
         # Diferido: el bloque importa el gatekeeper, que arrastra el grafo del agente.
         from apps.api.observability import claims_block
-        from carvajal.infrastructure.settings import Settings
 
-        return JSONResponse({"status": "ok", "claims": claims_block(Settings())})
+        return JSONResponse({"status": "ok", "claims": claims_block(_health_settings())})
 
     app: Starlette = server.streamable_http_app(transport_security=security)
     return _bearer_guard(app, token.strip())
+
+
+@cache
+def _health_settings() -> "Settings":
+    """La configuración del proceso, leída una vez: ``/health`` no la reconstruye por petición."""
+
+    from carvajal.infrastructure.settings import Settings
+
+    return Settings()
 
 
 @cache

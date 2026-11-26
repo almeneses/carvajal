@@ -89,7 +89,7 @@ ensayo-completo: ## Ensayo completo: además memoria, allowlist, flujos y fotos 
 	$(ENSAYO_ENV) uv run pytest tests/e2e -m "ensayo and not exploracion" -rA -p no:cacheprovider
 
 ensayo-exploracion: ## ~30 guiones por WhatsApp y web: transcripciones e informe de alertas (gasta tokens)
-	$(ENSAYO_ENV) uv run pytest tests/e2e/test_exploracion.py -m exploracion -q -s -p no:cacheprovider | grep -E "^ALERTA|passed|failed|error" || true
+	$(ENSAYO_ENV) uv run pytest tests/e2e/test_exploracion.py -m exploracion -q -s -p no:cacheprovider
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
 	@if grep -rq "pytest.mark.integration" tests; then \
