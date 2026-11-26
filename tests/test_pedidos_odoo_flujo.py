@@ -293,15 +293,6 @@ def test_si_el_agente_cotiza_otra_cosa_el_pedido_pendiente_se_reinicia() -> None
     assert outcome.message is not None and "↩️" not in outcome.message.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug: «quiero 500 vasos» en un paso del pedido devuelve Pass con el borrador aún en "
-        "el paso (_fresh_after_registration lo conserva); si el agente no cotiza en ese turno "
-        "(pide la ciudad o lista referencias), after_turn añade «↩️ Para el pedido me faltan…» "
-        "a la respuesta sobre los vasos en vez de soltar el pedido."
-    ),
-)
 def test_otro_producto_en_un_paso_del_pedido_sale_del_pedido_aunque_el_agente_no_cotice() -> None:
     # Arrange
     draft = _draft("datos_pedido")
@@ -316,15 +307,6 @@ def test_otro_producto_en_un_paso_del_pedido_sale_del_pedido_aunque_el_agente_no
     assert outcome.message is None or "↩️" not in outcome.message.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug: en la oferta (awaiting='pedido') has_buyer_data se evalúa antes que la "
-        "aceptación y cualquier frase corta sin «?» se toma como nombre: «Sí, adelante» → "
-        "«Adelante», «sí señor» → «Señor», «cuéntame de la empresa» → «Cuéntame de la "
-        "Empresa» («Gracias, Cuéntame de la Empresa. ¿A qué correo…»)."
-    ),
-)
 @pytest.mark.parametrize(
     "message", ["Sí, adelante", "sí señor", "hágale", "cuéntame de la empresa"]
 )
@@ -336,14 +318,6 @@ def test_en_la_oferta_una_frase_que_no_es_nombre_no_se_toma_como_nombre(message:
     assert Buyer.from_json(decision.draft.buyer).name is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug: confirm_buyer invita a «escríbeme el dato correcto», pero en confirmar_pedido "
-        "escribir solo el nombre («Marta Gómez») no lo corrige: merge_buyer conserva el "
-        "nombre anterior sin correo ni marca y la confirmación se repite con el nombre viejo."
-    ),
-)
 def test_en_la_confirmacion_escribir_solo_el_nombre_correcto_lo_corrige() -> None:
     # Arrange
     draft = _draft("confirmar_pedido", Buyer("Adelante", EMAIL))

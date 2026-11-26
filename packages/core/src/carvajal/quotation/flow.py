@@ -80,9 +80,13 @@ from carvajal.quotation.draft import (
 )
 from carvajal.quotation.order import (
     Buyer,
+    correction_name,
     declines_order,
-    has_buyer_data,
-    merge_buyer,
+    find_email,
+    is_affirmation,
+    is_bare_no,
+    name_in,
+    name_marked,
     wants_purchase,
 )
 from carvajal.quotation.render import Message, option_rows
@@ -324,10 +328,12 @@ def _order_pending(draft: QuoteDraft) -> bool:
 def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | None:
     """Spec 055: «¿Hacemos el pedido?» → nombre y correo → «¿Lo confirmo?» → pedido.
 
-    Devuelve ``None`` para lo que inicia otra cosa (otro producto, otra cantidad): sigue el
-    camino de una cotización registrada y el borrador se reinicia. Una pregunta a mitad del
-    pedido va al agente sin perder el paso (:class:`Pass` con el mismo borrador), salvo que
-    traiga datos de la persona: esos nunca salen de las reglas.
+    Reglas explícitas por paso, sin adivinar: en la oferta solo cuentan como datos un correo
+    o un nombre escrito como nombre propio; en ``datos_pedido`` el mensaje es el nombre que
+    se pidió (si no es una afirmación ni una muletilla); en ``confirmar_pedido`` todo lo que
+    trae un dato lo corrige y solo un «sí» crea el pedido. Otro producto sale del pedido con
+    un borrador nuevo. Una pregunta sin datos va al agente sin perder el paso; con datos, los
+    datos ganan y nunca salen de las reglas. ``None``: lo decide el resto de las reglas.
     """
 
     if draft.order:
@@ -337,60 +343,102 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
     if not draft.folio:
         return None
     awaiting = draft.awaiting
-    starts_other = bool(product_family(text) or parse_quantities(text)) and "@" not in text
-    if awaiting in ORDER_AWAITING and starts_other:
-        return None  # «quiero 500 vasos»: otra cotización
-    if awaiting in ORDER_AWAITING and declines_order(text):
-        declined = draft.touch(now, awaiting=None, buyer=None, off_flow=0)
-        return Reply(render.order_declined(draft.folio), declined, route="pedido")
-    if awaiting == "confirmar_pedido":
-        return _confirm_order(draft, text, now)
-    if awaiting == "datos_pedido" or (awaiting == "pedido" and has_buyer_data(text)):
-        if "?" in text and not has_buyer_data(text):
-            return Pass(draft)  # una pregunta va al agente; el paso sigue
-        return _collect_buyer(draft, text, now)
-    accepted = wants_purchase(text) or (awaiting == "pedido" and is_confirmation(text))
-    if accepted:
+    if awaiting not in ORDER_AWAITING:
+        if wants_purchase(text):  # «quiero comprarla» tras «ahora no»
+            asking = draft.touch(now, awaiting="datos_pedido", buyer=None, off_flow=0)
+            return Reply(render.ask_buyer(), asking, route="pedido")
+        return None
+    email = find_email(text)
+    if email is None and product_family(text) and not name_marked(text):
+        return Pass(QuoteDraft())  # «quiero 500 vasos»: otra cotización, borrador nuevo
+    if awaiting == "pedido":
+        return _offer_step(draft, text, email, now)
+    if awaiting == "datos_pedido":
+        return _data_step(draft, text, email, now)
+    return _confirm_step(draft, text, email, now)
+
+
+def _declined(draft: QuoteDraft, now: datetime) -> Reply:
+    declined = draft.touch(now, awaiting=None, buyer=None, off_flow=0)
+    return Reply(render.order_declined(draft.folio), declined, route="pedido")
+
+
+def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) -> Reply | None:
+    """«¿Quieres hacer el pedido?»: sí, no, o los datos directamente."""
+
+    name = name_marked(text) or name_in(text, strict=True)
+    if email or (name and not is_affirmation(text)):
+        return _with_buyer(draft, Buyer(name=name, email=email), now)
+    if declines_order(text) or is_cancel_all(text):
+        return _declined(draft, now)
+    if wants_purchase(text) or is_affirmation(text):
         asking = draft.touch(now, awaiting="datos_pedido", off_flow=0)
         return Reply(render.ask_buyer(), asking, route="pedido")
-    if awaiting == "pedido" and "?" in text:
+    return None  # otra cosa: el agente responde y el paso se conserva con un recordatorio
+
+
+def _question_only(text: str) -> bool:
+    """Una pregunta que no trae datos antes del «¿»: va al agente."""
+
+    if "?" not in text:
+        return False
+    before = text.split("¿", 1)[0]
+    return not (find_email(text) or name_marked(text) or (before.strip() and name_in(before)))
+
+
+def _data_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) -> Reply | Pass:
+    """Nombre y correo, en uno o dos mensajes: lo que se pidió es lo que se toma."""
+
+    if _question_only(text):
         return Pass(draft)
-    return None
+    marked = name_marked(text)
+    if not (email or marked) and (declines_order(text) or is_cancel_all(text)):
+        return _declined(draft, now)
+    buyer = Buyer.from_json(draft.buyer)
+    name = marked or buyer.name
+    if name is None and not is_affirmation(text):
+        name = name_in(text.split("¿", 1)[0])
+    return _with_buyer(draft, Buyer(name=name, email=email or buyer.email), now)
 
 
-def _collect_buyer(draft: QuoteDraft, text: str, now: datetime) -> Reply:
-    buyer = merge_buyer(Buyer.from_json(draft.buyer), text)
-    if buyer.complete and buyer.name and buyer.email:
+def _confirm_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) -> Reply | Pass:
+    """«¿Lo confirmo?»: un dato corrige; «sí» crea el pedido; «no» pregunta qué corregir."""
+
+    buyer = Buyer.from_json(draft.buyer)
+    marked = name_marked(text)
+    if email or marked:
+        return _with_buyer(draft, Buyer(name=marked or buyer.name, email=email or buyer.email), now)
+    if (is_affirmation(text) or wants_purchase(text)) and buyer.complete:
+        return Reply(render.ask_buyer(), draft, route="pedido", order=buyer)
+    if is_bare_no(text):
+        return Reply(render.which_correction(), draft, route="pedido")
+    if declines_order(text) or is_cancel_all(text):
+        corrected = correction_name(text)
+        if corrected is None:
+            return _declined(draft, now)
+        return _with_buyer(draft, Buyer(name=corrected, email=buyer.email), now)
+    if _question_only(text):
+        return Pass(draft)
+    # Un nombre suelto corrige solo escrito como nombre propio («Marta Gómez»): «pues
+    # bueno» o «listo entonces» no lo cambian.
+    corrected = name_in(text.split("¿", 1)[0], strict=True)
+    if corrected and not is_affirmation(text):
+        return _with_buyer(draft, Buyer(name=corrected, email=buyer.email), now)
+    return _with_buyer(draft, buyer, now)
+
+
+def _with_buyer(draft: QuoteDraft, buyer: Buyer, now: datetime) -> Reply:
+    """Con los dos datos, «¿Lo confirmo?»; si falta uno, se pide ese."""
+
+    if buyer.name and buyer.email:
         confirming = draft.touch(
             now, awaiting="confirmar_pedido", buyer=buyer.to_json(), off_flow=0
         )
-        return Reply(
-            render.confirm_buyer(buyer.name, buyer.email),
-            confirming,
-            route="pedido",
-            private=True,
-        )
+        message = render.confirm_buyer(buyer.name, buyer.email)
+        return Reply(message, confirming, route="pedido", private=True)
     waiting = draft.touch(now, awaiting="datos_pedido", buyer=buyer.to_json(), off_flow=0)
-    return Reply(
-        render.buyer_missing(buyer.name, buyer.email), waiting, route="pedido", private=True
-    )
-
-
-def _confirm_order(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass:
-    """«¿Lo confirmo?»: «sí» crea el pedido; un dato nuevo corrige; una pregunta pasa."""
-
-    buyer = Buyer.from_json(draft.buyer)
-    if (is_confirmation(text) or wants_purchase(text)) and buyer.complete:
-        return Reply(render.ask_buyer(), draft, route="pedido", order=buyer)
-    if has_buyer_data(text):
-        return _collect_buyer(draft, text, now)
-    if "?" in text:
-        return Pass(draft)
-    if buyer.name and buyer.email:
-        return Reply(
-            render.confirm_buyer(buyer.name, buyer.email), draft, route="pedido", private=True
-        )
-    return _collect_buyer(draft, text, now)
+    message = render.buyer_missing(buyer.name, buyer.email)
+    return Reply(message, waiting, route="pedido", private=True)
 
 
 def _ask_judge(draft: QuoteDraft, text: str) -> bool:

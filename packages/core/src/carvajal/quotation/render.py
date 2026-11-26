@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final
+from zoneinfo import ZoneInfo
 
 from carvajal.quotation.draft import (
     QuoteDraft,
@@ -31,6 +32,7 @@ from carvajal.quotation.draft import (
 __all__ = [
     "JOKE_REJECTION",
     "PDF_PROMISE",
+    "RECEIPT_PROMISE",
     "Message",
     "added",
     "already_registered",
@@ -51,6 +53,7 @@ __all__ = [
     "options",
     "out_of_range",
     "pdf_offer",
+    "receipt_offer",
     "reference_out_of_range",
     "registered",
     "reminder",
@@ -848,18 +851,67 @@ def confirm_buyer(name: str, email: str) -> Message:
     return Message(text, spoken)
 
 
-def order_placed(order: str, email: str, folio: str | None) -> Message:
-    reference = f" · cotización #{folio}" if folio else ""
+def which_correction() -> Message:
     text = (
-        f"🧾 **Pedido {order} confirmado**{reference}\n"
-        f"La confirmación del pedido llega a **{email}**. Un asesor te contacta para "
-        "coordinar el pago y la entrega."
+        "¿Qué dato corrijo? Escríbeme el **nombre** o el **correo** correcto, o **ahora no** "
+        "para dejar el pedido."
     )
+    return Message(text, "¿Qué dato corrijo? Dime el nombre o el correo correcto.")
+
+
+BOGOTA: Final = ZoneInfo("America/Bogota")
+RECEIPT_PROMISE: Final = "📄 Te envío el recibo del pedido en PDF."
+"""Última línea del pedido confirmado: cada canal la cambia por el PDF (:func:`receipt_offer`)."""
+
+_ORDER_PLACED: Final = re.compile(
+    r"^🧾 \*\*Pedido (\S+) confirmado\*\* · cotización #([^\s*]+)$", re.M
+)
+
+
+def order_placed(
+    order: str, email: str, folio: str | None, draft: QuoteDraft | None = None
+) -> Message:
+    """Recibo del pedido en el chat: número, fecha, líneas, total y el PDF de Odoo."""
+
+    reference = f" · cotización #{folio}" if folio else ""
+    lines = [f"🧾 **Pedido {order} confirmado**{reference}"]
+    today = format_date(datetime.now(BOGOTA).date())
+    if today:
+        lines.append(f"Fecha: {today}")
+    if draft is not None and draft.lines:
+        lines += _cart_lines(draft.lines)
+        result = totals(draft.lines)
+        total = result.total if result.total is not None else result.products
+        money = format_money(total, result.currency)
+        detail = f"Total **{money}**" + (" (envío por confirmar)" if result.total is None else "")
+        lines.append(f"{detail} · {result.tax}")
+    lines.append(
+        f"La confirmación del pedido llega a **{email}**. Un asesor te contacta para coordinar "
+        "el pago y la entrega."
+    )
+    if folio:
+        lines.append(RECEIPT_PROMISE)
     spoken = (
-        "Listo, tu pedido quedó confirmado. La confirmación llega a tu correo y un asesor te "
-        "contacta para el pago y la entrega."
+        "Listo, tu pedido quedó confirmado. La confirmación llega a tu correo, te envío el "
+        "recibo por escrito y un asesor te contacta para el pago y la entrega."
     )
-    return Message(text, spoken)
+    return Message("\n".join(lines), spoken)
+
+
+def receipt_offer(text: str, link: Callable[[str], str | None]) -> str:
+    """El pedido confirmado en un canal que enlaza el PDF (la web): la promesa → el enlace.
+
+    ``link`` da la URL del recibo del folio o ``None``; sin URL la línea se quita para no
+    prometer un PDF que no llega. Un texto que no es un pedido confirmado vuelve igual.
+    """
+
+    found = _ORDER_PLACED.search(text)
+    promise = f"\n{RECEIPT_PROMISE}"
+    if found is None or promise not in text:
+        return text
+    url = link(found.group(2))
+    offer = f"\n📄 [Descarga el recibo de tu pedido {found.group(1)}]({url})" if url else ""
+    return text.replace(promise, offer, 1)
 
 
 def order_reminder(awaiting: str | None) -> Message | None:

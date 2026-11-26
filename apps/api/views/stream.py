@@ -46,9 +46,10 @@ from apps.api.views.chat import (
     set_identity_cookie,
 )
 from apps.api.views.cotizacion_pdf import owner_pdf_link
+from apps.api.views.pedido_pdf import owner_order_link
 from apps.api.voice import spoken_message
 from carvajal.adapters.storage.chat import ChatMessage
-from carvajal.quotation.render import pdf_offer
+from carvajal.quotation.render import pdf_offer, receipt_offer
 
 __all__ = ["router"]
 
@@ -114,6 +115,7 @@ def chat_stream(
             thread_id=thread_id.strip() or None,
             spoken=voz.strip() == "1",
             pdf_link=owner_pdf_link(request),
+            receipt_link=owner_order_link(request),
         ),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
@@ -132,10 +134,12 @@ def _sse(
     thread_id: str | None = None,
     spoken: bool = False,
     pdf_link: Callable[[str], str | None] | None = None,
+    receipt_link: Callable[[str], str | None] | None = None,
 ) -> Iterator[str]:
     """Traduce los eventos del servicio a bloques SSE.
 
-    Con ``pdf_link`` (``folio -> URL``), la cotización registrada enlaza su PDF.
+    Con ``pdf_link`` (``folio -> URL``), la cotización registrada enlaza su PDF; con
+    ``receipt_link``, el pedido confirmado enlaza su recibo (spec 055).
 
     La red de seguridad evita que un fallo inesperado del proveedor deje la
     conexión sin cierre ni mensaje: siempre se emite un ``error`` genérico.
@@ -164,6 +168,8 @@ def _sse(
                 fragments = [str(event.data.get("text", ""))]
                 if pdf_link is not None:
                     event = _with_pdf_link(event, pdf_link)
+                if receipt_link is not None:
+                    event = _with_receipt_link(event, receipt_link)
             if event.name in {"meta", "fallback"} and isinstance(event.data.get("sources"), list):
                 sources = [item for item in event.data["sources"] if isinstance(item, Mapping)]
             if event.name == "done":
@@ -226,6 +232,14 @@ def _with_pdf_link(event: ChatEvent, link: Callable[[str], str | None]) -> ChatE
 
     text = str(event.data.get("text", ""))
     offered = pdf_offer(text, link)
+    return event if offered == text else ChatEvent("fallback", {**event.data, "text": offered})
+
+
+def _with_receipt_link(event: ChatEvent, link: Callable[[str], str | None]) -> ChatEvent:
+    """``fallback`` del pedido confirmado con el enlace al recibo en vez de la promesa."""
+
+    text = str(event.data.get("text", ""))
+    offered = receipt_offer(text, link)
     return event if offered == text else ChatEvent("fallback", {**event.data, "text": offered})
 
 

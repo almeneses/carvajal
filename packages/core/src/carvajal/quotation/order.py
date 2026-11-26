@@ -24,10 +24,16 @@ __all__ = [
     "Buyer",
     "OrderLine",
     "OrderRequest",
+    "correction_name",
     "declines_order",
+    "find_email",
     "has_buyer_data",
+    "is_affirmation",
+    "is_bare_no",
     "mask_email",
     "merge_buyer",
+    "name_in",
+    "name_marked",
     "order_lines",
     "spoken_email",
     "wants_purchase",
@@ -51,6 +57,24 @@ _NAME_NOISE: Final = re.compile(
 )
 # Quien da el nombre lo dice así: con estas marcas un nombre nuevo reemplaza al anterior.
 _NAME_MARK: Final = re.compile(r"\b(?:mi nombre es|me llamo|a nombre de|soy)\b")
+# El nombre dicho con su marca, en el texto original: «sí, pero a nombre de Marta Gómez».
+_MARKED_NAME: Final = re.compile(
+    r"\b(?:mi\s+nombre\s+es|el\s+nombre\s+es|me\s+llamo|a\s+nombre\s+de|soy)\s+"
+    r"([^,;\n]+)",
+    re.IGNORECASE,
+)
+# «No, es Marta Gómez», «no es Ana, es Ana María»: la corrección tras un «no».
+_NO_PREFIX: Final = re.compile(
+    r"^\s*(?:no|nop)\b[\s,.:;!-]*(?:es\b|se\s+llama\b|el\s+nombre\s+es\b)?[\s,.:;-]*",
+    re.IGNORECASE,
+)
+_AFFIRM_START: Final = re.compile(
+    r"^(?:si|sip|claro|dale|listo|de una|hagale|adelante|ok|okay|okey|vale|perfecto|"
+    r"bueno|va|venga|correcto|exacto|asi es|esta bien|confirmo|confirmalo|confirmado)\b"
+)
+_BARE_NO: Final = frozenset(
+    {"no", "nop", "no es", "esta mal", "incorrecto", "no esta bien", "hay un error", "error"}
+)
 # Palabras que nunca forman parte de un nombre: muletillas, respuestas y temas del pedido.
 _NOT_NAME: Final = frozenset(
     """
@@ -59,15 +83,20 @@ _NOT_NAME: Final = frozenset(
     excelente mejor ahora todavia aun despues luego tarde pienso pensar voy quiero queria
     quisiera puedo puede necesito por favor porfa pedido pedidos compra comprar comprarla
     comprarlo orden cotizacion cotizaciones folio envio entrega pago factura precio confirmo
-    confirma confirmar confirmado cancela cancelar cancelado cambiar cambio corrige corregir
-    otro otra eso esa ese esto todo nada algo mas menos el un una unos unas al lo le que como cuando donde cual mi tu su con sin para en a o u e
+    confirma confirmar confirmado confirmalo cancela cancelar cancelado cambiar cambio
+    corrige corregir otro otra eso esa ese esto todo nada algo mas menos el un unos unas al
+    lo le que como cuando donde cual mi tu su con sin para en a o u e adelante senor senora
+    hagale venga va sale cuentame cuente digame dime espera momento gusto encantado
+    encantada correcto correcta exacto asi esta mal incorrecto datos dato pero entonces pues
+    eh este mmm aja oiga oye mira bien
     """.split()  # noqa: SIM905
 )
 # Muletillas que acompañan el nombre al principio o al final («Ana, gracias», «hola, Ana»).
 _FILLER: Final = frozenset(
     """
     hola buenas buenos dias tardes noches gracias muchas mil ok okay okey listo perfecto
-    bueno vale claro dale si ya bien super genial excelente porfa favor por
+    bueno vale claro dale si ya bien super genial excelente porfa favor por pero entonces pues
+    eh este mmm aja oiga oye mira
     """.split()  # noqa: SIM905
 )
 _PARTICLES: Final = frozenset({"de", "del", "la", "las", "los"})
@@ -278,6 +307,68 @@ def merge_buyer(previous: Buyer, text: str) -> Buyer:
     ):
         name = candidate
     return Buyer(name=name, email=email)
+
+
+def find_email(text: str) -> str | None:
+    """El correo del mensaje (escrito o dictado), en minúsculas; ``None`` si no hay."""
+
+    found = _EMAIL.search(spoken_email(text))
+    return found.group(0).lower() if found else None
+
+
+def name_in(text: str, *, strict: bool = False) -> str | None:
+    """El nombre que trae ``text`` (sin correo ni marcas), o ``None``.
+
+    ``strict`` (la oferta, donde nadie pidió todavía el nombre): solo cuenta un nombre
+    escrito como nombre propio, con mayúscula inicial en cada palabra («Ana Pérez»); así una
+    frase cualquiera («cuéntame de la empresa») no se toma como nombre.
+    """
+
+    spelled = spoken_email(text)
+    name = _name_from(spelled)
+    if name is None or not strict:
+        return name
+    original = re.sub(r"[\s,;:|/()<>\"'.!¡¿-]+", " ", _EMAIL.sub(" ", spelled)).split()
+    words = [word for word in original if plain(word) not in _FILLER]
+    capitalized = all(
+        word[:1].isupper() or word.lower() in _PARTICLES for word in words if _NAME_WORD.match(word)
+    )
+    return name if capitalized and 1 <= len(name.split()) <= 4 else None
+
+
+def name_marked(text: str) -> str | None:
+    """El nombre dicho con su marca («me llamo…», «a nombre de…»), o ``None``."""
+
+    found = _MARKED_NAME.search(_EMAIL.sub(" ", spoken_email(text)))
+    return _name_from(found.group(1)) if found else None
+
+
+def correction_name(text: str) -> str | None:
+    """El nombre de una corrección: con marca, tras un «no» («no, es Marta») o suelto."""
+
+    marked = name_marked(text)
+    if marked:
+        return marked
+    text = _EMAIL.sub(" ", spoken_email(text))
+    rest = _NO_PREFIX.sub("", text, count=1) if _NO_PREFIX.match(text) else text
+    return _name_from(rest) if rest.strip() else None
+
+
+def is_affirmation(text: str) -> bool:
+    """«Sí», «sí, adelante», «dale», «claro que sí»: acepta, sin negación ni pregunta."""
+
+    if "?" in text:
+        return False
+    folded = plain(text)
+    if _NEGATION.search(folded):
+        return False
+    return _AFFIRM_START.match(folded) is not None
+
+
+def is_bare_no(text: str) -> bool:
+    """«No», «está mal»: ante «¿Lo confirmo?», hay algo que corregir (no es cancelar)."""
+
+    return plain(text).strip(" .!") in _BARE_NO
 
 
 def has_buyer_data(text: str) -> bool:

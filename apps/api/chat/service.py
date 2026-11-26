@@ -1570,6 +1570,9 @@ class ChatService:
         stored_question = ORDER_DATA_PLACEHOLDER if decision.private else question
         stored_answer = _without_buyer(message.text, buyers) if private else message.text
         products["flow"] = _flow_payload(message, draft, folio=folio)
+        if decision.order is not None and draft.order:
+            # WhatsApp adjunta el recibo (el PDF del pedido en Odoo) con el folio.
+            products["flow"]["order"] = {"name": draft.order, "folio": draft.folio}
         stored_products = products
         if private:
             stored_flow = {
@@ -1626,7 +1629,8 @@ class ChatService:
             return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
         logger.info("pedido.registrado", folio=draft.folio, pedido=result.name)
         placed = draft.touch(awaiting=None, buyer=None, order=result.name)
-        return quote_render.order_placed(result.name, buyer.email, draft.folio), placed
+        message = quote_render.order_placed(result.name, buyer.email, draft.folio, draft)
+        return message, placed
 
     def _fixed_turn(
         self,

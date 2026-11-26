@@ -180,12 +180,15 @@ class OdooOrders:
         )
         if existing and existing[0].get("state") == "sale":
             found = existing[0]
+            order_id = int(found["id"])
+            lead_id = _many2one(found.get("opportunity_id"))
+            if lead_id is None:  # confirmado, pero la respuesta se perdió antes del CRM
+                partner = _many2one(found.get("partner_id"))
+                if partner is not None:
+                    lead_id = self._lead(request, partner, order_id)
             logger.info("pedido.existente", folio=request.folio, pedido=found["name"])
             return OrderResult(
-                name=str(found["name"]),
-                order_id=int(found["id"]),
-                lead_id=_many2one(found.get("opportunity_id")),
-                existing=True,
+                name=str(found["name"]), order_id=order_id, lead_id=lead_id, existing=True
             )
         partner_id = self._partner(request)
         if existing:  # quedó en borrador: el cliente de ahora y a confirmar
@@ -196,7 +199,7 @@ class OdooOrders:
         else:
             order_id = self._create_order(request, partner_id)
             lead_id = None
-        self._odoo.call("sale.order", "action_confirm", ids=[order_id], context=CONFIRM_CONTEXT)
+        self._confirm(order_id)
         self._note(
             "sale.order",
             order_id,
@@ -211,6 +214,51 @@ class OdooOrders:
         (order,) = self._odoo.search_read("sale.order", [["id", "=", order_id]], ["name"])
         logger.info("pedido.creado", folio=request.folio, pedido=order["name"])
         return OrderResult(name=str(order["name"]), order_id=order_id, lead_id=lead_id)
+
+    def order_pdf(self, folio: str) -> bytes | None:
+        """PDF del pedido confirmado de ``folio`` (el que Odoo adjuntó al correo), o ``None``."""
+
+        found = self._odoo.search_read(
+            "sale.order",
+            [["client_order_ref", "=", folio], ["state", "=", "sale"]],
+            ["id"],
+            limit=1,
+        )
+        if not found:
+            return None
+        attachments = self._odoo.call(
+            "ir.attachment",
+            "search_read",
+            domain=[
+                ["res_model", "=", "sale.order"],
+                ["res_id", "=", int(found[0]["id"])],
+                ["mimetype", "=", "application/pdf"],
+            ],
+            fields=["datas"],
+            order="id desc",
+            limit=1,
+        )
+        if not attachments or not attachments[0].get("datas"):
+            return None
+        return base64.b64decode(attachments[0]["datas"])
+
+    def _confirm(self, order_id: int) -> None:
+        """``action_confirm`` con el correo; un 422 de un pedido ya confirmado no es fallo.
+
+        Dos «sí» casi simultáneos sobre el mismo folio: el segundo encuentra el pedido en
+        borrador, pero cuando llama a confirmar el primero ya lo hizo y Odoo responde
+        ``UserError`` (422). Si el pedido quedó confirmado, el turno sigue como éxito.
+        """
+
+        try:
+            self._odoo.call("sale.order", "action_confirm", ids=[order_id], context=CONFIRM_CONTEXT)
+        except OdooError as error:
+            if error.status != 422:
+                raise
+            state = self._odoo.search_read("sale.order", [["id", "=", order_id]], ["state"])
+            if not state or state[0].get("state") != "sale":
+                raise
+            logger.info("pedido.confirmado_por_otro_turno", order_id=order_id)
 
     def _create_order(self, request: OrderRequest, partner_id: int) -> int:
         products = self._products(request.lines)
