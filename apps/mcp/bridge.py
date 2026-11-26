@@ -124,6 +124,8 @@ SERVICE_UNAVAILABLE = (
     "En este momento no puedo consultar la información de Carvajal. Intenta de nuevo en "
     "unos minutos."
 )
+# Fotos por mensaje del flujo (spec 054): la recomendada o lo recién agregado.
+MAX_FLOW_PHOTOS = 3
 NEW_CONVERSATION = "Listo, empezamos una conversación nueva. ¿En qué te puedo ayudar?"
 PDF_OFFER = "¿Quieres esta cotización en PDF? Responde *PDF* 📄"
 PDF_OFFER_SPOKEN = "Si quieres el detalle, respóndeme PDF y te lo mando por escrito."
@@ -1324,11 +1326,20 @@ class WhatsAppBridge:
         if turn.folios and not pdf_enabled:
             written = written.replace("\n📄 Te envío el PDF.", "")
         blocks.append(written)
+        # Spec 054 dejó la cotización en plantillas sin la foto que traía ``whatsapp_quote``
+        # (2026-11-25): la recomendada o lo recién agregado vuelven a llevar su foto.
+        photos = self._flow_photos(turn.flow)
+        if photos:
+            blocks.append("\n".join(f"📷 Foto: {url}" for _, url in photos))
         spoken: list[SpokenReply] = []
         if remarks.strip():
             spoken.append(SpokenReply(to_speech(remarks).text))
         said = str(turn.flow.get("spoken") or "") or to_speech(template).text
         spoken.append(SpokenReply(said, omitted=True))
+        if photos:
+            # La foto no se lee: va como enlace aparte de la nota de voz.
+            links = tuple(SpeechLink("Foto del producto", url) for _, url in photos)
+            spoken.append(SpokenReply("", links))
         if turn.error is not None:
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
         voice = combine(spoken)
@@ -1346,6 +1357,18 @@ class WhatsAppBridge:
         text = reply.text.replace("\n📄 Te envío el PDF.", "")
         spoken = combine([reply.voice(), SpokenReply("", pdf.voice().links)])
         return BridgeReply(f"{text}\n\n{pdf.text}", reply.quote_ids, spoken=spoken)
+
+    def _flow_photos(self, flow: Mapping[str, Any]) -> list[tuple[str, str]]:
+        """``(sku, url)`` de las fotos del mensaje del flujo; hasta tres y sin repetir."""
+
+        found: list[tuple[str, str]] = []
+        for sku in flow.get("photos") or []:
+            url = self._photo(str(sku))
+            if url and all(url != seen for _, seen in found):
+                found.append((str(sku), url))
+            if len(found) == MAX_FLOW_PHOTOS:
+                break
+        return found
 
     def _photo(self, sku: str) -> str | None:
         if self.photo_url is None or not sku:

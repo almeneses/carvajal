@@ -326,3 +326,17 @@ def test_una_respuesta_corta_que_no_cancela_no_olvida_el_pedido(engine: Any) -> 
 
     # Assert
     assert runner.cleared == []
+
+
+def test_el_payload_del_flujo_trae_las_fotos_de_lo_agregado(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+
+    # Act
+    added = _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Assert: el SKU de la línea agregada viaja al canal para su foto.
+    flow = named(added, "done").data["flow"]
+    assert flow["photos"]
+    assert flow["photos"] == [_draft(engine)["lines"][-1]["primary"]["sku"]]

@@ -511,3 +511,17 @@ def test_ninguna_cotizacion_se_registra_sin_el_si() -> None:
     for text in ("sí", "también tapas", "¿cuánto llevo?", "lo voy a pensar", "cancela todo"):
         decision = before_turn(draft, text, requote_fn=fake_requote, now=AHORA)
         assert not (isinstance(decision, Reply) and decision.register), text
+
+
+def test_las_opciones_y_lo_agregado_llevan_el_sku_de_su_foto() -> None:
+    # WhatsApp añade la foto del catálogo a estos SKU (2026-11-25: se habían perdido).
+    quote = make_quote(
+        {"sku": "J1", "nombre": "Portacomida J1", "unidades": 200, "subtotal": 58000}
+    )
+    draft = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
+    nuevas = [draft.lines[-1]]
+    sku_nueva = str(nuevas[0]["primary"]["sku"])
+
+    assert render.options(quote).photos == ("J1",)
+    assert render.added(draft, nuevas).photos == (sku_nueva,)
+    assert render.summary(draft).photos == ()
