@@ -91,7 +91,9 @@ ODOO_URL=http://127.0.0.1:8169 ODOO_DB=carvajal ODOO_API_KEY=… \
 ```
 
 Crea o actualiza un producto por referencia de Colombia (`default_code` = SKU, precio por
-caja) en la categoría «Empaques Carvajal». Es idempotente. Un SKU que llegue en un pedido y no
+caja) en la categoría «Empaques Carvajal». Con `--imagenes` sube además la foto del catálogo
+(`data/catalog/empaques/imagenes/`) a los productos que aún no tienen una. Es idempotente.
+Se ven en Ventas → Productos → Productos. Un SKU que llegue en un pedido y no
 esté en Odoo se crea en ese momento.
 
 ## Probar en local contra el Odoo de la VPS

@@ -426,3 +426,29 @@ def test_sin_crm_el_folio_no_ofrece_el_pedido(engine: Any) -> None:
 
     # Assert
     assert ORDER_OFFER not in registered
+
+
+def test_las_fotos_solo_se_suben_a_los_productos_sin_foto() -> None:
+    # Arrange: dos SKU con foto en el catálogo; en Odoo solo el segundo no tiene.
+    writes: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if request.url.path.endswith("/write"):
+            writes.append(body)
+            return httpx.Response(200, json=True)
+        domain = body["domain"]
+        if ["image_1920", "=", False] in domain:
+            return httpx.Response(200, json=[{"id": 2, "default_code": "B"}])
+        return httpx.Response(
+            200, json=[{"id": 1, "default_code": "A"}, {"id": 2, "default_code": "B"}]
+        )
+
+    client = OdooClient("http://odoo", "carvajal", "k", transport=httpx.MockTransport(handler))
+
+    # Act
+    report = OdooOrders(client).sync_images({"A": b"foto-a", "B": b"foto-b"})
+
+    # Assert
+    assert report == {"fotos_subidas": 1, "fotos_existentes": 1}
+    assert writes == [{"ids": [2], "vals": {"image_1920": "Zm90by1i"}}]

@@ -14,6 +14,7 @@ Los datos del cliente (nombre y correo) solo viajan a Odoo; los logs llevan el f
 número de pedido, nunca el nombre ni el correo.
 """
 
+import base64
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -352,6 +353,25 @@ class OdooOrders:
                 ],
             )
         return {"creados": created, "actualizados": updated, "sin_cambios": unchanged}
+
+    def sync_images(self, images: Mapping[str, bytes]) -> dict[str, int]:
+        """Foto principal (``image_1920``) de cada SKU que todavía no tenga una en Odoo."""
+
+        if not images:
+            return {"fotos_subidas": 0, "fotos_existentes": 0}
+        codes = sorted(images)
+        found = self._odoo.search_read(
+            "product.template", [["default_code", "in", codes]], ["id", "default_code"]
+        )
+        missing = self._odoo.search_read(
+            "product.template",
+            [["default_code", "in", codes], ["image_1920", "=", False]],
+            ["id", "default_code"],
+        )
+        for item in missing:
+            encoded = base64.b64encode(images[str(item["default_code"])]).decode("ascii")
+            self._odoo.write("product.template", [int(item["id"])], {"image_1920": encoded})
+        return {"fotos_subidas": len(missing), "fotos_existentes": len(found) - len(missing)}
 
 
 def _reference_values(reference: "Reference", category: int) -> dict[str, Any]:
