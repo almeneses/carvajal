@@ -51,6 +51,7 @@ from carvajal.agent.followup import (
     resolve_remove,
     resolve_switch,
     strip_assent,
+    wants_cart,
     wants_change,
     wants_edit,
     wants_switch,
@@ -302,6 +303,16 @@ def _rules(
         return Reply(render.leaving(bool(draft.lines)), paused, route="salida")
     if is_too_expensive(text):
         return _too_expensive(draft, now)
+    if wants_cart(text):
+        # «¿Qué tengo en la cotización?»: el borrador tal cual (o que está vacío), sin el
+        # modelo; antes caía al agente, que buscaba folios registrados y se abstenía.
+        if not draft.lines:
+            return Reply(render.empty_cart(), draft)
+        keep = draft.awaiting if draft.awaiting not in (None, "algo_mas") else "algo_mas"
+        shown = draft.touch(
+            now, awaiting=keep, state=draft.state if keep != "algo_mas" else "carrito"
+        )
+        return Reply(render.cart_view(shown), shown)
     if draft.lines and draft.awaiting in _EDITABLE and wants_change(text):
         return _edit(draft, now)
     handler = _AWAITING.get(draft.awaiting or "")
@@ -471,6 +482,14 @@ def _on_choice(
     found = resolve_choice(text, alternatives)
     if found is None and alternatives == 0 and is_confirmation(text):
         found = Choice(0)
+    if found is None and resolve_more(text) == "close":
+        # «Eso es todo» ante «¿Cuál te cotizo?» no elige la recomendada: con carrito va al
+        # resumen; sin él, la persona no quiso ninguna y se despide como «lo pienso».
+        if draft.lines:
+            closed = draft.touch(now, state="resumen", awaiting="confirmar", options=())
+            return Reply(render.summary(closed), closed)
+        paused = draft.touch(now, state="explorando", awaiting=None, options=(), offer=None)
+        return Reply(render.leaving(False), paused, route="salida")
     if found is None:
         return None
     if alternatives == 0 and found == ChoiceOutOfRange(1):

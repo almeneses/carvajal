@@ -24,10 +24,12 @@ from carvajal.agent.followup import (
     names_amount,
     parse_quantities,
     removes_whole_line,
+    resolve_choice,
     resolve_more,
     resolve_quantity_choice,
     resolve_remove,
     resolve_switch,
+    wants_cart,
     wants_change,
     wants_edit,
     wants_switch,
@@ -972,3 +974,108 @@ def test_el_comparativo_dice_cuantas_unidades_se_compran_si_sobran() -> None:
     assert "• **1.000** → 5 cajas x 200 · $277.740" in message.text
     assert "porque se compran 600 unidades" in message.spoken
     assert message.spoken.count("se compran") == 1
+
+
+@pytest.mark.parametrize("texto", ["eso es todo", "eso sería todo", "eso nada más"])
+def test_eso_es_todo_ante_las_opciones_no_elige_la_recomendada(texto: str) -> None:
+    # Arrange: «¿Cuál te cotizo?» sin nada en el carrito (ensayo: agregaba la recomendada y
+    # luego preguntaba «¿Algo más?»).
+    draft = _with_options()
+
+    # Act
+    decision = before_turn(draft, texto, requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert resolve_choice(texto, 2) is None
+    assert isinstance(decision, Reply)
+    assert decision.route == "salida"
+    assert not decision.draft.lines
+    assert "Agregué" not in decision.message.text
+
+
+def test_eso_es_todo_ante_las_opciones_con_carrito_va_al_resumen() -> None:
+    # Arrange: hay líneas y se mostraban opciones de otro producto.
+    options = _with_options()
+    draft = options.touch(AHORA, lines=_cart().lines)
+
+    # Act
+    decision = before_turn(draft, "eso es todo", requote_fn=fake_requote, now=AHORA)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.draft.awaiting == "confirmar"
+    assert "Resumen de tu cotización" in decision.message.text
+    assert len(decision.draft.lines) == 2
+
+
+@pytest.mark.parametrize(
+    ("texto", "es"),
+    [
+        ("¿Qué tengo en la cotización?", True),
+        ("¿cuánto llevo?", True),
+        ("muéstrame el carrito", True),
+        ("¿cómo va mi cotización?", True),
+        ("¿qué tengo que hacer?", False),
+        ("¿qué hay?", False),
+        ("¿cuánto vale el vaso?", False),
+    ],
+)
+def test_detecta_la_pregunta_por_el_carrito(texto: str, es: bool) -> None:
+    assert wants_cart(texto) is es
+
+
+def test_preguntar_por_el_carrito_lo_muestra_sin_el_modelo() -> None:
+    # Arrange
+    draft = _cart().touch(AHORA, state="carrito", awaiting="algo_mas")
+
+    # Act
+    decision = before_turn(
+        draft, "¿qué tengo en la cotización?", requote_fn=fake_requote, now=AHORA
+    )
+
+    # Assert
+    assert isinstance(decision, Reply) and not decision.register
+    assert "🛒 **Tu cotización · 2 productos**" in decision.message.text
+    assert "Plato pulpa" in decision.message.text
+    assert decision.draft.lines == draft.lines
+
+
+def test_preguntar_por_el_carrito_vacio_dice_que_esta_vacio() -> None:
+    # Arrange: después de «cancela todo» (ensayo: «No tengo un dato verificado…»).
+    cancelled = before_turn(
+        _cart().touch(AHORA, state="carrito"), "cancela todo", requote_fn=fake_requote, now=AHORA
+    )
+
+    # Act
+    decision = before_turn(
+        cancelled.draft, "¿qué tengo en la cotización?", requote_fn=fake_requote, now=AHORA
+    )
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.message.text == render.empty_cart().text
+
+
+def test_el_carrito_pedido_en_el_resumen_conserva_la_confirmacion_pendiente() -> None:
+    # Arrange
+    draft = _cart().touch(AHORA, state="resumen", awaiting="confirmar")
+
+    # Act
+    decision = before_turn(draft, "¿cuánto llevo?", requote_fn=fake_requote, now=AHORA)
+
+    # Assert: no registra y sigue esperando el «sí».
+    assert isinstance(decision, Reply) and not decision.register
+    assert decision.draft.awaiting == "confirmar"
+    assert "¿La confirmo?" in decision.message.text
+
+
+def test_el_resumen_hablado_concuerda_en_numero() -> None:
+    # Arrange
+    one = QuoteDraft()
+    one, _ = add_line(
+        one, make_quote({"sku": "V9", "nombre": "Vaso 9 oz", "unidades": 1000, "subtotal": 75020})
+    )
+
+    # Act / Assert: «Es 1 producto», no «Son 1 producto».
+    assert render.summary(one).spoken.startswith("Es 1 producto")
+    assert render.summary(_cart()).spoken.startswith("Son 2 productos")

@@ -84,6 +84,7 @@ from carvajal.agent.commercial_intent import (
     empty_request,
     extract_commercial,
     material_for,
+    named_families,
 )
 from carvajal.agent.reference_names import (
     exact_sku,
@@ -924,6 +925,13 @@ def _named_reference(
     elif name:
         match = resolve_reference(name, pool, catalog, **narrow)
         named, partial = match.named, match.partial
+        if len(named) > 1 and request.family is None:
+            # «vaso Wau 7 oz» también coincide con «Tapa … para vaso … 7 oz Wau»: si el nombre
+            # dice una sola familia, las de otra familia no son candidatas (si queda alguna).
+            families = named_families(name)
+            if len(families) == 1:
+                same = [item for item in named if item.family in families]
+                named = same or named
     else:
         named, partial = [], False
     if not named:

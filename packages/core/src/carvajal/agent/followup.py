@@ -53,6 +53,7 @@ __all__ = [
     "resolve_remove",
     "resolve_switch",
     "strip_assent",
+    "wants_cart",
     "wants_change",
     "wants_edit",
     "wants_switch",
@@ -161,9 +162,19 @@ def resolve_choice(text: str, alternatives: int) -> Choice | ChoiceOutOfRange | 
             return ChoiceOutOfRange(asked)
         return Choice(asked)
     match = _RECOMMENDED.match(plain)
-    if match is not None and not _CHANGE.search(match["rest"]):
+    if (
+        match is not None
+        and not _CHANGE.search(match["rest"])
+        and not _CLOSING_REST.match(match["rest"])
+    ):
         return Choice(0)
     return None
+
+
+# «Eso es todo», «eso sería todo», «eso nada más»: cierran, no eligen «eso» (la recomendada).
+_CLOSING_REST: Final = re.compile(
+    r"^\s*(?:(?:es|seria|era|fue|sera)\s+todo|(?:nada|no)\s+mas|(?:es|seria)\s+lo\s+que)\b"
+)
 
 
 _AFFIRM: Final = frozenset(
@@ -405,6 +416,27 @@ def _negated(text: str) -> bool:
     folded = unicodedata.normalize("NFKD", text.casefold())
     without = "".join(ch for ch in folded if not unicodedata.combining(ch))
     return bool(_NEGATED_INTENT.match(without))
+
+
+_CART_PLACE: Final = r"(?:en|de)\s+(?:la|mi|el)\s+(?:cotizacion|carrito|pedido)"
+_CART_QUESTION: Final = re.compile(
+    r"^(?:(?:y|oye|bueno|ok|a\s+ver|entonces)\s+)*(?:"
+    rf"(?:que|cuanto|cuantos|cuantas)\s+(?:tengo|llevo|lleva|va|van|llevamos)(?:\s+{_CART_PLACE})?"
+    rf"|(?:que|cuanto)\s+hay\s+{_CART_PLACE}"
+    r"|(?:muestrame|ensename|dejame\s+ver|quiero\s+ver|ver|mostrar|mira|revisa)\s+"
+    r"(?:la|mi|el)\s+(?:cotizacion|carrito|pedido)"
+    r"|(?:como|que)\s+va\s+(?:la|mi)\s+(?:cotizacion|pedido)"
+    r")$"
+)
+
+
+def wants_cart(text: str) -> bool:
+    """«¿Qué tengo en la cotización?», «¿cuánto llevo?», «muéstrame el carrito»: ver el borrador.
+
+    Solo la pregunta por el carrito, sin pedir otra cosa: «¿qué tengo que hacer?» no cuenta.
+    """
+
+    return bool(_CART_QUESTION.match(plain(text).replace("?", " ").strip()))
 
 
 def wants_change(text: str) -> bool:
