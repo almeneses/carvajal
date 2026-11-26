@@ -868,7 +868,11 @@ def _fill_from_context(
     # Otra referencia nombrada (la elegida de una foto, «cotiza el J1») es otro pedido: la
     # cantidad del anterior no se hereda en silencio, se pregunta (2026-11-26: una elección
     # de foto cotizó 2.000 unidades que la persona nunca dijo).
-    other_reference = named and str(explicit.get("sku") or "") != str(context.get("sku") or "")
+    # Sin ``sku`` ni ``nombre`` (familia y capacidad) no hay referencia nombrada y la cantidad
+    # se reutiliza; el mismo código en ``sku`` o en ``nombre`` sigue siendo el mismo pedido.
+    said_reference = str(explicit.get("sku") or explicit.get("nombre") or "").strip().casefold()
+    stored_reference = str(context.get("sku") or "").strip().casefold()
+    other_reference = named and said_reference != stored_reference
     shared = [key for key in _SHARED_FIELDS if not (other_reference and key == "quantity")]
     reusable = [*(product_fields if same_product else ()), *shared]
     filled = dict(explicit)

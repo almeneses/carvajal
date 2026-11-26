@@ -2790,6 +2790,36 @@ def test_otra_referencia_nombrada_no_hereda_la_cantidad_del_pedido_anterior() ->
     assert "quantity" in _data(same)["reutilizado"]
 
 
+def test_el_mismo_producto_sin_sku_o_por_su_codigo_conserva_la_cantidad() -> None:
+    # Arrange: revisión de la PR #275, un seguimiento que repite el producto por familia y
+    # capacidad, o con su código en ``nombre``, no es otra referencia.
+    previous = {
+        "family": "vaso",
+        "capacity_oz": 7.0,
+        "quantity": 2000,
+        "city": "Bogotá",
+        "sku": "7704918100199",
+    }
+
+    # Act
+    by_family = _run(
+        "cotizar",
+        {"family": "vaso", "capacity_oz": 7.0},
+        _deps(),
+        ToolContext(question="¿y con retiro?", commercial_context=previous),
+    )
+    by_code = _run(
+        "cotizar",
+        {"nombre": "7704918100199"},
+        _deps(),
+        ToolContext(question="¿y con retiro?", commercial_context=previous),
+    )
+
+    # Assert
+    assert "quantity" in _data(by_family)["reutilizado"]
+    assert "quantity" in _data(by_code)["reutilizado"]
+
+
 def test_un_error_en_cantidades_no_se_lee_como_cantidad_faltante() -> None:
     # Revisión: cinco cantidades (máximo cuatro) no es «me falta la cantidad».
     result = _run(
