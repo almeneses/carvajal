@@ -1353,6 +1353,17 @@ test("T016 el filtro de códigos también cubre mayúsculas mezcladas", () => {
   assert.match(limpio, /código 3/);
 });
 
+test("la lectura omite el SKU numérico entre paréntesis que pide el prompt", () => {
+  // Arrange
+  const { limpiarTextoHablado } = cargarVoz().window.CarvajalVoz;
+
+  // Act
+  const limpio = limpiarTextoHablado("Vaso térmico 8 oz (SKU 2864108000) y el SKU de la caja");
+
+  // Assert
+  assert.equal(limpio, "Vaso térmico 8 oz y el de la caja");
+});
+
 // ---------------------------------------------------------------------------
 // T018–T021 · US3: conversación manos libres
 // ---------------------------------------------------------------------------
@@ -4205,4 +4216,162 @@ test("052 leer una respuesta marca data-voz-leyendo y detenerla la quita", () =>
 
   // Assert
   assert.equal(montaje.documento.documentElement.dataset.vozLeyendo, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Foto con texto dictado: `spoken` de chat-stream.js manda (la recarga no tendría audio)
+// ---------------------------------------------------------------------------
+
+test("foto con un borrador dictado no crea nota ni suena aunque el dictado lo marque", async () => {
+  // Arrange: el texto que acompaña a la foto se dictó; /chat/foto no guarda la marca.
+  const sintesis = crearSintesis();
+  const montaje = montarNotas({ sintesis });
+  const turno = crearTurnoDom({ mensaje: "m-foto" });
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+
+  // Act: chat-stream.js avisa el fin del turno con `spoken: false` por la foto.
+  completarTurno(montaje, turno, { spoken: false });
+  await vaciarPromesas();
+
+  // Assert: ni nota, ni marca hablada, ni síntesis o reproducción automática.
+  assert.equal(partesDeNota(turno).raiz, null);
+  assert.equal(turno.dataset.vozNota, undefined);
+  assert.equal(turno.dataset.vozPreguntaHablada, undefined);
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 0);
+  assert.equal(sintesis.locuciones.length, 0);
+});
+
+test("sin `spoken` en el evento el borrador dictado sigue trayendo la nota", async () => {
+  // Arrange: un emisor viejo que no manda `spoken` (respaldo del origen local).
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-sin-spoken" });
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+
+  // Act
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1", handsFree: false },
+  });
+  await vaciarPromesas();
+
+  // Assert
+  assert.ok(partesDeNota(turno).raiz);
+  assert.equal(turno.dataset.vozPreguntaHablada, "1");
+});
+
+test("una foto en manos libres no suena y apaga el modo con su motivo", async () => {
+  // Arrange: manos libres envía lo dictado con una foto adjunta.
+  const montaje = montarNotas();
+  await preguntarConManosLibres(montaje);
+  const grabaciones = montaje.servidor.registro.grabaciones;
+  const turno = crearTurnoDom({ mensaje: "m-manos-foto" });
+
+  // Act
+  completarTurno(montaje, turno, { handsFree: true, spoken: false });
+  await vaciarPromesas();
+
+  // Assert: sin nota ni audio, el modo se apaga y no vuelve a abrir el micrófono.
+  assert.equal(partesDeNota(turno).raiz, null);
+  assert.equal(turno.dataset.vozPreguntaHablada, undefined);
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 0);
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.manosFoto);
+  assert.equal(montaje.servidor.registro.grabaciones, grabaciones);
+});
+
+// ---------------------------------------------------------------------------
+// «Opciones de voz»: el panel solo guarda Manos libres y nunca se abre vacío
+// ---------------------------------------------------------------------------
+
+function crearPanelOpciones() {
+  return crearElemento("details", { hidden: true });
+}
+
+test("con lectura pero sin dictado el panel «Opciones de voz» queda oculto", () => {
+  // Arrange: sin contexto seguro no hay dictado y Manos libres no se ofrece.
+  const opciones = crearPanelOpciones();
+
+  // Act
+  const montaje = montar({ segura: false, vista: crearVista({ opciones }) });
+
+  // Assert
+  assert.equal(montaje.controlador.soporte.sintesis, true);
+  assert.equal(montaje.vista.botonManosLibres.hidden, true);
+  assert.equal(opciones.hidden, true);
+});
+
+test("con dictado, lectura y streaming el panel muestra Manos libres", () => {
+  // Arrange
+  const opciones = crearPanelOpciones();
+
+  // Act
+  const montaje = montar({ vista: crearVista({ opciones }) });
+
+  // Assert
+  assert.equal(montaje.vista.botonManosLibres.hidden, false);
+  assert.equal(opciones.hidden, false);
+});
+
+test("si el dictado se pierde, el panel se oculta junto con Manos libres", async () => {
+  // Arrange: solo el servidor dicta; al fallar no hay respaldo del navegador.
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(503, "off") });
+  const sandbox = cargarVoz({ reconocimiento: false });
+  const opciones = crearPanelOpciones();
+  const vista = crearVista({ opciones });
+  const controlador = sandbox.window.CarvajalVoz.createVoiceController({
+    vista,
+    documento: crearDocumento(),
+    almacen: crearAlmacen({ carvajal_voz_aviso_dictado_servidor: "1" }),
+    reconocimiento: null,
+    sintesis: crearSintesis(),
+    Utterance: sandbox.SpeechSynthesisUtterance,
+    reloj: crearReloj(),
+    segura: true,
+    streaming: true,
+    servidor,
+  });
+  controlador.mount();
+  assert.equal(opciones.hidden, false);
+
+  // Act
+  clic(vista.botonDictar);
+  await vaciarPromesas();
+  clic(vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(vista.botonManosLibres.hidden, true);
+  assert.equal(opciones.hidden, true);
+});
+
+test("init oculta «Opciones de voz» cuando hay síntesis pero no Manos libres", () => {
+  // Arrange: el sandbox no trae fetch/ReadableStream, así que no hay streaming.
+  const raiz = crearElemento("section", { hidden: true });
+  const opciones = crearElemento("details", { hidden: false });
+  const manos = crearElemento("button", { hidden: true });
+  const hijos = {
+    "[data-voz-dictar]": crearElemento("button", { hidden: true }),
+    "[data-voz-dictar-texto]": crearElemento("span"),
+    "[data-voz-estado]": crearElemento("p"),
+    "[data-voz-nota]": crearElemento("p", { hidden: true }),
+    "[data-voz-manos-libres]": manos,
+    "[data-voz-opciones]": opciones,
+  };
+  raiz.querySelector = (selector) => hijos[selector] || null;
+  const documento = crearDocumento({
+    "[data-voz]": raiz,
+    "form[data-chat-stream]": crearFormulario(),
+  });
+
+  // Act
+  const sandbox = cargarVoz({ documento });
+
+  // Assert
+  assert.equal(sandbox.window.CarvajalVoz !== undefined, true);
+  assert.equal(raiz._controladorVoz.soporte.sintesis, true);
+  assert.equal(manos.hidden, true);
+  assert.equal(opciones.hidden, true);
 });

@@ -779,6 +779,7 @@ class ChatService:
                     client_turn_id,
                     sources=turn.sources,
                     products=turn.products,
+                    question_sources=question_sources,
                 )
                 if runner is not None:
                     runner.record(
@@ -800,7 +801,11 @@ class ChatService:
         question: str,
         client_turn_id: str | None,
     ) -> None:
-        """Guarda lo emitido del modo ``tools`` como ``incomplete``, sin fuentes ni folios."""
+        """Guarda lo emitido del modo ``tools`` como ``incomplete``, sin fuentes ni folios.
+
+        La marca de la pregunta hablada sí se guarda: al recargar, el turno cortado conserva
+        «por voz» y «Escuchar» como en vivo.
+        """
 
         answer = "".join(tools.fragments)
         self._persist_partial(
@@ -810,6 +815,7 @@ class ChatService:
             client_turn_id,
             sources=(),
             products=None,
+            question_sources=tools.question_sources,
         )
         tools.runner.record(
             conversation.id,
@@ -1696,8 +1702,13 @@ class ChatService:
         *,
         sources: Sequence[Source],
         products: Mapping[str, Any] | None,
+        question_sources: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
-        """Guarda una respuesta interrumpida en una sesión nueva."""
+        """Guarda una respuesta interrumpida en una sesión nueva.
+
+        ``question_sources`` lleva la marca de la pregunta (``VOICE_MARK`` si se habló), igual
+        que en el turno completo: la recarga coincide con lo que se vio en vivo.
+        """
 
         try:
             with self._session_factory() as session:
@@ -1714,6 +1725,7 @@ class ChatService:
                     status="incomplete",
                     client_turn_id=client_turn_id,
                     products=products,
+                    question_sources=question_sources,
                 )
         except Exception as error:  # la UI ya recibirá el evento de error
             logger.warning("chat.incomplete_persist_failed", error=str(error))

@@ -97,10 +97,14 @@ function crearTurno() {
   const autor = crearElemento("span");
   // Franja «Escuchar/Pausar/…» de la plantilla: visible hasta que el stream la oculta.
   const franja = crearElemento("div");
+  // Marca «por voz» del turno de la persona: oculta hasta que el stream la muestra.
+  const porVoz = crearElemento("span");
+  porVoz.hidden = true;
   return crearElemento("li", {
     ".texto": texto,
     "[data-turno-autor]": autor,
     "[data-voz-turno]": franja,
+    "[data-turno-por-voz]": porVoz,
   });
 }
 
@@ -191,7 +195,8 @@ const esperarTareas = async () => {
   for (let vuelta = 0; vuelta < 5; vuelta++) await new Promise(setImmediate);
 };
 
-function montar() {
+// `foto`: el archivo que chat-photo.js tendría adjunto (spec 051); sin ella, solo texto.
+function montar({ foto = null } = {}) {
   const reloj = crearReloj();
   const transporte = crearTransporte();
   const pregunta = crearElemento("textarea");
@@ -251,10 +256,23 @@ function montar() {
     AbortController,
     CarvajalTexto: crearFormateador(),
     CustomEvent,
+    FormData,
     setTimeout: reloj.setTimeout,
     clearTimeout: reloj.clearTimeout,
     console,
   };
+  if (foto) {
+    let adjunta = foto;
+    window.CarvajalFoto = {
+      tomar: () => adjunta,
+      limpiar: () => {
+        adjunta = null;
+      },
+      restaurar: (archivo) => {
+        adjunta = archivo;
+      },
+    };
+  }
   window.window = window;
   vm.runInNewContext(codigo, window);
 
@@ -463,4 +481,47 @@ test("en manos libres la pregunta también se envía como hablada", async () => 
   assert.equal(asistente.dataset.vozPreguntaHablada, "1");
   assert.equal(chat.notificaciones[0].detail.handsFree, true);
   assert.equal(chat.notificaciones[0].detail.spoken, true);
+});
+
+test("una foto con texto dictado no se marca «por voz» ni trae «Escuchar»", async () => {
+  // Arrange: /chat/foto no guarda el origen hablado; en vivo debe verse como al recargar.
+  const foto = new Blob(["jpeg"], { type: "image/jpeg" });
+  const chat = montar({ foto });
+
+  // Act
+  const asistente = await turnoCompleto(chat, "dictado");
+
+  // Assert
+  const usuario = chat.turnos[0];
+  assert.equal(usuario.dataset.porVoz, undefined);
+  assert.equal(usuario.querySelector("[data-turno-por-voz]").hidden, true);
+  assert.equal(asistente.querySelector("[data-voz-turno]").hidden, true);
+  assert.equal(asistente.dataset.vozPreguntaHablada, undefined);
+  assert.equal(chat.notificaciones[0].detail.spoken, false);
+});
+
+test("una foto en manos libres avisa handsFree pero `spoken: false`", async () => {
+  // Arrange
+  const foto = new Blob(["jpeg"], { type: "image/jpeg" });
+  const chat = montar({ foto });
+
+  // Act
+  await turnoCompleto(chat, "manos-libres");
+
+  // Assert: chat-voice.js decide con `spoken` y apaga manos libres sin leer.
+  assert.equal(chat.notificaciones[0].detail.handsFree, true);
+  assert.equal(chat.notificaciones[0].detail.spoken, false);
+});
+
+test("una pregunta dictada sin foto sí muestra «por voz» en el turno de la persona", async () => {
+  // Arrange
+  const chat = montar();
+
+  // Act
+  await turnoCompleto(chat, "dictado");
+
+  // Assert
+  const usuario = chat.turnos[0];
+  assert.equal(usuario.dataset.porVoz, "1");
+  assert.equal(usuario.querySelector("[data-turno-por-voz]").hidden, false);
 });

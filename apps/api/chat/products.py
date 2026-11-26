@@ -146,9 +146,12 @@ def presented_options(result: dict[str, Any] | None, answer: str) -> dict[str, A
     El modelo ve hasta ocho opciones de ``buscar_producto`` y suele presentar menos; las
     tarjetas deben coincidir con lo que dice el texto. Una opción cuenta como presentada si
     la respuesta trae su SKU o su nombre completo, sin importar tildes, mayúsculas ni
-    markdown, y como palabras completas. Si varias opciones comparten nombre (referencias
-    gemelas), mandan las que traen su SKU en el texto; si ninguna lo trae, se conservan tantas
-    como veces aparece el nombre, en el orden de la herramienta.
+    markdown, y como palabras completas.
+
+    Si varias opciones comparten nombre (referencias gemelas), se conservan las que traen su
+    SKU y, de las demás y en el orden de la herramienta, tantas como menciones del nombre
+    sobren tras descontar esas. Cada línea (o ítem de lista) cuenta como una mención como
+    mucho: repetir el nombre en el mismo párrafo no suma tarjetas.
 
     Si la respuesta no nombra ninguna, se conservan las primeras ``MAX_OPTIONS``. La ficha
     (``ficha``) y la recomendación por foto (``origin == "foto"``) no se tocan: ya son
@@ -165,23 +168,29 @@ def presented_options(result: dict[str, Any] | None, answer: str) -> dict[str, A
         or result.get("origin") == "foto"
     ):
         return result
-    text = f" {_plain(answer)} "
     groups: dict[str, list[int]] = defaultdict(list)
-    sku_named: set[int] = set()
+    skus: dict[int, str] = {}
     for index, option in enumerate(options):
         if not isinstance(option, Mapping):
             continue
         sku = _plain(str(option.get("sku") or ""))
-        if sku and f" {sku} " in text:
-            sku_named.add(index)
+        if sku:
+            skus[index] = sku
         name = _plain(str(option.get("name") or ""))
         if name:
             groups[name].append(index)
-    mentions = _mentions(text, set(groups))
+    text = f" {_plain(answer)} "
+    sku_named = {index for index, sku in skus.items() if f" {sku} " in text}
+    # Los nombres cuentan una vez por línea (o ítem de lista) como mucho.
+    name_lines: dict[str, int] = defaultdict(int)
+    for line in answer.splitlines():
+        for name, count in _mentions(f" {_plain(line)} ", set(groups)).items():
+            name_lines[name] += min(count, 1)
     kept = set(sku_named)
     for name, members in groups.items():
-        if not any(index in sku_named for index in members):
-            kept.update(members[: mentions[name]])
+        by_sku = [index for index in members if index in sku_named]
+        rest = [index for index in members if index not in sku_named]
+        kept.update(rest[: max(0, name_lines[name] - len(by_sku))])
     if not kept:
         kept = set(range(min(len(options), MAX_OPTIONS)))
     if len(kept) == len(options):

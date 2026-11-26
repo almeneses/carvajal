@@ -23,6 +23,9 @@ el chat le hable a uno también."
   protecciones actuales. Añadir un límite por IP al chat queda fuera de la 040.
 - La lectura automática se ofrece tras completar una respuesta recibida por
   streaming. Sin streaming sigue disponible «Escuchar» manual.
+  *Enmendado el 2026-11-25 (ver [Enmienda](#enmienda-2026-11-25-audio-solo-si-la-persona-habló)): ya no hay opción de lectura
+  automática; la respuesta por streaming a una pregunta hablada suena sola y la de una
+  escrita no tiene audio.*
 - Manos libres solo se activa con el borrador vacío. Si la persona escribe
   durante el modo, se desactiva y conserva su borrador sin enviarlo.
 
@@ -67,6 +70,11 @@ La persona puede oír cualquier respuesta del asistente con un botón «Escuchar
 activar la opción «Leer respuestas en voz alta» para que las siguientes que lleguen por
 streaming se lean solas. Puede pausar o detener la lectura en cualquier momento.
 
+*Enmendado el 2026-11-25 (ver [Enmienda](#enmienda-2026-11-25-audio-solo-si-la-persona-habló)): la persona oye la respuesta a una
+pregunta que habló (borrador dictado o manos libres): suena sola al terminar el streaming
+y queda su nota de voz o «Escuchar» para repetirla, pausarla o detenerla. Se retiró la
+opción «Leer respuestas en voz alta»; una pregunta escrita no tiene audio.*
+
 **Why this priority**: es la otra mitad pedida («que el chat le hable a uno») y aporta
 accesibilidad.
 
@@ -81,6 +89,10 @@ ven en pantalla.
 2. **Given** «Leer respuestas en voz alta» activado, **When** termina de llegar una
    respuesta por streaming, **Then** se lee sin otra acción; la preferencia se recuerda
    para ese visitante.
+   *Enmendado el 2026-11-25 (ver [Enmienda](#enmienda-2026-11-25-audio-solo-si-la-persona-habló)): **Given** una pregunta
+   dictada o enviada en manos libres, **When** termina de llegar su respuesta por
+   streaming, **Then** se lee sin otra acción. No hay preferencia que recordar; una
+   pregunta escrita (o el texto de una foto, aunque se dicte) no trae audio.*
 3. **Given** una respuesta con tarjetas de producto, **When** se lee, **Then** se dice el
    nombre, las cajas y el precio con su moneda y su fecha exactamente como en pantalla, y se
    omiten URLs y códigos técnicos.
@@ -130,9 +142,11 @@ que el segundo turno conserva el contexto del primero.
 - Pregunta dictada que supera los 500 caracteres del chat: se recorta con aviso, igual que
   la escrita.
 - Lector de pantalla activo: la lectura automática queda apagada por defecto para no
-  duplicar la voz; «Escuchar» sigue disponible.
+  duplicar la voz; «Escuchar» sigue disponible. *Enmendado el 2026-11-25: sin casilla,
+  solo suena sola la respuesta a una pregunta hablada (quien dicta ya eligió la voz).*
 - Respuesta que todavía está llegando por streaming: se lee solo al completarse, incluso
-  en modo automático.
+  en modo automático. *Enmendado el 2026-11-25: «modo automático» es ahora la respuesta a
+  una pregunta hablada.*
 - Varios hilos o pestañas: solo se lee la respuesta del hilo visible.
 - Cuota diaria agotada: el dictado funciona, pero el envío respeta la cuota como cualquier
   pregunta.
@@ -182,7 +196,8 @@ que el segundo turno conserva el contexto del primero.
 - **Lectura**: reproducción en voz de una respuesta, con estado (leyendo, pausada,
   detenida).
 - **Preferencias de voz del visitante**: lectura automática y modo manos libres, activados o
-  no.
+  no. *Enmendado el 2026-11-25: la lectura automática dejó de ser preferencia; manos
+  libres sigue siendo temporal y no se guarda.*
 
 ## Success Criteria *(mandatory)*
 
@@ -222,7 +237,16 @@ pregunta escrita mostraba una nota de voz que nadie pidió. La regla pasa a ser 
   del navegador) **solo** si la pregunta se habló: un borrador dictado que se envió o manos
   libres. Esa respuesta suena sola, como antes.
 - Se retira la casilla «Leer respuestas en voz alta» (FR-007) y su preferencia en
-  `localStorage`. FR-006 y el escenario 6 de US2 quedan enmendados arriba.
+  `localStorage`. Quedan enmendados arriba: la decisión de alcance sobre la lectura
+  automática, el resumen de US2, sus escenarios 2 y 6, FR-006, los casos borde del lector
+  de pantalla y del streaming en curso, y la entidad «Preferencias de voz del visitante».
+- Una foto no cuenta como pregunta hablada aunque su texto se dicte: `/chat/foto` no
+  guarda la marca, así que ni en vivo ni al recargar trae «por voz» ni audio. En manos
+  libres, una foto adjunta apaga el modo en lugar de leer la respuesta.
+- Una respuesta hablada cortada («Detener» o un error a mitad del texto) se guarda
+  `incomplete` con la misma marca: al recargar conserva «por voz» y «Escuchar».
+- El panel «Opciones de voz» solo guarda el botón Manos libres: se muestra cuando ese botón
+  se ofrece (dictado, lectura y streaming), nunca vacío.
 - El origen hablado se guarda con la pregunta (`sources=[{"result_type": "voice"}]`, campo
   `voz=1` de `POST /chat/stream`), así que el historial recargado aplica la misma regla. Los
   turnos anteriores al cambio, el POST sin JavaScript y WhatsApp no llevan la marca y no

@@ -243,16 +243,17 @@
   async function responder(pregunta, turnId, manosLibres, foto = null, porVoz = false) {
     const turnoUsuario = crearTurno("user", foto ? marcaFoto(pregunta) : pregunta);
     const urlFoto = foto ? pintarFotoEnviada(turnoUsuario, foto, pregunta) : "";
+    // Audio solo si la persona habló (borrador dictado o manos libres): una pregunta escrita
+    // no trae nota ni «Escuchar». La marca coincide con la del historial recargado, y por eso
+    // una foto no cuenta (/chat/foto no guarda el origen hablado): ni «por voz», ni audio, y
+    // `spoken: false` en chat:turn-complete para que chat-voice.js tampoco la lea.
+    const hablada = Boolean((porVoz || manosLibres) && !foto);
     const marcaVoz = turnoUsuario.querySelector("[data-turno-por-voz]");
-    if (porVoz && marcaVoz) {
+    if (hablada && marcaVoz) {
       turnoUsuario.dataset.porVoz = "1";
       marcaVoz.hidden = false;
     }
     const turnoAsistente = crearTurno("assistant", "");
-    // Audio solo si la persona habló (borrador dictado o manos libres): una pregunta escrita
-    // no trae nota ni «Escuchar». La marca coincide con la del historial recargado, y por eso
-    // una foto no cuenta (/chat/foto no guarda el origen hablado).
-    const hablada = Boolean((porVoz || manosLibres) && !foto);
     if (hablada) turnoAsistente.dataset.vozPreguntaHablada = "1";
     // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css); con foto,
     // «mira» con su lupa (spec 053).

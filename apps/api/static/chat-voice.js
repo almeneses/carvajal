@@ -67,6 +67,7 @@
     manosOculto: "Manos libres se apagó al ocultar la pestaña.",
     manosLectura: "Manos libres se apagó al detener la lectura.",
     manosHilo: "Manos libres se apagó porque cambió el hilo visible.",
+    manosFoto: "Manos libres se apagó: la respuesta a una foto no se lee en voz alta.",
     transcribiendo: "Transcribiendo el dictado…",
     servidorDictado:
       "La transcripción del servidor no respondió. Dicta de nuevo: se usará el reconocimiento de tu navegador.",
@@ -240,8 +241,10 @@
     return texto
       .replace(/\bhttps?:\/\/\S+/gi, " ")
       .replace(/\bwww\.\S+/gi, " ")
-      .replace(/\bsku\b\s*:?/gi, " ")
+      // «(SKU 2864108000)», el formato que pide el prompt: se va la palabra y el código.
+      .replace(/\bsku\b\s*:?\s*(?:(?=[A-Za-z0-9._/-]*\d)[A-Za-z0-9][A-Za-z0-9._/-]*)?/gi, " ")
       .replace(/\b(?=[A-Za-z0-9-]*\d)[A-Za-z]{2,}(?:-[A-Za-z0-9]+)+\b/g, " ")
+      .replace(/\(\s*\)/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -1389,6 +1392,15 @@
       if (vista.botonManosLibres && !manosLibres.activo) {
         vista.botonManosLibres.hidden = !soporte.manosLibres;
       }
+      actualizarOpciones();
+    }
+
+    // «Opciones de voz» solo guarda el botón Manos libres: el panel se ofrece cuando ese
+    // botón está a la vista, nunca vacío (con síntesis pero sin dictado, por ejemplo).
+    function actualizarOpciones() {
+      if (!vista.opciones) return;
+      const boton = vista.botonManosLibres;
+      vista.opciones.hidden = !boton || boton.hidden;
     }
 
     function acumular(ciclo, evento) {
@@ -1624,6 +1636,7 @@
           });
         }
       }
+      actualizarOpciones();
       if (vista.manosAceptar) {
         vista.manosAceptar.addEventListener("click", () => {
           desbloquearAudio();
@@ -1707,6 +1720,10 @@
       cicloManosLibres = false;
       limpiarSilencio();
       actualizarBotonManos(false);
+      // Si el soporte cayó mientras estaba activo (el dictado del servidor falló sin respaldo
+      // del navegador), el botón y su panel se ocultan ahora que el modo terminó.
+      if (vista.botonManosLibres) vista.botonManosLibres.hidden = !soporte.manosLibres;
+      actualizarOpciones();
       if (documento.documentElement) delete documento.documentElement.dataset.vozManos;
       if (estado.escuchando) cancelarDictado();
       detenerLectura();
@@ -1722,6 +1739,7 @@
         lectura: MENSAJES.manosLectura,
         hilo: MENSAJES.manosHilo,
         bloqueo: MENSAJES.manosBloqueo,
+        foto: MENSAJES.manosFoto,
       };
       avisar(mensajes[motivo] || MENSAJES.manosApagado);
     }
@@ -1772,7 +1790,12 @@
       if (typeof turno.className === "string" && turno.className.includes("turno-user")) return;
       // Spec 050: solo una pregunta hablada (manos libres o un borrador dictado) trae audio,
       // y su respuesta suena sola. Escrita, no hay nota ni «Escuchar».
-      const hablado = detalle.handsFree === true || detalle.spoken === true || turnoHablado;
+      // `spoken` de chat-stream.js manda: es la marca que guarda el historial (false con una
+      // foto, porque /chat/foto no la persiste). Solo si falta cuenta el origen local.
+      const hablado =
+        typeof detalle.spoken === "boolean"
+          ? detalle.spoken
+          : detalle.handsFree === true || turnoHablado;
       turnoHablado = false;
       if (hablado && turno.dataset) turno.dataset.vozPreguntaHablada = "1";
       const nota = hablado ? asegurarNota(turno) : null;
@@ -1789,6 +1812,12 @@
         }
         if (hiloActual && hiloTurno && hiloActual !== hiloTurno) {
           desactivarManosLibres("hilo");
+          return;
+        }
+        if (!hablado) {
+          // Una foto adjunta en manos libres: la recarga no tendría audio, así que tampoco
+          // suena ahora; sin lectura no hay ciclo que reanudar y el modo se apaga.
+          desactivarManosLibres("foto");
           return;
         }
         const leido = leerTurno(turno, { automatico: true, manosLibres: true });
@@ -2574,6 +2603,7 @@
         avisoManos: document.querySelector("[data-voz-manos-aviso]"),
         manosAceptar: document.querySelector("[data-voz-manos-aceptar]"),
         manosCancelar: document.querySelector("[data-voz-manos-cancelar]"),
+        opciones: buscar("[data-voz-opciones]"),
       },
       documento: document,
       almacen,
@@ -2589,8 +2619,6 @@
         typeof win.TextDecoder === "function",
     });
     controlador.mount();
-    const opciones = buscar("[data-voz-opciones]");
-    if (opciones) opciones.hidden = !controlador.soporte.sintesis;
     raiz._controladorVoz = controlador;
   }
 

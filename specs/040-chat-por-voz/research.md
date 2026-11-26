@@ -42,6 +42,9 @@ ambiguo. Utilizar el mismo input y envío de hoy. Guardar únicamente dos boolea
 aviso confirmado y lectura automática. Manos libres es temporal, no se reactiva al
 recargar y exige un borrador vacío. Escribir desactiva el modo sin alterar el texto.
 
+*Enmendado el 2026-11-25: ya solo se guarda el aviso confirmado; la preferencia de
+lectura automática se retiró (ver la [enmienda](spec.md#enmienda-2026-11-25-audio-solo-si-la-persona-habló)).*
+
 **Por qué:** el parser por reglas de `commercial_intent.py` usa patrones numéricos,
 no convierte «doce onzas» ni «cinco mil vasos». Normalizar en el borde del dictado
 deja que la persona revise lo que el router recibirá sin cambiar las preguntas escritas.

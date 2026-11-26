@@ -414,6 +414,32 @@ def test_stream_falla_tras_un_token_persiste_incompleto(engine: Engine) -> None:
         _delete_owner(engine, owner_key)
 
 
+def test_en_routes_un_corte_de_una_pregunta_hablada_conserva_la_marca_voice(
+    engine: Engine,
+) -> None:
+    # Arrange: en vivo el turno cortado muestra «por voz» y «Escuchar»; al recargar, igual.
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        BrokenAfterTokenLLM(),
+        agent=rag_agent(),
+        settings=routes_settings(),
+    )
+    owner_key = "stream-incompleto-voz"
+
+    try:
+        # Act
+        events = list(service.stream(owner_key, "¿Dato del corpus?", spoken=True))
+        history = list(service.history(owner_key))
+
+        # Assert
+        assert events[-1].data["incomplete"] is True
+        assert history[1].status == "incomplete"
+        assert history[0].sources == [{"result_type": "voice"}]
+    finally:
+        _delete_owner(engine, owner_key)
+
+
 def test_servicio_no_crea_hilo_si_la_preparacion_falla(engine: Engine) -> None:
     # Arrange
     service = ChatService(

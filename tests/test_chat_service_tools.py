@@ -791,6 +791,55 @@ def test_la_cancelacion_durante_el_texto_guarda_el_turno_incompleto(engine: Any)
     assert runner.records == [{"question": QUESTION, "answer": ANSWER_PARTS[0], "incomplete": True}]
 
 
+def test_un_corte_de_una_pregunta_hablada_conserva_la_marca_voice(engine: Any) -> None:
+    # Arrange: el stream se corta tras el primer token de una pregunta dictada.
+    runner = FakeToolRunner(scripted_events(), error=RuntimeError("corte"), error_at=4)
+    service = build_service(engine, runner)
+
+    # Act
+    events = list(service.stream("dueno-parcial-voz", QUESTION, spoken=True))
+    history = list(service.history("dueno-parcial-voz"))
+
+    # Assert: la recarga ofrece «por voz» y «Escuchar» como en vivo.
+    assert named(events, "error").data["incomplete"] is True
+    assert history[1].status == "incomplete"
+    assert history[0].sources == [{"result_type": "voice"}]
+    assert history[1].sources == []
+
+
+def test_detener_una_pregunta_hablada_conserva_la_marca_voice(engine: Any) -> None:
+    # Arrange: «Detener» durante el texto de una pregunta en manos libres o dictada.
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    generator = cast(
+        Generator[ChatEvent],
+        service.stream("dueno-cancela-voz", QUESTION, spoken=True),
+    )
+    [next(generator) for _ in range(5)]
+
+    # Act
+    generator.close()
+    history = list(service.history("dueno-cancela-voz"))
+
+    # Assert
+    assert history[1].status == "incomplete"
+    assert history[0].sources == [{"result_type": "voice"}]
+
+
+def test_un_corte_de_una_pregunta_escrita_no_guarda_ninguna_marca(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(), error=RuntimeError("corte"), error_at=4)
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-parcial-escrita", QUESTION))
+    history = list(service.history("dueno-parcial-escrita"))
+
+    # Assert
+    assert history[1].status == "incomplete"
+    assert history[0].sources is None
+
+
 def test_la_cancelacion_antes_del_primer_token_no_guarda_nada(engine: Any) -> None:
     # Arrange
     tracer = FakeTracer()

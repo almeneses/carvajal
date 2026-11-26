@@ -196,12 +196,16 @@ la franja «Escuchar» solo aparece en las respuestas a una pregunta hablada.
 El origen se guarda con el turno para que el historial aplique la misma regla:
 
 1. `chat-voice.js` marca el envío (`form.dataset.vozHablado`, o `vozOrigen="manos-libres"`).
-2. `chat-stream.js` marca la respuesta en vivo con `data-voz-pregunta-hablada="1"`, manda el
-   campo `voz=1` a `POST /chat/stream` (solo en ese caso; las fotos nunca) y avisa en
-   `chat:turn-complete` con `detail.spoken`. Sin el campo, el turno es escrito.
+2. `chat-stream.js` marca la respuesta en vivo con `data-voz-pregunta-hablada="1"` y la
+   pregunta con «por voz», manda el campo `voz=1` a `POST /chat/stream` (solo en ese caso)
+   y avisa en `chat:turn-complete` con `detail.spoken`. Sin el campo, el turno es escrito.
+   `detail.spoken` manda: `chat-voice.js` solo usa su propio registro del dictado si el
+   evento no lo trae.
 3. El servicio guarda la pregunta con `sources=[{"result_type": "voice"}]` en todos los
    caminos de un turno completo (`routes`, `tools`, su respaldo y los flujos de cotización
-   sin LLM). Un turno incompleto no se marca: no emite `chat:turn-complete`.
+   sin LLM) y también en el turno cortado que se guarda `incomplete` («Detener» o un error
+   a mitad del texto): al recargar conserva «por voz» y «Escuchar» como en vivo. Ese turno
+   no emite `chat:turn-complete`, así que no suena solo.
 4. `_chat_thread.html` solo escribe `data-voz-mensaje`, `data-voz-pregunta-hablada` y la
    franja `.turno-voz` en la respuesta cuya pregunta previa lleva la marca, y pinta el chip
    «por voz» en esa pregunta. La marca nunca se muestra como fuente.
@@ -209,6 +213,16 @@ El origen se guarda con el turno para que el historial aplique la misma regla:
 Los turnos guardados antes del cambio no tienen marca: al recargar no traen audio. El POST
 sin JavaScript (o el reenvío sin streaming tras un fallo de red) tampoco manda el origen, así
 que su respuesta no tiene audio. WhatsApp no cambia: tiene su propio canal.
+
+Una **foto** nunca cuenta como pregunta hablada, aunque su texto se dicte: `/chat/foto` no
+guarda la marca, así que `chat-stream.js` no pinta «por voz» ni la franja y manda
+`spoken: false`; `chat-voice.js` no crea nota ni la lee. En manos libres, una foto adjunta
+apaga el modo («la respuesta a una foto no se lee en voz alta») en lugar de leerla y volver
+a escuchar.
+
+El panel «Opciones de voz» (`details[data-voz-opciones]`) solo guarda el botón Manos libres:
+se muestra cuando ese botón se ofrece (dictado, lectura y streaming) y se oculta con él si
+el dictado deja de estar disponible. Nunca se abre vacío.
 
 ### Desbloqueo del audio
 

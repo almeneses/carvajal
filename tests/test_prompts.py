@@ -279,6 +279,27 @@ def test_el_agente_compara_tamanos_con_buscar_producto() -> None:
     assert "Llama a cotizar solo las combinaciones" in regla
 
 
+def test_el_formato_del_sku_en_las_opciones_no_se_lee_en_voz() -> None:
+    # Arrange: el SKU que pide el prompt lo usan las tarjetas y la voz debe omitirlo.
+    from carvajal.prompts import AGENT_SYSTEM
+    from carvajal.speech import to_speech
+
+    regla = _regla(AGENT_SYSTEM, "Al presentar opciones de buscar_producto")
+    formato = "(SKU <código>)"
+    respuesta = (
+        f"- Vasos térmicos 8oz {formato.replace('<código>', '2864108000')}\n"
+        f"- Platos pandos 23 cm {formato.replace('<código>', 'CO-PPAN-23')}"
+    )
+
+    # Act
+    hablado = to_speech(respuesta).text
+
+    # Assert
+    assert "tal como lo trae la herramienta" in regla
+    assert formato in regla
+    assert "SKU" not in hablado and "2864" not in hablado and "PPAN" not in hablado
+
+
 def test_las_cifras_de_la_empresa_no_disparan_cotizar() -> None:
     # Arrange
     from carvajal.prompts import AGENT_SYSTEM

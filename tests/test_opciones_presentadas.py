@@ -208,6 +208,55 @@ def test_las_gemelas_sin_sku_quedan_tantas_como_veces_se_nombran() -> None:
     assert _skus(filtered_twice) == ["CO-MX-2864903323", "CO-MX-2864903324"]
 
 
+GEMELAS = "Platos de plástico PS 7 Bio - Caja con 1000 pzs"
+
+
+def test_el_sku_en_el_formato_del_prompt_coincide() -> None:
+    # Arrange: el prompt pide «(SKU 2864108000)» para que la voz no lea el código.
+    options = [
+        _option("2864108000", "Vasos térmicos 8oz - Caja con 1000 pzs"),
+        _option("2864632125", "Vasos de papel 32oz 105mm"),
+    ]
+    answer = "Para café te recomiendo un vaso térmico de 8 oz (SKU 2864108000) [1]."
+
+    # Act
+    filtered = presented_options(_result(options), answer)
+
+    # Assert
+    assert _skus(filtered) == ["2864108000"]
+
+
+def test_las_gemelas_suman_por_sku_y_por_nombre() -> None:
+    # Arrange: un ítem trae el SKU de la primera y otro solo el nombre → dos tarjetas.
+    options = [
+        _option("CO-MX-2864903323", GEMELAS),
+        _option("CO-MX-2864903324", GEMELAS),
+        _option("CO-MX-2864903325", GEMELAS),
+    ]
+    answer = f"- {GEMELAS} (CO-MX-2864903323)\n- {GEMELAS} [2]"
+
+    # Act
+    filtered = presented_options(_result(options), answer)
+
+    # Assert
+    assert _skus(filtered) == ["CO-MX-2864903323", "CO-MX-2864903324"]
+
+
+def test_repetir_el_nombre_en_el_mismo_parrafo_no_suma_gemelas() -> None:
+    # Arrange: dos menciones en la misma línea cuentan como una.
+    options = [
+        _option("CO-MX-2864903323", GEMELAS),
+        _option("CO-MX-2864903324", GEMELAS),
+    ]
+    answer = f"Te recomiendo **{GEMELAS}**. Los {GEMELAS} vienen por caja."
+
+    # Act
+    filtered = presented_options(_result(options), answer)
+
+    # Assert
+    assert _skus(filtered) == ["CO-MX-2864903323"]
+
+
 def test_las_tarjetas_renderizadas_son_las_nombradas() -> None:
     # Arrange
     answer = "Opciones: Plato espumado pando 23 cm Wau (CO-PPAN-23) y CO-P3DIV."
