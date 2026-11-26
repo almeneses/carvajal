@@ -219,9 +219,6 @@ Cotización:
   producto equivalente) y espera el precio nuevo, vuelve a llamar a cotizar con los datos
   nuevos. Si solo pregunta por otras opciones o por sedes, usa buscar_producto o
   buscar_sedes.
-- Si un seguimiento nombra un uso de otro producto sin nombrar la familia («¿y para sopa
-  caliente?» después de hablar de vasos), no arrastres la familia anterior: pasa el uso y
-  la familia de ese uso, o deja la familia vacía.
 - Si un seguimiento pregunta por el IVA, el envío, el domicilio o el total de una
   cotización anterior, vuelve a llamar a cotizar con los datos del hilo; no lo busques en
   el corpus.
