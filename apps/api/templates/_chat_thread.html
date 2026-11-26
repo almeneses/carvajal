@@ -8,9 +8,21 @@
   {% set titulos = [] %}
   {% set resultado_comercial = namespace(valor=none) %}
   {% set foto = namespace(miniatura=none) %}
+  {#- La pregunta hablada (dictado o manos libres) lleva la marca «voice»: solo su
+      respuesta ofrece audio (nota de voz o «Escuchar»). Una pregunta escrita, ninguno. -#}
+  {% set voz = namespace(hablada=false) %}
+  {% set previa = loop.previtem %}
+  {% if message.role != "user" and previa and previa.role == "user" %}
+  {% for fuente in previa.sources or [] %}
+    {% if fuente.result_type == "voice" %}{% set voz.hablada = true %}{% endif %}
+  {% endfor %}
+  {% endif %}
   {% for fuente in fuentes %}
     {% if fuente.result_type == "commercial" %}
       {% set resultado_comercial.valor = fuente.result %}
+    {% elif fuente.result_type == "voice" %}
+      {#- Marca de la pregunta hablada: no es una fuente citable. -#}
+      {% set voz.hablada = true %}
     {% elif fuente.result_type == "photo" %}
       {#- Spec 053: miniatura de la foto (data: JPEG generado por el servidor). -#}
       {% if (fuente.thumbnail or "").startswith("data:image/jpeg;base64,") %}
@@ -21,12 +33,15 @@
     {% endif %}
   {% endfor %}
   <li class="turno turno-{{ message.role }}"
-      {% if voz_servidor and message.role != "user" and message.id %}data-voz-mensaje="{{ message.id }}"{% endif %}
+      {% if message.role != "user" and voz.hablada %}data-voz-pregunta-hablada="1"{% if voz_servidor and message.id %} data-voz-mensaje="{{ message.id }}"{% endif %}{% endif %}
       {% if titulos %}data-voz-fuentes='{{ titulos | tojson }}'{% endif %}
       {% if message.role != "user" %}{% set resumen = message | resumen_hablado %}{% if resumen %}data-voz-resumen="{{ resumen }}"{% endif %}{% endif %}>
     <span class="turno-avatar" aria-hidden="true"></span>
     <p class="turno-rol">
       {{ "Tú" if message.role == "user" else "Carva" }}
+      {% if message.role == "user" and voz.hablada %}
+      <span class="turno-por-voz" data-turno-por-voz>por voz</span>
+      {% endif %}
       {% if message.status == "incomplete" %}
       <span class="estado-incompleto" role="status">respuesta incompleta</span>
       {% endif %}
@@ -46,7 +61,7 @@
     {% if message.role != "user" and resultado_comercial.valor %}
     {% with resultado = resultado_comercial.valor %}{% include "_productos.html" %}{% endwith %}
     {% endif %}
-    {% if message.role != "user" %}
+    {% if message.role != "user" and voz.hablada %}
     <div class="turno-voz" data-voz-turno>
       <button
         type="button"

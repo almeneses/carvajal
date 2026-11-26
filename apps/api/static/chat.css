@@ -1732,28 +1732,6 @@ html[data-voz-transcribiendo="1"] .chat-cuerpo .composer [data-voz-dictar]::afte
   font-weight: 700;
 }
 
-.voz-preferencia {
-  display: inline-flex;
-  gap: 10px;
-  align-items: center;
-  min-height: 44px;
-  color: var(--tinta);
-  font-size: 0.95rem;
-  cursor: pointer;
-}
-
-.voz-preferencia[hidden] {
-  display: none;
-}
-
-.voz-preferencia input {
-  flex-shrink: 0;
-  min-height: auto;
-  width: 1.25rem;
-  height: 1.25rem;
-  accent-color: var(--azul);
-}
-
 .voz-estado {
   justify-self: start;
   margin: 0;
@@ -2245,7 +2223,8 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   }
 }
 
-/* Mensaje dictado: «Tú · por voz», con el micrófono. Solo en los turnos de esta visita. */
+/* Mensaje hablado: «Tú · por voz», con el micrófono. El historial lo pinta desde la marca
+   «voice» de la pregunta guardada. */
 .turno-por-voz {
   display: inline-flex;
   align-items: center;

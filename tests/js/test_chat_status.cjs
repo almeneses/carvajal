@@ -95,7 +95,13 @@ function crearEstado() {
 function crearTurno() {
   const texto = crearElemento("div");
   const autor = crearElemento("span");
-  return crearElemento("li", { ".texto": texto, "[data-turno-autor]": autor });
+  // Franja «Escuchar/Pausar/…» de la plantilla: visible hasta que el stream la oculta.
+  const franja = crearElemento("div");
+  return crearElemento("li", {
+    ".texto": texto,
+    "[data-turno-autor]": autor,
+    "[data-voz-turno]": franja,
+  });
 }
 
 // Flujo de texto simplificado: el formato real se prueba en test_chat_text.cjs.
@@ -155,8 +161,10 @@ function crearTransporte() {
   let control;
   const transporte = {
     peticiones: 0,
-    fetch() {
+    cuerpos: [],
+    fetch(_url, opciones = {}) {
       transporte.peticiones += 1;
+      transporte.cuerpos.push(opciones.body);
       const body = new ReadableStream({
         start(controlador) {
           control = controlador;
@@ -218,13 +226,21 @@ function montar() {
     "form[data-chat-stream]": formulario,
     ".historial-chat": historial,
   };
+  const notificaciones = [];
   const document = {
     activeElement: null,
     getElementById: (id) => porId[id] || null,
     querySelector: (selector) => porSelector[selector] || null,
     createElement: (etiqueta) => crearElemento(etiqueta),
     addEventListener() {},
+    dispatchEvent: (evento) => notificaciones.push(evento),
   };
+  class CustomEvent {
+    constructor(tipo, opciones = {}) {
+      this.type = tipo;
+      this.detail = opciones.detail;
+    }
+  }
   const window = {
     document,
     location: { search: "" },
@@ -234,6 +250,7 @@ function montar() {
     URLSearchParams,
     AbortController,
     CarvajalTexto: crearFormateador(),
+    CustomEvent,
     setTimeout: reloj.setTimeout,
     clearTimeout: reloj.clearTimeout,
     console,
@@ -241,8 +258,11 @@ function montar() {
   window.window = window;
   vm.runInNewContext(codigo, window);
 
-  async function preguntar(texto = "¿Cuánto cuestan 2.000 vasos en Bogotá?") {
+  // `origen`: "dictado" (chat-voice.js marca el borrador) o "manos-libres"; sin él, escrita.
+  async function preguntar(texto = "¿Cuánto cuestan 2.000 vasos en Bogotá?", origen = "") {
     pregunta.value = texto;
+    if (origen === "dictado" || origen === "manos-libres") formulario.dataset.vozHablado = "1";
+    if (origen === "manos-libres") formulario.dataset.vozOrigen = "manos-libres";
     formulario.dispatch("submit", { preventDefault() {} });
     await esperarTareas();
   }
@@ -252,7 +272,7 @@ function montar() {
     await esperarTareas();
   }
 
-  return { estado, reloj, transporte, turnos, preguntar, enviar };
+  return { estado, reloj, transporte, turnos, notificaciones, preguntar, enviar };
 }
 
 // ---------------------------------------------------------------------------
@@ -389,4 +409,58 @@ test("un done sin resumen deja la lectura como antes", async () => {
 
   // Assert
   assert.equal(chat.turnos[1].dataset.vozResumen, undefined);
+});
+
+// Audio solo si la persona habló: una pregunta escrita no trae «Escuchar» ni nota.
+async function turnoCompleto(chat, origen = "") {
+  await chat.preguntar("necesito 2000 platos desechables", origen);
+  await chat.enviar("token", { text: "Te muestro cuatro opciones." });
+  await chat.enviar("done", { message_id: "m-1" });
+  chat.transporte.cerrar();
+  await esperarTareas();
+  return chat.turnos[1];
+}
+
+test("una pregunta escrita no envía voz ni muestra «Escuchar» al terminar", async () => {
+  // Arrange
+  const chat = montar();
+
+  // Act
+  const asistente = await turnoCompleto(chat);
+
+  // Assert
+  assert.equal(chat.transporte.cuerpos[0].get("voz"), null);
+  assert.equal(asistente.querySelector("[data-voz-turno]").hidden, true);
+  assert.equal(asistente.dataset.vozPreguntaHablada, undefined);
+  const [aviso] = chat.notificaciones;
+  assert.equal(aviso.type, "chat:turn-complete");
+  assert.equal(aviso.detail.spoken, false);
+});
+
+test("una pregunta dictada envía voz=1, marca el turno y muestra «Escuchar»", async () => {
+  // Arrange
+  const chat = montar();
+
+  // Act
+  const asistente = await turnoCompleto(chat, "dictado");
+
+  // Assert
+  assert.equal(chat.transporte.cuerpos[0].get("voz"), "1");
+  assert.equal(asistente.querySelector("[data-voz-turno]").hidden, false);
+  assert.equal(asistente.dataset.vozPreguntaHablada, "1");
+  assert.equal(chat.notificaciones[0].detail.spoken, true);
+});
+
+test("en manos libres la pregunta también se envía como hablada", async () => {
+  // Arrange
+  const chat = montar();
+
+  // Act
+  const asistente = await turnoCompleto(chat, "manos-libres");
+
+  // Assert
+  assert.equal(chat.transporte.cuerpos[0].get("voz"), "1");
+  assert.equal(asistente.dataset.vozPreguntaHablada, "1");
+  assert.equal(chat.notificaciones[0].detail.handsFree, true);
+  assert.equal(chat.notificaciones[0].detail.spoken, true);
 });

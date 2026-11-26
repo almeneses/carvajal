@@ -152,7 +152,7 @@
     return bloque;
   }
 
-  function peticion(pregunta, turnId, foto, signal) {
+  function peticion(pregunta, turnId, foto, signal, hablada = false) {
     const thread = threadInput ? threadInput.value : "";
     if (foto) {
       // Multipart con el token CSRF en cabecera (se valida antes de leer el cuerpo).
@@ -179,6 +179,9 @@
         csrf_token: csrf ? csrf.value : "",
         client_turn_id: turnId,
         thread_id: thread,
+        // Solo una pregunta hablada lo envía: el servidor la guarda con la marca «voice»
+        // y el historial ofrece audio únicamente en esas respuestas.
+        ...(hablada ? { voz: "1" } : {}),
       }),
       signal,
     });
@@ -249,6 +252,11 @@
       marcaVoz.hidden = false;
     }
     const turnoAsistente = crearTurno("assistant", "");
+    // Audio solo si la persona habló (borrador dictado o manos libres): una pregunta escrita
+    // no trae nota ni «Escuchar». La marca coincide con la del historial recargado, y por eso
+    // una foto no cuenta (/chat/foto no guarda el origen hablado).
+    const hablada = Boolean((porVoz || manosLibres) && !foto);
+    if (hablada) turnoAsistente.dataset.vozPreguntaHablada = "1";
     // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css); con foto,
     // «mira» con su lupa (spec 053).
     turnoAsistente.dataset.pensando = "1";
@@ -332,7 +340,7 @@
     let cerrado = false;
     let recibioContenido = false;
     try {
-      const response = await peticion(pregunta, turnId, foto, control.signal);
+      const response = await peticion(pregunta, turnId, foto, control.signal, hablada);
       const tipo = response.headers.get("content-type") ?? "";
       // Los errores SSE de la API traen su propio mensaje. Un reenvío
       // automático puede volver a consumir cuota para el mismo turno.
@@ -498,7 +506,11 @@
         if (focoEnDetener) input.focus({ preventScroll: true });
       }
       enCurso = false;
-      if (controlesVoz && (texto.textContent || turnoAsistente.querySelector(".productos"))) {
+      if (
+        controlesVoz &&
+        hablada &&
+        (texto.textContent || turnoAsistente.querySelector(".productos"))
+      ) {
         controlesVoz.hidden = false;
       }
       ajustarHistorial();
@@ -507,7 +519,7 @@
       // El contrato no emite turno completo si hubo error, aunque llegue done.
       if (completado && !errorRecibido && !cancelado) {
         avisar("Respuesta lista.", false, true);
-        notificarTurnoCompleto(turnoAsistente, manosLibres);
+        notificarTurnoCompleto(turnoAsistente, manosLibres, hablada);
       } else if (manosLibres) {
         // Sin `done` el servidor no persiste el turno: se devuelve siempre la
         // pregunta para que la persona pueda revisarla y reenviarla.
@@ -517,7 +529,7 @@
     }
   }
 
-  function notificarTurnoCompleto(turno, manosLibres) {
+  function notificarTurnoCompleto(turno, manosLibres, hablada = false) {
     if (typeof window.CustomEvent !== "function") return;
     document.dispatchEvent(
       new window.CustomEvent("chat:turn-complete", {
@@ -525,6 +537,7 @@
           turno,
           threadId: threadInput ? String(threadInput.value || "") : "",
           handsFree: Boolean(manosLibres),
+          spoken: Boolean(hablada),
         },
       }),
     );

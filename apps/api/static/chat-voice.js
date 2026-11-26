@@ -4,9 +4,10 @@
 // MediaRecorder y sube el audio a /api/voz/transcribir, y la lectura pide a
 // /api/voz/hablar el audio de la respuesta guardada (por su id, nunca por el texto
 // de la página). Un fallo del dictado del servidor vuelve al reconocimiento del
-// navegador el resto de la sesión. La lectura (spec 050) es una nota de voz por
-// respuesta: suena sola solo si la persona habló (o con la lectura automática), y un
-// fallo de reproducción o de un turno nunca cambia de voz ni apaga la del servidor;
+// navegador el resto de la sesión. La lectura (spec 050) es una nota de voz solo en las
+// respuestas a una pregunta hablada (borrador dictado o manos libres), y suena sola; una
+// pregunta escrita no trae audio. Un fallo de reproducción o de un turno nunca cambia de
+// voz ni apaga la del servidor;
 // solo un 503 o un 401/403 la dan por no disponible, y se vuelve a probar a los 60 s.
 // Sin voz del servidor el audio nunca sale del navegador hacia el servidor del
 // proyecto. La detección es por capacidad, no por marca ni versión.
@@ -33,7 +34,6 @@
     // El aviso de la voz del servidor dice otra cosa (el audio pasa por el sitio): se
     // acepta aparte, aunque ya se hubiera aceptado el del navegador.
     avisoServidor: "carvajal_voz_aviso_dictado_servidor",
-    autoLectura: "carvajal_voz_autolectura",
   };
   const MENSAJES = {
     sinSoporte: "Tu navegador no permite dictar por voz. Puedes escribir tu pregunta.",
@@ -389,22 +389,14 @@
 
   function crearPreferencias(almacen, claveAviso = CLAVES.aviso) {
     let aviso = almacen.get(claveAviso) === "1";
-    let autoLectura = almacen.get(CLAVES.autoLectura) === "1";
     return {
       get avisoAceptado() {
         return aviso;
-      },
-      get autoLectura() {
-        return autoLectura;
       },
       aceptarAviso() {
         if (aviso) return;
         aviso = true;
         almacen.set(claveAviso, "1");
-      },
-      fijarAutoLectura(valor) {
-        autoLectura = Boolean(valor);
-        almacen.set(CLAVES.autoLectura, autoLectura ? "1" : "0");
       },
     };
   }
@@ -564,19 +556,6 @@
     }
 
     function prepararLectura() {
-      const casilla = vista.autoLectura;
-      if (casilla) {
-        const campo = vista.autoLecturaCampo || casilla;
-        if (!soporte.sintesis) {
-          campo.hidden = true;
-        } else {
-          campo.hidden = false;
-          casilla.checked = preferencias.autoLectura;
-          casilla.addEventListener("change", () => {
-            preferencias.fijarAutoLectura(Boolean(casilla.checked));
-          });
-        }
-      }
       documento.addEventListener("chat:turn-complete", alCompletarTurno);
       documento.addEventListener("visibilitychange", alCambiarVisibilidad);
       documento.addEventListener("click", alClicTurno);
@@ -650,7 +629,7 @@
         else delete formulario.dataset.vozHablado;
       }
       olvidarDictado();
-      if (turnoHablado || preferencias.autoLectura) desbloquearAudio();
+      if (turnoHablado) desbloquearAudio();
     }
 
     function crearNodo(etiqueta, clase, atributos = {}) {
@@ -748,7 +727,10 @@
       return turno ? notas.get(turno) || null : null;
     }
 
-    /** La nota del turno; se crea si la voz del servidor existe y el turno trae su id. */
+    /**
+     * La nota del turno; se crea si la voz del servidor existe, el turno trae su id y la
+     * pregunta se habló (data-voz-pregunta-hablada). Una pregunta escrita no trae audio.
+     */
     function asegurarNota(turno) {
       if (!turno || !servidorInicial.lectura) return null;
       const existente = notas.get(turno);
@@ -756,7 +738,8 @@
       if (typeof turno.className === "string" && turno.className.includes("turno-user")) {
         return null;
       }
-      const mensaje = turno.dataset ? String(turno.dataset.vozMensaje || "") : "";
+      if (!turno.dataset || turno.dataset.vozPreguntaHablada !== "1") return null;
+      const mensaje = String(turno.dataset.vozMensaje || "");
       if (!mensaje) return null;
       const nota = construirNota(turno, mensaje);
       notas.set(turno, nota);
@@ -765,10 +748,12 @@
       return nota;
     }
 
-    // El historial llega del servidor sin nota: se crea aquí, sin pedir ningún audio.
+    // El historial llega del servidor sin nota: se crea aquí, sin pedir ningún audio, solo
+    // en las respuestas a una pregunta hablada (la plantilla las marca).
+    const SELECTOR_HISTORIAL = ".turno-assistant[data-voz-mensaje][data-voz-pregunta-hablada]";
     function montarNotasDelHistorial() {
       if (!servidorInicial.lectura || typeof documento.querySelectorAll !== "function") return;
-      for (const turno of Array.from(documento.querySelectorAll(".turno-assistant[data-voz-mensaje]") || [])) {
+      for (const turno of Array.from(documento.querySelectorAll(SELECTOR_HISTORIAL) || [])) {
         asegurarNota(turno);
       }
     }
@@ -1785,11 +1770,12 @@
       const turno = detalle.turno;
       if (!turno) return;
       if (typeof turno.className === "string" && turno.className.includes("turno-user")) return;
-      // Spec 050: la respuesta suena sola solo si la pregunta se dictó (manos libres o un
-      // borrador dictado) o con la lectura automática encendida. Escrita, la nota espera.
-      const hablado = detalle.handsFree === true || turnoHablado;
+      // Spec 050: solo una pregunta hablada (manos libres o un borrador dictado) trae audio,
+      // y su respuesta suena sola. Escrita, no hay nota ni «Escuchar».
+      const hablado = detalle.handsFree === true || detalle.spoken === true || turnoHablado;
       turnoHablado = false;
-      const nota = asegurarNota(turno);
+      if (hablado && turno.dataset) turno.dataset.vozPreguntaHablada = "1";
+      const nota = hablado ? asegurarNota(turno) : null;
       const hiloActual = vista.hilo && vista.hilo.value ? String(vista.hilo.value) : "";
       const hiloTurno =
         detalle.threadId === undefined || detalle.threadId === null
@@ -1813,7 +1799,7 @@
         }
         return;
       }
-      if (!hablado && !preferencias.autoLectura) return;
+      if (!hablado) return;
       if (hiloActual && hiloTurno && hiloActual !== hiloTurno) return;
       if (turno.dataset && turno.dataset.vozAutoLeido === "1") return;
       if (turnoLectura === turno) return;
@@ -1866,14 +1852,7 @@
 
     function leerTurno(turno, opciones = {}) {
       if (!turno || !soporte.sintesis) return false;
-      if (
-        opciones.automatico &&
-        !opciones.manosLibres &&
-        !opciones.hablado &&
-        !preferencias.autoLectura
-      ) {
-        return false;
-      }
+      if (opciones.automatico && !opciones.manosLibres && !opciones.hablado) return false;
       // Con la voz del servidor y el id de la respuesta, la lectura es su nota de voz.
       const nota = asegurarNota(turno);
       if (nota) return reproducirNota(nota, opciones);
@@ -2585,8 +2564,6 @@
         etiquetaDictar: buscar("[data-voz-dictar-texto]"),
         estado: buscar("[data-voz-estado]"),
         nota: buscar("[data-voz-nota]"),
-        autoLectura: buscar("[data-voz-autolectura]"),
-        autoLecturaCampo: buscar("[data-voz-autolectura-campo]"),
         hilo: document.querySelector("[data-thread-id]"),
         entrada: document.getElementById("pregunta"),
         formulario,

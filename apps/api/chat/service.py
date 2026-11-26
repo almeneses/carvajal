@@ -127,6 +127,9 @@ logger = structlog.get_logger(__name__)
 SERVICE_UNAVAILABLE = "El servicio de chat no está disponible en este momento."
 MAX_CLIENT_TURN_ID = 64
 QUOTE_DAYS = 7
+# Marca de la pregunta hablada (dictada o en manos libres): se guarda en las ``sources`` del
+# mensaje del usuario y el historial solo ofrece audio en las respuestas que la llevan.
+VOICE_MARK: tuple[dict[str, Any], ...] = ({"result_type": "voice"},)
 
 # Motivo del respaldo (FR-009), para ``trace`` y el monitoreo.
 FallbackReason = Literal["provider", "timeout", "invalid_decision", "empty_answer"]
@@ -159,6 +162,8 @@ class _ToolTurn:
     prompt: str | None = None
     # Spec 054: borrador de cotización de la conversación al empezar el turno.
     draft: QuoteDraft = field(default_factory=QuoteDraft)
+    # Marca de la pregunta (``VOICE_MARK`` si se habló); se guarda con el turno completo.
+    question_sources: Sequence[Mapping[str, Any]] | None = None
 
 
 @runtime_checkable
@@ -198,8 +203,12 @@ class ChatProvider(Protocol):
         *,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
+        spoken: bool = False,
     ) -> Iterator[ChatEvent]:
-        """Emite el turno como eventos y lo persiste una sola vez al cerrar bien."""
+        """Emite el turno como eventos y lo persiste una sola vez al cerrar bien.
+
+        ``spoken`` marca que la persona habló la pregunta: solo esas respuestas traen audio.
+        """
 
         ...
 
@@ -406,13 +415,15 @@ class ChatService:
         *,
         client_turn_id: str | None = None,
         thread_id: str | None = None,
+        spoken: bool = False,
     ) -> Iterator[ChatEvent]:
         """Emite ``open``, ``trace``, ``meta``, tokens, ``done`` o ``error``.
 
         El turno se persiste una sola vez, con ``client_turn_id`` para que un
         reintento del navegador no duplique mensajes. Si el corte ocurre tras
         el primer token, se guarda como ``incomplete`` y el evento ``error`` lo
-        declara.
+        declara. Con ``spoken`` (pregunta dictada o en manos libres), la pregunta
+        completa se guarda con ``VOICE_MARK``: el historial solo ofrece audio ahí.
         """
 
         started = perf_counter()
@@ -420,6 +431,7 @@ class ChatService:
 
         text = question.strip()
         client_turn_id = (client_turn_id or "").strip() or None
+        question_sources = VOICE_MARK if spoken else None
         fragments: list[str] = []
         conversation: Conversation | None = None
         turn: AgentTurn | None = None
@@ -475,6 +487,7 @@ class ChatService:
                     client_turn_id=client_turn_id,
                     request_id=request_id,
                     started=started,
+                    question_sources=question_sources,
                 )
                 return
             draft = decision.draft
@@ -495,6 +508,7 @@ class ChatService:
                         request_id=request_id,
                         started=started,
                         draft=draft,
+                        question_sources=question_sources,
                     )
                     return
                 prompt = followup.prompt or text
@@ -506,6 +520,7 @@ class ChatService:
                     seed=seed,
                     prompt=prompt if prompt != text else None,
                     draft=draft,
+                    question_sources=question_sources,
                 )
                 yield from self._stream_tools(
                     tools,
@@ -660,6 +675,7 @@ class ChatService:
                         status="complete",
                         client_turn_id=client_turn_id,
                         products=turn.products,
+                        question_sources=question_sources,
                         draft=draft,
                     )
                     persisted = True
@@ -1130,6 +1146,7 @@ class ChatService:
             client_turn_id=client_turn_id,
             products=products,
             quotes=quote_records,
+            question_sources=tools.question_sources,
             draft=draft,
         )
         self._summarize(owner_key, conversation.id)
@@ -1328,6 +1345,7 @@ class ChatService:
             client_turn_id=client_turn_id,
             products=products,
             quotes=quote_records,
+            question_sources=tools.question_sources,
             draft=draft,
         )
         self._summarize(owner_key, conversation.id)
@@ -1438,6 +1456,7 @@ class ChatService:
         client_turn_id: str | None,
         request_id: str,
         started: float,
+        question_sources: Sequence[Mapping[str, Any]] | None = None,
     ) -> Iterator[ChatEvent]:
         """Turno del flujo de cotización sin LLM (spec 054); con ``register``, el folio.
 
@@ -1481,6 +1500,7 @@ class ChatService:
             request_id=request_id,
             started=started,
             draft=draft,
+            question_sources=question_sources,
         )
 
     def _fixed_turn(
@@ -1497,6 +1517,7 @@ class ChatService:
         request_id: str,
         started: float,
         draft: QuoteDraft | None = None,
+        question_sources: Sequence[Mapping[str, Any]] | None = None,
     ) -> Iterator[ChatEvent]:
         """Turno con respuesta determinista, sin LLM (specs 053 y 054).
 
@@ -1521,6 +1542,7 @@ class ChatService:
                 client_turn_id=client_turn_id,
                 products=products,
                 quotes=quotes,
+                question_sources=question_sources,
                 draft=draft,
             )
         self._summarize(owner_key, conversation.id)

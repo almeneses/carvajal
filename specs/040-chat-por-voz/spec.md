@@ -90,6 +90,9 @@ ven en pantalla.
    micrófono, **Then** la lectura se detiene.
 6. **Given** la lectura automática activada, **When** la respuesta llega sin streaming
    o se abre de nuevo el historial, **Then** no se reproduce sola y «Escuchar» sigue disponible.
+   *Enmendado el 2026-11-25 (ver [Enmienda](#enmienda-2026-11-25-audio-solo-si-la-persona-habló)):
+   ya no hay lectura automática; al abrir el historial, solo la respuesta a una pregunta
+   hablada ofrece «Escuchar» (o su nota de voz), sin sonar sola; sin streaming no hay audio.*
 
 ---
 
@@ -148,10 +151,14 @@ que el segundo turno conserva el contexto del primero.
 - **FR-005**: El audio no MUST guardarse: solo el texto enviado entra al historial, igual que
   una pregunta escrita.
 - **FR-006**: Cada respuesta del asistente MUST poder escucharse con un control de lectura
-  que permita pausar y detener.
+  que permita pausar y detener. *Enmendado el 2026-11-25: solo la respuesta a una pregunta
+  hablada (borrador dictado o manos libres) MUST poder escucharse; una respuesta a una
+  pregunta escrita MUST NOT mostrar controles de audio.*
 - **FR-007**: El visitante MUST poder activar la lectura automática al completarse las
   respuestas por streaming. La opción MUST recordarse por visitante y estar apagada por
-  defecto. Sin streaming y al abrir el historial, la lectura es solo manual.
+  defecto. Sin streaming y al abrir el historial, la lectura es solo manual. *Retirado el
+  2026-11-25: se quitó la casilla «Leer respuestas en voz alta»; la respuesta a una pregunta
+  hablada suena sola y la de una escrita no tiene audio.*
 - **FR-008**: La lectura de tarjetas de producto MUST decir los mismos datos de cantidad,
   precio, moneda y fecha que se muestran, sin leer URLs ni códigos técnicos.
 - **FR-009**: Sin micrófono, sin permiso o sin soporte del navegador, el chat MUST seguir
@@ -205,6 +212,23 @@ mantiene el chat escrito; axe 0. Alcance acordado: **Chrome y Firefox de
 escritorio**; Edge, Safari y Android quedan fuera por ahora. Detalle y datos
 crudos en [evidencia](evidencia.md). En el despliegue por HTTP/IP no se ofrece
 dictado hasta publicar por HTTPS.
+
+## Enmienda 2026-11-25: audio solo si la persona habló
+
+Decisión del owner tras el reporte «necesito 2000 platos desechables»: la respuesta a una
+pregunta escrita mostraba una nota de voz que nadie pidió. La regla pasa a ser estricta:
+
+- Una respuesta tiene audio (la nota de voz de la spec 050 o la franja «Escuchar» de la voz
+  del navegador) **solo** si la pregunta se habló: un borrador dictado que se envió o manos
+  libres. Esa respuesta suena sola, como antes.
+- Se retira la casilla «Leer respuestas en voz alta» (FR-007) y su preferencia en
+  `localStorage`. FR-006 y el escenario 6 de US2 quedan enmendados arriba.
+- El origen hablado se guarda con la pregunta (`sources=[{"result_type": "voice"}]`, campo
+  `voz=1` de `POST /chat/stream`), así que el historial recargado aplica la misma regla. Los
+  turnos anteriores al cambio, el POST sin JavaScript y WhatsApp no llevan la marca y no
+  ofrecen audio en el chat web.
+
+Contrato y detalle en [`docs/voz-web.md`](../../docs/voz-web.md#cuándo-hay-audio).
 
 ## Assumptions
 

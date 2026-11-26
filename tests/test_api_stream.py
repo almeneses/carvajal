@@ -29,10 +29,12 @@ class FakeChat:
 
     events: list[ChatEvent] = field(default_factory=list)
     calls: list[tuple[str, str]] = field(default_factory=list)
+    options: list[dict[str, object]] = field(default_factory=list)
     persisted: int = 0
 
     def stream(self, owner_key: str, question: str, **kwargs: object) -> Iterator[ChatEvent]:
         self.calls.append((owner_key, question))
+        self.options.append(kwargs)
         for event in self.events:
             if event.name == "done":
                 self.persisted += 1
@@ -317,3 +319,36 @@ def test_fallo_de_bd_en_la_cuota_del_stream_devuelve_503() -> None:
     eventos = parse_sse(response.text)
     assert eventos[-1][0] == "error"
     assert chat.calls == []
+
+
+def test_el_campo_voz_marca_la_pregunta_hablada_para_el_servicio() -> None:
+    """Solo un borrador dictado o manos libres envía ``voz=1``: el servicio lo guarda."""
+
+    # Arrange
+    client, chat = make_client()
+    data = {**_data(client, "necesito 2000 platos desechables"), "voz": "1"}
+
+    # Act
+    response = client.post("/chat/stream", data=data)
+
+    # Assert
+    assert response.status_code == 200
+    assert chat.options[-1]["spoken"] is True
+
+
+@pytest.mark.parametrize("voz", [None, "", "0", "si"])
+def test_sin_el_campo_voz_la_pregunta_cuenta_como_escrita(voz: str | None) -> None:
+    """Una pregunta escrita (o un valor raro) nunca se marca como hablada."""
+
+    # Arrange
+    client, chat = make_client()
+    data = _data(client, "necesito 2000 platos desechables")
+    if voz is not None:
+        data["voz"] = voz
+
+    # Act
+    response = client.post("/chat/stream", data=data)
+
+    # Assert
+    assert response.status_code == 200
+    assert chat.options[-1]["spoken"] is False
