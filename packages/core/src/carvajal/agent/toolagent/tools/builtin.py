@@ -42,6 +42,7 @@ from carvajal.agent.reference_names import (
     match_named,
     matched_terms,
     query_terms,
+    resolve_reference,
 )
 from carvajal.agent.toolagent.state import (
     TOOL_BUSCAR_CORPUS,
@@ -843,8 +844,41 @@ def _same_capacity(explicit: Any, stored: Any) -> bool:
     return abs(float(explicit) - float(stored)) <= CAPACITY_TOLERANCE_OZ
 
 
+def _names_stored_reference(
+    explicit: Mapping[str, Any], context: Mapping[str, Any], catalog: Catalog | None
+) -> bool:
+    """El ``sku`` o el ``nombre`` de la llamada identifican la referencia del contexto.
+
+    Un código igual al guardado basta. Si no, el texto se resuelve en el catálogo como lo
+    hace el motor, acotado por la familia y la capacidad de la referencia guardada: es la
+    misma solo si queda exactamente esa («¿y con retiro del vaso de 7 oz?» tras cotizar ese
+    vaso). Un nombre que no se puede resolver cuenta como otra referencia: preguntar la
+    cantidad es mejor que cotizar en silencio una que la persona no dijo.
+    """
+
+    stored = str(context.get("sku") or "").strip()
+    if not stored:
+        return False
+    said = str(explicit.get("sku") or "").strip()
+    name = str(explicit.get("nombre") or "").strip()
+    if stored.casefold() in {said.casefold(), name.casefold()}:
+        return True
+    if said or catalog is None or not name:
+        # Un SKU distinto nombra otra referencia; sin catálogo no se puede comparar el nombre.
+        return False
+    capacity = context.get("capacity_oz")
+    match = resolve_reference(
+        name,
+        [reference for reference in catalog.references if reference.country == "CO"],
+        catalog,
+        family=str(context.get("family") or "") or None,
+        capacity_oz=float(capacity) if isinstance(capacity, int | float) else None,
+    )
+    return not match.partial and [reference.sku for reference in match.named] == [stored]
+
+
 def _fill_from_context(
-    args: CotizarArgs, context: Mapping[str, Any]
+    args: CotizarArgs, context: Mapping[str, Any], catalog: Catalog | None = None
 ) -> tuple[CotizarArgs, list[str]]:
     """Completa los campos ausentes con el contexto comercial vigente.
 
@@ -869,10 +903,9 @@ def _fill_from_context(
     # cantidad del anterior no se hereda en silencio, se pregunta (2026-11-26: una elección
     # de foto cotizó 2.000 unidades que la persona nunca dijo).
     # Sin ``sku`` ni ``nombre`` (familia y capacidad) no hay referencia nombrada y la cantidad
-    # se reutiliza; el mismo código en ``sku`` o en ``nombre`` sigue siendo el mismo pedido.
-    said_reference = str(explicit.get("sku") or explicit.get("nombre") or "").strip().casefold()
-    stored_reference = str(context.get("sku") or "").strip().casefold()
-    other_reference = named and said_reference != stored_reference
+    # se reutiliza; la misma referencia por su código o por su nombre sigue siendo el mismo
+    # pedido.
+    other_reference = named and not _names_stored_reference(explicit, context, catalog)
     shared = [key for key in _SHARED_FIELDS if not (other_reference and key == "quantity")]
     reusable = [*(product_fields if same_product else ()), *shared]
     filled = dict(explicit)
@@ -1273,7 +1306,8 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
                 # Sin producto anterior no hay nada que confundir: la única familia que
                 # nombró la persona es la que pide (como ``microwave_for``).
                 args = args.model_copy(update={"family": next(iter(said))})
-    filled, reused = _fill_from_context(args, commercial_context)
+    # El mismo catálogo con que ``quote_request`` resuelve el nombre de la referencia.
+    filled, reused = _fill_from_context(args, commercial_context, load_catalog())
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})

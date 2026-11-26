@@ -2792,10 +2792,10 @@ def test_otra_referencia_nombrada_no_hereda_la_cantidad_del_pedido_anterior() ->
 
 def test_el_mismo_producto_sin_sku_o_por_su_codigo_conserva_la_cantidad() -> None:
     # Arrange: revisión de la PR #275, un seguimiento que repite el producto por familia y
-    # capacidad, o con su código en ``nombre``, no es otra referencia.
+    # capacidad, con su código en ``nombre`` o por su nombre no es otra referencia.
     previous = {
         "family": "vaso",
-        "capacity_oz": 7.0,
+        "capacity_oz": 9.0,
         "quantity": 2000,
         "city": "Bogotá",
         "sku": "7704918100199",
@@ -2804,7 +2804,7 @@ def test_el_mismo_producto_sin_sku_o_por_su_codigo_conserva_la_cantidad() -> Non
     # Act
     by_family = _run(
         "cotizar",
-        {"family": "vaso", "capacity_oz": 7.0},
+        {"family": "vaso", "capacity_oz": 9.0},
         _deps(),
         ToolContext(question="¿y con retiro?", commercial_context=previous),
     )
@@ -2814,10 +2814,24 @@ def test_el_mismo_producto_sin_sku_o_por_su_codigo_conserva_la_cantidad() -> Non
         _deps(),
         ToolContext(question="¿y con retiro?", commercial_context=previous),
     )
+    by_name = _run(
+        "cotizar",
+        {"nombre": "vaso rígido traslúcido 9 oz Wau"},
+        _deps(),
+        ToolContext(question="¿y con retiro del vaso de 9 oz?", commercial_context=previous),
+    )
+    other_name = _run(
+        "cotizar",
+        {"nombre": "contenedor térmico con tapa 8 oz"},
+        _deps(),
+        ToolContext(question="¿y el contenedor térmico de 8 oz?", commercial_context=previous),
+    )
 
-    # Assert
+    # Assert: la misma referencia conserva la cantidad; otra, por nombre, la pregunta.
     assert "quantity" in _data(by_family)["reutilizado"]
     assert "quantity" in _data(by_code)["reutilizado"]
+    assert "quantity" in _data(by_name)["reutilizado"]
+    assert "quantity" not in _data(other_name)["reutilizado"]
 
 
 def test_un_error_en_cantidades_no_se_lee_como_cantidad_faltante() -> None:
