@@ -45,19 +45,16 @@
   const bienvenida = hilo.querySelector(".chat-bienvenida");
   const sugerencias = hilo.querySelector("[data-chat-sugerencias]");
   if (sugerencias) sugerencias.hidden = false;
-  mostrarCambiar(hilo);
+  mostrarAcciones(hilo);
   actualizarAcciones();
   hilo.addEventListener("click", (event) => {
     const sugerencia = event.target.closest("[data-chat-sugerencia]");
     if (!sugerencia || enCurso) return;
     // Los temas del inicio muestran título y subtítulo; la pregunta va en data-pregunta.
     const pregunta = (sugerencia.dataset.pregunta || sugerencia.textContent).trim();
-    // «Cambiar» (Tu solicitud) deja la frase empezada para que la persona la complete.
-    const abierta = "chatCambiar" in sugerencia.dataset;
-    input.value = abierta ? `${pregunta} ` : pregunta;
+    input.value = pregunta;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.focus({ preventScroll: true });
-    if (abierta) input.setSelectionRange?.(input.value.length, input.value.length);
     // Spec 053: «Elegir» y «Confirmar cotización» envían la frase en el acto, igual que si
     // la persona la escribiera o la dijera.
     if ("chatEnviar" in sugerencia.dataset) form.requestSubmit?.();
@@ -552,10 +549,10 @@
     return turno;
   }
 
-  // Los «Cambiar» de «Tu solicitud» (y los «Elegir» y «Confirmar» de la spec 053) solo
-  // sirven con este script: sin él quedan ocultos.
-  function mostrarCambiar(raiz) {
-    const botones = raiz.querySelectorAll?.("[data-chat-cambiar], [data-chat-enviar]") ?? [];
+  // Los «Elegir» y «Confirmar» de las specs 053/054 solo sirven con este script: sin él
+  // quedan ocultos.
+  function mostrarAcciones(raiz) {
+    const botones = raiz.querySelectorAll?.("[data-chat-enviar]") ?? [];
     for (const boton of botones) boton.hidden = false;
   }
 
@@ -583,7 +580,7 @@
     plantilla.innerHTML = html;
     const tarjetas = plantilla.content.firstElementChild;
     if (tarjetas) turno.querySelector(".burbuja")?.after(tarjetas);
-    if (tarjetas) mostrarCambiar(tarjetas);
+    if (tarjetas) mostrarAcciones(tarjetas);
     actualizarAcciones();
   }
 

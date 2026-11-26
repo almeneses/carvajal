@@ -4,8 +4,8 @@
     El precio siempre va con su fecha de captura y el aviso de precio de referencia (FR-005,
     FR-007); sin precio se dice por qué y no se estima (FR-006). Spec 039: cada referencia
     lista sus ofertas, una por fuente, y el precio de un tercero nombra a quien lo publica.
-    Diseño «Asistente Carvajal» (Stitch): resumen de lo entendido, insignias de material,
-    precio destacado y descartes con su motivo. Solo presentación: los datos son los mismos.
+    Diseño «Asistente Carvajal» (Stitch): insignias de material, precio destacado y descartes
+    con su motivo. Solo presentación: los datos son los mismos.
     Spec 044: ``quotes`` trae una cotización por tarjeta, cada una con su folio.
     Spec 054: las cotizaciones del borrador (``status == "borrador"``) no se pintan como
     tarjeta: sus cifras van en el texto de la plantilla, igual que en WhatsApp. ``flow`` trae
@@ -15,10 +15,6 @@
   "comida_caliente": "Comida caliente", "comida_fria": "Comida fría", "sopas": "Sopas",
   "frituras": "Frituras", "ensaladas": "Ensaladas", "sandwiches": "Sándwiches",
   "salsas": "Salsas", "panaderia": "Panadería", "frutas": "Frutas"} %}
-{%- set familias = {
-  "vaso": "Vasos", "tapa": "Tapas", "contenedor": "Contenedores", "charola": "Charolas",
-  "cubierto": "Cubiertos", "envase": "Envases", "plato": "Platos"} %}
-{%- set paises = {"MX": "México", "CO": "Colombia"} %}
 {%- set precisiones = {"direccion": "Dirección publicada", "via": "Ubicada por la vía",
   "ciudad": "Solo se conoce la ciudad", "desconocida": "Ubicación sin precisar"} %}
 {%- set presentaciones = {"unidad": "unidades", "caja": "cajas", "paquete": "paquetes", "paca": "pacas"} %}
@@ -36,44 +32,6 @@
   {%- endif %}
 {%- endfor %}
 <section class="productos" aria-label="Referencias del catálogo de Carvajal Empaques">
-  {%- if pedido.family or pedido.use or pedido.quantity or pedido.country %}
-  {#- Diseño «Asistente de Empaques» (Stitch, rediseño 051): cada dato entendido es una
-      tarjeta con su ícono y un «Cambiar» que deja la frase empezada en el compositor
-      (chat-stream.js; sin JavaScript los botones siguen ocultos). -#}
-  <div class="productos-entendi">
-    <h3 class="productos-titulo productos-eyebrow">Tu solicitud</h3>
-    <dl class="entendi-lista">
-      {%- if pedido.family %}
-      <div class="entendi-item" data-entendi="que">
-        <dt>Qué vas a empacar</dt>
-        <dd><span class="entendi-valor">{{ familias.get(pedido.family, pedido.family) }}{% if pedido.capacity_oz %} de {{ "%g" | format(pedido.capacity_oz) }} oz{% endif %}</span>
-          <button type="button" class="entendi-cambiar" data-chat-sugerencia data-chat-cambiar data-pregunta="Mejor muéstrame" hidden>Cambiar<span class="sr-solo"> qué vas a empacar</span></button></dd>
-      </div>
-      {%- endif %}
-      {%- if pedido.use %}
-      <div class="entendi-item" data-entendi="uso">
-        <dt>Para qué es</dt>
-        <dd><span class="entendi-valor">{{ usos.get(pedido.use, pedido.use) }}{% if pedido.microwave %} · microondas{% endif %}</span>
-          <button type="button" class="entendi-cambiar" data-chat-sugerencia data-chat-cambiar data-pregunta="En realidad es para" hidden>Cambiar<span class="sr-solo"> para qué es</span></button></dd>
-      </div>
-      {%- endif %}
-      {%- if pedido.quantity %}
-      <div class="entendi-item" data-entendi="cantidad">
-        <dt>Cuántas unidades</dt>
-        <dd><span class="entendi-valor">{{ "{:,}".format(pedido.quantity) | replace(",", ".") }}</span>
-          <button type="button" class="entendi-cambiar" data-chat-sugerencia data-chat-cambiar data-pregunta="Mejor que sean" hidden>Cambiar<span class="sr-solo"> cuántas unidades</span></button></dd>
-      </div>
-      {%- endif %}
-      {%- if pedido.country or pedido.city %}
-      <div class="entendi-item" data-entendi="donde">
-        <dt>Dónde compras</dt>
-        <dd><span class="entendi-valor">{{ pedido.city ~ ", " if pedido.city }}{{ paises.get(pedido.country, "") }}</span>
-          <button type="button" class="entendi-cambiar" data-chat-sugerencia data-chat-cambiar data-pregunta="Mejor en" hidden>Cambiar<span class="sr-solo"> dónde compras</span></button></dd>
-      </div>
-      {%- endif %}
-    </dl>
-  </div>
-  {%- endif %}
   {%- set ficha = resultado.ficha %}
   {%- if ficha %}
   {%- set foto = ficha.sku | foto_catalogo %}

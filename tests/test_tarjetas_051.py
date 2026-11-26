@@ -1,4 +1,4 @@
-"""Rediseño 051 de las tarjetas comerciales: fecha local, foto, plural y «Cambiar»."""
+"""Rediseño 051 de las tarjetas comerciales: fecha local, foto, plural y sin «Tu solicitud»."""
 
 from pathlib import Path
 from typing import Any
@@ -125,20 +125,32 @@ def test_un_manifiesto_roto_deja_la_tarjeta_sin_foto(
     assert url == ""
 
 
-def test_la_solicitud_ofrece_cambiar_cada_dato_oculto_sin_javascript() -> None:
-    # Arrange
+def test_las_tarjetas_no_repiten_la_solicitud_entendida() -> None:
+    # Arrange: lo entendido ya va en el texto de la respuesta (pedido del owner, 2026-11-25).
     resultado = {
-        "request": {"family": "vaso", "use": "bebida_caliente", "quantity": 3000, "city": "Cali"}
+        "request": {"family": "plato", "quantity": 2000, "country": "CO"},
+        "options": [
+            {
+                "sku": "7704918100199",
+                "name": "Plato redondo de pulpa 9 in",
+                "material": "PULPA",
+                "units_per_box": 500,
+                "country": "CO",
+                "captured_at": "2026-11-20",
+            }
+        ],
     }
 
     # Act
     html = render_products(resultado)
 
     # Assert
-    assert html.count("data-chat-cambiar") == 4
-    assert html.count("hidden>Cambiar") == 4  # chat-stream.js los muestra
-    assert 'data-entendi="cantidad"' in html
-    assert "3.000" in html
+    assert "Tu solicitud" not in html
+    assert "productos-entendi" not in html
+    assert "data-chat-cambiar" not in html
+    assert html.count('data-campo="producto-nombre"') == 1
+    assert "Plato redondo de pulpa 9 in" in html
+    assert 'data-familia="plato"' in html
 
 
 def test_la_pagina_apaga_los_estilos_en_linea_de_htmx() -> None:
