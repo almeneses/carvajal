@@ -241,3 +241,29 @@ def test_el_precio_convertido_tiene_la_misma_procedencia_en_todas_las_rutas() ->
     # Assert: «sistema» en las tres; nunca «oficial» ni «tercero».
     assert cotizador == comercial == "sistema"
     assert catalogo == {"sistema"}
+
+
+# Solo las publica un distribuidor y no hay ficha oficial del mismo producto (2026-11-25).
+SIN_FOTO_OFICIAL = {
+    "CO-TP3DIV",
+    "CO-TBOWL32",
+    "7704918100083",
+    "CO-VBL-035",
+    "CO-VCAN-09",
+    "CO-CSAL-006",
+}
+
+
+def test_las_referencias_propias_tienen_foto_oficial_salvo_las_sin_ficha() -> None:
+    propias = [
+        ref for ref in load_catalog().references if ref.country == "CO" and not ref.is_adapted
+    ]
+
+    sin_foto = {ref.sku for ref in propias if catalog_image(ref.sku, (DEFAULT_DIR,)) is None}
+
+    assert sin_foto == SIN_FOTO_OFICIAL
+    for ref in propias:
+        image = catalog_image(ref.sku, (DEFAULT_DIR,))
+        if image is not None:
+            assert image.source_type == "oficial", ref.sku
+            assert image.source_url.startswith("https://colombia.carvajalempaques.com/")

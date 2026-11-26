@@ -9,6 +9,8 @@ procedencia en ``imagenes.csv``:
   foto de la línea de producto: las tallas de una misma línea comparten foto.
 - **Copias de México** (``CO-MX-…``, con ``--desde-mx``): la foto de su ficha en
   ``mexico.carvajalempaques.com``. La referencia de México comparte el mismo archivo.
+- **Misma línea oficial** (``LINE_PHOTOS``): una referencia que solo publica un distribuidor
+  toma la foto de la ficha oficial de su misma línea de producto.
 - **Terceros** (p. ej. EDEXA): solo con ``--incluir-terceros``. Son fotos de otro sitio;
   úsalas solo con permiso de su dueño. Quedan marcadas ``tipo_fuente=tercero``.
 
@@ -49,6 +51,16 @@ MANIFEST = BASE / "imagenes.csv"
 OFFICIAL_HOSTS = {"colombia.carvajalempaques.com", "mexico.carvajalempaques.com"}
 FIELDS = ["sku", "archivo", "fuente_url", "imagen_url", "tipo_fuente", "capturada_el"]
 SKIP = ("/icons/", "logo", "thumb_", "wiki-empaques", "ico.png")
+# Referencias que solo publica un distribuidor, con la ficha oficial de su misma línea de
+# producto (2026-11-25): la foto es la de la línea, como las tallas que comparten ficha.
+# Solo se asigna si es el mismo producto; las demás quedan sin foto.
+_OFICIAL = "https://colombia.carvajalempaques.com/producto/{}/"
+LINE_PHOTOS = {
+    "CO-CTT-08": _OFICIAL.format("contenedor-termico"),
+    "7704918101110": _OFICIAL.format("contenedor-termico"),
+    "CO-CTT-16": _OFICIAL.format("contenedor-termico"),
+    "CO-VRP-07": _OFICIAL.format("vaso-rigido-mediano"),
+}
 
 
 @dataclass(frozen=True)
@@ -74,7 +86,8 @@ def targets(all_refs: bool, only: set[str], from_mx: bool = False) -> list[Targe
             continue
         if not only and not all_refs and row["sku"] not in priced:
             continue
-        found.append(Target(row["sku"], row["name"], row["source_url"]))
+        page = LINE_PHOTOS.get(row["sku"], row["source_url"])
+        found.append(Target(row["sku"], row["name"], page))
     return found
 
 
