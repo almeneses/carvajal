@@ -51,12 +51,14 @@ __all__ = [
     "options",
     "out_of_range",
     "pdf_offer",
+    "reference_out_of_range",
     "registered",
     "reminder",
     "removed",
     "resume",
     "summary",
     "switch_question",
+    "which_reference",
 ]
 
 JOKE_REJECTION: Final = "Arrancado, vaya cómprele a su madre entonces 😂"
@@ -322,6 +324,38 @@ def out_of_range(asked: int, alternatives: int) -> Message:
             f"la recomendada o un número del **1 al {alternatives}**."
         )
     return Message(f"No tengo la opción {asked}. {text}", f"No tengo la opción {asked}. {text}")
+
+
+# --- Referencias de un nombre ambiguo ----------------------------------------------------
+
+
+def which_reference(choices: Sequence[Mapping[str, Any]]) -> Message:
+    """🔎 Las referencias que coinciden con el nombre, numeradas, y «¿Cuál te cotizo?».
+
+    Sale cuando la respuesta a la lista no eligió ninguna («sí», «esa», «cualquiera»): el
+    flujo no elige por la persona.
+    """
+
+    lines = ["🔎 **Varias referencias coinciden con ese nombre**", ""]
+    for index, item in enumerate(choices, start=1):
+        lines.append(f"{index}. {item.get('name') or item.get('sku')} (SKU {item.get('sku')})")
+    lines += ["", "¿Cuál te cotizo? Di el **número**, el nombre o el SKU."]
+    count = len(choices)
+    spoken = (
+        f"Hay {count} referencias que coinciden; te las dejo por escrito. ¿Cuál te cotizo? "
+        "Dime el número."
+    )
+    return Message("\n".join(lines), spoken)
+
+
+def reference_out_of_range(asked: int, count: int) -> Message:
+    """La persona nombró una posición que no está en la lista de referencias."""
+
+    text = (
+        f"No tengo la opción {asked}: son {count} referencias. Di un número del "
+        f"**1 al {count}**, el nombre o el SKU."
+    )
+    return Message(text, f"No tengo la opción {asked}. Dime un número del 1 al {count}.")
 
 
 # --- T3: comparativo de cantidades ------------------------------------------------------
@@ -764,6 +798,9 @@ def reminder(draft: QuoteDraft) -> Message | None:
         name = line_label(draft.options[0])
         text = f"↩️ Sigo con las opciones de **{name}**: ¿cuál te cotizo? Di **esa** o un número."
         return Message(text, "Cuando quieras, seguimos con las opciones: ¿cuál te cotizo?")
+    if draft.awaiting == "referencia" and draft.choices:
+        text = "↩️ ¿Cuál de las referencias te cotizo? Di el **número**, el nombre o el SKU."
+        return Message(text, "Cuando quieras, dime cuál de las referencias te cotizo.")
     if draft.awaiting == "cantidad" and draft.comparison:
         text = f"↩️ ¿Con cuál cantidad armo la cotización de **{line_label(draft.comparison[0])}**?"
         return Message(text, "Cuando quieras, dime con cuál cantidad armo la cotización.")

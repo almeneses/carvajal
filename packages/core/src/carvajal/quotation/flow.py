@@ -10,6 +10,12 @@ Después del turno del agente, :func:`after_turn` mira las cotizaciones que calc
 opciones (una recomendada + hasta cuatro alternativas), comparativo de cantidades, línea
 agregada o, si el turno fue de otro tema, un recordatorio de una línea para retomar.
 
+Nombre ambiguo: si ``cotizar`` devolvió varias referencias para el nombre que dijo la persona,
+:func:`after_turn` las guarda (``awaiting="referencia"``) con lo demás de la solicitud. En el
+turno siguiente «la 2», el SKU o «el Gold» cotizan esa referencia con el motor, sin el
+modelo, y siguen el camino de cualquier cotización (opciones o línea con «¿Algo más?»); «sí»
+o «esa» vuelven a mostrar la lista, y otra cosa sale del estado y va al agente.
+
 Orden de decisión (determinista primero):
 
 1. Reglas de ``carvajal.agent.followup`` contra ``draft.awaiting``.
@@ -36,6 +42,7 @@ from carvajal.agent.commercial_intent import product_family
 from carvajal.agent.followup import (
     Choice,
     ChoiceOutOfRange,
+    ReferencePick,
     is_cancel_all,
     is_confirmation,
     is_leaving,
@@ -44,10 +51,12 @@ from carvajal.agent.followup import (
     is_too_expensive,
     parse_quantities,
     plain,
+    reference_quantity,
     removes_whole_line,
     resolve_choice,
     resolve_more,
     resolve_quantity_choice,
+    resolve_reference,
     resolve_remove,
     resolve_switch,
     strip_assent,
@@ -58,6 +67,7 @@ from carvajal.agent.followup import (
 )
 from carvajal.quotation import render
 from carvajal.quotation.draft import (
+    Awaiting,
     QuoteDraft,
     add_line,
     expired_lines,
@@ -89,6 +99,12 @@ BOGOTA: Final = ZoneInfo("America/Bogota")
 OFF_FLOW_REMINDERS: Final = 2
 JEV_MIN_CONFIDENCE: Final = 0.7
 JEV_MAX_WORDS: Final = 14
+# Campos del borrador que vacían la lista de referencias de un nombre ambiguo.
+_NO_CHOICES: Final[dict[str, Any]] = {
+    "choices": (),
+    "choice_request": None,
+    "resume_awaiting": None,
+}
 REPLY_CLASSES: Final = (
     "confirmar",
     "agregar",
@@ -168,13 +184,16 @@ def requote(
     *,
     sku: str | None = None,
     quantity: int | None = None,
+    unit: str | None = None,
     today: date | None = None,
     dataset: Any = None,
 ) -> Mapping[str, Any] | None:
     """La misma solicitud de ``base`` con otra referencia o cantidad, con el motor.
 
     Sirve para elegir una alternativa («la 3»), cambiar la cantidad en la elección («esa,
-    son 300») y recalcular una línea vencida. Devuelve ``None`` si el motor no cotiza.
+    son 300») y recalcular una línea vencida. ``unit`` es la unidad de compra de
+    ``quantity`` («2 cajas»); sin ella, la cantidad nueva son unidades. Devuelve ``None`` si
+    el motor no cotiza.
     """
 
     from carvajal.quotation.engine import QuoteRequest, quote_request
@@ -184,7 +203,8 @@ def requote(
     delivery = _mapping(base.get("delivery"))
     presentation = _mapping(primary.get("presentation"))
     units = quantity or request.get("quantity") or presentation.get("units_requested")
-    unit = request.get("unit") if quantity is None else None
+    if quantity is None:
+        unit = request.get("unit")
     try:
         result = quote_request(
             QuoteRequest(
@@ -237,7 +257,26 @@ def before_turn(
             if again is not None:
                 logger.info("cotizacion.jev_decidio", awaiting=current.awaiting)
                 return again
-    return Pass(_fresh_after_registration(current))
+    return Pass(_leave_reference(_fresh_after_registration(current), moment))
+
+
+def _leave_reference(draft: QuoteDraft, now: datetime) -> QuoteDraft:
+    """Lo que no eligió una candidata (otra pregunta, otro producto) sale de la lista.
+
+    Vuelve la pregunta del carrito que la lista dejó en espera: con «¿Algo más?» o «¿La
+    confirmo?» pendientes, «eso es todo» o «sí» siguen cerrando o registrando.
+    """
+
+    if draft.awaiting != "referencia" and not draft.choices:
+        return draft
+    awaiting = _resumed(draft) if draft.awaiting == "referencia" else draft.awaiting
+    return draft.touch(now, awaiting=awaiting, **_NO_CHOICES)
+
+
+def _resumed(draft: QuoteDraft) -> Awaiting | None:
+    """Lo que se esperaba antes de la lista, si el carrito sigue ahí para responderlo."""
+
+    return draft.resume_awaiting if draft.lines else None
 
 
 def _fresh_after_registration(draft: QuoteDraft) -> QuoteDraft:
@@ -245,8 +284,10 @@ def _fresh_after_registration(draft: QuoteDraft) -> QuoteDraft:
 
 
 def _ask_judge(draft: QuoteDraft, text: str) -> bool:
+    # Ante la lista de referencias las reglas deciden todo: lo que no elige va al agente.
     return (
         draft.awaiting is not None
+        and draft.awaiting != "referencia"
         and "?" not in text
         and 0 < len(plain(text).split()) <= JEV_MAX_WORDS
     )
@@ -301,6 +342,7 @@ def _rules(
             comparison=(),
             current=None,
             offer=None,
+            **_NO_CHOICES,
         )
         return Reply(render.leaving(bool(draft.lines)), paused, route="salida")
     if is_too_expensive(text):
@@ -526,6 +568,61 @@ def _on_choice(
     return _added_reply(draft, [line], now)
 
 
+def _on_reference(
+    draft: QuoteDraft, text: str, said: str, requote_fn: Requote, now: datetime
+) -> Reply | Pass | None:
+    """Respuesta a «¿Cuál quieres?» con las referencias de un nombre ambiguo.
+
+    La elegida se cotiza con el motor con su SKU exacto y lo demás de la solicitud
+    (``choice_request``); si el motor pide otro dato (la cantidad o la ciudad), el agente la
+    cotiza con ese SKU. «Sí», «esa» o un fragmento que comparten varias vuelven a mostrar la
+    lista: el flujo nunca elige por la persona.
+    """
+
+    if not draft.choices:
+        return None
+    found = resolve_reference(text, draft.choices)
+    if found == "ask" and len(draft.choices) == 1:
+        found = ReferencePick(0)  # una sola candidata: «sí» o «esa» la eligen
+    if found is None:
+        if resolve_more(text) not in ("close", "close_confirm"):
+            return None
+        # «Eso es todo» ante la lista no elige ninguna: como ante unas opciones.
+        if draft.lines:
+            closed = draft.touch(now, state="resumen", awaiting="confirmar", **_NO_CHOICES)
+            return Reply(render.summary(closed), closed)
+        paused = draft.touch(now, state="explorando", awaiting=None, **_NO_CHOICES)
+        return Reply(render.leaving(False), paused, route="salida")
+    if isinstance(found, ChoiceOutOfRange):
+        message = render.reference_out_of_range(found.asked, len(draft.choices))
+        return Reply(message, draft, route="eleccion")
+    if not isinstance(found, ReferencePick):  # «sí», «esa», «cualquiera»: no dice cuál
+        return Reply(render.which_reference(draft.choices), draft, route="eleccion")
+    candidate = draft.choices[found.index]
+    sku = str(candidate.get("sku") or "")
+    request = dict(draft.choice_request or {})
+    base = {
+        "request": request,
+        "city": request.get("city"),
+        "delivery": {"requested": request.get("delivery")},
+        "primary": {},
+    }
+    # «La 3, 2 cajas»: la cantidad va con su unidad; «el de 90mm» no dice cantidad.
+    quantity, unit = reference_quantity(text, candidate, found.index + 1)
+    line = (
+        requote_fn(base, sku=sku, quantity=quantity, unit=unit, today=now.date()) if sku else None
+    )
+    resumed = _resumed(draft)
+    cleared = replace(draft, **_NO_CHOICES)
+    logger.info("cotizacion.referencia_elegida", cotizada=line is not None)
+    if line is None:
+        name = candidate.get("name") or sku
+        prompt = f"{said}\n\n(Elegí {name}, ref. {sku}. Cotízala con ese sku.)"
+        return Pass(cleared.touch(now, awaiting=resumed), prompt=prompt)
+    changed, message = _present(cleared, line, now)
+    return Reply(message, changed)
+
+
 def _on_quantity(
     draft: QuoteDraft, text: str, said: str, requote_fn: Requote, now: datetime
 ) -> Reply | Pass | None:
@@ -594,6 +691,7 @@ _AWAITING: Final[dict[str, Callable[..., Reply | Pass | None]]] = {
     "cantidad": _on_quantity,
     "cambio_producto": _on_switch,
     "oferta": _on_offer,
+    "referencia": _on_reference,
 }
 
 
@@ -608,6 +706,7 @@ def _removal(draft: QuoteDraft, text: str, now: datetime) -> Reply | None:
         lines=lines,
         awaiting="algo_mas" if lines else None,
         state="carrito" if lines else "explorando",
+        **_NO_CHOICES,  # «quita la 2» ante la lista de referencias: la lista ya no aplica
     )
     return Reply(render.removed(changed, labels[index]), changed)
 
@@ -677,6 +776,7 @@ def _add_lines(
         offer=None,
         off_flow=0,
         pending_request=None,
+        **_NO_CHOICES,
     )
     logger.info("cotizacion.linea_agregada", lineas=len(changed.lines))
     message = render.added(
@@ -705,13 +805,21 @@ def after_turn(
     text: str,
     *,
     now: datetime | None = None,
+    choice: Mapping[str, Any] | None = None,
 ) -> Outcome:
-    """Lo que el flujo agrega al turno del agente según las cotizaciones que calculó."""
+    """Lo que el flujo agrega al turno del agente según las cotizaciones que calculó.
+
+    ``choice`` es la tarjeta ``reference_choice`` de ``cotizar`` (candidatas de un nombre
+    ambiguo y la solicitud): sin cotizaciones en el turno, deja la lista esperando respuesta.
+    """
 
     moment = now or datetime.now(UTC)
     current = _fresh_after_registration(draft)
     calculated = [dict(item) for item in quotes if is_quote(item)]
     if not calculated:
+        waiting = _awaiting_reference(current, choice, moment)
+        if waiting is not None:
+            return Outcome(waiting)
         return _without_quotes(current, text, moment)
     skus: list[str] = []
     for item in calculated:
@@ -725,6 +833,7 @@ def after_turn(
             comparison=ordered,
             options=(),
             awaiting="cantidad",
+            **_NO_CHOICES,
             current={"family": line_family(ordered[0]), "label": line_label(ordered[0])},
             off_flow=0,
         )
@@ -737,21 +846,60 @@ def after_turn(
         several = any(item.get("alternatives") for item in firsts)
         changed, message = _add_lines(current, firsts, moment, several_note=several)
         return Outcome(changed, message, flow=True)
-    quote = calculated[0]
+    changed, message = _present(current, calculated[0], moment)
+    return Outcome(changed, message, flow=True)
+
+
+def _present(
+    draft: QuoteDraft, quote: Mapping[str, Any], now: datetime
+) -> tuple[QuoteDraft, Message]:
+    """Una cotización: opciones si trae alternativas; si no, la línea y «¿Algo más?»."""
+
     if quote.get("alternatives"):
-        changed = current.touch(
-            moment,
-            options=(quote,),
+        changed = draft.touch(
+            now,
+            options=(dict(quote),),
             comparison=(),
             awaiting="eleccion",
+            **_NO_CHOICES,
             current={"family": line_family(quote), "label": line_label(quote)},
             off_flow=0,
             offer=None,
         )
         logger.info("cotizacion.opciones", alternativas=len(quote["alternatives"]))
-        return Outcome(changed, render.options(quote), flow=True)
-    changed, message = _add_lines(current, [quote], moment)
-    return Outcome(changed, message, flow=True)
+        return changed, render.options(quote)
+    return _add_lines(draft, [quote], now)
+
+
+def _awaiting_reference(
+    draft: QuoteDraft, choice: Mapping[str, Any] | None, now: datetime
+) -> QuoteDraft | None:
+    """Borrador esperando «¿Cuál quieres?» con las candidatas de ``choice``, o ``None``."""
+
+    if not isinstance(choice, Mapping):
+        return None
+    listed = tuple(
+        dict(item)
+        for item in choice.get("candidates") or []
+        if isinstance(item, Mapping) and item.get("sku")
+    )
+    if not listed:
+        return None
+    request = choice.get("request")
+    logger.info("cotizacion.referencias_por_elegir", candidatas=len(listed))
+    # «¿Algo más?» o «¿La confirmo?» quedan en espera: vuelven si la respuesta no elige.
+    previous = draft.resume_awaiting if draft.awaiting == "referencia" else draft.awaiting
+    return draft.touch(
+        now,
+        awaiting="referencia",
+        resume_awaiting=previous if previous in {"algo_mas", "confirmar"} else None,
+        choices=listed,
+        choice_request=dict(request) if isinstance(request, Mapping) else {},
+        options=(),
+        comparison=(),
+        offer=None,
+        off_flow=0,
+    )
 
 
 def _without_quotes(draft: QuoteDraft, text: str, now: datetime) -> Outcome:

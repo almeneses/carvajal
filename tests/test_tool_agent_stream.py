@@ -2423,6 +2423,33 @@ def test_una_referencia_ambigua_rechazada_lista_las_candidatas() -> None:
     assert "Para seguir necesito un dato más" not in token
 
 
+def test_las_candidatas_salen_numeradas_y_viajan_al_flujo_con_la_solicitud() -> None:
+    # Arrange: «la 2» del turno siguiente se resuelve contra este mismo orden (spec 054).
+    steps = [
+        ScriptStep(
+            tool_calls=[_call("cotizar", nombre="C1", quantity=3, unidad="pacas", city="Bogotá")]
+        ),
+        ScriptStep(text="El C1 de Wau cuesta 12.500 pesos en Bogotá."),
+    ]
+    runner, _ = _runner(steps)
+
+    # Act
+    events = _stream(runner, "Cotízame 3 pacas de portacomidas C1 en Bogotá")
+
+    # Assert
+    [token] = _tokens(events)
+    choice = _final(events).products["reference_choice"]
+    skus = [item["sku"] for item in choice["candidates"]]
+    assert skus[0] == "CO-PCOM-C1" and len(skus) > 1
+    for position, sku in enumerate(skus, start=1):
+        assert f"{position}. " in token and f"(SKU {sku})" in token
+    assert token.index("(SKU CO-PCOM-C1)") < token.index(f"(SKU {skus[1]})")
+    assert "Dime el número, el nombre o el SKU." in token
+    assert choice["request"]["quantity"] == 3
+    assert choice["request"]["unit"] == "paca"
+    assert choice["request"]["city"] == "Bogotá"
+
+
 def test_una_ciudad_fuera_del_directorio_no_se_pide_como_si_faltara() -> None:
     # Arrange: «… en Leticia»: la persona sí dio la ciudad.
     steps = [

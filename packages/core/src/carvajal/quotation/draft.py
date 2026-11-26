@@ -2,9 +2,15 @@
 
 Una conversación arma **una** cotización con varias líneas antes de confirmarla. El borrador
 guarda las líneas (cada una es el payload de una cotización del motor, sin folio), lo último
-que se le mostró a la persona (opciones o comparativo de cantidades) y **qué respuesta
-espera** el asistente (``awaiting``). Con eso, un «sí», un «no» o «la 2», dichos o escritos, se
-interpretan con reglas y sin el modelo.
+que se le mostró a la persona (opciones, comparativo de cantidades o las referencias que
+coinciden con un nombre ambiguo) y **qué respuesta espera** el asistente (``awaiting``). Con
+eso, un «sí», un «no» o «la 2», dichos o escritos, se interpretan con reglas y sin el modelo.
+
+Las candidatas de un nombre ambiguo (``choices``) se guardan con lo demás de la solicitud
+(``choice_request``: cantidad, unidad, ciudad, domicilio, uso, temperatura y microondas) para
+cotizar la elegida con el motor sin volver a preguntar, y con ``resume_awaiting``, la pregunta
+del carrito que la lista dejó en espera. Un borrador guardado antes de estos campos se lee sin
+candidatas.
 
 El módulo es puro: no lee base de datos ni el catálogo. Las cifras del total parcial y del
 resumen son sumas de los importes que el motor ya calculó; no se estiman precios.
@@ -49,6 +55,7 @@ Awaiting = Literal[
     "confirmar",  # resumen mostrado: «¿La confirmo?»
     "cambio_producto",  # «¿Cancelo los platos o los conservo?»
     "oferta",  # «está caro»: se ofreció la opción más económica
+    "referencia",  # nombre ambiguo: «¿Cuál quieres?» con las candidatas numeradas
 ]
 State = Literal["explorando", "carrito", "resumen", "registrada", "pausada", "cancelada"]
 
@@ -141,6 +148,13 @@ class QuoteDraft:
     # Lo último que se mostró y contra lo que se resuelven las respuestas cortas.
     options: tuple[dict[str, Any], ...] = ()  # cotizaciones: recomendada + alternativas
     comparison: tuple[dict[str, Any], ...] = ()  # cotizaciones del mismo SKU, otras cantidades
+    # Referencias que coinciden con un nombre ambiguo ({"sku", "name", ...}), en el orden en
+    # que se listaron, y la solicitud con la que se cotiza la que se elija.
+    choices: tuple[dict[str, Any], ...] = ()
+    choice_request: dict[str, Any] | None = None
+    # Pregunta del carrito («¿Algo más?» o «¿La confirmo?») que la lista dejó en espera:
+    # vuelve si la respuesta a la lista no elige ninguna.
+    resume_awaiting: Awaiting | None = None
     current: dict[str, Any] | None = None  # producto en curso {"family", "label"}
     pending_request: str | None = None  # pedido nuevo mientras se pregunta el cambio
     switch_drops_last: bool = False  # el cambio cancela la última línea, no un producto en curso
@@ -159,7 +173,7 @@ class QuoteDraft:
 
         if self.state in {"registrada", "cancelada"}:
             return False
-        return bool(self.lines or self.options or self.comparison or self.current)
+        return bool(self.lines or self.options or self.comparison or self.choices or self.current)
 
     def expired(self, now: datetime | None = None) -> bool:
         if not self.updated_at:
@@ -191,6 +205,7 @@ class QuoteDraft:
         data["lines"] = list(self.lines)
         data["options"] = list(self.options)
         data["comparison"] = list(self.comparison)
+        data["choices"] = list(self.choices)
         return data
 
     @classmethod
@@ -199,9 +214,11 @@ class QuoteDraft:
             return cls()
         known = set(cls.__dataclass_fields__)
         values = {key: value for key, value in data.items() if key in known}
-        for key in ("lines", "options", "comparison"):
+        for key in ("lines", "options", "comparison", "choices"):
             raw = values.get(key) or ()
             values[key] = tuple(dict(item) for item in raw if isinstance(item, Mapping))
+        request = values.get("choice_request")
+        values["choice_request"] = dict(request) if isinstance(request, Mapping) else None
         try:
             return cls(**values)
         except TypeError:

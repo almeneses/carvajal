@@ -439,3 +439,134 @@ def test_cambiar_algo_por_whatsapp_sale_en_su_formato_y_sin_el_modelo(
     assert "¿Qué cambio?" in spoken and "*" not in spoken and "🛒" not in spoken
     assert _draft(engine)["awaiting"] == "algo_mas"
     assert len(runner.calls) == 1
+
+
+# --- Nombre ambiguo: la elección entre candidatas no pasa por el modelo -------------------------
+
+_J1 = [
+    {
+        "sku": "CO-PCOM-J1",
+        "name": "Portacomidas espumado J1 Wau (paca x 200)",
+        "family": "contenedor",
+        "material": "EPS",
+        "capacity_oz": None,
+    },
+    {
+        "sku": "7704918105071",
+        "name": "Portacomidas pulpa de caña J1 Bioform",
+        "family": "contenedor",
+        "material": "PULPA",
+        "capacity_oz": None,
+    },
+]
+
+
+def _ambiguous_final() -> Any:
+    """Cierre de «Cotízame 300 portacomidas J1 en Bogotá»: ``cotizar`` pidió cuál."""
+
+    request = {
+        "quantity": 300,
+        "unit": "unidad",
+        "city": "Bogotá",
+        "delivery": None,
+        "use": None,
+        "temperature": None,
+        "microwave": None,
+    }
+    return final(
+        products={"reference_choice": {"candidates": _J1, "request": request}},
+        results=({"tool": "cotizar", "status": "needs_input", "source_ids": []},),
+        gate="no_query",
+    )
+
+
+def test_la_lista_de_candidatas_queda_en_el_borrador_y_no_en_el_historial(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(_ambiguous_final()))
+    service = build_service(engine, runner)
+
+    # Act
+    _send(service, "Cotízame 300 portacomidas J1 en Bogotá")
+
+    # Assert
+    draft = _draft(engine)
+    assert draft["awaiting"] == "referencia"
+    assert [item["sku"] for item in draft["choices"]] == ["CO-PCOM-J1", "7704918105071"]
+    assert draft["choice_request"]["quantity"] == 300
+    with engine.connect() as connection:
+        stored = connection.execute(select(tables.messages.c.sources)).scalars().all()
+    assert "reference_choice" not in repr(stored)
+
+
+def test_la_2_cotiza_la_candidata_en_la_web_sin_el_modelo(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(_ambiguous_final()))
+    service = build_service(engine, runner)
+    _send(service, "Cotízame 300 portacomidas J1 en Bogotá")
+
+    # Act
+    events = _send(service, "la 2")
+
+    # Assert: el motor cotizó la de pulpa con su SKU y el flujo sigue en «¿Algo más?».
+    text = named(events, "fallback").data["text"]
+    assert text.startswith("✅ Agregué")
+    assert "Portacomidas pulpa de caña J1 Bioform" in text
+    assert named(events, "done").data["flow"]["awaiting"] == "algo_mas"
+    draft = _draft(engine)
+    assert [line["primary"]["sku"] for line in draft["lines"]] == ["7704918105071"]
+    assert draft["choices"] == []
+    assert len(runner.calls) == 1
+
+
+def test_un_si_ante_la_lista_la_vuelve_a_mostrar_con_botones(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(_ambiguous_final()))
+    service = build_service(engine, runner)
+    _send(service, "Cotízame 300 portacomidas J1 en Bogotá")
+
+    # Act
+    events = _send(service, "sí")
+
+    # Assert: no se elige ninguna; la web recibe un botón por candidata.
+    text = named(events, "fallback").data["text"]
+    assert "1. Portacomidas espumado J1 Wau (paca x 200) (SKU CO-PCOM-J1)" in text
+    assert "2. Portacomidas pulpa de caña J1 Bioform (SKU 7704918105071)" in text
+    flow = named(events, "done").data["flow"]
+    assert flow["awaiting"] == "referencia"
+    assert [action["say"] for action in flow["actions"]] == ["La 1", "La 2"]
+    assert _draft(engine)["lines"] == []
+    assert len(runner.calls) == 1
+
+
+def test_whatsapp_elige_la_candidata_por_el_nombre_sin_el_modelo(engine: Any) -> None:
+    # Arrange: el mismo servicio detrás del puente de WhatsApp.
+    runner = FakeToolRunner(scripted_events(_ambiguous_final()))
+    service = build_service(engine, runner)
+    bridge = WhatsAppBridge(chat=service, secret=b"secreto-de-prueba")
+    chat = "+573001112233"
+    bridge.respond("Cotízame 300 portacomidas J1 en Bogotá", chat)
+
+    # Act
+    reply = bridge.respond("el de icopor", chat)
+
+    # Assert
+    assert "✅ Agregué *300 Portacomidas espumado J1 Wau (paca x 200)*" in reply.text
+    assert "**" not in reply.text
+    assert reply.quote_ids == ()
+    assert _draft(engine)["awaiting"] == "algo_mas"
+    assert len(runner.calls) == 1
+
+
+def test_los_botones_de_las_candidatas_salen_en_el_turno_que_las_lista(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(_ambiguous_final()))
+    service = build_service(engine, runner)
+
+    # Act
+    events = _send(service, "Cotízame 300 portacomidas J1 en Bogotá")
+
+    # Assert: el agente listó las candidatas; el flujo solo añade los botones, sin texto.
+    flow = named(events, "done").data["flow"]
+    assert flow["awaiting"] == "referencia"
+    assert flow["text"] == ""
+    assert [action["say"] for action in flow["actions"]] == ["La 1", "La 2"]

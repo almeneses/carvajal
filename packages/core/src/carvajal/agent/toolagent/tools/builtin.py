@@ -1320,7 +1320,19 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     if filled.sku or name:
         _remember_reference(quoted, update, dataset)
     if kind == "aclaracion" and "referencia" in (quoted.get("missing") or []):
-        return _ambiguous_reference(quoted, base, update)
+        asked = dict(quoted.get("request") or {})
+        # Spec 054: lo demás de la solicitud viaja con las candidatas para que el flujo
+        # cotice la que elija la persona («la 2», «el Gold») sin volver al modelo.
+        choice_request = {
+            "quantity": asked.get("quantity"),
+            "unit": unit,
+            "city": asked.get("city"),
+            "delivery": fields.get("delivery"),
+            "use": asked.get("use"),
+            "temperature": asked.get("temperature"),
+            "microwave": asked.get("microwave"),
+        }
+        return _ambiguous_reference(quoted, base, update, choice_request)
     if kind == "sin_resultados" and quoted.get("reason") in _NAMED_EMPTY:
         return _named_empty(quoted, base, update)
     if kind == "aclaracion":
@@ -1467,9 +1479,18 @@ def _remember_reference(
 
 
 def _ambiguous_reference(
-    quoted: Mapping[str, Any], base: dict[str, Any], update: dict[str, Any]
+    quoted: Mapping[str, Any],
+    base: dict[str, Any],
+    update: dict[str, Any],
+    choice_request: Mapping[str, Any] | None = None,
 ) -> _Draft:
-    """El nombre coincide con varias referencias (o solo en parte): se pregunta cuál."""
+    """El nombre coincide con varias referencias (o solo en parte): se pregunta cuál.
+
+    Las candidatas, en su orden, y ``choice_request`` (cantidad, unidad, ciudad, domicilio,
+    uso, temperatura y microondas) van en la tarjeta ``reference_choice``: el flujo de la
+    spec 054 las guarda en el borrador y resuelve la respuesta («la 2», el SKU, «el Gold»)
+    con reglas, sin que el modelo elija.
+    """
 
     candidates = [
         {
@@ -1495,7 +1516,10 @@ def _ambiguous_reference(
         )
     else:
         message = "El nombre coincide con varias referencias del catálogo."
-    message += " Pregunta a la persona cuál quiere y cotízala con su sku; no elijas tú."
+    message += (
+        " Pregunta a la persona cuál quiere, con las candidatas numeradas en este orden (1, 2, "
+        "…), y cotízala con su sku; no elijas tú."
+    )
     data: dict[str, Any] = {
         **base,
         "candidatas": candidates,
@@ -1505,7 +1529,16 @@ def _ambiguous_reference(
         data["parcial"] = True
     if conflict:
         data["conflicto_sku_nombre"] = True
-    return _Draft("needs_input", message, data=data, missing=["referencia"], context_update=update)
+    listed = [dict(item) for item in quoted.get("candidates") or [] if isinstance(item, Mapping)]
+    cards = {"reference_choice": {"candidates": listed, "request": dict(choice_request or {})}}
+    return _Draft(
+        "needs_input",
+        message,
+        data=data,
+        missing=["referencia"],
+        context_update=update,
+        cards=cards,
+    )
 
 
 def _named_empty(quoted: Mapping[str, Any], base: dict[str, Any], update: dict[str, Any]) -> _Draft:

@@ -2153,11 +2153,28 @@ def _mark_draft_quotes(products: Mapping[str, Any] | None) -> dict[str, Any] | N
 def _apply_flow(
     draft: QuoteDraft, products: Mapping[str, Any] | None, question: str
 ) -> tuple[dict[str, Any] | None, QuoteDraft, str]:
-    """Cotizaciones del turno → borrador y mensaje de la plantilla (``"\n\n…"`` o ``""``)."""
+    """Cotizaciones del turno → borrador y mensaje de la plantilla (``"\n\n…"`` o ``""``).
 
-    outcome = quote_flow.after_turn(draft, result_quotes(products), question)
+    La tarjeta ``reference_choice`` de ``cotizar`` (candidatas de un nombre ambiguo) solo
+    alimenta el borrador: no se guarda en el historial ni se pinta.
+    """
+
+    choice = (products or {}).get("reference_choice")
+    outcome = quote_flow.after_turn(
+        draft,
+        result_quotes(products),
+        question,
+        choice=choice if isinstance(choice, Mapping) else None,
+    )
     result = _mark_draft_quotes(products)
+    if result is not None:
+        result.pop("reference_choice", None)
     if outcome.message is None:
+        if outcome.draft.awaiting == "referencia" and outcome.draft.choices:
+            # El agente ya listó las candidatas: sin texto propio, solo los botones «La 1»…
+            # (WhatsApp ignora un ``flow`` sin texto).
+            empty = quote_render.Message("", "")
+            result = {**(result or {}), "flow": _flow_payload(empty, outcome.draft)}
         return result, outcome.draft, ""
     result = {**(result or {}), "flow": _flow_payload(outcome.message, outcome.draft)}
     return result, outcome.draft, f"\n\n{outcome.message.text}"
@@ -2220,6 +2237,11 @@ def _flow_actions(draft: QuoteDraft) -> list[dict[str, str]]:
         return [
             {"label": "Sí, cotízala", "say": "Sí"},
             {"label": "No, gracias", "say": "No gracias"},
+        ]
+    if draft.awaiting == "referencia" and draft.choices:
+        return [
+            {"label": str(item.get("name") or item.get("sku")), "say": f"La {index}"}
+            for index, item in enumerate(draft.choices, start=1)
         ]
     return []
 
