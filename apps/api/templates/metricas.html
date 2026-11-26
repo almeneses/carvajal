@@ -24,8 +24,38 @@
 {% macro pie_tarjeta(card) -%}
 <p class="tarjeta-pie">
   {% if card.updated_at %}Consultado {{ card.updated_at | metrica_edad }}{% endif %}
-  {% if card.ttl_s %} · se renueva cada {{ (card.ttl_s // 60) or 1 }} min{% endif %}
+  {% if card.retry_at %} · se consulta de nuevo {{ card.retry_at | metrica_en }}
+  {% elif card.ttl_s %} · se renueva cada {{ (card.ttl_s // 60) or 1 }} min{% endif %}
 </p>
+{%- endmacro %}
+{% macro motivo(card) -%}
+{% if card.reason %}<p class="tarjeta-motivo">{{ card.reason }}{% if card.retry_at %} Se reintenta {{ card.retry_at | metrica_en }}.{% endif %}</p>{% endif %}
+{%- endmacro %}
+{#- «Reintentar»: POST con CSRF y vuelta a la página (303); funciona sin JS. El servidor aplica
+    un enfriamiento por fuente para todas las visitas y lo dice aquí. -#}
+{% macro reintentar(fuente, nombre) -%}
+<div class="reintento">
+  <form method="post" action="/metricas/reintentar" class="reintento-formulario">
+    {% include "_csrf.html" %}
+    <input type="hidden" name="fuente" value="{{ fuente }}" />
+    <button type="submit" class="boton secundario boton-reintentar" aria-describedby="reintento-{{ fuente }}">Reintentar<span class="sr-solo"> {{ nombre }}</span></button>
+  </form>
+  <p id="reintento-{{ fuente }}" class="reintento-estado" role="status" tabindex="-1">
+    {%- if notice and notice.source == fuente -%}
+      {%- if notice.kind == "reintento" -%}
+        Se volvió a consultar {{ nombre }} hace un momento.
+      {%- elif notice.wait -%}
+        Espera {{ notice.wait }} s para reintentar: {{ nombre }} se consultó hace menos de {{ retry_cooldown }} s.
+      {%- else -%}
+        Ya puedes reintentar.
+      {%- endif -%}
+    {%- elif retry_waits.get(fuente) -%}
+      Espera {{ retry_waits[fuente] }} s para reintentar.
+    {%- else -%}
+      Vuelve a consultar {{ nombre }} sin esperar a que venza la caché.
+    {%- endif -%}
+  </p>
+</div>
 {%- endmacro %}
 {% macro llamadas(calls) -%}
 {{ dato("Llamadas", calls.calls | metrica_numero, "desde " ~ (calls.since | metrica_cuando)) }}
@@ -45,6 +75,9 @@
     </p>
   </header>
 
+  {% if error %}
+  <p class="aviso" role="alert">{{ error }}</p>
+  {% endif %}
   {% if not cards %}
   <p class="aviso" role="alert">No se pudieron calcular las métricas en este momento.</p>
   {% endif %}
@@ -57,7 +90,7 @@
         <h2 id="m-qdrant">Qdrant</h2>
         {{ estado(q) }}
       </header>
-      {% if q.reason %}<p class="tarjeta-motivo">{{ q.reason }}</p>{% endif %}
+      {{ motivo(q) }}
       {% if q.data %}
       <p class="tarjeta-sub">Índice vectorial del chat · colección <code>{{ q.data.collection }}</code></p>
       <dl class="datos">
@@ -79,6 +112,7 @@
       <p class="tarjeta-motivo">Telemetría no disponible: {{ q.data.telemetry_unavailable }}</p>
       {% endif %}
       {% endif %}
+      {% if q.status == "unavailable" or q.stale or (notice and notice.source == "qdrant") %}{{ reintentar("qdrant", "Qdrant") }}{% endif %}
       {{ pie_tarjeta(q) }}
     </article>
     {% endif %}
@@ -90,7 +124,7 @@
         <h2 id="m-jev">Jev (TypeSafe)</h2>
         {{ estado(j) }}
       </header>
-      {% if j.reason %}<p class="tarjeta-motivo">{{ j.reason }}</p>{% endif %}
+      {{ motivo(j) }}
       <p class="tarjeta-sub">Gatekeeper, compuerta de afirmaciones y fotos · proceso web</p>
       <dl class="datos">
         {{ dato("Modelo", j.data.model or "—") }}
@@ -141,7 +175,7 @@
         <h2 id="m-langsmith">LangSmith</h2>
         {{ estado(l) }}
       </header>
-      {% if l.reason %}<p class="tarjeta-motivo">{{ l.reason }}</p>{% endif %}
+      {{ motivo(l) }}
       {% if l.data %}
       <p class="tarjeta-sub">
         Trazas raíz del proyecto <code>{{ l.data.project }}</code>{% if l.data.environment %}, entorno <code>{{ l.data.environment }}</code>{% endif %}
@@ -154,20 +188,32 @@
             <tr><th scope="col">Ventana</th><th scope="col">Trazas</th><th scope="col">Errores</th><th scope="col">p50 / p99</th><th scope="col">Tokens entrada / salida</th></tr>
           </thead>
           <tbody>
-            {% for etiqueta, w in [("Últimas 24 h", l.data.windows["24h"]), ("Últimos 7 días", l.data.windows["7d"])] %}
-            <tr>
-              <th scope="row">{{ etiqueta }}</th>
+            {% for clave in ("24h", "7d") %}
+            {% set w = l.data.windows[clave] %}
+            <tr{% if w.status != "ok" %} class="fila-{{ 'pendiente' if w.status == 'pending' else 'vieja' }}"{% endif %}>
+              <th scope="row">{{ w.label or clave }}</th>
+              {% if w.status == "pending" %}
+              <td colspan="4"><span class="ventana-estado">Pendiente</span> {{ w.note }}{% if w.retry_at %} Se reintenta {{ w.retry_at | metrica_en }}.{% endif %}</td>
+              {% else %}
               <td>{{ w.traces | metrica_numero }}</td>
               <td>{{ w.errors | metrica_numero }} <span class="dato-nota">{{ w.error_rate | metrica_porcentaje }}</span></td>
               <td>{{ w.p50_s | metrica_numero(2) }} / {{ w.p99_s | metrica_numero(2) }} s</td>
               <td>{{ w.prompt_tokens | metrica_numero }} / {{ w.completion_tokens | metrica_numero }}</td>
+              {% endif %}
             </tr>
+            {% if w.status != "pending" and (w.status == "stale" or w.note) %}
+            <tr class="fila-nota">
+              <td colspan="5"><span class="ventana-estado">{{ "Desactualizada" if w.status == "stale" else "Aviso" }}</span> {{ w.label or clave }}: datos {{ w.updated_at | metrica_edad }}. {{ w.note }}{% if w.retry_at %} Se reintenta {{ w.retry_at | metrica_en }}.{% endif %}</td>
+            </tr>
+            {% endif %}
             {% endfor %}
           </tbody>
         </table>
       </div>
-      <p class="tarjeta-nota">Última traza: {{ l.data.windows["24h"].last_run | metrica_cuando }}. LangSmith publica p50 y p99, no p95.</p>
+      {% set ultima = l.data.windows["24h"].last_run or l.data.windows["7d"].last_run %}
+      <p class="tarjeta-nota">Última traza: {{ ultima | metrica_cuando }}. LangSmith publica p50 y p99, no p95, y acepta pocas consultas por minuto: las dos ventanas se piden por separado.</p>
       {% endif %}
+      {% if l.status != "off" %}{{ reintentar("langsmith", "LangSmith") }}{% endif %}
       {{ pie_tarjeta(l) }}
     </article>
     {% endif %}
@@ -179,7 +225,7 @@
         <h2 id="m-deepseek">DeepSeek</h2>
         {{ estado(d) }}
       </header>
-      {% if d.reason %}<p class="tarjeta-motivo">{{ d.reason }}</p>{% endif %}
+      {{ motivo(d) }}
       <p class="tarjeta-sub">LLM del chat · modelo <code>{{ d.data.model }}</code> · proceso web</p>
       <dl class="datos">
         {{ llamadas(d.data.calls) }}
@@ -197,6 +243,7 @@
       <p class="tarjeta-nota">Sin clave de DeepSeek no se consulta.</p>
       {% elif d.data.balance.status != "ok" %}
       <p class="tarjeta-motivo">No disponible: {{ d.data.balance.reason }}</p>
+      {{ reintentar("deepseek_balance", "el saldo de DeepSeek") }}
       {% else %}
       <dl class="datos">
         {% for b in d.data.balance.balances %}
@@ -220,7 +267,7 @@
         <h2 id="m-whatsapp">WhatsApp (OpenClaw)</h2>
         {{ estado(w) }}
       </header>
-      {% if w.reason %}<p class="tarjeta-motivo">{{ w.reason }}</p>{% endif %}
+      {{ motivo(w) }}
       <p class="tarjeta-sub">{{ w.data.note }}</p>
       {% if w.data.usage %}
       {% set u = w.data.usage %}
@@ -270,6 +317,7 @@
       <p class="tarjeta-nota">{{ m.reason }}</p>
       {% endif %}
       {% endif %}
+      {% if w.status == "unavailable" or w.stale or m.status == "unavailable" or (notice and notice.source == "whatsapp") %}{{ reintentar("whatsapp", "WhatsApp (OpenClaw)") }}{% endif %}
       {{ pie_tarjeta(w) }}
     </article>
     {% endif %}

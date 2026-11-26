@@ -6,6 +6,8 @@ operador y que nada de lo publicado lleva texto de personas, ``owner_key`` ni se
 """
 
 import json
+import math
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -25,8 +27,13 @@ from sqlalchemy.pool import StaticPool
 
 from apps.api.metrics import (
     FAILURE_RETRY_TTL,
+    LANGSMITH_PROJECT_TTL,
+    LANGSMITH_RETRY_TTL,
+    LANGSMITH_STATS_SPACING,
     LANGSMITH_TTL,
+    RETRY_COOLDOWN,
     Card,
+    LangSmithState,
     MetricsBoard,
     TtlCache,
     deepseek_balance,
@@ -122,6 +129,28 @@ def _settings(**values: Any) -> Settings:
 
 def _client(handler: Callable[[httpx.Request], httpx.Response]) -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+class Reloj:
+    """Reloj falso para la caché y LangSmith: ``sleep`` avanza el tiempo y se registra."""
+
+    def __init__(self) -> None:
+        self.t = 0.0
+        self.esperas: list[float] = []
+
+    def __call__(self) -> float:
+        return self.t
+
+    def sleep(self, segundos: float) -> None:
+        self.esperas.append(segundos)
+        self.t += segundos
+
+
+def _estado(reloj: Reloj, **valores: Any) -> LangSmithState:
+    return LangSmithState(clock=reloj, sleep=reloj.sleep, **valores)
+
+
+LANGSMITH = {"monitoring_enabled": True, "langsmith_api_key": "k"}
 
 
 # --- Contadores en proceso ---------------------------------------------------------------
@@ -393,8 +422,8 @@ def test_langsmith_usa_el_agregado_de_24_h_y_7_dias_filtrado_por_entorno() -> No
         langsmith_agent_environment="produccion",
     )
 
-    # Act
-    card = langsmith_card(settings, _client(handler), now=NOW)
+    # Act: sin espacio entre consultas, las dos ventanas caben en una carga.
+    card = langsmith_card(settings, _client(handler), now=NOW, state=_estado(Reloj(), spacing=0))
 
     # Assert: tres peticiones y ninguna lista de runs.
     assert card.status == "ok"
@@ -405,21 +434,231 @@ def test_langsmith_usa_el_agregado_de_24_h_y_7_dias_filtrado_por_entorno() -> No
     assert all('"produccion"' in c["filter"] for c in cuerpos)
     ventana = card.data["windows"]["24h"]
     assert (ventana["traces"], ventana["errors"], ventana["p50_s"]) == (200, 5, 2.04)
-    assert "lsv2-clave" not in json.dumps(card.data)
+    assert "lsv2-clave" not in json.dumps(card.data, default=str)
 
 
 def test_langsmith_que_pide_esperar_queda_no_disponible() -> None:
+    # Arrange: el 429 llega como HTML y sin Retry-After, como en producción.
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/sessions":
             return httpx.Response(200, json=[{"id": "p-1"}])
-        return httpx.Response(429)
+        return httpx.Response(429, text="<html>Too Many Requests</html>")
 
-    settings = _settings(monitoring_enabled=True, langsmith_api_key="k")
+    settings = _settings(**LANGSMITH)
 
+    # Act
     card = langsmith_card(settings, _client(handler))
 
+    # Assert: el motivo explica el límite; la ventana que falló espera 30 s y la otra, su
+    # turno (una consulta cada ~9 s), así que la tarjeta se vuelve a armar pronto.
     assert card.status == "unavailable"
-    assert "429" in card.reason
+    assert card.reason == "LangSmith limita cuántas consultas acepta por minuto (HTTP 429)."
+    assert card.ttl_s == int(LANGSMITH_STATS_SPACING)
+    assert card.data == {}
+
+
+def test_langsmith_espacia_las_ventanas_y_deja_la_segunda_pendiente() -> None:
+    # Arrange
+    reloj = Reloj()
+    estado = _estado(reloj)
+    peticiones: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        peticiones.append(request.url.path)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    settings = _settings(**LANGSMITH)
+
+    # Act: carga en frío y otra cuando ya hay turno para la segunda ventana.
+    fria = langsmith_card(settings, _client(handler), now=NOW, state=estado)
+    peticiones_fria = list(peticiones)
+    reloj.t = LANGSMITH_STATS_SPACING + 0.5
+    completa = langsmith_card(settings, _client(handler), now=NOW, state=estado)
+
+    # Assert: en frío, una sola consulta de stats, sin esperar; la otra ventana, pendiente.
+    assert peticiones_fria == ["/sessions", "/runs/stats"]
+    assert reloj.esperas == []
+    assert fria.status == "ok" and fria.stale is False
+    assert fria.data["windows"]["24h"]["status"] == "ok"
+    assert fria.data["windows"]["7d"]["status"] == "pending"
+    assert fria.data["windows"]["7d"]["retry_at"] is not None
+    assert fria.ttl_s == int(LANGSMITH_STATS_SPACING)
+    assert fria.retry_at is not None
+    # Con turno, solo la ventana que faltaba y sin volver a pedir el proyecto.
+    assert peticiones == ["/sessions", "/runs/stats", "/runs/stats"]
+    assert [w["status"] for w in completa.data["windows"].values()] == ["ok", "ok"]
+    assert completa.retry_at is None
+    assert completa.ttl_s == math.ceil(LANGSMITH_TTL - (LANGSMITH_STATS_SPACING + 0.5))
+
+
+def test_langsmith_cachea_el_id_del_proyecto_y_si_falla_usa_el_anterior() -> None:
+    # Arrange
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    peticiones: list[str] = []
+    sesiones = {"ok": True}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        peticiones.append(request.url.path)
+        if request.url.path == "/sessions":
+            if not sesiones["ok"]:
+                return httpx.Response(503)
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        assert json.loads(request.content)["session"] == ["p-1"]
+        return httpx.Response(200, json=STATS)
+
+    settings = _settings(**LANGSMITH)
+
+    # Act: cargas durante la hora del proyecto y una después, con /sessions caído.
+    for momento in (0, LANGSMITH_TTL + 1, 2 * LANGSMITH_TTL + 2):
+        reloj.t = momento
+        langsmith_card(settings, _client(handler), state=estado)
+    durante = peticiones.count("/sessions")
+    reloj.t = LANGSMITH_PROJECT_TTL + 1
+    sesiones["ok"] = False
+    tarde = langsmith_card(settings, _client(handler), state=estado)
+    reloj.t += LANGSMITH_RETRY_TTL - 1
+    langsmith_card(settings, _client(handler), state=estado)
+    antes_de_30_s = peticiones.count("/sessions")
+
+    # Assert: una petición del proyecto por hora; si falla, sirve el id anterior y no insiste
+    # antes de 30 s.
+    assert durante == 1
+    assert antes_de_30_s == 2
+    assert tarde.status == "ok" and tarde.stale is False
+
+
+def test_langsmith_429_en_la_segunda_peticion_reintenta_dos_veces_y_la_deja_pendiente() -> None:
+    # Arrange: espacio corto para que el reintento quepa en el plazo de la carga.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0.5)
+    stats: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        stats.append(request.url.path)
+        if len(stats) == 1:
+            return httpx.Response(200, json=STATS)
+        return httpx.Response(429, text="<html>Too Many Requests</html>")
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: la 24 h sale; la de 7 días, tras dos reintentos, pendiente unos 30 s.
+    assert len(stats) == 1 + 1 + 2
+    assert reloj.esperas == [0.5, 0.5, 0.5]
+    assert card.status == "ok"
+    ventana = card.data["windows"]["7d"]
+    assert ventana["status"] == "pending"
+    assert "limita cuántas consultas acepta por minuto (HTTP 429)" in ventana["note"]
+    assert card.ttl_s == LANGSMITH_RETRY_TTL
+    assert card.data["windows"]["24h"]["traces"] == 200
+
+
+@pytest.mark.parametrize(
+    ("cabecera", "espera_esperada", "ttl_esperado"),
+    [("2", [2.0], LANGSMITH_TTL), ("120", [], 120)],
+)
+def test_langsmith_respeta_retry_after(
+    cabecera: str, espera_esperada: list[float], ttl_esperado: int
+) -> None:
+    # Arrange: el primer stats pide esperar; los siguientes responden.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    stats: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        stats.append(request.url.path)
+        if len(stats) == 1:
+            return httpx.Response(429, headers={"Retry-After": cabecera})
+        return httpx.Response(200, json=STATS)
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: 2 s caben en el plazo y se esperan; 120 s no, y nada se consulta antes.
+    assert reloj.esperas == espera_esperada
+    assert card.ttl_s == ttl_esperado
+    if espera_esperada:
+        assert [w["status"] for w in card.data["windows"].values()] == ["ok", "ok"]
+    else:
+        assert len(stats) == 1
+        assert card.status == "unavailable"
+        assert card.retry_at is not None
+
+
+def test_langsmith_entiende_retry_after_como_fecha_http() -> None:
+    # Arrange
+    from apps.api.metrics import _retry_after
+
+    cuando = (datetime.now(UTC) + timedelta(seconds=40)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    # Act
+    segundos = _retry_after(httpx.Response(429, headers={"Retry-After": cuando}))
+    sin_cabecera = _retry_after(httpx.Response(429))
+    basura = _retry_after(httpx.Response(429, headers={"Retry-After": "pronto"}))
+
+    # Assert
+    assert segundos is not None and 35 <= segundos <= 40
+    assert (sin_cabecera, basura) == (None, None)
+
+
+def test_langsmith_si_fallan_las_dos_conserva_el_dato_anterior_y_reintenta_en_30_s() -> None:
+    # Arrange: carga buena y, al caducar, LangSmith responde 500 a todo.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    peticiones: list[str] = []
+    salud = {"ok": True}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        peticiones.append(request.url.path)
+        return httpx.Response(200, json=STATS) if salud["ok"] else httpx.Response(500)
+
+    settings = _settings(**LANGSMITH)
+    langsmith_card(settings, _client(handler), state=estado)
+    reloj.t = LANGSMITH_TTL + 1
+    salud["ok"] = False
+    peticiones.clear()
+
+    # Act
+    caida = langsmith_card(settings, _client(handler), state=estado)
+    reloj.t += LANGSMITH_RETRY_TTL - 1
+    durante = langsmith_card(settings, _client(handler), state=estado)
+    peticiones_durante = len(peticiones)
+    reloj.t += 2
+    langsmith_card(settings, _client(handler), state=estado)
+
+    # Assert: datos anteriores marcados, motivo y vigencia corta; no se insiste antes de 30 s.
+    assert caida.status == "ok" and caida.stale is True
+    assert caida.reason == "Respondió con error (HTTP 500)."
+    assert caida.ttl_s == LANGSMITH_RETRY_TTL
+    assert [w["status"] for w in caida.data["windows"].values()] == ["stale", "stale"]
+    assert caida.data["windows"]["24h"]["traces"] == 200
+    assert durante.stale is True
+    assert peticiones_durante == 2
+    assert len(peticiones) == 4
+
+
+def test_langsmith_sin_proyecto_ni_dato_queda_no_disponible_con_vigencia_corta() -> None:
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sessions"
+        return httpx.Response(429)
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=_estado(Reloj()))
+
+    # Assert
+    assert card.status == "unavailable"
+    assert "LangSmith limita" in card.reason
+    assert card.ttl_s == LANGSMITH_RETRY_TTL
 
 
 # --- DeepSeek ----------------------------------------------------------------------------
@@ -727,9 +966,10 @@ def test_varias_visitas_con_el_dato_caducado_recargan_una_sola_vez() -> None:
     assert all(r.status == "ok" for r in resultados)
 
 
-def test_langsmith_en_429_no_se_vuelve_a_consultar_en_diez_minutos() -> None:
-    # Arrange: primera carga buena; al caducar, LangSmith responde 429 (spec 055, edge case).
-    reloj = [0.0]
+def test_langsmith_en_429_se_reintenta_a_los_30_s_y_no_a_los_diez_minutos() -> None:
+    # Arrange: las dos ventanas cargadas por turnos (t=0 y t=10); al caducar, LangSmith
+    # responde 429 sin Retry-After (spec 055, edge case).
+    reloj = Reloj()
     peticiones: list[str] = []
     estado = {"ok": True}
 
@@ -737,33 +977,106 @@ def test_langsmith_en_429_no_se_vuelve_a_consultar_en_diez_minutos() -> None:
         if request.url.host != "api.smith.langchain.com":
             return httpx.Response(503)
         peticiones.append(request.url.path)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
         if not estado["ok"]:
             return httpx.Response(429)
+        return httpx.Response(200, json=STATS)
+
+    board = MetricsBoard(
+        settings=_settings(**LANGSMITH),
+        transport=httpx.MockTransport(handler),
+        cache=TtlCache(clock=reloj),
+        langsmith=_estado(reloj),
+    )
+    vista: dict[str, Any] = {"operator": False, "jev": {}, "claims": {}, "photo": {}}
+
+    def langsmith() -> Card:
+        return next(c for c in board.cards(**vista) if c.key == "langsmith")
+
+    langsmith()
+    reloj.t = 10
+    langsmith()
+    reloj.t = LANGSMITH_TTL + 11
+    estado["ok"] = False
+    peticiones.clear()
+
+    # Act: visitas cada 5 s durante 25 s; luego, pasados los 30 s del fallo, dos turnos.
+    for _ in range(5):
+        reloj.t += 5
+        tarjeta = langsmith()
+    durante = list(peticiones)
+    estado["ok"] = True
+    reloj.t += LANGSMITH_RETRY_TTL
+    medio = langsmith()
+    reloj.t += LANGSMITH_STATS_SPACING + 1
+    recuperada = langsmith()
+
+    # Assert: una consulta por ventana durante el fallo (no una por visita), datos anteriores
+    # marcados con el motivo, y la tarjeta se recupera en segundos, no a los diez minutos.
+    assert durante == ["/runs/stats", "/runs/stats"]
+    assert tarjeta.status == "ok" and tarjeta.stale is True
+    assert "HTTP 429" in tarjeta.reason
+    assert tarjeta.ttl_s <= LANGSMITH_RETRY_TTL
+    assert medio.data["windows"]["24h"]["status"] == "ok"
+    assert recuperada.stale is False and recuperada.retry_at is None
+
+
+def test_un_reintento_de_langsmith_fuerza_las_ventanas_sin_saltarse_el_turno() -> None:
+    # Arrange: dos ventanas vigentes en la caché.
+    reloj = Reloj()
+    peticiones: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.smith.langchain.com":
+            return httpx.Response(503)
+        peticiones.append(request.url.path)
         if request.url.path == "/sessions":
             return httpx.Response(200, json=[{"id": "p-1"}])
         return httpx.Response(200, json=STATS)
 
     board = MetricsBoard(
-        settings=_settings(monitoring_enabled=True, langsmith_api_key="k"),
+        settings=_settings(**LANGSMITH),
         transport=httpx.MockTransport(handler),
-        cache=TtlCache(clock=lambda: reloj[0]),
+        cache=TtlCache(clock=reloj),
+        langsmith=_estado(reloj),
     )
-    vista = {"operator": False, "jev": {}, "claims": {}, "photo": {}}
+    vista: dict[str, Any] = {"operator": False, "jev": {}, "claims": {}, "photo": {}}
     board.cards(**vista)
-    reloj[0] = LANGSMITH_TTL + 1
-    estado["ok"] = False
+    reloj.t = LANGSMITH_STATS_SPACING + 1
+    board.cards(**vista)
     peticiones.clear()
 
-    # Act: diez visitas en 50 s.
-    for _ in range(10):
-        reloj[0] += 5
-        tarjeta = next(c for c in board.cards(**vista) if c.key == "langsmith")
+    # Act: reintento dentro del enfriamiento, otro fuera y la carga siguiente.
+    reloj.t += 1
+    pronto = board.retry("langsmith", operator=False)
+    reloj.t += RETRY_COOLDOWN
+    hecho = board.retry("langsmith", operator=False)
+    tarjeta = next(c for c in board.cards(**vista) if c.key == "langsmith")
 
-    # Assert: una sola petición (la que recibió el 429) y los datos anteriores marcados.
-    assert peticiones == ["/sessions"]
-    assert tarjeta.status == "ok" and tarjeta.stale is True
-    assert "429" in tarjeta.reason
-    assert tarjeta.ttl_s == LANGSMITH_TTL
+    # Assert: el primero espera; el segundo recarga una ventana (hay turno para una sola).
+    assert pronto.status == "wait" and 0 < pronto.wait_s <= RETRY_COOLDOWN
+    assert hecho.status == "done"
+    assert peticiones == ["/runs/stats"]
+    assert tarjeta.status == "ok" and tarjeta.stale is False
+    assert tarjeta.retry_at is not None
+
+
+def test_la_cache_vencida_a_mano_conserva_el_dato_anterior() -> None:
+    # Arrange
+    reloj = Reloj()
+    cache = TtlCache(clock=reloj)
+    cache.get("q", 60, lambda: Card("q", "Q", "ok", data={"points": 1}))
+
+    # Act
+    cache.expire("q")
+    caida = cache.get("q", 60, lambda: Card("q", "Q", "unavailable", "No se pudo conectar."))
+
+    # Assert
+    assert caida.stale is True and caida.data == {"points": 1}
+    assert caida.retry_at is not None
+    assert cache.since_load("q") == 0
+    assert cache.since_load("otra") is None
 
 
 def test_una_respuesta_con_otra_forma_deja_su_tarjeta_no_disponible_y_no_las_demas() -> None:
@@ -837,8 +1150,10 @@ def test_cada_fuente_en_paralelo_usa_su_propio_cliente_http() -> None:
 # --- Vista -------------------------------------------------------------------------------
 
 
-def _transporte(saldo: bool = True) -> httpx.MockTransport:
+def _transporte(saldo: bool = True, registro: list[str] | None = None) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
+        if registro is not None:
+            registro.append(f"{request.url.host}{request.url.path}")
         if request.url.path == "/user/balance":
             assert saldo, "el saldo solo se consulta para el operador"
             return httpx.Response(
@@ -875,14 +1190,17 @@ def app_metricas(
     _poblar(factory)
     process_metrics.DEEPSEEK_CALLS.reset()
 
-    def construir(saldo: bool = True) -> TestClient:
+    def construir(
+        saldo: bool = True, reloj: Reloj | None = None, registro: list[str] | None = None
+    ) -> TestClient:
         from apps.api.main import Handlers, HealthStatus, create_app
 
         app = create_app(Handlers(health=lambda: HealthStatus(1, 2)))
         app.state.metrics = MetricsBoard(
             settings=app.state.settings,
             session_factory=lambda: factory,
-            transport=_transporte(saldo),
+            transport=_transporte(saldo, registro),
+            cache=TtlCache(clock=reloj) if reloj is not None else TtlCache(),
         )
         return TestClient(app)
 
@@ -950,3 +1268,165 @@ def test_la_navegacion_enlaza_metricas(app_metricas: Callable[..., TestClient]) 
 
     assert 'href="/metricas"' in chat
     assert 'href="/metricas"\n            aria-current="page"' in metricas
+
+
+# --- Reintento manual --------------------------------------------------------------------
+
+
+def _csrf(html: str) -> str:
+    encontrado = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert encontrado, "la página debe llevar el token CSRF en el formulario de reintento"
+    return encontrado.group(1)
+
+
+def test_qdrant_caido_muestra_reintentar_con_csrf_y_texto_accesible(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    cliente = app_metricas(saldo=False)
+
+    # Act
+    html = cliente.get("/metricas").text
+
+    # Assert: formulario POST con CSRF, fuente conocida y botón con texto.
+    assert 'action="/metricas/reintentar"' in html
+    assert 'name="fuente" value="qdrant"' in html
+    assert 'Reintentar<span class="sr-solo"> Qdrant</span>' in html
+    assert 'role="status"' in html
+    assert _csrf(html)
+
+
+def test_reintentar_sin_csrf_se_rechaza_y_no_consulta_la_fuente(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    reloj = Reloj()
+    registro: list[str] = []
+    cliente = app_metricas(saldo=False, reloj=reloj, registro=registro)
+    cliente.get("/metricas")
+    reloj.t = RETRY_COOLDOWN + 1
+    registro.clear()
+
+    # Act
+    respuesta = cliente.post(
+        "/metricas/reintentar", data={"fuente": "qdrant"}, follow_redirects=False
+    )
+
+    # Assert: 403 y la página dice por qué; Qdrant sigue en caché (no se consulta).
+    assert respuesta.status_code == 403
+    assert "La sesión del formulario expiró" in respuesta.text
+    assert registro == []
+
+
+def test_reintentar_con_csrf_fuerza_la_recarga_y_luego_pide_esperar(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange: Qdrant caído y en caché.
+    reloj = Reloj()
+    registro: list[str] = []
+    cliente = app_metricas(saldo=False, reloj=reloj, registro=registro)
+    token = _csrf(cliente.get("/metricas").text)
+    reloj.t = RETRY_COOLDOWN + 1
+    registro.clear()
+
+    # Act: reintento válido, la página que sigue y otro reintento enseguida.
+    hecho = cliente.post(
+        "/metricas/reintentar",
+        data={"fuente": "qdrant", "csrf_token": token},
+        follow_redirects=False,
+    )
+    pagina = cliente.get(hecho.headers["location"]).text
+    consultas = list(registro)
+    reloj.t += 3
+    pronto = cliente.post(
+        "/metricas/reintentar",
+        data={"fuente": "qdrant", "csrf_token": token},
+        follow_redirects=False,
+    )
+    espera = cliente.get(pronto.headers["location"]).text
+
+    # Assert: 303 a la página, una consulta real; dentro del enfriamiento, ninguna.
+    assert hecho.status_code == 303
+    assert hecho.headers["location"] == "/metricas?reintento=qdrant#reintento-qdrant"
+    assert consultas == ["qdrant/collections/carvajal_chunks"]
+    assert "Se volvió a consultar Qdrant hace un momento." in pagina
+    assert pronto.status_code == 303
+    assert pronto.headers["location"] == "/metricas?espera=qdrant#reintento-qdrant"
+    assert f"Espera {RETRY_COOLDOWN - 3} s para reintentar" in espera
+    assert registro == consultas
+
+
+@pytest.mark.parametrize(
+    ("fuente", "operador", "codigo"),
+    [
+        ("desconocida", False, 400),
+        ("jev", False, 400),
+        ("deepseek_balance", False, 403),
+        ("deepseek_balance", True, 303),
+    ],
+)
+def test_reintentar_solo_acepta_fuentes_conocidas_y_el_saldo_es_del_operador(
+    app_metricas: Callable[..., TestClient], fuente: str, operador: bool, codigo: int
+) -> None:
+    # Arrange
+    cliente = app_metricas()
+    token = _csrf(cliente.get("/metricas").text)
+    cabeceras = {"X-Operator-Token": OPERATOR_TOKEN} if operador else {}
+
+    # Act
+    respuesta = cliente.post(
+        "/metricas/reintentar",
+        data={"fuente": fuente, "csrf_token": token},
+        headers=cabeceras,
+        follow_redirects=False,
+    )
+
+    # Assert
+    assert respuesta.status_code == codigo
+    if codigo == 303:
+        assert respuesta.headers["location"].startswith("/metricas?")
+    else:
+        assert fuente not in respuesta.headers.get("location", "")
+
+
+def test_un_aviso_de_reintento_con_fuente_inventada_no_se_muestra(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    cliente = app_metricas(saldo=False)
+
+    # Act
+    html = cliente.get("/metricas?reintento=<script>").text
+
+    # Assert
+    assert "<script>" not in html
+    assert "Se volvió a consultar" not in html
+
+
+def test_la_pagina_muestra_la_ventana_pendiente_de_langsmith(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange: LangSmith con la caché fría; el resto de fuentes, caídas.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.smith.langchain.com":
+            return httpx.Response(503)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    cliente = app_metricas(saldo=False)
+    app: Any = cliente.app
+    app.state.metrics = MetricsBoard(
+        settings=_settings(**LANGSMITH),
+        transport=httpx.MockTransport(handler),
+    )
+
+    # Act
+    html = cliente.get("/metricas").text
+
+    # Assert: la fila de 24 h tiene cifras; la de 7 días dice que espera turno y cuándo.
+    assert "Últimas 24 h" in html
+    assert "Pendiente" in html
+    assert "espera su turno" in html
+    assert "Se reintenta en" in html
+    assert 'name="fuente" value="langsmith"' in html
