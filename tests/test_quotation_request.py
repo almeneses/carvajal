@@ -226,7 +226,11 @@ def test_sin_decidir_domicilio_el_total_queda_pendiente() -> None:
     assert resultado["commercial"]["subtotal"] == "3751"
     assert resultado["commercial"]["shipping"]["status"] == "pending"
     assert resultado["delivery"]["requested"] is None
-    assert "pendiente" in resultado["reply"]
+    # Spec 054 (decisión 4): el subtotal va sin envío y el envío queda para el resumen; el
+    # texto no pregunta por domicilio o retiro (chocaba con la pregunta del flujo).
+    assert "Subtotal: 3.751 COP, sin envío" in resultado["reply"]
+    assert "domicilio" not in resultado["reply"]
+    assert "1 paquete de 50 unidades a 3.751 COP por paquete" in resultado["reply"]
 
 
 def test_la_ciudad_se_normaliza_contra_el_dataset() -> None:

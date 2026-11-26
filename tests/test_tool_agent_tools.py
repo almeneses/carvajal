@@ -1018,6 +1018,21 @@ def test_cotizar_ok_con_folio_de_cita_y_total_pendiente_sin_envio() -> None:
     assert result.sources[0]["url"].startswith("https://")
 
 
+def test_cotizar_sin_saber_el_domicilio_no_lo_deja_como_dato_pendiente() -> None:
+    # Act
+    result = _run("cotizar", {**CALIENTE, "quantity": 1000, "city": "Bogotá"}, _deps())
+
+    # Assert: spec 054 (decisión 4), el envío va en el resumen. Con «El total queda pendiente:
+    # Falta saber si va con domicilio» el modelo preguntaba por la entrega a mitad del flujo.
+    message = result.payload["message"]
+    assert "domicilio o retiro no es un dato pendiente" in message
+    assert "Falta saber si va con domicilio" not in message
+    with_delivery = _run(
+        "cotizar", {**CALIENTE, "quantity": 1000, "city": "Bogotá", "delivery": True}, _deps()
+    )
+    assert "El total queda pendiente" in with_delivery.payload["message"]
+
+
 def test_cotizar_con_domicilio_sin_envio_respaldado_deja_el_total_pendiente() -> None:
     # Act
     result = _run(
