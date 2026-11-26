@@ -28,7 +28,13 @@ from carvajal.agent.commercial_flow import (
     _option,
     commercial_sources,
 )
-from carvajal.agent.commercial_intent import USE_TEMPERATURE, USES, material_for, microwave_for
+from carvajal.agent.commercial_intent import (
+    USE_TEMPERATURE,
+    USES,
+    material_for,
+    microwave_for,
+    product_family,
+)
 from carvajal.agent.memory.store import MemoryProfile
 from carvajal.agent.reference_names import (
     capacity_fits,
@@ -1217,6 +1223,13 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
         said_unit = _unit_in_question(context.question, args.quantity)
         if said_unit is not None:
             args = args.model_copy(update={"unidad": said_unit})
+    if args.family is None and not (args.sku or args.nombre):
+        # Red de seguridad de la familia: sin ``family``, el contexto completaba el producto
+        # de la cotización anterior y «Cotízame 1.000 vasos …» tras un portacomidas volvía a
+        # cotizar el portacomidas. Manda la familia que nombró la persona en este turno.
+        said_family = product_family(context.question or "")
+        if said_family is not None:
+            args = args.model_copy(update={"family": said_family})
     filled, reused = _fill_from_context(args, commercial_context)
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.

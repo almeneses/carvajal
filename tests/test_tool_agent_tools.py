@@ -1063,6 +1063,113 @@ def test_cotizar_no_reutiliza_datos_de_otro_producto() -> None:
     assert {"quantity", "city"} <= set(result.payload["reutilizado"])
 
 
+# Ensayo e2e (#265): tras cotizar el portacomidas C1, «Cotízame 1.000 vasos rígidos
+# traslúcidos de 9 oz Wau en Bogotá» terminaba en el C1 porque el modelo llamó a ``cotizar``
+# sin ``family`` y el contexto completaba el producto anterior.
+PEDIDO_C1 = "¿Cuánto me salen 500 o 1.000 portacomidas espumados C1 Wau en Bogotá?"
+PEDIDO_VASO_WAU = "Cotízame 1.000 vasos rígidos traslúcidos de 9 oz Wau en Bogotá"
+VASO_WAU = "7704918100199"
+
+
+def _contexto_tras_el_c1(question: str) -> ToolContext:
+    first = _run(
+        "cotizar",
+        {"nombre": "portacomidas espumados C1 Wau", "quantity": 500, "city": "Bogotá"},
+        _deps(**REAL),
+        ToolContext(question=PEDIDO_C1),
+    )
+    assert first.status == "ok" and first.context_update["sku"] == "CO-PCOM-C1"
+    return ToolContext(
+        question=question, commercial_context=first.context_update, history=[PEDIDO_C1]
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        pytest.param({}, id="sin-producto"),
+        pytest.param({"capacity_oz": 9}, id="solo-capacidad"),
+        pytest.param({"capacity_oz": 9, "material": "pp"}, id="capacidad-y-material"),
+    ],
+)
+def test_cotizar_sin_familia_no_cotiza_el_producto_anterior_si_la_persona_pide_otro(
+    args: dict[str, Any],
+) -> None:
+    # Arrange
+    context = _contexto_tras_el_c1(PEDIDO_VASO_WAU)
+
+    # Act
+    result = _run("cotizar", {"quantity": 1000, "city": "Bogotá", **args}, _deps(**REAL), context)
+
+    # Assert: ni el SKU ni la familia del portacomidas pasan a la cotización del vaso.
+    assert "sku" not in result.payload["reutilizado"]
+    assert "family" not in result.payload["reutilizado"]
+    assert result.context_update["family"] == "vaso"
+    if result.quote is not None:
+        assert result.quote["primary"]["family"] == "vaso"
+
+
+def test_cotizar_sin_familia_sigue_reutilizando_la_referencia_en_un_seguimiento() -> None:
+    # Arrange: «¿y con domicilio?» no nombra producto; sigue siendo el C1.
+    context = _contexto_tras_el_c1("¿y con domicilio?")
+
+    # Act
+    result = _run("cotizar", {"delivery": True}, _deps(**REAL), context)
+
+    # Assert
+    assert result.status == "ok"
+    assert "sku" in result.payload["reutilizado"]
+    assert result.payload["cotizacion"]["sku"] == "CO-PCOM-C1"
+
+
+@pytest.mark.parametrize(
+    "nombre",
+    [
+        "vasos rígidos traslúcidos de 9 oz Wau",
+        "vaso rígido traslúcido 9 oz Wau",
+        "vasos rigidos traslucidos Wau",
+        "Vaso Rígido Traslúcido",
+    ],
+)
+@pytest.mark.parametrize("previo", [False, True], ids=["hilo-nuevo", "tras-el-c1"])
+def test_cotizar_el_vaso_rigido_wau_por_nombre(nombre: str, previo: bool) -> None:
+    # Arrange: hay vasos rígidos de 7 a 16 oz; la capacidad acota el nombre al de 9 oz.
+    context = (
+        _contexto_tras_el_c1(PEDIDO_VASO_WAU) if previo else ToolContext(question=PEDIDO_VASO_WAU)
+    )
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"nombre": nombre, "family": "vaso", "capacity_oz": 9, "quantity": 1000, "city": "Bogotá"},
+        _deps(**REAL),
+        context,
+    )
+
+    # Assert
+    assert result.status == "ok"
+    assert result.payload["cotizacion"]["sku"] == VASO_WAU
+    assert "familia_distinta" not in result.payload
+    assert result.context_update["sku"] == VASO_WAU
+
+
+@pytest.mark.parametrize(
+    "nombre",
+    ["vasos rígidos traslúcidos de 9 oz Wau", "vasos rigidos traslucidos", "rígido traslúcido"],
+)
+def test_buscar_producto_encuentra_el_vaso_rigido_wau_por_nombre(nombre: str) -> None:
+    # Act
+    result = _run(
+        "buscar_producto",
+        {"nombre": nombre, "familia": "vaso", "capacidad_oz": 9, "pais": "CO"},
+        _deps(**REAL),
+    )
+
+    # Assert
+    assert result.status == "ok"
+    assert _skus(result) == [VASO_WAU]
+
+
 @pytest.mark.parametrize(
     ("args", "missing"),
     [
