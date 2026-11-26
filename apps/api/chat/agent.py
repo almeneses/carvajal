@@ -1350,6 +1350,21 @@ class ToolAgentRunner:
 
         return None
 
+    def clear_commercial_context(self, thread_id: str) -> None:
+        """Olvida el pedido en curso del hilo (producto, material, ciudad, referencia).
+
+        Lo llama el servicio cuando el flujo de cotización cancela todo («olvida todo»,
+        «cancela todo»): ese turno no pasa por el grafo y, sin esto, la siguiente
+        cotización heredaba el producto anterior (2026-11-25). Un fallo no rompe el turno.
+        """
+
+        try:
+            self._graph.update_state(
+                {"configurable": {"thread_id": thread_id}}, {"commercial_context": {}}
+            )
+        except Exception as error:  # el checkpointer no debe tumbar la respuesta
+            logger.warning("tool_agent.context_reset_failed", error=str(error), thread_id=thread_id)
+
 
 class _GraphPump:
     """Consume ``graph.stream`` en un hilo propio y entrega sus eventos por una cola.

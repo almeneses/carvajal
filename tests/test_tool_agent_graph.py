@@ -1137,6 +1137,53 @@ def test_el_atajo_olvida_todo_y_deja_el_marcador_del_resumen() -> None:
     assert DIRECT_INSTRUCTIONS["memory_forget"] in prompt
 
 
+def test_olvidar_todo_borra_tambien_el_pedido_en_curso() -> None:
+    # Arrange: el hilo trae el producto de una cotización anterior (2026-11-25: «cotiza 100
+    # vasos» heredaba el vaso de papel de 8 oz aunque la persona pidiera olvidar todo).
+    from carvajal.agent.memory.store import remember
+
+    memory = InMemoryStore()
+    remember(memory, "dueno-1", "nombre", "Ana")
+    context = {"family": "vaso", "material": "papel", "capacity_oz": 8.0, "sku": "CO-MX-1"}
+    graph, chat, _ = _build([ScriptStep(text="Listo, ya lo olvidé.")], memory=memory)
+
+    # Act
+    state = graph.invoke(
+        _input("Olvida todo lo que sabes de mí", commercial_context=context), _config()
+    )
+
+    # Assert
+    assert state["shortcut_intent"] == "memory_forget"
+    assert state["commercial_context"] == {}
+    assert "papel" not in str(chat.calls[0][1].content)
+
+
+def test_el_runner_olvida_el_pedido_en_curso_del_checkpoint() -> None:
+    # Arrange: un turno deja el contexto comercial en el checkpoint del hilo.
+    from apps.api.chat.agent import ToolAgentRunner
+
+    context = {"family": "vaso", "material": "papel", "sku": "CO-MX-1"}
+    graph, _, _ = _build([ScriptStep(text="Hola.")])
+    graph.invoke(_input("hola", commercial_context=context), _config())
+    assert graph.get_state(_config()).values["commercial_context"]
+
+    # Act: lo que hace el servicio cuando el flujo cancela todo.
+    ToolAgentRunner(graph, Settings()).clear_commercial_context("hilo-1")
+
+    # Assert: el siguiente turno arranca sin el pedido anterior.
+    assert graph.get_state(_config()).values["commercial_context"] == {}
+
+
+def test_el_runner_olvida_sin_checkpoint_previo_sin_fallar() -> None:
+    from apps.api.chat.agent import ToolAgentRunner
+
+    graph, _, _ = _build([ScriptStep(text="Hola.")])
+
+    ToolAgentRunner(graph, Settings()).clear_commercial_context("hilo-nuevo")
+
+    assert graph.get_state(_config("hilo-nuevo")).values.get("commercial_context") in (None, {})
+
+
 def test_olvidar_todo_sin_store_no_confirma_el_olvido() -> None:
     # Arrange
     graph, _, _ = _build([ScriptStep(text="Ahora no puedo.")])

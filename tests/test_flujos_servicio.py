@@ -285,3 +285,44 @@ def test_sin_cotizacion_pendiente_awaiting_confirmation_es_falso(engine: Any) ->
     assert service.awaiting_confirmation(OWNER) is True
     _send(service, "No, confírmala")
     assert service.awaiting_confirmation(OWNER) is False
+
+
+class _RunnerQueOlvida(FakeToolRunner):
+    """Runner guionado que registra cada pedido de olvidar el contexto comercial."""
+
+    def __init__(self, events: Any) -> None:
+        super().__init__(events)
+        self.cleared: list[str] = []
+
+    def clear_commercial_context(self, thread_id: str) -> None:
+        self.cleared.append(thread_id)
+
+
+@pytest.mark.parametrize("mensaje", ["olvida todo", "cancela todo"])
+def test_cancelar_todo_olvida_tambien_el_pedido_en_curso(engine: Any, mensaje: str) -> None:
+    # Arrange: WhatsApp del 2026-11-25. «olvida todo» cancelaba el borrador, pero el
+    # contexto comercial del grafo seguía y «cotiza 100 vasos» heredaba el vaso de papel.
+    runner = _RunnerQueOlvida(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Act
+    events = _send(service, mensaje)
+
+    # Assert
+    assert named(events, "fallback").data["text"].startswith("Listo, cancelé la cotización")
+    assert len(runner.cleared) == 1
+    assert len(runner.calls) == 1  # la cancelación no pasa por el modelo
+
+
+def test_una_respuesta_corta_que_no_cancela_no_olvida_el_pedido(engine: Any) -> None:
+    # Arrange
+    runner = _RunnerQueOlvida(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Act
+    _send(service, "no")
+
+    # Assert
+    assert runner.cleared == []
