@@ -937,6 +937,8 @@ class _TurnStream:
         fields: list[str] = []
         cities: list[str] = []
         suggestion: str | None = None
+        candidates: list[Mapping[str, Any]] = []
+        outside = False
         asked = False
         for tool, data in self.tool_payloads:
             if tool in DECLARATION_TOOLS:
@@ -944,13 +946,21 @@ class _TurnStream:
                     asked = True
                     fields.extend(missing_fields(str(data.get("dato") or "")))
                 continue
-            if data.get("status") == "needs_input":
+            if data.get("status") == "error" and tool == TOOL_COTIZAR and data.get("missing"):
+                # «Cotízame 0 vasos»: la cantidad no es válida; se pide, no se abstiene.
+                asked = True
+                fields.extend(str(item) for item in data.get("missing") or [])
+            elif data.get("status") == "needs_input":
                 asked = True
                 fields.extend(str(item) for item in data.get("missing") or [])
                 cities.extend(str(city) for city in data.get("ciudades_disponibles") or [])
                 # La ciudad habitual de la memoria no respalda nada (FR-017): solo se ofrece
                 # en la pregunta de confirmación que construye ``ask_for_missing``.
                 suggestion = suggestion or (str(data.get("sugerencia_ciudad") or "") or None)
+                candidates.extend(
+                    item for item in data.get("candidatas") or [] if isinstance(item, Mapping)
+                )
+                outside = outside or bool(data.get("ciudad_fuera_del_directorio"))
             elif data.get("status") == "empty" and tool == TOOL_COTIZAR:
                 for site in data.get("sedes") or []:
                     if isinstance(site, Mapping):
@@ -964,7 +974,13 @@ class _TurnStream:
             parts.append(NO_CONTEXT_ANSWER)
         if asked:
             parts.append(
-                ask_for_missing(fields, cities=list(dict.fromkeys(cities)), suggestion=suggestion)
+                ask_for_missing(
+                    fields,
+                    cities=list(dict.fromkeys(cities)),
+                    suggestion=suggestion,
+                    candidates=list({str(c.get("sku")): c for c in candidates}.values()),
+                    outside_directory=outside,
+                )
             )
         if not any(parts):
             return ""

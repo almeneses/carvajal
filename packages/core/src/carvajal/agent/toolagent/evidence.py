@@ -560,7 +560,12 @@ def missing_fields(dato: str) -> list[str]:
 
 
 def ask_for_missing(
-    fields: Iterable[str], *, cities: Sequence[str] = (), suggestion: str | None = None
+    fields: Iterable[str],
+    *,
+    cities: Sequence[str] = (),
+    suggestion: str | None = None,
+    candidates: Sequence[Mapping[str, Any]] = (),
+    outside_directory: bool = False,
 ) -> str:
     """Petición neutra de los datos que faltan, para reemplazar un texto rechazado.
 
@@ -572,7 +577,22 @@ def ask_for_missing(
     como pregunta de confirmación, nunca como dato.
     """
 
+    fields = list(fields)
+    which = _which_reference(candidates) if "referencia" in fields else ""
     known = list(dict.fromkeys(f for f in fields if f in _MISSING_LABELS))
+    if outside_directory and "ciudad" in known:
+        # La persona sí dijo una ciudad, pero no está en el directorio: no se le pide «la
+        # ciudad» como si faltara (decía «me falta la ciudad» tras «… en Leticia»).
+        known.remove("ciudad")
+        place = "No tengo precios ni sedes del directorio en esa ciudad."
+        if cities:
+            place += f" Ciudades disponibles: {_join([str(c) for c in cities])}."
+        place += " ¿En cuál de ellas lo cotizo?"
+        rest = ask_for_missing(known) if known else ""
+        return " ".join(part for part in (which, place, rest) if part)
+    if which:
+        rest = ask_for_missing(known, cities=cities, suggestion=suggestion) if known else ""
+        return "\n\n".join(part for part in (which, rest) if part)
     if not known:
         return _GENERIC_ASK
     labels = [_MISSING_LABELS[f] for f in known]
@@ -586,6 +606,19 @@ def ask_for_missing(
     if "ciudad" in known and suggestion:
         question += f" ¿O lo hago en {suggestion}, tu ciudad habitual?"
     return f"{text} {question}"
+
+
+def _which_reference(candidates: Sequence[Mapping[str, Any]]) -> str:
+    """«¿Cuál quieres?» con las candidatas que devolvió ``cotizar`` (nombre y SKU, sus datos)."""
+
+    lines = [
+        f"- {item['nombre']} (SKU {item['sku']})"
+        for item in candidates
+        if isinstance(item, Mapping) and item.get("nombre") and item.get("sku")
+    ]
+    if not lines:
+        return ""
+    return "Hay varias referencias que coinciden. ¿Cuál quieres?\n\n" + "\n".join(lines)
 
 
 def sites_without_price(sites: Iterable[Mapping[str, Any]]) -> str:
