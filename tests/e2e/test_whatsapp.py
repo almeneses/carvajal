@@ -488,3 +488,42 @@ def test_conversacion_que_empieza_con_foto_en_whatsapp(
             print(transcripcion.texto())
             return
     pytest.fail("la conversación con foto se desvió dos veces:\n\n" + "\n\n".join(intentos))
+
+
+_CITA = re.compile(r"\[(\d{1,3})\]")
+
+
+@pytest.mark.gasto
+@pytest.mark.usefixtures("agente")
+@pytest.mark.parametrize(
+    "pregunta",
+    ["¿Dónde puedo comprar empaques en Pereira?", "¿Cuándo se fundó Carvajal y quién la fundó?"],
+    ids=["sedes", "historia"],
+)
+def test_cada_cita_tiene_su_fuente_en_whatsapp(
+    mcp: McpOculto, conversacion: str, pregunta: str
+) -> None:
+    # Act
+    respuesta = mcp.consultar(pregunta, conversacion, nueva=True)
+
+    # Assert: las [n] del texto y las de «Fuentes» son las mismas (el ensayo encontró [7]
+    # y [8] citadas con una lista de [1] a [5], y la [2] de la segunda sede sin fuente).
+    cuerpo, _, fuentes = respuesta.partition("*Fuentes:*")
+    citadas = set(_CITA.findall(cuerpo))
+    listadas = set(_CITA.findall(fuentes))
+    assert citadas <= listadas, f"citas sin fuente {citadas - listadas}:\n{respuesta}"
+    if citadas:
+        assert listadas <= citadas, f"fuentes no citadas {listadas - citadas}:\n{respuesta}"
+
+
+@pytest.mark.gasto
+@pytest.mark.usefixtures("agente")
+def test_una_peticion_ajena_a_carvajal_no_se_atiende_en_whatsapp(
+    mcp: McpOculto, conversacion: str
+) -> None:
+    # Act
+    respuesta = mcp.consultar("¿Me ayudas con mi tarea de cálculo?", conversacion, nueva=True)
+
+    # Assert: el atajo directo respondía «Sí, te ayudo…».
+    assert not re.search(r"\bs[ií],?\s+te\s+ayudo\b", respuesta, re.IGNORECASE), respuesta
+    assert "Carvajal" in respuesta, respuesta
