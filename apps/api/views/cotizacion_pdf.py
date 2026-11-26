@@ -109,8 +109,9 @@ def cotizacion_pdf(request: Request, folio: str, e: int = 0, t: str = "") -> Res
     expires, signature = split_token(t, e)
     # Con ``t`` manda solo la firma: un enlace vencido, truncado (``?t=<vence>.``) o
     # manipulado no se rescata con la cookie, ni siquiera la del dueño (su web enlaza sin
-    # ``t``, ver :func:`owner_pdf_link`). Cuenta la presencia de ``t``, no la de la firma.
-    visitor = None if t.strip() else _visitor(request)
+    # ``t``, ver :func:`owner_pdf_link`). Cuenta la presencia de ``t`` (también ``?t=%20``),
+    # no la de la firma.
+    visitor = None if t else _visitor(request)
     if len(folio) > 64 or not ((secret and signature) or visitor):
         return _not_found()
     lookup: QuoteLookup = getattr(request.app.state, "quote_lookup", None) or _default_lookup

@@ -271,7 +271,9 @@ def test_nadie_mas_abre_el_pdf_sin_la_firma(engine: Any, visitor: str | None) ->
 
 @pytest.mark.parametrize("visitor", [VISITOR, OTHER_VISITOR], ids=["dueño", "otro_visitante"])
 @pytest.mark.parametrize(
-    "token", ["1.firma", "4102444800.", "firma"], ids=["manipulado", "truncado", "sin_vence"]
+    "token",
+    ["1.firma", "4102444800.", "firma", "%20"],
+    ids=["manipulado", "truncado", "sin_vence", "espacio"],
 )
 def test_una_firma_invalida_no_se_salva_con_la_cookie(
     engine: Any, visitor: str, token: str
