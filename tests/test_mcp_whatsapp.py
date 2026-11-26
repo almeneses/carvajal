@@ -444,6 +444,150 @@ def test_health_del_mcp_rechaza_host_u_origin_que_no_es_loopback(
     assert "claims" not in response.text
 
 
+def test_health_del_mcp_publica_las_metricas_del_proceso_sin_texto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Spec 055: la página de métricas de la app lee estos contadores por la red interna."""
+
+    # Arrange
+    from carvajal.infrastructure import metrics
+
+    eventos = metrics.EventCounts()
+    monkeypatch.setattr(bridge_module, "WHATSAPP_EVENTS", eventos)
+    monkeypatch.setattr("apps.mcp.server.WHATSAPP_EVENTS", eventos)
+    bridge = _bridge(FakeChat(events=_turn("Hola, soy Carva")))
+    bridge.consult("hola, mi número es 3100000000", "+573100000000")
+    app = build_app(build_server(bridge), "token-correcto")
+
+    # Act
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        client.get("/health", headers={"Authorization": "Bearer otro"})
+        response = client.get("/health", headers={"Authorization": "Bearer token-correcto"})
+
+    # Assert
+    assert response.status_code == 200
+    metricas = response.json()["metrics"]
+    assert metricas["whatsapp"]["counts"] == {"mensajes": 1, "no_autorizados": 1}
+    assert set(metricas) == {"whatsapp", "jev", "deepseek"}
+    assert "3100000000" not in response.text
+    assert "wa_" not in response.text
+
+
+def test_health_del_mcp_acepta_el_host_del_servicio_interno_y_mcp_no() -> None:
+    # Arrange: la app llega por http://mcp:8765/health en la red de compose.
+    app = build_app(build_server(_bridge(FakeChat())), "token")
+    headers = {"Authorization": "Bearer token", "Accept": "application/json, text/event-stream"}
+
+    # Act
+    with TestClient(app, base_url="http://mcp:8765") as client:
+        health = client.get("/health", headers=headers)
+        mcp = client.post("/mcp", json={}, headers=headers)
+
+    # Assert
+    assert health.status_code == 200
+    assert mcp.status_code in {400, 403, 421}
+
+
+def test_el_bearer_de_health_abre_solo_health_y_no_mcp() -> None:
+    """Spec 055: la app web lleva MCP_HEALTH_TOKEN; con él no puede llamar a /mcp."""
+
+    # Arrange
+    app = build_app(build_server(_bridge(FakeChat())), "token-mcp", health_token="token-health")
+    headers = {
+        "Authorization": "Bearer token-health",
+        "Accept": "application/json, text/event-stream",
+    }
+    initialize = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "prueba", "version": "0"},
+        },
+    }
+
+    # Act
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        health = client.get("/health", headers=headers)
+        mcp = client.post("/mcp", json=initialize, headers=headers)
+        full = client.get("/health", headers={"Authorization": "Bearer token-mcp"})
+
+    # Assert
+    assert health.status_code == 200
+    assert mcp.status_code == 401
+    assert full.status_code == 200
+
+
+def test_un_bearer_de_health_igual_a_mcp_token_se_ignora() -> None:
+    # Arrange: si fueran iguales, la app web tendría /mcp; el MCP descarta el de /health.
+    app = build_app(build_server(_bridge(FakeChat())), "mismo", health_token=" mismo ")
+
+    # Act
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        health = client.get("/health", headers={"Authorization": "Bearer mismo"})
+        other = client.get("/health", headers={"Authorization": "Bearer otro"})
+
+    # Assert: MCP_TOKEN sigue abriendo /health y nada más cambia.
+    assert health.status_code == 200
+    assert other.status_code == 401
+
+
+def test_un_reintento_de_openclaw_no_cuenta_como_mensaje_nuevo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Spec 055: «mensajes» del MCP cuadra con la base aunque OpenClaw reintente el turno."""
+
+    # Arrange: el almacén de entregas por defecto y uno de turnos que ya guardó «t-2».
+    from carvajal.infrastructure import metrics
+
+    eventos = metrics.EventCounts()
+    monkeypatch.setattr(bridge_module, "WHATSAPP_EVENTS", eventos)
+    bridge = _bridge(
+        FakeChat(events=_turn("Hola, soy Carva")),
+        turns=lambda _owner, turn_id: "hilo-1" if turn_id == "t-2" else None,
+    )
+
+    # Act
+    bridge.respond("hola", "+573100000000", client_turn_id="t-1")
+    bridge.respond("hola", "+573100000000", client_turn_id="t-1")
+    bridge.respond("hola", "+573100000000", client_turn_id="t-2", voice=True)
+
+    # Assert
+    assert eventos.snapshot()["counts"] == {"mensajes": 1, "reintentos": 2}
+
+
+def test_el_puente_cuenta_errores_y_fotos_sin_datos_de_la_persona(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    from carvajal.infrastructure import metrics
+
+    eventos = metrics.EventCounts()
+    monkeypatch.setattr(bridge_module, "WHATSAPP_EVENTS", eventos)
+
+    class ChatQueFalla(FakeChat):
+        def stream(self, *args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("caído")
+
+    bridge = _bridge(ChatQueFalla())
+
+    # Act
+    bridge.consult("hola", "+573100000000")
+    bridge.consult("", "+573100000000", photo="media://inbound/foto.jpg")
+    snapshot = eventos.snapshot()
+
+    # Assert
+    assert snapshot["counts"] == {
+        "errores": 1,
+        "fotos": 1,
+        "fotos_no_disponibles": 1,
+        "mensajes": 2,
+    }
+    assert snapshot["last_at"] is not None
+
+
 def test_modulo_no_importa_el_servicio_real() -> None:
     # Importar el puente no debe abrir conexiones ni construir el runtime.
     assert not hasattr(bridge_module, "default_chat_service")
