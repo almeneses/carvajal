@@ -10,7 +10,7 @@ turno: LangChain registra el error del callback y sigue.
 import threading
 import time
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -18,7 +18,10 @@ from langchain_core.outputs import LLMResult
 
 from carvajal.infrastructure.metrics import DEEPSEEK_CALLS, CallStats
 
-__all__ = ["DEEPSEEK_USAGE", "DeepSeekUsageCallback", "usage_of"]
+__all__ = ["DEEPSEEK_USAGE", "MAX_PENDING", "DeepSeekUsageCallback", "usage_of"]
+
+# Llamadas en curso que se recuerdan a la vez (inicio y modelo) para medir su latencia.
+MAX_PENDING: Final = 512
 
 
 def usage_of(response: LLMResult) -> tuple[int, int]:
@@ -59,9 +62,11 @@ class DeepSeekUsageCallback(BaseCallbackHandler):
         if not model and isinstance(serialized, Mapping):
             model = str((serialized.get("kwargs") or {}).get("model_name") or "")
         with self._lock:
-            # Sin fin (p. ej. una llamada abandonada por el plazo del turno) no crece sin límite.
-            if len(self._started) > 512:
-                self._started.clear()
+            # Sin fin (p. ej. una llamada abandonada por el plazo del turno) no crece sin límite:
+            # se descartan las más antiguas (el dict guarda el orden de inicio), no las que
+            # siguen en curso.
+            while len(self._started) >= MAX_PENDING:
+                self._started.pop(next(iter(self._started)))
             self._started[run_id] = (self._clock(), model)
 
     def _finish(self, run_id: UUID) -> tuple[float | None, str]:
@@ -95,6 +100,9 @@ class DeepSeekUsageCallback(BaseCallbackHandler):
             latency_ms=latency,
             input_tokens=prompt,
             output_tokens=completion,
+            # En streaming sin ``stream_usage`` (p. ej. ``DeepSeekProvider``) no llega el uso:
+            # /metricas lo dice en vez de presentar un costo completo.
+            usage_known=bool(prompt or completion),
         )
 
     def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:

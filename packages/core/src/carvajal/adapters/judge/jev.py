@@ -211,6 +211,9 @@ class JevClient:
             if blocked == "cap" and not self._cap_logged:
                 self._cap_logged = True
                 logger.warning("jev.cap_reached", calls_today=self.calls_today)
+            if blocked != "off":
+                # Spec 055: /metricas muestra los cortes por cupo o por circuito.
+                JEV_CALLS.block(str(blocked))
             raise JudgeUnavailable(blocked)
         with self._lock:
             self.calls_today += 1

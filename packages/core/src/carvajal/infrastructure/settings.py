@@ -159,8 +159,12 @@ class Settings(BaseSettings):
     mcp_token: str = Field(default="", repr=False)
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8765, ge=1, le=65535)
-    # Spec 055: ``/health`` del servidor MCP que lee la página de métricas de la app (en
-    # compose.prod.yml, http://mcp:8765/health por la red interna, con ``mcp_token``).
+    # Spec 055: bearer que solo abre ``/health`` del MCP (nunca ``/mcp``), para que la
+    # página de métricas de la app lea sus contadores sin tener ``mcp_token``, que abre
+    # cualquier chat de WhatsApp. El MCP lo acepta en ``/health``; la app lo envía.
+    mcp_health_token: str = Field(default="", repr=False)
+    # ``/health`` del servidor MCP que lee la página de métricas de la app (en
+    # compose.prod.yml, http://mcp:8765/health por la red interna, con ``mcp_health_token``).
     # Vacía: la tarjeta de WhatsApp solo muestra lo que guarda la base.
     metrics_mcp_health_url: str = ""
     # URL pública de la web (p. ej. http://203.0.113.10:8080) para los enlaces

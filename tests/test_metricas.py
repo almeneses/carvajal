@@ -6,7 +6,10 @@ operador y que nada de lo publicado lleva texto de personas, ``owner_key`` ni se
 """
 
 import json
+import threading
+import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -21,16 +24,20 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from apps.api.metrics import (
+    FAILURE_RETRY_TTL,
+    LANGSMITH_TTL,
     Card,
     MetricsBoard,
     TtlCache,
     deepseek_balance,
     deepseek_card,
+    jev_card,
     langsmith_card,
+    mcp_health,
     qdrant_card,
     whatsapp_card,
 )
-from carvajal.adapters.llm.usage import DeepSeekUsageCallback
+from carvajal.adapters.llm.usage import MAX_PENDING, DeepSeekUsageCallback
 from carvajal.adapters.storage import tables
 from carvajal.infrastructure import metrics as process_metrics
 from carvajal.infrastructure.metrics import CallStats, EventCounts, estimated_cost, percentile
@@ -105,6 +112,7 @@ def _settings(**values: Any) -> Settings:
         "monitoring_enabled": False,
         "deepseek_api_key": "",
         "mcp_token": "",
+        "mcp_health_token": "",
         "metrics_mcp_health_url": "",
         "operator_token": "",
     }
@@ -188,6 +196,46 @@ def test_callback_de_deepseek_cuenta_latencia_tokens_y_errores_sin_mensajes() ->
     assert "secreto" not in json.dumps(snapshot)
 
 
+def test_callback_de_deepseek_descarta_las_abandonadas_mas_antiguas_y_no_la_en_curso() -> None:
+    # Arrange: casi el tope de llamadas abandonadas, una en curso y dos más que empiezan.
+    stats = CallStats()
+    callback = DeepSeekUsageCallback(stats, clock=lambda: 1.0)
+    for _ in range(MAX_PENDING - 1):
+        callback.on_chat_model_start({}, [[]], run_id=uuid4(), invocation_params={"model": "a"})
+    en_curso = uuid4()
+    callback.on_chat_model_start({}, [[]], run_id=en_curso, invocation_params={"model": "m"})
+    for _ in range(2):
+        callback.on_chat_model_start({}, [[]], run_id=uuid4(), invocation_params={"model": "b"})
+
+    # Act
+    callback.on_llm_end(LLMResult(generations=[[]]), run_id=en_curso)
+    snapshot = stats.snapshot()
+
+    # Assert: la llamada en curso conserva su modelo y su latencia.
+    assert snapshot["by_kind"] == {"m": 1}
+    assert snapshot["latency_ms"]["samples"] == 1
+
+
+def test_callback_de_deepseek_cuenta_las_llamadas_sin_uso_informado() -> None:
+    # Arrange: en streaming sin stream_usage la respuesta no trae usage_metadata.
+    stats = CallStats()
+    callback = DeepSeekUsageCallback(stats)
+    run_id = uuid4()
+
+    # Act
+    callback.on_chat_model_start({}, [[]], run_id=run_id, invocation_params={"model": "m"})
+    callback.on_llm_end(
+        LLMResult(generations=[[ChatGeneration(message=AIMessage(content="hola"))]]),
+        run_id=run_id,
+    )
+    snapshot = stats.snapshot()
+
+    # Assert
+    assert snapshot["calls"] == 1
+    assert snapshot["without_usage"] == 1
+    assert (snapshot["input_tokens"], snapshot["output_tokens"]) == (0, 0)
+
+
 def test_el_cliente_de_jev_cuenta_cada_llamada_en_el_proceso(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -210,6 +258,46 @@ def test_el_cliente_de_jev_cuenta_cada_llamada_en_el_proceso(
     assert snapshot["by_kind"] == {"router": 1}
     assert snapshot["by_status"] == {"ok": 1}
     assert (snapshot["input_tokens"], snapshot["output_tokens"]) == (50, 2)
+
+
+def test_el_cliente_de_jev_cuenta_los_cortes_por_cupo_sin_contarlos_como_llamadas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: cupo de una llamada al día.
+    from carvajal.adapters.judge import jev as jev_module
+
+    stats = CallStats()
+    monkeypatch.setattr(jev_module, "JEV_CALLS", stats)
+    respuesta = {"model": "jev-1.14.0", "usage": {"input_tokens": 1, "output_tokens": 1}}
+    client = jev_module.JevClient(
+        api_key="clave",
+        max_calls_per_day=1,
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=respuesta)),
+    )
+
+    # Act
+    client.call("router", {}, {}, lambda payload: (payload["model"], {}))
+    for _ in range(2):
+        with pytest.raises(jev_module.JudgeUnavailable):
+            client.call("router", {}, {}, lambda payload: (payload["model"], {}))
+    snapshot = stats.snapshot()
+
+    # Assert
+    assert snapshot["calls"] == 1
+    assert snapshot["blocked"] == {"cap": 2}
+
+
+def test_jev_sin_clave_no_muestra_el_gatekeeper_encendido() -> None:
+    # Arrange: la configuración pide «on», pero falta TYPESAFE_API_KEY.
+    jev = {"configured": False, "enabled": True, "router": "on"}
+    claims = {"mode": "on"}
+
+    # Act
+    card = jev_card(_settings(), jev=jev, claims=claims, photo={"status": "off"})
+
+    # Assert
+    assert card.status == "off"
+    assert (card.data["router"], card.data["claims_mode"]) == ("off", "off")
 
 
 # --- Qdrant ------------------------------------------------------------------------------
@@ -485,7 +573,9 @@ def test_whatsapp_lee_el_health_del_mcp_con_su_bearer(factory: sessionmaker[Sess
             },
         )
 
-    settings = _settings(metrics_mcp_health_url="http://mcp:8765/health", mcp_token="token-mcp")
+    settings = _settings(
+        metrics_mcp_health_url="http://mcp:8765/health", mcp_health_token="token-mcp"
+    )
 
     # Act
     card = whatsapp_card(settings, _client(handler), factory)
@@ -498,11 +588,28 @@ def test_whatsapp_lee_el_health_del_mcp_con_su_bearer(factory: sessionmaker[Sess
     assert "token-mcp" not in json.dumps(card.data, default=str)
 
 
+def test_whatsapp_no_usa_el_bearer_de_mcp_para_leer_el_health() -> None:
+    """MCP_TOKEN abre /mcp; aunque la app lo tuviera, /metricas solo envía MCP_HEALTH_TOKEN."""
+
+    # Arrange
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("sin MCP_HEALTH_TOKEN no se consulta el MCP")
+
+    settings = _settings(metrics_mcp_health_url="http://mcp:8765/health", mcp_token="token-mcp")
+
+    # Act
+    mcp = mcp_health(settings, _client(handler))
+
+    # Assert
+    assert mcp["status"] == "off"
+    assert "MCP_HEALTH_TOKEN" in mcp["reason"]
+
+
 def test_whatsapp_sin_base_ni_mcp_queda_no_disponible() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("caído")
 
-    settings = _settings(metrics_mcp_health_url="http://mcp:8765/health", mcp_token="t")
+    settings = _settings(metrics_mcp_health_url="http://mcp:8765/health", mcp_health_token="t")
 
     card = whatsapp_card(settings, _client(handler), None)
 
@@ -539,6 +646,124 @@ def test_la_cache_sirve_lo_vigente_y_ante_un_fallo_el_dato_anterior() -> None:
     assert tercero.stale is True
     assert tercero.data == {"points": 1}
     assert tercero.reason == "No respondió a tiempo."
+
+
+def test_la_cache_guarda_el_fallo_y_no_consulta_la_fuente_caida_en_cada_visita() -> None:
+    # Arrange: dato bueno, caduca y la fuente cae.
+    reloj = [0.0]
+    cache = TtlCache(clock=lambda: reloj[0])
+    llamadas: list[str] = []
+    estado = {"ok": True}
+
+    def loader() -> Card:
+        llamadas.append("ok" if estado["ok"] else "falla")
+        if estado["ok"]:
+            return Card("q", "Q", "ok", data={"points": 1}, ttl_s=600)
+        return Card("q", "Q", "unavailable", "No se pudo conectar.")
+
+    cache.get("q", 600, loader)
+    reloj[0] = 601
+    estado["ok"] = False
+
+    # Act: diez visitas en 50 s y otra pasado el minuto de reintento.
+    vistas = []
+    for _ in range(10):
+        reloj[0] += 5
+        vistas.append(cache.get("q", 600, loader))
+    reloj[0] += 60
+    estado["ok"] = True
+    recuperada = cache.get("q", 600, loader)
+
+    # Assert: una sola consulta durante el fallo, datos anteriores marcados y recuperación.
+    assert llamadas == ["ok", "falla", "ok"]
+    assert all(v.stale and v.data == {"points": 1} for v in vistas)
+    assert vistas[-1].ttl_s == FAILURE_RETRY_TTL
+    assert recuperada.stale is False
+
+
+def test_un_fallo_sin_dato_previo_se_reintenta_al_minuto_y_no_a_los_diez() -> None:
+    # Arrange
+    reloj = [0.0]
+    cache = TtlCache(clock=lambda: reloj[0])
+    estado = {"ok": False}
+
+    def loader() -> Card:
+        if estado["ok"]:
+            return Card("q", "Q", "ok", data={"points": 1})
+        return Card("q", "Q", "unavailable", "No respondió a tiempo.")
+
+    # Act
+    primera = cache.get("q", 600, loader)
+    estado["ok"] = True
+    reloj[0] = 30
+    durante = cache.get("q", 600, loader)
+    reloj[0] = FAILURE_RETRY_TTL + 1
+    despues = cache.get("q", 600, loader)
+
+    # Assert
+    assert (primera.status, durante.status, despues.status) == ("unavailable",) * 2 + ("ok",)
+
+
+def test_varias_visitas_con_el_dato_caducado_recargan_una_sola_vez() -> None:
+    # Arrange: el loader tarda; ocho hilos piden la misma clave a la vez.
+    cache = TtlCache()
+    llamadas: list[int] = []
+    puerta = threading.Event()
+
+    def loader() -> Card:
+        llamadas.append(1)
+        puerta.wait(timeout=2)
+        return Card("q", "Q", "ok")
+
+    # Act
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futuros = [pool.submit(cache.get, "q", 60, loader) for _ in range(8)]
+        time.sleep(0.1)
+        puerta.set()
+        resultados = [f.result(timeout=5) for f in futuros]
+
+    # Assert
+    assert len(llamadas) == 1
+    assert all(r.status == "ok" for r in resultados)
+
+
+def test_langsmith_en_429_no_se_vuelve_a_consultar_en_diez_minutos() -> None:
+    # Arrange: primera carga buena; al caducar, LangSmith responde 429 (spec 055, edge case).
+    reloj = [0.0]
+    peticiones: list[str] = []
+    estado = {"ok": True}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.smith.langchain.com":
+            return httpx.Response(503)
+        peticiones.append(request.url.path)
+        if not estado["ok"]:
+            return httpx.Response(429)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    board = MetricsBoard(
+        settings=_settings(monitoring_enabled=True, langsmith_api_key="k"),
+        transport=httpx.MockTransport(handler),
+        cache=TtlCache(clock=lambda: reloj[0]),
+    )
+    vista = {"operator": False, "jev": {}, "claims": {}, "photo": {}}
+    board.cards(**vista)
+    reloj[0] = LANGSMITH_TTL + 1
+    estado["ok"] = False
+    peticiones.clear()
+
+    # Act: diez visitas en 50 s.
+    for _ in range(10):
+        reloj[0] += 5
+        tarjeta = next(c for c in board.cards(**vista) if c.key == "langsmith")
+
+    # Assert: una sola petición (la que recibió el 429) y los datos anteriores marcados.
+    assert peticiones == ["/sessions"]
+    assert tarjeta.status == "ok" and tarjeta.stale is True
+    assert "429" in tarjeta.reason
+    assert tarjeta.ttl_s == LANGSMITH_TTL
 
 
 # --- Vista -------------------------------------------------------------------------------

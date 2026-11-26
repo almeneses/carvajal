@@ -150,3 +150,24 @@ def test_compose_lleva_el_precio_de_deepseek_y_el_health_del_mcp_a_la_app() -> N
         f"${{DEEPSEEK_PRICE_OUTPUT_PER_MILLION:-{defaults.deepseek_price_output_per_million:.2f}}}"
     ) in text
     assert "METRICS_MCP_HEALTH_URL: ${METRICS_MCP_HEALTH_URL:-http://mcp:8765/health}" in text
+
+
+def test_la_app_web_no_recibe_el_bearer_de_mcp_sino_el_de_solo_health() -> None:
+    """Spec 055: MCP_TOKEN abre /mcp (cualquier chat de WhatsApp); la app, que da a internet,
+    solo lleva MCP_HEALTH_TOKEN, que el MCP acepta únicamente en /health."""
+
+    import yaml
+
+    # Arrange
+    services = yaml.safe_load((REPO / "compose.prod.yml").read_text(encoding="utf-8"))["services"]
+
+    # Act
+    app = services["app"]["environment"]
+    bootstrap = services["bootstrap"]["environment"]
+    mcp = services["mcp"]["environment"]
+
+    # Assert
+    assert "MCP_TOKEN" not in app and "MCP_TOKEN" not in bootstrap
+    assert app["MCP_HEALTH_TOKEN"] == "${MCP_HEALTH_TOKEN:-}"
+    assert mcp["MCP_TOKEN"] == "${MCP_TOKEN:-}"
+    assert mcp["MCP_HEALTH_TOKEN"] == "${MCP_HEALTH_TOKEN:-}"

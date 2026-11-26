@@ -46,9 +46,11 @@ cifras principales y cuándo se consultó cada fuente.
 **Given** Qdrant (o LangSmith, o el MCP) no responde, **When** se abre `/metricas`, **Then**
 su tarjeta dice «No disponible» y por qué («No respondió a tiempo.», «No se pudo conectar.»,
 «Pidió esperar… (HTTP 429)»), y el resto se muestra. Si había un dato anterior, se muestra
-marcado como «Datos anteriores».
+marcado como «Datos anteriores». La fuente caída no se vuelve a consultar en cada visita.
 *Evidencia*: `test_qdrant_caido_dice_por_que`, `test_langsmith_que_pide_esperar_queda_no_disponible`,
-`test_la_cache_sirve_lo_vigente_y_ante_un_fallo_el_dato_anterior`.
+`test_la_cache_sirve_lo_vigente_y_ante_un_fallo_el_dato_anterior`,
+`test_la_cache_guarda_el_fallo_y_no_consulta_la_fuente_caida_en_cada_visita`,
+`test_langsmith_en_429_no_se_vuelve_a_consultar_en_diez_minutos`.
 
 ### US3 – Solo el operador ve el saldo de DeepSeek (P1)
 
@@ -64,7 +66,7 @@ que falla si se pide el saldo.
 **Given** el gateway de OpenClaw en otra VM, **When** se abre la tarjeta, **Then** dice que el
 gateway no es accesible desde la app y muestra lo que guarda la base (mensajes y
 conversaciones por canal en 24 h y 7 días, chats distintos, cotizaciones y último mensaje) y,
-con `METRICS_MCP_HEALTH_URL` y `MCP_TOKEN`, lo que observa el servidor MCP.
+con `METRICS_MCP_HEALTH_URL` y `MCP_HEALTH_TOKEN`, lo que observa el servidor MCP.
 *Evidencia*: `test_whatsapp_cuenta_por_canal_sin_textos_ni_owner_keys`,
 `test_whatsapp_lee_el_health_del_mcp_con_su_bearer`,
 `tests/test_mcp_whatsapp.py::test_health_del_mcp_publica_las_metricas_del_proceso_sin_texto`.
@@ -84,7 +86,19 @@ puerto cerrado).
 - **Sin clave de DeepSeek o con otro proveedor**: «Apagado»; no se consulta el saldo.
 - **Sin el perfil `whatsapp`**: la URL por defecto del MCP no resuelve y su bloque dice «No se
   pudo conectar.»; los conteos de la base siguen.
-- **LangSmith limita la frecuencia (429)**: la consulta se repite como mucho cada 10 minutos.
+- **LangSmith limita la frecuencia (429)**: la consulta se repite como mucho cada 10 minutos,
+  aunque haya un dato anterior que mostrar.
+- **Una fuente falla por otro motivo**: el fallo se guarda un minuto; las visitas de ese
+  minuto ven «No disponible» o los datos anteriores sin consultarla, y la tarjeta se recupera
+  al minuto siguiente, no a los diez.
+- **Varias visitas con el dato caducado**: la recarga de cada fuente va de a una; las demás
+  visitas esperan su resultado en vez de lanzar otra consulta.
+- **OpenClaw reintenta un turno ya atendido** (`client_turn_id`): cuenta como reintento, no
+  como mensaje nuevo, para que el contador del MCP cuadre con la base.
+- **Jev sin cupo o con el circuito abierto**: la llamada no sale; se cuenta como corte, sin
+  entrar en los percentiles ni en «Con error».
+- **DeepSeek en streaming sin `stream_usage`**: la llamada cuenta, sus tokens no; la tarjeta
+  avisa de cuántas llamadas no informaron uso y de que el costo se queda corto.
 - **Muchos runs**: se usa el agregado `POST /runs/stats`; nunca se listan runs.
 
 ## Requirements *(mandatory)*
@@ -97,7 +111,7 @@ puerto cerrado).
 | Jev | modelo, modos del gatekeeper y la compuerta, umbral, cupo del día y de fotos, llamadas por tipo y estado, latencia p50/p95, tokens, último error; compuerta: juzgadas, sustituidas, tasa, no respaldadas e histograma de `p` | bloques `jev`, `claims` y `food_photo` de `/health` y `JEV_CALLS` (en proceso, sin red) | en cada carga |
 | LangSmith | trazas raíz, errores y tasa, latencia p50/p99, tokens de entrada y salida, última traza, en 24 h y 7 días | `GET /sessions?name=` y dos `POST /runs/stats` (filtro por `agent_environment` si está configurado), plazo 4 s | caché 10 min |
 | DeepSeek | llamadas, errores, latencia p50/p95, tokens, costo estimado (USD por millón configurable, 0,30/1,20); **saldo solo para el operador** | callback de LangChain en el `ChatOpenAI` (`DEEPSEEK_CALLS`); `GET /user/balance`, plazo 3 s | en cada carga; saldo con caché 5 min |
-| WhatsApp (OpenClaw) | por canal (WhatsApp y web): mensajes y conversaciones en 24 h y 7 días, chats distintos, cotizaciones, último mensaje; del MCP: mensajes, fotos, notas de voz, PDF, errores, sin cupo, no autorizados, fotos rechazadas, última actividad, sustituidas y llamadas a Jev/DeepSeek | consultas agregadas a `messages`, `conversations` y `quotes` (canal por el prefijo `wa_` del dueño); `GET /health` del MCP con `MCP_TOKEN`, plazo 2 s | caché 60 s |
+| WhatsApp (OpenClaw) | por canal (WhatsApp y web): mensajes y conversaciones en 24 h y 7 días, chats distintos, cotizaciones, último mensaje; del MCP: mensajes, fotos, notas de voz, PDF, errores, sin cupo, no autorizados, fotos rechazadas, última actividad, sustituidas y llamadas a Jev/DeepSeek | consultas agregadas a `messages`, `conversations` y `quotes` (canal por el prefijo `wa_` del dueño); `GET /health` del MCP con `MCP_HEALTH_TOKEN`, plazo 2 s | caché 60 s |
 
 - **FR-001**: `/metricas` es pública y solo muestra agregados. El saldo de DeepSeek requiere
   `operator_authorized` (el mismo mecanismo que Configuración).
@@ -107,15 +121,20 @@ puerto cerrado).
   página responde 200. Con un dato anterior, se muestra marcado.
 - **FR-004**: Los contadores en proceso son seguros entre hilos, no guardan texto y conservan
   como mucho las últimas 1.000 latencias.
-- **FR-005**: El `/health` del MCP exige el mismo bearer y acepta, además del loopback, el
-  `Host` del servicio `mcp` de compose; `/mcp` sigue aceptando solo loopback.
+- **FR-005**: El `/health` del MCP exige un bearer (`MCP_TOKEN` o `MCP_HEALTH_TOKEN`) y
+  acepta, además del loopback, el `Host` del servicio `mcp` de compose; `/mcp` sigue aceptando
+  solo loopback y solo `MCP_TOKEN`. La app web recibe `MCP_HEALTH_TOKEN` y nunca `MCP_TOKEN`,
+  que abre `consultar_carvajal` con cualquier número de WhatsApp; si ambos coinciden, el MCP
+  descarta el de `/health` (`mcp.health_token_reused`).
+- **FR-007**: Una fuente que falla se guarda en la caché con vigencia corta (60 s, o la de la
+  tarjeta si la fuente pidió esperar) y la recarga va de a una por fuente.
 - **FR-006**: El healthcheck de Qdrant no depende de herramientas que la imagen no trae.
 
 ### Qué es público y qué es del operador
 
 | Público | Solo operador | Nunca |
 |---|---|---|
-| Todas las tarjetas y sus cifras agregadas | Saldo de la cuenta de DeepSeek | Texto de personas, `owner_key`, teléfonos, claves (`DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `LANGSMITH_API_KEY`, `QDRANT_API_KEY`, `MCP_TOKEN`) |
+| Todas las tarjetas y sus cifras agregadas | Saldo de la cuenta de DeepSeek | Texto de personas, `owner_key`, teléfonos, claves (`DEEPSEEK_API_KEY`, `TYPESAFE_API_KEY`, `LANGSMITH_API_KEY`, `QDRANT_API_KEY`, `MCP_TOKEN`, `MCP_HEALTH_TOKEN`) |
 
 ## Limitaciones
 

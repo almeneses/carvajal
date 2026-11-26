@@ -157,9 +157,11 @@ services:
       # un alias aceptado por Settings.
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
       # Spec 055: /metricas lee los contadores del servidor MCP (perfil `whatsapp`) por la red
-      # interna con su bearer. Sin el perfil o sin MCP_TOKEN, la tarjeta de WhatsApp muestra
-      # solo lo que guarda la base. El servicio `mcp` vuelve a fijar MCP_TOKEN abajo.
-      MCP_TOKEN: ${MCP_TOKEN:-}
+      # interna con MCP_HEALTH_TOKEN, un bearer aparte que solo abre /health: MCP_TOKEN
+      # (que abre /mcp y con él cualquier chat de WhatsApp) no llega a la app web. Sin el
+      # perfil o sin MCP_HEALTH_TOKEN, la tarjeta de WhatsApp muestra solo lo que guarda la
+      # base. El servicio `mcp` fija MCP_TOKEN abajo y hereda MCP_HEALTH_TOKEN.
+      MCP_HEALTH_TOKEN: ${MCP_HEALTH_TOKEN:-}
       METRICS_MCP_HEALTH_URL: ${METRICS_MCP_HEALTH_URL:-http://mcp:8765/health}
       # Webhook firmado de mensajería en POST /api/webhooks/whatsapp (docs/webhooks.md).
       # Sin secreto responde 404; la allowlist E.164 separada por comas vacía rechaza

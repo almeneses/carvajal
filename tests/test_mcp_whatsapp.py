@@ -488,6 +488,76 @@ def test_health_del_mcp_acepta_el_host_del_servicio_interno_y_mcp_no() -> None:
     assert mcp.status_code in {400, 403, 421}
 
 
+def test_el_bearer_de_health_abre_solo_health_y_no_mcp() -> None:
+    """Spec 055: la app web lleva MCP_HEALTH_TOKEN; con él no puede llamar a /mcp."""
+
+    # Arrange
+    app = build_app(build_server(_bridge(FakeChat())), "token-mcp", health_token="token-health")
+    headers = {
+        "Authorization": "Bearer token-health",
+        "Accept": "application/json, text/event-stream",
+    }
+    initialize = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "prueba", "version": "0"},
+        },
+    }
+
+    # Act
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        health = client.get("/health", headers=headers)
+        mcp = client.post("/mcp", json=initialize, headers=headers)
+        full = client.get("/health", headers={"Authorization": "Bearer token-mcp"})
+
+    # Assert
+    assert health.status_code == 200
+    assert mcp.status_code == 401
+    assert full.status_code == 200
+
+
+def test_un_bearer_de_health_igual_a_mcp_token_se_ignora() -> None:
+    # Arrange: si fueran iguales, la app web tendría /mcp; el MCP descarta el de /health.
+    app = build_app(build_server(_bridge(FakeChat())), "mismo", health_token=" mismo ")
+
+    # Act
+    with TestClient(app, base_url="http://127.0.0.1:8765") as client:
+        health = client.get("/health", headers={"Authorization": "Bearer mismo"})
+        other = client.get("/health", headers={"Authorization": "Bearer otro"})
+
+    # Assert: MCP_TOKEN sigue abriendo /health y nada más cambia.
+    assert health.status_code == 200
+    assert other.status_code == 401
+
+
+def test_un_reintento_de_openclaw_no_cuenta_como_mensaje_nuevo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Spec 055: «mensajes» del MCP cuadra con la base aunque OpenClaw reintente el turno."""
+
+    # Arrange: el almacén de entregas por defecto y uno de turnos que ya guardó «t-2».
+    from carvajal.infrastructure import metrics
+
+    eventos = metrics.EventCounts()
+    monkeypatch.setattr(bridge_module, "WHATSAPP_EVENTS", eventos)
+    bridge = _bridge(
+        FakeChat(events=_turn("Hola, soy Carva")),
+        turns=lambda _owner, turn_id: "hilo-1" if turn_id == "t-2" else None,
+    )
+
+    # Act
+    bridge.respond("hola", "+573100000000", client_turn_id="t-1")
+    bridge.respond("hola", "+573100000000", client_turn_id="t-1")
+    bridge.respond("hola", "+573100000000", client_turn_id="t-2", voice=True)
+
+    # Assert
+    assert eventos.snapshot()["counts"] == {"mensajes": 1, "reintentos": 2}
+
+
 def test_el_puente_cuenta_errores_y_fotos_sin_datos_de_la_persona(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

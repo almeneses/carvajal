@@ -56,6 +56,8 @@ QDRANT_TTL: Final = 60
 LANGSMITH_TTL: Final = 600
 BALANCE_TTL: Final = 300
 WHATSAPP_TTL: Final = 60
+# Vigencia de un fallo: una fuente caída se vuelve a consultar como mucho una vez por minuto.
+FAILURE_RETRY_TTL: Final = 60
 # Plazos por petición, en segundos: la página no espera a una fuente lenta.
 QDRANT_TIMEOUT: Final = 2.0
 LANGSMITH_TIMEOUT: Final = 4.0
@@ -88,25 +90,56 @@ def _now() -> datetime:
 
 
 class TtlCache:
-    """Caché por clave con vigencia; ante un fallo conserva el último dato disponible."""
+    """Caché por clave con vigencia; ante un fallo conserva el último dato disponible.
+
+    Un fallo también se guarda, con una vigencia corta (:data:`FAILURE_RETRY_TTL`, o la de
+    la propia tarjeta si la fuente pidió esperar): así una fuente caída se consulta como
+    mucho una vez por minuto y no en cada visita, y se recupera sin esperar la vigencia
+    completa. La recarga de cada clave va de a una: si varias visitas llegan con el dato
+    caducado, una consulta la fuente y las demás esperan su resultado.
+    """
 
     def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
         self._lock = threading.Lock()
-        self._items: dict[str, tuple[float, Card]] = {}
+        self._key_locks: dict[str, threading.Lock] = {}
+        # Clave → (momento en que se guardó, tarjeta, vigencia en segundos).
+        self._items: dict[str, tuple[float, Card, float]] = {}
 
-    def get(self, key: str, ttl: int, loader: Callable[[], Card]) -> Card:
+    def _key_lock(self, key: str) -> threading.Lock:
+        with self._lock:
+            return self._key_locks.setdefault(key, threading.Lock())
+
+    def _fresh(self, key: str) -> tuple[Card | None, Card | None]:
+        """La tarjeta vigente (si la hay) y la última guardada, vigente o no."""
+
         with self._lock:
             cached = self._items.get(key)
-        if cached is not None and self._clock() - cached[0] < ttl:
-            return cached[1]
-        fresh = loader()
-        if fresh.status == "unavailable" and cached is not None and cached[1].status == "ok":
-            # El dato anterior sirve más que un «no disponible»; se marca y se reintenta pronto.
-            return replace(cached[1], stale=True, reason=fresh.reason)
-        with self._lock:
-            self._items[key] = (self._clock(), fresh)
-        return fresh
+        if cached is None:
+            return None, None
+        stored_at, card, valid_for = cached
+        return (card if self._clock() - stored_at < valid_for else None), card
+
+    def get(self, key: str, ttl: int, loader: Callable[[], Card]) -> Card:
+        current, _ = self._fresh(key)
+        if current is not None:
+            return current
+        with self._key_lock(key):
+            # Otra visita pudo recargarla mientras esta esperaba el turno.
+            current, previous = self._fresh(key)
+            if current is not None:
+                return current
+            fresh = loader()
+            valid_for: float = ttl
+            if fresh.status == "unavailable":
+                valid_for = fresh.ttl_s or min(ttl, FAILURE_RETRY_TTL)
+                if previous is not None and previous.status == "ok":
+                    # El dato anterior sirve más que un «no disponible»; se marca y se reintenta
+                    # cuando vence la vigencia corta.
+                    fresh = replace(previous, stale=True, reason=fresh.reason, ttl_s=int(valid_for))
+            with self._lock:
+                self._items[key] = (self._clock(), fresh, valid_for)
+            return fresh
 
     def clear(self) -> None:
         with self._lock:
@@ -236,13 +269,16 @@ def jev_card(
     """Gatekeeper, compuerta de afirmaciones y fotos de este proceso; sin red."""
 
     calls = JEV_CALLS.snapshot()
+    # Sin clave o con JEV_ENABLED=false, el gatekeeper y la compuerta no actúan aunque la
+    # configuración tenga un modo: la tarjeta no dice «on» junto a «Apagado».
+    active = bool(jev.get("configured")) and bool(jev.get("enabled"))
     data = {
         "configured": jev.get("configured"),
         "enabled": jev.get("enabled"),
         "available": jev.get("available"),
         "model": jev.get("model"),
-        "router": jev.get("router"),
-        "claims_mode": claims.get("mode"),
+        "router": jev.get("router") if active else "off",
+        "claims_mode": claims.get("mode") if active else "off",
         "threshold": claims.get("threshold"),
         "calls_today": jev.get("calls_today"),
         "cap": settings.jev_max_calls_per_day,
@@ -347,7 +383,17 @@ def langsmith_card(
             windows[label] = _langsmith_window(stats.json())
     except Exception as error:
         logger.info("metrics.langsmith_failed", error_type=type(error).__name__)
-        return Card("langsmith", title, "unavailable", _failure(error), updated_at=_now())
+        # Si LangSmith pidió esperar (429), no se vuelve a consultar hasta la vigencia
+        # completa; ante otros fallos la caché reintenta en un minuto.
+        limited = isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429
+        return Card(
+            "langsmith",
+            title,
+            "unavailable",
+            _failure(error),
+            updated_at=_now(),
+            ttl_s=LANGSMITH_TTL if limited else 0,
+        )
     data = {
         "project": settings.langsmith_project,
         "environment": environment or None,
@@ -493,11 +539,14 @@ def mcp_health(settings: Settings, client: httpx.Client) -> dict[str, Any]:
     """``/health`` del servidor MCP (contadores del proceso de WhatsApp) o el motivo del fallo."""
 
     url = settings.metrics_mcp_health_url.strip()
-    token = settings.mcp_token.strip()
+    # El bearer de solo ``/health``: la app web no recibe ``MCP_TOKEN``, que abre ``/mcp``.
+    token = settings.mcp_health_token.strip()
     if not url or not token:
         return {
             "status": "off",
-            "reason": "La app no tiene METRICS_MCP_HEALTH_URL y MCP_TOKEN para consultar el MCP.",
+            "reason": (
+                "La app no tiene METRICS_MCP_HEALTH_URL y MCP_HEALTH_TOKEN para consultar el MCP."
+            ),
         }
     try:
         response = client.get(

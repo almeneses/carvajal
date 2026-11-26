@@ -592,6 +592,7 @@ cp .env.example .env
 | `FOOD_PHOTO_TIMEOUT_S` / `FOOD_PHOTO_MIN_CONFIDENCE` | `4.0` / `0.6` | Plazo de Jev con imagen y umbral para preguntar en vez de sugerir |
 | `OPENCLAW_MEDIA_DIR` | vacío | Carpeta de adjuntos de OpenClaw montada en solo lectura en `mcp` (fotos por WhatsApp) |
 | `MCP_TOKEN` | vacío | Bearer del servidor MCP; sin él no arranca |
+| `MCP_HEALTH_TOKEN` | vacío | Bearer que solo abre el `/health` del MCP; lo usa `/metricas` de la app (que nunca recibe `MCP_TOKEN`) |
 | `PUBLIC_BASE_URL` | vacío | URL pública para los enlaces al PDF y a las fotos del catálogo |
 | `HTTPS_REDIRECT` | `true` | Con `PUBLIC_BASE_URL` https, redirige (307) al dominio público las navegaciones que llegan por IP:puerto |
 | `WEBHOOK_SECRET` | vacío | Secreto HMAC del webhook; vacío lo deshabilita (404) |

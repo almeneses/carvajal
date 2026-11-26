@@ -11,9 +11,10 @@ Seguridad, en capas:
   token configurado la aplicación no se construye: falla cerrada.
 - Protección contra DNS rebinding: solo se aceptan cabeceras ``Host`` de loopback.
 - ``/live`` responde sin token y sin tocar la base, para el healthcheck del contenedor.
-- ``/health`` (con el mismo bearer) publica los contadores de la compuerta de afirmaciones
-  de este proceso (bloque ``claims``, como el de ``/health`` de la app web): WhatsApp corre
-  el agente aquí, en otro proceso, y sus veredictos no llegan a los de la app. Desde la spec
+- ``/health`` (con el mismo bearer, o con ``MCP_HEALTH_TOKEN``, que solo abre esta ruta)
+  publica los contadores de la compuerta de afirmaciones de este proceso (bloque ``claims``,
+  como el de ``/health`` de la app web): WhatsApp corre el agente aquí, en otro proceso, y
+  sus veredictos no llegan a los de la app. Desde la spec
   055 publica también el bloque ``metrics`` (mensajes, errores, no autorizados y PDF del
   puente, llamadas a Jev y a DeepSeek de este proceso), que lee la página ``/metricas`` de la
   app por la red interna de compose: por eso ``/health`` acepta además el ``Host`` del
@@ -173,8 +174,19 @@ def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPSe
     return server
 
 
-def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
+def _bearer_guard(app: ASGIApp, token: str, health_token: str = "") -> ASGIApp:
     expected = f"Bearer {token}".encode()
+    # Spec 055: el bearer de la app web solo abre ``/health``; ``/mcp`` exige ``MCP_TOKEN``.
+    health_expected = f"Bearer {health_token}".encode() if health_token else None
+
+    def authorized(path: str | None, supplied: bytes) -> bool:
+        if hmac.compare_digest(supplied, expected):
+            return True
+        return (
+            path == "/health"
+            and health_expected is not None
+            and hmac.compare_digest(supplied, health_expected)
+        )
 
     async def guarded(
         scope: MutableMapping[str, Any],
@@ -184,7 +196,7 @@ def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
         if scope["type"] == "http" and scope.get("path") != "/live":
             headers = dict(scope.get("headers") or [])
             supplied = headers.get(b"authorization", b"")
-            if not hmac.compare_digest(supplied, expected):
+            if not authorized(scope.get("path"), supplied):
                 logger.warning("mcp.unauthorized", path=scope.get("path"))
                 WHATSAPP_EVENTS.count("no_autorizados")
                 response: Response = JSONResponse({"detail": "No autorizado."}, 401)
@@ -195,12 +207,21 @@ def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
     return guarded
 
 
-def build_app(server: MCPServer, token: str) -> ASGIApp:
+def build_app(server: MCPServer, token: str, *, health_token: str = "") -> ASGIApp:
     """Aplicación ASGI: ``/mcp`` y ``/health`` con bearer y anti DNS rebinding, ``/live``
-    abierto."""
+    abierto.
+
+    ``health_token`` (``MCP_HEALTH_TOKEN``) es un bearer aparte que abre solo ``/health``:
+    lo lleva la app web para la página de métricas sin recibir ``MCP_TOKEN``.
+    """
 
     if not token.strip():
         raise RuntimeError("Define MCP_TOKEN: el servidor MCP no arranca sin token.")
+    health_token = health_token.strip()
+    if health_token and hmac.compare_digest(health_token.encode(), token.strip().encode()):
+        # Igual a MCP_TOKEN, la app web tendría acceso a /mcp: se ignora y se avisa.
+        logger.warning("mcp.health_token_reused")
+        health_token = ""
 
     @server.custom_route("/live", methods=["GET"], include_in_schema=False)
     async def live(_request: Request) -> Response:
@@ -246,7 +267,7 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
         )
 
     app: Starlette = server.streamable_http_app(transport_security=security)
-    return _bearer_guard(app, token.strip())
+    return _bearer_guard(app, token.strip(), health_token)
 
 
 @cache

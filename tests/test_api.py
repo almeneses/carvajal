@@ -290,6 +290,29 @@ def test_chat_reserva_un_estado_accesible_sin_cargador_inicial() -> None:
     assert '<p id="chat-stream-estado" class="estado-chat" role="status"></p>' in response.text
 
 
+def test_el_aviso_de_la_foto_dice_a_donde_va_sin_cortarse_y_la_cabecera_baja_no_crece() -> None:
+    """Revisión de la spec 055: en el teléfono el resumen quedaba en «Se analiza con un servic…»
+    y en portátiles de 600-700 px de alto «Corpus público» bajaba a una segunda fila."""
+
+    # Arrange
+    from pathlib import Path
+
+    api = Path(main.__file__).resolve().parent
+    plantilla = (api / "templates" / "chat.html").read_text(encoding="utf-8")
+    css = (api / "static" / "chat.css").read_text(encoding="utf-8")
+
+    # Act
+    resumen = re.search(r'<span class="foto-aviso-resumen">([^<]+)</span>', plantilla)
+    regla = re.search(r"\.foto-aviso-resumen \{([^}]*)\}", css)
+    baja = css[css.index("@media (max-height: 700px)") :]
+
+    # Assert
+    assert resumen is not None and "TypeSafe (EE. UU.)" in resumen.group(1)
+    assert regla is not None
+    assert "nowrap" not in regla.group(1) and "ellipsis" not in regla.group(1)
+    assert re.search(r"\.cabecera:has\(\+ \.ancho-chat\) \.estado-sitio \{\s*display: none;", baja)
+
+
 def test_chat_carga_los_controles_de_voz_sin_estilos_inline() -> None:
     """La base de la 040 se sirve desde archivos propios, bajo la CSP vigente."""
 

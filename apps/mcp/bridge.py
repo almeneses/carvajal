@@ -918,6 +918,14 @@ def _collect(events: Iterable[ChatEvent]) -> _Turn:
     return _Turn("".join(fragments), sources, folios, error, flow)
 
 
+def _count_message(voice: bool) -> None:
+    """Spec 055: un mensaje que el puente atiende por primera vez (solo conteos, sin texto)."""
+
+    WHATSAPP_EVENTS.count("mensajes")
+    if voice:
+        WHATSAPP_EVENTS.count("notas_de_voz")
+
+
 @dataclass(frozen=True)
 class WhatsAppBridge:
     """Atiende un mensaje de WhatsApp con un turno del chat web."""
@@ -1009,22 +1017,23 @@ class WhatsAppBridge:
             return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)
         structlog.contextvars.bind_contextvars(owner_key=owner, channel="whatsapp")
-        # Spec 055: lo que observa el puente para /metricas (solo conteos, sin texto).
-        WHATSAPP_EVENTS.count("mensajes")
-        if voice:
-            WHATSAPP_EVENTS.count("notas_de_voz")
         try:
             try:
                 replayed = self._replay(owner, text, client_turn_id)
                 if replayed is not None:
+                    # Spec 055: un reintento de OpenClaw no es un mensaje nuevo en /metricas.
+                    WHATSAPP_EVENTS.count("reintentos")
                     return replayed
                 claim = self._claim(owner, client_turn_id)
             except Exception as error:  # el canal nunca recibe una traza interna
                 logger.warning("whatsapp.turn_failed", error=repr(error))
+                _count_message(voice)
                 WHATSAPP_EVENTS.count("errores")
                 return BridgeReply(SERVICE_UNAVAILABLE)
             if claim is not None and claim.status != "acquired":
+                WHATSAPP_EVENTS.count("reintentos")
                 return self._claimed_elsewhere(claim, owner, text, client_turn_id)
+            _count_message(voice)
             effects = _Effects(
                 quota=claim is not None and claim.quota_charged,
                 thread=claim is not None and claim.thread_opened,
@@ -1074,10 +1083,8 @@ class WhatsAppBridge:
             return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)
         structlog.contextvars.bind_contextvars(owner_key=owner, channel="whatsapp")
-        WHATSAPP_EVENTS.count("mensajes")
+        _count_message(voice)
         WHATSAPP_EVENTS.count("fotos")
-        if voice:
-            WHATSAPP_EVENTS.count("notas_de_voz")
         try:
             classifier = self.food_classifier
             turns = self.chat

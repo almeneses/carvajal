@@ -98,6 +98,7 @@
         {{ dato("Cupo del día", (j.data.calls_today | metrica_numero) ~ " de " ~ (j.data.cap | metrica_numero)) }}
         {{ dato("Fotos del día", (j.data.photo_calls_today | metrica_numero) ~ " de " ~ (j.data.photo_cap | metrica_numero), j.data.photo_status or "") }}
         {{ llamadas(j.data.calls) }}
+        {{ dato("Sin llamar (cupo / circuito)", (j.data.calls.blocked.get("cap", 0) | metrica_numero) ~ " / " ~ (j.data.calls.blocked.get("circuit_open", 0) | metrica_numero)) }}
         {{ dato("Último error", j.data.last_error or "ninguno") }}
       </dl>
       {% if j.data.calls.by_kind %}
@@ -205,6 +206,9 @@
       </dl>
       {% endif %}
       <p class="tarjeta-nota">El costo es una estimación con el precio configurado: no descuenta los tokens servidos desde la caché de DeepSeek.</p>
+      {% if d.data.calls.without_usage %}
+      <p class="tarjeta-nota">{{ d.data.calls.without_usage | metrica_numero }} llamadas no informaron tokens (streaming sin uso): el costo estimado se queda corto.</p>
+      {% endif %}
       {{ pie_tarjeta(d) }}
     </article>
     {% endif %}
@@ -249,6 +253,7 @@
       {% set cuentas = m.whatsapp.counts or {} %}
       <dl class="datos">
         {{ dato("Mensajes", cuentas.get("mensajes", 0) | metrica_numero, "desde " ~ (m.whatsapp.since | metrica_cuando)) }}
+        {{ dato("Reintentos de OpenClaw", cuentas.get("reintentos", 0) | metrica_numero, "turnos ya atendidos que se reemitieron") }}
         {{ dato("Fotos / notas de voz", (cuentas.get("fotos", 0) | metrica_numero) ~ " / " ~ (cuentas.get("notas_de_voz", 0) | metrica_numero)) }}
         {{ dato("PDF enviados", cuentas.get("pdf_enviados", 0) | metrica_numero) }}
         {{ dato("Errores", cuentas.get("errores", 0) | metrica_numero, "sin cupo " ~ (cuentas.get("sin_cupo", 0) | metrica_numero)) }}

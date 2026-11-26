@@ -66,6 +66,12 @@ class CallStats:
     def _reset(self) -> None:
         self._kinds: Counter[str] = Counter()
         self._statuses: Counter[str] = Counter()
+        # Llamadas que no salieron (cupo del día, circuito abierto): no son llamadas ni
+        # entran en los percentiles, pero /metricas debe mostrar los cortes.
+        self._blocked: Counter[str] = Counter()
+        # Llamadas correctas sin uso informado (streaming sin ``stream_usage``): sus tokens no
+        # suman y el costo estimado se queda corto.
+        self._without_usage = 0
         self._latencies: deque[float] = deque(maxlen=self._window)
         self._input_tokens = 0
         self._output_tokens = 0
@@ -86,10 +92,16 @@ class CallStats:
         latency_ms: float | None = None,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        usage_known: bool = True,
     ) -> None:
-        """Cuenta una llamada; los valores negativos o raros no rompen el turno."""
+        """Cuenta una llamada; los valores negativos o raros no rompen el turno.
+
+        ``usage_known=False`` marca una llamada cuyo proveedor no informó tokens.
+        """
 
         with self._lock:
+            if not usage_known:
+                self._without_usage += 1
             self._kinds[kind or "otro"] += 1
             self._statuses[status or "desconocido"] += 1
             if latency_ms is not None and latency_ms >= 0:
@@ -97,6 +109,12 @@ class CallStats:
             self._input_tokens += max(0, int(input_tokens or 0))
             self._output_tokens += max(0, int(output_tokens or 0))
             self._last_at = self._clock()
+
+    def block(self, status: str) -> None:
+        """Cuenta una llamada que no se hizo por ``status`` (``cap``, ``circuit_open``…)."""
+
+        with self._lock:
+            self._blocked[status or "desconocido"] += 1
 
     def snapshot(self) -> dict[str, Any]:
         """Copia coherente: llamadas, estados, tipos, tokens y latencia p50/p95 en ms."""
@@ -114,6 +132,8 @@ class CallStats:
                 "errors": calls - ok,
                 "by_status": dict(sorted(self._statuses.items())),
                 "by_kind": dict(sorted(self._kinds.items())),
+                "blocked": dict(sorted(self._blocked.items())),
+                "without_usage": self._without_usage,
                 "input_tokens": self._input_tokens,
                 "output_tokens": self._output_tokens,
                 "latency_ms": {

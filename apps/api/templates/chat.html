@@ -189,12 +189,13 @@
           <button type="button" class="boton secundario" data-chat-detener aria-label="Detener respuesta" hidden>Detener</button>
         </div>
         {% if foto_disponible %}
-        {#- Aviso del servicio externo en una línea plegable: el resumen dice lo esencial y el
-            detalle se abre al tocarlo. Antes eran 5 líneas que en el teléfono dejaban el
-            historial en 40 px. «foto-aviso» sigue describiendo el selector de la foto. -#}
+        {#- Aviso del servicio externo plegable: el resumen (sin cortar, una o dos líneas) dice
+            que la foto sale a TypeSafe en EE. UU. y el detalle se abre al tocarlo. Antes eran 5
+            líneas que en el teléfono dejaban el historial en 40 px. «foto-aviso» sigue
+            describiendo el selector de la foto. -#}
         <details class="foto-aviso" data-foto-aviso hidden>
           <summary>
-            <span class="foto-aviso-resumen">Se analiza con un servicio externo (TypeSafe, EE. UU.)</span>
+            <span class="foto-aviso-resumen">La foto se analiza en TypeSafe (EE. UU.)</span>
             <span class="foto-aviso-mas" aria-hidden="true">Detalles</span>
           </summary>
           <p id="foto-aviso" class="foto-aviso-detalle">

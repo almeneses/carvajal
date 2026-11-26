@@ -3127,12 +3127,13 @@ form[data-foto-arrastrando] {
   transform: rotate(90deg);
 }
 
+/* El resumen nunca se corta: avisa de la transferencia a EE. UU. antes de enviar (regla de
+   privacidad del curso). Con elipsis, en el teléfono solo quedaba «Se analiza con un servic…». */
 .foto-aviso-resumen {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .foto-aviso-mas {
@@ -3366,6 +3367,12 @@ form[data-foto-arrastrando] {
     grid-template-columns: auto minmax(0, 1fr);
     gap: 8px;
     padding: 4px clamp(10px, 3vw, 24px);
+  }
+
+  /* Con dos columnas, «Corpus público» (visible desde 900 px) bajaba a una segunda fila y la
+     cabecera compacta quedaba más alta que la normal en portátiles de 600 a 700 px de alto. */
+  .cabecera:has(+ .ancho-chat) .estado-sitio {
+    display: none;
   }
 
   .cabecera:has(+ .ancho-chat) .marca {
