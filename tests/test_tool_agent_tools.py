@@ -35,6 +35,7 @@ from carvajal.agent.toolagent.tools import (
     quote_key,
     run_tool,
 )
+from carvajal.agent.toolagent.tools.builtin import MAX_PRESENTED_OPTIONS
 from carvajal.application.ask import _source
 from carvajal.application.ports import ScoredChunk
 from carvajal.catalog.loader import load_catalog
@@ -677,6 +678,8 @@ def test_buscar_producto_muestra_hasta_ocho_opciones_con_total_y_aviso() -> None
     for imperative in ("responde", "di ", "dile", "ignora", "debes", "pídele"):
         assert imperative not in data["aviso"].casefold()
     assert len(result.cards["options"]) == 8
+    # El modelo ve ocho, pero el mensaje fija cuántas se presentan al cliente.
+    assert f"como mucho {MAX_PRESENTED_OPTIONS}" in result.payload["message"]
 
 
 def test_buscar_producto_sin_truncado_no_lleva_aviso_de_mas_coincidencias() -> None:

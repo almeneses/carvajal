@@ -6,7 +6,9 @@ servidor** opcional con OpenAI: mejor transcripción en español y una voz únic
 todos los navegadores. La voz del navegador sigue siendo el **respaldo**: si el dictado del
 servidor falla, el chat vuelve a ella sin que la persona tenga que hacer nada más que
 repetir el dictado; la lectura (spec 050, [notas de voz](#notas-de-voz-por-respuesta)) solo
-la usa mientras el servidor no está disponible (503, 401/403).
+la usa mientras el servidor no está disponible (503, 401/403). Desde el 2026-11-25 (decisión
+del owner) **solo hay audio si la persona habló**: una pregunta escrita no trae nota de voz
+ni «Escuchar» (ver [Cuándo hay audio](#cuándo-hay-audio)).
 
 ## Cómo se enciende
 
@@ -91,7 +93,7 @@ queda en los logs.
 
 ## Resumen hablado
 
-«Escuchar», la lectura automática y manos libres leen un **resumen** de la respuesta, no
+«Escuchar», la nota de voz y manos libres leen un **resumen** de la respuesta, no
 la respuesta entera (spec 048): unas 55 palabras, 15 a 20 segundos. Lo prepara
 `apps.api.voice.spoken_message` con `carvajal.speech.spoken_summary` (canal `web`), sin
 LLM y de forma determinista, solo con frases y cifras de la propia respuesta:
@@ -168,24 +170,59 @@ conserva la política por defecto. El micrófono sigue permitido solo en el docu
 Spec 050. En producción la lectura acababa en la voz del navegador: el `play()` del audio
 del servidor llegaba unos 17 s después del último gesto, el navegador lo bloqueaba
 (`NotAllowedError`) y ese único fallo apagaba la lectura del servidor el resto de la
-sesión. Ahora cada respuesta guardada trae una nota de voz y la voz no cambia por un fallo
-de reproducción.
+sesión. Ahora la respuesta a una pregunta hablada trae una nota de voz y la voz no cambia
+por un fallo de reproducción.
 
-### Cuándo suena sola
+### Cuándo hay audio
 
-| La pregunta… | Lectura automática | Qué pasa al completar el turno |
+Regla estricta (decisión del owner, 2026-11-25): **una respuesta tiene audio solo si la
+pregunta se habló**. Se retiró la casilla «Leer respuestas en voz alta» (y su clave
+`carvajal_voz_autolectura` de `localStorage`, que ya no se lee): no hay forma de pedir audio
+para una pregunta escrita.
+
+| La pregunta… | Qué pasa al completar el turno | Al recargar el historial |
 |---|---|---|
-| se escribió | apagada (por defecto) | La nota queda `lista`; **no** se pide el audio hasta que se pulsa ▶ |
-| se escribió | encendida | Se pide el audio y suena sola |
-| se dictó (borrador dictado y enviado, o manos libres) | cualquiera | Se pide el audio y suena sola |
+| se escribió | Sin nota de voz y sin franja «Escuchar»; no se pide ningún audio | Igual: sin audio |
+| se habló (borrador dictado y enviado, o manos libres) | Nace la nota, se pide el audio y suena sola | La nota (o «Escuchar» sin voz del servidor) queda `lista`, sin sonar |
 
-«Se dictó» quiere decir que el borrador enviado trae texto del dictado (del servidor o del
-navegador) y conserva al menos la mitad de sus palabras: corregir una palabra mal
-transcrita sigue contando como dictado, pero vaciarlo, sustituirlo por una sugerencia o
-seleccionarlo todo y escribir encima cuenta como escrita (ni desbloqueo ni síntesis). Con la
-pestaña oculta o un dictado nuevo en curso, la nota se precarga pero no suena. La casilla
-«Leer respuestas en voz alta» conserva su sentido: encendida, también suenan las preguntas
-escritas. Sin voz del servidor la regla es la misma con la voz del navegador.
+«Se habló» quiere decir que el borrador enviado trae texto del dictado (del servidor o del
+navegador) y conserva al menos la mitad de sus palabras, o que se envió en manos libres:
+corregir una palabra mal transcrita sigue contando como dictado, pero vaciarlo, sustituirlo
+por una sugerencia o seleccionarlo todo y escribir encima cuenta como escrita (ni nota, ni
+desbloqueo, ni síntesis). Con la pestaña oculta o un dictado nuevo en curso, la nota se
+precarga pero no suena. Sin voz del servidor la regla es la misma con la voz del navegador:
+la franja «Escuchar» solo aparece en las respuestas a una pregunta hablada.
+
+El origen se guarda con el turno para que el historial aplique la misma regla:
+
+1. `chat-voice.js` marca el envío (`form.dataset.vozHablado`, o `vozOrigen="manos-libres"`).
+2. `chat-stream.js` marca la respuesta en vivo con `data-voz-pregunta-hablada="1"` y la
+   pregunta con «por voz», manda el campo `voz=1` a `POST /chat/stream` (solo en ese caso)
+   y avisa en `chat:turn-complete` con `detail.spoken`. Sin el campo, el turno es escrito.
+   `detail.spoken` manda: `chat-voice.js` solo usa su propio registro del dictado si el
+   evento no lo trae.
+3. El servicio guarda la pregunta con `sources=[{"result_type": "voice"}]` en todos los
+   caminos de un turno completo (`routes`, `tools`, su respaldo y los flujos de cotización
+   sin LLM) y también en el turno cortado que se guarda `incomplete` («Detener» o un error
+   a mitad del texto): al recargar conserva «por voz» y «Escuchar» como en vivo. Ese turno
+   no emite `chat:turn-complete`, así que no suena solo.
+4. `_chat_thread.html` solo escribe `data-voz-mensaje`, `data-voz-pregunta-hablada` y la
+   franja `.turno-voz` en la respuesta cuya pregunta previa lleva la marca, y pinta el chip
+   «por voz» en esa pregunta. La marca nunca se muestra como fuente.
+
+Los turnos guardados antes del cambio no tienen marca: al recargar no traen audio. El POST
+sin JavaScript (o el reenvío sin streaming tras un fallo de red) tampoco manda el origen, así
+que su respuesta no tiene audio. WhatsApp no cambia: tiene su propio canal.
+
+Una **foto** nunca cuenta como pregunta hablada, aunque su texto se dicte: `/chat/foto` no
+guarda la marca, así que `chat-stream.js` no pinta «por voz» ni la franja y manda
+`spoken: false`; `chat-voice.js` no crea nota ni la lee. En manos libres, una foto adjunta
+apaga el modo («la respuesta a una foto no se lee en voz alta») en lugar de leerla y volver
+a escuchar.
+
+El panel «Opciones de voz» (`details[data-voz-opciones]`) solo guarda el botón Manos libres:
+se muestra cuando ese botón se ofrece (dictado, lectura y streaming) y se oculta con él si
+el dictado deja de estar disponible. Nunca se abre vacío.
 
 ### Desbloqueo del audio
 
@@ -194,8 +231,7 @@ dentro de un gesto. El adaptador tiene **un solo** `HTMLAudioElement` para todas
 y `desbloquear()` le hace reproducir 0,1 s de silencio (un WAV por `blob:`, porque la CSP
 admite `media-src 'self' blob:` y no `data:`) en el gesto que empieza el dictado (Dictar,
 el aviso, manos libres) y en el envío del borrador dictado. No se desbloquea al enviar una
-pregunta escrita sin lectura automática: en iOS ese `play()` pausaría la música de la
-persona. Si aun así el navegador bloquea el audio, la nota queda `bloqueada` con el audio en
+pregunta escrita: en iOS ese `play()` pausaría la música de la persona. Si aun así el navegador bloquea el audio, la nota queda `bloqueada` con el audio en
 caché y un toque lo reproduce dentro del gesto; no se cambia de voz ni se apaga el
 servidor. En manos libres un bloqueo apaga el modo (no puede quedar «activo» sin sonar ni
 escuchar) y lo explica. Una nota que no se pudo preparar o reproducir (404, 422, 429, la
@@ -204,8 +240,8 @@ propio aviso («no se pudo reproducir la respuesta»), no con el del micrófono.
 
 ### Precarga, caché y coste
 
-- El audio se pide al completar el turno solo si va a sonar (la persona habló o la lectura
-  automática está encendida). Las preguntas escritas sintetizan solo al pulsar ▶.
+- El audio se pide al completar el turno solo si la persona habló. Las preguntas escritas no
+  sintetizan nunca: no tienen nota.
 - **No hay síntesis proactiva en el servidor** al guardar la respuesta: sintetizaría cada
   respuesta aunque nadie la escuche, y cada una cuenta para el tope diario
   (`VOICE_MAX_CALLS_PER_DAY`) y el límite por sesión. Una pregunta dictada cuesta dos
@@ -219,7 +255,8 @@ propio aviso («no se pudo reproducir la respuesta»), no con el del micrófono.
 ### Contrato del marcado (con el rediseño, 049)
 
 `chat-voice.js` crea la nota (también para el historial, sin pedir audio) solo si la
-página tiene voz del servidor y el turno trae `data-voz-mensaje`. Es un solo elemento, hijo
+página tiene voz del servidor y el turno trae `data-voz-mensaje` y
+`data-voz-pregunta-hablada="1"`. Es un solo elemento, hijo
 del `<li class="turno">` justo después de `.burbuja`; la franja `.turno-voz` del turno se
 oculta con `hidden`:
 

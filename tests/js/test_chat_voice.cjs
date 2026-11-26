@@ -365,7 +365,6 @@ function crearVista(extra = {}) {
     aviso: crearElemento("dialog"),
     avisoAceptar: crearElemento("button"),
     avisoCancelar: crearElemento("button"),
-    autoLectura: crearElemento("input"),
     hilo: crearElemento("input", { value: "hilo-1" }),
     botonManosLibres: crearElemento("button", { hidden: true }),
     avisoManos: crearElemento("dialog"),
@@ -493,16 +492,21 @@ test("T002 con reconocimiento y contexto seguro el micrófono queda disponible",
   assert.equal(controlador.soporte.dictado, true);
 });
 
-test("T002 la preferencia de lectura existe pero está apagada por defecto", () => {
-  // Arrange
-  const vista = crearVista({ autoLectura: crearElemento("input") });
+test("T002 no hay lectura automática: una preferencia vieja guardada no hace sonar lo escrito", () => {
+  // Arrange: el navegador conserva la clave de la casilla que ya no existe.
+  const almacen = crearAlmacen({ carvajal_voz_autolectura: "1" });
+  const sintesis = crearSintesis();
+  const { controlador, documento } = montar({ almacen, sintesis });
 
-  // Act
-  const { controlador } = montar({ vista });
+  // Act: termina un turno escrito.
+  documento.dispatch("chat:turn-complete", {
+    detail: { turno: crearTurnoFalso({ texto: "Respuesta escrita." }), threadId: "hilo-1" },
+  });
 
   // Assert
-  assert.equal(vista.autoLectura.checked, false);
-  assert.equal(controlador.preferencias.autoLectura, false);
+  assert.equal("autoLectura" in controlador.preferencias, false);
+  assert.equal("fijarAutoLectura" in controlador.preferencias, false);
+  assert.equal(sintesis.locuciones.length, 0);
 });
 
 test("T005 init monta los controles con los selectores reales del documento", () => {
@@ -518,7 +522,6 @@ test("T005 init monta los controles con los selectores reales del documento", ()
     "[data-voz-dictar-texto]": etiqueta,
     "[data-voz-estado]": estado,
     "[data-voz-nota]": nota,
-    "[data-voz-autolectura]": null,
   };
   raiz.querySelector = (selector) => hijos[selector] || null;
   const documento = crearDocumento({
@@ -553,7 +556,6 @@ test("T005 init monta aunque localStorage lance al accederse", () => {
     "[data-voz-dictar-texto]": crearElemento("span"),
     "[data-voz-estado]": crearElemento("p"),
     "[data-voz-nota]": crearElemento("p", { hidden: true }),
-    "[data-voz-autolectura]": null,
   };
   raiz.querySelector = (selector) => hijos[selector] || null;
   const documento = crearDocumento({
@@ -585,17 +587,6 @@ test("T005 init monta aunque localStorage lance al accederse", () => {
   assert.ok(raiz._controladorVoz);
   raiz._controladorVoz.preferencias.aceptarAviso();
   assert.equal(raiz._controladorVoz.preferencias.avisoAceptado, true);
-});
-
-test("T002 sin síntesis la preferencia de lectura no se ofrece", () => {
-  // Arrange
-  const vista = crearVista({ autoLectura: crearElemento("input") });
-
-  // Act
-  montar({ vista, sintesis: false });
-
-  // Assert
-  assert.equal(vista.autoLectura.hidden, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -979,11 +970,6 @@ function crearTurnoFalso({ texto = "", tarjetas = [], citas = [], rol = "assista
   };
 }
 
-function activarAutoLectura(montaje) {
-  montaje.vista.autoLectura.checked = true;
-  montaje.vista.autoLectura.dispatch("change", {});
-}
-
 test("T012 la lectura manual usa texto, tarjetas y títulos de fuentes sin URLs ni SKU", () => {
   // Arrange
   const sintesis = crearSintesis();
@@ -1078,43 +1064,49 @@ test("T012 sin voz en español se explica y no se reproduce nada", () => {
   assert.equal(montaje.vista.nota.hidden, false);
 });
 
-test("T012 con autolectura apagada el turno completado no habla y «Escuchar» sigue", () => {
+test("T012 un turno escrito completado no habla y uno hablado sí", () => {
   // Arrange
   const sintesis = crearSintesis();
   const montaje = montar({ sintesis });
-  const turno = crearTurnoFalso({ texto: "Respuesta completa." });
-  assert.equal(montaje.vista.autoLectura.checked, false);
+  const escrito = crearTurnoFalso({ texto: "Respuesta escrita." });
+  const hablado = crearTurnoFalso({ texto: "Respuesta hablada." });
 
-  // Act: evento de fin de stream con la preferencia apagada.
+  // Act: fin de stream de una pregunta escrita.
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno, threadId: "hilo-1" },
+    detail: { turno: escrito, threadId: "hilo-1" },
+  });
+
+  // Assert: sin audio ni marca de pregunta hablada.
+  assert.equal(sintesis.locuciones.length, 0);
+  assert.equal(escrito.dataset.vozPreguntaHablada, undefined);
+
+  // Act: fin de stream de una pregunta hablada (chat-stream.js manda `spoken`).
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno: hablado, threadId: "hilo-1", spoken: true },
   });
 
   // Assert
-  assert.equal(sintesis.locuciones.length, 0);
-
-  // Act: lectura manual.
-  montaje.controlador.leerTurno(turno);
-
-  // Assert
   assert.equal(sintesis.locuciones.length, 1);
+  assert.equal(sintesis.locuciones[0].text, "Respuesta hablada.");
+  assert.equal(hablado.dataset.vozPreguntaHablada, "1");
 });
 
-test("T012 la autolectura solo suena tras done, una vez por turno y si el hilo es visible", () => {
+test("T012 la respuesta hablada solo suena tras done, una vez por turno y si el hilo es visible", () => {
   // Arrange
-  const almacen = crearAlmacen();
   const sintesis = crearSintesis();
-  const montaje = montar({ sintesis, almacen });
-  activarAutoLectura(montaje);
-  assert.equal(almacen.getItem("carvajal_voz_autolectura"), "1");
+  const montaje = montar({ sintesis });
   const turno = crearTurnoFalso({ texto: "Listo." });
 
   // Act: evento de un hilo distinto y de un turno de usuario.
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno: crearTurnoFalso({ texto: "Otro hilo." }), threadId: "hilo-2" },
+    detail: { turno: crearTurnoFalso({ texto: "Otro hilo." }), threadId: "hilo-2", spoken: true },
   });
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno: crearTurnoFalso({ texto: "Mío.", rol: "user" }), threadId: "hilo-1" },
+    detail: {
+      turno: crearTurnoFalso({ texto: "Mío.", rol: "user" }),
+      threadId: "hilo-1",
+      spoken: true,
+    },
   });
 
   // Assert
@@ -1122,7 +1114,7 @@ test("T012 la autolectura solo suena tras done, una vez por turno y si el hilo e
 
   // Act: el turno visible termina.
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno, threadId: "hilo-1" },
+    detail: { turno, threadId: "hilo-1", spoken: true },
   });
 
   // Assert
@@ -1131,23 +1123,26 @@ test("T012 la autolectura solo suena tras done, una vez por turno y si el hilo e
 
   // Act: el mismo turno vuelve a notificarse.
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno, threadId: "hilo-1" },
+    detail: { turno, threadId: "hilo-1", spoken: true },
   });
 
   // Assert: no se duplica la lectura automática.
   assert.equal(sintesis.locuciones.length, 1);
 });
 
-test("T012 la autolectura no suena con la pestaña oculta ni al cargar el historial", () => {
+test("T012 la respuesta hablada no suena con la pestaña oculta ni al cargar el historial", () => {
   // Arrange
   const sintesis = crearSintesis();
   const montaje = montar({ sintesis });
-  activarAutoLectura(montaje);
   montaje.documento.visibilityState = "hidden";
 
   // Act: no hay evento de historial; solo se monta y se oculta la pestaña.
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno: crearTurnoFalso({ texto: "No debe sonar." }), threadId: "hilo-1" },
+    detail: {
+      turno: crearTurnoFalso({ texto: "No debe sonar." }),
+      threadId: "hilo-1",
+      spoken: true,
+    },
   });
 
   // Assert
@@ -1228,21 +1223,6 @@ test("T012 ocultar la pestaña detiene la lectura sin reanudarla", () => {
   assert.equal(turno._botones.detener.hidden, true);
 });
 
-test("T012 la preferencia de autolectura se recuerda entre páginas y sigue apagada sin tocar", () => {
-  // Arrange
-  const almacen = crearAlmacen();
-  const primero = montar({ almacen });
-  assert.equal(primero.vista.autoLectura.checked, false);
-
-  // Act: activar en la primera página.
-  activarAutoLectura(primero);
-  const segundo = montar({ almacen });
-
-  // Assert
-  assert.equal(segundo.vista.autoLectura.checked, true);
-  assert.equal(segundo.controlador.preferencias.autoLectura, true);
-});
-
 test("T012 si el navegador bloquea el audio, «Escuchar» sigue disponible", () => {
   // Arrange: la síntesis acepta la locución pero nunca emite start.
   const sintesis = crearSintesis();
@@ -1304,35 +1284,18 @@ test("T017 el texto hablado omite SKU, URLs y códigos técnicas aunque estén v
   assert.equal(/SKU|FX-|https?:/i.test(limpio), false, limpio);
 });
 
-test("T017 la autolectura tiene un control visible y apagado en la plantilla", () => {
-  // Arrange: raíz como la deja chat.html, con la casilla y su etiqueta.
-  const raiz = crearElemento("section", { hidden: true });
-  const casilla = crearElemento("input", { checked: false });
-  const campo = crearElemento("label", { hidden: true });
-  const boton = crearElemento("button", { hidden: true });
-  const hijos = {
-    "[data-voz-dictar]": boton,
-    "[data-voz-dictar-texto]": crearElemento("span"),
-    "[data-voz-estado]": crearElemento("p"),
-    "[data-voz-nota]": crearElemento("p", { hidden: true }),
-    "[data-voz-autolectura]": casilla,
-    "[data-voz-autolectura-campo]": campo,
-  };
-  raiz.querySelector = (selector) => hijos[selector] || null;
-  const documento = crearDocumento({
-    "[data-voz]": raiz,
-    "form[data-chat-stream]": crearFormulario(),
-    "[data-voz-aviso]": null,
-    "[data-voz-aviso-aceptar]": null,
-    "[data-voz-aviso-cancelar]": null,
-  });
+test("T017 la plantilla ya no trae la casilla «Leer respuestas en voz alta»", () => {
+  // Arrange
+  const plantilla = fs.readFileSync(
+    path.join(RAIZ, "apps", "api", "templates", "chat.html"),
+    "utf8",
+  );
+  const fuente = fs.readFileSync(FUENTE, "utf8");
 
-  // Act
-  cargarVoz({ documento });
-
-  // Assert
-  assert.equal(campo.hidden, false);
-  assert.equal(casilla.checked, false);
+  // Act / Assert: ni el control ni su clave de localStorage siguen vivos.
+  assert.equal(plantilla.includes("data-voz-autolectura"), false);
+  assert.equal(plantilla.includes("Leer respuestas en voz alta"), false);
+  assert.equal(fuente.includes("carvajal_voz_autolectura"), false);
 });
 
 test("T016 una tarjeta con varias ofertas lee cada precio con su calificador y fecha", () => {
@@ -1388,6 +1351,17 @@ test("T016 el filtro de códigos también cubre mayúsculas mezcladas", () => {
   // Assert
   assert.equal(/FX-Vaso|sku/i.test(limpio), false, limpio);
   assert.match(limpio, /código 3/);
+});
+
+test("la lectura omite el SKU numérico entre paréntesis que pide el prompt", () => {
+  // Arrange
+  const { limpiarTextoHablado } = cargarVoz().window.CarvajalVoz;
+
+  // Act
+  const limpio = limpiarTextoHablado("Vaso térmico 8 oz (SKU 2864108000) y el SKU de la caja");
+
+  // Assert
+  assert.equal(limpio, "Vaso térmico 8 oz y el de la caja");
 });
 
 // ---------------------------------------------------------------------------
@@ -1878,9 +1852,8 @@ test("T012 sin voz el turno no queda marcado y se auto-lee cuando aparece", () =
   // Arrange: primero solo hay voz inglesa.
   const sintesis = crearSintesis({ voces: [{ name: "Alex", lang: "en-US" }] });
   const montaje = montar({ sintesis });
-  activarAutoLectura(montaje);
   const turno = crearTurnoFalso({ texto: "Respuesta." });
-  const evento = { detail: { turno, threadId: "hilo-1" } };
+  const evento = { detail: { turno, threadId: "hilo-1", spoken: true } };
 
   // Act: primer intento sin voz española.
   montaje.documento.dispatch("chat:turn-complete", evento);
@@ -1905,26 +1878,24 @@ test("T012 si el autoplay bloquea la locución el turno no queda marcado", () =>
     this.locuciones.push(locucion);
   };
   const montaje = montar({ sintesis });
-  activarAutoLectura(montaje);
   const turno = crearTurnoFalso({ texto: "Respuesta." });
 
   // Act
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno, threadId: "hilo-1" },
+    detail: { turno, threadId: "hilo-1", spoken: true },
   });
 
   // Assert
   assert.equal(turno.dataset.vozAutoLeido, undefined);
 });
 
-test("T012 la lectura manual deja el turno disponible para otra autolectura", () => {
+test("T012 la lectura manual deja el turno disponible para otra lectura automática", () => {
   // Arrange
   const sintesis = crearSintesis();
   const montaje = montar({ sintesis });
-  activarAutoLectura(montaje);
   const turno = crearTurnoFalso({ texto: "Respuesta." });
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno, threadId: "hilo-1" },
+    detail: { turno, threadId: "hilo-1", spoken: true },
   });
   assert.equal(turno.dataset.vozAutoLeido, "1");
   sintesis.terminar();
@@ -1936,7 +1907,7 @@ test("T012 la lectura manual deja el turno disponible para otra autolectura", ()
   assert.equal(turno.dataset.vozAutoLeido, undefined);
   sintesis.terminar();
   montaje.documento.dispatch("chat:turn-complete", {
-    detail: { turno, threadId: "hilo-1" },
+    detail: { turno, threadId: "hilo-1", spoken: true },
   });
   assert.equal(sintesis.locuciones.length, 3);
 });
@@ -2334,9 +2305,13 @@ test("047 el límite de segundos del servidor detiene y transcribe", async () =>
   assert.equal(montaje.vista.entrada.value, "cotiza 400 vasos de 12 onzas");
 });
 
+/** Respuesta guardada a una pregunta hablada: solo esas tienen nota de voz del servidor. */
 function turnoConMensaje(texto, mensaje) {
   const turno = crearTurnoFalso({ texto });
-  if (mensaje) turno.dataset.vozMensaje = mensaje;
+  if (mensaje) {
+    turno.dataset.vozMensaje = mensaje;
+    turno.dataset.vozPreguntaHablada = "1";
+  }
   return turno;
 }
 
@@ -3036,18 +3011,24 @@ function crearNodoDom(etiqueta = "div") {
   });
 }
 
+// El historial pide solo las respuestas a una pregunta hablada; el doble filtra igual.
+const SELECTOR_HISTORIAL = ".turno-assistant[data-voz-mensaje][data-voz-pregunta-hablada]";
+
 function crearDocumentoDom(historial = []) {
   const documento = crearDocumento();
   documento.createElement = (etiqueta) => crearNodoDom(etiqueta);
   documento.querySelectorAll = (selector) =>
-    selector === ".turno-assistant[data-voz-mensaje]" ? historial : [];
+    selector === SELECTOR_HISTORIAL
+      ? historial.filter((turno) => turno.dataset.vozPreguntaHablada === "1")
+      : [];
   return documento;
 }
 
-function crearTurnoDom({ mensaje = "m-1", texto = "Hola, soy Carva." } = {}) {
+function crearTurnoDom({ mensaje = "m-1", texto = "Hola, soy Carva.", hablada = false } = {}) {
   const turno = crearNodoDom("li");
   turno.className = "turno turno-assistant";
   if (mensaje) turno.dataset.vozMensaje = mensaje;
+  if (hablada) turno.dataset.vozPreguntaHablada = "1";
   const burbuja = crearNodoDom("div");
   burbuja.className = "burbuja";
   const textoNodo = crearNodoDom("div");
@@ -3128,13 +3109,22 @@ function pulsar(montaje, elemento) {
   montaje.documento.dispatch("click", { target: elemento });
 }
 
+/**
+ * Respuesta del historial a una pregunta hablada: su nota nace «lista» al montar, sin
+ * sonar ni pedir audio. Es la forma de tener una nota quieta para pulsarla.
+ */
+function montarConNota(opciones = {}, turnoOpciones = {}) {
+  const turno = crearTurnoDom({ hablada: true, ...turnoOpciones });
+  const montaje = montarNotas({ ...opciones, historial: [turno] });
+  return { montaje, turno };
+}
+
 test("050 la nota nace tras la burbuja con su contrato accesible y oculta la franja", () => {
-  // Arrange
-  const montaje = montarNotas();
-  const turno = crearTurnoDom({ mensaje: "m-1" });
+  // Arrange: respuesta del historial a una pregunta hablada.
+  const turno = crearTurnoDom({ mensaje: "m-1", hablada: true });
 
   // Act
-  completarTurno(montaje, turno);
+  montarNotas({ historial: [turno] });
 
   // Assert
   const nota = partesDeNota(turno);
@@ -3176,29 +3166,49 @@ async function preguntarConManosLibres(montaje) {
   montaje.vista.entrada.value = "";
 }
 
-test("050 una pregunta escrita no suena sola ni pide el audio", async () => {
+test("050 una pregunta escrita no trae nota, ni «Escuchar», ni pide el audio", async () => {
   // Arrange
   const montaje = montarNotas();
   const turno = crearTurnoDom({ mensaje: "m-escrita" });
+  const franja = turno.querySelector("[data-voz-turno]");
+  franja.hidden = true; // chat-stream.js la oculta al crear el turno
 
   // Act
-  enviarPregunta(montaje, "¿Qué vasos tienen?");
+  enviarPregunta(montaje, "necesito 2000 platos desechables");
   completarTurno(montaje, turno);
   await vaciarPromesas();
 
-  // Assert: sin síntesis proactiva ni desbloqueo (en iOS pausaría la música).
+  // Assert: sin nota, sin franja, sin síntesis ni desbloqueo (en iOS pausaría la música).
+  assert.equal(partesDeNota(turno).raiz, null);
+  assert.equal(turno.dataset.vozNota, undefined);
+  assert.equal(turno.dataset.vozPreguntaHablada, undefined);
+  assert.equal(franja.hidden, true);
   assert.equal(montaje.servidor.registro.sintetizados.length, 0);
   assert.equal(montaje.servidor.registro.desbloqueos, 0);
-  assert.equal(partesDeNota(turno).raiz.dataset.notaEstado, "lista");
+});
+
+test("050 una pregunta dictada trae nota y queda marcada como hablada", async () => {
+  // Arrange
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-dictada" });
+  await dictarConServidor(montaje);
+
+  // Act
+  enviarPregunta(montaje);
+  completarTurno(montaje, turno);
+  await vaciarPromesas();
+
+  // Assert
+  assert.ok(partesDeNota(turno).raiz);
+  assert.equal(turno.dataset.vozNota, "1");
+  assert.equal(turno.dataset.vozPreguntaHablada, "1");
+  assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-dictada"]);
 });
 
 test("050 pulsar la nota la deja cargando y pulsada mientras llega el audio", () => {
   // Arrange
   const servidor = crearServidorFalso({ sintesisPendiente: true });
-  const montaje = montarNotas({ servidor });
-  const turno = crearTurnoDom({ mensaje: "m-escrita" });
-  enviarPregunta(montaje, "¿Qué vasos tienen?");
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor }, { mensaje: "m-escrita" });
 
   // Act
   pulsar(montaje, partesDeNota(turno).boton);
@@ -3214,10 +3224,7 @@ test("050 pulsar la nota la deja cargando y pulsada mientras llega el audio", ()
 
 test("050 pulsar la nota de una pregunta escrita pide el audio una vez y lo reproduce", async () => {
   // Arrange
-  const montaje = montarNotas();
-  const turno = crearTurnoDom({ mensaje: "m-escrita" });
-  enviarPregunta(montaje, "¿Qué vasos tienen?");
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({}, { mensaje: "m-escrita" });
 
   // Act
   pulsar(montaje, partesDeNota(turno).boton);
@@ -3262,9 +3269,7 @@ test("050 una pregunta dictada desbloquea el audio en el gesto y la respuesta su
 
 test("050 pulsar una nota que suena la pausa sin cambiar el nombre del botón", async () => {
   // Arrange
-  const montaje = montarNotas();
-  const turno = crearTurnoDom({ mensaje: "m-pausa" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({}, { mensaje: "m-pausa" });
   const reproduccion = await notaQueSuena(montaje, turno);
 
   // Act
@@ -3281,9 +3286,7 @@ test("050 pulsar una nota que suena la pausa sin cambiar el nombre del botón", 
 
 test("050 pulsar una nota en pausa la reanuda", async () => {
   // Arrange
-  const montaje = montarNotas();
-  const turno = crearTurnoDom({ mensaje: "m-reanuda" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({}, { mensaje: "m-reanuda" });
   const reproduccion = await notaQueSuena(montaje, turno);
   pulsar(montaje, partesDeNota(turno).boton);
 
@@ -3298,9 +3301,7 @@ test("050 pulsar una nota en pausa la reanuda", async () => {
 
 test("050 al terminar la nota vuelve a lista con el avance a cero y conserva la duración", async () => {
   // Arrange
-  const montaje = montarNotas();
-  const turno = crearTurnoDom({ mensaje: "m-fin" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({}, { mensaje: "m-fin" });
   const reproduccion = await notaQueSuena(montaje, turno);
   reproduccion.llamadas.alProgreso(17.5, 17.5);
 
@@ -3391,8 +3392,8 @@ test("050 corregir una palabra del dictado sigue contando como hablada", async (
   assert.equal(montaje.servidor.registro.reproducciones.length, 1);
 });
 
-test("050 con la lectura automática encendida una pregunta escrita también suena", async () => {
-  // Arrange
+test("050 una clave vieja de lectura automática no hace sonar una pregunta escrita", async () => {
+  // Arrange: el navegador guarda la preferencia de la casilla retirada.
   const almacen = crearAlmacen({
     carvajal_voz_aviso_dictado_servidor: "1",
     carvajal_voz_autolectura: "1",
@@ -3406,9 +3407,9 @@ test("050 con la lectura automática encendida una pregunta escrita también sue
   await vaciarPromesas();
 
   // Assert
-  assert.equal(montaje.servidor.registro.desbloqueos, 1);
-  assert.deepEqual(montaje.servidor.registro.sintetizados, ["m-auto"]);
-  assert.equal(montaje.servidor.registro.reproducciones.length, 1);
+  assert.equal(montaje.servidor.registro.desbloqueos, 0);
+  assert.deepEqual(montaje.servidor.registro.sintetizados, []);
+  assert.equal(partesDeNota(turno).raiz, null);
 });
 
 test("050 el autoplay bloqueado deja la nota bloqueada sin cambiar de voz ni apagar el servidor", async () => {
@@ -3461,9 +3462,7 @@ test("050 tocar una nota bloqueada la reproduce desde la caché dentro del gesto
 
 test("050 repetir una nota no paga otra síntesis", async () => {
   // Arrange
-  const montaje = montarNotas();
-  const turno = crearTurnoDom({ mensaje: "m-0" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({}, { mensaje: "m-0" });
   const reproduccion = await notaQueSuena(montaje, turno);
   reproduccion.llamadas.alTerminar();
 
@@ -3477,9 +3476,10 @@ test("050 repetir una nota no paga otra síntesis", async () => {
 
 test("050 la caché olvida la nota más vieja al pasar el límite de seis", async () => {
   // Arrange: se escuchan siete notas, una más que el límite.
-  const montaje = montarNotas();
-  const turnos = Array.from({ length: 7 }, (_, indice) => crearTurnoDom({ mensaje: `m-${indice}` }));
-  for (const turno of turnos) completarTurno(montaje, turno);
+  const turnos = Array.from({ length: 7 }, (_, indice) =>
+    crearTurnoDom({ mensaje: `m-${indice}`, hablada: true }),
+  );
+  const montaje = montarNotas({ historial: turnos });
   for (const turno of turnos) {
     pulsar(montaje, partesDeNota(turno).boton);
     await vaciarPromesas();
@@ -3582,9 +3582,7 @@ test("050 una respuesta que llega durante un dictado nuevo se precarga sin sonar
 test("050 pulsar la nota mientras carga cancela la reproducción y la síntesis sigue", () => {
   // Arrange
   const servidor = crearServidorFalso({ sintesisPendiente: true });
-  const montaje = montarNotas({ servidor });
-  const turno = crearTurnoDom({ mensaje: "m-cancela" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor }, { mensaje: "m-cancela" });
   pulsar(montaje, partesDeNota(turno).boton);
 
   // Act
@@ -3601,9 +3599,7 @@ test("050 pulsar la nota mientras carga cancela la reproducción y la síntesis 
 test("050 una nota cancelada al cargar no suena al llegar el audio y queda en caché", async () => {
   // Arrange
   const servidor = crearServidorFalso({ sintesisPendiente: true });
-  const montaje = montarNotas({ servidor });
-  const turno = crearTurnoDom({ mensaje: "m-cancela" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor }, { mensaje: "m-cancela" });
   pulsar(montaje, partesDeNota(turno).boton);
   pulsar(montaje, partesDeNota(turno).boton);
   servidor.registro.pendientes[0].resolver({ size: 10 });
@@ -3621,9 +3617,7 @@ test("050 un 503 lee con el navegador dentro de la misma nota", async () => {
   // Arrange
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
-  const montaje = montarNotas({ servidor, sintesis });
-  const turno = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta." });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor, sintesis }, { mensaje: "m-a", texto: "Primera respuesta." });
 
   // Act
   pulsar(montaje, partesDeNota(turno).boton);
@@ -3640,10 +3634,9 @@ test("050 tras un 503 no se vuelve a pedir el audio al servidor antes de 60 s", 
   // Arrange
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
-  const montaje = montarNotas({ servidor, sintesis });
-  const primero = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta." });
-  const segundo = crearTurnoDom({ mensaje: "m-b", texto: "Segunda respuesta." });
-  for (const turno of [primero, segundo]) completarTurno(montaje, turno);
+  const primero = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta.", hablada: true });
+  const segundo = crearTurnoDom({ mensaje: "m-b", texto: "Segunda respuesta.", hablada: true });
+  const montaje = montarNotas({ servidor, sintesis, historial: [primero, segundo] });
   pulsar(montaje, partesDeNota(primero).boton);
   await vaciarPromesas();
   sintesis.terminar();
@@ -3663,10 +3656,9 @@ test("050 a los 60 s de un 503 se vuelve a probar la voz del servidor", async ()
   // Arrange
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
-  const montaje = montarNotas({ servidor, sintesis });
-  const primero = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta." });
-  const tercero = crearTurnoDom({ mensaje: "m-c", texto: "Tercera respuesta." });
-  for (const turno of [primero, tercero]) completarTurno(montaje, turno);
+  const primero = crearTurnoDom({ mensaje: "m-a", texto: "Primera respuesta.", hablada: true });
+  const tercero = crearTurnoDom({ mensaje: "m-c", texto: "Tercera respuesta.", hablada: true });
+  const montaje = montarNotas({ servidor, sintesis, historial: [primero, tercero] });
   pulsar(montaje, partesDeNota(primero).boton);
   await vaciarPromesas();
   sintesis.terminar();
@@ -3691,11 +3683,10 @@ test("050 a los 60 s de un 503 se vuelve a probar la voz del servidor", async ()
 async function notaSonandoConServidorEnEspera() {
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ sintesisPendiente: true });
-  const montaje = montarNotas({ servidor, sintesis });
   const [a, b, c] = ["m-a", "m-b", "m-c"].map((mensaje) =>
-    crearTurnoDom({ mensaje, texto: `Respuesta ${mensaje}.` }),
+    crearTurnoDom({ mensaje, texto: `Respuesta ${mensaje}.`, hablada: true }),
   );
-  for (const turno of [a, b, c]) completarTurno(montaje, turno);
+  const montaje = montarNotas({ servidor, sintesis, historial: [a, b, c] });
   pulsar(montaje, partesDeNota(a).boton);
   servidor.registro.pendientes[0].resolver({ size: 10 });
   await vaciarPromesas();
@@ -3739,9 +3730,7 @@ test("050 con el servidor en espera la pausa llega a la voz del navegador", asyn
 test("050 sin voz del navegador un 503 avisa que la voz no está disponible", async () => {
   // Arrange
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "off") });
-  const montaje = montarNotas({ servidor, sintesis: false });
-  const turno = crearTurnoDom({ mensaje: "m-off" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor, sintesis: false }, { mensaje: "m-off" });
 
   // Act
   pulsar(montaje, partesDeNota(turno).boton);
@@ -3758,9 +3747,7 @@ test("050 un 401 o 403 también deja la voz del servidor en espera", async () =>
   // Arrange
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(403, "csrf") });
-  const montaje = montarNotas({ servidor, sintesis });
-  const turno = crearTurnoDom({ mensaje: "m-403", texto: "Respuesta." });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor, sintesis }, { mensaje: "m-403", texto: "Respuesta." });
 
   // Act
   pulsar(montaje, partesDeNota(turno).boton);
@@ -3775,9 +3762,7 @@ test("050 un 429 deja la nota en error con reintento y no apaga el servidor", as
   // Arrange
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(429, "rate_limited") });
-  const montaje = montarNotas({ servidor, sintesis });
-  const turno = crearTurnoDom({ mensaje: "m-429" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor, sintesis }, { mensaje: "m-429" });
 
   // Act
   pulsar(montaje, partesDeNota(turno).boton);
@@ -3796,9 +3781,7 @@ test("050 un 429 deja la nota en error con reintento y no apaga el servidor", as
 test("050 reintentar con el foco en «Reintentar» lo pasa al botón principal y pide el audio", async () => {
   // Arrange
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(429, "rate_limited") });
-  const montaje = montarNotas({ servidor });
-  const turno = crearTurnoDom({ mensaje: "m-429" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor }, { mensaje: "m-429" });
   pulsar(montaje, partesDeNota(turno).boton);
   await vaciarPromesas();
   servidor.registro.falloSintetizar = null;
@@ -3825,8 +3808,8 @@ test("050 si el foco estaba en la franja al nacer la nota pasa a su botón", () 
   franja.appendChild(escuchar);
   montaje.documento.activeElement = escuchar;
 
-  // Act
-  completarTurno(montaje, turno);
+  // Act: termina un turno hablado (con la franja visible hasta que nace la nota).
+  completarTurno(montaje, turno, { spoken: true });
 
   // Assert
   assert.equal(franja.hidden, true);
@@ -3836,10 +3819,7 @@ test("050 si el foco estaba en la franja al nacer la nota pasa a su botón", () 
 test("050 el primer anuncio de una nota nueva no se escribe en la misma tarea", () => {
   // Arrange: la región viva acaba de entrar en el árbol de accesibilidad.
   const servidor = crearServidorFalso({ sintesisPendiente: true });
-  const montaje = montarNotas({ servidor });
-  const turno = crearTurnoDom({ mensaje: "m-anuncio" });
-  enviarPregunta(montaje, "Hola");
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor }, { mensaje: "m-anuncio" });
 
   // Act
   pulsar(montaje, partesDeNota(turno).boton);
@@ -3852,10 +3832,7 @@ test("050 el primer anuncio de una nota nueva no se escribe en la misma tarea", 
 test("050 el primer anuncio de una nota nueva llega en la tarea siguiente", () => {
   // Arrange
   const servidor = crearServidorFalso({ sintesisPendiente: true });
-  const montaje = montarNotas({ servidor });
-  const turno = crearTurnoDom({ mensaje: "m-anuncio" });
-  enviarPregunta(montaje, "Hola");
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor }, { mensaje: "m-anuncio" });
   pulsar(montaje, partesDeNota(turno).boton);
 
   // Act
@@ -3962,8 +3939,8 @@ test("050 en manos libres un autoplay bloqueado apaga el modo y deja la nota par
 });
 
 test("050 el historial recibe su nota al montar sin pedir ningún audio", () => {
-  // Arrange
-  const turno = crearTurnoDom({ mensaje: "m-historial" });
+  // Arrange: respuesta a una pregunta hablada (la plantilla la marca).
+  const turno = crearTurnoDom({ mensaje: "m-historial", hablada: true });
 
   // Act
   const montaje = montarNotas({ historial: [turno] });
@@ -3973,12 +3950,25 @@ test("050 el historial recibe su nota al montar sin pedir ningún audio", () => 
   assert.equal(montaje.servidor.registro.sintetizados.length, 0);
 });
 
+test("050 una respuesta del historial a una pregunta escrita no recibe nota", () => {
+  // Arrange: sin data-voz-pregunta-hablada, como la deja la plantilla.
+  const escrita = crearTurnoDom({ mensaje: "m-escrita" });
+  const hablada = crearTurnoDom({ mensaje: "m-hablada", hablada: true });
+
+  // Act
+  const montaje = montarNotas({ historial: [escrita, hablada] });
+
+  // Assert
+  assert.equal(partesDeNota(escrita).raiz, null);
+  assert.equal(escrita.dataset.vozNota, undefined);
+  assert.equal(partesDeNota(hablada).raiz.dataset.notaEstado, "lista");
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+});
+
 test("050 salir de la página aborta la síntesis en vuelo y libera el audio", async () => {
   // Arrange
   const servidor = crearServidorFalso({ sintesisPendiente: true });
-  const montaje = montarNotas({ servidor });
-  const turno = crearTurnoDom({ mensaje: "m-salida" });
-  completarTurno(montaje, turno);
+  const { montaje, turno } = montarConNota({ servidor }, { mensaje: "m-salida" });
   pulsar(montaje, partesDeNota(turno).boton);
   const [{ signal }] = servidor.registro.opcionesSintetizar;
 
@@ -4161,10 +4151,13 @@ test("050 en el respaldo del navegador el avance de la nota crece al terminar ca
   // Arrange
   const sintesis = crearSintesis();
   const servidor = crearServidorFalso({ falloSintetizar: errorHttp(503, "circuit_open") });
-  const montaje = montarNotas({ servidor, sintesis });
-  const turno = crearTurnoDom({ mensaje: "m-b", texto: "Primera parte. Segunda parte." });
+  const turno = crearTurnoDom({
+    mensaje: "m-b",
+    texto: "Primera parte. Segunda parte.",
+    hablada: true,
+  });
   turno.dataset.vozResumen = "Primera parte.\n\nSegunda parte.";
-  completarTurno(montaje, turno);
+  const montaje = montarNotas({ servidor, sintesis, historial: [turno] });
   pulsar(montaje, partesDeNota(turno).boton);
   await vaciarPromesas();
 
@@ -4223,4 +4216,162 @@ test("052 leer una respuesta marca data-voz-leyendo y detenerla la quita", () =>
 
   // Assert
   assert.equal(montaje.documento.documentElement.dataset.vozLeyendo, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// Foto con texto dictado: `spoken` de chat-stream.js manda (la recarga no tendría audio)
+// ---------------------------------------------------------------------------
+
+test("foto con un borrador dictado no crea nota ni suena aunque el dictado lo marque", async () => {
+  // Arrange: el texto que acompaña a la foto se dictó; /chat/foto no guarda la marca.
+  const sintesis = crearSintesis();
+  const montaje = montarNotas({ sintesis });
+  const turno = crearTurnoDom({ mensaje: "m-foto" });
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+
+  // Act: chat-stream.js avisa el fin del turno con `spoken: false` por la foto.
+  completarTurno(montaje, turno, { spoken: false });
+  await vaciarPromesas();
+
+  // Assert: ni nota, ni marca hablada, ni síntesis o reproducción automática.
+  assert.equal(partesDeNota(turno).raiz, null);
+  assert.equal(turno.dataset.vozNota, undefined);
+  assert.equal(turno.dataset.vozPreguntaHablada, undefined);
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 0);
+  assert.equal(sintesis.locuciones.length, 0);
+});
+
+test("sin `spoken` en el evento el borrador dictado sigue trayendo la nota", async () => {
+  // Arrange: un emisor viejo que no manda `spoken` (respaldo del origen local).
+  const montaje = montarNotas();
+  const turno = crearTurnoDom({ mensaje: "m-sin-spoken" });
+  await dictarConServidor(montaje);
+  enviarPregunta(montaje);
+
+  // Act
+  montaje.documento.dispatch("chat:turn-complete", {
+    detail: { turno, threadId: "hilo-1", handsFree: false },
+  });
+  await vaciarPromesas();
+
+  // Assert
+  assert.ok(partesDeNota(turno).raiz);
+  assert.equal(turno.dataset.vozPreguntaHablada, "1");
+});
+
+test("una foto en manos libres no suena y apaga el modo con su motivo", async () => {
+  // Arrange: manos libres envía lo dictado con una foto adjunta.
+  const montaje = montarNotas();
+  await preguntarConManosLibres(montaje);
+  const grabaciones = montaje.servidor.registro.grabaciones;
+  const turno = crearTurnoDom({ mensaje: "m-manos-foto" });
+
+  // Act
+  completarTurno(montaje, turno, { handsFree: true, spoken: false });
+  await vaciarPromesas();
+
+  // Assert: sin nota ni audio, el modo se apaga y no vuelve a abrir el micrófono.
+  assert.equal(partesDeNota(turno).raiz, null);
+  assert.equal(turno.dataset.vozPreguntaHablada, undefined);
+  assert.equal(montaje.servidor.registro.sintetizados.length, 0);
+  assert.equal(montaje.servidor.registro.reproducciones.length, 0);
+  assert.equal(montaje.controlador.manosLibres.activo, false);
+  assert.equal(montaje.vista.estado.textContent, montaje.api.MENSAJES.manosFoto);
+  assert.equal(montaje.servidor.registro.grabaciones, grabaciones);
+});
+
+// ---------------------------------------------------------------------------
+// «Opciones de voz»: el panel solo guarda Manos libres y nunca se abre vacío
+// ---------------------------------------------------------------------------
+
+function crearPanelOpciones() {
+  return crearElemento("details", { hidden: true });
+}
+
+test("con lectura pero sin dictado el panel «Opciones de voz» queda oculto", () => {
+  // Arrange: sin contexto seguro no hay dictado y Manos libres no se ofrece.
+  const opciones = crearPanelOpciones();
+
+  // Act
+  const montaje = montar({ segura: false, vista: crearVista({ opciones }) });
+
+  // Assert
+  assert.equal(montaje.controlador.soporte.sintesis, true);
+  assert.equal(montaje.vista.botonManosLibres.hidden, true);
+  assert.equal(opciones.hidden, true);
+});
+
+test("con dictado, lectura y streaming el panel muestra Manos libres", () => {
+  // Arrange
+  const opciones = crearPanelOpciones();
+
+  // Act
+  const montaje = montar({ vista: crearVista({ opciones }) });
+
+  // Assert
+  assert.equal(montaje.vista.botonManosLibres.hidden, false);
+  assert.equal(opciones.hidden, false);
+});
+
+test("si el dictado se pierde, el panel se oculta junto con Manos libres", async () => {
+  // Arrange: solo el servidor dicta; al fallar no hay respaldo del navegador.
+  const servidor = crearServidorFalso({ falloTranscribir: errorHttp(503, "off") });
+  const sandbox = cargarVoz({ reconocimiento: false });
+  const opciones = crearPanelOpciones();
+  const vista = crearVista({ opciones });
+  const controlador = sandbox.window.CarvajalVoz.createVoiceController({
+    vista,
+    documento: crearDocumento(),
+    almacen: crearAlmacen({ carvajal_voz_aviso_dictado_servidor: "1" }),
+    reconocimiento: null,
+    sintesis: crearSintesis(),
+    Utterance: sandbox.SpeechSynthesisUtterance,
+    reloj: crearReloj(),
+    segura: true,
+    streaming: true,
+    servidor,
+  });
+  controlador.mount();
+  assert.equal(opciones.hidden, false);
+
+  // Act
+  clic(vista.botonDictar);
+  await vaciarPromesas();
+  clic(vista.botonDictar);
+  await vaciarPromesas();
+
+  // Assert
+  assert.equal(vista.botonManosLibres.hidden, true);
+  assert.equal(opciones.hidden, true);
+});
+
+test("init oculta «Opciones de voz» cuando hay síntesis pero no Manos libres", () => {
+  // Arrange: el sandbox no trae fetch/ReadableStream, así que no hay streaming.
+  const raiz = crearElemento("section", { hidden: true });
+  const opciones = crearElemento("details", { hidden: false });
+  const manos = crearElemento("button", { hidden: true });
+  const hijos = {
+    "[data-voz-dictar]": crearElemento("button", { hidden: true }),
+    "[data-voz-dictar-texto]": crearElemento("span"),
+    "[data-voz-estado]": crearElemento("p"),
+    "[data-voz-nota]": crearElemento("p", { hidden: true }),
+    "[data-voz-manos-libres]": manos,
+    "[data-voz-opciones]": opciones,
+  };
+  raiz.querySelector = (selector) => hijos[selector] || null;
+  const documento = crearDocumento({
+    "[data-voz]": raiz,
+    "form[data-chat-stream]": crearFormulario(),
+  });
+
+  // Act
+  const sandbox = cargarVoz({ documento });
+
+  // Assert
+  assert.equal(sandbox.window.CarvajalVoz !== undefined, true);
+  assert.equal(raiz._controladorVoz.soporte.sintesis, true);
+  assert.equal(manos.hidden, true);
+  assert.equal(opciones.hidden, true);
 });

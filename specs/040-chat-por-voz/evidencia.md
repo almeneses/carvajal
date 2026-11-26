@@ -80,8 +80,9 @@ el clic hasta el evento `start` de la primera locución.
 
 - Red del navegador sin peticiones `media`/audio; cuerpos POST solo con
   `question`, `csrf_token`, `client_turn_id`, `thread_id`.
-- `localStorage`: `carvajal_voz_autolectura`, `carvajal_voz_aviso_dictado` y la
-  identidad de visitante preexistente; nada de transcripciones ni audio.
+- `localStorage`: `carvajal_voz_autolectura` (retirada el 2026-11-25),
+  `carvajal_voz_aviso_dictado` y la identidad de visitante preexistente; nada de
+  transcripciones ni audio.
 - `indexedDB.databases()` vacío; el esquema no tiene campos de audio.
 - El audio del dictado lo procesa el navegador (puede usar su servicio); la app
   no lo recibe ni lo guarda. Así se avisa antes del primer dictado.
@@ -98,6 +99,9 @@ el clic hasta el evento `start` de la primera locución.
   button not pressed*, la región viva del turno y los landmarks de la página.
   Extracto en [`evidencia/orca.txt`](evidencia/orca.txt). La autolectura sigue
   apagada por defecto, así que no duplica la voz del lector.
+  *Nota del 2026-11-25: esta evidencia es del 2026-11-20 y se conserva tal cual. La casilla
+  y la clave `carvajal_voz_autolectura` se retiraron después (ver la
+  [enmienda](spec.md#enmienda-2026-11-25-audio-solo-si-la-persona-habló)).*
 - El bloqueo de reproducción automática se cubrió con el arnés: si `speak` no
   dispara `onstart`, el turno no se marca como leído y «Escuchar» sigue
   disponible.

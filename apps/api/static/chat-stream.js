@@ -45,19 +45,16 @@
   const bienvenida = hilo.querySelector(".chat-bienvenida");
   const sugerencias = hilo.querySelector("[data-chat-sugerencias]");
   if (sugerencias) sugerencias.hidden = false;
-  mostrarCambiar(hilo);
+  mostrarAcciones(hilo);
   actualizarAcciones();
   hilo.addEventListener("click", (event) => {
     const sugerencia = event.target.closest("[data-chat-sugerencia]");
     if (!sugerencia || enCurso) return;
     // Los temas del inicio muestran título y subtítulo; la pregunta va en data-pregunta.
     const pregunta = (sugerencia.dataset.pregunta || sugerencia.textContent).trim();
-    // «Cambiar» (Tu solicitud) deja la frase empezada para que la persona la complete.
-    const abierta = "chatCambiar" in sugerencia.dataset;
-    input.value = abierta ? `${pregunta} ` : pregunta;
+    input.value = pregunta;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.focus({ preventScroll: true });
-    if (abierta) input.setSelectionRange?.(input.value.length, input.value.length);
     // Spec 053: «Elegir» y «Confirmar cotización» envían la frase en el acto, igual que si
     // la persona la escribiera o la dijera.
     if ("chatEnviar" in sugerencia.dataset) form.requestSubmit?.();
@@ -152,7 +149,7 @@
     return bloque;
   }
 
-  function peticion(pregunta, turnId, foto, signal) {
+  function peticion(pregunta, turnId, foto, signal, hablada = false) {
     const thread = threadInput ? threadInput.value : "";
     if (foto) {
       // Multipart con el token CSRF en cabecera (se valida antes de leer el cuerpo).
@@ -179,6 +176,9 @@
         csrf_token: csrf ? csrf.value : "",
         client_turn_id: turnId,
         thread_id: thread,
+        // Solo una pregunta hablada lo envía: el servidor la guarda con la marca «voice»
+        // y el historial ofrece audio únicamente en esas respuestas.
+        ...(hablada ? { voz: "1" } : {}),
       }),
       signal,
     });
@@ -243,12 +243,18 @@
   async function responder(pregunta, turnId, manosLibres, foto = null, porVoz = false) {
     const turnoUsuario = crearTurno("user", foto ? marcaFoto(pregunta) : pregunta);
     const urlFoto = foto ? pintarFotoEnviada(turnoUsuario, foto, pregunta) : "";
+    // Audio solo si la persona habló (borrador dictado o manos libres): una pregunta escrita
+    // no trae nota ni «Escuchar». La marca coincide con la del historial recargado, y por eso
+    // una foto no cuenta (/chat/foto no guarda el origen hablado): ni «por voz», ni audio, y
+    // `spoken: false` en chat:turn-complete para que chat-voice.js tampoco la lea.
+    const hablada = Boolean((porVoz || manosLibres) && !foto);
     const marcaVoz = turnoUsuario.querySelector("[data-turno-por-voz]");
-    if (porVoz && marcaVoz) {
+    if (hablada && marcaVoz) {
       turnoUsuario.dataset.porVoz = "1";
       marcaVoz.hidden = false;
     }
     const turnoAsistente = crearTurno("assistant", "");
+    if (hablada) turnoAsistente.dataset.vozPreguntaHablada = "1";
     // Mientras no llega texto, Carva «piensa» (puntos animados en chat.css); con foto,
     // «mira» con su lupa (spec 053).
     turnoAsistente.dataset.pensando = "1";
@@ -332,7 +338,7 @@
     let cerrado = false;
     let recibioContenido = false;
     try {
-      const response = await peticion(pregunta, turnId, foto, control.signal);
+      const response = await peticion(pregunta, turnId, foto, control.signal, hablada);
       const tipo = response.headers.get("content-type") ?? "";
       // Los errores SSE de la API traen su propio mensaje. Un reenvío
       // automático puede volver a consumir cuota para el mismo turno.
@@ -498,7 +504,11 @@
         if (focoEnDetener) input.focus({ preventScroll: true });
       }
       enCurso = false;
-      if (controlesVoz && (texto.textContent || turnoAsistente.querySelector(".productos"))) {
+      if (
+        controlesVoz &&
+        hablada &&
+        (texto.textContent || turnoAsistente.querySelector(".productos"))
+      ) {
         controlesVoz.hidden = false;
       }
       ajustarHistorial();
@@ -507,7 +517,7 @@
       // El contrato no emite turno completo si hubo error, aunque llegue done.
       if (completado && !errorRecibido && !cancelado) {
         avisar("Respuesta lista.", false, true);
-        notificarTurnoCompleto(turnoAsistente, manosLibres);
+        notificarTurnoCompleto(turnoAsistente, manosLibres, hablada);
       } else if (manosLibres) {
         // Sin `done` el servidor no persiste el turno: se devuelve siempre la
         // pregunta para que la persona pueda revisarla y reenviarla.
@@ -517,7 +527,7 @@
     }
   }
 
-  function notificarTurnoCompleto(turno, manosLibres) {
+  function notificarTurnoCompleto(turno, manosLibres, hablada = false) {
     if (typeof window.CustomEvent !== "function") return;
     document.dispatchEvent(
       new window.CustomEvent("chat:turn-complete", {
@@ -525,6 +535,7 @@
           turno,
           threadId: threadInput ? String(threadInput.value || "") : "",
           handsFree: Boolean(manosLibres),
+          spoken: Boolean(hablada),
         },
       }),
     );
@@ -552,10 +563,10 @@
     return turno;
   }
 
-  // Los «Cambiar» de «Tu solicitud» (y los «Elegir» y «Confirmar» de la spec 053) solo
-  // sirven con este script: sin él quedan ocultos.
-  function mostrarCambiar(raiz) {
-    const botones = raiz.querySelectorAll?.("[data-chat-cambiar], [data-chat-enviar]") ?? [];
+  // Los «Elegir» y «Confirmar» de las specs 053/054 solo sirven con este script: sin él
+  // quedan ocultos.
+  function mostrarAcciones(raiz) {
+    const botones = raiz.querySelectorAll?.("[data-chat-enviar]") ?? [];
     for (const boton of botones) boton.hidden = false;
   }
 
@@ -583,7 +594,7 @@
     plantilla.innerHTML = html;
     const tarjetas = plantilla.content.firstElementChild;
     if (tarjetas) turno.querySelector(".burbuja")?.after(tarjetas);
-    if (tarjetas) mostrarCambiar(tarjetas);
+    if (tarjetas) mostrarAcciones(tarjetas);
     actualizarAcciones();
   }
 

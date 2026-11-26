@@ -39,6 +39,11 @@ hablados, pausar/seguir/detener y activar lectura automática sin releer el hist
 - [X] T016 [US2] Implementar síntesis en español y `autoRead` (booleano, **apagado por defecto**); construir texto/segmentos desde el DOM, sin URLs ni códigos técnicos, y coordinar voz y visibilidad en `apps/api/static/chat-voice.js`.
 - [X] T017 [US2] Verificar autolectura de `done`, lectura manual tras POST sin streaming o al recargar, teclado, bloqueo de reproducción automática y comportamiento con lector de pantalla según `docs/pruebas-040.md`.
 
+> Enmendado el 2026-11-25: T012, T016 y T017 se cumplieron con la casilla de lectura
+> automática (`autoRead`), que se retiró. Hoy solo la respuesta a una pregunta hablada tiene
+> audio y suena sola; las pruebas de `tests/js/test_chat_voice.cjs` cubren la regla nueva
+> (ver la [enmienda](spec.md#enmienda-2026-11-25-audio-solo-si-la-persona-habló)).
+
 ## Fase 5 — US3: conversación manos libres (P3)
 
 **Prueba independiente:** hacer una pregunta comercial y un seguimiento por voz en el mismo

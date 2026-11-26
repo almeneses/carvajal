@@ -143,6 +143,32 @@ def test_servicio_persiste_usuario_y_asistente_al_terminar_bien(engine: Engine) 
         _delete_owner(engine, owner_key)
 
 
+def test_en_routes_la_pregunta_hablada_guarda_la_marca_voice(engine: Engine) -> None:
+    # Arrange
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        agent=no_context_agent(),
+        settings=routes_settings(),
+    )
+    owner_key = "servicio-voz-routes"
+
+    try:
+        # Act
+        list(service.stream(owner_key, "¿Dato del corpus?", spoken=True))
+        list(service.stream(owner_key, "¿Otro dato?"))
+        preguntas = [item for item in service.history(owner_key) if item.role == "user"]
+
+        # Assert: la hablada lleva la marca; la escrita, ninguna.
+        assert [pregunta.sources for pregunta in preguntas] == [
+            [{"result_type": "voice"}],
+            None,
+        ]
+    finally:
+        _delete_owner(engine, owner_key)
+
+
 def test_stream_persiste_un_solo_turno_y_emite_trace(engine: Engine) -> None:
     # Arrange
     agent = no_context_agent()
@@ -384,6 +410,32 @@ def test_stream_falla_tras_un_token_persiste_incompleto(engine: Engine) -> None:
         assert [message.role for message in history] == ["user", "assistant"]
         assert history[1].content == "Carvajal"
         assert history[1].status == "incomplete"
+    finally:
+        _delete_owner(engine, owner_key)
+
+
+def test_en_routes_un_corte_de_una_pregunta_hablada_conserva_la_marca_voice(
+    engine: Engine,
+) -> None:
+    # Arrange: en vivo el turno cortado muestra «por voz» y «Escuchar»; al recargar, igual.
+    service = ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        BrokenAfterTokenLLM(),
+        agent=rag_agent(),
+        settings=routes_settings(),
+    )
+    owner_key = "stream-incompleto-voz"
+
+    try:
+        # Act
+        events = list(service.stream(owner_key, "¿Dato del corpus?", spoken=True))
+        history = list(service.history(owner_key))
+
+        # Assert
+        assert events[-1].data["incomplete"] is True
+        assert history[1].status == "incomplete"
+        assert history[0].sources == [{"result_type": "voice"}]
     finally:
         _delete_owner(engine, owner_key)
 

@@ -72,21 +72,26 @@ AXE_PATH=/tmp/cv040/node_modules/axe-core/axe.min.js \
 
 ### US2 · lectura
 
-1. Pedir una respuesta comercial con tarjetas y otra institucional con citas.
-2. Tocar «Escuchar»: debe oírse el texto visible, el nombre, las cajas y el
-   precio con moneda y fecha de cada tarjeta, y «según» + título en las citas.
+> Desde el 2026-11-25 solo la respuesta a una **pregunta hablada** (dictada y enviada, o en
+> manos libres) tiene audio; la casilla «Leer respuestas en voz alta» se retiró
+> ([enmienda de la spec 040](../specs/040-chat-por-voz/spec.md#enmienda-2026-11-25-audio-solo-si-la-persona-habló)).
+
+1. Pedir **dictando** una respuesta comercial con tarjetas y otra institucional con citas.
+2. Tocar «Escuchar» (o la nota de voz): debe oírse el texto visible, el nombre, las cajas y
+   el precio con moneda y fecha de cada tarjeta, y «según» + título en las citas.
    No deben leerse URLs ni SKU.
 3. Probar «Pausar», «Reanudar» y «Detener» con teclado (Tab/Enter/Espacio).
-4. Activar «Leer respuestas en voz alta», pedir otra respuesta por streaming y
-   comprobar que solo suena al completarse (`done`), no por token. Recargar el
-   historial y usar el formulario sin streaming: no debe sonar solo.
+4. Escribir una pregunta (por ejemplo «necesito 2000 platos desechables»): la respuesta no
+   debe traer nota de voz ni «Escuchar», ni al completarse ni al recargar el historial. La
+   respuesta dictada solo suena al completarse (`done`), no por token; al recargar queda su
+   control, sin sonar solo.
 5. Cambiar de pestaña durante la lectura: se detiene y no se reanuda sola.
-6. Con lector de pantalla activo, comprobar que la autolectura sigue apagada por
-   defecto (no se duplica la voz) y que «Escuchar» está disponible.
-7. Simular bloqueo de reproducción automática (política del navegador): el
-   botón «Escuchar» debe quedar disponible y la interfaz no debe fingir que lee.
+6. Con lector de pantalla activo, comprobar que una pregunta escrita no añade audio (no se
+   duplica la voz) y que la respuesta dictada ofrece su control.
+7. Simular bloqueo de reproducción automática (política del navegador) en una respuesta
+   dictada: el control debe quedar disponible y la interfaz no debe fingir que lee.
 8. Enviar con el formulario sin streaming (por ejemplo, sin el JS de stream) y
-   recargar el historial: no debe sonar solo; «Escuchar» debe seguir ahí.
+   recargar el historial: no debe sonar ni ofrecer audio (el POST no lleva el origen).
 
 ### US3 · manos libres
 

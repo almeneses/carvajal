@@ -63,6 +63,9 @@ La lectura toma las tarjetas del DOM. Los marcadores se pactan con la 039 si cam
    parada; lectura automática opcional solo tras `done` del stream visible. El fallback
    sin streaming y el historial conservan lectura manual. Tarjetas y citas leídas desde
    sus datos renderizados, no desde URLs o SKU.
+   *Enmendado el 2026-11-25: se retiró la lectura automática; solo la respuesta a una
+   pregunta hablada tiene audio y suena sola (ver la
+   [enmienda](spec.md#enmienda-2026-11-25-audio-solo-si-la-persona-habló)).*
 3. **US3 — manos libres (posterior al MVP)**: reescucha tras síntesis normal, envío
    solo de la transcripción del ciclo activo con borrador vacío, salida por escritura
    manual (se conserva el borrador), silencio/comando, fallo o cuota agotada.

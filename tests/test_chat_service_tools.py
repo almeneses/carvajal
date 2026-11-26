@@ -542,6 +542,71 @@ def test_el_modo_tools_persiste_el_turno_y_cierra_el_runner(engine: Any) -> None
     assert runner.records == [{"question": QUESTION, "answer": ANSWER, "incomplete": False}]
 
 
+# --- Origen hablado de la pregunta (audio solo si la persona habló) ------------------------
+
+
+def test_una_pregunta_hablada_guarda_la_marca_voice_en_el_mensaje_del_usuario(
+    engine: Any,
+) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events())
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-hablada", QUESTION, client_turn_id="t-voz", spoken=True))
+    history = list(service.history("dueno-hablada"))
+
+    # Assert: la marca va en la pregunta; la respuesta guarda solo sus fuentes.
+    assert history[0].role == "user"
+    assert history[0].sources == [{"result_type": "voice"}]
+    assert history[1].sources == [asdict(SOURCE)]
+
+
+def test_una_pregunta_escrita_no_guarda_ninguna_marca(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events())
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-escrita", QUESTION, client_turn_id="t-escrita"))
+    history = list(service.history("dueno-escrita"))
+
+    # Assert
+    assert history[0].sources is None
+
+
+def test_el_respaldo_de_una_pregunta_hablada_tambien_guarda_la_marca(engine: Any) -> None:
+    # Arrange: el proveedor falla antes del primer token y el turno lo cierra el respaldo.
+    agent = RoutesAgent(sources=(SOURCE,), prompt="prompt que nadie debe enviar")
+    runner = FakeToolRunner(scripted_events(), error=LLMError("caído"), error_at=2)
+    service = build_service(engine, runner, agent=agent)
+
+    # Act
+    events = list(service.stream("dueno-respaldo-voz", QUESTION, spoken=True))
+    history = list(service.history("dueno-respaldo-voz"))
+
+    # Assert
+    assert "fallback" in names(events)
+    assert history[0].sources == [{"result_type": "voice"}]
+
+
+def test_la_confirmacion_hablada_del_flujo_guarda_la_marca(engine: Any) -> None:
+    # Arrange: un turno escrito deja el borrador esperando «¿Algo más?».
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    list(service.stream("dueno-flujo-voz", QUESTION, client_turn_id="t-1"))
+
+    # Act: la respuesta del flujo (sin LLM) llega dictada.
+    events = list(
+        service.stream("dueno-flujo-voz", "No, confírmala", client_turn_id="t-2", spoken=True)
+    )
+    preguntas = [m for m in service.history("dueno-flujo-voz") if m.role == "user"]
+
+    # Assert: solo la pregunta hablada lleva la marca.
+    assert named(events, "trace").data["route"] == "confirmacion"
+    assert [pregunta.sources for pregunta in preguntas] == [None, [{"result_type": "voice"}]]
+
+
 def test_el_turno_comercial_propone_y_al_confirmar_guarda_la_cotizacion(engine: Any) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(commercial_final()))
@@ -724,6 +789,55 @@ def test_la_cancelacion_durante_el_texto_guarda_el_turno_incompleto(engine: Any)
     assert history[1].sources == []
     assert stored_quotes(engine) == []
     assert runner.records == [{"question": QUESTION, "answer": ANSWER_PARTS[0], "incomplete": True}]
+
+
+def test_un_corte_de_una_pregunta_hablada_conserva_la_marca_voice(engine: Any) -> None:
+    # Arrange: el stream se corta tras el primer token de una pregunta dictada.
+    runner = FakeToolRunner(scripted_events(), error=RuntimeError("corte"), error_at=4)
+    service = build_service(engine, runner)
+
+    # Act
+    events = list(service.stream("dueno-parcial-voz", QUESTION, spoken=True))
+    history = list(service.history("dueno-parcial-voz"))
+
+    # Assert: la recarga ofrece «por voz» y «Escuchar» como en vivo.
+    assert named(events, "error").data["incomplete"] is True
+    assert history[1].status == "incomplete"
+    assert history[0].sources == [{"result_type": "voice"}]
+    assert history[1].sources == []
+
+
+def test_detener_una_pregunta_hablada_conserva_la_marca_voice(engine: Any) -> None:
+    # Arrange: «Detener» durante el texto de una pregunta en manos libres o dictada.
+    runner = FakeToolRunner(scripted_events(commercial_final()))
+    service = build_service(engine, runner)
+    generator = cast(
+        Generator[ChatEvent],
+        service.stream("dueno-cancela-voz", QUESTION, spoken=True),
+    )
+    [next(generator) for _ in range(5)]
+
+    # Act
+    generator.close()
+    history = list(service.history("dueno-cancela-voz"))
+
+    # Assert
+    assert history[1].status == "incomplete"
+    assert history[0].sources == [{"result_type": "voice"}]
+
+
+def test_un_corte_de_una_pregunta_escrita_no_guarda_ninguna_marca(engine: Any) -> None:
+    # Arrange
+    runner = FakeToolRunner(scripted_events(), error=RuntimeError("corte"), error_at=4)
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-parcial-escrita", QUESTION))
+    history = list(service.history("dueno-parcial-escrita"))
+
+    # Assert
+    assert history[1].status == "incomplete"
+    assert history[0].sources is None
 
 
 def test_la_cancelacion_antes_del_primer_token_no_guarda_nada(engine: Any) -> None:
@@ -1054,6 +1168,105 @@ def test_si_las_fuentes_cambian_tras_anunciarlas_se_reemite_meta(engine: Any) ->
     # Assert
     metas = [event.data for event in events if event.name == "meta"]
     assert metas == [{"sources": []}, {"sources": [asdict(SOURCE)]}]
+
+
+# --- Tarjetas de las opciones presentadas ---------------------------------------------------
+
+
+def plate_options(count: int = 8) -> list[dict[str, Any]]:
+    """Opciones de ``buscar_producto`` como las deja en ``cards["options"]``."""
+
+    return [
+        {
+            "sku": f"CO-PLT-{index:02d}",
+            "name": f"Plato espumado pando {index + 10} cm Wau",
+            "material": "EPS",
+            "units_per_box": 480,
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+def saved_options(engine: Any) -> list[str]:
+    """SKU de las opciones guardadas con la respuesta (lo que muestra el historial)."""
+
+    sources = assistant_rows(engine)[0]["sources"] or []
+    result = next(item["result"] for item in sources if item.get("result_type") == "commercial")
+    return [option["sku"] for option in result["options"]]
+
+
+def test_las_tarjetas_y_lo_guardado_son_solo_las_opciones_que_nombra_el_texto(
+    engine: Any,
+) -> None:
+    # Arrange: la herramienta trajo ocho opciones y el texto presenta dos.
+    answer = (
+        "Para 2000 platos te sirven:\n\n"
+        "- **Plato espumado pando 12 cm Wau** (CO-PLT-02) [1]\n"
+        "- **Plato espumado pando 15 cm Wau** (CO-PLT-05) [1]\n"
+    )
+    closing = final(answer=answer, products={"options": plate_options()})
+    runner = FakeToolRunner([ToolAgentToken(text=answer), closing])
+    service = build_service(engine, runner)
+
+    # Act
+    events = list(service.stream("dueno-tarjetas", "necesito 2000 platos desechables"))
+    history = list(service.history("dueno-tarjetas"))
+
+    # Assert
+    html = named(events, "products").data["html"]
+    assert html.count('data-campo="producto-nombre"') == 2
+    assert "Plato espumado pando 12 cm Wau" in html
+    assert "Plato espumado pando 11 cm Wau" not in html
+    assert saved_options(engine) == ["CO-PLT-02", "CO-PLT-05"]
+    assert history[1].sources is not None
+
+
+def test_si_el_texto_no_nombra_ninguna_opcion_quedan_tres_tarjetas(engine: Any) -> None:
+    # Arrange
+    answer = "Dime qué tamaño te sirve y te paso el contacto de la sede."
+    closing = final(answer=answer, products={"options": plate_options()})
+    runner = FakeToolRunner([ToolAgentToken(text=answer), closing])
+    service = build_service(engine, runner)
+
+    # Act
+    events = list(service.stream("dueno-tarjetas-tres", "necesito platos"))
+
+    # Assert
+    html = named(events, "products").data["html"]
+    assert html.count('data-campo="producto-nombre"') == 3
+    assert saved_options(engine) == ["CO-PLT-01", "CO-PLT-02", "CO-PLT-03"]
+
+
+def test_la_recomendacion_por_foto_conserva_todas_sus_opciones(engine: Any) -> None:
+    # Arrange
+    options = [{**option, "choice": "1"} for option in plate_options(5)]
+    answer = "Te recomiendo esta referencia y estas alternativas."
+    closing = final(answer=answer, products={"options": options, "origin": "foto"})
+    runner = FakeToolRunner([ToolAgentToken(text=answer), closing])
+    service = build_service(engine, runner)
+
+    # Act
+    list(service.stream("dueno-tarjetas-foto", "¿cuál me sirve?"))
+
+    # Assert
+    assert len(saved_options(engine)) == 5
+
+
+def test_el_respaldo_muestra_las_tarjetas_de_las_opciones_que_lista(engine: Any) -> None:
+    # Arrange: el respaldo de reglas trae cinco opciones y su texto lista hasta tres.
+    agent = RoutesAgent(route="commercial", products={"options": plate_options(5)})
+    runner = FakeToolRunner([], error=LLMError("caído"))
+    service = build_service(engine, runner, agent=agent)
+
+    # Act
+    events = list(service.stream("dueno-tarjetas-respaldo", "necesito platos"))
+
+    # Assert
+    text = named(events, "fallback").data["text"]
+    html = named(events, "products").data["html"]
+    assert text.count("- Plato espumado pando") == fallback.MAX_ITEMS
+    assert html.count('data-campo="producto-nombre"') == fallback.MAX_ITEMS
+    assert saved_options(engine) == ["CO-PLT-01", "CO-PLT-02", "CO-PLT-03"]
 
 
 # --- Respaldo determinista (T037, T041, FR-009) --------------------------------------------
