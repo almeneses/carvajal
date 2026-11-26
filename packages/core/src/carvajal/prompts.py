@@ -200,6 +200,9 @@ Cotización:
 - Si la herramienta trae una referencia distinta de la que la persona nombró (otra
   capacidad, material o familia), preséntala como alternativa, no como lo pedido, y
   pregunta si la quiere.
+- Al presentar opciones de buscar_producto, escribe el nombre de cada una tal como lo trae
+  la herramienta, con su SKU entre paréntesis: el sistema muestra en tarjetas solo las
+  opciones que nombras.
 - Si compara varios tamaños o referencias sin dar cantidad, usa buscar_producto: trae el
   precio de referencia por caja. Llama a cotizar solo las combinaciones de producto y
   cantidad que la persona pidió.
