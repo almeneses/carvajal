@@ -46,7 +46,9 @@ WARM_UP_RETRY_DELAYS_S: tuple[float, ...] = (5, 10, 15, 30, 30, 30)
 class CachedEmbedder:
     """``Embedder`` con caché LRU acotada por texto exacto de la consulta.
 
-    Solo guarda vectores calculados con éxito; un fallo se propaga sin cachear. Devuelve una
+    Solo guarda vectores calculados con éxito; un fallo se propaga sin cachear. Con la misma
+    consulta en varios hilos, solo uno la calcula y los demás esperan su vector; consultas
+    distintas se calculan en paralelo. ``misses`` cuenta los cálculos iniciados. Devuelve una
     copia de la lista para que quien la reciba no altere la guardada. Con ``maxsize=0`` no
     guarda nada y delega siempre.
     """
@@ -58,6 +60,9 @@ class CachedEmbedder:
         self._maxsize = maxsize
         self._vectors: OrderedDict[str, tuple[float, ...]] = OrderedDict()
         self._lock = threading.Lock()
+        # Un cálculo en curso por texto: dos hilos con la misma consulta no van los dos a
+        # Ollama; el segundo espera el vector del primero (sin retener el candado global).
+        self._pending: dict[str, threading.Event] = {}
         self.hits = 0
         self.misses = 0
 
@@ -74,19 +79,33 @@ class CachedEmbedder:
     def embed(self, text: str) -> list[float]:
         if self._maxsize == 0:
             return list(self._inner.embed(text))
-        with self._lock:
-            cached = self._vectors.get(text)
-            if cached is not None:
+        while True:
+            with self._lock:
+                cached = self._vectors.get(text)
+                if cached is not None:
+                    self._vectors.move_to_end(text)
+                    self.hits += 1
+                    return list(cached)
+                pending = self._pending.get(text)
+                if pending is None:
+                    # Este hilo calcula el texto; los demás con el mismo texto esperan.
+                    pending = self._pending[text] = threading.Event()
+                    self.misses += 1
+                    break
+            # Otro hilo ya lo pide a Ollama: se espera y se relee la caché. Si aquel falló,
+            # la entrada no existe y este hilo lo intenta por su cuenta en la vuelta.
+            pending.wait()
+        try:
+            vector = self._inner.embed(text)
+            with self._lock:
+                self._vectors[text] = tuple(vector)
                 self._vectors.move_to_end(text)
-                self.hits += 1
-                return list(cached)
-            self.misses += 1
-        vector = self._inner.embed(text)
-        with self._lock:
-            self._vectors[text] = tuple(vector)
-            self._vectors.move_to_end(text)
-            while len(self._vectors) > self._maxsize:
-                self._vectors.popitem(last=False)
+                while len(self._vectors) > self._maxsize:
+                    self._vectors.popitem(last=False)
+        finally:
+            with self._lock:
+                del self._pending[text]
+            pending.set()
         return list(vector)
 
     def __len__(self) -> int:

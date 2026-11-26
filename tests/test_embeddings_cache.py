@@ -204,3 +204,92 @@ def test_la_app_y_el_agente_comparten_el_embedder_de_consultas() -> None:
 
     assert runtime.query_embedder_for(settings) is runtime.query_embedder_for(settings)
     assert runtime.query_embedder_for(settings).inner is not runtime.embedder()
+
+
+class SlowEmbedder(CountingEmbedder):
+    """Embedder falso que se bloquea hasta que la prueba lo suelta."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        super().__init__(fail=fail)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self._calls_lock = threading.Lock()
+
+    def embed(self, text: str) -> Sequence[float]:
+        with self._calls_lock:
+            first = not self.calls
+            self.calls.append(text)
+        if first:
+            self.entered.set()
+            self.release.wait(5)
+            if self.fail:
+                raise ConnectionError("Ollama caído")
+        return [float(len(text)), 1.0]
+
+
+def _embed_in_threads(
+    cached: CachedEmbedder, text: str, count: int
+) -> tuple[list[threading.Thread], list[Any]]:
+    results: list[Any] = [None] * count
+
+    def run(index: int) -> None:
+        try:
+            results[index] = cached.embed(text)
+        except ConnectionError as error:
+            results[index] = error
+
+    threads = [threading.Thread(target=run, args=(index,)) for index in range(count)]
+    for thread in threads:
+        thread.start()
+    return threads, results
+
+
+def test_la_misma_consulta_en_varios_hilos_llega_una_vez_a_ollama() -> None:
+    # Arrange: el primer hilo queda dentro de Ollama mientras llegan los demás.
+    inner = SlowEmbedder()
+    cached = CachedEmbedder(inner, maxsize=4)
+    first = threading.Thread(target=cached.embed, args=("dónde comprar",))
+    first.start()
+    assert inner.entered.wait(5)
+    threads, results = _embed_in_threads(cached, "dónde comprar", 3)
+
+    # Act
+    other = cached.embed("otra consulta")  # otra consulta no espera al cálculo en curso
+    inner.release.set()
+    for thread in [first, *threads]:
+        thread.join(5)
+
+    # Assert
+    assert other == [13.0, 1.0]
+    assert inner.calls.count("dónde comprar") == 1
+    assert results == [[13.0, 1.0]] * 3
+    assert cached.misses == 2
+
+
+def test_si_el_calculo_en_curso_falla_quien_esperaba_lo_intenta_de_nuevo() -> None:
+    # Arrange
+    inner = SlowEmbedder(fail=True)
+    cached = CachedEmbedder(inner, maxsize=4)
+    errors: list[BaseException] = []
+
+    def first_call() -> None:
+        try:
+            cached.embed("hola")
+        except ConnectionError as error:
+            errors.append(error)
+
+    first = threading.Thread(target=first_call)
+    first.start()
+    assert inner.entered.wait(5)
+    threads, results = _embed_in_threads(cached, "hola", 1)
+
+    # Act
+    inner.release.set()
+    for thread in [first, *threads]:
+        thread.join(5)
+
+    # Assert: el fallo no se cachea ni se contagia; el segundo hilo obtiene su vector.
+    assert len(errors) == 1
+    assert results == [[4.0, 1.0]]
+    assert inner.calls == ["hola", "hola"]
+    assert len(cached) == 1
