@@ -27,7 +27,9 @@ from carvajal.adapters.storage import tables
 from carvajal.infrastructure.monitoring import redact
 
 REPO = Path(__file__).resolve().parents[1]
-QUESTION = "me llamo ana restrepo y quiero saber cuándo se fundó Carvajal, porfa"
+# Sin presentación propia («me llamo…» va a la regla ``memory_write``, sin Jev): el nombre
+# de un tercero sí viaja y no debe quedar en logs ni traza.
+QUESTION = "mi jefa ana restrepo quiere saber cuándo se fundó Carvajal, porfa"
 ANSWER = "Carvajal fue fundada en Cali en 1904 [1], dato que confirma la historia oficial."
 EVIDENCE = "Carvajal fue fundada en Cali en 1904."
 FRAGMENTS = ("ana restrepo", "porfa", "historia oficial", EVIDENCE)

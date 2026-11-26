@@ -22,6 +22,7 @@ Gatekeeper (`decide_gate`, nodo `shortcut`):
    └─► scope=direct, source=reglas                                   (sin Jev, sin consultas)
    (el nodo shortcut aplica el olvido; si falla, rule=memory_unavailable)
 2. decide_route → memory_write             ─► scope=all,        source=reglas   (sin Jev)
+   (también declares_memory: «recuérdalo», «soy Ana», «trabajo en…», «suelo comprar en…»)
 3. _commercial_follow_up(question, ctx)    ─► scope=structured, source=reglas   (sin Jev)
 4. JEV_ROUTER_MODE≠off y judge.available() ─► Choice (una llamada, plazo JEV_TIMEOUT_S)
      ├─ JudgeUnavailable(status)           ─► scope=all, source=llm, reason=sin_jev:<status>

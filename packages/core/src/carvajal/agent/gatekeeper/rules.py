@@ -3,8 +3,10 @@
 Las reglas deciden primero y sin servicios externos: saludo o capacidad (``greeting``,
 también los saludos coloquiales sin pedido de :func:`is_greeting`), despedida o
 agradecimiento sin pedido (``farewell``, :func:`is_closing`) y «olvida todo»
-(``memory_forget``) van al atajo sin herramientas; una preferencia declarada
-(``memory_write``) va al agente con las 20 consultas; una corrección de cantidad o de entrega
+(``memory_forget``) van al atajo sin herramientas; una preferencia declarada o un dato que
+vale la pena recordar (``memory_write``, :func:`declares_memory`: «recuérdalo», «soy Ana»,
+«trabajo en…», «suelo comprar en…») va al agente con las 20 consultas, sin Jev, para que
+lo guarde con ``recordar_preferencia``; una corrección de cantidad o de entrega
 sobre el contexto comercial del hilo (``_commercial_follow_up``) va a las consultas
 estructuradas.
 
@@ -22,6 +24,7 @@ from typing import Any, Final
 
 from carvajal.agent.commercial_intent import extract_commercial
 from carvajal.agent.graph import _commercial_follow_up
+from carvajal.agent.memory.store import classify, forget_all_requested
 from carvajal.agent.router import decide_route
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.evidence import names_city
@@ -35,6 +38,7 @@ __all__ = [
     "SHORTCUT_INTENTS",
     "UNAVAILABLE_INTENT",
     "RuleDecision",
+    "declares_memory",
     "is_closing",
     "is_greeting",
     "rule_decision",
@@ -249,6 +253,31 @@ _GREETING_FILLER: Final = frozenset(
 )
 
 
+# Pedido explícito de recordar (texto plegado), en imperativo: «recuérdalo», «recuerda»,
+# «guárdalo», «anótalo», «apúntalo», «no lo olvides», «tenlo en cuenta». No cuentan el
+# infinitivo («recordar la historia del edificio»), la pregunta («¿recuerdas…?»), el pasado
+# que el plegado confunde con el imperativo de usted («guardé», «anoté»: por eso «guarde» y
+# «anote» exigen el pronombre) ni el «-me» de un pedido («anótame 10 pacas», «recuérdame
+# el precio»).
+_REMEMBER_RE: Final = re.compile(
+    r"\b(?:"
+    r"recuerd(?:a|e|en)(?:lo|la|los|las)?"
+    r"|guarda(?:lo|la|los|las)?|guard(?:e|en)(?:lo|la|los|las)"
+    r"|anota(?:lo|la|los|las)?|anot(?:e|en)(?:lo|la|los|las)"
+    r"|apunt(?:a|e|en)(?:lo|la|los|las)"
+    r"|no\s+(?:me\s+|te\s+|se\s+)?(?:lo\s+|la\s+|los\s+|las\s+)?olvid(?:es|e|en)"
+    r"|ten(?:lo|la|ga|galo|ganlo)?\s+(?:en\s+cuenta|presente)"
+    r")\b"
+)
+# Datos de la persona que se declaran sin pedir que se recuerden (categorías ``empresa`` y
+# ``ciudad_habitual`` de la memoria, spec 045). Solo las marcas inequívocas: «tengo un
+# restaurante» o «¿dónde lo compro en Cali?» piden algo y los decide Jev.
+_SELF_DATA_RE: Final = re.compile(
+    r"\b(?:trabajo\s+(?:en|para)|mi\s+empresa\s+es|suelo\s+comprar\s+en"
+    r"|normalmente\s+compro\s+en|siempre\s+compro\s+en)\b"
+)
+
+
 @dataclass(frozen=True)
 class RuleDecision:
     """Decisión de una regla: alcance, regla y clase (``None`` para la preferencia)."""
@@ -269,6 +298,8 @@ def shortcut_intent(
     ``farewell`` (:func:`is_closing`) si el turno lo atiende el atajo; vacía si va al agente.
     La preferencia declarada (``memory_write``) siempre va al agente (spec 045, R15): el
     grafo ``tools`` no la guarda por reglas; se devuelve solo para no tratarla como cierre.
+    También cuenta como preferencia un dato para la memoria sin esas marcas
+    (:func:`declares_memory`: «Hola, soy Ana… Recuérdalo»): ni saludo, ni cierre, ni Jev.
     «Olvida todo» con un pedido o una pregunta también sigue al agente (el nodo
     ``shortcut`` ya borró la memoria).
 
@@ -278,7 +309,11 @@ def shortcut_intent(
     """
 
     decision = decide_route(question, list(turns))
-    preference = decision.preference
+    # Un dato que vale la pena recordar cuenta como preferencia declarada aunque no traiga
+    # las marcas de ``decide_route`` («Hola, soy Ana… Recuérdalo»): nunca va a un atajo.
+    preference = decision.preference or (
+        " ".join(question.split())[:280] if declares_memory(question) else ""
+    )
     context = dict(commercial_context or {})
     follow_up = _commercial_follow_up(question, context) is not None
     if not preference and not follow_up and is_closing(question):
@@ -293,6 +328,25 @@ def shortcut_intent(
     if _commercial_follow_up(question, context) is not None:
         return "", preference
     return decision.intent, preference
+
+
+def declares_memory(question: str) -> bool:
+    """El mensaje da un dato para la memoria de largo plazo o pide recordar algo (spec 045).
+
+    Cuenta si pide recordar en imperativo («recuérdalo», «guarda», «anota», «no lo
+    olvides», «tenlo en cuenta»), si la persona se presenta con su nombre (``classify``
+    encuentra ``nombre``: «soy Ana», «me llamo Ana») o si dice dónde trabaja o dónde suele
+    comprar («trabajo en…», «suelo comprar en…»). «Olvida todo» no cuenta: lo atiende su
+    regla. Es determinista y no depende de Jev: el turno va al agente, que lo guarda con
+    ``recordar_preferencia``, en vez de a un atajo sin herramientas.
+    """
+
+    if forget_all_requested(question):
+        return False
+    folded = _fold(question)
+    if _REMEMBER_RE.search(folded) or _SELF_DATA_RE.search(folded):
+        return True
+    return "nombre" in classify(question)
 
 
 def is_closing(question: str) -> bool:
@@ -397,7 +451,8 @@ def rule_decision(
     """Decisión de las reglas, o ``None`` si ninguna decide (contrato §1, pasos 1 a 3).
 
     1. Conversación (``greeting``, ``farewell``, ``memory_forget``) → ``direct``.
-    2. Preferencia declarada (``memory_write``) → ``all`` (el agente la guarda).
+    2. Preferencia declarada o dato para la memoria (``memory_write``,
+       :func:`declares_memory`) → ``all`` (el agente la guarda).
     3. Seguimiento comercial del hilo → ``structured``.
 
     ``shortcut`` es el resultado ya calculado de :func:`shortcut_intent` (el nodo

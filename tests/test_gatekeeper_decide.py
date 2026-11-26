@@ -120,7 +120,8 @@ def test_juez_no_disponible_no_llama() -> None:
 def test_la_consulta_lleva_la_pregunta_redactada() -> None:
     # Arrange
     judge = FakeJudge()
-    question = "Soy Ana, mi celular es 3001234567. ¿Qué vasos tienen para café?"
+    # «Soy Ana» ya no viaja a Jev (regla ``memory_write``); «Le habla Ana» sí, enmascarado.
+    question = "Le habla Ana, mi celular es 3001234567. ¿Qué vasos tienen para café?"
 
     # Act
     decide_gate(question, judge=judge, settings=_settings())

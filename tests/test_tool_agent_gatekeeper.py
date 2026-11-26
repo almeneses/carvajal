@@ -3,7 +3,8 @@
 Con ``ScriptedToolChat`` y ``FakeJudge`` (sin red ni LLM): cada clase restringe las
 consultas que ve el modelo; la respuesta directa de Jev va al nodo ``direct``; una consulta
 fuera del alcance no se ejecuta; los bloques ``<alcance_del_turno>`` y ``<cautela>`` van al
-final del sistema; los saludos no llaman a Jev; y sin Jev todo queda como en la 045.
+final del sistema; los saludos no llaman a Jev; una presentación que da datos para la
+memoria va al agente aunque Jev diga respuesta directa; y sin Jev todo queda como en la 045.
 """
 
 from collections.abc import Sequence
@@ -12,12 +13,14 @@ from typing import Any, cast
 import pytest
 from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.store.memory import InMemoryStore
 from tests.fakes.judge import FakeJudge
 from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
 from tests.test_tool_agent_stream import FUNDACION, FakeEmbedder, QueueStore
 
 from apps.api.chat.agent import ToolAgentFinal, ToolAgentRunner, ToolAgentToken
 from carvajal.agent.gatekeeper.model import GatekeeperDecision
+from carvajal.agent.memory.store import load
 from carvajal.agent.toolagent.evidence import NO_DATA_ANSWER
 from carvajal.agent.toolagent.graph import (
     CAUTION_OPEN,
@@ -186,6 +189,55 @@ def test_olvida_todo_sin_store_reescribe_la_regla_a_memoria_no_disponible() -> N
     assert state["shortcut_intent"] == "memory_unavailable"
     assert state["gatekeeper"]["rule"] == "memory_unavailable"
     assert judge.routes == []
+
+
+INTRO = (
+    "Hola, soy Ana Prueba de la Panadería La Espiga y suelo comprar en Cali. "
+    "Recuérdalo para la próxima."
+)
+
+
+def test_una_presentacion_va_al_agente_y_se_guarda_aunque_jev_diga_respuesta_directa() -> None:
+    # Arrange: Jev la clasificaría como respuesta directa con confianza sobre el umbral.
+    judge = FakeJudge(choice="respuesta_directa", confidence=0.9)
+    memory = InMemoryStore()
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("recordar_preferencia", categoria="nombre", valor="Ana Prueba"),
+                _call("recordar_preferencia", categoria="ciudad_habitual", valor="Cali"),
+            ]
+        ),
+        ScriptStep(text="Listo, Ana. Lo tendré en cuenta."),
+    ]
+    graph, chat = _graph(steps, judge, memory=memory)
+
+    # Act
+    state = _invoke(graph, INTRO)
+
+    # Assert: regla de memoria, sin Jev ni atajo; el agente guarda con la herramienta.
+    assert judge.routes == []
+    assert state["mode_path"] == "agent"
+    assert state["gatekeeper"]["source"] == "reglas"
+    assert state["gatekeeper"]["rule"] == "memory_write"
+    assert _bound(chat)[0] == list(TOOL_NAMES)
+    assert [r["tool"] for r in state["results"]] == ["recordar_preferencia"] * 2
+    assert load(memory, "dueno-1").values == {"nombre": "Ana Prueba", "ciudad_habitual": "Cali"}
+
+
+def test_un_hola_sigue_en_el_atajo_aunque_jev_diga_respuesta_directa() -> None:
+    # Arrange
+    judge = FakeJudge(choice="respuesta_directa", confidence=0.9)
+    graph, chat = _graph([ScriptStep(text="¡Hola! Soy Carva.")], judge, memory=InMemoryStore())
+
+    # Act
+    state = _invoke(graph, "hola")
+
+    # Assert
+    assert judge.routes == []
+    assert state["mode_path"] == "shortcut"
+    assert state["shortcut_intent"] == "greeting"
+    assert _bound(chat) == []
 
 
 # --- Parte 2 (US2): cautela -------------------------------------------------------------------
