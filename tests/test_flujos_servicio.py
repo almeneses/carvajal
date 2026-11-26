@@ -340,3 +340,40 @@ def test_el_payload_del_flujo_trae_las_fotos_de_lo_agregado(engine: Any) -> None
     flow = named(added, "done").data["flow"]
     assert flow["photos"]
     assert flow["photos"] == [_draft(engine)["lines"][-1]["primary"]["sku"]]
+
+
+def test_una_abstencion_delante_de_la_plantilla_se_reemplaza_por_la_plantilla(
+    engine: Any,
+) -> None:
+    # Arrange: WhatsApp del 2026-11-25. La compuerta descartó el comentario del modelo y
+    # «No tengo un dato verificado…» salía antes de las opciones de la plantilla.
+    from apps.api.chat.agent import ToolAgentSources, ToolAgentToken
+    from carvajal.agent.toolagent.evidence import NO_DATA_ANSWER
+
+    quote = quote_payload()
+    closing = final(
+        answer=NO_DATA_ANSWER,
+        products={"quote": quote, "quotes": [quote], "cities": ["Bogotá"]},
+        quotes=(quote,),
+        abstained=True,
+    )
+    events_in = [
+        ToolAgentSources(sources=closing.sources),
+        ToolAgentToken(text=NO_DATA_ANSWER),
+        closing,
+    ]
+    runner = FakeToolRunner(events_in)
+    service = build_service(engine, runner)
+
+    # Act
+    events = _send(service, "cotiza 50 vasos en Bogotá")
+
+    # Assert: la burbuja se reemplaza por la plantilla y el historial guarda solo ella.
+    replaced = named(events, "fallback").data["text"]
+    assert replaced.startswith("✅ Agregué")
+    assert NO_DATA_ANSWER not in replaced
+    with engine.connect() as connection:
+        answers = connection.execute(
+            select(tables.messages.c.content).where(tables.messages.c.role == "assistant")
+        ).scalars()
+        assert all(NO_DATA_ANSWER not in answer for answer in answers)

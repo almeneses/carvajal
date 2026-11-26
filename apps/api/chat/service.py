@@ -85,6 +85,7 @@ from carvajal.agent.gatekeeper.model import map_route
 from carvajal.agent.memory.summary import SUMMARY_SLACK_TURNS, SeedTurns, pair_turns
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent import fallback
+from carvajal.agent.toolagent.evidence import NO_DATA_ANSWER
 from carvajal.agent.toolagent.state import UNKNOWN_TOOL
 from carvajal.agent.toolagent.tools import DECLARATION_TOOLS, TOOL_NAMES
 from carvajal.application.ask import NO_CONTEXT_ANSWER, Answer, Source
@@ -1142,7 +1143,13 @@ class ChatService:
         record_judge_calls(span, _judge_calls(closing.gatekeeper, closing.claims))
         structlog.contextvars.bind_contextvars(route=route)
 
-        if flow_suffix:
+        if flow_suffix and "".join(fragments).strip() in _ABSTENTIONS:
+            # La plantilla del flujo responde el turno: una abstención antes de ella («No
+            # tengo un dato verificado…», la compuerta descartó el comentario del modelo)
+            # confunde (2026-11-25). Se reemplaza la burbuja por la plantilla sola.
+            fragments[:] = [flow_suffix.strip()]
+            yield ChatEvent("fallback", {"text": fragments[0], "sources": _sources(sources)})
+        elif flow_suffix:
             fragments.append(flow_suffix)
             yield ChatEvent("token", {"text": flow_suffix})
         answer_text = "".join(fragments)
@@ -2123,6 +2130,11 @@ class _Followup:
     answer: str | None = None
     products: Mapping[str, Any] | None = None
     quotes: Sequence[Mapping[str, Any]] = ()
+
+
+# Respuestas fijas de abstención: si la plantilla del flujo responde el turno, no se
+# muestran delante de ella.
+_ABSTENTIONS = frozenset({NO_DATA_ANSWER.strip(), NO_CONTEXT_ANSWER.strip()})
 
 
 def _mark_draft_quotes(products: Mapping[str, Any] | None) -> dict[str, Any] | None:

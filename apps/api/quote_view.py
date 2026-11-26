@@ -90,6 +90,10 @@ class QuoteLine:
     units_per_presentation: int | None = None
     subtotal: str | None = None
     seller: str = ""
+    source_url: str = ""
+    price_date: str | None = None
+    # Precio de referencia del catálogo, sin vendedor (``price_kind == "convertido"``).
+    converted: bool = False
 
 
 @dataclass(frozen=True)
@@ -257,6 +261,13 @@ def _lines(raw: Any, currency: str) -> tuple[QuoteLine, ...]:
                 seller=str(
                     primary.get("seller") or _map(primary.get("provider")).get("name") or ""
                 ),
+                source_url=str(
+                    _map(primary.get("source")).get("url") or primary.get("source_url") or ""
+                ),
+                price_date=format_date(
+                    _map(primary.get("source")).get("captured_at") or primary.get("captured_at")
+                ),
+                converted=primary.get("price_kind") == "convertido",
             )
         )
     return tuple(lines)

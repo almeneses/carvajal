@@ -867,3 +867,40 @@ def test_si_el_agente_no_cotiza_no_se_adjunta_nada() -> None:
 
     assert ATTACH_PDF_PREFIX not in answer
     assert chat.calls == ["Cotiza 400 J1"]
+
+
+def test_el_pdf_de_varios_productos_lleva_la_foto_y_la_fuente_de_cada_uno() -> None:
+    # Arrange: WhatsApp del 2026-11-25, cotización de dos productos sin fotos y con la
+    # fuente del primero para ambos.
+    from datetime import date as _date
+
+    from apps.api.quote_pdf import build_quote_pdf
+    from apps.api.quote_view import quote_view
+    from carvajal.catalog.images import catalog_image
+    from carvajal.quotation import QuoteRequest, quote_request
+    from carvajal.quotation.draft import QuoteDraft, add_line, draft_quote_payload
+
+    day = _date(2026, 11, 25)
+    vaso = quote_request(
+        QuoteRequest(sku="CO-MX-2864632186", quantity=100, city="Bogotá", delivery=False),
+        today=day,
+    )
+    caja = quote_request(
+        QuoteRequest(sku="CO-PCOM-C1", quantity=1000, city="Bogotá", delivery=False), today=day
+    )
+    draft, _ = add_line(QuoteDraft(), vaso)
+    draft, _ = add_line(draft, caja)
+    payload = {**draft_quote_payload(draft), "quote": {"folio": "PRUEBA2"}}
+    view = quote_view(payload)
+    assert view is not None
+    photos = {line.sku: found.path for line in view.lines if (found := catalog_image(line.sku))}
+
+    # Act
+    con = build_quote_pdf(view, line_photos=photos, compress=False)
+    sin = build_quote_pdf(view, compress=False)
+
+    # Assert: una imagen por fila (más el logo) y la fuente de cada producto.
+    assert [line.converted for line in view.lines] == [True, False]
+    assert view.lines[1].seller == "EDEXA" and "tiendaedexa.com" in view.lines[1].source_url
+    assert con.count(b"/Subtype /Image") == sin.count(b"/Subtype /Image") + 2
+    assert len(con) > len(sin)

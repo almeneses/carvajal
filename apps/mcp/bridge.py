@@ -842,8 +842,11 @@ def _collect(events: Iterable[ChatEvent]) -> _Turn:
     flow: Mapping[str, Any] | None = None
     error: str | None = None
     for event in events:
-        if event.name in {"token", "fallback"}:
+        if event.name == "token":
             fragments.append(str(event.data.get("text", "")))
+        elif event.name == "fallback":
+            # Como en la web (``chat-stream.js``): el fallback reemplaza lo recibido.
+            fragments = [str(event.data.get("text", ""))]
         elif event.name == "meta":
             raw = event.data.get("sources") or []
             sources = [item for item in raw if isinstance(item, Mapping)]
