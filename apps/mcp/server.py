@@ -206,6 +206,9 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
     # El transporte solo valida ``Host`` y ``Origin`` en ``/mcp``: las rutas propias lo
     # piden aparte con las mismas reglas.
     host_check = TransportSecurityMiddleware(security)
+    # Al arrancar, como el token: si la configuración fallara, el MCP no arranca en vez de
+    # responder 500 en /health.
+    health_settings = _health_settings()
 
     @server.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(request: Request) -> Response:
@@ -215,7 +218,7 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
         # Diferido: el bloque importa el gatekeeper, que arrastra el grafo del agente.
         from apps.api.observability import claims_block
 
-        return JSONResponse({"status": "ok", "claims": claims_block(_health_settings())})
+        return JSONResponse({"status": "ok", "claims": claims_block(health_settings)})
 
     app: Starlette = server.streamable_http_app(transport_security=security)
     return _bearer_guard(app, token.strip())
@@ -223,7 +226,7 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
 
 @cache
 def _health_settings() -> "Settings":
-    """La configuración del proceso, leída una vez: ``/health`` no la reconstruye por petición."""
+    """La configuración del proceso, leída una vez al arrancar ``build_app``."""
 
     from carvajal.infrastructure.settings import Settings
 
