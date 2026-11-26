@@ -645,7 +645,11 @@ def whatsapp_quote(view: QuoteView, photo_url: str | None = None) -> str:
     else:
         # Spec 053: sin folio es una propuesta; se registra cuando la persona dice «sí».
         lines = ["🧾 *Propuesta de cotización* (sin folio, por confirmar)"]
-    place = " · ".join(part for part in (view.city, view.seller) if part)
+    seller = view.seller
+    if seller and view.price_city:
+        # Precio publicado en otra ciudad: «Cali · EDEXA» haría creer que EDEXA vende en Cali.
+        seller += f" (precio de {view.price_city})"
+    place = " · ".join(part for part in (view.city, seller) if part)
     if place:
         lines.append(f"📍 {place}")
     lines += ["", f"*{view.product}*"]
@@ -757,6 +761,11 @@ def spoken_quote(view: QuoteView, photo_url: str | None = None) -> SpokenReply:
         sentences.append(f"{head}.")
         pending = f": {view.pending[0].rstrip('.')}" if view.pending else ""
         sentences.append(f"El total está pendiente{pending}.")
+    if view.price_city:
+        # Precio publicado en otra ciudad: el rótulo va en la advertencia, que es larga y la
+        # voz no lee; sin esta frase, el precio de Bogotá sonaría como el de la ciudad pedida.
+        who = f"que publica {view.seller}" if view.seller else "publicado"
+        sentences.append(f"Es el precio {who} en {view.price_city}.")
     shipping = _spoken_shipping(view.shipping, view.currency)
     if shipping:
         sentences.append(shipping)

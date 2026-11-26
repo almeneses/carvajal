@@ -191,6 +191,9 @@ def _seller_and_source(pdf: FPDF, view: QuoteView) -> None:
 
     if view.seller:
         _label_value(pdf, "Nombre", view.seller, width=24)
+    if view.price_city:
+        # El precio lo publica el vendedor en otra ciudad que la de la cotización.
+        _label_value(pdf, "Ciudad", f"{view.price_city} (precio publicado allí)", width=24)
     if view.seller_address:
         _label_value(pdf, "Dirección", view.seller_address, width=24)
     if view.seller_phone:
@@ -226,6 +229,8 @@ def _lines_sources(pdf: FPDF, view: QuoteView) -> None:
                 origin += f", del {line.price_date}"
         else:
             origin = line.seller or "Vendedor"
+            if line.price_city:
+                origin += f" en {line.price_city}"
             if line.price_date:
                 origin += f", publicado el {line.price_date}"
         pdf.set_font("DMSans", "B", 9)

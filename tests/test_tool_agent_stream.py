@@ -872,12 +872,13 @@ PIDE_CIUDAD = (
     "Villavicencio.\n\nPara los de 3,5 oz, ¿los shots van fríos o a temperatura ambiente? "
     "Con eso te muestro las opciones."
 )
-GOLD_14 = (
-    "Buenas tardes. Quisiera cotizar vasos Gold de 14 oz con tapa pitillera para jugos naturales."
-)
+# Desde el 2026-11-26 el vaso de 14 oz frío se cotiza en Manizales con el precio publicado
+# en Bogotá: los guiones de «cotizar vacío con sedes» usan el de 12 oz, que no tiene precio
+# publicado en ninguna ciudad ni de referencia en Manizales.
+VASOS_12 = "Buenas tardes. Quisiera cotizar vasos de 12 oz con tapa pitillera para jugos naturales."
 GOLD_MANIZALES = "Serían para empezar unas 2.000 unidades, y los recibiría acá en Manizales."
 SEDES_MANIZALES = (
-    "No hay precio publicado para vasos de 14 oz en Manizales, así que la cotización queda "
+    "No hay precio publicado para vasos de 12 oz en Manizales, así que la cotización queda "
     "pendiente. Sí hay dos sedes del directorio con contacto:\n\n"
     "- Kive Andina — Parque Industrial Juanchito, terraza 3, lote 12 — 606 874 7455 [1]\n"
     "- Representaciones Lastra Eje Cafetero — misma dirección — 874 7455 [2]\n\n"
@@ -908,6 +909,7 @@ COTIZAR_J1_CALI = _call(
     capacity_oz=14,
 )
 COTIZAR_GOLD = {"family": "vaso", "capacity_oz": 14, "temperature": "fria", "use": "bebida_fria"}
+COTIZAR_12_FRIO = {**COTIZAR_GOLD, "capacity_oz": 12}
 
 
 def _two_turns(
@@ -982,16 +984,18 @@ def test_pedir_la_ciudad_con_la_capacidad_del_turno_anterior_no_se_abstiene() ->
 def test_cotizar_vacio_deja_pasar_las_sedes_que_devolvio() -> None:
     # Arrange: s-clientes-07 turno 1. ``cotizar`` sin precio en Manizales, con dos sedes.
     first = [
-        ScriptStep(tool_calls=[_call("cotizar", **COTIZAR_GOLD)]),
-        ScriptStep(text="Para cotizar los vasos de 14 oz me falta la cantidad de unidades."),
+        ScriptStep(tool_calls=[_call("cotizar", **COTIZAR_12_FRIO)]),
+        ScriptStep(text="Para cotizar los vasos de 12 oz me falta la cantidad de unidades."),
     ]
     second = [
-        ScriptStep(tool_calls=[_call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD)]),
+        ScriptStep(
+            tool_calls=[_call("cotizar", quantity=2000, city="Manizales", **COTIZAR_12_FRIO)]
+        ),
         ScriptStep(text=SEDES_MANIZALES),
     ]
 
     # Act
-    events = _two_turns((GOLD_14, first), (GOLD_MANIZALES, second))
+    events = _two_turns((VASOS_12, first), (GOLD_MANIZALES, second))
 
     # Assert
     final = _final(events)
@@ -1033,7 +1037,7 @@ def test_cotizar_vacio_sin_respaldo_se_reemplaza_por_las_sedes_y_no_por_el_corpu
 
 def test_una_cifra_inventada_junto_a_las_sedes_sigue_sustituyendose() -> None:
     # Arrange: las sedes no respaldan una cifra que no traen.
-    call = _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD)
+    call = _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_12_FRIO)
     text = "Carvajal tiene 13.000 empleados en Manizales; llama a Kive Andina [1]."
     runner, _ = _runner([ScriptStep(tool_calls=[call]), ScriptStep(text=text)])
 
@@ -1082,7 +1086,7 @@ def test_buscar_corpus_vacio_con_sedes_de_cotizar_emite_solo_las_sedes(text: str
         ScriptStep(
             tool_calls=[
                 _call("buscar_corpus", consulta="fundador de Carvajal"),
-                _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_GOLD),
+                _call("cotizar", quantity=2000, city="Manizales", **COTIZAR_12_FRIO),
             ]
         ),
         ScriptStep(text=text),
@@ -1090,7 +1094,7 @@ def test_buscar_corpus_vacio_con_sedes_de_cotizar_emite_solo_las_sedes(text: str
     runner, _ = _runner(steps, store=QueueStore([]))
 
     # Act
-    events = _stream(runner, "¿Quién fundó Carvajal? Y cotízame 2000 vasos de 14 oz en Manizales")
+    events = _stream(runner, "¿Quién fundó Carvajal? Y cotízame 2000 vasos de 12 oz en Manizales")
 
     # Assert: la redacción del modelo no sale, ni filtrada; sale el aviso neutro con las
     # sedes que trajo la herramienta, con sus citas.

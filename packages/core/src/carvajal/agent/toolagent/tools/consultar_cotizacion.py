@@ -89,7 +89,9 @@ _OK = (
     "vigente=true: sigue dentro de la vigencia que publicó el vendedor; vigente=false: esa "
     "vigencia ya terminó, ofrece calcular una nueva; vigente=null: el vendedor no publicó "
     "vigencia, así que no digas que sigue vigente ni que venció: da la fecha del precio y "
-    "ofrece una cotización nueva si quiere precios actuales. Cita cada cotización con su n."
+    "ofrece una cotización nueva si quiere precios actuales. Si trae ciudad_del_precio, el "
+    "vendedor publica el precio en esa ciudad y no en «ciudad»: dilo así y no lo presentes "
+    "como precio de «ciudad». Cita cada cotización con su n."
 )
 _MORE = " Hay más cotizaciones en esta conversación; se muestran solo las más recientes."
 
@@ -257,10 +259,18 @@ def _quote_data(record: QuoteRecord, today: date) -> dict[str, Any]:
         "total": _text(record.total),
         "moneda": record.currency,
         "vendedor": primary.get("seller") or source.get("name"),
+        # Ciudad donde el vendedor publica el precio, si no es la de la cotización.
+        **({"ciudad_del_precio": primary.get("price_city")} if _remote(primary) else {}),
         "fecha_precio": primary.get("captured_at") or source.get("captured_at"),
         "vigencia_comercial": None if valid_until is None else valid_until.isoformat(),
         "vigente": None if valid_until is None else today <= valid_until,
     }
+
+
+def _remote(primary: Mapping[str, Any]) -> bool:
+    """El precio se publicó en otra ciudad que la de la cotización (``price_origin``)."""
+
+    return bool(primary.get("price_origin") and primary.get("price_city"))
 
 
 # --- Fuentes -------------------------------------------------------------------------------
@@ -287,6 +297,7 @@ def _facts(quote: Mapping[str, Any], today: date) -> str:
         ("envío {}", shipping["estado"]),
         ("costo de envío {} " + currency, shipping["costo"]),
         ("vendedor {}", quote["vendedor"]),
+        ("precio publicado en {}", quote.get("ciudad_del_precio")),
         ("precio capturado el {}", quote["fecha_precio"]),
     )
     parts.extend(
@@ -356,11 +367,12 @@ def _price_excerpt(record: QuoteRecord, quote: Mapping[str, Any]) -> str:
     if price is None:
         return ""
     text = f"Precio {price} {quote['moneda'] or ''}".rstrip()
+    where = f" en {quote['ciudad_del_precio']}" if quote.get("ciudad_del_precio") else ""
     if presentation.get("basis") and presentation.get("units") is not None:
         text += f" por {presentation['basis']} de {presentation['units']}"
     details = [
         f"IVA {quote['iva']['estado']}" if quote["iva"]["estado"] else "",
-        f"publicado por {quote['vendedor']}" if quote["vendedor"] else "",
+        f"publicado por {quote['vendedor']}{where}" if quote["vendedor"] else "",
         f"capturado el {quote['fecha_precio']}" if quote["fecha_precio"] else "",
     ]
     return " · ".join([text, *(item for item in details if item)])

@@ -97,15 +97,30 @@ def test_producto_agotado_no_se_ofrece() -> None:
         assert resultado["primary"]["sku"] != "CO-VTER-04"
 
 
-def test_cali_sin_precio_publicado_cotiza_el_de_referencia_y_da_las_sedes() -> None:
-    """Sin oferta publicada en Cali: precio de referencia sin vendedor, con los contactos."""
+def test_cali_sin_precio_publicado_cotiza_el_de_bogota_y_da_las_sedes_de_cali() -> None:
+    """Sin oferta en Cali: el precio publicado en Bogotá, rotulado, con las sedes de Cali."""
 
     resultado = quote("cotiza 100 vasos para bebida caliente en Cali", today=HOY, now=MANANA)
 
     assert resultado["kind"] == "cotizacion"
-    assert resultado["primary"]["price_kind"] == "convertido"
-    assert resultado["primary"]["provider"]["phone"] is None
+    assert resultado["city"] == "Cali"
+    assert resultado["primary"]["price_kind"] == "publicado"
+    assert resultado["primary"]["price_city"] == "Bogotá"
+    assert resultado["primary"]["seller"] == "EDEXA"
+    assert "Precio publicado por EDEXA en Bogotá" in resultado["reply"]
     assert len(resultado["providers"]) == 4
+    assert {sede["city"] for sede in resultado["providers"]} == {"Cali"}
+
+
+def test_cali_sin_ningun_precio_publicado_cotiza_el_de_referencia_de_cali() -> None:
+    """Sin oferta publicada en ninguna ciudad: el precio de referencia de Cali, sin vendedor."""
+
+    resultado = quote("cotiza 2000 cubiertos en Cali", today=HOY, now=MANANA)
+
+    assert resultado["kind"] == "cotizacion"
+    assert resultado["primary"]["price_kind"] == "convertido"
+    assert resultado["primary"]["price_origin"] is None
+    assert resultado["primary"]["provider"]["phone"] is None
     assert {sede["city"] for sede in resultado["providers"]} == {"Cali"}
 
 
@@ -740,9 +755,11 @@ def test_cafe_en_bogota_con_el_catalogo_real_recomienda_el_pp_de_9_oz_publicado(
 @pytest.mark.parametrize(
     ("texto", "sku"),
     [
-        # Térmicos (bebida fría y comida caliente) más baratos que el PS de 2 oz «Bio».
-        ("necesito 1000 vasos para jugo en Barranquilla", "CO-MX-2864108000"),
-        ("necesito 1000 vasos para bebida fría en Pereira", "CO-MX-2864112370"),
+        # Fuera de Bogotá, sin capacidad, manda el precio publicado en Bogotá (CO-VRP-07).
+        ("necesito 1000 vasos para jugo en Barranquilla", "CO-VRP-07"),
+        # Con 12 oz solo hay convertidas: el térmico (bebida fría y comida caliente) sigue
+        # recomendado aunque declare otro uso.
+        ("necesito 1000 vasos de 12 oz para bebida fría en Pereira", "CO-MX-2864112370"),
         ("necesito 1000 vasos de 12 oz para bebida fría en Bogotá", "CO-MX-2864112370"),
     ],
 )

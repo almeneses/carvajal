@@ -184,6 +184,10 @@ def _quote_block(quote: Mapping[str, Any]) -> str:
     lines.append(
         f"- Total: {_money(total, currency)}" if total is not None else "- Total pendiente"
     )
+    if primary.get("price_origin"):
+        # Precio publicado en otra ciudad: quién lo publica y dónde, para no presentarlo
+        # como precio de la ciudad de la cotización.
+        lines.append(f"- Origen del precio: {primary['price_origin']}")
     return "\n".join(lines)
 
 

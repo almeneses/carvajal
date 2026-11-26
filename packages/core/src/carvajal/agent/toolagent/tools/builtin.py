@@ -1114,6 +1114,8 @@ def _quote_sources(quote: Mapping[str, Any], source_type: str) -> list[dict[str,
     primary = quote["primary"]
     presentation = primary["presentation"]
     site_id = (primary.get("provider") or {}).get("id") or ""
+    # Precio publicado en otra ciudad que la de la cotización: la fuente dice cuál.
+    where = f"publicado en {primary['price_city']} · " if primary.get("price_origin") else ""
     entries = [
         {
             "chunk_id": f"precio:{primary['sku']}:{site_id}",
@@ -1125,7 +1127,7 @@ def _quote_sources(quote: Mapping[str, Any], source_type: str) -> list[dict[str,
                 f"Precio {presentation['price_per_presentation']} {primary['currency']} por "
                 f"{presentation['basis']} de {presentation['units']} · IVA "
                 f"{primary['tax_status']} · {price_origin(source_type, primary['seller'])} · "
-                "capturado el "
+                f"{where}capturado el "
                 f"{primary['captured_at']}"
             ),
             "url": primary["source_url"],
@@ -1203,6 +1205,8 @@ def _quote_payload(
         "total": quote["total"],
         "moneda": commercial["currency"],
         "vendedor": primary["seller"],
+        # Ciudad donde el vendedor publica el precio, si no es la de la cotización.
+        **({"ciudad_del_precio": primary["price_city"]} if primary.get("price_origin") else {}),
         "tipo_fuente": source_type,
         "fuente": primary["source_url"],
         "fecha": primary["captured_at"],
@@ -1480,6 +1484,13 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     numbers = sources.add(_quote_sources(quoted, source_type))
     shipping_n = numbers[1] if len(numbers) > 1 else None
     message = f"Cotización calculada con el precio publicado por {primary['seller']}."
+    if primary.get("price_origin"):
+        message = (
+            f"Cotización calculada con el precio que publica {primary['seller']} en "
+            f"{primary['price_city']}: en {quoted['city']} no hay precio publicado de esta "
+            f"referencia. Dilo así y no lo presentes como precio de {quoted['city']}; las sedes "
+            f"de {quoted['city']} del directorio son dónde consultarla."
+        )
     if source_type == "sistema":
         message = (
             "Cotización calculada con un precio de referencia del catálogo, sin distribuidor: "

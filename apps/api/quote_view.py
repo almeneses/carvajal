@@ -94,6 +94,9 @@ class QuoteLine:
     price_date: str | None = None
     # Precio de referencia del catálogo, sin vendedor (``price_kind == "convertido"``).
     converted: bool = False
+    # Precio publicado en otra ciudad que la de la cotización: ciudad del precio y rótulo.
+    price_city: str = ""
+    price_origin: str = ""
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,10 @@ class QuoteView:
     warning: str = ""
     # Precio de referencia del catálogo, sin vendedor (``price_kind == "convertido"``).
     converted: bool = False
+    # Precio publicado en otra ciudad que la de la cotización: ciudad del precio y rótulo
+    # («Precio publicado por EDEXA en Bogotá; en Cali no hay precio publicado…»).
+    price_city: str = ""
+    price_origin: str = ""
     pending: Sequence[str] = field(default_factory=tuple)
     # Spec 054: con dos o más productos, una línea por producto bajo el mismo folio.
     lines: tuple[QuoteLine, ...] = ()
@@ -230,6 +237,8 @@ def quote_view(payload: Mapping[str, Any]) -> QuoteView | None:
         valid_until_date=valid_date,
         warning=str(primary.get("warning") or ""),
         converted=primary.get("price_kind") == "convertido",
+        price_city=str(primary.get("price_city") or "") if primary.get("price_origin") else "",
+        price_origin=str(primary.get("price_origin") or ""),
         pending=_pending(payload.get("pending_lines") or commercial.get("pending_lines")),
         lines=_lines(payload.get("lines"), currency),
     )
@@ -268,6 +277,10 @@ def _lines(raw: Any, currency: str) -> tuple[QuoteLine, ...]:
                     _map(primary.get("source")).get("captured_at") or primary.get("captured_at")
                 ),
                 converted=primary.get("price_kind") == "convertido",
+                price_city=(
+                    str(primary.get("price_city") or "") if primary.get("price_origin") else ""
+                ),
+                price_origin=str(primary.get("price_origin") or ""),
             )
         )
     return tuple(lines)

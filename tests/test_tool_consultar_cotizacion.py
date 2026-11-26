@@ -232,6 +232,46 @@ def test_folio_propio_real_devuelve_el_desglose_guardado_sin_recotizar() -> None
     assert lookup.calls == [("get", FOLIO, OWNER)]
 
 
+def test_precio_publicado_en_otra_ciudad_conserva_su_ciudad() -> None:
+    # Arrange: el precio lo publica el vendedor en Bogotá y la cotización es para Cali.
+    quote = copy.deepcopy(QUOTE)
+    seller = quote["primary"]["seller"]
+    quote["city"] = "Cali"
+    quote["primary"]["price_city"] = "Bogotá"
+    quote["primary"]["price_origin"] = (
+        f"Precio publicado por {seller} en Bogotá; en Cali no hay precio publicado de esta "
+        "referencia."
+    )
+    lookup = MemoryQuotes([_row(quote=quote)])
+
+    # Act
+    draft, sources = _run({"folio": FOLIO}, lookup)
+
+    # Assert
+    [data] = draft.data["cotizaciones"]
+    assert data["ciudad"] == "Cali"
+    assert data["ciudad_del_precio"] == "Bogotá"
+    assert "ciudad_del_precio" in draft.message
+    main, price = sources.entries[0], sources.entries[1]
+    assert "precio publicado en Bogotá" in main["excerpt"]
+    assert f"Origen del precio: Precio publicado por {seller} en Bogotá" in main["excerpt"]
+    assert f"publicado por {seller} en Bogotá" in price["excerpt"]
+    missing = [value for value in _scalars(data) if value not in main["excerpt"]]
+    assert missing == []
+
+
+def test_precio_de_la_misma_ciudad_no_trae_ciudad_del_precio() -> None:
+    # Arrange
+    lookup = MemoryQuotes([_row()])
+
+    # Act
+    draft, sources = _run({"folio": FOLIO}, lookup)
+
+    # Assert
+    assert "ciudad_del_precio" not in draft.data["cotizaciones"][0]
+    assert "Origen del precio" not in sources.entries[0]["excerpt"]
+
+
 def test_fuentes_cotizacion_y_precio_guardado_con_su_tipo() -> None:
     # Arrange
     lookup = MemoryQuotes([_row()])

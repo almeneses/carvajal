@@ -217,6 +217,45 @@ def _seller(line: Mapping[str, Any]) -> str:
     return str(primary.get("seller") or _map(primary.get("provider")).get("name") or "")
 
 
+def _seller_label(line: Mapping[str, Any]) -> str:
+    """Vendedor y, si publica el precio en otra ciudad que la pedida, esa ciudad.
+
+    «EDEXA (precio de Bogotá)»: en una cotización para Cali, «Cali · EDEXA» haría creer que
+    EDEXA vende en Cali a ese precio.
+    """
+
+    seller = _seller(line)
+    price_city = _remote_city(_map(line.get("primary")))
+    if seller and price_city:
+        return f"{seller} (precio de {price_city})"
+    return seller
+
+
+def _remote_city(option: Mapping[str, Any]) -> str:
+    """Ciudad donde se publica el precio si no es la de la cotización; ``""`` si es la misma."""
+
+    return str(option.get("price_city") or "") if option.get("price_origin") else ""
+
+
+def _spoken_price_city(lines: Sequence[Mapping[str, Any]]) -> str:
+    """Frase hablada que dice en qué otra ciudad se publican los precios; ``""`` si en ninguna.
+
+    La voz no lee el rótulo escrito: sin esta frase, un precio de Bogotá sonaría como el
+    precio de la ciudad pedida.
+    """
+
+    remote = [_remote_city(_map(line.get("primary"))) for line in lines]
+    cities = list(dict.fromkeys(city for city in remote if city))
+    if not cities:
+        return ""
+    where = _say(" y ".join(cities))
+    if len(lines) == 1:
+        return f" Es el precio publicado en {where}."
+    if all(remote):
+        return f" Son precios publicados en {where}."
+    return f" Incluye precios publicados en {where}."
+
+
 def _count_label(count: int) -> str:
     return "1 producto" if count == 1 else f"{count} productos"
 
@@ -240,6 +279,8 @@ def option_rows(quote: Mapping[str, Any]) -> list[dict[str, Any]]:
             "capacity_oz": primary.get("capacity_oz"),
             "currency": _currency(quote),
             "note": "",
+            "price_city": primary.get("price_city"),
+            "price_origin": primary.get("price_origin"),
         }
     ]
     for position, alternative in enumerate(quote.get("alternatives") or [], start=1):
@@ -258,6 +299,8 @@ def option_rows(quote: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "capacity_oz": alternative.get("capacity_oz"),
                 "currency": str(alternative.get("currency") or _currency(quote)),
                 "note": str(alternative.get("difference") or ""),
+                "price_city": alternative.get("price_city"),
+                "price_origin": alternative.get("price_origin"),
             }
         )
     return rows
@@ -291,11 +334,15 @@ def options(quote: Mapping[str, Any], *, reason: str = "") -> Message:
     detail = reason or _option_detail(best)
     if detail:
         lines.append(f"   {detail}")
+    if best.get("price_origin"):
+        # Precio publicado en otra ciudad: se dice quién lo publica y dónde.
+        lines.append(f"   📍 {best['price_origin']}")
     if len(rows) > 1:
         lines += ["", "**Alternativas**"]
         for row in rows[1:]:
             price = format_money(row.get("subtotal"), str(row["currency"])) or "sin precio"
-            lines.append(f"{row['index']}. {row['name']} · {price}")
+            where = f" (precio de {row['price_city']})" if row.get("price_origin") else ""
+            lines.append(f"{row['index']}. {row['name']} · {price}{where}")
         lines += ["", "¿Cuál te cotizo? Di **esa** o un número."]
         question = "¿Cuál te cotizo?"
     else:
@@ -306,6 +353,8 @@ def options(quote: Mapping[str, Any], *, reason: str = "") -> Message:
     if units:
         spoken += f" por {format_units(units)} unidades"
     spoken += "."
+    if best.get("price_origin") and best.get("price_city"):
+        spoken += f" Es el precio publicado en {_say(str(best['price_city']))}."
     if len(rows) > 1:
         count = len(rows) - 1
         spoken += f" Te dejo {count} alternativa{'s' if count > 1 else ''} por escrito."
@@ -369,7 +418,13 @@ def comparison(quotes: Sequence[Mapping[str, Any]]) -> Message:
     if _city(first):
         head += f" · {_city(first)}"
     head += "**"
-    lines = [head, ""]
+    lines = [head]
+    # Precio publicado en otra ciudad: quién lo publica y dónde, como en las opciones.
+    origins = dict.fromkeys(
+        str(_map(quote.get("primary")).get("price_origin") or "") for quote in quotes
+    )
+    lines += [f"📍 {origin}" for origin in origins if origin]
+    lines.append("")
     said: list[str] = []
     prices: list[Decimal] = []
     for quote in quotes:
@@ -399,7 +454,7 @@ def comparison(quotes: Sequence[Mapping[str, Any]]) -> Message:
         if saving >= 5:
             lines += ["", f"La cantidad mayor sale {saving:.0f} % más barata por unidad."]
     lines += ["", "¿Con cuál cantidad la armo?"]
-    spoken = "; ".join(said) + ". ¿Con cuál cantidad la armo?"
+    spoken = "; ".join(said) + f".{_spoken_price_city(quotes)} ¿Con cuál cantidad la armo?"
     return Message("\n".join(lines), spoken[0].upper() + spoken[1:])
 
 
@@ -411,7 +466,11 @@ def _cart_lines(lines: Sequence[Mapping[str, Any]]) -> list[str]:
     for index, line in enumerate(lines, start=1):
         money = format_money(line_subtotal(line), _currency(line)) or "precio por confirmar"
         units = format_units(units_of(line))
-        rows.append(f"{index}. {line_label(line)} × {units} · {money}")  # noqa: RUF001
+        row = f"{index}. {line_label(line)} × {units} · {money}"  # noqa: RUF001
+        price_city = _remote_city(_map(line.get("primary")))
+        if price_city:
+            row += f" (precio de {price_city})"
+        rows.append(row)
     return rows
 
 
@@ -449,12 +508,12 @@ def added(
         detail = [part for part in (_packs(line), f"**{money}**") if part]
         unit = _unit_price(line)
         text_lines = [f"{verb} {name}", " · ".join(detail) + (f" ({unit} c/u)" if unit else "")]
-        place = " · ".join(part for part in (_city(line), _seller(line)) if part)
+        place = " · ".join(part for part in (_city(line), _seller_label(line)) if part)
         if place:
             text_lines.append(f"📍 {place}")
         text_lines += ["", "¿Algo más para tu cotización?"]
         said = _spoken_money(line_subtotal(line), _currency(line))
-        spoken += f": {said}. ¿Algo más para tu cotización?"
+        spoken += f": {said}.{_spoken_price_city(new_lines)} ¿Algo más para tu cotización?"
         return Message("\n".join(text_lines), spoken, _skus(new_lines))
     first = f"{verb} {name}" + (f" · {money}" if money else "")
     text_lines = [first]
@@ -466,8 +525,8 @@ def added(
     text_lines += _cart_lines(draft.lines)
     text_lines += [_partial(draft), "", "¿Algo más?"]
     spoken += (
-        f". Llevas {_count_label(len(draft.lines))} y el total parcial es de "
-        f"{_spoken_money(summary.products, summary.currency)}. ¿Algo más?"
+        f".{_spoken_price_city(new_lines)} Llevas {_count_label(len(draft.lines))} y el total "
+        f"parcial es de {_spoken_money(summary.products, summary.currency)}. ¿Algo más?"
     )
     return Message("\n".join(text_lines), spoken, _skus(new_lines))
 
@@ -596,7 +655,7 @@ def summary(draft: QuoteDraft, *, note: str = "") -> Message:
     """T5: 🧾 el resumen completo y «¿La confirmo y te envío el PDF?»."""
 
     result = totals(draft.lines)
-    sellers = {_seller(line) for line in draft.lines if _seller(line)}
+    sellers = {_seller_label(line) for line in draft.lines if _seller_label(line)}
     lines = []
     if note:
         lines += [note, ""]
@@ -614,8 +673,8 @@ def summary(draft: QuoteDraft, *, note: str = "") -> Message:
         if packs:
             row += f" ({packs})"
         row += f" · {money}"
-        if len(sellers) > 1 and _seller(line):
-            row += f" · {_seller(line)}"
+        if len(sellers) > 1 and _seller_label(line):
+            row += f" · {_seller_label(line)}"
         lines.append(row)
     products = format_money(result.products, result.currency) or "$0"
     lines += ["", f"Productos {products} · {result.tax} · {_shipping_text(draft)}"]
@@ -635,7 +694,7 @@ def summary(draft: QuoteDraft, *, note: str = "") -> Message:
     city = f" para {draft.city}" if draft.city else ""
     spoken = (
         f"{'Es' if len(draft.lines) == 1 else 'Son'} {_count_label(len(draft.lines))}{city}, "
-        f"total {said_total}. "
+        f"total {said_total}.{_spoken_price_city(draft.lines)} "
         "¿La confirmo y te mando el PDF?"
     )
     if note:
@@ -775,13 +834,17 @@ def cheaper_offer(row: Mapping[str, Any] | None) -> Message:
     money = format_money(row.get("subtotal"), str(row.get("currency") or "COP"))
     units = row.get("units")
     detail = f" ({format_units(units)} und)" if units else ""
+    # Precio publicado en otra ciudad: se dice dónde, como en las opciones.
+    price_city = _remote_city(row)
+    where = f", precio publicado en {price_city}" if price_city else ""
     text = (
         f"Te entiendo. La opción más económica que tengo es **{row['name']}** a **{money}**"
-        f"{detail}. ¿Te la cotizo? Responde **sí** o **no**."
+        f"{detail}{where}. ¿Te la cotizo? Responde **sí** o **no**."
     )
     spoken = (
         f"Te entiendo. La opción más económica es {_say(str(row['name']))}, a "
-        f"{_spoken_money(row.get('subtotal'), str(row.get('currency') or 'COP'))}. ¿Te la cotizo?"
+        f"{_spoken_money(row.get('subtotal'), str(row.get('currency') or 'COP'))}"
+        f"{_say(where)}. ¿Te la cotizo?"
     )
     return Message(text, spoken)
 

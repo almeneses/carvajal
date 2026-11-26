@@ -2320,8 +2320,9 @@ def test_cotizar_un_nombre_inexistente_es_empty_sin_cotizar_otra() -> None:
     assert result.quote is None
 
 
-def test_cotizar_la_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None:
-    # Act: el J1 de pulpa tiene precio en Bogotá, no en Pereira (s-r3-01).
+def test_cotizar_la_referencia_sin_precio_en_la_ciudad_usa_el_de_otra_y_lo_dice() -> None:
+    # Act: el J1 de pulpa tiene precio en Bogotá, no en Pereira (s-r3-01, «¿ese precio es de
+    # allá de Pereira?»).
     result = _run(
         "cotizar",
         {
@@ -2333,11 +2334,26 @@ def test_cotizar_la_referencia_sin_precio_en_la_ciudad_no_se_sustituye() -> None
         },
     )
 
+    # Assert: la misma referencia, con la ciudad del precio en el dato y en la instrucción.
+    assert result.status == "ok"
+    cotizacion = result.payload["cotizacion"]
+    assert cotizacion["sku"] == "7704918105071"
+    assert cotizacion["ciudad"] == "Pereira"
+    assert cotizacion["vendedor"] == "EDEXA"
+    assert cotizacion["ciudad_del_precio"] == "Bogotá"
+    assert "en Bogotá" in result.content and "no lo presentes como precio de Pereira" in (
+        result.content
+    )
+
+
+def test_cotizar_la_referencia_sin_ningun_precio_publicado_no_se_sustituye() -> None:
+    # Act: el contenedor térmico de 8 oz no tiene oferta en ninguna ciudad.
+    result = _run("cotizar", {"sku": "CO-VTER-08", "quantity": 100, "city": "Pereira"})
+
     # Assert
     assert result.status == "empty"
-    assert result.payload["referencia"]["sku"] == "7704918105071"
-    assert result.payload["ciudades_con_precio"] == ["Bogotá"]
-    assert result.payload["sedes"]
+    assert result.payload["referencia"]["sku"] == "CO-VTER-08"
+    assert result.payload["ciudades_con_precio"] == []
     assert all(site["city"] == "Pereira" for site in result.cards["sites"])
     assert "cotizacion" not in result.payload
     assert result.quote is None

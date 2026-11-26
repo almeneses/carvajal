@@ -185,6 +185,8 @@
     </dl>
     {%- if coti.primary.price_kind == "convertido" %}
     <p class="coti-nota" data-campo="precio-convertido">{{ coti.primary.warning }}</p>
+    {%- elif coti.primary.price_origin %}
+    <p class="coti-nota" data-campo="precio-otra-ciudad">{{ coti.primary.price_origin }}</p>
     {%- endif %}
     {%- if coti.pending_lines %}
     <p class="coti-nota">Líneas pendientes:
