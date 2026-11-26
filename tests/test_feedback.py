@@ -1,7 +1,8 @@
 """Pruebas de las marcas del visitante (spec 038, US4).
 
-Cubren el endpoint con CSRF y sin cuota, la idempotencia de la fila, la
-visibilidad de los botones y que una marca nunca fuerce una traza (FR-012).
+Cubren el endpoint con CSRF y sin cuota, la idempotencia de la fila y que una marca nunca
+fuerce una traza (FR-012). Desde el 2026-11-26 la web ya no muestra los botones: el endpoint
+y la tabla ``chat_feedback`` se conservan sin interfaz que los use.
 """
 
 from collections.abc import Iterator
@@ -159,33 +160,29 @@ def test_marcar_dos_veces_no_duplica_la_fila(engine: Any) -> None:
     assert guardada.useful is False
 
 
-def test_sin_monitoreo_los_botones_no_aparecen(engine: Any) -> None:
-    """La bandera ``data-monitoring`` apaga los botones (US4.2)."""
+@pytest.mark.parametrize("monitoring", [False, True])
+def test_el_chat_ya_no_ofrece_los_botones_de_marca(engine: Any, monitoring: bool) -> None:
+    """Ensayo del 2026-11-26: la web retiró «¿Te sirvió esta respuesta? [Útil] [No útil]».
 
-    cliente, _ = make_client(engine, monitoring=False)
+    Con o sin monitoreo, ni la plantilla del turno ni el JavaScript del chat ofrecen la marca;
+    el endpoint se conserva (pruebas de arriba) para las páginas abiertas antes del despliegue.
+    """
 
+    # Arrange
+    cliente, _ = make_client(engine, monitoring=monitoring)
+
+    # Act
     html = cliente.get("/chat").text
-
-    assert 'data-monitoring="0"' in html
-    assert "data-marcas hidden" in html
-    assert "plantilla-turno" in html
-
-
-def test_con_monitoreo_los_botones_estan_en_la_plantilla(engine: Any) -> None:
-    """Con monitoreo activo el turno lleva los dos botones y su request_id."""
-
-    cliente, _ = make_client(engine, monitoring=True)
-
-    html = cliente.get("/chat").text
-
-    assert 'data-monitoring="1"' in html
-    assert 'data-marca="1"' in html
-    assert 'data-marca="0"' in html
-    assert "data-marcas" in html
     js = cliente.get("/static/chat-stream.js").text
-    assert '"/chat/feedback"' in js
-    assert "crearMarcas" in js
-    assert "monitoreoActivo" in js
+
+    # Assert
+    assert "plantilla-turno" in html
+    assert "data-marcas" not in html
+    assert "data-marca=" not in html
+    assert "Te sirvió esta respuesta" not in html
+    assert "data-monitoring" not in html
+    assert "/chat/feedback" not in js
+    assert "crearMarcas" not in js
 
 
 def test_una_marca_no_fuerza_una_traza(engine: Any) -> None:

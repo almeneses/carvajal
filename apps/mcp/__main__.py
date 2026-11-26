@@ -15,7 +15,11 @@ from carvajal.infrastructure.settings import Settings
 def main() -> None:
     settings = Settings()
     configure_observability(settings)
-    app = build_app(build_server(default_bridge), settings.mcp_token)
+    app = build_app(
+        build_server(default_bridge),
+        settings.mcp_token,
+        health_token=settings.mcp_health_token,
+    )
     if settings.embed_warm_up:
         # WhatsApp corre el agente en este proceso: su primera búsqueda tampoco espera a
         # que Ollama cargue el modelo. En segundo plano y sin fallar si Ollama no está.

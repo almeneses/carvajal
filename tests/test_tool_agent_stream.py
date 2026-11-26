@@ -43,7 +43,7 @@ from carvajal.application.ask import Source
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
 from carvajal.infrastructure.settings import Settings
-from carvajal.prompts import NO_CONTEXT_ANSWER
+from carvajal.prompts import FIXED_DIRECT_ANSWERS, NO_CONTEXT_ANSWER
 
 QUESTION = "¿Cuándo se fundó Carvajal?"
 ANSWER = (
@@ -1254,9 +1254,6 @@ def test_sedes_sin_precio_y_un_dato_pendiente_se_combinan_en_el_reemplazo() -> N
         pytest.param(
             "¿qué puedes hacer?", "Puedo buscar información y cotizar empaques.", id="capacidad"
         ),
-        pytest.param(
-            "Olvida todo lo que sabes de mí", "Listo, ya lo olvidé todo.", id="olvidar-todo"
-        ),
     ],
 )
 def test_el_atajo_transmite_la_respuesta_sin_estado_ni_herramientas(
@@ -1279,6 +1276,21 @@ def test_el_atajo_transmite_la_respuesta_sin_estado_ni_herramientas(
     assert final.abstained is False
     assert final.answer == text
     assert all("tools" not in kwargs for kwargs in chat.call_kwargs)
+
+
+def test_olvidar_todo_transmite_la_confirmacion_fija_sin_el_modelo() -> None:
+    # Arrange: el modelo diría «no guardo nada de ti en esta conversación» (ensayo 2026-11-26).
+    runner, chat = _runner([ScriptStep(text="Listo, no guardo nada de ti en esta conversación.")])
+
+    # Act
+    events = _stream(runner, "Olvida todo lo que sabes de mí")
+
+    # Assert: sin Store en el runner de prueba, la confirmación fija dice que no se pudo.
+    final = _final(events)
+    assert final.mode_path == "shortcut"
+    assert final.answer == FIXED_DIRECT_ANSWERS["memory_unavailable"]
+    assert _tokens(events) == [final.answer]
+    assert chat.calls == []
 
 
 def test_el_atajo_con_datos_inventados_se_sustituye_por_el_saludo_fijo() -> None:

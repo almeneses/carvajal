@@ -28,7 +28,6 @@
   const formateador = window.CarvajalTexto;
   if (!input || !hilo || !estado || !historial) return;
 
-  const raizMonitoreo = document.querySelector("[data-monitoring]");
   const AVISO = "No se pudo completar la respuesta. Vuelve a intentarlo.";
   const INCOMPLETA = "La respuesta se interrumpió antes de completarse.";
   const SEPARADOR = /\r?\n\r?\n/;
@@ -182,55 +181,6 @@
       }),
       signal,
     });
-  }
-
-  // Marcas del visitante (spec 038, US4): solo con el monitoreo activo y con
-  // el request_id del turno. No recargan la página y no fuerzan una traza.
-  function monitoreoActivo() {
-    return Boolean(raizMonitoreo) && raizMonitoreo.dataset.monitoring === "1";
-  }
-
-  function crearMarcas(turno, requestId) {
-    if (!monitoreoActivo() || !requestId) return;
-    const contenedor = turno.querySelector("[data-marcas]");
-    if (!contenedor) return;
-    contenedor.dataset.requestId = String(requestId);
-    contenedor.hidden = false;
-    contenedor.querySelectorAll("button[data-marca]").forEach((boton) => {
-      boton.addEventListener("click", () => void marcar(contenedor, boton));
-    });
-  }
-
-  async function marcar(contenedor, boton) {
-    const requestId = contenedor.dataset.requestId || "";
-    if (!requestId || contenedor.dataset.enviada === "1") return;
-    const botones = contenedor.querySelectorAll("button[data-marca]");
-    botones.forEach((cada) => {
-      cada.disabled = true;
-    });
-    try {
-      const respuesta = await fetch("/chat/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          request_id: requestId,
-          useful: boton.dataset.marca === "1" ? "1" : "0",
-          csrf_token: csrf ? csrf.value : "",
-        }),
-      });
-      if (!respuesta.ok) throw new Error(`respuesta ${respuesta.status}`);
-      contenedor.dataset.enviada = "1";
-      const gracias = contenedor.querySelector("[data-marcas-gracias]");
-      if (gracias) gracias.hidden = false;
-      botones.forEach((cada) => {
-        cada.hidden = cada !== boton;
-      });
-    } catch {
-      botones.forEach((cada) => {
-        cada.disabled = false;
-      });
-      avisar("No se pudo guardar tu marca. Inténtalo de nuevo.", true);
-    }
   }
 
   function nuevoTurnoId() {
@@ -412,7 +362,6 @@
               turnoAsistente.dataset.vozResumen = evento.datos.voz_resumen;
             }
             pintarLote(false, errorRecibido);
-            crearMarcas(turnoAsistente, evento.datos.request_id);
             completado = true;
             if (detener) detener.disabled = true;
             break;

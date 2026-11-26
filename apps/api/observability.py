@@ -151,6 +151,25 @@ def claims_block(settings: Settings) -> dict[str, Any]:
     return claims_health(settings, active=tools and getattr(runtime, "judge", None) is not None)
 
 
+def jev_block(settings: Settings) -> dict[str, Any]:
+    """Bloque ``jev`` de ``/health`` (y de ``/metricas``) con el juez del runtime si existe.
+
+    Nunca construye el runtime; sin él, ``mode`` es ``None`` y :func:`jev_health` informa la
+    configuración (spec 046, FR-024).
+    """
+
+    from carvajal.adapters.judge import jev_health
+
+    module = sys.modules.get("apps.api.agent_runtime")
+    runtime = getattr(module, "_runtime", None)
+    if runtime is None:
+        return jev_health(settings)
+    mode = getattr(runtime, "mode", None)
+    return jev_health(
+        settings, getattr(runtime, "judge", None), mode=mode if isinstance(mode, str) else None
+    )
+
+
 def configure_observability(settings: Settings | None = None) -> None:
     """Configura logs y Sentry una sola vez, al crear la aplicación."""
 

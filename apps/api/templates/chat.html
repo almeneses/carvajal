@@ -10,11 +10,7 @@
 <script src="/static/chat-motion.js" defer></script>
 {% endblock %}
 {% block content %}
-<section
-  class="seccion chat-seccion"
-  aria-labelledby="titulo-chat"
-  data-monitoring="{{ '1' if monitoring else '0' }}"
->
+<section class="seccion chat-seccion" aria-labelledby="titulo-chat">
   <div class="panel conversacion">
     <header class="cabecera-conversacion">
       <img class="carva" src="/static/carva.svg" alt="" width="36" height="36" />
@@ -52,8 +48,28 @@
       </section>
 
       <button type="button" class="boton secundario chat-final" data-chat-final aria-controls="hilo" hidden>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12l7 7 7-7" />
+        </svg>
         Ir al final
       </button>
+      {% if foto_disponible %}
+      {#- Arrastrar una imagen sobre la conversación (no solo sobre el compositor) la adjunta como
+          el botón «Foto». Es una ayuda visual para el ratón: el teclado y los lectores de
+          pantalla usan el botón, y al soltarla el estado anuncia la foto adjunta. -#}
+      <div class="foto-soltar" data-foto-soltar aria-hidden="true" hidden>
+        <p class="foto-soltar-caja">
+          <svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+            <circle cx="12" cy="13" r="3.5" />
+          </svg>
+          <span>Suelta la imagen para adjuntarla</span>
+          <small>JPEG o PNG, hasta 10 MB</small>
+        </p>
+      </div>
+      {% endif %}
       {#- Escena de voz (rediseño 052): Carva escucha, transcribe o responde mientras se
           dicta o con manos libres. Decorativa: los avisos van por data-voz-estado. -#}
       <div class="voz-escena" aria-hidden="true">
@@ -113,7 +129,7 @@
                 <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
                 <circle cx="12" cy="13" r="3.5" />
               </svg>
-              <span>Foto</span>
+              <span class="foto-boton-texto">Foto</span>
             </label>
             <span class="foto-ficha" data-foto-ficha hidden>
               {#- Spec 053 (FR-015): miniatura local (blob:) de la foto adjunta. -#}
@@ -147,7 +163,7 @@
                 <span data-voz-dictar-texto>Dictar</span>
               </button>
               <details class="voz-opciones" data-voz-opciones hidden>
-                <summary>Opciones de voz</summary>
+                <summary><span class="voz-opciones-texto">Opciones de voz</span></summary>
                 <div class="voz-opciones-cuerpo">
                   <button
                     type="button"
@@ -164,7 +180,7 @@
             <p class="voz-nota" data-voz-nota role="note" hidden></p>
           </div>
           <button type="submit">
-            Enviar
+            <span class="enviar-texto">Enviar</span>
             <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 19V5M5 12l7-7 7 7" />
@@ -173,14 +189,21 @@
           <button type="button" class="boton secundario" data-chat-detener aria-label="Detener respuesta" hidden>Detener</button>
         </div>
         {% if foto_disponible %}
-        <p id="foto-aviso" class="foto-aviso" data-foto-aviso role="note" hidden>
-          Envía la foto del alimento y te sugiero el empaque. La foto se analiza con un servicio
-          externo (TypeSafe, EE. UU.); guardamos solo una miniatura en tu conversación. Evita que
-          salgan personas o datos personales.
-        </p>
-        {% endif %}
-        {% if foto_disponible %}
-        <p class="foto-soltar" data-foto-soltar aria-hidden="true" hidden>Suelta la foto aquí</p>
+        {#- Aviso del servicio externo plegable: el resumen (sin cortar, una o dos líneas) dice
+            que la foto sale a TypeSafe en EE. UU. y el detalle se abre al tocarlo. Antes eran 5
+            líneas que en el teléfono dejaban el historial en 40 px. «foto-aviso» sigue
+            describiendo el selector de la foto. -#}
+        <details class="foto-aviso" data-foto-aviso hidden>
+          <summary>
+            <span class="foto-aviso-resumen">La foto se analiza en TypeSafe (EE. UU.)</span>
+            <span class="foto-aviso-mas" aria-hidden="true">Detalles</span>
+          </summary>
+          <p id="foto-aviso" class="foto-aviso-detalle">
+            Envía la foto del alimento y te sugiero el empaque. La foto se analiza con un servicio
+            externo (TypeSafe, EE. UU.); guardamos solo una miniatura en tu conversación. Evita que
+            salgan personas o datos personales.
+          </p>
+        </details>
         {% endif %}
       </form>
       <p id="chat-stream-estado" class="estado-chat" role="status"></p>

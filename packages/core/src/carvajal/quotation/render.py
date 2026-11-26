@@ -393,14 +393,18 @@ def out_of_range(asked: int, alternatives: int) -> Message:
 # --- Referencias de un nombre ambiguo ----------------------------------------------------
 
 
-def which_reference(choices: Sequence[Mapping[str, Any]]) -> Message:
+def which_reference(choices: Sequence[Mapping[str, Any]], *, city: str | None = None) -> Message:
     """🔎 Las referencias que coinciden con el nombre, numeradas, y «¿Cuál te cotizo?».
 
     Sale cuando la respuesta a la lista no eligió ninguna («sí», «esa», «cualquiera»): el
-    flujo no elige por la persona.
+    flujo no elige por la persona. Con ``city`` (la persona respondió solo la ciudad), abre
+    diciendo que cotizará allí.
     """
 
-    lines = ["🔎 **Varias referencias coinciden con ese nombre**", ""]
+    lines = []
+    if city:
+        lines += [f"📍 Listo, la cotizo en **{city}**.", ""]
+    lines += ["🔎 **Varias referencias coinciden con ese nombre**", ""]
     for index, item in enumerate(choices, start=1):
         lines.append(f"{index}. {item.get('name') or item.get('sku')} (SKU {item.get('sku')})")
     lines += ["", "¿Cuál te cotizo? Di el **número**, el nombre o el SKU."]
@@ -409,6 +413,8 @@ def which_reference(choices: Sequence[Mapping[str, Any]]) -> Message:
         f"Hay {count} referencias que coinciden; te las dejo por escrito. ¿Cuál te cotizo? "
         "Dime el número."
     )
+    if city:
+        spoken = f"Listo, en {_say(city)}. {spoken}"
     return Message("\n".join(lines), spoken)
 
 

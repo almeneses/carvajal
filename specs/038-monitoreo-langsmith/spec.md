@@ -117,6 +117,10 @@ el monitoreo un experimento con las métricas que ya produce el informe local.
 El visitante puede indicar con un clic si una respuesta le sirvió o no; la marca queda
 asociada al turno para revisarla después.
 
+> **Historial (2026-11-26):** la web retiró los botones «Útil / No útil» por decisión del
+> owner tras el ensayo del 2026-11-26. El endpoint y la tabla `chat_feedback` se conservan sin
+> interfaz. Ver `CONSTITUTION.md` §9 (2026-11-26) y la [spec 055](../055-metricas/spec.md).
+
 **Why this priority**: acelera encontrar los casos que importan, pero añade interfaz y no es
 necesario para diagnosticar.
 

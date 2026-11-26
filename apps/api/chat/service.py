@@ -1117,8 +1117,10 @@ class ChatService:
         sources: tuple[Source, ...] = () if closing.abstained else closing.sources
         # Spec 054: las cotizaciones del agente pasan al borrador (opciones, comparativo o
         # líneas); ninguna se registra hasta el «sí».
+        # El texto del agente ya salió: si pregunta algo (una opción o un dato), el flujo no
+        # agrega en el mismo mensaje lo que la persona no eligió (ensayo del 2026-11-26).
         products, draft, flow_suffix = _apply_flow(
-            tools.draft, closing.products, tools.prompt or question
+            tools.draft, closing.products, tools.prompt or question, answer="".join(fragments)
         )
         quote_records: list[dict[str, Any]] = []
         monitored, no_query = _monitored_results(closing.results)
@@ -2153,12 +2155,18 @@ def _mark_draft_quotes(products: Mapping[str, Any] | None) -> dict[str, Any] | N
 
 
 def _apply_flow(
-    draft: QuoteDraft, products: Mapping[str, Any] | None, question: str
+    draft: QuoteDraft,
+    products: Mapping[str, Any] | None,
+    question: str,
+    *,
+    answer: str = "",
 ) -> tuple[dict[str, Any] | None, QuoteDraft, str]:
     """Cotizaciones del turno → borrador y mensaje de la plantilla (``"\n\n…"`` o ``""``).
 
     La tarjeta ``reference_choice`` de ``cotizar`` (candidatas de un nombre ambiguo) solo
-    alimenta el borrador: no se guarda en el historial ni se pinta.
+    alimenta el borrador: no se guarda en el historial ni se pinta. ``answer`` es el texto
+    del agente en el turno: si pregunta algo, el flujo no agrega líneas que la persona no
+    eligió (:func:`carvajal.quotation.flow.asks_question`).
     """
 
     choice = (products or {}).get("reference_choice")
@@ -2167,6 +2175,7 @@ def _apply_flow(
         result_quotes(products),
         question,
         choice=choice if isinstance(choice, Mapping) else None,
+        asks=quote_flow.asks_question(answer),
     )
     result = _mark_draft_quotes(products)
     if result is not None:

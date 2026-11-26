@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     # Tiempo máximo de espera por llamada al proveedor de LLM.
     llm_timeout_seconds: float = Field(default=60.0, gt=0)
+    # Precio de DeepSeek en USD por millón de tokens para el costo estimado de /metricas
+    # (spec 055). Es una estimación: no descuenta los tokens servidos desde la caché.
+    deepseek_price_input_per_million: float = Field(default=0.30, ge=0)
+    deepseek_price_output_per_million: float = Field(default=1.20, ge=0)
     ollama_model: str = "llama3.2"
     # La FAQ y el chat envían prompts grandes: sin una ventana explícita,
     # Ollama recorta el contexto y puede responder con datos incompletos.
@@ -165,6 +169,14 @@ class Settings(BaseSettings):
     mcp_token: str = Field(default="", repr=False)
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8765, ge=1, le=65535)
+    # Spec 055: bearer que solo abre ``/health`` del MCP (nunca ``/mcp``), para que la
+    # página de métricas de la app lea sus contadores sin tener ``mcp_token``, que abre
+    # cualquier chat de WhatsApp. El MCP lo acepta en ``/health``; la app lo envía.
+    mcp_health_token: str = Field(default="", repr=False)
+    # ``/health`` del servidor MCP que lee la página de métricas de la app (en
+    # compose.prod.yml, http://mcp:8765/health por la red interna, con ``mcp_health_token``).
+    # Vacía: la tarjeta de WhatsApp solo muestra lo que guarda la base.
+    metrics_mcp_health_url: str = ""
     # URL pública de la web (p. ej. http://203.0.113.10:8080) para los enlaces
     # firmados al PDF de una cotización. Vacía: WhatsApp no ofrece el PDF.
     public_base_url: str = ""

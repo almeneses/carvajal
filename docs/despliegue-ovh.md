@@ -598,8 +598,9 @@ en `specs/044-agente-tool-calling/evidencia.md` §10; cada día que el servidor 
    - Cada hilo revisado se anota en el registro de §10 (fecha, `thread_id`, resultado).
 
 4. **Marcas «No útil»** (sin aumento de la tasa frente a las dos semanas previas en
-   `routes`). Los botones de marca solo aparecen con `MONITORING_ENABLED=true`; si el
-   monitoreo está apagado, este criterio no se puede medir y se deja constancia en §10.
+   `routes`). Desde el 2026-11-26 la web ya no muestra los botones de marca, así que este
+   criterio deja de poder medirse y se deja constancia en §10; las cifras de operación están
+   en `/metricas` (spec 055).
    La base se congela el día de la activación con la misma consulta y se anota en §10.
    Sustituye `<INICIO>` por la fecha y hora (UTC) de la activación:
 

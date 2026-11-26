@@ -80,7 +80,10 @@ class CiudadesConCoberturaArgs(BaseModel):
     nombre: str | None = Field(
         default=None,
         max_length=MAX_TEXT_CHARS,
-        description="Código o nombre de la referencia (P1, J2, portacomidas), si no hay SKU.",
+        description=(
+            "Código o nombre de la referencia que dijo la persona (o una palabra como "
+            "portacomidas), si no hay SKU."
+        ),
     )
 
     _sku = field_validator("sku", mode="before")(_optional_text)

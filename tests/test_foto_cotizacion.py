@@ -169,10 +169,14 @@ def test_un_si_con_cambios_no_registra_la_propuesta(engine: Any) -> None:
     _send(service, "cotiza 50 vasos en Bogotá")
 
     # Act
-    _send(service, "sí pero mejor 800")
+    events = _send(service, "sí pero mejor 800")
 
-    # Assert: va al agente, que recalcula; nada se registra (FR-012).
-    assert runner.calls[-1]["question"] == "sí pero mejor 800"
+    # Assert: otra cantidad para la línea, por reglas (ensayo del 2026-11-26); nada se
+    # registra (FR-012) y el agente no vuelve a cotizar.
+    assert runner.calls[-1]["question"] == "cotiza 50 vasos en Bogotá"
+    assert "Actualicé" in "".join(
+        str(event.data.get("text", "")) for event in events if event.name in {"token", "fallback"}
+    )
     assert stored_quotes(engine) == []
 
 

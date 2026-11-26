@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}Métricas · Asistente Carvajal{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/metricas.css" />
+{% endblock %}
+{#- Spec 055: solo agregados. Los contadores «del proceso» se reinician con cada despliegue. -#}
+{% macro dato(nombre, valor, nota="") -%}
+<div class="dato">
+  <dt>{{ nombre }}</dt>
+  <dd>{{ valor }}{% if nota %} <span class="dato-nota">{{ nota }}</span>{% endif %}</dd>
+</div>
+{%- endmacro %}
+{% macro estado(card) -%}
+{% if card.status == "ok" and not card.stale %}
+<span class="estado-fuente estado-ok">Disponible</span>
+{% elif card.status == "ok" %}
+<span class="estado-fuente estado-viejo">Datos anteriores</span>
+{% elif card.status == "off" %}
+<span class="estado-fuente estado-apagado">Apagado</span>
+{% else %}
+<span class="estado-fuente estado-error">No disponible</span>
+{% endif %}
+{%- endmacro %}
+{% macro pie_tarjeta(card) -%}
+<p class="tarjeta-pie">
+  {% if card.updated_at %}Consultado {{ card.updated_at | metrica_edad }}{% endif %}
+  {% if card.ttl_s %} · se renueva cada {{ (card.ttl_s // 60) or 1 }} min{% endif %}
+</p>
+{%- endmacro %}
+{% macro llamadas(calls) -%}
+{{ dato("Llamadas", calls.calls | metrica_numero, "desde " ~ (calls.since | metrica_cuando)) }}
+{{ dato("Con error", calls.errors | metrica_numero) }}
+{{ dato("Latencia p50 / p95", (calls.latency_ms.p50 | metrica_numero) ~ " / " ~ (calls.latency_ms.p95 | metrica_numero) ~ " ms") }}
+{{ dato("Tokens entrada / salida", (calls.input_tokens | metrica_numero) ~ " / " ~ (calls.output_tokens | metrica_numero)) }}
+{%- endmacro %}
+{% block content %}
+<section class="seccion metricas" aria-labelledby="titulo-metricas">
+  <header class="cabecera-vista">
+    <p class="sobrelinea"><span class="punto-sobrelinea" aria-hidden="true"></span>Operación · Métricas</p>
+    <h1 id="titulo-metricas">Métricas</h1>
+    <p class="entradilla">
+      Cómo están el índice, los jueces, los modelos y el canal de WhatsApp. Solo hay números
+      agregados: ninguna conversación, teléfono ni identificador de persona. Los contadores
+      «del proceso» empiezan de cero con cada despliegue.
+    </p>
+  </header>
+
+  {% if not cards %}
+  <p class="aviso" role="alert">No se pudieron calcular las métricas en este momento.</p>
+  {% endif %}
+
+  <div class="tarjetas-metricas">
+    {% set q = cards.get("qdrant") %}
+    {% if q %}
+    <article class="panel tarjeta-metrica" aria-labelledby="m-qdrant">
+      <header class="tarjeta-cabecera">
+        <h2 id="m-qdrant">Qdrant</h2>
+        {{ estado(q) }}
+      </header>
+      {% if q.reason %}<p class="tarjeta-motivo">{{ q.reason }}</p>{% endif %}
+      {% if q.data %}
+      <p class="tarjeta-sub">Índice vectorial del chat · colección <code>{{ q.data.collection }}</code></p>
+      <dl class="datos">
+        {{ dato("Estado", q.data.status or "—", "optimizador " ~ (q.data.optimizer or "—")) }}
+        {{ dato("Puntos", q.data.points | metrica_numero) }}
+        {{ dato("Vectores indexados", q.data.indexed_vectors | metrica_numero) }}
+        {{ dato("Segmentos", q.data.segments | metrica_numero) }}
+        {{ dato("Dimensión y distancia", (q.data.dimensions | metrica_numero) ~ " · " ~ (q.data.distance or "—")) }}
+        {{ dato("HNSW", "m " ~ (q.data.hnsw_m | metrica_numero) ~ " · ef_construct " ~ (q.data.hnsw_ef_construct | metrica_numero)) }}
+        {{ dato("Tamaño de la colección", q.data.size_bytes | metrica_bytes, "vectores + payload") }}
+        {{ dato("Memoria del servidor", q.data.memory_resident_bytes | metrica_bytes) }}
+        {% if q.data.queries %}
+        {{ dato("Búsquedas", q.data.queries.count | metrica_numero, "todas las colecciones, desde que arrancó") }}
+        {{ dato("Búsqueda media / máxima", (q.data.queries.avg_ms | metrica_numero(1)) ~ " / " ~ (q.data.queries.max_ms | metrica_numero(1)) ~ " ms") }}
+        {% endif %}
+        {{ dato("Versión", q.data.version or "—") }}
+      </dl>
+      {% if q.data.telemetry_unavailable %}
+      <p class="tarjeta-motivo">Telemetría no disponible: {{ q.data.telemetry_unavailable }}</p>
+      {% endif %}
+      {% endif %}
+      {{ pie_tarjeta(q) }}
+    </article>
+    {% endif %}
+
+    {% set j = cards.get("jev") %}
+    {% if j %}
+    <article class="panel tarjeta-metrica" aria-labelledby="m-jev">
+      <header class="tarjeta-cabecera">
+        <h2 id="m-jev">Jev (TypeSafe)</h2>
+        {{ estado(j) }}
+      </header>
+      {% if j.reason %}<p class="tarjeta-motivo">{{ j.reason }}</p>{% endif %}
+      <p class="tarjeta-sub">Gatekeeper, compuerta de afirmaciones y fotos · proceso web</p>
+      <dl class="datos">
+        {{ dato("Modelo", j.data.model or "—") }}
+        {{ dato("Gatekeeper / compuerta", (j.data.router or "off") ~ " / " ~ (j.data.claims_mode or "off"), "umbral " ~ (j.data.threshold | metrica_numero(2))) }}
+        {{ dato("Cupo del día", (j.data.calls_today | metrica_numero) ~ " de " ~ (j.data.cap | metrica_numero)) }}
+        {{ dato("Fotos del día", (j.data.photo_calls_today | metrica_numero) ~ " de " ~ (j.data.photo_cap | metrica_numero), j.data.photo_status or "") }}
+        {{ llamadas(j.data.calls) }}
+        {{ dato("Sin llamar (cupo / circuito)", (j.data.calls.blocked.get("cap", 0) | metrica_numero) ~ " / " ~ (j.data.calls.blocked.get("circuit_open", 0) | metrica_numero)) }}
+        {{ dato("Último error", j.data.last_error or "ninguno") }}
+      </dl>
+      {% if j.data.calls.by_kind %}
+      <h3 class="tarjeta-subtitulo">Llamadas por tipo y estado</h3>
+      <ul class="pares">
+        {% for nombre, cuenta in j.data.calls.by_kind.items() %}<li><span>{{ nombre }}</span> <strong>{{ cuenta | metrica_numero }}</strong></li>{% endfor %}
+        {% for nombre, cuenta in j.data.calls.by_status.items() %}<li class="par-estado"><span>{{ nombre }}</span> <strong>{{ cuenta | metrica_numero }}</strong></li>{% endfor %}
+      </ul>
+      {% endif %}
+      {% set c = j.data.claims %}
+      <h3 class="tarjeta-subtitulo">Compuerta de afirmaciones</h3>
+      <dl class="datos">
+        {{ dato("Respuestas juzgadas", c.judged | metrica_numero, "desde " ~ (c.since | metrica_cuando)) }}
+        {{ dato("Sustituidas", c.substituted | metrica_numero, c.substitution_rate | metrica_porcentaje) }}
+        {{ dato("No respaldadas", c.unsupported | metrica_numero) }}
+      </dl>
+      {% set total = c.p_histogram | sum %}
+      {% if total %}
+      {% set alto = c.p_histogram | max %}
+      <figure class="histograma">
+        <svg viewBox="0 0 200 64" role="img" aria-labelledby="hist-titulo">
+          <title id="hist-titulo">Histograma de p de las respuestas juzgadas: {% for n in c.p_histogram %}{{ loop.index0 / 10 }}–{{ loop.index / 10 }}: {{ n }}{% if not loop.last %}; {% endif %}{% endfor %}</title>
+          {% for n in c.p_histogram %}
+          {% set h = (56 * n / alto) | round(1) %}
+          <rect class="{{ 'barra-baja' if loop.index0 < (j.data.threshold or 0.5) * 10 else 'barra-alta' }}" x="{{ loop.index0 * 20 + 2 }}" y="{{ 58 - h }}" width="16" height="{{ h }}" rx="2" />
+          {% endfor %}
+          <line x1="0" y1="58.5" x2="200" y2="58.5" class="eje" />
+        </svg>
+        <figcaption>p de 0 a 1 en décimos; en naranja, por debajo del umbral.</figcaption>
+      </figure>
+      {% endif %}
+      {{ pie_tarjeta(j) }}
+    </article>
+    {% endif %}
+
+    {% set l = cards.get("langsmith") %}
+    {% if l %}
+    <article class="panel tarjeta-metrica" aria-labelledby="m-langsmith">
+      <header class="tarjeta-cabecera">
+        <h2 id="m-langsmith">LangSmith</h2>
+        {{ estado(l) }}
+      </header>
+      {% if l.reason %}<p class="tarjeta-motivo">{{ l.reason }}</p>{% endif %}
+      {% if l.data %}
+      <p class="tarjeta-sub">
+        Trazas raíz del proyecto <code>{{ l.data.project }}</code>{% if l.data.environment %}, entorno <code>{{ l.data.environment }}</code>{% endif %}
+        · muestreo {{ l.data.sample_rate | metrica_porcentaje }}
+      </p>
+      <div class="tabla-envoltura">
+        <table class="tabla-metricas">
+          <caption class="sr-solo">Trazas de LangSmith por ventana</caption>
+          <thead>
+            <tr><th scope="col">Ventana</th><th scope="col">Trazas</th><th scope="col">Errores</th><th scope="col">p50 / p99</th><th scope="col">Tokens entrada / salida</th></tr>
+          </thead>
+          <tbody>
+            {% for etiqueta, w in [("Últimas 24 h", l.data.windows["24h"]), ("Últimos 7 días", l.data.windows["7d"])] %}
+            <tr>
+              <th scope="row">{{ etiqueta }}</th>
+              <td>{{ w.traces | metrica_numero }}</td>
+              <td>{{ w.errors | metrica_numero }} <span class="dato-nota">{{ w.error_rate | metrica_porcentaje }}</span></td>
+              <td>{{ w.p50_s | metrica_numero(2) }} / {{ w.p99_s | metrica_numero(2) }} s</td>
+              <td>{{ w.prompt_tokens | metrica_numero }} / {{ w.completion_tokens | metrica_numero }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="tarjeta-nota">Última traza: {{ l.data.windows["24h"].last_run | metrica_cuando }}. LangSmith publica p50 y p99, no p95.</p>
+      {% endif %}
+      {{ pie_tarjeta(l) }}
+    </article>
+    {% endif %}
+
+    {% set d = cards.get("deepseek") %}
+    {% if d %}
+    <article class="panel tarjeta-metrica" aria-labelledby="m-deepseek">
+      <header class="tarjeta-cabecera">
+        <h2 id="m-deepseek">DeepSeek</h2>
+        {{ estado(d) }}
+      </header>
+      {% if d.reason %}<p class="tarjeta-motivo">{{ d.reason }}</p>{% endif %}
+      <p class="tarjeta-sub">LLM del chat · modelo <code>{{ d.data.model }}</code> · proceso web</p>
+      <dl class="datos">
+        {{ llamadas(d.data.calls) }}
+        {{ dato("Costo estimado", "US$ " ~ (d.data.cost_usd | metrica_numero(4)), "a " ~ (d.data.price_input | metrica_numero(2)) ~ " / " ~ (d.data.price_output | metrica_numero(2)) ~ " USD por millón") }}
+      </dl>
+      {% if d.data.calls.by_kind %}
+      <ul class="pares">
+        {% for nombre, cuenta in d.data.calls.by_kind.items() %}<li><span>{{ nombre }}</span> <strong>{{ cuenta | metrica_numero }}</strong></li>{% endfor %}
+      </ul>
+      {% endif %}
+      <h3 class="tarjeta-subtitulo">Saldo de la cuenta</h3>
+      {% if not operator %}
+      <p class="tarjeta-nota">Visible solo para el operador.</p>
+      {% elif d.data.balance is none %}
+      <p class="tarjeta-nota">Sin clave de DeepSeek no se consulta.</p>
+      {% elif d.data.balance.status != "ok" %}
+      <p class="tarjeta-motivo">No disponible: {{ d.data.balance.reason }}</p>
+      {% else %}
+      <dl class="datos">
+        {% for b in d.data.balance.balances %}
+        {{ dato("Saldo " ~ b.currency, b.total, "regalado " ~ b.granted ~ " · recargado " ~ b.topped_up) }}
+        {% endfor %}
+        {{ dato("Cuenta habilitada", "sí" if d.data.balance.available else "no") }}
+      </dl>
+      {% endif %}
+      <p class="tarjeta-nota">El costo es una estimación con el precio configurado: no descuenta los tokens servidos desde la caché de DeepSeek.</p>
+      {% if d.data.calls.without_usage %}
+      <p class="tarjeta-nota">{{ d.data.calls.without_usage | metrica_numero }} llamadas no informaron tokens (streaming sin uso): el costo estimado se queda corto.</p>
+      {% endif %}
+      {{ pie_tarjeta(d) }}
+    </article>
+    {% endif %}
+
+    {% set w = cards.get("whatsapp") %}
+    {% if w %}
+    <article class="panel tarjeta-metrica tarjeta-ancha" aria-labelledby="m-whatsapp">
+      <header class="tarjeta-cabecera">
+        <h2 id="m-whatsapp">WhatsApp (OpenClaw)</h2>
+        {{ estado(w) }}
+      </header>
+      {% if w.reason %}<p class="tarjeta-motivo">{{ w.reason }}</p>{% endif %}
+      <p class="tarjeta-sub">{{ w.data.note }}</p>
+      {% if w.data.usage %}
+      {% set u = w.data.usage %}
+      <div class="tabla-envoltura">
+        <table class="tabla-metricas">
+          <caption class="sr-solo">Uso del chat por canal según la base</caption>
+          <thead>
+            <tr><th scope="col">Canal</th><th scope="col">Mensajes 24 h / 7 días</th><th scope="col">Conversaciones 24 h / 7 días</th><th scope="col">Chats distintos (7 días)</th><th scope="col">Cotizaciones (7 días)</th><th scope="col">Último mensaje</th></tr>
+          </thead>
+          <tbody>
+            {% for etiqueta, fila in [("WhatsApp", u.wa), ("Web", u.web)] %}
+            <tr>
+              <th scope="row">{{ etiqueta }}</th>
+              <td>{{ fila.messages_24h | metrica_numero }} / {{ fila.messages_7d | metrica_numero }}</td>
+              <td>{{ fila.conversations_24h | metrica_numero }} / {{ fila.conversations_7d | metrica_numero }}</td>
+              <td>{{ fila.chats_7d | metrica_numero }}</td>
+              <td>{{ fila.quotes_7d | metrica_numero }}</td>
+              <td>{{ fila.last_at | metrica_cuando }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% elif w.data.usage_error %}
+      <p class="tarjeta-motivo">Uso por canal no disponible: {{ w.data.usage_error }}</p>
+      {% endif %}
+      {% set m = w.data.mcp %}
+      <h3 class="tarjeta-subtitulo">Servidor MCP (proceso de WhatsApp)</h3>
+      {% if m.status == "ok" %}
+      {% set cuentas = m.whatsapp.counts or {} %}
+      <dl class="datos">
+        {{ dato("Mensajes", cuentas.get("mensajes", 0) | metrica_numero, "desde " ~ (m.whatsapp.since | metrica_cuando)) }}
+        {{ dato("Reintentos de OpenClaw", cuentas.get("reintentos", 0) | metrica_numero, "turnos ya atendidos que se reemitieron") }}
+        {{ dato("Fotos / notas de voz", (cuentas.get("fotos", 0) | metrica_numero) ~ " / " ~ (cuentas.get("notas_de_voz", 0) | metrica_numero)) }}
+        {{ dato("PDF enviados", cuentas.get("pdf_enviados", 0) | metrica_numero) }}
+        {{ dato("Errores", cuentas.get("errores", 0) | metrica_numero, "sin cupo " ~ (cuentas.get("sin_cupo", 0) | metrica_numero)) }}
+        {{ dato("No autorizados", cuentas.get("no_autorizados", 0) | metrica_numero, "peticiones sin el bearer del MCP") }}
+        {{ dato("Fotos rechazadas / sin servicio", (cuentas.get("fotos_rechazadas", 0) | metrica_numero) ~ " / " ~ (cuentas.get("fotos_no_disponibles", 0) | metrica_numero)) }}
+        {{ dato("Última actividad", m.whatsapp.last_at | metrica_cuando) }}
+        {{ dato("Sustituidas por la compuerta", m.claims.substituted | metrica_numero, m.claims.substitution_rate | metrica_porcentaje) }}
+        {{ dato("Jev / DeepSeek (llamadas)", (m.jev.calls | metrica_numero) ~ " / " ~ (m.deepseek.calls | metrica_numero)) }}
+      </dl>
+      {% else %}
+      {% if m.status == "unavailable" %}
+      <p class="tarjeta-motivo">No disponible: {{ m.reason }}</p>
+      {% else %}
+      <p class="tarjeta-nota">{{ m.reason }}</p>
+      {% endif %}
+      {% endif %}
+      {{ pie_tarjeta(w) }}
+    </article>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

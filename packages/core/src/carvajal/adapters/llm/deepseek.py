@@ -5,6 +5,7 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 from carvajal.adapters.llm._chat import _LangChainChat
+from carvajal.adapters.llm.usage import DEEPSEEK_USAGE
 from carvajal.infrastructure.settings import Settings
 
 __all__ = ["DeepSeekProvider", "build_deepseek_chat"]
@@ -34,7 +35,9 @@ def build_deepseek_chat(
     plazo del turno.
 
     Construirlo no comprueba que la API esté accesible ni que el modelo exista: eso se
-    descubre en la primera llamada.
+    descubre en la primera llamada. Cada cliente lleva el callback de uso del proceso
+    (:data:`~carvajal.adapters.llm.usage.DEEPSEEK_USAGE`, spec 055): cuenta llamadas,
+    latencia y tokens para ``/metricas`` sin leer los mensajes.
 
     Raises:
         ValueError: si falta la clave, el modelo o la URL base.
@@ -63,6 +66,7 @@ def build_deepseek_chat(
         base_url=base_url,
         temperature=0,
         request_timeout=settings.llm_timeout_seconds if timeout_s is None else timeout_s,
+        callbacks=[DEEPSEEK_USAGE],
         **extra,
     )
 

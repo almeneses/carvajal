@@ -1,0 +1,232 @@
+/* Página «Métricas» (spec 055): tarjetas por fuente con el sistema visual de la app. */
+
+.tarjetas-metricas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: clamp(14px, 2vw, 22px);
+  align-items: start;
+}
+
+.tarjeta-metrica {
+  display: grid;
+  gap: 12px;
+  padding: clamp(18px, 2.4vw, 26px);
+}
+
+.tarjeta-ancha {
+  grid-column: 1 / -1;
+}
+
+.tarjeta-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.tarjeta-cabecera h2 {
+  margin: 0;
+  color: var(--tinta);
+  font-size: 1.2rem;
+}
+
+.tarjeta-subtitulo {
+  margin: 6px 0 0;
+  color: var(--tinta);
+  font-size: 0.95rem;
+}
+
+.tarjeta-sub,
+.tarjeta-nota,
+.tarjeta-pie {
+  margin: 0;
+  color: var(--secundario);
+  font-size: 0.9rem;
+}
+
+.tarjeta-pie {
+  font-size: 0.8rem;
+}
+
+.tarjeta-motivo {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--error);
+  border-radius: 8px;
+  background: #fdf1f1;
+  color: var(--tinta);
+  font-size: 0.9rem;
+}
+
+.estado-fuente {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* El estado no depende solo del color: cada pastilla lleva su palabra y un símbolo. */
+.estado-fuente::before {
+  font-weight: 700;
+}
+
+.estado-ok {
+  background: #e3f4ec;
+  color: var(--exito);
+}
+
+.estado-ok::before {
+  content: "●";
+}
+
+.estado-viejo {
+  background: #fff4dc;
+  color: #7a5200;
+}
+
+.estado-viejo::before {
+  content: "◐";
+}
+
+.estado-apagado {
+  background: var(--fondo-suave);
+  color: var(--secundario);
+}
+
+.estado-apagado::before {
+  content: "○";
+}
+
+.estado-error {
+  background: #fdf1f1;
+  color: var(--error);
+}
+
+.estado-error::before {
+  content: "✕";
+}
+
+.datos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.dato {
+  min-width: 0;
+}
+
+.dato dt {
+  color: var(--secundario);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.dato dd {
+  margin: 2px 0 0;
+  color: var(--tinta);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.dato-nota {
+  display: block;
+  color: var(--secundario);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+td .dato-nota {
+  display: inline;
+}
+
+.pares {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pares li {
+  display: inline-flex;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--etiqueta-fondo);
+  color: var(--etiqueta-texto);
+  font-size: 0.8rem;
+}
+
+.pares .par-estado {
+  background: var(--fondo-suave);
+  color: var(--tinta);
+}
+
+.tabla-envoltura {
+  overflow-x: auto;
+}
+
+.tabla-metricas {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabla-metricas th,
+.tabla-metricas td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--borde);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tabla-metricas thead th {
+  color: var(--secundario);
+  font-size: 0.78rem;
+}
+
+.histograma {
+  margin: 0;
+}
+
+.histograma svg {
+  display: block;
+  width: 100%;
+  max-width: 22rem;
+  height: auto;
+}
+
+.histograma .barra-baja {
+  fill: #c2560f;
+}
+
+.histograma .barra-alta {
+  fill: var(--azul);
+}
+
+.histograma .eje {
+  stroke: var(--borde-control);
+  stroke-width: 1;
+}
+
+.histograma figcaption {
+  margin-top: 4px;
+  color: var(--secundario);
+  font-size: 0.8rem;
+}
+
+.tarjeta-metrica code {
+  font-size: 0.85em;
+}

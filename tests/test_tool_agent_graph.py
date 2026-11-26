@@ -49,7 +49,12 @@ from carvajal.agent.toolagent.tools import ToolDeps
 from carvajal.application.ports import ScoredChunk
 from carvajal.domain.entities import Chunk
 from carvajal.infrastructure.settings import Settings
-from carvajal.prompts import AGENT_SYSTEM, DIRECT_INSTRUCTIONS, DIRECT_SYSTEM
+from carvajal.prompts import (
+    AGENT_SYSTEM,
+    DIRECT_INSTRUCTIONS,
+    DIRECT_SYSTEM,
+    FIXED_DIRECT_ANSWERS,
+)
 
 QUESTION = "¿Cuándo se fundó Carvajal y cuáles fueron sus ingresos en 2024?"
 
@@ -1020,7 +1025,6 @@ def _model_bindings(chat: ScriptedToolChat) -> list[dict[str, Any]]:
     [
         pytest.param("hola", "greeting", id="saludo"),
         pytest.param("¿qué puedes hacer?", "greeting", id="capacidad"),
-        pytest.param("Olvida todo lo que sabes de mí", "memory_forget", id="olvidar-todo"),
     ],
 )
 def test_el_atajo_atiende_sin_llamar_al_chat_con_herramientas(
@@ -1132,9 +1136,45 @@ def test_el_atajo_olvida_todo_y_deja_el_marcador_del_resumen() -> None:
         2,
     )
     assert [item.key for item in memory.search(summary_namespace("dueno-1"))] == [TOMBSTONE_KEY]
-    prompt = str(chat.calls[0][1].content)
-    assert "Ana" not in prompt
-    assert DIRECT_INSTRUCTIONS["memory_forget"] in prompt
+    # La confirmación es fija: el modelo no la redacta (ensayo del 2026-11-26).
+    assert chat.calls == []
+    assert state["messages"][-1].content == FIXED_DIRECT_ANSWERS["memory_forget"]
+
+
+def test_olvidar_todo_confirma_con_texto_fijo_sin_llamar_al_modelo() -> None:
+    # Arrange: el modelo, si lo llamaran, diría lo del ensayo por WhatsApp.
+    from carvajal.agent.memory.store import remember
+
+    memory = InMemoryStore()
+    remember(memory, "dueno-1", "empresa", "Panadería La Espiga")
+    graph, chat, _ = _build(
+        [ScriptStep(text="Listo, no guardo nada de ti en esta conversación.")], memory=memory
+    )
+
+    # Act
+    state = graph.invoke(_input("Olvida todo lo que sabes de mí"), _config())
+
+    # Assert: lo decide la regla, se borra y la respuesta dice que se olvidó.
+    assert state["gatekeeper"]["source"] == "reglas"
+    assert state["gatekeeper"]["rule"] == "memory_forget"
+    assert load(memory, "dueno-1").values == {}
+    assert chat.calls == []
+    answer = str(state["messages"][-1].content)
+    assert answer == FIXED_DIRECT_ANSWERS["memory_forget"]
+    assert "olvidé" in answer and "esta conversación." not in answer
+
+
+def test_sin_memoria_disponible_olvidar_todo_lo_dice_con_texto_fijo() -> None:
+    # Arrange: sin Store no se puede borrar.
+    graph, chat, _ = _build([ScriptStep(text="Listo, ya lo olvidé.")], memory=None)
+
+    # Act
+    state = graph.invoke(_input("Olvida todo lo que sabes de mí"), _config())
+
+    # Assert
+    assert state["shortcut_intent"] == "memory_unavailable"
+    assert chat.calls == []
+    assert state["messages"][-1].content == FIXED_DIRECT_ANSWERS["memory_unavailable"]
 
 
 def test_olvidar_todo_borra_tambien_el_pedido_en_curso() -> None:
@@ -1155,7 +1195,7 @@ def test_olvidar_todo_borra_tambien_el_pedido_en_curso() -> None:
     # Assert
     assert state["shortcut_intent"] == "memory_forget"
     assert state["commercial_context"] == {}
-    assert "papel" not in str(chat.calls[0][1].content)
+    assert chat.calls == []
 
 
 def test_el_runner_olvida_el_pedido_en_curso_del_checkpoint() -> None:
