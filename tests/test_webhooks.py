@@ -289,7 +289,10 @@ def test_la_firma_cubre_el_cuerpo_crudo(monkeypatch: pytest.MonkeyPatch) -> None
     assert chat.calls == []
 
 
-@pytest.mark.parametrize("offset", [-301, 301, -10_000])
+# ±303 s y no ±301: el timestamp de la prueba se trunca a segundos y el servidor compara con
+# la hora con decimales un instante después; a +301 la diferencia real podía quedar en 299,x
+# y la petición pasaba (prueba intermitente en la CI).
+@pytest.mark.parametrize("offset", [-303, 303, -10_000])
 def test_timestamp_fuera_de_la_ventana_responde_401(
     monkeypatch: pytest.MonkeyPatch, offset: int
 ) -> None:

@@ -8,10 +8,13 @@ o de Jev y escriben en la base: llevan ``gasto`` y ``make ensayo`` no las corre.
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
+import httpx
 import pytest
 from tests.e2e.clientes import Config, Turno, Web
+from tests.e2e.correo_odoo import comprobar_correo_del_pedido
 from tests.e2e.guiones import (
     EMPRESA,
     GUIONES,
@@ -20,6 +23,7 @@ from tests.e2e.guiones import (
     PISTA_FOTO,
     PREGUNTA_MEMORIA,
     PRESENTACION,
+    PROMESA_RECIBO,
     DesvioDelAgente,
     Guion,
     PedidosApagados,
@@ -31,7 +35,9 @@ from tests.e2e.guiones import (
     ejecutar_pasos,
     ejecutar_pedido,
     nombre_de_prueba,
+    oferta_ausente,
     pasos_tras_foto,
+    recibo_en,
     registra,
 )
 
@@ -147,7 +153,48 @@ def test_flujo_definido_en_web(config: Config, web: Web, guion: Guion) -> None:
 
     # Assert: cada turno ya se comprobó en ``ejecutar``; aquí, el recorrido completo.
     assert transcripcion.turnos, f"{guion.nombre}: no se envió ningún mensaje"
+    sin_oferta = oferta_ausente(transcripcion) if config.expect_pedidos else None
+    assert sin_oferta is None, (
+        f"el folio #{sin_oferta} no ofrece el pedido y se esperaba (ENSAYO_EXPECT_PEDIDOS, "
+        f"activo en producción): ¿falta ODOO_* en la app?\n{transcripcion.texto()}"
+    )
     print(transcripcion.texto())
+
+
+def _descargar_recibo(cliente: httpx.Client, ruta: str) -> httpx.Response:
+    """GET del recibo; un 503 (Odoo lento al generar el PDF) se reintenta una vez."""
+
+    respuesta = cliente.get(ruta, timeout=60)
+    if respuesta.status_code == 503:
+        print(f"AVISO web: el recibo {ruta} respondió 503; se reintenta en 10 s")
+        time.sleep(10)
+        respuesta = cliente.get(ruta, timeout=60)
+    return respuesta
+
+
+def _comprobar_recibo_web(config: Config, web: Web, turno: Turno, folio: str, numero: str) -> None:
+    """SC-008 de la spec 056: el enlace al recibo abre con la cookie del dueño y con otra no."""
+
+    recibo = recibo_en(turno.texto, "web")
+    assert recibo is not None, (
+        f"el pedido {numero} no trae el enlace «Descarga el recibo de tu pedido» a "
+        f"/pedidos/{folio}.pdf\n{turno.resumen()}"
+    )
+    assert PROMESA_RECIBO not in turno.texto, turno.resumen()
+    assert (recibo.folio, recibo.numero) == (folio, numero), recibo
+    documento = _descargar_recibo(web.cliente, recibo.ruta)
+    assert documento.status_code == 200, (
+        f"el recibo {recibo.ruta} respondió {documento.status_code} con la cookie del dueño "
+        "(503: Odoo no respondió; 404: el dueño o el PDF no se encontraron)"
+    )
+    assert documento.headers.get("content-type", "").startswith("application/pdf")
+    assert documento.content.startswith(b"%PDF"), "el recibo no es un PDF"
+    otro = Web(config.base_url, Web.visitante_para(f"{config.run_id}:recibo-ajeno"))
+    try:
+        ajeno = otro.cliente.get(recibo.ruta, timeout=30)
+    finally:
+        otro.cerrar()
+    assert ajeno.status_code == 404, f"otro visitante abrió el recibo: {ajeno.status_code}"
 
 
 @pytest.mark.usefixtures("agente", "pedido_permitido")
@@ -161,6 +208,8 @@ def test_pedido_en_odoo_desde_web(config: Config, web: Web) -> None:
     try:
         pedido = ejecutar_pedido(canal, nombre=nombre, correo=correo)
     except PedidosApagados as motivo:
+        if config.expect_pedidos:
+            pytest.fail(f"{motivo}; se esperaba el pedido (ENSAYO_EXPECT_PEDIDOS)")
         pytest.skip(str(motivo))
 
     # Assert: cada turno ya se comprobó; el turno del pedido no registra otro folio.
@@ -168,6 +217,8 @@ def test_pedido_en_odoo_desde_web(config: Config, web: Web) -> None:
     turno: Turno = creado.crudo
     assert turno.done.get("route") == "pedido", turno.resumen()
     assert not turno.done.get("quote_ids"), turno.resumen()
+    _comprobar_recibo_web(config, web, turno, pedido.folio, pedido.numero)
+    comprobar_correo_del_pedido(config, pedido.folio, "web")
     reintento = " · tras reintentar (Odoo falló al primer intento)" if pedido.reintentado else ""
     print(f"PEDIDO web: {pedido.numero} · folio #{pedido.folio} · {correo}{reintento}")
     print(pedido.transcripcion.texto())

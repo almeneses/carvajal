@@ -1,7 +1,18 @@
-"""Vista del chat (W3.3): formulario, turnos e historial con cookie firmada."""
+"""Vista del chat (W3.3): formulario, turnos e historial con cookie firmada.
 
-from collections.abc import Sequence
+``POST /chat`` (sin JavaScript, o cuando el stream falla antes del primer token) guarda el
+turno y redirige al hilo (PRG, 303). En los turnos del pedido (spec 056) el texto visible no
+es el guardado: la confirmación lleva el nombre y el correo de quien compra, que no se
+guardan. El POST deja ese texto en memoria del proceso por dueño e id de mensaje
+(:func:`apps.api.ephemeral.shown_turns`, unos dos minutos) y el ``GET /chat`` que sigue a la
+redirección lo muestra **una sola vez** (``no-store``) para que la persona revise sus datos.
+Recargar después vuelve a pedir la página (no reenvía el formulario) y muestra lo guardado,
+sin los datos.
+"""
+
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from typing import Any
 from urllib.parse import quote
 
 import structlog
@@ -22,6 +33,7 @@ from apps.api.chat.service import (
     ThreadAccessError,
     default_chat_service,
 )
+from apps.api.ephemeral import shown_turns
 from apps.api.observability import REQUEST_ID_PATTERN, capture_exception
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
@@ -108,6 +120,7 @@ def chat(
 
     if thread_id is None and messages:
         thread_id = messages[0].conversation_id
+    messages, shown = _with_shown_turn(request, owner_key, messages)
     conversations = [] if new_owner else _conversations(request, owner_key)
     response = _page(
         request,
@@ -116,6 +129,8 @@ def chat(
         conversations=conversations,
         panel_hilos=panel == "hilos",
         hilo_nuevo=nuevo == "1" and not messages and _has_saved_thread(conversations, thread_id),
+        # El turno visible del pedido lleva datos que no se guardan: que nadie lo cachee.
+        headers={"Cache-Control": "no-store"} if shown else None,
     )
     if new_owner:
         set_identity_cookie(response, request, identity, owner_key)
@@ -306,7 +321,7 @@ def chat_turn(
     try:
         provider = chat_provider(request)
         turn_id = client_turn_id.strip() or None
-        provider.ask(
+        answer = provider.ask(
             owner_key,
             text,
             client_turn_id=turn_id,
@@ -329,10 +344,65 @@ def chat_turn(
             thread_id=hilo,
         )
 
+    _remember_shown_turn(request, owner_key, hilo, getattr(answer, "text", None))
     destino = f"/chat?thread={quote(hilo)}" if hilo else "/chat"
     response = RedirectResponse(url=destino, status_code=303)
     set_identity_cookie(response, request, identity, owner_key)
     return response
+
+
+def _turn_flow(message: ChatMessage) -> Mapping[str, Any] | None:
+    for source in message.sources or []:
+        if isinstance(source, Mapping) and source.get("result_type") == "commercial":
+            result = source.get("result")
+            flow = result.get("flow") if isinstance(result, Mapping) else None
+            if isinstance(flow, Mapping):
+                return flow
+    return None
+
+
+def _remember_shown_turn(
+    request: Request, owner_key: str, thread_id: str | None, visible: object
+) -> None:
+    """Deja el texto visible del último turno para el GET siguiente si difiere del guardado.
+
+    Solo en un turno hecho de plantilla (su ``flow`` guardado es el texto guardado) cuyo
+    texto visible es otro (spec 056: los datos de quien compra se muestran, pero no se
+    guardan). Sin eso, o si el hilo no se puede leer, no se recuerda nada y el GET muestra lo
+    guardado, como siempre.
+    """
+
+    if not isinstance(visible, str) or not visible.strip():
+        return
+    try:
+        messages = list(_history(request, owner_key, thread_id))
+    except Exception as error:  # el turno ya se guardó: nunca se pierde la redirección
+        logger.warning("chat.shown_turn_failed", error_type=type(error).__name__)
+        return
+    if not messages or messages[-1].role != "assistant":
+        return
+    last = messages[-1]
+    flow = _turn_flow(last)
+    stored = (last.content or "").strip()
+    if flow is None or str(flow.get("text") or "").strip() != stored:
+        return
+    if visible.strip() == stored:
+        return
+    shown_turns(request.app.state).remember(owner_key, last.id, visible)
+
+
+def _with_shown_turn(
+    request: Request, owner_key: str, messages: Sequence[ChatMessage]
+) -> tuple[Sequence[ChatMessage], bool]:
+    """El hilo con el texto visible del último turno, si el POST lo dejó (una sola vez)."""
+
+    if not messages or messages[-1].role != "assistant":
+        return messages, False
+    last = messages[-1]
+    visible = shown_turns(request.app.state).pop(owner_key, last.id)
+    if visible is None:
+        return messages, False
+    return [*messages[:-1], replace(last, content=visible)], True
 
 
 def chat_provider(request: Request) -> ChatProvider:

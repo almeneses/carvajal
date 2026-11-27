@@ -12,6 +12,13 @@ confirma. Al confirmar, Odoo envía al cliente el correo de confirmación con la
 ventas y el PDF, y lo deja en el chatter; sin servidor SMTP el correo no sale (queda en
 excepción y se reintenta desde Odoo cuando haya servidor).
 
+Al confirmar un pedido nuevo, el adaptador avisa al equipo con una actividad «Coordinar pago y
+entrega del pedido» en el pedido (``mail.activity``, tipo «Por hacer») para el usuario de ventas
+de ``ODOO_SALES_LOGIN``; si la actividad falla, el pedido sigue. Si el login no existe, no se
+programa la actividad (nunca en el usuario técnico de la API key): queda un error en los logs y
+``sales_user: missing`` en ``/health`` para el operador. :class:`OdooProbe` comprueba para
+``/health`` que Odoo responde, con un plazo total de un segundo y caché.
+
 El cliente se reutiliza solo si coinciden el correo (sin comodines) y el nombre: quien
 escribe el correo de otra persona no le asigna pedidos a su ficha. Los datos del cliente
 solo viajan a Odoo; los logs llevan el folio, el número de pedido y el tipo de error, nunca
@@ -19,7 +26,11 @@ el nombre, el correo ni el mensaje de Odoo.
 """
 
 import base64
-from collections.abc import Iterable, Mapping, Sequence
+import threading
+import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final
@@ -33,7 +44,16 @@ if TYPE_CHECKING:
     from carvajal.catalog.models import Reference
     from carvajal.infrastructure.settings import Settings
 
-__all__ = ["OdooClient", "OdooError", "OdooOrders", "OrderResult", "build_orders"]
+__all__ = [
+    "ACTIVITY_SUMMARY",
+    "OdooClient",
+    "OdooError",
+    "OdooOrders",
+    "OdooProbe",
+    "OrderResult",
+    "build_orders",
+    "sales_user_id",
+]
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +63,16 @@ CATEGORY_NAME: Final = "Empaques Carvajal"
 # Marca de los contactos que crea el asistente: solo esos se reutilizan (``ref``).
 PARTNER_REF: Final = "asistente-carvajal"
 NO_TAXES: Final = [[6, 0, []]]  # los precios llegan calculados por el motor de la app
+# Aviso al equipo de ventas en cada pedido nuevo: la actividad «Por hacer» del chatter.
+ACTIVITY_TYPE: Final = "mail.mail_activity_data_todo"
+ACTIVITY_SUMMARY: Final = "Coordinar pago y entrega del pedido"
+# Sonda de ``/health``: plazo total corto y caché, para no colgar ni saturar la sonda
+# pública. Un segundo deja margen al healthcheck de Docker (3 s) aunque Odoo cuelgue.
+PROBE_TIMEOUT_S: Final = 1.0
+PROBE_TTL_S: Final = 60.0
+# Un login de ventas que no existe se vuelve a buscar como mucho cada diez minutos: así
+# corregirlo en Odoo no exige reiniciar la app, y cada pedido no repite la búsqueda.
+SALES_USER_RETRY_S: Final = 600.0
 
 
 class OdooError(RuntimeError):
@@ -168,9 +198,21 @@ def _log_error(event: str, error: OdooError, **fields: Any) -> None:
 class OdooOrders:
     """Pedidos de venta y catálogo de Carvajal en una base de Odoo."""
 
-    def __init__(self, client: OdooClient) -> None:
+    def __init__(
+        self,
+        client: OdooClient,
+        *,
+        sales_login: str = "",
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._odoo = client
         self._category_id: int | None = None
+        # ``res.users.login`` de quien recibe la actividad del pedido; vacío, sin actividad.
+        self._sales_login = sales_login.strip()
+        self._sales_user: int | None = None
+        # Cuándo se comprobó que el login no existe (``None``: no se sabe todavía).
+        self._sales_missing_at: float | None = None
+        self._clock = clock
 
     # --- pedidos ---------------------------------------------------------------------
 
@@ -191,6 +233,8 @@ class OdooOrders:
                 partner = _many2one(found.get("partner_id"))
                 if partner is not None:
                     lead_id = self._lead(request, partner, order_id)
+                # El aviso va después de la oportunidad: tampoco llegó a programarse.
+                self._notify_sales(order_id, str(found["name"]), request)
             logger.info("pedido.existente", folio=request.folio, pedido=found["name"])
             return OrderResult(
                 name=str(found["name"]),
@@ -221,6 +265,7 @@ class OdooOrders:
         if lead_id is None:
             lead_id = self._lead(request, partner_id, order_id)
         (order,) = self._odoo.search_read("sale.order", [["id", "=", order_id]], ["name"])
+        self._notify_sales(order_id, str(order["name"]), request)
         logger.info("pedido.creado", folio=request.folio, pedido=order["name"])
         return OrderResult(
             name=str(order["name"]),
@@ -229,12 +274,83 @@ class OdooOrders:
             email=request.buyer.email,
         )
 
+    def _notify_sales(self, order_id: int, name: str, request: OrderRequest) -> None:
+        """Actividad «Coordinar pago y entrega del pedido» para el usuario de ventas.
+
+        Es lo que cumple el «un asesor te contacta» del recibo: el pedido aparece en
+        «Mis actividades» del vendedor. Solo en el pedido que se confirma ahora o en el
+        reintento de uno confirmado cuya respuesta se perdió antes del CRM (sin
+        oportunidad: tampoco llegó a programarse). Si el login no existe, no se programa: la
+        actividad caería en el usuario técnico de la API key, que nadie mira; queda el error
+        ``pedido.vendedor_no_encontrado`` (y ``sales_user: missing`` en ``/health``). Si Odoo
+        la rechaza, el pedido sigue. Los logs no llevan datos de quien compra.
+        """
+
+        if not self._sales_login:
+            return
+        values: dict[str, Any] = {
+            "act_type_xmlid": ACTIVITY_TYPE,
+            "summary": ACTIVITY_SUMMARY,
+            "note": _html(
+                [
+                    f"Pedido {name} de la cotización #{request.folio}, confirmado por el "
+                    f"cliente en {request.channel}.",
+                    "Contactar al cliente para coordinar el pago y la entrega.",
+                ]
+            ),
+        }
+        try:
+            user_id = self._sales_user_id()
+            if user_id is None:
+                logger.error("pedido.vendedor_no_encontrado", folio=request.folio)
+                return
+            values["user_id"] = user_id
+            self._odoo.call("sale.order", "activity_schedule", ids=[order_id], **values)
+        except OdooError as error:  # el aviso es un extra: el pedido ya está confirmado
+            _log_error("pedido.aviso_fallido", error, folio=request.folio)
+            return
+        logger.info("pedido.aviso_programado", folio=request.folio)
+
+    def _sales_user_id(self) -> int | None:
+        """``res.users`` de ``ODOO_SALES_LOGIN``; ``None`` si no existe.
+
+        La resolución se cachea: el id, para siempre; un login que no existe, durante
+        :data:`SALES_USER_RETRY_S`.
+        """
+
+        if self._sales_user is not None:
+            return self._sales_user
+        now = self._clock()
+        if self._sales_missing_at is not None and now - self._sales_missing_at < (
+            SALES_USER_RETRY_S
+        ):
+            return None
+        found = sales_user_id(self._odoo, self._sales_login)
+        if found is None:
+            self._sales_missing_at = now
+            return None
+        self._sales_user = found
+        self._sales_missing_at = None
+        return found
+
     def _partner_email(self, partner_id: int | None) -> str | None:
         if partner_id is None:
             return None
         found = self._odoo.search_read("res.partner", [["id", "=", partner_id]], ["email"])
         email = found[0].get("email") if found else None
         return str(email) if email else None
+
+    def order_name(self, folio: str) -> str | None:
+        """Número del pedido confirmado de ``folio`` («S00042»), o ``None`` si no hay."""
+
+        found = self._odoo.search_read(
+            "sale.order",
+            [["client_order_ref", "=", folio], ["state", "=", "sale"]],
+            ["name"],
+            limit=1,
+        )
+        name = found[0].get("name") if found else None
+        return str(name) if name else None
 
     def order_pdf(self, folio: str) -> bytes | None:
         """PDF del pedido confirmado de ``folio`` (el que Odoo adjuntó al correo), o ``None``."""
@@ -526,6 +642,13 @@ class OdooOrders:
         return {"fotos_subidas": len(missing), "fotos_existentes": len(found) - len(missing)}
 
 
+def sales_user_id(client: OdooClient, login: str) -> int | None:
+    """Id del ``res.users`` activo con ese ``login``, o ``None``; lanza :class:`OdooError`."""
+
+    found = client.search_read("res.users", [["login", "=", login]], ["id"], limit=1)
+    return int(found[0]["id"]) if found else None
+
+
 def _many2one(value: Any) -> int | None:
     return int(value[0]) if isinstance(value, list) and value else None
 
@@ -567,4 +690,121 @@ def build_orders(settings: "Settings") -> OdooOrders | None:
         settings.odoo_api_key.get_secret_value(),
         timeout=settings.odoo_timeout_s,
     )
-    return OdooOrders(client)
+    return OdooOrders(client, sales_login=settings.odoo_sales_login)
+
+
+class OdooProbe:
+    """Bloque ``odoo`` de ``/health``: configurado y, si lo está, si Odoo responde.
+
+    La sonda es ``sale.order.search_count`` sin resultados por JSON-2: comprueba la red, la
+    base, la API key y el acceso a ventas sin leer datos. Con ``ODOO_SALES_LOGIN`` busca
+    además ese usuario (``sales_user``: ``ok``, ``missing`` o ``unknown``; ``off`` sin login).
+
+    El plazo es total (:data:`PROBE_TIMEOUT_S`): la sonda corre en un hilo aparte y
+    ``status()`` la espera como mucho ese tiempo; si no terminó, responde
+    ``reason: timeout`` y la sonda en vuelo actualiza la caché al acabar. Nunca hay dos sondas a
+    la vez y nadie espera a otra más que el plazo. La caché (:data:`PROBE_TTL_S`, también para un
+    fallo) hace que un Odoo caído no frene ``/health`` más de una vez por minuto. Sin secretos
+    ni URL: ``reason`` es ``auth`` (401/403), ``unreachable`` (sin respuesta), ``timeout`` o
+    ``error``. ``reason`` y ``sales_user`` solo los muestra ``/health`` al operador.
+    """
+
+    def __init__(
+        self,
+        settings: "Settings",
+        *,
+        transport: httpx.BaseTransport | None = None,
+        ttl_s: float = PROBE_TTL_S,
+        timeout_s: float = PROBE_TIMEOUT_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._settings = settings
+        self._transport = transport
+        self._ttl_s = ttl_s
+        self._timeout_s = timeout_s
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._cached: tuple[float, dict[str, object]] | None = None
+        self._inflight: Future[dict[str, object]] | None = None
+
+    def status(self) -> dict[str, object]:
+        """``{"configured", "status"}`` y, configurado, ``reachable`` (y ``reason`` si falla)."""
+
+        settings = self._settings
+        if not settings.odoo_configured:
+            return {"configured": False, "status": "off"}
+        with self._lock:
+            now = self._clock()
+            if self._cached is not None and now - self._cached[0] < self._ttl_s:
+                return dict(self._cached[1])
+            future = self._inflight
+            if future is None:
+                future = self._inflight = self._start()
+        try:
+            return dict(future.result(timeout=self._timeout_s))
+        except FutureTimeout:
+            logger.warning("odoo.health_failed", status=None, reason="timeout")
+            block = _unreachable("timeout")
+            with self._lock:
+                if self._inflight is future:  # la sonda sigue: su resultado reemplaza a este
+                    self._cached = (self._clock(), block)
+            return dict(block)
+
+    def _start(self) -> "Future[dict[str, object]]":
+        future: Future[dict[str, object]] = Future()
+
+        def run() -> None:
+            try:
+                block = self._probe()
+            except Exception as error:  # la sonda nunca deja el futuro sin resolver
+                logger.warning("odoo.health_failed", error_type=type(error).__name__)
+                block = _unreachable("error")
+            with self._lock:
+                self._cached = (self._clock(), block)
+                self._inflight = None
+            future.set_result(block)
+
+        threading.Thread(target=run, name="odoo-health", daemon=True).start()
+        return future
+
+    def _probe(self) -> dict[str, object]:
+        client = OdooClient(
+            self._settings.odoo_url,
+            self._settings.odoo_db,
+            self._settings.odoo_api_key.get_secret_value(),
+            timeout=min(self._timeout_s, self._settings.odoo_timeout_s),
+            transport=self._transport,
+        )
+        try:
+            client.call("sale.order", "search_count", domain=[["id", "=", 0]])
+            sales_user = self._sales_user(client)
+        except OdooError as error:
+            if error.status in {401, 403}:
+                reason = "auth"
+            elif error.status is None:
+                reason = "unreachable"
+            else:
+                reason = "error"
+            logger.warning("odoo.health_failed", status=error.status, reason=reason)
+            return _unreachable(reason)
+        finally:
+            client.close()
+        return {"configured": True, "status": "ok", "reachable": True, "sales_user": sales_user}
+
+    def _sales_user(self, client: OdooClient) -> str:
+        login = self._settings.odoo_sales_login.strip()
+        if not login:
+            return "off"
+        try:
+            found = sales_user_id(client, login)
+        except OdooError as error:  # sin permiso para leer usuarios: no se sabe
+            logger.warning("odoo.health_sales_user_failed", status=error.status)
+            return "unknown"
+        if found is None:
+            logger.error("odoo.health_sales_user_missing")
+            return "missing"
+        return "ok"
+
+
+def _unreachable(reason: str) -> dict[str, object]:
+    return {"configured": True, "status": "unreachable", "reachable": False, "reason": reason}

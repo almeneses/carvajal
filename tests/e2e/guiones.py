@@ -43,6 +43,17 @@ CONFIRMAR_DATOS = "¿Lo confirmo? Si algo está mal, escríbeme el dato correcto
 CONFIRMAR_PEDIDO = "Sí, confírmalo"  # lo que dice el botón «Confirmar pedido»
 PEDIDO_FALLIDO = "No pude crear el pedido"
 PEDIDO_CREADO = re.compile(r"Pedido (\S+) confirmado")
+# El recibo del pedido (spec 056). La promesa cruda (``render.RECEIPT_PROMISE``) nunca llega
+# al cliente: la web la cambia por el enlace (``render.receipt_offer``) y WhatsApp por el
+# adjunto o el enlace firmado (``bridge._receipt_block``), o la quita si no puede entregarlo.
+PROMESA_RECIBO = "Te envío el recibo del pedido en PDF."
+RECIBO_WEB = re.compile(
+    r"\[Descarga el recibo de tu pedido ([^\]\s]+)\]\(([^)\s]*/pedidos/([0-9a-f]{12})\.pdf)\)"
+)
+RECIBO_WHATSAPP = re.compile(
+    r"📄 (?:Te envío el recibo|Recibo) de tu pedido (\S+) en PDF\.[^\n]*\n+"
+    r"(?:ADJUNTAR_PDF:\s*)?(\S*/pedidos/([0-9a-f]{12})\.pdf\S*)"
+)
 # Segundos antes de reintentar con «sí» si Odoo falló al crear el pedido (``order_failed``
 # pide responder «sí» en unos minutos; el borrador conserva los datos y el folio).
 PAUSA_REINTENTO_PEDIDO = 30.0
@@ -102,6 +113,8 @@ def inferir_awaiting(texto: str) -> str | None:
         ("¿Confirmo el pedido con los datos", "confirmar_pedido"),
         ("lo intento de nuevo, o *ahora no*", "confirmar_pedido"),
         ("lo intento de nuevo, o **ahora no**", "confirmar_pedido"),
+        # «No, …» o «sí, pero…» ante la confirmación (``render.which_correction``).
+        ("¿Qué dato corrijo?", "confirmar_pedido"),
     )
     encontradas = [(texto.rfind(marca), estado) for marca, estado in marcas if marca in texto]
     return max(encontradas)[1] if encontradas else None
@@ -147,6 +160,43 @@ def correo_de_prueba(run_id: str) -> str:
 
     limpio = re.sub(r"[^a-z0-9-]+", "-", run_id.lower()).strip("-") or "prueba"
     return f"e2e-{limpio}@example.com"
+
+
+@dataclass(frozen=True)
+class Recibo:
+    """El recibo del pedido que trajo un turno: su URL, el folio y el número en Odoo."""
+
+    url: str
+    folio: str
+    numero: str
+
+    @property
+    def ruta(self) -> str:
+        """``/pedidos/<folio>.pdf`` con su consulta (``?t=…``), sin el host del enlace."""
+
+        return self.url[self.url.index("/pedidos/") :]
+
+
+def recibo_en(texto: str, canal: str) -> Recibo | None:
+    """El recibo del pedido en el texto del turno, o ``None`` si no lo trae.
+
+    Web: «📄 [Descarga el recibo de tu pedido S…](…/pedidos/<folio>.pdf)», que se abre con la
+    cookie del visitante. WhatsApp: «📄 Te envío el recibo de tu pedido S… en PDF.» con la
+    línea ``ADJUNTAR_PDF:`` o «📄 Recibo de tu pedido S… en PDF. Ábrelo aquí:» con el enlace
+    firmado (``?t=…``).
+    """
+
+    if canal == "whatsapp":
+        encontrado = RECIBO_WHATSAPP.search(texto)
+        if encontrado is None:
+            return None
+        numero, url, folio = encontrado.groups()
+        return Recibo(url=url, folio=folio, numero=numero)
+    encontrado = RECIBO_WEB.search(texto)
+    if encontrado is None:
+        return None
+    numero, url, folio = encontrado.groups()
+    return Recibo(url=url, folio=folio, numero=numero)
 
 
 @dataclass(frozen=True)
@@ -416,7 +466,8 @@ def paso_pedido_creado(correo: str, mensaje: str = CONFIRMAR_PEDIDO) -> Paso:
             " confirmado** · cotización #{folio}",
             f"La confirmación del pedido llega a **{correo}**",
         ),
-        ausentes=(PEDIDO_FALLIDO,),
+        # La promesa cruda del recibo no llega: cada canal la cambia por el PDF o la quita.
+        ausentes=(PEDIDO_FALLIDO, PROMESA_RECIBO),
         ruta="pedido",
     )
 
@@ -435,6 +486,20 @@ PASO_PEDIDO_REPETIDO = Paso(
     marcas=("Ese pedido ya quedó creado con el número **",),
     ruta="pedido",
 )
+
+
+def oferta_ausente(transcripcion: Transcripcion) -> str | None:
+    """El folio de un turno que registró sin ofrecer el pedido, o ``None`` si no hay.
+
+    Con ``ODOO_*`` cada folio termina con la oferta (``render.ORDER_OFFER``); un folio sin
+    ella en una app que debía tener Odoo (``ENSAYO_EXPECT_PEDIDOS``) es un fallo, no un salto.
+    """
+
+    for paso, respuesta in transcripcion.turnos:
+        encontrado = FOLIO.search(respuesta.texto) if paso.registra else None
+        if encontrado and OFERTA_PEDIDO not in respuesta.texto:
+            return encontrado.group(1)
+    return None
 
 
 class PedidosApagados(Exception):

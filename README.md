@@ -49,6 +49,7 @@ MCP propio que usa OpenClaw como gateway de WhatsApp y por un webhook firmado.
 | Canales | Chat web, WhatsApp (OpenClaw → MCP) y webhook HMAC con allowlist E.164 |
 | Voz | Dictado y lectura en el chat (navegador u OpenAI por el servidor) y notas de voz en WhatsApp |
 | Cotizaciones | Folio, desglose con IVA y envío, y PDF firmado descargable |
+| Pedidos | Tras el folio: nombre y correo, «¿Lo confirmo?», pedido de venta confirmado en Odoo 19 con correo de confirmación y recibo en PDF por la web y WhatsApp (spec 056) |
 
 ## Demo rápida
 
@@ -112,6 +113,9 @@ flowchart LR
   DI --> CS
   GT --> CS
   CS --> PDF["GET /cotizaciones/{folio}.pdf<br/>enlace firmado o cookie del dueño"]
+  CS -->|"pedido tras el folio<br/>JSON-2 · API key"| ODOO["Odoo 19<br/>pedido de venta · CRM · correo"]
+  CS --> REC["GET /pedidos/{folio}.pdf<br/>recibo del pedido (PDF de Odoo)"]
+  REC --> ODOO
 
   TL --> QD[("Qdrant<br/>carvajal_chunks")]
   TL --> CAT[("Catálogo y datos curados<br/>data/catalog · data/commercial<br/>indicators.json · institucional")]
@@ -146,6 +150,11 @@ Flujo de un turno:
    respuesta de `direct` no consulta datos y Noul no la juzga.
 6. **Salida.** Texto con citas, tarjetas de producto y cotización en la web; texto con
    formato de WhatsApp, fuentes y oferta de PDF en el canal de mensajería.
+7. **Pedido (opcional).** Con `ODOO_*`, el folio ofrece hacer el pedido. Los pasos del
+   pedido (nombre y correo, «¿Lo confirmo?» y el «sí») los deciden reglas por paso
+   (`quotation/flow.py`), sin el modelo ni Jev, y el «sí» crea el pedido en Odoo y devuelve
+   el recibo
+   ([`docs/odoo-pedidos.md`](docs/odoo-pedidos.md)).
 
 ## Requisitos de la entrega cubiertos
 
@@ -302,6 +311,12 @@ el bloque `jev`. Resultados de la medición
   En el chat web, la cotización registrada enlaza el mismo `/cotizaciones/{folio}.pdf` en el
   texto y en la tarjeta, sin firma: la ruta lo entrega si la cookie del visitante es la del
   dueño y responde 404 a cualquier otro.
+- **Pedido y recibo** (spec 056): tras el folio, la herramienta ofrece el pedido, pide nombre
+  y correo y pregunta «¿Lo confirmo?»; el agente de OpenClaw pasa cada respuesta tal cual. El
+  pedido confirmado llega como recibo con el PDF del pedido de Odoo adjunto (`ADJUNTAR_PDF:`
+  con `MEDIA_BASE_URL`) o enlazado (`PUBLIC_BASE_URL`). A mitad del pedido, *PDF* manda la
+  cotización y recuerda el paso; con el pedido hecho, *PDF* o «mándame el recibo» reenvían
+  el recibo. Ver [`docs/odoo-pedidos.md`](docs/odoo-pedidos.md).
 
 ### Voz
 
@@ -352,6 +367,13 @@ país aptos para ese alimento (specs 051 y 053, [`carvajal/food/`](packages/core
    ciudad si faltan. La cotización sale como **propuesta** sin folio; con «sí» o el botón
    «Confirmar cotización» se registra con folio y PDF. Esto vale para toda cotización, venga
    o no de una foto.
+5. **Hacer el pedido** (spec 056, con `ODOO_*`): el folio pregunta «🛒 ¿Quieres hacer el
+   pedido?» (botones «Hacer el pedido» / «Ahora no» en la web). El asistente pide el nombre y
+   el correo, los muestra con «¿Lo confirmo?» y solo un «sí» limpio crea en Odoo un pedido de
+   venta confirmado: Odoo envía el correo de confirmación con el PDF y el chat entrega el
+   recibo (en la web, el enlace a `/pedidos/{folio}.pdf`). Pago y entrega los coordina un
+   asesor, que recibe la actividad del pedido en Odoo. Ver
+   [`docs/odoo-pedidos.md`](docs/odoo-pedidos.md).
 
 En la web la foto se ve en el compositor y en el mensaje enviado (como en WhatsApp), se
 puede arrastrar o pegar, y mientras se analiza Carva aparece con una lupa («Mirando tu
@@ -375,7 +397,9 @@ de licencia libre en [`specs/051-fotos-alimentos/evaluacion/`](specs/051-fotos-a
   acumulado ([`apps/api/agent_runtime.py`](apps/api/agent_runtime.py)). Un reinicio del
   backend recupera el mismo hilo.
 - `/live` comprueba el proceso; `/health` y `/api/health` publican conteos del corpus, estado
-  de Qdrant y del catálogo, y los bloques `agent`, `jev` y `monitoring`.
+  de Qdrant y del catálogo, y los bloques `agent`, `jev` y `monitoring`; `/health` publica
+  además el bloque `odoo` (configurado y alcanzable, sin URL ni secretos; no cambia el estado
+  global).
 
 Contrato del turno (`POST /api/chat/stream` y `/chat/stream`, eventos SSE):
 
@@ -596,7 +620,10 @@ cp .env.example .env
 | `OPENCLAW_MEDIA_DIR` | vacío | Carpeta de adjuntos de OpenClaw montada en solo lectura en `mcp` (fotos por WhatsApp) |
 | `MCP_TOKEN` | vacío | Bearer del servidor MCP; sin él no arranca |
 | `MCP_HEALTH_TOKEN` | vacío | Bearer que solo abre el `/health` del MCP; lo usa `/metricas` de la app (que nunca recibe `MCP_TOKEN`) |
-| `PUBLIC_BASE_URL` | vacío | URL pública para los enlaces al PDF y a las fotos del catálogo |
+| `PUBLIC_BASE_URL` | vacío | URL pública para los enlaces al PDF, al recibo del pedido y a las fotos del catálogo |
+| `MEDIA_BASE_URL` | vacío | URL desde la que OpenClaw descarga el PDF de la cotización y el recibo para adjuntarlos en WhatsApp |
+| `ODOO_URL` / `ODOO_DB` / `ODOO_API_KEY` | vacío | Odoo 19 para los pedidos (spec 056); sin las tres no se ofrece el pedido ([guía](docs/odoo-pedidos.md)) |
+| `ODOO_TIMEOUT_S` / `ODOO_SALES_LOGIN` | `20` / `admin` | Plazo de las llamadas a Odoo y usuario de ventas que recibe la actividad «Coordinar pago y entrega del pedido» |
 | `HTTPS_REDIRECT` | `true` | Con `PUBLIC_BASE_URL` https, redirige (307) al dominio público las navegaciones que llegan por IP:puerto |
 | `WEBHOOK_SECRET` | vacío | Secreto HMAC del webhook; vacío lo deshabilita (404) |
 | `WEBHOOK_ALLOWED_NUMBERS` | vacío | Remitentes E.164 autorizados; vacía rechaza a todos (403) |
@@ -658,7 +685,7 @@ carvajal/
 │   │   ├── toolagent/  # grafo del modo tools, 20 herramientas, evidencia y evaluación
 │   │   ├── gatekeeper/ # reglas, Jev Choice, compuerta Noul y privacidad
 │   │   └── memory/     # resumen acumulado, memoria del dueño y datos sensibles
-│   ├── adapters/       # storage (Postgres), vector (Qdrant), llm, embeddings y judge (Jev)
+│   ├── adapters/       # storage (Postgres), vector (Qdrant), llm, embeddings, judge (Jev) y crm (Odoo)
 │   ├── catalog/ commercial/ quotation/   # catálogo, directorio y motor de cotización
 │   └── indexing/       # Gold → Qdrant
 ├── data/               # gold, catálogo, datos curados y conjuntos de evaluación
@@ -680,6 +707,8 @@ carvajal/
 - [`specs/`](specs/) — especificaciones por funcionalidad (`spec`, `plan`, `tasks`,
   contratos y evidencia); índice en [`specs/README.md`](specs/README.md).
 - [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md) — WhatsApp con el servidor MCP.
+- [`docs/odoo-pedidos.md`](docs/odoo-pedidos.md) — pedido tras el folio en Odoo 19: pasos,
+  recibo, privacidad y operación (spec 056).
 - [`docs/webhooks.md`](docs/webhooks.md) — webhook firmado: contrato, seguridad y firma.
 - [`docs/voz-web.md`](docs/voz-web.md) — voz del chat web por el servidor y su respaldo.
 - [`docs/despliegue-ovh.md`](docs/despliegue-ovh.md) — despliegue, operación y rollback.

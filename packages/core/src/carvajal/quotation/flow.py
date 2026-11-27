@@ -81,6 +81,7 @@ from carvajal.quotation.draft import (
 )
 from carvajal.quotation.order import (
     Buyer,
+    asks_order_status,
     correction_name,
     declines_order,
     edits_buyer,
@@ -90,6 +91,8 @@ from carvajal.quotation.order import (
     is_goodbye,
     name_in,
     name_marked,
+    plausible_name,
+    wants_order_cancel,
     wants_purchase,
 )
 from carvajal.quotation.render import Message, option_rows
@@ -274,6 +277,10 @@ def before_turn(
     if requote_fn is None:
         requote_fn = requote  # se busca al llamar: las pruebas pueden sustituirla
     current = draft if not draft.expired(moment) else QuoteDraft()
+    if not orders and current.state == "registrada" and (_order_pending(current) or current.buyer):
+        # Sin CRM (un reinicio sin ``ODOO_*`` o el CRM que no se pudo construir) el pedido a
+        # medias ya no se puede completar: el nombre y el correo no se quedan en el borrador.
+        current = current.touch(moment, awaiting=None, buyer=None)
     if _forgets_everything(text):
         # «Olvida todo lo que sabes de mí» lo atiende el grafo, que borra la memoria. Antes
         # lo atrapaba «cancelar todo» con un borrador activo y la memoria quedaba intacta.
@@ -357,9 +364,17 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
     trae un dato lo corrige y solo un «sí» crea el pedido. Otro producto sale del pedido con
     un borrador nuevo. Una pregunta sin datos va al agente sin perder el paso; con datos, los
     datos ganan y nunca salen de las reglas. ``None``: lo decide el resto de las reglas.
+
+    Con el pedido ya creado, «cancela el pedido» y «¿cómo va mi pedido?» tienen respuesta
+    fija con el número: ni se anula ni se consulta el estado desde el chat (lo gestiona el
+    asesor), y el agente nunca llega a negar un pedido que existe en Odoo.
     """
 
     if draft.order:
+        if wants_order_cancel(text):
+            return Reply(render.order_cancel_request(draft.order), draft, route="pedido")
+        if asks_order_status(text):
+            return Reply(render.order_status(draft.order), draft, route="pedido")
         if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
             return Reply(render.already_ordered(draft.order), draft, route="pedido")
         return None
@@ -372,6 +387,10 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
             return Reply(render.ask_buyer(), asking, route="pedido")
         return None
     email = find_email(text)
+    if email == render.EXAMPLE_EMAIL:
+        # El correo del ejemplo de ``ask_buyer`` copiado tal cual no es de nadie: falta el
+        # correo de verdad y nunca llega al CRM.
+        email = None
     if email is None and product_family(text) and not name_marked(text):
         return Pass(QuoteDraft())  # «quiero 500 vasos»: otra cotización, borrador nuevo
     if awaiting == "pedido":
@@ -391,10 +410,11 @@ def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) 
 
     clean = _without_questions(text)
     head = re.split(r"[,;]", clean, maxsplit=1)[0]
+    single = email is not None or is_affirmation(text)
     name = (
         name_marked(text)
-        or name_in(clean, strict=True)
-        or (name_in(head, strict=True) if head.strip() != clean.strip() else None)
+        or _offered_name(clean, single=single)
+        or (_offered_name(head, single=single) if head.strip() != clean.strip() else None)
     )
     if email or name:  # «Ana Pérez, quiero hacer el pedido»: los datos ganan
         return _with_buyer(draft, Buyer(name=name, email=email), now)
@@ -406,6 +426,21 @@ def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) 
         asking = draft.touch(now, awaiting="datos_pedido", off_flow=0)
         return Reply(render.ask_buyer(), asking, route="pedido")
     return None  # otra cosa: el agente responde y el paso se conserva con un recordatorio
+
+
+def _offered_name(text: str, *, single: bool = False) -> str | None:
+    """Un nombre sin marca en la oferta: nombre propio de dos palabras o más («Ana Pérez»).
+
+    Nadie pidió todavía el nombre: una palabra suelta con mayúscula («Cali», «Listo») es
+    más probable que sea otra cosa, y una ciudad o una sigla nunca cuentan. ``single``
+    acepta un nombre de pila cuando el mensaje lo deja claro: viene con el correo («Ana,
+    ana@gmail.com») o tras un «sí» («Sí, Ana»).
+    """
+
+    name = name_in(text, strict=True)
+    if not name or not plausible_name(name):
+        return None
+    return name if single or len(name.split()) >= 2 else None
 
 
 def _defers(text: str) -> bool:
@@ -454,7 +489,9 @@ def _data_step(
     buyer = Buyer.from_json(draft.buyer)
     name = marked or buyer.name
     if name is None and not is_confirmation(text):
-        name = name_in(_without_questions(text))
+        candidate = name_in(_without_questions(text))
+        # «Bogotá», «PDF» o «Juan SAS» no son un nombre aunque se haya pedido.
+        name = candidate if candidate and plausible_name(candidate) else None
     return _with_buyer(draft, Buyer(name=name, email=email or buyer.email), now)
 
 
@@ -492,7 +529,13 @@ def _confirm_step(
         return _with_buyer(draft, Buyer(name=corrected, email=buyer.email), now)
     if is_bare_no(text) or is_affirmation(text) or edits_buyer(text):
         return Reply(render.which_correction(), draft, route="pedido", private=True)
-    if (declines_order(text) or is_cancel_all(text) or _leaves(text)) and _cancels(text):
+    if _leaves(text) or (
+        (declines_order(text) or is_cancel_all(text))
+        and (_cancels(text) or not _STARTS_WITH_NO.match(folded))
+    ):
+        # Cualquier rechazo sin dato ni corrección («solo estaba mirando», «lo voy a pensar»,
+        # «mejor no») cierra el pedido. Un «no» con otra cosa («no sé», «no, mañana») no es
+        # un rechazo: pregunta qué corregir.
         return _declined(draft, now)
     return Reply(render.which_correction(), draft, route="pedido", private=True)
 
@@ -502,6 +545,9 @@ _CANCEL_WORDS: Final = re.compile(
     r"quiero|gracias|pienso|pensar|chao|chau|adios|bye|nos\s+vemos|nada|ya\s+no|"
     r"por\s+ahora)\b"
 )
+
+
+_STARTS_WITH_NO: Final = re.compile(r"^\s*(?:no|nop)\b")
 
 
 def _cancels(text: str) -> bool:

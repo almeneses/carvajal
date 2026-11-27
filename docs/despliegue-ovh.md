@@ -156,6 +156,21 @@ Notas:
   hasta 25.000 turnos. Para apagarlo, `MONITORING_ENABLED=false` y reiniciar; el
   chat no cambia. Detalle en
   [`docs/monitoreo-langsmith.md`](monitoreo-langsmith.md).
+- **Pedidos en Odoo (opcional, spec 056)**: sin estas variables el asistente no ofrece el
+  pedido. Para activarlo, añade al `.env` del VPS:
+
+  ```dotenv
+  ODOO_URL=http://odoo:8069
+  ODOO_DB=carvajal
+  ODOO_API_KEY=…            # API key del usuario técnico carvajal-bot
+  ODOO_TIMEOUT_S=20
+  ODOO_SALES_LOGIN=admin    # quien recibe la actividad «Coordinar pago y entrega del pedido»
+  ```
+
+  El correo de confirmación lo envía el servidor SMTP configurado dentro de Odoo (en
+  producción, Gmail), no la app. El recibo por WhatsApp usa `MEDIA_BASE_URL` (adjunto) o
+  `PUBLIC_BASE_URL` (enlace). Comprueba el enlace con el bloque `odoo` de `/health`
+  (`"status": "ok"`). Detalle en [`docs/odoo-pedidos.md`](odoo-pedidos.md).
 
 Comprueba permisos y variables sin imprimir secretos:
 
@@ -700,7 +715,8 @@ los archivos Bronze/Silver/Gold originales, además del `pg_dump`.
   redirige:
   - `/live`, `/health`, `/api/*` (webhook de WhatsApp incluido), `/mcp`,
     `/static/*`, el PDF firmado (`/cotizaciones/*`, que OpenClaw descarga por
-    `MEDIA_BASE_URL` en http) ni las fotos del catálogo;
+    `MEDIA_BASE_URL` en http), el recibo del pedido (`/pedidos/*`, igual) ni las fotos del
+    catálogo;
   - peticiones con `Host` de loopback (`127.0.0.1`, `localhost`, `::1`): los
     healthchecks del contenedor, `scripts/deploy.sh` y el ensayo por túnel SSH
     (`ENSAYO_BASE_URL=http://127.0.0.1:8080`) siguen igual;

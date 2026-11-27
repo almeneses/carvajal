@@ -33,11 +33,11 @@ from carvajal.quotation.order import (
     wants_purchase,
 )
 
-# Distintos del ejemplo de ``render.ask_buyer`` («Ana Pérez, ana@correo.com»): así la
+# Distintos del ejemplo de ``render.ask_buyer`` («Ana Pérez, ana@example.com»): así la
 # búsqueda de los datos en lo guardado no tropieza con el texto fijo del asistente.
 NAME = "Lucía Restrepo"
 EMAIL = "lucia.r@empresa.co"
-MASKED = "l***@empresa.co"
+MASKED = "l…@empresa.co"
 NOW = datetime.fromisoformat("2026-11-26T10:00:00-05:00")
 QUESTION = "¿Cuánto tarda la entrega?"
 

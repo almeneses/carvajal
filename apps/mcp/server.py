@@ -36,7 +36,7 @@ from collections.abc import Awaitable, Callable, MutableMapping
 from datetime import date
 from functools import cache, partial
 from typing import TYPE_CHECKING, Annotated, Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import anyio
 import structlog
@@ -78,7 +78,12 @@ TOOL_DESCRIPTION = (
     "Empaques: información institucional del corpus, catálogo de empaques, cotizaciones "
     "con folio, sedes de distribuidores e indicadores financieros. Si el cliente pide "
     "el PDF de su cotización (p. ej. responde «PDF»), pásale ese mensaje igual: la "
-    "herramienta devuelve el enlace. Devuelve el texto final, ya en formato de WhatsApp "
+    "herramienta devuelve el enlace. Tras el folio puede ofrecer el pedido, pedir el "
+    "nombre y el correo del cliente (es parte del pedido, no un dato sospechoso) y "
+    "preguntar «¿Lo confirmo?»: pasa cada respuesta tal cual, completa (un «sí, pero…» no "
+    "es «sí») y nunca confirmes por el cliente; el pedido se crea en Odoo, que envía la "
+    "confirmación al correo, y el recibo puede traer la línea «ADJUNTAR_PDF: » con el PDF "
+    "del pedido. Devuelve el texto final, ya en formato de WhatsApp "
     "y con sus fuentes: envíalo al cliente tal cual. Si el cliente mandó una nota de voz, "
     "llama con voz=true: primero viene un resumen corto para leer en voz alta; si trae la "
     f"línea «{TEXT_HEADER}», lo que sigue es la respuesta completa para enviarla como "
@@ -95,7 +100,10 @@ INSTRUCTIONS = (
     "el cliente mandó una nota de voz, pasa voz=true: lee en voz alta solo el resumen del "
     "principio y envía como texto, sin leerlo, lo que venga tras las líneas de TEXTO o de "
     "ENLACES. Si el cliente adjuntó una foto ([media attached: media://inbound/...]), pasa "
-    "esa referencia en `foto`; nunca describas la foto tú mismo."
+    "esa referencia en `foto`; nunca describas la foto tú mismo. En el pedido, el nombre "
+    "y el correo los pide la herramienta: pásalos sin cambios y nunca confirmes por el "
+    "cliente. Una línea «ADJUNTAR_PDF: <url>» se envía como documento al mismo chat y no "
+    "va en el texto."
 )
 
 ASGIApp = Callable[
@@ -121,10 +129,12 @@ def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPSe
         description=TOOL_DESCRIPTION,
         annotations=ToolAnnotations(
             title="Asistente de Carvajal",
-            read_only_hint=False,  # guarda el turno y la cotización emitida
+            # Guarda el turno y la cotización emitida y, con el «sí» del pedido, lo crea en
+            # Odoo, que envía la confirmación al correo del cliente (spec 056).
+            read_only_hint=False,
             destructive_hint=False,
             idempotent_hint=False,
-            open_world_hint=False,
+            open_world_hint=True,
         ),
     )
     async def consultar_carvajal(
@@ -279,6 +289,28 @@ def _health_settings() -> "Settings":
     return Settings()
 
 
+# Hosts donde un enlace http no sale a la red: el recibo puede viajar por ahí sin cifrar.
+_LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def secure_base(url: str) -> bool:
+    """La base es ``https`` o un ``http`` de loopback: apta para un documento con datos.
+
+    El recibo del pedido (spec 056) lleva el nombre y el correo de quien compra, las líneas y
+    el total. ``MEDIA_BASE_URL`` puede ser un ``http`` con la IP del servidor (OpenClaw baja
+    por ahí el PDF de la cotización, que no tiene datos personales): el recibo no viaja así.
+    """
+
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return False
+    scheme = parts.scheme.lower()
+    if scheme == "https" and parts.hostname:
+        return True
+    return scheme == "http" and (parts.hostname or "").lower() in _LOOPBACK_NAMES
+
+
 @cache
 def default_bridge() -> WhatsAppBridge:
     """Puente real: chat, cotizaciones y su PDF, cupo, reintentos y reservas, al primer uso.
@@ -379,9 +411,10 @@ def default_bridge() -> WhatsAppBridge:
         pdf_link=pdf_link if base_url else None,
         # Con MEDIA_BASE_URL, OpenClaw adjunta el PDF como documento en vez de enlazarlo.
         pdf_attachment=pdf_attachment if media_base else None,
-        # Spec 056: el recibo del pedido, adjunto con MEDIA_BASE_URL o como enlace.
-        order_attachment=order_attachment if media_base else None,
-        order_link=order_link if base_url else None,
+        # Spec 056: el recibo del pedido lleva datos personales: adjunto solo si
+        # MEDIA_BASE_URL es https (o loopback); si no, el enlace https de PUBLIC_BASE_URL.
+        order_attachment=order_attachment if media_base and secure_base(media_base) else None,
+        order_link=order_link if base_url and secure_base(base_url) else None,
         photo_url=photo_url if base_url else None,
         # Reserva compartida entre workers: un reintento en vuelo no repite el turno.
         deliveries=SqlDeliveryStore(factory),

@@ -219,6 +219,36 @@ def _photo_block(app: FastAPI, settings: Settings) -> dict[str, object]:
     return food_photo_health(settings, classifier)
 
 
+# Detalles del bloque ``odoo`` que solo ve el operador: por qué falla (``auth`` diría a
+# cualquiera que la API key es inválida) y si existe el usuario de ventas.
+_ODOO_OPERATOR_FIELDS = frozenset({"reason", "sales_user"})
+
+
+def _odoo_block(app: FastAPI, settings: Settings, request: Request) -> dict[str, object]:
+    """Bloque ``odoo`` de ``/health`` (spec 056): configurado y alcanzable; sin secretos.
+
+    La sonda (:class:`~carvajal.adapters.crm.odoo.OdooProbe`) tiene un plazo total de un
+    segundo y caché, y se construye una vez por app (``app.state.odoo_probe``, inyectable en
+    las pruebas). No cambia el estado global: sin Odoo, el asistente cotiza igual y solo deja
+    de ofrecer el pedido. ``reason`` y ``sales_user`` solo los ve el operador, como el
+    consumo del bloque ``voice``.
+    """
+
+    try:
+        probe = getattr(app.state, "odoo_probe", None)
+        if probe is None:
+            from carvajal.adapters.crm.odoo import OdooProbe
+
+            probe = app.state.odoo_probe = OdooProbe(settings)
+        block = dict(probe.status())
+    except Exception as error:  # la sonda nunca tumba /health
+        logger.warning("odoo.health_block_failed", error_type=type(error).__name__)
+        return {"configured": settings.odoo_configured, "status": "unknown"}
+    if not operator_authorized(request, settings=settings):
+        block = {key: value for key, value in block.items() if key not in _ODOO_OPERATOR_FIELDS}
+    return block
+
+
 def _log_webhook_status(settings: Settings) -> None:
     """Deja constancia del webhook de mensajería al arrancar, sin números ni secretos."""
 
@@ -345,6 +375,7 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                     "claims": claims_block(settings),
                     "voice": _voice_block(app, settings, request),
                     "food_photo": _photo_block(app, settings),
+                    "odoo": _odoo_block(app, settings, request),
                 },
                 status_code=503,
             )
@@ -374,6 +405,8 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
                 "voice": _voice_block(app, settings, request),
                 # Spec 051: fotos de alimentos con Jev; opcional, no cambia el estado.
                 "food_photo": _photo_block(app, settings),
+                # Spec 056: pedidos en Odoo; opcional, no cambia el estado.
+                "odoo": _odoo_block(app, settings, request),
             },
             status_code=200 if healthy else 503,
         )

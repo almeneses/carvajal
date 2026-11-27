@@ -42,8 +42,9 @@ Propuesta revisada por el owner (página «Flujos de cotización Carvajal»).
 Cada conversación tiene un **borrador** (`quote_drafts`): líneas sin folio, lo último que se
 mostró (opciones, comparativo o las referencias de un nombre ambiguo) y **qué respuesta
 espera** el asistente (`awaiting`: `eleccion`, `cantidad`, `algo_mas`, `confirmar`,
-`cambio_producto`, `oferta`, `referencia`). Las respuestas cortas se interpretan contra esa
-pregunta:
+`cambio_producto`, `oferta`, `referencia` y, desde la [spec 056](../056-pedidos-odoo/spec.md),
+`pedido`, `datos_pedido` y `confirmar_pedido`). Las respuestas cortas se interpretan contra esa
+pregunta (las tres del pedido solo con reglas, sin Jev; ver la enmienda):
 
 1. Reglas deterministas (`carvajal.agent.followup`).
 2. Jev (Choice de 8 clases) solo si hay pregunta pendiente, el mensaje es corto, no es una
@@ -182,14 +183,20 @@ producto; 12 líneas o menos en los mensajes habituales; emojis fijos como marca
 «c/u», «IVA incl.»). Plantillas en `carvajal/quotation/render.py`: opciones (T2), comparativo
 (T3), línea y carrito (T4), resumen (T5), registrada (T6), cambio de producto (T7),
 cancelación (T8), despedida (T9), fuera de rango (T10), recordatorio, oferta económica y la
-respuesta al rechazo.
+respuesta al rechazo. Desde la spec 056, en el mismo módulo, las plantillas del pedido: la
+oferta (`ORDER_OFFER`), `ask_buyer`, `buyer_missing`, `confirm_buyer`, `which_correction`,
+`order_placed` (el recibo), `order_declined`, `order_expired`, `order_failed`,
+`already_ordered`, `order_reminder`, `order_cancel_request` y `order_status`.
 
 ## Enmienda (2026-11-26): pedido tras el folio
 
 Con el CRM configurado (`ODOO_URL`, `ODOO_DB` y `ODOO_API_KEY`), después de T6 (registrada)
-puede seguir un paso opcional: el folio termina con «🛒 ¿Quieres hacer el pedido?…», el
-borrador queda en `awaiting: pedido` y, si la persona acepta, en `datos_pedido` hasta tener
-nombre y correo y crear el pedido de venta en Odoo. Lo define la
+puede seguir un paso opcional: el folio termina con «🛒 ¿Quieres hacer el pedido?…» y el
+borrador queda en `awaiting: pedido`. Si la persona acepta, pasa a `datos_pedido` hasta tener
+nombre y correo, y con los dos a `confirmar_pedido`, que los muestra y pregunta «¿Lo
+confirmo?»: solo un «sí» limpio crea el pedido de venta en Odoo (un dato nuevo corrige, un
+«sí» con reparos pregunta qué corregir y un rechazo deja la cotización sin pedido). Con el
+pedido creado, el borrador guarda su número (`order`). Lo define la
 [spec 056](../056-pedidos-odoo/spec.md). Sin CRM, T6 sigue siendo el final del flujo, como
 describe esta spec.
 

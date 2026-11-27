@@ -18,6 +18,14 @@ Un :class:`VoiceRuntime` por aplicación (``app.state.voice``), construido al pr
 guardada: un resumen hablado (:func:`carvajal.speech.spoken_summary`, extractivo y sin LLM,
 unos 15-20 s), la cotización corta y las fuentes en una frase. El mismo texto se publica en
 el hilo (``data-voz-resumen``) para la lectura de respaldo del navegador.
+
+Los turnos del pedido (spec 056) se leen con la versión hablada de su plantilla
+(``flow.spoken``), como en WhatsApp. Lo guardado no lleva el nombre ni el correo de quien
+compra. Solo la voz del navegador los dice: el turno en vivo pasa su ``flow`` completo (el
+del evento ``done``) y ``voz_resumen`` lee los datos reales para que la persona los compruebe.
+La nota de voz del servidor (``/api/voz/hablar``, TTS de OpenAI) lee siempre lo guardado, en
+tono neutro («a tu nombre, con el correo que escribiste»): el nombre y el correo nunca van a
+OpenAI (FR-019).
 """
 
 import hashlib
@@ -35,6 +43,7 @@ from apps.mcp.bridge import spoken_quote
 from carvajal.adapters.speech import OpenAISpeechClient, SynthesizedAudio, build_speech
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.infrastructure.settings import Settings
+from carvajal.quotation.flow import ORDER_AWAITING
 from carvajal.speech import (
     SUMMARY_POINTERS,
     SpokenReply,
@@ -64,6 +73,14 @@ _SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
 _CARD_NAMES: Final = 4
 _CARD_NAME_WORDS: Final = 8
 _COUNT_WORDS: Final = {2: "dos", 3: "tres", 4: "cuatro", 5: "cinco", 6: "seis", 7: "siete"}
+# La versión guardada de la confirmación sin datos («a nombre de (tu nombre), con el correo
+# el correo que escribiste»), dicha de forma natural.
+_NEUTRAL_SPOKEN: Final = (
+    ("a nombre de (tu nombre)", "a tu nombre"),
+    ("con el correo el correo que escribiste", "con el correo que escribiste"),
+    (", (tu nombre).", "."),
+    ("(tu nombre)", "tu nombre"),
+)
 
 
 class RateLimiter:
@@ -279,7 +296,68 @@ def _before_question(summary: str, phrase: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def spoken_message(message: ChatMessage) -> str:
+def _stored_flow(message: ChatMessage) -> Mapping[str, Any] | None:
+    """El ``flow`` (spec 054) del resultado comercial guardado con la respuesta, si lo hay."""
+
+    for source in message.sources or []:
+        if isinstance(source, Mapping) and source.get("result_type") == "commercial":
+            result = source.get("result")
+            flow = result.get("flow") if isinstance(result, Mapping) else None
+            if isinstance(flow, Mapping):
+                return flow
+    return None
+
+
+def _order_turn(flow: Mapping[str, Any]) -> bool:
+    """¿Es un turno del pedido (spec 056)? Oferta del folio, pasos pendientes o el recibo."""
+
+    return bool(
+        flow.get("order_offer") or flow.get("order") or flow.get("awaiting") in ORDER_AWAITING
+    )
+
+
+def _neutral(spoken: str) -> str:
+    for old, new in _NEUTRAL_SPOKEN:
+        spoken = spoken.replace(old, new)
+    return spoken
+
+
+def _order_spoken(message: ChatMessage, live: Mapping[str, Any] | None) -> str | None:
+    """Versión hablada de un turno del pedido hecho solo de plantilla; ``None`` si no lo es.
+
+    Se decide con el ``flow`` guardado (el texto guardado es su ``text``, salvo las líneas
+    del PDF, que el hilo enlaza): un turno del agente con la plantilla añadida se resume como
+    cualquier otro. Se lee el ``spoken`` del turno en
+    vivo (``live``, con los datos de quien compra) o, sin él, el guardado en tono neutro.
+    """
+
+    stored = _stored_flow(message)
+    reference = stored if stored is not None else live
+    if reference is None or not _order_turn(reference):
+        return None
+    if _template_lines(str(reference.get("text") or "")) != _template_lines(message.content):
+        return None
+    if live is not None and str(live.get("spoken") or "").strip():
+        return str(live["spoken"]).strip()
+    spoken = str((stored or {}).get("spoken") or "").strip()
+    return _neutral(spoken) if spoken else None
+
+
+def _template_lines(text: str | None) -> list[str]:
+    """Las líneas del texto sin las del PDF («📄 …»): el hilo las cambia por su enlace."""
+
+    return [line.strip() for line in (text or "").splitlines() if not line.startswith("📄")]
+
+
+def _final_question(spoken: str) -> str:
+    """La pregunta con la que termina ``spoken`` («¿Quieres hacer el pedido?»), o ``""``."""
+
+    text = spoken.strip()
+    start = text.rfind("¿")
+    return text[start:] if text.endswith("?") and start >= 0 else ""
+
+
+def spoken_message(message: ChatMessage, *, flow: Mapping[str, Any] | None = None) -> str:
     """Texto para el TTS de una respuesta guardada: su resumen hablado.
 
     La prosa se resume (:func:`carvajal.speech.spoken_summary`, canal ``web``): la primera
@@ -291,8 +369,15 @@ def spoken_message(message: ChatMessage) -> str:
     nombran o se cuentan las referencias, o se añade el aviso, antes de la pregunta final:
     sus datos no están en el texto. Sin citas, Markdown, emojis ni URL; los enlaces no se
     leen.
+
+    Un turno del pedido (spec 056) se lee con la versión hablada de su plantilla: la del
+    turno en vivo si llega ``flow`` (el del evento ``done``, con el nombre y el correo reales;
+    solo para la voz del navegador) o la guardada, sin ellos (la que sintetiza el servidor).
+    En el folio con la oferta del pedido, tras la cotización corta se hace la pregunta
+    («¿Quieres hacer el pedido?»).
     """
 
+    ordered = _order_spoken(message, flow if isinstance(flow, Mapping) else None)
     quotes: list[SpokenReply] = []
     cards: list[str] = []
     listed: list[tuple[str, str]] = []
@@ -317,6 +402,8 @@ def spoken_message(message: ChatMessage) -> str:
         if key and key not in seen:
             seen.add(key)
             listed.append((title, url))
+    if ordered and not quotes:
+        return ordered
     if not quotes:
         summary = spoken_summary(message.content or "", channel="web", sources=listed[:5]).text
         # Las tarjetas no están en el texto: sin esta frase, la voz no diría que existen.
@@ -328,6 +415,10 @@ def spoken_message(message: ChatMessage) -> str:
     if listed:
         parts.append(SpokenReply(spoken_sources(listed[:5])))
     parts.append(SpokenReply(SUMMARY_POINTERS["web"]))
+    question = _final_question(ordered or "")
+    if question:
+        # Spec 056: la oferta del pedido es la pregunta pendiente y cierra la nota.
+        parts.append(SpokenReply(question))
     return combine(parts).text.strip()
 
 

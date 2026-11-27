@@ -1246,10 +1246,15 @@ def test_cada_fuente_en_paralelo_usa_su_propio_cliente_http() -> None:
     # Arrange: se registra qué cliente atiende a cada fuente.
     usados: dict[str, set[int]] = {}
     candado = threading.Lock()
+    # Referencias vivas: si un cliente terminado se libera, Python puede reutilizar su id()
+    # para el siguiente y la prueba contaría dos fuentes con «el mismo» cliente.
+    vivos: list[httpx.Client] = []
 
     class Tablero(MetricsBoard):
         def _client(self) -> httpx.Client:
             cliente = super()._client()
+            with candado:
+                vivos.append(cliente)
             original = cliente.send
 
             def send(request: httpx.Request, **kwargs: Any) -> httpx.Response:

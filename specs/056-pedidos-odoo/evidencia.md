@@ -17,7 +17,7 @@ verificación final)
 | Base | `carvajal`, `es_CO`, COP, sin impuestos por defecto, compañía «Carvajal Empaques (demo)» |
 | Módulos | `sale_management`, `crm`, `sale_crm`, `contacts` |
 | Acceso de la app | Usuario técnico `carvajal-bot` con API key; API JSON-2 (`POST /json/2/<modelo>/<método>`, `Authorization: bearer`, `X-Odoo-Database`) |
-| Configuración de producción | `ODOO_*` ya en `/opt/carvajal/.env`; la app de producción sigue en `main`, sin esta rama |
+| Configuración de producción | `ODOO_*` ya en `/opt/carvajal/.env`; la app de producción sigue en `main`, sin esta rama (fusionada después en `9877548`; ver §8 y §9) |
 | Odoo 13 del host y Odoo 15 de Maidensoft | Sin cambios |
 
 **API key rotada una vez**: la primera se imprimió en una salida local durante la
@@ -265,10 +265,9 @@ final cambió llevan el resultado con `7610e60` (comprobado con `flow.before_tur
 
 ## 8. Pendiente
 
-- **SMTP**: el correo de confirmación no sale; el `mail.mail` queda en estado de excepción y
-  no se reintenta solo (se reenvía desde Odoo cuando haya servidor). Falta que el owner
-  entregue las credenciales del servidor de correo saliente y el remitente real de la
-  compañía (hoy `ventas@example.com`). Pasos en
+- ~~**SMTP**~~: **resuelto**. El Odoo de producción tiene configurado un servidor de correo
+  saliente de Gmail y la confirmación sale. Si el servidor falla, el `mail.mail` queda en
+  excepción y se reenvía desde Odoo; pasos en
   [`docs/odoo-pedidos.md`](../../docs/odoo-pedidos.md#correo-saliente).
 - ~~**Pruebas del diseño nuevo**~~: **resuelto en la verificación final** (`7610e60`). Las
   pruebas del pedido y del recibo están actualizadas, con casos propios para lo que §8 dejó
@@ -326,5 +325,132 @@ final cambió llevan el resultado con `7610e60` (comprobado con `flow.before_tur
 - **Concurrencia**: serializar la creación del pedido por folio (bloqueo del borrador o por
   conversación); ver el riesgo residual de §6 y los aceptados de §7.
 - **Verificación del correo**: ver el riesgo residual de §6.
-- **Producción**: el pedido queda activo en web y WhatsApp al fusionar la PR #279 y
-  desplegar `main`.
+- ~~**Producción**~~: **resuelto**. La PR #279 se fusionó en `main` (`9877548`) y el pedido
+  está activo en web y WhatsApp.
+
+## 9. Auditoría de cobertura (2026-11-27)
+
+Rama `fix/pedidos-cobertura`, desde `main` en `9877548` (la fusión de la PR #279). Una
+auditoría de la spec 056 ya fusionada verificó **48 huecos** (numerados del 0 al 47): 1 de
+severidad alta, 16 media y 31 baja. La tabla los agrupa por tema y dice cómo se resolvió cada
+grupo. Una revisión posterior de la rama (§10) confirmó 18 hallazgos sobre estas
+correcciones; donde cambió lo de aquí, la fila lo remite a §10.
+
+### 9.1 Textos que contradecían el flujo
+
+| # | Hueco | Resolución |
+|---|---|---|
+| 0 | `AGENT_SYSTEM`, `STRUCTURED_SYSTEM` y `COMMERCIAL_INSTRUCTIONS` decían «No tomes pedidos» mientras el sistema los ofrece | `prompts.py`: el asistente no toma pagos ni reservas ni pide datos de pago o personales; si la persona quiere comprar, cotiza, y al confirmar la cotización el sistema ofrece el pedido; a mitad del pedido responde sin negarlo ni pedir datos y nunca inventa el estado. `tests/test_prompts.py` ajusta dos aserciones y suma `test_ningun_prompt_niega_el_pedido_que_ofrece_el_sistema` |
+| 1 | La constitución decía «No se procesan pedidos ni pagos», sin viñetas para la 054 ni la 056 y con `order.py` «de la 055» | `CONSTITUTION.md` §2 (catálogo, viñetas de la 054 y de la 056), §4 (árbol) y §9 (fila del 2026-11-27) |
+| 2 | El README no mencionaba los pedidos ni Odoo | Capacidad «Pedidos», paso 7 del turno y paso 5 de «Elegir y cotizar», nodo Odoo y `/pedidos/{folio}.pdf` en el diagrama, pedido y recibo por WhatsApp, bloque `odoo` de `/health`, variables `ODOO_*` y `MEDIA_BASE_URL`, `adapters/crm` y el enlace a `docs/odoo-pedidos.md` |
+| 3 | El modelo de la 054 no listaba los tres `awaiting` del pedido y la enmienda omitía `confirmar_pedido` | `specs/054-flujos-cotizacion/spec.md`: Modelo, Formatos de mensaje (plantillas del pedido) y Enmienda |
+| 4 | La 054 faltaba en el índice de specs y la fila de la 056 decía que producción seguía sin la fusión | `specs/README.md`: fila de la 054 y fila de la 056 «implementada y fusionada» |
+| 8 | `docs/README.md` no enlazaba la guía de pedidos (ni la de WhatsApp) | Enlaces a `odoo-pedidos.md` y `whatsapp-openclaw.md` |
+| 47 | La bitácora del agente de OpenClaw atribuía el pedido a la spec 055 | `openclaw/workspace/ventas/memory/2026-11-26.md`: spec 056 y activo desde la fusión de la #279 |
+| 7, 36 | Los criterios y hechos de la simulación (`data/eval/simulacion_escenarios.json`) siguen esperando que el asistente «no tome pedidos» | Hecho en la rama: los `facts_to_check` de `s-clientes-13`, `s-clientes-19` y `s-curiosos-20` dicen ahora que el asistente no cobra ni pide datos de pago ni da plazos y que, tras confirmar el folio, ofrece el pedido con nombre y correo (spec 056); el archivo gana `amended` con la fecha y los tres escenarios. **No** se sumó un escenario de simulación que llegue al pedido: la simulación sigue sin recorrer el pedido (lo cubren los guiones de exploración del ensayo, #33) |
+| 35 | La skill `evaluar-agente` no cubre los flujos ni la interacción agente-pedido | Hecho en la rama: `.claude/skills/evaluar-agente/SKILL.md` suma `quotation/flow.py`, `order.py`, `render.py`, `draft.py`, `adapters/crm/`, `apps/api/chat/service.py`, las vistas del stream, del chat y del recibo y `apps/mcp/` a su tabla (§2b «Flujos de cotización y pedido», con las pruebas sin red y el criterio bloqueante) y §3b (pedido contra la app desplegada y por WhatsApp real, y preguntas a mitad del pedido: «¿cuánto tarda el envío?», «¿aceptan Nequi?» en los guiones de exploración) |
+
+### 9.2 Comportamiento del pedido en los canales
+
+| # | Hueco | Resolución |
+|---|---|---|
+| 5 | La herramienta MCP `consultar_carvajal` no mencionaba el pedido | `apps/mcp/server.py`: la descripción y las instrucciones explican que puede pedir nombre y correo, que el agente pasa cada respuesta tal cual y nunca confirma por el cliente, que Odoo envía la confirmación y que el recibo puede traer `ADJUNTAR_PDF:`; `open_world_hint=True` porque crea pedidos y envía correo por Odoo |
+| 6, 13 | En WhatsApp, «PDF» o «sí, mándame el PDF» en un paso del pedido mandaba la cotización y en `confirmar_pedido` el «sí» no creaba el pedido | `ChatService.pending_order_step` y el puente: en cualquier paso del pedido, el PDF de la cotización y `render.order_reminder(step)`, sin turno, sin crear el pedido y sin tocar el borrador (si el PDF falla, el recordatorio llega igual). Sin paso pendiente, «confirmar» y «algo_mas» siguen como antes |
+| 14 | El recibo no se podía volver a pedir | `bridge.is_receipt_request` y `ChatService.order_of` (desde §10, #5, lee el número de la cotización local, sin Odoo): con el pedido confirmado, «PDF», «mándame el recibo» o «el PDF del pedido» reenvían el recibo; «el PDF de la cotización», la cotización; «¿cuándo recibo el pedido?» no cuenta |
+| 15 | La pregunta del pedido quedaba en medio del mensaje del folio | El puente mueve `ORDER_OFFER` al final, después de las fotos y del PDF adjunto (la reconoce por su texto, también en turnos guardados antes); el servicio marca el turno con `flow.order_offer` |
+| 42 | Tras el pedido, «cancela el pedido» y «¿cómo va mi pedido?» no tenían respuesta definida | `flow._order_step` con `order.wants_order_cancel` y `order.asks_order_status`: respuestas fijas con el número (`render.order_cancel_request`, `render.order_status`), ruta `pedido`, sin el modelo y conservando `draft.order`. §10 (#1, #13, #15): exige un determinante, nunca con producto o cantidad, y vale tras otros turnos |
+| 9 | La voz de la web leía «(tu nombre)» y el correo enmascarado en la confirmación | `apps/api/voice.py`: `spoken_message` acepta el `flow` del turno; en vivo, `voz_resumen` sale de `flow.spoken` con los datos reales y `LiveSpoken` (memoria del proceso por dueño y mensaje, 15 min, 256 turnos) alimenta `/api/voz/hablar`; el historial lee lo guardado en tono neutro y el recibo no lee el correo enmascarado. §10 (#9): `LiveSpoken` se quitó; la nota de voz del servidor lee lo guardado y los datos no van a OpenAI |
+| 10 | La voz del folio no hacía la pregunta del pedido | Con CRM, la voz del folio dice la cotización corta y termina en «¿Quieres hacer el pedido?», en vivo y en el historial |
+| 11 | La máscara `a***@dominio` rompía la negrita del correo en el historial y en WhatsApp | `order.mask_email` da `a…@dominio` (`order.EMAIL_MASK`) y el ejemplo fijo de `ask_buyer` (`render.EXAMPLE_EMAIL`) no se enmascara. §10 (#10): el ejemplo pasa a `ana@example.com` y cuenta como dato que falta |
+| 12 | Sin JavaScript (o con el stream caído), la confirmación llegaba sin los datos | `POST /chat` responde con el texto visible del turno del pedido (200, `no-store`) cuando difiere del guardado; los demás turnos siguen con el 303. §10 (#8, #18): recargar esa respuesta reenviaba el formulario; vuelve el PRG (303) y el `GET` siguiente muestra el texto visible una sola vez |
+| 41 | «Un asesor te contacta» sin nada que avisara al equipo | `OdooOrders._notify_sales`: actividad «Por hacer» «Coordinar pago y entrega del pedido» en el `sale.order` para el usuario de `ODOO_SALES_LOGIN` (`admin` por defecto), sin datos del comprador; si el login no existe, queda en el usuario técnico, y si falla, el pedido sigue. No se repite en el reintento de un pedido completo. §10 (#11): si el login no existe ya no se programa (error y `sales_user: missing` en `/health`), y `ODOO_SALES_LOGIN=` vacío se respeta |
+
+### 9.3 Operación y configuración
+
+| # | Hueco | Resolución |
+|---|---|---|
+| 40 | El chat prometía un correo de confirmación que en producción no salía | Resuelto por la configuración: el Odoo de producción tiene el servidor SMTP de Gmail y la confirmación sale. Sin cambios de código; la documentación deja de decir que falta SMTP |
+| 43 | `/health` y `/metricas` no mostraban Odoo | `/health` gana el bloque `odoo` (`configured`, `status`, `reachable`, `reason`) con `OdooProbe` (`sale.order.search_count`, plazo de 3 s, caché de 60 s también para los fallos), sin URL ni secretos, en el 200 y en el 503, sin cambiar el estado global. `/metricas` sigue sin tarjeta de Odoo. §10 (#7 y el plausible del operador): plazo total de 1 s y `reason`/`sales_user` solo para el operador |
+| 44 | La redirección a HTTPS eximía el PDF de la cotización pero no el recibo | `/pedidos` en `_EXEMPT_PREFIXES` de `apps/api/https_redirect.py`. §10 (#12): revertido; el recibo solo se adjunta por una base https o de loopback |
+| 45 | `.env.example` no decía que `PUBLIC_BASE_URL` y `MEDIA_BASE_URL` entregan también el recibo ni dónde se configura el correo | Comentarios ampliados, el SMTP dentro de Odoo (`docs/odoo-pedidos.md#correo-saliente`) y `ODOO_SALES_LOGIN`, también en `compose.yml` y `compose.prod.yml` |
+
+### 9.4 Pruebas
+
+Qué quedó de cada hueco de pruebas, con su archivo. Estado al cerrar la revisión de §10:
+la suite unitaria (`uv run pytest -m "not integration and not e2e and not smoke"`) en verde y
+**sin `xfail`**; las pruebas `e2e` (ensayo contra la app desplegada) solo se recolectan
+(`uv run pytest tests/e2e --collect-only`): corren con el ensayo, con permiso del owner.
+
+| # | Hueco | Qué quedó |
+|---|---|---|
+| 16 | Pruebas de canal: voz web, botones en JS y voz de punta a punta | `tests/test_pedidos_web.py` (`voz_resumen` de la confirmación y del folio con CRM, historial neutro, nota del servidor sin datos), `tests/test_pedidos_cobertura.py` #22 (botones en `flow.actions`), `tests/test_mcp_pedidos.py` («sí, mándame el PDF» en `confirmar_pedido`). **No** se sumó el pedido por voz a `tests/e2e/test_voz.py` |
+| 17 | Precios vencidos (FR-032) | `tests/test_pedidos_cobertura.py` #17: `render.order_expired`, sin Odoo y sin datos en el borrador |
+| 18 | Flujos de la 054 y el puente solo sin CRM | `tests/test_flujos_cotizacion.py` y `tests/test_flujos_servicio.py`, parametrizados con y sin `FakeOrders()` |
+| 19 | Caminos del adaptador | `tests/test_pedidos_cobertura.py` #19 (422 de `action_confirm`, productos y categoría nuevos, `sync_catalog`) |
+| 20 | El servicio contra el adaptador real | `tests/test_pedidos_cobertura.py` #20 (`OdooOrders` sobre `MockTransport`) |
+| 21 | Reglas generales a mitad del pedido (FR-031) | `tests/test_pedidos_cobertura.py` #21 |
+| 22 | Botones (FR-004) y rechazos de FR-003 | `tests/test_pedidos_cobertura.py` #22; «solo estaba mirando» en la confirmación, antes `xfail`, pasa (§10, #3) |
+| 23 | «Olvida todo» con un pedido a medias | `tests/test_pedidos_cobertura.py` #23 |
+| 24 | `conftest` no neutraliza `ODOO_*` | `tests/conftest.py` (variables vacías) y `tests/test_pedidos_cobertura.py` #24 |
+| 25 | Retomar tras «ahora no» y `already_ordered` | `tests/test_pedidos_cobertura.py` #25 |
+| 26 | Guarda de `_place_order` y CRM que no se construye | `tests/test_pedidos_cobertura.py` #26; sin CRM tras un reinicio, antes `xfail`, pasa (§10, #4) |
+| 27 | Voz del pedido | `tests/test_pedidos_cobertura.py` #27 |
+| 28 | Puente con CRM | `tests/test_mcp_pedidos.py` (folio con oferta al final, «PDF» con `awaiting=pedido`) |
+| 29 | Palabras sueltas tomadas como nombre | `tests/test_pedidos_cobertura.py` #29 y `tests/test_pedidos_revision.py`; las dos paramétricas que eran `xfail` pasan (§10, #2) |
+| 30 | Variantes del total del recibo y `send_email` | `tests/test_pedidos_cobertura.py` #30 |
+| 31 | Privacidad fuera del camino feliz | `tests/test_pedidos_cobertura.py` #31 |
+| 32 | El ensayo no verifica el recibo | `tests/test_ensayo_guiones.py` (recibo de la web y de WhatsApp) y `tests/e2e/test_web.py`, `tests/e2e/test_whatsapp.py` (solo recolectadas) |
+| 33 | La exploración nunca llega al pedido | `tests/e2e/test_exploracion.py` (`test_explorar_pedido_web`, `test_explorar_pedido_whatsapp`, solo recolectadas) y `tests/test_ensayo_exploracion.py` (llegan a la oferta y no crean el pedido) |
+| 34 | Que producción pierda Odoo pasa desapercibido | `tests/e2e/test_operacion.py` (`/health` con Odoo, 404 del recibo sin dueño, `.env` con Odoo; solo recolectadas) y `tests/test_ensayo_guiones.py` (`ENSAYO_EXPECT_PEDIDOS`) |
+| 37 | `inferir_awaiting` no reconoce «¿Qué dato corrijo?» | `tests/test_ensayo_guiones.py` |
+| 38 | Sin objetivo `make` para el pedido | `make ensayo-pedido` (`Makefile`) y `docs/ensayo.md` |
+| 39 | El correo de Odoo no se verifica | `tests/e2e/correo_odoo.py` y sus pruebas en `tests/test_ensayo_guiones.py` |
+| 46 | La prueba de empaquetado no fija `ODOO_*` | `tests/test_deploy_packaging.py`; desde §10 (#11), `${ODOO_SALES_LOGIN-admin}` sin dos puntos |
+
+Las pruebas de 9.2 y 9.3 están en `tests/test_pedidos_seguimiento.py` (#11, #42,
+`pending_order_step`, `order_of`, `order_offer`), `tests/test_mcp_pedidos.py` (#5, #6, #13,
+#14, #15), `tests/test_pedidos_aviso.py` (#41) y `tests/test_pedidos_web.py` (#9, #10, #12,
+#43, #44), más `tests/test_prompts.py`, `tests/test_pedidos_odoo_flujo.py` y
+`tests/test_api.py`. Lo que cambió en §10 se prueba en esos mismos archivos y en
+`tests/test_pedidos_revision.py`.
+
+### 9.5 Observado y no corregido
+
+- ~~**`draft.order` tras un turno ajeno al flujo**~~: resuelto en §10 (#13): el número queda
+  en la cotización y las respuestas fijas valen tras otros turnos.
+- **«PDF» por voz con adjunto, sin pedido**: cuando el cliente pide el PDF de la cotización
+  por voz y el PDF va como adjunto, la respuesta de voz no trae la línea `ADJUNTAR_PDF:`, así
+  que OpenClaw puede no adjuntar el documento. Las respuestas nuevas del recibo y del
+  recordatorio sí la traen.
+- ~~**Recarga sin JavaScript a mitad de `confirmar_pedido`**~~: desde §10 (#8, #18) el POST
+  redirige (PRG); la primera vista muestra los datos y una recarga, lo guardado.
+- **`/metricas`** no tiene tarjeta de Odoo; el estado está en `/health`.
+
+## 10. Revisión de la rama de cobertura (2026-11-27)
+
+Una revisión de `fix/pedidos-cobertura` (sobre `d54cda7`) confirmó 18 hallazgos y dejó dos
+plausibles. Las decisiones de diseño las tomaron el owner y el lead de la revisión; la tabla
+dice qué cambió. Producción, a la fecha: `PUBLIC_BASE_URL` es https
+(`https://144-217-80-136.sslip.io`), `MEDIA_BASE_URL` no está definida (WhatsApp recibe el
+recibo como enlace https), el usuario de ventas es el login `admin` (existe) y el SMTP de
+Gmail funciona.
+
+| # | Hallazgo | Resolución |
+|---|---|---|
+| 1, 15 | Tras el pedido, «quiero ver vasos para otro pedido» (o «cancela… compra») recibía la plantilla fija del estado y no se cotizaba | `order._ORDER_STATUS` y `_ORDER_CANCEL` exigen un determinante ante el pedido («mi pedido», «el pedido», «la compra», «mi orden»…); «ver», «revisar», «consultar» y «muéstrame» solo seguidos de él. `asks_order_status` y `wants_order_cancel` nunca casan con un producto o una cantidad (el número «S00005» no cuenta). Pruebas: `tests/test_pedidos_seguimiento.py` |
+| 13 | Tras cualquier turno el borrador perdía `draft.order` y «¿cómo va mi pedido?» respondía «Todavía no tienes productos» | Al crear el pedido, `ChatService._place_order` anota el número en la cotización (`SqlQuoteRepository.mark_order`, `payload["order"]`). Antes de las reglas del flujo (que con «¿qué tengo?» responderían el carrito vacío), si el borrador no tiene pedido ni un paso del pedido pendiente y el mensaje pide el estado o cancelar, el servicio busca la última cotización del hilo con pedido (`latest_order`) y responde `render.order_status` o `render.order_cancel_request` como turno fijo (ruta `pedido`, sin el modelo). «gracias» → «¿cómo va mi pedido?» responde con el número |
+| 5, 16 (y el plausible del «PDF») | Cada «PDF» por WhatsApp consultaba Odoo (hasta 20 s) antes de entregar la cotización | `ChatService.order_of(folio)` lee el número de la cotización local, sin llamar a Odoo. `OdooOrders.order_name` queda en el adaptador, sin uso en el canal |
+| 2, 14(3) | «PDF», «SAS», «Bogotá» o «Cali» sueltos se tomaban como nombre en la oferta y corregían el de la confirmación (eran `xfail`) | `order.plausible_name`: una ciudad de Colombia (`order.CO_CITIES`, lista fija con las principales y las del directorio de distribuidores; una prueba comprueba que cubre `data/commercial/proveedores.csv`, sin leerlo en caliente) o una sigla de 2 a 5 mayúsculas no son nombre (salvo un nombre de dos palabras o más escrito todo en mayúsculas). Aplica en `name_in(strict=True)` y en `correction_name` sin marca; en la oferta, un nombre sin marca exige nombre y apellido (`flow._offered_name`). Los `xfail` se quitaron |
+| 3, 14(1) | «solo estaba mirando» en «¿Lo confirmo?» preguntaba qué corregir (era `xfail`) | `flow._confirm_step`: cualquier rechazo de `declines_order` o `is_leaving` sin dato ni corrección cierra el pedido; un «no» con otra cosa («no sé», «no, mañana») sigue preguntando qué corregir. «me», «interesa» y afines dejan de leerse como nombre tras un «no» («no me interesa»). El `xfail` se quitó |
+| 4, 14(2) | Sin CRM tras un reinicio, el nombre y el correo seguían en `quote_drafts` (era `xfail`) | `flow.before_turn` con `orders=False` limpia el pedido a medias (`awaiting=None`, `buyer=None`) de un borrador registrado; `_place_order` sin CRM devuelve el borrador sin datos (y «ya quedó registrada»). El `xfail` se quitó |
+| 6 | El prompt prometía la oferta del pedido aunque no hubiera CRM, y empujaba a responder plazos | `prompts.py`: la oferta va condicionada («si los pedidos están habilitados…; si no, el pedido lo coordina un asesor») en `AGENT_SYSTEM`, `STRUCTURED_SYSTEM` y `COMMERCIAL_INSTRUCTIONS`; a mitad del pedido «responde con lo que haya en los datos… Sin inventar plazos ni medios de pago: los coordina un asesor». `tests/test_prompts.py`. No se corrió la evaluación con tokens (`make eval-agent`) |
+| 7 (y el plausible de `reason`) | La sonda de Odoo (3 s por fase) igualaba el timeout del healthcheck de Docker; `reason=auth` se mostraba a cualquiera | `OdooProbe`: plazo **total** de 1 s (`PROBE_TIMEOUT_S`): la sonda corre en un hilo y `status()` espera como mucho eso (`reason: timeout`), sin dos sondas a la vez; la que termina tarde actualiza la caché. `reason` y `sales_user` solo con el token del operador (`apps/api/main.py`, como el bloque `voice`) |
+| 8, 18 | `POST /chat` del pedido respondía 200: recargar reenviaba el formulario con los datos | Vuelve el PRG (303). El texto visible queda en memoria del proceso por dueño e id de mensaje (`apps/api/ephemeral.py`, 2 min, 256 entradas) y el `GET /chat` siguiente lo muestra una sola vez (`no-store`); una recarga muestra lo guardado. Otro visitante no lo ve |
+| 9 | La nota de voz del servidor mandaba el nombre y el correo deletreado a OpenAI | Se quitó `LiveSpoken`: `/api/voz/hablar` sintetiza lo guardado en tono neutro; los datos reales solo los lee la voz del navegador (`voz_resumen` del `done`). FR-019 y `docs/odoo-pedidos.md` dicen que no van a OpenAI |
+| 10 | El ejemplo `ana@correo.com` es un dominio real con MX | `render.EXAMPLE_EMAIL = "ana@example.com"` (RFC 2606) y `flow._order_step` lo trata como correo que falta (`buyer_missing`): nunca llega a `OrderPlacer.place` (`tests/test_pedidos_revision.py`) |
+| 11 | `ODOO_SALES_LOGIN` vacío no se podía aplicar en Docker y un login inexistente caía en el usuario técnico | Los compose usan `${ODOO_SALES_LOGIN-admin}` (sin dos puntos; `tests/test_deploy_packaging.py`). Si el login no existe, no se programa la actividad: error `pedido.vendedor_no_encontrado` (sin datos) y `sales_user: missing` en `/health` para el operador; la resolución se cachea (el id, siempre; el login ausente, 10 min) |
+| 12 | El recibo podía viajar por http en claro (`MEDIA_BASE_URL` con IP) y `/pedidos` se servía sin HTTPS al navegador | `apps/mcp/server.py`: `order_attachment` solo si `MEDIA_BASE_URL` es https o loopback (`secure_base`); si no, el enlace https de `PUBLIC_BASE_URL`. Se revirtió la exención de `/pedidos` en `apps/api/https_redirect.py` (OpenClaw no manda `Accept: text/html`) |
+| 17 | La evidencia decía que 7/36 y 35 no se hicieron y §9.4 describía lo pedido, no lo que quedó | §9.1 y §9.4 de este archivo |
+
+Plausibles que se resolvieron igual: el «PDF» que consultaba Odoo sin indicio de pedido (con
+#5) y `reason` de `/health` visible a cualquiera (con #7).

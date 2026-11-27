@@ -188,3 +188,42 @@ def test_la_app_web_no_recibe_el_bearer_de_mcp_sino_el_de_solo_health() -> None:
     assert app["MCP_HEALTH_TOKEN"] == "${MCP_HEALTH_TOKEN:-}"
     assert mcp["MCP_TOKEN"] == "${MCP_TOKEN:-}"
     assert mcp["MCP_HEALTH_TOKEN"] == "${MCP_HEALTH_TOKEN:-}"
+
+
+@pytest.mark.parametrize("name", ["compose.prod.yml", "compose.yml"])
+@pytest.mark.parametrize("service", ["app", "mcp", "bootstrap"])
+def test_compose_pasa_las_variables_de_odoo_sin_contradecir_settings(
+    name: str, service: str
+) -> None:
+    """Spec 056: sin ``ODOO_URL``, ``ODOO_DB`` y ``ODOO_API_KEY`` el pedido no se ofrece.
+
+    La app (web) y el MCP (WhatsApp) corren el chat; el bootstrap sincroniza el catálogo.
+    Si una edición del compose borra o renombra una variable, el pedido desaparece de
+    producción sin que falle nada más.
+    """
+
+    import yaml
+
+    from carvajal.infrastructure.settings import Settings
+
+    # Arrange
+    defaults = Settings(_env_file=None)
+    fields = Settings.model_fields
+
+    # Act
+    services = yaml.safe_load((REPO / name).read_text(encoding="utf-8"))["services"]
+    environment = services[service]["environment"]
+
+    # Assert: las tres del CRM llegan vacías por defecto (sin CRM, el flujo de la 054)…
+    for variable in ("ODOO_URL", "ODOO_DB", "ODOO_API_KEY"):
+        assert environment[variable] == f"${{{variable}:-}}", variable
+    # …y el plazo y el vendedor, con los defaults de ``Settings`` (el conftest los quita
+    # del entorno; se comparan con el default del campo).
+    timeout = re.fullmatch(r"\$\{ODOO_TIMEOUT_S:-([0-9.]+)\}", environment["ODOO_TIMEOUT_S"])
+    assert timeout is not None
+    assert float(timeout.group(1)) == defaults.odoo_timeout_s
+    login = fields["odoo_sales_login"].default
+    # Sin dos puntos: ``${X-admin}`` respeta ``ODOO_SALES_LOGIN=`` (vacío, sin actividad);
+    # ``${X:-admin}`` lo cambiaría por «admin» (hallazgo #11 de la revisión del 2026-11-27).
+    assert environment["ODOO_SALES_LOGIN"] == f"${{ODOO_SALES_LOGIN-{login}}}"
+    assert ":-" not in environment["ODOO_SALES_LOGIN"]

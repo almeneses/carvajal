@@ -3,6 +3,11 @@
 Comprueba en el servicio real sobre SQLite lo que las pruebas puras no ven: que las
 respuestas cortas no llaman al agente, que el borrador sobrevive entre turnos y que la web
 recibe los botones de la pregunta pendiente.
+
+Los casos que llegan al folio o lo rodean corren también con el CRM activado (fixture
+``orders`` con ``FakeOrders``, como en producción con ``ODOO_*``): lo que no cambia se
+verifica igual y lo que cambia por la spec 056 (la oferta del pedido al final del folio y el
+segundo «sí», que entra al pedido) queda fijado por variante.
 """
 
 from collections.abc import Iterator
@@ -16,6 +21,7 @@ from tests.test_chat_service_tools import (
     FakeEmbedder,
     FakeLLM,
     FakeToolRunner,
+    FakeTracer,
     build_service,
     commercial_final,
     final,
@@ -25,12 +31,14 @@ from tests.test_chat_service_tools import (
     stored_quotes,
     tools_settings,
 )
+from tests.test_pedidos_odoo import FakeOrders
 
 from apps.api.chat.service import ChatService
 from apps.api.chat.streaming import ChatEvent
 from apps.mcp.bridge import PDF_CONFIRMATION, WhatsAppBridge
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
+from carvajal.quotation import render
 
 OWNER = "dueno-flujos"
 
@@ -50,6 +58,27 @@ def engine() -> Iterator[Any]:
         yield motor
     finally:
         motor.dispose()
+
+
+@pytest.fixture(params=[False, True], ids=["sin-crm", "con-crm"])
+def orders(request: pytest.FixtureRequest) -> FakeOrders | None:
+    """Sin CRM (el flujo de la 054) o con el CRM de pedidos activado (spec 056)."""
+
+    return FakeOrders() if request.param else None
+
+
+def _build(engine: Any, runner: Any, orders: FakeOrders | None) -> ChatService:
+    """``build_service`` con el CRM de pedidos inyectado (o ``None``: sin CRM)."""
+
+    return ChatService(
+        build_session_factory(engine),
+        FakeEmbedder(),
+        FakeLLM(),
+        tool_agent=runner,
+        tracer=FakeTracer(),
+        settings=tools_settings(),
+        orders=orders,
+    )
 
 
 def _send(service: ChatService, message: str) -> list[ChatEvent]:
@@ -90,10 +119,12 @@ def test_el_rechazo_con_insulto_responde_la_broma_sin_el_agente(engine: Any) -> 
     assert _draft(engine)["state"] == "pausada"
 
 
-def test_el_carrito_se_cierra_con_el_resumen_y_registra_una_sola_vez(engine: Any) -> None:
+def test_el_carrito_se_cierra_con_el_resumen_y_registra_una_sola_vez(
+    engine: Any, orders: FakeOrders | None
+) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(commercial_final()))
-    service = build_service(engine, runner)
+    service = _build(engine, runner, orders)
 
     # Act
     added = _send(service, "cotiza 50 vasos en Bogotá")
@@ -109,12 +140,25 @@ def test_el_carrito_se_cierra_con_el_resumen_y_registra_una_sola_vez(engine: Any
     (row,) = stored_quotes(engine)
     assert named(confirmed, "done").data["quote_ids"] == [row["id"]]
     assert len(runner.calls) == 1  # «no» y «sí» no pasan por el modelo
+    registered = named(confirmed, "fallback").data["text"]
+    flow = named(confirmed, "done").data["flow"]
+    assert registered.startswith(f"✅ **Cotización #{row['id']} registrada**")
+    assert render.PDF_PROMISE in registered
+    if orders is None:
+        assert render.ORDER_OFFER not in registered
+        assert flow["awaiting"] is None and "order_offer" not in flow
+    else:  # spec 056: la oferta del pedido es la última línea, después del PDF
+        assert registered.endswith(f"{render.PDF_PROMISE}\n{render.ORDER_OFFER}")
+        assert flow["awaiting"] == "pedido" and flow["order_offer"] is True
+        assert orders.requests == []
 
 
-def test_reintentar_el_si_con_el_mismo_turno_no_emite_otro_folio(engine: Any) -> None:
+def test_reintentar_el_si_con_el_mismo_turno_no_emite_otro_folio(
+    engine: Any, orders: FakeOrders | None
+) -> None:
     # Arrange: carrito y resumen; el «sí» llega dos veces con el mismo ``client_turn_id``.
     runner = FakeToolRunner(scripted_events(commercial_final()))
-    service = build_service(engine, runner)
+    service = _build(engine, runner, orders)
     _send(service, "cotiza 50 vasos en Bogotá")
     _send(service, "no")
 
@@ -126,12 +170,19 @@ def test_reintentar_el_si_con_el_mismo_turno_no_emite_otro_folio(engine: Any) ->
     (row,) = stored_quotes(engine)
     assert named(first, "done").data["quote_ids"] == [row["id"]]
     assert named(retry, "done").data["quote_ids"] == [row["id"]]
+    # Con CRM, el reintento reproduce también la oferta del pedido, sin entrar al pedido.
+    assert named(retry, "token").data["text"] == named(first, "fallback").data["text"]
+    assert named(retry, "done").data["flow"] == named(first, "done").data["flow"]
+    if orders is not None:
+        assert service.pending_order_step(OWNER) == "pedido"
 
 
-def test_un_segundo_si_con_otro_turno_responde_que_ya_quedo_registrada(engine: Any) -> None:
+def test_un_segundo_si_con_otro_turno_responde_que_ya_quedo_registrada(
+    engine: Any, orders: FakeOrders | None
+) -> None:
     # Arrange: la cotización ya se registró con un «sí».
     runner = FakeToolRunner(scripted_events(commercial_final()))
-    service = build_service(engine, runner)
+    service = _build(engine, runner, orders)
     _send(service, "cotiza 50 vasos en Bogotá")
     _send(service, "no")
     list(service.stream(OWNER, "sí", client_turn_id="turno-1"))
@@ -141,18 +192,24 @@ def test_un_segundo_si_con_otro_turno_responde_que_ya_quedo_registrada(engine: A
 
     # Assert: no hay folio nuevo ni otra fila.
     (row,) = stored_quotes(engine)
-    assert named(again, "fallback").data["text"].startswith("Esa cotización ya quedó registrada")
-    assert f"#{row['id']}" in named(again, "fallback").data["text"]
     assert named(again, "done").data["quote_ids"] == []
+    answer = named(again, "fallback").data["text"]
+    if orders is None:
+        assert answer.startswith("Esa cotización ya quedó registrada")
+        assert f"#{row['id']}" in answer
+    else:  # spec 056: el «sí» responde la oferta del folio y entra al pedido
+        assert answer == render.ask_buyer().text
+        assert named(again, "done").data["flow"]["awaiting"] == "datos_pedido"
+        assert orders.requests == []
 
 
 @pytest.mark.parametrize("closing", [False, True])
 def test_la_confirmacion_del_puente_registra_desde_algo_mas_y_desde_el_resumen(
-    engine: Any, closing: bool
+    engine: Any, closing: bool, orders: FakeOrders | None
 ) -> None:
     # Arrange: «¿Algo más?» (tras cotizar) o «¿La confirmo?» (tras «no»).
     runner = FakeToolRunner(scripted_events(commercial_final()))
-    service = build_service(engine, runner)
+    service = _build(engine, runner, orders)
     _send(service, "cotiza 50 vasos en Bogotá")
     if closing:
         _send(service, "no")
@@ -165,6 +222,12 @@ def test_la_confirmacion_del_puente_registra_desde_algo_mas_y_desde_el_resumen(
     (row,) = stored_quotes(engine)
     assert named(events, "done").data["quote_ids"] == [row["id"]]
     assert len(runner.calls) == 1
+    # El PDF de la cotización sigue prometido; con CRM, la oferta del pedido va al final.
+    registered = named(events, "fallback").data["text"]
+    assert render.PDF_PROMISE in registered
+    assert registered.endswith(render.ORDER_OFFER) is (orders is not None)
+    assert service.awaiting_confirmation(OWNER) is False
+    assert service.pending_order_step(OWNER) == ("pedido" if orders is not None else None)
 
 
 def test_una_pregunta_de_otro_tema_se_responde_y_recuerda_la_cotizacion(engine: Any) -> None:
@@ -212,10 +275,12 @@ def test_cambiar_de_producto_pregunta_antes_de_cancelar(engine: Any) -> None:
     )
 
 
-def test_cancelar_y_confirmar_nunca_registra_una_cotizacion_vacia(engine: Any) -> None:
+def test_cancelar_y_confirmar_nunca_registra_una_cotizacion_vacia(
+    engine: Any, orders: FakeOrders | None
+) -> None:
     # Arrange: vasos; «cancela todo» deja el borrador sin líneas.
     runner = FakeToolRunner(scripted_events(commercial_final()))
-    service = build_service(engine, runner)
+    service = _build(engine, runner, orders)
     _send(service, "cotiza 50 vasos en Bogotá")
     _send(service, "cancela todo")
 
@@ -225,6 +290,7 @@ def test_cancelar_y_confirmar_nunca_registra_una_cotizacion_vacia(engine: Any) -
     # Assert: ningún folio; el «sí» no confirma un borrador cancelado.
     assert stored_quotes(engine) == []
     assert named(events, "done").data["quote_ids"] == []
+    assert service.pending_order_step(OWNER) is None
 
 
 def test_cancelar_al_cambiar_de_producto_registra_solo_el_nuevo(engine: Any) -> None:
@@ -300,11 +366,13 @@ class _RunnerQueOlvida(FakeToolRunner):
 
 
 @pytest.mark.parametrize("mensaje", ["olvida todo", "cancela todo"])
-def test_cancelar_todo_olvida_tambien_el_pedido_en_curso(engine: Any, mensaje: str) -> None:
+def test_cancelar_todo_olvida_tambien_el_pedido_en_curso(
+    engine: Any, mensaje: str, orders: FakeOrders | None
+) -> None:
     # Arrange: WhatsApp del 2026-11-25. «olvida todo» cancelaba el borrador, pero el
     # contexto comercial del grafo seguía y «cotiza 100 vasos» heredaba el vaso de papel.
     runner = _RunnerQueOlvida(scripted_events(commercial_final()))
-    service = build_service(engine, runner)
+    service = _build(engine, runner, orders)
     _send(service, "cotiza 50 vasos en Bogotá")
 
     # Act

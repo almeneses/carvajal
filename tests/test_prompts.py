@@ -40,7 +40,8 @@ def test_la_ruta_estructurada_no_exige_un_contexto_que_no_existe() -> None:
     assert "únicamente con el CONTEXTO" in RAG_SYSTEM
     assert "únicamente con el CONTEXTO" not in STRUCTURED_SYSTEM
     assert "resultado estructurado" in STRUCTURED_SYSTEM
-    assert "No tomes pedidos" in STRUCTURED_SYSTEM
+    assert "No tomas pagos ni reservas" in STRUCTURED_SYSTEM
+    assert "No tomes pedidos" not in STRUCTURED_SYSTEM
 
 
 def test_la_ruta_directa_no_finge_buscar_en_el_corpus() -> None:
@@ -216,7 +217,49 @@ def test_el_agente_no_estima_y_cotiza_solo_lo_pedido() -> None:
     assert "promedies" in texto
     assert "solo las combinaciones de producto y cantidad que la persona pidió" in texto
     assert "buscar_producto" in texto
-    assert "No tomes pedidos, reservas ni pagos" in texto
+    assert "No tomas pagos ni reservas ni pides datos de pago o personales" in texto
+
+
+def test_ningun_prompt_niega_el_pedido_que_ofrece_el_sistema() -> None:
+    """Spec 056: tras el folio el sistema ofrece el pedido; el modelo no lo niega."""
+
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    prompts = [AGENT_SYSTEM, STRUCTURED_SYSTEM, COMMERCIAL_INSTRUCTIONS]
+
+    # Act
+    agente = _plano(AGENT_SYSTEM)
+
+    # Assert
+    assert all("No tomes pedidos" not in _plano(texto) for texto in prompts)
+    assert "si la persona quiere comprar, cotiza" in agente
+    assert "a mitad del pedido" in agente and "el sistema le recuerda el paso" in agente
+    assert "Nunca inventes el estado de un pedido" in agente
+    assert "datos de pago o personales" in _plano(COMMERCIAL_INSTRUCTIONS)
+
+
+def test_ningun_prompt_promete_la_oferta_del_pedido_ni_inventa_plazos() -> None:
+    """El modelo no sabe si hay CRM: no promete que el sistema pida datos ni niega el pedido."""
+
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    prompts = [AGENT_SYSTEM, STRUCTURED_SYSTEM, COMMERCIAL_INSTRUCTIONS]
+
+    # Act
+    planos = [_plano(texto) for texto in prompts]
+    agente = _plano(AGENT_SYSTEM)
+
+    # Assert: lo que sigue a la cotización lo indica el sistema o un asesor…
+    assert all("lo indica el sistema" in texto for texto in planos)
+    assert all("si los pedidos están habilitados" not in texto.lower() for texto in planos)
+    assert "le pide el nombre y el correo" not in agente
+    assert "No prometas que el sistema pedirá datos" in agente
+    # …y una pregunta de plazos o pago se responde con los datos, sin inventarlos.
+    assert "(pago, entrega o plazos), respóndelo" not in agente
+    assert "responde con lo que haya en los datos" in agente
+    assert "Sin inventar plazos ni medios de pago: los coordina un asesor" in agente
 
 
 def test_el_agente_pide_datos_con_sin_consulta() -> None:

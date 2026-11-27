@@ -75,6 +75,9 @@ class Config:
     firefox_marionette: str
     wa_bot: str
     pedido: bool = False  # ENSAYO_PEDIDO: crea un pedido real en Odoo (spec 056)
+    # ENSAYO_EXPECT_PEDIDOS: la app debe tener Odoo (por defecto, en producción): /health
+    # con el bloque ``odoo`` alcanzable y un folio que ofrece el pedido (spec 056).
+    expect_pedidos: bool = False
 
     @classmethod
     def desde_entorno(cls) -> Config:
@@ -102,6 +105,7 @@ class Config:
             firefox_marionette=os.environ.get("ENSAYO_FIREFOX_MARIONETTE", ""),
             wa_bot=os.environ.get("ENSAYO_WA_BOT", ""),
             pedido=_bool("ENSAYO_PEDIDO"),
+            expect_pedidos=_bool("ENSAYO_EXPECT_PEDIDOS", target == "prod"),
         )
 
     @property

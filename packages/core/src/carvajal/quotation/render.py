@@ -30,7 +30,9 @@ from carvajal.quotation.draft import (
 )
 
 __all__ = [
+    "EXAMPLE_EMAIL",
     "JOKE_REJECTION",
+    "ORDER_OFFER",
     "PDF_PROMISE",
     "RECEIPT_PROMISE",
     "Message",
@@ -805,6 +807,12 @@ def already_registered(folio: str) -> Message:
 
 # --- Spec 056: pedido en el CRM ---------------------------------------------------------
 
+EXAMPLE_EMAIL: Final = "ana@example.com"
+"""El correo del ejemplo fijo de :func:`ask_buyer`, de un dominio reservado (RFC 2606).
+
+No es de nadie: se guarda tal cual y, si alguien lo copia como su correo, el flujo lo trata
+como un dato que falta (nunca llega al CRM ni recibe la confirmación)."""
+
 ORDER_OFFER: Final = (
     "🛒 ¿Quieres hacer el pedido? Te pido tu nombre y tu correo y te llega la confirmación."
 )
@@ -823,7 +831,7 @@ def order_offer(message: Message) -> Message:
 def ask_buyer() -> Message:
     text = (
         "¡Perfecto! Para el pedido envíame tu **nombre** y tu **correo** "
-        "(por ejemplo: «Ana Pérez, ana@correo.com»). A ese correo te llega la confirmación."
+        f"(por ejemplo: «Ana Pérez, {EXAMPLE_EMAIL}»). A ese correo te llega la confirmación."
     )
     return Message(text, "¡Perfecto! Para el pedido dime tu nombre y tu correo.")
 
@@ -836,7 +844,7 @@ def buyer_missing(name: str | None, email: str | None) -> Message:
         text = "¿A **nombre** de quién hago el pedido?"
         return Message(text, "¿A nombre de quién hago el pedido?")
     text = (
-        "No alcancé a leer tu nombre y tu correo. Envíamelos así: «Ana Pérez, ana@correo.com». "
+        f"No alcancé a leer tu nombre y tu correo. Envíamelos así: «Ana Pérez, {EXAMPLE_EMAIL}». "
         "Si prefieres no hacer el pedido ahora, escribe «ahora no»."
     )
     return Message(text, "No alcancé a entender tu nombre y tu correo. ¿Me los repites?")
@@ -968,6 +976,35 @@ def order_failed() -> Message:
 def already_ordered(order: str) -> Message:
     text = f"Ese pedido ya quedó creado con el número **{order}**. ¿Quieres cotizar algo más?"
     return Message(text, "Ese pedido ya quedó creado. ¿Quieres cotizar algo más?")
+
+
+def order_cancel_request(order: str) -> Message:
+    """Tras el pedido creado, «cancela el pedido»: no se anula desde el chat."""
+
+    text = (
+        f"Tu pedido **{order}** ya quedó confirmado y no se cancela desde el chat. Para "
+        "cambiarlo o cancelarlo, díselo al asesor que te contacta para el pago y la entrega: "
+        "él lo gestiona."
+    )
+    spoken = (
+        "Tu pedido ya quedó confirmado y no se cancela desde el chat. Para cambiarlo o "
+        "cancelarlo, díselo al asesor que te contacta: él lo gestiona."
+    )
+    return Message(text, spoken)
+
+
+def order_status(order: str) -> Message:
+    """Tras el pedido creado, «¿cómo va mi pedido?»: el estado no se consulta desde el chat."""
+
+    text = (
+        f"Tu pedido **{order}** quedó confirmado. Un asesor te contacta para coordinar el pago "
+        "y la entrega, y él te da el estado del despacho."
+    )
+    spoken = (
+        "Tu pedido quedó confirmado. Un asesor te contacta para coordinar el pago y la "
+        "entrega, y él te da el estado del despacho."
+    )
+    return Message(text, spoken)
 
 
 def order_declined(folio: str | None) -> Message:

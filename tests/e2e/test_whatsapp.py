@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 from tests.e2e.clientes import Config, Mcp, Ssh, Web, firmar_webhook
+from tests.e2e.correo_odoo import comprobar_correo_del_pedido
 from tests.e2e.guiones import (
     EMPRESA,
     FOTO_NO_DISPONIBLE,
@@ -33,9 +34,11 @@ from tests.e2e.guiones import (
     PISTA_FOTO,
     PREGUNTA_MEMORIA,
     PRESENTACION,
+    PROMESA_RECIBO,
     DesvioDelAgente,
     Guion,
     PedidosApagados,
+    Recibo,
     Respuesta,
     Transcripcion,
     con_reintento,
@@ -45,7 +48,9 @@ from tests.e2e.guiones import (
     ejecutar_pedido,
     inferir_awaiting,
     nombre_de_prueba,
+    oferta_ausente,
     pasos_tras_foto,
+    recibo_en,
     registra,
 )
 
@@ -147,24 +152,74 @@ class CanalWhatsApp:
         _comprobar_pdf(self.config, url)
 
 
-def _comprobar_pdf(config: Config, url: str) -> None:
-    """GET del PDF firmado: por la app del ensayo (misma ruta) y, si no, la URL tal cual."""
+def _descargar_firmado(config: Config, url: str, ruta: str) -> httpx.Response | None:
+    """GET del PDF firmado: por la app del ensayo (``ruta``) y, si no, la URL tal cual.
 
-    partes = urlparse(url)
-    ruta = partes.path + (f"?{partes.query}" if partes.query else "")
+    ``None`` si ninguna de las dos respondió (sin red hasta el host del enlace).
+    """
+
     candidatas = [f"{config.base_url}{ruta}", url]
     ultimo: httpx.Response | None = None
     for candidata in dict.fromkeys(candidatas):
         try:
-            ultimo = httpx.get(candidata, timeout=30, follow_redirects=True)
+            ultimo = httpx.get(candidata, timeout=60, follow_redirects=True)
         except httpx.HTTPError:
             continue
         if ultimo.status_code == 200:
             break
+    return ultimo
+
+
+def _comprobar_pdf(config: Config, url: str) -> None:
+    """GET del PDF firmado de la cotización; debe abrir."""
+
+    partes = urlparse(url)
+    ruta = partes.path + (f"?{partes.query}" if partes.query else "")
+    ultimo = _descargar_firmado(config, url, ruta)
     assert ultimo is not None, "el enlace del PDF no respondió"
     assert ultimo.status_code == 200, f"PDF {ultimo.status_code} en {ruta.split('?')[0]}"
     assert ultimo.headers.get("content-type", "").startswith("application/pdf")
     assert ultimo.content.startswith(b"%PDF"), "la respuesta no es un PDF"
+
+
+def _comprobar_recibo(config: Config, recibo: Recibo) -> None:
+    """GET del recibo firmado (``/pedidos/<folio>.pdf?t=…``) si es alcanzable.
+
+    La ruta firmada se prueba en la app del ensayo; si ni ella ni el host del enlace (los
+    medios de OpenClaw) responden, solo avisa. Un 503 (Odoo lento) se reintenta una vez.
+    """
+
+    ultimo = _descargar_firmado(config, recibo.url, recibo.ruta)
+    if ultimo is not None and ultimo.status_code == 503:
+        print("AVISO whatsapp: el recibo respondió 503; se reintenta en 10 s")
+        time.sleep(10)
+        ultimo = _descargar_firmado(config, recibo.url, recibo.ruta)
+    sin_firma = recibo.ruta.split("?")[0]
+    if ultimo is None:
+        print(f"AVISO whatsapp: el recibo {sin_firma} no es alcanzable desde el ensayo")
+        return
+    assert ultimo.status_code == 200, f"recibo {ultimo.status_code} en {sin_firma}"
+    assert ultimo.headers.get("content-type", "").startswith("application/pdf")
+    assert ultimo.content.startswith(b"%PDF"), "el recibo no es un PDF"
+
+
+def _recibo_whatsapp(config: Config, texto: str, folio: str, numero: str) -> Recibo | None:
+    """El recibo del pedido en WhatsApp (``ADJUNTAR_PDF:`` o enlace firmado a /pedidos/).
+
+    Sin enlace (MCP local sin ``PUBLIC_BASE_URL`` ni ``MEDIA_BASE_URL``) solo avisa fuera de
+    producción, y nunca debe quedar la promesa de un PDF que no llega.
+    """
+
+    recibo = recibo_en(texto, "whatsapp")
+    assert PROMESA_RECIBO not in texto, "WhatsApp recibió la promesa cruda del recibo"
+    if recibo is None:
+        assert not config.prod, f"producción no entregó el recibo del pedido {numero}"
+        assert "Te envío el recibo" not in texto, texto
+        print(f"AVISO whatsapp: el MCP local no tiene enlace del recibo (pedido {numero})")
+        return None
+    assert (recibo.folio, recibo.numero) == (folio, numero), recibo
+    _comprobar_recibo(config, recibo)
+    return recibo
 
 
 # --- MCP: gratis ------------------------------------------------------------------------
@@ -393,6 +448,11 @@ def test_flujo_definido_en_whatsapp(
 
     # Assert: cada turno ya se comprobó en ``ejecutar``.
     assert transcripcion.turnos, f"{guion.nombre}: no se envió ningún mensaje"
+    sin_oferta = oferta_ausente(transcripcion) if config.expect_pedidos else None
+    assert sin_oferta is None, (
+        f"el folio #{sin_oferta} no ofrece el pedido y se esperaba (ENSAYO_EXPECT_PEDIDOS, "
+        f"activo en producción): ¿falta ODOO_* en la app?\n{transcripcion.texto()}"
+    )
     print(transcripcion.texto())
 
 
@@ -408,12 +468,22 @@ def test_pedido_en_odoo_desde_whatsapp(config: Config, mcp: McpOculto, conversac
     try:
         pedido = ejecutar_pedido(canal, nombre=nombre, correo=correo)
     except PedidosApagados as motivo:
+        if config.expect_pedidos:
+            pytest.fail(f"{motivo}; se esperaba el pedido (ENSAYO_EXPECT_PEDIDOS)")
         pytest.skip(str(motivo))
+    _, creado = pedido.transcripcion.turnos[-2]
+    recibo = _recibo_whatsapp(config, creado.texto, pedido.folio, pedido.numero)
+    # Con el pedido hecho, «mándame el recibo» lo reenvía sin un turno del agente (spec 056).
+    reenvio = canal.enviar("mándame el recibo").texto if recibo is not None else ""
 
     # Assert: cada turno ya se comprobó; WhatsApp recibe la negrita con un solo «*».
-    _, creado = pedido.transcripcion.turnos[-2]
     assert f"*Pedido {pedido.numero} confirmado*" in creado.texto, creado.texto
     assert "**" not in creado.texto, "WhatsApp recibió negrita en Markdown («**»)"
+    if recibo is not None:
+        otra_vez = recibo_en(reenvio, "whatsapp")
+        assert otra_vez is not None, f"«mándame el recibo» no reenvió el recibo:\n{reenvio}"
+        assert (otra_vez.folio, otra_vez.numero) == (pedido.folio, pedido.numero), otra_vez
+    comprobar_correo_del_pedido(config, pedido.folio, "whatsapp")
     reintento = " · tras reintentar (Odoo falló al primer intento)" if pedido.reintentado else ""
     print(f"PEDIDO whatsapp: {pedido.numero} · folio #{pedido.folio} · {correo}{reintento}")
     print(pedido.transcripcion.texto())

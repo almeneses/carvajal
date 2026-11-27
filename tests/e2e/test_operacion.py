@@ -6,7 +6,8 @@ lectura por SSH. Nunca se corre ``config set``, ``--fix``, reinicios ni ``compos
 
 Variables (docs/ensayo.md): ``ENSAYO_BASE_URL``, ``ENSAYO_APP_SSH``/``_PORT``/``_DIR``,
 ``ENSAYO_OPENCLAW_SSH``/``_USER`` y las expectativas ``ENSAYO_EXPECT_AGENT_MODE`` (tools),
-``ENSAYO_EXPECT_WEBHOOK`` (exige 401), ``ENSAYO_EXPECT_JEV``, ``ENSAYO_EXPECT_DIMENSIONS``
+``ENSAYO_EXPECT_WEBHOOK`` (exige 401), ``ENSAYO_EXPECT_JEV``, ``ENSAYO_EXPECT_PEDIDOS``
+(Odoo configurado y alcanzable; por defecto en producción), ``ENSAYO_EXPECT_DIMENSIONS``
 (768) y ``ENSAYO_REPO_LIMPIO`` (exige checkout sin cambios aunque no sea ``main``).
 """
 
@@ -125,6 +126,51 @@ def test_health_jev_configurado_y_disponible(config: Config, salud: dict[str, An
     assert jev.get("configured") is True, resumen
     assert jev.get("enabled") is True, resumen
     assert jev.get("available") is True, {**resumen, "last_error": jev.get("last_error")}
+
+
+def test_health_odoo_configurado_y_alcanzable(config: Config, salud: dict[str, Any]) -> None:
+    # Arrange: sin Odoo el asistente cotiza igual pero no ofrece el pedido (spec 056), y
+    # /health sigue en «ok»: este bloque es la única alarma barata de que se perdió.
+    odoo = salud.get("odoo")
+    if odoo is None and not config.expect_pedidos:
+        pytest.skip("/health sin bloque «odoo»: la app corre una versión anterior a la spec 056")
+    configurado = (odoo or {}).get("configured")
+    if not configurado and not config.expect_pedidos:
+        pytest.skip("Odoo sin configurar en esta app local (ENSAYO_EXPECT_PEDIDOS=1 lo exige)")
+
+    # Act
+    resumen = {k: (odoo or {}).get(k) for k in ("configured", "status", "reachable", "reason")}
+
+    # Assert
+    assert odoo is not None, (
+        "/health no publica el bloque «odoo» (spec 056): la versión desplegada no lo trae o "
+        "se perdió; sin él, que producción pierda Odoo pasa desapercibido"
+    )
+    assert configurado is True, (
+        f"Odoo no está configurado en la app ({resumen}): falta ODOO_URL, ODOO_DB u "
+        "ODOO_API_KEY en el .env del servidor y el folio no ofrecerá el pedido"
+    )
+    assert odoo.get("status") == "ok" and odoo.get("reachable") is True, (
+        f"Odoo configurado pero no alcanzable ({resumen}): reason=auth es la clave del bot; "
+        "unreachable, la red o Odoo caído (docs/odoo-pedidos.md)"
+    )
+
+
+def test_recibo_del_pedido_desplegado_y_sin_prueba_de_dueno_da_404(http: httpx.Client) -> None:
+    # Arrange: un folio que no existe y sin cookie ni firma: se rechaza antes de la base.
+    ruta = "/pedidos/000000000000.pdf"
+
+    # Act
+    respuesta = http.get(ruta)
+
+    # Assert: la ruta existe (no redirige a HTTPS ni cae en otra vista) y no revela nada.
+    assert respuesta.status_code == 404, (
+        f"{ruta} respondió {respuesta.status_code} (3xx: la app redirige /pedidos a HTTPS, "
+        "versión anterior a la spec 056; 503: sin base)",
+        respuesta.text[:200],
+    )
+    assert "application/json" in respuesta.headers.get("content-type", ""), respuesta.text[:200]
+    assert "no-store" in respuesta.headers.get("cache-control", "")
 
 
 def test_health_foto_de_comida_lista(config: Config, salud: dict[str, Any]) -> None:
@@ -482,6 +528,23 @@ def test_env_del_servidor_protegido_y_con_perfil_whatsapp(servidor: Callable[...
     assert permisos == "600", f".env con permisos {permisos}"
     assert "whatsapp" in perfiles.split("=", 1)[-1].split(","), perfiles
     assert presentes == set(claves), f"faltan en .env: {sorted(set(claves) - presentes)}"
+
+
+def test_env_del_servidor_con_odoo(config: Config, servidor: Callable[..., Any]) -> None:
+    # Arrange: solo se comprueba que las claves existan con valor; nunca se leen.
+    if not config.expect_pedidos:
+        pytest.skip("ENSAYO_EXPECT_PEDIDOS=0: no se exige Odoo en el servidor")
+    claves = ("ODOO_URL", "ODOO_DB", "ODOO_API_KEY")
+    bucle = "; ".join(f"grep -qE '^{c}=.+' .env && echo {c}" for c in claves)
+
+    # Act
+    presentes = set(servidor(bucle).stdout.split())
+
+    # Assert
+    assert presentes == set(claves), (
+        f"faltan en .env: {sorted(set(claves) - presentes)}: el folio no ofrecerá el pedido "
+        "(spec 056, docs/odoo-pedidos.md)"
+    )
 
 
 def test_ollama_tiene_el_modelo_de_embeddings(servidor: Callable[..., Any]) -> None:

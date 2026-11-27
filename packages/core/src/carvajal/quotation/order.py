@@ -20,10 +20,13 @@ from carvajal.agent.followup import parse_quantities, plain
 from carvajal.quotation.draft import line_label, totals
 
 __all__ = [
+    "CO_CITIES",
+    "EMAIL_MASK",
     "SHIPPING_CODE",
     "Buyer",
     "OrderLine",
     "OrderRequest",
+    "asks_order_status",
     "correction_name",
     "declines_order",
     "edits_buyer",
@@ -37,12 +40,15 @@ __all__ = [
     "name_in",
     "name_marked",
     "order_lines",
+    "plausible_name",
     "spoken_address",
     "spoken_email",
+    "wants_order_cancel",
     "wants_purchase",
 ]
 
 SHIPPING_CODE: Final = "ENVIO-CARVAJAL"
+EMAIL_MASK: Final = "…"
 MAX_NAME: Final = 80
 
 _EMAIL: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
@@ -102,7 +108,7 @@ _NOT_NAME: Final = frozenset(
     olvidalo olvida olvidar cancelalo cancelala dejalo dejala deja dejar chao chau adios bye
     retomar retoma seguir sigue sigamos continuar cambia cambiale modifica quita agrega
     caro cara barato ladron ladrones robo estafa se manana hoy tranquilo tranquila importa
-    hay problema seguro segura
+    hay problema seguro segura me te nos interesa interesan sirve gusta mirando viendo
     eh este mmm aja oiga oye mira bien
     """.split()  # noqa: SIM905
 )
@@ -115,6 +121,26 @@ _FILLER: Final = frozenset(
     """.split()  # noqa: SIM905
 )
 _PARTICLES: Final = frozenset({"de", "del", "la", "las", "los"})
+# Ciudades de Colombia (y los dos países) que una persona escribe sola a mitad del pedido:
+# «Bogotá» o «Cali» no son un nombre. Lista fija, sin leer datos en cada turno; una prueba
+# comprueba que cubre las ciudades del directorio de distribuidores
+# (``data/commercial/proveedores.csv``).
+CO_CITIES: Final = frozenset(
+    " ".join(plain(city).split())
+    for city in """
+    Bogotá|Medellín|Cali|Barranquilla|Cartagena|Cúcuta|Soledad|Ibagué|Bucaramanga|Soacha|
+    Santa Marta|Villavicencio|Bello|Valledupar|Pereira|Montería|Pasto|Manizales|Buenaventura|
+    Neiva|Palmira|Armenia|Popayán|Sincelejo|Itagüí|Floridablanca|Riohacha|Envigado|Tuluá|
+    Dosquebradas|Tunja|Girón|Apartadó|Florencia|Uribia|Maicao|Piedecuesta|Yopal|Facatativá|
+    Zipaquirá|Chía|Cartago|Rionegro|Quibdó|Duitama|Sogamoso|Girardot|Barrancabermeja|
+    Fusagasugá|Mosquera|Funza|Leticia|Arauca|Mocoa|San Andrés|Ipiales|Tumaco|Magangué|
+    Malambo|Sabanalarga|Ciénaga|Caucasia|Turbo|Jamundí|Yumbo|Buga|Ocaña|Pamplona|
+    San José del Guaviare|Puerto Carreño|Inírida|Mitú|Colombia|México
+    """.split("|")  # noqa: SIM905
+    if city.strip()
+)
+# Siglas que nunca son un nombre aunque vayan con mayúscula: «PDF», «SAS», «NIT»…
+_ACRONYM: Final = re.compile(r"^[A-ZÁÉÍÓÚÑ]{2,5}$")
 _LETTERS: Final = re.compile(r"[^\W\d_]", re.UNICODE)
 _NAME_WORD: Final = re.compile(r"^[^\W\d_]+(?:['-][^\W\d_]+)*$", re.UNICODE)
 _NEGATION: Final = re.compile(r"\b(?:no|ni|nunca|tampoco|jamas)\b")
@@ -357,7 +383,27 @@ def name_in(text: str, *, strict: bool = False) -> str | None:
     capitalized = all(
         word[:1].isupper() or word.lower() in _PARTICLES for word in words if _NAME_WORD.match(word)
     )
-    return name if capitalized and 1 <= len(name.split()) <= 4 else None
+    if not capitalized or not 1 <= len(name.split()) <= 4:
+        return None
+    return name if plausible_name(name) else None
+
+
+def plausible_name(name: str) -> bool:
+    """``False`` si ``name`` es una ciudad («Bogotá», «Santa Marta») o lleva una sigla.
+
+    Una sigla es una palabra de 2 a 5 letras en mayúsculas («PDF», «SAS», «NIT»). Quien
+    escribe todo en mayúsculas («ANA PÉREZ») da un nombre: solo se descarta si alguna palabra
+    del nombre va en minúsculas, o si es una sola palabra.
+    """
+
+    words = name.split()
+    if not words or " ".join(plain(name).split()) in CO_CITIES:
+        return False
+    acronyms = [word for word in words if _ACRONYM.match(word)]
+    if not acronyms:
+        return True
+    all_caps = all(word.isupper() or word.lower() in _PARTICLES for word in words)
+    return all_caps and len(words) >= 2
 
 
 def name_marked(text: str) -> str | None:
@@ -368,11 +414,19 @@ def name_marked(text: str) -> str | None:
 
 
 def correction_name(text: str) -> str | None:
-    """El nombre de una corrección: con marca, tras un «no» («no, es Marta») o suelto."""
+    """El nombre de una corrección: con marca, tras un «no» («no, es Marta») o suelto.
+
+    Sin marca, una ciudad o una sigla suelta («Bogotá», «PDF») no corrige el nombre.
+    """
 
     marked = name_marked(text)
     if marked:
         return marked
+    found = _unmarked_correction(text)
+    return found if found and plausible_name(found) else None
+
+
+def _unmarked_correction(text: str) -> str | None:
     text = _EMAIL.sub(" ", spoken_email(text))
     # «No es Ana, es Carla», «corrige el nombre: Carla»: vale lo último tras «es» o «:».
     last = re.search(r".*(?:\bes|:)\s+([^,;:]+)$", text, re.IGNORECASE)
@@ -404,6 +458,38 @@ def is_affirmation(text: str) -> bool:
     return _AFFIRM_START.match(folded) is not None
 
 
+# Tras el pedido creado (spec 056): anularlo o preguntar cómo va lo gestiona un asesor. Solo
+# cuenta el pedido dicho con un determinante («mi pedido», «el pedido», «la compra»): «quiero
+# ver vasos para otro pedido» es otra cotización, no el estado del pedido.
+_ORDER_DETERMINER: Final = (
+    r"(?:mi|mis|el|la|los|las|del|al|ese|esa|este|esta|nuestro|nuestra|tu|su)"
+)
+_ORDER_NOUN: Final = _ORDER_DETERMINER + r"\s+(?:pedido|orden|compra)s?"
+_ORDER_CANCEL: Final = re.compile(
+    r"\b(?:cancel\w*|anul\w*|revers\w*|devolver|devuelv\w*|desist\w*)\b(?:\s+\w+){0,3}?\s+"
+    + _ORDER_NOUN
+    + r"\b|\b(?:ya\s+no|no)\s+quiero\s+"
+    + _ORDER_NOUN
+    + r"\b|\b"
+    + _ORDER_NOUN
+    + r"\b(?:\s+\w+){0,3}?\s+(?:cancel\w*|anul\w*)\b"
+)
+_CANCEL_BARE: Final = frozenset(
+    {"cancelalo", "cancelala", "anulalo", "anulala", "cancelar", "anular", "cancela", "anula"}
+)
+# Las preguntas del estado admiten hasta tres palabras antes del pedido («¿cómo va entonces mi
+# pedido?»); los verbos genéricos («ver», «revisar»), solo seguidos del pedido («ver mi pedido»).
+_ORDER_STATUS: Final = re.compile(
+    r"\b(?:(?:como\s+va|como\s+vamos\s+con|estado|seguimiento|donde\s+(?:esta|va)|"
+    r"cuando\s+(?:llega|me\s+llega|despachan|entregan|sale)|que\s+paso\s+con|"
+    r"ya\s+(?:salio|despacharon|enviaron|llego))\b(?:\s+\w+){0,3}?|"
+    r"(?:muestrame|ver|revisar|consultar))\s+" + _ORDER_NOUN + r"\b"
+)
+_POSSESSIVE_ORDER: Final = re.compile(
+    r"\b(?:mi|mis|nuestro|nuestra|nuestros|nuestras)\s+(?:pedido|orden|compra)s?\b"
+)
+# El número del pedido («S00005») no es una cantidad de producto.
+_ORDER_NUMBER: Final = re.compile(r"\b[sS]\d{3,}\b")
 _GOODBYE: Final = re.compile(
     r"^(?:(?:bueno|gracias|ok|listo)\s+)*(?:chao|chau|adios|bye|nos vemos)\b"
 )
@@ -448,10 +534,51 @@ def spoken_address(email: str) -> str:
 
 
 def mask_email(email: str) -> str:
-    """«ana.perez@correo.com» → «a***@correo.com»: para lo que se guarda o se registra."""
+    """«ana.perez@correo.com» → «a…@correo.com»: para lo que se guarda o se registra.
+
+    La máscara no lleva caracteres de Markdown: las plantillas ponen el correo en negrita
+    (``**…**``) y unos asteriscos dentro la rompían en el historial y en WhatsApp.
+    """
 
     user, _, domain = email.partition("@")
-    return f"{user[:1]}***@{domain}" if domain else "***"
+    return f"{user[:1]}{EMAIL_MASK}@{domain}" if domain else EMAIL_MASK
+
+
+def _names_product(text: str) -> bool:
+    """El texto trae un producto o una cantidad sin hablar de «mi pedido»: otra cotización.
+
+    «¿Cómo va mi pedido de vasos?» sigue siendo el pedido creado (posesivo); «quiero ver
+    vasos para otro pedido» o «cancela el pedido de 500 vasos» con un carrito nuevo no.
+    """
+
+    if _POSSESSIVE_ORDER.search(plain(text)):
+        return False
+    rest = _ORDER_NUMBER.sub(" ", text)
+    return bool(product_family(rest) or parse_quantities(rest))
+
+
+def wants_order_cancel(text: str, *, bare: bool = True) -> bool:
+    """«Cancela el pedido», «quiero anular la compra», «anúlalo»: tras el pedido creado.
+
+    ``bare`` acepta también el «anúlalo» suelto: vale justo después del pedido, no en un
+    turno cualquiera. Nunca con un producto o una cantidad («cancela el pedido de vasos»).
+    """
+
+    folded = plain(text).strip(" .!")
+    if _names_product(text):
+        return False
+    return (bare and folded in _CANCEL_BARE) or _ORDER_CANCEL.search(folded) is not None
+
+
+def asks_order_status(text: str) -> bool:
+    """«¿Cómo va mi pedido?», «estado del pedido», «¿cuándo llega el pedido?».
+
+    Nunca con un producto o una cantidad: «quiero ver vasos para otro pedido» se cotiza.
+    """
+
+    if _names_product(text):
+        return False
+    return _ORDER_STATUS.search(plain(text)) is not None
 
 
 def _plural(basis: str, count: Decimal) -> str:

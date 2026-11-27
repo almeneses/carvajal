@@ -617,14 +617,23 @@ def test_el_borrador_vencido_no_se_retoma() -> None:
     assert decision.message.text == render.empty_cart().text
 
 
+# Spec 056: los casos del «sí» corren también con el CRM de pedidos activado (``orders``).
+CON_Y_SIN_CRM = pytest.mark.parametrize("orders", [False, True], ids=["sin-crm", "con-crm"])
+
+
+@CON_Y_SIN_CRM
 @pytest.mark.parametrize("awaiting", ["confirmar", "algo_mas"])
-def test_un_si_sin_lineas_nunca_registra(awaiting: str) -> None:
+def test_un_si_sin_lineas_nunca_registra(awaiting: str, orders: bool) -> None:
     draft = QuoteDraft().touch(AHORA, state="resumen", awaiting=awaiting)
-    decision = before_turn(draft, "sí, mándame el PDF", requote_fn=fake_requote, now=AHORA)
+    decision = before_turn(
+        draft, "sí, mándame el PDF", requote_fn=fake_requote, now=AHORA, orders=orders
+    )
     assert not (isinstance(decision, Reply) and decision.register)
+    assert decision.draft.awaiting not in {"pedido", "datos_pedido", "confirmar_pedido"}
 
 
-def test_un_si_con_precios_vencidos_los_recalcula_y_no_registra() -> None:
+@CON_Y_SIN_CRM
+def test_un_si_con_precios_vencidos_los_recalcula_y_no_registra(orders: bool) -> None:
     # Arrange: la vigencia del vendedor de la primera línea venció ayer.
     draft = _cart()
     first = dict(draft.lines[0])
@@ -634,7 +643,7 @@ def test_un_si_con_precios_vencidos_los_recalcula_y_no_registra() -> None:
     )
 
     # Act
-    decision = before_turn(draft, "sí", requote_fn=fake_requote, now=AHORA)
+    decision = before_turn(draft, "sí", requote_fn=fake_requote, now=AHORA, orders=orders)
 
     # Assert: resumen recalculado que vuelve a pedir el «sí», sin folio.
     assert isinstance(decision, Reply) and not decision.register
@@ -642,10 +651,37 @@ def test_un_si_con_precios_vencidos_los_recalcula_y_no_registra() -> None:
     assert decision.draft.awaiting == "confirmar"
 
 
-def test_un_si_sobre_un_borrador_caducado_no_registra() -> None:
+@CON_Y_SIN_CRM
+def test_un_si_sobre_un_borrador_caducado_no_registra(orders: bool) -> None:
     draft = _cart().touch(AHORA - timedelta(days=8), state="resumen", awaiting="confirmar")
-    decision = before_turn(draft, "sí", requote_fn=fake_requote, now=AHORA)
+    decision = before_turn(draft, "sí", requote_fn=fake_requote, now=AHORA, orders=orders)
     assert not (isinstance(decision, Reply) and decision.register)
+
+
+@pytest.mark.parametrize(
+    ("orders", "awaiting"),
+    [(False, None), (True, "pedido")],
+    ids=["sin-crm", "con-crm-oferta"],
+)
+def test_el_segundo_si_tras_el_folio_sin_crm_recuerda_el_folio_y_con_crm_entra_al_pedido(
+    orders: bool, awaiting: str | None
+) -> None:
+    # Arrange: recién registrada; con CRM, el folio dejó la oferta del pedido pendiente.
+    draft = _cart().touch(AHORA, state="registrada", folio="COT-1", awaiting=awaiting)
+
+    # Act
+    decision = before_turn(draft, "sí", requote_fn=fake_requote, now=AHORA, orders=orders)
+
+    # Assert: nunca otro folio.
+    assert isinstance(decision, Reply) and not decision.register
+    assert decision.order is None
+    if not orders:
+        assert decision.message.text.startswith("Esa cotización ya quedó registrada")
+        assert "COT-1" in decision.message.text
+    else:  # spec 056: el «sí» acepta la oferta y pide nombre y correo
+        assert decision.message == render.ask_buyer()
+        assert decision.draft.awaiting == "datos_pedido"
+        assert decision.draft.folio == "COT-1"
 
 
 def test_jev_decide_cuando_las_reglas_no_y_solo_ve_la_respuesta() -> None:
@@ -1114,18 +1150,26 @@ def test_eso_es_todo_confirmala_ante_las_opciones_va_al_resumen_sin_registrar() 
     assert decision.draft.awaiting == "confirmar"
 
 
-def test_el_carrito_tras_registrar_recuerda_el_folio() -> None:
-    # Arrange: recién registrada (revisión: respondía «Todavía no tienes productos»).
-    draft = _cart().touch(AHORA, state="registrada", folio="COT-1", awaiting=None)
+@pytest.mark.parametrize(
+    ("orders", "awaiting"),
+    [(False, None), (True, None), (True, "pedido")],
+    ids=["sin-crm", "con-crm-sin-oferta", "con-crm-oferta"],
+)
+def test_el_carrito_tras_registrar_recuerda_el_folio(orders: bool, awaiting: str | None) -> None:
+    # Arrange: recién registrada (revisión: respondía «Todavía no tienes productos»). Con
+    # CRM, el folio deja la oferta del pedido pendiente (spec 056).
+    draft = _cart().touch(AHORA, state="registrada", folio="COT-1", awaiting=awaiting)
 
     # Act
     decision = before_turn(
-        draft, "¿qué tengo en la cotización?", requote_fn=fake_requote, now=AHORA
+        draft, "¿qué tengo en la cotización?", requote_fn=fake_requote, now=AHORA, orders=orders
     )
 
-    # Assert
+    # Assert: igual con o sin CRM; la oferta del pedido sigue pendiente.
     assert isinstance(decision, Reply)
     assert "COT-1" in decision.message.text
+    assert decision.order is None
+    assert decision.draft.awaiting == awaiting
 
 
 def test_el_carrito_con_una_oferta_pendiente_deja_de_esperar_la_oferta() -> None:

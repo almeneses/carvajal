@@ -10,6 +10,11 @@ El evento ``done`` añade ``voz_resumen``: el resumen hablado de la respuesta gu
 lectura de respaldo del navegador diga lo mismo que la del servidor. Si no se puede
 preparar, el evento sale sin él y el navegador lee la respuesta como antes.
 
+En un turno del pedido (spec 056) el resumen sale del ``flow`` del propio ``done``, que trae
+el nombre y el correo de quien compra (lo guardado no los lleva): la voz del navegador los lee
+para que la persona los compruebe. La nota de voz del servidor (``/api/voz/hablar``, TTS de
+OpenAI) no los recibe nunca: sintetiza lo guardado, en tono neutro (FR-019).
+
 La cotización recién registrada (T6, spec 054) promete «📄 Te envío el PDF.»: en la web esa
 línea pasa a ser el enlace al PDF del folio, que el visitante abre con su cookie
 (:func:`apps.api.views.cotizacion_pdf.owner_pdf_link`). Solo cambia lo que se muestra: el
@@ -203,8 +208,10 @@ def _with_spoken_summary(
 ) -> ChatEvent:
     """``done`` con ``voz_resumen``: de la respuesta guardada o, si no, de lo emitido.
 
-    La respuesta guardada trae además el resultado comercial (la cotización corta). Nunca
-    lanza: sin resumen, el ``done`` sale igual que antes.
+    La respuesta guardada trae además el resultado comercial (la cotización corta). En un
+    turno del pedido manda el ``flow`` del ``done`` (con los datos de quien compra): solo lo
+    lee la voz del navegador; el servidor no lo guarda ni lo sintetiza. Nunca lanza: sin
+    resumen, el ``done`` sale igual que antes.
     """
 
     try:
@@ -223,7 +230,9 @@ def _with_spoken_summary(
                 sources=[dict(item) for item in sources],
                 created_at=datetime.now(UTC),
             )
-        summary = spoken_message(message) if message is not None else ""
+        live = event.data.get("flow")
+        live = live if isinstance(live, Mapping) else None
+        summary = spoken_message(message, flow=live) if message is not None else ""
     except Exception as error:  # el resumen es un extra: nunca rompe el cierre del turno
         logger.warning("chat.spoken_summary_failed", error_type=type(error).__name__)
         return event
