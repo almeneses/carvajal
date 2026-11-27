@@ -505,3 +505,20 @@ def test_una_foto_webp_de_whatsapp_se_lee_y_se_prepara(tmp_path: Path) -> None:
 def test_un_webp_animado_se_rechaza() -> None:
     with pytest.raises(PhotoRejected):
         prepare_photo(_webp(frames=3))
+
+
+def test_la_tapa_de_otra_linea_no_entra_aunque_traiga_la_capacidad_del_vaso() -> None:
+    # Arrange: «500 vasos de 9 oz y 300 tapas para esos vasos»; el modelo cotiza la tapa con
+    # capacity_oz=9 y el motor trae la viajera de 9 a 12 oz para vaso Bioform.
+    vaso = _cup("V9", "Vaso rígido traslúcido 9 oz Wau", 9.0)
+    tapa = _lid("Tapa viajera 9 a 12 oz para vaso Bioform")
+    tapa["request"]["capacity_oz"] = 9
+    text = "Listo, cotizadas las dos cosas para Bogotá: el vaso de 9 oz y la tapa [1]."
+
+    # Act
+    outcome = after_turn(QuoteDraft(), [vaso, tapa], text, now=AHORA)
+
+    # Assert
+    assert [line_label(line) for line in outcome.draft.lines] == [line_label(vaso)]
+    assert outcome.message is not None
+    assert outcome.message.text.startswith("No agregué **Tapa viajera 9 a 12 oz")
