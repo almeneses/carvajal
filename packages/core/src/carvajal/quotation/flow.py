@@ -1338,9 +1338,11 @@ def _unfit_lids(
 
     Con vasos en el mismo turno («500 vasos de 9 oz y 300 tapas para esos vasos») la tapa se
     mide contra ellos; si el turno solo trae tapas, contra los vasos del carrito. No cuentan las
-    tapas que la persona nombró o eligió (``reference_origin``) ni las que pidió con una
-    capacidad propia («300 tapas de 7 oz»): eso ya dice para qué vaso son. Sin vasos a la vista
-    no se descarta nada.
+    tapas que la persona nombró o eligió (``reference_origin``). Una tapa pedida con su propia
+    capacidad («300 tapas de 7 oz») no se mide por capacidad, pero sí por la línea de vasos:
+    el modelo pasa la capacidad del vaso («tapas para esos vasos» → 9 oz) y la «Tapa viajera 9
+    a 12 oz para vaso Bioform» no le sirve a un vaso Wau (ensayo tras la PR #291). Sin vasos a
+    la vista no se descarta nada.
     """
 
     def cup(line: Mapping[str, Any]) -> tuple[str, float | None] | None:
@@ -1361,8 +1363,11 @@ def _unfit_lids(
         for item in calculated
         if line_family(item) == "tapa"
         and item.get("reference_origin") not in _CHOSEN
-        and not (item.get("request") or {}).get("capacity_oz")
-        and not lid_fits_cup(str((item.get("primary") or {}).get("name") or ""), cups)
+        and not lid_fits_cup(
+            str((item.get("primary") or {}).get("name") or ""),
+            cups,
+            capacity=not (item.get("request") or {}).get("capacity_oz"),
+        )
     ]
 
 
