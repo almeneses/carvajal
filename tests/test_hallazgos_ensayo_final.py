@@ -6,19 +6,23 @@
 - En la web, «mándame el recibo» tras el pedido recibía la respuesta genérica.
 """
 
+import io
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from PIL import Image
 from tests.test_flujos_cotizacion import make_quote
 from tests.test_pedidos_odoo import FakeOrders, _registered, _say, _service
 from tests.test_pedidos_seguimiento import ORDER, engine  # noqa: F401 (fixture)
 
 from apps.api.chat.agent import CARD_ONLY_ANSWER, ToolAgentToken, _TurnStream
-from apps.mcp.bridge import is_receipt_request
+from apps.mcp.bridge import is_receipt_request, read_inbound_photo
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.graph import history_messages
+from carvajal.food.photo import PhotoRejected, prepare_photo
 from carvajal.quotation import render
 from carvajal.quotation.cards import CARD_NOTE, compact_cards, strip_imitated_cards
 from carvajal.quotation.draft import QuoteDraft, line_label
@@ -472,3 +476,32 @@ def test_la_nota_del_historial_es_una_tarjeta_para_el_filtro() -> None:
     # Assert
     assert note.split("\n\n")[1].startswith(CARD_NOTE)
     assert (clean, removed) == ("Listo.", 1)
+
+
+# --- WhatsApp real: las fotos llegan en WebP ---------------------------------------------------
+
+
+def _webp(*, frames: int = 1) -> bytes:
+    colors = [(200, 40, 40), (40, 200, 40), (40, 40, 200)]
+    images = [Image.new("RGB", (640, 480), colors[index % 3]) for index in range(frames)]
+    out = io.BytesIO()
+    images[0].save(out, "WEBP", save_all=frames > 1, append_images=images[1:], duration=100, loop=0)
+    return out.getvalue()
+
+
+def test_una_foto_webp_de_whatsapp_se_lee_y_se_prepara(tmp_path: Path) -> None:
+    # Arrange: OpenClaw dejó el adjunto con el nombre que le da (UUID + extensión).
+    (tmp_path / "3f2a9c1e-foto.webp").write_bytes(_webp())
+
+    # Act
+    raw = read_inbound_photo("media://inbound/3f2a9c1e-foto.webp", str(tmp_path))
+    photo = prepare_photo(raw)
+
+    # Assert: sale como JPEG, igual que las demás.
+    assert photo.data[:3] == b"\xff\xd8\xff"
+    assert (photo.width, photo.height) == (640, 480)
+
+
+def test_un_webp_animado_se_rechaza() -> None:
+    with pytest.raises(PhotoRejected):
+        prepare_photo(_webp(frames=3))
