@@ -1,6 +1,6 @@
 ---
 name: evaluar-agente
-description: Evalúa el asistente de Carvajal (enrutador, retrieval, cotizador, prompts y el agente con herramientas routes frente a tools) y compara contra la línea base antes de abrir una PR. Úsala cuando un cambio toque packages/core/src/carvajal/agent/ (incluido agent/toolagent/), prompts.py, application/ask.py, application/retrieval.py, adapters/vector/, adapters/llm/, quotation/, catalog/, commercial/, apps/api/chat/agent.py o data/eval/, cuando se proponga cambiar AGENT_MODE, o cuando pidan "evaluar", "medir", "comparar contra main" o "¿empeoró el agente?".
+description: Evalúa el asistente de Carvajal (enrutador, retrieval, cotizador, flujos de cotización y pedido en Odoo, prompts y el agente con herramientas routes frente a tools) y compara contra la línea base antes de abrir una PR. Úsala cuando un cambio toque packages/core/src/carvajal/agent/ (incluido agent/toolagent/), prompts.py, application/ask.py, application/retrieval.py, adapters/vector/, adapters/llm/, adapters/crm/, quotation/, catalog/, commercial/, apps/api/chat/, apps/mcp/ o data/eval/, cuando se proponga cambiar AGENT_MODE, o cuando pidan "evaluar", "medir", "comparar contra main" o "¿empeoró el agente?".
 ---
 
 # Evaluar el agente de Carvajal
@@ -20,6 +20,8 @@ git diff --name-only main...HEAD
 | `agent/router.py`, `agent/commercial_intent.py`, `agent/routers/`, `data/eval/routing_questions.json` | Enrutador |
 | `application/ask.py`, `application/retrieval.py`, `adapters/vector/`, `indexing/`, `domain/chunking*`, `data/gold/` | Retrieval |
 | `quotation/`, `catalog/`, `commercial/`, `data/catalog/`, `data/eval/cotizacion_cases.json` | Cotizador |
+| `quotation/flow.py`, `order.py`, `render.py`, `draft.py`, `adapters/crm/`, `apps/api/chat/service.py`, `apps/api/views/{stream,chat,pedido_pdf}.py`, `apps/mcp/` | Flujos y pedido (§2b) |
+| `prompts.py` en lo que toque pedidos, pagos o datos personales | Flujos y pedido (§2b) + preguntas a mitad del pedido (§3b) |
 | `prompts.py`, `adapters/llm/`, `agent/graph.py` | Enrutador + experimento LangSmith (si el owner lo autoriza) |
 | `agent/toolagent/`, `apps/api/chat/agent.py`, `apps/api/agent_runtime.py`, `AGENT_MODE`, `data/eval/generalization_questions.json` | Las tres locales + `eval-agent` (con permiso, §3) |
 
@@ -49,6 +51,26 @@ uv run python scripts/eval_retrieval.py --k 10 \
 
 Si Qdrant u Ollama no responden, **no inventes resultados**: informa qué
 evaluación no se pudo correr y por qué.
+
+## 2b. Flujos de cotización y pedido (specs 054-056)
+
+Los totales del cotizador no tocan el pedido: un cambio en el flujo, en las plantillas o en
+el adaptador de Odoo se evalúa con las pruebas de flujos con el CRM simulado (sin red, sin
+tokens):
+
+```bash
+uv run pytest tests/test_flujos_cotizacion.py tests/test_flujos_servicio.py \
+  tests/test_pedidos_*.py tests/test_mcp_pedidos.py \
+  tests/test_ensayo_guiones.py tests/test_ensayo_exploracion.py -q
+```
+
+- `test_ensayo_guiones.py` corre los guiones del ensayo (`tests/e2e/guiones.py`) contra
+  `ChatService` con Odoo simulado, con y sin pedidos: si cambia una plantilla (la oferta, la
+  confirmación, el recibo, «¿Qué dato corrijo?»), falla aquí y no contra producción.
+- `test_ensayo_exploracion.py` comprueba que los guiones de exploración del pedido llegan a
+  la oferta y **nunca crean el pedido** (salvo `pedido_creado`).
+- Criterio bloqueante: cualquier fallo de esas pruebas, y cualquier pedido creado sin un
+  «sí» limpio a «¿Lo confirmo?» (FR de la spec 056).
 
 ## 3. Evaluaciones con costo o salida a la red (pide permiso)
 
@@ -146,6 +168,44 @@ uv run carvajal eval-gatekeeper --replay-ledger "$LEDGER" --agent --only cautiou
 - La sección «Gatekeeper y compuerta» de `eval-agent` distingue el atajo por reglas de la
   respuesta directa de Jev: una pregunta con datos enviada a la directa es un error del
   gatekeeper.
+
+### 3b. Pedido contra la app desplegada y por WhatsApp real (spec 056)
+
+Con permiso del owner, porque **crea un pedido real por canal** en el Odoo de la app (se
+cancela a mano, `docs/ensayo.md`) y gasta tokens:
+
+```bash
+make ensayo-pedido   # web y WhatsApp por MCP: pedido, recibo que abre y correo sin excepción
+```
+
+`make ensayo-pedido` habla por MCP (`consultar_carvajal`, lo mismo que llama OpenClaw), no
+por WhatsApp. Cuando el cambio toque el pedido, el puente (`apps/mcp/`) o el texto que llega
+al cliente, **haz además la prueba con el WhatsApp real**: una conversación con el bot desde
+un número de la allowlist de OpenClaw (la hace el owner, o el agente solo con su permiso
+explícito y desde la sesión de WhatsApp Web que él indique), hasta el folio, la oferta y, si
+el owner lo autoriza, el pedido. Comprueba en el chat real que el PDF de la cotización y el
+del recibo llegan como **documento** (la línea `ADJUNTAR_PDF:` la procesa OpenClaw, no el
+MCP, y nunca debe verse en el chat), que el texto no trae `**` ni promesas de un PDF que no
+llega, y que «PDF» a mitad del pedido manda la cotización y repite el paso pendiente. Anota
+en la PR qué se probó por WhatsApp real y qué no. La allowlist del gateway se prueba aparte
+con `test_whatsapp_real.py` (`docs/ensayo.md`, «WhatsApp real con Firefox»).
+
+**Preguntas a mitad del pedido.** Un cambio en `prompts.py` sobre pedidos, pagos o datos
+personales se valida con preguntas a mitad del pedido, donde el agente responde con el
+recordatorio «↩️» del paso: los guiones de exploración del pedido traen «¿cuánto tarda el
+envío?» y «¿aceptan Nequi?» con el pedido pendiente, y no crean nada en Odoo:
+
+```bash
+set -a && . ./.env.ensayo && set +a   # si existe
+uv run pytest tests/e2e/test_exploracion.py -m exploracion \
+  -k "explorar_pedido and not pedido_creado" -q -s -p no:cacheprovider
+```
+
+Lee las transcripciones (`data/ensayo-exploracion/<run_id>/`) y el `informe.md`. Bloquea la
+PR que el agente diga que no toma pedidos con un pedido pendiente (alerta «dice que no toma
+pedidos»), que pida datos de pago o que invente el estado de un pedido; advierte una
+respuesta que ignora la pregunta. Cada guion registra un folio real (según
+`ENSAYO_COTIZAR`).
 
 ## 4. Compara contra la línea base
 

@@ -57,6 +57,21 @@ confirmar (resumen o carrito), cualquier pedido del PDF («PDF», «sí, mándam
 el puente le pasa al turno la forma `PDF_CONFIRMATION` («sí, mándame el PDF»), que el flujo
 reconoce siempre. Sin nada pendiente, «PDF» devuelve la última cotización registrada.
 
+Con el pedido de la spec 056 ([abajo](#pedidos-en-odoo-spec-056)) cambian dos casos:
+
+- **A mitad del pedido** (la oferta, el nombre y el correo o «¿Lo confirmo?»), «PDF», «sí,
+  mándame el PDF» o un «pe de efe» dictado entregan el PDF de la cotización y, debajo, la
+  pregunta pendiente (`render.order_reminder`: «↩️ ¿Confirmo el pedido con los datos que me
+  diste?…»). No corren un turno, no crean el pedido y no tocan el borrador: un «sí» después
+  sigue creándolo. El puente consulta el paso con `ChatService.pending_order_step`; si el PDF
+  no se puede leer, el recordatorio llega igual.
+- **Con el pedido confirmado**, «PDF», «mándame el recibo», «el PDF del pedido» o «recibo de
+  mi compra» (`bridge.is_receipt_request`) reenvían el **recibo** del pedido (adjunto o
+  enlace firmado), si `ChatService.order_of` encuentra en Odoo el pedido de la última
+  cotización. «El PDF de la cotización» sigue trayendo la cotización, y sin pedido o sin forma
+  de entregar el recibo, «PDF» devuelve la cotización como siempre. «¿Cuándo recibo el
+  pedido?» no es un pedido del recibo: va al agente.
+
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
   herramienta busca la **última cotización de la conversación activa** y devuelve un
   enlace. No llama al LLM, pero consume el mismo cupo diario que cualquier mensaje.
@@ -645,7 +660,9 @@ porque no se puede listar la carpeta.
 ## Pedidos en Odoo (spec 056)
 
 Con `ODOO_*` configurado, el mensaje del folio termina con «🛒 ¿Quieres hacer el pedido? Te
-pido tu nombre y tu correo y te llega la confirmación.». WhatsApp no tiene los botones de la
+pido tu nombre y tu correo y te llega la confirmación.»: el puente mueve esa línea al final,
+después de las fotos y del PDF adjunto, para que la pregunta pendiente cierre el mensaje
+(también en turnos guardados antes del cambio). WhatsApp no tiene los botones de la
 web: el cliente responde por texto o por voz («sí», «hagamos el pedido», «ahora no») y luego
 manda su nombre y su correo, en uno o dos mensajes («Sí, Ana Pérez» ya trae el nombre; por
 voz, el correo dictado: «ana punto perez arroba gmail punto com», también con cifras sueltas
@@ -654,17 +671,26 @@ los datos («📋 Voy a hacer el pedido con estos datos: … ¿Lo confirmo?»; e
 el nombre y el correo) y solo con un «sí» limpio («sí», «sí, confírmalo») crea el pedido
 confirmado en Odoo y responde con el recibo: «🧾 *Pedido S… confirmado*», la fecha, las
 líneas, el total y «La confirmación del pedido llega a …» con el correo del cliente del
-pedido; pago y entrega los coordina un asesor. Para corregir, el cliente escribe el correo
-correcto («quiero cambiar el correo a carla@gmail.com»), «me llamo …», «cambia el nombre a
+pedido (Odoo la envía por el SMTP configurado en Odoo); pago y entrega los coordina un
+asesor, que recibe en Odoo la actividad «Coordinar pago y entrega del pedido». Para
+corregir, el cliente escribe el correo correcto («quiero cambiar el correo a carla@gmail.com»), «me llamo …», «cambia el nombre a
 Carla Ruiz», «sí, Carla Ruiz», «no, es Carla» o el nombre como nombre propio (tras «no»
 también en minúsculas: «no, carla ruiz»); un «no» solo, un «sí, pero…» o un cambio sin el
 dato («sí, pero cambia el correo», «el correo está mal») hacen que la herramienta pregunte
 qué dato corregir sin borrar los datos, y «ahora no», «no, mejor no», «no, gracias»,
 «olvídalo», «cancela el pedido», «lo voy a pensar» o un adiós («chao», «gracias, adiós») lo
 dejan en cualquier paso («…queda registrada sin pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo
-mensaje.»). Todo lo deciden reglas explícitas por paso del backend, sin Jev; los turnos del
-pedido se guardan sin el nombre ni el correo. Flujo, datos personales y configuración:
-[`odoo-pedidos.md`](odoo-pedidos.md).
+mensaje.»). Con el pedido ya creado, «cancela el pedido» y «¿cómo va mi pedido?» reciben una
+respuesta fija con el número: no se anula ni se consulta el estado desde el chat, lo gestiona
+el asesor. Todo lo deciden reglas explícitas por paso del backend, sin Jev; los turnos del
+pedido se guardan sin el nombre ni el correo (correo como `a…@dominio`). Flujo, datos
+personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
+
+La herramienta lo declara: la descripción de `consultar_carvajal` y las instrucciones del
+servidor explican que puede pedir nombre y correo, que el agente pasa cada respuesta tal cual
+y nunca confirma por el cliente, que Odoo envía la confirmación y que el recibo puede traer
+`ADJUNTAR_PDF:`. Como crea pedidos y envía correo por Odoo, la herramienta lleva
+`open_world_hint=True`.
 
 ### Recibo del pedido en PDF
 
@@ -690,6 +716,9 @@ propio del recibo (un enlace de cotización no abre el pedido), que vence a los 
 `/pedidos/{folio}.pdf` de la app responde 404 si la firma no corresponde al dueño de la
 cotización o venció, y 503 si Odoo no responde (el cliente puede volver a abrirlo después).
 
+Para volver a pedir el recibo, el cliente responde «PDF» o «mándame el recibo» (ver
+[Cotización en PDF](#cotización-en-pdf)); la respuesta trae otra vez el adjunto o el enlace.
+
 El agente «ventas» tiene que pasar esas respuestas **sin cambios**, también el «sí» a «¿Lo
 confirmo?»: sus reglas de privacidad y de defensa ante instrucciones no deben quitar ni
 enmascarar el nombre o el correo, y él no pide otros datos, no confirma por el cliente ni da
@@ -697,8 +726,8 @@ un pedido por hecho. La sección «Pedidos» de
 [`openclaw/workspace/ventas/AGENTS.md`](../openclaw/workspace/ventas/AGENTS.md) lo fija (con
 el límite de `SOUL.md` y la directiva del 2026-11-26 de `USER.md`). Copia el workspace a la
 máquina de OpenClaw con respaldo, como indica [`openclaw/README.md`](../openclaw/README.md#desplegar),
-y abre un chat con `/new` para que lo tome. Se puede copiar antes de desplegar la spec 056:
-sin ella, la herramienta no ofrece el pedido y la sección no se usa.
+y abre un chat con `/new` para que lo tome. La spec 056 está activa en producción desde la
+fusión de la PR #279; sin `ODOO_*`, la herramienta no ofrece el pedido y la sección no se usa.
 
 ## Operación
 

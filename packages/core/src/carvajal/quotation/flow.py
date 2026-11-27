@@ -81,6 +81,7 @@ from carvajal.quotation.draft import (
 )
 from carvajal.quotation.order import (
     Buyer,
+    asks_order_status,
     correction_name,
     declines_order,
     edits_buyer,
@@ -90,6 +91,7 @@ from carvajal.quotation.order import (
     is_goodbye,
     name_in,
     name_marked,
+    wants_order_cancel,
     wants_purchase,
 )
 from carvajal.quotation.render import Message, option_rows
@@ -357,9 +359,17 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
     trae un dato lo corrige y solo un «sí» crea el pedido. Otro producto sale del pedido con
     un borrador nuevo. Una pregunta sin datos va al agente sin perder el paso; con datos, los
     datos ganan y nunca salen de las reglas. ``None``: lo decide el resto de las reglas.
+
+    Con el pedido ya creado, «cancela el pedido» y «¿cómo va mi pedido?» tienen respuesta
+    fija con el número: ni se anula ni se consulta el estado desde el chat (lo gestiona el
+    asesor), y el agente nunca llega a negar un pedido que existe en Odoo.
     """
 
     if draft.order:
+        if wants_order_cancel(text):
+            return Reply(render.order_cancel_request(draft.order), draft, route="pedido")
+        if asks_order_status(text):
+            return Reply(render.order_status(draft.order), draft, route="pedido")
         if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
             return Reply(render.already_ordered(draft.order), draft, route="pedido")
         return None

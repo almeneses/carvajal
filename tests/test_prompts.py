@@ -40,7 +40,8 @@ def test_la_ruta_estructurada_no_exige_un_contexto_que_no_existe() -> None:
     assert "únicamente con el CONTEXTO" in RAG_SYSTEM
     assert "únicamente con el CONTEXTO" not in STRUCTURED_SYSTEM
     assert "resultado estructurado" in STRUCTURED_SYSTEM
-    assert "No tomes pedidos" in STRUCTURED_SYSTEM
+    assert "No tomas pagos ni reservas" in STRUCTURED_SYSTEM
+    assert "No tomes pedidos" not in STRUCTURED_SYSTEM
 
 
 def test_la_ruta_directa_no_finge_buscar_en_el_corpus() -> None:
@@ -216,7 +217,27 @@ def test_el_agente_no_estima_y_cotiza_solo_lo_pedido() -> None:
     assert "promedies" in texto
     assert "solo las combinaciones de producto y cantidad que la persona pidió" in texto
     assert "buscar_producto" in texto
-    assert "No tomes pedidos, reservas ni pagos" in texto
+    assert "No tomas pagos ni reservas ni pides datos de pago o personales" in texto
+
+
+def test_ningun_prompt_niega_el_pedido_que_ofrece_el_sistema() -> None:
+    """Spec 056: tras el folio el sistema ofrece el pedido; el modelo no lo niega."""
+
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    prompts = [AGENT_SYSTEM, STRUCTURED_SYSTEM, COMMERCIAL_INSTRUCTIONS]
+
+    # Act
+    agente = _plano(AGENT_SYSTEM)
+
+    # Assert
+    assert all("No tomes pedidos" not in _plano(texto) for texto in prompts)
+    assert "si la persona quiere comprar, cotiza" in agente
+    assert "le pide el nombre y el correo" in agente
+    assert "a mitad del pedido" in agente and "el sistema le recuerda el paso" in agente
+    assert "Nunca inventes el estado de un pedido" in agente
+    assert "datos de pago o personales" in _plano(COMMERCIAL_INSTRUCTIONS)
 
 
 def test_el_agente_pide_datos_con_sin_consulta() -> None:

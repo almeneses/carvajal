@@ -20,10 +20,12 @@ from carvajal.agent.followup import parse_quantities, plain
 from carvajal.quotation.draft import line_label, totals
 
 __all__ = [
+    "EMAIL_MASK",
     "SHIPPING_CODE",
     "Buyer",
     "OrderLine",
     "OrderRequest",
+    "asks_order_status",
     "correction_name",
     "declines_order",
     "edits_buyer",
@@ -39,10 +41,12 @@ __all__ = [
     "order_lines",
     "spoken_address",
     "spoken_email",
+    "wants_order_cancel",
     "wants_purchase",
 ]
 
 SHIPPING_CODE: Final = "ENVIO-CARVAJAL"
+EMAIL_MASK: Final = "…"
 MAX_NAME: Final = 80
 
 _EMAIL: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
@@ -404,6 +408,26 @@ def is_affirmation(text: str) -> bool:
     return _AFFIRM_START.match(folded) is not None
 
 
+# Tras el pedido creado (spec 056): anularlo o preguntar cómo va lo gestiona un asesor.
+_ORDER_WORD: Final = r"(?:pedido|orden|compra)"
+_ORDER_CANCEL: Final = re.compile(
+    r"\b(?:cancel\w*|anul\w*|revers\w*|devolver|devuelv\w*|desist\w*)\b(?:\s+\w+){0,3}?\s+"
+    + _ORDER_WORD
+    + r"\b|\b(?:ya\s+no|no)\s+quiero\s+(?:el\s+|la\s+|ese\s+|esa\s+)?"
+    + _ORDER_WORD
+    + r"\b|\b"
+    + _ORDER_WORD
+    + r"\b(?:\s+\w+){0,3}?\s+(?:cancel\w*|anul\w*)\b"
+)
+_CANCEL_BARE: Final = frozenset(
+    {"cancelalo", "cancelala", "anulalo", "anulala", "cancelar", "anular", "cancela", "anula"}
+)
+_ORDER_STATUS: Final = re.compile(
+    r"\b(?:como\s+va|como\s+vamos\s+con|estado|seguimiento|donde\s+(?:esta|va)|"
+    r"cuando\s+(?:llega|me\s+llega|despachan|entregan|sale)|que\s+paso\s+con|"
+    r"ya\s+(?:salio|despacharon|enviaron|llego)|muestrame|ver|revisar|consultar)\b"
+    r"(?:\s+\w+){0,3}?\s+" + _ORDER_WORD + r"\b"
+)
 _GOODBYE: Final = re.compile(
     r"^(?:(?:bueno|gracias|ok|listo)\s+)*(?:chao|chau|adios|bye|nos vemos)\b"
 )
@@ -448,10 +472,27 @@ def spoken_address(email: str) -> str:
 
 
 def mask_email(email: str) -> str:
-    """«ana.perez@correo.com» → «a***@correo.com»: para lo que se guarda o se registra."""
+    """«ana.perez@correo.com» → «a…@correo.com»: para lo que se guarda o se registra.
+
+    La máscara no lleva caracteres de Markdown: las plantillas ponen el correo en negrita
+    (``**…**``) y unos asteriscos dentro la rompían en el historial y en WhatsApp.
+    """
 
     user, _, domain = email.partition("@")
-    return f"{user[:1]}***@{domain}" if domain else "***"
+    return f"{user[:1]}{EMAIL_MASK}@{domain}" if domain else EMAIL_MASK
+
+
+def wants_order_cancel(text: str) -> bool:
+    """«Cancela el pedido», «quiero anular la compra», «anúlalo»: tras el pedido creado."""
+
+    folded = plain(text).strip(" .!")
+    return folded in _CANCEL_BARE or _ORDER_CANCEL.search(folded) is not None
+
+
+def asks_order_status(text: str) -> bool:
+    """«¿Cómo va mi pedido?», «estado del pedido», «¿cuándo llega el pedido?»."""
+
+    return _ORDER_STATUS.search(plain(text)) is not None
 
 
 def _plural(basis: str, count: Decimal) -> str:

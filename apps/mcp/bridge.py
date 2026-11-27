@@ -16,6 +16,11 @@ texto listo para WhatsApp.
   «sí», el PDF se adjunta solo; «sí, mándame el PDF» confirma la cotización pendiente. La
   palabra «PDF» sigue devolviendo la última cotización registrada, sin LLM y con cupo.
   Los turnos guardados antes de la 054 se redactan con :func:`whatsapp_quote`.
+- **Pedido** (spec 056): a mitad del pedido (oferta, nombre y correo o «¿Lo confirmo?»),
+  «PDF» entrega el PDF de la cotización y recuerda el paso pendiente, sin turno y sin
+  crear el pedido. Con el pedido ya confirmado, «PDF» o «mándame el recibo» reenvían el
+  recibo del pedido (:func:`is_receipt_request`); «el PDF de la cotización», la cotización.
+  En el folio, la oferta del pedido cierra el mensaje, después del PDF adjunto.
 - **Formato**: el Markdown del modelo se pasa al formato de WhatsApp (``*negrita*``,
   ``_cursiva_``, sin encabezados ni enlaces Markdown) de forma determinista, sin LLM.
 - **Voz**: ``consult(..., voice=True)`` devuelve un **resumen hablado** del turno para el
@@ -62,7 +67,7 @@ from carvajal.food.photo import MAX_PHOTO_BYTES, PhotoRejected, PreparedPhoto, p
 from carvajal.food.profile import FoodProfile
 from carvajal.food.render import PHOTO_REJECTED, PHOTO_UNAVAILABLE
 from carvajal.infrastructure.metrics import WHATSAPP_EVENTS
-from carvajal.quotation.render import RECEIPT_PROMISE
+from carvajal.quotation.render import ORDER_OFFER, RECEIPT_PROMISE, order_reminder
 from carvajal.speech import (
     SUMMARY_POINTERS,
     SpeechLink,
@@ -99,6 +104,7 @@ __all__ = [
     "canonical_chat_id",
     "is_new_conversation_request",
     "is_pdf_request",
+    "is_receipt_request",
     "owner_key_for",
     "quote_remarks",
     "read_inbound_photo",
@@ -502,14 +508,43 @@ def is_pdf_request(message: str, *, spoken: bool = False) -> bool:
     con letras cirílicas.
     """
 
+    words = _pdf_words(message, spoken=spoken)
+    return "pdf" in words and len(words) <= 8 and all(word in _PDF_FILLER for word in words)
+
+
+def _pdf_words(message: str, *, spoken: bool = False) -> list[str]:
+    """Palabras del mensaje plegado, con cada forma de «PDF» convertida en ``pdf``."""
+
     folded = _fold(message)
     # Cada sustitución deja espacios dobles; se colapsan para que la siguiente vea «m pdf»
     # (de «M P D F» o «em p d f») y no «m  pdf», que no casaría.
     folded = " ".join(_PDF_TYPED.sub(" pdf ", folded).split())
     if spoken:
         folded = " ".join(_PDF_SPOKEN.sub(" pdf ", folded).split())
-    words = _PDF_WORDS.findall(folded)
-    return "pdf" in words and len(words) <= 8 and all(word in _PDF_FILLER for word in words)
+    return _PDF_WORDS.findall(folded)
+
+
+# Spec 056: palabras que, además del relleno del PDF, puede llevar el pedido del recibo.
+_RECEIPT_FILLER = _PDF_FILLER | {"recibo", "pedido", "del", "mi", "compra"}
+
+
+def is_receipt_request(message: str, *, spoken: bool = False) -> bool:
+    """«mándame el recibo», «el PDF del pedido», «recibo de mi compra»: el recibo del pedido.
+
+    Como :func:`is_pdf_request`, solo si el mensaje es corto y todo es relleno, y además
+    nombra el recibo o el PDF del pedido: «¿cuándo recibo el pedido?» es una pregunta para
+    el agente. Solo pide el recibo; si no hay pedido confirmado, el turno sigue su curso.
+    """
+
+    words = _pdf_words(message, spoken=spoken)
+    named = "recibo" in words or ("pdf" in words and "pedido" in words)
+    return named and len(words) <= 8 and all(word in _RECEIPT_FILLER for word in words)
+
+
+def _names_quote(message: str) -> bool:
+    """El mensaje nombra la cotización («el PDF de la cotización»), no el pedido."""
+
+    return "cotizacion" in _fold(message).split()
 
 
 # «… en Bogotá y genérame el PDF», «…, y mándalo en pdf»: cláusula final con «pdf».
@@ -1234,12 +1269,24 @@ class WhatsAppBridge:
                 return BridgeReply(LIMIT_REACHED), False, True
             effects.quota = True
         pending = False
-        if is_pdf_request(text, spoken=voice):
-            pending = self._awaiting_confirmation(owner)
-            if not pending:
-                # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
-                pdf, final = self._pdf(owner)
+        asks_pdf = is_pdf_request(text, spoken=voice)
+        if asks_pdf or is_receipt_request(text, spoken=voice):
+            # Sin turno ni LLM: un reintento recibe el mismo enlace desde la reserva.
+            step = self._pending_order_step(owner)
+            if step is not None:
+                # Spec 056: a mitad del pedido, «PDF» (o «sí, mándame el PDF») no es el «sí»
+                # del pedido: se entrega la cotización y se recuerda el paso; el borrador
+                # queda igual.
+                pdf, final = self._pdf_with_reminder(owner, step)
                 return pdf, False, final
+            pending = asks_pdf and self._awaiting_confirmation(owner)
+            if not pending:
+                receipt = None if _names_quote(text) else self._order_receipt(owner)
+                if receipt is not None:
+                    return receipt, False, True
+                if asks_pdf:
+                    pdf, final = self._pdf(owner)
+                    return pdf, False, final
         # Spec 054: con una cotización por confirmar, pedir el PDF es un «sí»: el turno la
         # registra y el PDF se adjunta solo.
         question, wants_pdf = (PDF_CONFIRMATION, False) if pending else split_pdf_request(text)
@@ -1261,6 +1308,85 @@ class WhatsAppBridge:
         except Exception as error:
             logger.warning("whatsapp.awaiting_failed", error=repr(error))
             return False
+
+    def _pending_order_step(self, owner: str) -> str | None:
+        """Paso del pedido que espera el hilo activo (spec 056); ``None`` si no hay o falla."""
+
+        check = getattr(self.chat, "pending_order_step", None)
+        if not callable(check):
+            return None
+        try:
+            step = check(owner)
+        except Exception as error:
+            logger.warning("whatsapp.order_step_failed", error_type=type(error).__name__)
+            return None
+        return str(step) if step else None
+
+    def _pdf_with_reminder(self, owner: str, step: str) -> tuple[BridgeReply, bool]:
+        """El PDF de la cotización y, debajo, la pregunta pendiente del pedido (spec 056)."""
+
+        pdf, final = self._pdf(owner)
+        reminder = order_reminder(step)
+        if reminder is None:
+            return pdf, final
+        # ``omitted``: con voz, lo escrito (el adjunto o el enlace) va tras TEXTO.
+        spoken = combine([pdf.voice(), SpokenReply(reminder.spoken, omitted=True)])
+        text = f"{pdf.text}\n\n{to_whatsapp(reminder.text)}"
+        logger.info("whatsapp.pdf_mid_order", step=step)
+        return BridgeReply(text, spoken=spoken), final
+
+    def _order_receipt(self, owner: str) -> BridgeReply | None:
+        """El recibo del pedido de la última cotización (spec 056), o ``None`` si no hay.
+
+        ``None`` sin forma de entregarlo, sin cotización, sin pedido confirmado en el CRM
+        (``ChatService.order_of``) o si falla: entonces «PDF» devuelve la cotización.
+        """
+
+        lookup = getattr(self.chat, "order_of", None)
+        if not callable(lookup) or (self.order_attachment is None and self.order_link is None):
+            return None
+        view = self._latest_view(owner)
+        if view is None or not view.folio:
+            return None
+        try:
+            name = lookup(view.folio)
+        except Exception as error:  # el servicio ya lo atrapa; esto es por si acaso
+            logger.warning("whatsapp.order_lookup_failed", error_type=type(error).__name__)
+            return None
+        if not name:
+            return None
+        receipt = self._receipt_block(view.folio, str(name), owner)
+        if receipt is None:
+            return None
+        block, link = receipt
+        said = "Te mando por escrito el recibo de tu pedido."
+        if link is None:
+            # Con voz, la línea del adjunto tiene que llegar a OpenClaw: va tras TEXTO.
+            return BridgeReply(block, spoken=SpokenReply(said, omitted=True))
+        links = (SpeechLink(f"Recibo del pedido {name} en PDF", link),)
+        return BridgeReply(block, spoken=SpokenReply(said, links))
+
+    def _receipt_block(self, folio: str, name: str, owner: str) -> tuple[str, str | None] | None:
+        """``(texto, enlace)`` del recibo: adjunto (sin enlace a la vista) o enlace firmado.
+
+        ``None`` sin ``order_attachment`` ni ``order_link`` o si firmar el enlace falla.
+        """
+
+        try:
+            if folio and self.order_attachment is not None:
+                url = self.order_attachment(folio, owner)
+                logger.info("whatsapp.order_attachment", folio=folio)
+                text = (
+                    f"📄 Te envío el recibo de tu pedido {name} en PDF.\n{ATTACH_PDF_PREFIX}{url}"
+                )
+                return text, None
+            if folio and self.order_link is not None:
+                url = self.order_link(folio, owner)
+                logger.info("whatsapp.order_link", folio=folio)
+                return f"📄 Recibo de tu pedido {name} en PDF. Ábrelo aquí:\n\n{url}", url
+        except Exception as error:
+            logger.warning("whatsapp.order_link_failed", error_type=type(error).__name__)
+        return None
 
     def _with_pdf(self, reply: BridgeReply, owner: str) -> BridgeReply:
         """La cotización del turno con su PDF ya entregado, en vez de la oferta."""
@@ -1419,6 +1545,9 @@ class WhatsAppBridge:
         if listed:
             blocks.append(listed)
         written = self._with_receipt(to_whatsapp(template), turn.flow, owner)
+        # Spec 056: la oferta del pedido es la pregunta pendiente; se saca de la plantilla
+        # para que cierre el mensaje, después de las fotos y del PDF adjunto.
+        written, offer = _split_order_offer(written)
         pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
         if turn.folios and not pdf_enabled:
             written = written.replace("\n📄 Te envío el PDF.", "")
@@ -1442,7 +1571,9 @@ class WhatsAppBridge:
         voice = combine(spoken)
         reply = BridgeReply("\n\n".join(blocks), tuple(turn.folios), spoken=voice)
         if turn.folios and pdf_enabled:
-            return self._attach_pdf(reply, owner)
+            reply = self._attach_pdf(reply, owner)
+        if offer:
+            reply = BridgeReply(f"{reply.text}\n\n{offer}", reply.quote_ids, spoken=reply.spoken)
         return reply
 
     def _with_receipt(self, written: str, flow: Mapping[str, Any], owner: str) -> str:
@@ -1466,22 +1597,10 @@ class WhatsAppBridge:
             return written
         folio = str(order.get("folio") or "")
         name = str(order.get("name") or "")
-        try:
-            if folio and self.order_attachment is not None:
-                url = self.order_attachment(folio, owner)
-                logger.info("whatsapp.order_attachment", folio=folio)
-                block = (
-                    f"\n📄 Te envío el recibo de tu pedido {name} en PDF.\n{ATTACH_PDF_PREFIX}{url}"
-                )
-                return written.replace(promise, block, 1)
-            if folio and self.order_link is not None:
-                url = self.order_link(folio, owner)
-                logger.info("whatsapp.order_link", folio=folio)
-                block = f"\n📄 Recibo de tu pedido {name} en PDF. Ábrelo aquí:\n\n{url}"
-                return written.replace(promise, block, 1)
-        except Exception as error:
-            logger.warning("whatsapp.order_link_failed", error_type=type(error).__name__)
-        return written.replace(promise, "", 1)
+        receipt = self._receipt_block(folio, name, owner)
+        if receipt is None:
+            return written.replace(promise, "", 1)
+        return written.replace(promise, f"\n{receipt[0]}", 1)
 
     def _attach_pdf(self, reply: BridgeReply, owner: str) -> BridgeReply:
         """La cotización recién registrada con su PDF ya entregado (spec 054)."""
@@ -1572,6 +1691,16 @@ class WhatsAppBridge:
         text = f"📄 Tu cotización #{view.folio} en PDF{until}. Ábrela aquí:\n\n{url}"
         link = SpeechLink(f"Cotización {view.folio} en PDF", url)
         return BridgeReply(text, spoken=SpokenReply(said, (link,))), True
+
+
+def _split_order_offer(written: str) -> tuple[str, str]:
+    """``(texto sin la oferta del pedido, la oferta)``; ``(texto, "")`` si no la trae."""
+
+    for form in dict.fromkeys((to_whatsapp(ORDER_OFFER), ORDER_OFFER)):
+        if form in written:
+            line = f"\n{form}" if f"\n{form}" in written else form
+            return written.replace(line, "", 1).rstrip(), form
+    return written, ""
 
 
 @dataclass

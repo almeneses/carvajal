@@ -29,11 +29,14 @@ if TYPE_CHECKING:
 JEV_HOST = "api.typesafe.ai"
 # Spec 047: la voz del servidor usa OpenAI; las pruebas nunca la llaman de verdad.
 OPENAI_HOST = "api.openai.com"
-BLOCKED_HOSTS = frozenset({JEV_HOST, OPENAI_HOST})
+# Spec 056: el Odoo de producción (``http://odoo:8069`` en la red de Docker). Las pruebas del
+# adaptador usan ``httpx.MockTransport``, que no pasa por este bloqueo.
+ODOO_HOST = "odoo"
+BLOCKED_HOSTS = frozenset({JEV_HOST, OPENAI_HOST, ODOO_HOST})
 
 
 class JevNetworkBlocked(AssertionError):
-    """Una prueba intentó conectarse a TypeSafe o a OpenAI."""
+    """Una prueba intentó conectarse a TypeSafe, a OpenAI o al Odoo de producción."""
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +57,13 @@ def _jev_apagado(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HTTPS_REDIRECT", "false")
     # El calentamiento de embeddings llamaría al Ollama local al arrancar el TestClient.
     monkeypatch.setenv("EMBED_WARM_UP", "false")
+    # Spec 056: con ``ODOO_*`` en la shell o en un ``.env`` local, ``ChatService`` armaría el
+    # CRM real y un «sí» crearía pedidos de verdad. Vacías ganan al ``.env``, así que el CRM
+    # queda apagado; las pruebas del pedido inyectan ``orders`` o fijan los ajustes.
+    for name in ("ODOO_URL", "ODOO_DB", "ODOO_API_KEY"):
+        monkeypatch.setenv(name, "")
+    for name in ("ODOO_TIMEOUT_S", "ODOO_SALES_LOGIN"):
+        monkeypatch.delenv(name, raising=False)  # con sus defaults de ``Settings``
     original = httpx.HTTPTransport.handle_request
     original_async = httpx.AsyncHTTPTransport.handle_async_request
 

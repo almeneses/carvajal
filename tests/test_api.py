@@ -75,6 +75,7 @@ def test_health_devuelve_estado_y_conteos() -> None:
     assert payload.pop("claims") == claims_health(Settings())
     assert payload.pop("voice") == voice_health(Settings())
     assert payload.pop("food_photo") == food_photo_health(Settings())
+    assert payload.pop("odoo")["configured"] is Settings().odoo_configured
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-25"
@@ -102,6 +103,7 @@ def test_health_degradado_no_filtra_detalles() -> None:
     assert payload.pop("claims") == claims_health(Settings())
     assert payload.pop("voice") == voice_health(Settings())
     assert payload.pop("food_photo") == food_photo_health(Settings())
+    assert payload.pop("odoo")["configured"] is Settings().odoo_configured
     assert payload == {
         "status": "degraded",
         "detail": DB_UNAVAILABLE,
@@ -399,6 +401,7 @@ def test_create_app_difiere_los_handlers_a_la_primera_peticion(
     payload.pop("claims")
     payload.pop("voice")
     payload.pop("food_photo")
+    payload.pop("odoo")
     catalog = payload.pop("catalog")
     assert catalog["status"] == "ok"
     assert catalog["version"] == "2026-11-25"

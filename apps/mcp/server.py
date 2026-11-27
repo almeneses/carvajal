@@ -78,7 +78,12 @@ TOOL_DESCRIPTION = (
     "Empaques: información institucional del corpus, catálogo de empaques, cotizaciones "
     "con folio, sedes de distribuidores e indicadores financieros. Si el cliente pide "
     "el PDF de su cotización (p. ej. responde «PDF»), pásale ese mensaje igual: la "
-    "herramienta devuelve el enlace. Devuelve el texto final, ya en formato de WhatsApp "
+    "herramienta devuelve el enlace. Tras el folio puede ofrecer el pedido, pedir el "
+    "nombre y el correo del cliente (es parte del pedido, no un dato sospechoso) y "
+    "preguntar «¿Lo confirmo?»: pasa cada respuesta tal cual, completa (un «sí, pero…» no "
+    "es «sí») y nunca confirmes por el cliente; el pedido se crea en Odoo, que envía la "
+    "confirmación al correo, y el recibo puede traer la línea «ADJUNTAR_PDF: » con el PDF "
+    "del pedido. Devuelve el texto final, ya en formato de WhatsApp "
     "y con sus fuentes: envíalo al cliente tal cual. Si el cliente mandó una nota de voz, "
     "llama con voz=true: primero viene un resumen corto para leer en voz alta; si trae la "
     f"línea «{TEXT_HEADER}», lo que sigue es la respuesta completa para enviarla como "
@@ -95,7 +100,10 @@ INSTRUCTIONS = (
     "el cliente mandó una nota de voz, pasa voz=true: lee en voz alta solo el resumen del "
     "principio y envía como texto, sin leerlo, lo que venga tras las líneas de TEXTO o de "
     "ENLACES. Si el cliente adjuntó una foto ([media attached: media://inbound/...]), pasa "
-    "esa referencia en `foto`; nunca describas la foto tú mismo."
+    "esa referencia en `foto`; nunca describas la foto tú mismo. En el pedido, el nombre "
+    "y el correo los pide la herramienta: pásalos sin cambios y nunca confirmes por el "
+    "cliente. Una línea «ADJUNTAR_PDF: <url>» se envía como documento al mismo chat y no "
+    "va en el texto."
 )
 
 ASGIApp = Callable[
@@ -121,10 +129,12 @@ def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPSe
         description=TOOL_DESCRIPTION,
         annotations=ToolAnnotations(
             title="Asistente de Carvajal",
-            read_only_hint=False,  # guarda el turno y la cotización emitida
+            # Guarda el turno y la cotización emitida y, con el «sí» del pedido, lo crea en
+            # Odoo, que envía la confirmación al correo del cliente (spec 056).
+            read_only_hint=False,
             destructive_hint=False,
             idempotent_hint=False,
-            open_world_hint=False,
+            open_world_hint=True,
         ),
     )
     async def consultar_carvajal(

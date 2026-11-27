@@ -5,13 +5,18 @@ El ensayo no importa la app y copia sus textos; aquí se corren sus pasos contra
 cambio de plantilla rompa esta prueba y no el ensayo en producción.
 """
 
+import sys
 from collections.abc import Iterator
+from dataclasses import replace
 from itertools import count
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
+from tests.e2e import correo_odoo
+from tests.e2e.clientes import Config, Ssh
 from tests.e2e.guiones import (
     ACEPTAR_PEDIDO,
     CONFIRMAR_DATOS,
@@ -19,28 +24,54 @@ from tests.e2e.guiones import (
     GUIONES,
     OFERTA_PEDIDO,
     PEDIDO_FALLIDO,
+    PROMESA_RECIBO,
+    REGISTRO,
+    Paso,
     PedidosApagados,
+    Recibo,
     Respuesta,
+    Transcripcion,
     correo_de_prueba,
     ejecutar,
     ejecutar_pedido,
     formato,
     inferir_awaiting,
     nombre_de_prueba,
+    oferta_ausente,
+    recibo_en,
     registra,
 )
 from tests.test_pedidos_odoo import FakeOrders, _service
 
 from apps.api.chat.service import ChatService
-from apps.mcp.bridge import to_whatsapp
+from apps.api.quote_links import order_pdf_url
+from apps.mcp.bridge import WhatsAppBridge, to_whatsapp
 from carvajal.adapters.crm import OdooError, OrderResult
 from carvajal.adapters.storage import tables
 from carvajal.quotation import render
 from carvajal.quotation.order import Buyer, OrderRequest, has_buyer_data, merge_buyer
-from carvajal.quotation.render import ORDER_OFFER
+from carvajal.quotation.render import ORDER_OFFER, RECEIPT_PROMISE
 
 GUION_REGISTRO = next(guion for guion in GUIONES if guion.designado)
 _DUENOS = count()
+SECRETO = b"secreto-del-ensayo"
+MEDIOS = "https://medios.ensayo.test"
+WEB = "https://carvajal.ensayo.test"
+FOLIO = "0123456789ab"
+
+
+def _adjunto(folio: str, dueno: str) -> str:
+    return order_pdf_url(MEDIOS, folio, dueno, 4_102_444_800, SECRETO)
+
+
+def _enlace(folio: str, dueno: str) -> str:
+    return order_pdf_url(WEB, folio, dueno, 4_102_444_800, SECRETO)
+
+
+def _puente(**enlaces: Any) -> WhatsAppBridge:
+    """El puente de WhatsApp solo para entregar el recibo (``_with_receipt``)."""
+
+    return WhatsAppBridge(chat=cast(Any, object()), secret=SECRETO, **enlaces)
 
 
 @pytest.fixture()
@@ -64,7 +95,9 @@ class CanalServicio:
     """Un canal del ensayo sobre ``ChatService``: web tal cual o WhatsApp (``*x*``, sin flujo).
 
     En WhatsApp el estado se deduce del texto, como en el ensayo; solo el turno del agente
-    simulado (que no trae el texto del carrito) usa el ``awaiting`` del servicio.
+    simulado (que no trae el texto del carrito) usa el ``awaiting`` del servicio. Cada canal
+    entrega el recibo del pedido como en producción: la web con ``render.receipt_offer`` (la
+    vista del stream) y WhatsApp con el adjunto del puente (``ADJUNTAR_PDF:``).
     """
 
     def __init__(self, service: ChatService, nombre: str = "web") -> None:
@@ -72,6 +105,7 @@ class CanalServicio:
         self.nombre = nombre
         self.dueno = ""
         self.registros: list[str] = []
+        self.puente = _puente(order_attachment=_adjunto)
 
     def reiniciar(self) -> None:
         prefijo = "wa_" if self.nombre == "whatsapp" else "visitante-"
@@ -85,7 +119,9 @@ class CanalServicio:
         awaiting = (cierre.get("flow") or {}).get("awaiting")
         if self.nombre == "whatsapp":
             plano = texto.replace("**", "*")
+            plano = self.puente._with_receipt(plano, cierre.get("flow") or {}, self.dueno)
             return Respuesta(texto=plano, awaiting=inferir_awaiting(plano) if fijo else awaiting)
+        texto = render.receipt_offer(texto, lambda folio: f"{WEB}/pedidos/{folio}.pdf")
         return Respuesta(
             texto=texto,
             awaiting=awaiting,
@@ -177,6 +213,10 @@ def test_el_pedido_del_ensayo_se_crea_con_el_comprador_del_run(engine: Any, cana
     assert formato(f"- Correo: **{correo}**", canal) in confirmacion.texto
     _, creado = pedido.transcripcion.turnos[-2]
     assert formato(f"La confirmación del pedido llega a **{correo}**", canal) in creado.texto
+    recibo = recibo_en(creado.texto, canal)
+    assert recibo is not None
+    assert (recibo.folio, recibo.numero) == (pedido.folio, "S00001")
+    assert PROMESA_RECIBO not in creado.texto
     (request,) = orders.requests
     assert request.folio == pedido.folio
     assert request.buyer == Buyer(nombre, correo)
@@ -299,6 +339,11 @@ def test_la_oferta_del_ensayo_es_la_de_la_app() -> None:
         (render.order_placed("S00001", "e2e-x@example.com", "abc"), None),
         (render.already_ordered("S00001"), None),
         (render.order_declined("abc"), None),
+        # «No, …» o «sí, pero…» ante la confirmación: el pedido sigue por confirmar.
+        (render.which_correction(), "confirmar_pedido"),
+        (render.order_expired(["Vaso rígido"]), None),
+        (render.order_cancel_request("S00001"), None),
+        (render.order_status("S00001"), None),
     ],
 )
 def test_whatsapp_deduce_cada_paso_del_pedido_del_texto(
@@ -313,3 +358,249 @@ def test_whatsapp_deduce_cada_paso_del_pedido_del_texto(
 
     # Assert
     assert awaiting == esperado
+
+
+# --- Recibo del pedido (spec 056, SC-008) -------------------------------------------------
+
+
+def test_el_recibo_de_la_web_se_lee_del_enlace_de_la_vista() -> None:
+    # Arrange: el texto que la vista del stream entrega con la cookie del dueño.
+    confirmado = render.order_placed("S00042", "e2e-x@example.com", FOLIO).text
+    texto = render.receipt_offer(confirmado, lambda folio: f"{WEB}/pedidos/{folio}.pdf")
+
+    # Act
+    recibo = recibo_en(texto, "web")
+
+    # Assert
+    assert recibo == Recibo(url=f"{WEB}/pedidos/{FOLIO}.pdf", folio=FOLIO, numero="S00042")
+    assert recibo.ruta == f"/pedidos/{FOLIO}.pdf"
+    assert PROMESA_RECIBO not in texto
+    assert PROMESA_RECIBO in RECEIPT_PROMISE
+    assert recibo_en(confirmado, "web") is None  # sin enlace (la promesa cruda)
+
+
+@pytest.mark.parametrize("entrega", ["order_attachment", "order_link"])
+def test_el_recibo_de_whatsapp_se_lee_del_adjunto_y_del_enlace_del_puente(entrega: str) -> None:
+    # Arrange: el pedido confirmado tal como lo entrega el puente (adjunto o enlace firmado).
+    enlaces = {"order_attachment": _adjunto, "order_link": _enlace}
+    puente = _puente(**{entrega: enlaces[entrega]})
+    escrito = to_whatsapp(render.order_placed("S00042", "e2e-x@example.com", FOLIO).text)
+    flujo = {"order": {"name": "S00042", "folio": FOLIO}}
+
+    # Act
+    texto = puente._with_receipt(escrito, flujo, "wa_ensayo")
+    recibo = recibo_en(texto, "whatsapp")
+
+    # Assert
+    assert recibo is not None
+    assert (recibo.folio, recibo.numero) == (FOLIO, "S00042")
+    assert recibo.url == enlaces[entrega](FOLIO, "wa_ensayo")
+    assert recibo.ruta.startswith(f"/pedidos/{FOLIO}.pdf?t=")
+    assert PROMESA_RECIBO not in texto
+    assert ("ADJUNTAR_PDF: " in texto) is (entrega == "order_attachment")
+
+
+def test_sin_enlace_whatsapp_quita_la_promesa_y_no_hay_recibo() -> None:
+    # Arrange
+    escrito = to_whatsapp(render.order_placed("S00042", "e2e-x@example.com", FOLIO).text)
+
+    # Act
+    texto = _puente()._with_receipt(escrito, {"order": {"name": "S00042", "folio": FOLIO}}, "x")
+
+    # Assert
+    assert recibo_en(texto, "whatsapp") is None
+    assert PROMESA_RECIBO not in texto
+
+
+def test_un_folio_sin_oferta_se_detecta() -> None:
+    # Arrange
+    con_oferta = Transcripcion(
+        "web", [(REGISTRO, Respuesta(f"Cotización #{FOLIO} registrada\n{ORDER_OFFER}", "pedido"))]
+    )
+    sin_oferta = Transcripcion(
+        "web", [(REGISTRO, Respuesta(f"Cotización #{FOLIO} registrada", None))]
+    )
+    sin_registro = Transcripcion("web", [(Paso("hola"), Respuesta("Hola", None))])
+
+    # Act / Assert
+    assert oferta_ausente(con_oferta) is None
+    assert oferta_ausente(sin_oferta) == FOLIO
+    assert oferta_ausente(sin_registro) is None
+
+
+@pytest.mark.parametrize(
+    ("base", "valor", "esperado"),
+    [
+        ("https://carvajal.example", "", True),
+        ("https://carvajal.example", "0", False),
+        ("http://127.0.0.1:8000", "", False),
+        ("http://127.0.0.1:8000", "1", True),
+    ],
+)
+def test_en_produccion_se_esperan_los_pedidos(
+    monkeypatch: pytest.MonkeyPatch, base: str, valor: str, esperado: bool
+) -> None:
+    # Arrange
+    monkeypatch.setenv("ENSAYO_BASE_URL", base)
+    monkeypatch.delenv("ENSAYO_TARGET", raising=False)
+    monkeypatch.setenv("ENSAYO_EXPECT_PEDIDOS", valor)
+
+    # Act
+    config = Config.desde_entorno()
+
+    # Assert
+    assert config.expect_pedidos is esperado
+
+
+# --- Correo de confirmación en Odoo (spec 056, SC-001) ------------------------------------
+
+PEDIDO_OK = {
+    "configurado": True,
+    "pedidos": [{"name": "S00042", "state": "sale"}],
+    "correos": ["sent"],
+    "mensajes_con_adjunto": 1,
+}
+
+
+def _nombra(mensajes: list[str], marca: str | None) -> bool:
+    """Sin ``marca``, ninguno; con ella, alguno de los mensajes la nombra."""
+
+    return any(marca in mensaje for mensaje in mensajes) if marca else not mensajes
+
+
+@pytest.mark.parametrize(
+    ("resumen", "fallo", "aviso"),
+    [
+        (PEDIDO_OK, None, None),
+        ({**PEDIDO_OK, "correos": []}, None, None),  # auto_delete: el correo ya salió
+        ({**PEDIDO_OK, "correos": ["exception"]}, "excepción", None),
+        ({**PEDIDO_OK, "correos": ["outgoing"]}, None, "cola"),
+        ({**PEDIDO_OK, "correos": {"error": 403}}, None, "mail.mail"),
+        ({**PEDIDO_OK, "mensajes_con_adjunto": 0}, None, "PDF adjunto"),
+        ({**PEDIDO_OK, "pedidos": [{"name": "S00042", "state": "draft"}]}, "draft", None),
+        ({**PEDIDO_OK, "pedidos": [PEDIDO_OK["pedidos"][0]] * 2}, "2 pedidos", None),
+        ({**PEDIDO_OK, "pedidos": []}, "ningún sale.order", None),
+        ({**PEDIDO_OK, "pedidos": {"error": 401}}, "status 401", None),
+        ({"configurado": False}, "ODOO_URL", None),
+        (None, "no se pudo leer Odoo", None),
+    ],
+)
+def test_el_veredicto_del_correo_del_pedido(
+    resumen: dict[str, Any] | None, fallo: str | None, aviso: str | None
+) -> None:
+    # Act
+    fallos, avisos = correo_odoo.veredicto(resumen, FOLIO)
+
+    # Assert
+    assert _nombra(fallos, fallo), fallos
+    assert _nombra(avisos, aviso), avisos
+
+
+LLAMADAS_ODOO: list[tuple[str, Any]] = []
+
+
+class OdooDeLectura:
+    """``OdooClient`` de solo lectura para el script del contenedor (sin red)."""
+
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        pass
+
+    def search_read(self, model: str, domain: Any, fields: Any) -> Any:
+        LLAMADAS_ODOO.append((model, domain))
+        if model == "sale.order":
+            return [{"id": 7, "name": "S00042", "state": "sale", "partner_id": [1, "Ana"]}]
+        if model == "mail.mail":
+            raise OdooError("Acceso denegado", 403)
+        return [{"id": 1}]
+
+    def close(self) -> None:
+        pass
+
+
+class AjustesConOdoo:
+    odoo_configured = True
+    odoo_url = "https://odoo.ensayo.test"
+    odoo_db = "ensayo"
+
+    odoo_api_key = SecretStr("clave-que-no-sale")
+
+
+def test_el_script_del_contenedor_solo_lee_y_no_imprime_la_clave(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Arrange
+    import carvajal.adapters.crm.odoo as odoo
+    import carvajal.infrastructure.settings as ajustes
+
+    LLAMADAS_ODOO.clear()
+    monkeypatch.setattr(odoo, "OdooClient", OdooDeLectura)
+    monkeypatch.setattr(ajustes, "Settings", AjustesConOdoo)
+    monkeypatch.setattr(sys, "argv", ["-c", FOLIO])
+
+    # Act
+    exec(compile(correo_odoo.SCRIPT, "<script>", "exec"), {"__name__": "__main__"})
+    salida = capsys.readouterr().out
+
+    # Assert
+    resumen = correo_odoo.leer_resumen(f"ruido de docker\n{salida}")
+    assert resumen == {
+        "configurado": True,
+        "pedidos": [{"name": "S00042", "state": "sale"}],
+        "correos": {"error": 403},
+        "mensajes_con_adjunto": 1,
+    }
+    assert "clave-que-no-sale" not in salida and "Ana" not in salida
+    assert [modelo for modelo, _ in LLAMADAS_ODOO] == [
+        "sale.order",
+        "mail.mail",
+        "mail.message",
+    ]
+    assert LLAMADAS_ODOO[0][1] == [["client_order_ref", "=", FOLIO]]
+    fallos, avisos = correo_odoo.veredicto(resumen, FOLIO)
+    assert not fallos and len(avisos) == 1
+
+
+def _config(**cambios: Any) -> Config:
+    return replace(Config.desde_entorno(), **cambios)
+
+
+def test_un_correo_en_la_cola_se_vuelve_a_leer_hasta_que_sale() -> None:
+    # Arrange
+    lecturas = iter([{**PEDIDO_OK, "correos": ["outgoing"]}, PEDIDO_OK])
+    leidos: list[str] = []
+
+    def leer(folio: str) -> dict[str, Any]:
+        leidos.append(folio)
+        return next(lecturas)
+
+    # Act
+    correo_odoo.comprobar_correo_del_pedido(_config(), FOLIO, "web", leer=leer, pausa=0)
+
+    # Assert
+    assert leidos == [FOLIO, FOLIO]
+
+
+def test_un_correo_en_excepcion_hace_fallar_el_ensayo_del_pedido() -> None:
+    # Arrange
+    resumen = {**PEDIDO_OK, "correos": ["sent", "exception"]}
+
+    # Act / Assert
+    with pytest.raises(AssertionError, match="excepción"):
+        correo_odoo.comprobar_correo_del_pedido(
+            _config(), FOLIO, "whatsapp", leer=lambda _folio: resumen, pausa=0
+        )
+
+
+def test_sin_ssh_el_correo_queda_para_la_revision_manual(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Act
+    correo_odoo.comprobar_correo_del_pedido(_config(target="prod", app_ssh=""), FOLIO, "web")
+
+    # Assert
+    assert "revísalo a mano" in capsys.readouterr().out
+
+
+def test_el_folio_del_script_se_valida_antes_del_ssh() -> None:
+    with pytest.raises(ValueError, match="folio inválido"):
+        correo_odoo.leer_pedido(Ssh("nadie@ensayo.invalid"), "/opt/carvajal", "x; rm -rf /")

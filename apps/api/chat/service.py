@@ -191,7 +191,14 @@ def _without_buyer(text: str, buyers: Sequence[Buyer | None]) -> str:
             text = text.replace(spoken_address(buyer.email), "el correo que escribiste")
         if buyer.name:
             text = text.replace(buyer.name, "(tu nombre)")
-    return _EMAIL_TEXT.sub(lambda found: mask_email(found.group(0)), text)
+    return _EMAIL_TEXT.sub(_masked, text)
+
+
+def _masked(found: re.Match[str]) -> str:
+    """Cualquier otro correo del texto, enmascarado; el del ejemplo fijo queda igual."""
+
+    email = found.group(0)
+    return email if email == quote_render.EXAMPLE_EMAIL else mask_email(email)
 
 
 _EMAIL_TEXT: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
@@ -353,6 +360,46 @@ class ChatService:
         if draft.expired() or not draft.lines:
             return False
         return draft.awaiting in {"confirmar", "algo_mas"}
+
+    def pending_order_step(self, owner_key: str) -> str | None:
+        """Paso del pedido que espera el hilo activo (spec 056), o ``None``.
+
+        ``"pedido"`` (la oferta tras el folio), ``"datos_pedido"`` (nombre y correo) o
+        ``"confirmar_pedido"`` (el «¿Lo confirmo?»). Lo usa WhatsApp para decidir qué hace
+        «PDF» a mitad del pedido. Nunca lanza: ante cualquier fallo, ``None``.
+        """
+
+        try:
+            with self._session_factory() as session:
+                conversation = SqlChatRepository(session).active(owner_key)
+                if conversation is None:
+                    return None
+                draft = SqlDraftRepository(session).get(conversation.id)
+            if draft.expired() or draft.state != "registrada" or not draft.folio:
+                return None
+            if draft.order or draft.awaiting not in quote_flow.ORDER_AWAITING:
+                return None
+            return draft.awaiting
+        except Exception as error:  # una consulta auxiliar nunca rompe el canal
+            logger.warning("pedido.paso_no_leido", error_type=type(error).__name__)
+            return None
+
+    def order_of(self, folio: str) -> str | None:
+        """Número del pedido confirmado en Odoo para la cotización ``folio``, o ``None``.
+
+        ``None`` sin CRM configurado, sin pedido confirmado o ante cualquier error del CRM.
+        """
+
+        orders = self._orders()
+        lookup = getattr(orders, "order_name", None)
+        if not folio or lookup is None:
+            return None
+        try:
+            name = lookup(folio)
+        except Exception as error:  # el CRM caído no rompe el canal
+            logger.warning("pedido.numero_no_leido", error_type=type(error).__name__)
+            return None
+        return str(name) if name else None
 
     def _config(self) -> Settings:
         """Configuración del proceso, leída de forma perezosa una sola vez."""
@@ -1549,6 +1596,7 @@ class ChatService:
         products: dict[str, Any] = {}
         records: list[dict[str, Any]] = []
         folio: str | None = None
+        offered = False
         if decision.register:
             payload = draft_quote_payload(draft)
             folio = _quote_folio(conversation.id, f"borrador:{draft.revision}:{draft.updated_at}")
@@ -1567,9 +1615,11 @@ class ChatService:
             )
             logger.info("cotizacion.registrada", lineas=len(decision.draft.lines))
             if self._orders() is not None:
-                # Spec 056: con el CRM configurado, el folio ofrece hacer el pedido.
+                # Spec 056: con el CRM configurado, el folio ofrece hacer el pedido. La oferta
+                # es la última línea, después de la promesa del PDF.
                 message = quote_render.order_offer(message)
                 draft = draft.touch(awaiting="pedido")
+                offered = True
         elif decision.order is not None:
             message, draft = self._place_order(owner_key, draft, decision.order)
         # Spec 056: el nombre y el correo de quien compra solo viajan a Odoo. El turno se
@@ -1580,6 +1630,9 @@ class ChatService:
         stored_question = ORDER_DATA_PLACEHOLDER if decision.private else question
         stored_answer = _without_buyer(message.text, buyers) if private else message.text
         products["flow"] = _flow_payload(message, draft, folio=folio)
+        if offered:
+            # WhatsApp mueve ``ORDER_OFFER`` al final, después del adjunto del PDF.
+            products["flow"]["order_offer"] = True
         if decision.order is not None and draft.order:
             # WhatsApp adjunta el recibo (el PDF del pedido en Odoo) con el folio.
             products["flow"]["order"] = {"name": draft.order, "folio": draft.folio}

@@ -12,6 +12,11 @@ confirma. Al confirmar, Odoo envía al cliente el correo de confirmación con la
 ventas y el PDF, y lo deja en el chatter; sin servidor SMTP el correo no sale (queda en
 excepción y se reintenta desde Odoo cuando haya servidor).
 
+Al confirmar un pedido nuevo, el adaptador avisa al equipo con una actividad «Coordinar pago y
+entrega del pedido» en el pedido (``mail.activity``, tipo «Por hacer») para el usuario de ventas
+de ``ODOO_SALES_LOGIN``; si la actividad falla, el pedido sigue. :class:`OdooProbe` comprueba
+para ``/health`` que Odoo responde, con plazo corto y caché.
+
 El cliente se reutiliza solo si coinciden el correo (sin comodines) y el nombre: quien
 escribe el correo de otra persona no le asigna pedidos a su ficha. Los datos del cliente
 solo viajan a Odoo; los logs llevan el folio, el número de pedido y el tipo de error, nunca
@@ -19,7 +24,9 @@ el nombre, el correo ni el mensaje de Odoo.
 """
 
 import base64
-from collections.abc import Iterable, Mapping, Sequence
+import threading
+import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final
@@ -33,7 +40,15 @@ if TYPE_CHECKING:
     from carvajal.catalog.models import Reference
     from carvajal.infrastructure.settings import Settings
 
-__all__ = ["OdooClient", "OdooError", "OdooOrders", "OrderResult", "build_orders"]
+__all__ = [
+    "ACTIVITY_SUMMARY",
+    "OdooClient",
+    "OdooError",
+    "OdooOrders",
+    "OdooProbe",
+    "OrderResult",
+    "build_orders",
+]
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +58,12 @@ CATEGORY_NAME: Final = "Empaques Carvajal"
 # Marca de los contactos que crea el asistente: solo esos se reutilizan (``ref``).
 PARTNER_REF: Final = "asistente-carvajal"
 NO_TAXES: Final = [[6, 0, []]]  # los precios llegan calculados por el motor de la app
+# Aviso al equipo de ventas en cada pedido nuevo: la actividad «Por hacer» del chatter.
+ACTIVITY_TYPE: Final = "mail.mail_activity_data_todo"
+ACTIVITY_SUMMARY: Final = "Coordinar pago y entrega del pedido"
+# Sonda de ``/health``: plazo corto y caché, para no colgar ni saturar la sonda pública.
+PROBE_TIMEOUT_S: Final = 3.0
+PROBE_TTL_S: Final = 60.0
 
 
 class OdooError(RuntimeError):
@@ -168,9 +189,12 @@ def _log_error(event: str, error: OdooError, **fields: Any) -> None:
 class OdooOrders:
     """Pedidos de venta y catálogo de Carvajal en una base de Odoo."""
 
-    def __init__(self, client: OdooClient) -> None:
+    def __init__(self, client: OdooClient, *, sales_login: str = "") -> None:
         self._odoo = client
         self._category_id: int | None = None
+        # ``res.users.login`` de quien recibe la actividad del pedido; vacío, sin actividad.
+        self._sales_login = sales_login.strip()
+        self._sales_user: int | None = None
 
     # --- pedidos ---------------------------------------------------------------------
 
@@ -191,6 +215,8 @@ class OdooOrders:
                 partner = _many2one(found.get("partner_id"))
                 if partner is not None:
                     lead_id = self._lead(request, partner, order_id)
+                # El aviso va después de la oportunidad: tampoco llegó a programarse.
+                self._notify_sales(order_id, str(found["name"]), request)
             logger.info("pedido.existente", folio=request.folio, pedido=found["name"])
             return OrderResult(
                 name=str(found["name"]),
@@ -221,6 +247,7 @@ class OdooOrders:
         if lead_id is None:
             lead_id = self._lead(request, partner_id, order_id)
         (order,) = self._odoo.search_read("sale.order", [["id", "=", order_id]], ["name"])
+        self._notify_sales(order_id, str(order["name"]), request)
         logger.info("pedido.creado", folio=request.folio, pedido=order["name"])
         return OrderResult(
             name=str(order["name"]),
@@ -229,12 +256,72 @@ class OdooOrders:
             email=request.buyer.email,
         )
 
+    def _notify_sales(self, order_id: int, name: str, request: OrderRequest) -> None:
+        """Actividad «Coordinar pago y entrega del pedido» para el usuario de ventas.
+
+        Es lo que cumple el «un asesor te contacta» del recibo: el pedido aparece en
+        «Mis actividades» del vendedor. Solo en el pedido que se confirma ahora o en el
+        reintento de uno confirmado cuya respuesta se perdió antes del CRM (sin
+        oportunidad: tampoco llegó a programarse). Si el login no existe, la actividad queda en
+        el usuario técnico; si Odoo la rechaza, el pedido sigue. Los logs no llevan datos de
+        quien compra.
+        """
+
+        if not self._sales_login:
+            return
+        values: dict[str, Any] = {
+            "act_type_xmlid": ACTIVITY_TYPE,
+            "summary": ACTIVITY_SUMMARY,
+            "note": _html(
+                [
+                    f"Pedido {name} de la cotización #{request.folio}, confirmado por el "
+                    f"cliente en {request.channel}.",
+                    "Contactar al cliente para coordinar el pago y la entrega.",
+                ]
+            ),
+        }
+        user_id: int | None = None
+        try:
+            user_id = self._sales_user_id()
+            if user_id is not None:
+                values["user_id"] = user_id
+            self._odoo.call("sale.order", "activity_schedule", ids=[order_id], **values)
+        except OdooError as error:  # el aviso es un extra: el pedido ya está confirmado
+            _log_error("pedido.aviso_fallido", error, folio=request.folio)
+            return
+        logger.info("pedido.aviso_programado", folio=request.folio, asignado=user_id is not None)
+
+    def _sales_user_id(self) -> int | None:
+        """``res.users`` de ``ODOO_SALES_LOGIN`` (en caché); ``None`` si no existe."""
+
+        if self._sales_user is None:
+            found = self._odoo.search_read(
+                "res.users", [["login", "=", self._sales_login]], ["id"], limit=1
+            )
+            if not found:
+                logger.warning("pedido.vendedor_no_encontrado")
+                return None
+            self._sales_user = int(found[0]["id"])
+        return self._sales_user
+
     def _partner_email(self, partner_id: int | None) -> str | None:
         if partner_id is None:
             return None
         found = self._odoo.search_read("res.partner", [["id", "=", partner_id]], ["email"])
         email = found[0].get("email") if found else None
         return str(email) if email else None
+
+    def order_name(self, folio: str) -> str | None:
+        """Número del pedido confirmado de ``folio`` («S00042»), o ``None`` si no hay."""
+
+        found = self._odoo.search_read(
+            "sale.order",
+            [["client_order_ref", "=", folio], ["state", "=", "sale"]],
+            ["name"],
+            limit=1,
+        )
+        name = found[0].get("name") if found else None
+        return str(name) if name else None
 
     def order_pdf(self, folio: str) -> bytes | None:
         """PDF del pedido confirmado de ``folio`` (el que Odoo adjuntó al correo), o ``None``."""
@@ -567,4 +654,74 @@ def build_orders(settings: "Settings") -> OdooOrders | None:
         settings.odoo_api_key.get_secret_value(),
         timeout=settings.odoo_timeout_s,
     )
-    return OdooOrders(client)
+    return OdooOrders(client, sales_login=settings.odoo_sales_login)
+
+
+class OdooProbe:
+    """Bloque ``odoo`` de ``/health``: configurado y, si lo está, si Odoo responde.
+
+    La sonda es ``sale.order.search_count`` sin resultados por JSON-2: comprueba la red, la
+    base, la API key y el acceso a ventas sin leer datos. Plazo corto
+    (:data:`PROBE_TIMEOUT_S`) y caché (:data:`PROBE_TTL_S`, también para un fallo): un Odoo
+    caído no frena ``/health`` más de una vez por minuto. Sin secretos ni URL: ``reason`` es
+    ``auth`` (401/403), ``unreachable`` (sin respuesta) o ``error``.
+    """
+
+    def __init__(
+        self,
+        settings: "Settings",
+        *,
+        transport: httpx.BaseTransport | None = None,
+        ttl_s: float = PROBE_TTL_S,
+        timeout_s: float = PROBE_TIMEOUT_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._settings = settings
+        self._transport = transport
+        self._ttl_s = ttl_s
+        self._timeout_s = timeout_s
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._cached: tuple[float, dict[str, object]] | None = None
+
+    def status(self) -> dict[str, object]:
+        """``{"configured", "status"}`` y, configurado, ``reachable`` (y ``reason`` si falla)."""
+
+        settings = self._settings
+        if not settings.odoo_configured:
+            return {"configured": False, "status": "off"}
+        with self._lock:
+            now = self._clock()
+            if self._cached is not None and now - self._cached[0] < self._ttl_s:
+                return dict(self._cached[1])
+            block = self._probe()
+            self._cached = (now, block)
+            return dict(block)
+
+    def _probe(self) -> dict[str, object]:
+        client = OdooClient(
+            self._settings.odoo_url,
+            self._settings.odoo_db,
+            self._settings.odoo_api_key.get_secret_value(),
+            timeout=min(self._timeout_s, self._settings.odoo_timeout_s),
+            transport=self._transport,
+        )
+        try:
+            client.call("sale.order", "search_count", domain=[["id", "=", 0]])
+        except OdooError as error:
+            if error.status in {401, 403}:
+                reason = "auth"
+            elif error.status is None:
+                reason = "unreachable"
+            else:
+                reason = "error"
+            logger.warning("odoo.health_failed", status=error.status, reason=reason)
+            return {
+                "configured": True,
+                "status": "unreachable",
+                "reachable": False,
+                "reason": reason,
+            }
+        finally:
+            client.close()
+        return {"configured": True, "status": "ok", "reachable": True}

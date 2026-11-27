@@ -1,6 +1,7 @@
 {
   "version": 1,
   "frozen_at": "2026-11-24",
+  "amended": "2026-11-26: s-clientes-13, s-clientes-19 y s-curiosos-20 ya no esperan que el asistente no tome pedidos; con Odoo, el pedido se ofrece tras confirmar el folio (spec 056). Ningún otro escenario cambió.",
   "origin": "redactado por dos agentes independientes (clientes de empaques y visitantes curiosos) que no vieron el prompt del agente ni su código; consolidado por un tercer agente que verificó facts_to_check contra data/catalog, el contrato comercial (data/commercial), data/indicators.json y data/gold; congelado antes del ajuste de AGENT_SYSTEM",
   "scenarios": [
     {
@@ -424,7 +425,7 @@
       "facts_to_check": [
         "No hay distribuidores en Cartagena en el directorio (data/catalog/empaques/distribuidores.csv, data/commercial/proveedores.csv)",
         "En la Costa figuran Barranquilla: Kive Andina (distribuidor directo) y Dispapeles (data/catalog/empaques/distribuidores.csv)",
-        "El asistente no toma pedidos ni promete envíos"
+        "El asistente no promete envíos ni plazos; no cobra ni pide datos de pago, y solo ofrece el pedido tras confirmar una cotización (spec 056)"
       ],
       "expect": {
         "tools_any": [
@@ -602,7 +603,7 @@
       ],
       "facts_to_check": [
         "Portacomidas espumado J2: 94.922 COP por caja x 200 (data/catalog/empaques/precios.csv)",
-        "El asistente no toma pedidos ni pagos ni da plazos de entrega",
+        "El asistente no cobra ni pide datos de pago (Nequi, número de cuenta) ni da plazos de entrega; para comprar cotiza y, tras confirmar el folio, ofrece el pedido con nombre y correo (spec 056)",
         "Bogotá: Megamarcas SAS en Corabastos (Carrera 80 No. 2-51) y otras sedes (data/catalog/empaques/distribuidores.csv)"
       ],
       "expect": {
@@ -1378,7 +1379,7 @@
         "seguimiento"
       ],
       "facts_to_check": [
-        "No toma pedidos ni pagos; no genera links de pago",
+        "No cobra, no genera links de pago ni pide datos de tarjeta; para comprar cotiza y, tras confirmar el folio, ofrece el pedido con nombre y correo (spec 056)",
         "Portacomidas espumado P1 Wau (paca x 200): 114.463 COP por paca, IVA incluido, EDEXA (data/catalog/empaques/precios.csv)",
         "50 pacas: subtotal 5.723.150 COP; envío pendiente, total pendiente",
         "Sin evidencia de existencias (data/commercial/evidencia_disponibilidad.csv solo cabecera): no garantizar stock ni plazos"

@@ -37,7 +37,7 @@ from carvajal.quotation.order import (
 # búsqueda de los datos en lo guardado no tropieza con el texto fijo del asistente.
 NAME = "Lucía Restrepo"
 EMAIL = "lucia.r@empresa.co"
-MASKED = "l***@empresa.co"
+MASKED = "l…@empresa.co"
 NOW = datetime.fromisoformat("2026-11-26T10:00:00-05:00")
 QUESTION = "¿Cuánto tarda la entrega?"
 

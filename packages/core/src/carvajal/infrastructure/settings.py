@@ -320,6 +320,9 @@ class Settings(BaseSettings):
     odoo_db: str = ""
     odoo_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
     odoo_timeout_s: float = Field(default=20.0, ge=2.0, le=60.0)
+    # Usuario de ventas (``res.users.login``) que recibe la actividad «Coordinar pago y
+    # entrega del pedido» de cada pedido nuevo; vacío, sin actividad.
+    odoo_sales_login: str = "admin"
 
     # Voz del chat web por el servidor con OpenAI (spec 047). ``browser`` (por defecto)
     # conserva el dictado y la lectura del navegador (spec 040) y no envía audio al

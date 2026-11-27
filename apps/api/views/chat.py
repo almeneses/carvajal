@@ -1,7 +1,15 @@
-"""Vista del chat (W3.3): formulario, turnos e historial con cookie firmada."""
+"""Vista del chat (W3.3): formulario, turnos e historial con cookie firmada.
 
-from collections.abc import Sequence
+``POST /chat`` (sin JavaScript, o cuando el stream falla antes del primer token) guarda el
+turno y redirige al hilo (PRG). La excepción son los turnos del pedido (spec 056) cuyo texto
+visible no es el guardado: la confirmación lleva el nombre y el correo de quien compra, que
+no se guardan. Ese turno se pinta directamente (200, ``no-store``) con el texto visible para
+que la persona revise sus datos; al recargar la página se ve lo guardado, sin ellos.
+"""
+
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from typing import Any
 from urllib.parse import quote
 
 import structlog
@@ -306,7 +314,7 @@ def chat_turn(
     try:
         provider = chat_provider(request)
         turn_id = client_turn_id.strip() or None
-        provider.ask(
+        answer = provider.ask(
             owner_key,
             text,
             client_turn_id=turn_id,
@@ -329,10 +337,60 @@ def chat_turn(
             thread_id=hilo,
         )
 
+    shown = _shown_order_turn(request, owner_key, hilo, getattr(answer, "text", None))
+    if shown is not None:
+        set_identity_cookie(shown, request, identity, owner_key)
+        return shown
     destino = f"/chat?thread={quote(hilo)}" if hilo else "/chat"
     response = RedirectResponse(url=destino, status_code=303)
     set_identity_cookie(response, request, identity, owner_key)
     return response
+
+
+def _turn_flow(message: ChatMessage) -> Mapping[str, Any] | None:
+    for source in message.sources or []:
+        if isinstance(source, Mapping) and source.get("result_type") == "commercial":
+            result = source.get("result")
+            flow = result.get("flow") if isinstance(result, Mapping) else None
+            if isinstance(flow, Mapping):
+                return flow
+    return None
+
+
+def _shown_order_turn(
+    request: Request, owner_key: str, thread_id: str | None, visible: object
+) -> Response | None:
+    """El hilo con el texto visible del último turno si difiere del guardado (spec 056).
+
+    Solo en un turno hecho de plantilla (su ``flow`` guardado es el texto guardado) cuyo
+    texto visible es otro: los datos de quien compra se muestran, pero no se guardan. Sin
+    eso, o si el hilo no se puede leer, ``None`` y se redirige como siempre.
+    """
+
+    if not isinstance(visible, str) or not visible.strip():
+        return None
+    try:
+        messages = list(_history(request, owner_key, thread_id))
+    except ThreadAccessError:
+        return None
+    if not messages or messages[-1].role != "assistant":
+        return None
+    last = messages[-1]
+    flow = _turn_flow(last)
+    stored = (last.content or "").strip()
+    if flow is None or str(flow.get("text") or "").strip() != stored:
+        return None
+    if visible.strip() == stored:
+        return None
+    messages[-1] = replace(last, content=visible)
+    hilo = thread_id or last.conversation_id
+    return _page(
+        request,
+        messages,
+        thread_id=hilo,
+        conversations=_conversations(request, owner_key),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def chat_provider(request: Request) -> ChatProvider:

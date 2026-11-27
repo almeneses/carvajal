@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean ensayo ensayo-completo ensayo-exploracion e2e smoke
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean ensayo ensayo-completo ensayo-exploracion ensayo-pedido e2e smoke
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -42,6 +42,10 @@ help: ## Muestra esta ayuda
 	@echo "  eval               Ejecuta las preguntas de prueba (genera docs/resultados.md)"
 	@echo "  eval-agent         Compara los modos routes y tools (gasta tokens; ARGS=...)"
 	@echo "  import             Importa el corpus externo a la capa extendida"
+	@echo "  ensayo             Ensayo e2e sin gasto contra la app desplegada (.env.ensayo)"
+	@echo "  ensayo-completo    Ensayo e2e completo: flujos, memoria y fotos (gasta tokens)"
+	@echo "  ensayo-exploracion Guiones para leer: transcripciones y alertas (gasta tokens)"
+	@echo "  ensayo-pedido      Pedido real en Odoo por web y WhatsApp (spec 056; crea pedidos)"
 	@echo "  clean              Limpia cachés y artefactos"
 
 install: ## Sincroniza el entorno virtual e instala dependencias (incluidos los extras)
@@ -90,6 +94,11 @@ ensayo-completo: ## Ensayo completo: además memoria, allowlist, flujos y fotos 
 
 ensayo-exploracion: ## ~30 guiones por WhatsApp y web: transcripciones e informe de alertas (gasta tokens)
 	$(ENSAYO_ENV) uv run pytest tests/e2e/test_exploracion.py -m exploracion -q -s -p no:cacheprovider
+
+# Crea un pedido REAL por canal en el Odoo de la app (spec 056); se borran a mano
+# (docs/ensayo.md, «Borrar o cancelar los pedidos del ensayo»).
+ensayo-pedido: ## Pedido real en Odoo por web y WhatsApp: recibo y correo (spec 056; crea pedidos)
+	$(ENSAYO_ENV) ENSAYO_PEDIDO=1 uv run pytest tests/e2e -m ensayo -k pedido_en_odoo -rA -p no:cacheprovider
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
 	@if grep -rq "pytest.mark.integration" tests; then \

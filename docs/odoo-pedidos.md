@@ -4,8 +4,10 @@ Cuando la persona confirma una cotización y recibe el folio, el asistente ofrec
 pedido. Si acepta, pide nombre y correo, se los muestra para que los confirme y, con un «sí»,
 crea en Odoo un **pedido de venta confirmado** (cliente, líneas con los precios de la
 cotización, envío y folio). Al confirmarlo, Odoo envía al cliente el correo de confirmación
-(solo si hay servidor SMTP; ver [Correo saliente](#correo-saliente)) y el chat le entrega el
-**recibo**: en texto y con el PDF del pedido de Odoo (ver [Recibo del pedido](#recibo-del-pedido)).
+(por el servidor SMTP de Gmail configurado en Odoo; ver [Correo saliente](#correo-saliente)),
+el pedido queda con la actividad «Coordinar pago y entrega del pedido» para el vendedor y el
+chat le entrega el **recibo**: en texto y con el PDF del pedido de Odoo (ver
+[Recibo del pedido](#recibo-del-pedido)).
 Funciona igual en el chat web y en WhatsApp, porque los dos canales pasan por `ChatService`.
 
 ```text
@@ -84,10 +86,36 @@ Por paso:
 
 Tras «no», el nombre puede venir en minúsculas: «no, carla ruiz» corrige a «Carla Ruiz» y no
 se lee como rechazo. Las muletillas de los bordes se quitan («Juan,
-juan@x.co, gracias» → Juan) y las partículas van en minúscula («María de la Cruz»). Tras
-crear el pedido, «quiero comprarla» responde el número que ya existe; tras un rechazo,
-«hacer el pedido» en el mensaje siguiente vuelve a pedir los datos (después, el borrador del
-folio ya se cerró y hay que cotizar de nuevo).
+juan@x.co, gracias» → Juan) y las partículas van en minúscula («María de la Cruz»). Tras un
+rechazo, «hacer el pedido» en el mensaje siguiente vuelve a pedir los datos (después, el
+borrador del folio ya se cerró y hay que cotizar de nuevo).
+
+**El PDF a mitad del pedido (WhatsApp)**: en cualquiera de los tres pasos, «PDF», «sí,
+mándame el PDF» o un «pe de efe» dictado no son el «sí» del pedido. El puente entrega el PDF de
+la cotización y, debajo, la pregunta pendiente (`render.order_reminder`), sin correr un turno,
+sin crear el pedido y sin tocar el borrador; un «sí» posterior lo crea como siempre (ver
+[`whatsapp-openclaw.md`](whatsapp-openclaw.md#cotización-en-pdf)).
+
+### Después del pedido
+
+Mientras el borrador del folio guarda el número del pedido (`draft.order`), las reglas
+responden sin el modelo y con `route="pedido"`:
+
+| Mensaje | Respuesta |
+|---|---|
+| «sí», «quiero comprarla», «hacer el pedido» | «Ese pedido ya quedó creado con el número **S…**» (`render.already_ordered`); no llama a Odoo |
+| «cancela el pedido», «quiero anular la compra», «anúlalo» (`order.wants_order_cancel`) | El pedido ya quedó confirmado y **no se cancela desde el chat**: para cambiarlo o cancelarlo, se le dice al asesor que contacta para el pago y la entrega (`render.order_cancel_request`) |
+| «¿cómo va mi pedido?», «estado del pedido», «¿cuándo llega el pedido?» (`order.asks_order_status`) | El pedido quedó confirmado y un asesor contacta para el pago y la entrega y da el estado del despacho (`render.order_status`); el chat no consulta el estado en Odoo |
+
+Así el agente nunca llega a negar un pedido que existe ni a inventar su estado. **Límite**:
+tras cualquier turno ajeno al flujo, el borrador se reinicia (`_fresh_after_registration`) y
+`draft.order` se pierde; desde ahí, esos mensajes van al agente, que por prompt no inventa el
+estado de un pedido y remite al asesor.
+
+En WhatsApp, con el pedido confirmado, «PDF», «mándame el recibo» o «el PDF del pedido»
+reenvían el recibo (adjunto o enlace firmado), porque el puente busca en Odoo el pedido de la
+última cotización (`ChatService.order_of` → `OdooOrders.order_name`), sin depender del
+borrador. En la web, el enlace del recibo sigue en el turno del pedido del historial.
 
 **Precios vencidos**: el pedido toma los precios de la cotización. Si al «sí» final la
 vigencia del vendedor de alguna línea ya pasó (`quotation.draft.expired_lines`), no se llama
@@ -105,9 +133,9 @@ Pedido del owner (2026-11-26): «si la orden se confirma, se debe guardar en el 
 enviar un correo, además de que se envíe una copia o recibo al cliente (whatsapp o web)».
 
 - **Odoo guarda el pedido** confirmado (ver [Qué queda en Odoo](#qué-queda-en-odoo)).
-- **Odoo envía el correo** con el PDF del pedido al confirmarlo, **cuando haya SMTP** (ver
+- **Odoo envía el correo** con el PDF del pedido al confirmarlo (ver
   [Correo saliente](#correo-saliente)).
-- **El chat entrega el recibo**, haya o no SMTP: la respuesta al «sí» trae el número del
+- **El chat entrega el recibo**, sin depender del correo: la respuesta al «sí» trae el número del
   pedido, el folio, la fecha, las líneas, el total con el IVA («Total por confirmar con el
   vendedor» si ninguna línea tiene precio; si solo algunas, el total de las que lo tienen
   con «sin <producto> (precio por confirmar)») y el correo de la confirmación, y el **PDF del
@@ -151,6 +179,22 @@ La ruta (`apps/api/views/pedido_pdf.py`) sirve el PDF solo al dueño de la cotiz
 | `crm.lead` | Oportunidad «Pedido de la cotización #folio», creada después de confirmar, ligada al pedido y marcada como ganada |
 | Chatter del pedido | Nota con el canal y el folio (HTML, `body_is_html=True`) y el correo de confirmación |
 | `product.product` | Un producto por SKU (catálogo de Colombia) y el servicio `ENVIO-CARVAJAL`; un SKU archivado se reactiva, no se duplica |
+| `mail.activity` | Actividad «Por hacer» «Coordinar pago y entrega del pedido» en el pedido, para el usuario de `ODOO_SALES_LOGIN` (`admin` por defecto); la nota lleva el pedido, el folio y el canal, sin datos del comprador |
+
+**Qué hace el equipo con un pedido nuevo**: la actividad aparece en «Mis actividades» del
+vendedor (y en el chatter del pedido). Es lo que cumple el «un asesor te contacta para
+coordinar el pago y la entrega» del recibo: el vendedor abre el pedido en Ventas → Pedidos,
+contacta al cliente por el correo del pedido y coordina pago, entrega, cambios o la
+cancelación (el chat no los hace).
+
+- El usuario se busca por `res.users.login` una vez y queda en caché. Si el login no existe,
+  la actividad se crea sin `user_id` (queda en el usuario técnico) y el log avisa
+  `pedido.vendedor_no_encontrado`.
+- Si la búsqueda del usuario o la actividad fallan, el pedido sigue (`pedido.aviso_fallido`,
+  sin datos del comprador). Con `ODOO_SALES_LOGIN` vacío no se programa actividad.
+- Se programa en el pedido que se confirma ahora, y en el reintento de uno confirmado cuya
+  respuesta se perdió antes del CRM (sin oportunidad); en el reintento de un pedido completo
+  no se repite.
 
 El pedido es **idempotente por folio** (`client_order_ref`, sin contar los cancelados):
 
@@ -181,13 +225,30 @@ fusiona si hace falta.
   «sí» que crea el pedido, el rechazo y «¿Qué dato corrijo?») y la respuesta a la oferta que
   trae datos llevan `Reply.private`: se guardan y se monitorean (LangSmith) sin datos, la
   pregunta como «🛒 (datos para el pedido)» y la respuesta con el correo enmascarado
-  (`a***@dominio`) y el nombre como «(tu nombre)». La persona ve el texto completo en el
-  turno, pero el historial que llega a DeepSeek en los turnos siguientes y el resumen de
+  (`a…@dominio`: sin asteriscos, para no romper la negrita en el historial ni en WhatsApp) y
+  el nombre como «(tu nombre)». El correo del ejemplo fijo de las plantillas
+  (`render.EXAMPLE_EMAIL`, «ana@correo.com») no se enmascara. La persona ve el texto completo
+  en el turno, pero el historial que llega a DeepSeek en los turnos siguientes y el resumen de
   memoria salen de lo guardado.
 - En voz, la confirmación lee el correo para que quien lo dictó lo compruebe («…con el correo
   ana punto perez arroba gmail punto com. ¿Lo confirmo?», `order.spoken_address`). La versión
   hablada guardada (`flow.spoken`) no lo conserva: `ChatService._without_buyer` cambia el
   correo leído por «el correo que escribiste», además de enmascarar el escrito y el nombre.
+- **Voz de la web** (`apps/api/voice.py`, `spoken_message`): en el turno en vivo, el resumen
+  hablado (`voz_resumen` del `done`) sale del `flow.spoken` del turno visible, con el nombre y
+  el correo reales. La nota de voz del servidor (`/api/voz/hablar`) pide el audio por
+  `message_id` y leería lo guardado; por eso `LiveSpoken` guarda en memoria del proceso, por
+  dueño y mensaje, durante 15 minutos y hasta 256 turnos, el resumen completo del turno en
+  vivo, y `/hablar` lo prefiere (siempre después de comprobar que el mensaje es del dueño).
+  Nada de eso va a la base ni a los logs. El historial recargado lee lo guardado en tono
+  neutro («Voy a hacer el pedido a tu nombre, con el correo que escribiste. ¿Lo confirmo?») y
+  el recibo no lee el correo enmascarado. Con CRM, la voz del folio dice la cotización corta y
+  termina en «¿Quieres hacer el pedido?».
+- **Sin JavaScript** (o si falla el stream), `POST /chat` responde con la página y el texto
+  visible del turno del pedido (200, `no-store`) en vez de redirigir (303) al historial, que
+  mostraría lo guardado. Los demás turnos siguen redirigiendo. Al recargar a mitad de
+  `confirmar_pedido` se ve lo guardado (enmascarado); mostrar ahí el borrador exigiría leer
+  `draft.buyer` desde la vista.
 - El borrador de la conversación (base local) sí guarda los datos mientras se piden: se
   vacían al crear el pedido o al rechazarlo, y se conservan tras un fallo para reintentar.
 - Los logs llevan el folio, el número de pedido y, ante un error de Odoo, el código HTTP y el
@@ -206,8 +267,8 @@ fusiona si hace falta.
   de confirmación, el cupo diario (`DAILY_REQUESTS_LIMIT`) y la allowlist de WhatsApp; el chat
   web solo tiene el cupo.
 - **El reenvío de un turno** con el mismo `client_turn_id` (reintento del webhook de WhatsApp,
-  doble envío en la web) muestra lo guardado: «(tu nombre)» y el correo enmascarado, no los
-  datos que vio la persona. No filtra nada.
+  doble envío en la web) muestra lo guardado: «(tu nombre)» y el correo enmascarado
+  (`a…@dominio`), no los datos que vio la persona. No filtra nada.
 - **Dos «sí» cruzados** antes de que exista el pedido pueden crear dos pedidos del mismo folio:
   no hay bloqueo por folio. Si el otro turno ya confirmó, el 422 de Odoo se tolera.
 
@@ -221,8 +282,31 @@ Variables de entorno (en la VPS, en `/opt/carvajal/.env`):
 | `ODOO_DB` | `carvajal` |
 | `ODOO_API_KEY` | API key del usuario técnico `carvajal-bot` |
 | `ODOO_TIMEOUT_S` | `20` (opcional) |
+| `ODOO_SALES_LOGIN` | `admin` (opcional): login del usuario de ventas que recibe la actividad de cada pedido; vacío, sin actividad |
 
 Sin las tres primeras el asistente no ofrece el pedido y el flujo sigue como antes.
+
+El recibo por WhatsApp usa las mismas URL que el PDF de la cotización: con `MEDIA_BASE_URL`
+llega como documento adjunto y con solo `PUBLIC_BASE_URL`, como enlace firmado; sin ninguna, el
+pedido se confirma sin la línea del recibo. La redirección a HTTPS (`HTTPS_REDIRECT`) no toca
+`/pedidos/*`, igual que `/cotizaciones/*`: OpenClaw descarga el recibo por `MEDIA_BASE_URL`,
+que puede ser http con IP.
+
+### `/health`
+
+`/health` publica el bloque `odoo`, en el 200 y en el 503, sin URL ni
+secretos y sin cambiar el estado global (sin Odoo, el asistente cotiza igual y solo deja de
+ofrecer el pedido):
+
+| Caso | Bloque |
+|---|---|
+| Sin `ODOO_*` | `{"configured": false, "status": "off"}` |
+| Odoo responde | `{"configured": true, "status": "ok", "reachable": true}` |
+| Odoo falla | `{"configured": true, "status": "unreachable", "reachable": false, "reason": "auth" \| "unreachable" \| "error"}` |
+
+La sonda (`OdooProbe`) es `sale.order.search_count` sin resultados por JSON-2, con plazo de
+3 s y caché de 60 s que cubre también los fallos: un Odoo caído no frena `/health` más de una
+vez por minuto. `/metricas` no tiene todavía una tarjeta de Odoo.
 
 ## Odoo en la VPS
 
@@ -249,14 +333,19 @@ ssh -N -L 8169:127.0.0.1:8169 deploy@144.217.80.136 -p 2422
 
 Odoo envía la confirmación al confirmar el pedido, con la plantilla
 `sale.mail_template_sale_confirmation` y el PDF del pedido adjunto; el mensaje queda siempre
-en el chatter del pedido. **Sin servidor SMTP el correo no sale**: el `mail.mail` queda en
-estado de excepción y no se reintenta solo. Por eso el chat dice «La confirmación del pedido
-llega a …» y no «Te enviamos». Para activarlo:
+en el chatter del pedido. La app no envía correo: lo hace el servidor de correo saliente de
+Odoo. **En producción está configurado un servidor SMTP de Gmail** (contraseña de aplicación,
+`smtp.gmail.com:587`, STARTTLS) y la confirmación sale. El chat dice «La confirmación del
+pedido llega a …» y no «Te enviamos»: describe lo que hace Odoo, no un envío del chat.
+
+Si el servidor falla o se quita, el correo no sale: el `mail.mail` queda en estado de
+excepción y no se reintenta solo (el pedido y el recibo del chat no cambian). Para
+configurarlo en otro Odoo o reemplazarlo:
 
 1. Ajustes → Técnico → Servidores de correo saliente → nuevo (p. ej. Gmail con contraseña de
    aplicación, `smtp.gmail.com:587`, STARTTLS) y «Probar conexión».
-2. Ajustar el correo de la compañía (hoy `ventas@example.com`) al remitente real.
-3. Los correos que ya fallaron se reenvían desde Odoo: Ajustes → Técnico → Correos →
+2. Revisar que el correo de la compañía sea el remitente real.
+3. Los correos que fallaron se reenvían desde Odoo: Ajustes → Técnico → Correos →
    «Reintentar».
 
 ## Catálogo
@@ -296,4 +385,7 @@ basta el túnel en loopback y `ODOO_URL=http://127.0.0.1:8169`.
 ## En producción
 
 Ya están `ODOO_*` en `/opt/carvajal/.env`; el despliegue de `main` las pasa a `app` y `mcp`
-(`compose.prod.yml`). Al fusionar, el pedido queda activo en la web y en WhatsApp.
+(`compose.prod.yml`, también `ODOO_SALES_LOGIN`, `admin` por defecto). El pedido está activo
+en la web y en WhatsApp desde la fusión de la PR #279 (2026-11-26), con el correo de
+confirmación por el SMTP de Gmail de Odoo. Para comprobarlo sin crear pedidos, el bloque
+`odoo` de `/health` debe decir `"status": "ok"`.

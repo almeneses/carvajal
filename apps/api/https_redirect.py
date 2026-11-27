@@ -65,7 +65,8 @@ _NAVIGATION_METHODS = frozenset({"GET", "HEAD"})
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 # Rutas exactas o prefijos (con ``/`` de frontera) que nunca se redirigen: sondas,
 # API y webhooks, MCP, estáticos y recursos que descargan clientes no navegadores
-# (OpenClaw baja el PDF por ``MEDIA_BASE_URL``, que puede ser http con IP).
+# (OpenClaw baja el PDF de la cotización y el recibo del pedido por ``MEDIA_BASE_URL``,
+# que puede ser http con IP).
 _EXEMPT_PREFIXES = (
     "/live",
     "/health",
@@ -73,6 +74,7 @@ _EXEMPT_PREFIXES = (
     "/mcp",
     "/static",
     "/cotizaciones",
+    "/pedidos",
     "/catalogo/imagenes",
 )
 
