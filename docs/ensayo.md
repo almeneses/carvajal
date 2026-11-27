@@ -342,7 +342,7 @@ Firefox del owner (el mismo de la prueba de la allowlist). Ese número está **f
 3. Al terminar, pase lo que pase, quita **solo** ese número de la lista vigente (no reescribe
    una copia vieja: otras personas pueden cambiar el gateway a la vez) y comprueba que ya no
    está. Si no lo consigue, la prueba falla pidiendo quitarlo a mano. Si el proceso muere antes
-   (Ctrl-C, SSH caído), la marca `data/ensayo-whatsapp/.allowfrom-pendiente` (sin el número)
+   (Ctrl-C, SSH caído), la marca `data/ensayo-whatsapp/.allowfrom-pendiente` (la huella SHA-256 del número, nunca el número)
    hace que la siguiente corrida lo quite al empezar; lo mismo con el micrófono
    (`.microfono-previo`, solo el id de PipeWire).
 

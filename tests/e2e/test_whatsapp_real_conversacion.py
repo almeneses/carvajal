@@ -25,6 +25,7 @@ pueden cambiar el gateway mientras tanto (pasó el 2026-11-27).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -71,8 +72,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # Carpeta legible por el Firefox de snap (bajo el home, ignorada por git).
 MEDIOS = Path("data/ensayo-whatsapp/medios")
 NO_ABRE_FOTO = "No pude abrir esa foto"
-# Marca (sin el número) de que esta prueba agregó el número de WhatsApp Web a allowFrom. Si el
-# proceso muere antes de quitarlo (Ctrl-C, SSH caído), la siguiente corrida lo quita al empezar.
+# Marca de que esta prueba agregó el número de WhatsApp Web a allowFrom: guarda su huella SHA-256,
+# nunca el número. Si el proceso muere antes de quitarlo (Ctrl-C, SSH caído), la siguiente
+# corrida lo quita al empezar, solo si la huella coincide y el número sigue en la lista.
 PENDIENTE = Path("data/ensayo-whatsapp/.allowfrom-pendiente")
 
 
@@ -115,17 +117,20 @@ def numero_permitido(
         comando = f"openclaw config set {CLAVE} {shlex.quote(json.dumps(valor))} --strict-json"
         _gateway(ssh_openclaw, usuario, comando, saltar=False)
 
+    huella = hashlib.sha256(mio.encode()).hexdigest()
     original = lista()
-    if PENDIENTE.exists() and any(digitos(n) == mio for n in original):
-        # Lo dejó una corrida que murió antes de quitarlo: se quita ahora.
-        _quitar_numero(lista, fijar, mio)
+    if PENDIENTE.exists():
+        # La dejó una corrida que murió antes de quitar el número. Solo se actúa si la huella es
+        # la de este número (nunca se guarda el número) y si sigue en la lista.
+        if PENDIENTE.read_text().strip() == huella and any(digitos(n) == mio for n in original):
+            _quitar_numero(lista, fijar, mio)
+            original = lista()
         PENDIENTE.unlink(missing_ok=True)
-        original = lista()
     if any(digitos(n) == mio for n in original):
         yield pestana  # ya estaba permitido (lo puso el owner): no se toca nada
         return
     PENDIENTE.parent.mkdir(parents=True, exist_ok=True)
-    PENDIENTE.write_text("la prueba agregó el número de WhatsApp Web a allowFrom\n")
+    PENDIENTE.write_text(huella + "\n")  # huella del número que la prueba agrega
     try:
         fijar([*original, f"+{mio}"])
         yield pestana

@@ -205,9 +205,10 @@ def microfono_virtual() -> Generator[str]:
         "ya hay un micrófono «ensayo_voz_mic» de otra corrida: cierra ese pw-loopback"
     )
     previa = _fuente_por_defecto()
-    if previa:
-        MICROFONO_PREVIO.parent.mkdir(parents=True, exist_ok=True)
-        MICROFONO_PREVIO.write_text(previa)
+    # Sin saber cuál era la fuente no se cambia: no habría a cuál volver.
+    assert previa, "no se pudo leer la fuente de audio por defecto (wpctl): no se toca el micrófono"
+    MICROFONO_PREVIO.parent.mkdir(parents=True, exist_ok=True)
+    MICROFONO_PREVIO.write_text(previa)
     lazo = subprocess.Popen(
         [
             "pw-loopback",
