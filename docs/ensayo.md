@@ -54,8 +54,8 @@ muestra y pide confirmarlos (`awaiting="confirmar_pedido"`): el pedido solo se c
   | --- | --- | --- |
   | «Sí, quiero hacer el pedido» (botón «Hacer el pedido») | «Para el pedido envíame tu **nombre** y tu **correo**…» | `datos_pedido` |
   | el nombre | «Gracias, <nombre>. ¿A qué **correo** te envío la confirmación…» | `datos_pedido` |
-  | el correo | «📋 Voy a hacer el pedido con estos datos:» con `- Nombre: **…**`, `- Correo: **…**` y «¿Lo confirmo? Si algo está mal, escríbeme el dato correcto.»; todavía sin pedido | `confirmar_pedido` |
-  | «Sí, confírmalo» (botón «Confirmar pedido») | `🧾 **Pedido S… confirmado** · cotización #folio` y «La confirmación del pedido llega a **<correo>**» | ninguno |
+  | el correo | «📋 Voy a hacer el pedido con estos datos:» con `- Nombre: **…**`, `- Correo: …` (sin negrita: WhatsApp metía el `_` del énfasis en el enlace `mailto:`) y «¿Lo confirmo? Si algo está mal, escríbeme el dato correcto.»; todavía sin pedido | `confirmar_pedido` |
+  | «Sí, confírmalo» (botón «Confirmar pedido») | `🧾 **Pedido S… confirmado** · cotización #folio` y «La confirmación del pedido llega a <correo>» | ninguno |
   | «quiero comprarla» | «Ese pedido ya quedó creado con el número **S…**» (el mismo) | ninguno |
 
   El «Sí, confírmalo» trae además el recibo (fecha, líneas, total y el PDF del pedido,

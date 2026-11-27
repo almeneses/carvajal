@@ -454,3 +454,28 @@ Gmail funciona.
 
 Plausibles que se resolvieron igual: el «PDF» que consultaba Odoo sin indicio de pedido (con
 #5) y `reason` de `/health` visible a cualquiera (con #7).
+
+## 11. Pruebas tras el despliegue de la PR #283 (2026-11-27)
+
+Contra producción (`af39454`):
+
+| Prueba | Resultado |
+|---|---|
+| `make ensayo-pedido` | 2/2: S00006 (web) y S00007 (WhatsApp por MCP); en Odoo, `sale`, oportunidad, correo con el PDF en el chatter y la actividad «Coordinar pago y entrega del pedido» |
+| Guiones de exploración a mitad del pedido (§3b de `evaluar-agente`, 4 guiones × web y WhatsApp) | Sin bloqueantes: no niega el pedido, no pide datos de pago, no inventa el estado; 3 avisos (abajo) |
+| WhatsApp real, grupo de OpenClaw, desde WhatsApp Web | Folio con el PDF, oferta, «PDF» a mitad del pedido (cotización y recordatorio), nombre y correo, «sí», recibo y «¿cómo va mi pedido?» con el número: pedido S00009; S00008 lo hizo un participante del grupo |
+
+Corregido en esta rama:
+
+| # | Hallazgo | Corrección |
+|---|---|---|
+| 1 | «¿aceptan Nequi?» a mitad del pedido: el agente se abstuvo y el flujo dejó solo el recordatorio; la pregunta quedó sin respuesta | `service._order_aside`: con el recordatorio del pedido, la abstención pasa a `render.ORDER_ASIDE` |
+| 2 | «¿cuánto tarda el envío?»: el modelo cerró con su propia pregunta del paso (en la web, «¿confirmo con **(tu nombre)**…?») y debajo el recordatorio | `flow.without_step_question` quita esos párrafos; el prompt pide no repetir la pregunta ni los datos |
+| 3 | WhatsApp: «ahora no» tras «¿La agrego a tu cotización?» del agente respondió «No tengo un dato verificado…» | Regla del flujo sin pregunta pendiente: `render.not_now` |
+| 4 | WhatsApp real: el correo iba en negrita; OpenClaw la convierte en `_…_` y WhatsApp enlazó `mailto:_correo` | El correo va sin énfasis en `render.confirm_buyer` y `render.order_placed` |
+| 5 | El respaldo de `_enviar` del ensayo de WhatsApp real tecleaba con `escribir`, y el compositor se quedaba con la primera letra | `Sesion.teclear` (acciones de teclado) |
+
+Fuera del código: en producción `MEDIA_BASE_URL` no está definida, así que la cotización y el
+recibo llegan por WhatsApp como enlace https y no como documento adjunto (comportamiento
+documentado en `docs/whatsapp-openclaw.md`). Definirla con una base https es una decisión de
+configuración del owner.

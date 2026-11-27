@@ -446,7 +446,7 @@ def pasos_datos_pedido(nombre: str, correo: str) -> tuple[Paso, ...]:
             marcas=(
                 "📋 Voy a hacer el pedido con estos datos:",
                 f"- Nombre: **{nombre}**",
-                f"- Correo: **{correo}**",
+                f"- Correo: {correo}",
                 CONFIRMAR_DATOS,
             ),
             ausentes=("🧾", PEDIDO_FALLIDO),
@@ -464,7 +464,7 @@ def paso_pedido_creado(correo: str, mensaje: str = CONFIRMAR_PEDIDO) -> Paso:
         marcas=(
             "🧾 **Pedido ",
             " confirmado** · cotización #{folio}",
-            f"La confirmación del pedido llega a **{correo}**",
+            f"La confirmación del pedido llega a {correo}",
         ),
         # La promesa cruda del recibo no llega: cada canal la cambia por el PDF o la quita.
         ausentes=(PEDIDO_FALLIDO, PROMESA_RECIBO),

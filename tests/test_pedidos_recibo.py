@@ -235,7 +235,7 @@ def test_el_recibo_trae_numero_folio_fecha_lineas_total_correo_y_la_promesa(
     assert lines[2].startswith("1. Vaso 12 oz × 100 · $50.000")  # noqa: RUF001
     assert lines[3].startswith("2. Vaso 16 oz × 100 · $50.000")  # noqa: RUF001
     assert lines[4].startswith("Total **$100.000** · IVA")
-    assert "La confirmación del pedido llega a **ana@correo.com**" in message.text
+    assert "La confirmación del pedido llega a ana@correo.com" in message.text
     assert lines[-1] == render.RECEIPT_PROMISE
     # La voz no lee el correo ni las cifras: el detalle va por escrito.
     assert "ana@correo.com" not in message.spoken

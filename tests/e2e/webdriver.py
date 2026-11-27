@@ -148,6 +148,22 @@ class Sesion:
 
         self.comando("POST", f"/element/{elemento}/value", {"text": texto})
 
+    def teclear(self, texto: str) -> None:
+        """Teclea ``texto`` en el elemento con foco, tecla a tecla (``POST /actions``).
+
+        El compositor de WhatsApp Web (un editor con ``contenteditable``) se queda solo con
+        la primera letra de ``escribir`` (comprobado el 2026-11-27): las acciones de teclado
+        sí dejan el texto entero. Admite teclas especiales como ``ENTER``.
+        """
+
+        teclas: list[dict[str, str]] = []
+        for caracter in texto:
+            teclas += [{"type": "keyDown", "value": caracter}, {"type": "keyUp", "value": caracter}]
+        self.comando(
+            "POST", "/actions", {"actions": [{"type": "key", "id": "teclado", "actions": teclas}]}
+        )
+        self.comando("DELETE", "/actions")
+
     def ejecutar(self, script: str, *argumentos: Any) -> Any:
         """``execute/sync``: el cuerpo de una función JS que recibe ``arguments``."""
 

@@ -444,7 +444,7 @@ def _enviar(sesion: Sesion, marca: str) -> None:
     )
     if not precargado:
         sesion.clic(compositor)
-        sesion.escribir(compositor, marca)
+        sesion.teclear(marca)
     sesion.escribir(compositor, ENTER)
     if sesion.esperar(
         lambda: burbujas_despues(sesion.ejecutar(_JS_MENSAJES), marca) is not None, timeout=5
@@ -457,3 +457,21 @@ def _enviar(sesion: Sesion, marca: str) -> None:
                 sesion.referencia(boton),
             )
             return
+
+
+def test_teclear_manda_cada_letra_como_accion_de_teclado() -> None:
+    # Arrange: una sesión sin geckodriver que registra los comandos.
+    llamadas: list[tuple[str, str, Any]] = []
+    sesion = Sesion.__new__(Sesion)
+    sesion.comando = lambda metodo, ruta, cuerpo=None: llamadas.append((metodo, ruta, cuerpo))  # type: ignore[method-assign]
+
+    # Act
+    sesion.teclear("sí" + ENTER)
+
+    # Assert: keyDown y keyUp por letra (con la tilde y Enter) y luego se sueltan las teclas.
+    (metodo, ruta, cuerpo), soltar = llamadas
+    assert (metodo, ruta) == ("POST", "/actions")
+    teclas = cuerpo["actions"][0]["actions"]
+    assert [t["value"] for t in teclas if t["type"] == "keyDown"] == ["s", "í", ENTER]
+    assert len(teclas) == 6
+    assert soltar[:2] == ("DELETE", "/actions")
