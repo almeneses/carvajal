@@ -22,6 +22,7 @@ pudo comprobar.
 | Webhook y allowlist | `test_whatsapp.py` | Un remitente fuera de `WEBHOOK_ALLOWED_NUMBERS` (`ENSAYO_WA_FUERA`) recibe 403 sin llegar al agente | no |
 | Voz | `test_voz.py` | Web: un turno dictado trae `voz_resumen` sin enlaces; `/api/voz/hablar` lo sintetiza y ese audio (pasado a Ogg/Opus con `ffmpeg`) vuelve por `/api/voz/transcribir` y sirve de siguiente turno; `/hablar` no sintetiza mensajes ajenos. WhatsApp: `consultar_carvajal` con `voz=true` empieza por un resumen para TTS sin URL | sí (STT y TTS de OpenAI) |
 | WhatsApp real | `test_whatsapp_real.py` | Un DM real enviado desde un número **fuera** de `allowFrom` no recibe respuesta, y el gateway registra `Inbound message blocked (reason=dm_policy_not_allowlisted)` | sí (envía un WhatsApp) |
+| Conversación por WhatsApp real | `test_whatsapp_real_conversacion.py` | Desde WhatsApp Web, con el número agregado **temporalmente** a `allowFrom`: cotizar, «dame esa», la foto del ajiaco (sin «No pude abrir esa foto»), una nota de voz **grabada** y «cancela todo». Solo con `make ensayo-whatsapp-real` (`ENSAYO_WA_CONVERSACION=1`) | sí (varios WhatsApp, DeepSeek, Jev y STT) |
 
 Las pruebas `gasto` gastan turnos de DeepSeek, créditos de Jev o escriben en la base. Solo
 corren con `make ensayo-completo`.
@@ -227,7 +228,7 @@ shell válido: `CLAVE=valor`, sin espacios alrededor del `=`.
   servidor, así que el fixture `mcp` abre `ssh -L <puerto libre>:127.0.0.1:8765` y lo cierra
   al terminar.
 
-**Solo lectura.** El ensayo nunca corre `openclaw config set`, `security audit --fix`,
+**Solo lectura.** Salvo `make ensayo-whatsapp-real` (sección «Conversación por WhatsApp real (foto y voz)»), el ensayo nunca corre `openclaw config set`, `security audit --fix`,
 reinicios, `compose up` ni `compose down`. Tampoco imprime secretos ni números de teléfono:
 los mensajes de fallo pasan por un redactor. Los hosts reales solo viven en `.env.ensayo`.
 
@@ -332,6 +333,40 @@ aquí» y tu pestaña original pedirá lo mismo al volver.
 Si la página muestra el código QR, la prueba se salta. Abre WhatsApp Web en ese Firefox y
 vincúlalo antes.
 
+## Conversación por WhatsApp real (foto y voz)
+
+`make ensayo-whatsapp-real` conversa con el bot como un cliente, desde el WhatsApp Web del
+Firefox del owner (el mismo de la prueba de la allowlist). Ese número está **fuera** de
+`allowFrom`, así que la prueba:
+
+1. Lee `allowFrom`, agrega el número de WhatsApp Web y abre una pestaña propia.
+2. Empieza con «nuevo» (conversación limpia, sin el modelo) y envía «Cotízame 500 vasos para bebida fría en Bogotá», «dame esa», la foto del ajiaco (por
+   «Adjuntar → Fotos y videos»), una **nota de voz grabada** y «cancela todo», y exige marcas
+   mínimas en cada respuesta (opciones, «Agregué», nunca «No pude abrir esa foto»,
+   «cancelé»).
+3. Al terminar, pase lo que pase, quita **solo** ese número de la lista vigente (no reescribe
+   una copia vieja: otras personas pueden cambiar el gateway a la vez) y comprueba que ya no
+   está. Si no lo consigue, la prueba falla pidiendo quitarlo a mano. Si el proceso muere antes
+   (Ctrl-C, SSH caído), la marca `data/ensayo-whatsapp/.allowfrom-pendiente` (la huella SHA-256 del número, nunca el número)
+   hace que la siguiente corrida lo quite al empezar; lo mismo con el micrófono
+   (`.microfono-previo`, solo el id de PipeWire).
+
+La nota de voz es real: un micrófono virtual de PipeWire (`pw-loopback`) se pone como fuente
+por defecto, la prueba pulsa «Mensaje de voz» con un clic nativo de WebDriver (el navegador
+exige un gesto real para abrir el micrófono), reproduce `fixtures/nota-voz.ogg` (pasada a WAV
+con `ffmpeg`) y la envía; al salir vuelve el micrófono de siempre. Sin PipeWire o sin `ffmpeg`
+ese paso se salta con un aviso. Los adjuntos se copian a `data/ensayo-whatsapp/medios`: el
+Firefox de snap no lee `/tmp`.
+
+La conversación queda, sin números, en `data/ensayo-whatsapp/<run_id>/conversacion.md`
+(`ENSAYO_WA_DIR`). Córrela **después** de `make ensayo-completo`: con el número en `allowFrom`,
+la prueba de la allowlist y la de deriva del gateway no tendrían sentido. Un despliegue a
+mitad de la conversación reinicia el MCP: no fusiones mientras corre.
+
+Lo que encontró la primera corrida (2026-11-27): WhatsApp entrega las fotos en WebP y el puente
+las rechazaba (PR #291), y un DM que llegó antes de una `binding` al agente de ventas lo
+contestó el agente personal del gateway.
+
 ## Actualizar `openclaw/auditoria-base.json`
 
 La base guarda la versión de OpenClaw, el resumen y los `checkId` del audit, y los valores
@@ -390,6 +425,8 @@ Algunas variables solo las lee un archivo concreto:
 | Variable | Archivo | Por defecto | Uso |
 | --- | --- | --- | --- |
 | `ENSAYO_WA_ESPERA` | `test_whatsapp_real.py` | `90` | Segundos que se vigila el chat tras el envío |
+| `ENSAYO_WA_CONVERSACION` | `test_whatsapp_real_conversacion.py` | apagado | `1` corre la conversación real (escribe en `allowFrom` durante la prueba); la activa `make ensayo-whatsapp-real` |
+| `ENSAYO_WA_DIR` | `test_whatsapp_real_conversacion.py` | `data/ensayo-whatsapp/<run_id>` | Dónde queda `conversacion.md` |
 | `ENSAYO_EXPECT_AGENT_MODE` | `test_operacion.py` | `tools` | Modo del agente esperado en `/health` |
 | `ENSAYO_EXPECT_WEBHOOK` | `test_operacion.py` | apagado | Exige webhook encendido (401, no 404) |
 | `ENSAYO_EXPECT_JEV` | `test_operacion.py` | apagado (en producción, siempre) | Exige Jev configurado y disponible |

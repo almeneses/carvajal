@@ -1,0 +1,811 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Despliegue en producción",
+    "locale": "es",
+    "output": "docs/arquitectura/despliegue.html",
+    "quality_profile": "showcase",
+    "engineering_profile": "deployment-ownership",
+    "parentHref": "general.html",
+    "repository": {
+      "url": "https://github.com/almeneses/carvajal.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "c730180ce327562b052035a046acce2813fa079e"
+    }
+  },
+  "components": [
+    {
+      "id": "pr",
+      "type": "external",
+      "label": "Pull Request",
+      "sublabel": "rama → main",
+      "explanation": "Toda PR apunta a main. Se fusiona con squash cuando el check Calidad está en verde y la rama está al día con main (ruleset de main).",
+      "sources": [
+        {
+          "path": "AGENTS.md",
+          "line": 43,
+          "end_line": 59
+        }
+      ],
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        110,
+        60
+      ]
+    },
+    {
+      "id": "ci",
+      "type": "backend",
+      "label": "CI · Calidad",
+      "sublabel": "ci.yml: Ruff, ty, pytest",
+      "tag": "GitHub",
+      "explanation": "El job Calidad corre en cada PR y en cada push a main: pre-commit (Ruff), ty, pytest sin integración, pruebas JavaScript del chat y smoke del monitoreo. En main, deploy.yml espera a que termine en verde todo el workflow CI: Calidad, Integración y Base de datos.",
+      "sources": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "line": 1,
+          "end_line": 127
+        },
+        {
+          "path": "docs/despliegue-ovh.md",
+          "line": 19,
+          "end_line": 34
+        }
+      ],
+      "pos": [
+        210,
+        40
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "main",
+      "type": "security",
+      "label": "main protegida",
+      "sublabel": "ruleset: Calidad + al día",
+      "tag": "GitHub",
+      "explanation": "El ruleset de main exige Calidad en verde y la rama al día, y prohíbe borrar la rama y el force push. Fusionar en main despliega a producción.",
+      "sources": [
+        {
+          "path": "AGENTS.md",
+          "line": 43,
+          "end_line": 61
+        },
+        {
+          "path": "docs/despliegue-ovh.md",
+          "line": 19,
+          "end_line": 37
+        }
+      ],
+      "pos": [
+        466,
+        40
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "deploy",
+      "type": "backend",
+      "label": "deploy.yml",
+      "sublabel": "imagen + SSH al VPS",
+      "tag": "GitHub",
+      "explanation": "Se dispara cuando el workflow CI termina en verde por un push a main (o a mano desde main). Comprueba que el commit pertenece a main, valida compose.prod.yml, construye y publica la imagen, comprueba por SSH que el .env del VPS tiene SESSION_SECRET, copia compose.prod.yml y deploy.sh y ejecuta deploy.sh con el tag sha-<commit>.",
+      "sources": [
+        {
+          "path": ".github/workflows/deploy.yml",
+          "line": 6,
+          "end_line": 58
+        },
+        {
+          "path": ".github/workflows/deploy.yml",
+          "line": 96,
+          "end_line": 138
+        }
+      ],
+      "pos": [
+        710,
+        40
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "ghcr",
+      "type": "cloud",
+      "label": "GHCR",
+      "sublabel": "carvajal-api:sha-<commit>",
+      "tag": "GitHub",
+      "explanation": "Registro de imágenes de GitHub. deploy.yml publica la imagen con el tag inmutable sha-<commit> (y latest); el VPS no construye ni hace git pull.",
+      "sources": [
+        {
+          "path": ".github/workflows/deploy.yml",
+          "line": 21,
+          "end_line": 23
+        },
+        {
+          "path": ".github/workflows/deploy.yml",
+          "line": 63,
+          "end_line": 79
+        },
+        {
+          "path": "docs/despliegue-ovh.md",
+          "line": 36,
+          "end_line": 37
+        }
+      ],
+      "pos": [
+        460,
+        170
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "deploysh",
+      "type": "backend",
+      "label": "deploy.sh",
+      "sublabel": "migra, recrea, rollback",
+      "tag": "deploy.yml",
+      "explanation": "En el VPS: descarga el tag, siembra y valida el catálogo comercial, aplica alembic upgrade head, recrea los contenedores con docker compose up -d y espera /live y /health. Si el catálogo no valida, se detiene sin tocar la versión en marcha. Si fallan la migración, el up, /live o /health, restaura el catálogo y vuelve al tag anterior; las migraciones no se revierten. Un /health 503 solo por índice ausente se acepta con aviso (primer despliegue).",
+      "sources": [
+        {
+          "path": "scripts/deploy.sh",
+          "line": 1,
+          "end_line": 11
+        },
+        {
+          "path": "scripts/deploy.sh",
+          "line": 263,
+          "end_line": 326
+        },
+        {
+          "path": "scripts/deploy.sh",
+          "line": 128,
+          "end_line": 172
+        }
+      ],
+      "pos": [
+        460,
+        300
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "browser",
+      "type": "external",
+      "label": "Navegador",
+      "sublabel": "chat web",
+      "explanation": "Con PUBLIC_BASE_URL https y HTTPS_REDIRECT activo, una navegación que llega por IP:APP_PORT se redirige (307) al dominio público, donde funciona el dictado por voz.",
+      "sources": [
+        {
+          "path": "docs/despliegue-ovh.md",
+          "line": 696,
+          "end_line": 715
+        }
+      ],
+      "pos": [
+        40,
+        520
+      ],
+      "size": [
+        100,
+        60
+      ]
+    },
+    {
+      "id": "nginx",
+      "type": "security",
+      "label": "nginx del host",
+      "sublabel": "HTTPS · fuera del repo",
+      "tag": "host",
+      "explanation": "El nginx que ya tenía el servidor termina TLS y hace de proxy al puerto publicado de la app; no lo define este repositorio. La app también responde por HTTP en IP:APP_PORT: con PUBLIC_BASE_URL https y HTTPS_REDIRECT activo, las navegaciones que llegan así se redirigen (307) al dominio público. FORWARDED_ALLOW_IPS debe apuntar a la puerta de enlace de la red de Docker.",
+      "sources": [
+        {
+          "path": "docs/despliegue-ovh.md",
+          "line": 696,
+          "end_line": 712
+        },
+        {
+          "path": "docs/despliegue-ovh.md",
+          "line": 808,
+          "end_line": 815
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 227,
+          "end_line": 237
+        }
+      ],
+      "pos": [
+        200,
+        520
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "app",
+      "type": "backend",
+      "label": "app",
+      "sublabel": "FastAPI :8000 · mem 1g",
+      "tag": "deploy.yml",
+      "href": "turno.html",
+      "explanation": "Chat web y API (uvicorn con --proxy-headers). Se publica en 0.0.0.0:APP_PORT (8080 por defecto). Contenedor read_only, cap_drop ALL, no-new-privileges, mem_limit 1g; datos en el volumen appdata.",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 43,
+          "end_line": 72
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 234,
+          "end_line": 264
+        },
+        {
+          "path": "Dockerfile",
+          "line": 60,
+          "end_line": 117
+        }
+      ],
+      "pos": [
+        460,
+        408
+      ],
+      "size": [
+        150,
+        284
+      ]
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "mcp",
+      "sublabel": "perfil whatsapp · 768m",
+      "tag": "deploy.yml",
+      "href": "whatsapp.html",
+      "explanation": "Servidor MCP con la misma imagen que app (python -m apps.mcp). Solo arranca con COMPOSE_PROFILES=whatsapp y MCP_TOKEN; desde ahí deploy.sh lo recrea con el mismo tag que app. Se publica solo en 127.0.0.1:8765 del host y /mcp exige el bearer MCP_TOKEN. mem_limit 768m.",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 266,
+          "end_line": 309
+        },
+        {
+          "path": "apps/mcp/server.py",
+          "line": 6,
+          "end_line": 21
+        }
+      ],
+      "pos": [
+        950,
+        408
+      ],
+      "size": [
+        150,
+        284
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "Postgres 16",
+      "sublabel": "pgvector · volumen pgdata",
+      "tag": "deploy.yml",
+      "explanation": "Fuente de verdad relacional y memoria del agente (AGENT_CHECKPOINTER=postgres). No se publica fuera de la red de compose.",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 22,
+          "end_line": 41
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 92,
+          "end_line": 101
+        }
+      ],
+      "pos": [
+        710,
+        416
+      ],
+      "size": [
+        160,
+        56
+      ]
+    },
+    {
+      "id": "qdrant",
+      "type": "database",
+      "label": "Qdrant",
+      "sublabel": "v1.15.4 · índice del RAG",
+      "tag": "deploy.yml",
+      "href": "corpus.html",
+      "explanation": "Índice vectorial del corpus (colección carvajal_chunks). Se llena con make prod-bootstrap (perfil bootstrap: migrate-gold e index-qdrant).",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 323,
+          "end_line": 342
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 375,
+          "end_line": 441
+        }
+      ],
+      "pos": [
+        710,
+        488
+      ],
+      "size": [
+        160,
+        56
+      ]
+    },
+    {
+      "id": "ollama",
+      "type": "database",
+      "label": "Ollama",
+      "sublabel": "embeddings nomic-embed-text",
+      "tag": "deploy.yml",
+      "explanation": "Calcula los embeddings del RAG. Con LLM_PROVIDER=deepseek (valor por defecto) el chat no usa Ollama. El modelo de embeddings se descarga con el perfil bootstrap (ollama-pull).",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 344,
+          "end_line": 373
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 69,
+          "end_line": 85
+        }
+      ],
+      "pos": [
+        710,
+        560
+      ],
+      "size": [
+        160,
+        56
+      ]
+    },
+    {
+      "id": "odoo",
+      "type": "backend",
+      "label": "Odoo 19",
+      "sublabel": "pedidos · con ODOO_*",
+      "tag": "a mano",
+      "href": "pedido.html",
+      "explanation": "Proyecto de compose aparte, carvajal-odoo (plantilla en deploy/odoo): web Odoo 19 con mem_limit 2g y su propio Postgres 16 (1g). Se une a la red carvajal-prod_default con el alias odoo y se publica solo en 127.0.0.1:8169. La app y mcp solo lo usan con ODOO_URL, ODOO_DB y ODOO_API_KEY. deploy.yml no lo despliega: los addons se copian e instalan a mano.",
+      "sources": [
+        {
+          "path": "deploy/odoo/compose.yml",
+          "line": 1,
+          "end_line": 31
+        },
+        {
+          "path": "docs/odoo-pedidos.md",
+          "line": 345,
+          "end_line": 358
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 126,
+          "end_line": 133
+        }
+      ],
+      "pos": [
+        710,
+        632
+      ],
+      "size": [
+        160,
+        56
+      ]
+    },
+    {
+      "id": "wa",
+      "type": "external",
+      "label": "Clientes WhatsApp",
+      "sublabel": "número comercial",
+      "sources": [
+        {
+          "path": "docs/whatsapp-openclaw.md",
+          "line": 246,
+          "end_line": 257
+        }
+      ],
+      "pos": [
+        950,
+        40
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "openclaw",
+      "type": "backend",
+      "label": "OpenClaw",
+      "sublabel": "gateway · agente «ventas»",
+      "tag": "a mano",
+      "explanation": "Gateway de WhatsApp en su propia VM. Mantiene un túnel SSH restringido al puerto 8765 del VPS y llama a la herramienta MCP consultar_carvajal. La voz de WhatsApp (transcripción y TTS) la hace OpenClaw con su propio proveedor; este repositorio no guarda esas llaves. Su workspace (openclaw/) se copia a mano.",
+      "sources": [
+        {
+          "path": "docs/whatsapp-openclaw.md",
+          "line": 1,
+          "end_line": 18
+        },
+        {
+          "path": "docs/whatsapp-openclaw.md",
+          "line": 188,
+          "end_line": 285
+        },
+        {
+          "path": "openclaw/README.md",
+          "line": 47,
+          "end_line": 64
+        }
+      ],
+      "pos": [
+        950,
+        170
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "deepseek",
+      "type": "external",
+      "label": "DeepSeek",
+      "sublabel": "LLM del chat",
+      "explanation": "LLM_PROVIDER=deepseek por defecto. Sin DEEPSEEK_API_KEY no hay llamadas a DeepSeek: el chat degrada a routes y la app lo avisa al arrancar. El modo tools del agente (AGENT_MODE=tools, por defecto) exige esa clave.",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 69,
+          "end_line": 91
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 102,
+          "end_line": 108
+        }
+      ],
+      "pos": [
+        710,
+        870
+      ],
+      "size": [
+        160,
+        56
+      ]
+    },
+    {
+      "id": "openai",
+      "type": "external",
+      "label": "OpenAI",
+      "sublabel": "voz web · opcional",
+      "explanation": "Dictado y lectura del chat web por el servidor solo con VOICE_PROVIDER=openai y OPENAI_API_KEY; si no, el navegador usa su propia voz.",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 138,
+          "end_line": 157
+        }
+      ],
+      "pos": [
+        220,
+        770
+      ],
+      "size": [
+        150,
+        56
+      ]
+    },
+    {
+      "id": "langsmith",
+      "type": "external",
+      "label": "LangSmith",
+      "sublabel": "monitoreo · opcional",
+      "explanation": "Apagado por defecto; con MONITORING_ENABLED=true y LANGSMITH_API_KEY envía trazas del agente (en producción, solo metadatos).",
+      "sources": [
+        {
+          "path": "compose.prod.yml",
+          "line": 211,
+          "end_line": 226
+        }
+      ],
+      "pos": [
+        710,
+        970
+      ],
+      "size": [
+        160,
+        56
+      ]
+    },
+    {
+      "id": "smtp",
+      "type": "external",
+      "label": "SMTP saliente",
+      "sublabel": "configurado en Odoo",
+      "explanation": "La app no envía correo: al confirmar el pedido, Odoo manda la confirmación por su servidor de correo saliente.",
+      "sources": [
+        {
+          "path": "docs/odoo-pedidos.md",
+          "line": 367,
+          "end_line": 377
+        }
+      ],
+      "pos": [
+        710,
+        770
+      ],
+      "size": [
+        160,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "GitHub",
+      "wraps": [
+        "ci",
+        "main",
+        "deploy",
+        "ghcr"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "VPS OVH",
+      "wraps": [
+        "deploysh",
+        "nginx",
+        "app",
+        "mcp",
+        "db",
+        "qdrant",
+        "ollama",
+        "odoo"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "red de compose carvajal-prod_default",
+      "wraps": [
+        "app",
+        "mcp",
+        "db",
+        "qdrant",
+        "ollama",
+        "odoo"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "VM de OpenClaw",
+      "wraps": [
+        "openclaw"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "pr",
+      "to": "ci",
+      "label": "PR",
+      "variant": "emphasis"
+    },
+    {
+      "from": "ci",
+      "to": "main",
+      "label": "Calidad verde",
+      "variant": "emphasis"
+    },
+    {
+      "from": "main",
+      "to": "deploy",
+      "label": "CI verde",
+      "variant": "emphasis"
+    },
+    {
+      "from": "deploy",
+      "to": "ghcr",
+      "label": "push sha-<commit>",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "from": "deploy",
+      "to": "deploysh",
+      "label": "SSH: compose + deploy.sh",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "from": "deploysh",
+      "to": "ghcr",
+      "label": "pull del tag",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "deploysh",
+      "to": "app",
+      "label": "alembic · up -d · /health",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "browser",
+      "to": "nginx",
+      "label": "HTTPS"
+    },
+    {
+      "from": "nginx",
+      "to": "app",
+      "label": "proxy :APP_PORT"
+    },
+    {
+      "from": "wa",
+      "to": "openclaw",
+      "label": "WhatsApp"
+    },
+    {
+      "from": "openclaw",
+      "to": "mcp",
+      "label": "túnel SSH · Bearer MCP_TOKEN",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "db",
+      "label": "SQL"
+    },
+    {
+      "from": "app",
+      "to": "qdrant",
+      "label": "búsqueda"
+    },
+    {
+      "from": "app",
+      "to": "ollama",
+      "label": "embeddings"
+    },
+    {
+      "from": "app",
+      "to": "odoo",
+      "label": "JSON-2"
+    },
+    {
+      "from": "mcp",
+      "to": "db"
+    },
+    {
+      "from": "mcp",
+      "to": "qdrant"
+    },
+    {
+      "from": "mcp",
+      "to": "ollama"
+    },
+    {
+      "from": "mcp",
+      "to": "odoo",
+      "label": "JSON-2"
+    },
+    {
+      "from": "odoo",
+      "to": "smtp",
+      "label": "correo de confirmación",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "app",
+      "to": "openai",
+      "label": "VOICE_PROVIDER=openai",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "from": "app",
+      "to": "deepseek",
+      "label": "con DEEPSEEK_API_KEY",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "from": "mcp",
+      "to": "deepseek",
+      "label": "con DEEPSEEK_API_KEY",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "from": "app",
+      "to": "langsmith",
+      "label": "MONITORING_ENABLED",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "from": "mcp",
+      "to": "langsmith",
+      "label": "MONITORING_ENABLED",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "right"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Condiciones",
+      "items": [
+        "mcp solo arranca con COMPOSE_PROFILES=whatsapp y MCP_TOKEN",
+        "El pedido en Odoo solo se ofrece con ODOO_URL, ODOO_DB y ODOO_API_KEY",
+        "AGENT_MODE=tools exige LLM_PROVIDER=deepseek y DEEPSEEK_API_KEY",
+        "Con MEDIA_BASE_URL, OpenClaw descarga el PDF de la app y lo adjunta; sin ella va como enlace",
+        "Por IP:APP_PORT (HTTP) la app redirige con 307 a PUBLIC_BASE_URL si es https"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Lo que main no despliega",
+      "items": [
+        "El .env del VPS (SESSION_SECRET y claves): se prepara a mano",
+        "Odoo y sus addons (deploy/odoo): se copian e instalan a mano",
+        "El workspace de OpenClaw (openclaw/): se despliega a mano en su VM",
+        "nginx y certbot son del host, no de este repositorio",
+        "Corpus e índice: make prod-bootstrap (perfil bootstrap)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Superficie expuesta",
+      "items": [
+        "Solo APP_PORT se publica hacia fuera; 5432, 6333 y 11434 no",
+        "mcp y Odoo escuchan solo en el loopback del host",
+        "app y mcp: read_only, cap_drop ALL y no-new-privileges",
+        "/metricas de la app lee /health de mcp con MCP_HEALTH_TOKEN, nunca MCP_TOKEN",
+        "Sentry (SENTRY_DSN) y Jev (JEV_ENABLED) también son opcionales"
+      ]
+    }
+  ]
+}

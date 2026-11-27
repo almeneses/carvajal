@@ -1,13 +1,13 @@
 # Carvajal — Asistente comercial con RAG, herramientas y WhatsApp
 
-[![CI](https://github.com/markodavid/carvajal/actions/workflows/ci.yml/badge.svg)](https://github.com/markodavid/carvajal/actions/workflows/ci.yml)
+[![CI](https://github.com/almeneses/carvajal/actions/workflows/ci.yml/badge.svg)](https://github.com/almeneses/carvajal/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://docs.astral.sh/uv/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://docs.astral.sh/ruff/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > Asistente de **Carvajal** que responde con fuentes citadas sobre la empresa, recomienda y
-> cotiza empaques con precios publicados, y atiende por la web y por **WhatsApp** con el
+> cotiza empaques con precios fechados y de fuente declarada, y atiende por la web y por **WhatsApp** con el
 > mismo agente.
 
 ## Contenido
@@ -48,7 +48,7 @@ MCP propio que usa OpenClaw como gateway de WhatsApp y por un webhook firmado.
 | Memoria | Resumen acumulado de la conversación y memoria del dueño por categorías, con olvido |
 | Canales | Chat web, WhatsApp (OpenClaw → MCP) y webhook HMAC con allowlist E.164 |
 | Voz | Dictado y lectura en el chat (navegador u OpenAI por el servidor) y notas de voz en WhatsApp |
-| Cotizaciones | Folio, desglose con IVA y envío, y PDF firmado descargable |
+| Cotizaciones | Carrito de hasta 10 líneas, propuesta con IVA y envío y «¿La confirmo?»; con el «sí», folio y PDF firmado descargable |
 | Pedidos | Tras el folio: nombre y correo, «¿Lo confirmo?», pedido de venta confirmado en Odoo 19 con correo de confirmación y recibo en PDF por la web y WhatsApp (spec 056) |
 
 ## Demo rápida
@@ -56,7 +56,7 @@ MCP propio que usa OpenClaw como gateway de WhatsApp y por un webhook firmado.
 Solo necesita Docker y una clave de DeepSeek:
 
 ```bash
-git clone https://github.com/markodavid/carvajal.git
+git clone https://github.com/almeneses/carvajal.git
 cd carvajal
 cp .env.example .env          # completa DEEPSEEK_API_KEY (el .env no se versiona)
 make up                       # app + Postgres + Qdrant + Ollama (embeddings) + corpus
@@ -71,63 +71,41 @@ herramientas usadas, decisión del gatekeeper y veredicto de la compuerta):
 |---|---|
 | «hola» | Atajo por reglas: responde sin consultar nada y sin llamar a Jev |
 | «¿En qué año y dónde se fundó Carvajal?» | `historia_carvajal` / `buscar_corpus`, respuesta con citas |
-| «Necesito 2 mil vasitos para tinto en Bogotá» | `buscar_producto` + `cotizar`: cotización con folio, IVA, envío y sedes |
+| «Necesito 2 mil vasitos para tinto en Bogotá» | `buscar_producto` + `cotizar`: propuesta con IVA, envío y sedes, y «¿La confirmo?»; con «sí», folio y PDF |
 | «¿Mi cotización sigue vigente?» | `consultar_cotizacion` sobre el folio guardado en Postgres |
 | «Llámame Ana, trabajo en una cafetería en Cali» | `recordar_preferencia`; en otro hilo, «¿qué sabes de mí?» lo recupera |
 | «Olvida todo lo que sabes de mí» | Borra la memoria del dueño y el resumen |
 | «¿Cuál es el teléfono de Carvajal en Tokio?» | Abstención declarada: el corpus no lo trae |
 
 Por WhatsApp, el mismo flujo responde desde un número real a través de OpenClaw (ver
-[WhatsApp y MCP](#whatsapp-servidor-mcp-y-webhook)); respondiendo *PDF* a una cotización se
-recibe el enlace firmado al documento.
+[WhatsApp y MCP](#whatsapp-servidor-mcp-y-webhook)); al confirmar la cotización con «sí», el
+PDF llega adjunto en el mismo mensaje.
 
 ## Arquitectura
 
-```mermaid
-flowchart LR
-  subgraph CANALES["Canales"]
-    WEB["Navegador<br/>chat HTMX + SSE"]
-    WA["WhatsApp<br/>número real"]
-  end
+Los diagramas se generan con [Archify](https://github.com/tt-a1i/archify). La fuente tipada
+de cada uno es un JSON de [`docs/arquitectura/`](docs/arquitectura/). Cada componente cita
+archivos y líneas del commit `c730180`, y Archify comprueba esas citas al generar el
+diagrama. La imagen es el SVG exportado; al hacer clic se abre el diagrama interactivo
+(`.html`). Ese diagrama ofrece tema claro y oscuro, la explicación de cada nodo, las
+condiciones de activación y los enlaces al código. GitHub muestra el código fuente del
+`.html`: para verlo como diagrama, descárgalo o ábrelo desde una copia local del
+repositorio.
 
-  WA --> OC["OpenClaw<br/>gateway de WhatsApp"]
-  OC -->|"MCP Streamable HTTP<br/>Bearer MCP_TOKEN"| MCP["apps/mcp<br/>consultar_carvajal"]
-  WA -.-> RELAY["Relé HTTP<br/>sin MCP"]
-  RELAY -->|"HMAC-SHA256 + allowlist E.164"| WH["POST /api/webhooks/whatsapp"]
-  WEB -->|"POST /chat/stream · CSRF"| API["FastAPI :8000<br/>shell Jinja2/HTMX + API"]
+[![Arquitectura general de Carvajal](docs/arquitectura/general.svg)](docs/arquitectura/general.html)
 
-  MCP --> BR["WhatsAppBridge<br/>owner_key = HMAC(número)"]
-  WH --> BR
-  BR --> CS
-  API --> CS["ChatService<br/>cupo diario · hilos · cotizaciones"]
+El chat web entra por FastAPI. WhatsApp entra por OpenClaw y el servidor MCP propio, o por el
+webhook firmado como camino alterno. Todos llegan al mismo `ChatService`. Este consulta
+primero el flujo de cotización y pedido (reglas y, con `TYPESAFE_API_KEY`, Jev Choice). Si
+ese flujo no decide, llama al agente LangGraph con sus 20 herramientas. Las flechas punteadas
+son caminos condicionados:
+- voz con `VOICE_PROVIDER=openai`;
+- LangSmith con `MONITORING_ENABLED`;
+- Jev en las compuertas con `JEV_ENABLED`;
+- pedido en Odoo con `ODOO_*`.
 
-  subgraph GRAFO["Grafo LangGraph (AGENT_MODE=tools)"]
-    RC["recall<br/>ventana + resumen + memoria"] --> SC{"shortcut / gatekeeper<br/>reglas → Jev Choice → LLM"}
-    SC -->|"reglas: saludo · despedida · olvido<br/>Jev: respuesta_directa ≥ 0,8"| DI["direct<br/>sin herramientas"]
-    SC -->|"alcance rag · structured · all<br/>o cautela"| AG["agent<br/>DeepSeek + bind_tools"]
-    AG <-->|"tool_calls"| TL["tools<br/>20 herramientas @tool"]
-  end
-
-  CS --> RC
-  AG --> GT["Compuertas<br/>evidencia determinista → Noul (Jev)"]
-  DI --> CS
-  GT --> CS
-  CS --> PDF["GET /cotizaciones/{folio}.pdf<br/>enlace firmado o cookie del dueño"]
-  CS -->|"pedido tras el folio<br/>JSON-2 · API key"| ODOO["Odoo 19<br/>pedido de venta · CRM · correo"]
-  CS --> REC["GET /pedidos/{folio}.pdf<br/>recibo del pedido (PDF de Odoo)"]
-  REC --> ODOO
-
-  TL --> QD[("Qdrant<br/>carvajal_chunks")]
-  TL --> CAT[("Catálogo y datos curados<br/>data/catalog · data/commercial<br/>indicators.json · institucional")]
-  TL --> PG[("PostgreSQL<br/>chat · quotes · PostgresSaver · PostgresStore")]
-  CS <--> PG
-  RC <--> PG
-  AG --> DS["DeepSeek API<br/>LLM en la nube"]
-  DI --> DS
-  SC -.->|"Choice"| JEV["Jev · TypeSafe System One"]
-  GT -.->|"Noul"| JEV
-  OL["Ollama<br/>nomic-embed-text"] -->|"embeddings 768 d"| QD
-```
+El diagrama muestra el modo `AGENT_MODE=tools`. En la versión interactiva, cada componente
+con diagrama propio enlaza con él.
 
 Flujo de un turno:
 
@@ -148,13 +126,124 @@ Flujo de un turno:
    evidencia; después, la compuerta Noul de Jev sustituye por el texto neutro la respuesta
    con afirmaciones no respaldadas ([`apps/api/chat/agent.py`](apps/api/chat/agent.py)). La
    respuesta de `direct` no consulta datos y Noul no la juzga.
-6. **Salida.** Texto con citas, tarjetas de producto y cotización en la web; texto con
-   formato de WhatsApp, fuentes y oferta de PDF en el canal de mensajería.
+6. **Salida.** En la web: texto con citas y tarjetas de producto y de cotización. En
+   WhatsApp: texto con formato de WhatsApp y fuentes; al confirmar una cotización, su PDF
+   va adjunto.
 7. **Pedido (opcional).** Con `ODOO_*`, el folio ofrece hacer el pedido. Los pasos del
    pedido (nombre y correo, «¿Lo confirmo?» y el «sí») los deciden reglas por paso
    (`quotation/flow.py`), sin el modelo ni Jev, y el «sí» crea el pedido en Odoo y devuelve
    el recibo
    ([`docs/odoo-pedidos.md`](docs/odoo-pedidos.md)).
+
+
+### Componentes
+
+| Diagrama | Qué responde | Tipo |
+|---|---|---|
+| [Turno del agente](docs/arquitectura/turno.html) | Qué pasa con un mensaje desde que entra hasta que se responde | Flujo |
+| [WhatsApp](docs/arquitectura/whatsapp.html) | Cómo viaja un mensaje entre WhatsApp, OpenClaw, el MCP y `ChatService` | Secuencia |
+| [Pedido en Odoo](docs/arquitectura/pedido.html) | Por qué estados pasa el pedido después del folio | Ciclo de vida |
+| [Corpus](docs/arquitectura/corpus.html) | Cómo llega el sitio web a Qdrant, a PostgreSQL y a las respuestas | Flujo de datos |
+| [Despliegue](docs/arquitectura/despliegue.html) | Cómo llega el código a producción y qué corre en cada máquina | Arquitectura |
+
+#### Turno del agente
+
+[![Turno del agente con herramientas](docs/arquitectura/turno.svg)](docs/arquitectura/turno.html)
+
+Muestra un turno con `AGENT_MODE=tools`, de la entrada (web o WhatsApp) a la salida. Las
+flechas verdes son el camino principal:
+1. hilo del dueño;
+2. flujo de cotización y pedido;
+3. `recall`;
+4. gatekeeper;
+5. `agent` ⇄ `tools`;
+6. compuerta de evidencia;
+7. compuerta Noul;
+8. guardado y salida.
+
+Hay tres desvíos:
+- el gatekeeper deriva a `direct`;
+- el flujo responde sin LLM;
+- si el agente falla antes del primer token, responde el respaldo `routes` (línea
+  discontinua).
+
+#### WhatsApp de punta a punta
+
+[![Mensaje de WhatsApp de punta a punta](docs/arquitectura/whatsapp.svg)](docs/arquitectura/whatsapp.html)
+
+El cliente escribe en el grupo, y OpenClaw (agente «ventas») atiende solo a los números de
+`groupAllowFrom`. OpenClaw llama a `consultar_carvajal` en el servidor MCP con el Bearer
+`MCP_TOKEN`. `WhatsAppBridge` calcula el `owner_key` y cobra el cupo. Si piden «PDF» o el
+recibo y no hay una cotización por confirmar, responde sin turno. En los demás casos ejecuta
+el mismo turno de `ChatService` que la web. Cuando la respuesta trae `ADJUNTAR_PDF:`, OpenClaw
+descarga el documento y lo adjunta.
+
+#### Pedido en Odoo
+
+[![Ciclo de vida del pedido en Odoo](docs/arquitectura/pedido.svg)](docs/arquitectura/pedido.html)
+
+Solo se ofrece con `ODOO_URL`, `ODOO_DB` y `ODOO_API_KEY`. El camino feliz es:
+1. oferta;
+2. datos del comprador;
+3. «¿Lo confirmo?»;
+4. pedido confirmado en Odoo;
+5. recibo con el PDF.
+
+Los tres pasos del marco punteado los deciden reglas, sin el modelo. Desde ese marco se
+puede salir:
+- por un rechazo, que se retoma en el mensaje siguiente;
+- por otro producto;
+- por un segundo mensaje ajeno al pedido.
+
+Si Odoo falla, el «sí» reintenta. Con precios vencidos no se llama a Odoo.
+
+#### Corpus: del sitio web a las respuestas
+
+[![Flujo de datos del corpus](docs/arquitectura/corpus.svg)](docs/arquitectura/corpus.html)
+
+- **Captura.** `carvajal capture` descarga las semillas: respeta `robots.txt`, espera 1 s
+  por host y escribe Bronze, Silver y Gold.
+- **Cargas del operador.** Lo que se sube en Configuración queda en Gold sin publicar.
+- **Sincronización.** `carvajal sync` lleva a PostgreSQL y a Qdrant solo lo que cambió, con
+  embeddings de Ollama.
+- **Consumo.** El agente busca en Qdrant (primero en el núcleo) y lee los datos curados de
+  `data/`. PostgreSQL alimenta la vista `/corpus` y las citas del chat.
+
+#### Despliegue
+
+[![Despliegue en producción](docs/arquitectura/despliegue.svg)](docs/arquitectura/despliegue.html)
+
+Una PR pasa por el check `Calidad` y se fusiona en `main`. Entonces `deploy.yml` publica la
+imagen `sha-<commit>` en GHCR y entra por SSH al VPS. Allí, `deploy.sh` migra y recrea los
+contenedores de `compose.prod.yml`. Si fallan la migración, `/live` o `/health`, vuelve al tag
+anterior.
+
+Las dos entradas son:
+- el navegador, por el nginx del host;
+- WhatsApp, por OpenClaw y el túnel SSH hasta `mcp`.
+
+Odoo 19 vive en el mismo VPS ([`deploy/odoo/`](deploy/odoo/README.md)) y se despliega a mano.
+
+#### Regenerar los diagramas
+
+Edita el JSON y vuelve a generar el HTML y el SVG. `<archify>` es la carpeta `archify/` del
+repositorio de Archify; el SVG necesita Chrome o Chromium.
+
+```bash
+node <archify>/bin/archify.mjs finalize <tipo> docs/arquitectura/<nombre>.json \
+  docs/arquitectura/<nombre>.html --repo-root . --quality showcase --json
+node <archify>/bin/export-svg.mjs docs/arquitectura/<nombre>.html /tmp/<nombre>.svg auto
+cp /tmp/<nombre>.svg docs/arquitectura/<nombre>.svg   # export-svg no sobrescribe
+```
+
+Los tipos son:
+- `architecture`: `general` y `despliegue`;
+- `workflow`: `turno`;
+- `sequence`: `whatsapp`;
+- `lifecycle`: `pedido`;
+- `dataflow`: `corpus`.
+
+Si se cita código nuevo, actualiza también `meta.repository.revision`.
 
 ## Requisitos de la entrega cubiertos
 
@@ -172,7 +261,7 @@ Flujo de un turno:
 | Voz | Chat web: OpenAI por el servidor (`VOICE_PROVIDER=openai`) con respaldo en la voz del navegador; WhatsApp: `voz=true` con texto hablado corto | [Voz](#voz), [`docs/voz-web.md`](docs/voz-web.md), [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md#mensajes-de-voz) |
 | Fotos de alimentos | Foto en la web o WhatsApp → Jev (Noul, Choice y Score con imagen) → tabla determinista → una recomendada y hasta cuatro alternativas, sin LLM; se eligen por voz o texto y la cotización se confirma antes de registrarse (spec 053) | [Fotos](#fotos-de-alimentos), [`specs/051-fotos-alimentos/`](specs/051-fotos-alimentos/spec.md) |
 | Seguridad | Compuertas de evidencia, filtro de sensibles, token MCP, firma, allowlist, errores sin trazas | [Seguridad](#seguridad) |
-| Licencia, despliegue y reproducibilidad | MIT, guía de despliegue, `.env` fuera del repo, `uv sync`, `make check` | [Licencia](#licencia-y-créditos), [Despliegue](#despliegue), [Instalación](#instalación) |
+| Licencia, despliegue y reproducibilidad | MIT, guía de despliegue, `.env` fuera del repo, `uv sync`, `make check` y diagramas de Archify verificados contra el código | [Licencia](#licencia-y-créditos), [Despliegue](#despliegue), [Instalación](#instalación) |
 
 ### Modelo por API en la nube
 
@@ -278,7 +367,7 @@ el bloque `jev`. Resultados de la medición
 | Medida | Resultado |
 |---|---|
 | Exactitud del gatekeeper (20 preguntas) | **Jev 20/20**, LLM 18/20, reglas 14/20; 0 preguntas con datos enviadas a la respuesta directa |
-| Compuerta de afirmaciones (16 respuestas) | **10/10** no respaldadas detectadas, **0/6** falsas alarmas con umbral 0,5 |
+| Compuerta de afirmaciones (16 respuestas) | **10/10** no respaldadas detectadas y **0/6** falsas alarmas, igual con el umbral vigente 0,3 que con el 0,5 medido al principio |
 | Generalización v3 (40 ítems) con y sin Jev | 28/40 con Jev frente a 29/40 sin Jev (estricto); 0 violaciones de material en ambos |
 | Latencia por llamada a Jev | p50 149 ms, p95 231 ms (n = 75) |
 | Fin del turno p95 | 5,84 s con Jev frente a 5,30 s sin Jev |
@@ -287,7 +376,8 @@ el bloque `jev`. Resultados de la medición
 ### WhatsApp, servidor MCP y webhook
 
 - **Número real vía OpenClaw.** OpenClaw actúa solo como gateway: recibe el mensaje de
-  WhatsApp y llama a la herramienta MCP `consultar_carvajal(mensaje, conversacion, nueva)`
+  WhatsApp y llama a la herramienta MCP
+  `consultar_carvajal(mensaje, conversacion, nueva, voz, foto)`
   del servidor propio [`apps/mcp/server.py`](apps/mcp/server.py). La herramienta ejecuta
   **el mismo turno del chat web** con [`WhatsAppBridge`](apps/mcp/bridge.py) y devuelve el
   texto final en formato de WhatsApp con sus fuentes; OpenClaw lo reenvía tal cual.
@@ -301,20 +391,32 @@ el bloque `jev`. Resultados de la medición
   `WEBHOOK_SECRET`, ventana de ±5 minutos, allowlist E.164 (`WEBHOOK_ALLOWED_NUMBERS`;
   vacía rechaza a todos), idempotencia por `message_id` y 404 sin secreto. Ejecuta el mismo
   `WhatsAppBridge`, así que un número cae en el mismo hilo por MCP y por webhook.
+- **Quién puede escribir**: en OpenClaw, los mensajes directos están en `dmPolicy:
+  allowlist` y el grupo en `groupPolicy: allowlist`: el bot solo contesta a los números E.164
+  de `groupAllowFrom`. Los invitados de una demo se agregan y se quitan en vivo, sin
+  reiniciar, con [`openclaw/invitados.sh`](openclaw/invitados.sh). `openclaw security audit`
+  da 0 críticos, fijado en [`openclaw/auditoria-base.json`](openclaw/auditoria-base.json).
+  En OpenClaw, el grupo comparte una sola sesión entre quienes escriben.
 - **Identidad y cupo**: el número nunca se guarda en claro; el dueño es
   `HMAC-SHA256(SESSION_SECRET, número E.164)`, con su propio hilo, memoria y cupo diario.
-- **PDF de cotizaciones**: cada cotización por WhatsApp termina con «¿Quieres esta
-  cotización en PDF? Responde *PDF*». La respuesta trae un enlace firmado
-  `/cotizaciones/{folio}.pdf` ([`cotizacion_pdf.py`](apps/api/views/cotizacion_pdf.py),
-  [`quote_pdf.py`](apps/api/quote_pdf.py)) que vence con la vigencia de la cotización y se
-  genera al vuelo con fpdf2 (logo, folio, producto, importes, vendedor y fuente del precio).
+- **PDF de cotizaciones**: al confirmar con «sí», la cotización se registra con su folio y
+  el PDF se adjunta en el mismo mensaje (`ADJUNTAR_PDF:` con `MEDIA_BASE_URL`). Sin
+  `MEDIA_BASE_URL`, va como enlace firmado `/cotizaciones/{folio}.pdf`
+  ([`cotizacion_pdf.py`](apps/api/views/cotizacion_pdf.py),
+  [`quote_pdf.py`](apps/api/quote_pdf.py)). Si hay una cotización pendiente, «PDF» la
+  confirma; si no, devuelve la última registrada. El enlace vence con la vigencia de la
+  cotización. El PDF se genera al vuelo con fpdf2: logo, folio, producto, importes, vendedor
+  y fuente del precio.
   En el chat web, la cotización registrada enlaza el mismo `/cotizaciones/{folio}.pdf` en el
   texto y en la tarjeta, sin firma: la ruta lo entrega si la cookie del visitante es la del
   dueño y responde 404 a cualquier otro.
 - **Pedido y recibo** (spec 056): tras el folio, la herramienta ofrece el pedido, pide nombre
   y correo y pregunta «¿Lo confirmo?»; el agente de OpenClaw pasa cada respuesta tal cual. El
-  pedido confirmado llega como recibo con el PDF del pedido de Odoo adjunto (`ADJUNTAR_PDF:`
-  con `MEDIA_BASE_URL`) o enlazado (`PUBLIC_BASE_URL`). A mitad del pedido, *PDF* manda la
+  pedido confirmado llega como recibo con el PDF del pedido de Odoo, que tiene el formato de
+  la cotización del asistente (addon `carvajal_sale_report`). El recibo lleva datos
+  personales, así que se adjunta solo si `MEDIA_BASE_URL` es https o loopback. Si no, va
+  como enlace https firmado de `PUBLIC_BASE_URL`; nunca viaja por http público. A mitad del
+  pedido, *PDF* manda la
   cotización y recuerda el paso; con el pedido hecho, *PDF* o «mándame el recibo» reenvían
   el recibo. Ver [`docs/odoo-pedidos.md`](docs/odoo-pedidos.md).
 
@@ -396,10 +498,12 @@ de licencia libre en [`specs/051-fotos-alimentos/evaluacion/`](specs/051-fotos-a
   verificado contra el dueño) y **`PostgresStore`** guarda la memoria del dueño y el resumen
   acumulado ([`apps/api/agent_runtime.py`](apps/api/agent_runtime.py)). Un reinicio del
   backend recupera el mismo hilo.
-- `/live` comprueba el proceso; `/health` y `/api/health` publican conteos del corpus, estado
-  de Qdrant y del catálogo, y los bloques `agent`, `jev` y `monitoring`; `/health` publica
-  además el bloque `odoo` (configurado y alcanzable, sin URL ni secretos; no cambia el estado
-  global).
+- `/live` comprueba el proceso. `/api/health` publica los conteos del corpus y el estado de
+  Qdrant y del catálogo. `/health` publica lo mismo y suma estos bloques:
+  - `agent`, `jev`, `claims` (contadores de la compuerta de afirmaciones), `voice`,
+    `food_photo` y `monitoring`;
+  - `odoo`: si está configurado y alcanzable, sin URL ni secretos. No cambia el estado
+    global.
 
 Contrato del turno (`POST /api/chat/stream` y `/chat/stream`, eventos SSE):
 
@@ -450,7 +554,7 @@ Contrato: [`specs/045-memoria-herramientas/contracts/memory.md`](specs/045-memor
 | Datos sensibles | Filtro determinista en memoria, resumen y lo que viaja a Jev ([`sensitive.py`](packages/core/src/carvajal/agent/memory/sensitive.py), [`privacy.py`](packages/core/src/carvajal/agent/gatekeeper/privacy.py)) |
 | Token MCP | Bearer obligatorio, comparación en tiempo constante, Host de loopback, puerto publicado solo en loopback |
 | Firma del webhook | HMAC-SHA256 con timestamp firmado, ventana de 5 minutos e idempotencia por `message_id` |
-| Allowlist | `WEBHOOK_ALLOWED_NUMBERS` en E.164; vacía rechaza a todos (403) |
+| Allowlist | Webhook: `WEBHOOK_ALLOWED_NUMBERS` en E.164; vacía rechaza a todos (403). OpenClaw: mensajes directos y grupo en allowlist (`groupAllowFrom`), invitados en vivo con [`invitados.sh`](openclaw/invitados.sh) y `security audit` con 0 críticos |
 | Sin trazas internas al usuario | Errores con mensaje legible en web y WhatsApp; `trace` solo con `?debug=1`; Sentry con `send_default_pii=False` e `include_local_variables=False` ([`observability.py`](apps/api/observability.py)) |
 | Web | CSRF, CSP y cabeceras de seguridad ([`security.py`](apps/api/security.py)), Markdown saneado con `nh3`, guard SSRF en la captura ([`urlguard.py`](apps/api/urlguard.py)), escritura del corpus solo con `OPERATOR_TOKEN` |
 | Contenedores | Usuario sin privilegios, `read_only`, `cap_drop: ALL`, `no-new-privileges` en [`compose.prod.yml`](compose.prod.yml) |
@@ -464,7 +568,7 @@ Requisitos: Python 3.13, [`uv`](https://docs.astral.sh/uv/) y Docker (para Postg
 Qdrant). Toda la gestión de dependencias pasa por `uv`.
 
 ```bash
-git clone https://github.com/markodavid/carvajal.git
+git clone https://github.com/almeneses/carvajal.git
 cd carvajal
 uv sync --all-extras                 # entorno reproducible desde uv.lock
 cp .env.example .env                 # DEEPSEEK_API_KEY y SESSION_SECRET
@@ -487,10 +591,12 @@ Calidad:
 make dev        # entorno + hooks de pre-commit
 make check      # Ruff (lint y formato) + ty + pytest
 make test       # pytest (sin integración, e2e ni smoke)
-make eval-cotizador  # 18 casos dorados del cotizador
+make eval-cotizador  # 21 casos dorados del cotizador
 ```
 
-`make check` corre lo mismo que el CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+`make check` corre la parte de Python del CI. El job `Calidad` de
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) suma las pruebas JavaScript del chat
+(`node --test tests/js/*.cjs`) y el smoke del monitoreo.
 Las pruebas no usan red: los proveedores (DeepSeek, Jev, Qdrant, LangSmith) se sustituyen por
 dobles. En la medición de la spec 046 pasaron **4 413 pruebas**
 ([evidencia §1](specs/046-jev-router/evidencia.md)).
@@ -513,8 +619,13 @@ La CLI completa (`capture`, `sync`, `index-qdrant`, `status`, `list`, `ask`, `ev
 los extras: `uv sync --all-extras` en el repositorio o
 `uv tool install "carvajal[capture,legacy]"` fuera de él.
 
-La interfaz web ofrece **Chat** (respuestas con fuentes, tarjetas de producto y
-cotizaciones, hilos anteriores, voz) y **Corpus** (explorador y ficha de cada documento).
+La interfaz web tiene tres secciones:
+- **Chat**: respuestas con fuentes, tarjetas de producto y de cotizaciones, hilos
+  anteriores, voz y foto.
+- **Corpus**: explorador y ficha de cada documento.
+- **Métricas** (`/metricas`, spec 055): una tarjeta por fuente (Qdrant, Jev, LangSmith,
+  DeepSeek y WhatsApp). Si una fuente falla, su tarjeta lo dice. El saldo de DeepSeek solo
+  lo ve el operador.
 `/configuracion` es la consola del operador para cargar archivos (`.pdf`, `.xml`, `.json`,
 `.csv`, `.html`, `.md`…) o capturar URLs; exige `OPERATOR_TOKEN` y deja lo nuevo en Gold
 para revisión antes de publicarlo con `carvajal sync`. Para volúmenes grandes:
@@ -526,6 +637,9 @@ para revisión antes de publicarlo con `carvajal sync`. Para volúmenes grandes:
   GHCR, secretos de GitHub Actions, primer despliegue, corpus, respaldos y rollback).
 - **WhatsApp**: [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md) (perfil `whatsapp`,
   túnel SSH y PDF) y [`docs/webhooks.md`](docs/webhooks.md) (firma y contrato).
+- **Odoo 19**: [`deploy/odoo/`](deploy/odoo/README.md) es un proyecto de compose aparte en el
+  mismo VPS, con el addon `carvajal_sale_report`. Fusionar en `main` no lo despliega: los
+  addons se copian y se instalan a mano.
 - **Automático**: al fusionar en `main`, GitHub Actions publica la imagen en GHCR con el tag
   `sha-<commit>` y [`scripts/deploy.sh`](scripts/deploy.sh) la descarga, aplica migraciones
   y comprueba `/live` y `/health`.
@@ -581,12 +695,18 @@ fuente (oficial, tercero, colaborador o sistema).
 | Gatekeeper, 20 preguntas | `uv run carvajal eval-gatekeeper --judge rules --judge llm --judge jev --ledger <libro>` | Jev 20/20, LLM 18/20, reglas 14/20 | [046 §2](specs/046-jev-router/evidencia.md) |
 | Compuerta de afirmaciones, 16 respuestas | `uv run carvajal eval-claims --ledger <libro>` | 10/10 detectadas, 0/6 falsas alarmas | [046 §3](specs/046-jev-router/evidencia.md) |
 | v3 con y sin Jev | `eval-agent … --jev-ledger <libro>` | 28/40 frente a 29/40 (estricto); latencia y costo en la evidencia | [046 §4](specs/046-jev-router/evidencia.md) |
-| Cotizador, casos dorados | `make eval-cotizador` | **18/18** | [046 §1](specs/046-jev-router/evidencia.md) |
+| Cotizador, casos dorados | `make eval-cotizador` | **21/21** | [`cotizacion_cases.json`](data/eval/cotizacion_cases.json) |
 
 `eval-agent`, `simulate-chat`, `eval-gatekeeper` y `eval-claims` llaman a los proveedores
 reales y gastan créditos; cuando llaman a Jev exigen un libro de llamadas (`--ledger`, o
 `--jev-ledger` en `eval-agent`) que anota cada llamada sin texto. Los conjuntos están en
 [`data/eval/`](data/eval/).
+
+El **ensayo general** ([`docs/ensayo.md`](docs/ensayo.md), `tests/e2e/`) prueba el sistema
+desplegado de punta a punta: la app, el MCP, el gateway y la allowlist. Recorre también los
+flujos y las fotos, y crea pedidos reales en Odoo por la web y por WhatsApp, con foto, texto
+y voz. Se corre con `make ensayo`, `make ensayo-completo`, `make ensayo-exploracion` y
+`make ensayo-pedido`.
 
 ## Configuración
 
@@ -606,7 +726,7 @@ cp .env.example .env
 | `AGENT_MODE` | `tools` | `tools` (agente con herramientas) o `routes` (enrutador por reglas) |
 | `AGENT_MAX_TOOL_CALLS` | `4` | Consultas por turno (`sin_consulta` no cuenta) |
 | `AGENT_TURN_TIMEOUT_S` | `45` | Plazo hasta el primer token; después responde el respaldo |
-| `AGENT_MAX_QUOTES` | `3` | Cotizaciones con folio por turno |
+| `AGENT_MAX_QUOTES` | `4` | Cotizaciones por turno (comparativo de cantidades o varios productos) |
 | `AGENT_HISTORY_TURNS` | `8` | Ventana de turnos de la memoria de corto plazo |
 | `AGENT_SUMMARY_MODE` | `deterministic` | Resumen acumulado: `deterministic`, `llm` u `off` |
 | `AGENT_MEMORY_DAYS` | `180` | Caducidad de la memoria del dueño |
@@ -621,7 +741,7 @@ cp .env.example .env
 | `MCP_TOKEN` | vacío | Bearer del servidor MCP; sin él no arranca |
 | `MCP_HEALTH_TOKEN` | vacío | Bearer que solo abre el `/health` del MCP; lo usa `/metricas` de la app (que nunca recibe `MCP_TOKEN`) |
 | `PUBLIC_BASE_URL` | vacío | URL pública para los enlaces al PDF, al recibo del pedido y a las fotos del catálogo |
-| `MEDIA_BASE_URL` | vacío | URL desde la que OpenClaw descarga el PDF de la cotización y el recibo para adjuntarlos en WhatsApp |
+| `MEDIA_BASE_URL` | vacío | URL desde la que OpenClaw descarga el PDF de la cotización y el recibo para adjuntarlos en WhatsApp; el recibo solo se adjunta si es https o loopback |
 | `ODOO_URL` / `ODOO_DB` / `ODOO_API_KEY` | vacío | Odoo 19 para los pedidos (spec 056); sin las tres no se ofrece el pedido ([guía](docs/odoo-pedidos.md)) |
 | `ODOO_TIMEOUT_S` / `ODOO_SALES_LOGIN` | `20` / `admin` | Plazo de las llamadas a Odoo y usuario de ventas que recibe la actividad «Coordinar pago y entrega del pedido» |
 | `HTTPS_REDIRECT` | `true` | Con `PUBLIC_BASE_URL` https, redirige (307) al dominio público las navegaciones que llegan por IP:puerto |
@@ -670,7 +790,11 @@ carvajal sync                    PostgreSQL (texto) y Qdrant (vectores), increme
   texto decide la versión. `carvajal sync --prune` elimina lo que ya no está en Gold.
 - **Procedencia**: `source_type` distingue `oficial` (`carvajal.com`), `tercero` (prensa),
   `colaborador` (capa extendida) y `sistema` (fecha y festivos calculados por el servidor).
-- **Precios**: siempre referencias fechadas con su vendedor; un tercero se nombra como tal.
+- **Precios**: siempre fechados y con procedencia. En Colombia, 29 son precios publicados
+  por un distribuidor, con su nombre, página y fecha. Los demás (1 024) son «precio de
+  referencia del catálogo», con procedencia `sistema`. Son de dos clases: copias de México
+  convertidas a COP con una tasa fechada, y precios proyectados para las referencias sin
+  precio. No tienen vendedor ni existencias y nunca se atribuyen a un distribuidor.
 
 ## Estructura
 
@@ -685,12 +809,16 @@ carvajal/
 │   │   ├── toolagent/  # grafo del modo tools, 20 herramientas, evidencia y evaluación
 │   │   ├── gatekeeper/ # reglas, Jev Choice, compuerta Noul y privacidad
 │   │   └── memory/     # resumen acumulado, memoria del dueño y datos sensibles
-│   ├── adapters/       # storage (Postgres), vector (Qdrant), llm, embeddings, judge (Jev) y crm (Odoo)
-│   ├── catalog/ commercial/ quotation/   # catálogo, directorio y motor de cotización
+│   ├── adapters/       # storage (Postgres), vector (Qdrant), llm, embeddings, judge (Jev), speech (OpenAI) y crm (Odoo)
+│   ├── application/ domain/              # casos de uso, puertos y reglas puras
+│   ├── catalog/ commercial/ quotation/   # catálogo, directorio, cotizador, borrador y pedido
+│   ├── food/           # foto de alimento → empaque (spec 051)
 │   └── indexing/       # Gold → Qdrant
 ├── data/               # gold, catálogo, datos curados y conjuntos de evaluación
-├── openclaw/           # workspace del agente «ventas» de WhatsApp (SOUL, AGENTS, USER, MEMORY y bitácora)
+├── openclaw/           # workspace del agente «ventas» de WhatsApp, invitados.sh y auditoría base
+├── deploy/odoo/        # Odoo 19 propio: compose, configuración y addon carvajal_sale_report
 ├── docs/               # guías, evaluación de retrieval, decisiones y diagramas
+│   └── arquitectura/   # diagramas de Archify: fuente JSON, HTML interactivo y SVG
 ├── specs/              # especificaciones Spec Kit con su evidencia
 ├── migrations/         # Alembic
 ├── scripts/            # evaluación de retrieval, despliegue y curaduría
@@ -704,11 +832,17 @@ carvajal/
 ## Documentación
 
 - [`CONSTITUTION.md`](CONSTITUTION.md) — principios, stack y decisiones del proyecto.
+- [`docs/arquitectura/`](docs/arquitectura/) — diagramas de Archify vigentes: general, turno
+  del agente, WhatsApp, pedido, corpus y despliegue (ver [Arquitectura](#arquitectura)).
 - [`specs/`](specs/) — especificaciones por funcionalidad (`spec`, `plan`, `tasks`,
   contratos y evidencia); índice en [`specs/README.md`](specs/README.md).
 - [`docs/whatsapp-openclaw.md`](docs/whatsapp-openclaw.md) — WhatsApp con el servidor MCP.
 - [`docs/odoo-pedidos.md`](docs/odoo-pedidos.md) — pedido tras el folio en Odoo 19: pasos,
-  recibo, privacidad y operación (spec 056).
+  recibo, privacidad y operación (spec 056); instalación en
+  [`deploy/odoo/README.md`](deploy/odoo/README.md).
+- [`openclaw/README.md`](openclaw/README.md) — workspace del agente de WhatsApp, allowlist del
+  grupo e invitados.
+- [`docs/ensayo.md`](docs/ensayo.md) — ensayo general de punta a punta (`make ensayo*`).
 - [`docs/webhooks.md`](docs/webhooks.md) — webhook firmado: contrato, seguridad y firma.
 - [`docs/voz-web.md`](docs/voz-web.md) — voz del chat web por el servidor y su respaldo.
 - [`docs/despliegue-ovh.md`](docs/despliegue-ovh.md) — despliegue, operación y rollback.
@@ -721,7 +855,8 @@ carvajal/
 
 ### Arquitectura histórica
 
-Diagramas de entregas anteriores, conservados como registro:
+Diagramas de entregas anteriores, conservados como registro (los vigentes están en
+[Arquitectura](#arquitectura)):
 
 - **Entrega M3** (asistente de empaques con enrutador por reglas y corpus incremental):
   [`docs/arquitectura-m3.html`](docs/arquitectura-m3.html), fuente en
@@ -730,8 +865,6 @@ Diagramas de entregas anteriores, conservados como registro:
   [`docs/arquitectura.html`](docs/arquitectura.html), fuente en
   [`docs/arquitectura.json`](docs/arquitectura.json) y versión Mermaid en
   [`docs/arquitectura.md`](docs/arquitectura.md).
-
-[![Arquitectura histórica de la entrega M3](docs/arquitectura-m3.visual-check.2048x1320.dark.png)](docs/arquitectura-m3.html)
 
 ## Licencia y créditos
 

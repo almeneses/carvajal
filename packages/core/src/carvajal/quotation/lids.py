@@ -82,13 +82,16 @@ def lid_brand(name: str) -> str | None:
     return found.group(1) if found is not None else None
 
 
-def lid_fits_cup(lid_name: str, cups: Iterable[tuple[str, float | None]]) -> bool:
+def lid_fits_cup(
+    lid_name: str, cups: Iterable[tuple[str, float | None]], *, capacity: bool = True
+) -> bool:
     """La tapa le sirve a alguno de los vasos ``(nombre, capacidad)``; sin vasos, sí.
 
     No sirve si es de otro envase («para cazuela»), si declara una capacidad que ningún vaso
     tiene o si nombra una línea de vasos («para vaso Bioform») que no está en el nombre de
     ningún vaso. Lo que no se puede saber (sin capacidad en el nombre o en el vaso) no la
-    descarta.
+    descarta. Con ``capacity=False`` (la persona pidió la capacidad de la tapa) solo cuentan
+    el envase y la línea de vasos.
     """
 
     known = list(cups)
@@ -97,9 +100,9 @@ def lid_fits_cup(lid_name: str, cups: Iterable[tuple[str, float | None]]) -> boo
     if for_other_container(lid_name):
         return False
     line = lid_brand(lid_name)
-    for cup_name, capacity in known:
+    for cup_name, size in known:
         if line is not None and line.lower() not in cup_name.lower():
             continue
-        if lid_fits(lid_name, capacity) is not False:
+        if not capacity or lid_fits(lid_name, size) is not False:
             return True
     return False

@@ -1,0 +1,386 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Ciclo de vida del pedido en Odoo",
+    "locale": "es",
+    "output": "docs/arquitectura/pedido.html",
+    "quality_profile": "showcase",
+    "parentHref": "general.html",
+    "repository": {
+      "url": "https://github.com/almeneses/carvajal.git",
+      "link_mode": "web",
+      "revision": "c730180ce327562b052035a046acce2813fa079e"
+    }
+  },
+  "mainPath": [
+    "oferta",
+    "datos",
+    "confirmar",
+    "creando",
+    "recibo"
+  ],
+  "states": [
+    {
+      "id": "oferta",
+      "type": "start",
+      "label": "Folio y oferta",
+      "sublabel": "«¿Quieres hacer el pedido?»",
+      "tag": "solo con ODOO_*",
+      "step": "01",
+      "explanation": "Al registrar la cotización con folio, ChatService añade la oferta del pedido solo si build_orders construyó el CRM (ODOO_URL, ODOO_DB y ODOO_API_KEY). El borrador queda esperando «pedido». En la web salen los botones «Hacer el pedido» / «Ahora no». Un correo o un nombre en la respuesta son datos: con marca («me llamo…», «a nombre de…») o como nombre propio de dos palabras; un nombre de pila solo cuenta junto al correo o tras un «sí». Con los dos se salta directo a la confirmación; con uno solo, se pide el que falta.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1700,
+          "end_line": 1705,
+          "label": "oferta tras el folio"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 423,
+          "end_line": 458,
+          "label": "_offer_step y _offered_name"
+        },
+        {
+          "path": "packages/core/src/carvajal/adapters/crm/odoo.py",
+          "line": 682,
+          "end_line": 693,
+          "label": "build_orders con ODOO_*"
+        }
+      ]
+    },
+    {
+      "id": "datos",
+      "type": "waiting",
+      "label": "Datos del comprador",
+      "sublabel": "nombre + correo",
+      "tag": "datos_pedido",
+      "step": "02",
+      "explanation": "Las reglas toman el correo del mensaje y el nombre que se pidió, en uno o dos mensajes; si falta uno, piden ese. El correo del ejemplo de ask_buyer (dominio reservado example.com) cuenta como dato que falta. El nombre y el correo solo viajan a Odoo: nunca al modelo, a Jev ni a OpenAI, y el turno se guarda enmascarado.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 491,
+          "end_line": 510,
+          "label": "_data_step"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 574,
+          "end_line": 585,
+          "label": "_with_buyer"
+        },
+        {
+          "path": "specs/056-pedidos-odoo/spec.md",
+          "line": 769,
+          "end_line": 780,
+          "label": "FR-019 y FR-020"
+        }
+      ]
+    },
+    {
+      "id": "confirmar",
+      "type": "decision",
+      "label": "¿Lo confirmo?",
+      "sublabel": "solo un «sí» limpio crea",
+      "tag": "confirmar_pedido",
+      "step": "03",
+      "explanation": "Un correo o un nombre con marca corrigen el dato y vuelven a mostrar la confirmación. Un «sí» con reparos, un «no» solo o «está mal» preguntan «¿Qué dato corrijo?» sin borrar los datos. Una pregunta sin datos va al agente: si se abstiene, responde render.ORDER_ASIDE, y la respuesta termina con el recordatorio ↩️ del paso.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 513,
+          "end_line": 555,
+          "label": "_confirm_step"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/render.py",
+          "line": 853,
+          "end_line": 876,
+          "label": "confirm_buyer"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 2422,
+          "end_line": 2436,
+          "label": "_order_aside"
+        }
+      ]
+    },
+    {
+      "id": "creando",
+      "type": "active",
+      "label": "Pedido en Odoo",
+      "sublabel": "action_confirm (send_email)",
+      "tag": "oportunidad · actividad",
+      "step": "04",
+      "explanation": "_place_order revisa la vigencia de los precios y llama a OdooOrders.place con el folio, el comprador, el canal y las líneas. El pedido es idempotente por folio (client_order_ref): si ya está en sale lo devuelve sin crear otro. Reutiliza el contacto del asistente con el mismo correo y nombre o crea uno (res.partner), crea el sale.order (o retoma el que quedó en borrador) y action_confirm con send_email lo deja en estado sale; Odoo envía el correo de confirmación con el PDF del pedido. Luego deja una nota en el chatter, una oportunidad del CRM ganada y ligada al pedido, y la actividad «Coordinar pago y entrega del pedido» para el usuario de ODOO_SALES_LOGIN. Si place falla, los datos se quedan y el «sí» reintenta con el mismo folio.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1747,
+          "end_line": 1795,
+          "label": "_place_order"
+        },
+        {
+          "path": "packages/core/src/carvajal/adapters/crm/odoo.py",
+          "line": 219,
+          "end_line": 312,
+          "label": "OdooOrders.place y _notify_sales"
+        },
+        {
+          "path": "packages/core/src/carvajal/adapters/crm/odoo.py",
+          "line": 388,
+          "end_line": 498,
+          "label": "_confirm, _partner y _lead"
+        }
+      ]
+    },
+    {
+      "id": "recibo",
+      "type": "success",
+      "label": "Recibo entregado",
+      "sublabel": "texto + PDF de Odoo",
+      "tag": "/pedidos/{folio}.pdf",
+      "step": "05",
+      "explanation": "El chat responde con el recibo: número del pedido, folio, fecha, líneas, total y el correo de la confirmación. El PDF es el adjunto que Odoo generó al confirmar y se lee de Odoo en cada descarga. En la web es un enlace a /pedidos/{folio}.pdf que abre con la cookie del dueño; en WhatsApp va adjunto si MEDIA_BASE_URL es https (o loopback); si no, como enlace firmado si PUBLIC_BASE_URL es https (o loopback). Sin ninguna base segura la línea del PDF se quita.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/quotation/render.py",
+          "line": 888,
+          "end_line": 936,
+          "label": "order_placed y receipt_offer"
+        },
+        {
+          "path": "apps/api/views/pedido_pdf.py",
+          "line": 82,
+          "end_line": 130,
+          "label": "GET /pedidos/{folio}.pdf"
+        },
+        {
+          "path": "apps/mcp/server.py",
+          "line": 414,
+          "end_line": 417,
+          "label": "WhatsApp: adjunto o enlace con base segura"
+        }
+      ]
+    },
+    {
+      "id": "sin_pedido",
+      "type": "neutral",
+      "label": "Registrada sin pedido",
+      "sublabel": "datos parciales borrados",
+      "tag": "rechazo",
+      "explanation": "«Ahora no», «olvídalo», una despedida o un adiós cierran el paso: la cotización queda registrada sin pedido y el borrador pierde el nombre y el correo. Solo en el mensaje siguiente, «hacer el pedido» vuelve a pedir los datos.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 396,
+          "end_line": 420,
+          "label": "_declined y «hacer el pedido»"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 626,
+          "end_line": 631,
+          "label": "después, borrador nuevo"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/render.py",
+          "line": 1018,
+          "end_line": 1026,
+          "label": "order_declined"
+        }
+      ]
+    },
+    {
+      "id": "borrador_nuevo",
+      "type": "neutral",
+      "label": "Borrador nuevo",
+      "sublabel": "cotización sin pedido",
+      "tag": "sale del paso",
+      "explanation": "Otro producto sin correo ni nombre con marca («quiero 500 vasos») sale del pedido con un borrador nuevo. Tras una pregunta, el recordatorio ↩️ sale una sola vez: si el mensaje siguiente tampoco sigue el pedido, el paso se suelta.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 404,
+          "end_line": 410,
+          "label": "otro producto"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 1226,
+          "end_line": 1232,
+          "label": "after_turn a mitad del pedido"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 1393,
+          "end_line": 1399,
+          "label": "_order_off_flow"
+        }
+      ]
+    },
+    {
+      "id": "vencidos",
+      "type": "failure",
+      "label": "Precios vencidos",
+      "sublabel": "no se llama a Odoo",
+      "tag": "cotizar de nuevo",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1766,
+          "end_line": 1770,
+          "label": "expired_lines"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/render.py",
+          "line": 939,
+          "end_line": 948,
+          "label": "order_expired"
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "oferta-datos",
+      "from": "oferta",
+      "to": "datos",
+      "label": "«sí»"
+    },
+    {
+      "id": "datos-confirmar",
+      "from": "datos",
+      "to": "confirmar",
+      "label": "los dos"
+    },
+    {
+      "id": "confirmar-creando",
+      "from": "confirmar",
+      "to": "creando",
+      "label": "«sí»"
+    },
+    {
+      "id": "creando-recibo",
+      "from": "creando",
+      "to": "recibo",
+      "label": "en sale"
+    },
+    {
+      "id": "oferta-confirmar",
+      "from": "oferta",
+      "to": "confirmar",
+      "label": "datos juntos"
+    },
+    {
+      "id": "creando-falla",
+      "from": "creando",
+      "to": "confirmar",
+      "label": "Odoo falla: reintenta",
+      "variant": "security"
+    },
+    {
+      "id": "creando-vencidos",
+      "from": "creando",
+      "to": "vencidos",
+      "label": "precio vencido",
+      "variant": "security"
+    },
+    {
+      "id": "oferta-rechazo",
+      "from": "oferta",
+      "to": "sin_pedido",
+      "label": "«ahora no» o adiós"
+    },
+    {
+      "id": "datos-rechazo",
+      "from": "datos",
+      "to": "sin_pedido",
+      "label": "«ahora no» o adiós"
+    },
+    {
+      "id": "confirmar-rechazo",
+      "from": "confirmar",
+      "to": "sin_pedido",
+      "label": "«ahora no» o adiós"
+    },
+    {
+      "id": "sin-pedido-retoma",
+      "from": "sin_pedido",
+      "to": "datos",
+      "label": "«hacer el pedido» enseguida"
+    },
+    {
+      "id": "oferta-sale",
+      "from": "oferta",
+      "to": "borrador_nuevo",
+      "label": "otro producto o 2.º aparte",
+      "variant": "dashed"
+    },
+    {
+      "id": "datos-sale",
+      "from": "datos",
+      "to": "borrador_nuevo",
+      "label": "otro producto o 2.º aparte",
+      "variant": "dashed"
+    },
+    {
+      "id": "confirmar-sale",
+      "from": "confirmar",
+      "to": "borrador_nuevo",
+      "label": "otro producto o 2.º aparte",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Reglas, preguntas y privacidad",
+      "items": [
+        "quotation/flow.py decide cada paso (_offer_step, _data_step, _confirm_step) sin el modelo ni Jev",
+        "Una pregunta sin datos va al agente; si se abstiene, responde ORDER_ASIDE (pago y entrega los coordina un asesor)",
+        "La respuesta cierra con el recordatorio ↩️ una vez; un 2.º mensaje ajeno suelta el paso",
+        "Nombre y correo solo viajan a Odoo; el turno se guarda con el correo enmascarado y «(tu nombre)»"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Recibo por canal",
+      "items": [
+        "Web: enlace a /pedidos/{folio}.pdf que abre con la cookie del dueño",
+        "WhatsApp: PDF adjunto si MEDIA_BASE_URL es https; si no, enlace firmado si PUBLIC_BASE_URL es https",
+        "Sin una base segura la línea del PDF se quita; el PDF lo genera Odoo y no se guarda en la app"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Errores de Odoo",
+      "items": [
+        "Cualquier fallo de place(): «No pude crear el pedido…» y los datos se conservan para el «sí»",
+        "Un 422 sobre un pedido que otro turno ya confirmó no es fallo",
+        "Si falla la actividad o la oportunidad, el pedido sigue; ODOO_SALES_LOGIN vacío no programa actividad y un login que no existe da sales_user: missing en /health"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Sin CRM",
+      "items": [
+        "Sin ODOO_URL, ODOO_DB y ODOO_API_KEY el folio no ofrece el pedido: el flujo es el de la spec 054",
+        "Un pedido a medias tras un reinicio sin ODOO_* pierde el paso, el nombre y el correo",
+        "/pedidos/{folio}.pdf responde 503 sin ODOO_* o con Odoo sin responder"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Después del pedido",
+      "items": [
+        "«sí» o «hacer el pedido»: «Ese pedido ya quedó creado con el número S…», sin llamar a Odoo",
+        "«cancela el pedido» no lo anula y «¿cómo va mi pedido?» no consulta Odoo: lo gestiona un asesor",
+        "El número queda en la cotización local (mark_order) y sobrevive al borrador"
+      ]
+    }
+  ]
+}

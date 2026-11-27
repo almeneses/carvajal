@@ -3,6 +3,7 @@
 - [`CONSTITUTION.md`](../CONSTITUTION.md) — verdad central del proyecto.
 - [`README.md`](../README.md) — puerta de entrada pública.
 - [`AGENTS.md`](../AGENTS.md) — contexto para agentes LLM.
+- [`arquitectura/`](arquitectura/) — diagramas vigentes de Archify (general, turno del agente, WhatsApp, pedido, corpus y despliegue): fuente JSON, HTML interactivo y SVG.
 - [`arquitectura-m2.md`](arquitectura-m2.md) — flujo del agente, Qdrant y memoria.
 - [`demo-m2.md`](demo-m2.md) — guion de 12 minutos + 3 de preguntas.
 - [`despliegue-ovh.md`](despliegue-ovh.md) — VPS, TLS, despliegue automático y rollback.

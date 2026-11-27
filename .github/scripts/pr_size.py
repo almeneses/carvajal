@@ -44,8 +44,13 @@ GENERATED_FILES = {
     ".specify/memory/.constitution-template.json",
 }
 # Los diagramas de Archify se generan con ``archify finalize`` a partir de su
-# fuente ``docs/arquitectura*.json``, que sí cuenta y es lo que se revisa.
-GENERATED_GLOBS = (".opencode/commands/speckit.*.md", "docs/arquitectura*.html")
+# fuente ``docs/arquitectura*.json``, que sí cuenta y es lo que se revisa; el SVG
+# del README se exporta de ese HTML con ``export-svg``.
+GENERATED_GLOBS = (
+    ".opencode/commands/speckit.*.md",
+    "docs/arquitectura*.html",
+    "docs/arquitectura*.svg",
+)
 
 
 def is_ignored(path: str, extra: set[str] | None = None) -> bool:
