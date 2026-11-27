@@ -283,9 +283,14 @@ solo antes de una entrega o tras un cambio grande.
 
 ## WhatsApp real con Firefox (allowlist)
 
-El número vinculado en OpenClaw es el del owner, con `dmPolicy: allowlist` y un único número en
-`allowFrom`. La prueba manda un DM real desde **otro** número, el que tiene abierto WhatsApp
-Web en el Firefox del owner, y comprueba que nadie responde.
+El número vinculado en OpenClaw es el de la cuenta del bot, con `dmPolicy: allowlist` y los
+números autorizados en `allowFrom`. La prueba manda un DM real desde **otro** número, el que
+tiene abierto WhatsApp Web en el Firefox del owner, y comprueba que nadie responde.
+
+Desde el 2026-11-27 el número del Firefox está autorizado (el bot solo atiende directos), así
+que la prueba se salta. Para correrla, quítalo un momento en la VM del gateway con
+`~/invitados.sh quitar <número>` y devuélvelo al terminar con `~/invitados.sh restablecer`
+([`openclaw/README.md`](../openclaw/README.md#quién-puede-escribirle-al-bot)).
 
 1. Cierra Firefox y ábrelo con Marionette. Abre el perfil de siempre, el que tiene la sesión
    de WhatsApp Web:
@@ -373,7 +378,9 @@ endurecidos de la configuración (solo formas, nunca números ni JID). Reglas de
 - **Informa** cuando desaparece un hallazgo de la base: conviene actualizarla.
 
 Cuando un cambio **intencional** mejora o cambia el gateway, por ejemplo `groupPolicy:
-allowlist`, que deja 0 críticos, o una versión nueva de OpenClaw:
+allowlist`, que dejó 0 críticos, el paso a solo mensajes directos (`groupPolicy: disabled` y
+una sesión por número, que quitó el aviso `multi_user_heuristic`) o una versión nueva de
+OpenClaw:
 
 ```bash
 ssh "$ENSAYO_OPENCLAW_SSH" "sudo -n -u marko -H bash -lc \

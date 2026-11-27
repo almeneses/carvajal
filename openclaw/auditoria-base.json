@@ -1,5 +1,5 @@
 {
-  "descripcion": "Línea base del gateway OpenClaw para el ensayo general (tests/e2e/test_operacion.py, docs/ensayo.md). Se tomó en vivo, en solo lectura, el 2026-11-25 y se actualizó el 2026-11-27 (groupPolicy=allowlist) con 'openclaw security audit --json' y 'openclaw config get'. Un crítico nuevo o más críticos rompen el ensayo; un aviso nuevo solo se registra. Si un cambio intencional mejora o cambia el gateway, actualiza este archivo en la misma PR.",
+  "descripcion": "Línea base del gateway OpenClaw para el ensayo general (tests/e2e/test_operacion.py, docs/ensayo.md). Se tomó en vivo, en solo lectura, el 2026-11-25 y se actualizó el 2026-11-27 (groupPolicy=allowlist y, ese mismo día, solo mensajes directos) con 'openclaw security audit --json' y 'openclaw config get'. Un crítico nuevo o más críticos rompen el ensayo; un aviso nuevo solo se registra. Si un cambio intencional mejora o cambia el gateway, actualiza este archivo en la misma PR.",
   "fecha": "2026-11-27",
   "openclaw_version": "2026.11.6",
   "unidades": [
@@ -9,16 +9,12 @@
   ],
   "summary": {
     "critical": 0,
-    "warn": 4,
+    "warn": 3,
     "info": 1
   },
   "findings": [
     {
       "checkId": "gateway.trusted_proxies_missing",
-      "severity": "warn"
-    },
-    {
-      "checkId": "security.trust_model.multi_user_heuristic",
       "severity": "warn"
     },
     {
@@ -35,7 +31,7 @@
     }
   ],
   "config": {
-    "descripcion": "Endurecimiento vigente (PR #252 y groupPolicy=allowlist del 2026-11-27). Solo se guardan valores y formas, nunca números ni JID.",
+    "descripcion": "Endurecimiento vigente (PR #252, groupPolicy=allowlist y luego solo directos, ambos del 2026-11-27). Solo se guardan valores y formas, nunca números ni JID.",
     "valores": {
       "channels.whatsapp.dmPolicy": "allowlist",
       "tools.elevated.enabled": false,
@@ -46,7 +42,7 @@
       "agents.entries.ventas.tools.exec.mode": "deny",
       "agents.entries.ventas.tools.elevated.enabled": false,
       "agents.entries.ventas.tools.fs.workspaceOnly": true,
-      "channels.whatsapp.groupPolicy": "allowlist"
+      "channels.whatsapp.groupPolicy": "disabled"
     },
     "deny_minimo": {
       "ruta": "agents.entries.ventas.tools.deny",
@@ -82,14 +78,17 @@
     "allow_from": {
       "ruta": "channels.whatsapp.allowFrom",
       "minimo": 1,
-      "maximo": 1
+      "maximo": 50
     },
     "bindings": {
       "ruta": "bindings",
       "agente": "ventas",
       "canal": "whatsapp",
-      "tipo": "group",
-      "maximo": 1
+      "dm_scope": "per-channel-peer",
+      "otros": {
+        "tipo": "direct",
+        "maximo": 1
+      }
     }
   }
 }

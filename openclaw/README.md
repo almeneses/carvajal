@@ -21,17 +21,32 @@ usuario que ejecuta el gateway. La configuración y la seguridad del gateway est
 - `memory/.dreams/`, `media/` y el repositorio git interno del workspace.
 - `openclaw.json` y `.env`: tienen la configuración del gateway y las claves.
 
-## Quién puede escribirle al bot en el grupo
+## Quién puede escribirle al bot
 
-Desde el 2026-11-27 el grupo está en `groupPolicy: allowlist`: el bot solo contesta a los
-números de `channels.whatsapp.groupAllowFrom` (E.164). Con eso `openclaw security audit`
-queda sin críticos. Los invitados de una demo se agregan en vivo con
-[`invitados.sh`](invitados.sh), que corre en la VM del gateway (`~/invitados.sh`).
+Desde el 2026-11-27 el bot **solo atiende mensajes directos**: ya no se usan grupos
+(`groupPolicy: disabled`). Con `dmPolicy: allowlist`, contesta únicamente a los números
+E.164 de `channels.whatsapp.allowFrom` cuando le escriben al número de WhatsApp de la
+cuenta. Cualquier otro número no recibe respuesta, y un mensaje en un grupo tampoco, ni en
+el grupo ni por directo.
+
+Los bindings del gateway son dos:
+
+- el chat del número de la propia cuenta (`peer` directo con id fijo) sigue con `main`;
+- todo lo demás del canal de WhatsApp va a «ventas», con `session.dmScope:
+  per-channel-peer`: cada número autorizado tiene su propia sesión.
+
+Por eso basta con agregar un número a `allowFrom` para que lo atienda «ventas»: no hay
+que tocar los bindings. [`auditoria-base.json`](auditoria-base.json) lo fija y el ensayo
+falla si otro agente queda con los directos o si «ventas» pierde la sesión por número.
+
+Los números autorizados se manejan en vivo con [`invitados.sh`](invitados.sh), que corre
+en la VM del gateway (`~/invitados.sh`; base en `~/.openclaw/directos-base.json`).
 OpenClaw aplica el cambio sin reiniciar.
 
 ```bash
 ~/invitados.sh fijar-base                     # antes del evento: el equipo queda como base
 ~/invitados.sh agregar 3001234567 3157654321  # cada invitado, al llegar
+~/invitados.sh quitar 3001234567              # quitar a uno
 ~/invitados.sh listar                         # cuántos y los 4 últimos dígitos
 ~/invitados.sh restablecer                    # al terminar: solo el equipo
 ```
@@ -39,10 +54,9 @@ OpenClaw aplica el cambio sin reiniciar.
 `agregar` exige que la base exista, y `fijar-base` no la sobrescribe si la lista ya tiene
 números que no están en ella (invitados): así `restablecer` siempre vuelve al equipo. Si de
 verdad son del equipo, `fijar-base --forzar`. El script no aplica una lista vacía ni con
-números que no sean E.164, y un número de Colombia debe tener 10 dígitos.
-
-Agregar a alguien a la lista no lo mete al grupo de WhatsApp: eso lo hace un administrador
-del grupo. Los números no se versionan.
+números que no sean E.164, y un número de Colombia debe tener 10 dígitos. Tampoco deja la
+lista por encima de 50 números (`MAXIMO`, el mismo `maximo` de `allow_from` en
+`auditoria-base.json`; una prueba los mantiene iguales). Los números no se versionan.
 
 ## Desplegar
 
