@@ -1,0 +1,281 @@
+// Pedido de venta con la marca de Carvajal: los colores, la tipografía y las medidas del PDF de
+// la cotización del asistente (apps/api/quote_pdf.py). Todo va bajo .o_cv / .o_cv_footer para
+// no tocar los demás reportes de Odoo.
+
+$cv-navy: #003a5d;
+$cv-cyan: #00b5e5;
+$cv-green: #80a41b;
+$cv-orange: #ed7004;
+$cv-grey: #606870;
+$cv-light: #f1f5f8;
+$cv-border: #dce2e8;
+$cv-text: #1e1e1e;
+
+@font-face {
+    font-family: "DM Sans Carvajal";
+    font-weight: 400;
+    src: url("/carvajal_sale_report/static/src/fonts/DMSans-Regular.ttf") format("truetype");
+}
+
+@font-face {
+    font-family: "DM Sans Carvajal";
+    font-weight: 700;
+    src: url("/carvajal_sale_report/static/src/fonts/DMSans-Bold.ttf") format("truetype");
+}
+
+.o_cv,
+.o_cv_footer {
+    font-family: "DM Sans Carvajal", "DejaVu Sans", sans-serif;
+    color: $cv-text;
+}
+
+.o_cv {
+    font-size: 9pt;
+    line-height: 1.35;
+
+    // Con Bootstrap 5, wkhtmltopdf dibuja bordes en tbody, tr y celdas (Odoo lo corrige igual
+    // en .table-borderless): aquí solo hay las líneas que dibuja este archivo.
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 0 none;
+
+        tbody,
+        thead,
+        tfoot,
+        tr,
+        td,
+        th {
+            border: 0 none;
+        }
+
+        > :not(:first-child) {
+            border-top-style: none;
+        }
+    }
+
+    .text-end {
+        text-align: right;
+    }
+
+    .text-start {
+        text-align: left;
+    }
+
+    .text-nowrap {
+        white-space: nowrap;
+    }
+
+    // Encabezado.
+    .o_cv_head td {
+        vertical-align: top;
+        padding: 0;
+    }
+
+    .o_cv_logo img {
+        width: 52mm;
+    }
+
+    .o_cv_title {
+        text-align: right;
+    }
+
+    .o_cv_kind {
+        color: $cv-navy;
+        font-size: 16pt;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+
+    .o_cv_number {
+        color: $cv-orange;
+        font-size: 11pt;
+        font-weight: 700;
+        margin-top: 1mm;
+    }
+
+    .o_cv_meta {
+        color: $cv-grey;
+        font-size: 9pt;
+    }
+
+    .o_cv_rule {
+        border-top: 0.8mm solid $cv-cyan;
+        margin: 4mm 0 2mm;
+    }
+
+    // Títulos de sección: mayúsculas en azul con un trazo verde corto debajo.
+    .o_cv_section {
+        color: $cv-navy;
+        font-size: 11pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin: 5mm 0 2.5mm;
+        page-break-after: avoid;
+
+        &::after {
+            content: "";
+            display: block;
+            width: 18mm;
+            margin-top: 1mm;
+            border-bottom: 0.5mm solid $cv-green;
+        }
+    }
+
+    // Etiqueta y valor (cliente).
+    .o_cv_fields {
+        th {
+            color: $cv-navy;
+            font-weight: 700;
+            text-align: left;
+            width: 24mm;
+            padding: 0.6mm 0;
+            vertical-align: top;
+        }
+
+        td {
+            color: #282828;
+            padding: 0.6mm 0;
+        }
+    }
+
+    // Tabla de productos.
+    .o_cv_lines {
+        thead th {
+            background: $cv-navy;
+            color: #fff;
+            font-weight: 700;
+            padding: 1.8mm 1.5mm;
+            white-space: nowrap;
+        }
+
+        tbody tr {
+            page-break-inside: avoid;
+        }
+
+        tbody td {
+            border-bottom: 0.2mm solid $cv-border;
+            padding: 1.5mm;
+            vertical-align: middle;
+        }
+
+        tbody tr:nth-child(odd) td {
+            background: $cv-light;
+        }
+
+        .o_cv_thumb {
+            width: 14mm;
+            padding: 1mm;
+            text-align: center;
+
+            img {
+                max-width: 12mm;
+                max-height: 12mm;
+            }
+        }
+
+        .o_cv_product_name {
+            font-weight: 700;
+        }
+
+        .o_cv_product_detail {
+            color: $cv-grey;
+            font-size: 8pt;
+            margin-top: 0.5mm;
+        }
+
+        .o_cv_strong {
+            font-weight: 700;
+        }
+
+        .o_cv_line_section td {
+            background: transparent;
+            color: $cv-navy;
+            font-weight: 700;
+        }
+
+        .o_cv_line_note td {
+            background: transparent;
+            color: $cv-grey;
+            font-style: italic;
+        }
+    }
+
+    // Importes: filas alternas y la barra del total en azul.
+    .o_cv_amounts {
+        page-break-inside: avoid;
+
+        td {
+            border-bottom: 0.2mm solid $cv-border;
+            padding: 1.8mm 2mm;
+            font-size: 9.5pt;
+            color: #3c3c3c;
+        }
+
+        td.text-end {
+            color: $cv-text;
+            font-weight: 700;
+        }
+
+        tr:nth-child(odd) td {
+            background: $cv-light;
+        }
+
+        tr.o_cv_total td {
+            background: $cv-navy;
+            border-bottom: 0;
+            color: #fff;
+            font-size: 12pt;
+            font-weight: 700;
+            padding: 2.6mm 2mm;
+        }
+    }
+
+    .o_cv_notes {
+        page-break-inside: avoid;
+        color: #3c3c3c;
+
+        p {
+            margin: 0 0 1mm;
+        }
+    }
+
+    .o_cv_next {
+        margin: 0;
+    }
+
+    .o_cv_legal {
+        color: $cv-grey;
+        font-size: 8pt;
+        line-height: 1.4;
+        margin-top: 6mm;
+    }
+}
+
+// Pie: línea cian, marca a la izquierda y página a la derecha.
+.o_cv_footer {
+    font-size: 7.5pt;
+    color: $cv-grey;
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 0 none;
+        border-top: 0.6mm solid $cv-cyan;
+
+        tbody,
+        tr,
+        td {
+            border: 0 none;
+        }
+    }
+
+    td {
+        padding-top: 1.5mm;
+        color: $cv-grey;
+    }
+
+    .text-end {
+        text-align: right;
+    }
+}

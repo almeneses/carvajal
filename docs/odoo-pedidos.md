@@ -158,6 +158,16 @@ enviar un correo, además de que se envíe una copia o recibo al cliente (whatsa
   (`order="id asc"`), que es el que Odoo generó al confirmar. Ni un documento interno que el
   equipo suba al chatter ni otro PDF posterior salen como recibo.
 
+**Formato del PDF**: el addon [`carvajal_sale_report`](../deploy/odoo/addons/carvajal_sale_report/)
+cambia el reporte «Cotización / Pedido» (`sale.action_report_saleorder`) para que tenga el
+mismo formato que el PDF de la cotización del asistente (`apps/api/quote_pdf.py`): logo,
+número del pedido y folio de la cotización, secciones en azul con trazo verde, tabla de
+productos con la foto del producto en Odoo, barra del total, notas, próximos pasos y pie con
+la página, en DM Sans y A4. Solo reemplaza la llamada de `sale.report_saleorder_raw`, así
+que lo usan el correo de confirmación, el botón «Imprimir» y el recibo del chat; la factura
+pro forma sigue con el formato de Odoo. Un borrador sale como «Cotización» con la nota de
+cotización referencial.
+
 | Canal | Cómo llega el PDF |
 |---|---|
 | Web | Enlace «📄 Descarga el recibo de tu pedido S…» a `GET /pedidos/{folio}.pdf`, en la respuesta, en el historial y en un turno reemitido (mismo `client_turn_id`: llega como un solo «token» y `apps/api/views/stream.py` le aplica también `pdf_offer` y `receipt_offer`). Abre con la **cookie del visitante** dueño de la cotización |
@@ -343,6 +353,7 @@ versionada está en [`deploy/odoo/`](../deploy/odoo/).
 - Base `carvajal` (`dbfilter = ^carvajal$`, sin gestor de bases), con los módulos
   `sale_management`, `crm`, `sale_crm` y `contacts`, en español de Colombia, con COP y sin
   impuestos por defecto (los precios llegan calculados por la app).
+- Los addons propios (`deploy/odoo/addons/`, hoy `carvajal_sale_report`, el PDF del pedido) se copian e instalan a mano: fusionar en `main` no los despliega. Pasos, `report.url` y comprobación en [`deploy/odoo/README.md`](../deploy/odoo/README.md#addons).
 - La API es JSON-2: `POST /json/2/<modelo>/<método>` con `Authorization: bearer <api key>`
   y `X-Odoo-Database: carvajal`.
 

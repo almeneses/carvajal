@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- El pedido con el formato del PDF de la cotización del asistente (apps/api/quote_pdf.py):
+         logo y número a la derecha, secciones en azul con subrayado verde, tabla de productos con
+         foto, barra del total y pie con la página. Las cifras son las del pedido de Odoo. -->
+    <template id="report_saleorder_document">
+        <t t-set="doc" t-value="doc.with_context(lang=doc.partner_id.lang)"/>
+        <t t-set="o" t-value="doc"/>
+        <t t-set="company" t-value="doc.company_id.sudo()"/>
+        <t t-set="is_quotation" t-value="doc.state in ('draft', 'sent')"/>
+        <t t-set="product_lines" t-value="doc.order_line.filtered(lambda line: not line.display_type and not line.is_downpayment)"/>
+        <t t-set="with_photos" t-value="any(line.product_id.image_128 for line in product_lines)"/>
+
+        <div class="header o_cv_header"/>
+
+        <div class="article o_cv"
+             t-att-data-oe-model="doc._name"
+             t-att-data-oe-id="doc.id"
+             t-att-data-oe-lang="doc.env.context.get('lang')">
+
+            <!-- Encabezado: logo a la izquierda; tipo de documento, número y fechas a la derecha. -->
+            <table class="o_cv_head">
+                <tr>
+                    <td class="o_cv_logo">
+                        <img src="/carvajal_sale_report/static/src/img/logo.png" alt="Carvajal Empaques"/>
+                    </td>
+                    <td class="o_cv_title">
+                        <div class="o_cv_kind" t-out="'Cotización' if is_quotation else 'Pedido de venta'"/>
+                        <div class="o_cv_number">
+                            <t t-out="'Cotización' if is_quotation else 'Pedido'"/> <span t-field="doc.name"/>
+                        </div>
+                        <div class="o_cv_meta" t-if="doc.client_order_ref">
+                            Cotización del asistente #<span t-field="doc.client_order_ref"/>
+                        </div>
+                        <div class="o_cv_meta">
+                            <t t-out="'Fecha' if is_quotation else 'Confirmado'"/>:
+                            <span t-field="doc.date_order" t-options="{'widget': 'date'}"/>
+                        </div>
+                        <div class="o_cv_meta" t-if="is_quotation and doc.validity_date">
+                            Válida hasta: <span t-field="doc.validity_date"/>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+            <div class="o_cv_rule"/>
+
+            <!-- Cliente. -->
+            <h3 class="o_cv_section">Cliente</h3>
+            <table class="o_cv_fields">
+                <tr>
+                    <th>Nombre</th>
+                    <td t-out="doc.partner_id.name"/>
+                </tr>
+                <tr t-if="doc.partner_id.email">
+                    <th>Correo</th>
+                    <td t-out="doc.partner_id.email"/>
+                </tr>
+                <tr t-if="doc.partner_id.phone">
+                    <th>Teléfono</th>
+                    <td t-out="doc.partner_id.phone"/>
+                </tr>
+                <tr t-if="doc.origin">
+                    <th>Origen</th>
+                    <td t-out="doc.origin"/>
+                </tr>
+            </table>
+
+            <!-- Productos: una fila por línea, con la foto del producto si la tiene. El texto de
+                 la línea trae «[SKU] nombre · presentación · vendedor · ciudad · IVA»: la primera
+                 parte va como título y el resto como detalle. -->
+            <h3 class="o_cv_section">Productos (<t t-out="len(product_lines)"/>)</h3>
+            <table class="o_cv_lines">
+                <thead>
+                    <tr>
+                        <th t-if="with_photos" class="o_cv_thumb"/>
+                        <th class="text-start">Producto</th>
+                        <th class="text-end">Cantidad</th>
+                        <th class="text-end">Precio unitario</th>
+                        <th class="text-end">Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-foreach="doc.order_line" t-as="line">
+                        <tr t-if="line.display_type in ('line_section', 'line_subsection')" class="o_cv_line_section">
+                            <td t-att-colspan="5 if with_photos else 4" t-out="line.name"/>
+                        </tr>
+                        <tr t-elif="line.display_type == 'line_note'" class="o_cv_line_note">
+                            <td t-att-colspan="5 if with_photos else 4" t-out="line.name"/>
+                        </tr>
+                        <tr t-elif="line in product_lines">
+                            <t t-set="parts" t-value="(line.name or '').split(' · ')"/>
+                            <td t-if="with_photos" class="o_cv_thumb">
+                                <img t-if="line.product_id.image_128"
+                                     t-att-src="image_data_uri(line.product_id.image_128)"
+                                     alt=""/>
+                            </td>
+                            <td class="o_cv_product">
+                                <div class="o_cv_product_name" t-out="parts[0]"/>
+                                <div class="o_cv_product_detail" t-if="len(parts) &gt; 1" t-out="' · '.join(parts[1:])"/>
+                            </td>
+                            <td class="text-end text-nowrap">
+                                <t t-if="line.product_uom_qty == int(line.product_uom_qty)" t-out="'{:,}'.format(int(line.product_uom_qty)).replace(',', '.')"/>
+                                <span t-else="" t-field="line.product_uom_qty"/>
+                            </td>
+                            <td class="text-end text-nowrap">
+                                <span t-field="line.price_unit" t-options="{'widget': 'monetary', 'display_currency': doc.currency_id}"/>
+                            </td>
+                            <td class="text-end text-nowrap o_cv_strong">
+                                <span t-field="line.price_subtotal"/>
+                            </td>
+                        </tr>
+                    </t>
+                </tbody>
+            </table>
+
+            <!-- Importes y total. -->
+            <h3 class="o_cv_section">Detalle del <t t-out="'presupuesto' if is_quotation else 'pedido'"/></h3>
+            <table class="o_cv_amounts">
+                <tr>
+                    <td>Subtotal</td>
+                    <td class="text-end"><span t-field="doc.amount_untaxed"/></td>
+                </tr>
+                <tr t-if="doc.amount_tax">
+                    <td>Impuestos</td>
+                    <td class="text-end"><span t-field="doc.amount_tax"/></td>
+                </tr>
+                <tr class="o_cv_total">
+                    <td>TOTAL</td>
+                    <td class="text-end">
+                        <span t-field="doc.amount_total"/> <t t-out="doc.currency_id.name"/>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Notas del pedido (impuestos, precios por confirmar, envío). -->
+            <div class="o_cv_notes" t-if="not is_html_empty(doc.note)">
+                <h3 class="o_cv_section">Notas</h3>
+                <div t-field="doc.note"/>
+            </div>
+
+            <h3 class="o_cv_section" t-if="not is_quotation">Próximos pasos</h3>
+            <p class="o_cv_next" t-if="not is_quotation">
+                Un asesor de Carvajal Empaques te contacta para coordinar el pago y la entrega.
+                Si necesitas cambiar o cancelar el pedido, díselo a ese asesor.
+            </p>
+
+            <p class="o_cv_legal" t-if="is_quotation">
+                Cotización referencial elaborada con precios publicados por el vendedor de cada
+                producto. No constituye pedido, reserva ni compromiso de venta. La existencia, el
+                envío y la vigencia del precio se confirman con el vendedor al momento de comprar.
+            </p>
+            <p class="o_cv_legal" t-else="">
+                Pedido registrado por el asistente comercial de Carvajal Empaques con los precios
+                de la cotización del asistente. La existencia, el envío y la vigencia del precio se
+                confirman con el vendedor de cada producto al coordinar la entrega.
+            </p>
+        </div>
+
+        <div class="footer o_cv_footer">
+            <table>
+                <tr>
+                    <td class="text-start">Carvajal Empaques · Asistente comercial</td>
+                    <td class="text-end">
+                        <t t-out="doc.name"/> · Página <span class="page"/> de <span class="topage"/>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </template>
+
+    <!-- Solo el reporte «Cotización / Pedido» (el del correo y el recibo) usa el documento de
+         Carvajal; la factura pro forma sigue con el de Odoo. -->
+    <template id="report_saleorder_raw" inherit_id="sale.report_saleorder_raw">
+        <xpath expr="//t[@t-call='sale.report_saleorder_document']" position="attributes">
+            <attribute name="t-call">carvajal_sale_report.report_saleorder_document</attribute>
+        </xpath>
+    </template>
+</odoo>
