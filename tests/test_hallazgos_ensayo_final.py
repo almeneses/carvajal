@@ -20,7 +20,7 @@ from apps.mcp.bridge import is_receipt_request
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.graph import history_messages
 from carvajal.quotation import render
-from carvajal.quotation.cards import compact_cards, strip_imitated_cards
+from carvajal.quotation.cards import CARD_NOTE, compact_cards, strip_imitated_cards
 from carvajal.quotation.draft import QuoteDraft, line_label
 from carvajal.quotation.engine import QuoteRequest, quote_request
 from carvajal.quotation.flow import Reply, after_turn, before_turn
@@ -435,3 +435,40 @@ def test_el_flujo_avisa_que_tapa_no_agrego() -> None:
     assert "Agregué **500 Vaso rígido traslúcido 9 oz Wau" in outcome.message.text
     assert only_lid.message.text.startswith("No agregué **Tapa")
     assert len(only_lid.draft.lines) == 1
+
+
+# --- Ensayo tras la PR #288: el modelo copió la nota del historial ----------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "La tapa traslúcida Wau cubre vasos de 3,5 a 7 oz [1].\n\n"
+        "(El sistema mostró aquí su tarjeta de la cotización: Recomendada: Tapa traslúcida "
+        "para vaso rígido 3,5 a 7 oz Wau (paquete x 50) · $28.950; alternativas en PET.)\n\n"
+        "*Fuentes:*\n[1] EDEXA: Tapa",
+        "El plato que encontré es pando, no hondo [1].\n\n"
+        "(El sistema mostró aquí su tarjeta de la cotización: Plato espumado pando 12 cm Wau "
+        "x 200 · $17.480, más las alternativas.)",
+    ],
+)
+def test_la_nota_del_historial_copiada_por_el_modelo_se_quita(text: str) -> None:
+    # Act
+    clean, removed = strip_imitated_cards(text)
+
+    # Assert
+    assert removed == 1
+    assert "El sistema mostró" not in clean
+    assert clean.split("\n")[0] == text.split("\n")[0]
+
+
+def test_la_nota_del_historial_es_una_tarjeta_para_el_filtro() -> None:
+    # Arrange: lo que el modelo ve en el historial es justo lo que el filtro quita.
+    note = compact_cards("Listo.\n\n✅ Agregué **500 Vaso**\n1. Vaso x 500 · $37.510")
+
+    # Act
+    clean, removed = strip_imitated_cards(note)
+
+    # Assert
+    assert note.split("\n\n")[1].startswith(CARD_NOTE)
+    assert (clean, removed) == ("Listo.", 1)
