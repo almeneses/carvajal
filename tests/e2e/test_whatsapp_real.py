@@ -109,9 +109,12 @@ for (const nodo of nodos) {
   vistos.add(fila);
   const id = fila.getAttribute('data-id') || '';
   let dir = '?';
-  if (fila.matches('.message-in') || fila.querySelector('.message-in') || id.startsWith('false_')) {
+  // Desde 2026-11 el data-id ya no empieza por true_/false_: la cola de la burbuja dice el lado.
+  if (fila.matches('.message-in') || fila.querySelector(".message-in, [data-icon='tail-in']")
+      || id.startsWith('false_')) {
     dir = 'in';
-  } else if (fila.matches('.message-out') || fila.querySelector('.message-out')
+  } else if (fila.matches('.message-out')
+             || fila.querySelector(".message-out, [data-icon='tail-out']")
              || id.startsWith('true_')) {
     dir = 'out';
   }
