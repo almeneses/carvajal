@@ -118,6 +118,16 @@ class Settings(BaseSettings):
     # defecto apunta al Ollama del host; en compose.prod.yml se inyecta
     # http://ollama:11434 para usar el servicio de la red de Compose.
     ollama_base_url: str = "http://127.0.0.1:11434"
+    # Segundos que Ollama mantiene cargado el modelo de embeddings tras cada petición
+    # (``keep_alive``; -1 = siempre). Con los 5 min por defecto de Ollama, el tráfico
+    # espaciado de producción recargaba el modelo y ``buscar_corpus`` tardaba 6 s de p50
+    # (ensayo del 2026-11-26). 24 h por defecto; 0 lo descarga tras cada petición.
+    ollama_embed_keep_alive_s: int = Field(default=86_400, ge=-1)
+    # Consultas distintas cuyo vector se guarda en memoria del proceso (LRU); 0 la apaga.
+    embed_cache_size: int = Field(default=512, ge=0, le=100_000)
+    # Al arrancar la app y el MCP, una petición de embedding en segundo plano carga el
+    # modelo en Ollama; si Ollama no responde solo queda un aviso en el log.
+    embed_warm_up: bool = True
 
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
@@ -275,7 +285,9 @@ class Settings(BaseSettings):
     # respaldada, ``shadow`` solo juzga y registra, ``off`` la apaga. ``on`` es alias de
     # ``enforce``.
     jev_claims_mode: Literal["enforce", "shadow", "off"] = "enforce"
-    jev_claims_threshold: float = Field(default=0.5, ge=0, le=1)
+    # 0,3 desde el 2026-11-26 (antes 0,5): entre 0,3 y 0,5 Jev no separa respuestas buenas de
+    # malas y sustituía más de un tercio en el ensayo; spec 046, evidencia §10.7.
+    jev_claims_threshold: float = Field(default=0.3, ge=0, le=1)
     # Tope por proceso; se reinicia a medianoche de Bogotá. ``0`` = sin llamadas.
     jev_max_calls_per_day: int = Field(default=1000, ge=0, le=100_000)
     jev_max_evidence_chars: int = Field(default=12_000, ge=1_000, le=40_000)

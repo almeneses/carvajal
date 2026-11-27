@@ -233,8 +233,8 @@ def test_olvidar_todo_y_dos_turnos_despues_el_resumen_no_trae_lo_olvidado() -> N
         {"question": f"Tema {i}, cuéntame", "answer": f"Respuesta {i}.", "incomplete": False}
         for i in range(1, 6)
     ]
-    steps = [*_no_query("Hola."), ScriptStep(text="Listo, ya lo olvidé.")]
-    steps += [*_no_query("Hola."), *_no_query("Hola.")]
+    # «Olvidar todo» no llama al modelo: su confirmación es fija (ensayo del 2026-11-26).
+    steps = [*_no_query("Hola."), *_no_query("Hola."), *_no_query("Hola.")]
     graph, chat = _graph(steps, memory, settings)
 
     def seed(count: int) -> SeedTurns:

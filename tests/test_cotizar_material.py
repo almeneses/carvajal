@@ -31,6 +31,9 @@ REPORTE = "Me puedes cotizar 1000 vasos de papel para bebida caliente en Bogotá
         ("vasos plásticos PET", "pet"),
         ("vasos plásticos", "plastico"),
         ("vaso PP", "pp"),
+        ("contenedores rígidos de 16 oz", "plastico"),
+        ("vaso rígido de PP", "pp"),
+        ("contenedor rígido de icopor", None),
         ("vasos para café", None),
         ("sin plástico por favor", None),
         ("papel o icopor", None),
@@ -147,3 +150,20 @@ def _deps():
     from tests.test_tool_agent_tools import _deps as deps
 
     return deps()
+
+
+def test_contenedores_rigidos_nunca_cotizan_icopor() -> None:
+    # WhatsApp del 2026-11-26: «contenedores rígidos de 16 oz» para caliente en Medellín
+    # cotizó el contenedor térmico de EPS (publicado en Bogotá).
+    resultado = quote(
+        "Es caliente",
+        questions=["Cotiza 500 contenedores rígidos de 16 Oz en Medellín"],
+        today=HOY,
+        now=AHORA,
+    )
+
+    assert resultado["kind"] == "cotizacion"
+    materiales = {resultado["primary"]["material"]} | {
+        item["material"] for item in resultado["alternatives"]
+    }
+    assert materiales <= {"PP", "PS", "PET"}

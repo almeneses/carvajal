@@ -52,6 +52,8 @@ def _jev_apagado(monkeypatch: pytest.MonkeyPatch) -> None:
     # Un ``.env`` local con PUBLIC_BASE_URL https no debe redirigir las peticiones de
     # TestClient; las pruebas de la redirección la encienden explícitamente.
     monkeypatch.setenv("HTTPS_REDIRECT", "false")
+    # El calentamiento de embeddings llamaría al Ollama local al arrancar el TestClient.
+    monkeypatch.setenv("EMBED_WARM_UP", "false")
     original = httpx.HTTPTransport.handle_request
     original_async = httpx.AsyncHTTPTransport.handle_async_request
 

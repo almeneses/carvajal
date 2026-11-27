@@ -134,6 +134,8 @@ class FakeToolRunner:
         thread_id: str,
         question: str,
         seed_turns: Sequence[Turn],
+        *,
+        draft: Any = None,
     ) -> Iterator[ToolAgentEvent]:
         self.calls.append(
             {
@@ -141,6 +143,7 @@ class FakeToolRunner:
                 "thread_id": thread_id,
                 "question": question,
                 "seed_turns": list(seed_turns),
+                "draft": draft,
             }
         )
         try:
@@ -1591,6 +1594,24 @@ def test_dos_cantidades_del_mismo_producto_dan_un_comparativo_y_se_elige_una(
     assert row["payload"]["lines"][0]["primary"]["units_requested"] == 100
 
 
+def test_el_runner_recibe_el_borrador_para_la_compuerta(engine: Any) -> None:
+    """El borrador viaja al runner: de él sale ``borrador_de_cotizacion`` para Jev (046 §10.7)."""
+
+    # Arrange: el primer turno deja dos líneas en el carrito.
+    runner = FakeToolRunner(scripted_events(two_quotes_final()))
+    service = build_service(engine, runner)
+    list(service.stream("dueno-borrador", QUESTION, client_turn_id="b1"))
+
+    # Act
+    list(service.stream("dueno-borrador", "¿Y qué tapas tienen?", client_turn_id="b2"))
+
+    # Assert
+    assert len(runner.calls) == 2
+    draft = runner.calls[1]["draft"]
+    assert draft is not None
+    assert len(draft.lines) == 2
+
+
 def test_sin_client_turn_id_el_folio_es_valido_y_unico(engine: Any) -> None:
     # Arrange
     runner = FakeToolRunner(scripted_events(two_quotes_final()))
@@ -2307,9 +2328,11 @@ def test_el_runner_recibe_la_semilla_con_turn_count(engine: Any) -> None:
     received: list[Any] = []
 
     class SeedRunner(FakeToolRunner):
-        def stream(self, owner_key: str, thread_id: str, question: str, seed_turns: Any) -> Any:
+        def stream(
+            self, owner_key: str, thread_id: str, question: str, seed_turns: Any, **kwargs: Any
+        ) -> Any:
             received.append(seed_turns)
-            return super().stream(owner_key, thread_id, question, seed_turns)
+            return super().stream(owner_key, thread_id, question, seed_turns, **kwargs)
 
     runner = SeedRunner(scripted_events())
     service = build_service(engine, runner)

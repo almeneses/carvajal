@@ -138,6 +138,19 @@ def seed_questions(state: Mapping[str, Any], history_turns: int | None = None) -
     return [str(turn.get("question") or "") for turn in turns]
 
 
+def seed_answers(state: Mapping[str, Any], history_turns: int | None = None) -> list[str]:
+    """Respuestas del asistente en ``seed_turns``, en la misma ventana que :func:`seed_questions`.
+
+    Llevan lo que el hilo mostró (opciones, carrito, candidatas): ``cotizar`` las mira para
+    saber si una referencia que recibe salió de la conversación o la puso el modelo.
+    """
+
+    turns = [turn for turn in state.get("seed_turns") or [] if isinstance(turn, Mapping)]
+    if history_turns is not None:
+        turns = turns[-history_turns:] if history_turns > 0 else []
+    return [str(turn.get("answer") or "") for turn in turns]
+
+
 @dataclass(frozen=True)
 class ToolContext:
     """Estado del turno que una herramienta necesita leer (nunca lo muta).
@@ -147,7 +160,8 @@ class ToolContext:
     datos comerciales vigentes, ``quotes`` las cotizaciones exitosas del turno, ``history``
     las preguntas anteriores de la persona en el hilo (para saber si dijo la ciudad) y
     ``last_answer`` la última respuesta del asistente (una confirmación como «sí» acepta la
-    ciudad que el asistente propuso).
+    ciudad que el asistente propuso). ``answers`` son las respuestas del asistente en la
+    misma ventana que ``history``: lo que el hilo mostró (opciones, carrito, candidatas).
 
     Spec 045: ``owner_key`` y ``thread_id`` salen del estado del grafo, nunca de los
     argumentos del modelo (FR-014); vacíos fuera del grafo, y entonces las herramientas de
@@ -162,6 +176,7 @@ class ToolContext:
     quotes: Sequence[Mapping[str, Any]] = ()
     history: Sequence[str] = ()
     last_answer: str = ""
+    answers: Sequence[str] = ()
     owner_key: str = ""
     thread_id: str = ""
     memory: Mapping[str, Any] = field(default_factory=dict)
@@ -183,6 +198,7 @@ class ToolContext:
             quotes=list(state.get("quotes") or []),
             history=seed_questions(state, history_turns),
             last_answer=last_answer(state.get("seed_turns") or []),
+            answers=seed_answers(state, history_turns),
             owner_key=str(state.get("owner_key") or ""),
             thread_id=str(state.get("thread_id") or ""),
             memory=dict(state.get("memory") or {}),

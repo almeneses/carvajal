@@ -31,7 +31,7 @@
   },
   {
     "function": {
-      "description": "Busca empaques del catálogo según uso, temperatura, microondas, capacidad, familia y nombre (código como P1 o J2, SKU o nombre comercial o coloquial como icopor). Devuelve hasta 8 opciones aptas numeradas [n], el total de coincidencias y las descartadas con su motivo. No calcula totales; sirve para explorar y comparar. No la uses para: la ficha de una referencia ya nombrada (usa ficha_producto) ni comparar referencias ya nombradas (usa comparar_referencias).",
+      "description": "Busca empaques del catálogo según uso, temperatura, microondas, capacidad, familia y nombre (código, SKU o nombre comercial o coloquial como icopor). Devuelve hasta 8 opciones aptas numeradas [n], el total de coincidencias y las descartadas con su motivo. No calcula totales; sirve para explorar y comparar. No la uses para: la ficha de una referencia ya nombrada (usa ficha_producto) ni comparar referencias ya nombradas (usa comparar_referencias).",
       "name": "buscar_producto",
       "parameters": {
         "properties": {
@@ -93,7 +93,7 @@
               }
             ],
             "default": null,
-            "description": "Texto libre para una referencia concreta: código (P1, J2, 14x14), SKU (CO-PCOM-J2) o nombre comercial o coloquial (icopor, portacomidas, bowl, pando). Filtra por coincidencia en nombre, SKU y material; se combina con los demás filtros."
+            "description": "Texto libre para una referencia concreta, con las palabras de la persona: su código corto, su SKU o su nombre comercial o coloquial (icopor, portacomidas, bowl, pando). Filtra por coincidencia en nombre, SKU y material; se combina con los demás filtros."
           },
           "pais": {
             "anyOf": [
@@ -153,7 +153,7 @@
   },
   {
     "function": {
-      "description": "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con el precio publicado de un vendedor. Los datos ausentes se completan con el contexto comercial del hilo. Solo para combinaciones que la persona pidió. Si la persona nombró una referencia concreta (código como P1 o J2, SKU o nombre comercial), pásala en sku o nombre: se cotiza exactamente esa, sin alternativas, y si el nombre es ambiguo devuelve las candidatas. La cantidad va en la unidad que dijo la persona (unidad: cajas, paquetes, pacas); la herramienta la convierte y devuelve la conversión: no la calcules tú. Sin ciudad dicha por la persona, o con una ciudad fuera del directorio, pide la ciudad. No la uses para: convertir una cantidad sin pedir precio (usa convertir_presentacion) ni leer una cotización ya emitida (usa consultar_cotizacion).",
+      "description": "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con el precio publicado de un vendedor. Los datos ausentes se completan con el contexto comercial del hilo. Solo para combinaciones que la persona pidió. Si la persona nombró una referencia concreta (su código, su SKU o su nombre comercial), pásala en sku o nombre: se cotiza exactamente esa, sin alternativas, y si el nombre es ambiguo devuelve las candidatas. La cantidad va en la unidad que dijo la persona (unidad: cajas, paquetes, pacas); la herramienta la convierte y devuelve la conversión: no la calcules tú. Sin ciudad dicha por la persona, o con una ciudad fuera del directorio, pide la ciudad. No la uses para: convertir una cantidad sin pedir precio (usa convertir_presentacion) ni leer una cotización ya emitida (usa consultar_cotizacion).",
       "name": "cotizar",
       "parameters": {
         "properties": {
@@ -278,7 +278,7 @@
               }
             ],
             "default": null,
-            "description": "Referencia concreta que nombró la persona: código (P1, J2) o nombre comercial (Vaso Gold de 14 oz). Se busca como en buscar_producto y se cotiza exactamente esa, sin alternativas. Una descripción genérica (vasos de icopor) no es una referencia: pásala en family y use."
+            "description": "Referencia concreta que nombró la persona, con sus palabras: su código corto o su nombre comercial. Se busca como en buscar_producto y se cotiza exactamente esa, sin alternativas. Una descripción genérica (vasos de icopor) no es una referencia: pásala en family y use."
           },
           "prefers_renewable": {
             "anyOf": [
@@ -317,7 +317,7 @@
               }
             ],
             "default": null,
-            "description": "SKU de la referencia que nombró la persona (como CO-PCOM-J2), tal como aparece en los datos de las herramientas; fija la referencia que se cotiza."
+            "description": "SKU exacto de la referencia que nombró o eligió la persona, copiado de los datos de las herramientas o del hilo; fija la referencia que se cotiza. Nunca lo inventes ni lo completes."
           },
           "temperature": {
             "anyOf": [

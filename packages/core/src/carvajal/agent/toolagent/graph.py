@@ -109,12 +109,19 @@ from carvajal.agent.toolagent.tools import (
     format_tool_content,
     last_answer,
     run_tool,
+    seed_answers,
     seed_questions,
 )
 from carvajal.application.ask import _neutralize
 from carvajal.application.ports import RouteJudge
 from carvajal.infrastructure.settings import Settings
-from carvajal.prompts import AGENT_SYSTEM, DIRECT_INSTRUCTIONS, DIRECT_SYSTEM, GATEKEEPER_CAUTION
+from carvajal.prompts import (
+    AGENT_SYSTEM,
+    DIRECT_INSTRUCTIONS,
+    DIRECT_SYSTEM,
+    FIXED_DIRECT_ANSWERS,
+    GATEKEEPER_CAUTION,
+)
 
 __all__ = [
     "CANCEL_KEY",
@@ -485,6 +492,8 @@ class _TurnProgress:
     missing: list[str]
     history: list[str]
     last_answer: str
+    # Respuestas del asistente en la misma ventana: lo que el hilo mostró (``cotizar``).
+    answers: list[str] = field(default_factory=list)
     owner_key: str = ""
     thread_id: str = ""
     memory: dict[str, Any] = field(default_factory=dict)
@@ -515,6 +524,7 @@ class _TurnProgress:
             # cuenta como dicha.
             history=seed_questions({"seed_turns": window}, history_turns),
             last_answer=last_answer(window),
+            answers=seed_answers({"seed_turns": window}, history_turns),
             owner_key=str(state.get("owner_key") or ""),
             thread_id=str(state.get("thread_id") or ""),
             memory=dict(state.get("memory") or {}),
@@ -529,6 +539,7 @@ class _TurnProgress:
             quotes=self.quotes,
             history=self.history,
             last_answer=self.last_answer,
+            answers=self.answers,
             owner_key=self.owner_key,
             thread_id=self.thread_id,
             memory=self.memory,
@@ -794,6 +805,11 @@ def build_tool_agent(
         # La intención ya la decidió ``shortcut``: recalcularla aquí duplicaría el
         # enrutador y podría divergir si una de las dos llamadas cambiara de entradas.
         intent = state.get("shortcut_intent", "")
+        fixed = FIXED_DIRECT_ANSWERS.get(intent)
+        if fixed is not None:
+            # «Olvida todo»: la memoria ya se borró (o no se pudo) en ``shortcut``; la
+            # confirmación es fija para que el modelo no diga otra cosa (ensayo 2026-11-26).
+            return {"messages": [AIMessage(content=fixed)]}
         instructions = (
             FAREWELL_INSTRUCTIONS
             if intent == FAREWELL_INTENT

@@ -22,6 +22,8 @@ Sync Impact Report (spec 046)
 - Pendiente: ninguno.
 - Sincronización posterior (sin cambio de versión): estado técnico de la 046 tras la
   medición y sus correcciones (CONSTITUTION.md §9, 2026-11-24).
+- Sincronización posterior (sin cambio de versión): umbral de la compuerta 0,5 → 0,3 y
+  sustituto con los datos del turno (CONSTITUTION.md §9, 2026-11-26).
 -->
 # Constitución de Carvajal Corpus
 
@@ -89,8 +91,9 @@ oficial (`carvajal.com`) de tercero (prensa) y declarar lo que no sabe.
   existe la procedencia `sistema` para datos que calcula el servidor (fecha y calendario de
   festivos de Colombia); se cita como tal (spec 045, enmienda B).
 - En el modo `tools`, después de la compuerta determinista, una compuerta de afirmaciones
-  (Jev, pregunta Noul, umbral 0,5) sustituye por el texto neutro existente toda respuesta del
-  modelo que marca como no respaldada por las consultas del turno. Una valoración presentada
+  (Jev, pregunta Noul, umbral 0,3 desde el 2026-11-26) sustituye por el texto neutro
+  existente toda respuesta del modelo que marca como no respaldada por las consultas del
+  turno; si el turno solo consultó búsquedas deterministas, el sustituto presenta esos datos. Una valoración presentada
   como hecho sin fuente cuenta como no respaldada; un dato reformateado no. Con esa compuerta
   activa, el camino con evidencia retiene el texto completo antes de emitirlo; si Jev no
   responde, rige la compuerta determinista sola (spec 046, enmienda E).

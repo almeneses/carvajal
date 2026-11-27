@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from tests.fakes.catalogo import book_sin_proyecciones, catalog_sin_proyecciones
 
 from carvajal.agent.toolagent.tools import ciudades_con_cobertura as mod
 from carvajal.agent.toolagent.tools._base import ToolContext, ToolDeps, _Draft, _Sources
@@ -66,6 +67,9 @@ class _NoStore:
 
 
 def _deps(**extra: Any) -> ToolDeps:
+    # Datos reales sin los precios proyectados (2026-11-26); ver ``tests/fakes/catalogo.py``.
+    extra.setdefault("book", book_sin_proyecciones())
+    extra.setdefault("catalog", catalog_sin_proyecciones())
     return ToolDeps(
         vector_store=_NoStore(),
         embedder=_NoEmbedder(),

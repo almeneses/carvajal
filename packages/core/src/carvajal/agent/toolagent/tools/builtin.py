@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import date
 from typing import Annotated, Any, Literal, cast
 
+import structlog
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
 
 from carvajal.agent.commercial import (
@@ -80,6 +81,8 @@ from carvajal.quotation.data import REFERENCE_SITE_ID
 
 # Movido en bloque desde ``toolagent/tools.py`` (spec 045, T008; research R9): el código
 # no se reescribió. Ver el docstring de ``toolagent/tools/__init__.py``.
+
+logger = structlog.get_logger(__name__)
 
 FRAGMENT_CHARS = 1500  # texto máximo de un fragmento del corpus que ve el modelo
 # Opciones aptas que ve el modelo en ``buscar_producto``. Con tres (``MAX_OPTIONS`` de la
@@ -184,10 +187,10 @@ class BuscarProductoArgs(BaseModel):
         default=None,
         max_length=MAX_NAME_CHARS,
         description=(
-            "Texto libre para una referencia concreta: código (P1, J2, 14x14), SKU "
-            "(CO-PCOM-J2) o nombre comercial o coloquial (icopor, portacomidas, bowl, pando). "
-            "Filtra por coincidencia en nombre, SKU y material; se combina con los demás "
-            "filtros."
+            "Texto libre para una referencia concreta, con las palabras de la persona: su "
+            "código corto, su SKU o su nombre comercial o coloquial (icopor, portacomidas, "
+            "bowl, pando). Filtra por coincidencia en nombre, SKU y material; se combina con "
+            "los demás filtros."
         ),
     )
 
@@ -265,16 +268,17 @@ class CotizarArgs(BaseModel):
         default=None,
         max_length=64,
         description=(
-            "SKU de la referencia que nombró la persona (como CO-PCOM-J2), tal como aparece "
-            "en los datos de las herramientas; fija la referencia que se cotiza."
+            "SKU exacto de la referencia que nombró o eligió la persona, copiado de los datos "
+            "de las herramientas o del hilo; fija la referencia que se cotiza. Nunca lo "
+            "inventes ni lo completes."
         ),
     )
     nombre: str | None = Field(
         default=None,
         max_length=MAX_NAME_CHARS,
         description=(
-            "Referencia concreta que nombró la persona: código (P1, J2) o nombre comercial "
-            "(Vaso Gold de 14 oz). Se busca como en buscar_producto y se cotiza exactamente "
+            "Referencia concreta que nombró la persona, con sus palabras: su código corto o "
+            "su nombre comercial. Se busca como en buscar_producto y se cotiza exactamente "
             "esa, sin alternativas. Una descripción genérica (vasos de icopor) no es una "
             "referencia: pásala en family y use."
         ),
@@ -345,8 +349,8 @@ DESCRIPTIONS: dict[str, str] = {
     ),
     TOOL_BUSCAR_PRODUCTO: (
         "Busca empaques del catálogo según uso, temperatura, microondas, capacidad, "
-        "familia y nombre (código como P1 o J2, SKU o nombre comercial o coloquial como "
-        f"icopor). Devuelve hasta {MAX_TOOL_OPTIONS} opciones aptas numeradas [n], el total "
+        "familia y nombre (código, SKU o nombre comercial o coloquial como icopor). "
+        f"Devuelve hasta {MAX_TOOL_OPTIONS} opciones aptas numeradas [n], el total "
         "de coincidencias y las descartadas con su motivo. No calcula totales; sirve para "
         "explorar y comparar. No la uses para: la ficha de una referencia ya nombrada (usa "
         "ficha_producto) ni comparar referencias ya nombradas (usa comparar_referencias)."
@@ -355,7 +359,7 @@ DESCRIPTIONS: dict[str, str] = {
         "Calcula una cotización en Colombia para un producto, una cantidad y una ciudad, con "
         "el precio publicado de un vendedor. Los datos ausentes se completan con el contexto "
         "comercial del hilo. Solo para combinaciones que la persona pidió. Si la persona "
-        "nombró una referencia concreta (código como P1 o J2, SKU o nombre comercial), pásala "
+        "nombró una referencia concreta (su código, su SKU o su nombre comercial), pásala "
         "en sku o nombre: se cotiza exactamente esa, sin alternativas, y si el nombre es "
         "ambiguo devuelve las candidatas. La cantidad va en "
         "la unidad que dijo la persona (unidad: cajas, paquetes, pacas); la herramienta la "
@@ -583,6 +587,22 @@ def _option_payload(option: Mapping[str, Any], sources: _Sources) -> dict[str, A
     return payload
 
 
+def _suitable_for(req: CommercialRequest) -> dict[str, Any]:
+    """Criterios con que ``check_material`` dio por aptas las opciones (``aptas_para``).
+
+    Es un dato de la herramienta: las opciones pasaron la guía de materiales para esa
+    temperatura y, si se pidió, para microondas. Sin él, la compuerta de afirmaciones no veía
+    por qué «se pueden meter al microondas» (ensayo del 2026-11-26, microondas t1).
+    """
+
+    criteria: dict[str, Any] = {}
+    if req.temperature:
+        criteria["temperatura"] = req.temperature
+    if req.microwave:
+        criteria["microondas"] = True
+    return {"aptas_para": criteria} if criteria else {}
+
+
 @dataclass(frozen=True)
 class _NameMatch:
     """Resultado de la búsqueda por nombre dentro de los filtros y fuera de ellos.
@@ -693,7 +713,7 @@ def _product_notices(
         how = (
             "un nombre más preciso acota la lista"
             if match is not None
-            else "una referencia concreta (código como P1 o J2, SKU o nombre comercial) se "
+            else "una referencia concreta (su código, su SKU o su nombre comercial) se "
             "encuentra con el argumento nombre"
         )
         notices.append(
@@ -876,6 +896,7 @@ def _buscar_producto(
         message += " Sin país no se muestran precios."
     payload: dict[str, Any] = {
         "opciones": payload_options,
+        **_suitable_for(req),
         "total_coincidencias": len(valid),
         "truncado": len(valid) > len(shown),
         "descartadas": [{"sku": item.sku, "motivo": item.reason} for item in shown_discarded],
@@ -1133,6 +1154,139 @@ def _close_word(word: str, other: str) -> bool:
     return previous[-1] <= limit
 
 
+# --- De dónde sale la referencia que recibe ``cotizar`` (ensayo del 2026-11-26) ------------
+
+# ``persona``: la nombró la persona (en el turno o en el hilo); ``hilo``: el asistente la
+# mostró antes (opciones, carrito, candidatas) o es la del contexto comercial; ``herramienta``:
+# salió de una herramienta de este turno; ``contexto``: la llamada no nombró referencia y se
+# reutilizó la de la cotización anterior. Vacío: se cotizó por familia y uso.
+ReferenceOrigin = Literal["persona", "hilo", "herramienta", "contexto", ""]
+_REFERENCE_STOP = frozenset(
+    {
+        "de", "del", "la", "el", "los", "las", "para", "con", "y", "x", "en", "a", "un",
+        "una", "oz", "onzas", "cm", "mm", "ml", "und", "unidades", "paca", "pacas",
+        "paquete", "paquetes", "caja", "cajas", "pq", "cj", "pzs", "sku", "ref",
+    }
+)  # fmt: skip
+
+
+# Una medida pegada a su unidad («7oz», «12cm», «500ml») se separa: el catálogo dice «7 oz».
+_GLUED_UNIT = re.compile(r"(\d)(oz|onzas?|cm|mm|ml|cc|gr?|lb|lts?|l)\b")
+
+
+def _tokens(text: str) -> list[str]:
+    """Palabras y códigos de ``text`` sin tildes: «CO-PCOM-J2» → «co», «pcom», «j2».
+
+    Las medidas pegadas se separan: «7oz» → «7», «oz», como «7 oz» o «7 onzas».
+    """
+
+    return re.findall(r"[^\W_]+", _GLUED_UNIT.sub(r"\1 \2", plain(text)))
+
+
+def _said_word(word: str, said: set[str]) -> bool:
+    """``word`` está en ``said``, en plural o con una errata; códigos y cifras, exactos."""
+
+    if word in said:
+        return True
+    if any(char.isdigit() for char in word):
+        return False
+    variants = {f"{word}s", f"{word}es", word[:-1] if word.endswith("s") else word}
+    return bool(variants & said) or any(_close_word(word, other) for other in said)
+
+
+def _names_reference(words: Sequence[str], said: set[str], *, every: bool) -> bool:
+    """Las palabras de un nombre aparecen en ``said``.
+
+    Los códigos y las medidas («j2», «12») se exigen siempre: «500 platos» no nombra el
+    «Plato espumado pando 12 cm». Con ``every`` se exigen todas las demás palabras; sin él,
+    basta la mitad y al menos dos (la persona rara vez dice el nombre entero del catálogo).
+    """
+
+    significant = [word for word in words if word not in _REFERENCE_STOP]
+    if not significant:
+        return False
+    codes = [word for word in significant if any(char.isdigit() for char in word)]
+    if not all(code in said for code in codes):
+        return False
+    hits = sum(_said_word(word, said) for word in significant)
+    if every or len(significant) == 1:
+        return hits == len(significant)
+    return hits >= 2 and hits * 2 >= len(significant)
+
+
+def _code_in(code: str, texts: Sequence[str]) -> bool:
+    """El SKU o código ``code`` aparece entero en alguno de ``texts`` («co pcom j2» incluido)."""
+
+    wanted = " ".join(_tokens(code))
+    if not wanted:
+        return False
+    return any(f" {wanted} " in f" {' '.join(_tokens(text))} " for text in texts)
+
+
+def _turn_skus(context: ToolContext) -> set[str]:
+    """SKU que devolvieron las herramientas de este turno (fuentes y cotizaciones)."""
+
+    found: set[str] = set()
+    for entry in context.sources:
+        chunk = str(entry.get("chunk_id") or "")
+        kind, _, rest = chunk.partition(":")
+        if kind in {"ficha", "precio", "envio"} and rest:
+            found.add(rest.split(":", 1)[0].casefold())
+    for quote in context.quotes:
+        primary = quote.get("primary") if isinstance(quote, Mapping) else None
+        if isinstance(primary, Mapping) and primary.get("sku"):
+            found.add(str(primary["sku"]).casefold())
+        for item in (quote.get("alternatives") if isinstance(quote, Mapping) else None) or []:
+            if isinstance(item, Mapping) and item.get("sku"):
+                found.add(str(item["sku"]).casefold())
+    return found
+
+
+def _reference_origin(
+    sku: str | None, name: str | None, context: ToolContext, catalog: Catalog | None
+) -> ReferenceOrigin | None:
+    """De dónde sale la referencia (``sku`` o ``nombre``) que recibe ``cotizar``.
+
+    ``None`` si nadie la dijo: ni la persona (en el turno o en el hilo), ni el asistente al
+    mostrar opciones, carrito o candidatas, ni el contexto comercial, ni una herramienta de
+    este turno. Pasa cuando el modelo copia un ejemplo o inventa un código: en el ensayo del
+    2026-11-26 un portacomidas que nadie pidió entró al carrito en cuatro transcripciones.
+    """
+
+    references = {
+        reference.sku.casefold(): reference for reference in (catalog.references if catalog else ())
+    }
+    reference = references.get((sku or "").strip().casefold())
+    # La presentación entre paréntesis («(paca x 200)») no es parte del nombre que se dice.
+    label = _tokens(re.sub(r"\([^)]*\)", " ", reference.name if reference else sku or ""))
+    asked = _tokens(name or "")
+    person = [context.question, *context.history]
+    said = set(_tokens(" ".join(person)))
+    if sku and (_code_in(sku, person) or _names_reference(label, said, every=False)):
+        return "persona"
+    if name and _names_reference(asked, said, every=False):
+        # El modelo a veces completa el nombre con el del catálogo («Vaso Gold traslúcido
+        # 14 oz…» por «el gold de 14»): basta la mitad, con los códigos y medidas exactos.
+        return "persona"
+    stored = str(context.commercial_context.get("sku") or "").strip().casefold()
+    if stored and stored in {(sku or "").strip().casefold(), (name or "").strip().casefold()}:
+        return "hilo"
+    shown_texts = [*context.answers, context.last_answer]
+    shown = set(_tokens(" ".join(shown_texts)))
+    if sku and (_code_in(sku, shown_texts) or _names_reference(label, shown, every=True)):
+        return "hilo"
+    if name and _names_reference(asked, shown, every=True):
+        return "hilo"
+    tools = _turn_skus(context)
+    titles = set(_tokens(" ".join(str(entry.get("title") or "") for entry in context.sources)))
+    titles.update(_tokens(" ".join(references[item].name for item in tools if item in references)))
+    if sku and sku.strip().casefold() in tools:
+        return "herramienta"
+    if name and _names_reference(asked, titles, every=True):
+        return "herramienta"
+    return None
+
+
 def _directory_city(city: str, dataset: Dataset) -> str | None:
     """Ciudad con la grafía del directorio; ``None`` si el directorio no la tiene."""
 
@@ -1296,19 +1450,31 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
     """
 
     said = args.city is not None and (not context.question or _city_said(args.city, context))
+    origin: ReferenceOrigin | None = None
+    unsaid: str | None = None
+    if context.question and (args.sku or args.nombre):
+        # Una referencia que nadie dijo no se cotiza: el modelo copió un ejemplo o la
+        # inventó. Se cotiza por familia y uso (o se pide el dato), como sin referencia.
+        origin = _reference_origin(args.sku, args.nombre, context, load_catalog())
+        if origin is None:
+            unsaid = args.sku or args.nombre
+            args = args.model_copy(update={"sku": None, "nombre": None})
+            logger.info("cotizar.referencia_no_dicha")
     if not args.cantidades:
-        return _suggest_city(_quote(args, deps, context, sources), context, said)
+        draft = _suggest_city(_quote(args, deps, context, sources, origin), context, said)
+        return _without_unsaid(draft, unsaid)
     amounts = [amount for amount in dict.fromkeys(args.cantidades) if amount >= 1][:4]
     first = args.model_copy(update={"quantity": amounts[0], "cantidades": None})
-    draft = _suggest_city(_quote(first, deps, context, sources), context, said)
+    draft = _suggest_city(_quote(first, deps, context, sources, origin), context, said)
     if draft.status != "ok" or draft.quote is None:
-        return draft
+        return _without_unsaid(draft, unsaid)
     sku = str(draft.quote["primary"]["sku"])
+    first_origin = cast(ReferenceOrigin, draft.quote.get("reference_origin") or "")
     compared = [draft.data.get("cotizacion")]
     for amount in amounts[1:]:
         following = first.model_copy(update={"quantity": amount, "sku": sku, "nombre": None})
         turn = replace(context, quotes=draft.quotes or context.quotes)
-        step = _quote(following, deps, turn, sources)
+        step = _quote(following, deps, turn, sources, first_origin)
         if step.status != "ok":
             break
         compared.append(step.data.get("cotizacion"))
@@ -1318,6 +1484,20 @@ def _cotizar(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _
             message=f"{draft.message} Comparativo de {len(compared)} cantidades del producto.",
         )
     draft.data["comparativo"] = [item for item in compared if item]
+    return _without_unsaid(draft, unsaid)
+
+
+def _without_unsaid(draft: _Draft, unsaid: str | None) -> _Draft:
+    """Avisa al modelo que la referencia que pasó no se usó porque nadie la dijo."""
+
+    if unsaid is None:
+        return draft
+    draft.data["referencia_no_dicha"] = unsaid
+    draft.message = (
+        f"La referencia «{unsaid}» no la nombró la persona ni salió del hilo ni de una "
+        "herramienta: no se usó y se cotizó por familia y uso. No la menciones; si falta "
+        f"saber qué referencia quiere, pregúntaselo. {draft.message}"
+    )
     return draft
 
 
@@ -1347,7 +1527,13 @@ def _other_family(said: frozenset[str], context: Mapping[str, Any]) -> _Draft:
     )
 
 
-def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _Sources) -> _Draft:
+def _quote(
+    args: CotizarArgs,
+    deps: ToolDeps,
+    context: ToolContext,
+    sources: _Sources,
+    origin: ReferenceOrigin | None = None,
+) -> _Draft:
     # Una ciudad que la persona no dijo no se usa (FR-005: se pregunta, no se supone). Solo
     # se comprueba dentro de un turno: una llamada suelta no tiene pregunta con qué comparar.
     unsaid_city = bool(
@@ -1390,6 +1576,9 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
         )
         replaced = {"family", "use", "sku", *by_use.product}
         reused = [key for key in reused if key not in replaced]
+    if origin is None or not (args.sku or args.nombre):
+        # Sin referencia nombrada, la que se cotiza (si hay) es la del contexto.
+        origin = "contexto" if filled.sku else ""
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})
@@ -1514,6 +1703,9 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
     if kind != "cotizacion":
         return _Draft("error", "El motor de cotización no devolvió un resultado válido.")
 
+    # El flujo (``quotation.flow.after_turn``) solo agrega como línea nueva lo que la persona
+    # eligió o nombró cuando el turno pregunta algo: necesita saber de dónde salió.
+    quoted["reference_origin"] = origin  # ``quote_request`` devuelve un dict nuevo
     merge = merge_quote(context.quotes, quoted, max_quotes=deps.settings.agent_max_quotes)
     if merge.action == "limit":
         return _Draft(
@@ -1539,7 +1731,9 @@ def _quote(args: CotizarArgs, deps: ToolDeps, context: ToolContext, sources: _So
         message = (
             "Cotización calculada con un precio de referencia del catálogo, sin distribuidor: "
             "no lo atribuyas a ninguno. No menciones su origen salvo que la persona pregunte de "
-            "dónde sale; entonces di que es el precio del catálogo de México convertido a COP."
+            "dónde sale; entonces di que es un precio de referencia estimado (del catálogo "
+            "de México convertido a COP o proyectado desde productos similares) y que lo "
+            "confirme con un distribuidor."
         )
     if primary.get("conversion"):
         message += f" Conversión hecha por la herramienta: {primary['conversion']['text']}."

@@ -172,7 +172,10 @@ Flujo de un turno:
   `tools` arranca solo con `LLM_PROVIDER=deepseek` y la clave; si falta, la app lo avisa
   (`agent.tools_mode_unavailable`) y `/health` lo publica en el bloque `agent`.
 - **Ollama** solo calcula los embeddings del corpus (`nomic-embed-text`, 768 dimensiones)
-  para indexar y para buscar en Qdrant.
+  para indexar y para buscar en Qdrant. Cada petición pide `keep_alive` de 24 h
+  (`OLLAMA_EMBED_KEEP_ALIVE_S`), la app y el MCP cargan el modelo al arrancar en segundo
+  plano (`EMBED_WARM_UP`) y las consultas repetidas salen de una caché LRU del proceso
+  (`EMBED_CACHE_SIZE`, 512).
 - **Cupo diario**: `DAILY_REQUESTS_LIMIT` (20 por defecto) por visitante anónimo de la web
   y por chat de WhatsApp, con medianoche en `QUOTA_TIMEZONE` (`America/Bogota`).
 - Si DeepSeek falla o vence `AGENT_TURN_TIMEOUT_S`, responde un respaldo determinista sin
@@ -247,7 +250,7 @@ El gatekeeper corre en el nodo `shortcut`, antes del primer paso del modelo
    el bloque `<cautela>`: consulta antes de afirmar o pide la aclaración.
 4. **Compuerta Noul**: después de la compuerta determinista, una pregunta Noul de Jev juzga
    si las afirmaciones de la respuesta están respaldadas por las consultas del turno; por
-   debajo de `JEV_CLAIMS_THRESHOLD` (0,5) se sustituye por el texto neutro
+   debajo de `JEV_CLAIMS_THRESHOLD` (0,3) se sustituye por el texto neutro
    ([`claims.py`](packages/core/src/carvajal/agent/gatekeeper/claims.py)).
 5. **Sin Jev → reglas + LLM**: sin clave, apagado, con el tope diario agotado, circuito
    abierto, plazo (`JEV_TIMEOUT_S`, 0,8 s) o error, el turno sigue con las reglas y DeepSeek
@@ -586,7 +589,7 @@ cp .env.example .env
 | `JEV_ENABLED` | `false` | Enciende el gatekeeper y la compuerta con Jev (requiere `TYPESAFE_API_KEY`) |
 | `JEV_MODEL` | `jev-1.14.0` | Modelo de Jev fijado (los umbrales se midieron con él) |
 | `JEV_ROUTER_MIN_CONFIDENCE` / `JEV_ROUTER_DIRECT_MIN_CONFIDENCE` | `0.6` / `0.8` | Umbrales de cautela del gatekeeper |
-| `JEV_CLAIMS_MODE` / `JEV_CLAIMS_THRESHOLD` | `enforce` / `0.5` | Compuerta de afirmaciones |
+| `JEV_CLAIMS_MODE` / `JEV_CLAIMS_THRESHOLD` | `enforce` / `0.3` | Compuerta de afirmaciones |
 | `JEV_MAX_CALLS_PER_DAY` | `1000` | Tope diario de llamadas a Jev por proceso |
 | `FOOD_PHOTO_ENABLED` / `FOOD_PHOTO_MAX_CALLS_PER_DAY` | `true` / `500` | Fotos de alimentos con Jev (requieren `TYPESAFE_API_KEY`) y su tope diario |
 | `FOOD_PHOTO_TIMEOUT_S` / `FOOD_PHOTO_MIN_CONFIDENCE` | `4.0` / `0.6` | Plazo de Jev con imagen y umbral para preguntar en vez de sugerir |
