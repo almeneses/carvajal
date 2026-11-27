@@ -9,7 +9,7 @@
 #   invitados.sh agregar 3001234567 +57 300 765 4321   # 10 dígitos de Colombia o E.164
 #   invitados.sh quitar +573001234567
 #   invitados.sh listar                                # solo cuántos y los 4 últimos dígitos
-#   invitados.sh fijar-base                            # guarda la lista actual como base
+#   invitados.sh fijar-base [--forzar]                 # antes de agregar: lista del equipo
 #   invitados.sh restablecer                           # vuelve a la base (fin del evento)
 set -euo pipefail
 
@@ -23,7 +23,24 @@ uso() {
 
 actual() { openclaw config get "$KEY"; }
 
+# Aborta si el valor no es una lista no vacía de números E.164 (una base dañada o vacía
+# dejaría al bot sin contestar en el grupo).
+validar() {
+  printf '%s' "$1" | python3 -c '
+import json, re, sys
+try:
+    lista = json.load(sys.stdin)
+except ValueError:
+    sys.exit("La lista no es JSON válido; no se aplicó.")
+if not isinstance(lista, list) or not lista or not all(
+    isinstance(n, str) and re.fullmatch(r"\+[1-9]\d{7,14}", n) for n in lista
+):
+    sys.exit("La lista debe ser no vacía y solo de números E.164; no se aplicó.")
+'
+}
+
 aplicar() {
+  validar "$1"
   openclaw config set "$KEY" "$1" --strict-json >/dev/null
   echo "Listo. La lista del grupo quedó así:"
   listar
@@ -96,12 +113,32 @@ accion=${1:-}
 case "$accion" in
   agregar | quitar)
     [ $# -gt 0 ] || uso
+    if [ "$accion" = agregar ] && [ ! -f "$BASE" ]; then
+      # Sin base, «restablecer» no tendría a qué volver y los invitados se quedarían.
+      echo "No hay base en $BASE: corre fijar-base con la lista del equipo antes de agregar." >&2
+      exit 1
+    fi
     nueva=$(actual | editar "$accion" "$@")
     aplicar "$nueva"
     ;;
   listar) listar ;;
   fijar-base)
-    actual >"$BASE"
+    lista=$(actual)
+    validar "$lista"
+    if [ -f "$BASE" ] && [ "${1:-}" != --forzar ]; then
+      # Con invitados en la lista, la nueva base los dejaría tras «restablecer».
+      extra=$(printf '%s' "$lista" | python3 -c '
+import json, sys
+base = json.load(open(sys.argv[1]))
+print(len([n for n in json.load(sys.stdin) if n not in base]))
+' "$BASE")
+      if [ "$extra" != 0 ]; then
+        echo "La lista tiene $extra número(s) que no están en la base (¿invitados?)." >&2
+        echo "Corre restablecer antes, o fijar-base --forzar si de verdad son del equipo." >&2
+        exit 1
+      fi
+    fi
+    printf '%s\n' "$lista" >"$BASE"
     chmod 600 "$BASE"
     echo "Base guardada en $BASE"
     listar

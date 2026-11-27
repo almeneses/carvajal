@@ -36,6 +36,11 @@ OpenClaw aplica el cambio sin reiniciar.
 ~/invitados.sh restablecer                    # al terminar: solo el equipo
 ```
 
+`agregar` exige que la base exista, y `fijar-base` no la sobrescribe si la lista ya tiene
+números que no están en ella (invitados): así `restablecer` siempre vuelve al equipo. Si de
+verdad son del equipo, `fijar-base --forzar`. El script no aplica una lista vacía ni con
+números que no sean E.164, y un número de Colombia debe tener 10 dígitos.
+
 Agregar a alguien a la lista no lo mete al grupo de WhatsApp: eso lo hace un administrador
 del grupo. Los números no se versionan.
 
