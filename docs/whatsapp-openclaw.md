@@ -252,9 +252,21 @@ openclaw channels login --channel whatsapp --account ventas   # QR del número c
 
 ```json5
 {
-  bindings: [{ agentId: "ventas", match: { channel: "whatsapp", accountId: "ventas" } }],
+  channels: { whatsapp: { dmPolicy: "allowlist", allowFrom: ["+57…"], groupPolicy: "disabled" } },
+  bindings: [
+    // El chat del número de la cuenta sigue con su agente personal.
+    { agentId: "main", match: { channel: "whatsapp", accountId: "*",
+                                peer: { kind: "direct", id: "+57…" } } },
+    // Todo lo demás (los números de allowFrom) va a «ventas», con una sesión por número.
+    { agentId: "ventas", match: { channel: "whatsapp", accountId: "*" },
+      session: { dmScope: "per-channel-peer" } },
+  ],
 }
 ```
+
+Desde el 2026-11-27 el bot solo atiende mensajes directos de los números de `allowFrom`
+(sin grupos). En OpenClaw gana el binding más específico: el del chat con id fijo antes que
+el de canal. Los números se agregan con [`openclaw/invitados.sh`](../openclaw/README.md#quién-puede-escribirle-al-bot).
 
 El agente «ventas» **no** debe tener el perfil `full`: solo la herramienta
 `consultar_carvajal` (sin `exec`, archivos ni navegador). En su `AGENTS.md`:

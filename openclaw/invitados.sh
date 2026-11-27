@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Lista de números que el bot atiende en el grupo de WhatsApp (groupAllowFrom).
+# Números autorizados a escribirle al bot por mensaje directo (channels.whatsapp.allowFrom).
 #
-# El grupo está en groupPolicy=allowlist (2026-11-27): solo contesta a los números de la
-# lista. Los invitados de la sustentación se conocen ese mismo día, así que se agregan en
-# vivo con este script, que corre en la VM del gateway. OpenClaw aplica el cambio sin
-# reiniciar.
+# Desde el 2026-11-27 el bot solo atiende directos (groupPolicy=disabled) y dmPolicy es
+# allowlist: contesta solo a los números de la lista, con el agente «ventas» (el de la cuenta
+# sigue con «main»). Se agregan o quitan en vivo con este script, en la VM del gateway, y
+# OpenClaw aplica el cambio sin reiniciar.
 #
 #   invitados.sh agregar 3001234567 +57 300 765 4321   # 10 dígitos de Colombia o E.164
 #   invitados.sh quitar +573001234567
@@ -13,8 +13,8 @@
 #   invitados.sh restablecer                           # vuelve a la base (fin del evento)
 set -euo pipefail
 
-KEY=channels.whatsapp.groupAllowFrom
-BASE=${INVITADOS_BASE:-$HOME/.openclaw/grupo-base.json}
+KEY=channels.whatsapp.allowFrom
+BASE=${INVITADOS_BASE:-$HOME/.openclaw/directos-base.json}
 
 uso() {
   sed -n '9,13p' "$0" | sed 's/^# \{0,1\}//'
@@ -24,7 +24,7 @@ uso() {
 actual() { openclaw config get "$KEY"; }
 
 # Aborta si el valor no es una lista no vacía de números E.164 (una base dañada o vacía
-# dejaría al bot sin contestar en el grupo).
+# dejaría al bot sin contestar a nadie).
 validar() {
   printf '%s' "$1" | python3 -c '
 import json, re, sys
@@ -42,7 +42,7 @@ if not isinstance(lista, list) or not lista or not all(
 aplicar() {
   validar "$1"
   openclaw config set "$KEY" "$1" --strict-json >/dev/null
-  echo "Listo. La lista del grupo quedó así:"
+  echo "Listo. La lista de autorizados quedó así:"
   listar
 }
 
@@ -95,7 +95,7 @@ for n in map(normalizar, unidos):
             sys.exit(f"No está en la lista: …{n[-4:]}")
         lista.remove(n)
 if not lista:
-    sys.exit("La lista no puede quedar vacía: el bot dejaría de contestar en el grupo.")
+    sys.exit("La lista no puede quedar vacía: el bot dejaría de contestar a todos.")
 print(json.dumps(lista))
 ' "$@"
 }
