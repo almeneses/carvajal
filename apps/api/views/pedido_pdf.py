@@ -49,8 +49,12 @@ def _order_pdf(request: Request) -> OrderPdf | None:
     from carvajal.adapters.crm import build_orders
     from carvajal.infrastructure.settings import Settings
 
-    settings = getattr(state, "settings", None) or Settings()
-    orders = build_orders(settings)
+    try:
+        settings = getattr(state, "settings", None) or Settings()
+        orders = build_orders(settings)
+    except Exception as error:  # configuración rota: 503 y se reintenta en la próxima descarga
+        logger.warning("order_pdf.build_failed", error_type=type(error).__name__)
+        return None
     # Una vez por proceso, también sin Odoo: no se arma un cliente por descarga.
     state.order_pdf = orders.order_pdf if orders is not None else None
     state.order_pdf_built = True

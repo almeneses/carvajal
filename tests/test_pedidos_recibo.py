@@ -1126,3 +1126,28 @@ def test_sin_odoo_el_lector_del_recibo_se_arma_una_sola_vez(monkeypatch: Any) ->
     # Assert
     assert first is None and second is None
     assert len(calls) == 1
+
+
+def test_si_falla_armar_el_lector_del_recibo_no_se_queda_en_cache(monkeypatch: Any) -> None:
+    # Arrange
+    from types import SimpleNamespace
+
+    from apps.api.views import pedido_pdf
+    from carvajal.adapters import crm
+
+    calls: list[Any] = []
+
+    def broken(settings: Any) -> None:
+        calls.append(settings)
+        raise ValueError("configuración rota")
+
+    monkeypatch.setattr(crm, "build_orders", broken)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=object())))
+
+    # Act
+    first = pedido_pdf._order_pdf(cast(Any, request))
+    second = pedido_pdf._order_pdf(cast(Any, request))
+
+    # Assert: 503 (None) y se vuelve a intentar en la siguiente descarga.
+    assert first is None and second is None
+    assert len(calls) == 2

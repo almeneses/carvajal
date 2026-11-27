@@ -1619,7 +1619,8 @@ class ChatService:
 
         orders = self._orders()
         if orders is None or not draft.folio or not buyer.email:
-            return quote_render.order_failed(), draft.touch(awaiting=None, buyer=None)
+            # Los datos siguen en el borrador: el «sí» que promete ``order_failed`` reintenta.
+            return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
         stale = expired_lines(draft, local_now().date())
         if stale:
             # El pedido toma los precios de la cotización: vencidos, no se confirma.

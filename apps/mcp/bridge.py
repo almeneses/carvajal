@@ -1451,10 +1451,18 @@ class WhatsAppBridge:
         Sin forma de entregarlo, la promesa se quita: no se promete un PDF que no llega.
         """
 
-        # La promesa ya pasó por ``to_whatsapp``: se compara en ese mismo formato.
-        promise = f"\n{to_whatsapp(RECEIPT_PROMISE)}"
+        # La promesa ya pasó por ``to_whatsapp``: se busca en ese formato y, por si la
+        # conversión la dejara igual o cambiara, también en el original.
         order = flow.get("order")
-        if promise not in written or not isinstance(order, Mapping):
+        promise = next(
+            (
+                f"\n{form}"
+                for form in (to_whatsapp(RECEIPT_PROMISE), RECEIPT_PROMISE)
+                if f"\n{form}" in written
+            ),
+            None,
+        )
+        if promise is None or not isinstance(order, Mapping):
             return written
         folio = str(order.get("folio") or "")
         name = str(order.get("name") or "")
