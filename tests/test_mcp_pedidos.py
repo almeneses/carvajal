@@ -29,6 +29,7 @@ from apps.api.quote_links import link_expiry, order_pdf_url, pdf_url
 from apps.mcp.bridge import (
     ATTACH_PDF_PREFIX,
     NO_QUOTE_FOR_PDF,
+    NO_RECEIPT,
     PDF_CONFIRMATION,
     WhatsAppBridge,
     _Turn,
@@ -436,16 +437,16 @@ def test_si_el_recibo_no_se_puede_firmar_el_pdf_es_la_cotizacion() -> None:
     assert _attached(reply.text) == [f"{MEDIA}{QUOTE_PDF}Q-ORDER1.pdf"]
 
 
-def test_el_recibo_sin_pedido_sigue_al_turno_del_chat() -> None:
-    # Arrange: «mándame el recibo» sin pedido confirmado no es un atajo.
+def test_el_recibo_sin_pedido_responde_fijo_sin_el_modelo() -> None:
+    # Arrange: «mándame el recibo» sin pedido confirmado (revisión de la PR #283).
     chat = SilentChat(order=None)
 
     # Act
     reply = _double_bridge(chat).respond("mándame el recibo", CHAT)
 
-    # Assert
-    assert chat.calls == ["mándame el recibo"]
-    assert reply.text == "Respuesta del turno."
+    # Assert: no hay turno del chat (ni cupo del modelo ni un recibo inventado).
+    assert chat.calls == []
+    assert reply.text == NO_RECEIPT
 
 
 @pytest.mark.parametrize(

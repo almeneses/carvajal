@@ -376,7 +376,8 @@ def _remember_shown_turn(
         return
     try:
         messages = list(_history(request, owner_key, thread_id))
-    except ThreadAccessError:
+    except Exception as error:  # el turno ya se guardó: nunca se pierde la redirección
+        logger.warning("chat.shown_turn_failed", error_type=type(error).__name__)
         return
     if not messages or messages[-1].role != "assistant":
         return

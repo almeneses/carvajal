@@ -152,6 +152,10 @@ PDF_CONFIRMATION = "sí, mándame el PDF"
 # Para el relé, no para el cliente: el mismo mensaje se está atendiendo en otro intento.
 TURN_IN_PROGRESS = "El mensaje se está atendiendo; reintenta en unos segundos."
 ATTACH_PDF_PREFIX = "ADJUNTAR_PDF: "
+NO_RECEIPT = (
+    "No encuentro un pedido confirmado en esta conversación. Si quieres el PDF de la "
+    "cotización, escribe «PDF»."
+)
 """Línea que el agente de OpenClaw convierte en un documento adjunto (ver docs)."""
 
 
@@ -533,7 +537,7 @@ def is_receipt_request(message: str, *, spoken: bool = False) -> bool:
 
     Como :func:`is_pdf_request`, solo si el mensaje es corto y todo es relleno, y además
     nombra el recibo o el PDF del pedido: «¿cuándo recibo el pedido?» es una pregunta para
-    el agente. Solo pide el recibo; si no hay pedido confirmado, el turno sigue su curso.
+    el agente. Sin pedido confirmado se responde ``NO_RECEIPT``, sin el modelo.
     """
 
     words = _pdf_words(message, spoken=spoken)
@@ -1284,6 +1288,10 @@ class WhatsAppBridge:
                 receipt = None if _names_quote(text) else self._order_receipt(owner)
                 if receipt is not None:
                     return receipt, False, True
+                if not asks_pdf:
+                    # «Mándame el recibo» sin pedido confirmado: respuesta fija, sin el modelo
+                    # (que no conoce los pedidos y podría inventar un recibo).
+                    return BridgeReply(NO_RECEIPT), False, True
                 if asks_pdf:
                     pdf, final = self._pdf(owner)
                     return pdf, False, final
