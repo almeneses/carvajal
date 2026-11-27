@@ -122,7 +122,7 @@ from carvajal.quotation.data import (
     Product,
     load_dataset,
 )
-from carvajal.quotation.lids import lid_fits
+from carvajal.quotation.lids import for_other_container, lid_fits
 
 __all__ = [
     "MAX_ALTERNATIVES",
@@ -490,7 +490,8 @@ def _capacity_matches(product: Product, capacity: float | None) -> bool:
         return True
     if product.capacity_oz is not None:
         return abs(product.capacity_oz - capacity) <= CAPACITY_TOLERANCE_OZ
-    if product.family == "tapa":
+    if product.family == "tapa" and not for_other_container(product.name):
+        # Las de cazuela o bowl siguen como antes: sus onzas son las del envase.
         return lid_fits(product.name, capacity) is True
     return False
 

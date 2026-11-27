@@ -26,17 +26,20 @@ _STARTS: Final = (
     "↩ tu cotización",
     "🔎 opciones",
     "⭐ recomendada",
-    "total parcial",
-    "💰 total",
     "usé la recomendada",
     "🧾 pedido",
 )
-# Renglones que siguen dentro de una tarjeta: líneas numeradas, la ciudad, la presentación, las
-# alternativas y la pregunta del flujo.
+# «Total parcial: $54.990» o «💰 Total: $37.510 COP»: solo con la cifra (una frase del modelo
+# que empieza con «Total parcial…» no es una tarjeta).
+_TOTAL: Final = re.compile(r"^(?:💰\s*)?total(?:\s+parcial)?:\s*\$?\s*\d")
+# Renglones que siguen dentro de una tarjeta (los que escribe ``render``): líneas numeradas,
+# la ciudad, el precio, la presentación, las alternativas y el aviso de las sin precio.
 _CONTINUES: Final = re.compile(
-    r"^(?:\d+\.\s|📍|alternativas\b|¿algo más|¿cuál te cotizo|di esa\b|"
-    r"\d[\d.,]*\s+(?:paquetes?|cajas?|pacas?|unidades|und)\b)"
+    r"^(?:\d+\.\s|📍|\$|alternativas\b|sin precio|precio por confirmar|iva\b|"
+    r"\d[\d.,]*\s+(?:paquetes?|cajas?|pacas?|bolsas?|unidad(?:es)?|und)\b)"
 )
+# La pregunta con que cierra la tarjeta: lo que sigue ya no es parte de ella.
+_CLOSES: Final = re.compile(r"^(?:¿algo más|¿cuál te cotizo|di esa\b|¿la confirmo)")
 _MARKUP: Final = re.compile(r"[*_]+")
 _BLANKS: Final = re.compile(r"\n{3,}")
 _ITEM: Final = re.compile(r"^\d+\.\s+")
@@ -50,24 +53,34 @@ def _plain(line: str) -> str:
 
 
 def _starts_card(plain: str) -> bool:
-    return plain.startswith(_STARTS)
+    return plain.startswith(_STARTS) or _TOTAL.match(plain) is not None
 
 
 def _blocks(text: str) -> list[tuple[bool, list[str]]]:
-    """Renglones agrupados en ``(es_tarjeta, renglones)`` consecutivos, en orden."""
+    """Renglones agrupados en ``(es_tarjeta, renglones)`` consecutivos, en orden.
+
+    Una tarjeta empieza en un renglón de :data:`_STARTS` (o un total con cifra), sigue con
+    renglones en blanco, sangrados o de :data:`_CONTINUES` y termina en su pregunta de cierre
+    (:data:`_CLOSES`) o en el primer renglón que no es suyo.
+    """
 
     blocks: list[tuple[bool, list[str]]] = []
     in_card = False
     for line in text.split("\n"):
         plain = _plain(line)
+        closing = False
         if _starts_card(plain):
             in_card = True
+        elif in_card and _CLOSES.match(plain) is not None:
+            closing = True
         elif in_card and plain and not line[:1].isspace() and _CONTINUES.match(plain) is None:
             in_card = False
         if blocks and blocks[-1][0] == in_card:
             blocks[-1][1].append(line)
         else:
             blocks.append((in_card, [line]))
+        if closing:
+            in_card = False
     return blocks
 
 

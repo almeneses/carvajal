@@ -10,12 +10,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from tests.test_flujos_cotizacion import make_quote
 from tests.test_pedidos_odoo import FakeOrders, _registered, _say, _service
 from tests.test_pedidos_seguimiento import ORDER, engine  # noqa: F401 (fixture)
 
-from apps.api.chat.agent import ToolAgentToken, _TurnStream
+from apps.api.chat.agent import CARD_ONLY_ANSWER, ToolAgentToken, _TurnStream
 from apps.mcp.bridge import is_receipt_request
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.graph import history_messages
@@ -23,7 +23,7 @@ from carvajal.quotation import render
 from carvajal.quotation.cards import compact_cards, strip_imitated_cards
 from carvajal.quotation.draft import QuoteDraft, line_label
 from carvajal.quotation.engine import QuoteRequest, quote_request
-from carvajal.quotation.flow import after_turn
+from carvajal.quotation.flow import Reply, after_turn, before_turn
 from carvajal.quotation.lids import lid_brand, lid_capacities, lid_fits, lid_fits_cup
 from carvajal.quotation.order import asks_order_receipt
 
@@ -269,3 +269,121 @@ def test_en_la_web_sin_pedido_el_recibo_tiene_respuesta_fija(engine: Any) -> Non
     # Assert: respuesta fija, sin que el modelo invente un recibo.
     assert text == render.NO_ORDER_RECEIPT
     assert len(runner.calls) == calls
+
+
+# --- Revisión adversarial de la PR -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "card",
+    [
+        "✅ Agregué **500 Vaso**\n**$37.510** ($75 c/u)\n📍 Bogotá\n\n"
+        "¿Algo más para tu cotización?",
+        "✅ Agregué **500 Vaso**\n10 bolsas x 50 · **$37.510**\n📍 Bogotá",
+    ],
+)
+def test_las_tarjetas_sin_presentacion_o_en_bolsas_se_quitan_enteras(card: str) -> None:
+    # Act
+    clean, removed = strip_imitated_cards(f"El vaso sirve [1].\n\n{card}")
+
+    # Assert
+    assert (clean, removed > 0) == ("El vaso sirve [1].", True)
+
+
+def test_la_tarjeta_termina_en_su_pregunta_y_no_se_lleva_lo_que_sigue() -> None:
+    # Arrange
+    text = (
+        "🔎 Opciones · 1.000 und\n\n⭐ Recomendada: Vaso\n   PP\n\nAlternativas\n1. Vaso B\n\n"
+        "¿Cuál te cotizo? Di esa o un número.\n\n1. Para frío usa el de PP.\n2. Para caliente."
+    )
+
+    # Act
+    clean, _ = strip_imitated_cards(text)
+
+    # Assert
+    assert clean == "1. Para frío usa el de PP.\n2. Para caliente."
+    assert strip_imitated_cards("Total parcial aparte, sirve para frío.")[1] == 0
+
+
+def test_un_texto_que_solo_era_la_tarjeta_no_deja_el_turno_vacio() -> None:
+    # Arrange
+    stream = _TurnStream("agrega 500 vasos")
+    stream.values = {
+        "results": [
+            {"tool": "cotizar", "args": {}, "status": "ok", "source_ids": [1], "elapsed_ms": 1}
+        ],
+    }
+    card = "✅ Agregué *1 producto*\n🛒 *Tu cotización · 1 producto*\n1. Vaso x 500 · $37.510"
+
+    # Act
+    events = stream.on_update({"agent": {"messages": [AIMessage(content=card)]}})
+
+    # Assert: una frase neutra; el flujo agrega debajo la tarjeta real.
+    emitted = "".join(event.text for event in events if isinstance(event, ToolAgentToken))
+    assert emitted == CARD_ONLY_ANSWER
+
+
+def test_sin_compuerta_la_tarjeta_que_empieza_en_vivo_tampoco_sale() -> None:
+    # Arrange: compuerta apagada, así que el texto se libera tras RETAIN_CHARS.
+    stream = _TurnStream("agrega 200 platos hondos")
+    stream.values = {
+        "results": [
+            {"tool": "cotizar", "args": {}, "status": "ok", "source_ids": [1], "elapsed_ms": 1}
+        ],
+    }
+    pieces = IMITADA.split("\n")
+    metadata = {"langgraph_node": "agent"}
+    events: list[Any] = []
+
+    # Act
+    for line in pieces:
+        events += stream.on_message(AIMessageChunk(content=line + "\n"), metadata)
+    events += stream.on_update({"agent": {"messages": [AIMessage(content="\n".join(pieces))]}})
+
+    # Assert
+    emitted = "".join(event.text for event in events if isinstance(event, ToolAgentToken))
+    assert emitted.startswith("Para «platos hondos»")
+    assert "Agregué" not in emitted and "Total parcial" not in emitted and "🛒" not in emitted
+
+
+@pytest.mark.parametrize(
+    ("name", "capacity", "expected"),
+    [
+        ("Tapas de plástico PET 12 oz a 24 oz - Caja con 800 pzs", 16.0, True),
+        ("Tapas de plástico 12 oz a 20 oz PS", 24.0, False),
+    ],
+)
+def test_los_rangos_con_la_unidad_repetida_se_leen(
+    name: str, capacity: float, expected: bool
+) -> None:
+    assert lid_fits(name, capacity) is expected
+
+
+def test_una_tapa_de_cazuela_no_es_tapa_de_vaso() -> None:
+    # Arrange
+    cazuela = "Tapa traslúcida para cazuela 12 y 16 oz Wau Maestro"
+
+    # Act
+    result = quote_request(QuoteRequest(family="tapa", capacity_oz=16, quantity=300, city="Cali"))
+
+    # Assert
+    assert not lid_fits_cup(cazuela, [("Vaso rígido 16 oz", 16.0)])
+    assert str((result.get("primary") or {}).get("name") or "") != cazuela
+
+
+@pytest.mark.parametrize("message", ["sí, lo recibo", "vale, recibo", "ok recibo el pedido"])
+def test_recibo_como_verbo_no_pide_el_recibo(message: str) -> None:
+    assert not asks_order_receipt(message)
+    assert not is_receipt_request(message)
+
+
+def test_con_el_pedido_en_el_borrador_el_recibo_gana_al_estado() -> None:
+    # Arrange: «ver mi pedido en pdf» casa también con el estado del pedido.
+    draft = QuoteDraft(state="registrada", folio="COT-1", order=ORDER).touch(AHORA)
+
+    # Act
+    decision = before_turn(draft, "ver mi pedido en pdf", now=AHORA, orders=True)
+
+    # Assert
+    assert isinstance(decision, Reply)
+    assert decision.message.text == render.order_receipt(ORDER, "COT-1").text

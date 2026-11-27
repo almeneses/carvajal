@@ -12,15 +12,23 @@ import re
 from collections.abc import Iterable
 from typing import Final
 
-__all__ = ["lid_brand", "lid_capacities", "lid_fits", "lid_fits_cup"]
+__all__ = ["for_other_container", "lid_brand", "lid_capacities", "lid_fits", "lid_fits_cup"]
 
 _NUMBER: Final = r"(\d+(?:[.,]\d+)?)"
-_RANGE: Final = re.compile(_NUMBER + r"\s*a\s*" + _NUMBER + r"\s*oz\b", re.IGNORECASE)
-_PAIR: Final = re.compile(_NUMBER + r"\s*y\s*" + _NUMBER + r"\s*oz\b", re.IGNORECASE)
+# «3,5 a 7 oz» y también «12 oz a 20 oz» (la unidad repetida en los dos extremos).
+_RANGE: Final = re.compile(_NUMBER + r"\s*(?:oz\s*)?a\s*" + _NUMBER + r"\s*oz\b", re.IGNORECASE)
+_PAIR: Final = re.compile(_NUMBER + r"\s*(?:oz\s*)?y\s*" + _NUMBER + r"\s*oz\b", re.IGNORECASE)
 _ONE: Final = re.compile(_NUMBER + r"\s*oz\b", re.IGNORECASE)
 # «para vaso Bioform», «para vasos Gold»: la línea de vasos va con mayúscula; «para vaso
 # rígido» describe el vaso, no lo nombra.
 _FOR_LINE: Final = re.compile(r"\bpara\s+vasos?\s+([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)")
+# Tapas de otros envases («para cazuela 12 y 16 oz», «para bowl 32 oz»): sus onzas son las del
+# envase, no las de un vaso.
+_OTHER_CONTAINER: Final = re.compile(
+    r"\bpara\s+(?:cazuelas?|bowls?|bandejas?|platos?|contenedor(?:es)?|portacomidas|"
+    r"ensaladeras?|soperas?|salseras?|estuches?)\b",
+    re.IGNORECASE,
+)
 # Tolerancia al comparar una capacidad exacta («16 oz») con la del vaso.
 TOLERANCE_OZ: Final = 0.5
 
@@ -61,6 +69,12 @@ def lid_fits(name: str, capacity_oz: float | None) -> bool | None:
     return any(abs(value - capacity_oz) <= TOLERANCE_OZ for value in covered)
 
 
+def for_other_container(name: str) -> bool:
+    """La tapa es de otro envase (cazuela, bowl, bandeja, plato…), no de un vaso."""
+
+    return _OTHER_CONTAINER.search(name) is not None
+
+
 def lid_brand(name: str) -> str | None:
     """Línea de vasos que nombra la tapa («para vaso Bioform» → «Bioform»), o ``None``."""
 
@@ -71,14 +85,17 @@ def lid_brand(name: str) -> str | None:
 def lid_fits_cup(lid_name: str, cups: Iterable[tuple[str, float | None]]) -> bool:
     """La tapa le sirve a alguno de los vasos ``(nombre, capacidad)``; sin vasos, sí.
 
-    No sirve si declara una capacidad que ningún vaso tiene o si nombra una línea de vasos
-    («para vaso Bioform») que no está en el nombre de ningún vaso. Lo que no se puede saber
-    (sin capacidad en el nombre o en el vaso) no la descarta.
+    No sirve si es de otro envase («para cazuela»), si declara una capacidad que ningún vaso
+    tiene o si nombra una línea de vasos («para vaso Bioform») que no está en el nombre de
+    ningún vaso. Lo que no se puede saber (sin capacidad en el nombre o en el vaso) no la
+    descarta.
     """
 
     known = list(cups)
     if not known:
         return True
+    if for_other_container(lid_name):
+        return False
     line = lid_brand(lid_name)
     for cup_name, capacity in known:
         if line is not None and line.lower() not in cup_name.lower():

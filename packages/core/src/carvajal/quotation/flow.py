@@ -390,12 +390,14 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
     if draft.order:
         if wants_order_cancel(text):
             return Reply(render.order_cancel_request(draft.order), draft, route="pedido")
-        if asks_order_status(text):
-            return Reply(render.order_status(draft.order), draft, route="pedido")
         if draft.folio and asks_order_receipt(text):
             # «Mándame el recibo»: el mismo recibo, que la web enlaza y WhatsApp adjunta
-            # (ensayo del 2026-11-27: en la web lo respondía el agente con un genérico).
+            # (ensayo del 2026-11-27: en la web lo respondía el agente con un genérico). Va
+            # antes del estado, como en ``ChatService._order_followup``: «ver mi pedido en
+            # pdf» pide el recibo.
             return Reply(render.order_receipt(draft.order, draft.folio), draft, route="pedido")
+        if asks_order_status(text):
+            return Reply(render.order_status(draft.order), draft, route="pedido")
         if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
             return Reply(render.already_ordered(draft.order), draft, route="pedido")
         return None
