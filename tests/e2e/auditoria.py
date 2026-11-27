@@ -292,10 +292,18 @@ def _desviaciones_bindings(regla: Mapping[str, Any], vivo: Any) -> list[str]:
     if len(propios) > 1:
         problemas.append(f"{ruta}: {agente!r} tiene {len(propios)} enlaces en {canal!r} (uno solo)")
     for indice, enlace in enumerate(propios):
-        if _mapa(enlace.get("match")).get("peer"):
+        match = _mapa(enlace.get("match"))
+        if match.get("peer"):
             problemas.append(
                 f"{ruta}: el enlace #{indice} de {agente!r} está atado a un chat; "
                 f"debe cubrir todo el canal {canal!r}"
+            )
+        # Una cuenta fija dejaría fuera a los autorizados que entren por otra cuenta.
+        if match.get("accountId", "*") != "*":
+            problemas.append(
+                f"{ruta}: el enlace #{indice} de {agente!r} está atado a la cuenta "
+                f"{match.get('accountId')!r}; debe cubrir todas las cuentas "
+                "(accountId «*» o sin él)"
             )
         alcance = _mapa(enlace.get("session")).get("dmScope")
         if alcance != regla["dm_scope"]:

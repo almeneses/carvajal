@@ -54,8 +54,9 @@ OpenClaw aplica el cambio sin reiniciar.
 `agregar` exige que la base exista, y `fijar-base` no la sobrescribe si la lista ya tiene
 números que no están en ella (invitados): así `restablecer` siempre vuelve al equipo. Si de
 verdad son del equipo, `fijar-base --forzar`. El script no aplica una lista vacía ni con
-números que no sean E.164, y un número de Colombia debe tener 10 dígitos. Los números no
-se versionan.
+números que no sean E.164, y un número de Colombia debe tener 10 dígitos. Tampoco deja la
+lista por encima de 50 números (`MAXIMO`, el mismo `maximo` de `allow_from` en
+`auditoria-base.json`; una prueba los mantiene iguales). Los números no se versionan.
 
 ## Desplegar
 

@@ -15,6 +15,9 @@ set -euo pipefail
 
 KEY=channels.whatsapp.allowFrom
 BASE=${INVITADOS_BASE:-$HOME/.openclaw/directos-base.json}
+# Tope de la lista: el mismo «maximo» de allow_from en openclaw/auditoria-base.json, para que
+# agregar no deje el gateway en deriva frente al ensayo.
+MAXIMO=50
 
 uso() {
   sed -n '9,13p' "$0" | sed 's/^# \{0,1\}//'
@@ -24,7 +27,7 @@ uso() {
 actual() { openclaw config get "$KEY"; }
 
 # Aborta si el valor no es una lista no vacía de números E.164 (una base dañada o vacía
-# dejaría al bot sin contestar a nadie).
+# dejaría al bot sin contestar a nadie) o si pasa del tope.
 validar() {
   printf '%s' "$1" | python3 -c '
 import json, re, sys
@@ -36,7 +39,10 @@ if not isinstance(lista, list) or not lista or not all(
     isinstance(n, str) and re.fullmatch(r"\+[1-9]\d{7,14}", n) for n in lista
 ):
     sys.exit("La lista debe ser no vacía y solo de números E.164; no se aplicó.")
-'
+maximo = int(sys.argv[1])
+if len(lista) > maximo:
+    sys.exit(f"La lista tendría {len(lista)} números y el tope es {maximo}; no se aplicó.")
+' "$MAXIMO"
 }
 
 aplicar() {

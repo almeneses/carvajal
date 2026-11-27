@@ -303,12 +303,41 @@ def test_ventas_sin_sesion_por_numero_se_detecta() -> None:
     assert any("dmScope None" in p for p in problemas)
 
 
+def test_ventas_atado_a_una_cuenta_fija_se_detecta() -> None:
+    # Arrange: con accountId fijo, los autorizados de otra cuenta no llegarían a «ventas».
+    leidos = _config_viva()
+    leidos["bindings"] = [
+        {
+            "agentId": "ventas",
+            "match": {"channel": "whatsapp", "accountId": "ventas"},
+            "session": {"dmScope": "per-channel-peer"},
+        },
+    ]
+    sin_cuenta = _config_viva()
+    sin_cuenta["bindings"] = [
+        {
+            "agentId": "ventas",
+            "match": {"channel": "whatsapp"},
+            "session": {"dmScope": "per-channel-peer"},
+        },
+    ]
+
+    # Act
+    fija = desviaciones_config(_config_base(), leidos)
+    comodin = desviaciones_config(_config_base(), sin_cuenta)
+
+    # Assert
+    assert any("atado a la cuenta 'ventas'" in p for p in fija)
+    assert comodin == []
+
+
 def test_otro_agente_con_todos_los_directos_o_un_grupo_se_detecta() -> None:
     # Arrange: «main» sin id se llevaría los directos; el grupo volvería a abrirse.
     leidos = _config_viva()
     leidos["bindings"] = [
         *leidos["bindings"],
         {"agentId": "main", "match": {"channel": "whatsapp", "peer": {"kind": "direct"}}},
+        {"agentId": "soporte", "match": {"channel": "whatsapp", "accountId": "*"}},
         {
             "agentId": "ventas",
             "match": {"channel": "whatsapp", "peer": {"kind": "group", "id": "120363@g.us"}},
@@ -322,6 +351,7 @@ def test_otro_agente_con_todos_los_directos_o_un_grupo_se_detecta() -> None:
     # Assert
     texto = "\n".join(problemas)
     assert "'main' recibe 'whatsapp'/'direct'" in texto
+    assert "'soporte' recibe 'whatsapp'/None" in texto  # sin peer: todo el canal
     assert "'ventas' tiene 2 enlaces" in texto
     assert "máximo 1" in texto
     assert "120363" not in texto
