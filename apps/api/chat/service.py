@@ -119,6 +119,7 @@ from carvajal.quotation.engine import QUOTE_VERSION
 from carvajal.quotation.order import (
     Buyer,
     OrderRequest,
+    asks_order_receipt,
     asks_order_status,
     mask_email,
     order_lines,
@@ -431,7 +432,8 @@ class ChatService:
         cancel = wants_order_cancel(text, bare=False)
         if cancel and cart:
             return None  # con un carrito en curso, «cancela el pedido» cancela el carrito
-        if not cancel and not asks_order_status(text):
+        receipt = not cancel and asks_order_receipt(text)
+        if not cancel and not receipt and not asks_order_status(text):
             return None
         try:
             with self._session_factory() as session:
@@ -440,8 +442,12 @@ class ChatService:
             logger.warning("pedido.seguimiento_no_leido", error_type=type(error).__name__)
             return None
         if found is None:
-            return None
-        order = found[1]
+            # «Mándame el recibo» sin pedido: respuesta fija, como en WhatsApp (ensayo del
+            # 2026-11-27: el agente respondía «Para seguir necesito un dato más»).
+            return quote_render.no_order_receipt() if receipt else None
+        folio, order = found
+        if receipt:
+            return quote_render.order_receipt(order, folio)
         return (
             quote_render.order_cancel_request(order) if cancel else quote_render.order_status(order)
         )

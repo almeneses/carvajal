@@ -67,6 +67,7 @@ from carvajal.food.photo import MAX_PHOTO_BYTES, PhotoRejected, PreparedPhoto, p
 from carvajal.food.profile import FoodProfile
 from carvajal.food.render import PHOTO_REJECTED, PHOTO_UNAVAILABLE
 from carvajal.infrastructure.metrics import WHATSAPP_EVENTS
+from carvajal.quotation.order import asks_order_receipt
 from carvajal.quotation.render import ORDER_OFFER, RECEIPT_PROMISE, order_reminder
 from carvajal.speech import (
     SUMMARY_POINTERS,
@@ -542,7 +543,11 @@ def is_receipt_request(message: str, *, spoken: bool = False) -> bool:
 
     words = _pdf_words(message, spoken=spoken)
     named = "recibo" in words or ("pdf" in words and "pedido" in words)
-    return named and len(words) <= 8 and all(word in _RECEIPT_FILLER for word in words)
+    if named and len(words) <= 8 and all(word in _RECEIPT_FILLER for word in words):
+        return True
+    # La regla común de la web (``asks_order_receipt``): lo que el servicio responde con el
+    # recibo también lo atiende el puente, que es quien adjunta el PDF.
+    return asks_order_receipt(message)
 
 
 def _names_quote(message: str) -> bool:

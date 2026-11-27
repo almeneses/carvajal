@@ -79,8 +79,10 @@ from carvajal.quotation.draft import (
     same_sku_line,
     units_of,
 )
+from carvajal.quotation.lids import lid_fits_cup
 from carvajal.quotation.order import (
     Buyer,
+    asks_order_receipt,
     asks_order_status,
     correction_name,
     declines_order,
@@ -390,6 +392,10 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
             return Reply(render.order_cancel_request(draft.order), draft, route="pedido")
         if asks_order_status(text):
             return Reply(render.order_status(draft.order), draft, route="pedido")
+        if draft.folio and asks_order_receipt(text):
+            # «Mándame el recibo»: el mismo recibo, que la web enlaza y WhatsApp adjunta
+            # (ensayo del 2026-11-27: en la web lo respondía el agente con un genérico).
+            return Reply(render.order_receipt(draft.order, draft.folio), draft, route="pedido")
         if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
             return Reply(render.already_ordered(draft.order), draft, route="pedido")
         return None
@@ -1250,6 +1256,15 @@ def after_turn(
                     off_flow=0,
                 )
                 return Outcome(kept)
+    # Después de retener lo que el agente pregunta: la tapa cuenta como otro producto del
+    # turno, así que el vaso que la acompaña sigue entrando.
+    unfit = _unfit_lids(current, calculated)
+    if unfit:
+        # Una tapa que no le sirve a ningún vaso del turno o del carrito no entra, aunque el
+        # agente la haya cotizado: su texto ya dice que no corresponde (ensayo del
+        # 2026-11-27, «500 vasos de 9 oz y 300 tapas para esos vasos»).
+        calculated = [item for item in calculated if item not in unfit]
+        logger.info("cotizacion.tapa_incompatible", retenidas=len(unfit))
     if not calculated:
         waiting = _awaiting_reference(current, choice, moment)
         if waiting is not None:
@@ -1287,6 +1302,36 @@ def after_turn(
 # Referencias que la persona nombró o eligió (ver ``_reference_origin`` de ``cotizar``).
 _CHOSEN: Final = frozenset({"persona", "hilo"})
 _URL: Final = re.compile(r"https?://\S+")
+
+
+def _unfit_lids(
+    draft: QuoteDraft, calculated: Sequence[Mapping[str, Any]]
+) -> list[Mapping[str, Any]]:
+    """Tapas del turno que no le sirven a ningún vaso del turno o del carrito.
+
+    Solo cuentan las tapas que la persona no nombró ni eligió (``reference_origin``): si pidió
+    esa tapa por su nombre, entra aunque no cuadre. Sin vasos a la vista no se descarta nada.
+    """
+
+    def cup(line: Mapping[str, Any]) -> tuple[str, float | None] | None:
+        primary = line.get("primary") or {}
+        if not isinstance(primary, Mapping) or line_family(line) != "vaso":
+            return None
+        capacity = primary.get("capacity_oz")
+        return str(primary.get("name") or ""), (
+            float(capacity) if isinstance(capacity, (int, float)) else None
+        )
+
+    cups = [found for line in (*draft.lines, *calculated) if (found := cup(line)) is not None]
+    if not cups:
+        return []
+    return [
+        item
+        for item in calculated
+        if line_family(item) == "tapa"
+        and item.get("reference_origin") not in _CHOSEN
+        and not lid_fits_cup(str((item.get("primary") or {}).get("name") or ""), cups)
+    ]
 
 
 def asks_question(answer: str) -> bool:

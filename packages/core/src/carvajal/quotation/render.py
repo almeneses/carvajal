@@ -1001,6 +1001,29 @@ def order_cancel_request(order: str) -> Message:
     return Message(text, spoken)
 
 
+def order_receipt(order: str, folio: str) -> Message:
+    """Tras el pedido creado, «mándame el recibo»: el recibo otra vez, sin el modelo.
+
+    Repite la cabecera del pedido confirmado y la promesa del PDF: cada canal la cambia por
+    el enlace o el adjunto (:func:`receipt_offer`), igual que en la confirmación.
+    """
+
+    text = f"🧾 **Pedido {order} confirmado** · cotización #{folio}\n{RECEIPT_PROMISE}"
+    return Message(text, "Te envío por escrito el recibo de tu pedido.")
+
+
+NO_ORDER_RECEIPT: Final = (
+    "No encuentro un pedido confirmado en esta conversación. Cuando confirmes uno, aquí te "
+    "dejo su recibo."
+)
+
+
+def no_order_receipt() -> Message:
+    """«Mándame el recibo» sin pedido en el hilo: respuesta fija (el modelo inventaría uno)."""
+
+    return Message(NO_ORDER_RECEIPT, "No encuentro un pedido confirmado en esta conversación.")
+
+
 def order_status(order: str) -> Message:
     """Tras el pedido creado, «¿cómo va mi pedido?»: el estado no se consulta desde el chat."""
 

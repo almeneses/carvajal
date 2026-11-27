@@ -368,10 +368,12 @@ def _retomar_y_cambio(_registrar: bool) -> tuple[Paso, ...]:
             espera=frozenset({"cambio_producto"}),
             marcas=("Llevábamos **", "¿Qué hago con eso?", "**Cancelar**", "**Conservar**"),
         ),
-        # Tras cancelar, el pedido pendiente va al agente: su respuesta no es fija.
+        # Tras cancelar, el pedido pendiente va al agente: su respuesta no es fija. Si el
+        # nombre es ambiguo («platos hondos»), lista las referencias y espera la elección
+        # (``referencia``, spec 054; ensayo del 2026-11-27).
         Paso(
             "cancélalos",
-            espera=frozenset({None, "eleccion", "cantidad", "algo_mas"}),
+            espera=frozenset({None, "eleccion", "cantidad", "algo_mas", "referencia"}),
             ausentes=("Llevábamos",),
             determinista=False,
         ),

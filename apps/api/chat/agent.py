@@ -73,6 +73,7 @@ from carvajal.agent.toolagent.tools import (
 from carvajal.application.ask import Source
 from carvajal.application.ports import ClaimsJudge, JudgeUnavailable, LLMProvider
 from carvajal.prompts import NO_CONTEXT_ANSWER
+from carvajal.quotation.cards import strip_imitated_cards
 
 __all__ = [
     "RETAIN_CHARS",
@@ -715,6 +716,13 @@ class _TurnStream:
             if message is not None and (message.tool_calls or message.invalid_tool_calls):
                 return []
             text = _text(message.content) if message is not None else "".join(step.pending)
+            if not step.emitted:
+                # Las tarjetas del carrito las escribe solo el flujo: una imitada por el modelo
+                # mostraba un producto agregado y un total que no existían (ensayo del
+                # 2026-11-27). Se quitan antes de juzgar y de emitir.
+                text, imitated = strip_imitated_cards(text)
+                if imitated:
+                    logger.warning("tool_agent.card_imitation_stripped", lines=imitated)
             if out_of_scope(self.tool_payloads):
                 # Tema ajeno a Carvajal: negativa fija, sin la redacción del modelo.
                 self._skip_claims("fuera_de_alcance")

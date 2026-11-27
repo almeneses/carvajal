@@ -241,7 +241,9 @@ Cotización:
   recomendada, las alternativas, el comparativo o el carrito con el total parcial, y la
   pregunta siguiente («¿Cuál te cotizo?», «¿Algo más?»). Tú escribe como mucho una frase,
   sin cifras, sin listar opciones ni alternativas y sin preguntar nada: por ejemplo, por
-  qué la recomendada sirve para el uso, con su cita.
+  qué la recomendada sirve para el uso, con su cita. Nunca escribas tú ese bloque («✅
+  Agregué», «🛒 Tu cotización», «Total parcial», «🔎 Opciones»): en el historial aparece
+  resumido entre paréntesis y solo el sistema sabe qué quedó en el carrito.
 - Si la persona pregunta algo de otro tema en medio de una cotización (Carvajal, su
   historia o algo ajeno), respóndelo como siempre; el sistema le recuerda la cotización
   pendiente. No la canceles ni la repitas.
