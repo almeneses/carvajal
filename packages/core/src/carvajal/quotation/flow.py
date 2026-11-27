@@ -458,9 +458,13 @@ def _confirm_step(
         return Pass(draft)
     folded = plain(text)
     corrected = correction_name(_without_questions(text))
+    # Un «sí» con un adiós («ok, chao») o un pero no es un «sí» limpio: no crea el pedido.
     clean_yes = (is_affirmation(text) or wants_purchase(text)) and not re.search(
-        r"\b(?:pero|aunque|cambia\w*|corrig\w*|mal)\b", folded
+        r"\b(?:pero|aunque|cambia\w*|corrig\w*|mal|chao|chau|adios|bye|nos\s+vemos)\b",
+        folded,
     )
+    if is_goodbye(text):
+        return _declined(draft, now)
     if clean_yes and corrected is None and buyer.complete:
         return Reply(render.ask_buyer(), draft, route="pedido", order=buyer, private=True)
     if corrected is not None:
@@ -474,7 +478,8 @@ def _confirm_step(
 
 _CANCEL_WORDS: Final = re.compile(
     r"\b(?:ahora|despues|luego|tarde|todavia|aun|olvid\w*|cancel\w*|dej\w*|mejor|"
-    r"quiero|gracias|pienso|pensar|chao|chau|adios|bye|nada|ya\s+no|por\s+ahora)\b"
+    r"quiero|gracias|pienso|pensar|chao|chau|adios|bye|nos\s+vemos|nada|ya\s+no|"
+    r"por\s+ahora)\b"
 )
 
 

@@ -37,10 +37,15 @@ frase. Las preguntas pendientes son `pedido` (la oferta), `datos_pedido` y
 
 En cualquier paso:
 
-- **Las reglas generales van primero** (`flow._defers`): el chiste ante un insulto por el
-  precio («está muy caro, ladrones»), «retomar» y pedir un cambio (`wants_edit`: «quiero
-  cambiar la 2 a 800», «sí, pero cambia el correo») no los lee el paso del pedido. Los
-  decide el resto de las reglas o el agente, y nunca crean el pedido.
+- **Los datos van primero; después, las reglas generales** (`flow._defers`). Un mensaje con
+  un correo o un nombre con marca es un dato del pedido aunque pida un cambio («quiero
+  cambiar el correo a carla@gmail.com» corrige el correo). Sin datos, el chiste ante un
+  insulto por el precio («está muy caro, ladrones»), «retomar» y un cambio del carrito
+  (`wants_edit`: «quiero cambiar la 2 a 800») no los lee el paso del pedido: los decide el
+  resto de las reglas o el agente, y nunca crean el pedido. Un cambio de los datos sin el
+  dato («sí, pero cambia el correo», «el correo está mal», «quiero cambiar el nombre»;
+  `order.edits_buyer`) no es un cambio del carrito: lo atiende el paso (en la confirmación,
+  «¿Qué dato corrijo?»).
 - **Un correo** escrito o dictado («ana punto perez arroba gmail punto com» →
   `ana.perez@gmail.com`; «guion» y «guion bajo» dan `-` y `_`) siempre es un dato. Las
   cifras dictadas antes de «arroba», sueltas o en palabras, son parte del correo: «ana punto
@@ -52,14 +57,16 @@ En cualquier paso:
   registrada sin pedido. Las cifras solas (un teléfono, una dirección) no sacan del paso.
 - **Rechazar**: «ahora no», «no, mejor no», «no quiero el pedido», «ya no», «todavía no,
   gracias», «lo pienso», «olvídalo», «cancélalo», «no, olvídalo», «cancela el pedido»,
-  «cancela todo» o una despedida sin compra (`is_leaving`: «lo voy a pensar», «solo estaba
-  mirando», «después te escribo», «no me interesa»). La cotización queda registrada sin
-  pedido y los datos parciales se borran: «Listo, tu cotización #folio queda registrada sin
-  pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo mensaje. ¿Te ayudo
-  con algo más?». Esas palabras nunca se toman como nombre. Un «no, …» con un correo, un
-  nombre con marca o un nombre escrito como nombre propio corrige, no cancela; «chao» o
-  «adiós» solos no son rechazo ni nombre (en los datos se vuelven a pedir; en la
-  confirmación, «¿Qué dato corrijo?»).
+  «cancela todo», una despedida sin compra (`is_leaving`: «lo voy a pensar», «solo estaba
+  mirando», «después te escribo», «no me interesa») o un adiós (`is_goodbye`: «chao»,
+  «chau», «adiós», «bye», «nos vemos», «gracias, adiós»; en la confirmación un adiós nunca
+  crea el pedido: «sí, chao» pregunta qué corregir).
+  La cotización queda registrada sin pedido y los datos parciales se borran: «Listo, tu
+  cotización #folio queda registrada sin pedido. Si cambias de opinión, escribe «hacer el
+  pedido» en tu próximo mensaje. ¿Te ayudo con algo más?». Esas palabras nunca se toman como
+  nombre. Un «no, …» con un correo, un nombre con marca o un nombre (en la confirmación,
+  también en minúsculas) corrige, no cancela. En la confirmación, un «no» cancela solo si lo
+  acompañan palabras de cancelación (ver la tabla).
 - **Una pregunta** sin datos fuera de los «¿…?» va al agente sin perder el paso. La
   respuesta termina una sola vez con el recordatorio («↩️ ¿Seguimos con el pedido…», «↩️ Para
   el pedido me faltan…» o «↩️ ¿Confirmo el pedido…»); si el mensaje siguiente tampoco sigue
@@ -71,12 +78,12 @@ Por paso:
 
 | Paso | Qué cuenta | Ejemplos |
 |---|---|---|
-| Oferta (`pedido`) | **Datos** solo si trae un correo o un nombre con marca («soy…», «me llamo…», «a nombre de…») o escrito como nombre propio (mayúscula en cada palabra), también detrás de un «sí». **Acepta** una afirmación o una frase de compra. Lo demás sigue el resto de las reglas | «Ana Pérez, ana@correo.com» → confirmación; «Sí, a nombre de Ana Pérez», «Sí, soy Ana», «Sí, Ana Pérez» → toman el nombre y piden el correo; «sí», «sí, adelante», «está bien», «quiero comprarla» → pide los datos; «cuéntame de la empresa» o «ana pérez» → no son datos |
-| Datos (`datos_pedido`) | El correo del mensaje y el **nombre que se pidió**: el que trae marca, el ya dado o, si falta, el mensaje mismo (sin las preguntas) si no es una afirmación ni una muletilla (sin cifras, símbolos ni palabras como «ok», «gracias», «pedido», «olvídalo», «chao») | «Ana Pérez» → «¿A qué correo…?»; «ana@correo.com» → la confirmación; «ok gracias» → el formato de ejemplo |
-| Confirmación (`confirmar_pedido`) | Un correo o un nombre con marca **corrigen** (aunque el mensaje diga «sí»). Un nombre suelto, tras «sí,» o tras «no,» corrige **solo escrito como nombre propio**; en «no es Ana, es Carla» vale lo último. **Solo un «sí» limpio crea el pedido**: una afirmación o frase de compra sin nombre nuevo y sin «pero», «aunque», «cambia…», «corrig…» ni «mal». Un «sí» con reparos, un «no» solo, «está mal» o lo que no trae un dato preguntan qué corregir | «no, es otro@correo.com», «sí, pero a nombre de Marta Gómez», «sí, Carla Ruiz», «no, Carla Ruiz», «Marta Gómez» → confirmación con el dato nuevo; «no es Ana, es Carla» → Carla; «sí, pero…», «sí, pero el correo está mal», «no», «déjalo» → «¿Qué dato corrijo?…»; «olvídalo», «no, olvídalo», «ahora no» → rechazo; «Sí, confírmalo», «sí», «ok» → el pedido |
+| Oferta (`pedido`) | **Datos** solo si trae un correo o un nombre con marca («soy…», «me llamo…», «a nombre de…», «el nombre es…», «cambia el nombre a/por…») o escrito como nombre propio (mayúscula en cada palabra), también detrás de un «sí» o antes de la primera coma. **Acepta** una afirmación o una frase de compra. Lo demás sigue el resto de las reglas | «Ana Pérez, ana@correo.com» → confirmación; «Sí, a nombre de Ana Pérez», «Sí, soy Ana», «Sí, Ana Pérez», «Ana Pérez, quiero hacer el pedido» → toman el nombre y piden el correo (turno privado); «sí», «sí, adelante», «está bien», «quiero comprarla» → pide los datos; «chao» → rechazo; «cuéntame de la empresa» o «ana pérez» → no son datos |
+| Datos (`datos_pedido`) | El correo del mensaje y el **nombre que se pidió**: el que trae marca, el ya dado o, si falta, el mensaje mismo (sin las preguntas) si no es una afirmación ni una muletilla (sin cifras, símbolos ni palabras como «ok», «gracias», «pedido», «olvídalo», «chao») | «Ana Pérez», «cambia el nombre a Ana Pérez» → «¿A qué correo…?»; «ana@correo.com» → la confirmación; «ok gracias» → el formato de ejemplo; «chao», «gracias, adiós» → rechazo |
+| Confirmación (`confirmar_pedido`) | Un correo o un nombre con marca **corrigen** (aunque el mensaje diga «sí» o pida el cambio). Un nombre suelto o tras «sí,» corrige **solo escrito como nombre propio**; tras «no» también en minúsculas («no, carla ruiz»). Vale lo último tras «es» o «:» («no es Ana es Carla Ruiz», «corrige el nombre: Carla Ruiz»). **Solo un «sí» limpio crea el pedido**: una afirmación o frase de compra sin nombre nuevo y sin «pero», «aunque», «cambia…», «corrig…» ni «mal». Un «sí» con reparos, un «no» solo, «está mal», un cambio de los datos sin el dato o un «no» seguido de algo que no es cancelar ni un nombre preguntan qué corregir y **no borran los datos**. Cancelan un «no» con palabras de cancelación (ahora, después, olvídalo, cancela, déjalo, mejor, no quiero, gracias, pensar, ya no, por ahora, chao, adiós), «cancela todo» y los rechazos y adioses de arriba | «no, es otro@correo.com», «quiero cambiar el correo a carla@gmail.com», «sí, pero a nombre de Marta Gómez», «sí, pero cambia el nombre a Carla Ruiz», «sí, Carla Ruiz», «no, Carla Ruiz», «no, carla ruiz», «Marta Gómez» → confirmación con el dato nuevo; «no es Ana, es Carla», «no, es carla» → Carla; «sí, pero…», «sí, pero cambia el correo», «el correo está mal», «quiero cambiar el nombre», «no», «no, espera», «déjalo» → «¿Qué dato corrijo?…»; «olvídalo», «no, olvídalo», «no, gracias», «ahora no», «chao» → rechazo; «Sí, confírmalo», «sí», «ok» → el pedido |
 
-Un nombre en minúsculas tras «no,» («no, carla ruiz», «no, es carla») no corrige: el mensaje
-empieza por «no» y se lee como rechazo. Las muletillas de los bordes se quitan («Juan,
+Tras «no», el nombre puede venir en minúsculas: «no, carla ruiz» corrige a «Carla Ruiz» y no
+se lee como rechazo. Las muletillas de los bordes se quitan («Juan,
 juan@x.co, gracias» → Juan) y las partículas van en minúscula («María de la Cruz»). Tras
 crear el pedido, «quiero comprarla» responde el número que ya existe; tras un rechazo,
 «hacer el pedido» en el mensaje siguiente vuelve a pedir los datos (después, el borrador del
@@ -101,8 +108,9 @@ enviar un correo, además de que se envíe una copia o recibo al cliente (whatsa
 - **Odoo envía el correo** con el PDF del pedido al confirmarlo, **cuando haya SMTP** (ver
   [Correo saliente](#correo-saliente)).
 - **El chat entrega el recibo**, haya o no SMTP: la respuesta al «sí» trae el número del
-  pedido, el folio, la fecha, las líneas, el total con el IVA (o «Total por confirmar con el
-  vendedor» si ninguna línea tiene precio) y el correo de la confirmación, y el **PDF del
+  pedido, el folio, la fecha, las líneas, el total con el IVA («Total por confirmar con el
+  vendedor» si ninguna línea tiene precio; si solo algunas, el total de las que lo tienen
+  con «sin <producto> (precio por confirmar)») y el correo de la confirmación, y el **PDF del
   pedido que generó Odoo** (el mismo del correo, que lee `OdooOrders.order_pdf(folio)`).
 - **El correo del recibo es el del cliente del pedido en Odoo** (`OrderResult.email`): el
   que se escribió, salvo en un reintento sobre un pedido del folio que ya estaba confirmado,
@@ -177,18 +185,17 @@ fusiona si hace falta.
   turno, pero el historial que llega a DeepSeek en los turnos siguientes y el resumen de
   memoria salen de lo guardado.
 - En voz, la confirmación lee el correo para que quien lo dictó lo compruebe («…con el correo
-  ana punto perez arroba gmail punto com. ¿Lo confirmo?», `order.spoken_address`).
-  **Pendiente**: la versión hablada guardada (`flow.spoken`) conserva hoy ese correo leído,
-  porque `_without_buyer` solo enmascara el correo escrito y el nombre
-  ([evidencia §8](../specs/055-pedidos-odoo/evidencia.md#8-pendiente)).
+  ana punto perez arroba gmail punto com. ¿Lo confirmo?», `order.spoken_address`). La versión
+  hablada guardada (`flow.spoken`) no lo conserva: `ChatService._without_buyer` cambia el
+  correo leído por «el correo que escribiste», además de enmascarar el escrito y el nombre.
 - El borrador de la conversación (base local) sí guarda los datos mientras se piden: se
   vacían al crear el pedido o al rechazarlo, y se conservan tras un fallo para reintentar.
 - Los logs llevan el folio, el número de pedido y, ante un error de Odoo, el código HTTP y el
   tipo; nunca el nombre, el correo ni el mensaje de Odoo.
 - Lo que las reglas no leen como dato va al agente como cualquier mensaje: una pregunta sin
   datos fuera de los «¿…?», o en la oferta un nombre en minúsculas. Si trae un nombre, el
-  modelo lo ve. En la oferta, «Ana Pérez, quiero hacer el pedido» acepta pero no toma el
-  nombre (lo vuelve a pedir) y ese turno no es privado: la pregunta se guarda con el nombre.
+  modelo lo ve. En la oferta, «Ana Pérez, quiero hacer el pedido» toma el nombre de antes de
+  la coma y pide el correo, como turno privado.
 - El recibo en PDF lo descarga solo el dueño de la cotización (cookie o enlace firmado); el
   PDF viene de Odoo en cada descarga y no se guarda en la app.
 

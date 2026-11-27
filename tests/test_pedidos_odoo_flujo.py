@@ -638,3 +638,24 @@ def test_el_correo_leido_en_voz_no_se_guarda() -> None:
 
     # Assert
     assert "perez22" not in stored and "Ana Pérez" not in stored
+
+
+@pytest.mark.parametrize("message", ["ok, chao", "sí, chao", "listo, gracias, adiós", "nos vemos"])
+def test_un_adios_en_la_confirmacion_nunca_crea_el_pedido(message: str) -> None:
+    # Act
+    decision = _before(_draft("confirmar_pedido", CONFIRMED), message)
+
+    # Assert
+    assert isinstance(decision, flow.Reply)
+    assert decision.order is None
+
+
+@pytest.mark.parametrize("message", ["no sé", "no, mañana", "no, tranquilo"])
+def test_tras_un_no_una_palabra_suelta_no_cambia_el_nombre(message: str) -> None:
+    # Act
+    decision = _before(_draft("confirmar_pedido", CONFIRMED), message)
+
+    # Assert
+    assert isinstance(decision, flow.Reply)
+    assert decision.order is None
+    assert Buyer.from_json(decision.draft.buyer) == CONFIRMED

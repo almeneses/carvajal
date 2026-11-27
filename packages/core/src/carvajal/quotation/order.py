@@ -101,7 +101,8 @@ _NOT_NAME: Final = frozenset(
     encantada correcto correcta exacto asi esta mal incorrecto datos dato pero entonces pues
     olvidalo olvida olvidar cancelalo cancelala dejalo dejala deja dejar chao chau adios bye
     retomar retoma seguir sigue sigamos continuar cambia cambiale modifica quita agrega
-    caro cara barato ladron ladrones robo estafa
+    caro cara barato ladron ladrones robo estafa se manana hoy tranquilo tranquila importa
+    hay problema seguro segura
     eh este mmm aja oiga oye mira bien
     """.split()  # noqa: SIM905
 )
@@ -381,8 +382,15 @@ def correction_name(text: str) -> str | None:
         if candidate:
             return candidate
     rest = _NO_PREFIX.sub("", text, count=1) if after_no else text
-    # Tras un «no» que corrige, el nombre puede venir en minúsculas («no, carla ruiz»).
-    return name_in(rest, strict=not after_no) if rest.strip() else None
+    if not rest.strip():
+        return None
+    strict = name_in(rest, strict=True)
+    if strict or not after_no:
+        return strict
+    # Tras un «no», un nombre en minúsculas cuenta con nombre y apellido («no, carla ruiz»):
+    # una palabra suelta («no sé», «no, mañana») no es una corrección.
+    loose = name_in(rest)
+    return loose if loose and len(loose.split()) >= 2 else None
 
 
 def is_affirmation(text: str) -> bool:

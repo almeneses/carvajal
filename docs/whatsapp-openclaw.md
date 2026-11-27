@@ -652,11 +652,13 @@ el nombre y el correo) y solo con un «sí» limpio («sí», «sí, confírmalo
 confirmado en Odoo y responde con el recibo: «🧾 *Pedido S… confirmado*», la fecha, las
 líneas, el total y «La confirmación del pedido llega a …» con el correo del cliente del
 pedido; pago y entrega los coordina un asesor. Para corregir, el cliente escribe el correo
-correcto, «me llamo …», «sí, Carla Ruiz», «no, es Carla» o el nombre como nombre propio
-(con mayúscula: «no, es carla» en minúsculas se lee como rechazo); un «no» solo o un «sí,
-pero…» hacen que la herramienta pregunte qué dato corregir, y «ahora no», «no, mejor no»,
-«olvídalo», «cancela el pedido» o «lo voy a pensar» lo dejan en cualquier paso («…queda
-registrada sin pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo
+correcto («quiero cambiar el correo a carla@gmail.com»), «me llamo …», «cambia el nombre a
+Carla Ruiz», «sí, Carla Ruiz», «no, es Carla» o el nombre como nombre propio (tras «no»
+también en minúsculas: «no, carla ruiz»); un «no» solo, un «sí, pero…» o un cambio sin el
+dato («sí, pero cambia el correo», «el correo está mal») hacen que la herramienta pregunte
+qué dato corregir sin borrar los datos, y «ahora no», «no, mejor no», «no, gracias»,
+«olvídalo», «cancela el pedido», «lo voy a pensar» o un adiós («chao», «gracias, adiós») lo
+dejan en cualquier paso («…queda registrada sin pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo
 mensaje.»). Todo lo deciden reglas explícitas por paso del backend, sin Jev; los turnos del
 pedido se guardan sin el nombre ni el correo. Flujo, datos personales y configuración:
 [`odoo-pedidos.md`](odoo-pedidos.md).
