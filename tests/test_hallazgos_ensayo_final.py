@@ -6,21 +6,25 @@
 - En la web, «mándame el recibo» tras el pedido recibía la respuesta genérica.
 """
 
+import io
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from PIL import Image
 from tests.test_flujos_cotizacion import make_quote
 from tests.test_pedidos_odoo import FakeOrders, _registered, _say, _service
 from tests.test_pedidos_seguimiento import ORDER, engine  # noqa: F401 (fixture)
 
 from apps.api.chat.agent import CARD_ONLY_ANSWER, ToolAgentToken, _TurnStream
-from apps.mcp.bridge import is_receipt_request
+from apps.mcp.bridge import is_receipt_request, read_inbound_photo
 from carvajal.agent.state import Turn
 from carvajal.agent.toolagent.graph import history_messages
+from carvajal.food.photo import PhotoRejected, prepare_photo
 from carvajal.quotation import render
-from carvajal.quotation.cards import compact_cards, strip_imitated_cards
+from carvajal.quotation.cards import CARD_NOTE, compact_cards, strip_imitated_cards
 from carvajal.quotation.draft import QuoteDraft, line_label
 from carvajal.quotation.engine import QuoteRequest, quote_request
 from carvajal.quotation.flow import Reply, after_turn, before_turn
@@ -435,3 +439,86 @@ def test_el_flujo_avisa_que_tapa_no_agrego() -> None:
     assert "Agregué **500 Vaso rígido traslúcido 9 oz Wau" in outcome.message.text
     assert only_lid.message.text.startswith("No agregué **Tapa")
     assert len(only_lid.draft.lines) == 1
+
+
+# --- Ensayo tras la PR #288: el modelo copió la nota del historial ----------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "La tapa traslúcida Wau cubre vasos de 3,5 a 7 oz [1].\n\n"
+        "(El sistema mostró aquí su tarjeta de la cotización: Recomendada: Tapa traslúcida "
+        "para vaso rígido 3,5 a 7 oz Wau (paquete x 50) · $28.950; alternativas en PET.)\n\n"
+        "*Fuentes:*\n[1] EDEXA: Tapa",
+        "El plato que encontré es pando, no hondo [1].\n\n"
+        "(El sistema mostró aquí su tarjeta de la cotización: Plato espumado pando 12 cm Wau "
+        "x 200 · $17.480, más las alternativas.)",
+    ],
+)
+def test_la_nota_del_historial_copiada_por_el_modelo_se_quita(text: str) -> None:
+    # Act
+    clean, removed = strip_imitated_cards(text)
+
+    # Assert
+    assert removed == 1
+    assert "El sistema mostró" not in clean
+    assert clean.split("\n")[0] == text.split("\n")[0]
+
+
+def test_la_nota_del_historial_es_una_tarjeta_para_el_filtro() -> None:
+    # Arrange: lo que el modelo ve en el historial es justo lo que el filtro quita.
+    note = compact_cards("Listo.\n\n✅ Agregué **500 Vaso**\n1. Vaso x 500 · $37.510")
+
+    # Act
+    clean, removed = strip_imitated_cards(note)
+
+    # Assert
+    assert note.split("\n\n")[1].startswith(CARD_NOTE)
+    assert (clean, removed) == ("Listo.", 1)
+
+
+# --- WhatsApp real: las fotos llegan en WebP ---------------------------------------------------
+
+
+def _webp(*, frames: int = 1) -> bytes:
+    colors = [(200, 40, 40), (40, 200, 40), (40, 40, 200)]
+    images = [Image.new("RGB", (640, 480), colors[index % 3]) for index in range(frames)]
+    out = io.BytesIO()
+    images[0].save(out, "WEBP", save_all=frames > 1, append_images=images[1:], duration=100, loop=0)
+    return out.getvalue()
+
+
+def test_una_foto_webp_de_whatsapp_se_lee_y_se_prepara(tmp_path: Path) -> None:
+    # Arrange: OpenClaw dejó el adjunto con el nombre que le da (UUID + extensión).
+    (tmp_path / "3f2a9c1e-foto.webp").write_bytes(_webp())
+
+    # Act
+    raw = read_inbound_photo("media://inbound/3f2a9c1e-foto.webp", str(tmp_path))
+    photo = prepare_photo(raw)
+
+    # Assert: sale como JPEG, igual que las demás.
+    assert photo.data[:3] == b"\xff\xd8\xff"
+    assert (photo.width, photo.height) == (640, 480)
+
+
+def test_un_webp_animado_se_rechaza() -> None:
+    with pytest.raises(PhotoRejected):
+        prepare_photo(_webp(frames=3))
+
+
+def test_la_tapa_de_otra_linea_no_entra_aunque_traiga_la_capacidad_del_vaso() -> None:
+    # Arrange: «500 vasos de 9 oz y 300 tapas para esos vasos»; el modelo cotiza la tapa con
+    # capacity_oz=9 y el motor trae la viajera de 9 a 12 oz para vaso Bioform.
+    vaso = _cup("V9", "Vaso rígido traslúcido 9 oz Wau", 9.0)
+    tapa = _lid("Tapa viajera 9 a 12 oz para vaso Bioform")
+    tapa["request"]["capacity_oz"] = 9
+    text = "Listo, cotizadas las dos cosas para Bogotá: el vaso de 9 oz y la tapa [1]."
+
+    # Act
+    outcome = after_turn(QuoteDraft(), [vaso, tapa], text, now=AHORA)
+
+    # Assert
+    assert [line_label(line) for line in outcome.draft.lines] == [line_label(vaso)]
+    assert outcome.message is not None
+    assert outcome.message.text.startswith("No agregué **Tapa viajera 9 a 12 oz")

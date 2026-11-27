@@ -34,7 +34,8 @@ _JPEG_QUALITY: Final = 85
 # Spec 053 (FR-017): la miniatura del historial; la foto original nunca se guarda.
 THUMBNAIL_SIDE_PX: Final = 320
 _THUMBNAIL_QUALITY: Final = 70
-_FORMATS: Final = frozenset({"JPEG", "PNG", "MPO"})
+# WebP: el formato en que WhatsApp entrega muchas fotos; se convierte a JPEG como las demás.
+_FORMATS: Final = frozenset({"JPEG", "PNG", "MPO", "WEBP"})
 
 RejectReason = Literal["formato", "pequena", "grande", "alargada", "ilegible"]
 
@@ -81,7 +82,7 @@ def prepare_photo(raw: bytes) -> PreparedPhoto:
             image = Image.open(io.BytesIO(raw))
             if image.format not in _FORMATS:
                 raise PhotoRejected("formato")
-            if getattr(image, "is_animated", False) and image.format == "PNG":
+            if getattr(image, "is_animated", False) and image.format in {"PNG", "WEBP"}:
                 raise PhotoRejected("formato")
             width, height = image.size
             if width * height > _MAX_SOURCE_PIXELS:

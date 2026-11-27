@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-__all__ = ["compact_cards", "strip_imitated_cards"]
+__all__ = ["CARD_NOTE", "compact_cards", "strip_imitated_cards"]
 
 # Comienzos de tarjeta, ya sin negritas ni espacios iniciales. Los emojis pueden llegar con o
 # sin el selector de variante (U+FE0F).
@@ -28,6 +28,9 @@ _STARTS: Final = (
     "⭐ recomendada",
     "usé la recomendada",
     "🧾 pedido",
+    # La nota con que :func:`compact_cards` resume una tarjeta en el historial: el modelo la
+    # copió al cliente en el ensayo tras la PR #288.
+    "(el sistema mostró",
 )
 # «Total parcial: $54.990» o «💰 Total: $37.510 COP»: solo con la cifra (una frase del modelo
 # que empieza con «Total parcial…» no es una tarjeta).
@@ -40,6 +43,8 @@ _CONTINUES: Final = re.compile(
 )
 # La pregunta con que cierra la tarjeta: lo que sigue ya no es parte de ella.
 _CLOSES: Final = re.compile(r"^(?:¿algo más|¿cuál te cotizo|di esa\b|¿la confirmo)")
+# Comienzo de la nota del historial; empieza como una tarjeta (:data:`_STARTS`).
+CARD_NOTE: Final = "(El sistema mostró aquí su tarjeta de la cotización:"
 _MARKUP: Final = re.compile(r"[*_]+")
 _BLANKS: Final = re.compile(r"\n{3,}")
 _ITEM: Final = re.compile(r"^\d+\.\s+")
@@ -120,5 +125,5 @@ def compact_cards(text: str) -> str:
         ][:_MAX_ITEMS]
         head = _EMOJI_LEAD.sub("", _MARKUP.sub("", lines[0]).replace("️", "")).strip()
         summary = "; ".join(items) if items else head
-        parts.append(f"(El sistema mostró aquí su tarjeta de la cotización: {summary}.)")
+        parts.append(f"{CARD_NOTE} {summary}.)")
     return _join(parts) if changed else text

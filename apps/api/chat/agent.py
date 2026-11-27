@@ -433,7 +433,7 @@ def _text(content: Any) -> str:
 
 
 # Señal de que el modelo empezó una tarjeta del flujo en un paso que ya sale en vivo.
-_CARD_HINT: Final = re.compile(r"[✅🛒🔄🔎⭐💰]|Total parcial|Usé la recomendada")
+_CARD_HINT: Final = re.compile(r"[✅🛒🔄🔎⭐💰]|Total parcial|Usé la recomendada|El sistema mostró")
 # Lo que queda de un texto que era solo la tarjeta imitada: el flujo agrega la real debajo.
 CARD_ONLY_ANSWER: Final = "Listo, aquí tienes lo que calculé."
 
