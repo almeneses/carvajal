@@ -1,0 +1,650 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Un turno del chat con AGENT_MODE=tools",
+    "locale": "es",
+    "output": "docs/arquitectura/turno.html",
+    "quality_profile": "showcase",
+    "parentHref": "general.html",
+    "repository": {
+      "url": "https://github.com/almeneses/carvajal.git",
+      "link_mode": "web",
+      "revision": "c730180ce327562b052035a046acce2813fa079e"
+    },
+    "legend": {
+      "entries": {
+        "frontend": {
+          "label": "Canal de entrada o salida"
+        },
+        "backend": {
+          "label": "Lógica del servicio o del grafo"
+        },
+        "security": {
+          "label": "Decisión o compuerta"
+        },
+        "messagebus": {
+          "label": "Herramientas"
+        },
+        "database": {
+          "label": "Persistencia"
+        },
+        "cloud": {
+          "label": "Paso con DeepSeek"
+        }
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "canal",
+      "label": "Canales"
+    },
+    {
+      "id": "svc",
+      "label": "ChatService"
+    },
+    {
+      "id": "grafo",
+      "label": "Grafo LangGraph (AGENT_MODE=tools)"
+    },
+    {
+      "id": "bucle",
+      "label": "Agente y compuertas de salida"
+    },
+    {
+      "id": "herr",
+      "label": "Herramientas"
+    },
+    {
+      "id": "respaldo",
+      "label": "Respaldo con el grafo routes",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "f_entrada",
+      "label": "Entrada",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "f_decision",
+      "label": "Contexto y decisión",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "f_compuertas",
+      "label": "Compuertas y cierre",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "security"
+    }
+  ],
+  "mainPath": [
+    "web_in",
+    "hilo",
+    "flujo",
+    "recall",
+    "shortcut",
+    "agent",
+    "evidencia",
+    "noul",
+    "guardar",
+    "salida"
+  ],
+  "nodes": [
+    {
+      "id": "web_in",
+      "lane": "canal",
+      "col": 0,
+      "type": "frontend",
+      "label": "Web: POST /chat/stream",
+      "sublabel": "CSRF · cupo diario · SSE",
+      "explanation": "La vista verifica el token CSRF, valida la pregunta (máximo 500 caracteres) y cobra el cupo diario (DAILY_REQUESTS_LIMIT) antes de abrir el stream SSE; sin cupo responde 429 con Retry-After.",
+      "sources": [
+        {
+          "path": "apps/api/views/stream.py",
+          "line": 66,
+          "end_line": 130,
+          "label": "chat_stream"
+        }
+      ]
+    },
+    {
+      "id": "wa_in",
+      "lane": "canal",
+      "col": 1,
+      "type": "frontend",
+      "label": "WhatsApp: puente",
+      "sublabel": "OpenClaw → MCP · cupo",
+      "href": "whatsapp.html",
+      "explanation": "El puente (respond → _fresh_turn) cobra el mismo DAILY_REQUESTS_LIMIT por chat (owner_key = HMAC del chat) y llama a ChatService.stream; «PDF» y «mándame el recibo» se atienden antes, sin turno ni LLM.",
+      "sources": [
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 1,
+          "end_line": 11,
+          "label": "identidad y cupo"
+        },
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 1244,
+          "end_line": 1306,
+          "label": "_fresh_turn → stream"
+        }
+      ],
+      "width": 150
+    },
+    {
+      "id": "hilo",
+      "lane": "svc",
+      "col": 1,
+      "type": "backend",
+      "label": "Hilo del dueño",
+      "sublabel": "ajeno → ThreadAccessError",
+      "tag": "semilla + borrador",
+      "explanation": "Abre o recupera el hilo del owner_key y nunca acepta uno ajeno. Lee la semilla de turnos (AGENT_HISTORY_TURNS) y el borrador de cotización, y cierra la sesión antes de llamar al LLM. Un client_turn_id ya guardado se reemite sin repetir efectos.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 603,
+          "end_line": 621,
+          "label": "preparación"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 2052,
+          "end_line": 2064,
+          "label": "_owned_conversation"
+        }
+      ]
+    },
+    {
+      "id": "flujo",
+      "lane": "svc",
+      "col": 2,
+      "type": "security",
+      "label": "Flujo cotización/pedido",
+      "sublabel": "before_turn: reglas primero",
+      "tag": "antes del agente",
+      "href": "pedido.html",
+      "explanation": "Antes del grafo, las reglas del flujo deciden si el mensaje responde a la pregunta pendiente («sí», «la 2», «eso es todo»). Los pasos del pedido (nombre y correo, «¿Lo confirmo?») son solo reglas. Jev Choice solo clasifica respuestas cortas de la cotización, nunca recibe datos del pedido y solo existe con TYPESAFE_API_KEY y QUOTE_FLOW_JEV_ENABLED (activo por defecto; no depende de JEV_ENABLED). Con un pedido creado, «¿cómo va mi pedido?» también se responde aquí. Si nadie decide, el turno pasa al agente.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 624,
+          "end_line": 685,
+          "label": "seguimiento y before_turn"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 588,
+          "end_line": 596,
+          "label": "_ask_judge"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 307,
+          "end_line": 312,
+          "label": "QUOTE_FLOW_JEV_*"
+        }
+      ]
+    },
+    {
+      "id": "fijo",
+      "lane": "svc",
+      "col": 3,
+      "type": "backend",
+      "label": "Respuesta del flujo",
+      "sublabel": "sin LLM · folio con el «sí»",
+      "tag": "con ODOO_*: pedido",
+      "explanation": "Turno sin modelo: con el «sí», todas las líneas del borrador pasan a una cotización con folio; con el CRM configurado (ODOO_URL, ODOO_DB y ODOO_API_KEY) se ofrece el pedido y el «sí» del pedido lo crea en Odoo. Los demás pasos (opciones, carrito, estado del pedido) responden con plantillas fijas.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1658,
+          "end_line": 1700,
+          "label": "_flow_reply"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 498,
+          "end_line": 506,
+          "label": "odoo_configured"
+        }
+      ]
+    },
+    {
+      "id": "recall",
+      "lane": "grafo",
+      "col": 2,
+      "type": "backend",
+      "label": "recall",
+      "sublabel": "ventana + resumen + memoria",
+      "explanation": "Arma los mensajes del turno: sistema con contexto comercial, preferencias y resumen acumulado; la ventana de turnos recientes y la pregunta. Lee la memoria del dueño una vez por turno desde el Store.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/graph.py",
+          "line": 676,
+          "end_line": 728,
+          "label": "recall"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/memory/store.py",
+          "line": 252,
+          "end_line": 264,
+          "label": "load"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/memory/summary.py",
+          "line": 591,
+          "end_line": 604,
+          "label": "recall_summary"
+        }
+      ]
+    },
+    {
+      "id": "shortcut",
+      "lane": "grafo",
+      "col": 3,
+      "type": "security",
+      "label": "shortcut · gatekeeper",
+      "sublabel": "reglas → Jev Choice → LLM",
+      "tag": "Jev con JEV_ENABLED",
+      "explanation": "Las reglas deciden primero (saludo, despedida, «olvida todo»). Si no, y solo con JEV_ENABLED, TYPESAFE_API_KEY y JEV_ROUTER_MODE=on, Jev Choice clasifica: la clase se aplica con confianza ≥ 0,6 y respuesta_directa exige ≥ 0,8; por debajo, o si contradice una señal fuerte de las reglas, hay cautela con las 20 herramientas. En JEV_ROUTER_MODE=shadow consulta sin restringir. Sin Jev, el modelo elige entre las 20.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/graph.py",
+          "line": 733,
+          "end_line": 771,
+          "label": "shortcut"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/gatekeeper/decide.py",
+          "line": 108,
+          "end_line": 172,
+          "label": "_decide"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 269,
+          "end_line": 283,
+          "label": "Jev y umbrales"
+        }
+      ]
+    },
+    {
+      "id": "direct",
+      "lane": "grafo",
+      "col": 4,
+      "type": "cloud",
+      "label": "direct",
+      "sublabel": "redacta sin herramientas",
+      "explanation": "Redacta el saludo o la respuesta directa con el modelo de chat sin herramientas; «olvida todo» usa una confirmación fija. Su texto pasa el filtro determinista pero Noul no lo juzga.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/graph.py",
+          "line": 799,
+          "end_line": 837,
+          "label": "direct"
+        },
+        {
+          "path": "apps/api/chat/agent.py",
+          "line": 757,
+          "end_line": 763,
+          "label": "sin Noul"
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "lane": "bucle",
+      "col": 3,
+      "type": "cloud",
+      "label": "agent",
+      "sublabel": "DeepSeek + bind_tools",
+      "tag": "≤ AGENT_MAX_TOOL_CALLS",
+      "explanation": "Invoca DeepSeek con las herramientas del alcance; el primer paso exige declarar una consulta. Al llegar a AGENT_MAX_TOOL_CALLS redacta sin herramientas con lo obtenido y declara lo que faltó.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/graph.py",
+          "line": 839,
+          "end_line": 866,
+          "label": "agent"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 247,
+          "end_line": 254,
+          "label": "AGENT_MODE"
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "lane": "herr",
+      "col": 3,
+      "type": "messagebus",
+      "label": "tools",
+      "sublabel": "20 @tool por alcance",
+      "tag": "escribe memoria",
+      "explanation": "Ejecuta en serie cada llamada del último mensaje; rechaza las que quedan fuera del alcance del gatekeeper y vuelca fuentes, resultados, cotizaciones y tarjetas en el estado. recordar_preferencia escribe la memoria del dueño.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/graph.py",
+          "line": 868,
+          "end_line": 917,
+          "label": "tools_node"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/tools/registry.py",
+          "line": 353,
+          "end_line": 362,
+          "label": "TOOLS_BY_SCOPE"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/tools/recordar_preferencia.py",
+          "line": 65,
+          "end_line": 84,
+          "label": "remember"
+        }
+      ]
+    },
+    {
+      "id": "evidencia",
+      "lane": "bucle",
+      "col": 4,
+      "type": "security",
+      "label": "Compuerta evidencia",
+      "sublabel": "determinista: abstiene o filtra",
+      "explanation": "Decide si la redacción del modelo se muestra: con evidencia sigue (con JEV_CLAIMS_MODE=enforce se retiene para Noul); sin evidencia tras buscar en el corpus se abstiene; sin consulta retiene el texto y bloquea cifras, fechas, montos o nombres sin respaldo, y si no pasa lo sustituye por un reemplazo neutro o la abstención. Fuera de tema responde una negativa fija.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/evidence.py",
+          "line": 1,
+          "end_line": 30,
+          "label": "caminos de la compuerta"
+        },
+        {
+          "path": "apps/api/chat/agent.py",
+          "line": 704,
+          "end_line": 768,
+          "label": "_close_step"
+        }
+      ]
+    },
+    {
+      "id": "noul",
+      "lane": "bucle",
+      "col": 5,
+      "type": "security",
+      "label": "Compuerta Noul",
+      "sublabel": "p < 0,3 → reemplazo",
+      "tag": "sin direct ni sustitutos",
+      "explanation": "Con JEV_ENABLED, TYPESAFE_API_KEY y JEV_CLAIMS_MODE=enforce (por defecto), retiene el texto del modelo que pasó la compuerta determinista y Jev Noul juzga si está respaldado; por debajo de JEV_CLAIMS_THRESHOLD (0,3 por defecto) lo sustituye por un reemplazo neutro hecho con los datos de las herramientas o por la abstención. Con shadow solo juzga y registra. No juzga direct, las abstenciones ni los reemplazos. Si Jev falla o no queda plazo, rige solo la compuerta determinista.",
+      "sources": [
+        {
+          "path": "apps/api/chat/agent.py",
+          "line": 1282,
+          "end_line": 1300,
+          "label": "_claims_mode"
+        },
+        {
+          "path": "apps/api/chat/agent.py",
+          "line": 789,
+          "end_line": 863,
+          "label": "_judged, _verdict y _judge"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 284,
+          "end_line": 290,
+          "label": "JEV_CLAIMS_*"
+        }
+      ]
+    },
+    {
+      "id": "respaldo",
+      "lane": "respaldo",
+      "col": 2,
+      "type": "backend",
+      "label": "Respaldo routes",
+      "sublabel": "reglas + fallback.render",
+      "explanation": "Si DeepSeek falla, vence AGENT_TURN_TIMEOUT_S o la salida es inválida (o el cierre llega sin texto) antes del primer token, el grafo routes (enrutador de reglas) prepara el turno en el mismo hilo y fallback.render redacta el aviso fijo con sus tarjetas o cotización, sin LLM. Si ya había resultados (plazo vencido o cierre sin texto), redacta con ellos. Tras el primer token no hay respaldo: el turno se guarda como incomplete.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1203,
+          "end_line": 1255,
+          "label": "_stream_tools"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1437,
+          "end_line": 1451,
+          "label": "_fallback_tools"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 2277,
+          "end_line": 2300,
+          "label": "_fallback_reason"
+        }
+      ]
+    },
+    {
+      "id": "guardar",
+      "lane": "svc",
+      "col": 5,
+      "type": "database",
+      "label": "Guardar turno",
+      "sublabel": "mensajes + borrador",
+      "tag": "encola el resumen",
+      "explanation": "Al cerrar el turno, con el texto ya emitido, guarda pregunta, respuesta, fuentes y borrador en una transacción; las cotizaciones del agente quedan en el borrador (el folio solo nace con el «sí» del flujo). Después encola el resumen acumulado del hilo en el SummaryWorker sin esperarlo.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1344,
+          "end_line": 1368,
+          "label": "persistencia"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 456,
+          "end_line": 464,
+          "label": "_summarize"
+        },
+        {
+          "path": "apps/api/chat/summary_worker.py",
+          "line": 59,
+          "end_line": 67,
+          "label": "SummaryWorker"
+        }
+      ]
+    },
+    {
+      "id": "salida",
+      "lane": "canal",
+      "col": 5,
+      "type": "frontend",
+      "label": "Salida al canal",
+      "sublabel": "tokens · tarjetas · done",
+      "tag": "folio solo tras el «sí»",
+      "explanation": "Web: status, meta y tokens SSE salen en vivo mientras el agente redacta (con Noul en enforce, el texto sale tras el veredicto); después de guardar salen trace, tarjetas de producto y done con folios. WhatsApp: el puente junta el turno completo y lo pasa a formato de WhatsApp con fuentes y oferta de PDF.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1877,
+          "end_line": 1930,
+          "label": "_relay_tool_events"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1370,
+          "end_line": 1420,
+          "label": "meta, tarjetas y done"
+        },
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 1300,
+          "end_line": 1306,
+          "label": "texto WhatsApp"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_web",
+      "from": "web_in",
+      "to": "hilo",
+      "label": "pregunta",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_wa",
+      "from": "wa_in",
+      "to": "hilo",
+      "label": "mismo turno"
+    },
+    {
+      "id": "e_hilo",
+      "from": "hilo",
+      "to": "flujo",
+      "label": "borrador",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_fijo",
+      "from": "flujo",
+      "to": "fijo",
+      "label": "responde",
+      "role": "branch"
+    },
+    {
+      "id": "e_fijo_guardar",
+      "from": "fijo",
+      "to": "guardar",
+      "label": "respuesta fija",
+      "role": "branch"
+    },
+    {
+      "id": "e_pass",
+      "from": "flujo",
+      "to": "recall",
+      "label": "sigue al agente",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_recall",
+      "from": "recall",
+      "to": "shortcut",
+      "label": "contexto",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_direct",
+      "from": "shortcut",
+      "to": "direct",
+      "label": "reglas o Jev ≥ 0,8",
+      "role": "branch"
+    },
+    {
+      "id": "e_agent",
+      "from": "shortcut",
+      "to": "agent",
+      "label": "alcance",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_calls",
+      "from": "agent",
+      "to": "tools",
+      "label": "tool_calls"
+    },
+    {
+      "id": "e_results",
+      "from": "tools",
+      "to": "agent",
+      "label": "resultados",
+      "role": "return",
+      "fromSide": "right",
+      "toSide": "bottom"
+    },
+    {
+      "id": "e_final",
+      "from": "agent",
+      "to": "evidencia",
+      "label": "texto final",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_direct_gate",
+      "from": "direct",
+      "to": "evidencia",
+      "label": "texto"
+    },
+    {
+      "id": "e_noul",
+      "from": "evidencia",
+      "to": "noul",
+      "label": "si pasa",
+      "variant": "security"
+    },
+    {
+      "id": "e_guardar",
+      "from": "noul",
+      "to": "guardar",
+      "label": "texto ya emitido",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e_fallo",
+      "from": "agent",
+      "to": "respaldo",
+      "label": "falla antes del 1.er token",
+      "variant": "dashed",
+      "role": "error"
+    },
+    {
+      "id": "e_respaldo",
+      "from": "respaldo",
+      "to": "guardar",
+      "label": "aviso fijo",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "e_salida",
+      "from": "guardar",
+      "to": "salida",
+      "label": "trace · tarjetas · done",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Condiciones",
+      "items": [
+        "AGENT_MODE=tools exige LLM_PROVIDER=deepseek y DEEPSEEK_API_KEY; si no, todo el chat va por routes",
+        "Jev del gatekeeper y Noul: solo con JEV_ENABLED=true y TYPESAFE_API_KEY; sin Jev deciden reglas + LLM y rige solo la compuerta determinista",
+        "Jev Choice del flujo de cotización: basta TYPESAFE_API_KEY (QUOTE_FLOW_JEV_ENABLED, activo por defecto)",
+        "El pedido en Odoo solo existe con ODOO_URL, ODOO_DB y ODOO_API_KEY"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Umbrales y límites",
+      "items": [
+        "Jev aplica su clase con confianza ≥ 0,6; respuesta_directa exige ≥ 0,8; si no, cautela con las 20 herramientas",
+        "Por defecto, hasta AGENT_MAX_TOOL_CALLS = 4 llamadas y plazo del turno AGENT_TURN_TIMEOUT_S = 45 s",
+        "Noul sustituye con p < JEV_CLAIMS_THRESHOLD (0,3 por defecto)"
+      ]
+    }
+  ]
+}

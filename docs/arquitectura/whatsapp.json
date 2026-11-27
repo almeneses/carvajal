@@ -1,0 +1,447 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Un mensaje de WhatsApp de punta a punta",
+    "output": "docs/arquitectura/whatsapp.html",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "parentHref": "general.html",
+    "repository": {
+      "url": "https://github.com/almeneses/carvajal.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "c730180ce327562b052035a046acce2813fa079e"
+    },
+    "legend": {
+      "mode": "auto",
+      "entries": {
+        "default": {
+          "label": "Llamada"
+        },
+        "emphasis": {
+          "label": "Camino principal"
+        },
+        "security": {
+          "label": "Con credencial (Bearer)"
+        },
+        "dashed": {
+          "label": "Condicional o atajo"
+        },
+        "return": {
+          "label": "Respuesta"
+        }
+      }
+    }
+  },
+  "participants": [
+    {
+      "id": "cliente",
+      "type": "external",
+      "icon": "person",
+      "label": "Cliente",
+      "sublabel": "texto, voz o foto",
+      "sources": [
+        {
+          "path": "docs/whatsapp-openclaw.md",
+          "line": 1,
+          "end_line": 18,
+          "label": "Canal WhatsApp"
+        }
+      ]
+    },
+    {
+      "id": "whatsapp",
+      "type": "cloud",
+      "label": "WhatsApp",
+      "sublabel": "grupo comercial",
+      "sources": [
+        {
+          "path": "openclaw/README.md",
+          "line": 24,
+          "end_line": 30,
+          "label": "groupPolicy allowlist"
+        },
+        {
+          "path": "openclaw/auditoria-base.json",
+          "line": 87,
+          "end_line": 93,
+          "label": "Binding de grupo"
+        }
+      ]
+    },
+    {
+      "id": "openclaw",
+      "type": "frontend",
+      "label": "OpenClaw · ventas",
+      "sublabel": "sesión por grupo",
+      "explanation": "Gateway OpenClaw con el agente «ventas», en una VM aparte. Su binding es de tipo group: en el grupo solo atiende los números E.164 de channels.whatsapp.groupAllowFrom (groupPolicy: allowlist) y los mensajes directos también están en allowlist (dmPolicy). Según la decisión del 2026-11-27, en OpenClaw el grupo comparte un solo hilo entre quienes escriben. Transcribe las notas de voz (STT), guarda las fotos como media://inbound/… y actúa como relé: llama a consultar_carvajal con el número del participante (no el del grupo) en conversacion y responde exactamente el texto que devuelve la herramienta; si la herramienta falla, responde un texto fijo (regla 4).",
+      "sources": [
+        {
+          "path": "openclaw/workspace/ventas/AGENTS.md",
+          "line": 1,
+          "end_line": 16,
+          "label": "Regla de relé y regla 5"
+        },
+        {
+          "path": "CONSTITUTION.md",
+          "line": 706,
+          "end_line": 706,
+          "label": "Grupo en allowlist"
+        },
+        {
+          "path": "openclaw/auditoria-base.json",
+          "line": 37,
+          "end_line": 50,
+          "label": "dmPolicy y groupPolicy"
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "type": "security",
+      "label": "Servidor MCP",
+      "sublabel": "apps/mcp · solo loopback",
+      "explanation": "Servicio mcp (perfil whatsapp de compose.prod.yml), alcanzado por un túnel SSH. /mcp exige Authorization: Bearer MCP_TOKEN (comparación en tiempo constante) y solo acepta Host de loopback; sin MCP_TOKEN no arranca. Expone una sola herramienta, consultar_carvajal(mensaje, conversacion, nueva, voz, foto), que corre el turno síncrono fuera del event loop.",
+      "sources": [
+        {
+          "path": "apps/mcp/server.py",
+          "line": 1,
+          "end_line": 21,
+          "label": "Seguridad en capas"
+        },
+        {
+          "path": "apps/mcp/server.py",
+          "line": 140,
+          "end_line": 182,
+          "label": "Herramienta consultar_carvajal"
+        },
+        {
+          "path": "apps/mcp/server.py",
+          "line": 187,
+          "end_line": 217,
+          "label": "Guardia Bearer"
+        }
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "WhatsAppBridge",
+      "sublabel": "owner_key y atajos",
+      "explanation": "Puente entre el chat de WhatsApp y el turno del chat web. Calcula owner_key = wa_ + HMAC-SHA256(SESSION_SECRET, número normalizado a E.164), rechaza mensajes de más de 500 caracteres y cobra el cupo diario (DAILY_REQUESTS_LIMIT). «PDF» y «mándame el recibo» se responden sin turno ni LLM (con cupo); a mitad del pedido, «PDF» trae la cotización y repite la pregunta pendiente. Con una cotización por confirmar y sin pedido en curso, «PDF» pasa al turno como «sí, mándame el PDF» y la registra. Normaliza la transcripción con voz=true, envía las fotos a photo_stream y pasa el Markdown al formato de WhatsApp. Añade la línea ADJUNTAR_PDF: cuando hay una base para adjuntar el PDF.",
+      "sources": [
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 332,
+          "end_line": 342,
+          "label": "owner_key HMAC"
+        },
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 1244,
+          "end_line": 1306,
+          "label": "Atajos y turno"
+        },
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 1657,
+          "end_line": 1702,
+          "label": "ADJUNTAR_PDF"
+        }
+      ]
+    },
+    {
+      "id": "chat",
+      "type": "backend",
+      "label": "ChatService",
+      "sublabel": "turno de la web",
+      "href": "turno.html",
+      "explanation": "El mismo servicio de turnos del chat web, en el proceso del servicio mcp. Con AGENT_MODE=tools (LLM_PROVIDER=deepseek y DEEPSEEK_API_KEY) transmite el agente con herramientas; si no, el turno va por routes. Persiste el turno y emite texto, fuentes y folios. Con foto, photo_stream: Jev (TypeSafe) clasifica el alimento y la respuesta se arma sin LLM.",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 13,
+          "end_line": 16,
+          "label": "AGENT_MODE"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1017,
+          "end_line": 1035,
+          "label": "photo_stream"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 309,
+          "end_line": 324,
+          "label": "Si no hay grafo tools, routes"
+        }
+      ]
+    },
+    {
+      "id": "app",
+      "type": "backend",
+      "label": "App web",
+      "sublabel": "PDF firmado",
+      "href": "pedido.html",
+      "explanation": "La app web sirve /cotizaciones/{folio}.pdf (generado al vuelo con fpdf2) y /pedidos/{folio}.pdf (el PDF que Odoo generó al confirmar el pedido; 503 si Odoo no responde) con un enlace firmado por HMAC para el dueño (404 si la firma no corresponde o venció). OpenClaw descarga de aquí la URL de la línea ADJUNTAR_PDF:. El recibo del pedido se adjunta solo si MEDIA_BASE_URL es https o un http de loopback.",
+      "sources": [
+        {
+          "path": "apps/api/views/cotizacion_pdf.py",
+          "line": 104,
+          "end_line": 106,
+          "label": "Ruta del PDF"
+        },
+        {
+          "path": "apps/api/views/pedido_pdf.py",
+          "line": 1,
+          "end_line": 12,
+          "label": "Recibo del pedido"
+        },
+        {
+          "path": "apps/mcp/server.py",
+          "line": 410,
+          "end_line": 417,
+          "label": "Condiciones de adjunto"
+        }
+      ]
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 245,
+      "label": "Entrada"
+    },
+    {
+      "from": 250,
+      "to": 425,
+      "label": "Llamada MCP"
+    },
+    {
+      "from": 430,
+      "to": 525,
+      "label": "Atajo «PDF» / «recibo» (en lugar del turno)"
+    },
+    {
+      "from": 530,
+      "to": 655,
+      "label": "Turno normal"
+    },
+    {
+      "from": 660,
+      "to": 1070,
+      "label": "Respuesta y adjunto"
+    }
+  ],
+  "messages": [
+    {
+      "id": "escribe",
+      "from": "cliente",
+      "to": "whatsapp",
+      "y": 170,
+      "label": "texto, nota de voz o foto",
+      "variant": "default"
+    },
+    {
+      "id": "entrega-grupo",
+      "from": "whatsapp",
+      "to": "openclaw",
+      "y": 200,
+      "label": "mensaje del grupo",
+      "variant": "emphasis",
+      "note": "groupPolicy: allowlist: solo los números E.164 de groupAllowFrom"
+    },
+    {
+      "id": "llama-herramienta",
+      "from": "openclaw",
+      "to": "mcp",
+      "y": 265,
+      "label": "consultar_carvajal",
+      "variant": "security",
+      "note": "Streamable HTTP por túnel SSH, Bearer MCP_TOKEN (sin él, 401). Voz transcrita → voz=true; foto → media://inbound/…"
+    },
+    {
+      "id": "consult",
+      "from": "mcp",
+      "to": "bridge",
+      "y": 360,
+      "label": "consult(message, chat_id, …)",
+      "variant": "default",
+      "note": "owner_key = wa_ + HMAC-SHA256(SESSION_SECRET, número E.164); cobra el cupo diario"
+    },
+    {
+      "id": "atajo-pdf",
+      "from": "bridge",
+      "to": "mcp",
+      "y": 445,
+      "label": "PDF o recibo, sin turno ni LLM",
+      "variant": "dashed",
+      "note": "Con cupo. Con una cotización por confirmar no hay atajo: el turno la registra"
+    },
+    {
+      "id": "stream",
+      "from": "bridge",
+      "to": "chat",
+      "y": 545,
+      "label": "stream(owner_key, question)",
+      "variant": "emphasis",
+      "note": "Con foto: photo_stream (Jev clasifica; respuesta sin LLM)"
+    },
+    {
+      "id": "turno-listo",
+      "from": "chat",
+      "to": "bridge",
+      "y": 615,
+      "label": "texto, fuentes y folios",
+      "variant": "return",
+      "note": "AGENT_MODE=tools con DeepSeek; si no, routes"
+    },
+    {
+      "id": "texto-whatsapp",
+      "from": "bridge",
+      "to": "mcp",
+      "y": 675,
+      "label": "texto WhatsApp (+ ADJUNTAR_PDF:)",
+      "variant": "return",
+      "note": "to_whatsapp sin LLM: *negrita*, viñetas y *Fuentes:*. Con voz=true: resumen + TEXTO / ENLACES"
+    },
+    {
+      "id": "resultado",
+      "from": "mcp",
+      "to": "openclaw",
+      "y": 755,
+      "label": "resultado: un solo texto",
+      "variant": "return"
+    },
+    {
+      "id": "descarga-pdf",
+      "from": "openclaw",
+      "to": "app",
+      "y": 785,
+      "label": "GET URL firmada del PDF",
+      "variant": "dashed",
+      "note": "Solo con línea ADJUNTAR_PDF: (regla 5). Cotización: con MEDIA_BASE_URL. Recibo: MEDIA_BASE_URL https o loopback"
+    },
+    {
+      "id": "pdf",
+      "from": "app",
+      "to": "openclaw",
+      "y": 890,
+      "label": "PDF",
+      "variant": "return",
+      "note": "Cotización: fpdf2. Recibo: el PDF de Odoo"
+    },
+    {
+      "id": "envia",
+      "from": "openclaw",
+      "to": "whatsapp",
+      "y": 960,
+      "label": "respuesta (+ PDF como documento)",
+      "variant": "emphasis",
+      "note": "Sin la línea ADJUNTAR_PDF:. Con voz=true: resumen en [[tts:text]] (TTS de OpenClaw)"
+    },
+    {
+      "id": "respuesta",
+      "from": "whatsapp",
+      "to": "cliente",
+      "y": 1055,
+      "label": "respuesta en el mismo chat",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "whatsapp",
+      "from": 165,
+      "to": 206,
+      "type": "cloud"
+    },
+    {
+      "participant": "openclaw",
+      "from": 195,
+      "to": 966,
+      "type": "frontend"
+    },
+    {
+      "participant": "mcp",
+      "from": 260,
+      "to": 761,
+      "type": "security"
+    },
+    {
+      "participant": "bridge",
+      "from": 355,
+      "to": 681,
+      "type": "backend"
+    },
+    {
+      "participant": "chat",
+      "from": 540,
+      "to": 621,
+      "type": "backend"
+    },
+    {
+      "participant": "app",
+      "from": 780,
+      "to": 896,
+      "type": "backend"
+    },
+    {
+      "participant": "whatsapp",
+      "from": 955,
+      "to": 1061,
+      "type": "cloud"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Quién recibe respuesta en el grupo",
+      "items": [
+        "groupPolicy: allowlist: OpenClaw solo contesta a los números E.164 de channels.whatsapp.groupAllowFrom; openclaw/invitados.sh los agrega en vivo, sin reiniciar",
+        "El agente «ventas» está enlazado al grupo (binding de tipo group) y, según la decisión del 2026-11-27, el grupo comparte un solo hilo entre quienes escriben",
+        "En conversacion va el número del participante, no el del grupo: cada persona tiene su owner_key, su memoria comercial y su cupo"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Cuándo llega el PDF como documento",
+      "items": [
+        "Cotización: con MEDIA_BASE_URL definida, ADJUNTAR_PDF:; sin ella, un enlace firmado con PUBLIC_BASE_URL, y sin ninguna de las dos no se ofrece el PDF",
+        "Recibo del pedido (lleva nombre y correo): ADJUNTAR_PDF: solo si MEDIA_BASE_URL es https o un http de loopback; si no, el enlace https de PUBLIC_BASE_URL, y sin base segura la línea se quita",
+        "OpenClaw manda la URL como documento al mismo chat con su herramienta message y responde el resto del texto sin esa línea"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Voz y fotos",
+      "items": [
+        "La transcripción (STT) y la voz (TTS) viven en OpenClaw; el repositorio no guarda llaves de voz",
+        "Con voz=true el puente normaliza las cifras dictadas y devuelve un resumen hablado sin LLM; el detalle va tras TEXTO o ENLACES",
+        "Que WhatsApp entregue la nota de voz y el texto juntos con [[tts:text]] sigue pendiente de verificar en OpenClaw",
+        "Una foto se lee solo desde la carpeta montada (OPENCLAW_MEDIA_DIR, JPEG o PNG de hasta 10 MB); sin carpeta, sin TYPESAFE_API_KEY o con FOOD_PHOTO_ENABLED=false no hay fotos"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Límites y fallos",
+      "items": [
+        "Un mensaje de más de 500 caracteres recibe un aviso, como en la web; sin cupo (DAILY_REQUESTS_LIMIT), el aviso de límite sin turno",
+        "/new, /reset o «empecemos de nuevo» abren un hilo nuevo aunque OpenClaw no pase nueva=true",
+        "El puente nunca devuelve una traza: ante un fallo, un mensaje legible; si la herramienta falla, OpenClaw responde un texto fijo (regla 4)"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Fuera de este diagrama",
+      "items": [
+        "El interior del turno (agente, RAG y cotizador): turno.html",
+        "El pedido en Odoo y su recibo: pedido.html",
+        "Túneles SSH, contenedores y servidores: despliegue.html",
+        "Relé sin MCP: POST /api/webhooks/whatsapp usa el mismo WhatsAppBridge (docs/webhooks.md)"
+      ]
+    }
+  ]
+}
