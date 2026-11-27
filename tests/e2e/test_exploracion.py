@@ -40,6 +40,7 @@ from tests.e2e.guiones import (
     PEDIDO_OPCIONES,
     PROMESA_RECIBO,
     correo_de_prueba,
+    correo_dictado,
     inferir_awaiting,
     nombre_de_prueba,
     registra,
@@ -129,12 +130,6 @@ ESCENARIO_PEDIDO_CREADO: tuple[str, list[tuple[str, bool]]] = (
                       ("cancela el pedido", False), ("mándame el recibo", False)],
 )  # fmt: skip
 PUEDEN_CREAR = frozenset({ESCENARIO_PEDIDO_CREADO[0]})
-
-
-def correo_dictado(correo: str) -> str:
-    """El correo como lo dicta una persona: «e2e guion … arroba example punto com»."""
-
-    return correo.replace("@", " arroba ").replace(".", " punto ").replace("-", " guion ")
 
 
 def comprador(run_id: str, canal: str) -> dict[str, str]:

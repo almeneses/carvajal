@@ -175,7 +175,8 @@ Con permiso del owner, porque **crea un pedido real por canal** en el Odoo de la
 cancela a mano, `docs/ensayo.md`) y gasta tokens:
 
 ```bash
-make ensayo-pedido   # web y WhatsApp por MCP: pedido, recibo que abre y correo sin excepción
+make ensayo-pedido   # web y WhatsApp por MCP: pedido, recibo que abre y correo sin excepción;
+                     # y otro pedido que mezcla foto, texto y voz (sin datos en la voz del servidor)
 ```
 
 `make ensayo-pedido` habla por MCP (`consultar_carvajal`, lo mismo que llama OpenClaw), no

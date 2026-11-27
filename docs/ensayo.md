@@ -18,7 +18,7 @@ pudo comprobar.
 | Operación | `test_operacion.py` | `/live` y `/health` (índice, catálogo, modo del agente, Jev, fotos y el bloque `odoo` configurado y alcanzable), la ruta del recibo `/pedidos/<folio>.pdf` desplegada (404 sin prueba de dueño), cabeceras de seguridad, rechazos del webhook y del CSRF sin tocar nada, checkout y CI de `origin/main` en verde, la versión desplegada, el contenedor, el MCP, los medios, Ollama y `ODOO_*` en el `.env` del servidor, y en el gateway: los servicios, WhatsApp conectado con `dm:allowlist`, la configuración sin deriva, el túnel al MCP y `openclaw security audit` frente a `openclaw/auditoria-base.json` | no |
 | Web | `test_web.py` | Los flujos definidos (specs 053 y 054, guiones de `guiones.py`), la memoria entre dos conversaciones de un mismo visitante y la conversación que arranca con una foto (`/chat/foto`) | sí |
 | WhatsApp por MCP | `test_whatsapp.py` | Los mismos guiones y la misma memoria por `consultar_carvajal`, la herramienta que llama OpenClaw, y la conversación que arranca con foto (`media://inbound/...`) | sí |
-| Pedido en Odoo | `test_web.py` y `test_whatsapp.py` | Folio → «Sí, quiero hacer el pedido» → nombre → correo → «📋 … ¿Lo confirmo?» con los dos datos → «Sí, confírmalo» → `Pedido S… confirmado` («La confirmación del pedido llega a» el correo) con el recibo en PDF que abre, el pedido confirmado en Odoo con su correo sin excepción, y un segundo «quiero comprarla» que no duplica (spec 056). Solo con `make ensayo-pedido` (`ENSAYO_PEDIDO=1`) | sí (crea un pedido real en Odoo) |
+| Pedido en Odoo | `test_web.py` y `test_whatsapp.py` | Folio → «Sí, quiero hacer el pedido» → nombre → correo → «📋 … ¿Lo confirmo?» con los dos datos → «Sí, confírmalo» → `Pedido S… confirmado` («La confirmación del pedido llega a» el correo) con el recibo en PDF que abre, el pedido confirmado en Odoo con su correo sin excepción, y un segundo «quiero comprarla» que no duplica (spec 056). Además, el **pedido con foto, texto y voz** (`test_pedido_con_foto_texto_y_voz_*`): la foto del ajiaco abre la conversación, se elige por texto, la cotización, el pedido, el nombre y el correo dictado van por voz y «Sí, confírmalo» por texto; en WhatsApp cada nota de voz trae un resumen hablable sin enlaces y en la web la nota de voz del servidor (TTS y transcripción reales) no dice el nombre ni el correo. Solo con `make ensayo-pedido` (`ENSAYO_PEDIDO=1`) | sí (crea dos pedidos reales por canal en Odoo) |
 | Webhook y allowlist | `test_whatsapp.py` | Un remitente fuera de `WEBHOOK_ALLOWED_NUMBERS` (`ENSAYO_WA_FUERA`) recibe 403 sin llegar al agente | no |
 | Voz | `test_voz.py` | Web: un turno dictado trae `voz_resumen` sin enlaces; `/api/voz/hablar` lo sintetiza y ese audio (pasado a Ogg/Opus con `ffmpeg`) vuelve por `/api/voz/transcribir` y sirve de siguiente turno; `/hablar` no sintetiza mensajes ajenos. WhatsApp: `consultar_carvajal` con `voz=true` empieza por un resumen para TTS sin URL | sí (STT y TTS de OpenAI) |
 | WhatsApp real | `test_whatsapp_real.py` | Un DM real enviado desde un número **fuera** de `allowFrom` no recibe respuesta, y el gateway registra `Inbound message blocked (reason=dm_policy_not_allowlisted)` | sí (envía un WhatsApp) |
@@ -93,7 +93,7 @@ envía por el SMTP de producción), así que lleva `gasto` y además se salta sa
 y activa `ENSAYO_PEDIDO` solo en esa corrida:
 
 ```bash
-make ensayo-pedido   # = ENSAYO_PEDIDO=1 … pytest tests/e2e -m ensayo -k pedido_en_odoo
+make ensayo-pedido   # = ENSAYO_PEDIDO=1 … pytest tests/e2e -m ensayo -k "pedido_en_odoo or foto_texto_y_voz"
 ```
 
 No lo lances con `uv run pytest` a mano sin cargar `.env.ensayo`: sin `ENSAYO_BASE_URL`
@@ -102,12 +102,22 @@ correría contra `127.0.0.1`.
 - Se salta si `ENSAYO_COTIZAR=ninguna` (el pedido necesita un folio). Si el folio no trae la
   oferta (la app no tiene `ODOO_*`), **falla** cuando se esperan pedidos
   (`ENSAYO_EXPECT_PEDIDOS`, activo por defecto en producción) y se salta en local.
-- Con `ENSAYO_COTIZAR=una` y `ENSAYO_PEDIDO=1`, el folio de cada canal lo registra el
-  escenario del pedido y el guion designado (`opciones_y_registro`) se cierra con «cancela
-  todo»: sigue habiendo un solo folio por canal.
+- Con `ENSAYO_COTIZAR=una` y `ENSAYO_PEDIDO=1`, los folios de cada canal los registran los
+  dos escenarios del pedido y el guion designado (`opciones_y_registro`) se cierra con
+  «cancela todo»: dos folios por canal (uno por escenario).
+- El **pedido con foto, texto y voz** (`test_pedido_con_foto_texto_y_voz_web` y
+  `…_en_whatsapp`, `guiones.ejecutar_pedido_mixto`) también se salta o falla como arriba si el
+  folio no trae la oferta, y además se salta sin fotos (`food_photo` distinto de `ok` en
+  `/health`; en WhatsApp también sin `ENSAYO_OPENCLAW_SSH` en producción o sin
+  `ENSAYO_MEDIA_DIR` en local). En la web comprueba sin audio el texto que leería la voz del
+  servidor (`data-voz-resumen` del hilo: la frase neutra, ni el nombre ni el correo), que la voz
+  del navegador (`voz_resumen`) sí lea los datos y que el hilo marque los turnos por voz; con la
+  voz del servidor activa y `ffmpeg` instalado, además sintetiza y transcribe la confirmación
+  (TTS y STT reales de OpenAI). Sin ellos solo avisa.
 - El comprador es ficticio y propio de la corrida: el nombre es `Ensayo <run_id en letras>`
   (el flujo no acepta dígitos en un nombre: 0→a … 9→j, p. ej. `Ensayo Cacgbbcgbadaaa`) y el
-  correo, `e2e-<run_id>-web@example.com` o `e2e-<run_id>-whatsapp@example.com`. `example.com`
+  correo, `e2e-<run_id>-web@example.com` o `e2e-<run_id>-whatsapp@example.com` (en el pedido
+  con foto, texto y voz, `…-web-mixto@…` y `…-whatsapp-mixto@…`). `example.com`
   está reservado (RFC 2606): aunque Odoo lo envía por el SMTP de producción, no le llega a nadie.
   El flujo descarta muletillas y respuestas como nombre («ok», «sí», «ya», «gracias»…): un
   `ENSAYO_RUN_ID` de menos de seis letras lleva «prueba» al final (`ok` → `Ensayo
@@ -259,9 +269,10 @@ y un «Sí, te ayudo» a una tarea de cálculo.
 | Qué | Dónde | Cuánto |
 | --- | --- | --- |
 | Turnos de DeepSeek | Pasos del agente en web y MCP; la memoria; el reintento | Unas decenas de turnos por `make ensayo-completo` |
-| Llamadas a Jev / TypeSafe | Clasificación de la foto (`ajiaco.jpg`, que Jev clasifica como sopa caliente) y las elecciones cortas del flujo | Una o dos fotos por canal, más las de Jev Choice |
-| Cotizaciones y folios | Producción, según `ENSAYO_COTIZAR`: `una` registra solo el guion designado (o el escenario del pedido con `ENSAYO_PEDIDO=1`), `ninguna` se detiene antes del «sí» | Por defecto un folio real por canal y corrida en producción |
-| Pedidos en Odoo | Solo con `ENSAYO_PEDIDO=1` (`make ensayo-pedido`, y `pedido_creado` en la exploración): un pedido confirmado, una oportunidad ganada, una actividad del vendedor, un correo de confirmación a `example.com` y un contacto `e2e-…@example.com` por canal. Se borran a mano (sección «Pedidos en Odoo») | Un pedido por canal y corrida |
+| Llamadas a Jev / TypeSafe | Clasificación de la foto (`ajiaco.jpg`, que Jev clasifica como sopa caliente) y las elecciones cortas del flujo | Una o dos fotos por canal (una más con `make ensayo-pedido`), más las de Jev Choice |
+| Voz del servidor (OpenAI) | `test_voz.py` y, en `make ensayo-pedido`, la confirmación del pedido con foto, texto y voz: TTS de `/api/voz/hablar` y STT de `/api/voz/transcribir` | Unas pocas frases cortas por corrida |
+| Cotizaciones y folios | Producción, según `ENSAYO_COTIZAR`: `una` registra solo el guion designado (o, con `ENSAYO_PEDIDO=1`, los dos escenarios del pedido), `ninguna` se detiene antes del «sí» | Por defecto un folio real por canal y corrida en producción; dos con `make ensayo-pedido` |
+| Pedidos en Odoo | Solo con `ENSAYO_PEDIDO=1` (`make ensayo-pedido`, y `pedido_creado` en la exploración): un pedido confirmado, una oportunidad ganada, una actividad del vendedor, un correo de confirmación a `example.com` y un contacto `e2e-…@example.com` por pedido. Se borran a mano (sección «Pedidos en Odoo») | Dos pedidos por canal y corrida (el del guion de opciones y el de foto, texto y voz) |
 | Filas en la base | Conversaciones, mensajes, uso, borradores y cotizaciones bajo los alias `e2e-<run>-<prueba>`, y visitantes web derivados del `run_id`. No hay API para borrarlas | Se acumulan por corrida |
 | Cupo diario | Cada alias y cada visitante del ensayo tiene su propio cupo (20/día), así que no gasta el de los clientes | — |
 | Un WhatsApp real | `test_whatsapp_real.py`: un mensaje `ensayo allowlist <run>` del segundo número del owner al bot | Queda en los dos chats |

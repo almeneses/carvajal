@@ -479,3 +479,29 @@ Fuera del código: en producción `MEDIA_BASE_URL` no está definida, así que l
 recibo llegan por WhatsApp como enlace https y no como documento adjunto (comportamiento
 documentado en `docs/whatsapp-openclaw.md`). Definirla con una base https es una decisión de
 configuración del owner.
+
+### 11.1 Pedido con foto, texto y voz (2026-11-27)
+
+Tras la #284 se corrieron contra producción las pruebas de voz y foto existentes (9/9: dictado
+y lectura en la web, nota de voz por WhatsApp, conversación que empieza con foto en los dos
+canales, foto inexistente, salud y medios) y se añadió un escenario del pedido que mezcla los
+tres modos (`guiones.ejecutar_pedido_mixto`, en `make ensayo-pedido`): la foto del ajiaco abre
+la conversación, se elige por texto, la cotización, el pedido, el nombre y el correo dictado
+van por voz y «Sí, confírmalo» por texto.
+
+| Canal | Pedido | Comprobaciones |
+|---|---|---|
+| Web | S00011 | Recibo que abre solo con la cookie del dueño, correo sin excepción, `voz_resumen` con los datos para la voz del navegador y, con TTS y transcripción reales, la nota de voz del servidor dice «voy a hacer el pedido a tu nombre, con el correo que escribiste» (FR-019) |
+| WhatsApp por MCP | S00012 | Cada nota de voz trae un resumen hablable sin enlaces ni `ADJUNTAR_PDF`; PDF de la cotización y recibo como adjunto (`MEDIA_BASE_URL` https); correo sin excepción |
+
+Una revisión adversarial del escenario (3 lentes y 2 verificadores por hallazgo) pidió que se
+salte sin Odoo como el otro escenario, que la privacidad de la voz se compruebe sobre el texto
+que se sintetiza (`data-voz-resumen` del hilo) y no solo sobre lo transcrito, que la voz del
+navegador lea de verdad los datos y que el hilo marque los turnos por voz. Con eso se repitió
+contra producción: S00013 (web; falló la cuenta de las marcas de voz de la propia prueba, que
+contaba también la plantilla oculta del stream), S00014 (WhatsApp) y S00015 (web), en verde.
+
+Entre §11 y esta prueba, el owner autorizó definir `MEDIA_BASE_URL` en producción con la misma
+base https de `PUBLIC_BASE_URL` (2026-11-27): desde entonces el PDF de la cotización y el
+recibo llegan por WhatsApp como documento adjunto (comprobado en el grupo real con el pedido
+S00010), y el párrafo «Fuera del código» de §11 describe el estado anterior.
