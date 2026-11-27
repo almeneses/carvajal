@@ -1,34 +1,41 @@
 {
-  "descripcion": "Línea base del gateway OpenClaw para el ensayo general (tests/e2e/test_operacion.py, docs/ensayo.md). Se tomó en vivo, en solo lectura, el 2026-11-25 con 'openclaw security audit --json' y 'openclaw config get'. Un crítico nuevo o más críticos rompen el ensayo; un aviso nuevo solo se registra. Si un cambio intencional mejora o cambia el gateway, actualiza este archivo en la misma PR.",
-  "fecha": "2026-11-25",
+  "descripcion": "Línea base del gateway OpenClaw para el ensayo general (tests/e2e/test_operacion.py, docs/ensayo.md). Se tomó en vivo, en solo lectura, el 2026-11-25 y se actualizó el 2026-11-27 (groupPolicy=allowlist) con 'openclaw security audit --json' y 'openclaw config get'. Un crítico nuevo o más críticos rompen el ensayo; un aviso nuevo solo se registra. Si un cambio intencional mejora o cambia el gateway, actualiza este archivo en la misma PR.",
+  "fecha": "2026-11-27",
   "openclaw_version": "2026.11.6",
-  "unidades": ["openclaw-gateway", "ovh-tunnel", "ovh-media-tunnel"],
+  "unidades": [
+    "openclaw-gateway",
+    "ovh-tunnel",
+    "ovh-media-tunnel"
+  ],
   "summary": {
-    "critical": 2,
-    "warn": 6,
+    "critical": 0,
+    "warn": 4,
     "info": 1
   },
   "findings": [
     {
-      "checkId": "security.exposure.open_groups_with_runtime_or_fs",
-      "severity": "critical",
-      "nota": "groupPolicy=open con el agente personal 'main' (exec en modo ask). Desaparece con groupPolicy=allowlist."
+      "checkId": "gateway.trusted_proxies_missing",
+      "severity": "warn"
     },
     {
-      "checkId": "security.exposure.open_groups_with_control_plane_tools",
-      "severity": "critical",
-      "nota": "Misma causa que el anterior: grupos abiertos y herramientas del plano de control en 'main'."
+      "checkId": "security.trust_model.multi_user_heuristic",
+      "severity": "warn"
     },
-    { "checkId": "gateway.trusted_proxies_missing", "severity": "warn" },
-    { "checkId": "security.exposure.open_channels_with_exec", "severity": "warn" },
-    { "checkId": "security.trust_model.multi_user_heuristic", "severity": "warn" },
-    { "checkId": "plugins.tools_reachable_permissive_policy", "severity": "warn" },
-    { "checkId": "plugins.installs_unpinned_npm_specs", "severity": "warn" },
-    { "checkId": "channels.whatsapp.groups.open", "severity": "warn" },
-    { "checkId": "summary.attack_surface", "severity": "info" }
+    {
+      "checkId": "plugins.tools_reachable_permissive_policy",
+      "severity": "warn"
+    },
+    {
+      "checkId": "plugins.installs_unpinned_npm_specs",
+      "severity": "warn"
+    },
+    {
+      "checkId": "summary.attack_surface",
+      "severity": "info"
+    }
   ],
   "config": {
-    "descripcion": "Endurecimiento vigente (PR #252 aplicado en el gateway). Solo se guardan valores y formas, nunca números ni JID.",
+    "descripcion": "Endurecimiento vigente (PR #252 y groupPolicy=allowlist del 2026-11-27). Solo se guardan valores y formas, nunca números ni JID.",
     "valores": {
       "channels.whatsapp.dmPolicy": "allowlist",
       "tools.elevated.enabled": false,
@@ -38,7 +45,8 @@
       "tools.media.image.enabled": false,
       "agents.entries.ventas.tools.exec.mode": "deny",
       "agents.entries.ventas.tools.elevated.enabled": false,
-      "agents.entries.ventas.tools.fs.workspaceOnly": true
+      "agents.entries.ventas.tools.fs.workspaceOnly": true,
+      "channels.whatsapp.groupPolicy": "allowlist"
     },
     "deny_minimo": {
       "ruta": "agents.entries.ventas.tools.deny",
@@ -82,7 +90,6 @@
       "canal": "whatsapp",
       "tipo": "group",
       "maximo": 1
-    },
-    "informativo": ["channels.whatsapp.groupPolicy"]
+    }
   }
 }
