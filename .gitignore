@@ -69,3 +69,6 @@ data/catalog/empaques/imagenes/revision.html
 data/openclaw-media/
 data/ensayo-exploracion/
 data/ensayo-whatsapp/
+
+# Recibos locales de Archify (guardan rutas absolutas del equipo)
+docs/arquitectura/*.delivery.json

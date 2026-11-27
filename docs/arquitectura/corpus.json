@@ -1,0 +1,601 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Corpus: del sitio web a las respuestas",
+    "output": "docs/arquitectura/corpus.html",
+    "locale": "es",
+    "quality_profile": "showcase",
+    "parentHref": "general.html",
+    "repository": {
+      "url": "https://github.com/almeneses/carvajal.git",
+      "revision": "c730180ce327562b052035a046acce2813fa079e",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "stages": [
+    {
+      "label": "Fuentes"
+    },
+    {
+      "label": "Captura e importación"
+    },
+    {
+      "label": "Capas en disco (data/)"
+    },
+    {
+      "label": "Publicación"
+    },
+    {
+      "label": "Almacenes y consumo"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "seeds",
+      "type": "external",
+      "label": "Semillas",
+      "sublabel": "sitio oficial + prensa",
+      "tag": "--scope",
+      "stage": 0,
+      "row": 1,
+      "explanation": "SEEDS son páginas de carvajal.com y EXTERNAL_SEEDS, artículos de prensa con los indicadores financieros. carvajal capture --scope all|oficial|terceros elige cuáles; --seed añade otras.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 66,
+          "end_line": 96,
+          "label": "SEEDS y EXTERNAL_SEEDS"
+        },
+        {
+          "path": "packages/core/src/carvajal/cli.py",
+          "line": 1691,
+          "end_line": 1698,
+          "label": "_seeds_for"
+        }
+      ]
+    },
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "Carga del operador",
+      "sublabel": "/configuracion · ingest_cli",
+      "tag": "token de operador",
+      "stage": 0,
+      "row": 2,
+      "explanation": "En /configuracion, con el token de operador, la captura web de URLs (el mismo pipeline de capture, con guard SSRF) y la carga de archivos (texto, HTML, PDF, CSV, JSON o XML) escriben Bronze, Silver y Gold en la capa núcleo y no publican: el operador revisa y luego corre carvajal sync. La consola de carpetas python -m apps.api.ingest_cli sí publica en la misma pasada, salvo con --solo-extraer.",
+      "sources": [
+        {
+          "path": "apps/api/web_capture.py",
+          "line": 1,
+          "end_line": 8,
+          "label": "captura web"
+        },
+        {
+          "path": "apps/api/ingestion.py",
+          "line": 1,
+          "end_line": 8,
+          "label": "carga de archivos"
+        },
+        {
+          "path": "apps/api/ingest_cli.py",
+          "line": 1,
+          "end_line": 10,
+          "label": "consola de carpetas"
+        }
+      ]
+    },
+    {
+      "id": "donor",
+      "type": "external",
+      "label": "Corpus donante",
+      "sublabel": "proyecto colaborador",
+      "tag": "solo lectura",
+      "stage": 0,
+      "row": 3,
+      "explanation": "Repositorio externo (EXTERNAL_CORPUS_DIR) que se lee en modo solo lectura. El texto se vuelve a extraer de su HTML con el extractor propio; si queda vacío, se usa el Silver del donante. Los PDF quedan fuera.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/importer.py",
+          "line": 1,
+          "end_line": 7,
+          "label": "importador"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 45,
+          "end_line": 59,
+          "label": "capa extendida"
+        }
+      ]
+    },
+    {
+      "id": "capture",
+      "type": "backend",
+      "label": "carvajal capture",
+      "sublabel": "robots.txt · 1 s por host",
+      "tag": "User-Agent propio",
+      "stage": 1,
+      "row": 1,
+      "emphasis": true,
+      "explanation": "WebClient consulta robots.txt por host (y su Crawl-delay), espera 1 s entre peticiones al mismo host, se identifica con un User-Agent propio y corta a los 30 s. --delay cambia la pausa y --ignore-robots (solo para pruebas locales) omite robots.txt. Solo descarga las semillas: no sigue enlaces. Si la huella del texto no cambió, la página no se reescribe en ninguna capa. Al terminar sincroniza los slugs capturados, salvo con --solo-gold.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/fetching.py",
+          "line": 78,
+          "end_line": 100,
+          "label": "WebClient"
+        },
+        {
+          "path": "packages/core/src/carvajal/cli.py",
+          "line": 54,
+          "end_line": 90,
+          "label": "opciones de capture"
+        },
+        {
+          "path": "packages/core/src/carvajal/cli.py",
+          "line": 608,
+          "end_line": 636,
+          "label": "captura y sync automático"
+        }
+      ]
+    },
+    {
+      "id": "import",
+      "type": "backend",
+      "label": "carvajal import",
+      "sublabel": "make import",
+      "tag": "sin URLs del núcleo",
+      "stage": 1,
+      "row": 3,
+      "explanation": "import_external descarta las URLs que ya están en el núcleo y los duplicados por URL o hash, se detiene al llegar a EXTERNAL_MAX_CHARS (1,5 millones de caracteres) y escribe la capa en un directorio temporal que luego reemplaza al anterior. No publica: la capa entra a los almacenes con carvajal sync --layer extended o all.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/importer.py",
+          "line": 45,
+          "end_line": 74,
+          "label": "import_external"
+        },
+        {
+          "path": "packages/core/src/carvajal/cli.py",
+          "line": 689,
+          "end_line": 698,
+          "label": "comando import"
+        }
+      ]
+    },
+    {
+      "id": "bronze",
+      "type": "database",
+      "label": "Bronze",
+      "sublabel": "data/raw/*.html",
+      "stage": 2,
+      "row": 0,
+      "explanation": "El HTML tal como llegó, por slug.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/gold.py",
+          "line": 114,
+          "end_line": 120,
+          "label": "write_bronze"
+        }
+      ]
+    },
+    {
+      "id": "silver",
+      "type": "database",
+      "label": "Silver",
+      "sublabel": "data/processed/*.md",
+      "stage": 2,
+      "row": 1,
+      "explanation": "Markdown limpio: html_to_markdown descarta navegación, menús, formularios y pie de página.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/gold.py",
+          "line": 123,
+          "end_line": 130,
+          "label": "write_silver"
+        },
+        {
+          "path": "packages/core/src/carvajal/extracting.py",
+          "line": 67,
+          "end_line": 99,
+          "label": "html_to_markdown"
+        }
+      ]
+    },
+    {
+      "id": "gold",
+      "type": "database",
+      "label": "Gold (núcleo)",
+      "sublabel": "data/gold + index.jsonl",
+      "tag": "fuente de verdad",
+      "stage": 2,
+      "row": 2,
+      "emphasis": true,
+      "explanation": "Markdown con front matter (url, title, section, domain, source_type, captured_at, hash, chars), escrito con reemplazo atómico, más el índice data/gold/index.jsonl, que la captura usa para reconocer páginas ya vistas. La capa núcleo recibe la captura y las cargas del operador.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/gold.py",
+          "line": 43,
+          "end_line": 70,
+          "label": "front matter"
+        },
+        {
+          "path": "packages/core/src/carvajal/gold.py",
+          "line": 133,
+          "end_line": 157,
+          "label": "write_gold"
+        },
+        {
+          "path": "packages/core/src/carvajal/pipeline.py",
+          "line": 147,
+          "end_line": 172,
+          "label": "escrituras e índice"
+        }
+      ]
+    },
+    {
+      "id": "external",
+      "type": "database",
+      "label": "Gold extendido",
+      "sublabel": "data/external/<fuente>/gold",
+      "tag": "solo recuperación",
+      "stage": 2,
+      "row": 3,
+      "explanation": "Capa extended: cada fuente importada aporta su carpeta gold; la sincronización las agrupa en una sola capa lógica.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/application/sync.py",
+          "line": 160,
+          "end_line": 195,
+          "label": "corpus_layers"
+        }
+      ]
+    },
+    {
+      "id": "curated",
+      "type": "database",
+      "label": "Datos curados",
+      "sublabel": "catalog · commercial",
+      "tag": "institucional · indicators",
+      "stage": 2,
+      "row": 4,
+      "explanation": "Archivos versionados que las herramientas leen directamente, sin pasar por los almacenes: data/catalog/empaques (referencias, materiales, precios, distribuidores), data/commercial (geocodificación de proveedores y evidencia de disponibilidad), data/institucional/empresas.json (cada fila cita una página del núcleo) y data/indicators.json (extracto de data/gold con cita y URL).",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/catalog/loader.py",
+          "line": 1,
+          "end_line": 9,
+          "label": "catálogo"
+        },
+        {
+          "path": "packages/core/src/carvajal/commercial/loader.py",
+          "line": 1,
+          "end_line": 6,
+          "label": "directorio comercial"
+        },
+        {
+          "path": "packages/core/src/carvajal/institutional.py",
+          "line": 1,
+          "end_line": 14,
+          "label": "capa institucional"
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "type": "backend",
+      "label": "carvajal sync",
+      "sublabel": "incremental por huella",
+      "tag": "--layer · --prune",
+      "stage": 3,
+      "row": 2,
+      "emphasis": true,
+      "explanation": "Compara la huella de cada slug de Gold con la de PostgreSQL y la de Qdrant y solo reescribe lo nuevo o cambiado; cada almacén se repara por separado. --prune borra lo que ya no está en Gold y --verify compara sin escribir.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/application/sync.py",
+          "line": 301,
+          "end_line": 401,
+          "label": "_sync"
+        },
+        {
+          "path": "packages/core/src/carvajal/cli.py",
+          "line": 1589,
+          "end_line": 1628,
+          "label": "adaptadores reales"
+        },
+        {
+          "path": "packages/core/src/carvajal/cli.py",
+          "line": 202,
+          "end_line": 226,
+          "label": "opciones de sync"
+        }
+      ]
+    },
+    {
+      "id": "ollama",
+      "type": "external",
+      "label": "Ollama",
+      "sublabel": "nomic-embed-text",
+      "tag": "768 d",
+      "stage": 3,
+      "row": 3,
+      "explanation": "Servidor de embeddings (OLLAMA_BASE_URL). Vectoriza los fragmentos al sincronizar y la consulta en cada búsqueda.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/embeddings/ollama.py",
+          "line": 1,
+          "end_line": 15,
+          "label": "OllamaEmbedder"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 117,
+          "end_line": 125,
+          "label": "OLLAMA_BASE_URL"
+        }
+      ]
+    },
+    {
+      "id": "corpusview",
+      "type": "frontend",
+      "label": "Vista del corpus",
+      "sublabel": "/corpus · /api/documents",
+      "tag": "citas del chat",
+      "stage": 4,
+      "row": 0,
+      "explanation": "La pantalla /corpus y la API /api/corpus listan y filtran los documentos desde PostgreSQL; /api/documents/by-slug/{slug} resuelve las citas del chat, que solo traen el slug.",
+      "sources": [
+        {
+          "path": "apps/api/views/corpus.py",
+          "line": 1,
+          "end_line": 11,
+          "label": "vista del corpus"
+        },
+        {
+          "path": "apps/api/views/api.py",
+          "line": 116,
+          "end_line": 125,
+          "label": "/api/corpus"
+        },
+        {
+          "path": "apps/api/views/api.py",
+          "line": 177,
+          "end_line": 188,
+          "label": "/api/documents"
+        }
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "documentos y fragmentos",
+      "tag": "por capa",
+      "stage": 4,
+      "row": 1,
+      "explanation": "Tablas del corpus con texto, metadatos y huella por documento y capa. Las leen la vista /corpus, la API /api/corpus y /api/documents, que abre las citas del chat. La búsqueda del agente no consulta PostgreSQL.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/storage/sync_postgres.py",
+          "line": 16,
+          "end_line": 84,
+          "label": "PostgresSync"
+        },
+        {
+          "path": "apps/api/views/corpus.py",
+          "line": 1,
+          "end_line": 11,
+          "label": "vista del corpus"
+        }
+      ]
+    },
+    {
+      "id": "qdrant",
+      "type": "database",
+      "label": "Qdrant",
+      "sublabel": "carvajal_chunks",
+      "tag": "coseno",
+      "stage": 4,
+      "row": 2,
+      "emphasis": true,
+      "explanation": "Colección carvajal_chunks de 768 dimensiones con distancia coseno. Cada punto guarda el texto del fragmento y su procedencia (url, título, capa, source_type). El vector se calcula sobre título, sección, la ficha de data/retrieval_cards.json y el texto del fragmento.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/indexing/qdrant.py",
+          "line": 163,
+          "end_line": 169,
+          "label": "fichas de recuperación"
+        },
+        {
+          "path": "packages/core/src/carvajal/indexing/qdrant.py",
+          "line": 223,
+          "end_line": 272,
+          "label": "payload y vectores"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 226,
+          "end_line": 236,
+          "label": "colección"
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "Agente del chat",
+      "sublabel": "buscar_corpus y otras",
+      "tag": "AGENT_MODE=tools",
+      "stage": 4,
+      "row": 4,
+      "emphasis": true,
+      "href": "turno.html",
+      "explanation": "Con AGENT_MODE=tools (por defecto), buscar_corpus embebe la consulta y busca en Qdrant a través de LayerPriorityStore: primero el núcleo, y la capa extendida solo si el núcleo no llena el cupo sobre el umbral; con alcance oficial, solo el núcleo. buscar_producto y cotizar leen el catálogo; buscar_sedes y ciudades_con_cobertura, el directorio comercial; indicador_financiero, data/indicators.json; empresas_del_grupo e historia_carvajal, empresas.json y data/gold/historia.md. Con AGENT_MODE=routes, o si el modo tools no arranca, el nodo RAG del enrutador consulta el mismo Qdrant con la misma prioridad.",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/tools/builtin.py",
+          "line": 398,
+          "end_line": 422,
+          "label": "_retrieve"
+        },
+        {
+          "path": "packages/core/src/carvajal/application/retrieval.py",
+          "line": 1,
+          "end_line": 10,
+          "label": "LayerPriorityStore"
+        },
+        {
+          "path": "apps/api/agent_runtime.py",
+          "line": 132,
+          "end_line": 155,
+          "label": "routes y tools, mismo índice"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "f-seeds",
+      "from": "seeds",
+      "to": "capture",
+      "label": "URLs semilla",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-bronze",
+      "from": "capture",
+      "to": "bronze",
+      "label": "HTML original",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "f-silver",
+      "from": "capture",
+      "to": "silver",
+      "label": "MD limpio"
+    },
+    {
+      "id": "f-gold",
+      "from": "capture",
+      "to": "gold",
+      "label": "MD + metadatos",
+      "classification": "si cambió el texto",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "f-donor",
+      "from": "donor",
+      "to": "import",
+      "label": "HTML del donante"
+    },
+    {
+      "id": "f-external",
+      "from": "import",
+      "to": "external",
+      "label": "Gold extendido"
+    },
+    {
+      "id": "f-operator",
+      "from": "operator",
+      "to": "gold",
+      "label": "archivos y URLs",
+      "classification": "web: sin publicar"
+    },
+    {
+      "id": "f-sync-core",
+      "from": "gold",
+      "to": "sync",
+      "label": "Markdown de Gold",
+      "classification": "huella por slug",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-sync-ext",
+      "from": "external",
+      "to": "sync",
+      "label": "--layer extended"
+    },
+    {
+      "id": "f-embed",
+      "from": "ollama",
+      "to": "sync",
+      "label": "embeddings 768 d"
+    },
+    {
+      "id": "f-pg",
+      "from": "sync",
+      "to": "postgres",
+      "label": "texto + fragmentos"
+    },
+    {
+      "id": "f-corpusview",
+      "from": "postgres",
+      "to": "corpusview",
+      "label": "documentos"
+    },
+    {
+      "id": "f-qdrant",
+      "from": "sync",
+      "to": "qdrant",
+      "label": "vectores + payload",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-retrieve",
+      "from": "qdrant",
+      "to": "tools",
+      "label": "fragmentos top-k",
+      "classification": "núcleo primero",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f-query",
+      "from": "ollama",
+      "to": "tools",
+      "label": "vector de consulta"
+    },
+    {
+      "id": "f-curated",
+      "from": "curated",
+      "to": "tools",
+      "label": "filas con fuente"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Captura responsable",
+      "items": [
+        "robots.txt por host, incluido su Crawl-delay; 1 s entre peticiones al mismo host; User-Agent propio y timeout de 30 s (--delay y --ignore-robots los cambian)",
+        "Deduplica por la huella del texto: una página sin cambios no se reescribe en ninguna capa",
+        "Bronze, Silver y Gold salen de la misma descarga; la sincronización lee solo los Markdown de Gold"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Cuándo se publica",
+      "items": [
+        "carvajal capture sincroniza los slugs que capturó, salvo con --solo-gold",
+        "La captura y la carga desde Configuración dejan Gold para revisión; se publica después con carvajal sync",
+        "carvajal sync (make sync) toma el núcleo; la capa extendida entra con --layer extended o all, tras carvajal import",
+        "carvajal index-qdrant (make index) y carvajal migrate-gold escriben solo Qdrant o solo PostgreSQL"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Quién lee los almacenes",
+      "items": [
+        "buscar_corpus consulta Qdrant, núcleo primero; PostgreSQL no participa en esa búsqueda",
+        "PostgreSQL alimenta la vista /corpus y las citas del chat",
+        "Catálogo, directorio comercial, empresas e indicadores se leen de data/ sin pasar por los almacenes"
+      ]
+    }
+  ]
+}
