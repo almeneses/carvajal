@@ -79,6 +79,19 @@ from carvajal.quotation.draft import (
     same_sku_line,
     units_of,
 )
+from carvajal.quotation.order import (
+    Buyer,
+    correction_name,
+    declines_order,
+    edits_buyer,
+    find_email,
+    is_affirmation,
+    is_bare_no,
+    is_goodbye,
+    name_in,
+    name_marked,
+    wants_purchase,
+)
 from carvajal.quotation.render import Message, option_rows
 
 __all__ = [
@@ -100,6 +113,8 @@ logger = structlog.get_logger(__name__)
 
 BOGOTA: Final = ZoneInfo("America/Bogota")
 OFF_FLOW_REMINDERS: Final = 2
+# Pasos del pedido (spec 056): las reglas los deciden todos; nada de ellos va a Jev.
+ORDER_AWAITING: Final = frozenset({"pedido", "datos_pedido", "confirmar_pedido"})
 JEV_MIN_CONFIDENCE: Final = 0.7
 JEV_MAX_WORDS: Final = 14
 # Campos del borrador que vacían la lista de referencias de un nombre ambiguo.
@@ -156,6 +171,11 @@ class Reply:
     draft: QuoteDraft
     route: str = "cotizacion"
     register: bool = False
+    # Spec 056: con los datos completos y confirmados de quien compra, el servicio crea el
+    # pedido. ``private``: el mensaje de la persona trae su nombre o su correo; el turno se
+    # guarda y se monitorea sin ellos.
+    order: Buyer | None = None
+    private: bool = False
 
 
 @dataclass(frozen=True)
@@ -239,8 +259,12 @@ def before_turn(
     requote_fn: Requote | None = None,
     judge: ReplyJudge | None = None,
     now: datetime | None = None,
+    orders: bool = False,
 ) -> Reply | Pass:
     """Atiende sin el modelo la respuesta a la pregunta pendiente, o deja pasar el turno.
+
+    ``orders`` enciende el paso del pedido tras el folio (spec 056): solo con el CRM
+    configurado se acepta «hacer el pedido» y se piden nombre y correo.
 
     ``now`` va en hora de Bogotá: las vigencias de los vendedores son fechas de Colombia y,
     entre las 19:00 y la medianoche, UTC ya va en el día siguiente.
@@ -254,15 +278,26 @@ def before_turn(
         # «Olvida todo lo que sabes de mí» lo atiende el grafo, que borra la memoria. Antes
         # lo atrapaba «cancelar todo» con un borrador activo y la memoria quedaba intacta.
         # El borrador también se cancela: el pedido en curso es parte de lo que se olvida.
-        forgotten = QuoteDraft().touch(moment, state="cancelada") if current.active else current
+        forgotten = (
+            QuoteDraft().touch(moment, state="cancelada")
+            if current.active or _order_pending(current)
+            else current
+        )
         return Pass(forgotten)
-    decided = _rules(current, text, requote_fn=requote_fn, now=moment)
+    decided = _rules(current, text, requote_fn=requote_fn, now=moment, orders=orders)
     if decided is not None:
         return decided
     if judge is not None and _ask_judge(current, text):
         canonical = _judged(current, text, judge)
         if canonical is not None:
-            again = _rules(current, canonical, requote_fn=requote_fn, now=moment, original=text)
+            again = _rules(
+                current,
+                canonical,
+                requote_fn=requote_fn,
+                now=moment,
+                original=text,
+                orders=orders,
+            )
             if again is not None:
                 logger.info("cotizacion.jev_decidio", awaiting=current.awaiting)
                 return again
@@ -297,14 +332,204 @@ def _resumed(draft: QuoteDraft) -> Awaiting | None:
 
 
 def _fresh_after_registration(draft: QuoteDraft) -> QuoteDraft:
+    if _order_pending(draft):
+        return draft  # una pregunta a mitad del pedido no lo pierde (spec 056)
     return QuoteDraft() if draft.state in {"registrada", "cancelada"} else draft
+
+
+def _order_pending(draft: QuoteDraft) -> bool:
+    """Cotización registrada con el pedido a medias (oferta, datos o confirmación)."""
+
+    return (
+        draft.state == "registrada"
+        and bool(draft.folio)
+        and not draft.order
+        and draft.awaiting in ORDER_AWAITING
+    )
+
+
+def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | None:
+    """Spec 056: «¿Hacemos el pedido?» → nombre y correo → «¿Lo confirmo?» → pedido.
+
+    Reglas explícitas por paso, sin adivinar: en la oferta solo cuentan como datos un correo
+    o un nombre escrito como nombre propio; en ``datos_pedido`` el mensaje es el nombre que
+    se pidió (si no es una afirmación ni una muletilla); en ``confirmar_pedido`` todo lo que
+    trae un dato lo corrige y solo un «sí» crea el pedido. Otro producto sale del pedido con
+    un borrador nuevo. Una pregunta sin datos va al agente sin perder el paso; con datos, los
+    datos ganan y nunca salen de las reglas. ``None``: lo decide el resto de las reglas.
+    """
+
+    if draft.order:
+        if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
+            return Reply(render.already_ordered(draft.order), draft, route="pedido")
+        return None
+    if not draft.folio:
+        return None
+    awaiting = draft.awaiting
+    if awaiting not in ORDER_AWAITING:
+        if wants_purchase(text):  # «quiero comprarla» tras «ahora no»
+            asking = draft.touch(now, awaiting="datos_pedido", buyer=None, off_flow=0)
+            return Reply(render.ask_buyer(), asking, route="pedido")
+        return None
+    email = find_email(text)
+    if email is None and product_family(text) and not name_marked(text):
+        return Pass(QuoteDraft())  # «quiero 500 vasos»: otra cotización, borrador nuevo
+    if awaiting == "pedido":
+        return _offer_step(draft, text, email, now)
+    if awaiting == "datos_pedido":
+        return _data_step(draft, text, email, now)
+    return _confirm_step(draft, text, email, now)
+
+
+def _declined(draft: QuoteDraft, now: datetime) -> Reply:
+    declined = draft.touch(now, awaiting=None, buyer=None, off_flow=0)
+    return Reply(render.order_declined(draft.folio), declined, route="pedido", private=True)
+
+
+def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) -> Reply | None:
+    """«¿Quieres hacer el pedido?»: sí, no, o los datos directamente («Sí, Ana Pérez»)."""
+
+    clean = _without_questions(text)
+    head = re.split(r"[,;]", clean, maxsplit=1)[0]
+    name = (
+        name_marked(text)
+        or name_in(clean, strict=True)
+        or (name_in(head, strict=True) if head.strip() != clean.strip() else None)
+    )
+    if email or name:  # «Ana Pérez, quiero hacer el pedido»: los datos ganan
+        return _with_buyer(draft, Buyer(name=name, email=email), now)
+    if _defers(text):
+        return None
+    if declines_order(text) or is_cancel_all(text) or _leaves(text):
+        return _declined(draft, now)
+    if wants_purchase(text) or is_affirmation(text):
+        asking = draft.touch(now, awaiting="datos_pedido", off_flow=0)
+        return Reply(render.ask_buyer(), asking, route="pedido")
+    return None  # otra cosa: el agente responde y el paso se conserva con un recordatorio
+
+
+def _defers(text: str) -> bool:
+    """Lo que deciden las reglas generales aunque haya un pedido a medias.
+
+    Un cambio de los datos del pedido («quiero cambiar el correo») no: lo atiende el paso.
+    """
+
+    if edits_buyer(text):
+        return False
+    return is_price_insult(text) or is_resume(text) or wants_edit(text)
+
+
+def _leaves(text: str) -> bool:
+    return is_leaving(text) or is_goodbye(text)
+
+
+def _without_questions(text: str) -> str:
+    """``text`` sin las preguntas «¿…?»: lo que queda puede traer datos."""
+
+    return re.sub(r"¿[^?]*\?|[^.!¡¿]*\?", " ", text)
+
+
+def _question_only(text: str) -> bool:
+    """Una pregunta que no trae datos fuera de los «¿…?»: va al agente."""
+
+    if "?" not in text:
+        return False
+    rest = _without_questions(text)
+    return not (find_email(text) or name_marked(text) or (rest.strip() and name_in(rest)))
+
+
+def _data_step(
+    draft: QuoteDraft, text: str, email: str | None, now: datetime
+) -> Reply | Pass | None:
+    """Nombre y correo, en uno o dos mensajes: lo que se pidió es lo que se toma."""
+
+    marked = name_marked(text)
+    has_data = bool(email or marked)
+    if not has_data and _defers(text):
+        return None
+    if _question_only(text):
+        return Pass(draft)
+    if not has_data and (declines_order(text) or is_cancel_all(text) or _leaves(text)):
+        return _declined(draft, now)
+    buyer = Buyer.from_json(draft.buyer)
+    name = marked or buyer.name
+    if name is None and not is_confirmation(text):
+        name = name_in(_without_questions(text))
+    return _with_buyer(draft, Buyer(name=name, email=email or buyer.email), now)
+
+
+def _confirm_step(
+    draft: QuoteDraft, text: str, email: str | None, now: datetime
+) -> Reply | Pass | None:
+    """«¿Lo confirmo?»: un dato corrige; solo un «sí» limpio crea el pedido.
+
+    «Sí, pero a nombre de Carla», «sí, Carla Ruiz» o «sí, pero cambia el correo» no crean
+    el pedido con los datos viejos: corrigen o preguntan qué corregir. Un «no» seguido de
+    algo que no es cancelar pregunta qué corregir: no borra los datos.
+    """
+
+    buyer = Buyer.from_json(draft.buyer)
+    marked = name_marked(text)
+    if email or marked:
+        corrected_buyer = Buyer(name=marked or buyer.name, email=email or buyer.email)
+        return _with_buyer(draft, corrected_buyer, now)
+    if _defers(text):
+        return None
+    if _question_only(text):
+        return Pass(draft)
+    folded = plain(text)
+    corrected = correction_name(_without_questions(text))
+    # Un «sí» con un adiós («ok, chao») o un pero no es un «sí» limpio: no crea el pedido.
+    clean_yes = (is_affirmation(text) or wants_purchase(text)) and not re.search(
+        r"\b(?:pero|aunque|cambia\w*|corrig\w*|mal|chao|chau|adios|bye|nos\s+vemos)\b",
+        folded,
+    )
+    if is_goodbye(text):
+        return _declined(draft, now)
+    if clean_yes and corrected is None and buyer.complete:
+        return Reply(render.ask_buyer(), draft, route="pedido", order=buyer, private=True)
+    if corrected is not None:
+        return _with_buyer(draft, Buyer(name=corrected, email=buyer.email), now)
+    if is_bare_no(text) or is_affirmation(text) or edits_buyer(text):
+        return Reply(render.which_correction(), draft, route="pedido", private=True)
+    if (declines_order(text) or is_cancel_all(text) or _leaves(text)) and _cancels(text):
+        return _declined(draft, now)
+    return Reply(render.which_correction(), draft, route="pedido", private=True)
+
+
+_CANCEL_WORDS: Final = re.compile(
+    r"\b(?:ahora|despues|luego|tarde|todavia|aun|olvid\w*|cancel\w*|dej\w*|mejor|"
+    r"quiero|gracias|pienso|pensar|chao|chau|adios|bye|nos\s+vemos|nada|ya\s+no|"
+    r"por\s+ahora)\b"
+)
+
+
+def _cancels(text: str) -> bool:
+    """El «no» de verdad: «ahora no», «no, olvídalo», «no quiero», «chao», «cancela»."""
+
+    return _CANCEL_WORDS.search(plain(text)) is not None or is_cancel_all(text)
+
+
+def _with_buyer(draft: QuoteDraft, buyer: Buyer, now: datetime) -> Reply:
+    """Con los dos datos, «¿Lo confirmo?»; si falta uno, se pide ese."""
+
+    if buyer.name and buyer.email:
+        confirming = draft.touch(
+            now, awaiting="confirmar_pedido", buyer=buyer.to_json(), off_flow=0
+        )
+        message = render.confirm_buyer(buyer.name, buyer.email)
+        return Reply(message, confirming, route="pedido", private=True)
+    waiting = draft.touch(now, awaiting="datos_pedido", buyer=buyer.to_json(), off_flow=0)
+    message = render.buyer_missing(buyer.name, buyer.email)
+    return Reply(message, waiting, route="pedido", private=True)
 
 
 def _ask_judge(draft: QuoteDraft, text: str) -> bool:
     # Ante la lista de referencias las reglas deciden todo: lo que no elige va al agente.
+    # Los datos del pedido (nombre y correo) nunca salen a Jev.
     return (
         draft.awaiting is not None
-        and draft.awaiting != "referencia"
+        and draft.awaiting not in {"referencia", *ORDER_AWAITING}
         and "?" not in text
         and 0 < len(plain(text).split()) <= JEV_MAX_WORDS
     )
@@ -330,8 +555,13 @@ def _rules(
     requote_fn: Requote,
     now: datetime,
     original: str | None = None,
+    orders: bool = False,
 ) -> Reply | Pass | None:
     said = original or text
+    if draft.state == "registrada" and orders:
+        ordering = _order_step(draft, said, now)
+        if ordering is not None:
+            return ordering
     if draft.state == "registrada":
         if draft.folio and (is_confirmation(text) or wants_cart(text)):
             # «¿Qué tengo en la cotización?» justo después de registrar: ya tiene folio, no
@@ -928,8 +1158,13 @@ def after_turn(
     """
 
     moment = now or datetime.now(UTC)
-    current = _fresh_after_registration(draft)
     calculated = [dict(item) for item in quotes if is_quote(item)]
+    if _order_pending(draft):
+        if calculated:  # cotizó otra cosa: el pedido de la anterior queda sin hacer
+            draft = QuoteDraft()
+        else:
+            return _order_off_flow(draft, moment)
+    current = _fresh_after_registration(draft)
     several = {str(item["primary"].get("sku") or "") for item in calculated}
     if asks and not (len(calculated) >= 2 and len(several) == 1):  # un comparativo no agrega
         asked = named_families(text)
@@ -1064,6 +1299,15 @@ def _awaiting_reference(
         offer=None,
         off_flow=0,
     )
+
+
+def _order_off_flow(draft: QuoteDraft, now: datetime) -> Outcome:
+    """Pregunta a mitad del pedido: el recordatorio una vez; a la segunda, se suelta."""
+
+    if draft.off_flow >= 1:
+        return Outcome(QuoteDraft())
+    message = render.order_reminder(draft.awaiting)
+    return Outcome(draft.touch(now, off_flow=draft.off_flow + 1), message)
 
 
 def _without_quotes(draft: QuoteDraft, text: str, now: datetime) -> Outcome:

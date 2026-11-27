@@ -48,7 +48,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 
-from apps.api.quote_links import link_expiry, pdf_url
+from apps.api.quote_links import link_expiry, order_pdf_url, pdf_url
 from apps.mcp.bridge import (
     MAX_CHAT_ID_CHARS,
     MAX_MESSAGE_CHARS,
@@ -348,6 +348,12 @@ def default_bridge() -> WhatsAppBridge:
     def pdf_attachment(folio: str, owner_key: str, valid_until: date | None) -> str:
         return pdf_url(media_base, folio, owner_key, link_expiry(valid_until), secret)
 
+    def order_link(folio: str, owner_key: str) -> str:
+        return order_pdf_url(base_url, folio, owner_key, link_expiry(None), secret)
+
+    def order_attachment(folio: str, owner_key: str) -> str:
+        return order_pdf_url(media_base, folio, owner_key, link_expiry(None), secret)
+
     def photo_url(sku: str) -> str | None:
         # El manifiesto usa SKU simples; no se construye una URL que la ruta no
         # pueda volver a resolver (por ejemplo, un SKU con ``/``).
@@ -373,6 +379,9 @@ def default_bridge() -> WhatsAppBridge:
         pdf_link=pdf_link if base_url else None,
         # Con MEDIA_BASE_URL, OpenClaw adjunta el PDF como documento en vez de enlazarlo.
         pdf_attachment=pdf_attachment if media_base else None,
+        # Spec 056: el recibo del pedido, adjunto con MEDIA_BASE_URL o como enlace.
+        order_attachment=order_attachment if media_base else None,
+        order_link=order_link if base_url else None,
         photo_url=photo_url if base_url else None,
         # Reserva compartida entre workers: un reintento en vuelo no repite el turno.
         deliveries=SqlDeliveryStore(factory),

@@ -74,6 +74,7 @@ class Config:
     media_dir: str
     firefox_marionette: str
     wa_bot: str
+    pedido: bool = False  # ENSAYO_PEDIDO: crea un pedido real en Odoo (spec 056)
 
     @classmethod
     def desde_entorno(cls) -> Config:
@@ -100,6 +101,7 @@ class Config:
             media_dir=os.environ.get("ENSAYO_MEDIA_DIR", "data/openclaw-media"),
             firefox_marionette=os.environ.get("ENSAYO_FIREFOX_MARIONETTE", ""),
             wa_bot=os.environ.get("ENSAYO_WA_BOT", ""),
+            pedido=_bool("ENSAYO_PEDIDO"),
         )
 
     @property

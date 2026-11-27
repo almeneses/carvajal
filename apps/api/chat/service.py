@@ -39,6 +39,7 @@ registra sin el «sí» de la persona; al confirmar, todas las líneas pasan a u
 """
 
 import atexit
+import re
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
@@ -71,6 +72,7 @@ from apps.api.chat.agent import (
 from apps.api.chat.products import has_cards, presented_options, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from apps.api.chat.summary_worker import SummaryWorker, build_summary_worker
+from carvajal.adapters.crm import OrderResult, build_orders
 from carvajal.adapters.judge import build_reply_judge
 from carvajal.adapters.storage.chat import (
     ChatMessage,
@@ -112,8 +114,15 @@ from carvajal.infrastructure.monitoring import (
 from carvajal.infrastructure.settings import Settings
 from carvajal.quotation import flow as quote_flow
 from carvajal.quotation import render as quote_render
-from carvajal.quotation.draft import QuoteDraft, draft_quote_payload
+from carvajal.quotation.draft import QuoteDraft, draft_quote_payload, expired_lines, totals
 from carvajal.quotation.engine import QUOTE_VERSION
+from carvajal.quotation.order import (
+    Buyer,
+    OrderRequest,
+    mask_email,
+    order_lines,
+    spoken_address,
+)
 
 __all__ = [
     "ChatFailure",
@@ -165,6 +174,33 @@ class _ToolTurn:
     draft: QuoteDraft = field(default_factory=QuoteDraft)
     # Marca de la pregunta (``VOICE_MARK`` si se habló); se guarda con el turno completo.
     question_sources: Sequence[Mapping[str, Any]] | None = None
+
+
+ORDER_DATA_PLACEHOLDER: Final = "🛒 (datos para el pedido)"
+
+
+def _without_buyer(text: str, buyers: Sequence[Buyer | None]) -> str:
+    """``text`` sin el nombre ni el correo de quien compra (correos enmascarados)."""
+
+    for buyer in buyers:
+        if buyer is None:
+            continue
+        if buyer.email:
+            text = text.replace(buyer.email, mask_email(buyer.email))
+            # La confirmación por voz lee el correo («ana punto perez arroba…»).
+            text = text.replace(spoken_address(buyer.email), "el correo que escribiste")
+        if buyer.name:
+            text = text.replace(buyer.name, "(tu nombre)")
+    return _EMAIL_TEXT.sub(lambda found: mask_email(found.group(0)), text)
+
+
+_EMAIL_TEXT: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+
+
+class OrderPlacer(Protocol):
+    """Crea el pedido de venta de una cotización registrada (spec 056; Odoo)."""
+
+    def place(self, request: OrderRequest) -> OrderResult: ...
 
 
 @runtime_checkable
@@ -234,8 +270,13 @@ class ChatService:
         settings: Settings | None = None,
         summary_worker: SummaryWorker | None = None,
         reply_judge: quote_flow.ReplyJudge | None = None,
+        orders: "OrderPlacer | None" = None,
     ) -> None:
         self._session_factory = session_factory
+        # Spec 056: pedidos en el CRM (Odoo); se construye en el primer turno que lo necesita
+        # (``None`` sin ODOO_URL, ODOO_DB y ODOO_API_KEY: no se ofrece el pedido).
+        self._orders_value = orders
+        self._orders_built = orders is not None
         # Spec 054: Jev para respuestas cortas ambiguas del flujo de cotización; se construye
         # en el primer turno que lo necesita (``None`` sin clave de TypeSafe).
         self._reply_judge_value = reply_judge
@@ -284,6 +325,18 @@ class ChatService:
                 logger.warning("cotizacion.jev_no_construido", error_type=type(error).__name__)
                 self._reply_judge_value = None
         return self._reply_judge_value
+
+    def _orders(self) -> "OrderPlacer | None":
+        """Pedidos en Odoo o ``None``; un fallo al construir no rompe el turno."""
+
+        if not self._orders_built:
+            self._orders_built = True
+            try:
+                self._orders_value = build_orders(self._config())
+            except Exception as error:
+                logger.warning("pedido.crm_no_construido", error_type=type(error).__name__)
+                self._orders_value = None
+        return self._orders_value
 
     def awaiting_confirmation(self, owner_key: str) -> bool:
         """El hilo activo espera el «sí» de una cotización (o tiene líneas por cerrar).
@@ -477,7 +530,11 @@ class ChatService:
             request_id = _request_id()
             prompt = text
             decision = quote_flow.before_turn(
-                draft, text, judge=self._reply_judge(), now=local_now()
+                draft,
+                text,
+                judge=self._reply_judge(),
+                now=local_now(),
+                orders=self._orders() is not None,
             )
             if isinstance(decision, quote_flow.Reply):
                 if decision.draft.state == "cancelada" and tool_runner is not None:
@@ -1509,21 +1566,88 @@ class ChatService:
                 offer=None,
             )
             logger.info("cotizacion.registrada", lineas=len(decision.draft.lines))
+            if self._orders() is not None:
+                # Spec 056: con el CRM configurado, el folio ofrece hacer el pedido.
+                message = quote_render.order_offer(message)
+                draft = draft.touch(awaiting="pedido")
+        elif decision.order is not None:
+            message, draft = self._place_order(owner_key, draft, decision.order)
+        # Spec 056: el nombre y el correo de quien compra solo viajan a Odoo. El turno se
+        # guarda (y llega a LangSmith) sin ellos, así el historial que lee el modelo en los
+        # turnos siguientes y el resumen de memoria tampoco los tienen.
+        private = decision.route == "pedido"
+        buyers = [decision.order, Buyer.from_json(decision.draft.buyer)]
+        stored_question = ORDER_DATA_PLACEHOLDER if decision.private else question
+        stored_answer = _without_buyer(message.text, buyers) if private else message.text
         products["flow"] = _flow_payload(message, draft, folio=folio)
+        if decision.order is not None and draft.order:
+            # WhatsApp adjunta el recibo (el PDF del pedido en Odoo) con el folio.
+            products["flow"]["order"] = {"name": draft.order, "folio": draft.folio}
+        stored_products = products
+        if private:
+            stored_flow = {
+                **products["flow"],
+                "text": stored_answer,
+                "spoken": _without_buyer(message.spoken, buyers),
+            }
+            stored_products = {**products, "flow": stored_flow}
         yield from self._fixed_turn(
             owner_key,
             conversation,
-            question,
-            message.text,
+            stored_question,
+            stored_answer,
             route=decision.route,
-            products=products,
+            products=stored_products,
             quotes=records,
             client_turn_id=client_turn_id,
             request_id=request_id,
             started=started,
             draft=draft,
             question_sources=question_sources,
+            shown_answer=message.text,
+            shown_products=products,
         )
+
+    def _place_order(
+        self, owner_key: str, draft: QuoteDraft, buyer: Buyer
+    ) -> tuple[quote_render.Message, QuoteDraft]:
+        """Crea el pedido de venta en Odoo (spec 056); un fallo deja reintentarlo.
+
+        El pedido es idempotente por folio: repetir el «sí» tras un fallo, o un reintento del
+        mismo turno, no crea un segundo pedido.
+        """
+
+        orders = self._orders()
+        if orders is None or not draft.folio or not buyer.email:
+            # Los datos siguen en el borrador: el «sí» que promete ``order_failed`` reintenta.
+            return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
+        stale = expired_lines(draft, local_now().date())
+        if stale:
+            # El pedido toma los precios de la cotización: vencidos, no se confirma.
+            logger.info("pedido.precios_vencidos", folio=draft.folio, lineas=len(stale))
+            return quote_render.order_expired(stale), draft.touch(awaiting=None, buyer=None)
+        lines, notes = order_lines(draft.lines)
+        summary_total = totals(draft.lines).total
+        request = OrderRequest(
+            folio=draft.folio,
+            buyer=buyer,
+            channel="WhatsApp" if owner_key.startswith("wa_") else "chat web",
+            city=draft.city,
+            lines=lines,
+            total=summary_total,
+            notes=tuple(notes),
+        )
+        try:
+            result: OrderResult = orders.place(request)
+        except Exception as error:  # cualquier fallo del CRM: se avisa y se puede reintentar
+            logger.warning("pedido.fallido", folio=draft.folio, error_type=type(error).__name__)
+            # Los datos siguen en el borrador: un «sí» lo reintenta con el mismo folio.
+            return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
+        logger.info("pedido.registrado", folio=draft.folio, pedido=result.name)
+        placed = draft.touch(awaiting=None, buyer=None, order=result.name)
+        email = result.email or buyer.email  # el del pedido en Odoo, si ya existía
+        message = quote_render.order_placed(result.name, email, draft.folio, draft)
+        return message, placed
 
     def _fixed_turn(
         self,
@@ -1540,11 +1664,16 @@ class ChatService:
         started: float,
         draft: QuoteDraft | None = None,
         question_sources: Sequence[Mapping[str, Any]] | None = None,
+        shown_answer: str | None = None,
+        shown_products: Mapping[str, Any] | None = None,
     ) -> Iterator[ChatEvent]:
         """Turno con respuesta determinista, sin LLM (specs 053 y 054).
 
         Se guarda como cualquier turno (con sus cotizaciones registradas, si las hay) y se
         emite como el respaldo: ``meta``, ``fallback``, ``trace``, ``products`` y ``done``.
+        ``question``, ``answer`` y ``products`` son lo que se guarda y se monitorea;
+        ``shown_answer`` y ``shown_products``, si vienen, lo que ve la persona en este turno
+        (spec 056: los datos del pedido se muestran, pero no se guardan).
         """
 
         with self._monitoring().turn(
@@ -1578,8 +1707,11 @@ class ChatService:
             duration_ms=elapsed,
             result="ok",
         )
+        visible = answer if shown_answer is None else shown_answer
+        if shown_products is not None:
+            products = shown_products
         yield ChatEvent("meta", {"sources": []})
-        yield ChatEvent("fallback", {"text": answer, "sources": []})
+        yield ChatEvent("fallback", {"text": visible, "sources": []})
         yield ChatEvent("trace", {"thread_id": conversation.id, "route": route, "path": route})
         cards = dict(products) if products else None
         if cards and has_cards(cards):
@@ -1940,7 +2072,8 @@ def _replay(
         if html:
             yield ChatEvent("products", {"html": html})
     if assistant.content:
-        yield ChatEvent("token", {"text": assistant.content})
+        # ``replay``: la vista enlaza el PDF y el recibo en este texto guardado (spec 056).
+        yield ChatEvent("token", {"text": assistant.content, "replay": True})
     if assistant.status == "incomplete":
         yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": True})
     else:
@@ -2243,6 +2376,16 @@ def _flow_actions(draft: QuoteDraft) -> list[dict[str, str]]:
         return [
             {"label": "Cancelar lo anterior", "say": "Cancelar"},
             {"label": "Conservar y agregar", "say": "Conservar"},
+        ]
+    if draft.awaiting == "pedido":
+        return [
+            {"label": "Hacer el pedido", "say": "Sí, quiero hacer el pedido"},
+            {"label": "Ahora no", "say": "Ahora no"},
+        ]
+    if draft.awaiting == "confirmar_pedido":
+        return [
+            {"label": "Confirmar pedido", "say": "Sí, confírmalo"},
+            {"label": "Ahora no", "say": "Ahora no"},
         ]
     if draft.awaiting == "oferta":
         return [

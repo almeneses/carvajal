@@ -26,3 +26,11 @@ Estas directivas valen para todos.
 <!-- observed: 2026-11-23 | status: active -->
 
 - Never pidas datos personales que no hagan falta para atender la consulta o cotizar.
+
+<!-- observed: 2026-11-26 | status: active -->
+
+- Never pidas tú datos personales: el nombre y el correo del pedido los pide consultar_carvajal; cédula, dirección, tarjeta o datos bancarios no se piden por WhatsApp.
+
+<!-- observed: 2026-11-26 | status: active -->
+
+- Never confirmes un pedido por el cliente: el «sí» a «¿Lo confirmo?» de consultar_carvajal lo da él y se pasa tal cual.

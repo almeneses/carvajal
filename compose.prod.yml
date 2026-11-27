@@ -123,6 +123,13 @@ services:
       JEV_MAX_EVIDENCE_CHARS: ${JEV_MAX_EVIDENCE_CHARS:-12000}
       # Fotos de alimentos (spec 051): encendidas con TYPESAFE_API_KEY, sin depender de
       # JEV_ENABLED. FOOD_PHOTO_ENABLED=false las apaga y oculta el botón.
+      # Spec 056: pedidos en Odoo tras el folio (nombre y correo de quien compra). Sin las
+      # tres variables no se ofrece el pedido. En la VPS, Odoo corre en su propio compose
+      # (deploy/odoo/) unido a esta red con el alias `odoo` (docs/odoo-pedidos.md).
+      ODOO_URL: ${ODOO_URL:-}
+      ODOO_DB: ${ODOO_DB:-}
+      ODOO_API_KEY: ${ODOO_API_KEY:-}
+      ODOO_TIMEOUT_S: ${ODOO_TIMEOUT_S:-20}
       FOOD_PHOTO_ENABLED: ${FOOD_PHOTO_ENABLED:-true}
       FOOD_PHOTO_TIMEOUT_S: ${FOOD_PHOTO_TIMEOUT_S:-4.0}
       FOOD_PHOTO_MAX_CALLS_PER_DAY: ${FOOD_PHOTO_MAX_CALLS_PER_DAY:-500}

@@ -642,6 +642,64 @@ porque no se puede listar la carpeta.
   cambios en `mensaje`; la herramienta sabe a qué opción o propuesta responden.
 ```
 
+## Pedidos en Odoo (spec 056)
+
+Con `ODOO_*` configurado, el mensaje del folio termina con «🛒 ¿Quieres hacer el pedido? Te
+pido tu nombre y tu correo y te llega la confirmación.». WhatsApp no tiene los botones de la
+web: el cliente responde por texto o por voz («sí», «hagamos el pedido», «ahora no») y luego
+manda su nombre y su correo, en uno o dos mensajes («Sí, Ana Pérez» ya trae el nombre; por
+voz, el correo dictado: «ana punto perez arroba gmail punto com», también con cifras sueltas
+o en palabras: «ana punto perez dos dos arroba…» → `ana.perez22@…`). La herramienta muestra
+los datos («📋 Voy a hacer el pedido con estos datos: … ¿Lo confirmo?»; en voz, el resumen lee
+el nombre y el correo) y solo con un «sí» limpio («sí», «sí, confírmalo») crea el pedido
+confirmado en Odoo y responde con el recibo: «🧾 *Pedido S… confirmado*», la fecha, las
+líneas, el total y «La confirmación del pedido llega a …» con el correo del cliente del
+pedido; pago y entrega los coordina un asesor. Para corregir, el cliente escribe el correo
+correcto («quiero cambiar el correo a carla@gmail.com»), «me llamo …», «cambia el nombre a
+Carla Ruiz», «sí, Carla Ruiz», «no, es Carla» o el nombre como nombre propio (tras «no»
+también en minúsculas: «no, carla ruiz»); un «no» solo, un «sí, pero…» o un cambio sin el
+dato («sí, pero cambia el correo», «el correo está mal») hacen que la herramienta pregunte
+qué dato corregir sin borrar los datos, y «ahora no», «no, mejor no», «no, gracias»,
+«olvídalo», «cancela el pedido», «lo voy a pensar» o un adiós («chao», «gracias, adiós») lo
+dejan en cualquier paso («…queda registrada sin pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo
+mensaje.»). Todo lo deciden reglas explícitas por paso del backend, sin Jev; los turnos del
+pedido se guardan sin el nombre ni el correo. Flujo, datos personales y configuración:
+[`odoo-pedidos.md`](odoo-pedidos.md).
+
+### Recibo del pedido en PDF
+
+El pedido confirmado trae su recibo en PDF: el PDF del pedido que Odoo generó al confirmarlo
+(el mismo que adjunta al correo de confirmación). El servicio marca el turno con
+`flow.order = {name, folio}` y el puente (`bridge._with_receipt`) cambia la última línea del
+recibo, «📄 Te envío el recibo del pedido en PDF.», según lo configurado:
+
+- Con `MEDIA_BASE_URL`, como el PDF de la cotización:
+
+  ```text
+  📄 Te envío el recibo de tu pedido S00001 en PDF.
+  ADJUNTAR_PDF: http://203.0.113.10:8080/pedidos/c0032295af55.pdf?t=<vence>.<firma>
+  ```
+
+  OpenClaw lo envía como documento con la misma regla 5 de `AGENTS.md`; no hace falta otra.
+- Con solo `PUBLIC_BASE_URL`: «📄 Recibo de tu pedido S00001 en PDF. Ábrelo aquí:» y el
+  enlace firmado.
+- Sin ninguna, la línea se quita.
+
+El enlace lo arma `quote_links.order_pdf_url`: firma HMAC con `SESSION_SECRET` y un dominio
+propio del recibo (un enlace de cotización no abre el pedido), que vence a los 7 días. La ruta
+`/pedidos/{folio}.pdf` de la app responde 404 si la firma no corresponde al dueño de la
+cotización o venció, y 503 si Odoo no responde (el cliente puede volver a abrirlo después).
+
+El agente «ventas» tiene que pasar esas respuestas **sin cambios**, también el «sí» a «¿Lo
+confirmo?»: sus reglas de privacidad y de defensa ante instrucciones no deben quitar ni
+enmascarar el nombre o el correo, y él no pide otros datos, no confirma por el cliente ni da
+un pedido por hecho. La sección «Pedidos» de
+[`openclaw/workspace/ventas/AGENTS.md`](../openclaw/workspace/ventas/AGENTS.md) lo fija (con
+el límite de `SOUL.md` y la directiva del 2026-11-26 de `USER.md`). Copia el workspace a la
+máquina de OpenClaw con respaldo, como indica [`openclaw/README.md`](../openclaw/README.md#desplegar),
+y abre un chat con `/new` para que lo tome. Se puede copiar antes de desplegar la spec 056:
+sin ella, la herramienta no ofrece el pedido y la sección no se usa.
+
 ## Operación
 
 - Logs: `docker compose -f compose.prod.yml logs -f mcp` (JSON, con `owner_key` opaco).

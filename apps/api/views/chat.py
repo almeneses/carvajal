@@ -26,12 +26,13 @@ from apps.api.observability import REQUEST_ID_PATTERN, capture_exception
 from apps.api.runtime import templates
 from apps.api.security import verify_csrf
 from apps.api.views.cotizacion_pdf import owner_pdf_link
+from apps.api.views.pedido_pdf import owner_order_link
 from carvajal.adapters.embeddings import EmbeddingError
 from carvajal.adapters.storage.chat import ChatMessage, ConversationSummary
 from carvajal.application.ask import LLMError
 from carvajal.application.quota import QuotaResult
 from carvajal.infrastructure.settings import Settings
-from carvajal.quotation.render import pdf_offer
+from carvajal.quotation.render import pdf_offer, receipt_offer
 
 __all__ = [
     "CSRF_INVALIDO",
@@ -434,8 +435,9 @@ def _with_pdf_links(request: Request, messages: Sequence[ChatMessage]) -> list[C
     """
 
     link = owner_pdf_link(request)
+    receipt = owner_order_link(request)
     return [
-        replace(message, content=pdf_offer(message.content, link))
+        replace(message, content=receipt_offer(pdf_offer(message.content, link), receipt))
         if message.role == "assistant" and message.content
         else message
         for message in messages

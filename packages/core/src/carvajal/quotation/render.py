@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final
+from zoneinfo import ZoneInfo
 
 from carvajal.quotation.draft import (
     QuoteDraft,
@@ -31,6 +32,7 @@ from carvajal.quotation.draft import (
 __all__ = [
     "JOKE_REJECTION",
     "PDF_PROMISE",
+    "RECEIPT_PROMISE",
     "Message",
     "added",
     "already_registered",
@@ -51,6 +53,7 @@ __all__ = [
     "options",
     "out_of_range",
     "pdf_offer",
+    "receipt_offer",
     "reference_out_of_range",
     "registered",
     "reminder",
@@ -798,6 +801,184 @@ def already_registered(folio: str) -> Message:
         f"Esa cotización ya quedó registrada con el folio **#{folio}**. ¿Quieres cotizar algo más?"
     )
     return Message(text, "Esa cotización ya quedó registrada. ¿Quieres cotizar algo más?")
+
+
+# --- Spec 056: pedido en el CRM ---------------------------------------------------------
+
+ORDER_OFFER: Final = (
+    "🛒 ¿Quieres hacer el pedido? Te pido tu nombre y tu correo y te llega la confirmación."
+)
+
+
+def order_offer(message: Message) -> Message:
+    """El folio registrado con la oferta de hacer el pedido al final."""
+
+    return Message(
+        f"{message.text}\n{ORDER_OFFER}",
+        f"{message.spoken} ¿Quieres hacer el pedido?",
+        message.photos,
+    )
+
+
+def ask_buyer() -> Message:
+    text = (
+        "¡Perfecto! Para el pedido envíame tu **nombre** y tu **correo** "
+        "(por ejemplo: «Ana Pérez, ana@correo.com»). A ese correo te llega la confirmación."
+    )
+    return Message(text, "¡Perfecto! Para el pedido dime tu nombre y tu correo.")
+
+
+def buyer_missing(name: str | None, email: str | None) -> Message:
+    if name and not email:
+        text = f"Gracias, {name}. ¿A qué **correo** te envío la confirmación del pedido?"
+        return Message(text, f"Gracias, {name}. ¿A qué correo te envío la confirmación?")
+    if email and not name:
+        text = "¿A **nombre** de quién hago el pedido?"
+        return Message(text, "¿A nombre de quién hago el pedido?")
+    text = (
+        "No alcancé a leer tu nombre y tu correo. Envíamelos así: «Ana Pérez, ana@correo.com». "
+        "Si prefieres no hacer el pedido ahora, escribe «ahora no»."
+    )
+    return Message(text, "No alcancé a entender tu nombre y tu correo. ¿Me los repites?")
+
+
+def confirm_buyer(name: str, email: str) -> Message:
+    """Los datos leídos, antes de crear el pedido: la persona los ve y los corrige."""
+
+    text = (
+        "📋 Voy a hacer el pedido con estos datos:\n"
+        f"- Nombre: **{name}**\n"
+        f"- Correo: **{email}**\n"
+        "¿Lo confirmo? Si algo está mal, escríbeme el dato correcto."
+    )
+    from carvajal.quotation.order import spoken_address
+
+    spoken = (
+        f"Voy a hacer el pedido a nombre de {name}, con el correo {spoken_address(email)}. "
+        "¿Lo confirmo?"
+    )
+    return Message(text, spoken)
+
+
+def which_correction() -> Message:
+    text = (
+        "¿Qué dato corrijo? Escríbeme el **nombre** o el **correo** correcto, o **ahora no** "
+        "para dejar el pedido."
+    )
+    return Message(text, "¿Qué dato corrijo? Dime el nombre o el correo correcto.")
+
+
+BOGOTA: Final = ZoneInfo("America/Bogota")
+RECEIPT_PROMISE: Final = "📄 Te envío el recibo del pedido en PDF."
+"""Última línea del pedido confirmado: cada canal la cambia por el PDF (:func:`receipt_offer`)."""
+
+_ORDER_PLACED: Final = re.compile(
+    r"^🧾 \*\*Pedido (\S+) confirmado\*\* · cotización #([^\s*]+)$", re.M
+)
+
+
+def order_placed(
+    order: str, email: str, folio: str | None, draft: QuoteDraft | None = None
+) -> Message:
+    """Recibo del pedido en el chat: número, fecha, líneas, total y el PDF de Odoo."""
+
+    reference = f" · cotización #{folio}" if folio else ""
+    lines = [f"🧾 **Pedido {order} confirmado**{reference}"]
+    today = format_date(datetime.now(BOGOTA).date())
+    if today:
+        lines.append(f"Fecha: {today}")
+    if draft is not None and draft.lines:
+        lines += _cart_lines(draft.lines)
+        result = totals(draft.lines)
+        if not result.priced:
+            lines.append("Total por confirmar con el vendedor")
+        else:
+            total = result.total if result.total is not None else result.products
+            money = format_money(total, result.currency)
+            pending = " (envío por confirmar)" if result.total is None else ""
+            if result.unpriced:
+                pending += " sin " + ", ".join(result.unpriced) + " (precio por confirmar)"
+            lines.append(f"Total **{money}**{pending} · {result.tax}")
+    lines.append(
+        f"La confirmación del pedido llega a **{email}**. Un asesor te contacta para coordinar "
+        "el pago y la entrega."
+    )
+    if folio:
+        lines.append(RECEIPT_PROMISE)
+    spoken = (
+        "Listo, tu pedido quedó confirmado. La confirmación llega a tu correo, te envío el "
+        "recibo por escrito y un asesor te contacta para el pago y la entrega."
+    )
+    return Message("\n".join(lines), spoken)
+
+
+def receipt_offer(text: str, link: Callable[[str], str | None]) -> str:
+    """El pedido confirmado en un canal que enlaza el PDF (la web): la promesa → el enlace.
+
+    ``link`` da la URL del recibo del folio o ``None``; sin URL la línea se quita para no
+    prometer un PDF que no llega. Un texto que no es un pedido confirmado vuelve igual.
+    """
+
+    found = _ORDER_PLACED.search(text)
+    promise = f"\n{RECEIPT_PROMISE}"
+    if found is None or promise not in text:
+        return text
+    url = link(found.group(2))
+    offer = f"\n📄 [Descarga el recibo de tu pedido {found.group(1)}]({url})" if url else ""
+    return text.replace(promise, offer, 1)
+
+
+def order_expired(labels: Sequence[str]) -> Message:
+    """Los precios de la cotización vencieron antes del pedido: hay que cotizar de nuevo."""
+
+    text = (
+        "Los precios de " + ", ".join(labels) + " ya vencieron, así que no puedo confirmar el "
+        "pedido con esa cotización. Pídeme cotizarlos de nuevo y hacemos el pedido."
+    )
+    return Message(
+        text, "Los precios de la cotización vencieron. Cotizamos de nuevo y hacemos el pedido."
+    )
+
+
+def order_reminder(awaiting: str | None) -> Message | None:
+    """↩️ tras una pregunta a mitad del pedido: la pregunta pendiente, una sola vez."""
+
+    if awaiting == "pedido":
+        text = "↩️ ¿Seguimos con el pedido de tu cotización? Responde **sí** o **ahora no**."
+        return Message(text, "¿Seguimos con el pedido de tu cotización?")
+    if awaiting == "datos_pedido":
+        text = "↩️ Para el pedido me faltan tu **nombre** y tu **correo**."
+        return Message(text, "Para el pedido me faltan tu nombre y tu correo.")
+    if awaiting == "confirmar_pedido":
+        text = "↩️ ¿Confirmo el pedido con los datos que me diste? Responde **sí** o corrígelos."
+        return Message(text, "¿Confirmo el pedido con los datos que me diste?")
+    return None
+
+
+def order_failed() -> Message:
+    text = (
+        "No pude crear el pedido en este momento. Tu cotización sigue registrada: responde "
+        "**sí** en unos minutos y lo intento de nuevo, o **ahora no** para dejarlo."
+    )
+    return Message(
+        text, "No pude crear el pedido ahora. Responde sí en unos minutos y lo reintento."
+    )
+
+
+def already_ordered(order: str) -> Message:
+    text = f"Ese pedido ya quedó creado con el número **{order}**. ¿Quieres cotizar algo más?"
+    return Message(text, "Ese pedido ya quedó creado. ¿Quieres cotizar algo más?")
+
+
+def order_declined(folio: str | None) -> Message:
+    reference = f" #{folio}" if folio else ""
+    text = (
+        f"Listo, tu cotización{reference} queda registrada sin pedido. Si cambias de opinión, "
+        "escribe «hacer el pedido» en tu próximo mensaje. ¿Te ayudo con algo más?"
+    )
+    return Message(
+        text, "Listo, tu cotización queda registrada sin pedido. ¿Te ayudo con algo más?"
+    )
 
 
 # --- T7-T9: cambio, cancelación y salida -----------------------------------------------

@@ -126,6 +126,16 @@ def conversacion(config: Config, request: pytest.FixtureRequest) -> str:
     return f"e2e-{config.run_id}-{nombre}"
 
 
+@pytest.fixture
+def pedido_permitido(config: Config) -> None:
+    """El pedido en Odoo (spec 056) es real: solo con ``ENSAYO_PEDIDO=1`` y si se registra."""
+
+    if not config.pedido:
+        pytest.skip("sin ENSAYO_PEDIDO=1: no se crea un pedido real en Odoo")
+    if config.cotizar == "ninguna":
+        pytest.skip("ENSAYO_COTIZAR=ninguna no registra folios y el pedido necesita uno")
+
+
 @pytest.fixture(scope="session")
 def foto_ajiaco() -> bytes:
     return (FIXTURES / "ajiaco.jpg").read_bytes()

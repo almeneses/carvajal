@@ -18,6 +18,7 @@ pudo comprobar.
 | Operación | `test_operacion.py` | `/live` y `/health` (índice, catálogo, modo del agente, Jev, fotos), cabeceras de seguridad, rechazos del webhook y del CSRF sin tocar nada, checkout y CI de `origin/main` en verde, la versión desplegada, el contenedor, el MCP, los medios y Ollama en el servidor, y en el gateway: los servicios, WhatsApp conectado con `dm:allowlist`, la configuración sin deriva, el túnel al MCP y `openclaw security audit` frente a `openclaw/auditoria-base.json` | no |
 | Web | `test_web.py` | Los flujos definidos (specs 053 y 054, guiones de `guiones.py`), la memoria entre dos conversaciones de un mismo visitante y la conversación que arranca con una foto (`/chat/foto`) | sí |
 | WhatsApp por MCP | `test_whatsapp.py` | Los mismos guiones y la misma memoria por `consultar_carvajal`, la herramienta que llama OpenClaw, y la conversación que arranca con foto (`media://inbound/...`) | sí |
+| Pedido en Odoo | `test_web.py` y `test_whatsapp.py` | Folio → «Sí, quiero hacer el pedido» → nombre → correo → «📋 … ¿Lo confirmo?» con los dos datos → «Sí, confírmalo» → `Pedido S… confirmado` («La confirmación del pedido llega a» el correo), y un segundo «quiero comprarla» que no duplica (spec 056). Apagado salvo con `ENSAYO_PEDIDO=1` | sí (crea un pedido real en Odoo) |
 | Webhook y allowlist | `test_whatsapp.py` | Un remitente fuera de `WEBHOOK_ALLOWED_NUMBERS` (`ENSAYO_WA_FUERA`) recibe 403 sin llegar al agente | no |
 | Voz | `test_voz.py` | Web: un turno dictado trae `voz_resumen` sin enlaces; `/api/voz/hablar` lo sintetiza y ese audio (pasado a Ogg/Opus con `ffmpeg`) vuelve por `/api/voz/transcribir` y sirve de siguiente turno; `/hablar` no sintetiza mensajes ajenos. WhatsApp: `consultar_carvajal` con `voz=true` empieza por un resumen para TTS sin URL | sí (STT y TTS de OpenAI) |
 | WhatsApp real | `test_whatsapp_real.py` | Un DM real enviado desde un número **fuera** de `allowFrom` no recibe respuesta, y el gateway registra `Inbound message blocked (reason=dm_policy_not_allowlisted)` | sí (envía un WhatsApp) |
@@ -28,6 +29,98 @@ corren con `make ensayo-completo`.
 Los pasos deterministas (las reglas del flujo, sin LLM) se comprueban de forma estricta. Los
 que dependen del agente se comparan con un conjunto de estados permitidos: si se desvían, el
 guion se repite una vez en un hilo nuevo. Nunca se comparan precios.
+
+`tests/test_ensayo_guiones.py` corre esos mismos guiones contra `ChatService` con el agente y
+Odoo simulados, en la CI normal: si cambia una plantilla del flujo, falla ahí y no en el
+ensayo contra producción.
+
+## Pedidos en Odoo (spec 056)
+
+Con `ODOO_URL`, `ODOO_DB` y `ODOO_API_KEY` en la app, el folio termina con «🛒 ¿Quieres hacer
+el pedido?…» y el flujo queda en `awaiting="pedido"`. Un «sí» ya no repite el folio: acepta
+el pedido y pide nombre y correo (`awaiting="datos_pedido"`). Con los dos, el asistente los
+muestra y pide confirmarlos (`awaiting="confirmar_pedido"`): el pedido solo se crea con un
+«sí» a esa confirmación. Por eso cambian los guiones:
+
+- **Guion con folio** (`cierre()` en `guiones.py`). Si el folio trae la oferta, se responde
+  «ahora no», se exige «tu cotización #folio queda registrada» (ruta `pedido`) y el segundo
+  «sí» sigue exigiendo «ya quedó registrada con el folio». Sin la oferta (app sin `ODOO_*`),
+  ese paso se salta y el guion es el de la spec 054. No crea nada en Odoo.
+- **Escenario del pedido** (`test_pedido_en_odoo_desde_web` y
+  `test_pedido_en_odoo_desde_whatsapp`). Llega al folio con el mismo guion de opciones y
+  luego, todo con reglas (ruta `pedido`, sin Jev ni el modelo):
+
+  | Mensaje del ensayo | Respuesta exigida | `awaiting` |
+  | --- | --- | --- |
+  | «Sí, quiero hacer el pedido» (botón «Hacer el pedido») | «Para el pedido envíame tu **nombre** y tu **correo**…» | `datos_pedido` |
+  | el nombre | «Gracias, <nombre>. ¿A qué **correo** te envío la confirmación…» | `datos_pedido` |
+  | el correo | «📋 Voy a hacer el pedido con estos datos:» con `- Nombre: **…**`, `- Correo: **…**` y «¿Lo confirmo? Si algo está mal, escríbeme el dato correcto.»; todavía sin pedido | `confirmar_pedido` |
+  | «Sí, confírmalo» (botón «Confirmar pedido») | `🧾 **Pedido S… confirmado** · cotización #folio` y «La confirmación del pedido llega a **<correo>**» | ninguno |
+  | «quiero comprarla» | «Ese pedido ya quedó creado con el número **S…**» (el mismo) | ninguno |
+
+  El «Sí, confírmalo» trae además el recibo (fecha, líneas, total y el PDF del pedido: el
+  enlace `/pedidos/<folio>.pdf` en la web; `ADJUNTAR_PDF:` o el enlace firmado en WhatsApp);
+  el ensayo no lo exige ni lo espera, y el PDF se revisa a mano
+  ([`odoo-pedidos.md`](odoo-pedidos.md#recibo-del-pedido)).
+
+  En WhatsApp no llega `done.flow`: el estado se deduce del texto (`inferir_awaiting`), que
+  reconoce también la confirmación («Voy a hacer el pedido con estos datos», «¿Lo
+  confirmo?…»), el fallo de Odoo y los recordatorios «↩️» del pedido; la negrita llega con un
+  solo `*` (`bridge.to_whatsapp`).
+- **Si Odoo falla al confirmar** («No pude crear el pedido… responde **sí** en unos minutos y
+  lo intento de nuevo»), el flujo sigue en `confirmar_pedido` con los mismos datos. El ensayo
+  lo comprueba, espera `PAUSA_REINTENTO_PEDIDO` (30 s, `guiones.py`) y responde «sí»: el
+  reintento usa el mismo folio, así que no duplica el pedido. Si sale, la línea `PEDIDO`
+  avisa «tras reintentar»; si vuelve a fallar, la prueba falla con «Odoo no creó el pedido
+  del folio #… ni al reintentar».
+
+El escenario del pedido crea un pedido **real** en el Odoo de la app (pedido confirmado,
+oportunidad ganada y, con SMTP, el correo de confirmación; sin SMTP el correo queda en Odoo
+sin salir), así que lleva `gasto` y además se salta salvo con `ENSAYO_PEDIDO=1` (en
+`.env.ensayo`, la línea comentada `# ENSAYO_PEDIDO=1`):
+
+```bash
+ENSAYO_PEDIDO=1 uv run pytest tests/e2e -m ensayo -k pedido_en_odoo -rA
+```
+
+- Se salta si `ENSAYO_COTIZAR=ninguna` (el pedido necesita un folio) y, ya con el folio, si
+  el texto no trae la oferta (la app no tiene `ODOO_*`), con ese motivo.
+- Con `ENSAYO_COTIZAR=una` y `ENSAYO_PEDIDO=1`, el folio de cada canal lo registra el
+  escenario del pedido y el guion designado (`opciones_y_registro`) se cierra con «cancela
+  todo»: sigue habiendo un solo folio por canal.
+- El comprador es ficticio y propio de la corrida: el nombre es `Ensayo <run_id en letras>`
+  (el flujo no acepta dígitos en un nombre: 0→a … 9→j, p. ej. `Ensayo Cacgbbcgbadaaa`) y el
+  correo, `e2e-<run_id>-web@example.com` o `e2e-<run_id>-whatsapp@example.com`. `example.com`
+  está reservado (RFC 2606): aunque SMTP esté configurado, el correo no le llega a nadie.
+  El flujo descarta muletillas y respuestas como nombre («ok», «sí», «ya», «gracias»…): un
+  `ENSAYO_RUN_ID` de menos de seis letras lleva «prueba» al final (`ok` → `Ensayo
+  Okprueba`). No uses como `ENSAYO_RUN_ID` una palabra como «gracias» o «perfecto».
+- En el historial guardado (y en LangSmith) los turnos con datos quedan como «🛒 (datos para
+  el pedido)», con el nombre como «(tu nombre)» y el correo enmascarado (`e***@example.com`);
+  en el turno la persona ve el texto completo, que es lo que comprueba el ensayo.
+- La salida (`-rA`) imprime `PEDIDO <canal>: S… · folio #… · <correo>` por canal.
+
+### Borrar o cancelar los pedidos del ensayo
+
+Quedan en Odoo → **Ventas → Pedidos**, con el cliente `Ensayo …`, el correo `e2e-…@example.com`
+y la referencia del cliente (`client_order_ref`) igual al folio. Para limpiarlos (ver
+[`odoo-pedidos.md`](odoo-pedidos.md) para abrir la interfaz por el túnel):
+
+1. **Ventas → Pedidos**, busca `e2e-` en *Cliente* (o el folio en *Referencia del cliente*).
+2. Abre cada pedido y pulsa **Cancelar**. Si Odoo ofrece avisar al cliente, cancela sin
+   enviar el correo. Odoo solo borra pedidos cancelados o en borrador: ya cancelado, el menú
+   de acciones (⚙) → **Eliminar** lo quita. Si prefieres conservar la traza, déjalo
+   cancelado.
+3. **CRM**: la oportunidad «Pedido de la cotización #folio» queda ganada; búscala por el folio
+   (quita el filtro por defecto e incluye las ganadas) y archívala o elimínala.
+4. **Contactos**: archiva el contacto `Ensayo …` (`e2e-…@example.com`) si no quieres que el
+   próximo ensayo lo reutilice; el adaptador reutiliza un contacto solo si lo creó el
+   asistente (`ref = asistente-carvajal`) y coinciden el correo y el nombre (si no, crea otro
+   con ese `ref`). Los contactos `Ensayo …` de corridas anteriores a la tercera ronda de la
+   spec 056 no llevan el `ref` y no se reutilizan.
+
+Repetir el escenario con el mismo `ENSAYO_RUN_ID` crea otro folio y, por tanto, otro pedido:
+la idempotencia es por folio, no por comprador.
 
 ## En local
 
@@ -107,7 +200,8 @@ y un «Sí, te ayudo» a una tarea de cálculo.
 | --- | --- | --- |
 | Turnos de DeepSeek | Pasos del agente en web y MCP; la memoria; el reintento | Unas decenas de turnos por `make ensayo-completo` |
 | Llamadas a Jev / TypeSafe | Clasificación de la foto (`ajiaco.jpg`, que Jev clasifica como sopa caliente) y las elecciones cortas del flujo | Una o dos fotos por canal, más las de Jev Choice |
-| Cotizaciones y folios | Producción, según `ENSAYO_COTIZAR`: `una` registra solo el guion designado, `ninguna` se detiene antes del «sí» | Por defecto un folio real por corrida en producción |
+| Cotizaciones y folios | Producción, según `ENSAYO_COTIZAR`: `una` registra solo el guion designado (o el escenario del pedido con `ENSAYO_PEDIDO=1`), `ninguna` se detiene antes del «sí» | Por defecto un folio real por canal y corrida en producción |
+| Pedidos en Odoo | Solo con `ENSAYO_PEDIDO=1`: un pedido confirmado, una oportunidad ganada y un contacto `e2e-…@example.com` por canal. Se borran a mano (sección «Pedidos en Odoo») | Un pedido por canal y corrida |
 | Filas en la base | Conversaciones, mensajes, uso, borradores y cotizaciones bajo los alias `e2e-<run>-<prueba>`, y visitantes web derivados del `run_id`. No hay API para borrarlas | Se acumulan por corrida |
 | Cupo diario | Cada alias y cada visitante del ensayo tiene su propio cupo (20/día), así que no gasta el de los clientes | — |
 | Un WhatsApp real | `test_whatsapp_real.py`: un mensaje `ensayo allowlist <run>` del segundo número del owner al bot | Queda en los dos chats |
@@ -207,6 +301,7 @@ Las lee `Config.desde_entorno()` en `tests/e2e/clientes.py`. La tabla coincide c
 | `ENSAYO_WEBHOOK_SECRET` | vacío | Si está vacío, se lee `WEBHOOK_SECRET` del `.env` local o del servidor; sin secreto se salta el webhook |
 | `ENSAYO_WA_FUERA` | `+15550100999` | Remitente ficticio fuera de la allowlist del webhook |
 | `ENSAYO_COTIZAR` | `todas` en local, `una` en producción | `todas`, `una` o `ninguna`: cuántos guiones registran folio |
+| `ENSAYO_PEDIDO` | apagado | `1` corre el escenario del pedido (nombre, correo, confirmación de los datos y «Sí, confírmalo»): crea un pedido real en el Odoo de la app (spec 056) |
 | `ENSAYO_MEDIA_DIR` | `data/openclaw-media` | «Inbound» local donde se deja la foto para el MCP |
 | `ENSAYO_FIREFOX_MARIONETTE` | vacío (la prueba usa `2828`) | Puerto de Marionette del Firefox con WhatsApp Web |
 | `ENSAYO_WA_BOT` | vacío | Número del bot en E.164; sin él se salta WhatsApp real |
@@ -234,6 +329,10 @@ Algunas variables solo las lee un archivo concreto:
 | El webhook se salta (404) | `WEBHOOK_SECRET` vacío | Defínelo en el `.env` (local) o en el del servidor |
 | Pruebas de Jev o de fotos saltadas | `TYPESAFE_API_KEY` o `JEV_ENABLED` | Mira `/health` → `jev` y `food_photo` |
 | Un paso del agente falla dos veces | El LLM se salió de los estados permitidos | Lee la transcripción del fallo; si es una regresión, `evaluar-agente` |
+| El segundo «sí» del guion pide nombre y correo | La app ofrece el pedido pero el texto del folio ya no trae «¿Quieres hacer el pedido?» | Copia el texto nuevo de `render.ORDER_OFFER` en `OFERTA_PEDIDO` (`guiones.py`); `tests/test_ensayo_guiones.py` lo detecta |
+| `el folio #… no ofrece el pedido` (saltada) | La app no tiene `ODOO_*` (o corre una versión sin la spec 056) | Normal sin Odoo; si debía tenerlo, revisa `/opt/carvajal/.env` y [`odoo-pedidos.md`](odoo-pedidos.md) |
+| `Odoo no creó el pedido del folio #… ni al reintentar` | Odoo no respondió o rechazó el pedido dos veces (el «Sí, confírmalo» y el «sí» del reintento) | Revisa el log `pedido.fallido` de la app (solo trae el tipo y el status HTTP) y que Odoo esté arriba; el folio queda en `confirmar_pedido` y un «sí» en esa conversación lo reintenta sin duplicar |
+| El correo da `awaiting='datos_pedido'` y no llega «📋 Voy a hacer el pedido con estos datos» | El flujo no leyó el nombre (p. ej. un `ENSAYO_RUN_ID` que es una muletilla) o la app corre una versión sin el paso de confirmación | Mira el «Gracias, <nombre>.» del turno anterior; si cambió la plantilla, copia el texto de `render.confirm_buyer` en `CONFIRMAR_DATOS` (`guiones.py`) |
 | `Firefox no escucha Marionette` | Firefox abierto sin `--marionette` | Ciérralo del todo y ábrelo con `firefox --marionette` |
 | `no se pudo abrir la sesión de WebDriver` | Otro cliente (otro geckodriver) ya tiene Marionette | Termina ese geckodriver; Marionette admite un cliente a la vez |
 | `WhatsApp Web no tiene sesión` | La pestaña muestra el QR | Vincula WhatsApp Web en ese mismo perfil de Firefox |

@@ -62,6 +62,7 @@ from carvajal.food.photo import MAX_PHOTO_BYTES, PhotoRejected, PreparedPhoto, p
 from carvajal.food.profile import FoodProfile
 from carvajal.food.render import PHOTO_REJECTED, PHOTO_UNAVAILABLE
 from carvajal.infrastructure.metrics import WHATSAPP_EVENTS
+from carvajal.quotation.render import RECEIPT_PROMISE
 from carvajal.speech import (
     SUMMARY_POINTERS,
     SpeechLink,
@@ -176,6 +177,8 @@ LatestQuote = Callable[[str], Mapping[str, Any] | None]
 """``owner_key -> payload`` de la última cotización del chat, o ``None``."""
 
 PdfLink = Callable[[str, str, date | None], str]
+# Spec 056: ``(folio, owner_key) -> URL`` del recibo del pedido.
+OrderLink = Callable[[str, str], str]
 """``(folio, owner_key, válida_hasta) -> URL`` firmada del PDF."""
 
 PhotoUrl = Callable[[str], str | None]
@@ -939,6 +942,9 @@ class WhatsAppBridge:
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
     pdf_attachment: PdfLink | None = None
+    # Spec 056: recibo del pedido (``folio, owner_key -> URL``) adjunto o como enlace.
+    order_attachment: OrderLink | None = None
+    order_link: OrderLink | None = None
     photo_url: PhotoUrl | None = None
     turns: TurnLookup | None = None
     deliveries: DeliveryStore | None = field(default_factory=InMemoryDeliveryStore)
@@ -1412,7 +1418,7 @@ class WhatsAppBridge:
         listed = _sources_block(turn.sources, remarks)
         if listed:
             blocks.append(listed)
-        written = to_whatsapp(template)
+        written = self._with_receipt(to_whatsapp(template), turn.flow, owner)
         pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
         if turn.folios and not pdf_enabled:
             written = written.replace("\n📄 Te envío el PDF.", "")
@@ -1438,6 +1444,44 @@ class WhatsAppBridge:
         if turn.folios and pdf_enabled:
             return self._attach_pdf(reply, owner)
         return reply
+
+    def _with_receipt(self, written: str, flow: Mapping[str, Any], owner: str) -> str:
+        """Pedido confirmado (spec 056): la promesa del recibo → el PDF adjunto o su enlace.
+
+        Sin forma de entregarlo, la promesa se quita: no se promete un PDF que no llega.
+        """
+
+        # La promesa ya pasó por ``to_whatsapp``: se busca en ese formato y, por si la
+        # conversión la dejara igual o cambiara, también en el original.
+        order = flow.get("order")
+        promise = next(
+            (
+                f"\n{form}"
+                for form in (to_whatsapp(RECEIPT_PROMISE), RECEIPT_PROMISE)
+                if f"\n{form}" in written
+            ),
+            None,
+        )
+        if promise is None or not isinstance(order, Mapping):
+            return written
+        folio = str(order.get("folio") or "")
+        name = str(order.get("name") or "")
+        try:
+            if folio and self.order_attachment is not None:
+                url = self.order_attachment(folio, owner)
+                logger.info("whatsapp.order_attachment", folio=folio)
+                block = (
+                    f"\n📄 Te envío el recibo de tu pedido {name} en PDF.\n{ATTACH_PDF_PREFIX}{url}"
+                )
+                return written.replace(promise, block, 1)
+            if folio and self.order_link is not None:
+                url = self.order_link(folio, owner)
+                logger.info("whatsapp.order_link", folio=folio)
+                block = f"\n📄 Recibo de tu pedido {name} en PDF. Ábrelo aquí:\n\n{url}"
+                return written.replace(promise, block, 1)
+        except Exception as error:
+            logger.warning("whatsapp.order_link_failed", error_type=type(error).__name__)
+        return written.replace(promise, "", 1)
 
     def _attach_pdf(self, reply: BridgeReply, owner: str) -> BridgeReply:
         """La cotización recién registrada con su PDF ya entregado (spec 054)."""
