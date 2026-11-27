@@ -228,9 +228,10 @@ class PhotoTurns(Protocol):
     ) -> Iterator[ChatEvent]: ...
 
 
-# Nombre que OpenClaw da a los adjuntos (UUID + extensión); nunca una ruta.
+# Nombre que OpenClaw da a los adjuntos (UUID + extensión); nunca una ruta. WhatsApp entrega
+# muchas fotos en WebP (ensayo con WhatsApp real del 2026-11-27: se rechazaban todas).
 _MEDIA_PREFIX = "media://inbound/"
-_MEDIA_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(?:jpe?g|png)", re.IGNORECASE)
+_MEDIA_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(?:jpe?g|png|webp)", re.IGNORECASE)
 
 
 def read_inbound_photo(reference: str, directory: str) -> bytes:
