@@ -21,6 +21,24 @@ usuario que ejecuta el gateway. La configuración y la seguridad del gateway est
 - `memory/.dreams/`, `media/` y el repositorio git interno del workspace.
 - `openclaw.json` y `.env`: tienen la configuración del gateway y las claves.
 
+## Quién puede escribirle al bot en el grupo
+
+Desde el 2026-11-27 el grupo está en `groupPolicy: allowlist`: el bot solo contesta a los
+números de `channels.whatsapp.groupAllowFrom` (E.164). Con eso `openclaw security audit`
+queda sin críticos. Los invitados de una demo se agregan en vivo con
+[`invitados.sh`](invitados.sh), que corre en la VM del gateway (`~/invitados.sh`).
+OpenClaw aplica el cambio sin reiniciar.
+
+```bash
+~/invitados.sh fijar-base                     # antes del evento: el equipo queda como base
+~/invitados.sh agregar 3001234567 3157654321  # cada invitado, al llegar
+~/invitados.sh listar                         # cuántos y los 4 últimos dígitos
+~/invitados.sh restablecer                    # al terminar: solo el equipo
+```
+
+Agregar a alguien a la lista no lo mete al grupo de WhatsApp: eso lo hace un administrador
+del grupo. Los números no se versionan.
+
 ## Desplegar
 
 En la VPS de OpenClaw, como el usuario del gateway:
