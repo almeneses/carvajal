@@ -416,3 +416,22 @@ def test_la_tapa_pedida_con_su_capacidad_entra_aunque_el_carrito_tenga_otro_vaso
 
     # Assert
     assert len(outcome.draft.lines) == 2
+
+
+def test_el_flujo_avisa_que_tapa_no_agrego() -> None:
+    # Arrange
+    vaso = _cup("V9", "Vaso rígido traslúcido 9 oz Wau", 9.0)
+
+    # Act
+    text = "Los vasos quedaron cotizados. La tapa no corresponde a vasos de 9 oz. ¿La busco?"
+    outcome = after_turn(QuoteDraft(), [vaso, _lid()], text, now=AHORA, asks=True)
+    only_lid = after_turn(
+        after_turn(QuoteDraft(), [vaso], "Listo.", now=AHORA).draft, [_lid()], "Ok.", now=AHORA
+    )
+
+    # Assert: el aviso va antes de la tarjeta del vaso, y solo, si el turno no agregó nada.
+    assert outcome.message is not None and only_lid.message is not None
+    assert outcome.message.text.startswith("No agregué **Tapa traslúcida para vaso rígido")
+    assert "Agregué **500 Vaso rígido traslúcido 9 oz Wau" in outcome.message.text
+    assert only_lid.message.text.startswith("No agregué **Tapa")
+    assert len(only_lid.draft.lines) == 1

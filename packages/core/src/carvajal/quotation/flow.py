@@ -1267,6 +1267,31 @@ def after_turn(
         # 2026-11-27, «500 vasos de 9 oz y 300 tapas para esos vasos»).
         calculated = [item for item in calculated if item not in unfit]
         logger.info("cotizacion.tapa_incompatible", retenidas=len(unfit))
+    outcome = _place(current, calculated, text, moment, choice)
+    if not unfit:
+        return outcome
+    # El flujo dice qué tapa no entró: el texto del agente no lo garantiza (revisión de la
+    # PR #288).
+    note = render.lids_not_added([line_label(item) for item in unfit])
+    if outcome.message is None:
+        return replace(outcome, message=note)
+    joined = render.Message(
+        f"{note.text}\n\n{outcome.message.text}",
+        f"{note.spoken} {outcome.message.spoken}",
+        outcome.message.photos,
+    )
+    return replace(outcome, message=joined)
+
+
+def _place(
+    current: QuoteDraft,
+    calculated: Sequence[Mapping[str, Any]],
+    text: str,
+    moment: datetime,
+    choice: Mapping[str, Any] | None,
+) -> Outcome:
+    """Las cotizaciones del turno ya filtradas: opciones, comparativo o líneas del carrito."""
+
     if not calculated:
         waiting = _awaiting_reference(current, choice, moment)
         if waiting is not None:

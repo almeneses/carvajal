@@ -1001,6 +1001,20 @@ def order_cancel_request(order: str) -> Message:
     return Message(text, spoken)
 
 
+def lids_not_added(labels: Sequence[str]) -> Message:
+    """Las tapas que el flujo no agregó porque no le sirven a los vasos de la cotización."""
+
+    names = ", ".join(f"**{label}**" for label in labels)
+    said = ", ".join(_say(label) for label in labels)
+    many = len(labels) > 1
+    serve = "no les sirven" if many else "no le sirve"
+    text = (
+        f"No agregué {names}: {serve} a los vasos de tu cotización. Si "
+        f"{'las' if many else 'la'} quieres igual, pídemel{'as' if many else 'a'} por su nombre."
+    )
+    return Message(text, f"No agregué {said}: {serve} a tus vasos.")
+
+
 def order_receipt(order: str, folio: str) -> Message:
     """Tras el pedido creado, «mándame el recibo»: el recibo otra vez, sin el modelo.
 
