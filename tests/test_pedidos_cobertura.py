@@ -544,7 +544,7 @@ def test_el_recibo_dice_el_correo_del_pedido_que_ya_existia_en_odoo(engine: Any)
 
     # Assert
     assert "**Pedido S00003 confirmado**" in placed
-    assert "La confirmación del pedido llega a **compras@restaurante.co**" in placed
+    assert "La confirmación del pedido llega a compras@restaurante.co" in placed
     assert EMAIL not in placed
     assert "sale.order.create" not in fake.methods()
     (lookup, *_) = fake.bodies("sale.order", "search_read")
@@ -563,7 +563,7 @@ def test_el_pedido_del_servicio_llega_entero_al_adaptador(engine: Any) -> None:
 
     # Assert
     assert "**Pedido S00007 confirmado**" in placed
-    assert f"llega a **{EMAIL}**" in placed
+    assert f"llega a {EMAIL}." in placed
     (row,) = stored_quotes(engine)
     (order,) = fake.bodies("sale.order", "create")
     (values,) = order["vals_list"]

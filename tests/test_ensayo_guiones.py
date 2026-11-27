@@ -210,9 +210,9 @@ def test_el_pedido_del_ensayo_se_crea_con_el_comprador_del_run(engine: Any, cana
     ]
     _, confirmacion = pedido.transcripcion.turnos[-3]
     assert confirmacion.awaiting == "confirmar_pedido"
-    assert formato(f"- Correo: **{correo}**", canal) in confirmacion.texto
+    assert formato(f"- Correo: {correo}", canal) in confirmacion.texto
     _, creado = pedido.transcripcion.turnos[-2]
-    assert formato(f"La confirmación del pedido llega a **{correo}**", canal) in creado.texto
+    assert formato(f"La confirmación del pedido llega a {correo}", canal) in creado.texto
     recibo = recibo_en(creado.texto, canal)
     assert recibo is not None
     assert (recibo.folio, recibo.numero) == (pedido.folio, "S00001")

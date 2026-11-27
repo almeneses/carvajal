@@ -118,6 +118,21 @@ BOGOTA: Final = ZoneInfo("America/Bogota")
 OFF_FLOW_REMINDERS: Final = 2
 # Pasos del pedido (spec 056): las reglas los deciden todos; nada de ellos va a Jev.
 ORDER_AWAITING: Final = frozenset({"pedido", "datos_pedido", "confirmar_pedido"})
+# Un «ahora no» sin pregunta pendiente del flujo (la propuesta fue del agente): sin el modelo.
+_NOT_NOW: Final = frozenset(
+    {
+        "ahora no",
+        "por ahora no",
+        "no por ahora",
+        "no gracias",
+        "no muchas gracias",
+        "ahora no gracias",
+        "por ahora no gracias",
+        "asi esta bien",
+        "asi esta bien gracias",
+        "dejemoslo asi",
+    }
+)
 JEV_MIN_CONFIDENCE: Final = 0.7
 JEV_MAX_WORDS: Final = 14
 # Campos del borrador que vacían la lista de referencias de un nombre ambiguo.
@@ -673,6 +688,11 @@ def _rules(
         handled = handler(draft, text, said, requote_fn, now)
         if handled is not None:
             return handled
+    if draft.awaiting is None and plain(text) in _NOT_NOW:
+        # «Ahora no» a una propuesta del agente («¿La agrego a tu cotización?») sin pregunta
+        # pendiente del flujo: el agente se abstenía con «No tengo un dato verificado…»
+        # (ensayo por WhatsApp del 2026-11-27). Respuesta fija, sin el modelo.
+        return Reply(render.not_now(), draft, route="rechazo")
     removal = _removal(draft, text, now)
     if removal is not None:
         return removal
@@ -1345,6 +1365,29 @@ def _awaiting_reference(
         offer=None,
         off_flow=0,
     )
+
+
+# La pregunta del paso que el modelo añade por su cuenta («¿Confirmo el pedido con tu nombre y
+# correo?»): el recordatorio «↩️» ya la hace.
+_STEP_QUESTION: Final = re.compile(r"\b(?:pedido|confirm\w*|nombre|correo|datos)\b")
+
+
+def without_step_question(answer: str) -> str:
+    """El texto del agente sin los párrafos finales que repiten la pregunta del pedido.
+
+    A mitad del pedido el sistema añade su recordatorio; el modelo a veces cerraba con su
+    propia versión, a veces con el nombre enmascarado del historial («¿confirmo con (tu
+    nombre)…?», ensayo del 2026-11-27). Nunca deja el texto vacío.
+    """
+
+    paragraphs = re.split(r"\n\s*\n", answer.strip())
+    while (
+        len(paragraphs) > 1
+        and "?" in paragraphs[-1]
+        and _STEP_QUESTION.search(plain(paragraphs[-1]))
+    ):
+        paragraphs.pop()
+    return "\n\n".join(paragraphs)
 
 
 def _order_off_flow(draft: QuoteDraft, now: datetime) -> Outcome:

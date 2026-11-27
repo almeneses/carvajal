@@ -856,7 +856,7 @@ def confirm_buyer(name: str, email: str) -> Message:
     text = (
         "📋 Voy a hacer el pedido con estos datos:\n"
         f"- Nombre: **{name}**\n"
-        f"- Correo: **{email}**\n"
+        f"- Correo: {email}\n"
         "¿Lo confirmo? Si algo está mal, escríbeme el dato correcto."
     )
     from carvajal.quotation.order import spoken_address
@@ -908,7 +908,7 @@ def order_placed(
                 pending += " sin " + ", ".join(result.unpriced) + " (precio por confirmar)"
             lines.append(f"Total **{money}**{pending} · {result.tax}")
     lines.append(
-        f"La confirmación del pedido llega a **{email}**. Un asesor te contacta para coordinar "
+        f"La confirmación del pedido llega a {email}. Un asesor te contacta para coordinar "
         "el pago y la entrega."
     )
     if folio:
@@ -946,6 +946,14 @@ def order_expired(labels: Sequence[str]) -> Message:
     return Message(
         text, "Los precios de la cotización vencieron. Cotizamos de nuevo y hacemos el pedido."
     )
+
+
+# Una pregunta a mitad del pedido sin dato en las fuentes (medios de pago, plazos): en vez de
+# la abstención genérica, que el flujo quitaba y dejaba la pregunta sin respuesta.
+ORDER_ASIDE: Final = (
+    "Ese dato no lo tengo verificado: los medios de pago y la entrega los coordina un asesor "
+    "cuando se crea el pedido."
+)
 
 
 def order_reminder(awaiting: str | None) -> Message | None:
@@ -1055,6 +1063,15 @@ def leaving(has_lines: bool) -> Message:
     return Message(
         "Con gusto. Cuando quieras, escríbeme y seguimos 📦",
         "Con gusto. Cuando quieras, escríbeme y seguimos.",
+    )
+
+
+def not_now() -> Message:
+    """«Ahora no» a una propuesta del agente: sin insistir y sin abstenerse."""
+
+    return Message(
+        "Listo, lo dejamos así. ¿Te ayudo con algo más?",
+        "Listo, lo dejamos así. ¿Te ayudo con algo más?",
     )
 
 

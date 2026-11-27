@@ -590,7 +590,7 @@ def test_el_folio_ofrece_el_pedido_y_lo_crea_con_nombre_y_correo(engine: Any) ->
     assert confirming == confirm_buyer("Ana Pérez", "ana@correo.com").text
     assert pending == []  # sin el «sí» de la confirmación no hay pedido
     assert "**Pedido S00001 confirmado**" in placed
-    assert "La confirmación del pedido llega a **ana@correo.com**" in placed
+    assert "La confirmación del pedido llega a ana@correo.com" in placed
     assert "Te enviamos" not in placed
     assert "S00001" in again and "ya quedó creado" in again
     (request,) = orders.requests

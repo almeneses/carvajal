@@ -1326,7 +1326,13 @@ class ChatService:
         record_judge_calls(span, _judge_calls(closing.gatekeeper, closing.claims))
         structlog.contextvars.bind_contextvars(route=route)
 
-        if flow_suffix and "".join(fragments).strip() in _ABSTENTIONS:
+        aside = _order_aside(draft, flow_suffix, "".join(fragments).strip())
+        if aside is not None:
+            # Pregunta a mitad del pedido: la respuesta sin la pregunta del paso que repite
+            # el recordatorio, o una línea fija en vez de la abstención (ensayo 2026-11-27).
+            fragments[:] = [f"{aside}{flow_suffix}"]
+            yield ChatEvent("fallback", {"text": fragments[0], "sources": _sources(sources)})
+        elif flow_suffix and "".join(fragments).strip() in _ABSTENTIONS:
             # La plantilla del flujo responde el turno: una abstención antes de ella («No
             # tengo un dato verificado…», la compuerta descartó el comentario del modelo)
             # confunde (2026-11-25). Se reemplaza la burbuja por la plantilla sola.
@@ -2411,6 +2417,23 @@ class _Followup:
 # Respuestas fijas de abstención: si la plantilla del flujo responde el turno, no se
 # muestran delante de ella.
 _ABSTENTIONS = frozenset({NO_DATA_ANSWER.strip(), NO_CONTEXT_ANSWER.strip()})
+
+
+def _order_aside(draft: QuoteDraft, flow_suffix: str, answer: str) -> str | None:
+    """Texto del agente para un turno con el recordatorio del pedido, si hay que cambiarlo.
+
+    ``None`` si el sufijo no es el recordatorio «↩️» del paso o si el texto ya está bien. Una
+    abstención (o nada) pasa a :data:`render.ORDER_ASIDE`: la pregunta de pago o de entrega
+    recibe respuesta. Si no, se quita la pregunta del paso que el modelo repitió.
+    """
+
+    reminder = quote_render.order_reminder(draft.awaiting)
+    if not flow_suffix or reminder is None or flow_suffix.strip() != reminder.text:
+        return None
+    if not answer or answer in _ABSTENTIONS:
+        return quote_render.ORDER_ASIDE
+    trimmed = quote_flow.without_step_question(answer)
+    return trimmed if trimmed != answer else None
 
 
 def _mark_draft_quotes(products: Mapping[str, Any] | None) -> dict[str, Any] | None:
