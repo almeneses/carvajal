@@ -97,8 +97,8 @@ ensayo-exploracion: ## ~30 guiones por WhatsApp y web: transcripciones e informe
 
 # Crea un pedido REAL por canal en el Odoo de la app (spec 056); se borran a mano
 # (docs/ensayo.md, «Borrar o cancelar los pedidos del ensayo»).
-ensayo-pedido: ## Pedido real en Odoo por web y WhatsApp: recibo y correo (spec 056; crea pedidos)
-	$(ENSAYO_ENV) ENSAYO_PEDIDO=1 uv run pytest tests/e2e -m ensayo -k pedido_en_odoo -rA -p no:cacheprovider
+ensayo-pedido: ## Pedidos reales en Odoo por web y WhatsApp, también con foto, texto y voz (spec 056)
+	$(ENSAYO_ENV) ENSAYO_PEDIDO=1 uv run pytest tests/e2e -m ensayo -k "pedido_en_odoo or foto_texto_y_voz" -rA -p no:cacheprovider
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
 	@if grep -rq "pytest.mark.integration" tests; then \

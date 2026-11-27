@@ -7,7 +7,10 @@ o de Jev y escriben en la base: llevan ``gasto`` y ``make ensayo`` no las corre.
 
 from __future__ import annotations
 
+import html
 import re
+import shutil
+import subprocess
 import time
 from typing import Any
 
@@ -31,9 +34,11 @@ from tests.e2e.guiones import (
     Transcripcion,
     con_reintento,
     correo_de_prueba,
+    correo_dictado,
     ejecutar,
     ejecutar_pasos,
     ejecutar_pedido,
+    ejecutar_pedido_mixto,
     nombre_de_prueba,
     oferta_ausente,
     pasos_tras_foto,
@@ -81,8 +86,8 @@ class CanalWeb:
     def reiniciar(self) -> None:
         self.hilo = self.web.nuevo_hilo()
 
-    def enviar(self, mensaje: str) -> Respuesta:
-        return respuesta_web(self.web.turno(mensaje, self.hilo))
+    def enviar(self, mensaje: str, *, voz: bool = False) -> Respuesta:
+        return respuesta_web(self.web.turno(mensaje, self.hilo, voz=voz))
 
     def tras_registro(self, respuesta: Respuesta, folio: str) -> None:
         turno: Turno = respuesta.crudo
@@ -273,3 +278,149 @@ def test_conversacion_que_empieza_con_foto_web(
         print(transcripcion.texto())
         return
     pytest.fail("la conversación con foto se desvió dos veces:\n\n" + "\n\n".join(intentos))
+
+
+# --- Pedido con foto, texto y voz -------------------------------------------------------
+
+# Lo que la voz del servidor lee de la confirmación guardada (apps/api/voice.py, ``_neutral``).
+VOZ_NEUTRA = "correo que escribiste"
+_RESUMEN_HILO = re.compile(r'data-voz-resumen="([^"]*)"')
+
+
+def _ogg(mp3: bytes) -> bytes | None:
+    """El MP3 de la voz del servidor en Ogg/Opus, como graba el navegador; sin ffmpeg, ``None``."""
+
+    if shutil.which("ffmpeg") is None:
+        return None
+    proceso = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-i", "pipe:0", "-c:a", "libopus", "-f", "ogg", "pipe:1"],
+        input=mp3,
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    return proceso.stdout
+
+
+def _datos_del_comprador(nombre: str, correo: str) -> tuple[str, ...]:
+    """El nombre y el correo en todas sus formas: escrito, su usuario y dictado (en minúscula)."""
+
+    dictado = " ".join(correo_dictado(correo).split())
+    return tuple(
+        dato.casefold() for dato in (nombre, *nombre.split(), correo, correo.split("@")[0], dictado)
+    )
+
+
+def _hilo_sin_datos_en_la_voz(web: Web, hilo: str, nombre: str, correo: str) -> str:
+    """FR-019 sin depender del audio: el texto que la voz del servidor leería del hilo.
+
+    ``GET /chat?thread=…`` pinta en cada respuesta ``data-voz-resumen``, el mismo resumen
+    guardado que sintetiza ``/api/voz/hablar``. El de la confirmación del pedido dice «a tu
+    nombre, con el correo que escribiste»: ningún resumen del hilo trae el nombre ni el correo.
+    Devuelve la página para las demás comprobaciones.
+    """
+
+    pagina = web.cliente.get("/chat", params={"thread": hilo})
+    assert pagina.status_code == 200, pagina.text[:300]
+    resumenes = [html.unescape(valor).casefold() for valor in _RESUMEN_HILO.findall(pagina.text)]
+    assert any(VOZ_NEUTRA in resumen for resumen in resumenes), (
+        f"el hilo no guarda la confirmación neutra («{VOZ_NEUTRA}»): {resumenes}"
+    )
+    for resumen in resumenes:
+        for dato in _datos_del_comprador(nombre, correo):
+            assert dato not in resumen, f"la voz guardada del hilo dice {dato!r}: {resumen!r}"
+    return pagina.text
+
+
+def _voz_del_servidor_oida(
+    web: Web, salud: dict[str, Any], turno: Turno, nombre: str, correo: str
+) -> str | None:
+    """FR-019 con audio real: TTS de la confirmación (``/api/voz/hablar``) y su transcripción.
+
+    Lo que se oye es la frase neutra y no el nombre. Devuelve lo transcrito, o ``None`` si la
+    voz del servidor está apagada o falta ffmpeg: entonces solo avisa, porque la comprobación
+    determinista (:func:`_hilo_sin_datos_en_la_voz`) ya cubrió el texto que se sintetiza.
+    """
+
+    if not (salud.get("voice") or {}).get("available"):
+        print("AVISO web: voz del servidor apagada; no se oye la confirmación del pedido")
+        return None
+    mensaje = str(turno.done.get("message_id") or "")
+    assert mensaje, turno.resumen()
+    hablado = web.cliente.post(
+        "/api/voz/hablar", data={"message_id": mensaje, "csrf_token": web.csrf}
+    )
+    assert hablado.status_code == 200, hablado.text[:300]
+    audio = _ogg(hablado.content)
+    if audio is None:
+        print("AVISO web: sin ffmpeg; no se transcribe la confirmación del pedido")
+        return None
+    transcrito = web.cliente.post(
+        "/api/voz/transcribir",
+        files={"audio": ("nota.ogg", audio, "audio/ogg")},
+        headers={"X-CSRF-Token": web.csrf},
+    )
+    assert transcrito.status_code == 200, transcrito.text[:300]
+    texto = str(transcrito.json()["texto"]).casefold()
+    assert "escribiste" in texto, f"la voz del servidor no dijo la frase neutra: {texto!r}"
+    for dato in ("ensayo", "example", "arroba"):
+        assert dato not in texto, f"la voz del servidor dijo {dato!r}: {texto!r}"
+    return texto
+
+
+@pytest.mark.usefixtures("agente", "pedido_permitido")
+def test_pedido_con_foto_texto_y_voz_web(
+    config: Config, web: Web, salud: dict[str, Any], foto_ajiaco: bytes
+) -> None:
+    # Arrange: la foto abre el hilo; luego texto, voz (dictado) y la confirmación por texto.
+    estado = (salud.get("food_photo") or {}).get("status")
+    if estado != "ok":
+        pytest.skip(f"fotos de alimentos no disponibles en la app (food_photo={estado!r})")
+    canal = CanalWeb(web)
+    nombre = nombre_de_prueba(config.run_id)
+    correo = correo_de_prueba(f"{config.run_id}-web-mixto")
+
+    def foto() -> str | None:
+        turno = web.foto(foto_ajiaco, hilo=canal.hilo)
+        if (turno.traza.get("foto") or {}).get("status") != "ok":
+            return f"Jev no reconoció el ajiaco: {turno.traza.get('foto')}"
+        _foto_correcta(turno)
+        return None
+
+    # Act
+    try:
+        pedido = ejecutar_pedido_mixto(canal, foto=foto, nombre=nombre, correo=correo)
+    except PedidosApagados as motivo:
+        if config.expect_pedidos:
+            pytest.fail(f"{motivo}; se esperaba el pedido (ENSAYO_EXPECT_PEDIDOS)")
+        pytest.skip(str(motivo))
+
+    # Assert: el pedido salió con su recibo y su correo.
+    turnos = pedido.transcripcion.turnos
+    _, creado = turnos[-1]
+    turno: Turno = creado.crudo
+    assert turno.done.get("route") == "pedido", turno.resumen()
+    _comprobar_recibo_web(config, web, turno, pedido.folio, pedido.numero)
+    comprobar_correo_del_pedido(config, pedido.folio, "web")
+    # La voz del navegador (FR-038) lee los datos reales para que la persona los compruebe.
+    confirmacion = next(r for p, r in turnos if p.voz and r.awaiting == "confirmar_pedido")
+    resumen = str(confirmacion.crudo.done.get("voz_resumen") or "").casefold()
+    assert nombre.casefold() in resumen, f"la voz del navegador no lee el nombre: {resumen!r}"
+    dictado = " ".join(correo_dictado(correo).split()).casefold()
+    assert dictado in resumen, f"la voz del navegador no lee el correo: {resumen!r}"
+    # El servidor recibió los turnos por voz como tales (``voz=1``) y los de texto no.
+    pagina = _hilo_sin_datos_en_la_voz(web, canal.hilo, nombre, correo)
+    por_voz = sum(paso.voz for paso, _ in turnos)
+    assert 0 < por_voz < len(turnos)
+    # Solo las marcas visibles del hilo: la plantilla del stream trae una oculta.
+    marcas = pagina.count("data-turno-por-voz>")
+    assert marcas == por_voz, f"el hilo marca {marcas} turnos por voz y se enviaron {por_voz}"
+    oido = _voz_del_servidor_oida(web, salud, confirmacion.crudo, nombre, correo)
+    reintento = " · tras reintentar (Odoo falló al primer intento)" if pedido.reintentado else ""
+    print(
+        f"PEDIDO web (foto, texto y voz): {pedido.numero} · folio #{pedido.folio} · {correo}"
+        f"{reintento}"
+    )
+    if oido is not None:
+        print(f"VOZ DEL SERVIDOR en la confirmación: {oido!r}")
+    print(pedido.transcripcion.texto())

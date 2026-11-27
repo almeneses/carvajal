@@ -46,6 +46,7 @@ from tests.e2e.guiones import (
     ejecutar,
     ejecutar_pasos,
     ejecutar_pedido,
+    ejecutar_pedido_mixto,
     inferir_awaiting,
     nombre_de_prueba,
     oferta_ausente,
@@ -59,6 +60,13 @@ RUTA_WEBHOOK = "/api/webhooks/whatsapp"
 ADJUNTO_PDF = re.compile(r"ADJUNTAR_PDF:\s*(\S+)")
 ENLACE_PDF = re.compile(r"(https?://\S+/cotizaciones/[0-9a-f]{12}\.pdf\S*)")
 TELEFONO = re.compile(r"\+?\d[\d ]{7,}\d")
+# La respuesta a una nota de voz (``voz=True``): el resumen para TTS y, tras estas cabeceras,
+# lo que va escrito (apps/mcp/bridge.py).
+CABECERAS_VOZ = (
+    "--- TEXTO (enviar como mensaje escrito, no leer en voz alta) ---",
+    "--- ENLACES (enviar como texto, no leer en voz alta) ---",
+)
+URL = re.compile(r"https?://\S+")
 
 
 def _sin_telefonos(texto: str) -> str:
@@ -131,8 +139,8 @@ class CanalWhatsApp:
     def reiniciar(self) -> None:
         self.nueva = True
 
-    def enviar(self, mensaje: str) -> Respuesta:
-        texto = self.mcp.consultar(mensaje, self.alias, nueva=self.nueva)
+    def enviar(self, mensaje: str, *, voz: bool = False) -> Respuesta:
+        texto = self.mcp.consultar(mensaje, self.alias, nueva=self.nueva, voz=voz)
         self.nueva = False
         assert texto, f"«{mensaje}»: el MCP respondió vacío"
         return Respuesta(texto=texto, awaiting=inferir_awaiting(texto), crudo=texto)
@@ -585,6 +593,63 @@ def test_conversacion_que_empieza_con_foto_en_whatsapp(
             print(transcripcion.texto())
             return
     pytest.fail("la conversación con foto se desvió dos veces:\n\n" + "\n\n".join(intentos))
+
+
+@pytest.mark.gasto
+@pytest.mark.usefixtures("agente", "pedido_permitido")
+def test_pedido_con_foto_texto_y_voz_en_whatsapp(
+    config: Config, mcp: McpOculto, conversacion: str, salud: dict[str, Any], foto_ajiaco: bytes
+) -> None:
+    # Arrange: la foto abre el chat (como la deja OpenClaw), luego texto y notas de voz.
+    estado = (salud.get("food_photo") or {}).get("status")
+    if estado != "ok":
+        pytest.skip(f"fotos de alimentos no disponibles en la app (food_photo={estado!r})")
+    canal = CanalWhatsApp(mcp, conversacion, config)
+    nombre = nombre_de_prueba(config.run_id)
+    correo = correo_de_prueba(f"{config.run_id}-whatsapp-mixto")
+
+    with _foto_en_openclaw(config, foto_ajiaco, f"e2e-{config.run_id}-pedido.jpg") as referencia:
+
+        def foto() -> str | None:
+            texto = _primera_foto(mcp, conversacion, referencia, config.prod)
+            canal.nueva = False
+            assert FOTO_NO_DISPONIBLE not in texto, "fotos de WhatsApp apagadas en el MCP"
+            assert FOTO_RECHAZADA not in texto, "el MCP no encontró la foto en su carpeta"
+            if not re.search(r"[Rr]ecomend", texto) or "*Alternativas:*" not in texto:
+                return f"Jev no reconoció el ajiaco:\n{texto[:800]}"
+            return None
+
+        # Act
+        try:
+            pedido = ejecutar_pedido_mixto(canal, foto=foto, nombre=nombre, correo=correo)
+        except PedidosApagados as motivo:
+            if config.expect_pedidos:
+                pytest.fail(f"{motivo}; se esperaba el pedido (ENSAYO_EXPECT_PEDIDOS)")
+            pytest.skip(str(motivo))
+
+    # Assert: cada nota de voz trae primero un resumen hablable (sin enlaces ni adjuntos).
+    turnos = pedido.transcripcion.turnos
+    assert any(paso.voz for paso, _ in turnos) and not all(paso.voz for paso, _ in turnos)
+    for paso, respuesta in turnos:
+        if not paso.voz:
+            continue
+        hablado = respuesta.texto
+        for cabecera in CABECERAS_VOZ:
+            hablado = hablado.split(cabecera, 1)[0]
+        assert hablado.strip(), f"«{paso.mensaje}»: la nota de voz no trae resumen hablado"
+        assert not URL.search(hablado), f"«{paso.mensaje}»: el resumen hablado lee un enlace"
+        assert "ADJUNTAR_PDF" not in hablado, f"«{paso.mensaje}»: el resumen lee el adjunto"
+    _, creado = turnos[-1]
+    assert f"*Pedido {pedido.numero} confirmado*" in creado.texto, creado.texto
+    assert "**" not in creado.texto, "WhatsApp recibió negrita en Markdown («**»)"
+    _recibo_whatsapp(config, creado.texto, pedido.folio, pedido.numero)
+    comprobar_correo_del_pedido(config, pedido.folio, "whatsapp")
+    reintento = " · tras reintentar (Odoo falló al primer intento)" if pedido.reintentado else ""
+    print(
+        f"PEDIDO whatsapp (foto, texto y voz): {pedido.numero} · folio #{pedido.folio} · {correo}"
+        f"{reintento}"
+    )
+    print(pedido.transcripcion.texto())
 
 
 _CITA = re.compile(r"\[(\d{1,3})\]")

@@ -32,8 +32,10 @@ from tests.e2e.guiones import (
     Respuesta,
     Transcripcion,
     correo_de_prueba,
+    correo_dictado,
     ejecutar,
     ejecutar_pedido,
+    ejecutar_pedido_mixto,
     formato,
     inferir_awaiting,
     nombre_de_prueba,
@@ -105,13 +107,15 @@ class CanalServicio:
         self.nombre = nombre
         self.dueno = ""
         self.registros: list[str] = []
+        self.voces: list[bool] = []  # ``voz`` de cada envío: el servicio no la distingue
         self.puente = _puente(order_attachment=_adjunto)
 
     def reiniciar(self) -> None:
         prefijo = "wa_" if self.nombre == "whatsapp" else "visitante-"
         self.dueno = f"{prefijo}ensayo-{next(_DUENOS)}"
 
-    def enviar(self, mensaje: str) -> Respuesta:
+    def enviar(self, mensaje: str, *, voz: bool = False) -> Respuesta:
+        self.voces.append(voz)
         eventos = {evento.name: evento.data for evento in self.service.stream(self.dueno, mensaje)}
         fijo = eventos.get("fallback")
         texto = (fijo or {}).get("text", "")
@@ -222,6 +226,89 @@ def test_el_pedido_del_ensayo_se_crea_con_el_comprador_del_run(engine: Any, cana
     assert request.buyer == Buyer(nombre, correo)
     assert request.channel == ("WhatsApp" if canal == "whatsapp" else "chat web")
     assert len(runner.calls) == 1  # solo la cotización pasó por el modelo
+
+
+@pytest.mark.parametrize("canal", ["web", "whatsapp"])
+def test_el_pedido_con_foto_texto_y_voz_mezcla_los_modos(engine: Any, canal: str) -> None:
+    """La secuencia de pasos y la marca ``voz`` de cada envío, con el agente y Odoo simulados.
+
+    No cubre la respuesta hablada: ``ChatService`` no distingue la voz (la arma el puente de
+    WhatsApp o la vista web). Eso lo comprueban las pruebas del ensayo contra la app.
+    """
+
+    # Arrange: la foto es del canal (Jev); aquí el hilo arranca en la elección por texto.
+    orders = FakeOrders()
+    service, runner = _service(engine, orders)
+    ensayo = CanalServicio(service, canal)
+    nombre = nombre_de_prueba("20261127090000")
+    correo = correo_de_prueba(f"20261127090000-{canal}-mixto")
+    fotos: list[str] = []
+
+    def foto() -> None:
+        fotos.append(ensayo.dueno)
+
+    # Act
+    pedido = ejecutar_pedido_mixto(ensayo, foto=foto, nombre=nombre, correo=correo)
+
+    # Assert: una foto, voz en medio (el correo dictado) y texto al principio y al final.
+    assert fotos == [ensayo.dueno]
+    assert pedido.numero == "S00001" and not pedido.reintentado
+    mensajes = _mensajes(pedido.transcripcion)
+    assert mensajes[-3:] == [nombre, correo_dictado(correo), CONFIRMAR_PEDIDO]
+    assert ensayo.voces[0] is False and ensayo.voces[-1] is False
+    assert ensayo.voces[-2] is True  # el correo dictado
+    _, confirmacion = pedido.transcripcion.turnos[-2]
+    assert confirmacion.awaiting == "confirmar_pedido"
+    assert formato(f"- Correo: {correo}", canal) in confirmacion.texto
+    (request,) = orders.requests
+    assert request.buyer == Buyer(nombre, correo)
+    assert request.folio == pedido.folio == ensayo.registros[0]
+    assert len(runner.calls) == 1  # solo la elección tras la foto pasó por el modelo
+
+
+def test_sin_odoo_el_pedido_mixto_se_salta_tras_el_folio(engine: Any) -> None:
+    # Arrange
+    service, _ = _service(engine, None)
+    ensayo = CanalServicio(service)
+
+    # Act / Assert: como el otro escenario, se salta tras el folio sin enviar nada más.
+    with pytest.raises(PedidosApagados, match="ODOO_URL"):
+        ejecutar_pedido_mixto(
+            ensayo, foto=lambda: None, nombre="Ensayo Prueba", correo="e2e-x@example.com"
+        )
+    assert len(ensayo.registros) == 1
+    assert ensayo.voces[-1] is True  # el último envío fue el «sí» por voz del folio
+
+
+def test_el_pedido_mixto_reintenta_si_la_foto_no_se_reconoce(engine: Any) -> None:
+    # Arrange: la primera foto no se reconoce; la segunda sí.
+    service, _ = _service(engine, FakeOrders())
+    ensayo = CanalServicio(service)
+    motivos = iter(["Jev no reconoció el ajiaco", None])
+
+    # Act
+    pedido = ejecutar_pedido_mixto(
+        ensayo, foto=lambda: next(motivos), nombre="Ensayo Prueba", correo="e2e-x@example.com"
+    )
+
+    # Assert
+    assert pedido.numero == "S00001"
+
+
+def test_el_pedido_mixto_falla_si_la_foto_nunca_se_reconoce(engine: Any) -> None:
+    # Arrange
+    service, _ = _service(engine, FakeOrders())
+    ensayo = CanalServicio(service)
+
+    # Act / Assert: dos intentos y un fallo que nombra el motivo, sin mensajes enviados.
+    with pytest.raises(AssertionError, match="no reconoció"):
+        ejecutar_pedido_mixto(
+            ensayo,
+            foto=lambda: "Jev no reconoció el ajiaco",
+            nombre="Ensayo Prueba",
+            correo="e2e-x@example.com",
+        )
+    assert ensayo.voces == []
 
 
 def test_sin_odoo_el_escenario_del_pedido_se_salta_tras_el_folio(engine: Any) -> None:

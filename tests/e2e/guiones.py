@@ -123,8 +123,9 @@ def inferir_awaiting(texto: str) -> str | None:
 def registra(politica: str, designado: bool, *, pedido: bool = False) -> bool:
     """``ENSAYO_COTIZAR``: ``todas`` registra siempre, ``una`` solo el guion designado.
 
-    Con ``pedido`` (``ENSAYO_PEDIDO``), el folio único de ``una`` lo registra el escenario del
-    pedido: el guion designado se cierra con «cancela todo» para no dejar dos por canal.
+    Con ``pedido`` (``ENSAYO_PEDIDO``), los folios de ``una`` los registran los escenarios del
+    pedido (el del guion de opciones y el de foto, texto y voz: dos por canal), y el guion
+    designado se cierra con «cancela todo» para no sumar otro.
     """
 
     if politica == "todas":
@@ -153,6 +154,12 @@ def nombre_de_prueba(run_id: str) -> str:
     if len(letras) < 6:
         letras += "prueba"
     return f"Ensayo {letras.capitalize()}"
+
+
+def correo_dictado(correo: str) -> str:
+    """El correo como lo dicta una persona: «e2e guion … arroba example punto com»."""
+
+    return correo.replace("@", " arroba ").replace(".", " punto ").replace("-", " guion ")
 
 
 def correo_de_prueba(run_id: str) -> str:
@@ -211,6 +218,7 @@ class Paso:
     registra: bool = False
     si_previo: frozenset[str | None] | None = None  # solo si el turno anterior quedó así
     ruta: str | None = None  # ``trace.route`` esperado (solo web)
+    voz: bool = False  # nota de voz (WhatsApp) o turno dictado (web): el texto ya transcrito
 
 
 @dataclass
@@ -236,8 +244,8 @@ class Canal(Protocol):
     def reiniciar(self) -> None:
         """Abre una conversación nueva del mismo cliente."""
 
-    def enviar(self, mensaje: str) -> Respuesta:
-        """Envía un mensaje en la conversación activa."""
+    def enviar(self, mensaje: str, *, voz: bool = False) -> Respuesta:
+        """Envía un mensaje en la conversación activa (``voz``: dictado o nota de voz)."""
 
     def tras_registro(self, respuesta: Respuesta, folio: str) -> None:
         """Comprobaciones propias del canal tras registrar (PDF, tarjeta, folio)."""
@@ -598,6 +606,111 @@ def ejecutar_pedido(
     return Pedido(transcripcion, folio, numero.group(1), reintentado)
 
 
+def pasos_folio_tras_foto() -> tuple[Paso, ...]:
+    """Tras la foto del primer mensaje: elige por **texto** y cierra la cotización por **voz**.
+
+    Termina en el «sí» que registra el folio. Si la app tiene Odoo, ese turno ofrece el pedido
+    (:func:`ejecutar_pedido_mixto` lo comprueba y, si no, lanza :class:`PedidosApagados`).
+    """
+
+    eleccion = frozenset({"eleccion"})
+    return (
+        Paso(PEDIDO_FOTO, espera=frozenset({"eleccion", "algo_mas"}), determinista=False),
+        Paso("dame esa", espera=frozenset({"algo_mas"}), si_previo=eleccion, voz=True),
+        Paso(
+            "eso es todo",
+            espera=frozenset({"confirmar"}),
+            marcas=("**Resumen de tu cotización**", "¿La confirmo y te envío el PDF?"),
+            voz=True,
+        ),
+        Paso("sí", marcas=("Cotización #", "registrada"), registra=True, voz=True),
+    )
+
+
+def pasos_datos_por_voz(nombre: str, correo: str) -> tuple[Paso, ...]:
+    """Tras la oferta: acepta el pedido y da el nombre y el correo dictado, todo por **voz**.
+
+    Llega hasta «¿Lo confirmo?»: la confirmación por **texto** («Sí, confírmalo») la hace
+    :func:`ejecutar_pedido_mixto`.
+    """
+
+    datos = frozenset({"datos_pedido"})
+    return (
+        Paso(ACEPTAR_PEDIDO, espera=datos, ruta="pedido", voz=True),
+        Paso(nombre, espera=datos, marcas=(f"Gracias, {nombre}.",), ruta="pedido", voz=True),
+        Paso(
+            correo_dictado(correo),
+            espera=frozenset({"confirmar_pedido"}),
+            marcas=(f"- Nombre: **{nombre}**", f"- Correo: {correo}", CONFIRMAR_DATOS),
+            ausentes=("🧾", PEDIDO_FALLIDO),
+            ruta="pedido",
+            voz=True,
+        ),
+    )
+
+
+def ejecutar_pedido_mixto(
+    canal: Canal,
+    *,
+    foto: Callable[[], str | None],
+    nombre: str,
+    correo: str,
+    pausa: float = PAUSA_REINTENTO_PEDIDO,
+) -> Pedido:
+    """Un pedido que mezcla foto, texto y voz, como un cliente real.
+
+    La foto del plato abre la conversación (``foto``, cada canal a su manera: devuelve
+    ``None`` si la recomendación salió bien o el motivo si no, p. ej. Jev no reconoció el
+    plato); se elige por texto («la 2, son 300 para Bogotá»), la cotización se cierra por voz
+    (:func:`pasos_folio_tras_foto`), el pedido, el nombre y el correo dictado («… arroba
+    example punto com») van por voz (:func:`pasos_datos_por_voz`) y «Sí, confírmalo» por
+    texto. Crea un pedido real en Odoo: solo corre con ``ENSAYO_PEDIDO``.
+
+    Hasta el folio se reintenta una vez en un hilo nuevo (foto no reconocida o desvío del
+    agente); si el folio no ofrece el pedido lanza :class:`PedidosApagados` sin enviar nada
+    más, y la confirmación reintenta una vez si Odoo falla, como :func:`ejecutar_pedido`.
+    """
+
+    intentos: list[str] = []
+    for _ in range(2):
+        canal.reiniciar()
+        transcripcion = Transcripcion(canal.nombre)
+        motivo = foto()
+        if motivo:
+            intentos.append(motivo)
+            continue
+        try:
+            folio = ejecutar_pasos(canal, pasos_folio_tras_foto(), transcripcion)
+        except DesvioDelAgente as desvio:
+            intentos.append(str(desvio))
+            continue
+        break
+    else:
+        raise AssertionError(
+            f"[{canal.nombre}] el pedido con foto, texto y voz se desvió dos veces:\n\n"
+            + "\n\n=== intento siguiente ===\n\n".join(intentos)
+        )
+    assert folio, f"no se registró el folio\n{transcripcion.texto()}"
+    _, registro = transcripcion.turnos[-1]
+    if OFERTA_PEDIDO not in registro.texto:
+        raise PedidosApagados(
+            f"el folio #{folio} no ofrece el pedido: la app no tiene ODOO_URL/ODOO_DB/"
+            "ODOO_API_KEY (spec 056)"
+        )
+    ejecutar_pasos(
+        canal,
+        pasos_datos_por_voz(nombre, correo),
+        transcripcion,
+        previo=registro.awaiting,
+        folio=folio,
+    )
+    reintentado = _confirmar_pedido(canal, transcripcion, correo=correo, folio=folio, pausa=pausa)
+    _, creado = transcripcion.turnos[-1]
+    numero = PEDIDO_CREADO.search(creado.texto)
+    assert numero, f"no se leyó el número del pedido\n{transcripcion.texto()}"
+    return Pedido(transcripcion, folio, numero.group(1), reintentado)
+
+
 # --- Ejecución --------------------------------------------------------------------------
 
 
@@ -667,7 +780,7 @@ def ejecutar_pasos(
     for paso in pasos:
         if paso.si_previo is not None and previo not in paso.si_previo:
             continue
-        respuesta = canal.enviar(paso.mensaje)
+        respuesta = canal.enviar(paso.mensaje, voz=paso.voz)
         transcripcion.turnos.append((paso, respuesta))
         try:
             folio = _comprobar(canal, paso, respuesta, folio, transcripcion.texto())
