@@ -1592,3 +1592,29 @@ def test_la_pagina_muestra_la_ventana_pendiente_de_langsmith(
     assert "espera su turno" in html
     assert "Se reintenta en" in html
     assert 'name="fuente" value="langsmith"' in html
+
+
+def test_el_enfriamiento_se_consulta_sin_esperar_una_carga_en_curso() -> None:
+    # Arrange: una carga lenta retiene el turno de su clave mientras consulta la fuente.
+    cache = TtlCache()
+    started, release = threading.Event(), threading.Event()
+
+    def slow() -> Card:
+        started.set()
+        release.wait(5)
+        return Card("langsmith", "LangSmith", "ok", "", {}, updated_at=datetime.now(UTC))
+
+    worker = threading.Thread(target=lambda: cache.get("langsmith", 600, slow))
+    worker.start()
+    started.wait(5)
+
+    # Act: lo que usa la página para pintar «Espera N s» mientras la carga sigue en curso.
+    begin = time.perf_counter()
+    since = cache.since_load("langsmith")
+    elapsed = time.perf_counter() - begin
+    release.set()
+    worker.join(5)
+
+    # Assert: responde al instante; la carga no retiene el candado corto de la caché.
+    assert since is not None
+    assert elapsed < 0.1
