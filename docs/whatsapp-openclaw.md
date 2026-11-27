@@ -647,11 +647,37 @@ web: el cliente responde por texto o por voz («sí», «hagamos el pedido», «
 manda su nombre y su correo, en uno o dos mensajes (por voz, el correo dictado: «ana punto
 perez arroba gmail punto com»). La herramienta muestra los datos («📋 Voy a hacer el pedido
 con estos datos: … ¿Lo confirmo?») y, con un «sí» o «sí, confírmalo», crea el pedido
-confirmado en Odoo y responde «🧾 *Pedido S… confirmado*» y «La confirmación del pedido llega
-a …»; pago y entrega los coordina un asesor. Para corregir, el cliente escribe el correo
-correcto o «me llamo …»; «ahora no» o «no, mejor no» lo dejan en cualquier paso. Todo lo deciden reglas del
-backend, sin Jev; el turno con el nombre o el correo se guarda sin ellos. Flujo, datos
-personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
+confirmado en Odoo y responde con el recibo: «🧾 *Pedido S… confirmado*», la fecha, las
+líneas, el total y «La confirmación del pedido llega a …»; pago y entrega los coordina un
+asesor. Para corregir, el cliente escribe el correo correcto, «me llamo …», «no, es …» o el
+nombre como nombre propio; un «no» solo hace que la herramienta pregunte qué dato corregir, y
+«ahora no», «no, mejor no» o «cancela el pedido» lo dejan en cualquier paso. Todo lo deciden
+reglas explícitas por paso del backend, sin Jev; el turno con el nombre o el correo se guarda
+sin ellos. Flujo, datos personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
+
+### Recibo del pedido en PDF
+
+El pedido confirmado trae su recibo en PDF: el PDF del pedido que Odoo generó al confirmarlo
+(el mismo que adjunta al correo de confirmación). El servicio marca el turno con
+`flow.order = {name, folio}` y el puente (`bridge._with_receipt`) cambia la última línea del
+recibo, «📄 Te envío el recibo del pedido en PDF.», según lo configurado:
+
+- Con `MEDIA_BASE_URL`, como el PDF de la cotización:
+
+  ```text
+  📄 Te envío el recibo de tu pedido S00001 en PDF.
+  ADJUNTAR_PDF: http://203.0.113.10:8080/pedidos/c0032295af55.pdf?t=<vence>.<firma>
+  ```
+
+  OpenClaw lo envía como documento con la misma regla 5 de `AGENTS.md`; no hace falta otra.
+- Con solo `PUBLIC_BASE_URL`: «📄 Recibo de tu pedido S00001 en PDF. Ábrelo aquí:» y el
+  enlace firmado.
+- Sin ninguna, la línea se quita.
+
+El enlace lo arma `quote_links.order_pdf_url`: firma HMAC con `SESSION_SECRET` y un dominio
+propio del recibo (un enlace de cotización no abre el pedido), que vence a los 7 días. La ruta
+`/pedidos/{folio}.pdf` de la app responde 404 si la firma no corresponde al dueño de la
+cotización o venció, y 503 si Odoo no responde (el cliente puede volver a abrirlo después).
 
 El agente «ventas» tiene que pasar esas respuestas **sin cambios**, también el «sí» a «¿Lo
 confirmo?»: sus reglas de privacidad y de defensa ante instrucciones no deben quitar ni

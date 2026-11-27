@@ -58,6 +58,11 @@ muestra y pide confirmarlos (`awaiting="confirmar_pedido"`): el pedido solo se c
   | «Sí, confírmalo» (botón «Confirmar pedido») | `🧾 **Pedido S… confirmado** · cotización #folio` y «La confirmación del pedido llega a **<correo>**» | ninguno |
   | «quiero comprarla» | «Ese pedido ya quedó creado con el número **S…**» (el mismo) | ninguno |
 
+  El «Sí, confírmalo» trae además el recibo (fecha, líneas, total y el PDF del pedido: el
+  enlace `/pedidos/<folio>.pdf` en la web; `ADJUNTAR_PDF:` o el enlace firmado en WhatsApp);
+  el ensayo no lo exige ni lo espera, y el PDF se revisa a mano
+  ([`odoo-pedidos.md`](odoo-pedidos.md#recibo-del-pedido)).
+
   En WhatsApp no llega `done.flow`: el estado se deduce del texto (`inferir_awaiting`), que
   reconoce también la confirmación («Voy a hacer el pedido con estos datos», «¿Lo
   confirmo?…»), el fallo de Odoo y los recordatorios «↩️» del pedido; la negrita llega con un

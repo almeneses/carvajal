@@ -4,8 +4,9 @@ Cuando la persona confirma una cotización y recibe el folio, el asistente ofrec
 pedido. Si acepta, pide nombre y correo, se los muestra para que los confirme y, con un «sí»,
 crea en Odoo un **pedido de venta confirmado** (cliente, líneas con los precios de la
 cotización, envío y folio). Al confirmarlo, Odoo envía al cliente el correo de confirmación
-(solo si hay servidor SMTP; ver [Correo saliente](#correo-saliente)). Funciona igual en el
-chat web y en WhatsApp, porque los dos canales pasan por `ChatService`.
+(solo si hay servidor SMTP; ver [Correo saliente](#correo-saliente)) y el chat le entrega el
+**recibo**: en texto y con el PDF del pedido de Odoo (ver [Recibo del pedido](#recibo-del-pedido)).
+Funciona igual en el chat web y en WhatsApp, porque los dos canales pasan por `ChatService`.
 
 ```text
 ✅ Cotización #A1B2C3 registrada            ← ya existía (spec 054)
@@ -18,40 +19,85 @@ Para el pedido envíame tu nombre y tu correo…
 - Correo: ana@correo.com
 ¿Lo confirmo? Si algo está mal, escríbeme el dato correcto.
 › Sí, confírmalo
-🧾 Pedido S00001 confirmado · cotización #A1B2C3
+🧾 Pedido S00001 confirmado · cotización #A1B2C3   ← el recibo
+Fecha: 26 nov 2026
+1. <producto> × <unidades> · $50.000
+Total $58.000 · <IVA>
 La confirmación del pedido llega a ana@correo.com…
+📄 Descarga el recibo de tu pedido S00001          ← web; en WhatsApp, el PDF adjunto
 ```
 
 ## Cómo lee la conversación
 
-Todo el paso del pedido lo deciden reglas (`quotation/order.py` y `quotation/flow.py`), sin
-el modelo y sin Jev. Las preguntas pendientes son `pedido` (la oferta), `datos_pedido` y
+Todo el paso del pedido lo deciden reglas explícitas por paso (`quotation/flow.py`:
+`_offer_step`, `_data_step` y `_confirm_step`; lectura en `quotation/order.py`), sin el
+modelo y sin Jev. Cada paso sabe qué espera, en lugar de adivinar un nombre en cualquier
+frase. Las preguntas pendientes son `pedido` (la oferta), `datos_pedido` y
 `confirmar_pedido`.
 
-- **Aceptar**: «sí», «quiero comprarla», «hagamos el pedido», «la compro». Con negación
-  («no quiero hacer el pedido»), producto, cantidad o «?» no acepta. Si responde a la oferta
-  directamente con nombre o correo, se toman como los datos.
-- **Rechazar**, en cualquier paso: «ahora no», «no», «no, mejor no», «no quiero el pedido»,
-  «ya no», «todavía no, gracias», «lo pienso», «cancelar», «olvídalo». La cotización queda
-  registrada y los datos parciales se borran.
-- **Nombre y correo**, en uno o dos mensajes; el que falte se pide. El correo se puede dictar
-  («ana punto perez arroba gmail punto com» → `ana.perez@gmail.com`; «guion» y «guion bajo»
-  dan `-` y `_`). No es un nombre lo que trae cifras o símbolos, más de seis palabras o una
-  muletilla o palabra del pedido («ok», «gracias», «listo», «mejor», «quiero», «pedido»…);
-  las muletillas de los bordes se quitan («Juan, juan@x.co, gracias» → Juan) y las
-  partículas van en minúscula («María de la Cruz»). Un nombre ya dado solo cambia con un
-  correo en el mismo mensaje o con «me llamo…», «mi nombre es…», «a nombre de…» o «soy…».
-- **Confirmar**: «sí» crea el pedido. Un correo nuevo o un nombre con marca corrige el dato y
-  vuelve a mostrar la confirmación.
-- **Otro producto o cantidad** («quiero 500 vasos») no es el pedido: va al agente y, si
-  cotiza, el borrador del pedido se reinicia (la cotización anterior queda sin pedido).
-- **Una pregunta** con «?» y sin datos va al agente sin perder el paso. La respuesta termina
-  una sola vez con el recordatorio («↩️ ¿Seguimos con el pedido…», «↩️ Para el pedido me
-  faltan…» o «↩️ ¿Confirmo el pedido…»); si el mensaje siguiente tampoco sigue el pedido, el
-  paso se suelta.
-- **Si Odoo falla**: «No pude crear el pedido en este momento… responde **sí** en unos minutos
-  y lo intento de nuevo, o **ahora no** para dejarlo.». Los datos quedan en la confirmación y
-  el «sí» reintenta con el mismo folio.
+En cualquier paso:
+
+- **Un correo** escrito o dictado («ana punto perez arroba gmail punto com» →
+  `ana.perez@gmail.com`; «guion» y «guion bajo» dan `-` y `_`) siempre es un dato.
+- **Otro producto** («quiero 500 vasos») sin correo ni nombre con marca sale del pedido con
+  un borrador nuevo, cotice o no el agente en ese turno; la cotización anterior queda
+  registrada sin pedido. Las cifras solas (un teléfono, una dirección) no sacan del paso.
+- **Rechazar**: «ahora no», «no, mejor no», «no quiero el pedido», «ya no», «todavía no,
+  gracias», «lo pienso», «cancela el pedido», «cancela todo». La cotización queda registrada y
+  los datos parciales se borran. Un «no, …» con un correo o un nombre corrige, no cancela.
+- **Una pregunta** sin datos antes del «¿» va al agente sin perder el paso. La respuesta
+  termina una sola vez con el recordatorio («↩️ ¿Seguimos con el pedido…», «↩️ Para el pedido
+  me faltan…» o «↩️ ¿Confirmo el pedido…»); si el mensaje siguiente tampoco sigue el pedido,
+  el paso se suelta.
+
+Por paso:
+
+| Paso | Qué cuenta | Ejemplos |
+|---|---|---|
+| Oferta (`pedido`) | **Datos** solo si trae un correo o un nombre con marca («soy…», «me llamo…», «a nombre de…») o escrito como nombre propio (mayúscula en cada palabra). **Acepta** una afirmación o una frase de compra. Lo demás sigue el resto de las reglas | «Ana Pérez, ana@correo.com» → confirmación; «sí», «sí, adelante», «está bien», «quiero comprarla» → pide los datos; «cuéntame de la empresa» o «ana pérez» → no son datos |
+| Datos (`datos_pedido`) | El correo del mensaje y el **nombre que se pidió**: el que trae marca, el ya dado o, si falta, el mensaje mismo si no es una afirmación ni una muletilla (sin cifras, símbolos ni palabras como «ok», «gracias», «pedido») | «Ana Pérez» → «¿A qué correo…?»; «ana@correo.com» → la confirmación; «ok gracias» → el formato de ejemplo |
+| Confirmación (`confirmar_pedido`) | Un correo o un nombre con marca **corrigen** (aunque el mensaje diga «sí»); un nombre tras «no,» o escrito como nombre propio también. Un «no» solo o «está mal» pregunta qué corregir. **Solo un «sí» sin datos nuevos crea el pedido** | «no, es otro@correo.com», «sí, pero a nombre de Marta Gómez», «Marta Gómez» → confirmación con el dato nuevo; «no» → «¿Qué dato corrijo?…»; «Sí, confírmalo» → el pedido |
+
+Las muletillas de los bordes se quitan («Juan, juan@x.co, gracias» → Juan) y las partículas
+van en minúscula («María de la Cruz»). Tras crear el pedido, «quiero comprarla» responde el
+número que ya existe; tras un rechazo, «hacer el pedido» vuelve a pedir los datos.
+
+**Si Odoo falla**: «No pude crear el pedido en este momento… responde **sí** en unos minutos y
+lo intento de nuevo, o **ahora no** para dejarlo.». Los datos quedan en la confirmación y el
+«sí» reintenta con el mismo folio.
+
+## Recibo del pedido
+
+Pedido del owner (2026-11-26): «si la orden se confirma, se debe guardar en el odoo y se debe
+enviar un correo, además de que se envíe una copia o recibo al cliente (whatsapp o web)».
+
+- **Odoo guarda el pedido** confirmado (ver [Qué queda en Odoo](#qué-queda-en-odoo)).
+- **Odoo envía el correo** con el PDF del pedido al confirmarlo, **cuando haya SMTP** (ver
+  [Correo saliente](#correo-saliente)).
+- **El chat entrega el recibo**, haya o no SMTP: la respuesta al «sí» trae el número del
+  pedido, el folio, la fecha, las líneas, el total con el IVA y el correo de la confirmación,
+  y el **PDF del pedido que generó Odoo** (el mismo del correo: el `ir.attachment` PDF del
+  `sale.order`, que lee `OdooOrders.order_pdf(folio)`).
+
+| Canal | Cómo llega el PDF |
+|---|---|
+| Web | Enlace «📄 Descarga el recibo de tu pedido S…» a `GET /pedidos/{folio}.pdf`, en la respuesta y en el historial. Abre con la **cookie del visitante** dueño de la cotización |
+| WhatsApp con `MEDIA_BASE_URL` | «📄 Te envío el recibo de tu pedido S… en PDF.» y `ADJUNTAR_PDF: <url firmada>`: OpenClaw lo envía como documento, igual que el PDF de la cotización |
+| WhatsApp con solo `PUBLIC_BASE_URL` | «📄 Recibo de tu pedido S… en PDF. Ábrelo aquí:» y el enlace firmado |
+| Sin URL pública | La línea del recibo se quita: no se promete un PDF que no llega |
+
+La ruta (`apps/api/views/pedido_pdf.py`) sirve el PDF solo al dueño de la cotización del folio:
+
+- **Cookie** del chat web, o **enlace firmado** `?t=<vence>.<firma>` (HMAC con
+  `SESSION_SECRET`) con un **dominio de firma propio** (`quote_links.ORDER_DOMAIN`): un enlace
+  del PDF de la cotización no abre el pedido, ni al revés.
+- El enlace firmado **vence a los 7 días** (`MAX_LINK_DAYS`).
+- Sin prueba válida, con la firma vencida o con un folio sin pedido confirmado: **404** «El
+  pedido no existe o el enlace venció.», sin revelar si el folio existe.
+- Sin `ODOO_*` o con Odoo sin responder: **503** «Servicio no disponible.»; el enlace se puede
+  abrir después.
+- Responde `inline; filename="pedido-<folio>.pdf"`, `Cache-Control: private, no-store` y
+  `X-Robots-Tag: noindex`; los logs llevan el folio y el tamaño, nunca datos del cliente.
 
 ## Qué queda en Odoo
 
@@ -65,12 +111,15 @@ el modelo y sin Jev. Las preguntas pendientes son `pedido` (la oferta), `datos_p
 
 El pedido es **idempotente por folio** (`client_order_ref`, sin contar los cancelados):
 
-- Si ya está confirmado (`sale`), se devuelve el existente y no se crea nada.
+- Si ya está confirmado (`sale`), se devuelve el existente y no se crea nada; si le falta la
+  oportunidad (la respuesta de Odoo se perdió tras confirmar), se crea entonces.
 - Si quedó en borrador porque un intento falló antes de confirmarlo, el reintento le pone el
   cliente actual y lo confirma; nunca se anuncia como confirmado un pedido sin confirmar.
 - La oportunidad se crea después de confirmar: un fallo previo no deja oportunidades
   huérfanas, y el reintento sobre un pedido sin oportunidad la crea una vez. Si el CRM, la
   nota o «ganada» fallan, el pedido sigue.
+- Si dos turnos confirman el mismo borrador a la vez, el 422 que Odoo devuelve al segundo no
+  es un fallo cuando el pedido ya quedó en `sale` (`OdooOrders._confirm`).
 
 El cliente se busca con `=ilike` y el correo escapado (`%` y `_` literales). Solo el correo no
 basta para reutilizarlo: quien escribe el correo de otra persona no le pone pedidos en su
@@ -88,13 +137,23 @@ ficha. Odoo admite contactos con el mismo correo; el equipo los fusiona si hace 
   vacían al crear el pedido o al rechazarlo, y se conservan tras un fallo para reintentar.
 - Los logs llevan el folio, el número de pedido y, ante un error de Odoo, el código HTTP y el
   tipo; nunca el nombre, el correo ni el mensaje de Odoo.
-- Una pregunta con «?» va al agente como cualquier pregunta: si trae un nombre que las reglas
-  no reconocen, el modelo lo ve.
+- Lo que las reglas no leen como dato va al agente como cualquier mensaje: una pregunta sin
+  datos antes del «¿», o en la oferta un nombre en minúsculas o mezclado con otras palabras.
+  Si trae un nombre, el modelo lo ve.
+- El recibo en PDF lo descarga solo el dueño de la cotización (cookie o enlace firmado); el
+  PDF viene de Odoo en cada descarga y no se guarda en la app.
 
-**Riesgo residual (pendiente)**: no hay verificación del correo. Cualquiera puede escribir un
-correo ajeno y, al confirmar, Odoo le envía a esa persona la confirmación del pedido. Lo
-mitigan el paso de confirmación, el cupo diario (`DAILY_REQUESTS_LIMIT`) y la allowlist de
-WhatsApp; el chat web solo tiene el cupo.
+**Riesgo residual (pendiente)**:
+
+- **No se verifica que el correo sea del cliente.** Cualquiera puede escribir un correo ajeno
+  y, al confirmar, Odoo le envía a esa persona la confirmación del pedido. Lo mitigan el paso
+  de confirmación, el cupo diario (`DAILY_REQUESTS_LIMIT`) y la allowlist de WhatsApp; el chat
+  web solo tiene el cupo.
+- **El reenvío de un turno** con el mismo `client_turn_id` (reintento del webhook de WhatsApp,
+  doble envío en la web) muestra lo guardado: «(tu nombre)» y el correo enmascarado, no los
+  datos que vio la persona. No filtra nada.
+- **Dos «sí» cruzados** antes de que exista el pedido pueden crear dos pedidos del mismo folio:
+  no hay bloqueo por folio. Si el otro turno ya confirmó, el 422 de Odoo se tolera.
 
 ## Configuración de la app
 
@@ -174,7 +233,8 @@ make up PERFILES=full
 ```
 
 Cotiza algo, confírmalo, acepta el pedido y confirma los datos: aparece en Odoo → Ventas →
-Pedidos (abre la UI con el túnel de arriba en `localhost:8169`). Con `make api` (app nativa)
+Pedidos (abre la UI con el túnel de arriba en `localhost:8169`) y el enlace del recibo de la
+respuesta descarga su PDF. Con `make api` (app nativa)
 basta el túnel en loopback y `ODOO_URL=http://127.0.0.1:8169`.
 
 ## En producción
