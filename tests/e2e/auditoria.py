@@ -264,28 +264,67 @@ def desviaciones_config(base_config: Mapping[str, Any], leidos: Mapping[str, Any
     return problemas
 
 
+def _mapa(valor: Any) -> Mapping[str, Any]:
+    return valor if isinstance(valor, Mapping) else {}
+
+
 def _desviaciones_bindings(regla: Mapping[str, Any], vivo: Any) -> list[str]:
-    ruta, agente = regla["ruta"], regla["agente"]
+    """Solo mensajes directos (2026-11-27): ``agente`` atiende todo el ``canal``.
+
+    El agente lleva un único enlace de canal, sin chat fijo y con una sesión por número
+    (``dm_scope``); cualquier otro agente del canal solo puede estar atado a un chat de tipo
+    ``otros.tipo`` con id fijo (el número de la propia cuenta, que sigue con ``main``). Así
+    ningún otro agente se queda con los mensajes de los números autorizados.
+    """
+
+    ruta, agente, canal = regla["ruta"], regla["agente"], regla["canal"]
     if not isinstance(vivo, list):
         return [f"{ruta}: no es una lista"]
-    propios = [b for b in vivo if isinstance(b, Mapping) and b.get("agentId") == agente]
+    del_canal = [
+        b for b in vivo if isinstance(b, Mapping) and _mapa(b.get("match")).get("channel") == canal
+    ]
+    propios = [b for b in del_canal if b.get("agentId") == agente]
+    otros = [b for b in del_canal if b.get("agentId") != agente]
     if not propios:
-        return [f"{ruta}: el agente {agente!r} no está enlazado a nada"]
+        return [f"{ruta}: el agente {agente!r} no está enlazado al canal {canal!r}"]
+
     problemas: list[str] = []
+    if len(propios) > 1:
+        problemas.append(f"{ruta}: {agente!r} tiene {len(propios)} enlaces en {canal!r} (uno solo)")
     for indice, enlace in enumerate(propios):
-        crudo = enlace.get("match")
-        match: Mapping[str, Any] = crudo if isinstance(crudo, Mapping) else {}
-        crudo_peer = match.get("peer")
-        peer: Mapping[str, Any] = crudo_peer if isinstance(crudo_peer, Mapping) else {}
-        canal, tipo = match.get("channel"), peer.get("kind")
-        if canal != regla["canal"] or tipo != regla["tipo"] or not peer.get("id"):
+        match = _mapa(enlace.get("match"))
+        if match.get("peer"):
             problemas.append(
-                f"{ruta}: el enlace #{indice} de {agente!r} es {canal!r}/{tipo!r}; "
-                f"solo se permite {regla['canal']!r}/{regla['tipo']!r} con id fijo"
+                f"{ruta}: el enlace #{indice} de {agente!r} está atado a un chat; "
+                f"debe cubrir todo el canal {canal!r}"
             )
-    maximo = regla.get("maximo")
-    if maximo is not None and len(propios) > int(maximo):
-        problemas.append(f"{ruta}: {agente!r} tiene {len(propios)} enlaces (máximo {maximo})")
+        # Una cuenta fija dejaría fuera a los autorizados que entren por otra cuenta.
+        if match.get("accountId", "*") != "*":
+            problemas.append(
+                f"{ruta}: el enlace #{indice} de {agente!r} está atado a la cuenta "
+                f"{match.get('accountId')!r}; debe cubrir todas las cuentas "
+                "(accountId «*» o sin él)"
+            )
+        alcance = _mapa(enlace.get("session")).get("dmScope")
+        if alcance != regla["dm_scope"]:
+            problemas.append(
+                f"{ruta}: el enlace #{indice} de {agente!r} tiene dmScope {alcance!r}; se espera "
+                f"{regla['dm_scope']!r} (una sesión por número)"
+            )
+
+    excepcion = _mapa(regla.get("otros"))
+    for enlace in otros:
+        peer = _mapa(_mapa(enlace.get("match")).get("peer"))
+        if peer.get("kind") != excepcion.get("tipo") or not peer.get("id"):
+            problemas.append(
+                f"{ruta}: {enlace.get('agentId')!r} recibe {canal!r}/{peer.get('kind')!r}; "
+                f"fuera de {agente!r} solo se permite {excepcion.get('tipo')!r} con id fijo"
+            )
+    maximo = excepcion.get("maximo")
+    if maximo is not None and len(otros) > int(maximo):
+        problemas.append(
+            f"{ruta}: {len(otros)} enlaces de otros agentes en {canal!r} (máximo {maximo})"
+        )
     return problemas
 
 

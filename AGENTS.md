@@ -184,6 +184,12 @@ OpenCode). Convierten las reglas de este archivo en pasos ejecutables:
   commit, CONSTITUTION, etiquetas, assignee y merge con la rama al día y `Calidad` en verde.
 - [`evaluar-agente`](./.claude/skills/evaluar-agente/SKILL.md) — enrutador,
   retrieval y cotizador contra la línea base, con criterios de regresión.
+- [`atender-revision`](./.claude/skills/atender-revision/SKILL.md) — rondas de
+  revisión del bot y humanas (verificar, arreglar o refutar, responder y resolver),
+  merge con `CLEAN` y comprobación del despliegue.
+- [`ensayo-produccion`](./.claude/skills/ensayo-produccion/SKILL.md) — todas las
+  pruebas contra producción (también WhatsApp real con foto y voz), métricas, análisis de
+  transcripciones e informe en PDF.
 
 Si una skill contradice este archivo, manda `AGENTS.md` y la skill se corrige en
 el mismo commit.

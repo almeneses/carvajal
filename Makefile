@@ -5,7 +5,7 @@
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean ensayo ensayo-completo ensayo-exploracion ensayo-pedido e2e smoke
+.PHONY: help install dev pre-commit-install pre-commit lint format format-check typecheck test test-integration check build api image up down prod-up prod-down prod-bootstrap db db-down qdrant qdrant-down index index-eval sync sync-verify ingest eval eval-agent import clean ensayo ensayo-completo ensayo-exploracion ensayo-pedido ensayo-whatsapp-real e2e smoke
 
 help: ## Muestra esta ayuda
 	@echo "Uso: make [objetivo]"
@@ -46,6 +46,7 @@ help: ## Muestra esta ayuda
 	@echo "  ensayo-completo    Ensayo e2e completo: flujos, memoria y fotos (gasta tokens)"
 	@echo "  ensayo-exploracion Guiones para leer: transcripciones y alertas (gasta tokens)"
 	@echo "  ensayo-pedido      Pedido real en Odoo por web y WhatsApp (spec 056; crea pedidos)"
+	@echo "  ensayo-whatsapp-real Conversación real por WhatsApp Web (escribe en allowFrom durante la prueba)"
 	@echo "  clean              Limpia cachés y artefactos"
 
 install: ## Sincroniza el entorno virtual e instala dependencias (incluidos los extras)
@@ -99,6 +100,11 @@ ensayo-exploracion: ## ~30 guiones por WhatsApp y web: transcripciones e informe
 # (docs/ensayo.md, «Borrar o cancelar los pedidos del ensayo»).
 ensayo-pedido: ## Pedidos reales en Odoo por web y WhatsApp, también con foto, texto y voz (spec 056)
 	$(ENSAYO_ENV) ENSAYO_PEDIDO=1 uv run pytest tests/e2e -m ensayo -k "pedido_en_odoo or foto_texto_y_voz" -rA -p no:cacheprovider
+
+# Escribe en allowFrom del gateway solo durante la prueba (docs/ensayo.md, «Conversación por
+# WhatsApp real (foto y voz)»).
+ensayo-whatsapp-real: ## Conversación real por WhatsApp Web (Firefox): texto, foto y nota de voz grabada
+	$(ENSAYO_ENV) ENSAYO_WA_CONVERSACION=1 uv run pytest tests/e2e/test_whatsapp_real_conversacion.py -rA -p no:cacheprovider
 
 test-integration: ## Ejecuta las pruebas de integración (requiere Docker)
 	@if grep -rq "pytest.mark.integration" tests; then \
