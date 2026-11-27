@@ -122,6 +122,7 @@ from carvajal.prompts import (
     FIXED_DIRECT_ANSWERS,
     GATEKEEPER_CAUTION,
 )
+from carvajal.quotation.cards import compact_cards
 
 __all__ = [
     "CANCEL_KEY",
@@ -298,13 +299,15 @@ def history_messages(turns: Sequence[Turn], limit: int) -> list[BaseMessage]:
     """Últimos ``limit`` turnos como pares ``HumanMessage``/``AIMessage`` (research R7).
 
     Solo viaja el texto final de cada turno; un turno sin pregunta o sin respuesta se
-    omite para no dejar un mensaje del usuario sin réplica.
+    omite para no dejar un mensaje del usuario sin réplica. Las tarjetas del flujo de la
+    respuesta viajan resumidas en una línea neutra (:func:`compact_cards`): el modelo las
+    imitaba con un carrito y un total inventados (ensayo del 2026-11-27).
     """
 
     messages: list[BaseMessage] = []
     for turn in list(turns)[-limit:] if limit > 0 else []:
         question = str(turn.get("question") or "").strip()
-        answer = str(turn.get("answer") or "").strip()
+        answer = compact_cards(str(turn.get("answer") or "").strip())
         if question and answer:
             messages.extend([HumanMessage(content=question), AIMessage(content=answer)])
     return messages
