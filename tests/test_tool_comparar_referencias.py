@@ -17,18 +17,19 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from tests.fakes.catalogo import book_sin_proyecciones, catalog_sin_proyecciones
 
 from carvajal.agent.toolagent.tools import comparar_referencias as mod
 from carvajal.agent.toolagent.tools._base import ToolContext, ToolDeps, _Draft, _Sources
 from carvajal.application.ports import ScoredChunk
-from carvajal.catalog.loader import load_catalog
 from carvajal.commercial.book import CommercialBook
-from carvajal.commercial.loader import load_commercial_book
 from carvajal.domain.entities import Chunk
 from carvajal.infrastructure.settings import Settings
 
-CATALOG = load_catalog()
-BOOK = load_commercial_book()
+# Datos reales sin los precios proyectados (2026-11-26): la herramienta se prueba con el
+# catálogo de antes; la proyección se prueba en ``test_catalog_projection``.
+CATALOG = catalog_sin_proyecciones()
+BOOK = book_sin_proyecciones()
 NOW = datetime(2026, 11, 24, 15, 0, tzinfo=UTC)
 EDEXA_BOGOTA = "CO-SEDE-9F23E89A16"  # sede de EDEXA que publica los dos contenedores
 

@@ -1,4 +1,4 @@
-"""Sincroniza el catálogo de Colombia con Odoo (spec 055).
+"""Sincroniza el catálogo de Colombia con Odoo (spec 056).
 
 Crea o actualiza un producto por referencia (``default_code`` = SKU) con el precio por caja
 de la ficha o, si la ficha no lo publica, el de la primera oferta en COP de

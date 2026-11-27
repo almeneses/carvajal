@@ -1,4 +1,4 @@
-"""Regresiones del paso del pedido tras el folio (spec 055, revisión del commit b893c28).
+"""Regresiones del paso del pedido tras el folio (spec 056, revisión del commit b893c28).
 
 Una prueba por comportamiento corregido: muletillas y rechazos que no son nombres, el correo
 dictado por voz, preguntas a mitad del pedido (el paso se conserva y se recuerda una vez),

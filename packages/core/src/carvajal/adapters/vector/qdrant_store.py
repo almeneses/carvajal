@@ -8,6 +8,16 @@ pueda abrir el documento original.
 Los IDs de punto son UUID5 estables derivados de ``documento:posición:hash``:
 reindexar el mismo corpus produce los mismos IDs y la poda elimina los puntos
 que ya no existen.
+
+Índices de payload (2026-11-26): ``layer``, ``section`` y ``document_id`` son filtros de
+cada búsqueda (el núcleo son ~125 de 118 248 puntos) y de la indexación. Sin índice, Qdrant
+recorre el grafo HNSW leyendo el payload de cada candidato (``on_disk_payload``) hasta
+reunir los que cumplen el filtro; con el índice estima la cardinalidad y puntúa el núcleo
+entero sin recorrer el grafo. :meth:`QdrantVectorStore.ensure_payload_indexes` los crea si
+faltan y solo lo llama la CLI ``index-qdrant``: nunca la app ni el MCP, que pasan por
+``index_gold`` en cada carga de Configuración y en cada captura web. Construirlos sobre una
+colección grande es una operación de datos que decide el owner. ``ensure_collection`` solo
+los crea junto a una colección nueva, vacía, donde no cuestan nada.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -15,6 +25,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from uuid import UUID, uuid5
 
+import structlog
 from qdrant_client import QdrantClient, models
 
 from carvajal.application.ports import ScoredChunk
@@ -22,6 +33,7 @@ from carvajal.application.sync import sync_fingerprint
 from carvajal.domain.entities import Chunk
 
 __all__ = [
+    "PAYLOAD_INDEXES",
     "ExistingPoints",
     "QdrantVectorStore",
     "fingerprint_for",
@@ -29,6 +41,15 @@ __all__ = [
     "payload_for",
     "point_id",
 ]
+
+logger = structlog.get_logger(__name__)
+
+PAYLOAD_INDEXES: dict[str, models.PayloadSchemaType] = {
+    "layer": models.PayloadSchemaType.KEYWORD,
+    "section": models.PayloadSchemaType.KEYWORD,
+    "document_id": models.PayloadSchemaType.KEYWORD,
+}
+"""Campos del payload con índice: los que filtran la búsqueda y la indexación."""
 
 _NAMESPACE = UUID("6f0b8d9a-3c2e-5a7b-9e4d-1f2a3b4c5d6e")
 # Documentos por consulta al buscar los IDs existentes: no existe una lista
@@ -166,7 +187,11 @@ class QdrantVectorStore:
 
         Devuelve ``True`` si la creó en esta llamada. Una colección existente
         con otra dimensión o distancia es un error de configuración: mezclar
-        vectores incompatibles produce resultados silenciosamente malos.
+        vectores incompatibles produce resultados silenciosamente malos. Solo una colección
+        nueva (vacía) nace con los índices de payload; a una existente no se los añade, porque
+        también la llama la app web (``index_gold`` en Configuración y en la captura) y
+        construirlos sobre ~118 k puntos dentro de una petición HTTP no le corresponde:
+        eso lo hace ``index-qdrant`` (:meth:`ensure_payload_indexes`).
         """
 
         if not self._client.collection_exists(self._collection):
@@ -177,6 +202,7 @@ class QdrantVectorStore:
                     distance=self._distance,
                 ),
             )
+            self.ensure_payload_indexes()
             return True
         info = self._client.get_collection(self._collection)
         vectors = info.config.params.vectors
@@ -192,6 +218,32 @@ class QdrantVectorStore:
                     f"la configuración exige {self._distance}."
                 )
         return False
+
+    def ensure_payload_indexes(self) -> list[str]:
+        """Crea los índices de :data:`PAYLOAD_INDEXES` que falten; devuelve los creados.
+
+        Solo para la CLI ``index-qdrant``. Idempotente: lee ``payload_schema`` de la
+        colección y no toca los que ya existen.
+        Construir el índice de un campo sobre 118 248 puntos tarda segundos y no cambia
+        ningún punto; ``wait=True`` deja el índice listo antes de seguir indexando.
+        """
+
+        info = self._client.get_collection(self._collection)
+        present = set(getattr(info, "payload_schema", None) or {})
+        created: list[str] = []
+        for field, schema in PAYLOAD_INDEXES.items():
+            if field in present:
+                continue
+            self._client.create_payload_index(
+                collection_name=self._collection,
+                field_name=field,
+                field_schema=schema,
+                wait=True,
+            )
+            created.append(field)
+        if created:
+            logger.info("qdrant.payload_index_created", collection=self._collection, fields=created)
+        return created
 
     def upsert(
         self,

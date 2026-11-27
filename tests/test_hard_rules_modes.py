@@ -28,6 +28,7 @@ Los casos comerciales usan el catálogo y el contrato reales, como ``test_sc_036
 
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
@@ -35,6 +36,11 @@ import pytest
 from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.memory import InMemoryStore
+from tests.fakes.catalogo import (
+    book_sin_proyecciones,
+    catalog_sin_proyecciones,
+    dataset_sin_proyecciones,
+)
 from tests.fakes.tool_chat import ScriptedToolChat, ScriptStep
 from tests.test_agent_graph import HIT, FakeEmbedder, FakeVectorStore
 
@@ -93,6 +99,7 @@ class RunTurn(Protocol):
         *,
         hits: Sequence[ScoredChunk] = (),
         catalog: Catalog | None = None,
+        sin_proyecciones: bool = False,
     ) -> HardRuleTurn: ...
 
 
@@ -124,6 +131,7 @@ def _tools_turn(
     *,
     store: FakeVectorStore,
     catalog: Catalog | None,
+    extra: dict[str, Any] | None = None,
 ) -> HardRuleTurn:
     """Turno del grafo ``tools`` guiado por ``ScriptedToolChat`` a través de su adaptador.
 
@@ -135,7 +143,7 @@ def _tools_turn(
 
     settings = Settings(_env_file=None, agent_mode="tools")  # type: ignore[call-arg]
     chat = ScriptedToolChat(steps=list(script))
-    deps = ToolDeps(store, FakeEmbedder(), settings, catalog=catalog)
+    deps = ToolDeps(store, FakeEmbedder(), settings, catalog=catalog, **(extra or {}))
     graph = build_tool_agent(deps, chat, checkpointer=InMemorySaver(), store=InMemoryStore())
     events = list(
         ToolAgentRunner(graph, settings).stream("dueno-reglas", "hilo-reglas", question, [])
@@ -168,12 +176,22 @@ def run_turn() -> RunTurn:
         *,
         hits: Sequence[ScoredChunk] = (),
         catalog: Catalog | None = None,
+        sin_proyecciones: bool = False,
     ) -> HardRuleTurn:
         store = FakeVectorStore(hits)
+        extra: dict[str, Any] = {}
+        if sin_proyecciones:
+            # Datos reales sin los precios proyectados (2026-11-26): el catálogo de antes,
+            # donde hay referencias sin precio con que probar la regla.
+            catalog = catalog_sin_proyecciones()
+            extra = {
+                "book": book_sin_proyecciones(),
+                "dataset": dataset_sin_proyecciones(date.today()),
+            }
         if mode == "routes":
             return _routes_turn(question, store=store, catalog=catalog)
         if mode == "tools":
-            return _tools_turn(question, script, store=store, catalog=catalog)
+            return _tools_turn(question, script, store=store, catalog=catalog, extra=extra)
         raise ValueError(f"modo desconocido: {mode}")
 
     return run
@@ -263,14 +281,18 @@ def test_eps_pedido_por_nombre_no_se_cotiza_para_bebida_caliente(
     # Act
     turn = run_turn(mode, question, script)
 
-    # Assert: ni EPS para caliente ni otro material en su lugar (reporte del 2026-11-25:
-    # «vasos de papel» cotizaba un vaso de PP). Pedir icopor y recibir otro material es
-    # cotizar algo que la persona no pidió; si quiere otro, lo dice en el siguiente turno.
+    # Assert: la temperatura falsa («ambiente») no cuela un EPS que no sirva para caliente, y
+    # no se cotiza otro material en su lugar (reporte del 2026-11-25). El EPS que sí se
+    # cotiza es el que su propia ficha declara para bebida caliente (el vaso térmico Wau de
+    # Colombia, con precio proyectado desde el 2026-11-26): la guía de materiales manda.
+    catalog = {reference.sku: reference for reference in load_catalog().references}
     quotes = [item for item in _quotes(turn.products) if item.get("kind") == "cotizacion"]
     for quote in quotes:
         quoted = [quote["primary"], *(quote.get("alternatives") or [])]
-        assert "EPS" not in [item.get("material") for item in quoted]
-    assert quotes == [], "no se cotiza otro material en lugar del icopor pedido"
+        for item in quoted:
+            reference = catalog[item["sku"]]
+            assert reference.material == "EPS", "no se cotiza otro material"
+            assert "bebida_caliente" in reference.uses, reference.sku
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -333,8 +355,8 @@ def test_precio_ausente_se_declara_sin_estimar(mode: str, run_turn: RunTurn) -> 
         ScriptStep(text="Hay vasos rígidos con precio publicado y uno sin precio."),
     ]
 
-    # Act
-    turn = run_turn(mode, question, script)
+    # Act: con el catálogo de antes de la proyección, donde hay vasos sin precio.
+    turn = run_turn(mode, question, script, sin_proyecciones=True)
 
     # Assert
     options = turn.products.get("options", [])

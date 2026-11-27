@@ -7,7 +7,7 @@ o depende del agente. Los pasos deterministas se comprueban estrictos; los del a
 contra un conjunto de estados permitidos y, si se desvían, el guion se repite una vez en un
 hilo nuevo. Nunca se comparan precios: cambian con el catálogo y la ciudad.
 
-Con el CRM configurado (spec 055) el folio termina ofreciendo el pedido y deja el flujo en
+Con el CRM configurado (spec 056) el folio termina ofreciendo el pedido y deja el flujo en
 ``awaiting="pedido"``: un «sí» ya no repite el folio, acepta el pedido. :func:`cierre` lo
 rechaza con «ahora no» cuando hay oferta, y el pedido completo es un escenario aparte
 (:func:`ejecutar_pedido`: nombre y correo, la confirmación de los datos y el pedido) que crea
@@ -34,7 +34,7 @@ FOTO_NO_DISPONIBLE = "No pude analizar la foto"
 PISTA_FOTO = ("¿Te cotizo alguna?", "¿Te la cotizo?")
 FOLIO = re.compile(r"Cotización #([0-9a-f]{12}) registrada")
 SOLO_FOLIO = re.compile(r"^[0-9a-f]{12}$")
-# Spec 055: la oferta del pedido tras el folio (``render.ORDER_OFFER``), la confirmación de
+# Spec 056: la oferta del pedido tras el folio (``render.ORDER_OFFER``), la confirmación de
 # los datos (``render.confirm_buyer``), el fallo de Odoo (``render.order_failed``) y el número
 # del pedido en Odoo (``render.order_placed``).
 OFERTA_PEDIDO = "¿Quieres hacer el pedido?"
@@ -225,7 +225,7 @@ REGISTRO = Paso("sí", marcas=("Cotización #", "registrada"), registra=True)
 def cierre(registrar: bool) -> tuple[Paso, ...]:
     """Desde ``confirmar``: «sí» registra (y un segundo «sí» no duplica) o «cancela todo».
 
-    Si el folio ofrece el pedido (spec 055, ``awaiting="pedido"``), un «sí» lo aceptaría y
+    Si el folio ofrece el pedido (spec 056, ``awaiting="pedido"``), un «sí» lo aceptaría y
     pediría nombre y correo: antes del segundo «sí», «ahora no» rechaza el pedido. Sin el CRM
     ese paso se salta y el guion queda como en la spec 054.
     """
@@ -357,7 +357,7 @@ def pasos_tras_foto(registrar: bool) -> tuple[Paso, ...]:
     )
 
 
-# --- Pedido en Odoo (spec 055) ----------------------------------------------------------
+# --- Pedido en Odoo (spec 056) ----------------------------------------------------------
 
 
 def _hasta_el_folio(_registrar: bool) -> tuple[Paso, ...]:
@@ -511,7 +511,7 @@ def ejecutar_pedido(
     if OFERTA_PEDIDO not in registro.texto:
         raise PedidosApagados(
             f"el folio #{folio} no ofrece el pedido: la app no tiene ODOO_URL/ODOO_DB/"
-            "ODOO_API_KEY (spec 055)"
+            "ODOO_API_KEY (spec 056)"
         )
     ejecutar_pasos(
         canal,

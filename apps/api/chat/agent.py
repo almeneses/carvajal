@@ -44,6 +44,7 @@ from carvajal.agent.toolagent.evidence import (
     missing_fields,
     neutral_only,
     out_of_scope,
+    presented_data,
     sites_without_price,
     tool_misses,
     unsupported_terms,
@@ -388,10 +389,13 @@ class ToolStreamRunner(Protocol):
         thread_id: str,
         question: str,
         seed_turns: Sequence[Turn],
+        *,
+        draft: Any = None,
     ) -> Iterator[ToolAgentEvent]:
         """Ejecuta el grafo y produce ``status``, fuentes, ``token`` y un ``ToolAgentFinal``.
 
         Cerrar el iterador cancela el turno: el grafo deja de generar y de consultar.
+        ``draft`` es el borrador de la cotización del hilo (spec 054), para la compuerta.
         """
 
         ...
@@ -446,7 +450,7 @@ class _ClaimsGate:
 
     judge: ClaimsJudge | None = None
     mode: str = "off"
-    threshold: float = 0.5
+    threshold: float = 0.3
     timeout_s: float = 0.8
     settings: Any = None
     remaining: Callable[[], float] = lambda: math.inf
@@ -489,9 +493,13 @@ class _TurnStream:
         seed_turns: Sequence[Turn] = (),
         turn_count: int | None = None,
         claims: _ClaimsGate | None = None,
+        draft: Any = None,
     ) -> None:
         self.question = question
         self.gate_claims = claims or _ClaimsGate()
+        # Borrador de la cotización con el que empezó el turno (spec 054): sus líneas viajan
+        # a la compuerta de afirmaciones como evidencia (``draft_extract``).
+        self.draft = draft
         # Línea de estado de la revisión: se emite una vez, tras la última de herramienta.
         self.reviewing = False
         # Veredicto pendiente: la línea de revisión sale antes de la llamada a Jev y el
@@ -796,6 +804,13 @@ class _TurnStream:
         if verdict == "unsupported" and self.gate_claims.holds:
             self.claims["substituted"] = True
             replacement = self._replacement()
+            if not replacement:
+                # Turno que solo presentaba datos deterministas (opciones del catálogo,
+                # sedes): el reemplazo los presenta en vez de «No tengo un dato verificado…»,
+                # que contradecía las tarjetas (ensayo del 2026-11-26).
+                replacement = presented_data(self.tool_payloads)
+                if replacement:
+                    logger.info("claims.replaced_with_data", tools=self._turn_tools())
             if replacement:
                 return self._replace(replacement, 0)
             return self._abstain(path, 0)
@@ -828,6 +843,8 @@ class _TurnStream:
             self.values.get("memory"),
             settings=gate.settings,
             prior_questions=self._prior_person_texts(),
+            earlier_questions=self._earlier_person_texts(),
+            draft=self.draft,
         )
         try:
             verdict = gate.judge.check(query)
@@ -854,12 +871,15 @@ class _TurnStream:
             mode=gate.mode,
             # Sin texto: solo qué herramientas respaldaban y el largo de lo juzgado, para
             # separar las sustituciones por tipo de turno (medición del 2026-11-26).
-            tools=sorted({tool for tool, _ in self.tool_payloads}),
+            tools=self._turn_tools(),
             answer_chars=len(text),
         )
         if gate.stats is not None:
             gate.stats.record(status, p=verdict.p_supported, substituted=substituted)
         return status
+
+    def _turn_tools(self) -> list[str]:
+        return sorted({tool for tool, _ in self.tool_payloads})
 
     def _claims_unavailable(self, reason: str, jev: Mapping[str, Any] | None = None) -> str:
         self.claims.update(status="unavailable", reason=reason, jev=dict(jev) if jev else None)
@@ -1023,13 +1043,11 @@ class _TurnStream:
         """
 
         context = self.prior_context
-        summary = ConversationSummary.from_value(self.values.get("conversation_summary"))
         memory = self.values.get("memory") or {}
         results = self.values.get("results") or []
         return [
             self.question,
-            *self._seed_questions(),
-            *(summary.user_quotes if summary is not None else ()),
+            *self._earlier_person_texts(),
             *self.tool_texts,
             json.dumps(context, ensure_ascii=False, default=str) if context else "",
             *_preferred_names(memory),
@@ -1046,6 +1064,20 @@ class _TurnStream:
         summary = ConversationSummary.from_value(self.values.get("conversation_summary"))
         return [
             *(str(turn.get("question") or "") for turn in self.seed),
+            *(summary.user_quotes if summary is not None else ()),
+        ]
+
+    def _earlier_person_texts(self) -> list[str]:
+        """Lo que la persona dijo antes en la ventana del turno: respalda lo que repite.
+
+        Las preguntas de la semilla posteriores a «olvidar todo» y las ``user_quotes`` del
+        resumen (spec 045, R4). La compuerta determinista las usa enteras (``_allowed``); a
+        Jev solo viajan sus valores estructurados (``said_before``).
+        """
+
+        summary = ConversationSummary.from_value(self.values.get("conversation_summary"))
+        return [
+            *self._seed_questions(),
             *(summary.user_quotes if summary is not None else ()),
         ]
 
@@ -1272,8 +1304,14 @@ class ToolAgentRunner:
         thread_id: str,
         question: str,
         seed_turns: Sequence[Turn],
+        *,
+        draft: Any = None,
     ) -> Iterator[ToolAgentEvent]:
-        """Ejecuta el turno en el hilo y produce sus eventos; el último es el final."""
+        """Ejecuta el turno en el hilo y produce sus eventos; el último es el final.
+
+        ``draft`` es el borrador de la cotización con el que empieza el turno (spec 054):
+        solo lo lee la compuerta de afirmaciones, como evidencia.
+        """
 
         cleaned = validate_question(question)
         turns = list(seed_turns)
@@ -1283,14 +1321,14 @@ class ToolAgentRunner:
         gate = _ClaimsGate(
             judge=self._claims_judge if mode != "off" else None,
             mode=mode,
-            threshold=float(getattr(self._settings, "jev_claims_threshold", 0.5)),
+            threshold=float(getattr(self._settings, "jev_claims_threshold", 0.3)),
             timeout_s=float(getattr(self._settings, "jev_timeout_s", 0.8)),
             settings=self._settings,
             remaining=lambda: timeout_s - (self._clock() - started),
             begin_text=lambda: deadline.begin_text(),
             stats=self._claims_stats,
         )
-        state = _TurnStream(cleaned, turns, turn_count, gate)
+        state = _TurnStream(cleaned, turns, turn_count, gate, draft=draft)
         cancel = TurnCancel()
         config = cancel.config(
             {

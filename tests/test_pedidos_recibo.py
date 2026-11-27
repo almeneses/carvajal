@@ -1,4 +1,4 @@
-"""Recibo del pedido confirmado (spec 055): PDF de Odoo por la web y por WhatsApp.
+"""Recibo del pedido confirmado (spec 056): PDF de Odoo por la web y por WhatsApp.
 
 Tras el «sí» final, el chat muestra el recibo (número, folio, fecha, líneas y total) y
 termina en «📄 Te envío el recibo del pedido en PDF.». Cada canal cambia esa promesa: la web

@@ -350,7 +350,7 @@ def test_health_publica_los_contadores_de_la_compuerta(monkeypatch: pytest.Monke
     assert response.json()["agent"]["mode_expected"] == "tools"
     claims = response.json()["claims"]
     assert claims["mode"] == "enforce"
-    assert claims["threshold"] == 0.5
+    assert claims["threshold"] == 0.3
     assert (claims["judged"], claims["substituted"]) == (4, 1)
     assert claims["substitution_rate"] == 0.25
     assert claims["unavailable"] == {"timeout": 1}

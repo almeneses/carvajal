@@ -1,4 +1,4 @@
-"""Pedido en Odoo a partir de una cotización registrada (spec 055).
+"""Pedido en Odoo a partir de una cotización registrada (spec 056).
 
 Cubre lo puro (datos de quien compra, intención de compra y líneas del pedido), el adaptador
 JSON-2 contra un transporte simulado y el flujo completo en el servicio del chat: folio →

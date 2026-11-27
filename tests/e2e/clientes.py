@@ -74,7 +74,7 @@ class Config:
     media_dir: str
     firefox_marionette: str
     wa_bot: str
-    pedido: bool = False  # ENSAYO_PEDIDO: crea un pedido real en Odoo (spec 055)
+    pedido: bool = False  # ENSAYO_PEDIDO: crea un pedido real en Odoo (spec 056)
 
     @classmethod
     def desde_entorno(cls) -> Config:

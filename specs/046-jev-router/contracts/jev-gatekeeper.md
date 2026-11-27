@@ -162,6 +162,27 @@ mínima). Lo que la persona dijo y puede aparecer en la respuesta va como el ext
 (cantidad, capacidad o medida, familia, uso, temperatura, ciudad, indicador, período),
 pasados por `redact`; si no hay ninguno, el extracto no se envía.
 
+Desde el 2026-11-26 (evidencia §10.3: los pedidos del dato que repetían lo dicho dos turnos
+antes eran la clase más clara de falsos positivos):
+
+- `dicho_por_la_persona` suma, tras `| en mensajes anteriores: `, los valores estructurados
+  de los mensajes anteriores de la ventana del turno (semilla posterior a «olvidar todo» y
+  `user_quotes` del resumen) que el turno no reemplaza. Solo viaja el último valor de cada
+  campo: tras «500 vasos» y «mejor 800 vasos» queda `cantidad: 800`, y una respuesta que
+  repite el 500 corregido no queda respaldada. Cantidad, capacidad, uso y temperatura son
+  del producto del mensaje (su familia o la última nombrada): «500 vasos» sigue vigente tras
+  «300 tapas» y las de productos distintos viajan separadas por « / ». Lo que dice el turno
+  reemplaza lo anterior del mismo campo y producto. Nunca el texto de esos mensajes.
+- `borrador_de_cotizacion` (si el hilo tiene borrador de la spec 054 no cancelado): por
+  línea, el producto, las unidades, la ciudad y el subtotal que calculó el motor; con una
+  lista de referencias por elegir, sus nombres y la cantidad y la ciudad de la solicitud.
+  Sin folio, vendedor ni contactos; cada línea pasa por `redact`.
+
+```json
+{"consulta": "dicho_por_la_persona", "texto": "cantidad: 300; familia: tapa | en mensajes anteriores: cantidad: 500; familia: vaso; capacidad: 9 oz; ciudad: Bogotá"}
+{"consulta": "borrador_de_cotizacion", "texto": "1. Plato espumado pando 12 cm Wau · 500 und · Bogotá · subtotal 43700 COP"}
+```
+
 Textos iniciales (los de la prueba del 2026-11-24, 19/20 con etiquetas corregidas, con la
 referencia a `pregunta` cambiada a `dicho_por_la_persona` y las reglas del owner y de la
 revisión marcadas con ⁺; se miden con `claims_046.json`):
@@ -186,7 +207,8 @@ revisión marcadas con ⁺; se miden con `claims_046.json`):
 
 Respuesta esperada: `{"answers": {"respaldo": {"type": "noul", "noul": 0.22}}, "model": …,
 "usage": …}`. Validación: `noul` en [0, 1]. Veredicto: `unsupported` si `noul <
-JEV_CLAIMS_THRESHOLD` (0,5); `supported` si no.
+JEV_CLAIMS_THRESHOLD` (0,3 desde el 2026-11-26; antes 0,5, ver `evidencia.md` §10.7);
+`supported` si no.
 
 ### Cuándo se juzga
 
@@ -213,8 +235,12 @@ asistente («soy un asistente virtual de Carvajal») y la persona recibiría `NO
 ### Sustitución
 
 `unsupported` → el texto del modelo no se emite. Se emite `_replacement()` si devuelve texto
-(conserva fuentes) y, si no, `_abstain()` (abstención ajustada a lo consultado, sin
-fuentes). `claims.substituted = true`, `ToolAgentFinal.abstained` según el caso. Se persiste
+(conserva fuentes); si no, y el turno solo consultó búsquedas deterministas (`buscar_producto`,
+`buscar_sedes`; desde el 2026-11-26), `presented_data()`: las opciones aptas (nombre, SKU,
+material, capacidad y cita, como las tarjetas) y las sedes del directorio, sin redacción del
+modelo; si no, `_abstain()` (abstención ajustada a lo consultado, sin fuentes). Con una
+cotización de `cotizar` el reemplazo sigue siendo la abstención, que el servicio cambia por la
+plantilla de opciones o de la línea agregada (spec 054). `claims.substituted = true`, `ToolAgentFinal.abstained` según el caso. Se persiste
 y se devuelve por la API y por WhatsApp el texto sustituto.
 
 ### Retención
@@ -263,7 +289,8 @@ muestra a la persona. Sin reintentos dentro del turno.
 | Gatekeeper | `contexto` (opcional) | pregunta anterior de la persona, solo si la actual es elíptica o tiene ≤ 6 palabras; `outgoing_question`, ≤ 160 |
 | Compuerta | `respuesta` | `outgoing_answer`, ≤ 8 000 caracteres |
 | Compuerta | `evidencia` | datos de las consultas del turno que pueden respaldar (criterio de `_tool_backing`), sin `sin_consulta`, memoria ni errores; del corpus, solo fragmentos citados si hay citas; folios como `[folio]`; tope `JEV_MAX_EVIDENCE_CHARS` |
-| Compuerta | `evidencia` (`dicho_por_la_persona`) | solo los valores estructurados que la persona dio (extracción de las reglas), pasados por `redact`; se omite si no hay ninguno |
+| Compuerta | `evidencia` (`dicho_por_la_persona`) | solo los valores estructurados que la persona dio en el turno y en los mensajes anteriores de la ventana (extracción de las reglas), pasados por `redact`; se omite si no hay ninguno |
+| Compuerta | `evidencia` (`borrador_de_cotizacion`) | líneas del borrador (producto, unidades, ciudad, subtotal del motor) y referencias por elegir; sin folio ni contactos; `redact`; se omite sin borrador o si está cancelado |
 
 `outgoing_question(text, memory)`: `redact(text)` (045) → enmascara con `[dato de la
 persona]` el nombre y la empresa que `classify(text)` detecta (la empresa, solo con un
@@ -283,7 +310,8 @@ dio ese celular, queda «te escribo al [dato omitido]».
 `owner_key`, `thread_id`, `conversation_id`, número de WhatsApp,
 cookies, cabeceras de la sesión, la memoria del dueño (como bloque), el resumen de la
 conversación, el contexto comercial, respuestas de turnos anteriores, `seed_turns` (salvo la
-línea de contexto), IP ni `request_id`.
+línea de contexto y los valores estructurados de `dicho_por_la_persona`), el borrador como
+bloque (solo `borrador_de_cotizacion`), IP ni `request_id`.
 
 **Nunca se registra** (logs, traza SSE, LangSmith con cualquier `content`, Sentry, libro de
 llamadas):

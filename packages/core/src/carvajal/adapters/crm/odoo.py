@@ -1,4 +1,4 @@
-"""Odoo 19 por la API JSON-2 (spec 055): pedidos de venta, oportunidades y catálogo.
+"""Odoo 19 por la API JSON-2 (spec 056): pedidos de venta, oportunidades y catálogo.
 
 Cada llamada es ``POST {url}/json/2/{modelo}/{método}`` con la API key del usuario técnico
 (``Authorization: bearer``) y la base en ``X-Odoo-Database``; el cuerpo lleva los

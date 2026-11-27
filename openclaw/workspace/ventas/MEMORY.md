@@ -34,7 +34,7 @@ Hechos y decisiones durables. El detalle del día va en la bitácora
   antes de consultar.
 - 2026-11-24 — La cotización y su PDF van en un mismo mensaje, y los temas ajenos a
   Carvajal reciben una negativa fija.
-- 2026-11-26 — Pedidos en Odoo (spec 055): tras el folio, consultar_carvajal ofrece el
+- 2026-11-26 — Pedidos en Odoo (spec 056): tras el folio, consultar_carvajal ofrece el
   pedido, pide nombre y correo y pregunta «¿Lo confirmo?». `ventas` pasa esas respuestas
   tal cual, también el «sí, confírmalo» (en el backend las leen reglas, sin Jev ni el
   LLM; van a Odoo y el historial las guarda sin el nombre ni el correo), no pide otros

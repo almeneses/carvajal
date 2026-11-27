@@ -192,7 +192,7 @@ Valor JSON que el streaming añade al cierre y el servicio envía en la traza.
 | `JEV_ROUTER_MIN_CONFIDENCE` | `float` 0–1 | `0.6` | Umbral general (R4) |
 | `JEV_ROUTER_DIRECT_MIN_CONFIDENCE` | `float` 0–1 | `0.8` | Umbral de `respuesta_directa` |
 | `JEV_CLAIMS_MODE` | `on \| off` | `on` | Compuerta de afirmaciones |
-| `JEV_CLAIMS_THRESHOLD` | `float` 0–1 | `0.5` | No respaldada si `p < umbral` |
+| `JEV_CLAIMS_THRESHOLD` | `float` 0–1 | `0.3` (`0.5` hasta el 2026-11-26) | No respaldada si `p < umbral` |
 | `JEV_MAX_CALLS_PER_DAY` | `int` 0–100 000 | `1000` | Tope por proceso; `0` = sin llamadas |
 | `JEV_MAX_EVIDENCE_CHARS` | `int` 1 000–40 000 | `12000` | Tope de la evidencia de la compuerta |
 

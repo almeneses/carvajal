@@ -1,4 +1,4 @@
-"""CRM externo (spec 055): pedidos de venta y catálogo en Odoo."""
+"""CRM externo (spec 056): pedidos de venta y catálogo en Odoo."""
 
 from carvajal.adapters.crm.odoo import (
     OdooClient,

@@ -199,7 +199,7 @@ _EMAIL_TEXT: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9
 
 @runtime_checkable
 class OrderPlacer(Protocol):
-    """Crea el pedido de venta de una cotización registrada (spec 055; Odoo)."""
+    """Crea el pedido de venta de una cotización registrada (spec 056; Odoo)."""
 
     def place(self, request: OrderRequest) -> OrderResult: ...
 
@@ -273,7 +273,7 @@ class ChatService:
         orders: "OrderPlacer | None" = None,
     ) -> None:
         self._session_factory = session_factory
-        # Spec 055: pedidos en el CRM (Odoo); se construye en el primer turno que lo necesita
+        # Spec 056: pedidos en el CRM (Odoo); se construye en el primer turno que lo necesita
         # (``None`` sin ODOO_URL, ODOO_DB y ODOO_API_KEY: no se ofrece el pedido).
         self._orders_value = orders
         self._orders_built = orders is not None
@@ -1174,8 +1174,10 @@ class ChatService:
         sources: tuple[Source, ...] = () if closing.abstained else closing.sources
         # Spec 054: las cotizaciones del agente pasan al borrador (opciones, comparativo o
         # líneas); ninguna se registra hasta el «sí».
+        # El texto del agente ya salió: si pregunta algo (una opción o un dato), el flujo no
+        # agrega en el mismo mensaje lo que la persona no eligió (ensayo del 2026-11-26).
         products, draft, flow_suffix = _apply_flow(
-            tools.draft, closing.products, tools.prompt or question
+            tools.draft, closing.products, tools.prompt or question, answer="".join(fragments)
         )
         quote_records: list[dict[str, Any]] = []
         monitored, no_query = _monitored_results(closing.results)
@@ -1565,12 +1567,12 @@ class ChatService:
             )
             logger.info("cotizacion.registrada", lineas=len(decision.draft.lines))
             if self._orders() is not None:
-                # Spec 055: con el CRM configurado, el folio ofrece hacer el pedido.
+                # Spec 056: con el CRM configurado, el folio ofrece hacer el pedido.
                 message = quote_render.order_offer(message)
                 draft = draft.touch(awaiting="pedido")
         elif decision.order is not None:
             message, draft = self._place_order(owner_key, draft, decision.order)
-        # Spec 055: el nombre y el correo de quien compra solo viajan a Odoo. El turno se
+        # Spec 056: el nombre y el correo de quien compra solo viajan a Odoo. El turno se
         # guarda (y llega a LangSmith) sin ellos, así el historial que lee el modelo en los
         # turnos siguientes y el resumen de memoria tampoco los tienen.
         private = decision.route == "pedido"
@@ -1609,7 +1611,7 @@ class ChatService:
     def _place_order(
         self, owner_key: str, draft: QuoteDraft, buyer: Buyer
     ) -> tuple[quote_render.Message, QuoteDraft]:
-        """Crea el pedido de venta en Odoo (spec 055); un fallo deja reintentarlo.
+        """Crea el pedido de venta en Odoo (spec 056); un fallo deja reintentarlo.
 
         El pedido es idempotente por folio: repetir el «sí» tras un fallo, o un reintento del
         mismo turno, no crea un segundo pedido.
@@ -1670,7 +1672,7 @@ class ChatService:
         emite como el respaldo: ``meta``, ``fallback``, ``trace``, ``products`` y ``done``.
         ``question``, ``answer`` y ``products`` son lo que se guarda y se monitorea;
         ``shown_answer`` y ``shown_products``, si vienen, lo que ve la persona en este turno
-        (spec 055: los datos del pedido se muestran, pero no se guardan).
+        (spec 056: los datos del pedido se muestran, pero no se guardan).
         """
 
         with self._monitoring().turn(
@@ -1747,7 +1749,9 @@ class ChatService:
 
         config = self._config()
         fragments = tools.fragments
-        events = tools.runner.stream(owner_key, thread_id, tools.prompt or question, tools.seed)
+        events = tools.runner.stream(
+            owner_key, thread_id, tools.prompt or question, tools.seed, draft=tools.draft
+        )
         closing: ToolAgentFinal | None = None
         try:
             with span.child(
@@ -2282,12 +2286,18 @@ def _mark_draft_quotes(products: Mapping[str, Any] | None) -> dict[str, Any] | N
 
 
 def _apply_flow(
-    draft: QuoteDraft, products: Mapping[str, Any] | None, question: str
+    draft: QuoteDraft,
+    products: Mapping[str, Any] | None,
+    question: str,
+    *,
+    answer: str = "",
 ) -> tuple[dict[str, Any] | None, QuoteDraft, str]:
     """Cotizaciones del turno → borrador y mensaje de la plantilla (``"\n\n…"`` o ``""``).
 
     La tarjeta ``reference_choice`` de ``cotizar`` (candidatas de un nombre ambiguo) solo
-    alimenta el borrador: no se guarda en el historial ni se pinta.
+    alimenta el borrador: no se guarda en el historial ni se pinta. ``answer`` es el texto
+    del agente en el turno: si pregunta algo, el flujo no agrega líneas que la persona no
+    eligió (:func:`carvajal.quotation.flow.asks_question`).
     """
 
     choice = (products or {}).get("reference_choice")
@@ -2296,6 +2306,7 @@ def _apply_flow(
         result_quotes(products),
         question,
         choice=choice if isinstance(choice, Mapping) else None,
+        asks=quote_flow.asks_question(answer),
     )
     result = _mark_draft_quotes(products)
     if result is not None:

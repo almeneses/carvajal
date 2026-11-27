@@ -151,6 +151,9 @@ En `/opt/carvajal/.env`:
 ```bash
 COMPOSE_PROFILES=whatsapp
 MCP_TOKEN=<python -c "import secrets; print(secrets.token_urlsafe(32))">
+# Opcional (spec 055): bearer distinto que solo abre /health, para la página /metricas de
+# la app web. La app nunca recibe MCP_TOKEN.
+MCP_HEALTH_TOKEN=<otro valor generado igual>
 ```
 
 El siguiente despliegue (`scripts/deploy.sh`) levanta el servicio `mcp` con la misma
@@ -639,7 +642,7 @@ porque no se puede listar la carpeta.
   cambios en `mensaje`; la herramienta sabe a qué opción o propuesta responden.
 ```
 
-## Pedidos en Odoo (spec 055)
+## Pedidos en Odoo (spec 056)
 
 Con `ODOO_*` configurado, el mensaje del folio termina con «🛒 ¿Quieres hacer el pedido? Te
 pido tu nombre y tu correo y te llega la confirmación.». WhatsApp no tiene los botones de la
@@ -694,7 +697,7 @@ un pedido por hecho. La sección «Pedidos» de
 [`openclaw/workspace/ventas/AGENTS.md`](../openclaw/workspace/ventas/AGENTS.md) lo fija (con
 el límite de `SOUL.md` y la directiva del 2026-11-26 de `USER.md`). Copia el workspace a la
 máquina de OpenClaw con respaldo, como indica [`openclaw/README.md`](../openclaw/README.md#desplegar),
-y abre un chat con `/new` para que lo tome. Se puede copiar antes de desplegar la spec 055:
+y abre un chat con `/new` para que lo tome. Se puede copiar antes de desplegar la spec 056:
 sin ella, la herramienta no ofrece el pedido y la sección no se usa.
 
 ## Operación
@@ -705,7 +708,9 @@ sin ella, la herramienta no ofrece el pedido y la sección no se usa.
   `/mcp`, solo `Host` de loopback) publica el bloque `claims` (juzgadas, sustituidas, tasa,
   umbral y modo desde que arrancó el contenedor; contrato en
   `specs/046-jev-router/contracts/jev-gatekeeper.md`):
-  `curl -s -H "Authorization: Bearer $MCP_TOKEN" 127.0.0.1:8765/health`.
+  `curl -s -H "Authorization: Bearer $MCP_TOKEN" 127.0.0.1:8765/health`. También lo abre
+  `MCP_HEALTH_TOKEN` (solo `/health`, nunca `/mcp`), con el que la página `/metricas` de la
+  app lo lee por la red interna como `http://mcp:8765/health` (spec 055).
 - Apagar WhatsApp: quita `COMPOSE_PROFILES=whatsapp` del `.env` y
   `docker compose -f compose.prod.yml stop mcp`.
 - Rotar el token: cambia `MCP_TOKEN`, `docker compose -f compose.prod.yml up -d mcp` y

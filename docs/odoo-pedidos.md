@@ -1,4 +1,4 @@
-# Pedidos en Odoo (spec 055)
+# Pedidos en Odoo (spec 056)
 
 Cuando la persona confirma una cotización y recibe el folio, el asistente ofrece hacer el
 pedido. Si acepta, pide nombre y correo, se los muestra para que los confirme y, con un «sí»,

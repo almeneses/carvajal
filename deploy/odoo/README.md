@@ -1,4 +1,4 @@
-# Odoo 19 de Carvajal (spec 055)
+# Odoo 19 de Carvajal (spec 056)
 
 Plantilla del proyecto de compose `carvajal-odoo` que corre en la VPS en `~/carvajal-odoo`
 (usuario `deploy`). Sin secretos: en el servidor `.env` y `config/odoo.conf` llevan las

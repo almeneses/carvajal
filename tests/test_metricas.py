@@ -1,0 +1,1620 @@
+"""Página «Métricas» y sus agregadores (spec 055).
+
+Cada fuente con red se prueba con ``httpx.MockTransport``; la base, con SQLite en memoria. Se
+comprueba que una fuente caída no tumba la página, que el saldo de DeepSeek solo lo ve el
+operador y que nada de lo publicado lleva texto de personas, ``owner_key`` ni secretos.
+"""
+
+import json
+import math
+import re
+import threading
+import time
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import uuid4
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
+from sqlalchemy import create_engine, insert
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from apps.api.metrics import (
+    FAILURE_RETRY_TTL,
+    LANGSMITH_BUDGET,
+    LANGSMITH_CONNECT_TIMEOUT,
+    LANGSMITH_MAX_RETRIES,
+    LANGSMITH_PROJECT_TTL,
+    LANGSMITH_RETRY_TTL,
+    LANGSMITH_STATS_SPACING,
+    LANGSMITH_TTL,
+    LANGSMITH_UNSENT,
+    RETRY_COOLDOWN,
+    Card,
+    LangSmithState,
+    MetricsBoard,
+    TtlCache,
+    deepseek_balance,
+    deepseek_card,
+    jev_card,
+    langsmith_card,
+    mcp_health,
+    qdrant_card,
+    whatsapp_card,
+)
+from carvajal.adapters.llm.usage import MAX_PENDING, DeepSeekUsageCallback
+from carvajal.adapters.storage import tables
+from carvajal.infrastructure import metrics as process_metrics
+from carvajal.infrastructure.metrics import CallStats, EventCounts, estimated_cost, percentile
+from carvajal.infrastructure.settings import Settings
+
+OPERATOR_TOKEN = "token-de-operador"
+NOW = datetime(2026, 11, 26, 18, 0, tzinfo=UTC)
+
+COLLECTION = {
+    "result": {
+        "status": "green",
+        "optimizer_status": "ok",
+        "points_count": 125,
+        "indexed_vectors_count": 120,
+        "segments_count": 6,
+        "config": {
+            "params": {"vectors": {"size": 768, "distance": "Cosine"}, "on_disk_payload": True},
+            "hnsw_config": {"m": 16, "ef_construct": 100},
+        },
+    }
+}
+TELEMETRY = {
+    "result": {
+        "app": {"version": "1.15.4"},
+        "memory": {"resident_bytes": 99_000_000},
+        "collections": {
+            "collections": [
+                {
+                    "id": "carvajal_chunks",
+                    "shards": [
+                        {"local": {"vectors_size_bytes": 384_000, "payloads_size_bytes": 16_000}}
+                    ],
+                },
+                {"id": "otra", "shards": [{"local": {"vectors_size_bytes": 999}}]},
+            ]
+        },
+        "requests": {
+            "rest": {
+                "responses": {
+                    "POST /collections/{name}/points/query": {
+                        "200": {
+                            "count": 4,
+                            "total_duration_micros": 40_000,
+                            "max_duration_micros": 25_000,
+                        }
+                    },
+                    "PUT /collections/{name}/points": {
+                        "200": {"count": 99, "total_duration_micros": 1, "max_duration_micros": 1}
+                    },
+                }
+            }
+        },
+    }
+}
+STATS = {
+    "run_count": 200,
+    "error_rate": 0.025,
+    "latency_p50": 2.04,
+    "latency_p99": 10.41,
+    "prompt_tokens": 3_140_713,
+    "completion_tokens": 32_562,
+    "last_run_start_time": "2026-11-26T17:59:00+00:00",
+}
+
+
+def _settings(**values: Any) -> Settings:
+    base: dict[str, Any] = {
+        "_env_file": None,
+        "qdrant_url": "http://qdrant:6333",
+        "qdrant_api_key": "",
+        "langsmith_api_key": "",
+        "monitoring_enabled": False,
+        "deepseek_api_key": "",
+        "mcp_token": "",
+        "mcp_health_token": "",
+        "metrics_mcp_health_url": "",
+        "operator_token": "",
+    }
+    base.update(values)
+    return Settings(**base)
+
+
+def _client(handler: Callable[[httpx.Request], httpx.Response]) -> httpx.Client:
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+class Reloj:
+    """Reloj falso para la caché y LangSmith: ``sleep`` avanza el tiempo y se registra."""
+
+    def __init__(self) -> None:
+        self.t = 0.0
+        self.esperas: list[float] = []
+
+    def __call__(self) -> float:
+        return self.t
+
+    def sleep(self, segundos: float) -> None:
+        self.esperas.append(segundos)
+        self.t += segundos
+
+
+def _estado(reloj: Reloj, **valores: Any) -> LangSmithState:
+    return LangSmithState(clock=reloj, sleep=reloj.sleep, **valores)
+
+
+LANGSMITH = {"monitoring_enabled": True, "langsmith_api_key": "k"}
+
+
+# --- Contadores en proceso ---------------------------------------------------------------
+
+
+def test_call_stats_cuenta_estados_tipos_tokens_y_percentiles() -> None:
+    # Arrange
+    stats = CallStats(window=5)
+
+    # Act
+    for latency in (10, 20, 30, 40, 50, 1000):
+        stats.record(kind="route", status="ok", latency_ms=latency, input_tokens=3, output_tokens=1)
+    stats.record(kind="claims", status="timeout", latency_ms=800)
+    snapshot = stats.snapshot()
+
+    # Assert: la ventana guarda las 5 últimas latencias (30, 40, 50, 1000, 800).
+    assert snapshot["calls"] == 7
+    assert snapshot["errors"] == 1
+    assert snapshot["by_kind"] == {"claims": 1, "route": 6}
+    assert snapshot["by_status"] == {"ok": 6, "timeout": 1}
+    assert (snapshot["input_tokens"], snapshot["output_tokens"]) == (18, 6)
+    assert snapshot["latency_ms"] == {"p50": 50, "p95": 1000, "samples": 5}
+
+
+def test_percentil_sin_datos_y_costo_estimado() -> None:
+    assert percentile([], 0.5) is None
+    assert percentile([5.0], 0.95) == 5.0
+    assert estimated_cost(
+        1_000_000, 100_000, input_per_million=0.30, output_per_million=1.20
+    ) == pytest.approx(0.42)
+
+
+def test_event_counts_guarda_conteos_y_la_hora_del_ultimo() -> None:
+    counts = EventCounts(clock=lambda: NOW)
+
+    counts.count("mensajes")
+    counts.count("mensajes")
+    counts.count("errores")
+
+    assert counts.snapshot() == {
+        "since": "2026-11-26T18:00:00Z",
+        "last_at": "2026-11-26T18:00:00Z",
+        "counts": {"errores": 1, "mensajes": 2},
+    }
+
+
+def test_callback_de_deepseek_cuenta_latencia_tokens_y_errores_sin_mensajes() -> None:
+    # Arrange
+    reloj = iter([1.0, 1.25, 2.0, 2.5])
+    stats = CallStats()
+    callback = DeepSeekUsageCallback(stats, clock=lambda: next(reloj))
+    mensaje = AIMessage(
+        content="secreto del cliente",
+        usage_metadata={"input_tokens": 900, "output_tokens": 40, "total_tokens": 940},
+    )
+    primero, segundo = uuid4(), uuid4()
+
+    # Act
+    callback.on_chat_model_start(
+        {}, [[]], run_id=primero, invocation_params={"model": "deepseek-flash"}
+    )
+    callback.on_llm_end(LLMResult(generations=[[ChatGeneration(message=mensaje)]]), run_id=primero)
+    callback.on_chat_model_start({}, [[]], run_id=segundo, invocation_params={"model": "x"})
+    callback.on_llm_error(httpx.ReadTimeout("lento"), run_id=segundo)
+    snapshot = stats.snapshot()
+
+    # Assert
+    assert snapshot["by_status"] == {"ok": 1, "timeout": 1}
+    assert snapshot["by_kind"] == {"deepseek-flash": 1, "x": 1}
+    assert (snapshot["input_tokens"], snapshot["output_tokens"]) == (900, 40)
+    assert snapshot["latency_ms"]["p50"] == 250
+    assert "secreto" not in json.dumps(snapshot)
+
+
+def test_callback_de_deepseek_descarta_las_abandonadas_mas_antiguas_y_no_la_en_curso() -> None:
+    # Arrange: casi el tope de llamadas abandonadas, una en curso y dos más que empiezan.
+    stats = CallStats()
+    callback = DeepSeekUsageCallback(stats, clock=lambda: 1.0)
+    for _ in range(MAX_PENDING - 1):
+        callback.on_chat_model_start({}, [[]], run_id=uuid4(), invocation_params={"model": "a"})
+    en_curso = uuid4()
+    callback.on_chat_model_start({}, [[]], run_id=en_curso, invocation_params={"model": "m"})
+    for _ in range(2):
+        callback.on_chat_model_start({}, [[]], run_id=uuid4(), invocation_params={"model": "b"})
+
+    # Act
+    callback.on_llm_end(LLMResult(generations=[[]]), run_id=en_curso)
+    snapshot = stats.snapshot()
+
+    # Assert: la llamada en curso conserva su modelo y su latencia.
+    assert snapshot["by_kind"] == {"m": 1}
+    assert snapshot["latency_ms"]["samples"] == 1
+
+
+def test_callback_de_deepseek_cuenta_las_llamadas_sin_uso_informado() -> None:
+    # Arrange: en streaming sin stream_usage la respuesta no trae usage_metadata.
+    stats = CallStats()
+    callback = DeepSeekUsageCallback(stats)
+    run_id = uuid4()
+
+    # Act
+    callback.on_chat_model_start({}, [[]], run_id=run_id, invocation_params={"model": "m"})
+    callback.on_llm_end(
+        LLMResult(generations=[[ChatGeneration(message=AIMessage(content="hola"))]]),
+        run_id=run_id,
+    )
+    snapshot = stats.snapshot()
+
+    # Assert
+    assert snapshot["calls"] == 1
+    assert snapshot["without_usage"] == 1
+    assert (snapshot["input_tokens"], snapshot["output_tokens"]) == (0, 0)
+
+
+def test_el_cliente_de_jev_cuenta_cada_llamada_en_el_proceso(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    from carvajal.adapters.judge import jev as jev_module
+
+    stats = CallStats()
+    monkeypatch.setattr(jev_module, "JEV_CALLS", stats)
+    respuesta = {"model": "jev-1.14.0", "usage": {"input_tokens": 50, "output_tokens": 2}}
+    client = jev_module.JevClient(
+        api_key="clave",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=respuesta)),
+    )
+
+    # Act
+    client.call("router", {}, {}, lambda payload: (payload["model"], {}))
+    snapshot = stats.snapshot()
+
+    # Assert
+    assert snapshot["by_kind"] == {"router": 1}
+    assert snapshot["by_status"] == {"ok": 1}
+    assert (snapshot["input_tokens"], snapshot["output_tokens"]) == (50, 2)
+
+
+def test_el_cliente_de_jev_cuenta_los_cortes_por_cupo_sin_contarlos_como_llamadas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: cupo de una llamada al día.
+    from carvajal.adapters.judge import jev as jev_module
+
+    stats = CallStats()
+    monkeypatch.setattr(jev_module, "JEV_CALLS", stats)
+    respuesta = {"model": "jev-1.14.0", "usage": {"input_tokens": 1, "output_tokens": 1}}
+    client = jev_module.JevClient(
+        api_key="clave",
+        max_calls_per_day=1,
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=respuesta)),
+    )
+
+    # Act
+    client.call("router", {}, {}, lambda payload: (payload["model"], {}))
+    for _ in range(2):
+        with pytest.raises(jev_module.JudgeUnavailable):
+            client.call("router", {}, {}, lambda payload: (payload["model"], {}))
+    snapshot = stats.snapshot()
+
+    # Assert
+    assert snapshot["calls"] == 1
+    assert snapshot["blocked"] == {"cap": 2}
+
+
+def test_jev_sin_clave_no_muestra_el_gatekeeper_encendido() -> None:
+    # Arrange: la configuración pide «on», pero falta TYPESAFE_API_KEY.
+    jev = {"configured": False, "enabled": True, "router": "on"}
+    claims = {"mode": "on"}
+
+    # Act
+    card = jev_card(_settings(), jev=jev, claims=claims, photo={"status": "off"})
+
+    # Assert
+    assert card.status == "off"
+    assert (card.data["router"], card.data["claims_mode"]) == ("off", "off")
+
+
+# --- Qdrant ------------------------------------------------------------------------------
+
+
+def test_qdrant_resume_la_coleccion_el_tamano_y_las_busquedas() -> None:
+    # Arrange
+    vistas: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        vistas.append(request.url.path)
+        assert request.headers["api-key"] == "clave-qdrant"
+        if request.url.path == "/telemetry":
+            return httpx.Response(200, json=TELEMETRY)
+        return httpx.Response(200, json=COLLECTION)
+
+    # Act
+    card = qdrant_card(_settings(qdrant_api_key="clave-qdrant"), _client(handler))
+
+    # Assert
+    assert card.status == "ok"
+    assert vistas == ["/collections/carvajal_chunks", "/telemetry"]
+    assert card.data["points"] == 125
+    assert card.data["indexed_vectors"] == 120
+    assert (card.data["dimensions"], card.data["distance"]) == (768, "Cosine")
+    assert card.data["size_bytes"] == 400_000
+    assert card.data["queries"] == {"count": 4, "avg_ms": 10.0, "max_ms": 25.0}
+    assert card.data["version"] == "1.15.4"
+    assert "clave-qdrant" not in json.dumps(card.data)
+
+
+def test_qdrant_sin_telemetria_sigue_con_la_coleccion() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/telemetry":
+            return httpx.Response(403)
+        return httpx.Response(200, json=COLLECTION)
+
+    card = qdrant_card(_settings(), _client(handler))
+
+    assert card.status == "ok"
+    assert card.data["points"] == 125
+    assert "403" in card.data["telemetry_unavailable"]
+
+
+@pytest.mark.parametrize(
+    ("respuesta", "motivo"),
+    [
+        (httpx.Response(404), "no existe"),
+        (httpx.ReadTimeout("lento"), "a tiempo"),
+        (httpx.ConnectError("caído"), "conectar"),
+    ],
+)
+def test_qdrant_caido_dice_por_que(respuesta: Any, motivo: str) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        if isinstance(respuesta, Exception):
+            raise respuesta
+        return respuesta
+
+    card = qdrant_card(_settings(), _client(handler))
+
+    assert card.status == "unavailable"
+    assert motivo in card.reason
+
+
+# --- LangSmith ---------------------------------------------------------------------------
+
+
+def test_langsmith_apagado_no_consulta_la_red() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no debe consultar LangSmith")
+
+    card = langsmith_card(_settings(), _client(handler))
+
+    assert card.status == "off"
+    assert "MONITORING_ENABLED" in card.reason
+
+
+def test_langsmith_usa_el_agregado_de_24_h_y_7_dias_filtrado_por_entorno() -> None:
+    # Arrange
+    peticiones: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        peticiones.append(request)
+        assert request.headers["x-api-key"] == "lsv2-clave"
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1", "name": "carvajal"}])
+        assert request.url.path == "/runs/stats"
+        return httpx.Response(200, json=STATS)
+
+    settings = _settings(
+        monitoring_enabled=True,
+        langsmith_api_key="lsv2-clave",
+        langsmith_agent_environment="produccion",
+    )
+
+    # Act: sin espacio entre consultas, las dos ventanas caben en una carga.
+    card = langsmith_card(settings, _client(handler), now=NOW, state=_estado(Reloj(), spacing=0))
+
+    # Assert: tres peticiones y ninguna lista de runs.
+    assert card.status == "ok"
+    assert [p.url.path for p in peticiones] == ["/sessions", "/runs/stats", "/runs/stats"]
+    cuerpos = [json.loads(p.content) for p in peticiones[1:]]
+    assert [c["start_time"][:10] for c in cuerpos] == ["2026-11-25", "2026-11-19"]
+    assert all(c["is_root"] is True and c["session"] == ["p-1"] for c in cuerpos)
+    assert all('"produccion"' in c["filter"] for c in cuerpos)
+    ventana = card.data["windows"]["24h"]
+    assert (ventana["traces"], ventana["errors"], ventana["p50_s"]) == (200, 5, 2.04)
+    assert "lsv2-clave" not in json.dumps(card.data, default=str)
+
+
+def test_langsmith_que_pide_esperar_queda_no_disponible() -> None:
+    # Arrange: el 429 llega como HTML y sin Retry-After, como en producción.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(429, text="<html>Too Many Requests</html>")
+
+    settings = _settings(**LANGSMITH)
+
+    # Act
+    card = langsmith_card(settings, _client(handler))
+
+    # Assert: el motivo explica el límite; la ventana que falló espera 30 s y la otra, su
+    # turno (una consulta cada ~9 s), así que la tarjeta se vuelve a armar pronto.
+    assert card.status == "unavailable"
+    assert card.reason == "LangSmith limita cuántas consultas acepta por minuto (HTTP 429)."
+    assert card.ttl_s == int(LANGSMITH_STATS_SPACING)
+    assert card.data == {}
+
+
+def test_langsmith_espacia_las_ventanas_y_deja_la_segunda_pendiente() -> None:
+    # Arrange
+    reloj = Reloj()
+    estado = _estado(reloj)
+    peticiones: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        peticiones.append(request.url.path)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    settings = _settings(**LANGSMITH)
+
+    # Act: carga en frío y otra cuando ya hay turno para la segunda ventana.
+    fria = langsmith_card(settings, _client(handler), now=NOW, state=estado)
+    peticiones_fria = list(peticiones)
+    reloj.t = LANGSMITH_STATS_SPACING + 0.5
+    completa = langsmith_card(settings, _client(handler), now=NOW, state=estado)
+
+    # Assert: en frío, una sola consulta de stats, sin esperar; la otra ventana, pendiente.
+    assert peticiones_fria == ["/sessions", "/runs/stats"]
+    assert reloj.esperas == []
+    assert fria.status == "ok" and fria.stale is False
+    assert fria.data["windows"]["24h"]["status"] == "ok"
+    assert fria.data["windows"]["7d"]["status"] == "pending"
+    assert fria.data["windows"]["7d"]["retry_at"] is not None
+    assert fria.ttl_s == int(LANGSMITH_STATS_SPACING)
+    assert fria.retry_at is not None
+    # Con turno, solo la ventana que faltaba y sin volver a pedir el proyecto.
+    assert peticiones == ["/sessions", "/runs/stats", "/runs/stats"]
+    assert [w["status"] for w in completa.data["windows"].values()] == ["ok", "ok"]
+    assert completa.retry_at is None
+    assert completa.ttl_s == math.ceil(LANGSMITH_TTL - (LANGSMITH_STATS_SPACING + 0.5))
+
+
+def test_langsmith_cachea_el_id_del_proyecto_y_si_falla_usa_el_anterior() -> None:
+    # Arrange
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    peticiones: list[str] = []
+    sesiones = {"ok": True}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        peticiones.append(request.url.path)
+        if request.url.path == "/sessions":
+            if not sesiones["ok"]:
+                return httpx.Response(503)
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        assert json.loads(request.content)["session"] == ["p-1"]
+        return httpx.Response(200, json=STATS)
+
+    settings = _settings(**LANGSMITH)
+
+    # Act: cargas durante la hora del proyecto y una después, con /sessions caído.
+    for momento in (0, LANGSMITH_TTL + 1, 2 * LANGSMITH_TTL + 2):
+        reloj.t = momento
+        langsmith_card(settings, _client(handler), state=estado)
+    durante = peticiones.count("/sessions")
+    reloj.t = LANGSMITH_PROJECT_TTL + 1
+    sesiones["ok"] = False
+    tarde = langsmith_card(settings, _client(handler), state=estado)
+    reloj.t += LANGSMITH_RETRY_TTL - 1
+    langsmith_card(settings, _client(handler), state=estado)
+    antes_de_30_s = peticiones.count("/sessions")
+
+    # Assert: una petición del proyecto por hora; si falla, sirve el id anterior y no insiste
+    # antes de 30 s.
+    assert durante == 1
+    assert antes_de_30_s == 2
+    assert tarde.status == "ok" and tarde.stale is False
+
+
+def test_langsmith_429_en_la_segunda_peticion_reintenta_dos_veces_y_la_deja_pendiente() -> None:
+    # Arrange: espacio corto para que el reintento quepa en el plazo de la carga.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0.5)
+    stats: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        stats.append(request.url.path)
+        if len(stats) == 1:
+            return httpx.Response(200, json=STATS)
+        return httpx.Response(429, text="<html>Too Many Requests</html>")
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: la 24 h sale; la de 7 días, tras dos reintentos, pendiente unos 30 s.
+    assert len(stats) == 1 + 1 + 2
+    assert reloj.esperas == [0.5, 0.5, 0.5]
+    assert card.status == "ok"
+    ventana = card.data["windows"]["7d"]
+    assert ventana["status"] == "pending"
+    assert "limita cuántas consultas acepta por minuto (HTTP 429)" in ventana["note"]
+    assert card.ttl_s == LANGSMITH_RETRY_TTL
+    assert card.data["windows"]["24h"]["traces"] == 200
+
+
+@pytest.mark.parametrize(
+    ("cabecera", "espera_esperada", "ttl_esperado"),
+    [("2", [2.0], LANGSMITH_TTL), ("120", [], 120)],
+)
+def test_langsmith_respeta_retry_after(
+    cabecera: str, espera_esperada: list[float], ttl_esperado: int
+) -> None:
+    # Arrange: el primer stats pide esperar; los siguientes responden.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    stats: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        stats.append(request.url.path)
+        if len(stats) == 1:
+            return httpx.Response(429, headers={"Retry-After": cabecera})
+        return httpx.Response(200, json=STATS)
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: 2 s caben en el plazo y se esperan; 120 s no, y nada se consulta antes.
+    assert reloj.esperas == espera_esperada
+    assert card.ttl_s == ttl_esperado
+    if espera_esperada:
+        assert [w["status"] for w in card.data["windows"].values()] == ["ok", "ok"]
+    else:
+        assert len(stats) == 1
+        assert card.status == "unavailable"
+        assert card.retry_at is not None
+
+
+def test_langsmith_entiende_retry_after_como_fecha_http() -> None:
+    # Arrange
+    from apps.api.metrics import _retry_after
+
+    cuando = (datetime.now(UTC) + timedelta(seconds=40)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    # Act
+    segundos = _retry_after(httpx.Response(429, headers={"Retry-After": cuando}))
+    sin_cabecera = _retry_after(httpx.Response(429))
+    basura = _retry_after(httpx.Response(429, headers={"Retry-After": "pronto"}))
+
+    # Assert
+    assert segundos is not None and 35 <= segundos <= 40
+    assert (sin_cabecera, basura) == (None, None)
+
+
+def test_langsmith_si_fallan_las_dos_conserva_el_dato_anterior_y_reintenta_en_30_s() -> None:
+    # Arrange: carga buena y, al caducar, LangSmith responde 500 a todo.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    peticiones: list[str] = []
+    salud = {"ok": True}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        peticiones.append(request.url.path)
+        return httpx.Response(200, json=STATS) if salud["ok"] else httpx.Response(500)
+
+    settings = _settings(**LANGSMITH)
+    langsmith_card(settings, _client(handler), state=estado)
+    reloj.t = LANGSMITH_TTL + 1
+    salud["ok"] = False
+    peticiones.clear()
+
+    # Act
+    caida = langsmith_card(settings, _client(handler), state=estado)
+    reloj.t += LANGSMITH_RETRY_TTL - 1
+    durante = langsmith_card(settings, _client(handler), state=estado)
+    peticiones_durante = len(peticiones)
+    reloj.t += 2
+    langsmith_card(settings, _client(handler), state=estado)
+
+    # Assert: datos anteriores marcados, motivo y vigencia corta; no se insiste antes de 30 s.
+    assert caida.status == "ok" and caida.stale is True
+    assert caida.reason == "Respondió con error (HTTP 500)."
+    assert caida.ttl_s == LANGSMITH_RETRY_TTL
+    assert [w["status"] for w in caida.data["windows"].values()] == ["stale", "stale"]
+    assert caida.data["windows"]["24h"]["traces"] == 200
+    assert durante.stale is True
+    assert peticiones_durante == 2
+    assert len(peticiones) == 4
+
+
+def test_langsmith_sin_proyecto_ni_dato_queda_no_disponible_con_vigencia_corta() -> None:
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sessions"
+        return httpx.Response(429)
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=_estado(Reloj()))
+
+    # Assert
+    assert card.status == "unavailable"
+    assert "LangSmith limita" in card.reason
+    assert card.ttl_s == LANGSMITH_RETRY_TTL
+
+
+def test_un_reintento_de_langsmith_que_falla_marca_los_datos_y_reintenta_en_segundos() -> None:
+    # Arrange: las dos ventanas vigentes; luego «Reintentar» y LangSmith responde 429 a todo.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0.5)
+    modo = {"limitado": False}
+    stats: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        stats.append(reloj.t)
+        return httpx.Response(429) if modo["limitado"] else httpx.Response(200, json=STATS)
+
+    settings = _settings(**LANGSMITH)
+    langsmith_card(settings, _client(handler), state=estado)
+    reloj.t = 20
+    modo["limitado"] = True
+    stats.clear()
+
+    # Act: el reintento falla; pasados los 30 s, LangSmith vuelve a responder.
+    estado.force()
+    fallida = langsmith_card(settings, _client(handler), state=estado)
+    peticiones_fallidas = len(stats)
+    modo["limitado"] = False
+    reloj.t += LANGSMITH_RETRY_TTL + 1
+    recuperada = langsmith_card(settings, _client(handler), state=estado)
+
+    # Assert: reintentos dentro del plazo, datos anteriores marcados con el motivo y «se
+    # reintenta en N s», vigencia de 30 s (no 10 min) y recuperación sin otro «Reintentar».
+    assert peticiones_fallidas == 1 + LANGSMITH_MAX_RETRIES + 1
+    assert fallida.status == "ok" and fallida.stale is True
+    assert "HTTP 429" in fallida.reason
+    assert fallida.ttl_s == LANGSMITH_RETRY_TTL
+    assert fallida.retry_at is not None
+    for ventana in fallida.data["windows"].values():
+        assert ventana["status"] == "stale"
+        assert "HTTP 429" in ventana["note"]
+        assert ventana["retry_at"] is not None
+        assert ventana["traces"] == 200
+    assert recuperada.stale is False and recuperada.reason == ""
+    assert [w["note"] for w in recuperada.data["windows"].values()] == ["", ""]
+
+
+def test_un_reintento_de_langsmith_con_una_ventana_fallida_la_marca_y_no_la_otra() -> None:
+    # Arrange: ventanas vigentes; el reintento recibe 500 en la primera y 200 en la segunda.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    respuestas = iter([200, 200, 500, 200])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        codigo = next(respuestas)
+        return httpx.Response(200, json=STATS) if codigo == 200 else httpx.Response(codigo)
+
+    settings = _settings(**LANGSMITH)
+    langsmith_card(settings, _client(handler), state=estado)
+    reloj.t = 20
+
+    # Act
+    estado.force()
+    card = langsmith_card(settings, _client(handler), state=estado)
+
+    # Assert: la fallida va con su dato anterior, marcada y con reintento; la otra, al día.
+    ventanas = card.data["windows"]
+    assert card.status == "ok" and card.stale is True and card.reason == ""
+    assert ventanas["24h"]["status"] == "stale"
+    assert ventanas["24h"]["note"] == "Respondió con error (HTTP 500)."
+    assert ventanas["24h"]["retry_at"] is not None
+    assert ventanas["7d"]["status"] == "ok" and ventanas["7d"]["note"] == ""
+    assert card.ttl_s == LANGSMITH_RETRY_TTL
+
+
+def test_langsmith_sin_plazo_para_las_ventanas_no_dice_que_espera_turno() -> None:
+    # Arrange: ``GET /sessions`` se lleva casi todo el plazo de la carga.
+    reloj = Reloj()
+    estado = _estado(reloj)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/sessions":
+            reloj.t += 2.5
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        raise AssertionError("sin plazo no se pide ninguna ventana")
+
+    # Act
+    card = langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: nada falló ni hay turno que esperar; se pide en la próxima carga.
+    assert card.status == "unavailable"
+    assert card.reason == LANGSMITH_UNSENT
+    assert card.ttl_s == 1
+
+
+def test_el_plazo_de_cada_peticion_a_langsmith_no_pasa_del_que_queda() -> None:
+    # Arrange: cada petición se lleva 0,8 s del reloj.
+    reloj = Reloj()
+    estado = _estado(reloj, spacing=0)
+    plazos: list[tuple[float, dict[str, float | None]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        plazos.append((LANGSMITH_BUDGET - reloj.t, dict(request.extensions["timeout"])))
+        reloj.t += 0.8
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    # Act
+    langsmith_card(_settings(**LANGSMITH), _client(handler), state=estado)
+
+    # Assert: conectar y leer juntos caben en lo que queda del plazo de la tarjeta (un
+    # ``float`` en httpx valdría por fase y dejaría durar el doble).
+    assert len(plazos) == 3
+    for restante, plazo in plazos:
+        assert plazo["connect"] is not None and plazo["read"] is not None
+        assert plazo["connect"] + plazo["read"] <= restante + 1e-9
+        assert plazo["connect"] <= LANGSMITH_CONNECT_TIMEOUT
+
+
+# --- DeepSeek ----------------------------------------------------------------------------
+
+
+def test_deepseek_estima_el_costo_con_el_precio_configurado(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    stats = CallStats()
+    stats.record(kind="deepseek-flash", input_tokens=2_000_000, output_tokens=500_000)
+    monkeypatch.setattr("apps.api.metrics.DEEPSEEK_CALLS", stats)
+    settings = _settings(
+        deepseek_api_key="sk-x",
+        deepseek_price_input_per_million=0.5,
+        deepseek_price_output_per_million=2.0,
+    )
+
+    # Act
+    card = deepseek_card(settings)
+
+    # Assert
+    assert card.status == "ok"
+    assert card.data["cost_usd"] == pytest.approx(2.0)
+    assert card.data["balance"] is None
+
+
+def test_deepseek_sin_clave_queda_apagado() -> None:
+    assert deepseek_card(_settings()).status == "off"
+
+
+def test_saldo_de_deepseek_usa_la_url_sin_v1_y_no_expone_la_clave() -> None:
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://api.deepseek.com/user/balance"
+        assert request.headers["authorization"] == "Bearer sk-secreta"
+        return httpx.Response(
+            200,
+            json={
+                "is_available": True,
+                "balance_infos": [
+                    {
+                        "currency": "USD",
+                        "total_balance": "4.20",
+                        "granted_balance": "0.00",
+                        "topped_up_balance": "4.20",
+                    }
+                ],
+            },
+        )
+
+    # Act
+    balance = deepseek_balance(_settings(deepseek_api_key="sk-secreta"), _client(handler))
+
+    # Assert
+    assert balance["status"] == "ok"
+    assert balance["balances"][0]["total"] == "4.20"
+    assert "sk-secreta" not in json.dumps(balance, default=str)
+
+
+# --- WhatsApp (base y MCP) ---------------------------------------------------------------
+
+
+@pytest.fixture()
+def factory() -> Iterator[sessionmaker[Session]]:
+    motor = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    tables.metadata.create_all(motor)
+    try:
+        yield sessionmaker(bind=motor)
+    finally:
+        tables.metadata.drop_all(motor)
+        motor.dispose()
+
+
+def _poblar(factory: sessionmaker[Session]) -> None:
+    ahora = datetime.now(UTC)
+    with factory.begin() as session:
+        session.execute(
+            insert(tables.conversations),
+            [
+                {"id": "c-wa", "owner_key": "wa_0123456789abcdef", "created_at": ahora},
+                {"id": "c-web", "owner_key": "anon-visitante", "created_at": ahora},
+            ],
+        )
+        filas = [
+            ("m1", "c-wa", "user", ahora - timedelta(hours=1)),
+            ("m2", "c-wa", "assistant", ahora - timedelta(hours=1)),
+            ("m3", "c-wa", "user", ahora - timedelta(days=3)),
+            ("m4", "c-web", "user", ahora - timedelta(hours=2)),
+            ("m5", "c-web", "user", ahora - timedelta(days=10)),
+        ]
+        session.execute(
+            insert(tables.messages),
+            [
+                {
+                    "id": mid,
+                    "conversation_id": cid,
+                    "role": rol,
+                    "content": "Mi número es 3100000000",
+                    "created_at": cuando,
+                }
+                for mid, cid, rol, cuando in filas
+            ],
+        )
+
+
+def test_whatsapp_cuenta_por_canal_sin_textos_ni_owner_keys(
+    factory: sessionmaker[Session],
+) -> None:
+    # Arrange
+    _poblar(factory)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("sin URL del MCP no se consulta")
+
+    # Act
+    card = whatsapp_card(_settings(), _client(handler), factory)
+
+    # Assert
+    assert card.status == "ok"
+    uso = card.data["usage"]
+    assert (uso["wa"]["messages_24h"], uso["wa"]["messages_7d"]) == (1, 2)
+    assert (uso["web"]["messages_24h"], uso["web"]["messages_7d"]) == (1, 1)
+    assert uso["wa"]["chats_7d"] == 1
+    assert card.data["mcp"]["status"] == "off"
+    assert "OpenClaw" in card.data["note"]
+    publicado = json.dumps(card.data, default=str)
+    assert "3100000000" not in publicado
+    assert "wa_0123" not in publicado
+
+
+def test_whatsapp_lee_el_health_del_mcp_con_su_bearer(factory: sessionmaker[Session]) -> None:
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://mcp:8765/health"
+        assert request.headers["authorization"] == "Bearer token-mcp"
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "claims": {"judged": 10, "substituted": 2, "substitution_rate": 0.2},
+                "metrics": {
+                    "whatsapp": {"counts": {"mensajes": 7, "no_autorizados": 1}},
+                    "jev": {"calls": 3},
+                    "deepseek": {"calls": 5},
+                },
+            },
+        )
+
+    settings = _settings(
+        metrics_mcp_health_url="http://mcp:8765/health", mcp_health_token="token-mcp"
+    )
+
+    # Act
+    card = whatsapp_card(settings, _client(handler), factory)
+
+    # Assert
+    mcp = card.data["mcp"]
+    assert mcp["status"] == "ok"
+    assert mcp["whatsapp"]["counts"]["mensajes"] == 7
+    assert mcp["claims"]["substitution_rate"] == 0.2
+    assert "token-mcp" not in json.dumps(card.data, default=str)
+
+
+def test_whatsapp_no_usa_el_bearer_de_mcp_para_leer_el_health() -> None:
+    """MCP_TOKEN abre /mcp; aunque la app lo tuviera, /metricas solo envía MCP_HEALTH_TOKEN."""
+
+    # Arrange
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("sin MCP_HEALTH_TOKEN no se consulta el MCP")
+
+    settings = _settings(metrics_mcp_health_url="http://mcp:8765/health", mcp_token="token-mcp")
+
+    # Act
+    mcp = mcp_health(settings, _client(handler))
+
+    # Assert
+    assert mcp["status"] == "off"
+    assert "MCP_HEALTH_TOKEN" in mcp["reason"]
+
+
+def test_whatsapp_sin_base_ni_mcp_queda_no_disponible() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("caído")
+
+    settings = _settings(metrics_mcp_health_url="http://mcp:8765/health", mcp_health_token="t")
+
+    card = whatsapp_card(settings, _client(handler), None)
+
+    assert card.status == "unavailable"
+    assert card.data["mcp"]["reason"] == "No se pudo conectar."
+
+
+# --- Caché -------------------------------------------------------------------------------
+
+
+def test_la_cache_sirve_lo_vigente_y_ante_un_fallo_el_dato_anterior() -> None:
+    # Arrange
+    reloj = [0.0]
+    cache = TtlCache(clock=lambda: reloj[0])
+    llamadas: list[str] = []
+
+    def bueno() -> Card:
+        llamadas.append("bueno")
+        return Card("q", "Q", "ok", data={"points": 1})
+
+    def malo() -> Card:
+        llamadas.append("malo")
+        return Card("q", "Q", "unavailable", "No respondió a tiempo.")
+
+    # Act
+    primero = cache.get("q", 60, bueno)
+    segundo = cache.get("q", 60, malo)
+    reloj[0] = 61
+    tercero = cache.get("q", 60, malo)
+
+    # Assert
+    assert llamadas == ["bueno", "malo"]
+    assert primero is segundo
+    assert tercero.stale is True
+    assert tercero.data == {"points": 1}
+    assert tercero.reason == "No respondió a tiempo."
+
+
+def test_la_cache_guarda_el_fallo_y_no_consulta_la_fuente_caida_en_cada_visita() -> None:
+    # Arrange: dato bueno, caduca y la fuente cae.
+    reloj = [0.0]
+    cache = TtlCache(clock=lambda: reloj[0])
+    llamadas: list[str] = []
+    estado = {"ok": True}
+
+    def loader() -> Card:
+        llamadas.append("ok" if estado["ok"] else "falla")
+        if estado["ok"]:
+            return Card("q", "Q", "ok", data={"points": 1}, ttl_s=600)
+        return Card("q", "Q", "unavailable", "No se pudo conectar.")
+
+    cache.get("q", 600, loader)
+    reloj[0] = 601
+    estado["ok"] = False
+
+    # Act: diez visitas en 50 s y otra pasado el minuto de reintento.
+    vistas = []
+    for _ in range(10):
+        reloj[0] += 5
+        vistas.append(cache.get("q", 600, loader))
+    reloj[0] += 60
+    estado["ok"] = True
+    recuperada = cache.get("q", 600, loader)
+
+    # Assert: una sola consulta durante el fallo, datos anteriores marcados y recuperación.
+    assert llamadas == ["ok", "falla", "ok"]
+    assert all(v.stale and v.data == {"points": 1} for v in vistas)
+    assert vistas[-1].ttl_s == FAILURE_RETRY_TTL
+    assert recuperada.stale is False
+
+
+def test_un_fallo_sin_dato_previo_se_reintenta_al_minuto_y_no_a_los_diez() -> None:
+    # Arrange
+    reloj = [0.0]
+    cache = TtlCache(clock=lambda: reloj[0])
+    estado = {"ok": False}
+
+    def loader() -> Card:
+        if estado["ok"]:
+            return Card("q", "Q", "ok", data={"points": 1})
+        return Card("q", "Q", "unavailable", "No respondió a tiempo.")
+
+    # Act
+    primera = cache.get("q", 600, loader)
+    estado["ok"] = True
+    reloj[0] = 30
+    durante = cache.get("q", 600, loader)
+    reloj[0] = FAILURE_RETRY_TTL + 1
+    despues = cache.get("q", 600, loader)
+
+    # Assert
+    assert (primera.status, durante.status, despues.status) == ("unavailable",) * 2 + ("ok",)
+
+
+def test_varias_visitas_con_el_dato_caducado_recargan_una_sola_vez() -> None:
+    # Arrange: el loader tarda; ocho hilos piden la misma clave a la vez.
+    cache = TtlCache()
+    llamadas: list[int] = []
+    puerta = threading.Event()
+
+    def loader() -> Card:
+        llamadas.append(1)
+        puerta.wait(timeout=2)
+        return Card("q", "Q", "ok")
+
+    # Act
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futuros = [pool.submit(cache.get, "q", 60, loader) for _ in range(8)]
+        time.sleep(0.1)
+        puerta.set()
+        resultados = [f.result(timeout=5) for f in futuros]
+
+    # Assert
+    assert len(llamadas) == 1
+    assert all(r.status == "ok" for r in resultados)
+
+
+def test_langsmith_en_429_se_reintenta_a_los_30_s_y_no_a_los_diez_minutos() -> None:
+    # Arrange: las dos ventanas cargadas por turnos (t=0 y t=10); al caducar, LangSmith
+    # responde 429 sin Retry-After (spec 055, edge case).
+    reloj = Reloj()
+    peticiones: list[str] = []
+    estado = {"ok": True}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.smith.langchain.com":
+            return httpx.Response(503)
+        peticiones.append(request.url.path)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        if not estado["ok"]:
+            return httpx.Response(429)
+        return httpx.Response(200, json=STATS)
+
+    board = MetricsBoard(
+        settings=_settings(**LANGSMITH),
+        transport=httpx.MockTransport(handler),
+        cache=TtlCache(clock=reloj),
+        langsmith=_estado(reloj),
+    )
+    vista: dict[str, Any] = {"operator": False, "jev": {}, "claims": {}, "photo": {}}
+
+    def langsmith() -> Card:
+        return next(c for c in board.cards(**vista) if c.key == "langsmith")
+
+    langsmith()
+    reloj.t = 10
+    langsmith()
+    reloj.t = LANGSMITH_TTL + 11
+    estado["ok"] = False
+    peticiones.clear()
+
+    # Act: visitas cada 5 s durante 25 s; luego, pasados los 30 s del fallo, dos turnos.
+    for _ in range(5):
+        reloj.t += 5
+        tarjeta = langsmith()
+    durante = list(peticiones)
+    estado["ok"] = True
+    reloj.t += LANGSMITH_RETRY_TTL
+    medio = langsmith()
+    reloj.t += LANGSMITH_STATS_SPACING + 1
+    recuperada = langsmith()
+
+    # Assert: una consulta por ventana durante el fallo (no una por visita), datos anteriores
+    # marcados con el motivo, y la tarjeta se recupera en segundos, no a los diez minutos.
+    assert durante == ["/runs/stats", "/runs/stats"]
+    assert tarjeta.status == "ok" and tarjeta.stale is True
+    assert "HTTP 429" in tarjeta.reason
+    assert tarjeta.ttl_s <= LANGSMITH_RETRY_TTL
+    assert medio.data["windows"]["24h"]["status"] == "ok"
+    assert recuperada.stale is False and recuperada.retry_at is None
+
+
+def test_un_reintento_de_langsmith_fuerza_las_ventanas_sin_saltarse_el_turno() -> None:
+    # Arrange: dos ventanas vigentes en la caché.
+    reloj = Reloj()
+    peticiones: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.smith.langchain.com":
+            return httpx.Response(503)
+        peticiones.append(request.url.path)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    board = MetricsBoard(
+        settings=_settings(**LANGSMITH),
+        transport=httpx.MockTransport(handler),
+        cache=TtlCache(clock=reloj),
+        langsmith=_estado(reloj),
+    )
+    vista: dict[str, Any] = {"operator": False, "jev": {}, "claims": {}, "photo": {}}
+    board.cards(**vista)
+    reloj.t = LANGSMITH_STATS_SPACING + 1
+    board.cards(**vista)
+    peticiones.clear()
+
+    # Act: reintento dentro del enfriamiento, otro fuera y la carga siguiente.
+    reloj.t += 1
+    pronto = board.retry("langsmith", operator=False)
+    reloj.t += RETRY_COOLDOWN
+    hecho = board.retry("langsmith", operator=False)
+    tarjeta = next(c for c in board.cards(**vista) if c.key == "langsmith")
+
+    # Assert: el primero espera; el segundo recarga una ventana (hay turno para una sola).
+    assert pronto.status == "wait" and 0 < pronto.wait_s <= RETRY_COOLDOWN
+    assert hecho.status == "done"
+    assert peticiones == ["/runs/stats"]
+    assert tarjeta.status == "ok" and tarjeta.stale is False
+    assert tarjeta.retry_at is not None
+
+
+def test_reintentar_langsmith_no_espera_a_una_carga_en_curso() -> None:
+    # Arrange: una carga de LangSmith tiene el candado (red y esperas) en otro hilo.
+    board = MetricsBoard(settings=_settings(**LANGSMITH), langsmith=_estado(Reloj()))
+    board.langsmith.lock.acquire()
+    resultado: list[str] = []
+
+    # Act
+    hilo = threading.Thread(
+        target=lambda: resultado.append(board.retry("langsmith", operator=False).status)
+    )
+    hilo.start()
+    hilo.join(timeout=2)
+    bloqueado = hilo.is_alive()
+    board.langsmith.lock.release()
+    hilo.join(timeout=2)
+    board.langsmith.apply_force()
+
+    # Assert: responde sin esperar y la carga siguiente aplica el reintento.
+    assert bloqueado is False
+    assert resultado == ["done"]
+    assert all(w.forced for w in board.langsmith.windows.values())
+
+
+def test_la_cache_vencida_a_mano_conserva_el_dato_anterior() -> None:
+    # Arrange
+    reloj = Reloj()
+    cache = TtlCache(clock=reloj)
+    cache.get("q", 60, lambda: Card("q", "Q", "ok", data={"points": 1}))
+
+    # Act
+    cache.expire("q")
+    caida = cache.get("q", 60, lambda: Card("q", "Q", "unavailable", "No se pudo conectar."))
+
+    # Assert
+    assert caida.stale is True and caida.data == {"points": 1}
+    assert caida.retry_at is not None
+    assert cache.since_load("q") == 0
+    assert cache.since_load("otra") is None
+
+
+def test_una_respuesta_con_otra_forma_deja_su_tarjeta_no_disponible_y_no_las_demas() -> None:
+    # Arrange: Qdrant responde 200 con un JSON que no es el esperado (``result`` es lista).
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "qdrant":
+            return httpx.Response(200, json={"result": ["inesperado"]})
+        raise AssertionError(f"petición inesperada: {request.url}")
+
+    board = MetricsBoard(settings=_settings(), transport=httpx.MockTransport(handler))
+
+    # Act
+    tarjetas = {c.key: c for c in board.cards(operator=False, jev={}, claims={}, photo={})}
+
+    # Assert: la tarjeta de Qdrant lo dice y las otras cuatro siguen.
+    assert set(tarjetas) == {"qdrant", "jev", "langsmith", "deepseek", "whatsapp"}
+    assert tarjetas["qdrant"].status == "unavailable"
+    assert tarjetas["qdrant"].reason == "Respuesta inesperada (AttributeError)."
+
+
+def test_cada_fuente_en_paralelo_usa_su_propio_cliente_http() -> None:
+    # Arrange: se registra qué cliente atiende a cada fuente.
+    usados: dict[str, set[int]] = {}
+    candado = threading.Lock()
+
+    class Tablero(MetricsBoard):
+        def _client(self) -> httpx.Client:
+            cliente = super()._client()
+            original = cliente.send
+
+            def send(request: httpx.Request, **kwargs: Any) -> httpx.Response:
+                with candado:
+                    usados.setdefault(request.url.host, set()).add(id(cliente))
+                return original(request, **kwargs)
+
+            cliente.send = send  # type: ignore[method-assign]
+            return cliente
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "qdrant":
+            return httpx.Response(200, json=COLLECTION)
+        if request.url.path == "/user/balance":
+            return httpx.Response(200, json={"is_available": True, "balance_infos": []})
+        if request.url.host == "mcp":
+            return httpx.Response(200, json={"metrics": {}})
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    board = Tablero(
+        settings=_settings(
+            monitoring_enabled=True,
+            langsmith_api_key="k",
+            deepseek_api_key="sk",
+            metrics_mcp_health_url="http://mcp:8765/health",
+            mcp_health_token="t",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+
+    # Act
+    board.cards(operator=True, jev={}, claims={}, photo={})
+
+    # Assert: un cliente por fuente, ninguno compartido entre hilos.
+    clientes = list(usados.values())
+    assert len(usados) == 4
+    assert all(len(ids) == 1 for ids in clientes)
+    assert len(set().union(*clientes)) == 4
+
+
+# --- Vista -------------------------------------------------------------------------------
+
+
+def _transporte(saldo: bool = True, registro: list[str] | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if registro is not None:
+            registro.append(f"{request.url.host}{request.url.path}")
+        if request.url.path == "/user/balance":
+            assert saldo, "el saldo solo se consulta para el operador"
+            return httpx.Response(
+                200,
+                json={
+                    "is_available": True,
+                    "balance_infos": [
+                        {
+                            "currency": "USD",
+                            "total_balance": "4.20",
+                            "granted_balance": "0.00",
+                            "topped_up_balance": "4.20",
+                        }
+                    ],
+                },
+            )
+        if request.url.host == "qdrant":
+            raise httpx.ConnectError("Qdrant caído")
+        raise AssertionError(f"petición inesperada: {request.url}")
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.fixture()
+def app_metricas(
+    monkeypatch: pytest.MonkeyPatch, factory: sessionmaker[Session]
+) -> Callable[..., TestClient]:
+    monkeypatch.setenv("OPERATOR_TOKEN", OPERATOR_TOKEN)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-secreta")
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("MONITORING_ENABLED", "false")
+    monkeypatch.setenv("QDRANT_URL", "http://qdrant:6333")
+    monkeypatch.setenv("METRICS_MCP_HEALTH_URL", "")
+    _poblar(factory)
+    process_metrics.DEEPSEEK_CALLS.reset()
+
+    def construir(
+        saldo: bool = True, reloj: Reloj | None = None, registro: list[str] | None = None
+    ) -> TestClient:
+        from apps.api.main import Handlers, HealthStatus, create_app
+
+        app = create_app(Handlers(health=lambda: HealthStatus(1, 2)))
+        app.state.metrics = MetricsBoard(
+            settings=app.state.settings,
+            session_factory=lambda: factory,
+            transport=_transporte(saldo, registro),
+            cache=TtlCache(clock=reloj) if reloj is not None else TtlCache(),
+        )
+        return TestClient(app)
+
+    return construir
+
+
+def test_la_pagina_es_publica_y_una_fuente_caida_no_la_tumba(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    cliente = app_metricas(saldo=False)
+
+    # Act
+    respuesta = cliente.get("/metricas")
+
+    # Assert
+    assert respuesta.status_code == 200
+    assert "no-store" in respuesta.headers["cache-control"]
+    html = respuesta.text
+    for titulo in ("Qdrant", "Jev (TypeSafe)", "LangSmith", "DeepSeek", "WhatsApp (OpenClaw)"):
+        assert titulo in html
+    assert "No disponible" in html  # Qdrant caído
+    assert "No se pudo conectar." in html
+    assert "Visible solo para el operador." in html
+    assert "4.20" not in html
+    assert "sk-secreta" not in html
+    assert "wa_0123" not in html
+    assert "3100000000" not in html
+
+
+def test_el_operador_ve_el_saldo_de_deepseek(app_metricas: Callable[..., TestClient]) -> None:
+    # Arrange
+    cliente = app_metricas()
+
+    # Act
+    html = cliente.get("/metricas", headers={"X-Operator-Token": OPERATOR_TOKEN}).text
+
+    # Assert
+    assert "Saldo USD" in html
+    assert "4.20" in html
+    assert "sk-secreta" not in html
+
+
+def test_el_saldo_en_cache_del_operador_no_se_sirve_a_un_visitante(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange: el operador abre la página y deja el saldo en la caché.
+    cliente = app_metricas()
+    operador = cliente.get("/metricas", headers={"X-Operator-Token": OPERATOR_TOKEN}).text
+    assert "4.20" in operador
+
+    # Act: un visitante sin sesión entra dentro de la vigencia del saldo.
+    visitante = cliente.get("/metricas").text
+
+    # Assert
+    assert "4.20" not in visitante
+    assert "Visible solo para el operador." in visitante
+
+
+def test_la_navegacion_enlaza_metricas(app_metricas: Callable[..., TestClient]) -> None:
+    cliente = app_metricas()
+
+    chat = cliente.get("/chat").text
+    metricas = cliente.get("/metricas").text
+
+    assert 'href="/metricas"' in chat
+    assert 'href="/metricas"\n            aria-current="page"' in metricas
+
+
+# --- Reintento manual --------------------------------------------------------------------
+
+
+def _csrf(html: str) -> str:
+    encontrado = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert encontrado, "la página debe llevar el token CSRF en el formulario de reintento"
+    return encontrado.group(1)
+
+
+def test_qdrant_caido_muestra_reintentar_con_csrf_y_texto_accesible(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    cliente = app_metricas(saldo=False)
+
+    # Act
+    html = cliente.get("/metricas").text
+
+    # Assert: formulario POST con CSRF, fuente conocida y botón con texto.
+    assert 'action="/metricas/reintentar"' in html
+    assert 'name="fuente" value="qdrant"' in html
+    assert 'Reintentar<span class="sr-solo"> Qdrant</span>' in html
+    assert 'role="status"' in html
+    assert _csrf(html)
+
+
+def test_reintentar_sin_csrf_se_rechaza_y_no_consulta_la_fuente(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    reloj = Reloj()
+    registro: list[str] = []
+    cliente = app_metricas(saldo=False, reloj=reloj, registro=registro)
+    cliente.get("/metricas")
+    reloj.t = RETRY_COOLDOWN + 1
+    registro.clear()
+
+    # Act
+    respuesta = cliente.post(
+        "/metricas/reintentar", data={"fuente": "qdrant"}, follow_redirects=False
+    )
+
+    # Assert: 403 y la página dice por qué; Qdrant sigue en caché (no se consulta).
+    assert respuesta.status_code == 403
+    assert "La sesión del formulario expiró" in respuesta.text
+    assert registro == []
+
+
+def test_reintentar_con_csrf_fuerza_la_recarga_y_luego_pide_esperar(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange: Qdrant caído y en caché.
+    reloj = Reloj()
+    registro: list[str] = []
+    cliente = app_metricas(saldo=False, reloj=reloj, registro=registro)
+    token = _csrf(cliente.get("/metricas").text)
+    reloj.t = RETRY_COOLDOWN + 1
+    registro.clear()
+
+    # Act: reintento válido, la página que sigue y otro reintento enseguida.
+    hecho = cliente.post(
+        "/metricas/reintentar",
+        data={"fuente": "qdrant", "csrf_token": token},
+        follow_redirects=False,
+    )
+    pagina = cliente.get(hecho.headers["location"]).text
+    consultas = list(registro)
+    reloj.t += 3
+    pronto = cliente.post(
+        "/metricas/reintentar",
+        data={"fuente": "qdrant", "csrf_token": token},
+        follow_redirects=False,
+    )
+    espera = cliente.get(pronto.headers["location"]).text
+
+    # Assert: 303 a la página, una consulta real; dentro del enfriamiento, ninguna.
+    assert hecho.status_code == 303
+    assert hecho.headers["location"] == "/metricas?reintento=qdrant#reintento-qdrant"
+    assert consultas == ["qdrant/collections/carvajal_chunks"]
+    assert "Se volvió a consultar Qdrant hace un momento." in pagina
+    assert pronto.status_code == 303
+    assert pronto.headers["location"] == "/metricas?espera=qdrant#reintento-qdrant"
+    assert f"Espera {RETRY_COOLDOWN - 3} s para reintentar" in espera
+    assert registro == consultas
+
+
+def test_el_aviso_del_reintento_se_marca_para_anunciarlo_tras_la_redireccion(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    cliente = app_metricas(saldo=False)
+
+    # Act
+    con_aviso = cliente.get("/metricas?reintento=qdrant").text
+    sin_aviso = cliente.get("/metricas").text
+
+    # Assert: solo el estado de la fuente reintentada lleva la marca; el script es propio.
+    assert '<script src="/static/metricas.js" defer></script>' in con_aviso
+    assert re.search(r'id="reintento-qdrant"[^>]*data-anunciar', con_aviso)
+    assert con_aviso.count("data-anunciar") == 1
+    assert "data-anunciar" not in sin_aviso
+
+
+@pytest.mark.parametrize(
+    ("fuente", "operador", "codigo"),
+    [
+        ("desconocida", False, 400),
+        ("jev", False, 400),
+        ("deepseek_balance", False, 403),
+        ("deepseek_balance", True, 303),
+    ],
+)
+def test_reintentar_solo_acepta_fuentes_conocidas_y_el_saldo_es_del_operador(
+    app_metricas: Callable[..., TestClient], fuente: str, operador: bool, codigo: int
+) -> None:
+    # Arrange
+    cliente = app_metricas()
+    token = _csrf(cliente.get("/metricas").text)
+    cabeceras = {"X-Operator-Token": OPERATOR_TOKEN} if operador else {}
+
+    # Act
+    respuesta = cliente.post(
+        "/metricas/reintentar",
+        data={"fuente": fuente, "csrf_token": token},
+        headers=cabeceras,
+        follow_redirects=False,
+    )
+
+    # Assert
+    assert respuesta.status_code == codigo
+    if codigo == 303:
+        assert respuesta.headers["location"].startswith("/metricas?")
+    else:
+        assert fuente not in respuesta.headers.get("location", "")
+
+
+def test_un_aviso_de_reintento_con_fuente_inventada_no_se_muestra(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange
+    cliente = app_metricas(saldo=False)
+
+    # Act
+    html = cliente.get("/metricas?reintento=<script>").text
+
+    # Assert
+    assert "<script>" not in html
+    assert "Se volvió a consultar" not in html
+
+
+def test_la_pagina_muestra_la_ventana_pendiente_de_langsmith(
+    app_metricas: Callable[..., TestClient],
+) -> None:
+    # Arrange: LangSmith con la caché fría; el resto de fuentes, caídas.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "api.smith.langchain.com":
+            return httpx.Response(503)
+        if request.url.path == "/sessions":
+            return httpx.Response(200, json=[{"id": "p-1"}])
+        return httpx.Response(200, json=STATS)
+
+    cliente = app_metricas(saldo=False)
+    app: Any = cliente.app
+    app.state.metrics = MetricsBoard(
+        settings=_settings(**LANGSMITH),
+        transport=httpx.MockTransport(handler),
+    )
+
+    # Act
+    html = cliente.get("/metricas").text
+
+    # Assert: la fila de 24 h tiene cifras; la de 7 días dice que espera turno y cuándo.
+    assert "Últimas 24 h" in html
+    assert "Pendiente" in html
+    assert "espera su turno" in html
+    assert "Se reintenta en" in html
+    assert 'name="fuente" value="langsmith"' in html
+
+
+def test_el_enfriamiento_se_consulta_sin_esperar_una_carga_en_curso() -> None:
+    # Arrange: una carga lenta retiene el turno de su clave mientras consulta la fuente.
+    cache = TtlCache()
+    started, release = threading.Event(), threading.Event()
+
+    def slow() -> Card:
+        started.set()
+        release.wait(5)
+        return Card("langsmith", "LangSmith", "ok", "", {}, updated_at=datetime.now(UTC))
+
+    worker = threading.Thread(target=lambda: cache.get("langsmith", 600, slow))
+    worker.start()
+    started.wait(5)
+
+    # Act: lo que usa la página para pintar «Espera N s» mientras la carga sigue en curso.
+    begin = time.perf_counter()
+    since = cache.since_load("langsmith")
+    elapsed = time.perf_counter() - begin
+    release.set()
+    worker.join(5)
+
+    # Assert: responde al instante; la carga no retiene el candado corto de la caché.
+    assert since is not None
+    assert elapsed < 0.1

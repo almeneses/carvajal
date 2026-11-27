@@ -11,9 +11,14 @@ Seguridad, en capas:
   token configurado la aplicación no se construye: falla cerrada.
 - Protección contra DNS rebinding: solo se aceptan cabeceras ``Host`` de loopback.
 - ``/live`` responde sin token y sin tocar la base, para el healthcheck del contenedor.
-- ``/health`` (con el mismo bearer) publica los contadores de la compuerta de afirmaciones
-  de este proceso (bloque ``claims``, como el de ``/health`` de la app web): WhatsApp corre
-  el agente aquí, en otro proceso, y sus veredictos no llegan a los de la app.
+- ``/health`` (con el mismo bearer, o con ``MCP_HEALTH_TOKEN``, que solo abre esta ruta)
+  publica los contadores de la compuerta de afirmaciones de este proceso (bloque ``claims``,
+  como el de ``/health`` de la app web): WhatsApp corre el agente aquí, en otro proceso, y
+  sus veredictos no llegan a los de la app. Desde la spec
+  055 publica también el bloque ``metrics`` (mensajes, errores, no autorizados y PDF del
+  puente, llamadas a Jev y a DeepSeek de este proceso), que lee la página ``/metricas`` de la
+  app por la red interna de compose: por eso ``/health`` acepta además el ``Host`` del
+  servicio (``mcp``), y ``/mcp`` sigue aceptando solo loopback.
 
 Voz: con ``voz=true`` (el cliente mandó una nota de voz y la pasarela responderá con TTS)
 la herramienta sigue devolviendo un solo texto. Primero va un **resumen hablado** (unos
@@ -50,6 +55,7 @@ from apps.mcp.bridge import (
     WhatsAppBridge,
     read_inbound_photo,
 )
+from carvajal.infrastructure.metrics import DEEPSEEK_CALLS, JEV_CALLS, WHATSAPP_EVENTS
 from carvajal.speech import LINKS_HEADER, TEXT_HEADER
 
 if TYPE_CHECKING:
@@ -98,6 +104,8 @@ ASGIApp = Callable[
 ]
 
 _LOOPBACK_HOSTS = ["127.0.0.1", "127.0.0.1:*", "localhost", "localhost:*", "[::1]", "[::1]:*"]
+# Nombre del servicio en compose.prod.yml: la app lee ``/health`` como http://mcp:8765/health.
+_INTERNAL_HEALTH_HOSTS = ["mcp", "mcp:*"]
 
 
 def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPServer:
@@ -166,8 +174,19 @@ def build_server(bridge: WhatsAppBridge | Callable[[], WhatsAppBridge]) -> MCPSe
     return server
 
 
-def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
+def _bearer_guard(app: ASGIApp, token: str, health_token: str = "") -> ASGIApp:
     expected = f"Bearer {token}".encode()
+    # Spec 055: el bearer de la app web solo abre ``/health``; ``/mcp`` exige ``MCP_TOKEN``.
+    health_expected = f"Bearer {health_token}".encode() if health_token else None
+
+    def authorized(path: str | None, supplied: bytes) -> bool:
+        if hmac.compare_digest(supplied, expected):
+            return True
+        return (
+            path == "/health"
+            and health_expected is not None
+            and hmac.compare_digest(supplied, health_expected)
+        )
 
     async def guarded(
         scope: MutableMapping[str, Any],
@@ -177,8 +196,9 @@ def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
         if scope["type"] == "http" and scope.get("path") != "/live":
             headers = dict(scope.get("headers") or [])
             supplied = headers.get(b"authorization", b"")
-            if not hmac.compare_digest(supplied, expected):
+            if not authorized(scope.get("path"), supplied):
                 logger.warning("mcp.unauthorized", path=scope.get("path"))
+                WHATSAPP_EVENTS.count("no_autorizados")
                 response: Response = JSONResponse({"detail": "No autorizado."}, 401)
                 await response(scope, receive, send)
                 return
@@ -187,12 +207,21 @@ def _bearer_guard(app: ASGIApp, token: str) -> ASGIApp:
     return guarded
 
 
-def build_app(server: MCPServer, token: str) -> ASGIApp:
+def build_app(server: MCPServer, token: str, *, health_token: str = "") -> ASGIApp:
     """Aplicación ASGI: ``/mcp`` y ``/health`` con bearer y anti DNS rebinding, ``/live``
-    abierto."""
+    abierto.
+
+    ``health_token`` (``MCP_HEALTH_TOKEN``) es un bearer aparte que abre solo ``/health``:
+    lo lleva la app web para la página de métricas sin recibir ``MCP_TOKEN``.
+    """
 
     if not token.strip():
         raise RuntimeError("Define MCP_TOKEN: el servidor MCP no arranca sin token.")
+    health_token = health_token.strip()
+    if health_token and hmac.compare_digest(health_token.encode(), token.strip().encode()):
+        # Igual a MCP_TOKEN, la app web tendría acceso a /mcp: se ignora y se avisa.
+        logger.warning("mcp.health_token_reused")
+        health_token = ""
 
     @server.custom_route("/live", methods=["GET"], include_in_schema=False)
     async def live(_request: Request) -> Response:
@@ -205,7 +234,13 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
     )
     # El transporte solo valida ``Host`` y ``Origin`` en ``/mcp``: las rutas propias lo
     # piden aparte con las mismas reglas.
-    host_check = TransportSecurityMiddleware(security)
+    host_check = TransportSecurityMiddleware(
+        TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[*_LOOPBACK_HOSTS, *_INTERNAL_HEALTH_HOSTS],
+            allowed_origins=[],
+        )
+    )
     # Al arrancar, como el token: si la configuración fallara, el MCP no arranca en vez de
     # responder 500 en /health.
     health_settings = _health_settings()
@@ -218,10 +253,21 @@ def build_app(server: MCPServer, token: str) -> ASGIApp:
         # Diferido: el bloque importa el gatekeeper, que arrastra el grafo del agente.
         from apps.api.observability import claims_block
 
-        return JSONResponse({"status": "ok", "claims": claims_block(health_settings)})
+        return JSONResponse(
+            {
+                "status": "ok",
+                "claims": claims_block(health_settings),
+                # Spec 055: contadores de este proceso, solo números y estados.
+                "metrics": {
+                    "whatsapp": WHATSAPP_EVENTS.snapshot(),
+                    "jev": JEV_CALLS.snapshot(),
+                    "deepseek": DEEPSEEK_CALLS.snapshot(),
+                },
+            }
+        )
 
     app: Starlette = server.streamable_http_app(transport_security=security)
-    return _bearer_guard(app, token.strip())
+    return _bearer_guard(app, token.strip(), health_token)
 
 
 @cache
@@ -333,7 +379,7 @@ def default_bridge() -> WhatsAppBridge:
         pdf_link=pdf_link if base_url else None,
         # Con MEDIA_BASE_URL, OpenClaw adjunta el PDF como documento en vez de enlazarlo.
         pdf_attachment=pdf_attachment if media_base else None,
-        # Spec 055: el recibo del pedido, adjunto con MEDIA_BASE_URL o como enlace.
+        # Spec 056: el recibo del pedido, adjunto con MEDIA_BASE_URL o como enlace.
         order_attachment=order_attachment if media_base else None,
         order_link=order_link if base_url else None,
         photo_url=photo_url if base_url else None,

@@ -51,11 +51,12 @@ services:
       db:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       ollama:
-        # El embedder se crea en la primera pregunta, no al arrancar: la app
-        # puede iniciar aunque Ollama aún esté calentando. Los modelos se
-        # descargan con `make prod-bootstrap` (perfil `bootstrap`).
+        # La app no espera a Ollama: el calentamiento de los embeddings corre en
+        # segundo plano al arrancar y, si Ollama aún no responde, la primera
+        # pregunta crea el embedder. Los modelos se descargan con
+        # `make prod-bootstrap` (perfil `bootstrap`).
         condition: service_started
     # Las variables se comparten con el servicio `bootstrap` de abajo.
     environment: &app-environment
@@ -75,9 +76,19 @@ services:
       # Los embeddings del RAG se calculan en el servicio `ollama`. Si usas un
       # Ollama externo, define OLLAMA_BASE_URL en el .env del servidor.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      # Embeddings de consultas (2026-11-26): el modelo sigue cargado 24 h tras cada
+      # petición (Ollama lo descargaba a los 5 min y buscar_corpus pagaba la recarga), la app
+      # y el MCP lo calientan al arrancar en segundo plano y las consultas repetidas salen
+      # de una caché LRU del proceso.
+      OLLAMA_EMBED_KEEP_ALIVE_S: ${OLLAMA_EMBED_KEEP_ALIVE_S:-86400}
+      EMBED_CACHE_SIZE: ${EMBED_CACHE_SIZE:-512}
+      EMBED_WARM_UP: ${EMBED_WARM_UP:-true}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+      # Spec 055: precio en USD por millón de tokens para el costo estimado de /metricas.
+      DEEPSEEK_PRICE_INPUT_PER_MILLION: ${DEEPSEEK_PRICE_INPUT_PER_MILLION:-0.30}
+      DEEPSEEK_PRICE_OUTPUT_PER_MILLION: ${DEEPSEEK_PRICE_OUTPUT_PER_MILLION:-1.20}
       # El RAG evaluado del M2 consulta Qdrant; Postgres sigue siendo la
       # fuente de verdad relacional y el backend de memoria del agente.
       QDRANT_URL: http://qdrant:6333
@@ -107,12 +118,12 @@ services:
       JEV_ROUTER_MIN_CONFIDENCE: ${JEV_ROUTER_MIN_CONFIDENCE:-0.6}
       JEV_ROUTER_DIRECT_MIN_CONFIDENCE: ${JEV_ROUTER_DIRECT_MIN_CONFIDENCE:-0.8}
       JEV_CLAIMS_MODE: ${JEV_CLAIMS_MODE:-enforce}
-      JEV_CLAIMS_THRESHOLD: ${JEV_CLAIMS_THRESHOLD:-0.5}
+      JEV_CLAIMS_THRESHOLD: ${JEV_CLAIMS_THRESHOLD:-0.3}
       JEV_MAX_CALLS_PER_DAY: ${JEV_MAX_CALLS_PER_DAY:-1000}
       JEV_MAX_EVIDENCE_CHARS: ${JEV_MAX_EVIDENCE_CHARS:-12000}
       # Fotos de alimentos (spec 051): encendidas con TYPESAFE_API_KEY, sin depender de
       # JEV_ENABLED. FOOD_PHOTO_ENABLED=false las apaga y oculta el botón.
-      # Spec 055: pedidos en Odoo tras el folio (nombre y correo de quien compra). Sin las
+      # Spec 056: pedidos en Odoo tras el folio (nombre y correo de quien compra). Sin las
       # tres variables no se ofrece el pedido. En la VPS, Odoo corre en su propio compose
       # (deploy/odoo/) unido a esta red con el alias `odoo` (docs/odoo-pedidos.md).
       ODOO_URL: ${ODOO_URL:-}
@@ -160,6 +171,13 @@ services:
       # escritura web y deja solo la CLI interna. `CONFIG_TOKEN` sigue siendo
       # un alias aceptado por Settings.
       OPERATOR_TOKEN: ${OPERATOR_TOKEN:-}
+      # Spec 055: /metricas lee los contadores del servidor MCP (perfil `whatsapp`) por la red
+      # interna con MCP_HEALTH_TOKEN, un bearer aparte que solo abre /health: MCP_TOKEN
+      # (que abre /mcp y con él cualquier chat de WhatsApp) no llega a la app web. Sin el
+      # perfil o sin MCP_HEALTH_TOKEN, la tarjeta de WhatsApp muestra solo lo que guarda la
+      # base. El servicio `mcp` fija MCP_TOKEN abajo y hereda MCP_HEALTH_TOKEN.
+      MCP_HEALTH_TOKEN: ${MCP_HEALTH_TOKEN:-}
+      METRICS_MCP_HEALTH_URL: ${METRICS_MCP_HEALTH_URL:-http://mcp:8765/health}
       # Webhook firmado de mensajería en POST /api/webhooks/whatsapp (docs/webhooks.md).
       # Sin secreto responde 404; la allowlist E.164 separada por comas vacía rechaza
       # todos los remitentes. La app se publica por HTTP: sin TLS delante, el relé
@@ -259,7 +277,7 @@ services:
       db:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       ollama:
         condition: service_started
     environment:
@@ -306,6 +324,21 @@ services:
     restart: unless-stopped
     volumes:
       - qdrantdata:/qdrant/storage
+    # La imagen de Qdrant no trae curl ni wget, pero sí bash: el healthcheck abre /readyz
+    # por /dev/tcp (200 cuando todas las colecciones cargaron). Los servicios que buscan en el
+    # índice esperan a que esté sano en vez de solo arrancado.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          'exec 3<>/dev/tcp/127.0.0.1/6333 && printf "GET /readyz HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 && head -n 1 <&3 | grep -q " 200 "',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   ollama:
     # Solo se usa para embeddings (nomic-embed-text); el chat usa DeepSeek.
@@ -409,7 +442,7 @@ services:
       db:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
 

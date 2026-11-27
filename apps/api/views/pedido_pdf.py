@@ -1,4 +1,4 @@
-"""Recibo del pedido: ``GET /pedidos/{folio}.pdf`` para el dueño de la cotización (spec 055).
+"""Recibo del pedido: ``GET /pedidos/{folio}.pdf`` para el dueño de la cotización (spec 056).
 
 Es el PDF del pedido de venta que Odoo generó al confirmarlo (el mismo que adjunta al correo
 de confirmación). Las mismas dos pruebas que el PDF de la cotización, sin revelar nunca si el

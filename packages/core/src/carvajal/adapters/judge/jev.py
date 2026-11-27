@@ -48,6 +48,7 @@ from carvajal.application.ports import (
 )
 from carvajal.food.photo import PreparedPhoto
 from carvajal.food.profile import PHOTO_REF, FoodProfile, food_questions, parse_food_answers
+from carvajal.infrastructure.metrics import JEV_CALLS
 from carvajal.prompts import (
     JEV_CLAIMS_CRITERIA,
     JEV_CLAIMS_INSTRUCTIONS,
@@ -210,6 +211,9 @@ class JevClient:
             if blocked == "cap" and not self._cap_logged:
                 self._cap_logged = True
                 logger.warning("jev.cap_reached", calls_today=self.calls_today)
+            if blocked != "off":
+                # Spec 055: /metricas muestra los cortes por cupo o por circuito.
+                JEV_CALLS.block(str(blocked))
             raise JudgeUnavailable(blocked)
         with self._lock:
             self.calls_today += 1
@@ -250,6 +254,14 @@ class JevClient:
         )
         self._after(status, category, model)
         self._annotate(call, extras)
+        # Spec 055: contadores del proceso para /metricas (tipo, estado, latencia y tokens).
+        JEV_CALLS.record(
+            kind=str(kind),
+            status=str(status),
+            latency_ms=latency_ms,
+            input_tokens=usage[0],
+            output_tokens=usage[1],
+        )
         logger.info("jev.call", **call.to_value())
         if status != "ok":
             raise JudgeUnavailable(status, call)

@@ -18,7 +18,7 @@ pudo comprobar.
 | Operación | `test_operacion.py` | `/live` y `/health` (índice, catálogo, modo del agente, Jev, fotos), cabeceras de seguridad, rechazos del webhook y del CSRF sin tocar nada, checkout y CI de `origin/main` en verde, la versión desplegada, el contenedor, el MCP, los medios y Ollama en el servidor, y en el gateway: los servicios, WhatsApp conectado con `dm:allowlist`, la configuración sin deriva, el túnel al MCP y `openclaw security audit` frente a `openclaw/auditoria-base.json` | no |
 | Web | `test_web.py` | Los flujos definidos (specs 053 y 054, guiones de `guiones.py`), la memoria entre dos conversaciones de un mismo visitante y la conversación que arranca con una foto (`/chat/foto`) | sí |
 | WhatsApp por MCP | `test_whatsapp.py` | Los mismos guiones y la misma memoria por `consultar_carvajal`, la herramienta que llama OpenClaw, y la conversación que arranca con foto (`media://inbound/...`) | sí |
-| Pedido en Odoo | `test_web.py` y `test_whatsapp.py` | Folio → «Sí, quiero hacer el pedido» → nombre → correo → «📋 … ¿Lo confirmo?» con los dos datos → «Sí, confírmalo» → `Pedido S… confirmado` («La confirmación del pedido llega a» el correo), y un segundo «quiero comprarla» que no duplica (spec 055). Apagado salvo con `ENSAYO_PEDIDO=1` | sí (crea un pedido real en Odoo) |
+| Pedido en Odoo | `test_web.py` y `test_whatsapp.py` | Folio → «Sí, quiero hacer el pedido» → nombre → correo → «📋 … ¿Lo confirmo?» con los dos datos → «Sí, confírmalo» → `Pedido S… confirmado` («La confirmación del pedido llega a» el correo), y un segundo «quiero comprarla» que no duplica (spec 056). Apagado salvo con `ENSAYO_PEDIDO=1` | sí (crea un pedido real en Odoo) |
 | Webhook y allowlist | `test_whatsapp.py` | Un remitente fuera de `WEBHOOK_ALLOWED_NUMBERS` (`ENSAYO_WA_FUERA`) recibe 403 sin llegar al agente | no |
 | Voz | `test_voz.py` | Web: un turno dictado trae `voz_resumen` sin enlaces; `/api/voz/hablar` lo sintetiza y ese audio (pasado a Ogg/Opus con `ffmpeg`) vuelve por `/api/voz/transcribir` y sirve de siguiente turno; `/hablar` no sintetiza mensajes ajenos. WhatsApp: `consultar_carvajal` con `voz=true` empieza por un resumen para TTS sin URL | sí (STT y TTS de OpenAI) |
 | WhatsApp real | `test_whatsapp_real.py` | Un DM real enviado desde un número **fuera** de `allowFrom` no recibe respuesta, y el gateway registra `Inbound message blocked (reason=dm_policy_not_allowlisted)` | sí (envía un WhatsApp) |
@@ -34,7 +34,7 @@ guion se repite una vez en un hilo nuevo. Nunca se comparan precios.
 Odoo simulados, en la CI normal: si cambia una plantilla del flujo, falla ahí y no en el
 ensayo contra producción.
 
-## Pedidos en Odoo (spec 055)
+## Pedidos en Odoo (spec 056)
 
 Con `ODOO_URL`, `ODOO_DB` y `ODOO_API_KEY` en la app, el folio termina con «🛒 ¿Quieres hacer
 el pedido?…» y el flujo queda en `awaiting="pedido"`. Un «sí» ya no repite el folio: acepta
@@ -117,7 +117,7 @@ y la referencia del cliente (`client_order_ref`) igual al folio. Para limpiarlos
    próximo ensayo lo reutilice; el adaptador reutiliza un contacto solo si lo creó el
    asistente (`ref = asistente-carvajal`) y coinciden el correo y el nombre (si no, crea otro
    con ese `ref`). Los contactos `Ensayo …` de corridas anteriores a la tercera ronda de la
-   spec 055 no llevan el `ref` y no se reutilizan.
+   spec 056 no llevan el `ref` y no se reutilizan.
 
 Repetir el escenario con el mismo `ENSAYO_RUN_ID` crea otro folio y, por tanto, otro pedido:
 la idempotencia es por folio, no por comprador.
@@ -301,7 +301,7 @@ Las lee `Config.desde_entorno()` en `tests/e2e/clientes.py`. La tabla coincide c
 | `ENSAYO_WEBHOOK_SECRET` | vacío | Si está vacío, se lee `WEBHOOK_SECRET` del `.env` local o del servidor; sin secreto se salta el webhook |
 | `ENSAYO_WA_FUERA` | `+15550100999` | Remitente ficticio fuera de la allowlist del webhook |
 | `ENSAYO_COTIZAR` | `todas` en local, `una` en producción | `todas`, `una` o `ninguna`: cuántos guiones registran folio |
-| `ENSAYO_PEDIDO` | apagado | `1` corre el escenario del pedido (nombre, correo, confirmación de los datos y «Sí, confírmalo»): crea un pedido real en el Odoo de la app (spec 055) |
+| `ENSAYO_PEDIDO` | apagado | `1` corre el escenario del pedido (nombre, correo, confirmación de los datos y «Sí, confírmalo»): crea un pedido real en el Odoo de la app (spec 056) |
 | `ENSAYO_MEDIA_DIR` | `data/openclaw-media` | «Inbound» local donde se deja la foto para el MCP |
 | `ENSAYO_FIREFOX_MARIONETTE` | vacío (la prueba usa `2828`) | Puerto de Marionette del Firefox con WhatsApp Web |
 | `ENSAYO_WA_BOT` | vacío | Número del bot en E.164; sin él se salta WhatsApp real |
@@ -330,7 +330,7 @@ Algunas variables solo las lee un archivo concreto:
 | Pruebas de Jev o de fotos saltadas | `TYPESAFE_API_KEY` o `JEV_ENABLED` | Mira `/health` → `jev` y `food_photo` |
 | Un paso del agente falla dos veces | El LLM se salió de los estados permitidos | Lee la transcripción del fallo; si es una regresión, `evaluar-agente` |
 | El segundo «sí» del guion pide nombre y correo | La app ofrece el pedido pero el texto del folio ya no trae «¿Quieres hacer el pedido?» | Copia el texto nuevo de `render.ORDER_OFFER` en `OFERTA_PEDIDO` (`guiones.py`); `tests/test_ensayo_guiones.py` lo detecta |
-| `el folio #… no ofrece el pedido` (saltada) | La app no tiene `ODOO_*` (o corre una versión sin la spec 055) | Normal sin Odoo; si debía tenerlo, revisa `/opt/carvajal/.env` y [`odoo-pedidos.md`](odoo-pedidos.md) |
+| `el folio #… no ofrece el pedido` (saltada) | La app no tiene `ODOO_*` (o corre una versión sin la spec 056) | Normal sin Odoo; si debía tenerlo, revisa `/opt/carvajal/.env` y [`odoo-pedidos.md`](odoo-pedidos.md) |
 | `Odoo no creó el pedido del folio #… ni al reintentar` | Odoo no respondió o rechazó el pedido dos veces (el «Sí, confírmalo» y el «sí» del reintento) | Revisa el log `pedido.fallido` de la app (solo trae el tipo y el status HTTP) y que Odoo esté arriba; el folio queda en `confirmar_pedido` y un «sí» en esa conversación lo reintenta sin duplicar |
 | El correo da `awaiting='datos_pedido'` y no llega «📋 Voy a hacer el pedido con estos datos» | El flujo no leyó el nombre (p. ej. un `ENSAYO_RUN_ID` que es una muletilla) o la app corre una versión sin el paso de confirmación | Mira el «Gracias, <nombre>.» del turno anterior; si cambió la plantilla, copia el texto de `render.confirm_buyer` en `CONFIRMAR_DATOS` (`guiones.py`) |
 | `Firefox no escucha Marionette` | Firefox abierto sin `--marionette` | Ciérralo del todo y ábrelo con `firefox --marionette` |

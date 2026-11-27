@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     # Tiempo máximo de espera por llamada al proveedor de LLM.
     llm_timeout_seconds: float = Field(default=60.0, gt=0)
+    # Precio de DeepSeek en USD por millón de tokens para el costo estimado de /metricas
+    # (spec 055). Es una estimación: no descuenta los tokens servidos desde la caché.
+    deepseek_price_input_per_million: float = Field(default=0.30, ge=0)
+    deepseek_price_output_per_million: float = Field(default=1.20, ge=0)
     ollama_model: str = "llama3.2"
     # La FAQ y el chat envían prompts grandes: sin una ventana explícita,
     # Ollama recorta el contexto y puede responder con datos incompletos.
@@ -114,6 +118,16 @@ class Settings(BaseSettings):
     # defecto apunta al Ollama del host; en compose.prod.yml se inyecta
     # http://ollama:11434 para usar el servicio de la red de Compose.
     ollama_base_url: str = "http://127.0.0.1:11434"
+    # Segundos que Ollama mantiene cargado el modelo de embeddings tras cada petición
+    # (``keep_alive``; -1 = siempre). Con los 5 min por defecto de Ollama, el tráfico
+    # espaciado de producción recargaba el modelo y ``buscar_corpus`` tardaba 6 s de p50
+    # (ensayo del 2026-11-26). 24 h por defecto; 0 lo descarga tras cada petición.
+    ollama_embed_keep_alive_s: int = Field(default=86_400, ge=-1)
+    # Consultas distintas cuyo vector se guarda en memoria del proceso (LRU); 0 la apaga.
+    embed_cache_size: int = Field(default=512, ge=0, le=100_000)
+    # Al arrancar la app y el MCP, una petición de embedding en segundo plano carga el
+    # modelo en Ollama; si Ollama no responde solo queda un aviso en el log.
+    embed_warm_up: bool = True
 
     questions_file: Path = Path("data") / "questions.json"
     results_file: Path = Path("docs") / "resultados.md"
@@ -155,6 +169,14 @@ class Settings(BaseSettings):
     mcp_token: str = Field(default="", repr=False)
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8765, ge=1, le=65535)
+    # Spec 055: bearer que solo abre ``/health`` del MCP (nunca ``/mcp``), para que la
+    # página de métricas de la app lea sus contadores sin tener ``mcp_token``, que abre
+    # cualquier chat de WhatsApp. El MCP lo acepta en ``/health``; la app lo envía.
+    mcp_health_token: str = Field(default="", repr=False)
+    # ``/health`` del servidor MCP que lee la página de métricas de la app (en
+    # compose.prod.yml, http://mcp:8765/health por la red interna, con ``mcp_health_token``).
+    # Vacía: la tarjeta de WhatsApp solo muestra lo que guarda la base.
+    metrics_mcp_health_url: str = ""
     # URL pública de la web (p. ej. http://203.0.113.10:8080) para los enlaces
     # firmados al PDF de una cotización. Vacía: WhatsApp no ofrece el PDF.
     public_base_url: str = ""
@@ -263,7 +285,9 @@ class Settings(BaseSettings):
     # respaldada, ``shadow`` solo juzga y registra, ``off`` la apaga. ``on`` es alias de
     # ``enforce``.
     jev_claims_mode: Literal["enforce", "shadow", "off"] = "enforce"
-    jev_claims_threshold: float = Field(default=0.5, ge=0, le=1)
+    # 0,3 desde el 2026-11-26 (antes 0,5): entre 0,3 y 0,5 Jev no separa respuestas buenas de
+    # malas y sustituía más de un tercio en el ensayo; spec 046, evidencia §10.7.
+    jev_claims_threshold: float = Field(default=0.3, ge=0, le=1)
     # Tope por proceso; se reinicia a medianoche de Bogotá. ``0`` = sin llamadas.
     jev_max_calls_per_day: int = Field(default=1000, ge=0, le=100_000)
     jev_max_evidence_chars: int = Field(default=12_000, ge=1_000, le=40_000)
@@ -287,7 +311,7 @@ class Settings(BaseSettings):
     quote_flow_jev_timeout_s: float = Field(default=1.5, ge=0.3, le=5.0)
     quote_flow_jev_max_calls_per_day: int = Field(default=500, ge=0, le=100_000)
 
-    # Pedidos en Odoo (spec 055): con la cotización registrada, el asistente ofrece hacer el
+    # Pedidos en Odoo (spec 056): con la cotización registrada, el asistente ofrece hacer el
     # pedido, pide nombre y correo y crea el pedido de venta confirmado (Odoo envía el correo
     # de confirmación). Sin las tres variables no se ofrece. ``ODOO_URL`` es la base del
     # servidor (``http://odoo:8069`` en la red de Docker); la clave es la API key del usuario
@@ -468,7 +492,7 @@ class Settings(BaseSettings):
 
     @property
     def odoo_configured(self) -> bool:
-        """Pedidos en Odoo: URL, base y API key definidas (spec 055)."""
+        """Pedidos en Odoo: URL, base y API key definidas (spec 056)."""
 
         return bool(
             self.odoo_url.strip()

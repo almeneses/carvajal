@@ -195,7 +195,9 @@ _MATERIAL_WORDS = (
     ("pet", r"pet|rpet"),
     ("pp", r"pp|polipropileno"),
     ("ps", r"ps|poliestireno"),
-    ("plastico", r"plasticos?"),
+    # «Rígido» es la línea de plástico traslúcido (contenedor, vaso o plato rígido), lo
+    # contrario del espumado: «contenedores rígidos» nunca cotiza icopor (2026-11-26).
+    ("plastico", r"plasticos?|rigid[oa]s?"),
 )
 _NO_MATERIAL = re.compile(r"\bsin\s+(?:\w+\s+)?(?:plasticos?|icopor|papel|carton|unicel)\b")
 

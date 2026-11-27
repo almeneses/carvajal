@@ -139,7 +139,7 @@ def _sse(
     """Traduce los eventos del servicio a bloques SSE.
 
     Con ``pdf_link`` (``folio -> URL``), la cotización registrada enlaza su PDF; con
-    ``receipt_link``, el pedido confirmado enlaza su recibo (spec 055).
+    ``receipt_link``, el pedido confirmado enlaza su recibo (spec 056).
 
     La red de seguridad evita que un fallo inesperado del proveedor deje la
     conexión sin cierre ni mensaje: siempre se emite un ``error`` genérico.

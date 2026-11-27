@@ -11,6 +11,7 @@ from typing import Any, TypedDict
 from zoneinfo import ZoneInfo
 
 import pytest
+from tests.fakes.catalogo import dataset_sin_proyecciones
 
 from carvajal.quotation import QuoteRequest, quote, quote_request
 from carvajal.quotation.data import load_dataset
@@ -50,7 +51,7 @@ REQUESTS: dict[str, QuoteRequest | None] = {
     "Cali sin precio publicado cotiza el publicado en Bogotá y da las sedes de Cali": QuoteRequest(
         **CALIENTE, quantity=100, city="Cali", delivery=False
     ),
-    "talla agotada no se ofrece": QuoteRequest(
+    "el vaso térmico de 4 oz se cotiza con precio de referencia": QuoteRequest(
         family="vaso", capacity_oz=4.0, quantity=20, city="Bogotá", delivery=False
     ),
     "precio viejo se usa como normal": QuoteRequest(
@@ -199,7 +200,9 @@ def test_si_la_temperatura_no_cambia_el_material_no_se_pregunta() -> None:
 
     resultado = quote_request(solicitud, today=HOY, now=MANANA)
 
-    assert resultado["kind"] == "sin_resultados"
+    # Sin preguntar la temperatura: se cotiza (con el precio proyectado del 2026-11-26).
+    assert resultado["kind"] == "cotizacion"
+    assert "missing" not in resultado
 
 
 @pytest.mark.parametrize(("microondas", "falta"), [(True, None), (None, ["temperatura"])])
@@ -646,8 +649,10 @@ def test_una_referencia_sin_ningun_precio_publicado_no_pide_mas_datos() -> None:
     # Arrange: el vaso Gold de 16 oz no tiene oferta publicada en ninguna ciudad.
     solicitud = QuoteRequest(name="vaso Gold 16 oz", city="Bogotá")
 
-    # Act
-    resultado = quote_request(solicitud, today=HOY, now=MANANA)
+    # Act: con el catálogo de antes de la proyección (2026-11-26), donde no tiene precio.
+    resultado = quote_request(
+        solicitud, today=HOY, now=MANANA, dataset=dataset_sin_proyecciones(HOY)
+    )
 
     # Assert
     assert resultado["kind"] == "sin_resultados"
@@ -845,7 +850,8 @@ def test_conversion_publica_de_cajas_a_unidades() -> None:
     assert converted is not None
     assert converted.units_per == 1000
     assert converted.quantity * converted.units_per == 3000
-    assert engine.declared_sizes(vaso, "caja", dataset) == {1000: ["catálogo"]}
+    # El precio proyectado (2026-11-26) es por caja de 1000: el contrato coincide.
+    assert engine.declared_sizes(vaso, "caja", dataset) == {1000: ["catálogo", "contrato"]}
 
 
 def test_la_paca_del_nombre_contra_la_caja_del_contrato_no_se_convierte() -> None:

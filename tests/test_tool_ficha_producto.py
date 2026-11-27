@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from tests.fakes.catalogo import book_sin_proyecciones, catalog_sin_proyecciones
 
 from carvajal.agent.toolagent.tools import ficha_producto as mod
 from carvajal.agent.toolagent.tools._base import (
@@ -21,9 +22,8 @@ from carvajal.agent.toolagent.tools._base import (
     content_data,
     format_tool_content,
 )
-from carvajal.catalog.loader import Catalog, load_catalog
+from carvajal.catalog.loader import Catalog
 from carvajal.commercial.book import CommercialBook
-from carvajal.commercial.loader import load_commercial_book
 from carvajal.infrastructure.settings import Settings
 
 ROTULO = "según la guía de materiales, no la ficha"
@@ -31,12 +31,13 @@ ROTULO = "según la guía de materiales, no la ficha"
 
 @cache
 def _catalog() -> Catalog:
-    return load_catalog()
+    # Datos reales sin los precios proyectados (2026-11-26); ver ``tests/fakes/catalogo.py``.
+    return catalog_sin_proyecciones()
 
 
 @cache
 def _book() -> CommercialBook:
-    return load_commercial_book()
+    return book_sin_proyecciones()
 
 
 def _deps() -> ToolDeps:

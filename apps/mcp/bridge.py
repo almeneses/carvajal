@@ -61,6 +61,7 @@ from carvajal.domain.phone import normalize_e164
 from carvajal.food.photo import MAX_PHOTO_BYTES, PhotoRejected, PreparedPhoto, prepare_photo
 from carvajal.food.profile import FoodProfile
 from carvajal.food.render import PHOTO_REJECTED, PHOTO_UNAVAILABLE
+from carvajal.infrastructure.metrics import WHATSAPP_EVENTS
 from carvajal.quotation.render import RECEIPT_PROMISE
 from carvajal.speech import (
     SUMMARY_POINTERS,
@@ -176,7 +177,7 @@ LatestQuote = Callable[[str], Mapping[str, Any] | None]
 """``owner_key -> payload`` de la última cotización del chat, o ``None``."""
 
 PdfLink = Callable[[str, str, date | None], str]
-# Spec 055: ``(folio, owner_key) -> URL`` del recibo del pedido.
+# Spec 056: ``(folio, owner_key) -> URL`` del recibo del pedido.
 OrderLink = Callable[[str, str], str]
 """``(folio, owner_key, válida_hasta) -> URL`` firmada del PDF."""
 
@@ -920,6 +921,14 @@ def _collect(events: Iterable[ChatEvent]) -> _Turn:
     return _Turn("".join(fragments), sources, folios, error, flow)
 
 
+def _count_message(voice: bool) -> None:
+    """Spec 055: un mensaje que el puente atiende por primera vez (solo conteos, sin texto)."""
+
+    WHATSAPP_EVENTS.count("mensajes")
+    if voice:
+        WHATSAPP_EVENTS.count("notas_de_voz")
+
+
 @dataclass(frozen=True)
 class WhatsAppBridge:
     """Atiende un mensaje de WhatsApp con un turno del chat web."""
@@ -933,7 +942,7 @@ class WhatsAppBridge:
     latest_quote: LatestQuote | None = None
     pdf_link: PdfLink | None = None
     pdf_attachment: PdfLink | None = None
-    # Spec 055: recibo del pedido (``folio, owner_key -> URL``) adjunto o como enlace.
+    # Spec 056: recibo del pedido (``folio, owner_key -> URL``) adjunto o como enlace.
     order_attachment: OrderLink | None = None
     order_link: OrderLink | None = None
     photo_url: PhotoUrl | None = None
@@ -1018,13 +1027,19 @@ class WhatsAppBridge:
             try:
                 replayed = self._replay(owner, text, client_turn_id)
                 if replayed is not None:
+                    # Spec 055: un reintento de OpenClaw no es un mensaje nuevo en /metricas.
+                    WHATSAPP_EVENTS.count("reintentos")
                     return replayed
                 claim = self._claim(owner, client_turn_id)
             except Exception as error:  # el canal nunca recibe una traza interna
                 logger.warning("whatsapp.turn_failed", error=repr(error))
+                _count_message(voice)
+                WHATSAPP_EVENTS.count("errores")
                 return BridgeReply(SERVICE_UNAVAILABLE)
             if claim is not None and claim.status != "acquired":
+                WHATSAPP_EVENTS.count("reintentos")
                 return self._claimed_elsewhere(claim, owner, text, client_turn_id)
+            _count_message(voice)
             effects = _Effects(
                 quota=claim is not None and claim.quota_charged,
                 thread=claim is not None and claim.thread_opened,
@@ -1035,6 +1050,7 @@ class WhatsAppBridge:
                 )
             except Exception as error:
                 logger.warning("whatsapp.turn_failed", error=repr(error))
+                WHATSAPP_EVENTS.count("errores")
                 reply, streamed, final = BridgeReply(SERVICE_UNAVAILABLE), False, False
             if claim is not None and client_turn_id:
                 self._settle(
@@ -1073,6 +1089,8 @@ class WhatsAppBridge:
             return BridgeReply(TOO_LONG_MESSAGE)
         owner = self.owner_key(chat)
         structlog.contextvars.bind_contextvars(owner_key=owner, channel="whatsapp")
+        _count_message(voice)
+        WHATSAPP_EVENTS.count("fotos")
         try:
             classifier = self.food_classifier
             turns = self.chat
@@ -1083,14 +1101,17 @@ class WhatsAppBridge:
                 or not hasattr(turns, "photo_stream")
             ):
                 logger.info("whatsapp.photo_unavailable")
+                WHATSAPP_EVENTS.count("fotos_no_disponibles")
                 return BridgeReply(PHOTO_UNAVAILABLE)
             try:
                 prepared = prepare_photo(self.photo_reader(photo))
             except PhotoRejected as error:
                 logger.info("whatsapp.photo_rejected", reason=error.reason)
+                WHATSAPP_EVENTS.count("fotos_rechazadas")
                 return BridgeReply(f"{error.message} {PHOTO_REJECTED}")
             except ValueError as error:
                 logger.info("whatsapp.photo_rejected", reason=str(error))
+                WHATSAPP_EVENTS.count("fotos_rechazadas")
                 return BridgeReply(PHOTO_REJECTED)
             # El hilo recién abierto va explícito: no depende de cuál quede como activo.
             created = self.chat.new_conversation(owner) if new_conversation else None
@@ -1130,6 +1151,7 @@ class WhatsAppBridge:
             return self._render(turn, owner)
         except Exception as error:  # el canal nunca recibe una traza interna
             logger.warning("whatsapp.photo_failed", error_type=type(error).__name__)
+            WHATSAPP_EVENTS.count("errores")
             return BridgeReply(SERVICE_UNAVAILABLE)
         finally:
             structlog.contextvars.unbind_contextvars("owner_key", "channel")
@@ -1176,6 +1198,7 @@ class WhatsAppBridge:
             replayed = self._replay(owner, text, client_turn_id)
         except Exception as error:
             logger.warning("whatsapp.turn_failed", error=repr(error))
+            WHATSAPP_EVENTS.count("errores")
             return BridgeReply(SERVICE_UNAVAILABLE)
         return replayed if replayed is not None else BridgeReply(SERVICE_UNAVAILABLE)
 
@@ -1207,6 +1230,7 @@ class WhatsAppBridge:
         if not effects.quota:
             if not self.quota(owner).allowed:
                 logger.info("whatsapp.quota_exhausted")
+                WHATSAPP_EVENTS.count("sin_cupo")
                 return BridgeReply(LIMIT_REACHED), False, True
             effects.quota = True
         pending = False
@@ -1422,7 +1446,7 @@ class WhatsAppBridge:
         return reply
 
     def _with_receipt(self, written: str, flow: Mapping[str, Any], owner: str) -> str:
-        """Pedido confirmado (spec 055): la promesa del recibo → el PDF adjunto o su enlace.
+        """Pedido confirmado (spec 056): la promesa del recibo → el PDF adjunto o su enlace.
 
         Sin forma de entregarlo, la promesa se quita: no se promete un PDF que no llega.
         """
@@ -1525,6 +1549,7 @@ class WhatsAppBridge:
                 intro = f"📄 Te envío tu cotización #{view.folio} en PDF{until}."
                 text = f"{intro}\n{ATTACH_PDF_PREFIX}{url}"
                 logger.info("whatsapp.pdf_attachment", folio=view.folio)
+                WHATSAPP_EVENTS.count("pdf_enviados")
                 return BridgeReply(text, spoken=SpokenReply(said)), True
             assert self.pdf_link is not None
             url = self.pdf_link(view.folio, owner, view.valid_until_date)
@@ -1532,6 +1557,7 @@ class WhatsAppBridge:
             logger.warning("whatsapp.pdf_link_failed", error=repr(error))
             return BridgeReply(PDF_UNAVAILABLE), False
         logger.info("whatsapp.pdf_link", folio=view.folio)
+        WHATSAPP_EVENTS.count("pdf_enviados")
         # El enlace va solo y al final, sin formato alrededor: así WhatsApp lo detecta
         # entero y se puede tocar desde el celular.
         text = f"📄 Tu cotización #{view.folio} en PDF{until}. Ábrela aquí:\n\n{url}"

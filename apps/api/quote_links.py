@@ -27,7 +27,7 @@ MAX_LINK_DAYS = 7
 # Tolerancia de reloj entre el proceso MCP y el proceso web al validar el enlace.
 LINK_LEEWAY_SECONDS = 300
 _DOMAIN = b"carvajal:quote-pdf:v1\n"
-# Recibo del pedido (spec 055): otra firma, así un enlace de cotización no abre el pedido.
+# Recibo del pedido (spec 056): otra firma, así un enlace de cotización no abre el pedido.
 ORDER_DOMAIN = b"carvajal:order-pdf:v1\n"
 
 

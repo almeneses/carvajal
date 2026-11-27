@@ -388,6 +388,19 @@ embeddings), usa `--recreate` en la app desplegada:
 docker compose -f compose.prod.yml exec app carvajal index-qdrant --recreate
 ```
 
+Índices de payload (2026-11-26). La búsqueda filtra por `layer` (el núcleo son unos 125 de
+118 248 puntos) y por `section`, y la indexación por `document_id`. Una colección indexada
+antes de esa fecha no tiene esos índices (`payload_schema` vacío) y Qdrant recorre el grafo
+leyendo el payload de cada candidato desde disco. Solo `index-qdrant` los crea, al empezar
+si faltan; la app web y el MCP nunca (una colección nueva ya nace con ellos). Para crearlos
+sin reindexar ni embeber (idempotente, no cambia ningún punto):
+
+```bash
+docker compose -f compose.prod.yml exec app carvajal index-qdrant --only-payload-indexes
+```
+
+Es una operación de datos: la decide y la ejecuta el owner en una ventana tranquila.
+
 El índice queda en el volumen `qdrantdata` y sobrevive a reinicios y despliegues.
 Las cargas de la pestaña Configuración escriben en el volumen `appdata`
 montado en `/app/data`; también sobreviven a los reinicios y a los despliegues.
@@ -585,8 +598,9 @@ en `specs/044-agente-tool-calling/evidencia.md` §10; cada día que el servidor 
    - Cada hilo revisado se anota en el registro de §10 (fecha, `thread_id`, resultado).
 
 4. **Marcas «No útil»** (sin aumento de la tasa frente a las dos semanas previas en
-   `routes`). Los botones de marca solo aparecen con `MONITORING_ENABLED=true`; si el
-   monitoreo está apagado, este criterio no se puede medir y se deja constancia en §10.
+   `routes`). Desde el 2026-11-26 la web ya no muestra los botones de marca, así que este
+   criterio deja de poder medirse y se deja constancia en §10; las cifras de operación están
+   en `/metricas` (spec 055).
    La base se congela el día de la activación con la misma consulta y se anota en §10.
    Sustituye `<INICIO>` por la fecha y hora (UTC) de la activación:
 

@@ -128,7 +128,7 @@ def conversacion(config: Config, request: pytest.FixtureRequest) -> str:
 
 @pytest.fixture
 def pedido_permitido(config: Config) -> None:
-    """El pedido en Odoo (spec 055) es real: solo con ``ENSAYO_PEDIDO=1`` y si se registra."""
+    """El pedido en Odoo (spec 056) es real: solo con ``ENSAYO_PEDIDO=1`` y si se registra."""
 
     if not config.pedido:
         pytest.skip("sin ENSAYO_PEDIDO=1: no se crea un pedido real en Odoo")

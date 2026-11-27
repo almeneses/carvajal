@@ -38,6 +38,8 @@ class FakeClient:
         self.records: list[models.Record] = []
         self.fail = False
         self.last_query: dict[str, Any] = {}
+        self.payload_schema: dict[str, Any] = {}
+        self.indexed: list[str] = []
 
     def collection_exists(self, name: str) -> bool:
         if self.fail:
@@ -54,8 +56,15 @@ class FakeClient:
                 params=SimpleNamespace(
                     vectors=models.VectorParams(size=self.size, distance=models.Distance.COSINE)
                 )
-            )
+            ),
+            payload_schema=dict(self.payload_schema),
         )
+
+    def create_payload_index(
+        self, collection_name: str, field_name: str, field_schema: Any, wait: bool
+    ) -> None:
+        self.indexed.append(field_name)
+        self.payload_schema[field_name] = field_schema
 
     def upsert(self, collection_name: str, points: list[Any], wait: bool) -> None:
         self.points.extend(points)
@@ -108,6 +117,50 @@ def test_ensure_collection_crea_con_dimension_y_coseno() -> None:
     assert client.created[0]["name"] == "carvajal_chunks"
     assert client.created[0]["config"].size == 768
     assert client.created[0]["config"].distance == models.Distance.COSINE
+
+
+def test_ensure_collection_crea_los_indices_de_payload_de_los_filtros() -> None:
+    # Arrange
+    client = FakeClient(exists=False)
+    store = QdrantVectorStore(cast(Any, client))
+
+    # Act
+    store.ensure_collection()
+
+    # Assert
+    assert client.indexed == ["layer", "section", "document_id"]
+    assert client.payload_schema["layer"] == models.PayloadSchemaType.KEYWORD
+
+
+def test_ensure_collection_no_crea_indices_sobre_una_coleccion_existente() -> None:
+    """La app web pasa por ``ensure_collection`` (Configuración, captura): no construye
+    índices sobre ~118 k puntos dentro de una petición; eso es de ``index-qdrant``."""
+
+    # Arrange
+    client = FakeClient(exists=True)
+
+    # Act
+    created = QdrantVectorStore(cast(Any, client)).ensure_collection()
+
+    # Assert
+    assert created is False
+    assert client.indexed == []
+
+
+def test_los_indices_de_payload_son_idempotentes_sobre_una_coleccion_existente() -> None:
+    # Arrange: producción tenía ``payload_schema`` vacío; una segunda corrida no repite nada.
+    client = FakeClient(exists=True)
+    client.payload_schema = {"layer": models.PayloadSchemaType.KEYWORD}
+    store = QdrantVectorStore(cast(Any, client))
+
+    # Act
+    first = store.ensure_payload_indexes()
+    again = store.ensure_payload_indexes()
+
+    # Assert
+    assert first == ["section", "document_id"]
+    assert client.indexed == ["section", "document_id"]
+    assert again == []
 
 
 def test_ensure_collection_rechaza_dimension_incompatible() -> None:

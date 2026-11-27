@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.rendering import render_answer
 from apps.api.security import csrf_context
-from carvajal.adapters.embeddings import OllamaEmbedder
+from carvajal.adapters.embeddings import CachedEmbedder, OllamaEmbedder, warm_up
 from carvajal.adapters.llm import build_llm_provider
 from carvajal.adapters.storage.database import build_engine, build_session_factory
 from carvajal.adapters.vector.qdrant_store import QdrantVectorStore
@@ -116,8 +116,11 @@ __all__ = [
     "embedder",
     "llm_provider",
     "qdrant_store",
+    "query_embedder",
+    "query_embedder_for",
     "session_factory",
     "templates",
+    "warm_up_embeddings",
 ]
 
 
@@ -137,14 +140,46 @@ def ask_components() -> tuple[Embedder, LLMProvider]:
     afectar a ``/health``, ``/live`` o al arranque del contenedor.
     """
 
-    return embedder(), llm_provider()
+    return query_embedder(), llm_provider()
 
 
 @cache
 def embedder() -> OllamaEmbedder:
-    """Embedder del corpus; se crea una sola vez por proceso."""
+    """Embedder del corpus (indexación); se crea una sola vez por proceso."""
 
-    return OllamaEmbedder(base_url=Settings().ollama_base_url)
+    settings = Settings()
+    return OllamaEmbedder(
+        base_url=settings.ollama_base_url, keep_alive=settings.ollama_embed_keep_alive_s
+    )
+
+
+def query_embedder() -> CachedEmbedder:
+    """Embedder de las consultas con caché LRU, compartido por ``routes`` y ``tools``.
+
+    Una sola caché por proceso: la app web y el MCP la llenan con las consultas que repiten
+    (``EMBED_CACHE_SIZE``). La indexación usa :func:`embedder`, sin caché.
+    """
+
+    return query_embedder_for(Settings())
+
+
+def query_embedder_for(settings: Settings) -> CachedEmbedder:
+    """El embedder de consultas para esa configuración (el mismo objeto si coincide)."""
+
+    return _query_embedder(
+        settings.ollama_base_url, settings.ollama_embed_keep_alive_s, settings.embed_cache_size
+    )
+
+
+@cache
+def _query_embedder(base_url: str, keep_alive: int, size: int) -> CachedEmbedder:
+    return CachedEmbedder(OllamaEmbedder(base_url=base_url, keep_alive=keep_alive), maxsize=size)
+
+
+def warm_up_embeddings() -> None:
+    """Carga el modelo de embeddings en Ollama en segundo plano, sin bloquear el arranque."""
+
+    warm_up(query_embedder)
 
 
 @cache

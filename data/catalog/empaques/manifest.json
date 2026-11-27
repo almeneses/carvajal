@@ -117,6 +117,28 @@
       "cop_per_mxn": "182.3365",
       "authorization": "Decisión del equipo del 2026-11-25 para uso académico; enmienda la regla de la spec 039 de no convertir precios desde México.",
       "rule": "Precio por caja en MXN por la tasa, redondeado al peso. Procedencia «sistema»: no es un precio publicado en Colombia y no tiene vendedor, sede ni existencias. IVA «no_indicado»: el precio de origen incluye el IVA de México."
+    },
+    "precios_proyectados_co": {
+      "origin": "Proyección desde las referencias de Colombia con precio (EDEXA y copias de México)",
+      "generated_by": "scripts/adaptar_catalogo_mx.py (carvajal.catalog.projection)",
+      "raw": "fuentes/proyecciones_co.csv",
+      "captured_at": "2026-11-25",
+      "rows": 73,
+      "prices": 730,
+      "cities": [
+        "Barranquilla",
+        "Bogotá",
+        "Bucaramanga",
+        "Cali",
+        "Manizales",
+        "Medellín",
+        "Neiva",
+        "Pasto",
+        "Pereira",
+        "Villavicencio"
+      ],
+      "authorization": "Decisión del equipo del 2026-11-26 para la demo: ninguna referencia de Colombia sin precio. No es un precio publicado ni preciso.",
+      "rule": "Misma línea, luego misma familia y material, luego familia con factor de material; escalado por capacidad con exponente 2/3 y acotado al rango de precio por unidad de la familia. Procedencia «sistema», IVA «no_indicado»; la fuente es la ficha de la base."
     }
   },
   "materials_without_rule": [

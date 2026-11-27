@@ -190,14 +190,14 @@ Con el CRM configurado (`ODOO_URL`, `ODOO_DB` y `ODOO_API_KEY`), después de T6 
 puede seguir un paso opcional: el folio termina con «🛒 ¿Quieres hacer el pedido?…», el
 borrador queda en `awaiting: pedido` y, si la persona acepta, en `datos_pedido` hasta tener
 nombre y correo y crear el pedido de venta en Odoo. Lo define la
-[spec 055](../055-pedidos-odoo/spec.md). Sin CRM, T6 sigue siendo el final del flujo, como
+[spec 056](../056-pedidos-odoo/spec.md). Sin CRM, T6 sigue siendo el final del flujo, como
 describe esta spec.
 
 ## Fuera de alcance
 
 - Descuentos por volumen: el catálogo no los publica.
 - Sugerir la tapa como línea automática tras una foto: queda como texto de la 051.
-- Pedidos, reservas o pagos (los pedidos pasan a la spec 055 desde el 2026-11-26; reservas y
+- Pedidos, reservas o pagos (los pedidos pasan a la spec 056 desde el 2026-11-26; reservas y
   pagos siguen fuera).
 
 ## Success Criteria *(mandatory)*

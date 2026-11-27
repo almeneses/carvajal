@@ -1,4 +1,4 @@
-"""Pedido a partir de una cotización registrada (spec 055): comprador y líneas.
+"""Pedido a partir de una cotización registrada (spec 056): comprador y líneas.
 
 Después del folio, el asistente ofrece hacer el pedido. Si la persona acepta, pide nombre y
 correo; con los dos, el servicio del chat crea el pedido de venta en el CRM (Odoo) y el CRM

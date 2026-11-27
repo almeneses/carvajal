@@ -1,8 +1,8 @@
 // Foto de un alimento en el compositor (spec 051; vista previa y comodidades, spec 053).
 //
 // El botón solo existe si el servidor tiene el clasificador disponible. Al elegir una foto
-// (botón, arrastrar y soltar, o pegar) se muestra su miniatura, su nombre y el aviso del
-// servicio externo; el texto pasa a ser opcional. La miniatura es un `blob:` local: la CSP
+// (botón, arrastrar y soltar en cualquier parte de la conversación, o pegar) se muestra su
+// miniatura, su nombre y el aviso del servicio externo; el texto pasa a ser opcional. La miniatura es un `blob:` local: la CSP
 // del chat lo admite en img-src y la foto no sale de la página para mostrarse.
 // chat-stream.js la envía con `window.CarvajalFoto.tomar()`, pinta la burbuja con
 // `vista()` y la limpia al enviar.
@@ -19,7 +19,9 @@
   const miniatura = raiz.querySelector("[data-foto-miniatura]");
   const quitar = raiz.querySelector("[data-foto-quitar]");
   const aviso = form ? form.querySelector("[data-foto-aviso]") : null;
-  const soltar = form ? form.querySelector("[data-foto-soltar]") : null;
+  // La zona para soltar cubre la conversación entera (historial y compositor), no solo el
+  // compositor (ensayo del 2026-11-26).
+  const soltar = document.querySelector("[data-foto-soltar]");
   const texto = form ? form.querySelector('[name="question"]') : null;
   const estado = document.getElementById("chat-stream-estado");
   if (!form || !input || !ficha || !nombre || !texto) return;
@@ -34,6 +36,13 @@
     if (!estado) return;
     estado.textContent = mensaje;
     estado.classList.add("error");
+  }
+
+  // Aviso cortés (sin error): al soltar una imagen, quien no ve la ficha oye que se adjuntó.
+  function anunciar(mensaje) {
+    if (!estado) return;
+    estado.classList.remove("error");
+    estado.textContent = mensaje;
   }
 
   function crearUrl(foto) {
@@ -72,8 +81,10 @@
     texto.setAttribute("placeholder", hay ? "Añade un detalle (opcional)" : PLACEHOLDER);
     raiz.dataset.fotoAdjunta = hay ? "1" : "0";
     // En el teléfono, con la bienvenida, el compositor queda bajo el pliegue: sin esto la
-    // ficha aparece fuera de la vista y parece que la foto no se adjuntó.
-    if (hay && typeof ficha.scrollIntoView === "function") ficha.scrollIntoView({ block: "nearest" });
+    // ficha aparece fuera de la vista y parece que la foto no se adjuntó. Se desplaza el
+    // compositor entero, no la ficha: con la ficha a la vista, el campo y «Enviar» quedaban
+    // tapados bajo la cabecera (ensayo del 2026-11-26, hilo nuevo a 320×640).
+    if (hay && typeof form.scrollIntoView === "function") form.scrollIntoView({ block: "nearest" });
   }
 
   // Las mismas validaciones para el botón, arrastrar y pegar (FR-021).
@@ -113,10 +124,34 @@
     return Boolean(tipos && Array.from(tipos).includes("Files"));
   }
 
+  // ¿Lo que se arrastra trae una imagen? Durante el arrastre el navegador solo deja ver el tipo
+  // de cada elemento (`items`), no el archivo. Sin `items` (navegadores viejos) no se puede
+  // saber y se ofrece la zona: al soltar se valida igual que con el botón.
+  function arrastraImagen(event) {
+    if (!tieneArchivos(event)) return false;
+    const items = event.dataTransfer && event.dataTransfer.items;
+    if (!items || typeof items.length !== "number" || items.length === 0) return true;
+    return Array.from(items).some(
+      (item) => item && item.kind === "file" && typeof item.type === "string" && item.type.startsWith("image/"),
+    );
+  }
+
+  let apagarZona = null;
+
   function marcarArrastre(activo) {
     if (activo) form.dataset.fotoArrastrando = "1";
     else delete form.dataset.fotoArrastrando;
     if (soltar) soltar.hidden = !activo;
+    if (apagarZona) clearTimeout(apagarZona);
+    apagarZona = null;
+    // Si el arrastre sale de la ventana sin «dragleave» (pasa al soltar fuera o con Escape),
+    // la zona se apaga sola cuando dejan de llegar «dragover».
+    if (activo && typeof setTimeout === "function") {
+      apagarZona = setTimeout(() => {
+        profundidad = 0;
+        marcarArrastre(false);
+      }, 1500);
+    }
   }
 
   input.addEventListener("change", () => elegir(input.files && input.files[0]));
@@ -136,20 +171,25 @@
     elegir(imagen);
   });
 
-  // Arrastrar y soltar en cualquier parte de la página (computador).
+  // Arrastrar y soltar en cualquier parte de la página (computador): la zona «Suelta la imagen
+  // para adjuntarla» cubre la conversación. Texto, enlaces o archivos que no son imágenes se
+  // ignoran: no se muestra la zona y, si son archivos, el navegador tampoco los abre (se
+  // cancela su efecto con «none»), así soltar un PDF no saca a la persona del chat.
   let profundidad = 0;
   document.addEventListener("dragenter", (event) => {
-    if (!tieneArchivos(event)) return;
+    if (!arrastraImagen(event)) return;
     profundidad += 1;
     marcarArrastre(true);
   });
   document.addEventListener("dragover", (event) => {
     if (!tieneArchivos(event)) return;
     event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    const imagen = arrastraImagen(event);
+    if (event.dataTransfer) event.dataTransfer.dropEffect = imagen ? "copy" : "none";
+    if (imagen) marcarArrastre(true);
   });
   document.addEventListener("dragleave", (event) => {
-    if (!tieneArchivos(event)) return;
+    if (!arrastraImagen(event)) return;
     profundidad = Math.max(0, profundidad - 1);
     if (!profundidad) marcarArrastre(false);
   });
@@ -159,11 +199,11 @@
     profundidad = 0;
     marcarArrastre(false);
     const imagen = imagenDe(event.dataTransfer && event.dataTransfer.files);
-    if (!imagen) {
-      avisar("La foto debe ser JPEG o PNG.");
-      return;
+    if (!imagen) return;
+    if (elegir(imagen)) {
+      anunciar(`Foto adjunta: ${imagen.name || "foto"}. Escribe un detalle o envíala.`);
+      texto.focus();
     }
-    if (elegir(imagen)) texto.focus();
   });
 
   // Sugerencia de la bienvenida (FR-022): abre el selector de la foto.

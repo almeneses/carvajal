@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 
 import structlog
 
-from carvajal.agent.commercial_intent import product_family
+from carvajal.agent.commercial_intent import named_families, product_family
 from carvajal.agent.followup import (
     Choice,
     ChoiceOutOfRange,
@@ -55,6 +55,7 @@ from carvajal.agent.followup import (
     removes_whole_line,
     resolve_choice,
     resolve_more,
+    resolve_quantity_change,
     resolve_quantity_choice,
     resolve_reference,
     resolve_remove,
@@ -102,7 +103,9 @@ __all__ = [
     "Reply",
     "ReplyJudge",
     "after_turn",
+    "asks_question",
     "before_turn",
+    "city_only",
     "requote",
 ]
 
@@ -110,7 +113,7 @@ logger = structlog.get_logger(__name__)
 
 BOGOTA: Final = ZoneInfo("America/Bogota")
 OFF_FLOW_REMINDERS: Final = 2
-# Pasos del pedido (spec 055): las reglas los deciden todos; nada de ellos va a Jev.
+# Pasos del pedido (spec 056): las reglas los deciden todos; nada de ellos va a Jev.
 ORDER_AWAITING: Final = frozenset({"pedido", "datos_pedido", "confirmar_pedido"})
 JEV_MIN_CONFIDENCE: Final = 0.7
 JEV_MAX_WORDS: Final = 14
@@ -168,7 +171,7 @@ class Reply:
     draft: QuoteDraft
     route: str = "cotizacion"
     register: bool = False
-    # Spec 055: con los datos completos y confirmados de quien compra, el servicio crea el
+    # Spec 056: con los datos completos y confirmados de quien compra, el servicio crea el
     # pedido. ``private``: el mensaje de la persona trae su nombre o su correo; el turno se
     # guarda y se monitorea sin ellos.
     order: Buyer | None = None
@@ -260,7 +263,7 @@ def before_turn(
 ) -> Reply | Pass:
     """Atiende sin el modelo la respuesta a la pregunta pendiente, o deja pasar el turno.
 
-    ``orders`` enciende el paso del pedido tras el folio (spec 055): solo con el CRM
+    ``orders`` enciende el paso del pedido tras el folio (spec 056): solo con el CRM
     configurado se acepta «hacer el pedido» y se piden nombre y correo.
 
     ``now`` va en hora de Bogotá: las vigencias de los vendedores son fechas de Colombia y,
@@ -271,6 +274,16 @@ def before_turn(
     if requote_fn is None:
         requote_fn = requote  # se busca al llamar: las pruebas pueden sustituirla
     current = draft if not draft.expired(moment) else QuoteDraft()
+    if _forgets_everything(text):
+        # «Olvida todo lo que sabes de mí» lo atiende el grafo, que borra la memoria. Antes
+        # lo atrapaba «cancelar todo» con un borrador activo y la memoria quedaba intacta.
+        # El borrador también se cancela: el pedido en curso es parte de lo que se olvida.
+        forgotten = (
+            QuoteDraft().touch(moment, state="cancelada")
+            if current.active or _order_pending(current)
+            else current
+        )
+        return Pass(forgotten)
     decided = _rules(current, text, requote_fn=requote_fn, now=moment, orders=orders)
     if decided is not None:
         return decided
@@ -289,6 +302,14 @@ def before_turn(
                 logger.info("cotizacion.jev_decidio", awaiting=current.awaiting)
                 return again
     return Pass(_leave_reference(_fresh_after_registration(current), moment))
+
+
+def _forgets_everything(text: str) -> bool:
+    """«Olvida todo lo que sabes de mí»: lo decide la regla de memoria del gatekeeper."""
+
+    from carvajal.agent.memory.store import forget_all_requested
+
+    return forget_all_requested(text)
 
 
 def _leave_reference(draft: QuoteDraft, now: datetime) -> QuoteDraft:
@@ -312,7 +333,7 @@ def _resumed(draft: QuoteDraft) -> Awaiting | None:
 
 def _fresh_after_registration(draft: QuoteDraft) -> QuoteDraft:
     if _order_pending(draft):
-        return draft  # una pregunta a mitad del pedido no lo pierde (spec 055)
+        return draft  # una pregunta a mitad del pedido no lo pierde (spec 056)
     return QuoteDraft() if draft.state in {"registrada", "cancelada"} else draft
 
 
@@ -328,7 +349,7 @@ def _order_pending(draft: QuoteDraft) -> bool:
 
 
 def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | None:
-    """Spec 055: «¿Hacemos el pedido?» → nombre y correo → «¿Lo confirmo?» → pedido.
+    """Spec 056: «¿Hacemos el pedido?» → nombre y correo → «¿Lo confirmo?» → pedido.
 
     Reglas explícitas por paso, sin adivinar: en la oferta solo cuentan como datos un correo
     o un nombre escrito como nombre propio; en ``datos_pedido`` el mensaje es el nombre que
@@ -597,6 +618,10 @@ def _rules(
         return Reply(render.cart_view(shown), shown)
     if draft.lines and draft.awaiting in _EDITABLE and wants_change(text):
         return _edit(draft, now)
+    if draft.lines and draft.awaiting in _EDITABLE:
+        changed = _quantity_change(draft, text, requote_fn, now)
+        if changed is not None:
+            return changed
     handler = _AWAITING.get(draft.awaiting or "")
     if handler is not None:
         handled = handler(draft, text, said, requote_fn, now)
@@ -806,6 +831,28 @@ def _named_city(text: str) -> str | None:
         return None
 
 
+# Lo que puede acompañar una ciudad dicha sola («en Medellín», «para Cali, por favor»).
+_CITY_FILLER: Final = frozenset(
+    {
+        "en", "para", "de", "del", "la", "el", "a", "es", "seria", "sera", "ciudad", "entrega",
+        "envio", "si", "ok", "bueno", "pues", "por", "favor", "porfa", "gracias", "y", "desde",
+        "aqui", "aca", "estoy", "queda", "quedo", "lo", "me", "mi", "d", "c", "dc",
+    }
+)  # fmt: skip
+
+
+def city_only(text: str) -> str | None:
+    """Ciudad del directorio si el mensaje es solo esa ciudad («Medellín», «en Cali, porfa»)."""
+
+    if "?" in text:
+        return None
+    city = _named_city(text)
+    if city is None:
+        return None
+    rest = f" {plain(text)} ".replace(f" {plain(city)} ", " ")
+    return city if all(word in _CITY_FILLER for word in rest.split()) else None
+
+
 def _on_reference(
     draft: QuoteDraft, text: str, said: str, requote_fn: Requote, now: datetime
 ) -> Reply | Pass | None:
@@ -823,6 +870,14 @@ def _on_reference(
     if found == "ask" and len(draft.choices) == 1:
         found = ReferencePick(0)  # una sola candidata: «sí» o «esa» la eligen
     if found is None:
+        city = city_only(text)
+        if city is not None:
+            # «Medellín» ante la lista (que también pedía la ciudad): se guarda en la
+            # solicitud y se vuelve a mostrar la lista, diciendo dónde se cotizará.
+            request = {**(draft.choice_request or {}), "city": city}
+            located = draft.touch(now, choice_request=request)
+            logger.info("cotizacion.referencia_ciudad")
+            return Reply(render.which_reference(draft.choices, city=city), located, "eleccion")
         if resolve_more(text) not in ("close", "close_confirm"):
             return None
         # «Eso es todo» ante la lista no elige ninguna: como ante unas opciones.
@@ -952,6 +1007,47 @@ def _removal(draft: QuoteDraft, text: str, now: datetime) -> Reply | None:
     return Reply(render.removed(changed, labels[index]), changed)
 
 
+def _quantity_change(
+    draft: QuoteDraft, text: str, requote_fn: Requote, now: datetime
+) -> Reply | None:
+    """«Mejor que sean 800», «cambia la 1 a 1000»: otra cantidad para una línea, sin el modelo.
+
+    La línea es la que se nombra (su número o su producto), la única del carrito o, ante
+    «¿Algo más?», la que se acaba de agregar. Con otro producto en curso (el agente pidió su
+    cantidad: «cotízame platos» → «¿cuántos?»), «que sean 500» es de ese producto y lo
+    atiende el agente; solo cambia una línea si se nombra. Sin unidad dicha, la cantidad va
+    en la unidad de compra de la línea («2 paquetes» → «que sean 3» son 3 paquetes). Se
+    recotiza con el motor con la misma referencia, ciudad y entrega; si el motor no la
+    cotiza, el turno sigue al agente. Nunca agrega otro producto (ensayo del 2026-11-26:
+    «mejor que sean 800» agregaba un portacomidas que nadie pidió y «cambia la 1 a 1000»
+    cambiaba la línea 2).
+    """
+
+    labels = tuple(line_label(line) for line in draft.lines)
+    found = resolve_quantity_change(
+        text,
+        labels,
+        default_last=draft.awaiting == "algo_mas",
+        named_only=draft.awaiting is None and bool(draft.current),
+    )
+    if found is None:
+        return None
+    index, quantity, said_unit = found
+    line = draft.lines[index]
+    if said_unit is None:
+        unit = str(_mapping(line.get("request")).get("unit") or "") or None
+    else:
+        unit = None if said_unit == "unidad" else said_unit
+    family = product_family(text)
+    if family is not None and line_family(line) not in {None, family}:
+        return None  # «mejor 800 vasos» con la línea de platos: es otro producto
+    fresh = requote_fn(line, quantity=quantity, unit=unit, today=now.date())
+    if fresh is None:
+        return None
+    logger.info("cotizacion.cantidad_cambiada", linea=index + 1)
+    return _added_reply(draft, [fresh], now)
+
+
 def _switch(draft: QuoteDraft, text: str, said: str, now: datetime) -> Reply | None:
     """«No, mejor vasos» con otro producto en curso: se pregunta antes de cancelar (T7)."""
 
@@ -1047,11 +1143,18 @@ def after_turn(
     *,
     now: datetime | None = None,
     choice: Mapping[str, Any] | None = None,
+    asks: bool = False,
 ) -> Outcome:
     """Lo que el flujo agrega al turno del agente según las cotizaciones que calculó.
 
     ``choice`` es la tarjeta ``reference_choice`` de ``cotizar`` (candidatas de un nombre
     ambiguo y la solicitud): sin cotizaciones en el turno, deja la lista esperando respuesta.
+
+    ``asks`` dice que el texto del agente pregunta algo (:func:`asks_question`): una opción o
+    un dato. En ese turno no entra al carrito ninguna línea nueva salvo la referencia que la
+    persona nombró o eligió (``reference_origin`` ``persona`` o ``hilo``); otra cantidad de
+    una línea que ya está sí se actualiza. Así no sale «¿Cuál te cotizo?» y debajo
+    «✅ Agregué…» (ensayo del 2026-11-26).
     """
 
     moment = now or datetime.now(UTC)
@@ -1062,6 +1165,25 @@ def after_turn(
         else:
             return _order_off_flow(draft, moment)
     current = _fresh_after_registration(draft)
+    several = {str(item["primary"].get("sku") or "") for item in calculated}
+    if asks and not (len(calculated) >= 2 and len(several) == 1):  # un comparativo no agrega
+        asked = named_families(text)
+        held = [item for item in calculated if not _addable(current, item, len(several) > 1, asked)]
+        if held:
+            calculated = [item for item in calculated if item not in held]
+            logger.info("cotizacion.linea_retenida", retenidas=len(held))
+            if not calculated:
+                # Si el turno también trajo candidatas («¿Cuál te cotizo?»), la lista queda
+                # esperando respuesta como en un turno sin cotizaciones (revisión PR #276).
+                waiting = _awaiting_reference(current, choice, moment)
+                if waiting is not None:
+                    return Outcome(waiting)
+                kept = current.touch(
+                    moment,
+                    current={"family": line_family(held[0]), "label": line_label(held[0])},
+                    off_flow=0,
+                )
+                return Outcome(kept)
     if not calculated:
         waiting = _awaiting_reference(current, choice, moment)
         if waiting is not None:
@@ -1094,6 +1216,37 @@ def after_turn(
         return Outcome(changed, message, flow=True)
     changed, message = _present(current, calculated[0], moment)
     return Outcome(changed, message, flow=True)
+
+
+# Referencias que la persona nombró o eligió (ver ``_reference_origin`` de ``cotizar``).
+_CHOSEN: Final = frozenset({"persona", "hilo"})
+_URL: Final = re.compile(r"https?://\S+")
+
+
+def asks_question(answer: str) -> bool:
+    """El texto del agente pregunta algo a la persona (sin contar las URL de las fuentes)."""
+
+    return "?" in _URL.sub(" ", answer)
+
+
+def _addable(
+    draft: QuoteDraft, quote: Mapping[str, Any], several: bool, asked: frozenset[str]
+) -> bool:
+    """La cotización puede entrar al carrito en un turno en que el agente pregunta algo.
+
+    Sola y con alternativas es una lista de opciones (no agrega nada); una línea que ya está
+    se actualiza; una nueva solo si la persona la nombró o la eligió. Con ``several`` (varios
+    productos en el turno) cada una entra como línea, así que las alternativas no cuentan:
+    la cotizada por familia entra si la persona pidió esa familia en el turno (``asked``,
+    «500 vasos para café y 500 platos pandos»), como cuando el agente no pregunta.
+    """
+
+    if (quote.get("alternatives") and not several) or same_sku_line(draft, quote) is not None:
+        return True
+    origin = quote.get("reference_origin")
+    if origin in _CHOSEN:
+        return True
+    return several and not origin and line_family(quote) in asked
 
 
 def _present(

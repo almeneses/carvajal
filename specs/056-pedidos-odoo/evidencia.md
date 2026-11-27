@@ -1,4 +1,4 @@
-# Evidencia — Spec 055, pedidos en Odoo
+# Evidencia — Spec 056, pedidos en Odoo
 
 **Fecha**: 2026-11-26 · **Rama**: `feat/odoo-pedidos` (PR #279) · **Commits**: `5e88367`
 (pedidos), `bdc7b57` (prueba local y correo saliente), `eae64f3` (fotos del catálogo),

@@ -56,9 +56,9 @@ Awaiting = Literal[
     "cambio_producto",  # «¿Cancelo los platos o los conservo?»
     "oferta",  # «está caro»: se ofreció la opción más económica
     "referencia",  # nombre ambiguo: «¿Cuál quieres?» con las candidatas numeradas
-    "pedido",  # cotización registrada: «¿Hacemos el pedido?» (spec 055)
-    "datos_pedido",  # pedido aceptado: nombre y correo de quien compra (spec 055)
-    "confirmar_pedido",  # datos leídos: «¿Lo confirmo?» antes de crear el pedido (spec 055)
+    "pedido",  # cotización registrada: «¿Hacemos el pedido?» (spec 056)
+    "datos_pedido",  # pedido aceptado: nombre y correo de quien compra (spec 056)
+    "confirmar_pedido",  # datos leídos: «¿Lo confirmo?» antes de crear el pedido (spec 056)
 ]
 State = Literal["explorando", "carrito", "resumen", "registrada", "pausada", "cancelada"]
 
@@ -165,7 +165,7 @@ class QuoteDraft:
     cheaper_offered: bool = False
     off_flow: int = 0  # turnos seguidos fuera del flujo de cotización
     folio: str | None = None
-    # Spec 055: número del pedido en el CRM (``S00012``) y datos de quien compra mientras se
+    # Spec 056: número del pedido en el CRM (``S00012``) y datos de quien compra mientras se
     # piden (``{"name", "email"}``); se vacían al crear el pedido.
     order: str | None = None
     buyer: dict[str, Any] | None = None

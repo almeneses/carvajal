@@ -1,7 +1,7 @@
 """Guiones del ensayo general (tests/e2e/guiones.py) contra el servicio del chat, sin red.
 
 El ensayo no importa la app y copia sus textos; aquí se corren sus pasos contra
-``ChatService`` con el agente y Odoo simulados, con y sin pedidos (spec 055), para que un
+``ChatService`` con el agente y Odoo simulados, con y sin pedidos (spec 056), para que un
 cambio de plantilla rompa esta prueba y no el ensayo en producción.
 """
 
