@@ -352,7 +352,8 @@ def test_tras_el_pedido_el_pdf_o_el_recibo_reenvian_el_recibo(engine: Any, messa
     (url,) = _attached(reply.text)
     assert url.startswith(f"{MEDIA}{RECEIPT_PDF}{folio}.pdf?t=")
     assert QUOTE_PDF not in reply.text
-    assert orders.lookups[-1] == folio
+    # El número sale de la cotización guardada: «PDF» no espera a Odoo (hallazgo #5).
+    assert orders.lookups == []
     assert len(orders.requests) == 1
     assert len(runner.calls) == calls_before
 
@@ -373,11 +374,18 @@ def test_tras_el_pedido_el_pdf_de_la_cotizacion_sigue_siendo_la_cotizacion(engin
     assert "recibo" not in reply.text
 
 
-def test_sin_numero_de_pedido_en_el_crm_el_pdf_es_la_cotizacion(engine: Any) -> None:
-    # Arrange: un CRM sin ``order_name`` (o sin pedido) no cambia el «PDF» de siempre.
-    orders = FakeOrders()
+def test_sin_pedido_anotado_en_la_cotizacion_el_pdf_es_la_cotizacion(engine: Any) -> None:
+    # Arrange: una cotización sin ``payload["order"]`` (sin pedido, o de antes de anotarlo)
+    # no cambia el «PDF» de siempre, y nadie le pregunta a Odoo.
+    orders = NamedOrders()
     bridge, _, _ = _whatsapp(engine, orders)
     _say_all(bridge, PLACED)
+    with engine.begin() as connection:
+        (row,) = stored_quotes(engine)
+        payload = {key: value for key, value in row["payload"].items() if key != "order"}
+        connection.execute(
+            tables.quotes.update().where(tables.quotes.c.id == row["id"]).values(payload=payload)
+        )
 
     # Act
     reply = bridge.respond("PDF", CHAT)
@@ -386,6 +394,7 @@ def test_sin_numero_de_pedido_en_el_crm_el_pdf_es_la_cotizacion(engine: Any) -> 
     (row,) = stored_quotes(engine)
     (url,) = _attached(reply.text)
     assert url.startswith(f"{MEDIA}{QUOTE_PDF}{row['id']}.pdf?t=")
+    assert orders.lookups == []
 
 
 def test_sin_adjuntos_el_recibo_se_reenvia_como_enlace() -> None:

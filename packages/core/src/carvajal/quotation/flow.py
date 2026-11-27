@@ -276,6 +276,10 @@ def before_turn(
     if requote_fn is None:
         requote_fn = requote  # se busca al llamar: las pruebas pueden sustituirla
     current = draft if not draft.expired(moment) else QuoteDraft()
+    if not orders and current.state == "registrada" and (_order_pending(current) or current.buyer):
+        # Sin CRM (un reinicio sin ``ODOO_*`` o el CRM que no se pudo construir) el pedido a
+        # medias ya no se puede completar: el nombre y el correo no se quedan en el borrador.
+        current = current.touch(moment, awaiting=None, buyer=None)
     if _forgets_everything(text):
         # «Olvida todo lo que sabes de mí» lo atiende el grafo, que borra la memoria. Antes
         # lo atrapaba «cancelar todo» con un borrador activo y la memoria quedaba intacta.
@@ -382,6 +386,10 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
             return Reply(render.ask_buyer(), asking, route="pedido")
         return None
     email = find_email(text)
+    if email == render.EXAMPLE_EMAIL:
+        # El correo del ejemplo de ``ask_buyer`` copiado tal cual no es de nadie: falta el
+        # correo de verdad y nunca llega al CRM.
+        email = None
     if email is None and product_family(text) and not name_marked(text):
         return Pass(QuoteDraft())  # «quiero 500 vasos»: otra cotización, borrador nuevo
     if awaiting == "pedido":
@@ -403,8 +411,8 @@ def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) 
     head = re.split(r"[,;]", clean, maxsplit=1)[0]
     name = (
         name_marked(text)
-        or name_in(clean, strict=True)
-        or (name_in(head, strict=True) if head.strip() != clean.strip() else None)
+        or _offered_name(clean)
+        or (_offered_name(head) if head.strip() != clean.strip() else None)
     )
     if email or name:  # «Ana Pérez, quiero hacer el pedido»: los datos ganan
         return _with_buyer(draft, Buyer(name=name, email=email), now)
@@ -416,6 +424,17 @@ def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) 
         asking = draft.touch(now, awaiting="datos_pedido", off_flow=0)
         return Reply(render.ask_buyer(), asking, route="pedido")
     return None  # otra cosa: el agente responde y el paso se conserva con un recordatorio
+
+
+def _offered_name(text: str) -> str | None:
+    """Un nombre sin marca en la oferta: nombre propio de dos palabras o más («Ana Pérez»).
+
+    Nadie pidió todavía el nombre: una palabra suelta con mayúscula («Cali», «Listo») es
+    más probable que sea otra cosa, y una ciudad o una sigla nunca cuentan.
+    """
+
+    name = name_in(text, strict=True)
+    return name if name and len(name.split()) >= 2 else None
 
 
 def _defers(text: str) -> bool:
@@ -502,7 +521,13 @@ def _confirm_step(
         return _with_buyer(draft, Buyer(name=corrected, email=buyer.email), now)
     if is_bare_no(text) or is_affirmation(text) or edits_buyer(text):
         return Reply(render.which_correction(), draft, route="pedido", private=True)
-    if (declines_order(text) or is_cancel_all(text) or _leaves(text)) and _cancels(text):
+    if _leaves(text) or (
+        (declines_order(text) or is_cancel_all(text))
+        and (_cancels(text) or not _STARTS_WITH_NO.match(folded))
+    ):
+        # Cualquier rechazo sin dato ni corrección («solo estaba mirando», «lo voy a pensar»,
+        # «mejor no») cierra el pedido. Un «no» con otra cosa («no sé», «no, mañana») no es
+        # un rechazo: pregunta qué corregir.
         return _declined(draft, now)
     return Reply(render.which_correction(), draft, route="pedido", private=True)
 
@@ -512,6 +537,9 @@ _CANCEL_WORDS: Final = re.compile(
     r"quiero|gracias|pienso|pensar|chao|chau|adios|bye|nos\s+vemos|nada|ya\s+no|"
     r"por\s+ahora)\b"
 )
+
+
+_STARTS_WITH_NO: Final = re.compile(r"^\s*(?:no|nop)\b")
 
 
 def _cancels(text: str) -> bool:

@@ -80,9 +80,9 @@ Por paso:
 
 | Paso | Qué cuenta | Ejemplos |
 |---|---|---|
-| Oferta (`pedido`) | **Datos** solo si trae un correo o un nombre con marca («soy…», «me llamo…», «a nombre de…», «el nombre es…», «cambia el nombre a/por…») o escrito como nombre propio (mayúscula en cada palabra), también detrás de un «sí» o antes de la primera coma. **Acepta** una afirmación o una frase de compra. Lo demás sigue el resto de las reglas | «Ana Pérez, ana@correo.com» → confirmación; «Sí, a nombre de Ana Pérez», «Sí, soy Ana», «Sí, Ana Pérez», «Ana Pérez, quiero hacer el pedido» → toman el nombre y piden el correo (turno privado); «sí», «sí, adelante», «está bien», «quiero comprarla» → pide los datos; «chao» → rechazo; «cuéntame de la empresa» o «ana pérez» → no son datos |
-| Datos (`datos_pedido`) | El correo del mensaje y el **nombre que se pidió**: el que trae marca, el ya dado o, si falta, el mensaje mismo (sin las preguntas) si no es una afirmación ni una muletilla (sin cifras, símbolos ni palabras como «ok», «gracias», «pedido», «olvídalo», «chao») | «Ana Pérez», «cambia el nombre a Ana Pérez» → «¿A qué correo…?»; «ana@correo.com» → la confirmación; «ok gracias» → el formato de ejemplo; «chao», «gracias, adiós» → rechazo |
-| Confirmación (`confirmar_pedido`) | Un correo o un nombre con marca **corrigen** (aunque el mensaje diga «sí» o pida el cambio). Un nombre suelto o tras «sí,» corrige **solo escrito como nombre propio**; tras «no» también en minúsculas («no, carla ruiz»). Vale lo último tras «es» o «:» («no es Ana es Carla Ruiz», «corrige el nombre: Carla Ruiz»). **Solo un «sí» limpio crea el pedido**: una afirmación o frase de compra sin nombre nuevo y sin «pero», «aunque», «cambia…», «corrig…» ni «mal». Un «sí» con reparos, un «no» solo, «está mal», un cambio de los datos sin el dato o un «no» seguido de algo que no es cancelar ni un nombre preguntan qué corregir y **no borran los datos**. Cancelan un «no» con palabras de cancelación (ahora, después, olvídalo, cancela, déjalo, mejor, no quiero, gracias, pensar, ya no, por ahora, chao, adiós), «cancela todo» y los rechazos y adioses de arriba | «no, es otro@correo.com», «quiero cambiar el correo a carla@gmail.com», «sí, pero a nombre de Marta Gómez», «sí, pero cambia el nombre a Carla Ruiz», «sí, Carla Ruiz», «no, Carla Ruiz», «no, carla ruiz», «Marta Gómez» → confirmación con el dato nuevo; «no es Ana, es Carla», «no, es carla» → Carla; «sí, pero…», «sí, pero cambia el correo», «el correo está mal», «quiero cambiar el nombre», «no», «no, espera», «déjalo» → «¿Qué dato corrijo?…»; «olvídalo», «no, olvídalo», «no, gracias», «ahora no», «chao» → rechazo; «Sí, confírmalo», «sí», «ok» → el pedido |
+| Oferta (`pedido`) | **Datos** solo si trae un correo o un nombre con marca («soy…», «me llamo…», «a nombre de…», «el nombre es…», «cambia el nombre a/por…») o escrito como nombre propio (mayúscula en cada palabra) **con nombre y apellido**, también detrás de un «sí» o antes de la primera coma. Una palabra suelta («Ana», «Listo»), una ciudad de Colombia («Bogotá», «Santa Marta»; `order.CO_CITIES`) o una sigla de 2 a 5 mayúsculas («PDF», «SAS», «NIT») no son un nombre sin marca. **Acepta** una afirmación o una frase de compra. Lo demás sigue el resto de las reglas | «Ana Pérez, ana@correo.com» → confirmación; «Sí, a nombre de Ana Pérez», «Sí, soy Ana», «Sí, Ana Pérez», «Ana Pérez, quiero hacer el pedido» → toman el nombre y piden el correo (turno privado); «sí», «sí, adelante», «está bien», «quiero comprarla» → pide los datos; «chao» → rechazo; «cuéntame de la empresa», «ana pérez», «Ana», «Cali» o «PDF» → no son datos |
+| Datos (`datos_pedido`) | El correo del mensaje y el **nombre que se pidió**: el que trae marca, el ya dado o, si falta, el mensaje mismo (sin las preguntas) si no es una afirmación ni una muletilla (sin cifras, símbolos ni palabras como «ok», «gracias», «pedido», «olvídalo», «chao») | «Ana Pérez», «cambia el nombre a Ana Pérez» → «¿A qué correo…?»; «ana@correo.com» → la confirmación; «ok gracias» → el formato de ejemplo; «chao», «gracias, adiós» → rechazo. El correo del ejemplo (`render.EXAMPLE_EMAIL`, «ana@example.com», dominio reservado por la RFC 2606) copiado tal cual es un dato que falta (en los tres pasos): se vuelve a pedir el correo y nunca llega a Odoo |
+| Confirmación (`confirmar_pedido`) | Un correo o un nombre con marca **corrigen** (aunque el mensaje diga «sí» o pida el cambio). Un nombre suelto o tras «sí,» corrige **solo escrito como nombre propio**; tras «no» también en minúsculas («no, carla ruiz»). Sin marca, una ciudad o una sigla suelta («Bogotá», «PDF») no corrigen el nombre. Vale lo último tras «es» o «:» («no es Ana es Carla Ruiz», «corrige el nombre: Carla Ruiz»). **Solo un «sí» limpio crea el pedido**: una afirmación o frase de compra sin nombre nuevo y sin «pero», «aunque», «cambia…», «corrig…» ni «mal». Un «sí» con reparos, un «no» solo, «está mal», un cambio de los datos sin el dato o un «no» seguido de algo que no es cancelar ni un nombre preguntan qué corregir y **no borran los datos**. Cancelan un «no» con palabras de cancelación (ahora, después, olvídalo, cancela, déjalo, mejor, no quiero, gracias, pensar, ya no, por ahora, chao, adiós), «cancela todo» y **cualquier rechazo sin dato ni corrección** («solo estaba mirando», «lo voy a pensar», «mejor no», «no me interesa»; `declines_order` o `is_leaving`); un «no» con otra cosa («no sé», «no, mañana») pregunta qué corregir | «no, es otro@correo.com», «quiero cambiar el correo a carla@gmail.com», «sí, pero a nombre de Marta Gómez», «sí, pero cambia el nombre a Carla Ruiz», «sí, Carla Ruiz», «no, Carla Ruiz», «no, carla ruiz», «Marta Gómez» → confirmación con el dato nuevo; «no es Ana, es Carla», «no, es carla» → Carla; «sí, pero…», «sí, pero cambia el correo», «el correo está mal», «quiero cambiar el nombre», «no», «no, espera», «déjalo» → «¿Qué dato corrijo?…»; «olvídalo», «no, olvídalo», «no, gracias», «ahora no», «chao», «solo estaba mirando», «lo voy a pensar» → rechazo; «Sí, confírmalo», «sí», «ok» → el pedido |
 
 Tras «no», el nombre puede venir en minúsculas: «no, carla ruiz» corrige a «Carla Ruiz» y no
 se lee como rechazo. Las muletillas de los bordes se quitan («Juan,
@@ -98,24 +98,32 @@ sin crear el pedido y sin tocar el borrador; un «sí» posterior lo crea como s
 
 ### Después del pedido
 
-Mientras el borrador del folio guarda el número del pedido (`draft.order`), las reglas
-responden sin el modelo y con `route="pedido"`:
+Con el pedido creado, el número se guarda en el borrador del folio (`draft.order`) y en el
+registro local de la cotización (`payload["order"]`, `SqlQuoteRepository.mark_order`). Las
+respuestas fijas van sin el modelo y con `route="pedido"`:
 
 | Mensaje | Respuesta |
 |---|---|
 | «sí», «quiero comprarla», «hacer el pedido» | «Ese pedido ya quedó creado con el número **S…**» (`render.already_ordered`); no llama a Odoo |
-| «cancela el pedido», «quiero anular la compra», «anúlalo» (`order.wants_order_cancel`) | El pedido ya quedó confirmado y **no se cancela desde el chat**: para cambiarlo o cancelarlo, se le dice al asesor que contacta para el pago y la entrega (`render.order_cancel_request`) |
+| «cancela el pedido», «quiero anular la compra», «anúlalo» (este último, solo justo después del pedido) (`order.wants_order_cancel`) | El pedido ya quedó confirmado y **no se cancela desde el chat**: para cambiarlo o cancelarlo, se le dice al asesor que contacta para el pago y la entrega (`render.order_cancel_request`) |
 | «¿cómo va mi pedido?», «estado del pedido», «¿cuándo llega el pedido?» (`order.asks_order_status`) | El pedido quedó confirmado y un asesor contacta para el pago y la entrega y da el estado del despacho (`render.order_status`); el chat no consulta el estado en Odoo |
 
-Así el agente nunca llega a negar un pedido que existe ni a inventar su estado. **Límite**:
-tras cualquier turno ajeno al flujo, el borrador se reinicia (`_fresh_after_registration`) y
-`draft.order` se pierde; desde ahí, esos mensajes van al agente, que por prompt no inventa el
-estado de un pedido y remite al asesor.
+Solo cuenta el pedido dicho con un determinante («mi pedido», «el pedido», «la compra», «mi
+orden»…), y nunca cuando el mensaje trae un producto o una cantidad: «quiero ver vasos para
+otro pedido» o «cancela el pedido de vasos» se cotizan (el número «S00005» no cuenta como
+cantidad). Así el agente nunca llega a negar un pedido que existe ni a inventar su estado.
+
+**Persistente**: tras un turno ajeno al flujo el borrador se reinicia
+(`_fresh_after_registration`) y pierde `draft.order`, pero el número sigue en la cotización.
+`ChatService` busca la última cotización del hilo con pedido
+(`SqlQuoteRepository.latest_order`) y responde la misma plantilla fija, antes de las reglas del
+carrito (que dirían «todavía no tienes productos»): «gracias» → «¿cómo va mi pedido?» responde
+con el número.
 
 En WhatsApp, con el pedido confirmado, «PDF», «mándame el recibo» o «el PDF del pedido»
-reenvían el recibo (adjunto o enlace firmado), porque el puente busca en Odoo el pedido de la
-última cotización (`ChatService.order_of` → `OdooOrders.order_name`), sin depender del
-borrador. En la web, el enlace del recibo sigue en el turno del pedido del historial.
+reenvían el recibo (adjunto o enlace firmado). El número sale del registro local de la
+cotización (`ChatService.order_of`), sin llamar a Odoo: el «PDF» de la cotización nunca espera
+al CRM. En la web, el enlace del recibo sigue en el turno del pedido del historial.
 
 **Precios vencidos**: el pedido toma los precios de la cotización. Si al «sí» final la
 vigencia del vendedor de alguna línea ya pasó (`quotation.draft.expired_lines`), no se llama
@@ -187,11 +195,16 @@ coordinar el pago y la entrega» del recibo: el vendedor abre el pedido en Venta
 contacta al cliente por el correo del pedido y coordina pago, entrega, cambios o la
 cancelación (el chat no los hace).
 
-- El usuario se busca por `res.users.login` una vez y queda en caché. Si el login no existe,
-  la actividad se crea sin `user_id` (queda en el usuario técnico) y el log avisa
-  `pedido.vendedor_no_encontrado`.
+- El usuario se busca por `res.users.login` y la resolución queda en caché (el id, para
+  siempre; un login que no existe, diez minutos: corregirlo en Odoo no exige reiniciar). Si
+  el login no existe, **no se programa la actividad** (caería en el usuario técnico de la API
+  key, que nadie mira): queda el error `pedido.vendedor_no_encontrado` (con el folio, sin
+  datos) y `/health` muestra `sales_user: missing` al operador. En Odoo 17+ el admin suele
+  entrar con un correo: comprueba el login real en Ajustes → Usuarios.
 - Si la búsqueda del usuario o la actividad fallan, el pedido sigue (`pedido.aviso_fallido`,
-  sin datos del comprador). Con `ODOO_SALES_LOGIN` vacío no se programa actividad.
+  sin datos del comprador). Con `ODOO_SALES_LOGIN` vacío (`ODOO_SALES_LOGIN=` en el `.env`) no
+  se programa actividad: los compose usan `${ODOO_SALES_LOGIN-admin}` (sin dos puntos), que
+  respeta el vacío y solo pone `admin` si la variable no existe.
 - Se programa en el pedido que se confirma ahora, y en el reintento de uno confirmado cuya
   respuesta se perdió antes del CRM (sin oportunidad); en el reintento de un pedido completo
   no se repite.
@@ -219,15 +232,16 @@ fusiona si hace falta.
 
 ## Datos personales
 
-- El nombre y el correo solo viajan a Odoo. Ninguna respuesta de los pasos del pedido va a
-  Jev, y un mensaje en el que las reglas leen un nombre o un correo no va al modelo.
+- El nombre y el correo solo viajan a Odoo: ni a Jev, ni al modelo (un mensaje en el que las
+  reglas leen un nombre o un correo no va al modelo), ni a OpenAI (la nota de voz del
+  servidor sintetiza lo guardado, sin ellos).
 - Todos los turnos que deciden las reglas en `datos_pedido` y `confirmar_pedido` (también el
   «sí» que crea el pedido, el rechazo y «¿Qué dato corrijo?») y la respuesta a la oferta que
   trae datos llevan `Reply.private`: se guardan y se monitorean (LangSmith) sin datos, la
   pregunta como «🛒 (datos para el pedido)» y la respuesta con el correo enmascarado
   (`a…@dominio`: sin asteriscos, para no romper la negrita en el historial ni en WhatsApp) y
   el nombre como «(tu nombre)». El correo del ejemplo fijo de las plantillas
-  (`render.EXAMPLE_EMAIL`, «ana@correo.com») no se enmascara. La persona ve el texto completo
+  (`render.EXAMPLE_EMAIL`, «ana@example.com», de un dominio reservado) no se enmascara. La persona ve el texto completo
   en el turno, pero el historial que llega a DeepSeek en los turnos siguientes y el resumen de
   memoria salen de lo guardado.
 - En voz, la confirmación lee el correo para que quien lo dictó lo compruebe («…con el correo
@@ -235,20 +249,21 @@ fusiona si hace falta.
   hablada guardada (`flow.spoken`) no lo conserva: `ChatService._without_buyer` cambia el
   correo leído por «el correo que escribiste», además de enmascarar el escrito y el nombre.
 - **Voz de la web** (`apps/api/voice.py`, `spoken_message`): en el turno en vivo, el resumen
-  hablado (`voz_resumen` del `done`) sale del `flow.spoken` del turno visible, con el nombre y
-  el correo reales. La nota de voz del servidor (`/api/voz/hablar`) pide el audio por
-  `message_id` y leería lo guardado; por eso `LiveSpoken` guarda en memoria del proceso, por
-  dueño y mensaje, durante 15 minutos y hasta 256 turnos, el resumen completo del turno en
-  vivo, y `/hablar` lo prefiere (siempre después de comprobar que el mensaje es del dueño).
-  Nada de eso va a la base ni a los logs. El historial recargado lee lo guardado en tono
-  neutro («Voy a hacer el pedido a tu nombre, con el correo que escribiste. ¿Lo confirmo?») y
-  el recibo no lee el correo enmascarado. Con CRM, la voz del folio dice la cotización corta y
-  termina en «¿Quieres hacer el pedido?».
-- **Sin JavaScript** (o si falla el stream), `POST /chat` responde con la página y el texto
-  visible del turno del pedido (200, `no-store`) en vez de redirigir (303) al historial, que
-  mostraría lo guardado. Los demás turnos siguen redirigiendo. Al recargar a mitad de
-  `confirmar_pedido` se ve lo guardado (enmascarado); mostrar ahí el borrador exigiría leer
-  `draft.buyer` desde la vista.
+  hablado del navegador (`voz_resumen` del `done`) sale del `flow.spoken` del turno visible,
+  con el nombre y el correo reales, para que la persona los compruebe; eso no sale del
+  navegador. La **nota de voz del servidor** (`/api/voz/hablar`, TTS de OpenAI con
+  `VOICE_PROVIDER=openai`) sintetiza siempre lo guardado, en tono neutro («Voy a hacer el
+  pedido a tu nombre, con el correo que escribiste. ¿Lo confirmo?»): **el nombre y el correo
+  no van a OpenAI** (FR-019). El historial recargado lee lo mismo y el recibo no lee el
+  correo enmascarado. Con CRM, la voz del folio dice la cotización corta y termina en
+  «¿Quieres hacer el pedido?».
+- **Sin JavaScript** (o si falla el stream), `POST /chat` guarda el turno y redirige (PRG,
+  303) como siempre. En el turno del pedido cuyo texto visible lleva los datos, el POST deja
+  ese texto en memoria del proceso por dueño e id de mensaje (`apps/api/ephemeral.py`, dos
+  minutos, 256 turnos, nunca en la base ni en los logs) y el `GET /chat` que sigue a la
+  redirección lo muestra **una sola vez** (`no-store`). Recargar después no reenvía el
+  formulario y muestra lo guardado (enmascarado); otro visitante nunca lo ve. Con varios
+  workers, si el GET cae en otro proceso se ve lo guardado.
 - El borrador de la conversación (base local) sí guarda los datos mientras se piden: se
   vacían al crear el pedido o al rechazarlo, y se conservan tras un fallo para reintentar.
 - Los logs llevan el folio, el número de pedido y, ante un error de Odoo, el código HTTP y el
@@ -282,15 +297,19 @@ Variables de entorno (en la VPS, en `/opt/carvajal/.env`):
 | `ODOO_DB` | `carvajal` |
 | `ODOO_API_KEY` | API key del usuario técnico `carvajal-bot` |
 | `ODOO_TIMEOUT_S` | `20` (opcional) |
-| `ODOO_SALES_LOGIN` | `admin` (opcional): login del usuario de ventas que recibe la actividad de cada pedido; vacío, sin actividad |
+| `ODOO_SALES_LOGIN` | `admin` (opcional): login del usuario de ventas que recibe la actividad de cada pedido; vacío (`ODOO_SALES_LOGIN=`), sin actividad; si no existe, sin actividad y `sales_user: missing` en `/health` (operador) |
 
 Sin las tres primeras el asistente no ofrece el pedido y el flujo sigue como antes.
 
-El recibo por WhatsApp usa las mismas URL que el PDF de la cotización: con `MEDIA_BASE_URL`
-llega como documento adjunto y con solo `PUBLIC_BASE_URL`, como enlace firmado; sin ninguna, el
-pedido se confirma sin la línea del recibo. La redirección a HTTPS (`HTTPS_REDIRECT`) no toca
-`/pedidos/*`, igual que `/cotizaciones/*`: OpenClaw descarga el recibo por `MEDIA_BASE_URL`,
-que puede ser http con IP.
+El recibo lleva el nombre y el correo del comprador, las líneas y el total, así que **solo
+viaja cifrado**: por WhatsApp va como documento adjunto con `MEDIA_BASE_URL` solo si esa base
+es `https` (o un `http` de loopback); si es un `http` público (p. ej. la IP del servidor), va
+como enlace firmado de `PUBLIC_BASE_URL` (https en producción). Sin ninguna base segura, el
+pedido se confirma sin la línea del recibo (`apps.mcp.server.secure_base`). El PDF de la
+cotización, sin datos personales, sigue adjunto por `MEDIA_BASE_URL` aunque sea http. La
+redirección a HTTPS (`HTTPS_REDIRECT`) exime `/cotizaciones/*` pero **no** `/pedidos/*`: una
+navegación del navegador al recibo por http se redirige a HTTPS (OpenClaw no manda
+`Accept: text/html` y no se redirige).
 
 ### `/health`
 
@@ -301,12 +320,17 @@ ofrecer el pedido):
 | Caso | Bloque |
 |---|---|
 | Sin `ODOO_*` | `{"configured": false, "status": "off"}` |
-| Odoo responde | `{"configured": true, "status": "ok", "reachable": true}` |
-| Odoo falla | `{"configured": true, "status": "unreachable", "reachable": false, "reason": "auth" \| "unreachable" \| "error"}` |
+| Odoo responde | `{"configured": true, "status": "ok", "reachable": true}` y, para el operador, `"sales_user": "ok" \| "missing" \| "unknown" \| "off"` |
+| Odoo falla | `{"configured": true, "status": "unreachable", "reachable": false}` y, para el operador, `"reason": "auth" \| "unreachable" \| "timeout" \| "error"` |
 
-La sonda (`OdooProbe`) es `sale.order.search_count` sin resultados por JSON-2, con plazo de
-3 s y caché de 60 s que cubre también los fallos: un Odoo caído no frena `/health` más de una
-vez por minuto. `/metricas` no tiene todavía una tarjeta de Odoo.
+`reason` y `sales_user` solo los ve el operador (`OPERATOR_TOKEN` por cabecera o cookie, como
+el consumo del bloque `voice`): `/health` es público y `auth` diría a cualquiera que la API key
+es inválida. La sonda (`OdooProbe`) es `sale.order.search_count` sin resultados por JSON-2 y,
+con `ODOO_SALES_LOGIN`, la búsqueda de ese usuario. Corre en un hilo aparte con un **plazo
+total de 1 s**: si no termina, `/health` responde `reason: timeout` sin esperar más (el
+healthcheck de Docker tiene 3 s) y la sonda en vuelo actualiza la caché al acabar. La caché de
+60 s cubre también los fallos: un Odoo caído no frena `/health` más de una vez por minuto.
+`/metricas` no tiene todavía una tarjeta de Odoo.
 
 ## Odoo en la VPS
 

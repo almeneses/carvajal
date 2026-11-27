@@ -31,10 +31,11 @@ rechaza (4xx de la entrada) es **422** ``rejected`` y no abre el circuito de nad
 asistente de la conversación de quien llama (lo expone ``data-voz-mensaje`` en el hilo y el
 evento ``done`` del stream), la carga de la base, prepara su resumen hablado con
 :func:`apps.api.voice.spoken_message`, la recorta a ``VOICE_TTS_MAX_CHARS`` y devuelve el
-audio MP3 sin caché (``no-store``). En el turno en vivo del pedido (spec 056) usa el resumen
-que el stream recordó con los datos de quien compra (:class:`apps.api.voice.LiveSpoken`),
-que no están en lo guardado. Un id ajeno, de otro dueño o de un
-mensaje del usuario responde **404**: no es un TTS público.
+audio MP3 sin caché (``no-store``). Siempre lo guardado: en el pedido (spec 056) el nombre y
+el correo de quien compra no se guardan, así que nunca llegan al TTS de OpenAI (la nota dice
+«a tu nombre, con el correo que escribiste»; los datos reales solo los lee la voz del
+navegador). Un id ajeno, de otro dueño o de un mensaje del usuario responde **404**: no es un
+TTS público.
 """
 
 import re
@@ -54,7 +55,6 @@ from apps.api.voice import (
     VoiceRuntime,
     build_voice_runtime,
     cap_text,
-    live_spoken,
     spoken_message,
 )
 from carvajal.adapters.speech import SpeechUnavailable
@@ -308,9 +308,9 @@ def hablar(
         return _unavailable("db")
     if message is None:
         return _reject(404, "not_found")
-    # Spec 056: el turno en vivo del pedido dice el nombre y el correo, que no se guardan.
-    live = live_spoken(request.app.state).get(owner_key, identifier)
-    text = cap_text(live or spoken_message(message), runtime.tts_max_chars)
+    # Spec 056: lo guardado, sin el nombre ni el correo de quien compra (FR-019: no van a
+    # OpenAI); la voz del navegador es la que los lee en el turno en vivo.
+    text = cap_text(spoken_message(message), runtime.tts_max_chars)
     if not text:
         return _reject(422, "no_text")
     key = runtime.cache_key(identifier, text)

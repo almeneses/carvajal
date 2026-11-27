@@ -223,4 +223,7 @@ def test_compose_pasa_las_variables_de_odoo_sin_contradecir_settings(
     assert timeout is not None
     assert float(timeout.group(1)) == defaults.odoo_timeout_s
     login = fields["odoo_sales_login"].default
-    assert environment["ODOO_SALES_LOGIN"] == f"${{ODOO_SALES_LOGIN:-{login}}}"
+    # Sin dos puntos: ``${X-admin}`` respeta ``ODOO_SALES_LOGIN=`` (vacío, sin actividad);
+    # ``${X:-admin}`` lo cambiaría por «admin» (hallazgo #11 de la revisión del 2026-11-27).
+    assert environment["ODOO_SALES_LOGIN"] == f"${{ODOO_SALES_LOGIN-{login}}}"
+    assert ":-" not in environment["ODOO_SALES_LOGIN"]

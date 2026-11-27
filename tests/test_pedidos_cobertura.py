@@ -8,9 +8,10 @@ con datos en el borrador, retomar tras «ahora no», la guarda de ``_place_order
 pedido, palabras sueltas que no son nombres, las variantes del total del recibo (FR-026),
 ``send_email`` (FR-015) y la privacidad fuera del camino feliz (FR-020).
 
-Las pruebas que fijan un comportamiento que la spec no cumple hoy van con
-``xfail(strict=True)`` y el motivo: si alguien lo corrige, la marca se vuelve roja y se
-quita.
+Los cuatro comportamientos que la auditoría dejó en ``xfail`` (rechazo en la confirmación,
+datos sin CRM tras un reinicio y ciudades o siglas como nombre en la oferta y en la
+confirmación) se corrigieron en la revisión de la rama de cobertura (2026-11-27): sus pruebas
+ya son normales.
 """
 
 import json
@@ -66,6 +67,7 @@ from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.chat import SqlChatRepository
 from carvajal.adapters.storage.database import build_session_factory
 from carvajal.adapters.storage.drafts import SqlDraftRepository
+from carvajal.agent.followup import is_leaving
 from carvajal.catalog.models import Reference
 from carvajal.quotation import flow, render
 from carvajal.quotation.draft import DRAFT_DAYS, Awaiting, QuoteDraft
@@ -781,23 +783,19 @@ def test_solo_estaba_mirando_cierra_la_oferta_y_los_datos(awaiting: str) -> None
     assert decision.message == render.order_declined(FOLIO)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug real (US4, escenario 1): en confirmar_pedido «solo estaba mirando» pregunta "
-        "«¿Qué dato corrijo?» en vez de cerrar el pedido. declines_order lo reconoce, pero "
-        "_confirm_step exige además _cancels(), y _CANCEL_WORDS no incluye «mirando»."
-    ),
+@pytest.mark.parametrize(
+    "message", ["solo estaba mirando", "lo voy a pensar", "mejor no", "no me interesa"]
 )
-def test_solo_estaba_mirando_cierra_tambien_la_confirmacion() -> None:
-    # Arrange
-    assert declines_order("solo estaba mirando")
+def test_solo_estaba_mirando_cierra_tambien_la_confirmacion(message: str) -> None:
+    # Arrange: un rechazo sin dato ni corrección (US4, escenario 1).
+    assert declines_order(message) or is_leaving(message)
 
     # Act
-    decision = _before(_draft("confirmar_pedido", Buyer(NAME, EMAIL)), "solo estaba mirando")
+    decision = _before(_draft("confirmar_pedido", Buyer(NAME, EMAIL)), message)
 
     # Assert
     assert isinstance(decision, flow.Reply)
+    assert decision.order is None
     assert decision.message == render.order_declined(FOLIO)
     assert decision.draft.buyer is None
 
@@ -971,9 +969,10 @@ def test_sin_crm_place_order_responde_el_fallo_sin_llamar_a_nadie(engine: Any) -
         OWNER, _draft("confirmar_pedido", Buyer(NAME, EMAIL)), Buyer(NAME, EMAIL)
     )
 
-    # Assert
-    assert message == render.order_failed()
+    # Assert: sin CRM no hay reintento que prometer ni datos que guardar.
+    assert message == render.already_registered(FOLIO)
     assert after.order is None
+    assert after.buyer is None and after.awaiting is None
 
 
 def test_un_borrador_del_pedido_caducado_no_crea_el_pedido(engine: Any) -> None:
@@ -1019,14 +1018,6 @@ def test_sin_crm_tras_un_reinicio_el_si_no_promete_un_reintento(engine: Any) -> 
     assert len(runner.calls) == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug real (FR-007): sin CRM tras un reinicio, un borrador en confirmar_pedido "
-        "conserva awaiting y el nombre y el correo en quote_drafts después del «sí»; el "
-        "paso del pedido ya no se puede completar y los datos no se borran."
-    ),
-)
 def test_sin_crm_tras_un_reinicio_el_si_borra_los_datos_del_borrador(engine: Any) -> None:
     # Arrange
     service, _ = _restarted_without_crm(engine)
@@ -1090,7 +1081,7 @@ def test_la_nota_de_voz_del_recibo_por_whatsapp_lleva_el_adjunto(engine: Any) ->
 
 # --- #29: palabras sueltas que no son nombres -------------------------------------------
 
-NOT_NAMES = ["Bogotá", "Cali", "PDF", "SAS"]
+NOT_NAMES = ["Bogotá", "Cali", "PDF", "SAS", "Santa Marta", "NIT"]
 
 
 @pytest.mark.parametrize("word", NOT_NAMES)
@@ -1102,14 +1093,6 @@ def test_una_ciudad_o_una_sigla_no_pisa_el_nombre_ya_dado_en_los_datos(word: str
     assert Buyer.from_json(decision.draft.buyer) == Buyer(NAME)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug real (#29): en la oferta una ciudad («Bogotá», «Cali») o una sigla («PDF», "
-        "«SAS») suelta se toma como nombre («Gracias, PDF. ¿A qué correo…?»): "
-        "name_in(strict=True) acepta cualquier palabra con mayúscula inicial."
-    ),
-)
 @pytest.mark.parametrize("word", NOT_NAMES)
 def test_en_la_oferta_una_ciudad_o_una_sigla_no_es_un_nombre(word: str) -> None:
     # Act
@@ -1119,14 +1102,6 @@ def test_en_la_oferta_una_ciudad_o_una_sigla_no_es_un_nombre(word: str) -> None:
     assert Buyer.from_json(decision.draft.buyer).name is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug real (#29): en confirmar_pedido una ciudad o una sigla suelta sustituye el "
-        "nombre ya dado (correction_name la lee como nombre propio). Lo mitiga que la "
-        "confirmación vuelve a mostrar los datos antes del «sí»."
-    ),
-)
 @pytest.mark.parametrize("word", NOT_NAMES)
 def test_en_la_confirmacion_una_ciudad_o_una_sigla_no_cambia_el_nombre(word: str) -> None:
     # Act

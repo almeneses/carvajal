@@ -67,9 +67,10 @@ Con el pedido de la spec 056 ([abajo](#pedidos-en-odoo-spec-056)) cambian dos ca
   no se puede leer, el recordatorio llega igual.
 - **Con el pedido confirmado**, «PDF», «mándame el recibo», «el PDF del pedido» o «recibo de
   mi compra» (`bridge.is_receipt_request`) reenvían el **recibo** del pedido (adjunto o
-  enlace firmado), si `ChatService.order_of` encuentra en Odoo el pedido de la última
-  cotización. «El PDF de la cotización» sigue trayendo la cotización, y sin pedido o sin forma
-  de entregar el recibo, «PDF» devuelve la cotización como siempre. «¿Cuándo recibo el
+  enlace firmado), si `ChatService.order_of` encuentra el pedido anotado en la última
+  cotización (`payload["order"]`, en la base de la app: «PDF» nunca espera a Odoo). «El PDF
+  de la cotización» sigue trayendo la cotización, y sin pedido o sin forma segura de entregar
+  el recibo, «PDF» devuelve la cotización como siempre. «¿Cuándo recibo el
   pedido?» no es un pedido del recibo: va al agente.
 
 - Cuando el cliente responde *PDF* (o «sí, el PDF», «envíame la cotización en pdf»), la
@@ -681,8 +682,10 @@ qué dato corregir sin borrar los datos, y «ahora no», «no, mejor no», «no,
 «olvídalo», «cancela el pedido», «lo voy a pensar» o un adiós («chao», «gracias, adiós») lo
 dejan en cualquier paso («…queda registrada sin pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo
 mensaje.»). Con el pedido ya creado, «cancela el pedido» y «¿cómo va mi pedido?» reciben una
-respuesta fija con el número: no se anula ni se consulta el estado desde el chat, lo gestiona
-el asesor. Todo lo deciden reglas explícitas por paso del backend, sin Jev; los turnos del
+respuesta fija con el número, también días después y tras otros mensajes (el número queda en
+la cotización): no se anula ni se consulta el estado desde el chat, lo gestiona el asesor.
+Solo cuenta el pedido con un determinante («mi pedido», «la compra») y sin producto ni
+cantidad: «quiero ver vasos para otro pedido» se cotiza. Todo lo deciden reglas explícitas por paso del backend, sin Jev; los turnos del
 pedido se guardan sin el nombre ni el correo (correo como `a…@dominio`). Flujo, datos
 personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
 
@@ -699,17 +702,26 @@ El pedido confirmado trae su recibo en PDF: el PDF del pedido que Odoo generó a
 `flow.order = {name, folio}` y el puente (`bridge._with_receipt`) cambia la última línea del
 recibo, «📄 Te envío el recibo del pedido en PDF.», según lo configurado:
 
-- Con `MEDIA_BASE_URL`, como el PDF de la cotización:
+El recibo lleva el nombre y el correo del comprador, las líneas y el total: **no viaja por
+http público** (`apps.mcp.server.secure_base`).
+
+- Con `MEDIA_BASE_URL` **https** (o un `http` de loopback), como el PDF de la cotización:
 
   ```text
   📄 Te envío el recibo de tu pedido S00001 en PDF.
-  ADJUNTAR_PDF: http://203.0.113.10:8080/pedidos/c0032295af55.pdf?t=<vence>.<firma>
+  ADJUNTAR_PDF: https://media.example.com/pedidos/c0032295af55.pdf?t=<vence>.<firma>
   ```
 
   OpenClaw lo envía como documento con la misma regla 5 de `AGENTS.md`; no hace falta otra.
-- Con solo `PUBLIC_BASE_URL`: «📄 Recibo de tu pedido S00001 en PDF. Ábrelo aquí:» y el
-  enlace firmado.
-- Sin ninguna, la línea se quita.
+- Con `MEDIA_BASE_URL` http público (p. ej. `http://203.0.113.10:8080`, como en producción
+  hoy, donde no está definida) o sin ella, y `PUBLIC_BASE_URL` https: «📄 Recibo de tu pedido
+  S00001 en PDF. Ábrelo aquí:» y el enlace firmado por https. El PDF de la cotización, sin
+  datos personales, sigue adjunto por `MEDIA_BASE_URL` aunque sea http.
+- Sin ninguna base segura, la línea se quita.
+
+La app no exime `/pedidos/*` de la redirección a HTTPS: si un enlace http del recibo llega a
+una persona, su navegador va a HTTPS (OpenClaw no manda `Accept: text/html` y no se
+redirige).
 
 El enlace lo arma `quote_links.order_pdf_url`: firma HMAC con `SESSION_SECRET` y un dominio
 propio del recibo (un enlace de cotización no abre el pedido), que vence a los 7 días. La ruta

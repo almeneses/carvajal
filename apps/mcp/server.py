@@ -36,7 +36,7 @@ from collections.abc import Awaitable, Callable, MutableMapping
 from datetime import date
 from functools import cache, partial
 from typing import TYPE_CHECKING, Annotated, Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import anyio
 import structlog
@@ -289,6 +289,28 @@ def _health_settings() -> "Settings":
     return Settings()
 
 
+# Hosts donde un enlace http no sale a la red: el recibo puede viajar por ahí sin cifrar.
+_LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def secure_base(url: str) -> bool:
+    """La base es ``https`` o un ``http`` de loopback: apta para un documento con datos.
+
+    El recibo del pedido (spec 056) lleva el nombre y el correo de quien compra, las líneas y
+    el total. ``MEDIA_BASE_URL`` puede ser un ``http`` con la IP del servidor (OpenClaw baja
+    por ahí el PDF de la cotización, que no tiene datos personales): el recibo no viaja así.
+    """
+
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return False
+    scheme = parts.scheme.lower()
+    if scheme == "https" and parts.hostname:
+        return True
+    return scheme == "http" and (parts.hostname or "").lower() in _LOOPBACK_NAMES
+
+
 @cache
 def default_bridge() -> WhatsAppBridge:
     """Puente real: chat, cotizaciones y su PDF, cupo, reintentos y reservas, al primer uso.
@@ -389,9 +411,10 @@ def default_bridge() -> WhatsAppBridge:
         pdf_link=pdf_link if base_url else None,
         # Con MEDIA_BASE_URL, OpenClaw adjunta el PDF como documento en vez de enlazarlo.
         pdf_attachment=pdf_attachment if media_base else None,
-        # Spec 056: el recibo del pedido, adjunto con MEDIA_BASE_URL o como enlace.
-        order_attachment=order_attachment if media_base else None,
-        order_link=order_link if base_url else None,
+        # Spec 056: el recibo del pedido lleva datos personales: adjunto solo si
+        # MEDIA_BASE_URL es https (o loopback); si no, el enlace https de PUBLIC_BASE_URL.
+        order_attachment=order_attachment if media_base and secure_base(media_base) else None,
+        order_link=order_link if base_url and secure_base(base_url) else None,
         photo_url=photo_url if base_url else None,
         # Reserva compartida entre workers: un reintento en vuelo no repite el turno.
         deliveries=SqlDeliveryStore(factory),

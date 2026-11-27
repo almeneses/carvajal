@@ -7,7 +7,8 @@
 **Status**: Implemented (2026-11-26) y fusionada en `main` (PR #279, `9877548`); activa en
 producción con `ODOO_*` y el SMTP de Gmail configurado en Odoo. Auditoría de cobertura del
 2026-11-27 (48 huecos) corregida en `fix/pedidos-cobertura` ([evidencia.md
-§9](./evidencia.md#9-auditoría-de-cobertura-2026-11-27)). Revisión adversarial del 2026-11-26 corregida en `b893c28` (paso de confirmación,
+§9](./evidencia.md#9-auditoría-de-cobertura-2026-11-27)), y la revisión de esa rama (18
+hallazgos confirmados, [evidencia.md §10](./evidencia.md#10-revisión-de-la-rama-de-cobertura-2026-11-27)). Revisión adversarial del 2026-11-26 corregida en `b893c28` (paso de confirmación,
 privacidad, idempotencia y Odoo); la segunda ronda, en `fcbf3a2` (reglas explícitas por paso
 y recibo del pedido en PDF por web y WhatsApp); la tercera, sobre `1209217` en la misma PR
 («sí» limpio, turnos privados, reglas generales primero, correo dictado con cifras, PDF y
@@ -197,9 +198,10 @@ por WhatsApp.
    «chat web».
 3. **Given** el pedido confirmado por WhatsApp con `MEDIA_BASE_URL`, **When** llega la
    respuesta, **Then** la promesa del recibo se cambia por «📄 Te envío el recibo de tu pedido
-   S… en PDF.» y la línea `ADJUNTAR_PDF: <url firmada>`, que OpenClaw envía como documento;
-   sin `MEDIA_BASE_URL` y con `PUBLIC_BASE_URL`, por el enlace firmado; sin ninguna, la
-   promesa se quita.
+   S… en PDF.» y la línea `ADJUNTAR_PDF: <url firmada>`, que OpenClaw envía como documento,
+   solo si `MEDIA_BASE_URL` es https (o loopback): el recibo lleva datos personales; con
+   `MEDIA_BASE_URL` http público o sin ella, por el enlace firmado de `PUBLIC_BASE_URL`
+   (https); sin ninguna base segura, la promesa se quita.
 
 ---
 
@@ -223,7 +225,9 @@ pedido.
    pedido?».
 3. **Given** un texto sin nombre ni correo («12345», «ok gracias»), **When** llega, **Then**
    responde «No alcancé a leer tu nombre y tu correo. Envíamelos así: «Ana Pérez,
-   ana@correo.com». Si prefieres no hacer el pedido ahora, escribe «ahora no».».
+   ana@example.com». Si prefieres no hacer el pedido ahora, escribe «ahora no».». El correo
+   del ejemplo (`render.EXAMPLE_EMAIL`, dominio reservado por la RFC 2606) copiado tal cual
+   cuenta como un correo que falta: nunca llega a Odoo.
 4. **Given** «mi nombre es juan gómez y mi correo es JUAN.G@Empresa.co», **When** se lee,
    **Then** el nombre es «Juan Gómez» y el correo «juan.g@empresa.co».
 5. **Given** «Juan, juan@x.co, gracias» o «maría de la cruz», **When** se leen, **Then** los
@@ -345,7 +349,7 @@ Textos tal como salen de las plantillas (`render.py`):
 
 › Sí, quiero hacer el pedido
 ¡Perfecto! Para el pedido envíame tu **nombre** y tu **correo** (por ejemplo: «Ana Pérez,
-ana@correo.com»). A ese correo te llega la confirmación.     ← awaiting = datos_pedido
+ana@example.com»). A ese correo te llega la confirmación.    ← awaiting = datos_pedido
 
 › Ana Pérez
 Gracias, Ana Pérez. ¿A qué **correo** te envío la confirmación del pedido?
@@ -596,15 +600,19 @@ adjunto, `None`.
   recibo el pedido?» va al agente.
 - **«Cancela el pedido» o «¿cómo va mi pedido?» tras crearlo**: respuesta fija con el número
   (`render.order_cancel_request`, `render.order_status`): no se anula ni se consulta desde el
-  chat, lo gestiona el asesor. Solo mientras el borrador conserva `order`: tras un turno
-  ajeno al flujo, el borrador se reinicia y esos mensajes van al agente.
-- **Sin JavaScript** (o con el stream caído): `POST /chat` responde con el texto visible del
-  turno del pedido (200) en vez de redirigir al historial, que mostraría los datos
-  enmascarados; al recargar, se ve lo guardado.
+  chat, lo gestiona el asesor. Vale también después de otros turnos: el número queda en la
+  cotización (`payload["order"]`) y el servicio responde con la última cotización del hilo
+  con pedido. Solo con un determinante («mi pedido», «la compra») y nunca con un producto o
+  una cantidad («quiero ver vasos para otro pedido» se cotiza).
+- **Sin JavaScript** (o con el stream caído): `POST /chat` guarda el turno y redirige (PRG,
+  303); el `GET` siguiente muestra una sola vez el texto visible del turno del pedido (en
+  memoria del proceso unos dos minutos). Recargar no reenvía el formulario y muestra lo
+  guardado, sin los datos.
 - **Voz en la web**: la confirmación dice el nombre y el correo reales en el turno en vivo
-  (`done.voz_resumen` y la nota de voz del servidor por `LiveSpoken`); el historial, en tono
-  neutro («a tu nombre, con el correo que escribiste»). El folio con CRM termina en
-  «¿Quieres hacer el pedido?».
+  solo en la voz del navegador (`done.voz_resumen`). La nota de voz del servidor (TTS de
+  OpenAI) lee lo guardado en tono neutro («a tu nombre, con el correo que escribiste»), como
+  el historial: los datos no van a OpenAI. El folio con CRM termina en «¿Quieres hacer el
+  pedido?».
 
 ## Requirements *(mandatory)*
 
@@ -707,8 +715,9 @@ adjunto, `None`.
   (`OdooOrders.order_pdf`: el primer `ir.attachment` PDF del `sale.order` confirmado del
   folio creado por quien creó el pedido; nunca un documento interno del chatter): en la web,
   con el enlace a `GET /pedidos/{folio}.pdf`, también en un turno reemitido; en WhatsApp,
-  como documento adjunto (`ADJUNTAR_PDF:` con `MEDIA_BASE_URL`) o como enlace firmado
-  (`PUBLIC_BASE_URL`).
+  como documento adjunto (`ADJUNTAR_PDF:` con `MEDIA_BASE_URL` https o de loopback) o como
+  enlace firmado (`PUBLIC_BASE_URL`). El recibo NO DEBE viajar por http público ni servirse
+  a una navegación del navegador por http (se redirige a HTTPS).
 - **FR-028**: `/pedidos/{folio}.pdf` DEBE servir el PDF solo al dueño de la cotización del
   folio: la cookie del visitante web o un enlace firmado con HMAC (`SESSION_SECRET`) sobre
   un dominio propio del recibo (`quote_links.ORDER_DOMAIN`, distinto del de cotizaciones)
@@ -721,9 +730,10 @@ adjunto, `None`.
 
 **Auditoría de cobertura (2026-11-27)**
 
-- **FR-033**: Con el pedido creado (`draft.order`), «cancela el pedido» y «¿cómo va mi
-  pedido?» DEBEN recibir por reglas una respuesta fija con el número, sin el modelo y sin
-  cambiar `draft.order`: la anulación y el estado los gestiona el asesor.
+- **FR-033**: Con el pedido creado, «cancela el pedido» y «¿cómo va mi pedido?» DEBEN recibir
+  una respuesta fija con el número, sin el modelo y sin cambiar `draft.order`, también tras
+  otros turnos (el número se guarda en la cotización): la anulación y el estado los gestiona
+  el asesor. Solo con un determinante ante el pedido y nunca con un producto o una cantidad.
 - **FR-034**: En WhatsApp, un pedido del PDF en cualquier paso del pedido DEBE entregar el
   PDF de la cotización y la pregunta pendiente, sin correr un turno, sin crear el pedido y
   sin cambiar el borrador.
@@ -732,13 +742,17 @@ adjunto, `None`.
   la cotización la entrega a ella.
 - **FR-036**: Al confirmar un pedido nuevo, Odoo DEBE recibir una actividad «Coordinar pago y
   entrega del pedido» para el usuario de `ODOO_SALES_LOGIN`, sin datos del comprador; si
-  falla, el pedido sigue.
+  falla, el pedido sigue. Si el login no existe, la actividad NO DEBE programarse en el
+  usuario técnico: queda un error en los logs y `sales_user: missing` en `/health` para el
+  operador. `ODOO_SALES_LOGIN=` (vacío) DEBE llegar vacío al contenedor (sin actividad).
 - **FR-037**: `/health` DEBE publicar el bloque `odoo` (configurado, estado y, si está
-  configurado, si responde y por qué no), con plazo corto y caché, sin URL ni secretos y sin
-  cambiar el estado global.
-- **FR-038**: En la web, la voz del turno en vivo de la confirmación DEBE decir los datos
-  reales y la del historial DEBE ser neutra; la voz del folio con CRM DEBE terminar en la
-  pregunta del pedido. Lo guardado sigue sin datos (FR-020).
+  configurado, si responde), con un plazo total de un segundo que nunca bloquee `/health`
+  más que eso, caché, sin URL ni secretos y sin cambiar el estado global. El motivo del fallo
+  (`reason`) y el usuario de ventas (`sales_user`) solo DEBEN verse con el token del operador.
+- **FR-038**: En la web, la voz del navegador del turno en vivo de la confirmación DEBE decir
+  los datos reales; la nota de voz del servidor y la del historial DEBEN ser neutras (sin
+  datos: no van a OpenAI, FR-019); la voz del folio con CRM DEBE terminar en la pregunta del
+  pedido. Lo guardado sigue sin datos (FR-020).
 - **FR-039**: Los prompts NO DEBEN decir que el asistente no toma pedidos: el pedido lo
   ofrece el sistema; el asistente no toma pagos ni pide datos de pago o personales.
 
@@ -752,9 +766,10 @@ adjunto, `None`.
 
 ### Privacidad
 
-- **FR-019**: Nombre y correo solo viajan a Odoo. Los logs del pedido llevan el folio, el
-  número del pedido y, ante un error, el código HTTP y el tipo; nunca el nombre, el correo ni
-  el mensaje de Odoo.
+- **FR-019**: Nombre y correo solo viajan a Odoo: ni al modelo, ni a Jev, ni a OpenAI (la nota
+  de voz del servidor, `/api/voz/hablar`, sintetiza lo guardado sin ellos; solo la voz del
+  navegador los lee). Los logs del pedido llevan el folio, el número del pedido y, ante un
+  error, el código HTTP y el tipo; nunca el nombre, el correo ni el mensaje de Odoo.
 - **FR-020**: Los turnos con datos del pedido (todos los que deciden las reglas en
   `datos_pedido` y `confirmar_pedido`, incluidos el «sí» que crea el pedido, el rechazo y
   «¿Qué dato corrijo?», y la oferta con datos) se guardan y se monitorean sin ellos: la
@@ -839,12 +854,11 @@ adjunto, `None`.
 - **Estado del pedido de vuelta al chat**: el asistente no consulta en Odoo si el pedido se
   pagó, se entregó o se canceló; «¿cómo va mi pedido?» y «cancela el pedido» reciben una
   respuesta fija que remite al asesor (FR-033).
-- **`draft.order` tras un turno ajeno al flujo**: el borrador se reinicia
-  (`_fresh_after_registration`) y pierde el número del pedido; desde ahí, las respuestas
-  fijas de FR-033 no aplican y esos mensajes van al agente (que por prompt no inventa el
-  estado). El recibo por WhatsApp no depende del borrador (lo busca en Odoo).
-- **Recarga sin JavaScript a mitad de `confirmar_pedido`**: muestra lo guardado
-  (enmascarado); mostrar el borrador exigiría leer `draft.buyer` desde la vista.
+- **`draft.order` tras un turno ajeno al flujo** (resuelto el 2026-11-27): el borrador se
+  reinicia y pierde el número, pero el número queda en la cotización (`payload["order"]`):
+  FR-033 sigue valiendo y el recibo por WhatsApp lo lee de ahí, sin llamar a Odoo.
+- **Recarga sin JavaScript**: tras el PRG, la primera vista muestra los datos del turno; una
+  recarga muestra lo guardado (enmascarado), sin reenviar el formulario.
 - **Tarjeta de Odoo en `/metricas`**: no hay; el estado está en el bloque `odoo` de
   `/health`.
 - Facturación electrónica e impuestos calculados por Odoo.

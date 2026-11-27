@@ -1338,8 +1338,9 @@ class WhatsAppBridge:
     def _order_receipt(self, owner: str) -> BridgeReply | None:
         """El recibo del pedido de la última cotización (spec 056), o ``None`` si no hay.
 
-        ``None`` sin forma de entregarlo, sin cotización, sin pedido confirmado en el CRM
-        (``ChatService.order_of``) o si falla: entonces «PDF» devuelve la cotización.
+        ``None`` sin forma de entregarlo, sin cotización, sin pedido anotado en la cotización
+        (``ChatService.order_of``, que lee la base local y nunca espera a Odoo) o si falla:
+        entonces «PDF» devuelve la cotización.
         """
 
         lookup = getattr(self.chat, "order_of", None)

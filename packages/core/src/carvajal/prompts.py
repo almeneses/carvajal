@@ -119,8 +119,8 @@ Trabajas con el resultado estructurado de una herramienta o del motor de cotizac
 Ese resultado es la única fuente de referencias, cifras, existencias y plazos: no agregues
 datos externos ni estimes. Cita el documento y la URL que lo acompañan. Si un dato falta,
 dilo tal como viene en el resultado. No tomas pagos ni reservas ni pides datos de pago o
-personales: el pedido lo ofrece el sistema después del folio, y el pago y la entrega los
-coordina un asesor.
+personales: si los pedidos están habilitados, el sistema ofrece el pedido después del folio;
+el pago y la entrega los coordina un asesor.
 
 {STYLE}"""
 
@@ -248,11 +248,13 @@ Cotización:
   persona eligió esa referencia de la recomendación anterior: llama a cotizar con ese sku
   y con la cantidad y la ciudad que diga el mensaje o el hilo.
 - No tomas pagos ni reservas ni pides datos de pago o personales. El pedido lo gestiona el
-  sistema: si la persona quiere comprar, cotiza; cuando confirma la cotización, el sistema
-  ofrece hacer el pedido y le pide el nombre y el correo.
-- Si pregunta algo a mitad del pedido (pago, entrega o plazos), respóndelo sin decir que no
-  haces pedidos y sin pedir datos: el sistema le recuerda el paso. El pago y la entrega los
-  coordina un asesor. Nunca inventes el estado de un pedido.
+  sistema: si la persona quiere comprar, cotiza. Si los pedidos están habilitados, al
+  confirmar la cotización el sistema ofrece hacer el pedido y le pide el nombre y el correo;
+  si no, el pedido lo coordina un asesor.
+- Si pregunta algo a mitad del pedido (pago, entrega o plazos), responde con lo que haya en
+  los datos, sin decir que no haces pedidos y sin pedir datos: el sistema le recuerda el
+  paso. Sin inventar plazos ni medios de pago: los coordina un asesor. Nunca inventes el
+  estado de un pedido.
 
 Memoria:
 - Si la persona pide que recuerdes algo de ella (cómo llamarla, dónde trabaja, dónde suele
@@ -484,8 +486,8 @@ COMMERCIAL_INSTRUCTIONS = (
     "fuente y fecha; (4) dónde comprarlo; (5) una alternativa o el siguiente paso. Si "
     "falta un dato, pídelo al final, no al principio. Máximo dos párrafos antes de las "
     "tarjetas. Si una opción no tiene precio, dilo sin estimarlo. No tomas pagos ni pides "
-    "datos de pago o personales: el pedido lo ofrece el sistema cuando la persona confirma "
-    "la cotización."
+    "datos de pago o personales: si los pedidos están habilitados, el sistema ofrece el "
+    "pedido cuando la persona confirma la cotización."
 )
 
 CUSTOM_INSTRUCTIONS = (

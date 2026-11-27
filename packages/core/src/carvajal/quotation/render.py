@@ -807,8 +807,11 @@ def already_registered(folio: str) -> Message:
 
 # --- Spec 056: pedido en el CRM ---------------------------------------------------------
 
-EXAMPLE_EMAIL: Final = "ana@correo.com"
-"""El correo del ejemplo fijo de :func:`ask_buyer`: no es de nadie y se guarda tal cual."""
+EXAMPLE_EMAIL: Final = "ana@example.com"
+"""El correo del ejemplo fijo de :func:`ask_buyer`, de un dominio reservado (RFC 2606).
+
+No es de nadie: se guarda tal cual y, si alguien lo copia como su correo, el flujo lo trata
+como un dato que falta (nunca llega al CRM ni recibe la confirmación)."""
 
 ORDER_OFFER: Final = (
     "🛒 ¿Quieres hacer el pedido? Te pido tu nombre y tu correo y te llega la confirmación."

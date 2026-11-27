@@ -63,6 +63,7 @@ OWNER = "dueno-recibo"
 ORDER = "S00012"
 BASE = "https://carvajal.example"
 MEDIA = "http://203.0.113.10:8080"
+SECURE_MEDIA = "https://media.carvajal.example"
 RECEIPT_LINK = re.compile(
     r"📄 \[Descarga el recibo de tu pedido (S\d+)\]\((http://testserver/pedidos/([0-9a-f]{12})\.pdf)\)"
 )
@@ -998,8 +999,7 @@ def test_el_reintento_del_si_final_por_whatsapp_vuelve_a_adjuntar_sin_otro_pedid
 # --- 6. apps.mcp.server: el puente real firma con ORDER_DOMAIN --------------------------
 
 
-@pytest.fixture()
-def real_bridge(monkeypatch: pytest.MonkeyPatch, engine: Any) -> Iterator[WhatsAppBridge]:
+def _real_bridge(monkeypatch: pytest.MonkeyPatch, engine: Any, media: str) -> WhatsAppBridge:
     """``default_bridge`` con URL pública y de adjuntos, sin base ni modelo reales."""
 
     from apps.api import runtime
@@ -1009,15 +1009,24 @@ def real_bridge(monkeypatch: pytest.MonkeyPatch, engine: Any) -> Iterator[WhatsA
 
     monkeypatch.setenv("SESSION_SECRET", SECRET.decode())
     monkeypatch.setenv("PUBLIC_BASE_URL", BASE)
-    monkeypatch.setenv("MEDIA_BASE_URL", MEDIA)
+    monkeypatch.setenv("MEDIA_BASE_URL", media)
     monkeypatch.setenv("FOOD_PHOTO_MEDIA_DIR", "")
     factory: sessionmaker[Any] = build_session_factory(engine)
     monkeypatch.setattr(runtime, "session_factory", lambda: factory)
     monkeypatch.setattr(chat_service, "default_chat_service", NoChat)
     monkeypatch.setattr(judge, "build_food_classifier", lambda settings: None)
     server.default_bridge.cache_clear()
+    return server.default_bridge()
+
+
+@pytest.fixture()
+def real_bridge(monkeypatch: pytest.MonkeyPatch, engine: Any) -> Iterator[WhatsAppBridge]:
+    """El puente real con ``MEDIA_BASE_URL`` https (la que sí puede adjuntar el recibo)."""
+
+    from apps.mcp import server
+
     try:
-        yield server.default_bridge()
+        yield _real_bridge(monkeypatch, engine, SECURE_MEDIA)
     finally:
         server.default_bridge.cache_clear()
 
@@ -1037,11 +1046,49 @@ def test_el_puente_real_firma_el_recibo_y_la_ruta_lo_acepta(real_bridge: WhatsAp
 
     # Assert: adjunto con MEDIA_BASE_URL, enlace con PUBLIC_BASE_URL; los dos abren el
     # recibo y ninguno abre el PDF de la cotización del mismo folio.
-    assert attached.startswith(f"{MEDIA}/pedidos/{FOLIO}.pdf?t=")
+    assert attached.startswith(f"{SECURE_MEDIA}/pedidos/{FOLIO}.pdf?t=")
     assert linked.startswith(f"{BASE}/pedidos/{FOLIO}.pdf?t=")
     assert [response.status_code for response in responses] == [200, 200]
     assert reader.calls == [FOLIO, FOLIO]
     assert as_quote.status_code == 404
+
+
+@pytest.mark.parametrize("media", [MEDIA, "http://carvajal.example:8080"])
+def test_con_media_base_url_http_publica_el_recibo_va_por_el_enlace_https(
+    monkeypatch: pytest.MonkeyPatch, engine: Any, media: str
+) -> None:
+    # Arrange: el recibo lleva nombre, correo, líneas y total (hallazgo #12).
+    from apps.mcp import server
+
+    try:
+        # Act
+        bridge = _real_bridge(monkeypatch, engine, media)
+    finally:
+        server.default_bridge.cache_clear()
+
+    # Assert: sin adjunto por http en claro; el PDF de la cotización sigue adjunto.
+    assert bridge.order_attachment is None
+    assert bridge.order_link is not None
+    assert bridge.order_link(FOLIO, "wa_dueno").startswith(f"{BASE}/pedidos/")
+    assert bridge.pdf_attachment is not None
+
+
+@pytest.mark.parametrize(
+    ("url", "secure"),
+    [
+        ("https://144-217-80-136.sslip.io", True),
+        ("http://127.0.0.1:8080", True),
+        ("http://localhost:8000", True),
+        ("http://203.0.113.10:8080", False),
+        ("http://carvajal.example", False),
+        ("ftp://carvajal.example", False),
+        ("", False),
+    ],
+)
+def test_secure_base_solo_acepta_https_o_loopback(url: str, secure: bool) -> None:
+    from apps.mcp.server import secure_base
+
+    assert secure_base(url) is secure
 
 
 def test_un_enlace_de_pedido_no_abre_el_pdf_de_la_cotizacion(engine: Any) -> None:

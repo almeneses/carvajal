@@ -4,13 +4,17 @@ El turno del pedido se guarda sin el nombre ni el correo de quien compra, pero l
 ve (y los oye) en el turno en vivo para comprobarlos. Servicio real sobre SQLite con el runner
 ``tools`` guionado, Odoo simulado y la app FastAPI, sin red. Cubren:
 
-- la voz de la web: la confirmación dice los datos reales en el ``done`` y en la nota de voz
-  del servidor de ese turno (:class:`apps.api.voice.LiveSpoken`); el historial, en tono
-  neutro; el folio con CRM hace la pregunta del pedido (huecos 9 y 10);
-- ``POST /chat`` sin JavaScript: la confirmación muestra los datos del turno (hueco 12);
-- el bloque ``odoo`` de ``/health``: configurado, alcanzable y en caché, sin secretos ni
-  cambiar el estado global (hueco 43);
-- la redirección a HTTPS no toca el recibo ``/pedidos/{folio}.pdf`` (hueco 44).
+- la voz de la web: la confirmación dice los datos reales en el ``done`` (voz del navegador);
+  la nota de voz del servidor (TTS de OpenAI) nunca los recibe y lee lo guardado en tono
+  neutro, como el historial; el folio con CRM hace la pregunta del pedido (huecos 9 y 10 y
+  hallazgo #9 de la revisión);
+- ``POST /chat`` sin JavaScript: PRG (303) y el ``GET`` siguiente muestra una sola vez los
+  datos del turno (hueco 12 y hallazgos #8 y #18);
+- el bloque ``odoo`` de ``/health``: configurado, alcanzable, en caché y con plazo total de
+  un segundo; el motivo y el usuario de ventas solo para el operador (hueco 43 y hallazgos
+  #7 y #11);
+- la navegación al recibo ``/pedidos/{folio}.pdf`` por http se redirige a HTTPS (hallazgo
+  #12).
 """
 
 import re
@@ -32,10 +36,11 @@ from tests.test_pdf_web import _app as quote_app
 from tests.test_pdf_web import _register, _turn, _visitor
 from tests.test_pedidos_recibo import _order_app
 
+from apps.api.ephemeral import EphemeralTexts, shown_turns
 from apps.api.main import Handlers, HealthStatus, create_app
 from apps.api.security import CSRF_COOKIE, CSRF_FIELD
-from apps.api.voice import LiveSpoken, live_spoken, spoken_message
-from carvajal.adapters.crm.odoo import OdooProbe
+from apps.api.voice import spoken_message
+from carvajal.adapters.crm.odoo import PROBE_TIMEOUT_S, OdooProbe
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.infrastructure.settings import Settings
@@ -112,7 +117,7 @@ def test_la_voz_de_la_confirmacion_dice_el_nombre_y_el_correo_reales(engine: Any
     assert NAME not in stored and EMAIL not in stored
 
 
-def test_la_nota_de_voz_del_servidor_del_turno_en_vivo_dice_los_datos(engine: Any) -> None:
+def test_la_nota_de_voz_del_servidor_nunca_manda_los_datos_a_openai(engine: Any) -> None:
     # Arrange
     fake = OpenAIFake()
     app = _order_app(engine)
@@ -120,17 +125,21 @@ def test_la_nota_de_voz_del_servidor_del_turno_en_vivo_dice_los_datos(engine: An
     client = _visitor(app)
     message_id = _until_confirmation(client)["done"]["message_id"]
 
-    # Act
+    # Act: «Escuchar» en el mismo turno en vivo de la confirmación.
     response = client.post(
         "/api/voz/hablar",
         data={"message_id": message_id, CSRF_FIELD: client.cookies[CSRF_COOKIE]},
     )
 
-    # Assert
+    # Assert: el TTS de OpenAI recibe lo guardado en tono neutro, sin nombre ni correo
+    # (FR-019); los datos reales solo los dice la voz del navegador (``voz_resumen``).
     assert response.status_code == 200
     [spoken] = fake.tts_inputs()
-    assert NAME in spoken and SPOKEN_EMAIL in spoken
-    assert "(tu nombre)" not in spoken
+    assert (
+        spoken == "Voy a hacer el pedido a tu nombre, con el correo que escribiste. ¿Lo confirmo?"
+    )
+    for secret in (NAME, EMAIL, SPOKEN_EMAIL, "beatriz", "gomez"):
+        assert secret not in spoken.lower(), secret
 
 
 def test_otro_visitante_no_oye_los_datos_del_turno_en_vivo(engine: Any) -> None:
@@ -235,34 +244,38 @@ def test_spoken_message_resume_igual_un_turno_del_agente_con_la_plantilla() -> N
     assert "Otra cosa." not in summary
 
 
-def test_live_spoken_olvida_por_tiempo_y_por_tamano() -> None:
+def test_los_textos_de_un_solo_uso_olvidan_por_tiempo_por_tamano_y_al_mostrarse() -> None:
     # Arrange
     now = [0.0]
-    store = LiveSpoken(ttl_s=60, max_entries=2, clock=lambda: now[0])
+    store = EphemeralTexts(ttl_s=60, max_entries=2, clock=lambda: now[0])
     store.remember("dueno", "m-1", "uno")
     store.remember("dueno", "m-2", "dos")
     store.remember("dueno", "m-3", "tres")
 
     # Act
     evicted = store.get("dueno", "m-1")
-    other_owner = store.get("otro", "m-3")
-    fresh = store.get("dueno", "m-3")
+    other_owner = store.pop("otro", "m-3")
+    peeked = store.get("dueno", "m-3")
+    shown = store.pop("dueno", "m-3")
+    again = store.pop("dueno", "m-3")
+    store.remember("dueno", "m-4", "cuatro")
     now[0] = 61.0
-    expired = store.get("dueno", "m-3")
+    expired = store.pop("dueno", "m-4")
 
     # Assert
     assert evicted is None and other_owner is None
-    assert fresh == "tres"
+    assert peeked == shown == "tres"
+    assert again is None
     assert expired is None
 
 
-def test_live_spoken_es_uno_por_app() -> None:
+def test_los_textos_de_un_solo_uso_son_uno_por_app() -> None:
     # Arrange
     app = FastAPI()
 
     # Act
-    first = live_spoken(app.state)
-    second = live_spoken(app.state)
+    first = shown_turns(app.state)
+    second = shown_turns(app.state)
 
     # Assert
     assert first is second
@@ -271,7 +284,9 @@ def test_live_spoken_es_uno_por_app() -> None:
 # --- POST /chat sin JavaScript (hueco 12) --------------------------------------------------
 
 
-def test_sin_javascript_la_confirmacion_muestra_los_datos_del_turno(engine: Any) -> None:
+def test_sin_javascript_la_confirmacion_redirige_y_muestra_los_datos_una_vez(
+    engine: Any,
+) -> None:
     # Arrange
     client = _visitor(_order_app(engine))
     _register(client)
@@ -279,16 +294,35 @@ def test_sin_javascript_la_confirmacion_muestra_los_datos_del_turno(engine: Any)
 
     # Act
     response = _post(client, f"{NAME}, {EMAIL}")
+    shown = client.get(response.headers["location"])
+    reloaded = client.get(response.headers["location"])
 
-    # Assert: se pinta el turno visible (no la redirección al guardado) y no se cachea.
-    assert response.status_code == 200
-    assert "no-store" in response.headers["cache-control"]
-    thread = _thread(response.text)
+    # Assert: PRG (recargar no reenvía el formulario con los datos)…
+    assert response.status_code == 303
+    assert NAME not in response.text and EMAIL not in response.text
+    # …el GET que sigue a la redirección muestra el turno visible, sin caché…
+    assert "no-store" in shown.headers["cache-control"]
+    thread = _thread(shown.text)
     assert NAME in thread and EMAIL in thread
     assert "(tu nombre)" not in thread
-    # Lo guardado sigue sin los datos: al recargar se ve la versión enmascarada.
-    reloaded = _thread(client.get("/chat").text)
-    assert NAME not in reloaded and EMAIL not in reloaded
+    # …y una recarga muestra lo guardado, sin los datos.
+    assert NAME not in _thread(reloaded.text) and EMAIL not in _thread(reloaded.text)
+
+
+def test_sin_javascript_otro_visitante_no_ve_los_datos_del_turno(engine: Any) -> None:
+    # Arrange
+    app = _order_app(engine)
+    client = _visitor(app)
+    _register(client)
+    _turn(client, "Sí, quiero hacer el pedido")
+    response = _post(client, f"{NAME}, {EMAIL}")
+    other = _visitor(app, "b" * 64)
+
+    # Act
+    page = other.get(response.headers["location"])
+
+    # Assert
+    assert NAME not in page.text and EMAIL not in page.text
 
 
 def test_sin_javascript_un_turno_sin_datos_redirige_como_siempre(engine: Any) -> None:
@@ -311,10 +345,11 @@ def test_sin_javascript_el_recibo_enlaza_el_pdf_del_pedido(engine: Any) -> None:
 
     # Act
     response = _post(client, "sí")
+    shown = client.get(response.headers["location"])
 
     # Assert: el recibo con el correo real y el enlace del pedido, no la promesa.
-    assert response.status_code == 200
-    thread = _thread(response.text)
+    assert response.status_code == 303
+    thread = _thread(shown.text)
     assert EMAIL in thread
     assert "Descarga el recibo de tu pedido S00001" in thread
     assert "Te envío el recibo del pedido en PDF" not in thread
@@ -324,10 +359,14 @@ def test_sin_javascript_el_recibo_enlaza_el_pdf_del_pedido(engine: Any) -> None:
 
 
 class OdooHealth:
-    """Odoo simulado para la sonda: cuenta las llamadas y responde ``status``."""
+    """Odoo simulado para la sonda: cuenta las llamadas y responde ``status``.
 
-    def __init__(self, status: int = 200) -> None:
+    ``users`` es lo que devuelve la búsqueda del usuario de ventas (``res.users``).
+    """
+
+    def __init__(self, status: int = 200, users: list[dict[str, Any]] | None = None) -> None:
         self.status = status
+        self.users = [{"id": 2}] if users is None else users
         self.calls: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -336,12 +375,20 @@ class OdooHealth:
             raise httpx.ConnectError("sin red", request=request)
         if self.status != 200:
             return httpx.Response(self.status, json={"message": "detalle interno"})
+        if request.url.path == "/json/2/res.users/search_read":
+            return httpx.Response(200, json=self.users)
         return httpx.Response(200, json=0)
+
+    def probes(self) -> list[httpx.Request]:
+        return [call for call in self.calls if call.url.path.endswith("/search_count")]
 
 
 def _odoo_settings(**values: Any) -> Settings:
     base: dict[str, Any] = {"odoo_url": ODOO_URL, "odoo_db": "carvajal", "odoo_api_key": API_KEY}
     return Settings(**{**base, **values})
+
+
+OPERATOR = "token-de-operador-de-prueba"
 
 
 def _health_app(probe: OdooProbe | None = None) -> TestClient:
@@ -376,31 +423,90 @@ def test_health_con_odoo_alcanzable_lo_dice_sin_secretos() -> None:
     assert response.status_code == 200
     assert response.json()["odoo"] == {"configured": True, "status": "ok", "reachable": True}
     assert API_KEY not in response.text and "odoo-interno" not in response.text
-    [call] = fake.calls
+    [call] = fake.probes()
     assert call.url.path == "/json/2/sale.order/search_count"
     assert call.headers["authorization"] == f"bearer {API_KEY}"
 
 
 @pytest.mark.parametrize(("status", "reason"), [(0, "unreachable"), (401, "auth"), (500, "error")])
-def test_health_con_odoo_caido_no_cambia_el_estado_global(status: int, reason: str) -> None:
+def test_health_con_odoo_caido_no_cambia_el_estado_global(
+    monkeypatch: pytest.MonkeyPatch, status: int, reason: str
+) -> None:
     # Arrange
+    monkeypatch.setenv("OPERATOR_TOKEN", OPERATOR)
     fake = OdooHealth(status)
     client = _health_app(OdooProbe(_odoo_settings(), transport=httpx.MockTransport(fake)))
 
     # Act
-    response = client.get("/health")
+    public = client.get("/health")
+    operator = client.get("/health", headers={"X-Operator-Token": OPERATOR})
 
-    # Assert
-    assert response.status_code == 200
-    body = response.json()
+    # Assert: el estado global no cambia; el motivo solo lo ve el operador.
+    assert public.status_code == 200
+    body = public.json()
     assert body["status"] == "ok"
-    assert body["odoo"] == {
+    assert body["odoo"] == {"configured": True, "status": "unreachable", "reachable": False}
+    assert operator.json()["odoo"] == {
         "configured": True,
         "status": "unreachable",
         "reachable": False,
         "reason": reason,
     }
-    assert "detalle interno" not in response.text
+    assert "detalle interno" not in public.text + operator.text
+
+
+@pytest.mark.parametrize(
+    ("users", "login", "expected"),
+    [([{"id": 2}], "admin", "ok"), ([], "admin", "missing"), ([{"id": 2}], "", "off")],
+)
+def test_health_dice_al_operador_si_existe_el_usuario_de_ventas(
+    monkeypatch: pytest.MonkeyPatch, users: list[dict[str, Any]], login: str, expected: str
+) -> None:
+    # Arrange
+    monkeypatch.setenv("OPERATOR_TOKEN", OPERATOR)
+    fake = OdooHealth(users=users)
+    settings = _odoo_settings(odoo_sales_login=login)
+    client = _health_app(OdooProbe(settings, transport=httpx.MockTransport(fake)))
+
+    # Act
+    public = client.get("/health").json()["odoo"]
+    operator = client.get("/health", headers={"X-Operator-Token": OPERATOR}).json()["odoo"]
+
+    # Assert: ``sales_user`` (hallazgo #11) solo para el operador; el login no sale nunca.
+    assert "sales_user" not in public
+    assert operator["sales_user"] == expected
+    assert operator["reachable"] is True
+
+
+def test_la_sonda_de_odoo_nunca_bloquea_health_mas_del_plazo() -> None:
+    # Arrange: un Odoo que no contesta hasta que la prueba lo suelta.
+    import threading
+    import time
+
+    release = threading.Event()
+
+    def hung(request: httpx.Request) -> httpx.Response:
+        release.wait(5)
+        return httpx.Response(200, json=0)
+
+    probe = OdooProbe(_odoo_settings(), transport=httpx.MockTransport(hung), timeout_s=0.2)
+
+    # Act
+    started = time.monotonic()
+    first = probe.status()
+    elapsed = time.monotonic() - started
+    again = probe.status()
+    release.set()
+
+    # Assert: responde en el plazo con ``timeout``, y la siguiente usa la caché sin esperar.
+    assert elapsed < 1.0
+    assert first == {
+        "configured": True,
+        "status": "unreachable",
+        "reachable": False,
+        "reason": "timeout",
+    }
+    assert again == first
 
 
 def test_la_sonda_de_odoo_tiene_cache() -> None:
@@ -421,7 +527,7 @@ def test_la_sonda_de_odoo_tiene_cache() -> None:
     # Assert: un Odoo caído se vuelve a probar como mucho una vez por minuto.
     assert first["reachable"] is False and cached == first
     assert renewed["reachable"] is True
-    assert len(fake.calls) == 2
+    assert len(fake.probes()) == 2
 
 
 def test_la_sonda_de_odoo_usa_un_plazo_corto() -> None:
@@ -437,8 +543,9 @@ def test_la_sonda_de_odoo_usa_un_plazo_corto() -> None:
     # Act
     probe.status()
 
-    # Assert
-    assert seen[0]["read"] == pytest.approx(3.0)
+    # Assert: un segundo por fase; el plazo total lo impone ``status()`` (también 1 s).
+    assert seen[0]["read"] == pytest.approx(1.0)
+    assert PROBE_TIMEOUT_S <= 1.0
 
 
 def test_health_degradado_tambien_publica_odoo() -> None:
@@ -462,12 +569,18 @@ def test_health_degradado_tambien_publica_odoo() -> None:
 # --- HTTPS (hueco 44) ----------------------------------------------------------------------
 
 
-def test_no_redirige_el_recibo_del_pedido(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Arrange: OpenClaw baja el recibo por MEDIA_BASE_URL, que puede ser http con IP.
+def test_la_navegacion_al_recibo_por_http_se_redirige_a_https(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: el recibo lleva el nombre y el correo; un enlace http que llegue a una
+    # persona no se sirve en claro (hallazgo #12).
     client = https_client(monkeypatch)
 
     # Act
-    response = client.get("/pedidos/a3f09c12b7e4.pdf?t=1.abc", headers=HTML)
+    browser = client.get("/pedidos/a3f09c12b7e4.pdf?t=1.abc", headers=HTML)
+    openclaw = client.get("/pedidos/a3f09c12b7e4.pdf?t=1.abc")
 
-    # Assert
-    assert response.status_code != 307
+    # Assert: el navegador va a HTTPS; un cliente sin ``Accept: text/html`` no se redirige.
+    assert browser.status_code == 307
+    assert browser.headers["location"].startswith("https://")
+    assert openclaw.status_code != 307

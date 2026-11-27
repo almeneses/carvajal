@@ -11,10 +11,9 @@ lectura de respaldo del navegador diga lo mismo que la del servidor. Si no se pu
 preparar, el evento sale sin él y el navegador lee la respuesta como antes.
 
 En un turno del pedido (spec 056) el resumen sale del ``flow`` del propio ``done``, que trae
-el nombre y el correo de quien compra (lo guardado no los lleva): la confirmación los lee para
-que la persona los compruebe. Ese resumen se recuerda unos minutos en memoria
-(:class:`apps.api.voice.LiveSpoken`) para que la nota de voz del servidor de ese turno diga
-lo mismo.
+el nombre y el correo de quien compra (lo guardado no los lleva): la voz del navegador los lee
+para que la persona los compruebe. La nota de voz del servidor (``/api/voz/hablar``, TTS de
+OpenAI) no los recibe nunca: sintetiza lo guardado, en tono neutro (FR-019).
 
 La cotización recién registrada (T6, spec 054) promete «📄 Te envío el PDF.»: en la web esa
 línea pasa a ser el enlace al PDF del folio, que el visitante abre con su cookie
@@ -53,7 +52,7 @@ from apps.api.views.chat import (
 )
 from apps.api.views.cotizacion_pdf import owner_pdf_link
 from apps.api.views.pedido_pdf import owner_order_link
-from apps.api.voice import live_spoken, spoken_message
+from apps.api.voice import spoken_message
 from carvajal.adapters.storage.chat import ChatMessage
 from carvajal.quotation.render import pdf_offer, receipt_offer
 
@@ -122,7 +121,6 @@ def chat_stream(
             spoken=voz.strip() == "1",
             pdf_link=owner_pdf_link(request),
             receipt_link=owner_order_link(request),
-            remember_spoken=live_spoken(request.app.state).remember,
         ),
         media_type=SSE_MEDIA_TYPE,
         headers=SSE_HEADERS,
@@ -142,14 +140,11 @@ def _sse(
     spoken: bool = False,
     pdf_link: Callable[[str], str | None] | None = None,
     receipt_link: Callable[[str], str | None] | None = None,
-    remember_spoken: Callable[[str, str, str], None] | None = None,
 ) -> Iterator[str]:
     """Traduce los eventos del servicio a bloques SSE.
 
     Con ``pdf_link`` (``folio -> URL``), la cotización registrada enlaza su PDF; con
-    ``receipt_link``, el pedido confirmado enlaza su recibo (spec 056). ``remember_spoken``
-    (``dueño, id del mensaje, resumen``) recibe el resumen hablado del turno en vivo cuando
-    difiere del guardado (los datos del pedido).
+    ``receipt_link``, el pedido confirmado enlaza su recibo (spec 056).
 
     La red de seguridad evita que un fallo inesperado del proveedor deje la
     conexión sin cierre ni mensaje: siempre se emite un ``error`` genérico.
@@ -189,12 +184,7 @@ def _sse(
                 sources = [item for item in event.data["sources"] if isinstance(item, Mapping)]
             if event.name == "done":
                 event = _with_spoken_summary(
-                    provider,
-                    owner_key,
-                    event,
-                    "".join(fragments),
-                    sources,
-                    remember=remember_spoken,
+                    provider, owner_key, event, "".join(fragments), sources
                 )
             yield _encode(event)
     except Exception as error:
@@ -215,15 +205,13 @@ def _with_spoken_summary(
     event: ChatEvent,
     text: str,
     sources: list[dict[str, Any]],
-    *,
-    remember: Callable[[str, str, str], None] | None = None,
 ) -> ChatEvent:
     """``done`` con ``voz_resumen``: de la respuesta guardada o, si no, de lo emitido.
 
     La respuesta guardada trae además el resultado comercial (la cotización corta). En un
-    turno del pedido manda el ``flow`` del ``done`` (con los datos de quien compra); si así
-    difiere del resumen guardado, se pasa a ``remember`` para la voz del servidor. Nunca
-    lanza: sin resumen, el ``done`` sale igual que antes.
+    turno del pedido manda el ``flow`` del ``done`` (con los datos de quien compra): solo lo
+    lee la voz del navegador; el servidor no lo guarda ni lo sintetiza. Nunca lanza: sin
+    resumen, el ``done`` sale igual que antes.
     """
 
     try:
@@ -245,15 +233,6 @@ def _with_spoken_summary(
         live = event.data.get("flow")
         live = live if isinstance(live, Mapping) else None
         summary = spoken_message(message, flow=live) if message is not None else ""
-        if (
-            remember is not None
-            and live is not None
-            and message is not None
-            and message_id
-            and summary
-            and summary != spoken_message(message)
-        ):
-            remember(owner_key, message_id, summary)
     except Exception as error:  # el resumen es un extra: nunca rompe el cierre del turno
         logger.warning("chat.spoken_summary_failed", error_type=type(error).__name__)
         return event

@@ -240,6 +240,27 @@ def test_ningun_prompt_niega_el_pedido_que_ofrece_el_sistema() -> None:
     assert "datos de pago o personales" in _plano(COMMERCIAL_INSTRUCTIONS)
 
 
+def test_la_oferta_del_pedido_es_condicional_y_sin_plazos_inventados() -> None:
+    """Sin CRM el folio no ofrece nada: ningún prompt promete el pedido sin condición."""
+
+    # Arrange
+    from carvajal.prompts import AGENT_SYSTEM
+
+    prompts = [AGENT_SYSTEM, STRUCTURED_SYSTEM, COMMERCIAL_INSTRUCTIONS]
+
+    # Act
+    planos = [_plano(texto) for texto in prompts]
+    agente = _plano(AGENT_SYSTEM)
+
+    # Assert: cada mención de la oferta va con «si los pedidos están habilitados»…
+    assert all("si los pedidos están habilitados" in texto.lower() for texto in planos)
+    assert "si no, el pedido lo coordina un asesor" in agente
+    # …y una pregunta de plazos o pago se responde con los datos, sin inventarlos.
+    assert "(pago, entrega o plazos), respóndelo" not in agente
+    assert "responde con lo que haya en los datos" in agente
+    assert "Sin inventar plazos ni medios de pago: los coordina un asesor" in agente
+
+
 def test_el_agente_pide_datos_con_sin_consulta() -> None:
     # Arrange
     from carvajal.prompts import AGENT_SYSTEM

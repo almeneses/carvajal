@@ -93,7 +93,7 @@ x-dev-app: &dev-app
     ODOO_DB: ${ODOO_DB:-}
     ODOO_API_KEY: ${ODOO_API_KEY:-}
     ODOO_TIMEOUT_S: ${ODOO_TIMEOUT_S:-20}
-    ODOO_SALES_LOGIN: ${ODOO_SALES_LOGIN:-admin}
+    ODOO_SALES_LOGIN: ${ODOO_SALES_LOGIN-admin}
     FOOD_PHOTO_ENABLED: ${FOOD_PHOTO_ENABLED:-true}
     LOG_LEVEL: ${LOG_LEVEL:-INFO}
     # El perfil local no envía nada a Sentry ni a LangSmith salvo que se pida.

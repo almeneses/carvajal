@@ -119,9 +119,11 @@ from carvajal.quotation.engine import QUOTE_VERSION
 from carvajal.quotation.order import (
     Buyer,
     OrderRequest,
+    asks_order_status,
     mask_email,
     order_lines,
     spoken_address,
+    wants_order_cancel,
 )
 
 __all__ = [
@@ -385,21 +387,62 @@ class ChatService:
             return None
 
     def order_of(self, folio: str) -> str | None:
-        """Número del pedido confirmado en Odoo para la cotización ``folio``, o ``None``.
+        """Número del pedido creado para la cotización ``folio`` («S00005»), o ``None``.
 
-        ``None`` sin CRM configurado, sin pedido confirmado o ante cualquier error del CRM.
+        Se lee del registro local de la cotización (``payload["order"]``, que anota
+        :meth:`_place_order` al crear el pedido), sin llamar al CRM: el «PDF» de WhatsApp no
+        espera a Odoo. Nunca lanza: ante cualquier fallo de la base, ``None``.
         """
 
-        orders = self._orders()
-        lookup = getattr(orders, "order_name", None)
-        if not folio or lookup is None:
+        if not folio:
             return None
         try:
-            name = lookup(folio)
-        except Exception as error:  # el CRM caído no rompe el canal
+            with self._session_factory() as session:
+                record = SqlQuoteRepository(session).by_folio(folio)
+        except Exception as error:  # una consulta auxiliar nunca rompe el canal
             logger.warning("pedido.numero_no_leido", error_type=type(error).__name__)
             return None
-        return str(name) if name else None
+        order = record.payload.get("order") if record is not None else None
+        return str(order) if isinstance(order, str) and order.strip() else None
+
+    def _mark_order(self, owner_key: str, folio: str, order: str) -> None:
+        """Anota el pedido en la cotización registrada; un fallo no tumba el turno."""
+
+        try:
+            with self._session_factory() as session:
+                marked = SqlQuoteRepository(session).mark_order(folio, owner_key, order)
+                session.commit()
+        except Exception as error:
+            logger.warning("pedido.no_anotado", folio=folio, error_type=type(error).__name__)
+            return
+        if not marked:
+            logger.warning("pedido.cotizacion_no_encontrada", folio=folio)
+
+    def _order_followup(
+        self, owner_key: str, conversation_id: str, text: str
+    ) -> quote_render.Message | None:
+        """«¿Cómo va mi pedido?» o «cancela el pedido» en un turno que las reglas no atendieron.
+
+        El borrador se reinicia en los turnos que siguen al pedido y pierde ``order``; el
+        número sigue en el registro de la cotización. Con un pedido en el hilo, la respuesta
+        es la plantilla fija (sin el modelo, que no conoce el estado ni puede anularlo).
+        """
+
+        cancel = wants_order_cancel(text, bare=False)
+        if not cancel and not asks_order_status(text):
+            return None
+        try:
+            with self._session_factory() as session:
+                found = SqlQuoteRepository(session).latest_order(owner_key, conversation_id)
+        except Exception as error:
+            logger.warning("pedido.seguimiento_no_leido", error_type=type(error).__name__)
+            return None
+        if found is None:
+            return None
+        order = found[1]
+        return (
+            quote_render.order_cancel_request(order) if cancel else quote_render.order_status(order)
+        )
 
     def _config(self) -> Settings:
         """Configuración del proceso, leída de forma perezosa una sola vez."""
@@ -576,6 +619,32 @@ class ChatService:
                 session.commit()
             request_id = _request_id()
             prompt = text
+            # Spec 056: «¿cómo va mi pedido?» o «cancela el pedido» con un pedido creado en el
+            # hilo tienen respuesta fija con su número, aunque el borrador ya no lo tenga (se
+            # reinicia en los turnos siguientes). Va antes de las reglas: «¿qué tengo?» del
+            # carrito respondería «todavía no tienes productos». Con el pedido en el borrador
+            # o un paso del pedido pendiente, deciden las reglas del flujo.
+            tracked = (
+                self._order_followup(owner_key, conversation.id, text)
+                if not draft.order and draft.awaiting not in quote_flow.ORDER_AWAITING
+                else None
+            )
+            if tracked is not None:
+                yield from self._fixed_turn(
+                    owner_key,
+                    conversation,
+                    text,
+                    tracked.text,
+                    route="pedido",
+                    products={"flow": _flow_payload(tracked, draft)},
+                    quotes=(),
+                    client_turn_id=client_turn_id,
+                    request_id=request_id,
+                    started=started,
+                    draft=draft,
+                    question_sources=question_sources,
+                )
+                return
             decision = quote_flow.before_turn(
                 draft,
                 text,
@@ -1671,7 +1740,13 @@ class ChatService:
         """
 
         orders = self._orders()
-        if orders is None or not draft.folio or not buyer.email:
+        if orders is None:
+            # Sin CRM no hay pedido que reintentar: el borrador no guarda el nombre ni el correo.
+            cleared = draft.touch(awaiting=None, buyer=None)
+            if draft.folio:
+                return quote_render.already_registered(draft.folio), cleared
+            return quote_render.order_failed(), cleared
+        if not draft.folio or not buyer.email:
             # Los datos siguen en el borrador: el «sí» que promete ``order_failed`` reintenta.
             return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
         stale = expired_lines(draft, local_now().date())
@@ -1697,6 +1772,9 @@ class ChatService:
             # Los datos siguen en el borrador: un «sí» lo reintenta con el mismo folio.
             return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
         logger.info("pedido.registrado", folio=draft.folio, pedido=result.name)
+        # El número sobrevive al borrador: «¿cómo va mi pedido?» días después y el «PDF» de
+        # WhatsApp lo leen de la cotización (``order_of``), sin llamar al CRM.
+        self._mark_order(owner_key, draft.folio, result.name)
         placed = draft.touch(awaiting=None, buyer=None, order=result.name)
         email = result.email or buyer.email  # el del pedido en Odoo, si ya existía
         message = quote_render.order_placed(result.name, email, draft.folio, draft)

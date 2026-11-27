@@ -3,7 +3,8 @@
 El recibo promete «Un asesor te contacta para coordinar el pago y la entrega». Al confirmar
 el pedido, el adaptador programa en el ``sale.order`` una actividad «Por hacer»
 (``mail.mail_activity_data_todo``) para el usuario de ventas de ``ODOO_SALES_LOGIN``. Si la
-actividad o el usuario fallan, el pedido sigue. Odoo simulado con ``httpx.MockTransport``.
+actividad o el usuario fallan, el pedido sigue; si el login no existe, no hay actividad
+(nunca en el usuario técnico). Odoo simulado con ``httpx.MockTransport``.
 """
 
 from typing import Any
@@ -15,6 +16,7 @@ from tests.test_pedidos_odoo import ODOO_SECRET, FakeOdoo, _request
 
 from carvajal.adapters.crm.odoo import (
     ACTIVITY_SUMMARY,
+    SALES_USER_RETRY_S,
     OdooClient,
     OdooOrders,
     OrderResult,
@@ -81,19 +83,46 @@ def test_la_actividad_va_despues_de_confirmar() -> None:
     )
 
 
-def test_sin_el_login_la_actividad_queda_sin_asignar_y_el_pedido_sigue() -> None:
-    # Arrange
+def test_sin_el_login_no_hay_actividad_en_el_usuario_tecnico_y_el_pedido_sigue() -> None:
+    # Arrange: el login de ventas no existe en Odoo (p. ej. el admin entra con un correo).
     fake = SalesOdoo(users=[])
 
     # Act
     with capture_logs() as logs:
         result = _orders(fake).place(_request())
 
-    # Assert
+    # Assert: sin actividad (caería en el bot de la API key) y un error sin datos.
     assert result.name == "S00007"
+    assert fake.bodies("sale.order", "activity_schedule") == []
+    [missing] = [entry for entry in logs if entry["event"] == "pedido.vendedor_no_encontrado"]
+    assert missing["log_level"] == "error"
+    assert missing["folio"] == "COT-1"
+    for secret in ("Ana", "ana@correo.com", "vendedora"):
+        assert secret not in repr(missing), secret
+
+
+def test_el_login_que_no_existe_se_cachea_y_se_vuelve_a_buscar_mas_tarde() -> None:
+    # Arrange
+    now = [0.0]
+    fake = SalesOdoo(users=[])
+    client = OdooClient(
+        "http://odoo:8069", "carvajal", "clave", transport=httpx.MockTransport(fake)
+    )
+    orders = OdooOrders(client, sales_login="vendedora", clock=lambda: now[0])
+
+    # Act
+    orders.place(_request())
+    orders.place(_request())
+    searched_twice = len(fake.bodies("res.users", "search_read"))
+    fake.users = [{"id": SALES_USER}]
+    now[0] = SALES_USER_RETRY_S + 1
+    orders.place(_request())
+
+    # Assert: una búsqueda para los dos primeros pedidos; tras el plazo, la actividad sale.
+    assert searched_twice == 1
+    assert len(fake.bodies("res.users", "search_read")) == 2
     [activity] = fake.bodies("sale.order", "activity_schedule")
-    assert "user_id" not in activity
-    assert "pedido.vendedor_no_encontrado" in [entry["event"] for entry in logs]
+    assert activity["user_id"] == SALES_USER
 
 
 def test_si_odoo_rechaza_la_actividad_el_pedido_sigue_y_el_log_no_lleva_datos() -> None:

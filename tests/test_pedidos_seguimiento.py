@@ -13,7 +13,7 @@ from typing import Any, cast
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
-from tests.test_chat_service_tools import named, stored_messages
+from tests.test_chat_service_tools import named, stored_messages, stored_quotes
 from tests.test_pedidos_odoo import (
     OWNER,
     FakeOdoo,
@@ -25,7 +25,7 @@ from tests.test_pedidos_odoo import (
     _service,
 )
 
-from apps.api.chat.service import _without_buyer
+from apps.api.chat.service import ChatService, _without_buyer
 from apps.api.rendering import render_answer
 from carvajal.adapters.storage import tables
 from carvajal.quotation import flow, render
@@ -69,7 +69,13 @@ def test_tras_el_pedido_cancelarlo_responde_que_lo_gestiona_el_asesor(message: s
 
 @pytest.mark.parametrize(
     "message",
-    ["¿Cómo va mi pedido?", "estado del pedido", "¿cuándo llega mi pedido?", "muéstrame el pedido"],
+    [
+        "¿Cómo va mi pedido?",
+        "estado del pedido",
+        "¿cuándo llega mi pedido?",
+        "muéstrame el pedido",
+        "¿cómo va mi pedido S00001?",
+    ],
 )
 def test_tras_el_pedido_su_estado_lo_da_el_asesor(message: str) -> None:
     # Act
@@ -84,11 +90,33 @@ def test_tras_el_pedido_su_estado_lo_da_el_asesor(message: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "message", ["cancela el vaso", "quiero hacer el pedido", "gracias", "¿cuánto cuesta?"]
+    "message",
+    [
+        "cancela el vaso",
+        "quiero hacer el pedido",
+        "gracias",
+        "¿cuánto cuesta?",
+        "quiero ver vasos para otro pedido",
+        "revisar la compra de 500 vasos",
+        "ver otro pedido",
+        "consultar pedido",
+        "cancela el pedido de vasos",
+        "¿cómo va el pedido de 200 platos?",
+    ],
 )
 def test_lo_que_no_es_cancelar_ni_preguntar_por_el_pedido(message: str) -> None:
     assert not wants_order_cancel(message)
     assert not asks_order_status(message)
+
+
+def test_tras_el_pedido_pedir_otro_producto_no_es_el_estado() -> None:
+    # Act
+    decision = flow.before_turn(
+        _ordered(), "quiero ver vasos para otro pedido", orders=True, now=NOW
+    )
+
+    # Assert: no es la plantilla fija del estado; va a las reglas generales o al agente.
+    assert not (isinstance(decision, flow.Reply) and decision.message == render.order_status(ORDER))
 
 
 # --- máscara del correo ------------------------------------------------------------------
@@ -227,39 +255,112 @@ def test_el_paso_pendiente_nunca_lanza(engine: Any) -> None:
 
 
 class LookupOrders(FakeOrders):
-    def __init__(self, *, names: dict[str, str] | None = None, broken: bool = False) -> None:
+    """``FakeOrders`` que falla si alguien le pregunta el número a Odoo."""
+
+    def __init__(self) -> None:
         super().__init__()
-        self.names = names or {}
-        self.broken = broken
+        self.lookups = 0
 
     def order_name(self, folio: str) -> str | None:
-        if self.broken:
-            raise RuntimeError("Odoo no responde")
-        return self.names.get(folio)
+        self.lookups += 1
+        raise AssertionError("order_of no debe consultar el CRM")
 
 
-def test_el_numero_del_pedido_de_un_folio(engine: Any) -> None:
+def _ordered_service(engine: Any) -> tuple[ChatService, Any, LookupOrders]:
+    """Folio → «sí» → datos → «sí»: el pedido ``ORDER`` creado."""
+
+    orders = LookupOrders()
+    service, runner = _service(engine, orders)
+    _registered(service)
+    _say(service, "sí")
+    _say(service, "Ana Pérez, ana@correo.com")
+    _say(service, "sí")
+    return service, runner, orders
+
+
+def test_el_numero_del_pedido_sale_de_la_cotizacion_sin_llamar_al_crm(engine: Any) -> None:
     # Arrange
-    service, _ = _service(engine, LookupOrders(names={"COT-1": ORDER}))
+    service, _, orders = _ordered_service(engine)
+    (row,) = stored_quotes(engine)
 
     # Act
-    found = service.order_of("COT-1")
-    missing = service.order_of("COT-2")
+    found = service.order_of(row["id"])
+    missing = service.order_of("COT-otro")
 
-    # Assert
+    # Assert: el número quedó en el payload de la cotización y se lee de la base.
+    assert row["payload"]["order"] == ORDER
     assert (found, missing) == (ORDER, None)
+    assert orders.lookups == 0
 
 
-@pytest.mark.parametrize("orders", [None, FakeOrders(), LookupOrders(broken=True)])
-def test_sin_crm_o_con_el_crm_caido_no_hay_numero(engine: Any, orders: Any) -> None:
+def test_sin_pedido_o_con_la_base_caida_no_hay_numero(engine: Any) -> None:
     # Arrange
-    service, _ = _service(engine, orders)
+    service, _ = _service(engine, FakeOrders())
+    _registered(service)
+    (row,) = stored_quotes(engine)
+    without_order = service.order_of(row["id"])
+
+    def broken() -> Any:
+        raise RuntimeError("base caída")
+
+    service._session_factory = cast("Any", broken)
 
     # Act
-    found = service.order_of("COT-1")
+    broken_base = service.order_of(row["id"])
 
     # Assert
-    assert found is None
+    assert without_order is None and broken_base is None
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("¿cómo va mi pedido?", render.order_status(ORDER)),
+        ("cancela el pedido", render.order_cancel_request(ORDER)),
+    ],
+)
+def test_tras_un_turno_ajeno_el_pedido_sigue_con_su_numero(
+    engine: Any, message: str, expected: render.Message
+) -> None:
+    # Arrange: «gracias» reinicia el borrador y draft.order se pierde.
+    service, runner, _ = _ordered_service(engine)
+    list(service.stream(OWNER, "gracias"))
+    calls = len(runner.calls)
+
+    # Act
+    events = list(service.stream(OWNER, message))
+
+    # Assert: respuesta fija con el número, sin el modelo.
+    assert named(events, "fallback").data["text"] == expected.text
+    assert f"**{ORDER}**" in expected.text
+    assert len(runner.calls) == calls
+
+
+def test_sin_pedido_en_el_hilo_no_hay_respuesta_del_pedido(engine: Any) -> None:
+    # Arrange: folio sin pedido; el hilo nunca creó uno.
+    service, _ = _service(engine, FakeOrders())
+    _registered(service)
+    list(service.stream(OWNER, "gracias"))
+
+    # Act
+    events = list(service.stream(OWNER, "¿cómo va mi pedido?"))
+
+    # Assert: nada de la plantilla del pedido (no hay número que dar).
+    rendered = repr([event.data for event in events])
+    assert "quedó confirmado" not in rendered
+    assert ORDER not in rendered
+
+
+def test_tras_el_pedido_otro_producto_se_cotiza(engine: Any) -> None:
+    # Arrange
+    service, runner, _ = _ordered_service(engine)
+    calls = len(runner.calls)
+
+    # Act
+    list(service.stream(OWNER, "quiero ver vasos para otro pedido"))
+
+    # Assert: va al agente (cotiza), no a la plantilla del estado.
+    assert len(runner.calls) == calls + 1
 
 
 def test_odoo_da_el_numero_solo_del_pedido_confirmado() -> None:

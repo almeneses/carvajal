@@ -21,10 +21,11 @@ el hilo (``data-voz-resumen``) para la lectura de respaldo del navegador.
 
 Los turnos del pedido (spec 056) se leen con la versión hablada de su plantilla
 (``flow.spoken``), como en WhatsApp. Lo guardado no lleva el nombre ni el correo de quien
-compra, así que el turno en vivo pasa su ``flow`` completo (el del evento ``done``) y su
-resumen se recuerda unos minutos en memoria (:class:`LiveSpoken`) para que
-``/api/voz/hablar`` lea esos datos en ese turno; después, o en el historial, se lee la
-versión guardada («el correo que escribiste»).
+compra. Solo la voz del navegador los dice: el turno en vivo pasa su ``flow`` completo (el
+del evento ``done``) y ``voz_resumen`` lee los datos reales para que la persona los compruebe.
+La nota de voz del servidor (``/api/voz/hablar``, TTS de OpenAI) lee siempre lo guardado, en
+tono neutro («a tu nombre, con el correo que escribiste»): el nombre y el correo nunca van a
+OpenAI (FR-019).
 """
 
 import hashlib
@@ -54,14 +55,11 @@ from carvajal.speech import (
 
 __all__ = [
     "CACHE_ENTRIES",
-    "LIVE_SPOKEN_TTL_S",
     "TRUNCATED_NOTE",
-    "LiveSpoken",
     "RateLimiter",
     "VoiceRuntime",
     "build_voice_runtime",
     "cap_text",
-    "live_spoken",
     "spoken_message",
 ]
 
@@ -75,9 +73,6 @@ _SENTENCE_END = re.compile(r"[.!?…](?=\s|$)")
 _CARD_NAMES: Final = 4
 _CARD_NAME_WORDS: Final = 8
 _COUNT_WORDS: Final = {2: "dos", 3: "tres", 4: "cuatro", 5: "cinco", 6: "seis", 7: "siete"}
-# Resumen del turno en vivo del pedido (con nombre y correo): cuánto vive y cuántos caben.
-LIVE_SPOKEN_TTL_S: Final = 900.0
-LIVE_SPOKEN_ENTRIES: Final = 256
 # La versión guardada de la confirmación sin datos («a nombre de (tu nombre), con el correo
 # el correo que escribiste»), dicha de forma natural.
 _NEUTRAL_SPOKEN: Final = (
@@ -86,7 +81,6 @@ _NEUTRAL_SPOKEN: Final = (
     (", (tu nombre).", "."),
     ("(tu nombre)", "tu nombre"),
 )
-_LIVE_LOCK = threading.Lock()
 
 
 class RateLimiter:
@@ -223,68 +217,6 @@ class VoiceRuntime:
             self._cache.move_to_end(key)
             while len(self._cache) > CACHE_ENTRIES:
                 self._cache.popitem(last=False)
-
-
-class LiveSpoken:
-    """Resúmenes hablados del turno en vivo que llevan datos que no se guardan (spec 056).
-
-    La confirmación del pedido dice el nombre y el correo de quien compra, pero el turno se
-    guarda sin ellos. El stream recuerda aquí, por dueño e id de mensaje, el resumen
-    completo, y ``/api/voz/hablar`` lo prefiere al guardado: la nota de voz de ese turno dice
-    los datos reales. Solo en memoria del proceso, como mucho ``ttl_s`` segundos y
-    ``max_entries`` turnos (LRU); nunca va a la base ni a los logs.
-    """
-
-    def __init__(
-        self,
-        *,
-        ttl_s: float = LIVE_SPOKEN_TTL_S,
-        max_entries: int = LIVE_SPOKEN_ENTRIES,
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self.ttl_s = ttl_s
-        self.max_entries = max(1, int(max_entries))
-        self._clock = clock
-        self._lock = threading.Lock()
-        self._items: OrderedDict[tuple[str, str], tuple[float, str]] = OrderedDict()
-
-    def __len__(self) -> int:
-        return len(self._items)
-
-    def remember(self, owner_key: str, message_id: str, text: str) -> None:
-        if not owner_key or not message_id or not text:
-            return
-        with self._lock:
-            key = (owner_key, message_id)
-            self._items[key] = (self._clock(), text)
-            self._items.move_to_end(key)
-            while len(self._items) > self.max_entries:
-                self._items.popitem(last=False)
-
-    def get(self, owner_key: str, message_id: str) -> str | None:
-        with self._lock:
-            key = (owner_key, message_id)
-            found = self._items.get(key)
-            if found is None:
-                return None
-            if self._clock() - found[0] >= self.ttl_s:
-                del self._items[key]
-                return None
-            return found[1]
-
-
-def live_spoken(state: Any) -> LiveSpoken:
-    """El :class:`LiveSpoken` de la app (``app.state.live_spoken``), creado al primer uso."""
-
-    found = getattr(state, "live_spoken", None)
-    if isinstance(found, LiveSpoken):
-        return found
-    with _LIVE_LOCK:
-        found = getattr(state, "live_spoken", None)
-        if not isinstance(found, LiveSpoken):
-            found = LiveSpoken()
-            state.live_spoken = found
-    return found
 
 
 def build_voice_runtime(settings: Settings) -> VoiceRuntime:
@@ -439,9 +371,10 @@ def spoken_message(message: ChatMessage, *, flow: Mapping[str, Any] | None = Non
     leen.
 
     Un turno del pedido (spec 056) se lee con la versión hablada de su plantilla: la del
-    turno en vivo si llega ``flow`` (el del evento ``done``, con el nombre y el correo reales)
-    o la guardada, sin ellos. En el folio con la oferta del pedido, tras la cotización corta
-    se hace la pregunta («¿Quieres hacer el pedido?»).
+    turno en vivo si llega ``flow`` (el del evento ``done``, con el nombre y el correo reales;
+    solo para la voz del navegador) o la guardada, sin ellos (la que sintetiza el servidor).
+    En el folio con la oferta del pedido, tras la cotización corta se hace la pregunta
+    («¿Quieres hacer el pedido?»).
     """
 
     ordered = _order_spoken(message, flow if isinstance(flow, Mapping) else None)

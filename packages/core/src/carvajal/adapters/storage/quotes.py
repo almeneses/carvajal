@@ -14,7 +14,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.orm import Session
 
 from carvajal.adapters.storage import tables
@@ -346,6 +346,35 @@ class SqlQuoteRepository:
             .all()
         )
         return [QuoteRecord(row) for row in rows]
+
+    def mark_order(self, quote_id: str, owner_key: str, order: str) -> bool:
+        """Anota en el payload de la cotización el pedido creado en el CRM (spec 056).
+
+        ``payload["order"]`` guarda el número visible («S00005»): así el número sobrevive a
+        los turnos siguientes (el borrador se reinicia) y los canales lo leen sin llamar al
+        CRM. Solo la fila del dueño; ``False`` si no existe.
+        """
+
+        record = self.get(quote_id, owner_key)
+        if record is None:
+            return False
+        payload = {**dict(record.payload), "order": str(order)}
+        self._session.execute(
+            update(tables.quotes)
+            .where(tables.quotes.c.id == quote_id, tables.quotes.c.owner_key == owner_key)
+            .values(payload=payload)
+        )
+        self._session.flush()
+        return True
+
+    def latest_order(self, owner_key: str, conversation_id: str) -> tuple[str, str] | None:
+        """``(folio, pedido)`` de la última cotización del hilo con pedido, o ``None``."""
+
+        for record in reversed(self.for_conversation(conversation_id, owner_key)):
+            order = record.payload.get("order")
+            if isinstance(order, str) and order.strip():
+                return record.folio, order.strip()
+        return None
 
     def resolve(
         self,

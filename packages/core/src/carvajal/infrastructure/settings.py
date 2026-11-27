@@ -321,7 +321,9 @@ class Settings(BaseSettings):
     odoo_api_key: SecretStr = Field(default=SecretStr(""), repr=False)
     odoo_timeout_s: float = Field(default=20.0, ge=2.0, le=60.0)
     # Usuario de ventas (``res.users.login``) que recibe la actividad «Coordinar pago y
-    # entrega del pedido» de cada pedido nuevo; vacío, sin actividad.
+    # entrega del pedido» de cada pedido nuevo; vacío, sin actividad (los compose usan
+    # ``${ODOO_SALES_LOGIN-admin}``: una variable vacía en el .env llega vacía). Si el login no
+    # existe, no se programa la actividad y ``/health`` lo dice al operador.
     odoo_sales_login: str = "admin"
 
     # Voz del chat web por el servidor con OpenAI (spec 047). ``browser`` (por defecto)
