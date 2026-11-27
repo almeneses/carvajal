@@ -8,8 +8,11 @@ anterior marcado como desactualizado.
 - **Qdrant**: ``GET /collections/{colección}`` y ``GET /telemetry`` (versión, tamaño, consultas).
 - **Jev**: el bloque ``jev`` y ``claims`` de ``/health`` y las llamadas del proceso
   (:data:`~carvajal.infrastructure.metrics.JEV_CALLS`); sin red.
-- **LangSmith**: el agregado ``POST /runs/stats`` del proyecto para 24 h y 7 días (dos
-  consultas cada diez minutos); nunca descarga runs.
+- **LangSmith**: el agregado ``POST /runs/stats`` del proyecto para 24 h y 7 días; nunca
+  descarga runs. LangSmith acepta como mucho una consulta de ``/runs/stats`` cada ~8 s (medido
+  el 2026-11-26), así que cada ventana tiene su propia caché y las consultas se espacian
+  (:class:`LangSmithState`): con la caché fría la página trae una ventana y deja la otra
+  «pendiente» unos segundos, en vez de chocar con un 429.
 - **DeepSeek**: llamadas, tokens y latencia del proceso con el costo estimado; el saldo de la
   cuenta (``GET /user/balance``) solo para el operador.
 - **WhatsApp (OpenClaw)**: lo que guarda la base (mensajes, conversaciones y cotizaciones del
@@ -19,12 +22,14 @@ anterior marcado como desactualizado.
 Nada de esto lleva texto de las personas, ``owner_key``, teléfonos ni secretos.
 """
 
+import math
 import threading
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any, Final, Literal
 
 import httpx
@@ -37,8 +42,11 @@ from carvajal.infrastructure.metrics import DEEPSEEK_CALLS, JEV_CALLS, estimated
 from carvajal.infrastructure.settings import Settings
 
 __all__ = [
+    "RETRYABLE_SOURCES",
     "Card",
+    "LangSmithState",
     "MetricsBoard",
+    "RetryOutcome",
     "TtlCache",
     "deepseek_card",
     "jev_card",
@@ -58,9 +66,26 @@ BALANCE_TTL: Final = 300
 WHATSAPP_TTL: Final = 60
 # Vigencia de un fallo: una fuente caída se vuelve a consultar como mucho una vez por minuto.
 FAILURE_RETRY_TTL: Final = 60
+# LangSmith: el id del proyecto no cambia; se renueva cada hora y, si falla, sirve el anterior.
+LANGSMITH_PROJECT_TTL: Final = 3600
+# Espacio mínimo entre dos ``POST /runs/stats``: con 6,4 s LangSmith responde 429 y con 8,5 s
+# acepta (medido el 2026-11-26 con la clave del proyecto).
+LANGSMITH_STATS_SPACING: Final = 9.0
+# Una ventana que falló (429 u otro error) se reintenta a los 30 s, o cuando diga Retry-After.
+LANGSMITH_RETRY_TTL: Final = 30
+# Un Retry-After mayor se acota: la ventana se reintenta como mucho a los 10 min.
+LANGSMITH_MAX_RETRY_AFTER: Final = 600
+# Plazo total de la tarjeta (todas sus peticiones y esperas) y reintentos dentro de una carga:
+# solo se espera si la espera cabe en el plazo; si no, la ventana queda pendiente.
+LANGSMITH_BUDGET: Final = 3.0
+LANGSMITH_MAX_RETRIES: Final = 2
+# Reintento manual («Reintentar»): como mucho uno por fuente cada 15 s, para todas las visitas.
+RETRY_COOLDOWN: Final = 15
 # Plazos por petición, en segundos: la página no espera a una fuente lenta.
 QDRANT_TIMEOUT: Final = 2.0
 LANGSMITH_TIMEOUT: Final = 4.0
+# Parte del plazo de una petición a LangSmith para conectar (TCP y TLS); el resto es para leer.
+LANGSMITH_CONNECT_TIMEOUT: Final = 1.0
 BALANCE_TIMEOUT: Final = 3.0
 MCP_TIMEOUT: Final = 2.0
 LANGSMITH_DEFAULT_ENDPOINT: Final = "https://api.smith.langchain.com"
@@ -83,6 +108,9 @@ class Card:
     updated_at: datetime | None = None
     stale: bool = False
     ttl_s: int = 0
+    # Cuándo se vuelve a consultar la fuente, si la tarjeta está caída, desactualizada o
+    # incompleta; la página lo muestra como «se reintenta en N s».
+    retry_at: datetime | None = None
 
 
 def _now() -> datetime:
@@ -105,6 +133,8 @@ class TtlCache:
         self._key_locks: dict[str, threading.Lock] = {}
         # Clave → (momento en que se guardó, tarjeta, vigencia en segundos).
         self._items: dict[str, tuple[float, Card, float]] = {}
+        # Clave → momento de la última consulta real a la fuente (enfriamiento del reintento).
+        self._loaded_at: dict[str, float] = {}
 
     def _key_lock(self, key: str) -> threading.Lock:
         with self._lock:
@@ -129,24 +159,53 @@ class TtlCache:
             current, previous = self._fresh(key)
             if current is not None:
                 return current
+            with self._lock:
+                self._loaded_at[key] = self._clock()
             fresh = loader()
-            valid_for: float = ttl
+            # Una tarjeta buena puede pedir menos vigencia (LangSmith con una ventana pendiente).
+            valid_for: float = min(ttl, fresh.ttl_s) if fresh.ttl_s > 0 else ttl
             if fresh.status == "unavailable":
                 valid_for = fresh.ttl_s or min(ttl, FAILURE_RETRY_TTL)
+                retry_at = _now() + timedelta(seconds=valid_for)
                 if previous is not None and previous.status == "ok":
                     # El dato anterior sirve más que un «no disponible»; se marca y se reintenta
                     # cuando vence la vigencia corta.
-                    fresh = replace(previous, stale=True, reason=fresh.reason, ttl_s=int(valid_for))
+                    fresh = replace(
+                        previous,
+                        stale=True,
+                        reason=fresh.reason,
+                        ttl_s=int(valid_for),
+                        retry_at=retry_at,
+                    )
+                else:
+                    fresh = replace(fresh, retry_at=retry_at)
             with self._lock:
                 self._items[key] = (self._clock(), fresh, valid_for)
             return fresh
 
+    def expire(self, key: str) -> None:
+        """Da por caducada la clave sin borrarla: la próxima visita recarga y, si falla,
+        conserva el dato anterior como desactualizado."""
+
+        with self._lock:
+            cached = self._items.get(key)
+            if cached is not None:
+                self._items[key] = (cached[0], cached[1], 0.0)
+
+    def since_load(self, key: str) -> float | None:
+        """Segundos desde la última vez que se consultó la fuente de verdad (no la caché)."""
+
+        with self._lock:
+            loaded_at = self._loaded_at.get(key)
+        return None if loaded_at is None else self._clock() - loaded_at
+
     def clear(self) -> None:
         with self._lock:
             self._items.clear()
+            self._loaded_at.clear()
 
 
-def _failure(error: Exception) -> str:
+def _failure(error: Exception, source: str = "") -> str:
     """Motivo legible de un fallo de red, sin URL, cabeceras ni cuerpo."""
 
     if isinstance(error, httpx.TimeoutException):
@@ -156,7 +215,7 @@ def _failure(error: Exception) -> str:
         if code in (401, 403):
             return f"Rechazó las credenciales (HTTP {code})."
         if code == 429:
-            return "Pidió esperar antes de volver a consultar (HTTP 429)."
+            return f"{source or 'La fuente'} limita cuántas consultas acepta por minuto (HTTP 429)."
         return f"Respondió con error (HTTP {code})."
     if isinstance(error, httpx.HTTPError):
         return "No se pudo conectar."
@@ -337,38 +396,268 @@ def _round(value: Any, digits: int) -> float | None:
         return None
 
 
+# Ventanas de la tarjeta: clave, alcance y etiqueta (en este orden se consultan con la caché fría).
+LANGSMITH_WINDOWS: Final = (
+    ("24h", timedelta(hours=24), "Últimas 24 h"),
+    ("7d", timedelta(days=7), "Últimos 7 días"),
+)
+# Tiempo mínimo que debe quedar del plazo para lanzar una petición.
+LANGSMITH_MIN_REQUEST: Final = 1.0
+LANGSMITH_PENDING: Final = (
+    "LangSmith acepta una consulta cada pocos segundos y esta ventana espera su turno."
+)
+# Sin turno pendiente: el plazo de la carga se fue en otra petición (p. ej. un ``/sessions``
+# lento) y la ventana no llegó a pedirse; nada falló.
+LANGSMITH_UNSENT: Final = (
+    "La consulta a LangSmith se alargó y esta ventana se pide en la próxima carga."
+)
+
+
+def _langsmith_timeout(remaining: float) -> httpx.Timeout:
+    """Plazo de una petición que no pasa de ``remaining``.
+
+    Un ``float`` en httpx vale por fase (conectar, escribir, leer, esperar al pool), así que
+    una petición lenta podía durar el doble del plazo. Aquí conectar y leer se reparten el
+    plazo; escribir el cuerpo (unos cientos de bytes) y tomar la conexión del cliente propio
+    no esperan en la práctica.
+    """
+
+    total = max(0.1, min(LANGSMITH_TIMEOUT, remaining))
+    connect = min(LANGSMITH_CONNECT_TIMEOUT, total / 2)
+    return httpx.Timeout(max(0.05, total - connect), connect=connect)
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """Segundos que pide esperar ``Retry-After`` (número o fecha HTTP), acotados; o ``None``."""
+
+    value = response.headers.get("retry-after", "").strip()
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            moment = parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError):
+            return None
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        seconds = (moment - _now()).total_seconds()
+    if not math.isfinite(seconds):
+        return None
+    return min(max(0.0, seconds), float(LANGSMITH_MAX_RETRY_AFTER))
+
+
+@dataclass
+class _Window:
+    """Lo último que se sabe de una ventana: su dato bueno y, si falló, cuándo reintentar."""
+
+    data: dict[str, Any] | None = None
+    fetched_at: float = 0.0
+    updated_at: datetime | None = None
+    retry_at: float = 0.0
+    reason: str = ""
+    forced: bool = False
+
+
+class LangSmithState:
+    """Memoria de LangSmith entre cargas: id del proyecto, cada ventana y el turno de consulta.
+
+    ``POST /runs/stats`` acepta como mucho una petición cada ~8 s: nunca se lanzan dos más
+    juntas que :data:`LANGSMITH_STATS_SPACING`. Cada ventana tiene su propia vigencia
+    (:data:`LANGSMITH_TTL`); si no le toca turno, la tarjeta muestra su dato anterior o la deja
+    «pendiente» y se vuelve a armar en cuanto pueda consultarla. Un fallo (429 u otro) frena
+    solo a su ventana unos segundos (:data:`LANGSMITH_RETRY_TTL` o lo que diga ``Retry-After``).
+    """
+
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+        spacing: float = LANGSMITH_STATS_SPACING,
+        budget: float = LANGSMITH_BUDGET,
+    ) -> None:
+        self.clock = clock
+        self.sleep = sleep
+        self.spacing = spacing
+        self.budget = budget
+        self.lock = threading.Lock()
+        self._scope: tuple[str, ...] = ()
+        self.project: tuple[str, float] | None = None
+        self.next_stats_at = 0.0
+        self.windows: dict[str, _Window] = {label: _Window() for label, _, _ in LANGSMITH_WINDOWS}
+        # «Reintentar» lo marca sin esperar a ``lock``; la carga siguiente lo aplica.
+        self._force_requested = threading.Event()
+
+    def bind(self, scope: tuple[str, ...]) -> None:
+        """Olvida lo guardado si cambió el endpoint, el proyecto o el entorno."""
+
+        if scope != self._scope:
+            self._scope = scope
+            self.project = None
+            self.windows = {label: _Window() for label, _, _ in LANGSMITH_WINDOWS}
+
+    def force(self) -> None:
+        """Reintento manual: todas las ventanas vuelven a consultarse en cuanto haya turno.
+
+        No espera a una carga en curso (``lock`` se tiene durante la red y las esperas): deja
+        la marca y la carga siguiente la aplica. No toca el turno entre consultas: un reintento
+        no puede provocar un 429.
+        """
+
+        self._force_requested.set()
+
+    def apply_force(self) -> None:
+        """Aplica un «Reintentar» pendiente; se llama con ``lock`` tomado."""
+
+        if self._force_requested.is_set():
+            self._force_requested.clear()
+            for window in self.windows.values():
+                window.forced = True
+                window.retry_at = 0.0
+
+    def due(self, window: _Window) -> bool:
+        """La ventana necesita consulta: sin dato, forzada, vencida o con el último intento
+        fallido (se reintenta en ``retry_at`` aunque su dato anterior siga vigente)."""
+
+        return (
+            window.data is None
+            or window.forced
+            or bool(window.reason)
+            or self.clock() - window.fetched_at >= LANGSMITH_TTL
+        )
+
+
+def _langsmith_unavailable(reason: str, retry_in: float) -> Card:
+    return Card(
+        "langsmith",
+        "LangSmith",
+        "unavailable",
+        reason,
+        updated_at=_now(),
+        ttl_s=max(1, math.ceil(retry_in)),
+    )
+
+
+def _langsmith_project(
+    settings: Settings,
+    client: httpx.Client,
+    state: LangSmithState,
+    *,
+    base: str,
+    headers: Mapping[str, str],
+    timeout: httpx.Timeout,
+) -> tuple[str | None, str, float]:
+    """Id del proyecto (caché de una hora; si la renovación falla, sirve el anterior).
+
+    Devuelve ``(id, motivo, reintentar en)``; sin id, el motivo dice por qué.
+    """
+
+    cached = state.project
+    if cached is not None and state.clock() - cached[1] < LANGSMITH_PROJECT_TTL:
+        return cached[0], "", 0.0
+    try:
+        response = client.get(
+            f"{base}/sessions",
+            params={"name": settings.langsmith_project, "limit": 1},
+            headers=headers,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        found = response.json()
+    except Exception as error:
+        logger.info("metrics.langsmith_project_failed", error_type=type(error).__name__)
+        if cached is not None:
+            # Sirve el id anterior y no vuelve a pedirlo hasta dentro de 30 s.
+            renew_at = state.clock() - LANGSMITH_PROJECT_TTL + LANGSMITH_RETRY_TTL
+            state.project = (cached[0], renew_at)
+            return cached[0], "", 0.0
+        retry_in: float = LANGSMITH_RETRY_TTL
+        if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429:
+            retry_in = max(retry_in, _retry_after(error.response) or 0.0)
+        return None, _failure(error, "LangSmith"), retry_in
+    if not found:
+        state.project = None
+        reason = f"El proyecto «{settings.langsmith_project}» no existe en LangSmith."
+        return None, reason, float(LANGSMITH_RETRY_TTL)
+    state.project = (str(found[0]["id"]), state.clock())
+    return state.project[0], "", 0.0
+
+
 def langsmith_card(
-    settings: Settings, client: httpx.Client, *, now: datetime | None = None
+    settings: Settings,
+    client: httpx.Client,
+    *,
+    now: datetime | None = None,
+    state: LangSmithState | None = None,
 ) -> Card:
-    """Trazas raíz del proyecto en 24 h y 7 días con el agregado de LangSmith."""
+    """Trazas raíz del proyecto en 24 h y 7 días con el agregado de LangSmith.
+
+    Sin ``state`` no hay memoria entre llamadas: se consulta la primera ventana y la otra
+    queda pendiente (no hay turno para ella). El tablero guarda un :class:`LangSmithState`.
+    """
 
     title = "LangSmith"
     key = settings.langsmith_api_key.strip()
     if not settings.monitoring_enabled or not key:
         reason = "El monitoreo está apagado (MONITORING_ENABLED o LANGSMITH_API_KEY)."
         return Card("langsmith", title, "off", reason, updated_at=_now())
+    state = state or LangSmithState()
+    with state.lock:
+        return _langsmith_load(settings, client, state, key=key, moment=now or _now())
+
+
+def _langsmith_load(
+    settings: Settings,
+    client: httpx.Client,
+    state: LangSmithState,
+    *,
+    key: str,
+    moment: datetime,
+) -> Card:
     base = (settings.langsmith_endpoint.strip() or LANGSMITH_DEFAULT_ENDPOINT).rstrip("/")
     headers = {"x-api-key": key}
-    moment = now or _now()
     environment = settings.langsmith_agent_environment.strip()
-    try:
-        sessions = client.get(
-            f"{base}/sessions",
-            params={"name": settings.langsmith_project, "limit": 1},
-            headers=headers,
-            timeout=LANGSMITH_TIMEOUT,
-        )
-        sessions.raise_for_status()
-        found = sessions.json()
-        if not found:
-            reason = f"El proyecto «{settings.langsmith_project}» no existe en LangSmith."
-            return Card("langsmith", title, "unavailable", reason, updated_at=_now())
-        project_id = found[0]["id"]
-        windows: dict[str, Any] = {}
-        for label, delta in (("24h", timedelta(hours=24)), ("7d", timedelta(days=7))):
+    state.bind((base, settings.langsmith_project, environment))
+    state.apply_force()
+    deadline = state.clock() + state.budget
+
+    def remaining() -> float:
+        return deadline - state.clock()
+
+    project_id, reason, retry_in = _langsmith_project(
+        settings,
+        client,
+        state,
+        base=base,
+        headers=headers,
+        timeout=_langsmith_timeout(remaining()),
+    )
+    if project_id is None:
+        return _langsmith_unavailable(reason, retry_in)
+
+    spans = {label: delta for label, delta, _ in LANGSMITH_WINDOWS}
+    # Con la caché fría, primero la que no tiene dato; luego la más vieja.
+    order = sorted(
+        spans,
+        key=lambda label: (state.windows[label].data is not None, state.windows[label].fetched_at),
+    )
+    retries = 0
+    for label in order:
+        window = state.windows[label]
+        while state.due(window) and state.clock() >= window.retry_at:
+            wait = state.next_stats_at - state.clock()
+            if wait > 0:
+                # Solo se espera si la espera cabe en el plazo; si no, la ventana queda en turno.
+                if wait + LANGSMITH_MIN_REQUEST > remaining():
+                    break
+                state.sleep(wait)
+            if remaining() < LANGSMITH_MIN_REQUEST:
+                break
             body: dict[str, Any] = {
                 "session": [project_id],
-                "start_time": (moment - delta).isoformat(),
+                "start_time": (moment - spans[label]).isoformat(),
                 "is_root": True,
             }
             if environment:
@@ -376,31 +665,107 @@ def langsmith_card(
                     'and(eq(metadata_key, "agent_environment"), '
                     f'eq(metadata_value, "{environment}"))'
                 )
-            stats = client.post(
-                f"{base}/runs/stats", json=body, headers=headers, timeout=LANGSMITH_TIMEOUT
-            )
-            stats.raise_for_status()
-            windows[label] = _langsmith_window(stats.json())
-    except Exception as error:
-        logger.info("metrics.langsmith_failed", error_type=type(error).__name__)
-        # Si LangSmith pidió esperar (429), no se vuelve a consultar hasta la vigencia
-        # completa; ante otros fallos la caché reintenta en un minuto.
-        limited = isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429
-        return Card(
-            "langsmith",
-            title,
-            "unavailable",
-            _failure(error),
-            updated_at=_now(),
-            ttl_s=LANGSMITH_TTL if limited else 0,
+            # El turno cuenta desde que sale la petición: una que no responde a tiempo también
+            # pudo contar para el límite de LangSmith.
+            state.next_stats_at = state.clock() + state.spacing
+            try:
+                response = client.post(
+                    f"{base}/runs/stats",
+                    json=body,
+                    headers=headers,
+                    timeout=_langsmith_timeout(remaining()),
+                )
+                response.raise_for_status()
+                data = _langsmith_window(response.json())
+            except Exception as error:
+                logger.info(
+                    "metrics.langsmith_failed", window=label, error_type=type(error).__name__
+                )
+                # La ventana sigue «en deuda» por ``reason`` (ver ``due``): con su dato anterior
+                # vigente o no, se reintenta en ``retry_at`` y la tarjeta lo dice.
+                window.reason = _failure(error, "LangSmith")
+                window.forced = False
+                limited = (
+                    isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429
+                )
+                if not limited:
+                    window.retry_at = state.clock() + LANGSMITH_RETRY_TTL
+                    break
+                pause = _retry_after(error.response)
+                pause = state.spacing if pause is None else pause
+                state.next_stats_at = max(state.next_stats_at, state.clock() + pause)
+                if retries < LANGSMITH_MAX_RETRIES and pause + LANGSMITH_MIN_REQUEST <= remaining():
+                    retries += 1
+                    continue  # el siguiente giro espera ``pause`` y lo reintenta
+                window.retry_at = state.clock() + max(pause, float(LANGSMITH_RETRY_TTL))
+                break
+            window.data = data
+            window.fetched_at = state.clock()
+            window.updated_at = _now()
+            window.reason = ""
+            window.retry_at = 0.0
+            window.forced = False
+    return _langsmith_summary(settings, state, environment)
+
+
+def _langsmith_summary(settings: Settings, state: LangSmithState, environment: str) -> Card:
+    """Arma la tarjeta con lo que haya de cada ventana y cuándo se completa."""
+
+    current = state.clock()
+    wall = _now()
+    windows: dict[str, Any] = {}
+    checks: list[float] = []
+    attempts: list[float] = []
+    for label, _, title in LANGSMITH_WINDOWS:
+        window = state.windows[label]
+        item: dict[str, Any] = dict(window.data or {})
+        expired = window.data is not None and current - window.fetched_at >= LANGSMITH_TTL
+        if window.data is None:
+            item["status"] = "pending"
+        else:
+            # Si la última consulta falló (p. ej. un «Reintentar» con 429), el dato es anterior.
+            item["status"] = "stale" if expired or window.reason else "ok"
+        item["label"] = title
+        waiting = state.next_stats_at > current
+        item["note"] = window.reason or (
+            "" if window.data is not None else LANGSMITH_PENDING if waiting else LANGSMITH_UNSENT
         )
+        item["updated_at"] = window.updated_at
+        item["retry_at"] = None
+        if state.due(window):
+            attempt = max(window.retry_at, state.next_stats_at, current)
+            attempts.append(attempt)
+            checks.append(attempt)
+            item["retry_at"] = wall + timedelta(seconds=attempt - current)
+        else:
+            checks.append(window.fetched_at + LANGSMITH_TTL)
+        windows[label] = item
+    ttl_s = min(LANGSMITH_TTL, max(1, math.ceil(min(checks) - current)))
+    retry_at = wall + timedelta(seconds=min(attempts) - current) if attempts else None
+    if all(item["status"] == "pending" for item in windows.values()):
+        # Un fallo explica más que la espera del turno; sin fallos, la nota de la primera.
+        notes = [w.reason for w in state.windows.values() if w.reason]
+        reason = notes[0] if notes else next(item["note"] for item in windows.values())
+        return replace(_langsmith_unavailable(reason, ttl_s), retry_at=retry_at)
+    failures = [w.reason for w in state.windows.values() if w.reason]
     data = {
         "project": settings.langsmith_project,
         "environment": environment or None,
         "sample_rate": settings.monitoring_sample_rate,
         "windows": windows,
     }
-    return Card("langsmith", title, "ok", "", data, updated_at=_now(), ttl_s=LANGSMITH_TTL)
+    return Card(
+        "langsmith",
+        "LangSmith",
+        "ok",
+        # Solo si fallaron las dos: con una ventana pendiente, la fila lo dice.
+        failures[0] if len(failures) == len(windows) else "",
+        data,
+        updated_at=_now(),
+        stale=any(item["status"] == "stale" for item in windows.values()),
+        ttl_s=ttl_s,
+        retry_at=retry_at,
+    )
 
 
 # --- DeepSeek -----------------------------------------------------------------------------
@@ -600,6 +965,23 @@ def whatsapp_card(
 
 # --- Tablero ------------------------------------------------------------------------------
 
+# Fuentes que admiten «Reintentar» → si es solo para el operador. Jev y DeepSeek se arman en
+# cada carga sin red y no lo necesitan; el saldo de DeepSeek es del operador.
+RETRYABLE_SOURCES: Final[Mapping[str, bool]] = {
+    "qdrant": False,
+    "langsmith": False,
+    "whatsapp": False,
+    "deepseek_balance": True,
+}
+
+
+@dataclass(frozen=True)
+class RetryOutcome:
+    """Resultado de un reintento manual: hecho, en espera (con segundos) o rechazado."""
+
+    status: Literal["done", "wait", "unknown", "forbidden"]
+    wait_s: int = 0
+
 
 @dataclass
 class MetricsBoard:
@@ -609,6 +991,38 @@ class MetricsBoard:
     session_factory: Callable[[], sessionmaker[Session]] | None = None
     transport: httpx.BaseTransport | None = None
     cache: TtlCache = field(default_factory=TtlCache)
+    langsmith: LangSmithState = field(default_factory=LangSmithState)
+    _retry_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def retry_wait(self, source: str) -> int:
+        """Segundos que faltan para poder reintentar la fuente (0 si ya se puede)."""
+
+        since = self.cache.since_load(source)
+        if since is None:
+            return 0
+        return max(0, math.ceil(RETRY_COOLDOWN - since))
+
+    def retry(self, source: str, *, operator: bool) -> RetryOutcome:
+        """Reintento manual: da la fuente por caducada para que la próxima carga la consulte.
+
+        Nunca llama a la fuente: la consulta la hace la carga siguiente, de a una por fuente.
+        Dentro del enfriamiento (:data:`RETRY_COOLDOWN` desde la última consulta real, para
+        todas las visitas) no hace nada y dice cuánto falta.
+        """
+
+        if source not in RETRYABLE_SOURCES:
+            return RetryOutcome("unknown")
+        if RETRYABLE_SOURCES[source] and not operator:
+            return RetryOutcome("forbidden")
+        with self._retry_lock:
+            wait = self.retry_wait(source)
+            if wait:
+                return RetryOutcome("wait", wait)
+            self.cache.expire(source)
+            if source == "langsmith":
+                self.langsmith.force()
+        logger.info("metrics.retry_requested", source=source)
+        return RetryOutcome("done")
 
     def _client(self) -> httpx.Client:
         return httpx.Client(transport=self.transport, follow_redirects=False)
@@ -665,7 +1079,9 @@ class MetricsBoard:
                 "langsmith",
                 LANGSMITH_TTL,
                 self._load(
-                    "langsmith", "LangSmith", lambda client: langsmith_card(settings, client)
+                    "langsmith",
+                    "LangSmith",
+                    lambda client: langsmith_card(settings, client, state=self.langsmith),
                 ),
             )
             whatsapp = pool.submit(
