@@ -419,7 +419,7 @@ class ChatService:
             logger.warning("pedido.cotizacion_no_encontrada", folio=folio)
 
     def _order_followup(
-        self, owner_key: str, conversation_id: str, text: str
+        self, owner_key: str, conversation_id: str, text: str, *, cart: bool = False
     ) -> quote_render.Message | None:
         """«¿Cómo va mi pedido?» o «cancela el pedido» en un turno que las reglas no atendieron.
 
@@ -429,6 +429,8 @@ class ChatService:
         """
 
         cancel = wants_order_cancel(text, bare=False)
+        if cancel and cart:
+            return None  # con un carrito en curso, «cancela el pedido» cancela el carrito
         if not cancel and not asks_order_status(text):
             return None
         try:
@@ -624,9 +626,15 @@ class ChatService:
             # reinicia en los turnos siguientes). Va antes de las reglas: «¿qué tengo?» del
             # carrito respondería «todavía no tienes productos». Con el pedido en el borrador
             # o un paso del pedido pendiente, deciden las reglas del flujo.
+            # Un carrito en curso decide sus propias reglas («cancela el pedido» lo cancela), y
+            # un borrador vencido ya no tiene el pedido aunque lo guarde.
+            stale = draft.expired(local_now())
             tracked = (
-                self._order_followup(owner_key, conversation.id, text)
-                if not draft.order and draft.awaiting not in quote_flow.ORDER_AWAITING
+                self._order_followup(
+                    owner_key, conversation.id, text, cart=draft.active and not stale
+                )
+                if (stale or not draft.order)
+                and (stale or draft.awaiting not in quote_flow.ORDER_AWAITING)
                 else None
             )
             if tracked is not None:

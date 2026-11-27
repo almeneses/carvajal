@@ -234,14 +234,13 @@ def test_ningun_prompt_niega_el_pedido_que_ofrece_el_sistema() -> None:
     # Assert
     assert all("No tomes pedidos" not in _plano(texto) for texto in prompts)
     assert "si la persona quiere comprar, cotiza" in agente
-    assert "le pide el nombre y el correo" in agente
     assert "a mitad del pedido" in agente and "el sistema le recuerda el paso" in agente
     assert "Nunca inventes el estado de un pedido" in agente
     assert "datos de pago o personales" in _plano(COMMERCIAL_INSTRUCTIONS)
 
 
-def test_la_oferta_del_pedido_es_condicional_y_sin_plazos_inventados() -> None:
-    """Sin CRM el folio no ofrece nada: ningún prompt promete el pedido sin condición."""
+def test_ningun_prompt_promete_la_oferta_del_pedido_ni_inventa_plazos() -> None:
+    """El modelo no sabe si hay CRM: no promete que el sistema pida datos ni niega el pedido."""
 
     # Arrange
     from carvajal.prompts import AGENT_SYSTEM
@@ -252,9 +251,11 @@ def test_la_oferta_del_pedido_es_condicional_y_sin_plazos_inventados() -> None:
     planos = [_plano(texto) for texto in prompts]
     agente = _plano(AGENT_SYSTEM)
 
-    # Assert: cada mención de la oferta va con «si los pedidos están habilitados»…
-    assert all("si los pedidos están habilitados" in texto.lower() for texto in planos)
-    assert "si no, el pedido lo coordina un asesor" in agente
+    # Assert: lo que sigue a la cotización lo indica el sistema o un asesor…
+    assert all("lo indica el sistema" in texto for texto in planos)
+    assert all("si los pedidos están habilitados" not in texto.lower() for texto in planos)
+    assert "le pide el nombre y el correo" not in agente
+    assert "No prometas que el sistema pedirá datos" in agente
     # …y una pregunta de plazos o pago se responde con los datos, sin inventarlos.
     assert "(pago, entrega o plazos), respóndelo" not in agente
     assert "responde con lo que haya en los datos" in agente

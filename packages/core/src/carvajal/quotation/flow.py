@@ -91,6 +91,7 @@ from carvajal.quotation.order import (
     is_goodbye,
     name_in,
     name_marked,
+    plausible_name,
     wants_order_cancel,
     wants_purchase,
 )
@@ -409,10 +410,11 @@ def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) 
 
     clean = _without_questions(text)
     head = re.split(r"[,;]", clean, maxsplit=1)[0]
+    single = email is not None or is_affirmation(text)
     name = (
         name_marked(text)
-        or _offered_name(clean)
-        or (_offered_name(head) if head.strip() != clean.strip() else None)
+        or _offered_name(clean, single=single)
+        or (_offered_name(head, single=single) if head.strip() != clean.strip() else None)
     )
     if email or name:  # «Ana Pérez, quiero hacer el pedido»: los datos ganan
         return _with_buyer(draft, Buyer(name=name, email=email), now)
@@ -426,15 +428,19 @@ def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) 
     return None  # otra cosa: el agente responde y el paso se conserva con un recordatorio
 
 
-def _offered_name(text: str) -> str | None:
+def _offered_name(text: str, *, single: bool = False) -> str | None:
     """Un nombre sin marca en la oferta: nombre propio de dos palabras o más («Ana Pérez»).
 
     Nadie pidió todavía el nombre: una palabra suelta con mayúscula («Cali», «Listo») es
-    más probable que sea otra cosa, y una ciudad o una sigla nunca cuentan.
+    más probable que sea otra cosa, y una ciudad o una sigla nunca cuentan. ``single``
+    acepta un nombre de pila cuando el mensaje lo deja claro: viene con el correo («Ana,
+    ana@gmail.com») o tras un «sí» («Sí, Ana»).
     """
 
     name = name_in(text, strict=True)
-    return name if name and len(name.split()) >= 2 else None
+    if not name or not plausible_name(name):
+        return None
+    return name if single or len(name.split()) >= 2 else None
 
 
 def _defers(text: str) -> bool:
@@ -483,7 +489,9 @@ def _data_step(
     buyer = Buyer.from_json(draft.buyer)
     name = marked or buyer.name
     if name is None and not is_confirmation(text):
-        name = name_in(_without_questions(text))
+        candidate = name_in(_without_questions(text))
+        # «Bogotá», «PDF» o «Juan SAS» no son un nombre aunque se haya pedido.
+        name = candidate if candidate and plausible_name(candidate) else None
     return _with_buyer(draft, Buyer(name=name, email=email or buyer.email), now)
 
 

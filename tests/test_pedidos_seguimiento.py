@@ -13,7 +13,13 @@ from typing import Any, cast
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
-from tests.test_chat_service_tools import named, stored_messages, stored_quotes
+from tests.test_chat_service_tools import (
+    final,
+    named,
+    scripted_events,
+    stored_messages,
+    stored_quotes,
+)
 from tests.test_pedidos_odoo import (
     OWNER,
     FakeOdoo,
@@ -322,8 +328,10 @@ def test_sin_pedido_o_con_la_base_caida_no_hay_numero(engine: Any) -> None:
 def test_tras_un_turno_ajeno_el_pedido_sigue_con_su_numero(
     engine: Any, message: str, expected: render.Message
 ) -> None:
-    # Arrange: «gracias» reinicia el borrador y draft.order se pierde.
+    # Arrange: «gracias» (que el agente responde sin cotizar) reinicia el borrador y
+    # draft.order se pierde.
     service, runner, _ = _ordered_service(engine)
+    runner.events = scripted_events(final())
     list(service.stream(OWNER, "gracias"))
     calls = len(runner.calls)
 

@@ -485,6 +485,9 @@ _ORDER_STATUS: Final = re.compile(
     r"ya\s+(?:salio|despacharon|enviaron|llego))\b(?:\s+\w+){0,3}?|"
     r"(?:muestrame|ver|revisar|consultar))\s+" + _ORDER_NOUN + r"\b"
 )
+_POSSESSIVE_ORDER: Final = re.compile(
+    r"\b(?:mi|mis|nuestro|nuestra|nuestros|nuestras)\s+(?:pedido|orden|compra)s?\b"
+)
 # El número del pedido («S00005») no es una cantidad de producto.
 _ORDER_NUMBER: Final = re.compile(r"\b[sS]\d{3,}\b")
 _GOODBYE: Final = re.compile(
@@ -542,8 +545,14 @@ def mask_email(email: str) -> str:
 
 
 def _names_product(text: str) -> bool:
-    """El texto trae un producto o una cantidad: es otra cotización, no el pedido creado."""
+    """El texto trae un producto o una cantidad sin hablar de «mi pedido»: otra cotización.
 
+    «¿Cómo va mi pedido de vasos?» sigue siendo el pedido creado (posesivo); «quiero ver
+    vasos para otro pedido» o «cancela el pedido de 500 vasos» con un carrito nuevo no.
+    """
+
+    if _POSSESSIVE_ORDER.search(plain(text)):
+        return False
     rest = _ORDER_NUMBER.sub(" ", text)
     return bool(product_family(rest) or parse_quantities(rest))
 

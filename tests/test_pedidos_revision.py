@@ -215,3 +215,67 @@ def test_el_ejemplo_copiado_nunca_llega_al_crm(engine: Any) -> None:
     assert asked == render.buyer_missing("Ana Pérez", None).text
     assert orders.requests == []
     assert "Pedido S00001" not in repr(stored_messages(engine))
+
+
+# --- cierre de la revisión de la rama de cobertura --------------------------------------
+
+
+@pytest.mark.parametrize("message", ["Ana, ana@gmail.com", "Sí, Ana"])
+def test_en_la_oferta_el_nombre_de_pila_vale_con_el_correo_o_tras_un_si(message: str) -> None:
+    # Arrange
+    from carvajal.quotation import flow
+    from carvajal.quotation.draft import QuoteDraft
+    from carvajal.quotation.order import Buyer
+
+    draft = QuoteDraft(state="registrada", folio="F1", awaiting="pedido")
+
+    # Act
+    decision = flow.before_turn(draft, message, orders=True)
+
+    # Assert
+    assert isinstance(decision, flow.Reply)
+    assert Buyer.from_json(decision.draft.buyer).name == "Ana"
+
+
+@pytest.mark.parametrize("message", ["Bogotá", "PDF", "Juan SAS"])
+def test_en_los_datos_una_ciudad_o_una_sigla_no_es_el_nombre(message: str) -> None:
+    # Arrange
+    from carvajal.quotation import flow
+    from carvajal.quotation.draft import QuoteDraft
+    from carvajal.quotation.order import Buyer
+
+    draft = QuoteDraft(state="registrada", folio="F1", awaiting="datos_pedido")
+
+    # Act
+    decision = flow.before_turn(draft, message, orders=True)
+
+    # Assert
+    assert Buyer.from_json(decision.draft.buyer).name is None
+
+
+@pytest.mark.parametrize(
+    ("message", "status"),
+    [
+        ("¿cómo va mi pedido de vasos?", True),
+        ("¿cómo va mi pedido de 500 vasos?", True),
+        ("quiero ver vasos para otro pedido", False),
+        ("¿cuándo llega el pedido de 500 vasos?", False),
+    ],
+)
+def test_el_posesivo_gana_al_producto_en_la_consulta_del_pedido(message: str, status: bool) -> None:
+    from carvajal.quotation.order import asks_order_status
+
+    assert asks_order_status(message) is status
+
+
+def test_con_un_carrito_nuevo_cancela_el_pedido_cancela_el_carrito() -> None:
+    # Arrange
+    from apps.api.chat.service import ChatService
+
+    service = ChatService.__new__(ChatService)
+
+    # Act
+    skipped = service._order_followup("dueno", "hilo", "cancela el pedido", cart=True)
+
+    # Assert: no se consulta el pedido viejo; deciden las reglas del carrito.
+    assert skipped is None
