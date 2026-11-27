@@ -43,16 +43,27 @@ def normalizar(texto):
         n = "+57" + n
     elif re.fullmatch(r"57\d{10}", n):
         n = "+" + n
-    if not re.fullmatch(r"\+[1-9]\d{7,14}", n):
+    # Colombia: +57 y exactamente 10 dígitos nacionales; un dígito de menos daría un número
+    # ajeno que pasaría por E.164.
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", n) or (n.startswith("+57") and len(n) != 13):
         sys.exit(f"Número inválido: {texto!r}. Usa 10 dígitos de Colombia o +indicativo.")
     return n
+
+def completo(limpio):
+    """Dígitos suficientes para cerrar un número escrito en partes."""
+
+    digitos = limpio.lstrip("+")
+    if digitos.startswith("57"):
+        return len(digitos) >= 12  # 57 + 10 dígitos nacionales
+    return len(digitos) >= 10
+
 
 # Acepta un número escrito en varias partes («+57 300 123 4567»).
 unidos, partes = [], []
 for parte in numeros:
     partes.append(parte)
     limpio = re.sub(r"[\s().-]", "", "".join(partes))
-    if len(limpio.lstrip("+")) >= 10:
+    if completo(limpio):
         unidos.append("".join(partes))
         partes = []
 if partes:
