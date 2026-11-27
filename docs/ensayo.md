@@ -341,7 +341,10 @@ Firefox del owner (el mismo de la prueba de la allowlist). Ese número está **f
    «cancelé»).
 3. Al terminar, pase lo que pase, quita **solo** ese número de la lista vigente (no reescribe
    una copia vieja: otras personas pueden cambiar el gateway a la vez) y comprueba que ya no
-   está. Si no lo consigue, la prueba falla pidiendo quitarlo a mano.
+   está. Si no lo consigue, la prueba falla pidiendo quitarlo a mano. Si el proceso muere antes
+   (Ctrl-C, SSH caído), la marca `data/ensayo-whatsapp/.allowfrom-pendiente` (sin el número)
+   hace que la siguiente corrida lo quite al empezar; lo mismo con el micrófono
+   (`.microfono-previo`, solo el id de PipeWire).
 
 La nota de voz es real: un micrófono virtual de PipeWire (`pw-loopback`) se pone como fuente
 por defecto, la prueba pulsa «Mensaje de voz» con un clic nativo de WebDriver (el navegador

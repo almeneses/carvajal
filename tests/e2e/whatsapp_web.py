@@ -49,6 +49,9 @@ ENVIAR_VOZ = (
     "footer span[data-icon='send']",
     "footer span[data-icon='wds-ic-send-filled']",
 )
+# Fuente de audio que había antes del micrófono virtual (solo el id de PipeWire). Si el proceso
+# muere antes de restaurarla, la siguiente corrida la restaura al empezar.
+MICROFONO_PREVIO = Path("data/ensayo-whatsapp/.microfono-previo")
 # El bot antepone el nombre del agente de OpenClaw a cada respuesta («[Carva] …»).
 _PREFIJO_AGENTE = re.compile(r"^\s*\[[^\]\n]{1,40}\]")
 
@@ -194,10 +197,17 @@ def microfono_virtual() -> Generator[str]:
     Al salir vuelve la fuente que había y se cierra el lazo, pase lo que pase.
     """
 
+    if MICROFONO_PREVIO.exists():
+        # Una corrida anterior murió con el micrófono virtual por defecto: se restaura.
+        subprocess.run(["wpctl", "set-default", MICROFONO_PREVIO.read_text().strip()], check=False)
+        MICROFONO_PREVIO.unlink(missing_ok=True)
     assert _id_nodo("ensayo_voz_mic") is None, (
         "ya hay un micrófono «ensayo_voz_mic» de otra corrida: cierra ese pw-loopback"
     )
     previa = _fuente_por_defecto()
+    if previa:
+        MICROFONO_PREVIO.parent.mkdir(parents=True, exist_ok=True)
+        MICROFONO_PREVIO.write_text(previa)
     lazo = subprocess.Popen(
         [
             "pw-loopback",
@@ -219,7 +229,9 @@ def microfono_virtual() -> Generator[str]:
         yield "ensayo_voz_sink"
     finally:
         if previa:
-            subprocess.run(["wpctl", "set-default", previa], check=False)
+            restaurada = subprocess.run(["wpctl", "set-default", previa], check=False)
+            if restaurada.returncode == 0:
+                MICROFONO_PREVIO.unlink(missing_ok=True)
         lazo.terminate()
         try:
             lazo.wait(timeout=10)

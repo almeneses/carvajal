@@ -71,6 +71,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # Carpeta legible por el Firefox de snap (bajo el home, ignorada por git).
 MEDIOS = Path("data/ensayo-whatsapp/medios")
 NO_ABRE_FOTO = "No pude abrir esa foto"
+# Marca (sin el número) de que esta prueba agregó el número de WhatsApp Web a allowFrom. Si el
+# proceso muere antes de quitarlo (Ctrl-C, SSH caído), la siguiente corrida lo quita al empezar.
+PENDIENTE = Path("data/ensayo-whatsapp/.allowfrom-pendiente")
 
 
 def _carpeta(config: Config) -> Path:
@@ -113,14 +116,22 @@ def numero_permitido(
         _gateway(ssh_openclaw, usuario, comando, saltar=False)
 
     original = lista()
+    if PENDIENTE.exists() and any(digitos(n) == mio for n in original):
+        # Lo dejó una corrida que murió antes de quitarlo: se quita ahora.
+        _quitar_numero(lista, fijar, mio)
+        PENDIENTE.unlink(missing_ok=True)
+        original = lista()
     if any(digitos(n) == mio for n in original):
-        yield pestana  # ya estaba permitido: no se toca nada
+        yield pestana  # ya estaba permitido (lo puso el owner): no se toca nada
         return
+    PENDIENTE.parent.mkdir(parents=True, exist_ok=True)
+    PENDIENTE.write_text("la prueba agregó el número de WhatsApp Web a allowFrom\n")
     try:
         fijar([*original, f"+{mio}"])
         yield pestana
     finally:
         _quitar_numero(lista, fijar, mio)
+        PENDIENTE.unlink(missing_ok=True)
 
 
 def _quitar_numero(lista, fijar, mio: str) -> None:
