@@ -79,8 +79,10 @@ from carvajal.quotation.draft import (
     same_sku_line,
     units_of,
 )
+from carvajal.quotation.lids import lid_fits_cup
 from carvajal.quotation.order import (
     Buyer,
+    asks_order_receipt,
     asks_order_status,
     correction_name,
     declines_order,
@@ -388,6 +390,12 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
     if draft.order:
         if wants_order_cancel(text):
             return Reply(render.order_cancel_request(draft.order), draft, route="pedido")
+        if draft.folio and asks_order_receipt(text):
+            # «Mándame el recibo»: el mismo recibo, que la web enlaza y WhatsApp adjunta
+            # (ensayo del 2026-11-27: en la web lo respondía el agente con un genérico). Va
+            # antes del estado, como en ``ChatService._order_followup``: «ver mi pedido en
+            # pdf» pide el recibo.
+            return Reply(render.order_receipt(draft.order, draft.folio), draft, route="pedido")
         if asks_order_status(text):
             return Reply(render.order_status(draft.order), draft, route="pedido")
         if wants_purchase(text) or (draft.awaiting is None and is_confirmation(text)):
@@ -1250,6 +1258,40 @@ def after_turn(
                     off_flow=0,
                 )
                 return Outcome(kept)
+    # Después de retener lo que el agente pregunta: la tapa cuenta como otro producto del
+    # turno, así que el vaso que la acompaña sigue entrando.
+    unfit = _unfit_lids(current, calculated)
+    if unfit:
+        # Una tapa que no le sirve a ningún vaso del turno o del carrito no entra, aunque el
+        # agente la haya cotizado: su texto ya dice que no corresponde (ensayo del
+        # 2026-11-27, «500 vasos de 9 oz y 300 tapas para esos vasos»).
+        calculated = [item for item in calculated if item not in unfit]
+        logger.info("cotizacion.tapa_incompatible", retenidas=len(unfit))
+    outcome = _place(current, calculated, text, moment, choice)
+    if not unfit:
+        return outcome
+    # El flujo dice qué tapa no entró: el texto del agente no lo garantiza (revisión de la
+    # PR #288).
+    note = render.lids_not_added([line_label(item) for item in unfit])
+    if outcome.message is None:
+        return replace(outcome, message=note)
+    joined = render.Message(
+        f"{note.text}\n\n{outcome.message.text}",
+        f"{note.spoken} {outcome.message.spoken}",
+        outcome.message.photos,
+    )
+    return replace(outcome, message=joined)
+
+
+def _place(
+    current: QuoteDraft,
+    calculated: Sequence[Mapping[str, Any]],
+    text: str,
+    moment: datetime,
+    choice: Mapping[str, Any] | None,
+) -> Outcome:
+    """Las cotizaciones del turno ya filtradas: opciones, comparativo o líneas del carrito."""
+
     if not calculated:
         waiting = _awaiting_reference(current, choice, moment)
         if waiting is not None:
@@ -1287,6 +1329,41 @@ def after_turn(
 # Referencias que la persona nombró o eligió (ver ``_reference_origin`` de ``cotizar``).
 _CHOSEN: Final = frozenset({"persona", "hilo"})
 _URL: Final = re.compile(r"https?://\S+")
+
+
+def _unfit_lids(
+    draft: QuoteDraft, calculated: Sequence[Mapping[str, Any]]
+) -> list[Mapping[str, Any]]:
+    """Tapas del turno que no le sirven a los vasos del turno o, sin ellos, a los del carrito.
+
+    Con vasos en el mismo turno («500 vasos de 9 oz y 300 tapas para esos vasos») la tapa se
+    mide contra ellos; si el turno solo trae tapas, contra los vasos del carrito. No cuentan las
+    tapas que la persona nombró o eligió (``reference_origin``) ni las que pidió con una
+    capacidad propia («300 tapas de 7 oz»): eso ya dice para qué vaso son. Sin vasos a la vista
+    no se descarta nada.
+    """
+
+    def cup(line: Mapping[str, Any]) -> tuple[str, float | None] | None:
+        primary = line.get("primary") or {}
+        if not isinstance(primary, Mapping) or line_family(line) != "vaso":
+            return None
+        capacity = primary.get("capacity_oz")
+        return str(primary.get("name") or ""), (
+            float(capacity) if isinstance(capacity, (int, float)) else None
+        )
+
+    cups = [found for line in calculated if (found := cup(line)) is not None]
+    cups = cups or [found for line in draft.lines if (found := cup(line)) is not None]
+    if not cups:
+        return []
+    return [
+        item
+        for item in calculated
+        if line_family(item) == "tapa"
+        and item.get("reference_origin") not in _CHOSEN
+        and not (item.get("request") or {}).get("capacity_oz")
+        and not lid_fits_cup(str((item.get("primary") or {}).get("name") or ""), cups)
+    ]
 
 
 def asks_question(answer: str) -> bool:

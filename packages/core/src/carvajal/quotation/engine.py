@@ -122,6 +122,7 @@ from carvajal.quotation.data import (
     Product,
     load_dataset,
 )
+from carvajal.quotation.lids import for_other_container, lid_fits
 
 __all__ = [
     "MAX_ALTERNATIVES",
@@ -473,14 +474,26 @@ def _possible(
         and (materials is None or product.material in materials)
         and product.use
         and product.family in families
-        and (
-            capacity is None
-            or (
-                product.capacity_oz is not None
-                and abs(product.capacity_oz - capacity) <= CAPACITY_TOLERANCE_OZ
-            )
-        )
+        and _capacity_matches(product, capacity)
     ]
+
+
+def _capacity_matches(product: Product, capacity: float | None) -> bool:
+    """La referencia tiene la capacidad pedida (o no se pidió ninguna).
+
+    Las tapas no traen ``capacity_oz``: la que cubren está en el nombre («para vaso rígido 3,5
+    a 7 oz»), así que «tapas para vasos de 9 oz» busca las que cubren 9 oz (ensayo del
+    2026-11-27, que agregaba la tapa de 3,5 a 7 oz a unos vasos de 9 oz).
+    """
+
+    if capacity is None:
+        return True
+    if product.capacity_oz is not None:
+        return abs(product.capacity_oz - capacity) <= CAPACITY_TOLERANCE_OZ
+    if product.family == "tapa" and not for_other_container(product.name):
+        # Las de cazuela o bowl siguen como antes: sus onzas son las del envase.
+        return lid_fits(product.name, capacity) is True
+    return False
 
 
 def _commercial(request: dict[str, Any]) -> CommercialRequest:

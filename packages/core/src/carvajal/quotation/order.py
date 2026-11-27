@@ -26,6 +26,7 @@ __all__ = [
     "Buyer",
     "OrderLine",
     "OrderRequest",
+    "asks_order_receipt",
     "asks_order_status",
     "correction_name",
     "declines_order",
@@ -41,6 +42,7 @@ __all__ = [
     "name_marked",
     "order_lines",
     "plausible_name",
+    "receipt_is_verb",
     "spoken_address",
     "spoken_email",
     "wants_order_cancel",
@@ -579,6 +581,62 @@ def asks_order_status(text: str) -> bool:
     if _names_product(text):
         return False
     return _ORDER_STATUS.search(plain(text)) is not None
+
+
+# Spec 056: palabras que acompañan el pedido del recibo sin cambiarlo (ya sin tildes). Las
+# mismas que acepta el puente de WhatsApp (``is_receipt_request``), más el recibo y el pedido.
+_RECEIPT_FILLER: Final = frozenset(
+    {
+        "si", "el", "la", "en", "un", "una", "de", "del", "y", "a", "mi", "por", "favor",
+        "porfa", "porfi", "porfavor", "quiero", "dame", "envia", "enviame", "enviamelo",
+        "envialo", "manda", "mandame", "mandamelo", "mandalo", "pasa", "pasame", "pasamelo",
+        "me", "lo", "archivo", "gracias", "ok", "okay", "vale", "bueno", "claro", "dale",
+        "listo", "pdf", "recibo", "pedido", "compra", "otra", "vez", "nuevo", "puedes",
+        "podrias", "reenvia", "reenviame", "descargar", "descarga", "ver", "mandas", "envias",
+        "pasas",
+    }
+)  # fmt: skip
+_PDF_TYPED: Final = re.compile(r"(?<![a-z0-9])p ?d ?f(?![a-z0-9])")
+
+
+def asks_order_receipt(text: str) -> bool:
+    """«Mándame el recibo», «el PDF del pedido», «recibo de mi compra»: el recibo del pedido.
+
+    Solo un mensaje corto en el que todo es relleno y que nombra el recibo (o el PDF del
+    pedido): «¿cuándo recibo el pedido?» es una pregunta y «el PDF de la cotización» pide la
+    cotización. Es la regla del puente de WhatsApp, sin las formas habladas de «PDF».
+    """
+
+    folded = " ".join(_PDF_TYPED.sub(" pdf ", plain(text)).split())
+    words = re.findall(r"[a-z0-9]+", folded)
+    named = "recibo" in words or ("pdf" in words and ("pedido" in words or "compra" in words))
+    if not named or len(words) > 8 or not all(word in _RECEIPT_FILLER for word in words):
+        return False
+    return not receipt_is_verb(words)
+
+
+# «Sí, lo recibo», «ok recibo el pedido», «ya lo recibí»: «recibo» como verbo, no el recibo.
+_RECEIPT_VERB_BEFORE: Final = frozenset({"lo", "la", "los", "las", "ya", "yo", "ok", "vale"})
+
+
+def receipt_is_verb(words: Sequence[str]) -> bool:
+    """«recibo» va como verbo (tras «lo», «ya», «ok»…) y no hay un verbo de petición."""
+
+    if "recibo" not in words or "pdf" in words:
+        return False
+    index = words.index("recibo")
+    before = words[index - 1] if index else ""
+    asks = any(word in _RECEIPT_REQUEST_VERBS for word in words)
+    return before in _RECEIPT_VERB_BEFORE and not asks
+
+
+_RECEIPT_REQUEST_VERBS: Final = frozenset(
+    {
+        "dame", "envia", "enviame", "enviamelo", "envialo", "manda", "mandame", "mandamelo",
+        "mandalo", "pasa", "pasame", "pasamelo", "reenvia", "reenviame", "descargar",
+        "descarga", "ver", "quiero", "mandas", "envias", "pasas",
+    }
+)  # fmt: skip
 
 
 def _plural(basis: str, count: Decimal) -> str:

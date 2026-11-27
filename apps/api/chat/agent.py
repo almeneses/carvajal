@@ -9,6 +9,7 @@ import contextvars
 import json
 import math
 import queue
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -73,6 +74,7 @@ from carvajal.agent.toolagent.tools import (
 from carvajal.application.ask import Source
 from carvajal.application.ports import ClaimsJudge, JudgeUnavailable, LLMProvider
 from carvajal.prompts import NO_CONTEXT_ANSWER
+from carvajal.quotation.cards import strip_imitated_cards
 
 __all__ = [
     "RETAIN_CHARS",
@@ -430,6 +432,12 @@ def _text(content: Any) -> str:
     return ""
 
 
+# Señal de que el modelo empezó una tarjeta del flujo en un paso que ya sale en vivo.
+_CARD_HINT: Final = re.compile(r"[✅🛒🔄🔎⭐💰]|Total parcial|Usé la recomendada")
+# Lo que queda de un texto que era solo la tarjeta imitada: el flujo agrega la real debajo.
+CARD_ONLY_ANSWER: Final = "Listo, aquí tienes lo que calculé."
+
+
 # Margen sobre ``JEV_TIMEOUT_S`` que debe quedar del plazo del turno para llamar a la
 # compuerta (FR-030).
 CLAIMS_MARGIN_S: Final = 0.2
@@ -478,6 +486,9 @@ class _ModelStep:
     emitted: list[str] = field(default_factory=list)
     released: bool = False
     tool_call: bool = False
+    # El paso ya liberado empezó a escribir algo con forma de tarjeta del flujo: lo que sigue
+    # se retiene y se filtra al cerrar el paso (:func:`strip_imitated_cards`).
+    carded: bool = False
 
 
 class _TurnStream:
@@ -584,6 +595,12 @@ class _TurnStream:
         if step.path != GATE_EVIDENCE or step.filtered:
             # ``no_query`` (o evidencia sin corpus tras una búsqueda vacía): no sale nada
             # mientras el paso corre; se filtra al cerrarlo.
+            step.pending.append(piece)
+            return []
+        if step.released and (step.carded or _CARD_HINT.search(piece) is not None):
+            # Compuerta sin retención (sombra o apagada): el texto ya sale en vivo, así que
+            # desde la primera señal de una tarjeta imitada se retiene hasta el cierre.
+            step.carded = True
             step.pending.append(piece)
             return []
         if step.released:
@@ -715,6 +732,11 @@ class _TurnStream:
             if message is not None and (message.tool_calls or message.invalid_tool_calls):
                 return []
             text = _text(message.content) if message is not None else "".join(step.pending)
+            if not step.emitted:
+                # Las tarjetas del carrito las escribe solo el flujo: una imitada por el modelo
+                # mostraba un producto agregado y un total que no existían (ensayo del
+                # 2026-11-27). Se quitan antes de juzgar y de emitir.
+                text = self._without_cards(text)
             if out_of_scope(self.tool_payloads):
                 # Tema ajeno a Carvajal: negativa fija, sin la redacción del modelo.
                 self._skip_claims("fuera_de_alcance")
@@ -724,7 +746,10 @@ class _TurnStream:
                 if self.gate_claims.holds:
                     return self._judged(text, step.path)
                 began = bool(self.answer)
-                events = self._emit(self._remainder(text, step))
+                remainder = self._remainder(text, step)
+                if step.carded:
+                    remainder = self._without_cards(remainder, began=True)
+                events = self._emit(remainder)
                 if self.gate_claims.active:
                     # Sombra: se juzga lo ya emitido y solo se registra (no hay retención).
                     self._judge(text, began=began)
@@ -764,6 +789,25 @@ class _TurnStream:
             return self._judged(text, step.path)
         finally:
             self.step = None
+
+    def _without_cards(self, text: str, *, began: bool = False) -> str:
+        """El texto sin las tarjetas del flujo que imita; nunca lo deja vacío si cotizó.
+
+        Si todo el texto era la tarjeta, una respuesta vacía mandaría el turno al respaldo
+        («No pude redactar…») aunque el flujo agregue su tarjeta real: queda una frase neutra
+        que la presenta. ``began``: ya salió texto del paso y no hace falta la frase.
+        """
+
+        clean, imitated = strip_imitated_cards(text)
+        if not imitated:
+            return text
+        logger.warning("tool_agent.card_imitation_stripped", lines=imitated)
+        if clean.strip() or began:
+            return clean
+        quoted = any(
+            r.get("tool") == "cotizar" and r.get("status") == "ok" for r in self._results()
+        )
+        return CARD_ONLY_ANSWER if quoted else presented_data(self.tool_payloads)
 
     # -- Compuerta de afirmaciones (spec 046) --
 
