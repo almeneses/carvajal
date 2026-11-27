@@ -68,6 +68,7 @@ data/catalog/empaques/imagenes/revision.html
 # Ensayo (docs/ensayo.md): el «inbound» local de OpenClaw y la configuración del ensayo.
 data/openclaw-media/
 data/ensayo-exploracion/
+data/ensayo-whatsapp/
 
 # Recibos locales de Archify (guardan rutas absolutas del equipo)
 docs/arquitectura/*.delivery.json
