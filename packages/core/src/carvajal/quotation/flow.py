@@ -1309,10 +1309,13 @@ _URL: Final = re.compile(r"https?://\S+")
 def _unfit_lids(
     draft: QuoteDraft, calculated: Sequence[Mapping[str, Any]]
 ) -> list[Mapping[str, Any]]:
-    """Tapas del turno que no le sirven a ningún vaso del turno o del carrito.
+    """Tapas del turno que no le sirven a los vasos del turno o, sin ellos, a los del carrito.
 
-    Solo cuentan las tapas que la persona no nombró ni eligió (``reference_origin``): si pidió
-    esa tapa por su nombre, entra aunque no cuadre. Sin vasos a la vista no se descarta nada.
+    Con vasos en el mismo turno («500 vasos de 9 oz y 300 tapas para esos vasos») la tapa se
+    mide contra ellos; si el turno solo trae tapas, contra los vasos del carrito. No cuentan las
+    tapas que la persona nombró o eligió (``reference_origin``) ni las que pidió con una
+    capacidad propia («300 tapas de 7 oz»): eso ya dice para qué vaso son. Sin vasos a la vista
+    no se descarta nada.
     """
 
     def cup(line: Mapping[str, Any]) -> tuple[str, float | None] | None:
@@ -1324,7 +1327,8 @@ def _unfit_lids(
             float(capacity) if isinstance(capacity, (int, float)) else None
         )
 
-    cups = [found for line in (*draft.lines, *calculated) if (found := cup(line)) is not None]
+    cups = [found for line in calculated if (found := cup(line)) is not None]
+    cups = cups or [found for line in draft.lines if (found := cup(line)) is not None]
     if not cups:
         return []
     return [
@@ -1332,6 +1336,7 @@ def _unfit_lids(
         for item in calculated
         if line_family(item) == "tapa"
         and item.get("reference_origin") not in _CHOSEN
+        and not (item.get("request") or {}).get("capacity_oz")
         and not lid_fits_cup(str((item.get("primary") or {}).get("name") or ""), cups)
     ]
 

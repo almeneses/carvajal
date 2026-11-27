@@ -387,3 +387,32 @@ def test_con_el_pedido_en_el_borrador_el_recibo_gana_al_estado() -> None:
     # Assert
     assert isinstance(decision, Reply)
     assert decision.message.text == render.order_receipt(ORDER, "COT-1").text
+
+
+def test_la_tapa_se_mide_contra_el_vaso_del_mismo_turno() -> None:
+    # Arrange: el carrito ya tiene un vaso de 9 oz; el turno trae un vaso de 7 oz y su tapa.
+    cart = after_turn(
+        QuoteDraft(), [_cup("V9", "Vaso rígido traslúcido 9 oz Wau", 9.0)], "Listo.", now=AHORA
+    ).draft
+    vaso = _cup("V7", "Vaso rígido traslúcido 7 oz Wau", 7.0, 30000)
+
+    # Act
+    outcome = after_turn(cart, [vaso, _lid()], "Listo.", now=AHORA)
+
+    # Assert: entra la tapa, que sí le sirve al vaso de 7 oz del turno.
+    assert len(outcome.draft.lines) == 3
+
+
+def test_la_tapa_pedida_con_su_capacidad_entra_aunque_el_carrito_tenga_otro_vaso() -> None:
+    # Arrange: carrito con vasos de 9 oz y luego «300 tapas de 7 oz».
+    cart = after_turn(
+        QuoteDraft(), [_cup("V9", "Vaso rígido traslúcido 9 oz Wau", 9.0)], "Listo.", now=AHORA
+    ).draft
+    tapa = _lid()
+    tapa["request"]["capacity_oz"] = 7
+
+    # Act
+    outcome = after_turn(cart, [tapa], "Listo.", now=AHORA)
+
+    # Assert
+    assert len(outcome.draft.lines) == 2
