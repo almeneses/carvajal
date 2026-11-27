@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- A4 con los márgenes del PDF de la cotización (18 mm a los lados). Sin encabezado de
+         Odoo: el del pedido va en el cuerpo; abajo queda espacio para el pie con la página. -->
+    <record id="paperformat_carvajal_a4" model="report.paperformat">
+        <field name="name">Carvajal A4 (pedido)</field>
+        <field name="format">A4</field>
+        <field name="orientation">Portrait</field>
+        <field name="margin_top">14</field>
+        <field name="margin_bottom">22</field>
+        <field name="margin_left">18</field>
+        <field name="margin_right">18</field>
+        <field name="header_line" eval="False"/>
+        <field name="header_spacing">0</field>
+        <field name="disable_shrinking" eval="True"/>
+        <field name="dpi">96</field>
+    </record>
+
+    <!-- El reporte de sale usa este formato de papel en vez del de la compañía. -->
+    <record id="sale.action_report_saleorder" model="ir.actions.report">
+        <field name="paperformat_id" ref="paperformat_carvajal_a4"/>
+    </record>
+</odoo>
