@@ -64,6 +64,10 @@ def _jev_apagado(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(name, "")
     for name in ("ODOO_TIMEOUT_S", "ODOO_SALES_LOGIN"):
         monkeypatch.delenv(name, raising=False)  # con sus defaults de ``Settings``
+    # Las URL públicas del PDF y del recibo: vacías (como en la CI), así los enlaces se
+    # arman con el host de la petición aunque el ``.env`` local las defina.
+    for name in ("PUBLIC_BASE_URL", "MEDIA_BASE_URL"):
+        monkeypatch.setenv(name, "")
     original = httpx.HTTPTransport.handle_request
     original_async = httpx.AsyncHTTPTransport.handle_async_request
 
