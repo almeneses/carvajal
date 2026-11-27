@@ -82,9 +82,11 @@ from carvajal.quotation.order import (
     Buyer,
     correction_name,
     declines_order,
+    edits_buyer,
     find_email,
     is_affirmation,
     is_bare_no,
+    is_goodbye,
     name_in,
     name_marked,
     wants_purchase,
@@ -360,16 +362,24 @@ def _order_step(draft: QuoteDraft, text: str, now: datetime) -> Reply | Pass | N
 
 def _declined(draft: QuoteDraft, now: datetime) -> Reply:
     declined = draft.touch(now, awaiting=None, buyer=None, off_flow=0)
-    return Reply(render.order_declined(draft.folio), declined, route="pedido")
+    return Reply(render.order_declined(draft.folio), declined, route="pedido", private=True)
 
 
 def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) -> Reply | None:
-    """«¿Quieres hacer el pedido?»: sí, no, o los datos directamente."""
+    """«¿Quieres hacer el pedido?»: sí, no, o los datos directamente («Sí, Ana Pérez»)."""
 
-    name = name_marked(text) or name_in(text, strict=True)
-    if email or (name and not is_affirmation(text)):
+    clean = _without_questions(text)
+    head = re.split(r"[,;]", clean, maxsplit=1)[0]
+    name = (
+        name_marked(text)
+        or name_in(clean, strict=True)
+        or (name_in(head, strict=True) if head.strip() != clean.strip() else None)
+    )
+    if email or name:  # «Ana Pérez, quiero hacer el pedido»: los datos ganan
         return _with_buyer(draft, Buyer(name=name, email=email), now)
-    if declines_order(text) or is_cancel_all(text):
+    if _defers(text):
+        return None
+    if declines_order(text) or is_cancel_all(text) or _leaves(text):
         return _declined(draft, now)
     if wants_purchase(text) or is_affirmation(text):
         asking = draft.touch(now, awaiting="datos_pedido", off_flow=0)
@@ -377,54 +387,101 @@ def _offer_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) 
     return None  # otra cosa: el agente responde y el paso se conserva con un recordatorio
 
 
+def _defers(text: str) -> bool:
+    """Lo que deciden las reglas generales aunque haya un pedido a medias.
+
+    Un cambio de los datos del pedido («quiero cambiar el correo») no: lo atiende el paso.
+    """
+
+    if edits_buyer(text):
+        return False
+    return is_price_insult(text) or is_resume(text) or wants_edit(text)
+
+
+def _leaves(text: str) -> bool:
+    return is_leaving(text) or is_goodbye(text)
+
+
+def _without_questions(text: str) -> str:
+    """``text`` sin las preguntas «¿…?»: lo que queda puede traer datos."""
+
+    return re.sub(r"¿[^?]*\?|[^.!¡¿]*\?", " ", text)
+
+
 def _question_only(text: str) -> bool:
-    """Una pregunta que no trae datos antes del «¿»: va al agente."""
+    """Una pregunta que no trae datos fuera de los «¿…?»: va al agente."""
 
     if "?" not in text:
         return False
-    before = text.split("¿", 1)[0]
-    return not (find_email(text) or name_marked(text) or (before.strip() and name_in(before)))
+    rest = _without_questions(text)
+    return not (find_email(text) or name_marked(text) or (rest.strip() and name_in(rest)))
 
 
-def _data_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) -> Reply | Pass:
+def _data_step(
+    draft: QuoteDraft, text: str, email: str | None, now: datetime
+) -> Reply | Pass | None:
     """Nombre y correo, en uno o dos mensajes: lo que se pidió es lo que se toma."""
 
+    marked = name_marked(text)
+    has_data = bool(email or marked)
+    if not has_data and _defers(text):
+        return None
     if _question_only(text):
         return Pass(draft)
-    marked = name_marked(text)
-    if not (email or marked) and (declines_order(text) or is_cancel_all(text)):
+    if not has_data and (declines_order(text) or is_cancel_all(text) or _leaves(text)):
         return _declined(draft, now)
     buyer = Buyer.from_json(draft.buyer)
     name = marked or buyer.name
-    if name is None and not is_affirmation(text):
-        name = name_in(text.split("¿", 1)[0])
+    if name is None and not is_confirmation(text):
+        name = name_in(_without_questions(text))
     return _with_buyer(draft, Buyer(name=name, email=email or buyer.email), now)
 
 
-def _confirm_step(draft: QuoteDraft, text: str, email: str | None, now: datetime) -> Reply | Pass:
-    """«¿Lo confirmo?»: un dato corrige; «sí» crea el pedido; «no» pregunta qué corregir."""
+def _confirm_step(
+    draft: QuoteDraft, text: str, email: str | None, now: datetime
+) -> Reply | Pass | None:
+    """«¿Lo confirmo?»: un dato corrige; solo un «sí» limpio crea el pedido.
+
+    «Sí, pero a nombre de Carla», «sí, Carla Ruiz» o «sí, pero cambia el correo» no crean
+    el pedido con los datos viejos: corrigen o preguntan qué corregir. Un «no» seguido de
+    algo que no es cancelar pregunta qué corregir: no borra los datos.
+    """
 
     buyer = Buyer.from_json(draft.buyer)
     marked = name_marked(text)
     if email or marked:
-        return _with_buyer(draft, Buyer(name=marked or buyer.name, email=email or buyer.email), now)
-    if (is_affirmation(text) or wants_purchase(text)) and buyer.complete:
-        return Reply(render.ask_buyer(), draft, route="pedido", order=buyer)
-    if is_bare_no(text):
-        return Reply(render.which_correction(), draft, route="pedido")
-    if declines_order(text) or is_cancel_all(text):
-        corrected = correction_name(text)
-        if corrected is None:
-            return _declined(draft, now)
-        return _with_buyer(draft, Buyer(name=corrected, email=buyer.email), now)
+        corrected_buyer = Buyer(name=marked or buyer.name, email=email or buyer.email)
+        return _with_buyer(draft, corrected_buyer, now)
+    if _defers(text):
+        return None
     if _question_only(text):
         return Pass(draft)
-    # Un nombre suelto corrige solo escrito como nombre propio («Marta Gómez»): «pues
-    # bueno» o «listo entonces» no lo cambian.
-    corrected = name_in(text.split("¿", 1)[0], strict=True)
-    if corrected and not is_affirmation(text):
+    folded = plain(text)
+    corrected = correction_name(_without_questions(text))
+    clean_yes = (is_affirmation(text) or wants_purchase(text)) and not re.search(
+        r"\b(?:pero|aunque|cambia\w*|corrig\w*|mal)\b", folded
+    )
+    if clean_yes and corrected is None and buyer.complete:
+        return Reply(render.ask_buyer(), draft, route="pedido", order=buyer, private=True)
+    if corrected is not None:
         return _with_buyer(draft, Buyer(name=corrected, email=buyer.email), now)
-    return _with_buyer(draft, buyer, now)
+    if is_bare_no(text) or is_affirmation(text) or edits_buyer(text):
+        return Reply(render.which_correction(), draft, route="pedido", private=True)
+    if (declines_order(text) or is_cancel_all(text) or _leaves(text)) and _cancels(text):
+        return _declined(draft, now)
+    return Reply(render.which_correction(), draft, route="pedido", private=True)
+
+
+_CANCEL_WORDS: Final = re.compile(
+    r"\b(?:ahora|despues|luego|tarde|todavia|aun|olvid\w*|cancel\w*|dej\w*|mejor|"
+    r"quiero|gracias|pienso|pensar|chao|chau|adios|bye|nada|ya\s+no|por\s+ahora)\b"
+)
+
+
+def _cancels(text: str) -> bool:
+    """El «no» de verdad: «ahora no», «no, olvídalo», «no quiero», «chao», «cancela»."""
+
+    return _CANCEL_WORDS.search(plain(text)) is not None or is_cancel_all(text)
 
 
 def _with_buyer(draft: QuoteDraft, buyer: Buyer, now: datetime) -> Reply:

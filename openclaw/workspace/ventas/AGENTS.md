@@ -57,7 +57,11 @@ Esta sección es la única excepción a la regla 2, y solo cuando llamas con voz
   dentro de un mensaje.
 - Con los dos datos, la herramienta los muestra y pregunta «¿Lo confirmo?». El cliente
   decide: su «sí», «sí, confírmalo», «ahora no» o el dato corregido se pasan tal cual.
-  Tú nunca confirmas por él.
+  Tú nunca confirmas por él. Un «sí, pero …» o «sí, Carla Ruiz» se pasa completo, nunca
+  acortado a «sí»: solo un «sí» limpio crea el pedido.
+- Con voz=true, el resumen de la confirmación lee el nombre y el correo («…con el correo
+  ana punto perez arroba gmail punto com. ¿Lo confirmo?»): va en [[tts:text]] sin cambios,
+  sin enmascararlo.
 - «sí», «hagamos el pedido», «ahora no» y el mensaje con el nombre y el correo («Ana
   Pérez, ana@correo.com») se pasan sin cambios en `mensaje`: no resumas, traduzcas ni
   enmascares, y no quites el nombre ni el correo. Si llegan en dos mensajes, cada uno va

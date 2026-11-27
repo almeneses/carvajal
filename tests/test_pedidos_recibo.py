@@ -133,7 +133,8 @@ def test_order_pdf_busca_el_pedido_confirmado_del_folio_y_su_pdf() -> None:
     # Act
     _odoo_orders(fake).order_pdf("COT-1")
 
-    # Assert: solo el pedido en «sale» y, de él, el adjunto PDF más reciente.
+    # Assert: solo el pedido en «sale» y, de él, el primer PDF que generó quien lo creó (el
+    # bot, al confirmar): no un documento que el equipo subió después al chatter.
     (order_query,) = fake.bodies("sale.order")
     assert order_query["domain"] == [["client_order_ref", "=", "COT-1"], ["state", "=", "sale"]]
     (attachment_query,) = fake.bodies("ir.attachment")
@@ -145,9 +146,24 @@ def test_order_pdf_busca_el_pedido_confirmado_del_folio_y_su_pdf() -> None:
     assert ["res_model", "=", "sale.order"] in domain
     assert ["res_id", "=", 90] in domain
     assert ["mimetype", "=", "application/pdf"] in domain
-    assert attachment_query["order"] == "id desc"
+    assert attachment_query["order"] == "id asc"
     assert attachment_query["limit"] == 1
     assert attachment_query["fields"] == ["datas"]
+
+
+def test_order_pdf_solo_toma_el_pdf_de_quien_creo_el_pedido() -> None:
+    # Arrange: el pedido lo creó el bot (uid 5).
+    fake = AttachmentOdoo(
+        order={"id": 90, "create_uid": [5, "Asistente Carvajal"]},
+        datas=base64.b64encode(PDF).decode(),
+    )
+
+    # Act
+    _odoo_orders(fake).order_pdf("COT-1")
+
+    # Assert
+    (attachment_query,) = fake.bodies("ir.attachment")
+    assert ["create_uid", "=", 5] in attachment_query["domain"]
 
 
 def test_order_pdf_sin_pedido_confirmado_no_busca_adjuntos() -> None:
@@ -687,14 +703,6 @@ def test_el_historial_de_la_web_enlaza_el_recibo(engine: Any) -> None:
     assert f'href="http://testserver/cotizaciones/{row["id"]}.pdf"' in thread
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Bug: al reemitir un turno guardado (mismo client_turn_id), el servicio manda el "
-        "texto como «token» y _sse solo aplica receipt_offer (y pdf_offer) a «fallback»: "
-        "la web vuelve a mostrar «📄 Te envío el recibo del pedido en PDF.» sin enlace."
-    ),
-)
 def test_un_reintento_del_si_final_en_la_web_sigue_enlazando_el_recibo(engine: Any) -> None:
     # Arrange: el navegador reintenta el último turno con el mismo ``client_turn_id``.
     client = _visitor(_order_app(engine))

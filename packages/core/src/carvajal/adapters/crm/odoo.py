@@ -40,6 +40,8 @@ logger = structlog.get_logger(__name__)
 # Contexto con el que ``action_confirm`` envía al cliente el correo de confirmación.
 CONFIRM_CONTEXT: Final[dict[str, Any]] = {"send_email": True}
 CATEGORY_NAME: Final = "Empaques Carvajal"
+# Marca de los contactos que crea el asistente: solo esos se reutilizan (``ref``).
+PARTNER_REF: Final = "asistente-carvajal"
 NO_TAXES: Final = [[6, 0, []]]  # los precios llegan calculados por el motor de la app
 
 
@@ -63,6 +65,9 @@ class OrderResult:
     order_id: int
     lead_id: int | None = None
     existing: bool = False
+    # Correo del cliente del pedido: el que sale en el recibo. En un reintento sobre un
+    # pedido ya confirmado puede no ser el que se escribió ahora.
+    email: str | None = None
 
 
 class OdooClient:
@@ -188,7 +193,11 @@ class OdooOrders:
                     lead_id = self._lead(request, partner, order_id)
             logger.info("pedido.existente", folio=request.folio, pedido=found["name"])
             return OrderResult(
-                name=str(found["name"]), order_id=order_id, lead_id=lead_id, existing=True
+                name=str(found["name"]),
+                order_id=order_id,
+                lead_id=lead_id,
+                existing=True,
+                email=self._partner_email(_many2one(found.get("partner_id"))),
             )
         partner_id = self._partner(request)
         if existing:  # quedó en borrador: el cliente de ahora y a confirmar
@@ -213,7 +222,19 @@ class OdooOrders:
             lead_id = self._lead(request, partner_id, order_id)
         (order,) = self._odoo.search_read("sale.order", [["id", "=", order_id]], ["name"])
         logger.info("pedido.creado", folio=request.folio, pedido=order["name"])
-        return OrderResult(name=str(order["name"]), order_id=order_id, lead_id=lead_id)
+        return OrderResult(
+            name=str(order["name"]),
+            order_id=order_id,
+            lead_id=lead_id,
+            email=request.buyer.email,
+        )
+
+    def _partner_email(self, partner_id: int | None) -> str | None:
+        if partner_id is None:
+            return None
+        found = self._odoo.search_read("res.partner", [["id", "=", partner_id]], ["email"])
+        email = found[0].get("email") if found else None
+        return str(email) if email else None
 
     def order_pdf(self, folio: str) -> bytes | None:
         """PDF del pedido confirmado de ``folio`` (el que Odoo adjuntó al correo), o ``None``."""
@@ -221,21 +242,27 @@ class OdooOrders:
         found = self._odoo.search_read(
             "sale.order",
             [["client_order_ref", "=", folio], ["state", "=", "sale"]],
-            ["id"],
+            ["id", "create_uid"],
             limit=1,
         )
         if not found:
             return None
+        # El PDF que generó el bot al confirmar (el del correo): ni un documento interno que
+        # el equipo subió al chatter ni otro PDF posterior.
+        author = _many2one(found[0].get("create_uid"))
+        domain: list[Any] = [
+            ["res_model", "=", "sale.order"],
+            ["res_id", "=", int(found[0]["id"])],
+            ["mimetype", "=", "application/pdf"],
+        ]
+        if author is not None:
+            domain.append(["create_uid", "=", author])
         attachments = self._odoo.call(
             "ir.attachment",
             "search_read",
-            domain=[
-                ["res_model", "=", "sale.order"],
-                ["res_id", "=", int(found[0]["id"])],
-                ["mimetype", "=", "application/pdf"],
-            ],
+            domain=domain,
             fields=["datas"],
-            order="id desc",
+            order="id asc",
             limit=1,
         )
         if not attachments or not attachments[0].get("datas"):
@@ -291,17 +318,18 @@ class OdooOrders:
         return order_id
 
     def _partner(self, request: OrderRequest) -> int:
-        """Cliente con el mismo correo y el mismo nombre, o uno nuevo.
+        """Contacto creado por el asistente con el mismo correo y el mismo nombre, o uno nuevo.
 
-        Solo el correo no basta: cualquiera puede escribir el de otra persona, y el pedido
-        quedaría en la ficha de un cliente real. Odoo admite contactos con el mismo correo;
-        el equipo los fusiona si hace falta.
+        Solo el correo no basta: cualquiera puede escribir el de otra persona. Y solo se
+        reutilizan contactos del asistente (``ref``): la ficha de un cliente real del equipo
+        tiene dirección, NIT o teléfono, que saldrían en el PDF del pedido de quien escribió
+        su nombre y su correo. Odoo admite contactos repetidos; el equipo los fusiona.
         """
 
         email = request.buyer.email or ""
         found = self._odoo.search_read(
             "res.partner",
-            [["email", "=ilike", _like_literal(email)]],
+            [["email", "=ilike", _like_literal(email)], ["ref", "=", PARTNER_REF]],
             ["id", "name"],
             limit=20,
         )
@@ -312,6 +340,7 @@ class OdooOrders:
             "name": request.buyer.name,
             "email": email,
             "lang": "es_CO",  # el correo de confirmación sale en español
+            "ref": PARTNER_REF,
             "comment": _html([f"Cliente creado por el asistente de Carvajal ({request.channel})."]),
         }
         if request.city:

@@ -114,8 +114,10 @@ y la referencia del cliente (`client_order_ref`) igual al folio. Para limpiarlos
 3. **CRM**: la oportunidad «Pedido de la cotización #folio» queda ganada; búscala por el folio
    (quita el filtro por defecto e incluye las ganadas) y archívala o elimínala.
 4. **Contactos**: archiva el contacto `Ensayo …` (`e2e-…@example.com`) si no quieres que el
-   próximo ensayo lo reutilice; el adaptador reutiliza un contacto solo si coinciden el
-   correo y el nombre (si no, crea otro).
+   próximo ensayo lo reutilice; el adaptador reutiliza un contacto solo si lo creó el
+   asistente (`ref = asistente-carvajal`) y coinciden el correo y el nombre (si no, crea otro
+   con ese `ref`). Los contactos `Ensayo …` de corridas anteriores a la tercera ronda de la
+   spec 055 no llevan el `ref` y no se reutilizan.
 
 Repetir el escenario con el mismo `ENSAYO_RUN_ID` crea otro folio y, por tanto, otro pedido:
 la idempotencia es por folio, no por comprador.

@@ -114,9 +114,15 @@ from carvajal.infrastructure.monitoring import (
 from carvajal.infrastructure.settings import Settings
 from carvajal.quotation import flow as quote_flow
 from carvajal.quotation import render as quote_render
-from carvajal.quotation.draft import QuoteDraft, draft_quote_payload, totals
+from carvajal.quotation.draft import QuoteDraft, draft_quote_payload, expired_lines, totals
 from carvajal.quotation.engine import QUOTE_VERSION
-from carvajal.quotation.order import Buyer, OrderRequest, mask_email, order_lines
+from carvajal.quotation.order import (
+    Buyer,
+    OrderRequest,
+    mask_email,
+    order_lines,
+    spoken_address,
+)
 
 __all__ = [
     "ChatFailure",
@@ -181,6 +187,8 @@ def _without_buyer(text: str, buyers: Sequence[Buyer | None]) -> str:
             continue
         if buyer.email:
             text = text.replace(buyer.email, mask_email(buyer.email))
+            # La confirmación por voz lee el correo («ana punto perez arroba…»).
+            text = text.replace(spoken_address(buyer.email), "el correo que escribiste")
         if buyer.name:
             text = text.replace(buyer.name, "(tu nombre)")
     return _EMAIL_TEXT.sub(lambda found: mask_email(found.group(0)), text)
@@ -1610,6 +1618,11 @@ class ChatService:
         orders = self._orders()
         if orders is None or not draft.folio or not buyer.email:
             return quote_render.order_failed(), draft.touch(awaiting=None, buyer=None)
+        stale = expired_lines(draft, local_now().date())
+        if stale:
+            # El pedido toma los precios de la cotización: vencidos, no se confirma.
+            logger.info("pedido.precios_vencidos", folio=draft.folio, lineas=len(stale))
+            return quote_render.order_expired(stale), draft.touch(awaiting=None, buyer=None)
         lines, notes = order_lines(draft.lines)
         summary_total = totals(draft.lines).total
         request = OrderRequest(
@@ -1629,7 +1642,8 @@ class ChatService:
             return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
         logger.info("pedido.registrado", folio=draft.folio, pedido=result.name)
         placed = draft.touch(awaiting=None, buyer=None, order=result.name)
-        message = quote_render.order_placed(result.name, buyer.email, draft.folio, draft)
+        email = result.email or buyer.email  # el del pedido en Odoo, si ya existía
+        message = quote_render.order_placed(result.name, email, draft.folio, draft)
         return message, placed
 
     def _fixed_turn(

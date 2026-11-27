@@ -845,8 +845,11 @@ def confirm_buyer(name: str, email: str) -> Message:
         f"- Correo: **{email}**\n"
         "¿Lo confirmo? Si algo está mal, escríbeme el dato correcto."
     )
+    from carvajal.quotation.order import spoken_address
+
     spoken = (
-        f"Voy a hacer el pedido a nombre de {name}, con el correo que escribiste. ¿Lo confirmo?"
+        f"Voy a hacer el pedido a nombre de {name}, con el correo {spoken_address(email)}. "
+        "¿Lo confirmo?"
     )
     return Message(text, spoken)
 
@@ -881,10 +884,15 @@ def order_placed(
     if draft is not None and draft.lines:
         lines += _cart_lines(draft.lines)
         result = totals(draft.lines)
-        total = result.total if result.total is not None else result.products
-        money = format_money(total, result.currency)
-        detail = f"Total **{money}**" + (" (envío por confirmar)" if result.total is None else "")
-        lines.append(f"{detail} · {result.tax}")
+        if not result.priced:
+            lines.append("Total por confirmar con el vendedor")
+        else:
+            total = result.total if result.total is not None else result.products
+            money = format_money(total, result.currency)
+            pending = " (envío por confirmar)" if result.total is None else ""
+            if result.unpriced:
+                pending += " sin " + ", ".join(result.unpriced) + " (precio por confirmar)"
+            lines.append(f"Total **{money}**{pending} · {result.tax}")
     lines.append(
         f"La confirmación del pedido llega a **{email}**. Un asesor te contacta para coordinar "
         "el pago y la entrega."
@@ -912,6 +920,18 @@ def receipt_offer(text: str, link: Callable[[str], str | None]) -> str:
     url = link(found.group(2))
     offer = f"\n📄 [Descarga el recibo de tu pedido {found.group(1)}]({url})" if url else ""
     return text.replace(promise, offer, 1)
+
+
+def order_expired(labels: Sequence[str]) -> Message:
+    """Los precios de la cotización vencieron antes del pedido: hay que cotizar de nuevo."""
+
+    text = (
+        "Los precios de " + ", ".join(labels) + " ya vencieron, así que no puedo confirmar el "
+        "pedido con esa cotización. Pídeme cotizarlos de nuevo y hacemos el pedido."
+    )
+    return Message(
+        text, "Los precios de la cotización vencieron. Cotizamos de nuevo y hacemos el pedido."
+    )
 
 
 def order_reminder(awaiting: str | None) -> Message | None:
@@ -947,10 +967,12 @@ def already_ordered(order: str) -> Message:
 def order_declined(folio: str | None) -> Message:
     reference = f" #{folio}" if folio else ""
     text = (
-        f"Listo, tu cotización{reference} queda registrada. Si decides comprar, escribe "
-        "«hacer el pedido». ¿Te ayudo con algo más?"
+        f"Listo, tu cotización{reference} queda registrada sin pedido. Si cambias de opinión, "
+        "escribe «hacer el pedido» en tu próximo mensaje. ¿Te ayudo con algo más?"
     )
-    return Message(text, "Listo, tu cotización queda registrada. ¿Te ayudo con algo más?")
+    return Message(
+        text, "Listo, tu cotización queda registrada sin pedido. ¿Te ayudo con algo más?"
+    )
 
 
 # --- T7-T9: cambio, cancelación y salida -----------------------------------------------

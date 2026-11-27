@@ -7,8 +7,10 @@
 **Status**: Implemented (2026-11-26) en la rama, PR #279; producción sigue en `main` hasta la
 fusión. Revisión adversarial del 2026-11-26 corregida en `b893c28` (paso de confirmación,
 privacidad, idempotencia y Odoo); la segunda ronda, en `fcbf3a2` (reglas explícitas por paso
-y recibo del pedido en PDF por web y WhatsApp). Las pruebas se actualizan y la suite se corre
-en la misma PR. Correo saliente pendiente (SMTP). Evidencia: [evidencia.md](./evidencia.md).
+y recibo del pedido en PDF por web y WhatsApp); la tercera, sobre `1209217` en la misma PR
+(«sí» limpio, turnos privados, reglas generales primero, correo dictado con cifras, PDF y
+contactos en Odoo, precios vencidos). Las pruebas se actualizan y la suite se corre en la
+misma PR. Correo saliente pendiente (SMTP). Evidencia: [evidencia.md](./evidencia.md).
 
 **Input**: Pedido del owner (2026-11-26): «que el agente de la app pueda crear órdenes de
 compra si el cliente confirma una compra de una cotización, por chat web o por WhatsApp»;
@@ -71,9 +73,11 @@ El recibo del chat no depende de SMTP: llega aunque el correo todavía no salga.
    clasifica ninguna respuesta de los pasos del pedido. Cada paso sabe qué espera: en la
    oferta nadie pidió todavía el nombre, así que solo cuentan un correo o un nombre escrito
    como nombre propio; en `datos_pedido` el mensaje es el nombre que se pidió; en
-   `confirmar_pedido` cualquier dato corrige y solo un «sí» crea el pedido. Reemplaza la
-   primera versión, que adivinaba un nombre en cualquier frase y lo defendía solo con una
-   lista de palabras prohibidas y con «un nombre ya dado no cambia sin marca».
+   `confirmar_pedido` cualquier dato corrige y solo un «sí» limpio (sin reparos ni nombre
+   nuevo; tercera ronda) crea el pedido. Reemplaza la primera versión, que adivinaba un
+   nombre en cualquier frase y lo defendía solo con una lista de palabras prohibidas y con
+   «un nombre ya dado no cambia sin marca». Las reglas generales (chiste por insulto al
+   precio, «retomar», pedir un cambio) van antes que las del pedido.
 5. **Confirmación antes de crear el pedido** (revisión adversarial). Con los dos datos, el
    asistente los muestra («📋 Voy a hacer el pedido con estos datos… ¿Lo confirmo?») y solo
    un «sí» crea el pedido. Así un nombre mal leído o un correo con un error de dedo se
@@ -89,7 +93,14 @@ El recibo del chat no depende de SMTP: llega aunque el correo todavía no salga.
    `sale.order`). La app lo lee por la API (`OdooOrders.order_pdf(folio)`) y lo sirve al
    dueño de la cotización: el cliente recibe el mismo documento que el correo y que ve el
    equipo en Odoo, sin una segunda plantilla que mantener. En el chat va además el recibo en
-   texto, que no depende de Odoo ni de SMTP.
+   texto, que no depende de Odoo ni de SMTP. Es el primer PDF del pedido creado por quien
+   creó el pedido (el bot), no el más reciente: un documento interno del chatter nunca sale.
+9. **Solo se reutilizan contactos del asistente** (tercera ronda). Un contacto de Odoo se
+   reutiliza solo si lo creó el asistente (`res.partner.ref = asistente-carvajal`) y
+   coinciden correo y nombre. La ficha de un cliente real del equipo trae dirección, NIT o
+   teléfono, que saldrían en el PDF del pedido de quien escribió su nombre y su correo.
+10. **Sin precios vencidos** (tercera ronda). El pedido usa los precios de la cotización; si
+    la vigencia de alguna línea pasó, no se confirma y hay que cotizar de nuevo.
 
 ### Relación con especificaciones existentes
 
@@ -204,17 +215,27 @@ pedido.
 5. **Given** «Juan, juan@x.co, gracias» o «maría de la cruz», **When** se leen, **Then** los
    nombres son «Juan» y «María de la Cruz».
 6. **Given** el correo dictado «ana punto perez arroba gmail punto com», **When** se lee,
-   **Then** el correo es «ana.perez@gmail.com» («guion» y «guion bajo» dan `-` y `_`).
+   **Then** el correo es «ana.perez@gmail.com» («guion» y «guion bajo» dan `-` y `_`). Con
+   cifras sueltas o en palabras antes de «arroba» («ana punto perez dos dos arroba gmail
+   punto com» o «… perez 22 arroba …») el correo es «ana.perez22@gmail.com»; en «Ana Pérez,
+   ana punto perez dos dos arroba gmail punto com» el nombre queda «Ana Pérez». En voz, la
+   confirmación lee el correo («…con el correo ana punto perez22 arroba gmail punto com.
+   ¿Lo confirmo?»).
 7. **Given** la confirmación, **When** la persona escribe un correo nuevo, «me llamo Carlos
-   Ruiz», «no, es Carla Ruiz», «sí, pero a nombre de Marta Gómez» o el nombre escrito como
-   nombre propio («Marta Gómez»), **Then** el dato se corrige y vuelve a mostrar la
-   confirmación con los datos nuevos; todavía no crea el pedido.
-8. **Given** la confirmación, **When** la persona escribe solo «no» o «está mal», **Then**
-   pregunta «¿Qué dato corrijo? Escríbeme el **nombre** o el **correo** correcto, o **ahora
-   no** para dejar el pedido.» y conserva los datos.
+   Ruiz», «no, es Carla Ruiz», «sí, pero a nombre de Marta Gómez», «sí, Carla Ruiz» o el
+   nombre escrito como nombre propio («Marta Gómez»), **Then** el dato se corrige y vuelve a
+   mostrar la confirmación con los datos nuevos; todavía no crea el pedido. «No es Ana, es
+   Carla» corrige a «Carla».
+8. **Given** la confirmación, **When** la persona escribe solo «no», «está mal», «sí,
+   pero…» o «sí, pero el correo está mal», **Then** pregunta «¿Qué dato corrijo? Escríbeme
+   el **nombre** o el **correo** correcto, o **ahora no** para dejar el pedido.», conserva
+   los datos y no crea el pedido.
 9. **Given** la oferta, **When** la persona responde «Sí, adelante», «sí señor», «está bien» o
    «cuéntame de la empresa», **Then** ninguna se toma como nombre: las afirmaciones aceptan
    el pedido y la frase sigue al resto de las reglas.
+10. **Given** la oferta, **When** la persona responde «Sí, a nombre de Ana Pérez», «Sí, soy
+    Ana» o «Sí, Ana Pérez», **Then** se toma el nombre, se pide el correo y el turno se
+    guarda sin el nombre.
 
 ---
 
@@ -231,11 +252,13 @@ responde. La cotización sigue registrada y el pedido se puede pedir después.
 **Acceptance Scenarios**:
 
 1. **Given** cualquier paso del pedido, **When** la persona dice «Ahora no» (o «no, mejor
-   no», «no quiero el pedido», «ya no», «todavía no, gracias», «lo pienso», «después»,
+   no», «no quiero el pedido», «ya no», «todavía no, gracias», «lo pienso», «lo voy a
+   pensar», «solo estaba mirando», «después», «olvídalo», «cancélalo», «no, olvídalo»,
    «cancela el pedido», «cancela todo»), **Then** responde «Listo, tu cotización #folio queda
-   registrada. Si decides comprar, escribe «hacer el pedido». ¿Te ayudo con algo más?», borra
-   los datos parciales y no llama a Odoo. Un «no» solo rechaza en la oferta y en los datos; en
-   la confirmación pregunta qué corregir (US3, escenario 8).
+   registrada sin pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo
+   mensaje. ¿Te ayudo con algo más?», borra los datos parciales y no llama a Odoo; ninguna de
+   esas frases se toma como nombre. Un «no» solo rechaza en la oferta y en los datos; en la
+   confirmación pregunta qué corregir (US3, escenario 8).
 2. **Given** «ahora no», **When** en el mensaje siguiente escribe «hacer el pedido», **Then**
    el asistente vuelve a pedir nombre y correo.
 3. **Given** un paso del pedido, **When** la persona pregunta algo con «?» («¿cuánto tarda la
@@ -252,6 +275,14 @@ responde. La cotización sigue registrada y el pedido se puede pedir después.
    crear el pedido en este momento. Tu cotización sigue registrada: responde **sí** en unos
    minutos y lo intento de nuevo, o **ahora no** para dejarlo.»; los datos quedan en la
    confirmación y un «sí» reintenta con el mismo folio, sin volver a pedirlos.
+6. **Given** la confirmación con precios cuya vigencia ya pasó, **When** la persona dice
+   «sí», **Then** no se llama a Odoo y responde «Los precios de <líneas> ya vencieron, así
+   que no puedo confirmar el pedido con esa cotización. Pídeme cotizarlos de nuevo y hacemos
+   el pedido.»; el paso se cierra y los datos se borran.
+7. **Given** un paso del pedido, **When** la persona escribe el insulto por precio («está
+   muy caro, ladrones»), «retomar» o pide un cambio («quiero cambiar la 2 a 800», «sí, pero
+   cambia el correo»), **Then** lo deciden las reglas generales o el agente, como fuera del
+   pedido, y no se crea el pedido.
 
 ---
 
@@ -315,13 +346,18 @@ el pago y la entrega.
 ```
 
 Las líneas y el total salen del borrador (las mismas de la cotización registrada); con el
-envío por confirmar, el total es el de los productos con «(envío por confirmar)». La fecha es
-la de hoy en Bogotá. La última línea, `RECEIPT_PROMISE`, no llega así a nadie:
+envío por confirmar, el total es el de los productos con «(envío por confirmar)», y si
+ninguna línea tiene precio, «Total por confirmar con el vendedor». La fecha es la de hoy en
+Bogotá. El correo es el del cliente del pedido en Odoo (`OrderResult.email`): el que se
+escribió o, en un reintento sobre un pedido del folio ya confirmado, el de ese pedido. La
+última línea, `RECEIPT_PROMISE`, no llega así a nadie:
 
 - **Web** (`apps/api/views/stream.py` y el historial en `apps/api/views/chat.py`):
   `render.receipt_offer` la cambia por «📄 [Descarga el recibo de tu pedido S00001](<url>)»,
   con la URL de `/pedidos/{folio}.pdf` (sobre `PUBLIC_BASE_URL` si está). Sin URL, la línea
-  se quita.
+  se quita. Un turno reemitido (mismo `client_turn_id`) llega como un solo «token» con el
+  texto guardado, y `_sse` le aplica también `pdf_offer` y `receipt_offer`
+  (`_with_links_in_token`): el reintento enlaza el PDF de la cotización y el recibo.
 - **WhatsApp** (`apps/mcp/bridge.py`, `_with_receipt`): el servicio marca el turno con
   `flow.order = {name, folio}`; con `MEDIA_BASE_URL` la promesa pasa a «📄 Te envío el
   recibo de tu pedido S00001 en PDF.» más `ADJUNTAR_PDF: <url firmada>` (OpenClaw lo envía
@@ -330,8 +366,9 @@ la de hoy en Bogotá. La última línea, `RECEIPT_PROMISE`, no llega así a nadi
 
 «Hacer el pedido» envía «Sí, quiero hacer el pedido» y «Confirmar pedido» envía «Sí,
 confírmalo». En voz, cada plantilla tiene su versión hablada sin Markdown ni emojis; la
-confirmación dice el nombre pero no lee el correo («Voy a hacer el pedido a nombre de Ana
-Pérez, con el correo que escribiste. ¿Lo confirmo?») y la del pedido dice «Listo, tu pedido
+confirmación dice el nombre y lee el correo para que quien lo dictó lo compruebe («Voy a
+hacer el pedido a nombre de Ana Pérez, con el correo ana arroba correo punto com. ¿Lo
+confirmo?», `order.spoken_address`) y la del pedido dice «Listo, tu pedido
 quedó confirmado. La confirmación llega a tu correo, te envío el recibo por escrito y un
 asesor te contacta para el pago y la entrega.». En WhatsApp la negrita sale con `*` como en
 la 054.
@@ -345,25 +382,37 @@ la 054.
   ni un nombre con marca, sale del pedido con un **borrador nuevo** (`Pass(QuoteDraft())`):
   la cotización anterior queda registrada sin pedido, cotice o no el agente en ese turno.
 - **Correo**: `find_email` lee el correo escrito o dictado («arroba», «punto», «guion»,
-  «guion bajo»). Un correo en el mensaje siempre es un dato del pedido.
+  «guion bajo», y las cifras sueltas o en palabras antes de «arroba»: «ana punto perez dos
+  dos arroba gmail punto com» → `ana.perez22@gmail.com`). Un correo en el mensaje siempre
+  es un dato del pedido.
+- **Reglas generales primero** (`_defers`, en los tres pasos): el insulto por precio
+  (`is_price_insult`), «retomar» (`is_resume`) y un cambio pedido (`wants_edit`: «quiero
+  cambiar la 2 a 800», «sí, pero cambia el correo») devuelven `None`: los decide el resto de
+  las reglas o el agente, y el pedido no se crea.
+- **Preguntas**: `_without_questions` quita los «¿…?» del mensaje; lo que queda, antes o
+  después de la pregunta, puede traer los datos. `_question_only` es una pregunta cuyo resto
+  no trae correo ni nombre.
 
 | Paso (`awaiting`) | Mensaje | Resultado |
 |---|---|---|
-| `pedido` (la oferta) | Un correo, o un nombre con marca («soy…», «me llamo…», «a nombre de…») o escrito como nombre propio («Ana Pérez», cada palabra con mayúscula; `name_in(strict=True)`), y que no sea una afirmación | Son los datos: pasa a pedir el que falte o a la confirmación |
-| | «ahora no», «no», «no quiero el pedido», «cancela el pedido», «cancela todo»… | Rechazo (`render.order_declined`) |
+| `pedido` (la oferta) | Un correo, o un nombre con marca («soy…», «me llamo…», «a nombre de…») o escrito como nombre propio en el mensaje sin preguntas («Ana Pérez», cada palabra con mayúscula; `name_in(strict=True)`), también tras un «sí» («Sí, a nombre de Ana Pérez», «Sí, soy Ana», «Sí, Ana Pérez») | Son los datos: pasa a pedir el que falte o a la confirmación (turno privado) |
+| | «ahora no», «no», «no quiero el pedido», «olvídalo», «cancélalo», «cancela el pedido», «cancela todo», «lo voy a pensar» (`declines_order`, `is_cancel_all`, `is_leaving`) | Rechazo (`render.order_declined`) |
 | | «sí», «sí, adelante», «dale», «está bien», «quiero comprarla», «hagamos el pedido» (`is_affirmation`, `wants_purchase`) | Pide nombre y correo (`datos_pedido`) |
-| | Otra cosa (una pregunta, «cuéntame de la empresa», un nombre en minúsculas) | Sigue el resto de las reglas y el agente; el paso queda con el recordatorio único |
-| `datos_pedido` | Una pregunta sin datos antes del «¿» (`_question_only`) | Va al agente sin perder el paso, con el recordatorio único |
-| | Rechazo sin correo ni nombre con marca | Rechazo |
-| | Lo demás | El correo del mensaje y el nombre pedido: el nombre con marca, el que ya se había dado o, si falta y el mensaje no es una afirmación, el texto del mensaje como nombre (`name_in`, que descarta cifras, símbolos y muletillas) |
+| | Otra cosa (una pregunta, «cuéntame de la empresa», un nombre en minúsculas, «chao») | Sigue el resto de las reglas y el agente; el paso queda con el recordatorio único. Excepción: «Ana Pérez, quiero hacer el pedido» acepta como frase de compra, pero no toma el nombre (lo vuelve a pedir) y el turno no es privado |
+| `datos_pedido` | Una pregunta sin datos fuera de los «¿…?» (`_question_only`) | Va al agente sin perder el paso, con el recordatorio único |
+| | Rechazo sin correo ni nombre con marca (`declines_order`, `is_cancel_all`, `is_leaving`) | Rechazo |
+| | Lo demás | El correo del mensaje y el nombre pedido: el nombre con marca, el que ya se había dado o, si falta y el mensaje no es una confirmación (`is_confirmation`), el mensaje sin preguntas como nombre (`name_in`, que descarta cifras, símbolos y muletillas; «olvídalo», «chao» o «retomar» nunca son nombre) |
 | `confirmar_pedido` | Un correo o un nombre con marca | Corrige ese dato y vuelve a mostrar la confirmación; nunca crea el pedido en ese turno, aunque diga «sí» o «quiero hacer el pedido» |
-| | «sí», «sí, confírmalo», «quiero comprarla» con los dos datos | **Crea el pedido** (es el único camino) |
-| | «no», «nop», «no es», «está mal», «incorrecto», «hay un error» (`is_bare_no`) | Pregunta qué corregir (`render.which_correction`); los datos siguen |
-| | «no, es Marta Gómez», «no, el nombre es…» (`correction_name`) | Corrige el nombre |
-| | «ahora no», «no, mejor no», «cancela el pedido», «cancela todo» sin un nombre de corrección | Rechazo (excepción conocida en [Edge Cases](#edge-cases): «olvídalo», «cancélalo») |
 | | Una pregunta sin datos | Va al agente sin perder el paso, con el recordatorio único |
-| | Un nombre escrito como nombre propio («Marta Gómez») que no es una afirmación | Corrige el nombre; «pues bueno» no lo cambia |
-| | Lo demás | Vuelve a mostrar la confirmación con los mismos datos |
+| | Un «sí» limpio: afirmación o frase de compra («sí», «sí, confírmalo», «ok», «listo», «quiero comprarla») sin «pero», «aunque», «cambia…», «corrig…» ni «mal», sin nombre de corrección y con los dos datos | **Crea el pedido** (es el único camino) |
+| | Un nombre de corrección (`correction_name`, escrito como nombre propio: `name_in(strict=True)`): suelto («Marta Gómez»), tras «sí,» («sí, Carla Ruiz») o tras «no,» («no, es Marta Gómez», «no, el nombre es…»); en «no es Ana, es Carla» vale lo último («Carla») | Corrige el nombre |
+| | «no», «nop», «no es», «está mal», «incorrecto», «hay un error» (`is_bare_no`) o una afirmación con reparos («sí, pero…», «sí, pero el correo está mal») | Pregunta qué corregir (`render.which_correction`); los datos siguen |
+| | «ahora no», «no, mejor no», «olvídalo», «cancélalo», «no, olvídalo», «cancela el pedido», «cancela todo», «lo voy a pensar» | Rechazo |
+| | Lo demás («pues bueno», «déjalo», «chao», un nombre en minúsculas) | Pregunta qué corregir (`render.which_correction`); los datos siguen |
+
+Un nombre en minúsculas tras «no,» («no, carla ruiz», «no, es carla») no es nombre de
+corrección y el mensaje empieza por «no»: se lee como rechazo (ver [evidencia.md
+§8](./evidencia.md#8-pendiente)).
 
 Tras crear el pedido, «quiero comprarla» o un «sí» suelto responden «Ese pedido ya quedó
 creado con el número **S…**» y no llaman a Odoo; tras un rechazo, «quiero comprarla» o «hacer
@@ -373,8 +422,12 @@ el pedido» vuelven a pedir nombre y correo.
 del pedido y no cotiza, la respuesta termina con `render.order_reminder` del paso; si el
 mensaje siguiente tampoco sigue el pedido, el paso se suelta con un borrador nuevo.
 
-**Turnos con datos**: todo turno que pasa por `_with_buyer` (los que leen o muestran nombre o
-correo) lleva `Reply.private`; el servicio lo guarda y lo monitorea sin los datos (FR-020).
+**Turnos con datos**: llevan `Reply.private` todo turno que pasa por `_with_buyer` (los que
+leen o muestran nombre o correo, también la oferta con datos) y todos los que deciden las
+reglas en `datos_pedido` y `confirmar_pedido`: el «sí» que crea el pedido, el rechazo
+(`_declined`) y «¿Qué dato corrijo?». El servicio los guarda y los monitorea sin los datos
+(FR-020). La pregunta que va al agente (`Pass`) y lo que deciden las reglas generales no son
+turnos del pedido.
 
 ### En Odoo
 
@@ -383,9 +436,11 @@ Al crear el pedido (`adapters/crm/odoo.py`, `OdooOrders.place`), en este orden:
 1. Busca un pedido con `client_order_ref` = folio y estado distinto de `cancel`. Si está
    confirmado (`sale`), lo devuelve como existente y no crea otro pedido; si le falta la
    oportunidad (la respuesta de Odoo se perdió tras confirmar), la crea.
-2. Busca el cliente por correo con `=ilike` y el correo escapado (`%` y `_` literales) y lo
-   reutiliza solo si también coincide el nombre (sin distinguir mayúsculas ni espacios
-   repetidos); si no, crea un contacto nuevo (en `es_CO`, con la ciudad).
+2. Busca el cliente por correo con `=ilike` y el correo escapado (`%` y `_` literales),
+   solo entre los contactos que creó el asistente (`ref = asistente-carvajal`,
+   `PARTNER_REF`), y lo reutiliza solo si también coincide el nombre (sin distinguir
+   mayúsculas ni espacios repetidos); si no, crea un contacto nuevo con ese `ref` (en
+   `es_CO`, con la ciudad). Una ficha del equipo (sin el `ref`) nunca se reutiliza.
 3. Si el pedido del folio quedó en borrador (un intento anterior falló antes de
    confirmarlo), le pone el cliente actual. Si no existe, busca los productos por SKU
    (también los archivados, que reactiva), crea los que falten y crea el pedido con las
@@ -395,10 +450,19 @@ Al crear el pedido (`adapters/crm/odoo.py`, `OdooOrders.place`), en este orden:
 6. Si el pedido no tiene oportunidad, crea «Pedido de la cotización #folio», la liga al
    pedido (`opportunity_id`) y la marca como ganada. Si el CRM falla, el pedido sigue.
 
+Antes de todo esto, el servicio (`ChatService._place_order`) comprueba la vigencia de los
+precios (`expired_lines`): con alguna línea vencida no llama a Odoo y responde
+`render.order_expired`.
+
 `action_confirm` que responde 422 porque otro turno ya confirmó el pedido no es fallo
-(`_confirm` relee el estado). Para el recibo, `OdooOrders.order_pdf(folio)` busca el pedido
-del folio en `sale` y devuelve el último `ir.attachment` PDF de ese `sale.order` (el que Odoo
-adjuntó al correo de confirmación), o `None`.
+(`_confirm` relee el estado). `place` devuelve `OrderResult` con `email`: el del comprador al
+crear o retomar el pedido y, si el pedido del folio ya estaba confirmado, el del cliente de
+ese pedido (`res.partner`); es el correo que muestra el recibo. Para el recibo,
+`OdooOrders.order_pdf(folio)` busca el pedido del folio en `sale` con su `create_uid` y
+devuelve el **primer** `ir.attachment` PDF de ese `sale.order` creado por ese mismo usuario
+(`create_uid` = el bot, `order="id asc"`): el que Odoo generó al confirmar y adjuntó al
+correo, no un documento interno subido al chatter ni un PDF posterior. Sin pedido o sin
+adjunto, `None`.
 
 ### Edge Cases
 
@@ -412,10 +476,23 @@ adjuntó al correo de confirmación), o `None`.
 - **Mismo folio en Odoo**: si el pedido ya está confirmado (reintento del turno, doble clic),
   Odoo devuelve el existente; no hay un segundo pedido. Si quedó en borrador, el reintento lo
   confirma; un pedido cancelado no cuenta y se crea otro.
-- **Cliente que ya existe**: se reutiliza si coinciden el correo y el nombre, y no se cambia
-  su ficha. Con el mismo correo y otro nombre se crea un contacto nuevo: quien escribe el
-  correo de otra persona no le asigna pedidos a su ficha. El equipo fusiona contactos
-  repetidos si hace falta.
+- **Cliente que ya existe**: se reutiliza solo un contacto que creó el asistente
+  (`ref = asistente-carvajal`) con el mismo correo y el mismo nombre, y no se cambia su
+  ficha. Con el mismo correo y otro nombre, o si la ficha es de un cliente real del equipo
+  (sin ese `ref`, aunque coincidan correo y nombre), se crea un contacto nuevo: quien escribe
+  el correo de otra persona no le asigna pedidos a su ficha, ni su dirección, NIT o teléfono
+  salen en el PDF de su pedido. Los contactos que el asistente creó antes de la tercera ronda
+  no llevan el `ref` y tampoco se reutilizan. El equipo fusiona contactos repetidos si hace
+  falta.
+- **Reintento con el correo corregido**: si Odoo confirmó un pedido pero la respuesta se
+  perdió y la persona corrige el correo antes del «sí» de reintento, el pedido del folio ya
+  existe con el correo anterior; el recibo muestra ese (el del pedido en Odoo), no el nuevo.
+- **Precios vencidos**: si la vigencia del vendedor de alguna línea pasó antes del «sí»
+  final, el pedido no se confirma (`render.order_expired`) y hay que cotizar de nuevo.
+- **Recibo sin precios**: si ninguna línea tiene precio, el recibo dice «Total por confirmar
+  con el vendedor» en lugar de un total de $0.
+- **Turno reemitido en la web**: el reintento con el mismo `client_turn_id` llega como
+  «token» y enlaza igual el PDF de la cotización y el recibo (`_with_links_in_token`).
 - **Otro producto en un paso del pedido** («quiero 500 vasos»): no es el pedido; el turno va
   al agente con un borrador nuevo, cotice o no (si pide la ciudad o lista referencias, su
   lista sigue viva y no se mezcla el recordatorio del pedido). La cotización anterior queda
@@ -424,17 +501,21 @@ adjuntó al correo de confirmación), o `None`.
 - **Cifras sin producto** (un teléfono, una dirección, un correo dictado con números): ya no
   sacan del paso. Un teléfono o una dirección no son nombre ni correo, así que se vuelven a
   pedir los datos, sin ir al modelo.
-- **«¿Puedo comprarla con tarjeta?»** y cualquier pregunta sin datos antes del «¿» van al
-  agente sin perder el paso, con el recordatorio una sola vez (US4, escenario 3).
+- **«¿Puedo comprarla con tarjeta?»** y cualquier pregunta sin datos fuera de los «¿…?» van
+  al agente sin perder el paso, con el recordatorio una sola vez (US4, escenario 3). Con
+  datos antes o después de la pregunta («Ana Pérez, ¿cuánto tarda?», «¿cuánto tarda? Ana
+  Pérez»), los datos ganan y la pregunta no se responde en ese turno.
 - **«No quiero hacer el pedido»**: la negación nunca acepta el pedido; es un rechazo.
-- **Cancelar en cualquier paso**: «ahora no», «no, mejor no», «cancela el pedido», «cancela
-  todo» o «cancelar» dejan la cotización registrada sin pedido y borran los datos parciales.
-  Un «no, …» seguido de un correo o de un nombre corrige; no cancela. En la confirmación,
-  «olvídalo» y «cancélalo» todavía se leen como un nombre de corrección (se ven en la
-  confirmación y no crean el pedido): pendiente en [evidencia.md
-  §7](./evidencia.md#7-pendiente).
-- **«No» ante «¿Lo confirmo?»**: un «no» solo o «está mal» preguntan qué dato corregir y
-  conservan los datos; para dejar el pedido, «ahora no».
+- **Cancelar en cualquier paso**: «ahora no», «no, mejor no», «olvídalo», «cancélalo», «no,
+  olvídalo», «cancela el pedido», «cancela todo», «cancelar» o una despedida sin compra
+  («lo voy a pensar», «solo estaba mirando») dejan la cotización registrada sin pedido y
+  borran los datos parciales; nunca se toman como nombre. El mensaje no promete más de lo
+  que hace: «hacer el pedido» lo retoma solo en el mensaje siguiente. Un «no, …» seguido de
+  un correo, de un nombre con marca o de un nombre escrito como nombre propio corrige; no
+  cancela.
+- **«No» o «sí, pero…» ante «¿Lo confirmo?»**: un «no» solo, «está mal» o un «sí» con
+  reparos («sí, pero…») preguntan qué dato corregir y conservan los datos; para dejar el
+  pedido, «ahora no».
 - **Nombre inválido**: con cifras o símbolos, con menos de dos letras, de más de seis
   palabras o con una muletilla o palabra del pedido («ok», «gracias», «listo», «mejor»,
   «quiero», «pedido», «adelante», «señor»…) no es un nombre. Las muletillas de los bordes se
@@ -442,11 +523,13 @@ adjuntó al correo de confirmación), o `None`.
   apellido van en minúscula y el nombre se recorta a 80 caracteres. Esta lista ya no es la
   única defensa: cada paso decide primero si espera un nombre (ver [Reglas por
   paso](#reglas-por-paso)).
-- **Nombre en la oferta**: solo cuenta escrito como nombre propio o con marca; «ana pérez» en
-  minúsculas como respuesta a la oferta no se toma como dato (sigue el resto de las reglas).
-- **Correo dictado con cifras sueltas** («ana punto perez 22 arroba…»): la lectura del correo
-  puede quedar incompleta; la confirmación lo muestra antes de crear el pedido y la persona
-  lo corrige escribiéndolo.
+- **Nombre en la oferta**: solo cuenta escrito como nombre propio o con marca, solo o tras un
+  «sí» («Sí, Ana Pérez», «Sí, soy Ana»); «ana pérez» en minúsculas como respuesta a la oferta
+  no se toma como dato (sigue el resto de las reglas).
+- **Correo dictado con cifras** («ana punto perez 22 arroba…» o «ana punto perez dos dos
+  arroba…»): las cifras sueltas o en palabras («cero» a «nueve») antes de «arroba» entran al
+  correo (`ana.perez22@gmail.com`) y no al nombre. La confirmación por voz lee el correo
+  para que la persona lo compruebe.
 - **Línea sin precio publicado**: entra al pedido a $0 con «Precio por confirmar con el
   vendedor» en su descripción y la nota «Sin precio publicado: …».
 - **Envío**: con costo confirmado entra como línea de servicio `ENVIO-CARVAJAL`; pedido y sin
@@ -477,22 +560,26 @@ adjuntó al correo de confirmación), o `None`.
 - **FR-002**: El pedido se acepta con una afirmación a la oferta («sí», «sí, adelante»,
   «dale», «está bien») o con una frase de compra («quiero comprarla», «hagamos el pedido», «la
   compro», «hacer el pedido»); una frase con producto, «?» o negación («no quiero hacer el
-  pedido») no acepta el pedido, y una afirmación nunca se toma como nombre.
+  pedido») no acepta el pedido, y una afirmación nunca se toma como nombre; el nombre propio
+  o con marca que la acompaña («Sí, Ana Pérez», «Sí, soy Ana») sí es un dato.
 - **FR-003**: «Ahora no» y equivalentes («no, mejor no», «no quiero el pedido», «ya no»,
-  «todavía no, gracias», «cancela el pedido», «cancela todo»…) dejan la cotización
-  registrada sin pedido en cualquier paso del pedido; «hacer el pedido» lo retoma mientras el
-  borrador siga en el folio. Un mensaje de rechazo que trae un correo o un nombre de
-  corrección corrige el dato en vez de cancelar.
+  «todavía no, gracias», «olvídalo», «cancélalo», «cancela el pedido», «cancela todo», una
+  despedida sin compra como «lo voy a pensar»…) dejan la cotización registrada sin pedido en
+  cualquier paso del pedido y nunca se toman como nombre; «hacer el pedido» lo retoma en el
+  mensaje siguiente, y el mensaje de rechazo lo dice así, sin prometer más. Un mensaje de
+  rechazo que trae un correo o un nombre de corrección corrige el dato en vez de cancelar.
 - **FR-004**: La web DEBE mostrar los botones «Hacer el pedido» / «Ahora no» con la oferta y
   «Confirmar pedido» / «Ahora no» con la confirmación.
 
 **Datos de quien compra**
 
 - **FR-005**: Nombre y correo DEBEN leerse por reglas explícitas por paso, en uno o dos
-  mensajes (el correo también dictado: «arroba», «punto», «guion», «guion bajo»), y pedir lo
-  que falte. En la oferta solo cuentan como datos un correo o un nombre con marca o escrito
-  como nombre propio; en `datos_pedido`, el mensaje es el nombre pedido si no es una
-  afirmación ni una muletilla.
+  mensajes (el correo también dictado: «arroba», «punto», «guion», «guion bajo» y las cifras
+  sueltas o en palabras antes de «arroba»), y pedir lo que falte. En la oferta solo cuentan
+  como datos un correo o un nombre con marca o escrito como nombre propio; en
+  `datos_pedido`, el mensaje es el nombre pedido si no es una afirmación ni una muletilla.
+  Los datos antes o después de una pregunta «¿…?» cuentan. En voz, la confirmación DEBE leer
+  el correo.
 - **FR-006**: Ninguna respuesta de los pasos del pedido (`pedido`, `datos_pedido`,
   `confirmar_pedido`) DEBE ir a Jev. Un mensaje de esos pasos en el que las reglas leen un
   nombre o un correo NUNCA DEBE ir al LLM; una pregunta con «?» y sin datos va al agente sin
@@ -500,15 +587,21 @@ adjuntó al correo de confirmación), o `None`.
 - **FR-007**: Los datos viven en el borrador (base local) solo mientras se piden: DEBEN
   vaciarse al crear el pedido y al rechazarlo. Si Odoo falla, se conservan para reintentar.
 - **FR-022**: Con los dos datos, el asistente DEBE mostrarlos y preguntar «¿Lo confirmo?»
-  antes de crear el pedido; solo un «sí» (o una frase de compra) sin datos nuevos lo crea.
-- **FR-023**: En la confirmación, un correo nuevo, un nombre con marca, un nombre tras «no,»
-  o un nombre escrito como nombre propio DEBEN corregir el dato y volver a mostrar la
-  confirmación, aunque el mensaje también diga «sí». Un «no» solo DEBE preguntar qué dato
+  antes de crear el pedido; solo un «sí» limpio (una afirmación o una frase de compra sin
+  datos nuevos, sin nombre de corrección y sin «pero», «aunque», «cambia…», «corrig…» ni
+  «mal») lo crea.
+- **FR-023**: En la confirmación, un correo nuevo o un nombre con marca DEBEN corregir el
+  dato y volver a mostrar la confirmación, aunque el mensaje también diga «sí»; un nombre
+  suelto, tras «sí,» o tras «no,» corrige solo escrito como nombre propio, y en «no es Ana,
+  es Carla» vale lo último. Un «no» solo o un «sí» con reparos DEBEN preguntar qué dato
   corregir, sin cancelar ni borrar los datos.
 - **FR-024**: Tras una pregunta a mitad del pedido, la respuesta del agente DEBE terminar
   una vez con el recordatorio del paso; si el mensaje siguiente tampoco sigue el pedido, el
   paso se suelta. Otro producto en un paso del pedido DEBE salir del pedido con un borrador
   nuevo, cotice o no el agente en ese turno.
+- **FR-031**: En los pasos del pedido DEBEN ganar las reglas generales: el insulto por
+  precio, «retomar» y un cambio pedido (`wants_edit`) no los lee el paso del pedido y nunca
+  crean el pedido.
 
 **Pedido en Odoo**
 
@@ -535,18 +628,25 @@ adjuntó al correo de confirmación), o `None`.
 - **FR-016**: DEBE quedar traza: nota HTML en el chatter del pedido con el canal y el folio, y
   una oportunidad del CRM creada después de confirmar, ligada al pedido y marcada como
   ganada; si esas trazas fallan, el pedido sigue.
-- **FR-025**: El cliente de Odoo se reutiliza solo si coinciden el correo (sin comodines) y el
-  nombre; si no, se crea uno nuevo.
+- **FR-025**: El cliente de Odoo se reutiliza solo si lo creó el asistente
+  (`res.partner.ref = asistente-carvajal`) y coinciden el correo (sin comodines) y el nombre;
+  si no, se crea uno nuevo con ese `ref`. Una ficha del equipo nunca se reutiliza.
+- **FR-032**: El pedido NO DEBE confirmarse con precios vencidos: si la vigencia de alguna
+  línea pasó, no se llama a Odoo y la persona recibe `render.order_expired` (cotizar de
+  nuevo).
 
 **Recibo del pedido**
 
 - **FR-026**: La respuesta al pedido confirmado DEBE ser un recibo en el chat: número del
-  pedido, folio, fecha, líneas, total con la situación del IVA y el correo al que llega la
-  confirmación.
+  pedido, folio, fecha, líneas, total con la situación del IVA («Total por confirmar con el
+  vendedor» si ninguna línea tiene precio) y el correo del cliente del pedido en Odoo
+  (`OrderResult.email`), al que llega la confirmación.
 - **FR-027**: El cliente DEBE poder obtener el PDF del pedido que Odoo generó al confirmarlo
-  (`OdooOrders.order_pdf`: el `ir.attachment` PDF del `sale.order` confirmado del folio):
-  en la web, con el enlace a `GET /pedidos/{folio}.pdf`; en WhatsApp, como documento
-  adjunto (`ADJUNTAR_PDF:` con `MEDIA_BASE_URL`) o como enlace firmado (`PUBLIC_BASE_URL`).
+  (`OdooOrders.order_pdf`: el primer `ir.attachment` PDF del `sale.order` confirmado del
+  folio creado por quien creó el pedido; nunca un documento interno del chatter): en la web,
+  con el enlace a `GET /pedidos/{folio}.pdf`, también en un turno reemitido; en WhatsApp,
+  como documento adjunto (`ADJUNTAR_PDF:` con `MEDIA_BASE_URL`) o como enlace firmado
+  (`PUBLIC_BASE_URL`).
 - **FR-028**: `/pedidos/{folio}.pdf` DEBE servir el PDF solo al dueño de la cotización del
   folio: la cookie del visitante web o un enlace firmado con HMAC (`SESSION_SECRET`) sobre
   un dominio propio del recibo (`quote_links.ORDER_DOMAIN`, distinto del de cotizaciones)
@@ -570,8 +670,10 @@ adjuntó al correo de confirmación), o `None`.
 - **FR-019**: Nombre y correo solo viajan a Odoo. Los logs del pedido llevan el folio, el
   número del pedido y, ante un error, el código HTTP y el tipo; nunca el nombre, el correo ni
   el mensaje de Odoo.
-- **FR-020**: El turno con datos del pedido se guarda y se monitorea sin ellos: la pregunta
-  como «🛒 (datos para el pedido)», y la respuesta (texto, voz y tarjeta del flujo) con el
+- **FR-020**: Los turnos con datos del pedido (todos los que deciden las reglas en
+  `datos_pedido` y `confirmar_pedido`, incluidos el «sí» que crea el pedido, el rechazo y
+  «¿Qué dato corrijo?», y la oferta con datos) se guardan y se monitorean sin ellos: la
+  pregunta como «🛒 (datos para el pedido)», y la respuesta (texto, voz y tarjeta del flujo) con el
   correo enmascarado (`a***@dominio`) y el nombre como «(tu nombre)». La persona ve el texto
   completo en el turno. El historial que llega a DeepSeek en los turnos siguientes y el
   resumen de memoria salen de lo guardado.
@@ -586,9 +688,13 @@ adjuntó al correo de confirmación), o `None`.
 - **Solicitud de pedido**: folio, comprador, canal, ciudad, líneas, total y notas.
 - **Línea de pedido**: SKU, nombre, descripción, cantidad de presentaciones, precio por
   presentación y si es servicio.
-- **Pedido** (Odoo): número visible (`S00001`), identificador, oportunidad y si ya existía.
-- **Recibo**: el texto del pedido confirmado en el chat y el PDF del pedido en Odoo
-  (`ir.attachment` del `sale.order`), servido en `/pedidos/{folio}.pdf` al dueño de la
+- **Pedido** (Odoo): número visible (`S00001`), identificador, oportunidad, si ya existía y
+  el correo de su cliente (`OrderResult.email`).
+- **Contacto del asistente** (Odoo): `res.partner` con `ref = asistente-carvajal`; el único
+  que se reutiliza.
+- **Recibo**: el texto del pedido confirmado en el chat y el PDF del pedido en Odoo (el
+  primer `ir.attachment` PDF del `sale.order` creado por quien creó el pedido), servido en
+  `/pedidos/{folio}.pdf` al dueño de la
   cotización; el turno lo marca con `flow.order = {name, folio}` para WhatsApp.
 
 ## Success Criteria *(mandatory)*
@@ -635,7 +741,8 @@ adjuntó al correo de confirmación), o `None`.
   bloqueo por conversación ni restricción única en Odoo. Dos «sí» que se cruzan antes de que
   exista el pedido pueden crear dos pedidos con el mismo folio (y dos correos). Se tolera el
   caso del pedido ya confirmado por el otro turno (422); serializar por folio queda
-  pendiente.
+  pendiente. La tercera ronda lo volvió a plantear y los revisores lo refutaron como
+  improbable; se mantiene aceptado.
 - **Reenvío con datos enmascarados** (aceptado): un turno del pedido reenviado con el mismo
   `client_turn_id` muestra lo guardado («(tu nombre)», `a***@dominio`) y no el texto que vio
   la persona. Es la consecuencia de no guardar los datos; no filtra nada.
@@ -658,3 +765,14 @@ del paso, otro producto que dejaba el paso pegado, turnos con datos guardados en
 concurrencia y Ruff). `fcbf3a2` los resuelve con las [reglas por paso](#reglas-por-paso);
 el resumen está en
 [evidencia.md §6](./evidencia.md#6-revisión-adversarial-segunda-ronda-2026-11-26).
+
+Una tercera ronda sobre `1209217` confirmó 21 hallazgos más («sí, pero…» y nombres nuevos que
+creaban el pedido con los datos viejos, turnos con datos sin marcar, rechazos tomados como
+nombre, reglas generales tapadas por el pedido, un mensaje de rechazo que prometía de más, el
+PDF más reciente y los documentos internos como recibo, la dirección y el NIT de contactos
+reutilizados, el correo dictado con cifras, «no es Ana, es Carla» y el reintento con el correo
+corregido). Se resuelven en la misma PR con el «sí» limpio, `Reply.private` en todo el paso,
+`_defers`, `PARTNER_REF`, el primer PDF de quien creó el pedido y la comprobación de precios
+vencidos. Siguen aceptados la concurrencia de dos «sí» y el reenvío enmascarado (ver
+[Fuera de alcance y pendientes](#fuera-de-alcance-y-pendientes)). El resumen está en
+[evidencia.md §7](./evidencia.md#7-revisión-adversarial-tercera-ronda-2026-11-26).

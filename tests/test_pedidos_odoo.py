@@ -30,7 +30,13 @@ from tests.test_chat_service_tools import (
 )
 
 from apps.api.chat.service import ChatService
-from carvajal.adapters.crm.odoo import CONFIRM_CONTEXT, OdooClient, OdooOrders, OrderResult
+from carvajal.adapters.crm.odoo import (
+    CONFIRM_CONTEXT,
+    PARTNER_REF,
+    OdooClient,
+    OdooOrders,
+    OrderResult,
+)
 from carvajal.adapters.storage import tables
 from carvajal.adapters.storage.database import build_session_factory
 from carvajal.quotation.flow import ORDER_AWAITING
@@ -282,7 +288,7 @@ def test_el_pedido_se_crea_confirma_y_deja_traza() -> None:
     result = _orders(fake).place(_request())
 
     # Assert
-    assert result == OrderResult(name="S00007", order_id=100, lead_id=300)
+    assert result == OrderResult(name="S00007", order_id=100, lead_id=300, email="ana@correo.com")
     assert fake.methods() == [
         "sale.order.search_read",
         "res.partner.search_read",
@@ -332,8 +338,14 @@ def test_el_mismo_folio_no_crea_otro_pedido() -> None:
     result = _orders(fake).place(_request())
 
     # Assert
-    assert result == OrderResult(name="S00003", order_id=90, lead_id=301, existing=True)
-    assert fake.methods() == ["sale.order.search_read"]
+    assert (result.name, result.order_id, result.lead_id, result.existing) == (
+        "S00003",
+        90,
+        301,
+        True,
+    )
+    # Solo lee: el pedido y el correo de su cliente (el del recibo); no crea ni confirma.
+    assert fake.methods() == ["sale.order.search_read", "res.partner.search_read"]
 
 
 def test_un_pedido_en_borrador_se_retoma_sin_crear_otro() -> None:
@@ -344,7 +356,7 @@ def test_un_pedido_en_borrador_se_retoma_sin_crear_otro() -> None:
     result = _orders(fake).place(_request())
 
     # Assert
-    assert result == OrderResult(name="S00003", order_id=90, lead_id=300)
+    assert result == OrderResult(name="S00003", order_id=90, lead_id=300, email="ana@correo.com")
     assert not result.existing
     assert "sale.order.create" not in fake.methods()
     retake, link = fake.bodies("sale.order", "write")
@@ -380,7 +392,10 @@ def test_el_correo_se_busca_sin_comodines() -> None:
 
     # Assert
     (search,) = fake.bodies("res.partner", "search_read")
-    assert search["domain"] == [["email", "=ilike", "ana\\_p\\%z@correo.com"]]
+    assert search["domain"] == [
+        ["email", "=ilike", "ana\\_p\\%z@correo.com"],
+        ["ref", "=", PARTNER_REF],
+    ]
     (partner,) = fake.bodies("res.partner", "create")
     assert partner["vals_list"][0]["email"] == "ana_p%z@correo.com"  # el correo real, sin escapar
 
@@ -440,7 +455,7 @@ def test_si_el_crm_falla_el_pedido_sigue_y_el_log_no_lleva_el_mensaje_de_odoo() 
         result = _orders(fake).place(_request())
 
     # Assert
-    assert result == OrderResult(name="S00007", order_id=100, lead_id=None)
+    assert result == OrderResult(name="S00007", order_id=100, lead_id=None, email="ana@correo.com")
     assert "crm.lead.action_set_won" not in fake.methods()
     assert "sale.order.write" not in fake.methods()  # sin oportunidad que ligar
     (failed,) = [log for log in logs if log["event"] == "pedido.oportunidad_fallida"]

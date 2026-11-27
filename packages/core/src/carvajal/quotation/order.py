@@ -26,15 +26,18 @@ __all__ = [
     "OrderRequest",
     "correction_name",
     "declines_order",
+    "edits_buyer",
     "find_email",
     "has_buyer_data",
     "is_affirmation",
     "is_bare_no",
+    "is_goodbye",
     "mask_email",
     "merge_buyer",
     "name_in",
     "name_marked",
     "order_lines",
+    "spoken_address",
     "spoken_email",
     "wants_purchase",
 ]
@@ -47,6 +50,13 @@ _EMAIL: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*
 _SPOKEN_AT: Final = re.compile(r"\s*\b(?:arroba|at)\b\s*", re.IGNORECASE)
 _SPOKEN_DOT: Final = re.compile(r"\s*\bpunto\b\s*", re.IGNORECASE)
 _SPOKEN_UNDERSCORE: Final = re.compile(r"\s*\bgui[oó]n\s+bajo\b\s*", re.IGNORECASE)
+_DIGITS: Final = {
+    word: index
+    for index, word in enumerate(
+        ("cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve")
+    )
+}
+_DIGIT_WORDS: Final = "cero|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve"
 _SPOKEN_DASH: Final = re.compile(r"\s*\bgui[oó]n\b\s*", re.IGNORECASE)
 # Lo que acompaña al nombre y no es parte de él: «me llamo», «mi correo es», «a nombre de»…
 _NAME_NOISE: Final = re.compile(
@@ -59,7 +69,8 @@ _NAME_NOISE: Final = re.compile(
 _NAME_MARK: Final = re.compile(r"\b(?:mi nombre es|me llamo|a nombre de|soy)\b")
 # El nombre dicho con su marca, en el texto original: «sí, pero a nombre de Marta Gómez».
 _MARKED_NAME: Final = re.compile(
-    r"\b(?:mi\s+nombre\s+es|el\s+nombre\s+es|me\s+llamo|a\s+nombre\s+de|soy)\s+"
+    r"\b(?:mi\s+nombre\s+es|el\s+nombre\s+es|me\s+llamo|a\s+nombre\s+de|soy|"
+    r"(?:el\s+)?nombre\s+(?:a|por))\s+"
     r"([^,;\n]+)",
     re.IGNORECASE,
 )
@@ -88,6 +99,9 @@ _NOT_NAME: Final = frozenset(
     lo le que como cuando donde cual mi tu su con sin para en a o u e adelante senor senora
     hagale venga va sale cuentame cuente digame dime espera momento gusto encantado
     encantada correcto correcta exacto asi esta mal incorrecto datos dato pero entonces pues
+    olvidalo olvida olvidar cancelalo cancelala dejalo dejala deja dejar chao chau adios bye
+    retomar retoma seguir sigue sigamos continuar cambia cambiale modifica quita agrega
+    caro cara barato ladron ladrones robo estafa
     eh este mmm aja oiga oye mira bien
     """.split()  # noqa: SIM905
 )
@@ -241,7 +255,10 @@ def spoken_email(text: str) -> str:
     before, after = parts
     # El usuario del correo es lo último dicho antes de «arroba», con sus «punto» y «guion».
     tail = re.search(
-        r"((?:[\w-]+\s*\b(?:punto|gui[oó]n(?:\s+bajo)?)\b\s*)*[\w-]+)\s*$", before, re.IGNORECASE
+        r"((?:[\w-]+\s*\b(?:punto|gui[oó]n(?:\s+bajo)?)\b\s*)*[\w-]+"
+        rf"(?:\s+(?:\d+|{_DIGIT_WORDS}))*)\s*$",
+        before,
+        re.IGNORECASE,
     )
     if tail is None:
         return text
@@ -253,6 +270,12 @@ def spoken_email(text: str) -> str:
     rest = after[domain.end(1) :]
 
     def _join(value: str) -> str:
+        value = re.sub(
+            rf"\b({_DIGIT_WORDS})\b",
+            lambda found: str(_DIGITS[plain(found.group(1))]),
+            value,
+            flags=re.IGNORECASE,
+        )
         value = _SPOKEN_UNDERSCORE.sub("_", value)
         value = _SPOKEN_DASH.sub("-", value)
         value = _SPOKEN_DOT.sub(".", value)
@@ -350,8 +373,16 @@ def correction_name(text: str) -> str | None:
     if marked:
         return marked
     text = _EMAIL.sub(" ", spoken_email(text))
-    rest = _NO_PREFIX.sub("", text, count=1) if _NO_PREFIX.match(text) else text
-    return _name_from(rest) if rest.strip() else None
+    # «No es Ana, es Carla», «corrige el nombre: Carla»: vale lo último tras «es» o «:».
+    last = re.search(r".*(?:\bes|:)\s+([^,;:]+)$", text, re.IGNORECASE)
+    after_no = _NO_PREFIX.match(text) is not None
+    if last:
+        candidate = name_in(last.group(1), strict=not after_no)
+        if candidate:
+            return candidate
+    rest = _NO_PREFIX.sub("", text, count=1) if after_no else text
+    # Tras un «no» que corrige, el nombre puede venir en minúsculas («no, carla ruiz»).
+    return name_in(rest, strict=not after_no) if rest.strip() else None
 
 
 def is_affirmation(text: str) -> bool:
@@ -365,6 +396,28 @@ def is_affirmation(text: str) -> bool:
     return _AFFIRM_START.match(folded) is not None
 
 
+_GOODBYE: Final = re.compile(
+    r"^(?:(?:bueno|gracias|ok|listo)\s+)*(?:chao|chau|adios|bye|nos vemos)\b"
+)
+# «Quiero cambiar el correo», «corrige el nombre»: un cambio de los datos, no del pedido.
+_DATA_EDIT: Final = re.compile(
+    r"\b(?:cambi\w*|corrig\w*|correg\w*|modific\w*|equivoqu\w*|mal)\b.*\b(?:correo|"
+    r"email|mail|nombre|dato|datos)\b|\b(?:correo|nombre|datos?)\b.*\b(?:mal|equivocad\w*)\b"
+)
+
+
+def is_goodbye(text: str) -> bool:
+    """«Chao», «gracias, adiós»: se va sin hacer el pedido."""
+
+    return _GOODBYE.match(plain(text).strip(" .!")) is not None
+
+
+def edits_buyer(text: str) -> bool:
+    """«Quiero cambiar el correo», «el nombre está mal»: corrige los datos del pedido."""
+
+    return _DATA_EDIT.search(plain(text)) is not None
+
+
 def is_bare_no(text: str) -> bool:
     """«No», «está mal»: ante «¿Lo confirmo?», hay algo que corregir (no es cancelar)."""
 
@@ -376,6 +429,14 @@ def has_buyer_data(text: str) -> bool:
 
     spelled = spoken_email(text)
     return _EMAIL.search(spelled) is not None or _name_from(spelled) is not None
+
+
+def spoken_address(email: str) -> str:
+    """El correo para leerlo en voz: «ana.perez@gmail.com» → «ana punto perez arroba gmail
+    punto com», así quien dicta lo puede comprobar."""
+
+    spoken = email.replace("@", " arroba ").replace(".", " punto ")
+    return " ".join(spoken.replace("_", " guion bajo ").replace("-", " guion ").split())
 
 
 def mask_email(email: str) -> str:

@@ -546,7 +546,8 @@ def test_el_nombre_y_el_correo_no_se_guardan_ni_se_monitorean_ni_vuelven_al_mode
     # …pero no quedan en la base (mensajes, borrador ni cotizaciones)…
     rows = stored_messages(engine)
     contents = [str(row["content"]) for row in rows]
-    assert contents.count(ORDER_DATA_PLACEHOLDER) == 2
+    # El nombre, el correo y el «sí» que los confirma: todo el paso se guarda sin datos.
+    assert contents.count(ORDER_DATA_PLACEHOLDER) == 3
     assert any(MASKED in content for content in contents)
     stored = _all_rows(engine)
     assert NAME not in stored and EMAIL not in stored
@@ -559,3 +560,81 @@ def test_el_nombre_y_el_correo_no_se_guardan_ni_se_monitorean_ni_vuelven_al_mode
     assert NAME not in seed and EMAIL not in seed
     # …ni en los logs.
     assert NAME not in repr(logs) and EMAIL not in repr(logs)
+
+
+# --- cierre: bordes de la verificación final --------------------------------------------
+
+CONFIRMED = Buyer("Ana Pérez", "ana@gmail.com")
+
+
+@pytest.mark.parametrize(
+    ("message", "name", "email"),
+    [
+        ("quiero cambiar el correo a carla@gmail.com", "Ana Pérez", "carla@gmail.com"),
+        ("sí, pero cambia el nombre a Carla Ruiz", "Carla Ruiz", "ana@gmail.com"),
+        ("no, carla ruiz", "Carla Ruiz", "ana@gmail.com"),
+        ("no es Ana es Carla Ruiz", "Carla Ruiz", "ana@gmail.com"),
+        ("corrige el nombre: Carla Ruiz", "Carla Ruiz", "ana@gmail.com"),
+    ],
+)
+def test_en_la_confirmacion_las_correcciones_se_aplican_sin_salir_del_paso(
+    message: str, name: str, email: str
+) -> None:
+    # Act
+    decision = _before(_draft("confirmar_pedido", CONFIRMED), message)
+
+    # Assert
+    assert isinstance(decision, flow.Reply)
+    assert decision.order is None and decision.private
+    assert decision.draft.awaiting == "confirmar_pedido"
+    assert Buyer.from_json(decision.draft.buyer) == Buyer(name, email)
+
+
+@pytest.mark.parametrize("message", ["sí, pero cambia el correo", "No", "el correo está mal"])
+def test_en_la_confirmacion_un_cambio_sin_dato_pregunta_que_corregir(message: str) -> None:
+    # Act
+    decision = _before(_draft("confirmar_pedido", CONFIRMED), message)
+
+    # Assert
+    assert isinstance(decision, flow.Reply)
+    assert decision.order is None
+    assert "¿Qué dato corrijo?" in decision.message.text
+    assert Buyer.from_json(decision.draft.buyer) == CONFIRMED
+
+
+@pytest.mark.parametrize("awaiting", ["pedido", "datos_pedido", "confirmar_pedido"])
+@pytest.mark.parametrize("message", ["chao", "gracias, adiós"])
+def test_despedirse_deja_la_cotizacion_sin_pedido(awaiting: str, message: str) -> None:
+    # Arrange
+    buyer = CONFIRMED if awaiting == "confirmar_pedido" else None
+
+    # Act
+    decision = _before(_draft(awaiting, buyer), message)
+
+    # Assert
+    assert isinstance(decision, flow.Reply)
+    assert decision.draft.awaiting is None and decision.draft.buyer is None
+    assert "sin pedido" in decision.message.text
+
+
+def test_en_la_oferta_el_nombre_antes_de_la_compra_se_toma() -> None:
+    # Act
+    decision = _before(_draft("pedido"), "Ana Pérez, quiero hacer el pedido")
+
+    # Assert
+    assert isinstance(decision, flow.Reply) and decision.private
+    assert Buyer.from_json(decision.draft.buyer).name == "Ana Pérez"
+
+
+def test_el_correo_leido_en_voz_no_se_guarda() -> None:
+    # Arrange
+    from apps.api.chat.service import _without_buyer
+    from carvajal.quotation import render
+
+    message = render.confirm_buyer("Ana Pérez", "ana.perez22@gmail.com")
+
+    # Act
+    stored = _without_buyer(message.spoken, [Buyer("Ana Pérez", "ana.perez22@gmail.com")])
+
+    # Assert
+    assert "perez22" not in stored and "Ana Pérez" not in stored

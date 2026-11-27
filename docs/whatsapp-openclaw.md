@@ -644,16 +644,22 @@ porque no se puede listar la carpeta.
 Con `ODOO_*` configurado, el mensaje del folio termina con «🛒 ¿Quieres hacer el pedido? Te
 pido tu nombre y tu correo y te llega la confirmación.». WhatsApp no tiene los botones de la
 web: el cliente responde por texto o por voz («sí», «hagamos el pedido», «ahora no») y luego
-manda su nombre y su correo, en uno o dos mensajes (por voz, el correo dictado: «ana punto
-perez arroba gmail punto com»). La herramienta muestra los datos («📋 Voy a hacer el pedido
-con estos datos: … ¿Lo confirmo?») y, con un «sí» o «sí, confírmalo», crea el pedido
+manda su nombre y su correo, en uno o dos mensajes («Sí, Ana Pérez» ya trae el nombre; por
+voz, el correo dictado: «ana punto perez arroba gmail punto com», también con cifras sueltas
+o en palabras: «ana punto perez dos dos arroba…» → `ana.perez22@…`). La herramienta muestra
+los datos («📋 Voy a hacer el pedido con estos datos: … ¿Lo confirmo?»; en voz, el resumen lee
+el nombre y el correo) y solo con un «sí» limpio («sí», «sí, confírmalo») crea el pedido
 confirmado en Odoo y responde con el recibo: «🧾 *Pedido S… confirmado*», la fecha, las
-líneas, el total y «La confirmación del pedido llega a …»; pago y entrega los coordina un
-asesor. Para corregir, el cliente escribe el correo correcto, «me llamo …», «no, es …» o el
-nombre como nombre propio; un «no» solo hace que la herramienta pregunte qué dato corregir, y
-«ahora no», «no, mejor no» o «cancela el pedido» lo dejan en cualquier paso. Todo lo deciden
-reglas explícitas por paso del backend, sin Jev; el turno con el nombre o el correo se guarda
-sin ellos. Flujo, datos personales y configuración: [`odoo-pedidos.md`](odoo-pedidos.md).
+líneas, el total y «La confirmación del pedido llega a …» con el correo del cliente del
+pedido; pago y entrega los coordina un asesor. Para corregir, el cliente escribe el correo
+correcto, «me llamo …», «sí, Carla Ruiz», «no, es Carla» o el nombre como nombre propio
+(con mayúscula: «no, es carla» en minúsculas se lee como rechazo); un «no» solo o un «sí,
+pero…» hacen que la herramienta pregunte qué dato corregir, y «ahora no», «no, mejor no»,
+«olvídalo», «cancela el pedido» o «lo voy a pensar» lo dejan en cualquier paso («…queda
+registrada sin pedido. Si cambias de opinión, escribe «hacer el pedido» en tu próximo
+mensaje.»). Todo lo deciden reglas explícitas por paso del backend, sin Jev; los turnos del
+pedido se guardan sin el nombre ni el correo. Flujo, datos personales y configuración:
+[`odoo-pedidos.md`](odoo-pedidos.md).
 
 ### Recibo del pedido en PDF
 

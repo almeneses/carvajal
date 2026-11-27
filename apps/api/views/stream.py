@@ -163,6 +163,11 @@ def _sse(
             saw_token = saw_token or event.name == "token"
             cerrado = event.name in {"done", "error"}
             if event.name == "token":
+                # Un turno reemitido (mismo ``client_turn_id``) llega como un solo «token» con
+                # el texto guardado: también enlaza el PDF y el recibo. Un fragmento del
+                # modelo nunca trae la línea completa del folio y la promesa: queda igual.
+                if pdf_link is not None or receipt_link is not None:
+                    event = _with_links_in_token(event, pdf_link, receipt_link)
                 fragments.append(str(event.data.get("text", "")))
             elif event.name == "fallback":
                 fragments = [str(event.data.get("text", ""))]
@@ -233,6 +238,20 @@ def _with_pdf_link(event: ChatEvent, link: Callable[[str], str | None]) -> ChatE
     text = str(event.data.get("text", ""))
     offered = pdf_offer(text, link)
     return event if offered == text else ChatEvent("fallback", {**event.data, "text": offered})
+
+
+def _with_links_in_token(
+    event: ChatEvent,
+    pdf_link: Callable[[str], str | None] | None,
+    receipt_link: Callable[[str], str | None] | None,
+) -> ChatEvent:
+    text = str(event.data.get("text", ""))
+    offered = text
+    if pdf_link is not None:
+        offered = pdf_offer(offered, pdf_link)
+    if receipt_link is not None:
+        offered = receipt_offer(offered, receipt_link)
+    return event if offered == text else ChatEvent("token", {**event.data, "text": offered})
 
 
 def _with_receipt_link(event: ChatEvent, link: Callable[[str], str | None]) -> ChatEvent:
